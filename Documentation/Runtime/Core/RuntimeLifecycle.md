@@ -160,6 +160,18 @@ argument boundary rather than compared as arbitrary strings by the loop. These
 components do not change
 `FEngineLoop::Exit()` ownership of explicit process shutdown ordering.
 
+On Windows, an operating-system window move/resize loop may remain inside the
+outer GLFW event pump while dispatching native messages. ApplicationCore
+subclasses every GLFW window before later viewport hooks and uses one
+window-owned 16 ms timer from `WM_ENTERSIZEMOVE` through `WM_EXITSIZEMOVE` to
+request Launch work. Launch accepts that non-owning callback only while the
+ordinary frame is in its platform-event phase, runs the same game, deferred
+work, UI, rendering, garbage-collection, statistics, and profiling body without
+polling native events again, and rejects callbacks during that body or during
+shutdown. The exit message stops the timer and requests one final continuation;
+window destruction removes the timer and WndProc hook before GLFW destroys the
+native handle. Launch clears callback admission before consumer detachment.
+
 The same function owns the CPU-profiler frame mark and stable top-level zones.
 Core forwards engine-owned thread names and queued-task execution through the
 profiler-neutral surface in `Profiling/Profiling.h`.

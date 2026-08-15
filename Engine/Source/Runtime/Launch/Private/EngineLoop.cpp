@@ -4,6 +4,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
+#include "Application/ModalLoopTick.h"
 #include "AssetLoad.h"
 #include "RHI.h"
 #include "Mona.h"
@@ -39,6 +40,10 @@
 
 namespace Durin
 {
+	namespace
+	{
+		FEngineLoop* GModalLoopFrameOwner = nullptr;
+	}
 	FEngineLoop::FEngineLoop(FLaunchDiagnosticsRequest DiagnosticsRequest)
 		: Diagnostics(std::move(DiagnosticsRequest))
 	{
@@ -232,6 +237,13 @@ namespace Durin
 		SetProcessCrashPhase(EProcessCrashPhase::Running);
 		Diagnostics.AfterEngineInitialized();
 		State = EEngineLoopState::Running;
+		GModalLoopFrameOwner = this;
+		SetModalLoopTickCallback([]() {
+			if (GModalLoopFrameOwner != nullptr)
+			{
+				GModalLoopFrameOwner->TickModalContinuation();
+			}
+		});
 		return true;
 	}
 
@@ -239,31 +251,37 @@ namespace Durin
 	{
 		check(State == EEngineLoopState::Running);
 		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Tick");
-		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
 		auto& Application = Mona::FMonaApplication::Get();
-		const bool bContinueFrame = RunInteractiveFramePhases(
+		RunInteractiveFramePhases(
+			FrameState,
 			[&Application]() {
 				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.PlatformInput");
 				Application.PumpPlatformEvents();
 			},
-			[this]() {
-				const double CurrentTime = FTime::Seconds();
-				const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
-				LastTickTime = CurrentTime;
-				{
-					DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
-					GEngine->Tick(DeltaSeconds, false);
-				}
-				Diagnostics.Tick();
-				PumpGameThreadDeferredWork();
-				GFrameCounter++;
-			},
-			[&Application]() {
-				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ApplicationUI");
-				Application.TickUI();
-			},
+			[this]() { TickPostEventFrame(true); },
 			[]() { return GIsRequestingExit; });
-		if (!bContinueFrame) return;
+	}
+
+	auto FEngineLoop::TickPostEventFrame(bool bAllowMinimizedWait) -> void
+	{
+		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
+		const double CurrentTime = FTime::Seconds();
+		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
+		LastTickTime = CurrentTime;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
+			GEngine->Tick(DeltaSeconds, false);
+		}
+		Diagnostics.Tick();
+		PumpGameThreadDeferredWork();
+		GFrameCounter++;
+
+		auto& Application = Mona::FMonaApplication::Get();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ApplicationUI");
+			Application.TickUI();
+		}
+		if (GIsRequestingExit) return;
 
 		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();
 		if (!bAllWindowsMinimized)
@@ -277,7 +295,7 @@ namespace Durin
 		}
 
 		CalculateFPSTimings();
-		if (bAllWindowsMinimized)
+		if (bAllWindowsMinimized && bAllowMinimizedWait)
 		{
 			// Present normally paces the loop. Once every window is minimized there is
 			// no present, so wait for events while retaining a low-frequency engine tick.
@@ -285,6 +303,15 @@ namespace Durin
 		}
 		PublishTaskSchedulerProfilerPlots();
 		DURIN_PROFILE_FRAME_MARK();
+	}
+
+	auto FEngineLoop::TickModalContinuation() -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ModalContinuation");
+		TryRunModalContinuationFrame(
+			FrameState,
+			State == EEngineLoopState::Running && !GIsRequestingExit,
+			[this]() { TickPostEventFrame(false); });
 	}
 
 	auto FEngineLoop::Exit() -> void
@@ -295,6 +322,9 @@ namespace Durin
 			FailPreInitialization();
 			return;
 		}
+		SetModalLoopTickCallback(nullptr);
+		GModalLoopFrameOwner = nullptr;
+		FrameState = EInteractiveFrameState::ShuttingDown;
 		State = EEngineLoopState::ShuttingDown;
 		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
 		Diagnostics.BeginConsumerDetachment();

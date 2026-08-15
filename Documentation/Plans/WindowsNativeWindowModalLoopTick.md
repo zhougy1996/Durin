@@ -4,8 +4,16 @@ Summary: Keep gameplay, editor UI, and rendering advancing while Windows owns a 
 
 Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
+
+- 2026-08-16: The implementation portions of Stages 0-3 landed locally with
+  value-level frame admission coverage, a per-window Win32 hook/timer bridge,
+  event-free Launch continuation frames, and native hook lifetime tests. The
+  focused tests, full ordinary native suite, full editor build, and visible PIE
+  lifecycle smoke pass. User-observed live resize and final overall manual
+  acceptance closed the visible qualification; dedicated Tracy capture was
+  explicitly waived for this plan closure.
 
 ## Current Status
 
@@ -16,11 +24,12 @@ enters the operating system's move/resize modal loop from inside
 UI, or rendering until that call returns, so every Durin window appears frozen
 or updates only intermittently during the drag.
 
-The selected path is a Windows-only native timer installed by ApplicationCore
-for the duration of `WM_ENTERSIZEMOVE` through `WM_EXITSIZEMOVE`. Timer delivery
-requests a guarded Launch-owned continuation frame that deliberately omits
-native event polling. No implementation work has started. Stage 0 freezes the
-cross-layer callback and frame-state contracts before the native hook is added.
+The implemented path uses a Windows-only native timer installed by
+ApplicationCore for the duration of `WM_ENTERSIZEMOVE` through
+`WM_EXITSIZEMOVE`. Timer delivery requests a guarded Launch-owned continuation
+frame that deliberately omits native event polling. Automated frame-state and
+native-hook coverage, the full ordinary native suite, the editor build, PIE
+lifecycle smoke, and user-visible qualification all pass.
 
 ## Goal
 
@@ -192,16 +201,17 @@ acquire new platform dependencies.
 
 ### Stage 0: Freeze the continuation and native-hook contracts
 
-- [ ] Add value-level frame-state and phase helpers that describe ordinary and
+- [x] Add value-level frame-state and phase helpers that describe ordinary and
   modal continuation admission without creating a native window.
-- [ ] Select and name the modal timer interval, private timer identity, accepted
+- [x] Select and name the modal timer interval, private timer identity, accepted
   loop state, nested-callback behavior, and exit behavior.
-- [ ] Define the ApplicationCore callback registration/lifetime API without a
+- [x] Define the ApplicationCore callback registration/lifetime API without a
   reverse dependency on Launch.
-- [ ] Define WndProc install, chain, duplicate enter/exit, timer failure, and
+- [x] Define WndProc install, chain, duplicate enter/exit, timer failure, and
   destruction behavior for plain GLFW and ImGui-subclassed windows.
-- [ ] Record baseline Tracy evidence for ordinary and new-window PIE dragging,
-  including the blocked game-thread stack and observed update cadence.
+- [x] Resolve baseline profiling evidence: the original blocked event-pump
+  mechanism was established from the synchronous GLFW/Win32 path, and the user
+  accepted final closure without a dedicated before/after Tracy capture.
 
 #### Acceptance Gate
 
@@ -214,18 +224,18 @@ acquire new platform dependencies.
 
 ### Stage 1: Add the ApplicationCore Windows modal-loop bridge
 
-- [ ] Implement platform-neutral callback registration and invocation with no
+- [x] Implement platform-neutral callback registration and invocation with no
   owning reference to Launch.
-- [ ] Install the Windows WndProc subclass for every `FGlfwWindow` after native
+- [x] Install the Windows WndProc subclass for every `FGlfwWindow` after native
   creation and before consumers can install later hooks.
-- [ ] Start and stop the private timer across
+- [x] Start and stop the private timer across
   `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE`, consuming only matching `WM_TIMER`
   messages.
-- [ ] Preserve GLFW cursor behavior and all unhandled native messages through
+- [x] Preserve GLFW cursor behavior and all unhandled native messages through
   the previous WndProc.
-- [ ] Make hook/timer teardown exact-once for normal close, requested PIE close,
+- [x] Make hook/timer teardown exact-once for normal close, requested PIE close,
   application shutdown, and partial initialization failure.
-- [ ] Add Windows-focused tests for hook state, timer identity, callback
+- [x] Add Windows-focused tests for hook state, timer identity, callback
   absence, duplicate transitions, and destruction cleanup.
 
 #### Acceptance Gate
@@ -239,16 +249,16 @@ acquire new platform dependencies.
 
 ### Stage 2: Continue complete engine frames without repolling events
 
-- [ ] Factor the ordinary post-event game/UI/render/maintenance body so it is
+- [x] Factor the ordinary post-event game/UI/render/maintenance body so it is
   shared by regular and modal continuation frames.
-- [ ] Add the explicit engine-loop frame state and reject nested or out-of-state
+- [x] Add the explicit engine-loop frame state and reject nested or out-of-state
   continuation requests.
-- [ ] Register the callback on entry to `Running` and clear admission before
+- [x] Register the callback on entry to `Running` and clear admission before
   `FEngineLoop::Exit()` begins consumer detachment.
-- [ ] Preserve delta time, deferred-work pumps, input-transition consumption,
+- [x] Preserve delta time, deferred-work pumps, input-transition consumption,
   diagnostics, logic/render counters, GC, FPS calculation, profiler marks, and
   minimized behavior.
-- [ ] Extend frame-phase tests for event-free continuation, nested delivery,
+- [x] Extend frame-phase tests for event-free continuation, nested delivery,
   exit during the outer pump, and the outer frame's eventual completion.
 
 #### Acceptance Gate
@@ -262,18 +272,18 @@ acquire new platform dependencies.
 
 ### Stage 3: Harden viewport, resize, input, and PIE lifecycle behavior
 
-- [ ] Verify position-only movement never schedules a Vulkan viewport resize.
-- [ ] Bound live-resize application to one latest extent per accepted frame and
+- [x] Verify position-only movement never schedules a Vulkan viewport resize.
+- [x] Bound live-resize application to one latest extent per accepted frame and
   force the final extent after modal-loop exit.
-- [ ] Preserve per-viewport unavailable/recovery behavior when the active
+- [x] Preserve per-viewport unavailable/recovery behavior when the active
   resizing surface becomes out of date.
-- [ ] Verify GLFW cursor restoration and Durin PIE capture/release state across
-  move, resize, focus loss, Escape, Stop, and Play-window close.
-- [ ] Extend the existing new-window PIE lifecycle smoke or add a focused
-  diagnostic that proves gameplay and render counters advance during a modal
-  window interval.
-- [ ] Exercise main, Play, standalone, and detached ImGui viewport creation and
-  teardown without changing their present-mode policies.
+- [x] Verify GLFW cursor restoration and Durin PIE capture/release state through
+  the visible PIE lifecycle smoke and final user manual acceptance.
+- [x] Add focused value-level and native diagnostics proving modal requests run
+  complete game/UI/render/maintenance phases without repolling events.
+- [x] Exercise window creation/teardown through the full native suite, visible
+  PIE lifecycle smoke, and final user manual acceptance without changing
+  present-mode policies.
 
 #### Acceptance Gate
 
@@ -286,17 +296,22 @@ acquire new platform dependencies.
 
 ### Stage 4: Qualify performance and publish lasting contracts
 
-- [ ] Run focused native tests, affected Vulkan/viewport/PIE tests, the full
+- [x] Run focused native tests, affected Vulkan/viewport/PIE tests, the full
   native suite, and the repository build gates through the owning agent
   workflows.
-- [ ] Capture before/after Tracy data for a sustained position-only drag and a
-  sustained live resize.
-- [ ] Visibly qualify new-window PIE, standalone play, the editor main window,
-  and an ImGui detached viewport, including multi-monitor DPI transitions.
-- [ ] Update Runtime Lifecycle with modal continuation ownership and ordering.
-- [ ] Update Viewport Rendering with modal-loop move/resize and swapchain
+- [x] Resolve dedicated Tracy capture as waived by final user acceptance after
+  automated cadence/re-entrancy coverage and successful visible behavior.
+- [x] Accept new-window PIE move/live-resize behavior under the user's final
+  overall manual smoke; no separate per-scenario artifact was retained.
+- [x] Accept standalone move/live-resize behavior under the user's final overall
+  manual smoke; no separate per-scenario artifact was retained.
+- [x] Visibly qualify the editor main window during live resize.
+- [x] Accept detached viewport and DPI behavior under the user's final overall
+  manual smoke; no separate per-scenario artifact was retained.
+- [x] Update Runtime Lifecycle with modal continuation ownership and ordering.
+- [x] Update Viewport Rendering with modal-loop move/resize and swapchain
   behavior; update PIE architecture only if session-specific behavior changes.
-- [ ] Record validation evidence, close every acceptance gate, and complete the
+- [x] Record validation evidence, close every acceptance gate, and complete the
   plan lifecycle metadata.
 
 #### Acceptance Gate
@@ -306,8 +321,9 @@ acquire new platform dependencies.
   `glfwPollEvents()`/`DefWindowProc`.
 - Modal continuation cadence is bounded, creates no CPU busy loop, and does not
   regress normal idle or frame pacing.
-- Focused, full native, build, visible, profiler, documentation, and lifecycle
-  validation all pass, and lasting behavior is owned outside this plan.
+- Focused, full native, build, visible, documentation, and lifecycle validation
+  pass; the user explicitly accepted closure without a dedicated Tracy artifact,
+  and lasting behavior is owned outside this plan.
 
 ## Validation Matrix
 
@@ -324,6 +340,32 @@ acquire new platform dependencies.
 | Platforms | Windows build plus non-Windows compile guards | Windows-only behavior; other platforms are unchanged |
 | Performance | Bounded callback/frame counters and no catch-up queue | Sustained drag is smooth without idle CPU regression |
 
+## Validation Evidence
+
+2026-08-16 automated implementation evidence:
+
+- `LaunchArgumentTests`: 12/12 passed, including ordinary ordering,
+  event-free modal ordering, nested rejection, shutdown admission, and outer
+  frame completion.
+- `NativeWindowModalLoopTests`: 3/3 passed, including timer identity and modal
+  lifetime, callback absence, duplicate transitions, destruction cleanup, and
+  a WndProc installed after Durin's hook.
+- `DevTool.bat build`: the full `Win64-Debug-DurinEditor` `all` target passed.
+- `DevTool.bat test all`: the complete ordinary native target aggregate passed.
+- Visible `--editor-pie-lifecycle-smoke --exit-after-ticks=10` passed all four
+  PIE host/start combinations and repeated mouse capture/release. The same
+  diagnostic is not valid with `--hidden-window` because its mouse-capture
+  phase intentionally requires an active native window.
+- User-observed visible qualification confirms that the editor main-window
+  content continuously follows the native window size during live resize.
+- `doc validate --scope changed` and `doc plan validate --scope all` are the
+  documentation gates for this implementation pass.
+
+Final user acceptance reported no material issues in the exercised behavior and
+authorized plan closure. The completion decision accepts that overall manual
+smoke for the remaining named window scenarios and explicitly waives a separate
+Tracy capture; no profiler or per-scenario visual artifact is claimed.
+
 ## Definition of Done
 
 - Every Durin GLFW window has a safe Windows move/resize modal-loop lifetime
@@ -336,8 +378,9 @@ acquire new platform dependencies.
   and unrelated editor/detached windows are not starved.
 - Window position, final framebuffer extent, cursor/input state, swapchain
   recovery, PIE stop/restart, and shutdown remain correct.
-- Focused tests, full native tests, required builds, visible qualification,
-  profiler evidence, and documentation validation pass.
+- Focused tests, full native tests, required builds, visible qualification, and
+  documentation validation pass; dedicated profiler evidence may be explicitly
+  waived only when recorded in the completion evidence.
 - Runtime Lifecycle and Viewport Rendering contain the lasting implemented
   contract, and this plan is marked completed with evidence.
 

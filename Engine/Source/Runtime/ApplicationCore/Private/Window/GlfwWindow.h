@@ -7,6 +7,8 @@ struct GLFWwindow;
 
 namespace Durin
 {
+	struct FWindowsModalLoopBridge;
+
 	auto InitGlfwCursors() -> void;
 
 	auto DestroyGlfwCursors() -> void;
@@ -86,10 +88,20 @@ namespace Durin
 		APPLICATIONCORE_API auto IsHovered() const -> bool override;
 
 	private:
+		friend struct FWindowsModalLoopBridge;
+
 		FGlfwWindow();
 		auto ApplyCursorMode(ECursorMode InCursorMode) -> void override;
+		auto InstallModalLoopHook() -> void;
+		auto RemoveModalLoopHook() -> void;
+		auto EnterModalLoop() -> void;
+		auto ExitModalLoop() -> void;
+		auto HandleModalLoopTimer(uint64 TimerIdentity) -> bool;
 
 		GLFWwindow* GlfwWindow = nullptr;
+		void* PreviousWindowProcedure = nullptr;
+		uint64 ModalLoopTimerIdentity = 0;
+		bool bInModalLoop = false;
 	};
 
 }

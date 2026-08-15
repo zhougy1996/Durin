@@ -2,7 +2,7 @@
 
 Summary: Define window-backed viewports, render targets, presentation, resize recovery, and editor assistance rendering.
 
-Modules: Engine, MonaCore, Mona, Renderer, RHI
+Modules: ApplicationCore, Engine, MonaCore, Mona, Renderer, RHI
 
 This document explains how Durin connects Mona widgets, scene viewports, and RHI render targets for both standalone game windows and editor viewport panels.
 
@@ -441,6 +441,17 @@ Viewport creation uses a synchronous executor operation. Resize retains its
 main-to-render notification, then the render command synchronously marshals the
 backend phase after all earlier recorded work; no game or rendering thread may
 mutate the swapchain directly.
+
+Windows native move and resize share the ApplicationCore modal-loop lifetime,
+but only framebuffer-size notifications request viewport resize. Position-only
+messages update the cached window position and never schedule swapchain work.
+Resize requests retain only the latest non-zero extent, and each accepted
+event-free continuation frame can consume that retained request at most once
+when the viewport is acquired for drawing. The continuation requested after
+`WM_EXITSIZEMOVE` observes the terminal framebuffer notification, so the final
+extent is not stranded when the operating system releases its modal loop.
+Temporarily unavailable or out-of-date output still skips only the affected
+viewport; gameplay, UI, and unrelated viewport rendering continue.
 
 Vulkan creates or replaces viewport output transactionally. A candidate owns
 the new swapchain, images, image views, acquire and rendering-done semaphores,

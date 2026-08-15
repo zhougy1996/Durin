@@ -3,6 +3,7 @@
 #include "ThirdParty/Glfw/GlfwCommon.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
+#include "Application/ModalLoopTick.h"
 #include "ApplicationCore.h"
 #include "CoreGlobals.h"
 
@@ -12,6 +13,13 @@
 
 namespace Durin
 {
+#if defined(_WIN32)
+	struct FWindowsModalLoopBridge
+	{
+		static auto WindowProc(HWND WindowHandle, UINT Message, WPARAM WParam, LPARAM LParam) -> LRESULT;
+	};
+#endif
+
 	namespace
 	{
 		auto SanitizeDpiScale(float DpiScale) -> float
@@ -49,6 +57,14 @@ namespace Durin
 				SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(SmallIcon));
 			}
 		}
+
+		constexpr UINT_PTR RequestedModalLoopTimerIdentity = 0x44555249;
+		constexpr UINT ModalLoopTimerIntervalMilliseconds = 16;
+		constexpr const char* ModalLoopWindowProp = "DURIN_MODAL_LOOP_WINDOW";
+		bool bModalLoopPropertyFailureReported = false;
+		bool bModalLoopHookFailureReported = false;
+		bool bModalLoopTimerFailureReported = false;
+
 #endif
 
 		const std::unordered_map<int32, EKey> GlfwKeyMap = {
@@ -325,6 +341,40 @@ namespace Durin
 		}
 	} // namespace
 
+#if defined(_WIN32)
+	auto FWindowsModalLoopBridge::WindowProc(
+		HWND WindowHandle,
+		UINT Message,
+		WPARAM WParam,
+		LPARAM LParam) -> LRESULT
+	{
+		auto* Window = static_cast<FGlfwWindow*>(::GetPropA(WindowHandle, ModalLoopWindowProp));
+		if (Window == nullptr)
+		{
+			return ::DefWindowProcW(WindowHandle, Message, WParam, LParam);
+		}
+
+		auto PreviousWindowProc = reinterpret_cast<WNDPROC>(Window->PreviousWindowProcedure);
+		if (Message == WM_ENTERSIZEMOVE)
+		{
+			Window->EnterModalLoop();
+		}
+		else if (Message == WM_TIMER && Window->HandleModalLoopTimer(static_cast<uint64>(WParam)))
+		{
+			return 0;
+		}
+
+		const LRESULT Result = PreviousWindowProc != nullptr
+			? ::CallWindowProcW(PreviousWindowProc, WindowHandle, Message, WParam, LParam)
+			: ::DefWindowProcW(WindowHandle, Message, WParam, LParam);
+		if (Message == WM_EXITSIZEMOVE)
+		{
+			Window->ExitModalLoop();
+		}
+		return Result;
+	}
+#endif
+
 	GLFWcursor* GGlfwCursors[static_cast<int32>(EMouseCursor::Count)] = {nullptr};
 
 	auto InitGlfwCursors() -> void
@@ -398,6 +448,7 @@ namespace Durin
 
 	FGlfwWindow::~FGlfwWindow()
 	{
+		RemoveModalLoopHook();
 		if (GlfwWindow != nullptr && CursorMode == ECursorMode::Captured)
 		{
 			SetCursorMode(ECursorMode::Free);
@@ -431,6 +482,7 @@ namespace Durin
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
+		InstallModalLoopHook();
 		ApplyWindowsWindowIcon(OSNativeWindowHandle);
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
@@ -454,6 +506,120 @@ namespace Durin
 		glfwSetWindowCloseCallback(GlfwWindow, WindowCloseCallBack);
 
 		glfwMakeContextCurrent(GlfwWindow);
+	}
+
+	auto FGlfwWindow::InstallModalLoopHook() -> void
+	{
+#if defined(_WIN32)
+		if (OSNativeWindowHandle == nullptr || PreviousWindowProcedure != nullptr) return;
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		if (::SetPropA(WindowHandle, ModalLoopWindowProp, this) == FALSE)
+		{
+			if (!bModalLoopPropertyFailureReported)
+			{
+				bModalLoopPropertyFailureReported = true;
+				DURIN_ERROR("Failed to install the native modal-loop window property.");
+			}
+			return;
+		}
+		::SetLastError(ERROR_SUCCESS);
+		const LONG_PTR PreviousProcedure = ::SetWindowLongPtrW(
+			WindowHandle,
+			GWLP_WNDPROC,
+			reinterpret_cast<LONG_PTR>(FWindowsModalLoopBridge::WindowProc));
+		if (PreviousProcedure == 0 && ::GetLastError() != ERROR_SUCCESS)
+		{
+			::RemovePropA(WindowHandle, ModalLoopWindowProp);
+			if (!bModalLoopHookFailureReported)
+			{
+				bModalLoopHookFailureReported = true;
+				DURIN_ERROR("Failed to install the native modal-loop window procedure.");
+			}
+			return;
+		}
+		PreviousWindowProcedure = reinterpret_cast<void*>(PreviousProcedure);
+#endif
+	}
+
+	auto FGlfwWindow::RemoveModalLoopHook() -> void
+	{
+#if defined(_WIN32)
+		if (OSNativeWindowHandle == nullptr) return;
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		if (ModalLoopTimerIdentity != 0)
+		{
+			::KillTimer(WindowHandle, static_cast<UINT_PTR>(ModalLoopTimerIdentity));
+			ModalLoopTimerIdentity = 0;
+		}
+		bInModalLoop = false;
+		if (PreviousWindowProcedure != nullptr)
+		{
+			const auto CurrentProcedure = reinterpret_cast<WNDPROC>(
+				::GetWindowLongPtrW(WindowHandle, GWLP_WNDPROC));
+			if (CurrentProcedure == FWindowsModalLoopBridge::WindowProc)
+			{
+				::SetWindowLongPtrW(
+					WindowHandle,
+					GWLP_WNDPROC,
+					reinterpret_cast<LONG_PTR>(PreviousWindowProcedure));
+			}
+			PreviousWindowProcedure = nullptr;
+		}
+		::RemovePropA(WindowHandle, ModalLoopWindowProp);
+#endif
+	}
+
+	auto FGlfwWindow::EnterModalLoop() -> void
+	{
+#if defined(_WIN32)
+		if (bInModalLoop || OSNativeWindowHandle == nullptr) return;
+		bInModalLoop = true;
+		const UINT_PTR Timer = ::SetTimer(
+			static_cast<HWND>(OSNativeWindowHandle),
+			RequestedModalLoopTimerIdentity,
+			ModalLoopTimerIntervalMilliseconds,
+			nullptr);
+		if (Timer == 0)
+		{
+			if (!bModalLoopTimerFailureReported)
+			{
+				bModalLoopTimerFailureReported = true;
+				DURIN_ERROR("Failed to start the native modal-loop frame timer.");
+			}
+			return;
+		}
+		ModalLoopTimerIdentity = static_cast<uint64>(Timer);
+#endif
+	}
+
+	auto FGlfwWindow::ExitModalLoop() -> void
+	{
+#if defined(_WIN32)
+		if (!bInModalLoop) return;
+		bInModalLoop = false;
+		if (ModalLoopTimerIdentity != 0)
+		{
+			::KillTimer(
+				static_cast<HWND>(OSNativeWindowHandle),
+				static_cast<UINT_PTR>(ModalLoopTimerIdentity));
+			ModalLoopTimerIdentity = 0;
+		}
+		RequestModalLoopTick();
+#endif
+	}
+
+	auto FGlfwWindow::HandleModalLoopTimer(uint64 TimerIdentity) -> bool
+	{
+#if defined(_WIN32)
+		if (!bInModalLoop || ModalLoopTimerIdentity == 0 || TimerIdentity != ModalLoopTimerIdentity)
+		{
+			return false;
+		}
+		RequestModalLoopTick();
+		return true;
+#else
+		return false;
+#endif
 	}
 
 	void FGlfwWindow::PollEvents() const

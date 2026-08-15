@@ -37,6 +37,27 @@ durin_finalize_native_test(LaunchArgumentTests
 )
 durin_discover_tests(LaunchArgumentTests)
 
+add_durin_test(NativeWindowModalLoopTests
+	Private/Application/NativeWindowModalLoopTests.cpp
+)
+target_include_directories(NativeWindowModalLoopTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source
+)
+target_link_libraries(NativeWindowModalLoopTests PRIVATE
+	Core
+	ApplicationCore
+)
+set_target_properties(NativeWindowModalLoopTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_finalize_native_test(NativeWindowModalLoopTests
+	KIND integration
+	DOMAINS window
+	MODULES application-core
+	STACKS native-window
+)
+durin_discover_tests(NativeWindowModalLoopTests)
+
 add_durin_test(LaunchProcessBoundaryTests
 	Private/Launch/LaunchProcessBoundaryTests.cpp
 )

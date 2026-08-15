@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Diagnostics/ApplicationDiagnostics.h"
 #include "Misc/Project.h"
+#include "EngineFramePhases.h"
 
 namespace Durin
 {
@@ -47,10 +48,13 @@ namespace Durin
 	private:
 		auto FailPreInitialization() -> bool;
 		auto FailInitializationAfterRHI() -> bool;
+		auto TickPostEventFrame(bool bAllowMinimizedWait) -> void;
+		auto TickModalContinuation() -> void;
 
 		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;
 		EEngineLoopState State = EEngineLoopState::Uninitialized;
+		EInteractiveFrameState FrameState = EInteractiveFrameState::Idle;
 		FApplicationDiagnostics Diagnostics;
 		bool bLoggerStarted = false;
 		bool bProjectAuthoringOwnershipAcquired = false;
