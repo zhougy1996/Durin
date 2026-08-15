@@ -352,19 +352,11 @@ GeometryPassFragmentOutput GeometryFragmentMain(
     return output;
 }
 
-struct BasePassFragmentOutput
-{
-    float4 color : SV_Target0;
-    float4 directionalDirect : SV_Target1;
-};
-
 [shader("fragment")]
-BasePassFragmentOutput FragmentMain(
+float4 FragmentMain(
     VSOutput input,
-    bool isFrontFace : SV_IsFrontFace)
+    bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
-	BasePassFragmentOutput output;
-	output.directionalDirect = float4(0.0);
     if (RejectTerrainCoverage(input))
         discard;
     FMaterialSurface surface = EvaluateInputMaterialSurface(input);
@@ -376,9 +368,8 @@ BasePassFragmentOutput FragmentMain(
 #endif
     if (Material.SurfaceParams.z < 0.5)
 	{
-		output.color = float4(
+		return float4(
 			surface.baseColor + surface.emissive, surface.opacity);
-		return output;
 	}
 
     FMaterialNormalFrame normalFrame = EvaluateMaterialNormalFrame(
@@ -411,9 +402,8 @@ BasePassFragmentOutput FragmentMain(
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
 		{
-			output.color = float4(
+			return float4(
 				shadow.diagnosticColor, surface.opacity);
-			return output;
 		}
 		directionalDirect = EvaluateSurfaceDirectionalLighting(
             surface.baseColor, surface.metallic, surface.roughness,
@@ -439,11 +429,9 @@ BasePassFragmentOutput FragmentMain(
         EnvironmentPrefiltered,
         EnvironmentBrdfLut,
         EnvironmentSampler);
-	output.color = ComposeSurfaceLighting(
+	return ComposeSurfaceLighting(
 		direct,
 		environment,
 		surface.emissive,
 		surface.opacity);
-	output.directionalDirect = float4(directionalDirect, 0.0);
-	return output;
 }

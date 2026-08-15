@@ -946,9 +946,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::FPostProcessRenderer::MaximumRetainedSceneTargetBytes
 		+ Durin::FGBufferRenderer::MaximumRetainedBytes
 		+ Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes;
-	EXPECT_EQ(ProductionActiveBytes, 95'385'600u);
-	EXPECT_EQ(ProductionActiveBytes + ShadowBytes, 145'717'248u);
-	EXPECT_EQ(ProductionRetainedCeiling, 352u * 1024u * 1024u);
+	EXPECT_EQ(ProductionActiveBytes, 70'502'400u);
+	EXPECT_EQ(ProductionActiveBytes + ShadowBytes, 120'834'048u);
+	EXPECT_EQ(ProductionRetainedCeiling, 256u * 1024u * 1024u);
 	EXPECT_EQ(GLastCounters.DeferredDirectionalOutputBytes, 0u);
 	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 1u);
 	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionEnabledViews, 1u);

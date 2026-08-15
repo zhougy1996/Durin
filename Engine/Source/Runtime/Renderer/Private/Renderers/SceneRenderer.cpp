@@ -553,8 +553,7 @@ namespace Durin
 		FPostProcessRenderer::FSceneTargets* SceneTargets =
 			PostProcessRenderer.EnsureSceneTargets_RenderThread(Width, Height);
 		if (SceneTargets == nullptr || SceneTargets->Color == nullptr
-			|| SceneTargets->Depth == nullptr
-			|| SceneTargets->DirectionalDirect == nullptr)
+			|| SceneTargets->Depth == nullptr)
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
@@ -1034,6 +1033,8 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer::FRenderParameters DeferredParameters;
 		FRHITexture* GroundTruthAmbientOcclusionFallback =
 			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		FRHITexture* ContactVisibilityFallback =
+			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
 		FRHITexture* GroundTruthAmbientOcclusionDebugOutput = nullptr;
 		if (bWantsDeferredInputs && GBufferTargets != nullptr)
 		{
@@ -1079,6 +1080,7 @@ namespace Durin
 						GroundTruthAmbientOcclusionFallback,
 					.GroundTruthAmbientOcclusionFiltered =
 						GroundTruthAmbientOcclusionFallback,
+					.ContactVisibility = ContactVisibilityFallback,
 					.Lighting = PreparedView.LightingUniformBuffer,
 					.View = &RenderView,
 					.DiagnosticMode = static_cast<uint32>(
@@ -1215,6 +1217,34 @@ namespace Durin
 			}
 		}
 
+		const bool bWantsContactVisibility = bWantsProductionDeferred
+			&& RenderView.Settings.bEnableContactShadows
+			&& PreparedView.DirectionalShadow.bEnabled;
+		if (bWantsContactVisibility && bGBufferComplete
+			&& PreparedView.Counters.GBufferSuccessfulDraws != 0)
+		{
+			auto* ContactTargets =
+				ContactShadowRenderer.EnsureTargets_RenderThread(Width, Height);
+			if (ContactTargets != nullptr
+				&& ContactShadowRenderer.Render_RenderThread(
+					CommandList, *ContactTargets,
+					GBufferTargets->Material, GBufferTargets->Normals,
+					GBufferTargets->Surface, GBufferTargets->Emissive,
+					SceneTargets->Depth, RenderView,
+					PreparedView.DirectionalShadow.LightDirection, Width, Height))
+			{
+				DeferredParameters.ContactVisibility = ContactTargets->Visibility;
+				DeferredParameters.bContactVisibilityEnabled = true;
+				DeferredParameters.bContactVisibilityDebug =
+					RenderView.Settings.bShowContactShadowDebug;
+				++PreparedView.Counters.ContactShadowEnabledViews;
+			}
+			else
+			{
+				++PreparedView.Counters.ContactShadowPassFailures;
+			}
+		}
+
 		if (bWantsIsolatedDeferred)
 		{
 			auto* DeferredTargets = bGBufferComplete ? DeferredDirectionalLightingRenderer.EnsureTargets_RenderThread(
@@ -1295,8 +1325,7 @@ namespace Durin
 				CommandList.BeginGPUTimingQuery(SceneColorTimingQuery);
 		}
 		const ERenderViewResult SceneResult = RenderScene_RenderThread(
-			CommandList, PreparedView, SceneColor,
-			SceneTargets->DirectionalDirect, SceneTargets->Depth,
+			CommandList, PreparedView, SceneColor, SceneTargets->Depth,
 			bWantsProductionDeferred && bProductionResourcesReady ? &DeferredParameters : nullptr
 		);
 		if (SceneColorTimingQuery)
@@ -1316,24 +1345,26 @@ namespace Durin
 
 		FRHITexture* PostProcessInput = SceneColor;
 		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
-			&& GBufferTargets != nullptr
-			&& SceneTargets->ContactColor != nullptr)
+			&& GBufferTargets != nullptr)
 		{
-			if (GBufferDebugRenderer.Render_RenderThread(
+			auto* DebugTargets =
+				GBufferDebugRenderer.EnsureTargets_RenderThread(Width, Height);
+			if (DebugTargets != nullptr
+				&& GBufferDebugRenderer.Render_RenderThread(
 					CommandList,
 					GBufferTargets->Material,
 					GBufferTargets->Normals,
 					GBufferTargets->Surface,
 					GBufferTargets->Emissive,
 					SceneTargets->Depth,
-					SceneTargets->ContactColor,
+					DebugTargets->Color,
 					RenderView,
 					Options.GBufferDebugMode,
 					Width,
 					Height
 				))
 			{
-				PostProcessInput = SceneTargets->ContactColor;
+				PostProcessInput = DebugTargets->Color;
 				++PreparedView.Counters.GBufferDebugViews;
 			}
 			else
@@ -1344,31 +1375,6 @@ namespace Durin
 		else if (GroundTruthAmbientOcclusionDebugOutput != nullptr)
 		{
 			PostProcessInput = GroundTruthAmbientOcclusionDebugOutput;
-		}
-		else if (RenderView.Settings.bEnableContactShadows
-				 && PreparedView.DirectionalShadow.bEnabled
-				 && SceneTargets->ContactColor != nullptr)
-		{
-			if (ContactShadowRenderer.Render_RenderThread(
-					CommandList,
-					SceneColor,
-					SceneTargets->DirectionalDirect,
-					SceneTargets->Depth,
-					SceneTargets->ContactColor,
-					RenderView,
-					PreparedView.DirectionalShadow.LightDirection,
-					RenderView.Settings.bShowContactShadowDebug,
-					Width,
-					Height
-				))
-			{
-				PostProcessInput = SceneTargets->ContactColor;
-				++PreparedView.Counters.ContactShadowEnabledViews;
-			}
-			else
-			{
-				++PreparedView.Counters.ContactShadowPassFailures;
-			}
 		}
 		const FHDRSceneColorCaptureSink HDRCaptureSink =
 			GHDRSceneColorCaptureSink.load(std::memory_order_acquire);
@@ -1458,7 +1464,6 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FPreparedSceneView& PreparedView,
 		FRHITexture* SceneColor,
-		FRHITexture* DirectionalDirect,
 		FRHITexture* Depth,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters*
 			DeferredParameters
@@ -1467,7 +1472,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView& View = PreparedView.View;
-		if (SceneColor == nullptr || DirectionalDirect == nullptr || Depth == nullptr)
+		if (SceneColor == nullptr || Depth == nullptr)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (View.Settings.RenderMode != ERenderMode::Lit
 			|| View.Settings.RasterMode != ERasterMode::Solid)
@@ -1476,14 +1481,11 @@ namespace Durin
 			ScenePassInfo.RenderTargetLayout =
 				RenderTargetLayouts::MakeSceneTargets();
 			ScenePassInfo.ColorRenderTargets[0] = SceneColor;
-			ScenePassInfo.ColorRenderTargets[1] = DirectionalDirect;
 			ScenePassInfo.DepthStencilRenderTarget = Depth;
 			ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
 				View.ClearColor.r, View.ClearColor.g,
 				View.ClearColor.b, View.ClearColor.a
 			);
-			ScenePassInfo.ColorClearValues[1] =
-				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 			ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
 				View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
 				0u
@@ -1519,14 +1521,11 @@ namespace Durin
 		FRHIRenderPassInfo Bootstrap{};
 		Bootstrap.RenderTargetLayout = RenderTargetLayouts::MakeHybridSceneBootstrap();
 		Bootstrap.ColorRenderTargets[0] = SceneColor;
-		Bootstrap.ColorRenderTargets[1] = DirectionalDirect;
 		Bootstrap.DepthStencilRenderTarget = Depth;
 		Bootstrap.ColorClearValues[0] = FClearValueBinding(
 			View.ClearColor.r, View.ClearColor.g,
 			View.ClearColor.b, View.ClearColor.a
 		);
-		Bootstrap.ColorClearValues[1] =
-			FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 		CommandList.BeginRenderPass(Bootstrap, "HybridSceneBootstrapRenderPass");
 		SetViewRect();
 		bool bBootstrapRendered = true;
@@ -1561,7 +1560,7 @@ namespace Durin
 		}
 		const bool bDeferredRendered =
 			DeferredDirectionalLightingRenderer.RenderProduction_RenderThread(
-				CommandList, SceneColor, DirectionalDirect, *DeferredParameters
+				CommandList, SceneColor, *DeferredParameters
 			);
 		if (DeferredTimingQuery)
 		{
@@ -1578,7 +1577,6 @@ namespace Durin
 		Retained.RenderTargetLayout =
 			RenderTargetLayouts::MakeHybridRetainedForward();
 		Retained.ColorRenderTargets[0] = SceneColor;
-		Retained.ColorRenderTargets[1] = DirectionalDirect;
 		Retained.DepthStencilRenderTarget = Depth;
 		CommandList.BeginRenderPass(Retained, "HybridRetainedForwardRenderPass");
 		SetViewRect();

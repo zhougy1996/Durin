@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Ownership and selection
 
@@ -116,16 +116,17 @@ environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
 
 ## Screen-space contact supplement
 
-The optional contact-shadow pass supplements the selected directional result
-after Scene Color without treating the completed scene as one lighting term.
-The base pass writes a second R11G11B10 attachment containing only the selected
-directional light's direct contribution after shadow-map attenuation. The
-contact pass subtracts only an occluded fraction of that attachment; local
-lights, environment lighting, emissive output, Unlit materials, and pixels with
-no remaining directional contribution are unchanged.
+The optional contact-shadow pass is a deferred visibility producer for valid
+standard-Lit opaque and masked GBuffer receivers. It runs after the GBuffer is
+complete and before deferred lighting, writes one on-demand `R8_UNORM` scalar
+target, and never reads or writes Scene Color. Deferred lighting multiplies
+only the selected directional term after cascade attenuation by this factor;
+local lights, environment lighting, emissive output, retained-forward Unlit
+and translucent surfaces, and already-shadowed contributions are unchanged.
 
 The pass is an opt-in detail trace rather than a default shadow tier. It
-reconstructs receiver positions from D32 scene depth and marches exactly 16
+decodes GBuffer material flags and geometric normal, reconstructs receiver
+positions from D32 scene depth, and marches exactly 16
 fixed midpoint samples toward the selected light. The trace starts 0.01 world
 units from the receiver, ends at 0.20 world units, accepts foreground depth
 within a 0.012-world-unit thickness, and stops at 48 screen pixels. Contribution
@@ -134,7 +135,10 @@ budget, so crossing the screen bound does not introduce a full-strength hard
 cut. A ray that leaves the viewport terminates without attempting to represent
 off-screen geometry.
 
-Depth is fetched with exact texel loads. Linear depth filtering and one-sided
+Only `GBufferStandardLitFlag` pixels participate. Backfacing receivers resolve
+fully visible and the unstable grazing interval fades from dot(normal,
+toward-light) 0.02 to 0.20. Depth is fetched with exact texel loads. Linear
+depth filtering and one-sided
 unbounded device-depth tests are forbidden because they create intermediate
 silhouette depths and detached false occlusion. The fixed start bias and finite
 thickness are the only self-hit controls. The pass does not reconstruct a
@@ -145,13 +149,14 @@ query budget explicit and avoids view-dependent classification heuristics.
 
 Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
 by the viewport control or a caller-owned view setting. Missing targets,
-invalid light or matrix input, or resource creation failure
-skips the pass and preserves Scene Color. The viewport View menu exposes a
+invalid light or matrix input, or resource creation failure binds the complete
+white fallback and continues the same deferred path. A view with no successful
+deferred receiver draw records no target or pass. The viewport View menu exposes a
 `Contact Shadows` checkbox. Its mutually exclusive `Shadow Debug Views >
 Contact Shadow Contribution` mode enables the pass and displays the computed
 contribution as a red mask; selecting another diagnostic clears that mode.
-Per-view counters distinguish enabled passes
-from pass failures. The method remains screen-space: off-screen casters are not
+Per-view counters distinguish enabled passes from pass failures. The method
+remains screen-space: off-screen casters are not
 represented and contact shadows do not replace cascade coverage.
 
 ## Causal diagnostics

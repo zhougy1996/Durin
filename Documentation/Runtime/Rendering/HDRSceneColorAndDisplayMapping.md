@@ -4,16 +4,16 @@ Summary: Define the scene-linear HDR intermediate and the single deterministic t
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Color Domains and Formats
 
 Scene-domain RGB is finite, non-negative, scene-linear radiance. `SceneColor`
-and the contact-shadow-preserving `ContactColor` use `RGBA16_FLOAT`; values
-above one remain representable until post process. Their alpha channel carries
-the established effective opacity. `DirectionalDirect` remains an independent
-non-negative `R11G11B10_FLOAT` direct-light term, and scene depth remains
-`D32`.
+uses `RGBA16_FLOAT`; values above one remain representable until post process.
+Its alpha channel carries the established effective opacity. Directional
+contact shadows are applied as scalar deferred visibility before Scene Color
+composition, so no directional-copy or corrected-color intermediate remains.
+Scene depth remains `D32`.
 
 Present and offscreen outputs remain `SRGBA8_UNORM`. The post-process shader
 writes bounded display-linear RGB. The sRGB attachment performs the only
@@ -63,20 +63,19 @@ there is no raw HDR-to-SDR fallback. Same-device last-known-good shader/manual
 payloads follow the renderer resource coordinator contract, while device
 invalidation clears dependent resources before retry.
 
-One scene-target extent accounts for 24 bytes per pixel: 8 Scene Color,
-4 depth, 4 directional direct, and 8 contact color. The size-keyed cache keeps
+One scene-target extent accounts for 12 bytes per pixel: 8 Scene Color and
+4 depth. The size-keyed cache keeps
 the current extent and evicts oldest other extents while retained payload bytes
-exceed `192 MiB`. Recorded commands retain their own RHI references, so cache
+exceed `96 MiB`. Recorded commands retain their own RHI references, so cache
 eviction cannot invalidate in-flight work. One 1920x1080 extent is
-`49,766,400` bytes and the budget retains four, but not five, such extents.
+`24,883,200` bytes and the budget retains at least three such extents.
 
 ## Validation Contract
 
 CPU goldens cover curve values, monotonicity, exposure canonicalization,
-finiteness, and alpha. Layout tests freeze HDR scene/contact formats and SDR
-output formats. Scene Color and contact color permit explicit source copies so
-development validation can capture them without making the production targets
-CPU-readable. Vulkan readback freezes exact half-float values above one before
+finiteness, and alpha. Layout tests freeze HDR scene and SDR output formats.
+Scene Color permits explicit source copies so development validation can
+capture it without making the production target CPU-readable. Vulkan readback freezes exact half-float values above one before
 display mapping, including production emissive and contact on/off paths,
 per-view exposure separation, output alpha, editor assistance ordering, shader
 refresh, and device lifecycle.

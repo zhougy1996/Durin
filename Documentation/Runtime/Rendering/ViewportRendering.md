@@ -257,7 +257,7 @@ distance `200000`. The far-plane safety margin is five percent of the clip
 range capped at `10000` world units, preserving older explicitly short camera
 ranges without allowing Terrain distance to meet the projection boundary.
 
-Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache retains the current extent and evicts oldest other extents above a 192 MiB payload budget, so interactive resizing does not retain every transient dimension. See [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md) for format and byte accounting.
+Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache retains the current extent and evicts oldest other extents above a 96 MiB payload budget, so interactive resizing does not retain every transient dimension. Optional contact visibility and GBuffer diagnostics use separately owned on-demand targets. See [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md) for format and byte accounting.
 
 When a scene has an active skybox, the renderer draws it into Scene Color using
 the fitted content viewport and scissor before opaque meshes. The draw has no

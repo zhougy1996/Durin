@@ -15,10 +15,12 @@ namespace Durin
 	class FGBufferDebugRenderer final
 	{
 	public:
+		struct FTargets { FTextureRHIRef Color; };
 		FGBufferDebugRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FGBufferDebugRenderer();
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
 
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,

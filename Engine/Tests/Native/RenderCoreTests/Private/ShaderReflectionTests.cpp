@@ -529,6 +529,37 @@ namespace Durin
 	}
 
 	TEST(FShaderReflectionTests,
+		ContactVisibilityFreezesGBufferInputAbi)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "ContactShadow.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/ContactShadow";
+		Options.EntryPoints = {"VertexMain", "ContactVisibilityFragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output =
+			Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
+		for (uint32 Index = 0; Index < 5; ++Index)
+		{
+			const std::array<const char*, 5> Names{
+				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
+				"GBufferEmissive", "SceneDepth"};
+			ExpectBinding(Fragment, Names[Index], Index,
+				ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		}
+		ExpectBinding(Fragment, "Params", 5,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+	}
+
+	TEST(FShaderReflectionTests,
 		DeferredDirectionalLightingFreezesPublishedInputAbi)
 	{
 		const std::filesystem::path ShaderPath =
@@ -546,7 +577,7 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 15u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 16u);
 		for (uint32 Index = 0; Index <= 7; ++Index)
 		{
 			const std::array<const char*, 8> Names{
@@ -569,6 +600,8 @@ namespace Durin
 		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionRaw", 13,
 			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionFiltered", 14,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "ContactVisibility", 15,
 			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 	}
 } // namespace Durin

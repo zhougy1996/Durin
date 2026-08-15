@@ -37,6 +37,7 @@ namespace Durin
 			std::array<float, 16> ViewToWorld{};
 			FVector4f ClearColor{0.0f};
 			FVector4f Params{0.0f};
+			FVector4f ContactParams{0.0f};
 		};
 
 		struct FTargets
@@ -59,11 +60,14 @@ namespace Durin
 			FRHISampler* DirectionalShadowSampler = nullptr;
 			FRHITexture* GroundTruthAmbientOcclusionRaw = nullptr;
 			FRHITexture* GroundTruthAmbientOcclusionFiltered = nullptr;
+			FRHITexture* ContactVisibility = nullptr;
 			FRHIUniformBufferRange Lighting;
 			const FSceneView* View = nullptr;
 			uint32 DiagnosticMode = 0;
 			uint32 GroundTruthAmbientOcclusionDebugMode = 0;
 			bool bGroundTruthAmbientOcclusionEnabled = false;
+			bool bContactVisibilityEnabled = false;
+			bool bContactVisibilityDebug = false;
 		};
 
 		FDeferredDirectionalLightingRenderer(
@@ -90,7 +94,6 @@ namespace Durin
 		auto RenderProduction_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,
-			FRHITexture* DirectionalDirect,
 			const FRenderParameters& Parameters
 		) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
@@ -99,7 +102,6 @@ namespace Durin
 		auto RenderInternal_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,
-			FRHITexture* DirectionalDirect,
 			const FRenderParameters& Parameters,
 			bool bProduction
 		) -> bool;
@@ -110,6 +112,6 @@ namespace Durin
 		std::unique_ptr<FState> State;
 	};
 
-	static_assert(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform) == 160);
+	static_assert(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform) == 176);
 	static_assert(alignof(FDeferredDirectionalLightingRenderer::FViewUniform) == 16);
 } // namespace Durin

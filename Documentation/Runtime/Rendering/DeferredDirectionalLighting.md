@@ -16,30 +16,31 @@ The isolated qualification route records:
 
 ```text
 directional shadow -> GBuffer -> deferred directional qualification
-                   -> selected production or special scene -> contact/display
+                   -> selected production or special scene -> display
                    -> editor assistance
 ```
 
 `FDeferredDirectionalLightingRenderer` owns the shader/pipeline payload and a
 size-keyed `RGBA16_FLOAT` target cache. The result is isolated, never presented,
 and finishes graphics-shader-readable for explicit qualification capture. A
-failed or disabled diagnostic leaves the selected scene output authoritative. Translucency,
-skybox drawing, contact composition, and editor assistance are not part of this
+failed or disabled diagnostic leaves the selected scene output authoritative.
+Translucency, skybox drawing, production contact visibility, and editor
+assistance are not part of this
 target.
 
 The production route records:
 
 ```text
 directional shadow -> GBuffer (owns D32)
+                   -> optional contact visibility
                    -> sky/clear Scene Color bootstrap
                    -> deferred Lit opaque/masked into Scene Color
                    -> retained forward Unlit + sorted translucent
-                   -> contact/display -> editor assistance
+                   -> display -> editor assistance
 ```
 
-Production writes `RGBA16_FLOAT` Scene Color and `R11G11B10_FLOAT`
-directional direct as two load-preserving outputs; it does not allocate or
-copy the isolated deferred target. Static/Spline, Skeletal, and Terrain cache
+Production writes only load-preserving `RGBA16_FLOAT` Scene Color; it does not
+allocate or copy the isolated deferred target. Static/Spline, Skeletal, and Terrain cache
 separate retained-forward pipeline variants against the load-preserving render
 pass ABI, and SkyBox owns a bootstrap-layout pipeline variant for the same
 reason. This keeps Vulkan render-pass dependencies compatible while
@@ -63,14 +64,15 @@ inputs and sequential isolation.
 
 The fragment shader binds, in order, four GBuffer attachments, D32, irradiance,
 prefiltered environment, the BRDF LUT, the environment sampler, the selected
-directional-shadow array and comparison sampler, one 160-byte deferred-view
-uniform, and the existing 768-byte forward-lighting uniform. The selected
+directional-shadow array and comparison sampler, one 176-byte deferred-view
+uniform, the existing 768-byte forward-lighting uniform, GTAO raw/filtered
+inputs, and contact visibility. The selected
 directional, three-cascade shadow, and four local records remain byte-identical
 to forward.
 
 The deferred-view uniform contains four projection rows, one view-to-world
-matrix, clear color, inverse viewport size, diagnostic identity, and reserved
-zero. Position is reconstructed analytically from D32. Constrained views use
+matrix, clear color, inverse viewport size, diagnostic identity, and contact
+enabled/debug controls. Position is reconstructed analytically from D32. Constrained views use
 the centered fitted viewport for GBuffer, deferred, and forward drawing; the
 shader derives viewport-local NDC while loading absolute attachment pixels.
 This prevents letterbox regions or an earlier same-size view from becoming

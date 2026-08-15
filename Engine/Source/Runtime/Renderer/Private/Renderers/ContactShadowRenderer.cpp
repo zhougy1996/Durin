@@ -1,6 +1,6 @@
 #include "Renderers/ContactShadowRenderer.h"
 
-#include "RenderResourceCreation.h"
+#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -23,370 +23,277 @@ namespace Durin
 {
 	namespace
 	{
-		class FContactShadowVertexShader : public FShader
+		class FContactVisibilityVertexShader final : public FShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
-				FContactShadowVertexShader,
-				FShader,
-				"/Engine/ContactShadow",
-				EShaderFrequency::Vertex,
-				"VertexMain");
+			DURIN_DECLARE_SHADER(FContactVisibilityVertexShader, FShader,
+				"/Engine/ContactShadow", EShaderFrequency::Vertex, "VertexMain");
 		};
 
-		class FContactShadowFragmentShader : public FShader
+		class FContactVisibilityFragmentShader final : public FShader
 		{
 		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FContactShadowFragmentShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
-				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(DirectionalDirect);
+			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_SHADER(
-				FContactShadowFragmentShader,
-				FShader,
-				"/Engine/ContactShadow",
-				EShaderFrequency::Fragment,
-				"ContactShadowFragmentMain");
+			DURIN_DECLARE_SHADER(FContactVisibilityFragmentShader, FShader,
+				"/Engine/ContactShadow", EShaderFrequency::Fragment,
+				"ContactVisibilityFragmentMain");
 		};
 
-		// Matches ContactShadowUniform in ContactShadow.slang byte-for-byte.
-		struct alignas(16) FContactShadowUniform
+		struct alignas(16) FContactVisibilityUniform
 		{
 			float InverseViewProjection[16]{};
 			float ViewProjection[16]{};
-			// A deliberately short, fixed-budget detail trace. It supplements the
-			// shadow map without growing into a second general shadow solution.
-			float ToLight[4]{0.0f, 0.0f, 0.0f, 0.20f};
-			float RayThickness = 0.012f;
-			float StepCount = 16.0f;
-			float StartOffset = 0.01f;
-			float bReversedZ = 0.0f;
-			float InvViewportX = 1.0f;
-			float InvViewportY = 1.0f;
-			float bShowDebug = 0.0f;
-			float MaxScreenDistancePixels = 48.0f;
+			float ToLightMaxDistance[4]{0.0f, 0.0f, 0.0f, 0.20f};
+			float ThicknessStepsOffsetReversedZ[4]{0.012f, 16.0f, 0.01f, 0.0f};
+			float Viewport[4]{1.0f, 1.0f, 0.0f, 0.0f};
+			float Trace[4]{48.0f, 0.0f, 0.0f, 0.0f};
 		};
-		static_assert(sizeof(FContactShadowUniform) == 176);
-
-		auto CreateContactShadowPipeline(
-			FName PipelineName,
-			FRHIShader* VertexShader,
-			FRHIShader* FragmentShader,
-			const FVertexDeclarationRHIRef& VertexDeclaration,
-			const FPipelineLayoutDesc& PipelineLayout,
-			const FRHIRenderTargetLayout& RenderTargetLayout)
-			-> FGraphicsPipelineStateRHIRef
-		{
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RenderTargetLayout;
-			Initializer.BoundShaders.VertexShader = VertexShader;
-			Initializer.BoundShaders.FragmentShader = FragmentShader;
-			Initializer.VertexDeclaration = VertexDeclaration;
-			Initializer.RasterizerState.CullMode = ERHICullMode::None;
-			Initializer.PipelineLayout = PipelineLayout;
-			return GDynamicRHI->RHICreateGraphicsPipelineState(
-				PipelineName,
-				Initializer);
-		}
+		static_assert(sizeof(FContactVisibilityUniform) == 192);
 	} // namespace
 
-	struct FScreenSpaceContactShadowRenderer::FState
+	struct FContactShadowVisibilityRenderer::FState
 	{
 		struct FPayload
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FContactShadowVertexShader> VertexShader;
-			TShaderRef<FContactShadowFragmentShader> FragmentShader;
+			TShaderRef<FContactVisibilityVertexShader> VertexShader;
+			TShaderRef<FContactVisibilityFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
-			FSamplerRHIRef SceneColorSampler;
 		};
-
-		TRenderResourceCreationSlot<FPayload> Slot{
+		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
+		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
+			ERenderResourceGenerationDependency::Device};
 	};
 
-	FScreenSpaceContactShadowRenderer::FScreenSpaceContactShadowRenderer(
+	FContactShadowVisibilityRenderer::FContactShadowVisibilityRenderer(
 		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator)
-		, FullscreenGeometry(InFullscreenGeometry)
-		, State(std::make_unique<FState>())
+		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
+		  State(std::make_unique<FState>()) {}
+
+	FContactShadowVisibilityRenderer::~FContactShadowVisibilityRenderer() = default;
+
+	auto FContactShadowVisibilityRenderer::EnsureTargets_RenderThread(
+		uint32 Width, uint32 Height) -> FTargets*
 	{
+		check(IsInRenderingThread());
+		if (Width == 0 || Height == 0) return nullptr;
+		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
+		const auto Desc = FRHITextureCreateDesc::Create2D(
+			"DirectionalContactVisibility", Width, Height, EPixelFormat::R8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable
+				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
+			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
+		using FResult = TRenderResourceCreateResult<FTargets>;
+		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
+		FTargets* Targets = Entry.Slot.Resolve(
+			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
+				FTargets Candidate;
+				Candidate.Visibility = RHICreateTexture(Desc);
+				if (Candidate.Visibility == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibilityTarget", std::to_string(Key),
+						"R8_UNORM visibility target creation returned null.",
+						ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnostic);
+		const bool bResolved = Targets != nullptr;
+		auto GetRetainedBytes = [this]() {
+			return State->TargetsBySize.GetRetainedPayloadWeight(
+				[](uint64 SizeKey, const FTargets&) {
+					return CalculateTargetBytes(static_cast<uint32>(SizeKey >> 32),
+						static_cast<uint32>(SizeKey));
+				});
+		};
+		while (State->TargetsBySize.Num() > 1
+			&& GetRetainedBytes() > MaximumRetainedBytes)
+			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
+		if (!bResolved) return nullptr;
+		auto* Retained = State->TargetsBySize.Find(Key);
+		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
 	}
 
-	FScreenSpaceContactShadowRenderer::~FScreenSpaceContactShadowRenderer() = default;
-
-	auto FScreenSpaceContactShadowRenderer::Render_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FRHITexture* SceneColor,
-		FRHITexture* DirectionalDirect,
-		FRHITexture* SceneDepth,
-		FRHITexture* ContactColor,
-		const FSceneView& View,
-		const FVector3& LightDirection,
-		bool bShowDebug,
-		uint32 Width,
-		uint32 Height) -> bool
+	auto FContactShadowVisibilityRenderer::Render_RenderThread(
+		FRHICommandListImmediate& CommandList, FTargets& Targets,
+		FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
+		FRHITexture* Emissive, FRHITexture* SceneDepth, const FSceneView& View,
+		const FVector3& LightDirection, uint32 Width, uint32 Height) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
-
-		if (SceneColor == nullptr || DirectionalDirect == nullptr
-			|| SceneDepth == nullptr
-			|| ContactColor == nullptr || Width == 0 || Height == 0)
-			return false;
-
+		if (Targets.Visibility == nullptr || Material == nullptr || Normals == nullptr
+			|| Surface == nullptr || Emissive == nullptr || SceneDepth == nullptr
+			|| Width == 0 || Height == 0 || View.ViewportWidth == 0
+			|| View.ViewportHeight == 0) return false;
 		const double LightLengthSquared = glm::dot(LightDirection, LightDirection);
 		if (!std::isfinite(LightLengthSquared) || LightLengthSquared <= 1.0e-8)
 			return false;
 
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-		FPayload* Payload = State->Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[this, &CommandList]() -> FResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FContactShadowVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FContactShadowFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType};
-
+		FPayload* Payload = State->Resources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
+				FShaderCompileOptions Options;
+				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
+				FShaderType& VertexType = FContactVisibilityVertexShader::StaticType();
+				FShaderType& FragmentType = FContactVisibilityFragmentShader::StaticType();
+				const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
 				FPayload Candidate;
 				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes,
-						CompileOptions,
-						ErrorMessage))
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"ContactShadow",
-							"contact-shadow",
-							std::move(ErrorMessage),
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				auto* VertexShader = static_cast<FContactShadowVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexShaderType));
-				auto* FragmentShader =
-					static_cast<FContactShadowFragmentShader*>(
-						Candidate.ShaderMap->GetShader(&FragmentShaderType));
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"ContactShadow",
-							"contact-shadow",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				Candidate.VertexShader =
-					TShaderRef<FContactShadowVertexShader>(
-						VertexShader,
-						Candidate.ShaderMap.get());
-				Candidate.FragmentShader =
-					TShaderRef<FContactShadowFragmentShader>(
-						FragmentShader,
-						Candidate.ShaderMap.get());
-
-				FVertexDeclarationElementList VertexDeclElements;
-				constexpr uint32 VertexStride =
-					sizeof(FFullscreenGeometryResources::FVertex);
-				VertexDeclElements[0] = FVertexElement(
-					0,
-					offsetof(
-						FFullscreenGeometryResources::FVertex,
-						Position),
-					EVertexElementType::Float2,
-					0,
-					VertexStride);
-				VertexDeclElements[1] = FVertexElement(
-					0,
-					offsetof(
-						FFullscreenGeometryResources::FVertex,
-						UV),
-					EVertexElementType::Float2,
-					1,
-					VertexStride);
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(
-						VertexDeclElements);
-				if (!FullscreenGeometry.EnsureResources_RenderThread(
-						CommandList))
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"ContactShadow",
-							"fullscreen-geometry",
-							"Shared fullscreen geometry is unavailable.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				Candidate.SceneColorSampler =
-					RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				FRHIShader* VertexRHI =
-					Candidate.VertexShader.GetRHIShader(false);
-				FRHIShader* FragmentRHI =
-					Candidate.FragmentShader.GetRHIShader(false);
-				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.SceneColorSampler == nullptr
-					|| VertexRHI == nullptr || FragmentRHI == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"ContactShadow",
-							"contact-shadow",
-							"RHI shader, declaration, or sampler creation returned null.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				Candidate.PipelineState = CreateContactShadowPipeline(
-					"ContactShadowPipeline",
-					VertexRHI,
-					FragmentRHI,
-					Candidate.VertexDeclaration,
-					Candidate.ShaderMap->GetMergedPipelineLayout(),
-					RenderTargetLayouts::MakeContactShadowOutput());
+				std::string Error;
+				if (!Candidate.ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						"ContactVisibility", "shader", std::move(Error),
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Manual));
+				auto* Vertex = static_cast<FContactVisibilityVertexShader*>(
+					Candidate.ShaderMap->GetShader(&VertexType));
+				auto* Fragment = static_cast<FContactVisibilityFragmentShader*>(
+					Candidate.ShaderMap->GetShader(&FragmentType));
+				if (Vertex == nullptr || Fragment == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderBinding,
+						"ContactVisibility", "shader",
+						"Compiled shader map is missing a typed shader.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Manual));
+				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
+				Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
+				FVertexDeclarationElementList Elements;
+				constexpr uint32 Stride = sizeof(FFullscreenGeometryResources::FVertex);
+				Elements[0] = FVertexElement(0, offsetof(
+					FFullscreenGeometryResources::FVertex, Position),
+					EVertexElementType::Float2, 0, Stride);
+				Elements[1] = FVertexElement(0, offsetof(
+					FFullscreenGeometryResources::FVertex, UV),
+					EVertexElementType::Float2, 1, Stride);
+				Candidate.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibility", "fullscreen-geometry",
+						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
+				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
+				if (Candidate.VertexDeclaration == nullptr || VertexRHI == nullptr
+					|| FragmentRHI == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibility", "pipeline",
+						"RHI shader or declaration creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout = RenderTargetLayouts::MakeContactVisibilityOutput();
+				Initializer.BoundShaders.VertexShader = VertexRHI;
+				Initializer.BoundShaders.FragmentShader = FragmentRHI;
+				Initializer.VertexDeclaration = Candidate.VertexDeclaration;
+				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.PipelineLayout = Candidate.ShaderMap->GetMergedPipelineLayout();
+				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+					"ContactVisibilityPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::
-								GraphicsPipeline,
-							"ContactShadow",
-							"contact-shadow",
-							"RHI pipeline creation returned null.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"ContactVisibility", "pipeline",
+						"Graphics pipeline creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
 				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		if (Payload == nullptr)
-			return false;
+			}, ReportRendererResourceCreateDiagnostic);
+		if (Payload == nullptr || FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
+			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr) return false;
 
-		if (FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
-			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
+		FMatrix InverseViewProjection;
+		if (!Math::TryInverse(View.ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
 			return false;
-
-		FMatrix InvViewProjection;
-		if (!Math::TryInverse(
-				View.ViewProjectionMatrix, InvViewProjection, 1.0e-8))
-			return false;
-
-		FContactShadowUniform Uniform;
+		FContactVisibilityUniform Uniform;
 		for (uint32 Row = 0; Row < 4; ++Row)
-		{
 			for (uint32 Col = 0; Col < 4; ++Col)
 			{
 				Uniform.InverseViewProjection[Row * 4 + Col] =
-					static_cast<float>(InvViewProjection[Col][Row]);
+					static_cast<float>(InverseViewProjection[Col][Row]);
 				Uniform.ViewProjection[Row * 4 + Col] =
-					static_cast<float>(
-						View.ViewProjectionMatrix[Col][Row]);
+					static_cast<float>(View.ViewProjectionMatrix[Col][Row]);
 			}
-		}
-		const FVector3 ToLight =
-			-Math::Normalize(LightDirection);
-		Uniform.ToLight[0] = static_cast<float>(ToLight.x);
-		Uniform.ToLight[1] = static_cast<float>(ToLight.y);
-		Uniform.ToLight[2] = static_cast<float>(ToLight.z);
-		Uniform.bReversedZ =
-			View.DepthConvention == ESceneDepthConvention::ReversedZ
-				? 1.0f : 0.0f;
-		Uniform.InvViewportX = 1.0f / static_cast<float>(Width);
-		Uniform.InvViewportY = 1.0f / static_cast<float>(Height);
-		Uniform.bShowDebug = bShowDebug ? 1.0f : 0.0f;
-
-		const std::array DepthReadTransition{
-			FRHITextureTransition::Whole(
-				SceneDepth,
-				ERHIAccess::DepthStencilReadWrite,
-				ERHIAccess::GraphicsShaderRead)};
-		CommandList.TransitionTextures(DepthReadTransition);
+		const FVector3 ToLight = -Math::Normalize(LightDirection);
+		Uniform.ToLightMaxDistance[0] = static_cast<float>(ToLight.x);
+		Uniform.ToLightMaxDistance[1] = static_cast<float>(ToLight.y);
+		Uniform.ToLightMaxDistance[2] = static_cast<float>(ToLight.z);
+		Uniform.ThicknessStepsOffsetReversedZ[3] =
+			View.DepthConvention == ESceneDepthConvention::ReversedZ ? 1.0f : 0.0f;
+		Uniform.Viewport[0] = 1.0f / static_cast<float>(View.ViewportWidth);
+		Uniform.Viewport[1] = 1.0f / static_cast<float>(View.ViewportHeight);
+		Uniform.Viewport[2] = static_cast<float>(View.ViewportX);
+		Uniform.Viewport[3] = static_cast<float>(View.ViewportY);
 
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.RenderTargetLayout =
-			RenderTargetLayouts::MakeContactShadowOutput();
-		PassInfo.ColorRenderTargets[0] = ContactColor;
-		CommandList.BeginRenderPass(PassInfo, "ContactShadowRenderPass");
-
+		PassInfo.RenderTargetLayout = RenderTargetLayouts::MakeContactVisibilityOutput();
+		PassInfo.ColorRenderTargets[0] = Targets.Visibility;
+		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
+		CommandList.BeginRenderPass(PassInfo, "ContactVisibilityRenderPass");
 		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
-		CommandList.SetViewport(
-			0.0f,
-			0.0f,
-			0.0f,
-			static_cast<float>(Width),
-			static_cast<float>(Height),
-			1.0f);
-		CommandList.SetScissor(
-			0.0f,
-			0.0f,
-			static_cast<float>(Width),
-			static_cast<float>(Height));
-		CommandList.BindVertexBuffer(
-			0,
-			FullscreenGeometry.GetVertexBuffer_RenderThread(),
-			0);
-		CommandList.BindIndexBuffer(
-			FullscreenGeometry.GetIndexBuffer_RenderThread(),
-			0);
-
+		CommandList.SetViewport(static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY), 0.0f,
+			static_cast<float>(View.ViewportX + View.ViewportWidth),
+			static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+		CommandList.SetScissor(static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY), static_cast<float>(View.ViewportWidth),
+			static_cast<float>(View.ViewportHeight));
+		CommandList.BindVertexBuffer(0,
+			FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		CommandList.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(
-				&Uniform,
-				sizeof(Uniform));
-
-		FContactShadowFragmentShader::FParameters FragmentParameters;
-		FragmentParameters.SceneColor = SceneColor;
-		FragmentParameters.SceneColorSampler =
-			Payload->SceneColorSampler;
-		FragmentParameters.DirectionalDirect = DirectionalDirect;
-		FragmentParameters.SceneDepth = SceneDepth;
-		FragmentParameters.Params = UniformBuffer;
-		SetShaderParameters(
-			CommandList,
-			Payload->FragmentShader,
-			FragmentParameters);
-
+			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+		if (UniformBuffer.Buffer == nullptr || UniformBuffer.Size != sizeof(Uniform))
+		{
+			CommandList.EndRenderPass();
+			return false;
+		}
+		FContactVisibilityFragmentShader::FParameters Parameters;
+		Parameters.GBufferMaterial = Material;
+		Parameters.GBufferNormals = Normals;
+		Parameters.GBufferSurface = Surface;
+		Parameters.GBufferEmissive = Emissive;
+		Parameters.SceneDepth = SceneDepth;
+		Parameters.Params = UniformBuffer;
+		SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
-
-		const std::array DepthWriteTransition{
-			FRHITextureTransition::Whole(
-				SceneDepth,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::DepthStencilReadWrite)};
-		CommandList.TransitionTextures(DepthWriteTransition);
 		return true;
 	}
 
-	auto FScreenSpaceContactShadowRenderer::ReleaseResources_RenderThread()
-		-> void
+	auto FContactShadowVisibilityRenderer::GetRetainedTargetBytes_RenderThread() const
+		-> uint64
 	{
-		State->Slot.Reset();
+		check(IsInRenderingThread());
+		return State->TargetsBySize.GetRetainedPayloadWeight(
+			[](uint64 Key, const FTargets&) {
+				return CalculateTargetBytes(static_cast<uint32>(Key >> 32),
+					static_cast<uint32>(Key));
+			});
+	}
+
+	auto FContactShadowVisibilityRenderer::ReleaseResources_RenderThread() -> void
+	{
+		State->TargetsBySize.Reset();
+		State->Resources.Reset();
 	}
 } // namespace Durin

@@ -27,12 +27,12 @@ struct FDeferredDirectionalViewUniform
     float4x4 ViewToWorld;
     float4 ClearColor;
     float4 Params; // xy = inverse viewport, z = diagnostic, w = preserve background
+	float4 ContactParams; // x = enabled, y = contribution diagnostic
 };
 
 struct FDeferredLightingOutput
 {
     float4 Color : SV_Target0;
-    float3 DirectionalDirect : SV_Target1;
 };
 
 FDeferredLightingOutput MakeDeferredLightingOutput(
@@ -40,7 +40,6 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 {
     FDeferredLightingOutput output;
     output.Color = color;
-    output.DirectionalDirect = directionalDirect;
     return output;
 }
 
@@ -59,6 +58,7 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(12, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
 [[vk::binding(13, 0)]] Texture2D<float> GroundTruthAmbientOcclusionRaw;
 [[vk::binding(14, 0)]] Texture2D<float> GroundTruthAmbientOcclusionFiltered;
+[[vk::binding(15, 0)]] Texture2D<float> ContactVisibility;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -127,6 +127,8 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         worldPosition, record.shadingNormal, Lighting.ViewPosition.xyz);
 
     float3 directional = float3(0.0);
+	float contactVisibility = View.ContactParams.x > 0.5
+		? ContactVisibility.Load(int3(pixel, 0)) : 1.0;
     if (Lighting.Counts.x > 0u)
     {
         float3 lightVector = -Lighting.DirectionalDirection.xyz;
@@ -157,8 +159,11 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
             frame,
             toLight,
             radiance,
-            shadow.attenuation);
+			shadow.attenuation * contactVisibility);
     }
+	if (View.ContactParams.y > 0.5)
+		return MakeDeferredLightingOutput(
+			float4(1.0 - contactVisibility, 0.0, 0.0, 1.0), directional);
 
     float3 local = float3(0.0);
     [unroll]

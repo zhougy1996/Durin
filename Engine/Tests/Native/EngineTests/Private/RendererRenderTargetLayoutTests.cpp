@@ -5,6 +5,7 @@
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
+#include "Renderers/ContactShadowRenderer.h"
 
 #include <limits>
 
@@ -17,11 +18,8 @@ namespace Durin
 		const FRHIRenderTargetLayout Layout = MakeSceneTargets();
 
 		ASSERT_TRUE(Layout.IsValid());
-		ASSERT_EQ(Layout.NumColorRenderTargets, 2u);
+		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::RGBA16_FLOAT);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.Format, EPixelFormat::R11G11B10_FLOAT);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		ASSERT_TRUE(Layout.bHasDepthStencil);
 		EXPECT_EQ(Layout.DepthStencilAttachment.Format, EPixelFormat::D32);
 		EXPECT_EQ(Layout.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Clear);
@@ -30,14 +28,16 @@ namespace Durin
 		EXPECT_EQ(Layout.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests, ContactColorPreservesHDRSceneColor)
+	TEST(FRendererRenderTargetLayoutTests, ContactVisibilityFreezesSingleChannelContract)
 	{
-		const FRHIRenderTargetLayout Layout = MakeContactShadowOutput();
+		const FRHIRenderTargetLayout Layout = MakeContactVisibilityOutput();
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::R8_UNORM);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(FContactShadowVisibilityRenderer::BytesPerPixel, 1u);
+		EXPECT_EQ(FContactShadowVisibilityRenderer::CalculateTargetBytes(1920, 1080), 2'073'600u);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, GBufferTargetsFreezeFormatsStatesAndByteBudget)
@@ -69,14 +69,14 @@ namespace Durin
 
 	TEST(FRendererRenderTargetLayoutTests, SceneTargetByteBudgetIsFormatAware)
 	{
-		EXPECT_EQ(FPostProcessRenderer::SceneTargetBytesPerPixel, 24u);
+		EXPECT_EQ(FPostProcessRenderer::SceneTargetBytesPerPixel, 12u);
 		EXPECT_EQ(
 			FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080),
-			49'766'400u
+			24'883'200u
 		);
 		EXPECT_GE(
 			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
-			4u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080)
+			3u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080)
 		);
 		EXPECT_LT(
 			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
@@ -105,7 +105,7 @@ namespace Durin
 		EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
 		EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Color.FinalAccess, ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform), 160u);
+		EXPECT_EQ(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform), 176u);
 		EXPECT_EQ(FDeferredDirectionalLightingRenderer::BytesPerPixel, 8u);
 		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(1920, 1080), 16'588'800u);
 		EXPECT_GE(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes, 4u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(1920, 1080));
@@ -121,15 +121,14 @@ namespace Durin
 		ASSERT_TRUE(Bootstrap.IsValid());
 		ASSERT_TRUE(Deferred.IsValid());
 		ASSERT_TRUE(Retained.IsValid());
-		EXPECT_EQ(Bootstrap.NumColorRenderTargets, 2u);
+		EXPECT_EQ(Bootstrap.NumColorRenderTargets, 1u);
 		EXPECT_EQ(Bootstrap.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
 		EXPECT_TRUE(Bootstrap.bHasDepthStencil);
 		EXPECT_EQ(Bootstrap.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
 		EXPECT_EQ(Bootstrap.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Deferred.NumColorRenderTargets, 2u);
+		EXPECT_EQ(Deferred.NumColorRenderTargets, 1u);
 		EXPECT_FALSE(Deferred.bHasDepthStencil);
-		for (uint32 Index = 0; Index < 2; ++Index)
-			EXPECT_EQ(Deferred.ColorAttachments[Index].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
+		EXPECT_EQ(Deferred.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
 		EXPECT_TRUE(Retained.bHasDepthStencil);
 		EXPECT_EQ(Retained.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
 		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);

@@ -1891,8 +1891,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(HDRInputOff, HDRSceneOff);
 	EXPECT_EQ(HDRSceneOn.size(), ExpectedHDRBytes);
 	EXPECT_EQ(HDRInputOn.size(), ExpectedHDRBytes);
-	EXPECT_EQ(HDRSceneOn, HDRSceneOff);
-	EXPECT_NE(HDRInputOn, HDRSceneOn);
+	EXPECT_NE(HDRSceneOn, HDRSceneOff);
+	EXPECT_EQ(HDRInputOn, HDRSceneOn);
 	auto ContainsHalfAboveOne = [](const std::vector<Durin::uint8>& Pixels) {
 		for (size_t Offset = 0; Offset + 7 < Pixels.size(); Offset += 8)
 		{
@@ -1988,7 +1988,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	// Contact shadows may only attenuate the selected directional direct term.
 	// Preserve the same depth and occluder configuration while rendering it
-	// unlit: the pass still runs, but it has no contribution to remove.
+	// unlit: no deferred receiver exists, so no contact pass is recorded.
 	auto Unlit = MakeMaterial(
 		Durin::EMaterialBlendMode::Opaque,
 		{0.35, 0.22, 0.12},
@@ -2004,7 +2004,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	RenderCapture(false, false, UnlitOff);
 	const Durin::FViewRenderCounters UnlitCounters =
 		RenderCapture(true, false, UnlitOn, false, nullptr, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &UnlitDeferredHDR);
-	EXPECT_EQ(UnlitCounters.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(UnlitCounters.ContactShadowEnabledViews, 0u);
 	EXPECT_EQ(UnlitCounters.ContactShadowPassFailures, 0u);
 	EXPECT_EQ(UnlitCounters.GBufferAttemptedDraws, 0u);
 	EXPECT_EQ(UnlitCounters.DeferredDirectionalEnabledViews, 1u);

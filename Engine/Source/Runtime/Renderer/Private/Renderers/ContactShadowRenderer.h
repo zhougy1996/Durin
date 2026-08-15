@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/MathFwd.h"
+#include "RendererAPI.h"
 #include "RHIResources.h"
 
 #include <memory>
@@ -12,39 +13,33 @@ namespace Durin
 	class FFullscreenGeometryResources;
 	struct FSceneView;
 
-	// Owns the screen-space contact-shadow shader, pipeline, and full-screen
-	// pass that removes occluded directional direct light near contact,
-	// supplementing the directional shadow map. Render-thread only.
-	class FScreenSpaceContactShadowRenderer final
+	class RENDERER_API FContactShadowVisibilityRenderer final
 	{
 	public:
-		FScreenSpaceContactShadowRenderer(
+		static constexpr uint64 BytesPerPixel = 1;
+		static constexpr uint64 MaximumRetainedBytes = 16ull * 1024ull * 1024ull;
+		static constexpr auto CalculateTargetBytes(uint32 Width, uint32 Height)
+			-> uint64 { return static_cast<uint64>(Width) * Height; }
+
+		struct FTargets { FTextureRHIRef Visibility; };
+
+		FContactShadowVisibilityRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
-		~FScreenSpaceContactShadowRenderer();
+		~FContactShadowVisibilityRenderer();
+		FContactShadowVisibilityRenderer(
+			const FContactShadowVisibilityRenderer&) = delete;
+		auto operator=(const FContactShadowVisibilityRenderer&)
+			-> FContactShadowVisibilityRenderer& = delete;
 
-		FScreenSpaceContactShadowRenderer(
-			const FScreenSpaceContactShadowRenderer&) = delete;
-		auto operator=(const FScreenSpaceContactShadowRenderer&)
-			-> FScreenSpaceContactShadowRenderer& = delete;
-
-		// Runs the contact-shadow full-screen pass into ContactColor. The
-		// DirectionalDirect input contains only the selected directional light's
-		// post-shadow contribution. Returns false when resources or inputs are
-		// unavailable so the caller can keep SceneColor unchanged.
-		// LightDirection is the light travel direction.
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
 		auto Render_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			FRHITexture* SceneColor,
-			FRHITexture* DirectionalDirect,
-			FRHITexture* SceneDepth,
-			FRHITexture* ContactColor,
-			const FSceneView& View,
-			const FVector3& LightDirection,
-			bool bShowDebug,
-			uint32 Width,
-			uint32 Height) -> bool;
-
+			FRHICommandListImmediate& CommandList, FTargets& Targets,
+			FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
+			FRHITexture* Emissive, FRHITexture* SceneDepth,
+			const FSceneView& View, const FVector3& LightDirection,
+			uint32 Width, uint32 Height) -> bool;
+		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

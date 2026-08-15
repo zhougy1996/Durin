@@ -12,8 +12,7 @@ namespace Durin::RenderTargetLayouts
 		Present,
 	};
 
-	// Scene Color plus the selected directional light's post-shadow direct
-	// contribution, followed by the preserved scene depth attachment.
+	// Scene Color followed by the preserved scene depth attachment.
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
 	// Four stored color attachments plus D32 depth for the qualified opaque and
 	// masked geometry transport.
@@ -22,16 +21,17 @@ namespace Durin::RenderTargetLayouts
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
-	// One color-only RGBA16_FLOAT target that is cleared and published for
-	// sampling; used by the contact-shadow pass writing corrected Scene Color.
-	RENDERER_API auto MakeContactShadowOutput() -> FRHIRenderTargetLayout;
+	// One cleared R8_UNORM contact-visibility target published for sampling.
+	RENDERER_API auto MakeContactVisibilityOutput() -> FRHIRenderTargetLayout;
+	// One on-demand RGBA16_FLOAT target used only by GBuffer diagnostics.
+	RENDERER_API auto MakeGBufferDebugOutput() -> FRHIRenderTargetLayout;
 	// Isolated M3 RGBA16_FLOAT qualification output, cleared per view and left
 	// shader-readable for capture/A-B without becoming the presented Scene Color.
 	RENDERER_API auto MakeDeferredDirectionalOutput() -> FRHIRenderTargetLayout;
 	// One cleared R8_UNORM raw visibility target published for sampling/capture.
 	RENDERER_API auto MakeGroundTruthAmbientOcclusionOutput()
 		-> FRHIRenderTargetLayout;
-	// Clears/loads the authoritative hybrid Scene Color pair while preserving
+	// Clears/loads the authoritative hybrid Scene Color while preserving
 	// GBuffer depth across sky bootstrap, deferred lighting, and retained forward.
 	RENDERER_API auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout;

@@ -36,6 +36,7 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionRaw); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionFiltered); \
+	DURIN_SHADER_PARAMETER_TEXTURE(ContactVisibility);       \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);      \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 
@@ -309,26 +310,24 @@ namespace Durin
 	) -> bool
 	{
 		return RenderInternal_RenderThread(
-			CommandList, Targets.Color, nullptr, Parameters, false
+			CommandList, Targets.Color, Parameters, false
 		);
 	}
 
 	auto FDeferredDirectionalLightingRenderer::RenderProduction_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor,
-		FRHITexture* DirectionalDirect,
 		const FRenderParameters& Parameters
 	) -> bool
 	{
 		return RenderInternal_RenderThread(
-			CommandList, SceneColor, DirectionalDirect, Parameters, true
+			CommandList, SceneColor, Parameters, true
 		);
 	}
 
 	auto FDeferredDirectionalLightingRenderer::RenderInternal_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor,
-		FRHITexture* DirectionalDirect,
 		const FRenderParameters& Parameters,
 		bool bProduction
 	) -> bool
@@ -336,8 +335,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView* View = Parameters.View;
-		if (SceneColor == nullptr || (bProduction && DirectionalDirect == nullptr)
-			|| View == nullptr
+		if (SceneColor == nullptr || View == nullptr
 			|| View->ViewportWidth == 0 || View->ViewportHeight == 0
 			|| Parameters.Material == nullptr || Parameters.Normals == nullptr
 			|| Parameters.Surface == nullptr || Parameters.Emissive == nullptr
@@ -348,6 +346,7 @@ namespace Durin
 			|| Parameters.DirectionalShadowTexture == nullptr
 			|| Parameters.GroundTruthAmbientOcclusionRaw == nullptr
 			|| Parameters.GroundTruthAmbientOcclusionFiltered == nullptr
+			|| Parameters.ContactVisibility == nullptr
 			|| Parameters.Lighting.Buffer == nullptr)
 		{
 			return false;
@@ -388,6 +387,10 @@ namespace Durin
 			bProduction ? 1.0f :
 				-static_cast<float>(Parameters.GroundTruthAmbientOcclusionDebugMode)
 		};
+		Uniform.ContactParams = {
+			Parameters.bContactVisibilityEnabled ? 1.0f : 0.0f,
+			Parameters.bContactVisibilityDebug ? 1.0f : 0.0f,
+			0.0f, 0.0f};
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
@@ -396,8 +399,6 @@ namespace Durin
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.RenderTargetLayout = bProduction ? RenderTargetLayouts::MakeHybridDeferredOutput() : RenderTargetLayouts::MakeDeferredDirectionalOutput();
 		PassInfo.ColorRenderTargets[0] = SceneColor;
-		if (bProduction)
-			PassInfo.ColorRenderTargets[1] = DirectionalDirect;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(
 			View->ClearColor.r, View->ClearColor.g,
 			View->ClearColor.b, View->ClearColor.a
@@ -441,6 +442,7 @@ namespace Durin
 				Parameters.GroundTruthAmbientOcclusionRaw;
 			ShaderParameters.GroundTruthAmbientOcclusionFiltered =
 				Parameters.GroundTruthAmbientOcclusionFiltered;
+			ShaderParameters.ContactVisibility = Parameters.ContactVisibility;
 			ShaderParameters.View = ViewUniform;
 			ShaderParameters.Lighting = Parameters.Lighting;
 		};

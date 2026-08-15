@@ -12,7 +12,7 @@ SplineMesh, SkeletalMesh, and Terrain records after the GBuffer. Forward owns
 only Unlit opaque/masked surfaces, the globally sorted translucent list,
 wireframe or another explicitly named special mode, and SkyBox bootstrap.
 Dedicated retained-forward pipeline
-variants load existing HDR Scene Color, directional-direct, and GBuffer depth;
+variants load existing HDR Scene Color and GBuffer depth;
 they never clear or display-map those attachments. No product caller silently
 falls back to generic Lit opaque forward rendering.
 

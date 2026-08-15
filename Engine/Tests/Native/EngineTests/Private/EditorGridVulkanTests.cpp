@@ -14,6 +14,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
+#include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
@@ -73,6 +74,14 @@ namespace Durin
 			static constexpr auto GetName() -> const char*
 			{
 				return "FailDisplayPayloadContract";
+			}
+		};
+
+		struct FContactVisibilityTargetLifecycle
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "ContactVisibilityTargetLifecycle";
 			}
 		};
 
@@ -325,7 +334,7 @@ namespace Durin
 				ASSERT_NE(HDRTarget, nullptr);
 				FRHIRenderPassInfo HDRPass{};
 				HDRPass.RenderTargetLayout =
-					RenderTargetLayouts::MakeContactShadowOutput();
+					RenderTargetLayouts::MakeGBufferDebugOutput();
 				HDRPass.ColorRenderTargets[0] = HDRTarget;
 				HDRPass.ColorClearValues[0] =
 					FClearValueBinding(4.0f, 2.0f, 0.5f, 0.5f);
@@ -903,6 +912,78 @@ namespace Durin
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);
+		FlushRenderingCommands();
+		for (size_t Index = 0; Index < Results->size(); ++Index)
+			EXPECT_TRUE((*Results)[Index]) << Index;
+
+		ShutdownRenderingThread();
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		RHIExit();
+	}
+
+	TEST(FEditorGridVulkanTests, ContactVisibilityTargetsRecoverAfterFailureAndInvalidation)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		FModuleManager::Get().LoadModule("RenderCore");
+		RHIInit();
+		ASSERT_NE(GDynamicRHI, nullptr);
+		InitRenderingThread();
+
+		FRendererResourceCoordinator Coordinator;
+		FFullscreenGeometryResources FullscreenGeometry;
+		FContactShadowVisibilityRenderer ContactVisibility(
+			Coordinator, FullscreenGeometry);
+		auto Results = std::make_shared<std::array<bool, 8>>();
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::Image);
+		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
+			[&Coordinator, &ContactVisibility, &FullscreenGeometry, Results](
+				FRHICommandListImmediate&) {
+				(*Results)[0] =
+					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
+				(*Results)[1] =
+					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				auto* Recovered =
+					ContactVisibility.EnsureTargets_RenderThread(64, 32);
+				(*Results)[2] = Recovered != nullptr
+					&& Recovered->Visibility != nullptr
+					&& Recovered->Visibility->GetFormat() == EPixelFormat::R8_UNORM;
+				FRHITexture* RecoveredTexture = Recovered != nullptr
+					? Recovered->Visibility.GetReference() : nullptr;
+				auto* Alternate =
+					ContactVisibility.EnsureTargets_RenderThread(32, 16);
+				(*Results)[3] = Alternate != nullptr
+					&& Alternate->Visibility->GetSizeX() == 32
+					&& Alternate->Visibility->GetSizeY() == 16;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					FRendererResourceInvalidationTargets{});
+				auto* DeviceTargets =
+					ContactVisibility.EnsureTargets_RenderThread(64, 32);
+				(*Results)[4] = DeviceTargets != nullptr
+					&& DeviceTargets->Visibility.GetReference() != RecoveredTexture;
+				FRHITexture* DeviceTexture = DeviceTargets != nullptr
+					? DeviceTargets->Visibility.GetReference() : nullptr;
+				ContactVisibility.ReleaseResources_RenderThread();
+				auto* Released =
+					ContactVisibility.EnsureTargets_RenderThread(64, 32);
+				(*Results)[5] = Released != nullptr
+					&& Released->Visibility.GetReference() != DeviceTexture;
+				(*Results)[6] = FContactShadowVisibilityRenderer::
+					CalculateTargetBytes(64, 32) == 2048;
+				(*Results)[7] = ContactVisibility.
+					GetRetainedTargetBytes_RenderThread() == 2048;
+				ContactVisibility.ReleaseResources_RenderThread();
+				FullscreenGeometry.ReleaseResources_RenderThread();
+			});
 		FlushRenderingCommands();
 		for (size_t Index = 0; Index < Results->size(); ++Index)
 			EXPECT_TRUE((*Results)[Index]) << Index;

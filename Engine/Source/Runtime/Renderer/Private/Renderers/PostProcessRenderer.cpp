@@ -402,56 +402,25 @@ namespace Durin
 			ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::ShaderResource);
 		SceneDepthDesc.SetClearValue(FClearValueBinding(0.0f, 0u));
-		FRHITextureCreateDesc DirectionalDirectDesc =
-			FRHITextureCreateDesc::Create2D(
-				"DirectionalDirect",
-				Width,
-				Height,
-				EPixelFormat::R11G11B10_FLOAT);
-		DirectionalDirectDesc.SetFlags(
-			ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource);
-		DirectionalDirectDesc.SetClearValue(
-			FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
-		FRHITextureCreateDesc ContactColorDesc =
-			FRHITextureCreateDesc::Create2D(
-				"ContactColor",
-				Width,
-				Height,
-				EPixelFormat::RGBA16_FLOAT);
-		ContactColorDesc.SetFlags(
-			ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::SourceCopy);
-		ContactColorDesc.SetClearValue(
-			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-
 		using FResult = TRenderResourceCreateResult<FSceneTargets>;
 		auto& Entry = State->SceneTargetsBySize.FindOrAdd(Key);
 		FSceneTargets* Targets = Entry.Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
-			[Key, &SceneColorDesc, &SceneDepthDesc, &DirectionalDirectDesc,
-			 &ContactColorDesc]() -> FResult {
+			[Key, &SceneColorDesc, &SceneDepthDesc]() -> FResult {
 				FSceneTargets Candidate;
 				Candidate.Color = RHICreateTexture(SceneColorDesc);
 				if (Candidate.Color != nullptr)
 				{
 					Candidate.Depth = RHICreateTexture(SceneDepthDesc);
-					Candidate.DirectionalDirect =
-						RHICreateTexture(DirectionalDirectDesc);
-					Candidate.ContactColor =
-						RHICreateTexture(ContactColorDesc);
 				}
-				if (Candidate.Color == nullptr || Candidate.Depth == nullptr
-					|| Candidate.DirectionalDirect == nullptr
-					|| Candidate.ContactColor == nullptr)
+				if (Candidate.Color == nullptr || Candidate.Depth == nullptr)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"PostProcessSceneTargets",
 							std::to_string(Key),
-							"Scene color, directional direct, depth, or contact color texture creation returned null.",
+							"Scene color or depth texture creation returned null.",
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}

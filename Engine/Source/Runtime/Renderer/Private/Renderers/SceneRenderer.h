@@ -77,11 +77,10 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			ERendererResourceInvalidationCause Cause
 		) -> void;
-		auto RenderScene_RenderThread(
+			auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
 			FRHITexture* SceneColor,
-			FRHITexture* DirectionalDirect,
 			FRHITexture* Depth,
 			const FDeferredDirectionalLightingRenderer::FRenderParameters*
 				DeferredParameters
@@ -106,7 +105,7 @@ namespace Durin
 		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
 		FPostProcessRenderer PostProcessRenderer;
-		FScreenSpaceContactShadowRenderer ContactShadowRenderer;
+		FContactShadowVisibilityRenderer ContactShadowRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 	};
 } // namespace Durin

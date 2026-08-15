@@ -15,9 +15,9 @@ namespace Durin
 	class FPostProcessRenderer final
 	{
 	public:
-		static constexpr uint64 SceneTargetBytesPerPixel = 24;
+		static constexpr uint64 SceneTargetBytesPerPixel = 12;
 		static constexpr uint64 MaximumRetainedSceneTargetBytes =
-			192ull * 1024ull * 1024ull;
+			96ull * 1024ull * 1024ull;
 		static constexpr auto CalculateSceneTargetBytes(
 			uint32 Width,
 			uint32 Height) -> uint64
@@ -33,12 +33,6 @@ namespace Durin
 		{
 			FTextureRHIRef Color;
 			FTextureRHIRef Depth;
-			// Stores only the selected directional light's direct contribution so
-			// contact shadows cannot attenuate unrelated lighting.
-			FTextureRHIRef DirectionalDirect;
-			// Holds contact-shadow-corrected Scene Color; read by the post
-			// process when contact shadows are enabled.
-			FTextureRHIRef ContactColor;
 		};
 
 		FPostProcessRenderer(

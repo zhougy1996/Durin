@@ -84,10 +84,15 @@ view may sample stale attachments from another view or extent.
 The size-keyed GBuffer cache retains the current extent and evicts oldest
 other extents above `128 MiB`. The four attachments cost exactly 16 bytes per
 pixel: `33,177,600` bytes at 1920x1080. Four such extents fit and five do not.
-Together with the `192 MiB` scene-target cache, the frozen combined cache
-ceilings are `320 MiB`; one 1920x1080 active route including one SDR output is
-`91,238,400` bytes. Recorded commands retain their own RHI references, so
+Together with the `96 MiB` scene-target cache, the frozen combined cache
+ceilings are `224 MiB`; one 1920x1080 active route including one SDR output is
+`66,355,200` bytes. Recorded commands retain their own RHI references, so
 eviction cannot invalidate in-flight work.
+
+Directional contact visibility is an optional downstream consumer of material
+flags, geometric normal, and D32. It accepts only standard-Lit records and owns
+its separate on-demand single-channel output; it does not change GBuffer
+packing or keep the GBuffer debug target resident in ordinary production.
 
 ## Diagnostics and Qualification
 

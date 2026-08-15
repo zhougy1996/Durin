@@ -28,11 +28,11 @@ validation-enabled RTX 3090 gates. Its selected run measured raw
 `766,800/1,059,520 ns`, and production total `595,008/639,584 ns` median/p95
 at 1920x1080.
 
-No M6 candidate met its evidence entry gate. No measured product scene exceeds
-the qualified `1 + 4` tier, decals have no selected product requirement, and
-the depth-only contact-shadow experiment does not justify a normal-aware
-production revision. These candidates require future dedicated plans if new
-evidence appears and do not block this roadmap's completion.
+The later deferred-contact plan selected one M6 consumer after this roadmap
+completed. Contact shadows now use GBuffer receiver identity and geometric
+normal, produce optional single-channel visibility before deferred lighting,
+and no longer retain post-scene HDR subtraction targets. Scalable lights and
+decals still have no selected product requirement.
 
 ## Outcome
 
@@ -132,10 +132,10 @@ evidence appears and do not block this roadmap's completion.
 - Contact shadows remain a short, bounded, optional detail term. They do not
   guarantee off-screen casters, fully repair main-shadow leaks, or conceal
   geometry gaps.
-- The current depth-only contact path stays default-off. A future revision must
-  use the selected geometry signal for receiver offset, grazing-angle
-  confidence, edge rejection, and same-surface rejection; deferred rendering
-  alone does not provide those behaviors automatically.
+- Contact visibility stays default-off, consumes standard-Lit receiver identity
+  plus geometric normal, and uses bounded grazing confidence. Deferred inputs
+  improve ownership and rejection but do not provide off-screen or multilayer
+  coverage automatically.
 
 ### Rollout and fallback
 
@@ -183,14 +183,12 @@ evidence appears and do not block this roadmap's completion.
 | Deferred Directional Lighting | Shared directional/IBL/emissive evaluation and forward comparison | Local-light scaling, generic post-process graph | Completed 2026-08-15 |
 | Hybrid Renderer Production Rollout | Existing local-light parity, forward translucency composition, primitive coverage, opaque-owner retirement | More-than-supported light tiers, GTAO, decals | Completed 2026-08-15 |
 | Ground Truth Ambient Occlusion | Indirect occlusion, denoise/history policy, edge behavior, composition | Direct-shadow repair or contact-shadow replacement claims | Completed 2026-08-16 |
-| Optional consumer plans | One measured extension each | Bundled renderer modernization | Declined for this roadmap: no candidate met its measured entry gate |
+| Optional consumer plans | One measured extension each | Bundled renderer modernization | Deferred contact visibility completed 2026-08-16; other candidates remain declined |
 
 The existing
 [Directional Contact Shadows](../../../Plans/DirectionalContactShadows.md) plan
-remains separate. Its depth-only implementation is an opt-in detail experiment,
-not an M1-M4 dependency. Any geometry-normal revision belongs to a later
-evidence-backed plan update after M3 rather than a new depth-neighbor patch in
-the current forward path.
+remains separate and completed after the roadmap. Its GBuffer-aware deferred
+visibility is an opt-in detail term, not an M1-M4 dependency.
 
 ## Program Validation Matrix
 
