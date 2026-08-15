@@ -95,7 +95,7 @@ namespace Durin::Editor::Level
 		std::vector<FContentDeletionFingerprint> Entries;
 		std::vector<FContentDeletionBlocker> Blockers;
 		std::vector<FContentDeletionWarning> Warnings;
-		Asset::FAssetDeletionBatchToken AssetBatch;
+		mutable Asset::FAssetDeletionTransaction AssetTransaction;
 
 		auto CanExecute() const -> bool { return Blockers.empty(); }
 	};
@@ -115,10 +115,7 @@ namespace Durin::Editor::Level
 
 	enum class EContentDeletionJournalOperation : uint8
 	{
-		UnloadAssetBatch,
 		MoveToStaging,
-		RemoveRegistryProjection,
-		RestoreRegistryProjection,
 		MoveToOriginal,
 	};
 
@@ -148,12 +145,6 @@ namespace Durin::Editor::Level
 			const std::filesystem::path&,
 			const std::filesystem::path&,
 			EContentDeletionMovePhase)> Rename;
-		std::function<Asset::FAssetResult(
-			const Asset::FAssetDeletionBatchToken&)> UnloadAssetBatch;
-		std::function<Asset::FAssetResult(
-			const Asset::FAssetDeletionBatchToken&)> RemoveRegistryProjection;
-		std::function<Asset::FAssetResult(
-			const Asset::FAssetDeletionBatchToken&)> RestoreAssetBatch;
 	};
 
 	class FContentDeletionTransaction final : public ::Durin::Editor::ITransaction
@@ -198,6 +189,9 @@ namespace Durin::Editor::Level
 			size_t Count,
 			bool bBackToOriginal,
 			EContentDeletionMovePhase Phase) -> bool;
+		auto StagePhysicalDeletion() -> Asset::FAssetResult;
+		auto RestorePhysicalDeletion() -> Asset::FAssetResult;
+		auto MakePhysicalTransition() -> Asset::FAssetDeletionPhysicalTransition;
 		auto CleanupOwnedStagingRoot() -> void;
 		auto Fail(std::string Message) -> bool;
 

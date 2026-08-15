@@ -10,7 +10,7 @@ namespace Durin
 {
 	auto InitializeEngineAssetServices() -> void
 	{
-		static const bool bInitialized = [] {
+		static const std::array<Asset::FAssetDeleteContributorHandle, 4> Registrations = [] {
 			auto PreserveMountedSource = [](
 				const Asset::FAssetData&,
 				const Asset::FAssetPackageInspection&,
@@ -19,12 +19,17 @@ namespace Durin
 				// Mounted sources may be shared and require a separate, explicit source operation.
 				return {};
 			};
-			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), PreserveMountedSource);
-			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), PreserveMountedSource);
-			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), PreserveMountedSource);
-			Asset::RegisterAssetDeleteContributor(DTerrainHeightmap::StaticClass(), PreserveMountedSource);
-			return true;
+			return std::array{
+				Asset::RegisterAssetDeleteContributor(
+					DTexture2D::StaticClass(), PreserveMountedSource),
+				Asset::RegisterAssetDeleteContributor(
+					DTextureCube::StaticClass(), PreserveMountedSource),
+				Asset::RegisterAssetDeleteContributor(
+					DStaticMesh::StaticClass(), PreserveMountedSource),
+				Asset::RegisterAssetDeleteContributor(
+					DTerrainHeightmap::StaticClass(), PreserveMountedSource),
+			};
 		}();
-		(void)bInitialized;
+		(void)Registrations;
 	}
 }

@@ -330,7 +330,7 @@ namespace Durin::Tests
 				OutError = "The cached StaticMesh fixture path is invalid.";
 				return false;
 			}
-			if (Asset::FindLoadedPackage(StaticMeshPath) == nullptr)
+			if (Asset::FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(StaticMeshPath, Loaded);

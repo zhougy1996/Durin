@@ -158,7 +158,9 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Key, ImportedKey);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(std::filesystem::is_regular_file(ObjectPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		Fixture.AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 
 	const std::filesystem::path StoredSource =
 		Fixture.Root / "Content" / "Models" / "Mesh.gltf";
@@ -207,7 +209,9 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_NE(Fixture.Mesh->GetDerivedDataDiagnostic().Key, SourceChangedKey);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		Fixture.AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreservesLiveData)
@@ -240,7 +244,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreserve
 	EXPECT_FALSE(Error.empty());
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		Fixture.AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAndRequiredAtRuntime)

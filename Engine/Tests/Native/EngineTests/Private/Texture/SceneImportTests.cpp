@@ -418,13 +418,13 @@ TEST(FSceneImportTests, SkeletalStaleCollisionPublishesNothing)
 	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
 		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
 	EXPECT_FALSE(Executed);
-	EXPECT_EQ(Durin::Asset::FindLoadedPackage(
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(
 		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
-	EXPECT_EQ(Durin::Asset::FindDraftPackage(
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(
 		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
 	for (const Durin::Asset::Import::FImportOutputPreview& Output : Generic.GetOutputs())
 	{
-		Durin::DPackage* Draft = Durin::Asset::FindDraftPackage(Output.AssetPath);
+		Durin::DPackage* Draft = Durin::Asset::FindResidentPackage(Output.AssetPath);
 		if (Output.AssetPath == SkeletonOutput->AssetPath)
 			EXPECT_EQ(Draft, Occupant->GetPackage());
 		else
@@ -925,5 +925,5 @@ TEST(FSceneImportTests, RecordReloadDoesNotLoadOutputDependencyClosure)
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetOutputs().size(), Outputs.size());
 	for (const Durin::FAssetPath& Output : Outputs)
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(Output), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(Output), nullptr);
 }

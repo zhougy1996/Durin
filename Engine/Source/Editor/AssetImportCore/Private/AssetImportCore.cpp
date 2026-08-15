@@ -1646,7 +1646,7 @@ namespace Durin::Asset::Import
 			|| !Plan.Handler->InspectProvenance(
 				*Plan.Asset, CurrentProvenance, PreflightDiagnostics)
 			|| CurrentProvenance != Plan.ObservedProvenance
-			|| Asset::FindLoadedPackage(Plan.AssetPath) != Plan.Asset->GetPackage();
+			|| Asset::FindResidentPackage(Plan.AssetPath) != Plan.Asset->GetPackage();
 		if (bStale)
 		{
 			Result.Diagnostics.insert(Result.Diagnostics.end(),

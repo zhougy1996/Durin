@@ -188,12 +188,12 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	EXPECT_EQ(Durin::Asset::FindLoadedPackage(MeshPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
 	const Durin::Asset::FAssetResult LevelLoad = Durin::Asset::LoadAsset(LevelPath, Loaded);
 	ASSERT_TRUE(LevelLoad) << LevelLoad.Message;
-	EXPECT_NE(Durin::Asset::FindLoadedPackage(MeshPath), nullptr);
+	EXPECT_NE(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(LevelPath));

@@ -110,7 +110,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ExpectPixelNear(DecodeFirstCompressedPixel(Preset.PixelFormat,
 			Loaded->GetPlatformData()->Mips.back().Pixels), Preset.ExpectedPixel);
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-		ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+		ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 	}
 }
 
@@ -137,7 +137,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Npot", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 
 	Durin::FTexture2DImportResult ColorResult = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/NpotColor");
@@ -149,7 +149,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	Durin::FAssetPath ColorAssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/NpotColor", ColorAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ColorAssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(ColorAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(ColorAssetPath));
 }
 
 TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
@@ -189,7 +189,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	EXPECT_EQ(Loaded->GetPlatformData()->Mips.front().Width, 2u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
@@ -360,8 +360,10 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 37, 0, 0});
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo)
@@ -535,8 +537,10 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	Transactions.Clear();
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransactions)
@@ -681,6 +685,8 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/AsyncTransactional", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }

@@ -195,7 +195,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	RootComponent->SetWorldTransform(RootComponent->GetWorldTransform());
 
 	EXPECT_EQ(Package->GetEditRevision(), Revision);
-	EXPECT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Package));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)

@@ -11,8 +11,8 @@ namespace Durin::Editor::Level
 			const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(AssetPath);
 			return {
 				.bRegistryAssetExists = Entry.Succeeded(),
-				.bLoadedPackageExists = Asset::FindLoadedPackage(AssetPath) != nullptr,
-				.bDraftPackageExists = Asset::FindDraftPackage(AssetPath) != nullptr,
+				.ResidentPublicationState =
+					Asset::GetResidentPackagePublicationState(AssetPath),
 				.OccupantKind = !Entry
 					? EAssetDestinationOccupantKind::None
 					: Entry->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
@@ -47,8 +47,7 @@ namespace Durin::Editor::Level
 		const FAssetDestinationOccupancy Occupancy =
 			(OccupancyQuery != nullptr ? OccupancyQuery : QueryAssetDestinationOccupancy)(Result.AssetPath);
 		Result.bRegistryAssetExists = Occupancy.bRegistryAssetExists;
-		Result.bLoadedPackageExists = Occupancy.bLoadedPackageExists;
-		Result.bDraftPackageExists = Occupancy.bDraftPackageExists;
+		Result.ResidentPublicationState = Occupancy.ResidentPublicationState;
 		Result.OccupantKind = Occupancy.OccupantKind;
 		Result.RedirectDestination = Occupancy.RedirectDestination;
 		if (Result.bRegistryAssetExists
@@ -60,10 +59,11 @@ namespace Durin::Editor::Level
 				: "A redirector already occupies this path. Repair or Fix Up the redirector before reusing the destination.";
 		else if (Result.bRegistryAssetExists)
 			Result.Message = "An asset already exists at this path. Choose another destination or delete the existing asset first.";
-		else if (Result.bLoadedPackageExists)
-			Result.Message = "A loaded package already uses this path. Close it or choose another destination.";
-		else if (Result.bDraftPackageExists)
-			Result.Message = "An unpublished asset draft already uses this path. Save or discard it before reusing the destination.";
+		else if (Result.ResidentPublicationState
+			== Asset::EAssetPackagePublicationState::NewlyCreated)
+			Result.Message = "A newly created unsaved package already uses this path. Save or explicitly discard it before reusing the destination.";
+		else if (Result.ResidentPublicationState.has_value())
+			Result.Message = "A resident package already uses this path. Close it or choose another destination.";
 		return Result;
 	}
 

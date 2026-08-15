@@ -189,7 +189,7 @@ namespace Durin::Editor
 					Reference.AssetPath.ToString());
 				return false;
 			}
-			DPackage* Loaded = Asset::FindLoadedPackage(Reference.AssetPath);
+			DPackage* Loaded = Asset::FindResidentPackage(Reference.AssetPath);
 			if (Loaded && Loaded->IsDirty())
 			{
 				OutError = std::format(

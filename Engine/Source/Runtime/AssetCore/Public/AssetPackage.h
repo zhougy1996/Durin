@@ -217,7 +217,22 @@ namespace Durin::Asset
 	// Captures package ownership before a higher-level load request begins.
 	struct FAssetPackageLoadSnapshot
 	{
-		std::vector<FAssetPath> LoadedPackages;
+		std::vector<FAssetPath> ResidentPackages;
+	};
+
+	// Newly created packages and packages backed by persistent catalog entries
+	// share one residency store. Dirty state remains an independent DPackage bit.
+	enum class EAssetPackagePublicationState : uint8
+	{
+		NewlyCreated,
+		Published,
+	};
+
+	// Unload preserves unsaved work unless the caller explicitly accepts loss.
+	enum class EAssetPackageUnloadPolicy : uint8
+	{
+		RejectUnsaved,
+		DiscardUnsaved,
 	};
 
 	// Carries package metadata parsed without materializing package objects.
@@ -287,9 +302,6 @@ namespace Durin::Asset
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}) -> FAssetResult;
 
-	// Removes a newly created, unpublished package from the loaded-object cache.
-	// This is the rollback counterpart to CreateAsset and rejects visible assets.
-	ASSETCORE_API auto DiscardUnpublishedPackage(DPackage* Package) -> FAssetResult;
 	// Explicitly validates and publishes an existing mounted package before ordinary loading.
 	ASSETCORE_API auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult;
 

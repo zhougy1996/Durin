@@ -246,8 +246,7 @@ namespace Durin::Asset::Import::Standard
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
 		if (Asset::FindAssetExact(ParsedAssetPath)
-			|| Asset::FindLoadedPackage(ParsedAssetPath)
-			|| Asset::FindDraftPackage(ParsedAssetPath))
+			|| Asset::FindResidentPackage(ParsedAssetPath))
 			return {false,
 				std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
@@ -291,14 +290,14 @@ namespace Durin::Asset::Import::Standard
 			Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
+			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
+			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, SaveResult.Message, nullptr};
 		}
 		CommitMountedSourceFile(MountedSource);

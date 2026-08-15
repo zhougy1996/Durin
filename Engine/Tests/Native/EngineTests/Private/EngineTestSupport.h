@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetMutation.h"
+#include "AssetTestSupport.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"
@@ -38,20 +39,18 @@ inline auto DeleteAssetClosureForTest(
 	-> Durin::Asset::FAssetResult
 {
 	const std::vector<Durin::FAssetPath> DeletionPaths(Paths);
-	Durin::Asset::FAssetDeletionBatchToken Token;
+	Durin::Asset::FAssetDeletionTransaction Transaction;
 	std::vector<Durin::Asset::FAssetDeletionBatchBlocker> Blockers;
 	Durin::Asset::FAssetResult Result =
-		Durin::Asset::AnalyzeAssetDeletionBatch(
-			DeletionPaths, {}, Token, Blockers);
+		Durin::Asset::PrepareAssetDeletionTransaction(
+			DeletionPaths, {}, Transaction, Blockers);
 	if (!Result) return Result;
 	if (!Blockers.empty())
 		return {
 			Durin::Asset::EAssetError::InUse,
 			Blockers.front().Details};
-	Result = Durin::Asset::UnloadAssetDeletionBatch(Token);
-	if (!Result) return Result;
-	for (const Durin::Asset::FAssetDeletionBatchEntry& Entry :
-		 Token.GetEntries())
+	const auto RemoveFiles = [&]() -> Durin::Asset::FAssetResult {
+	for (const Durin::Asset::FAssetDeletionBatchEntry& Entry : Transaction.GetEntries())
 	{
 		std::error_code Error;
 		if (!std::filesystem::remove(Entry.RegistryEntry.PhysicalPath, Error)
@@ -73,5 +72,12 @@ inline auto DeleteAssetClosureForTest(
 						Companion.generic_string(), Error.message())};
 		}
 	}
-	return Durin::Asset::RemoveAssetDeletionBatchRegistryProjection(Token);
+	return {};
+	};
+	return Transaction.Commit({
+		.Stage = RemoveFiles,
+		.Restore = [] { return Durin::Asset::FAssetResult{
+			Durin::Asset::EAssetError::IoError,
+			"Irreversible test cleanup cannot be restored."}; },
+	});
 }

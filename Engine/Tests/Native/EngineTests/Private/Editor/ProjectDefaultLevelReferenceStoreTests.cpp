@@ -26,11 +26,12 @@ namespace
 		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		Durin::Asset::FAssetResult Result =
-			Durin::Asset::AnalyzeAssetRelocationBatch(
-				std::span{&Mapping, 1}, Token);
-		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+			Durin::Asset::PrepareAssetRelocationTransaction(
+				std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		return Result;
 	}
 
@@ -139,8 +140,14 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 		[&](const Durin::FAssetPath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
-	ASSERT_TRUE(Durin::Asset::FixUpRedirectors(
-		std::span{&Scenario.OldPath, 1}));
+	Durin::Asset::FAssetRedirectorFixupSummary Summary;
+	Durin::Asset::FAssetMutationTransaction Transaction;
+	ASSERT_TRUE(Durin::Asset::PrepareRedirectorFixupTransaction(
+		std::span{&Scenario.OldPath, 1},
+		Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
+		Summary,
+		Transaction));
+	ASSERT_TRUE(Transaction.Commit());
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	EXPECT_EQ(Durin::Asset::FindAssetExact(
 		Scenario.OldPath), nullptr);
@@ -163,8 +170,15 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 	FScopedStoreRegistration Registration(Store);
 	Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::Asset::EAssetRedirectorFixupFailurePoint::Verify);
-	const Durin::Asset::FAssetResult Result =
-		Durin::Asset::FixUpRedirectors(std::span{&Scenario.OldPath, 1});
+	Durin::Asset::FAssetRedirectorFixupSummary Summary;
+	Durin::Asset::FAssetMutationTransaction Transaction;
+	Durin::Asset::FAssetResult Result =
+		Durin::Asset::PrepareRedirectorFixupTransaction(
+			std::span{&Scenario.OldPath, 1},
+			Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
+			Summary,
+			Transaction);
+	if (Result) Result = Transaction.Commit();
 	Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::Asset::EAssetRedirectorFixupFailurePoint::None);
 	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError);

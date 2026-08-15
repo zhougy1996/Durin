@@ -5,6 +5,7 @@
 #include "AssetCompatibility.h"
 #include "AssetPackageV4Reader.h"
 #include "AssetMutation.h"
+#include "AssetTestSupport.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "ImportRecord.h"
@@ -36,13 +37,12 @@ namespace
 		const Durin::Asset::FAssetRelocationMapping Mapping{
 			Source, Destination
 		};
-		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		Durin::Asset::FAssetResult Result =
-			Durin::Asset::AnalyzeAssetRelocationBatch(
-				std::span{&Mapping, 1}, Token
-			);
-		if (Result) Result = Durin::Asset::RevalidateAssetRelocationBatch(Token);
-		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+			Durin::Asset::PrepareAssetRelocationTransaction(
+				std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		return Result;
 	}
 
@@ -285,7 +285,7 @@ namespace
 		{
 			if (!Package) return;
 			if (AbandonCount) ++*AbandonCount;
-			(void)Durin::Asset::DiscardUnpublishedPackage(Package);
+			(void)Durin::Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			Package = nullptr;
 			Asset = nullptr;
 		}
@@ -819,17 +819,18 @@ TEST(FImportRecordFrameworkTests, FixUpRewritesImportRecordDomainPathsInSharedTr
 
 	{
 		FScopedAssetReferenceStore StoreRegistration(Index);
-		Durin::Asset::FAssetRedirectorFixupPlan Plan;
+		Durin::Asset::FAssetRedirectorFixupSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		const Durin::Asset::FAssetResult Analysis =
-			Durin::Asset::AnalyzeRedirectorFixup(
+			Durin::Asset::PrepareRedirectorFixupTransaction(
 				std::span{&Scenario.PrimaryPath, 1},
 				Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
-				Plan
+				Summary,
+				Transaction
 			);
 		ASSERT_TRUE(Analysis) << Analysis.Message;
-		EXPECT_EQ(Plan.GetStoreOccurrences().size(), 2u);
-		const Durin::Asset::FAssetResult Applied =
-			Durin::Asset::ApplyRedirectorFixup(Plan);
+		EXPECT_EQ(Summary.GetStoreOccurrences().size(), 2u);
+		const Durin::Asset::FAssetResult Applied = Transaction.Commit();
 		ASSERT_TRUE(Applied) << Applied.Message;
 	}
 
@@ -1033,7 +1034,7 @@ TEST(FImportRecordFrameworkTests, ReconcilesPersistedPoliciesMissingOutputsAndOr
 	std::string Error;
 	ASSERT_TRUE(Published.Record->SetState(std::move(State), Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::SavePackage(Published.Record->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(Scenario.PeerPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(Scenario.PeerPath));
 	Index.NotifyAssetDeleted(Scenario.PeerPath);
 	ASSERT_TRUE(Index.Rebuild(Error)) << Error;
 
@@ -1087,7 +1088,7 @@ TEST(FImportRecordFrameworkTests, RejectsUnrelatedInitialOutputCollision)
 	EXPECT_TRUE(std::ranges::any_of(Plan.Diagnostics, [](const auto& Diagnostic) {
 		return Diagnostic.Category == Durin::Asset::Import::EImportDiagnosticCategory::Collision;
 	}));
-	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Occupant->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Occupant->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Asset::Import::GetProviderRegistry().Unregister(Scenario.ProviderId));
 }
 
@@ -1115,8 +1116,8 @@ TEST(FImportRecordFrameworkTests, RootLastFailureRestoresPriorRecordAndOutputs)
 		EXPECT_EQ(Durin::Asset::FindAssetExact(InitialFailure.PrimaryPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindAssetExact(InitialFailure.PeerPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindAssetExact(InitialFailure.RecordPath), nullptr);
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(InitialFailure.PrimaryPath), nullptr);
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(InitialFailure.RecordPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(InitialFailure.PrimaryPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(InitialFailure.RecordPath), nullptr);
 	}
 	ASSERT_TRUE(Durin::Asset::Import::GetProviderRegistry().Unregister(
 		InitialFailure.ProviderId

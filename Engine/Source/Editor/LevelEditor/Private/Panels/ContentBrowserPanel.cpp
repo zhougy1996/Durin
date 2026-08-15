@@ -19,7 +19,7 @@ namespace Durin::Editor::Level
 {
 	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
 	{
-		DPackage* Package = Asset::FindLoadedPackage(Path);
+		DPackage* Package = Asset::FindResidentPackage(Path);
 		if (!Package || !Package->IsDirty())
 		{
 			SetError("Save Package is available only for a loaded package with authored changes.");

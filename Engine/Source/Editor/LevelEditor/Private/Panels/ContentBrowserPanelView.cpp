@@ -758,7 +758,7 @@ namespace Durin::Editor::Level
 			FAssetPath PackagePath;
 			if (FAssetPath::TryCreate(Item.VirtualPath, PackagePath))
 			{
-				DPackage* LoadedPackage = Asset::FindLoadedPackage(PackagePath);
+				DPackage* LoadedPackage = Asset::FindResidentPackage(PackagePath);
 				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
 					DeferredContentAction = [this, PackagePath] { SaveAssetPackage(PackagePath); };

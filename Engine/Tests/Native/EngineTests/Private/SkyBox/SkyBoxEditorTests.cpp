@@ -106,10 +106,12 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::CollectGarbage();
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		LevelPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(LevelPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LevelPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
 	Durin::ShutdownRenderingThread();
 }
 
@@ -195,7 +197,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	Durin::GEngine = nullptr;
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(LevelPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LevelPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
 	Durin::ShutdownRenderingThread();
 }

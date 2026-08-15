@@ -22,11 +22,13 @@ state exchanges and AssetCore transactions.
 The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
 -> provider modules -> editor hosts`.
 
-- `AssetCore` owns packages, the private catalog store, disposable DDC objects,
-  unpublished drafts, and failure-atomic package-bundle publication. Import
-  code consumes catalog values and uses `DiscardUnpublishedPackage` for failed
-  candidate rollback; a draft never masquerades as runtime residency. AssetCore
-  has no knowledge of providers or concrete imported asset classes.
+- `AssetCore` owns packages, the private catalog store, resident publication
+  state, disposable DDC objects, and failure-atomic package-bundle publication.
+  Import candidates are `NewlyCreated`, Dirty resident packages. Import code
+  consumes catalog values and uses `UnloadPackage(..., DiscardUnsaved)` for
+  failed candidate rollback; successful bundle publication promotes the same
+  resident entries to `Published`. AssetCore has no knowledge of providers or
+  concrete imported asset classes.
 - `AssetImportCore` owns source snapshots, provider discovery, generic plans,
   diagnostics, candidates, import records, record indexing, and synchronous and
   asynchronous orchestration.
@@ -102,6 +104,10 @@ The record index participates in explicit redirector Fix Up as an external
 reference store; Fix Up, not relocation or reimport, is the operation that
 canonicalizes persisted record paths. A create/import/reimport destination
 occupied by a redirector is an actionable collision naming its final target.
+The store registration has an explicit handle, retained module-resource lease,
+and owner callback gate. Shutdown unregisters that handle; an unavailable or
+retired store makes strict Fix Up fail closed rather than invoking stale module
+code or silently omitting persistent occurrences.
 
 FBX and glTF enter through the Scene source workflow. The request selects one
 Content destination directory rather than a primary StaticMesh. The provider

@@ -50,22 +50,32 @@ file through the same mount. Both resolve relative to `GetContentDir()`;
 neither type identifies a DDC key, `.bin` object, `.dbulk` file, byte offset,
 or physical workstation path, and the two path types are not interchangeable.
 
-## Catalog, drafts, and residency
+## Catalog and residency state
 
 Mounted `.dasset` metadata becomes load-visible only through an atomic catalog
 refresh, successful authored publication, or explicit editor admission.
-Ordinary `LoadAsset` resolves one immutable catalog revision, validates the
-final real class, reads the final package once, and publishes it to persistent
-residency. A catalog miss performs no disk probe and a warm residency hit
-performs no package read.
+An exact resident real package satisfies `LoadAsset` without a package read.
+Otherwise ordinary load resolves one immutable catalog revision, validates the
+final real class, reads the final package once, and publishes it to residency.
+A catalog miss with no resident package performs no disk probe.
 
-`CreateAsset` instead creates an unpublished authoring draft. Drafts do not
-appear in catalog snapshots or runtime residency and cannot satisfy ordinary
-loads. A successful save publishes the package metadata and transfers it to
-persistent residency; failed import/build/save rollback uses
-`DiscardUnpublishedPackage`. Cooked-runtime startup publishes its Cook mounts
+`CreateAsset` creates a `NewlyCreated`, Dirty resident package. It can satisfy
+in-memory load and soft-reference resolution but does not appear in persistent
+catalog snapshots. A successful save publishes package metadata and changes the
+same resident entry to `Published`; dirty state is cleared independently.
+Default `UnloadPackage` rejects newly created or dirty state. Failed
+import/build/save rollback explicitly passes `DiscardUnsaved` to unload the
+resident package. Cooked-runtime startup publishes its Cook mounts
 and refreshes their catalog before loading, so Cooked package identity follows
 the same authoritative boundary as authored content.
+
+Create and save are focused direct authoring entries; every previewable
+mutation prepares immutable scope plus an opaque transaction. Relocation and
+Fix Up own their complete byte/catalog journals. Deletion additionally accepts
+one reversible physical transition from its editor owner, while AssetCore still
+owns final validation, residency changes, catalog publication, compensation,
+and transaction state. Raw redirector construction and immediate deletion are
+not production APIs.
 
 ## Authored Packages
 

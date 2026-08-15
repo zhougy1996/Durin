@@ -5,12 +5,12 @@
 
 namespace Durin::Editor::Level
 {
-	// Retains one AssetCore relocation token in shared editor Undo/Redo history.
+	// Retains one opaque AssetCore mutation in shared editor Undo/Redo history.
 	class FAssetRelocationTransaction final : public ::Durin::Editor::ITransaction
 	{
 	public:
 		explicit FAssetRelocationTransaction(
-			Asset::FAssetRelocationBatchToken InToken);
+			Asset::FAssetMutationTransaction InTransaction);
 
 		auto GetDescription() const -> std::string_view override;
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const
@@ -20,7 +20,7 @@ namespace Durin::Editor::Level
 		auto Redo() -> bool override;
 
 	private:
-		Asset::FAssetRelocationBatchToken Token;
+		Asset::FAssetMutationTransaction Transaction;
 		Asset::FAssetResult LastResult;
 	};
 }

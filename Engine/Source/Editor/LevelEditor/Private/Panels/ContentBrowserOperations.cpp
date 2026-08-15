@@ -34,6 +34,20 @@ namespace Durin::Editor::Level
 			return {{Error, std::move(Message)}};
 		}
 
+		auto ExecuteRedirectorFixup(
+			std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
+		{
+			Asset::FAssetRedirectorFixupSummary Summary;
+			Asset::FAssetMutationTransaction Transaction;
+			Asset::FAssetResult Result =
+				Asset::PrepareRedirectorFixupTransaction(
+					Redirectors,
+					Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
+					Summary,
+					Transaction);
+			return Result ? Transaction.Commit() : Result;
+		}
+
 		auto HashAppend(uint64 Hash, std::string_view Value) -> uint64
 		{
 			for (const unsigned char Byte : Value)
@@ -319,7 +333,7 @@ namespace Durin::Editor::Level
 						: std::format(
 							"Asset {} already exists. Choose another folder name or remove the existing asset.",
 							NewPath.ToString())};
-			if (Asset::FindLoadedPackage(NewPath) || Asset::FindDraftPackage(NewPath))
+			if (Asset::FindResidentPackage(NewPath))
 				return {
 					Asset::EAssetError::AlreadyExists,
 					std::format(
@@ -529,8 +543,7 @@ namespace Durin::Editor::Level
 				: std::format("NewLevel{}", Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
 			if (!Asset::FindAssetExact(AssetPath)
-				&& !Asset::FindLoadedPackage(AssetPath)
-				&& !Asset::FindDraftPackage(AssetPath))
+				&& !Asset::FindResidentPackage(AssetPath))
 			{
 				bFoundPath = true;
 				break;
@@ -577,8 +590,7 @@ namespace Durin::Editor::Level
 				: std::format("{}{}", BaseName, Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
 			if (!Asset::FindAssetExact(AssetPath)
-				&& !Asset::FindLoadedPackage(AssetPath)
-				&& !Asset::FindDraftPackage(AssetPath))
+				&& !Asset::FindResidentPackage(AssetPath))
 			{
 				bFoundPath = true;
 				break;
@@ -660,19 +672,21 @@ namespace Durin::Editor::Level
 		const std::vector<FAssetPath> Redirectors =
 			CollectRedirectors(VirtualDirectory);
 		if (Redirectors.empty()) return {};
-		return Asset::FixUpRedirectors(Redirectors);
+		return ExecuteRedirectorFixup(Redirectors);
 	}
 
 	auto FContentBrowserOperations::FixUpRedirectors(
 		std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
 	{
-		return Asset::FixUpRedirectors(Redirectors);
+		return ExecuteRedirectorFixup(Redirectors);
 	}
 
 	auto FContentBrowserOperations::FixUpAllRedirectors()
 		-> Asset::FAssetResult
 	{
-		return Asset::FixUpAllRedirectors();
+		const std::vector<FAssetPath> Redirectors = CollectRedirectors("/");
+		return Redirectors.empty() ? Asset::FAssetResult{}
+			: ExecuteRedirectorFixup(Redirectors);
 	}
 
 	auto FContentBrowserOperations::AnalyzeDeletion(
@@ -977,8 +991,8 @@ namespace Durin::Editor::Level
 		});
 		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());
 		std::vector<Asset::FAssetDeletionBatchBlocker> AssetBlockers;
-		const Asset::FAssetResult AssetResult = Asset::AnalyzeAssetDeletionBatch(
-			AssetPaths, PhysicalRoots, Plan->AssetBatch, AssetBlockers);
+		const Asset::FAssetResult AssetResult = Asset::PrepareAssetDeletionTransaction(
+			AssetPaths, PhysicalRoots, Plan->AssetTransaction, AssetBlockers);
 		if (!AssetResult)
 			AddBlocker(
 				EContentDeletionBlocker::InspectionFailed,
@@ -986,7 +1000,7 @@ namespace Durin::Editor::Level
 
 		std::unordered_set<std::string> CompanionPaths;
 		for (const Asset::FAssetDeletionBatchEntry& Entry :
-			Plan->AssetBatch.GetEntries())
+			Plan->AssetTransaction.GetEntries())
 			for (const std::filesystem::path& Companion : Entry.CompanionFiles)
 				CompanionPaths.insert(NormalizePath(Companion.generic_string()));
 		for (FContentDeletionFingerprint& Entry : Plan->Entries)
@@ -1070,7 +1084,7 @@ namespace Durin::Editor::Level
 				Blocker.Details);
 		}
 		for (const Asset::FAssetDeletionBatchWarning& Warning :
-			 Plan->AssetBatch.GetWarnings())
+			 Plan->AssetTransaction.GetWarnings())
 			Plan->Warnings.push_back({
 				.DisplayName = Warning.TargetPath.ToString(),
 				.Details = Warning.Details});

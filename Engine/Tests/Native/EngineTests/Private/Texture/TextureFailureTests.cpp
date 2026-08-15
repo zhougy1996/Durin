@@ -156,7 +156,7 @@ TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::MissingSource);
 	EXPECT_FALSE(Texture->GetLastBuildError().empty());
-	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Texture->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
@@ -178,7 +178,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureFailureTests/Ready", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
@@ -245,7 +245,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
@@ -340,5 +340,5 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	EXPECT_EQ(
 		Coordinator->GetDiagnostic(RequestId).Phase,
 		Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }

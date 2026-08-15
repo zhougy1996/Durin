@@ -56,7 +56,9 @@ be renamed or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
 Every authorable asset uses AssetCore's package-level save actions. `Save
-Package` is enabled only for a loaded Dirty package. `Resave Package` may be
+Package` is enabled only for a resident Dirty package, whether newly created or
+already published. Closing or rolling back unsaved work must explicitly select
+the discard-unsaved unload policy. `Resave Package` may be
 used on a clean compatible current-format package and is labeled recommended
 when live load observed a registered legacy reflected identity. Multi-selection
 routes `Resave Selected Packages` through the same deterministic planner; exact
@@ -110,11 +112,19 @@ completeness. Referencer navigation reveals the selected owner. Selection,
 folder, and project-wide Fix Up commands call the shared AssetCore transaction;
 an empty virtual directory never falls through to project-wide scope. Failed
 analysis/publication retains every alias and reports the blocking participant.
+The Content Browser prepares an immutable Fix Up summary and calls only
+`Commit`; it cannot invoke package/store rewrite, alias deletion, verification,
+or compensation phases separately.
 
 Create, import/reimport, rename, move, folder relocation, and future duplication
 through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
+
+Asset and folder moves retain one opaque AssetCore mutation transaction in the
+global editor history. The coordinator prepares and commits it once; the editor
+history calls only `Undo` and `Redo`, never AssetCore revalidation, publication,
+restore, or compensation phases directly.
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning
@@ -151,7 +161,7 @@ displays the updated scope, and requires a second confirmation.
 The complete operation is blocked before mutation when any target is outside a
 single writable authoring mount, is the mount root, requires cross-volume
 staging, traverses a reparse point, violates source-control policy, or cannot be
-inspected. AssetCore batch analysis also blocks loading or dirty packages,
+inspected. AssetCore deletion preparation also blocks loading or dirty packages,
 references from outside the deletion set, and ambiguous or externally owned
 companions. References between assets inside the same deletion set are allowed.
 AssetCore assigns each companion to one owner and includes an owned companion
@@ -170,10 +180,13 @@ The first deletion executes through the global editor transaction manager, so
 notification actions, the Edit menu, and keyboard Undo/Redo operate on the same
 history entry. The Content Browser transaction is the sole owner of physical
 staging. It renames maximal roots into a collision-safe, marked operation
-directory under `Saved/ContentBrowserUndo` on the same volume. AssetCore owns
-package unload and registry removal/restoration, but never stages those bytes a
-second time. Undo restores persisted content and registry visibility without
-restoring loaded-package residency.
+directory under `Saved/ContentBrowserUndo` on the same volume and supplies only
+that reversible stage/restore transition to its retained opaque AssetCore
+deletion transaction. AssetCore orders revalidation, package unload, catalog
+removal/restoration, and compensation around that transition; the editor cannot
+sequence those phases and AssetCore never stages the bytes a second time. Undo
+restores persisted content and catalog visibility without restoring package
+residency.
 
 Each transition revalidates its inputs: Execute checks the captured plan, Undo
 requires every original destination to be free, and Redo requires unchanged

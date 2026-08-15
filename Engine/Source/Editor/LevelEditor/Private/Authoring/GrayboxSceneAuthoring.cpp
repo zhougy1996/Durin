@@ -107,11 +107,80 @@ namespace Durin::Editor::Level
 
 		auto CleanupCandidate(const FAssetPath& Path) -> bool
 		{
-			if (DPackage* Draft = Asset::FindDraftPackage(Path))
-				(void)Asset::DiscardUnpublishedPackage(Draft);
-			else if (Asset::FindLoadedPackage(Path)) Asset::UnloadPackage(Path);
+			if (DPackage* Resident = Asset::FindResidentPackage(Path))
+				(void)Asset::UnloadPackage(
+					Resident,
+					Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			if (Asset::FindAssetExact(Path))
-				return static_cast<bool>(Asset::DeleteAsset(Path));
+			{
+				Asset::FAssetDeletionTransaction Transaction;
+				std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
+				Asset::FAssetResult Result = Asset::PrepareAssetDeletionTransaction(
+					std::span{&Path, 1}, {}, Transaction, Blockers);
+				if (!Result || !Blockers.empty()) return false;
+
+				std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Moves;
+				const uint64 OperationId = static_cast<uint64>(
+					std::chrono::steady_clock::now().time_since_epoch().count());
+				for (const Asset::FAssetDeletionBatchEntry& Entry :
+					 Transaction.GetEntries())
+				{
+					std::vector<std::filesystem::path> Files{
+						Entry.RegistryEntry.PhysicalPath};
+					Files.insert(
+						Files.end(), Entry.CompanionFiles.begin(), Entry.CompanionFiles.end());
+					for (const std::filesystem::path& File : Files)
+					{
+						std::filesystem::path Staged = File;
+						Staged += std::format(".durin-delete-{:016x}-{}", OperationId, Moves.size());
+						std::error_code Error;
+						if (std::filesystem::exists(Staged, Error) || Error) return false;
+						Moves.emplace_back(File, std::move(Staged));
+					}
+				}
+
+				auto MoveAll = [&Moves](bool bStage) -> Asset::FAssetResult {
+					size_t Moved = 0;
+					for (; Moved < Moves.size(); ++Moved)
+					{
+						const auto& [Original, Staged] = Moves[Moved];
+						std::error_code Error;
+						std::filesystem::rename(
+							bStage ? Original : Staged,
+							bStage ? Staged : Original,
+							Error);
+						if (!Error) continue;
+						while (Moved > 0)
+						{
+							--Moved;
+							const auto& [RollbackOriginal, RollbackStaged] = Moves[Moved];
+							std::error_code RollbackError;
+							std::filesystem::rename(
+								bStage ? RollbackStaged : RollbackOriginal,
+								bStage ? RollbackOriginal : RollbackStaged,
+								RollbackError);
+							if (RollbackError)
+								return {Asset::EAssetError::IoError, std::format(
+									"Candidate cleanup rollback failed: {}", RollbackError.message())};
+						}
+						return {Asset::EAssetError::IoError, std::format(
+							"Candidate cleanup staging failed: {}", Error.message())};
+					}
+					return {};
+				};
+				Result = Transaction.Commit({
+					.Stage = [&] { return MoveAll(true); },
+					.Restore = [&] { return MoveAll(false); },
+				});
+				if (!Result) return false;
+				for (const auto& [Original, Staged] : Moves)
+				{
+					(void)Original;
+					std::error_code Error;
+					if (!std::filesystem::remove(Staged, Error) || Error) return false;
+				}
+				return true;
+			}
 			const PathUtilities::FAssetPathResult Resolved =
 				PathUtilities::ResolveAssetPath(Path.ToString());
 			if (!Resolved) return false;
@@ -230,8 +299,7 @@ namespace Durin::Editor::Level
 			return 2;
 		}
 		if (Asset::FindAssetExact(OutputPath)
-			|| Asset::FindLoadedPackage(OutputPath)
-			|| Asset::FindDraftPackage(OutputPath))
+			|| Asset::FindResidentPackage(OutputPath))
 		{
 			DURIN_ERROR("graybox-build: output '{}' already exists; replacement is not supported.", OutputText);
 			return 3;
@@ -266,8 +334,7 @@ namespace Durin::Editor::Level
 				FPlatformProcess::CurrentProcessId(), Attempt);
 			if (FAssetPath::TryCreate(Text, CandidatePath)
 				&& !Asset::FindAssetExact(CandidatePath)
-				&& !Asset::FindLoadedPackage(CandidatePath)
-				&& !Asset::FindDraftPackage(CandidatePath))
+				&& !Asset::FindResidentPackage(CandidatePath))
 			{
 				bCandidatePathFound = true;
 				break;
@@ -330,21 +397,23 @@ namespace Durin::Editor::Level
 		if (!Result) return FailCandidate(6, Result.Message);
 		Candidate = nullptr;
 
-		Asset::FAssetRelocationBatchToken Token;
+		Asset::FAssetMutationSummary Summary;
+		Asset::FAssetMutationTransaction Transaction;
 		const Asset::FAssetRelocationMapping Mapping{CandidatePath, OutputPath};
-		Result = Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
-		if (Result) Result = Asset::RevalidateAssetRelocationBatch(Token);
-		if (Result) Result = Asset::ApplyAssetRelocationBatch(Token);
+		Result = Asset::PrepareAssetRelocationTransaction(
+			std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		if (!Result) return FailCandidate(6, Result.Message);
 
 		DLevel* Published = nullptr;
 		Result = Asset::LoadAsset(OutputPath, Published);
 		if (!Result || !Published || !VerifyArena(*Published, *Box, Layout, Error))
 		{
-			if (DPackage* Draft = Asset::FindDraftPackage(OutputPath))
-				(void)Asset::DiscardUnpublishedPackage(Draft);
-			else if (Asset::FindLoadedPackage(OutputPath)) Asset::UnloadPackage(OutputPath);
-			const Asset::FAssetResult Restore = Asset::RestoreAssetRelocationBatch(Token);
+			if (DPackage* Resident = Asset::FindResidentPackage(OutputPath))
+				(void)Asset::UnloadPackage(
+					Resident,
+					Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			const Asset::FAssetResult Restore = Transaction.Undo();
 			CleanupCandidate(CandidatePath);
 			DURIN_ERROR("graybox-build: published verification failed: {}{}",
 				Error.empty() ? Result.Message : Error,

@@ -185,11 +185,26 @@ namespace Durin::Asset
 				|| ErrorCode.value() == 3;
 		}
 
-		auto GetOwnedPayloadRelocators()
-			-> std::unordered_map<DClass*, FAssetOwnedPayloadRelocator>&
+		struct FRegisteredOwnedPayloadRelocator
 		{
-			static std::unordered_map<DClass*, FAssetOwnedPayloadRelocator> Relocators;
+			FAssetOwnedPayloadRelocatorHandle Handle = 0;
+			FModuleOwnedResourceLease OwnerResource;
+			FAssetOwnedPayloadRelocator Relocator;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
+
+		auto GetOwnedPayloadRelocators()
+			-> std::unordered_map<DClass*, FRegisteredOwnedPayloadRelocator>&
+		{
+			static std::unordered_map<DClass*, FRegisteredOwnedPayloadRelocator> Relocators;
 			return Relocators;
+		}
+
+		auto NextOwnedPayloadRelocatorHandle()
+			-> FAssetOwnedPayloadRelocatorHandle&
+		{
+			static FAssetOwnedPayloadRelocatorHandle Handle = 1;
+			return Handle;
 		}
 
 		struct FRegisteredAssetMoveObserver
@@ -277,10 +292,25 @@ namespace Durin::Asset
 			return true;
 		}
 
-		auto GetDeleteContributors() -> std::unordered_map<DClass*, FAssetDeleteContributor>&
+		struct FRegisteredDeleteContributor
 		{
-			static std::unordered_map<DClass*, FAssetDeleteContributor> Contributors;
+			FAssetDeleteContributorHandle Handle = 0;
+			FModuleOwnedResourceLease OwnerResource;
+			FAssetDeleteContributor Contributor;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
+
+		auto GetDeleteContributors()
+			-> std::unordered_map<DClass*, FRegisteredDeleteContributor>&
+		{
+			static std::unordered_map<DClass*, FRegisteredDeleteContributor> Contributors;
 			return Contributors;
+		}
+
+		auto NextDeleteContributorHandle() -> FAssetDeleteContributorHandle&
+		{
+			static FAssetDeleteContributorHandle Handle = 1;
+			return Handle;
 		}
 
 		auto InspectAssetCompanionFiles(
@@ -297,10 +327,14 @@ namespace Durin::Asset
 				if (It == GetDeleteContributors().end()) continue;
 				if (OutHasContributor) *OutHasContributor = true;
 				FAssetPackageInspection Inspection;
+				auto Call = It->second.OwnerGate.TryEnter();
+				if (It->second.OwnerGate.IsValid() && !Call)
+					return Error(EAssetError::StaleData,
+						"The asset deletion contributor is unavailable.");
 				FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
 				if (!Result) return Result;
 				FAssetDeleteContribution Contribution;
-				Result = It->second(Data, Inspection, Contribution);
+				Result = It->second.Contributor(Data, Inspection, Contribution);
 				if (!Result) return Result;
 				for (const std::filesystem::path& File : Contribution.Files)
 				{
@@ -2349,31 +2383,16 @@ namespace Durin::Asset
 				.LastWriteTime = Staged.PublishedLastWriteTime,
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
 					Staged.PublishedLastWriteTime)});
-			if (Manager.DraftPackages.Find(Staged.Path) == Staged.Package)
-			{
-				Manager.DraftPackages.Remove(Staged.Path);
-				Manager.LoadedPackages.emplace(Staged.Path, Staged.Package);
-			}
+			if (auto Resident = Manager.ResidentPackages.find(Staged.Path);
+				Resident != Manager.ResidentPackages.end()
+				&& Resident->second.Package == Staged.Package)
+				Resident->second.PublicationState =
+					EAssetPackagePublicationState::Published;
 			Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
 		}
 		return {};
-	}
-
-	auto DiscardUnpublishedPackage(DPackage* Package) -> FAssetResult
-	{
-		FAssetPath Path;
-		if (!Package || !Package->IsAssetPackage()
-			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
-			return Error(EAssetError::InvalidPackageType, "The unpublished package is invalid.");
-		FAssetRuntimeState& Manager = FAssetRuntimeState::Get();
-		if (Manager.GetRegistry().FindAssetExact(Path))
-			return Error(EAssetError::InUse, std::format(
-				"Package {} is registry-visible and cannot be discarded.", Path.ToString()));
-		if (Manager.FindDraftPackage(Path) != Package)
-			return Error(EAssetError::NotFound, "The unpublished package is not a draft.");
-		return Manager.DiscardDraftPackage(Path);
 	}
 
 	auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult
@@ -2386,8 +2405,7 @@ namespace Durin::Asset
 	{
 		if (!Path.IsValid())
 			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
-		if (Registry.FindAssetExact(Path)
-			|| FindLoadedPackage(Path) || FindDraftPackage(Path))
+		if (Registry.FindAssetExact(Path) || FindResidentPackage(Path))
 			return Error(EAssetError::AlreadyExists,
 				"The asset admission path is already occupied.");
 		const std::string PhysicalPath = GetPhysicalPath(Path);
@@ -2829,11 +2847,35 @@ namespace Durin::Asset
 
 	auto RegisterAssetOwnedPayloadRelocator(
 		DClass* Class,
-		FAssetOwnedPayloadRelocator Relocator) -> void
+		FAssetOwnedPayloadRelocator Relocator,
+		FModuleOwnedCallbackGate OwnerGate)
+		-> FAssetOwnedPayloadRelocatorHandle
 	{
-		if (Class && Relocator)
-			GetOwnedPayloadRelocators().insert_or_assign(
-				Class, std::move(Relocator));
+		auto Call = OwnerGate.TryEnter();
+		if (!Class || !Relocator || (OwnerGate.IsValid() && !Call)) return 0;
+		auto& Relocators = GetOwnedPayloadRelocators();
+		if (Relocators.contains(Class)) return 0;
+		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+		if (OwnerGate.IsValid() && !Resource) return 0;
+		auto& NextHandle = NextOwnedPayloadRelocatorHandle();
+		const FAssetOwnedPayloadRelocatorHandle Handle = NextHandle++;
+		Relocators.emplace(Class, FRegisteredOwnedPayloadRelocator{
+			.Handle = Handle,
+			.OwnerResource = std::move(Resource),
+			.Relocator = std::move(Relocator),
+			.OwnerGate = std::move(OwnerGate),
+		});
+		return Handle;
+	}
+
+	auto UnregisterAssetOwnedPayloadRelocator(
+		FAssetOwnedPayloadRelocatorHandle Handle) -> void
+	{
+		if (Handle == 0) return;
+		auto& Relocators = GetOwnedPayloadRelocators();
+		std::erase_if(Relocators, [Handle](const auto& Pair) {
+			return Pair.second.Handle == Handle;
+		});
 	}
 
 	auto RegisterAssetMoveObserver(
@@ -2913,9 +2955,36 @@ namespace Durin::Asset
 			Point, std::max(Occurrence, 1u));
 	}
 
-	auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void
+	auto RegisterAssetDeleteContributor(
+		DClass* Class,
+		FAssetDeleteContributor Contributor,
+		FModuleOwnedCallbackGate OwnerGate) -> FAssetDeleteContributorHandle
 	{
-		if (Class && Contributor) GetDeleteContributors().insert_or_assign(Class, std::move(Contributor));
+		auto Call = OwnerGate.TryEnter();
+		if (!Class || !Contributor || (OwnerGate.IsValid() && !Call)) return 0;
+		auto& Contributors = GetDeleteContributors();
+		if (Contributors.contains(Class)) return 0;
+		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+		if (OwnerGate.IsValid() && !Resource) return 0;
+		auto& NextHandle = NextDeleteContributorHandle();
+		const FAssetDeleteContributorHandle Handle = NextHandle++;
+		Contributors.emplace(Class, FRegisteredDeleteContributor{
+			.Handle = Handle,
+			.OwnerResource = std::move(Resource),
+			.Contributor = std::move(Contributor),
+			.OwnerGate = std::move(OwnerGate),
+		});
+		return Handle;
+	}
+
+	auto UnregisterAssetDeleteContributor(
+		FAssetDeleteContributorHandle Handle) -> void
+	{
+		if (Handle == 0) return;
+		auto& Contributors = GetDeleteContributors();
+		std::erase_if(Contributors, [Handle](const auto& Pair) {
+			return Pair.second.Handle == Handle;
+		});
 	}
 
 	auto QueryAssetCompanionOwnership(
@@ -3745,7 +3814,7 @@ namespace Durin::Asset
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					Path.ToString()));
-		if (LoadedPackages.contains(Path) || DraftPackages.Contains(Path))
+		if (ResidentPackages.contains(Path))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				Path.ToString()));
@@ -3764,7 +3833,8 @@ namespace Durin::Asset
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
 		}
-		DraftPackages.Add(Path, Package);
+		ResidentPackages.emplace(
+			Path, Package, EAssetPackagePublicationState::NewlyCreated);
 		return {};
 	}
 
@@ -3866,11 +3936,11 @@ namespace Durin::Asset
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
-		if (DraftPackages.Find(Path) == Package)
-		{
-			DraftPackages.Remove(Path);
-			LoadedPackages.emplace(Path, Package);
-		}
+		if (auto Resident = ResidentPackages.find(Path);
+			Resident != ResidentPackages.end()
+			&& Resident->second.Package == Package)
+			Resident->second.PublicationState =
+				EAssetPackagePublicationState::Published;
 		return {};
 	}
 
@@ -4198,12 +4268,12 @@ namespace Durin::Asset
 		}
 	}
 
-	struct FAssetRelocationBatchToken::FState
+	struct FAssetRelocationState
 	{
 		uint64 ExpectedRegistryRevision = 0;
 		std::vector<FAssetRelocationMapping> Mappings;
 		FAssetMutationJournal Journal;
-		std::vector<FLoadedRelocationState> LoadedPackages;
+		std::vector<FLoadedRelocationState> ResidentPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
 		std::unordered_map<FAssetPath, FAssetData> PreAssets;
 		std::unordered_map<FAssetPath, FAssetData> PostAssets;
@@ -4214,24 +4284,219 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostReferenceFingerprints;
 	};
 
-	auto FAssetRelocationBatchToken::GetRegistryRevision() const -> uint64
+	struct FAssetMutationTransaction::FState
 	{
-		return State ? State->ExpectedRegistryRevision : 0;
+		FAssetMutationSummary Summary;
+		std::function<FAssetResult()> CommitOperation;
+		std::function<FAssetResult()> UndoOperation;
+		std::function<FAssetResult()> RedoOperation;
+		std::function<bool()> IsRecoveryRequired;
+		std::function<void(FAssetMutationResultDetails&)> PopulateResultDetails;
+		EAssetMutationTransactionState State =
+			EAssetMutationTransactionState::Prepared;
+		FAssetMutationResultDetails LastResult;
+	};
+
+	struct FAssetDeletionTransaction::FState
+	{
+		uint64 RegistryRevision = 0;
+		uint64 ReferenceStoreRevision = 0;
+		std::vector<FAssetDeletionBatchEntry> Entries;
+		std::vector<FAssetDeletionBatchWarning> Warnings;
+		std::vector<std::filesystem::path> PhysicalRoots;
+		EAssetMutationTransactionState TransactionState =
+			EAssetMutationTransactionState::Prepared;
+	};
+
+	auto FAssetDeletionTransaction::GetRegistryRevision() const -> uint64
+	{
+		return State ? State->RegistryRevision : 0;
 	}
 
-	auto FAssetRelocationBatchToken::GetMappings() const
-		-> std::span<const FAssetRelocationMapping>
+	auto FAssetDeletionTransaction::GetEntries() const
+		-> std::span<const FAssetDeletionBatchEntry>
 	{
-		return State ? std::span<const FAssetRelocationMapping>(State->Mappings)
-			: std::span<const FAssetRelocationMapping>{};
+		return State ? std::span<const FAssetDeletionBatchEntry>(State->Entries)
+			: std::span<const FAssetDeletionBatchEntry>{};
 	}
 
-	auto FAssetRuntimeState::AnalyzeAssetRelocationBatch(
+	auto FAssetDeletionTransaction::GetWarnings() const
+		-> std::span<const FAssetDeletionBatchWarning>
+	{
+		return State ? std::span<const FAssetDeletionBatchWarning>(State->Warnings)
+			: std::span<const FAssetDeletionBatchWarning>{};
+	}
+
+	auto FAssetDeletionTransaction::GetState() const
+		-> EAssetMutationTransactionState
+	{
+		return State ? State->TransactionState
+			: EAssetMutationTransactionState::Empty;
+	}
+
+	auto FAssetMutationTransaction::GetSummary() const
+		-> const FAssetMutationSummary&
+	{
+		static const FAssetMutationSummary EmptySummary;
+		return State ? State->Summary : EmptySummary;
+	}
+
+	auto FAssetMutationTransaction::GetState() const
+		-> EAssetMutationTransactionState
+	{
+		return State ? State->State : EAssetMutationTransactionState::Empty;
+	}
+
+	auto FAssetMutationTransaction::GetLastResultDetails() const
+		-> FAssetMutationResultDetails
+	{
+		return State ? State->LastResult : FAssetMutationResultDetails{};
+	}
+
+	auto FAssetMutationTransaction::Commit() -> FAssetResult
+	{
+		if (!State)
+			return Error(EAssetError::StaleData,
+				"The asset mutation transaction is empty.");
+		if (State->State != EAssetMutationTransactionState::Prepared)
+		{
+			FAssetResult Result = Error(EAssetError::StaleData,
+				"Only a prepared asset mutation transaction can be committed.");
+			State->LastResult = {
+				.Result = Result,
+				.State = State->State,
+				.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+				.bStateRestored = true,
+			};
+			return Result;
+		}
+
+		if (!State->CommitOperation)
+			return Error(EAssetError::StaleData,
+				"The asset mutation transaction has no commit operation.");
+		FAssetResult Result = State->CommitOperation();
+		const bool bRecoveryRequired = State->IsRecoveryRequired
+			&& State->IsRecoveryRequired();
+		if (Result)
+			State->State = EAssetMutationTransactionState::Committed;
+		else if (bRecoveryRequired)
+			State->State = EAssetMutationTransactionState::RecoveryRequired;
+		State->LastResult = {
+			.Result = Result,
+			.State = State->State,
+			.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+			.bStateRestored = !Result && !bRecoveryRequired,
+			.bRecoveryRequired = bRecoveryRequired,
+		};
+		if (State->PopulateResultDetails)
+			State->PopulateResultDetails(State->LastResult);
+		return Result;
+	}
+
+	auto FAssetMutationTransaction::Undo() -> FAssetResult
+	{
+		if (!State)
+			return Error(EAssetError::StaleData,
+				"The asset mutation transaction is empty.");
+		if (State->State != EAssetMutationTransactionState::Committed)
+		{
+			FAssetResult Result = Error(EAssetError::StaleData,
+				"Only a committed asset mutation transaction can be undone.");
+			State->LastResult = {
+				.Result = Result,
+				.State = State->State,
+				.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+				.bStateRestored = true,
+			};
+			return Result;
+		}
+		if (!State->UndoOperation)
+		{
+			FAssetResult Result = Error(EAssetError::StaleData,
+				"This asset mutation does not support editor-history undo.");
+			State->LastResult = {
+				.Result = Result,
+				.State = State->State,
+				.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+				.bStateRestored = true,
+			};
+			return Result;
+		}
+
+		FAssetResult Result = State->UndoOperation();
+		const bool bRecoveryRequired = State->IsRecoveryRequired
+			&& State->IsRecoveryRequired();
+		if (Result)
+			State->State = EAssetMutationTransactionState::Undone;
+		else if (bRecoveryRequired)
+			State->State = EAssetMutationTransactionState::RecoveryRequired;
+		State->LastResult = {
+			.Result = Result,
+			.State = State->State,
+			.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+			.bStateRestored = !Result && !bRecoveryRequired,
+			.bRecoveryRequired = bRecoveryRequired,
+		};
+		if (State->PopulateResultDetails)
+			State->PopulateResultDetails(State->LastResult);
+		return Result;
+	}
+
+	auto FAssetMutationTransaction::Redo() -> FAssetResult
+	{
+		if (!State)
+			return Error(EAssetError::StaleData,
+				"The asset mutation transaction is empty.");
+		if (State->State != EAssetMutationTransactionState::Undone)
+		{
+			FAssetResult Result = Error(EAssetError::StaleData,
+				"Only an undone asset mutation transaction can be redone.");
+			State->LastResult = {
+				.Result = Result,
+				.State = State->State,
+				.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+				.bStateRestored = true,
+			};
+			return Result;
+		}
+		if (!State->RedoOperation)
+		{
+			FAssetResult Result = Error(EAssetError::StaleData,
+				"This asset mutation does not support editor-history redo.");
+			State->LastResult = {
+				.Result = Result,
+				.State = State->State,
+				.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+				.bStateRestored = true,
+			};
+			return Result;
+		}
+
+		FAssetResult Result = State->RedoOperation();
+		const bool bRecoveryRequired = State->IsRecoveryRequired
+			&& State->IsRecoveryRequired();
+		if (Result)
+			State->State = EAssetMutationTransactionState::Committed;
+		else if (bRecoveryRequired)
+			State->State = EAssetMutationTransactionState::RecoveryRequired;
+		State->LastResult = {
+			.Result = Result,
+			.State = State->State,
+			.RegistryRevision = FAssetRuntimeState::Get().GetRegistry().GetRevision(),
+			.bStateRestored = !Result && !bRecoveryRequired,
+			.bRecoveryRequired = bRecoveryRequired,
+		};
+		if (State->PopulateResultDetails)
+			State->PopulateResultDetails(State->LastResult);
+		return Result;
+	}
+
+	auto FAssetRuntimeState::PrepareAssetRelocationState(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationBatchToken& OutToken) -> FAssetResult
+		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		OutToken = {};
+		OutState.reset();
 		if (!bAcceptingRequests)
 			return Error(EAssetError::ShuttingDown,
 				"Asset relocation is closed while the asset manager is shutting down.");
@@ -4242,7 +4507,7 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidPath,
 				"An asset relocation batch must not be empty.");
 
-		auto State = std::make_shared<FAssetRelocationBatchToken::FState>();
+		auto State = std::make_shared<FAssetRelocationState>();
 		State->ExpectedRegistryRevision = Registry.GetRevision();
 		State->Mappings.assign(Mappings.begin(), Mappings.end());
 		std::ranges::sort(State->Mappings,
@@ -4395,12 +4660,12 @@ namespace Durin::Asset
 			if (LoadingPackages.contains(Mapping.SourcePath))
 				return Error(EAssetError::InUse,
 					"A relocation source is currently loading.");
-			if (DPackage* Loaded = FindLoadedPackage(Mapping.SourcePath))
+			if (DPackage* Loaded = FindResidentPackage(Mapping.SourcePath))
 			{
 				if (Loaded->IsDirty())
 					return Error(EAssetError::InUse,
 						"A dirty loaded asset must be saved before relocation.");
-				State->LoadedPackages.push_back({
+				State->ResidentPackages.push_back({
 					.Mapping = Mapping,
 					.Package = Loaded,
 					.PrePackageName = Loaded->GetName(),
@@ -4424,7 +4689,7 @@ namespace Durin::Asset
 						"The destination {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 						Mapping.DestinationPath.ToString(),
 						DestinationData->RedirectDestination.ToString()));
-				if (LoadedPackages.contains(Mapping.DestinationPath))
+				if (ResidentPackages.contains(Mapping.DestinationPath))
 					return Error(EAssetError::InUse,
 						"A loaded destination redirector cannot be reclaimed.");
 				bReclaimDestinationRedirector = true;
@@ -4502,7 +4767,7 @@ namespace Durin::Asset
 				if (!AliasResolution
 					|| AliasResolution.FinalPath != Mapping.SourcePath)
 					continue;
-				if (LoadedPackages.contains(AliasPath))
+				if (ResidentPackages.contains(AliasPath))
 					return Error(EAssetError::InUse,
 						"A loaded upstream redirector cannot be retargeted.");
 				std::vector<uint8> AliasPreBytes;
@@ -4543,25 +4808,29 @@ namespace Durin::Asset
 			{
 				auto Relocator = GetOwnedPayloadRelocators().find(Class);
 				if (Relocator == GetOwnedPayloadRelocators().end()) continue;
+				auto Call = Relocator->second.OwnerGate.TryEnter();
+				if (Relocator->second.OwnerGate.IsValid() && !Call)
+					return Error(EAssetError::StaleData,
+						"The owned-payload relocator is unavailable.");
 				DObject* AssetObject = nullptr;
 				Result = LoadAsset(Mapping.SourcePath, AssetObject);
 				if (!Result) return Result;
 				if (std::ranges::none_of(
-						State->LoadedPackages,
+						State->ResidentPackages,
 						[&](const FLoadedRelocationState& Loaded) {
 							return Loaded.Mapping.SourcePath
 								== Mapping.SourcePath;
 						}))
 				{
 					DPackage* LoadedPackage = AssetObject->GetPackage();
-					State->LoadedPackages.push_back({
+					State->ResidentPackages.push_back({
 						.Mapping = Mapping,
 						.Package = LoadedPackage,
 						.PrePackageName = LoadedPackage->GetName(),
 						.PreAssetName = AssetObject->GetName()});
 				}
 				FAssetOwnedPayloadRelocation Payload;
-				Result = Relocator->second(
+				Result = Relocator->second.Relocator(
 					AssetObject, Mapping.SourcePath,
 					Mapping.DestinationPath, Payload);
 				if (!Result) return Result;
@@ -4598,18 +4867,61 @@ namespace Durin::Asset
 
 		State->Journal.State = EAssetMutationState::Prepared;
 		WriteMutationJournalState(State->Journal);
-		OutToken.State = std::move(State);
+		OutState = std::move(State);
 		return {};
 	}
 
-	auto FAssetRuntimeState::RevalidateAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::PrepareAssetRelocationTransaction(
+		std::span<const FAssetRelocationMapping> Mappings,
+		FAssetMutationSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult
+	{
+		OutSummary = {};
+		OutTransaction = {};
+		std::shared_ptr<FAssetRelocationState> Relocation;
+		FAssetResult Result = PrepareAssetRelocationState(Mappings, Relocation);
+		if (!Result) return Result;
+
+		std::vector<FAssetPath> Scope;
+		Scope.reserve(Mappings.size() * 2);
+		for (const FAssetRelocationMapping& Mapping : Mappings)
+		{
+			Scope.push_back(Mapping.SourcePath);
+			Scope.push_back(Mapping.DestinationPath);
+		}
+		OutSummary = FAssetMutationSummary(
+			EAssetMutationOperationKind::Relocation,
+			Relocation->ExpectedRegistryRevision,
+			std::move(Scope));
+		auto TransactionState = std::make_shared<FAssetMutationTransaction::FState>();
+		TransactionState->Summary = OutSummary;
+		TransactionState->CommitOperation = [Relocation] {
+			return FAssetRuntimeState::Get().ApplyAssetRelocation(Relocation);
+		};
+		TransactionState->UndoOperation = [Relocation] {
+			return FAssetRuntimeState::Get().RestoreAssetRelocation(Relocation);
+		};
+		TransactionState->RedoOperation = TransactionState->CommitOperation;
+		TransactionState->IsRecoveryRequired = [Relocation] {
+			return Relocation->Journal.State
+				== EAssetMutationState::RecoveryRequired;
+		};
+		TransactionState->LastResult.State =
+			EAssetMutationTransactionState::Prepared;
+		TransactionState->LastResult.RegistryRevision =
+			Registry.GetRevision();
+		OutTransaction.State = std::move(TransactionState);
+		return {};
+	}
+
+	auto FAssetRuntimeState::RevalidateAssetRelocation(
+		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Token.State)
+		if (!Relocation)
 			return Error(EAssetError::StaleData,
-				"The relocation token is empty.");
-		const auto& State = *Token.State;
+				"The relocation transaction state is empty.");
+		const auto& State = *Relocation;
 		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
 			return Error(EAssetError::IoError,
 				"AssetMutationRecoveryRequired: the relocation journal requires recovery.");
@@ -4664,12 +4976,12 @@ namespace Durin::Asset
 						"A staged relocation output changed.");
 			}
 		}
-		for (const FLoadedRelocationState& Loaded : State.LoadedPackages)
+		for (const FLoadedRelocationState& Loaded : State.ResidentPackages)
 		{
 			const FAssetPath& ExpectedPath = bExpectPost
 				? Loaded.Mapping.DestinationPath
 				: Loaded.Mapping.SourcePath;
-			if (FindLoadedPackage(ExpectedPath) != Loaded.Package)
+			if (FindResidentPackage(ExpectedPath) != Loaded.Package)
 				return Error(EAssetError::StaleData,
 					"A loaded relocation participant changed identity.");
 		}
@@ -4726,19 +5038,19 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRuntimeState::ApplyAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::ApplyAssetRelocation(
+		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Token.State)
+		if (!Relocation)
 			return Error(EAssetError::StaleData,
-				"The relocation token is empty.");
-		auto& State = *Token.State;
+				"The relocation transaction state is empty.");
+		auto& State = *Relocation;
 		if (State.Journal.State != EAssetMutationState::Prepared
 			&& State.Journal.State != EAssetMutationState::Restored)
 			return Error(EAssetError::StaleData,
 				"Only a prepared or restored relocation can be applied.");
-		FAssetResult Result = RevalidateAssetRelocationBatch(Token);
+		FAssetResult Result = RevalidateAssetRelocation(Relocation);
 		if (!Result) return Result;
 		if (ConsumeRelocationFailure(
 				EAssetRelocationFailurePoint::StageOriginal))
@@ -4784,7 +5096,7 @@ namespace Durin::Asset
 						EAssetRelocationFailurePoint::CompensateLoadedPackage))
 					return EnterRecovery(
 						"loaded-package compensation was interrupted.");
-				FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
+				FLoadedRelocationState& Loaded = State.ResidentPackages[Count - 1];
 				if (!Loaded.Package->RelocateAssetPackage(
 						Loaded.Mapping.SourcePath))
 					return EnterRecovery(
@@ -4792,8 +5104,8 @@ namespace Durin::Asset
 				Loaded.Package->Rename(FName(Loaded.PrePackageName));
 				Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 				Loaded.Package->ClearDirty();
-				LoadedPackages.erase(Loaded.Mapping.DestinationPath);
-				LoadedPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
+				ResidentPackages.erase(Loaded.Mapping.DestinationPath);
+				ResidentPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
 			}
 			for (auto It = Published.rbegin(); It != Published.rend(); ++It)
 			{
@@ -4834,7 +5146,7 @@ namespace Durin::Asset
 			WriteMutationJournalState(State.Journal);
 		}
 
-		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
+		for (FLoadedRelocationState& Loaded : State.ResidentPackages)
 		{
 			if (ConsumeRelocationFailure(
 					EAssetRelocationFailurePoint::UpdateLoadedPackage))
@@ -4849,8 +5161,8 @@ namespace Durin::Asset
 			Loaded.Package->GetAsset()->Rename(FName(
 				Loaded.Mapping.DestinationPath.GetAssetName()));
 			Loaded.Package->ClearDirty();
-			LoadedPackages.erase(Loaded.Mapping.SourcePath);
-			LoadedPackages.emplace(
+			ResidentPackages.erase(Loaded.Mapping.SourcePath);
+			ResidentPackages.emplace(
 				Loaded.Mapping.DestinationPath, Loaded.Package);
 			++RelocatedLoadedCount;
 		}
@@ -4935,18 +5247,18 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RestoreAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::RestoreAssetRelocation(
+		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Token.State)
+		if (!Relocation)
 			return Error(EAssetError::StaleData,
-				"The relocation token is empty.");
-		auto& State = *Token.State;
+				"The relocation transaction state is empty.");
+		auto& State = *Relocation;
 		if (State.Journal.State != EAssetMutationState::Committed)
 			return Error(EAssetError::StaleData,
 				"Only a committed relocation can be restored.");
-		FAssetResult Result = RevalidateAssetRelocationBatch(Token);
+		FAssetResult Result = RevalidateAssetRelocation(Relocation);
 		if (!Result) return Result;
 
 		State.Journal.State = EAssetMutationState::Publishing;
@@ -4971,9 +5283,9 @@ namespace Durin::Asset
 		for (size_t Count = State.OwnedPayloads.size(); Count > 0; --Count)
 			if (State.OwnedPayloads[Count - 1].Restore)
 				State.OwnedPayloads[Count - 1].Restore();
-		for (size_t Count = State.LoadedPackages.size(); Count > 0; --Count)
+		for (size_t Count = State.ResidentPackages.size(); Count > 0; --Count)
 		{
-			FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
+			FLoadedRelocationState& Loaded = State.ResidentPackages[Count - 1];
 			if (!Loaded.Package->RelocateAssetPackage(
 					Loaded.Mapping.SourcePath))
 			{
@@ -4985,8 +5297,8 @@ namespace Durin::Asset
 			Loaded.Package->Rename(FName(Loaded.PrePackageName));
 			Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 			Loaded.Package->ClearDirty();
-			LoadedPackages.erase(Loaded.Mapping.DestinationPath);
-			LoadedPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
+			ResidentPackages.erase(Loaded.Mapping.DestinationPath);
+			ResidentPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
 		}
 
 		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
@@ -5123,7 +5435,7 @@ namespace Durin::Asset
 		}
 	}
 
-	struct FAssetRedirectorFixupPlan::FState
+	struct FAssetRedirectorFixupState
 	{
 		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete;
 		uint64 ExpectedRegistryRevision = 0;
@@ -5145,63 +5457,54 @@ namespace Durin::Asset
 		bool bPostIndexComplete = false;
 	};
 
-	auto FAssetRedirectorFixupPlan::GetMode() const
+	auto FAssetRedirectorFixupSummary::GetMode() const
 		-> EAssetRedirectorFixupMode
 	{
-		return State ? State->Mode : EAssetRedirectorFixupMode::RewriteOnly;
+		return Mode;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetRegistryRevision() const -> uint64
+	auto FAssetRedirectorFixupSummary::GetRegistryRevision() const -> uint64
 	{
-		return State ? State->ExpectedRegistryRevision : 0;
+		return RegistryRevision;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetRedirectors() const
+	auto FAssetRedirectorFixupSummary::GetRedirectors() const
 		-> std::span<const FAssetPath>
 	{
-		return State ? std::span<const FAssetPath>(State->Redirectors)
-			: std::span<const FAssetPath>{};
+		return Redirectors;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetFinalPathMappings() const
+	auto FAssetRedirectorFixupSummary::GetFinalPathMappings() const
 		-> std::span<const FAssetRedirectorFixupMapping>
 	{
-		return State
-			? std::span<const FAssetRedirectorFixupMapping>(State->Mappings)
-			: std::span<const FAssetRedirectorFixupMapping>{};
+		return FinalPathMappings;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetPackageOccurrences() const
+	auto FAssetRedirectorFixupSummary::GetPackageOccurrences() const
 		-> std::span<const FAssetReferenceEdge>
 	{
-		return State
-			? std::span<const FAssetReferenceEdge>(State->PackageOccurrences)
-			: std::span<const FAssetReferenceEdge>{};
+		return PackageOccurrences;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetStoreOccurrences() const
+	auto FAssetRedirectorFixupSummary::GetStoreOccurrences() const
 		-> std::span<const FAssetReferenceStoreOccurrence>
 	{
-		return State
-			? std::span<const FAssetReferenceStoreOccurrence>(State->StoreOccurrences)
-			: std::span<const FAssetReferenceStoreOccurrence>{};
+		return StoreOccurrences;
 	}
 
-	auto FAssetRedirectorFixupPlan::GetDeletableRedirectors() const
+	auto FAssetRedirectorFixupSummary::GetDeletableRedirectors() const
 		-> std::span<const FAssetPath>
 	{
-		return State
-			? std::span<const FAssetPath>(State->DeletableRedirectors)
-			: std::span<const FAssetPath>{};
+		return DeletableRedirectors;
 	}
 
-	auto FAssetRuntimeState::AnalyzeRedirectorFixup(
+	auto FAssetRuntimeState::PrepareRedirectorFixupState(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
+		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		OutPlan = {};
+		OutState.reset();
 		if (!bAcceptingRequests)
 			return Error(EAssetError::ShuttingDown,
 				"Redirector Fix Up is closed while the asset manager is shutting down.");
@@ -5216,7 +5519,7 @@ namespace Durin::Asset
 			return Error(EAssetError::StaleData,
 				"Redirector Fix Up cannot delete aliases because the reference index is incomplete.");
 
-		auto State = std::make_shared<FAssetRedirectorFixupPlan::FState>();
+		auto State = std::make_shared<FAssetRedirectorFixupState>();
 		State->Mode = Mode;
 		State->ExpectedRegistryRevision = Registry.GetRevision();
 		State->ExpectedAssets = Registry.Assets;
@@ -5254,7 +5557,7 @@ namespace Durin::Asset
 				return Error(EAssetError::InUse,
 					"A selected redirector is currently loading.");
 			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
-				&& LoadedPackages.contains(Alias))
+				&& ResidentPackages.contains(Alias))
 				return Error(EAssetError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
 			for (FAssetPath Upstream : Registry.FindRedirectorsTo(Alias))
@@ -5380,7 +5683,7 @@ namespace Durin::Asset
 			if (LoadingPackages.contains(SourcePath))
 				return Error(EAssetError::InUse,
 					"A package referencer is currently loading.");
-			DPackage* Loaded = FindLoadedPackage(SourcePath);
+			DPackage* Loaded = FindResidentPackage(SourcePath);
 			if (Loaded && Loaded->IsDirty())
 				return Error(EAssetError::InUse,
 					"A dirty loaded package blocks redirector Fix Up.");
@@ -5526,7 +5829,7 @@ namespace Durin::Asset
 					if (LoadingPackages.contains(PackageRewrite.PackagePath))
 						return Error(EAssetError::InUse,
 							"An asset reference-store package is currently loading.");
-					DPackage* Loaded = FindLoadedPackage(PackageRewrite.PackagePath);
+					DPackage* Loaded = FindResidentPackage(PackageRewrite.PackagePath);
 					if (Loaded && Loaded->IsDirty())
 						return Error(EAssetError::InUse,
 							"A dirty external-reference package blocks redirector Fix Up.");
@@ -5606,17 +5909,78 @@ namespace Durin::Asset
 
 		State->Journal.State = EAssetMutationState::Prepared;
 		WriteMutationJournalState(State->Journal);
-		OutPlan.State = std::move(State);
+		OutState = std::move(State);
 		return {};
 	}
 
-	auto FAssetRuntimeState::RevalidateRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	auto FAssetRuntimeState::PrepareRedirectorFixupTransaction(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode,
+		FAssetRedirectorFixupSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult
+	{
+		OutSummary = {};
+		OutTransaction = {};
+		std::shared_ptr<FAssetRedirectorFixupState> Fixup;
+		FAssetResult Result = PrepareRedirectorFixupState(
+			Redirectors, Mode, Fixup);
+		if (!Result) return Result;
+
+		OutSummary.Mode = Fixup->Mode;
+		OutSummary.RegistryRevision = Fixup->ExpectedRegistryRevision;
+		OutSummary.Redirectors = Fixup->Redirectors;
+		OutSummary.FinalPathMappings = Fixup->Mappings;
+		OutSummary.PackageOccurrences = Fixup->PackageOccurrences;
+		OutSummary.StoreOccurrences = Fixup->StoreOccurrences;
+		OutSummary.DeletableRedirectors = Fixup->DeletableRedirectors;
+
+		auto TransactionState = std::make_shared<FAssetMutationTransaction::FState>();
+		TransactionState->Summary = FAssetMutationSummary(
+			EAssetMutationOperationKind::RedirectorFixup,
+			Fixup->ExpectedRegistryRevision,
+			Fixup->Redirectors);
+		TransactionState->CommitOperation = [Fixup] {
+			return FAssetRuntimeState::Get().CommitRedirectorFixup(Fixup);
+		};
+		TransactionState->IsRecoveryRequired = [Fixup] {
+			return Fixup->Journal.State == EAssetMutationState::RecoveryRequired;
+		};
+		TransactionState->PopulateResultDetails = [Fixup](
+			FAssetMutationResultDetails& Details) {
+			if (!Details.Result)
+			{
+				Details.FailedPaths = Fixup->Redirectors;
+				return;
+			}
+			for (const FAssetReferenceEdge& Occurrence :
+				Fixup->PackageOccurrences)
+				Details.RewrittenPaths.push_back(Occurrence.SourcePackage);
+			std::ranges::sort(Details.RewrittenPaths,
+				[](const FAssetPath& Left, const FAssetPath& Right) {
+					return Left.GetView() < Right.GetView();
+				});
+			Details.RewrittenPaths.erase(std::ranges::unique(
+				Details.RewrittenPaths).begin(), Details.RewrittenPaths.end());
+			if (Fixup->Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+				Details.DeletedPaths = Fixup->DeletableRedirectors;
+			else
+				Details.RetainedPaths = Fixup->Redirectors;
+		};
+		TransactionState->LastResult.State =
+			EAssetMutationTransactionState::Prepared;
+		TransactionState->LastResult.RegistryRevision = Registry.GetRevision();
+		OutTransaction.State = std::move(TransactionState);
+		return {};
+	}
+
+	auto FAssetRuntimeState::ValidateRedirectorFixupCommit(
+		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Plan.State)
-			return Error(EAssetError::StaleData, "The redirector Fix Up plan is empty.");
-		const auto& State = *Plan.State;
+		if (!Fixup)
+			return Error(EAssetError::StaleData,
+				"The redirector Fix Up transaction state is empty.");
+		const auto& State = *Fixup;
 		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
 			return Error(EAssetError::IoError,
 				"AssetMutationRecoveryRequired: the Fix Up journal requires recovery.");
@@ -5669,7 +6033,7 @@ namespace Durin::Asset
 		{
 			if (PackageState.LoadedPackage)
 			{
-				if (FindLoadedPackage(PackageState.SourcePath)
+				if (FindResidentPackage(PackageState.SourcePath)
 						!= PackageState.LoadedPackage
 					|| PackageState.LoadedPackage->IsDirty()
 					|| CompatibilityRiskPackages.contains(
@@ -5706,14 +6070,15 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::ApplyRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	auto FAssetRuntimeState::CommitRedirectorFixup(
+		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Plan.State)
-			return Error(EAssetError::StaleData, "The redirector Fix Up plan is empty.");
-		auto& State = *Plan.State;
-		FAssetResult Result = RevalidateRedirectorFixup(Plan);
+		if (!Fixup)
+			return Error(EAssetError::StaleData,
+				"The redirector Fix Up transaction state is empty.");
+		auto& State = *Fixup;
+		FAssetResult Result = ValidateRedirectorFixupCommit(Fixup);
 		if (!Result) return Result;
 		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::StageOriginal))
 			return Error(EAssetError::IoError,
@@ -5934,7 +6299,7 @@ namespace Durin::Asset
 				OutAnalysis.DirectReferencers.push_back(OtherPath);
 		}
 		std::ranges::sort(OutAnalysis.DirectReferencers, [](const FAssetPath& A, const FAssetPath& B) { return A.GetView() < B.GetView(); });
-		OutAnalysis.bLoaded = LoadedPackages.contains(Path);
+		OutAnalysis.bLoaded = ResidentPackages.contains(Path);
 		OutAnalysis.bLoading = LoadingPackages.contains(Path);
 
 		const FAssetResult CompanionResult =
@@ -5948,13 +6313,15 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::AnalyzeAssetDeletionBatch(
+	auto FAssetRuntimeState::PrepareAssetDeletionTransaction(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionBatchToken& OutToken,
+		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
-		OutToken = {};
+		OutTransaction = {};
+		OutTransaction.State = std::make_shared<FAssetDeletionTransaction::FState>();
+		auto& OutToken = *OutTransaction.State;
 		OutBlockers.clear();
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(
@@ -6009,7 +6376,7 @@ namespace Durin::Asset
 
 			FAssetDeletionBatchEntry Entry{
 				.RegistryEntry = *Data,
-				.bLoaded = LoadedPackages.contains(Path)};
+				.bLoaded = ResidentPackages.contains(Path)};
 			if (LoadingPackages.contains(Path))
 				AddBlocker(
 					EAssetDeletionBatchBlocker::LoadingPackage,
@@ -6017,8 +6384,8 @@ namespace Durin::Asset
 					{},
 					Data->PhysicalPath,
 					"Asset is currently loading.");
-			if (const auto Loaded = LoadedPackages.find(Path);
-				Loaded != LoadedPackages.end() && Loaded->second
+			if (const auto Loaded = ResidentPackages.find(Path);
+				Loaded != ResidentPackages.end() && Loaded->second
 				&& Loaded->second->IsDirty())
 				AddBlocker(
 					EAssetDeletionBatchBlocker::DirtyPackage,
@@ -6228,7 +6595,7 @@ namespace Durin::Asset
 				// Redirect hard blockers have dedicated actionable closure diagnostics.
 				if (OtherData.EntryKind == EAssetRegistryEntryKind::Redirector)
 					continue;
-				const bool bLoadedReference = LoadedPackages.contains(OtherPath);
+				const bool bLoadedReference = ResidentPackages.contains(OtherPath);
 				AddBlocker(
 					bLoadedReference
 						? EAssetDeletionBatchBlocker::ExternalLoadedReference
@@ -6322,19 +6689,24 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RevalidateAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token,
+	auto FAssetRuntimeState::ValidateAssetDeletionTransaction(
+		const FAssetDeletionTransaction& Transaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
+		if (!Transaction.State)
+			return Error(EAssetError::StaleData,
+				"The asset deletion transaction is empty.");
+		const auto& Token = *Transaction.State;
 		std::vector<FAssetPath> Paths;
 		Paths.reserve(Token.Entries.size());
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 			Paths.push_back(Entry.RegistryEntry.PackagePath);
 
-		FAssetDeletionBatchToken Current;
-		FAssetResult Result = AnalyzeAssetDeletionBatch(
-			Paths, Token.PhysicalRoots, Current, OutBlockers);
+		FAssetDeletionTransaction CurrentTransaction;
+		FAssetResult Result = PrepareAssetDeletionTransaction(
+			Paths, Token.PhysicalRoots, CurrentTransaction, OutBlockers);
 		if (!Result || !OutBlockers.empty()) return Result;
+		const auto& Current = *CurrentTransaction.State;
 		if (Current.Entries.size() != Token.Entries.size())
 			return Error(EAssetError::InUse,
 				"The asset deletion set changed after confirmation.");
@@ -6357,9 +6729,10 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::UnloadAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::UnloadAssetDeletionTransaction(
+		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
+		const auto& Token = *Transaction.State;
 		std::vector<DPackage*> Packages;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
@@ -6367,15 +6740,15 @@ namespace Durin::Asset
 			if (LoadingPackages.contains(Path))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} is currently loading.", Path.ToString()));
-			const auto Loaded = LoadedPackages.find(Path);
-			if (Loaded == LoadedPackages.end()) continue;
+			const auto Loaded = ResidentPackages.find(Path);
+			if (Loaded == ResidentPackages.end()) continue;
 			if (Loaded->second && Loaded->second->IsDirty())
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} has unsaved changes.", Path.ToString()));
 			if (Loaded->second) Packages.push_back(Loaded->second);
 		}
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-			LoadedPackages.erase(Entry.RegistryEntry.PackagePath);
+			ResidentPackages.erase(Entry.RegistryEntry.PackagePath);
 		for (DPackage* Package : Packages)
 		{
 			CompatibilityRiskPackages.erase(Package);
@@ -6386,22 +6759,10 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::ApplyAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::RemoveAssetDeletionRegistryProjection(
+		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
-		std::vector<FAssetDeletionBatchBlocker> Blockers;
-		FAssetResult Result = RevalidateAssetDeletionBatch(Token, Blockers);
-		if (!Result) return Result;
-		if (!Blockers.empty())
-			return Error(EAssetError::InUse, Blockers.front().Details);
-		Result = UnloadAssetDeletionBatch(Token);
-		if (!Result) return Result;
-		return RemoveAssetDeletionBatchRegistryProjection(Token);
-	}
-
-	auto FAssetRuntimeState::RemoveAssetDeletionBatchRegistryProjection(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
-	{
+		const auto& Token = *Transaction.State;
 		std::unordered_set<FAssetPath> DeletionSet;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
@@ -6428,14 +6789,14 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RestoreAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto FAssetRuntimeState::RestoreAssetDeletionRegistryProjection(
+		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
+		const auto& Token = *Transaction.State;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
 			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
-			if (Registry.FindAssetExactPointer(Path) || LoadedPackages.contains(Path)
-				|| DraftPackages.Contains(Path))
+			if (Registry.FindAssetExactPointer(Path) || ResidentPackages.contains(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
 					Path.ToString()));
@@ -6451,7 +6812,95 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::DeleteAsset(const FAssetPath& Path) -> FAssetResult
+	auto FAssetDeletionTransaction::Commit(
+		const FAssetDeletionPhysicalTransition& Transition) -> FAssetResult
+	{
+		if (!State || State->TransactionState != EAssetMutationTransactionState::Prepared)
+			return Error(EAssetError::StaleData,
+				"Only a prepared asset deletion transaction can be committed.");
+		if (!Transition.Stage || !Transition.Restore)
+			return Error(EAssetError::StaleData,
+				"The asset deletion transaction has no physical transition.");
+
+		FAssetRuntimeState& Runtime = FAssetRuntimeState::Get();
+		std::vector<FAssetDeletionBatchBlocker> Blockers;
+		FAssetResult Result = Runtime.ValidateAssetDeletionTransaction(*this, Blockers);
+		if (!Result) return Result;
+		if (!Blockers.empty())
+			return Error(EAssetError::InUse, Blockers.front().Details);
+		Result = Runtime.UnloadAssetDeletionTransaction(*this);
+		if (!Result) return Result;
+		Result = Transition.Stage();
+		if (!Result)
+		{
+			if (Transition.IsRecoveryRequired && Transition.IsRecoveryRequired())
+				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
+			return Result;
+		}
+		Result = Runtime.RemoveAssetDeletionRegistryProjection(*this);
+		if (!Result)
+		{
+			const FAssetResult Restore = Transition.Restore();
+			if (!Restore)
+			{
+				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
+				return Error(EAssetError::IoError, std::format(
+					"{} Physical compensation also failed: {}", Result.Message, Restore.Message));
+			}
+			return Result;
+		}
+		State->TransactionState = EAssetMutationTransactionState::Committed;
+		return {};
+	}
+
+	auto FAssetDeletionTransaction::Undo(
+		const FAssetDeletionPhysicalTransition& Transition) -> FAssetResult
+	{
+		if (!State || State->TransactionState != EAssetMutationTransactionState::Committed)
+			return Error(EAssetError::StaleData,
+				"Only a committed asset deletion transaction can be undone.");
+		if (!Transition.Stage || !Transition.Restore)
+			return Error(EAssetError::StaleData,
+				"The asset deletion transaction has no physical transition.");
+
+		FAssetResult Result = Transition.Restore();
+		if (!Result)
+		{
+			if (Transition.IsRecoveryRequired && Transition.IsRecoveryRequired())
+				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
+			return Result;
+		}
+		Result = FAssetRuntimeState::Get().RestoreAssetDeletionRegistryProjection(*this);
+		if (!Result)
+		{
+			const FAssetResult Restage = Transition.Stage();
+			if (!Restage)
+			{
+				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
+				return Error(EAssetError::IoError, std::format(
+					"{} Physical compensation also failed: {}", Result.Message, Restage.Message));
+			}
+			return Result;
+		}
+		State->TransactionState = EAssetMutationTransactionState::Undone;
+		return {};
+	}
+
+	auto FAssetDeletionTransaction::Redo(
+		const FAssetDeletionPhysicalTransition& Transition) -> FAssetResult
+	{
+		if (!State || State->TransactionState != EAssetMutationTransactionState::Undone)
+			return Error(EAssetError::StaleData,
+				"Only an undone asset deletion transaction can be redone.");
+		State->TransactionState = EAssetMutationTransactionState::Prepared;
+		const FAssetResult Result = Commit(Transition);
+		if (!Result && State->TransactionState == EAssetMutationTransactionState::Prepared)
+			State->TransactionState = EAssetMutationTransactionState::Undone;
+		return Result;
+	}
+
+	auto FAssetRuntimeState::DeleteAssetForTesting(const FAssetPath& Path)
+		-> FAssetResult
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset deletion.");
@@ -6467,7 +6916,7 @@ namespace Durin::Asset
 		if (Analysis.bLoading) return Error(EAssetError::InUse, "Asset is currently loading.");
 		if (Analysis.bLoaded)
 		{
-			// LoadedPackages is a residency cache. Once persistent package references are gone,
+			// ResidentPackages is a residency cache. Once persistent package references are gone,
 			// keeping that cache entry must not force users to restart before deleting an asset.
 			Result = UnloadPackage(Path);
 			if (!Result) return Result;
@@ -6577,6 +7026,26 @@ namespace Durin::Asset
 				"Asset loading is closed while the asset manager is shutting down."));
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
 			return Finish(Error(EAssetError::TypeMismatch, "An asset load requires a DObject class."));
+		if (DPackage* Resident = FindResidentPackage(Path))
+		{
+			DObject* Asset = Resident->GetAsset();
+			if (Asset && !Asset->IsA<DAssetRedirector>())
+			{
+				if (ExpectedClass && !Asset->IsA(ExpectedClass))
+					return Finish(Error(EAssetError::TypeMismatch, std::format(
+						"Asset {} is not a {}.", Path.ToString(),
+						ExpectedClass->GetQualifiedName().ToString())));
+				OutAsset = Asset;
+				if (OutReport)
+				{
+					OutReport->CatalogRevision = Registry.GetRevision();
+					OutReport->FinalPath = Path;
+					OutReport->FinalAssetClassName =
+						Asset->GetClass()->GetQualifiedName().ToString();
+				}
+				return Finish({});
+			}
+		}
 
 		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
@@ -6669,10 +7138,10 @@ namespace Durin::Asset
 				bool bDiscardedPackage = false;
 				for (auto It = TransactionPackages.rbegin(); It != TransactionPackages.rend(); ++It)
 				{
-					auto LoadedIt = LoadedPackages.find(*It);
-					if (LoadedIt == LoadedPackages.end()) continue;
+					auto LoadedIt = ResidentPackages.find(*It);
+					if (LoadedIt == ResidentPackages.end()) continue;
 					DPackage* TransactionPackage = LoadedIt->second;
-					LoadedPackages.erase(LoadedIt);
+					ResidentPackages.erase(LoadedIt);
 					LoadingPackages.erase(*It);
 					RemoveFromRoot(TransactionPackage);
 					MarkObjectHierarchyAsGarbage(TransactionPackage);
@@ -6695,7 +7164,7 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
-		if (auto It = LoadedPackages.find(Path); It != LoadedPackages.end())
+		if (auto It = ResidentPackages.find(Path); It != ResidentPackages.end())
 		{
 			OutPackage = It->second;
 			return {};
@@ -6728,18 +7197,17 @@ namespace Durin::Asset
 			Result = Codec->Load(
 				Bytes, Path, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetResult {
-					if (!LoadedPackage || LoadedPackages.contains(Path)
-						|| DraftPackages.Contains(Path))
+					if (!LoadedPackage || ResidentPackages.contains(Path))
 						return Error(EAssetError::AlreadyExists,
 							"The package skeleton is already resident.");
-					LoadedPackages.emplace(Path, LoadedPackage);
+					ResidentPackages.emplace(Path, LoadedPackage);
 					LoadingPackages.insert(Path);
 					if (LoadDepth > 0) TransactionPackages.push_back(Path);
 					return {};
 				},
 				[&](DPackage* LoadedPackage) {
 					LoadingPackages.erase(Path);
-					LoadedPackages.erase(Path);
+					ResidentPackages.erase(Path);
 					CompatibilityRiskPackages.erase(LoadedPackage);
 				});
 			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
@@ -6756,28 +7224,20 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRuntimeState::FindLoadedPackage(const FAssetPath& Path) const -> DPackage*
+	auto FAssetRuntimeState::FindResidentPackage(const FAssetPath& Path) const -> DPackage*
 	{
-		auto It = LoadedPackages.find(Path);
-		return It == LoadedPackages.end() ? nullptr : It->second;
+		auto It = ResidentPackages.find(Path);
+		return It == ResidentPackages.end() ? nullptr : It->second.Package;
 	}
 
-	auto FAssetRuntimeState::FindDraftPackage(const FAssetPath& Path) const -> DPackage*
+	auto FAssetRuntimeState::GetResidentPackagePublicationState(
+		const FAssetPath& Path) const
+		-> std::optional<EAssetPackagePublicationState>
 	{
-		return DraftPackages.Find(Path);
-	}
-
-	auto FAssetRuntimeState::DiscardDraftPackage(const FAssetPath& Path) -> FAssetResult
-	{
-		DPackage* Package = DraftPackages.Find(Path);
-		if (!Package)
-			return Error(EAssetError::NotFound, "Package is not an unpublished draft.");
-		DraftPackages.Remove(Path);
-		CompatibilityRiskPackages.erase(Package);
-		RemoveFromRoot(Package);
-		MarkObjectHierarchyAsGarbage(Package);
-		CollectGarbage();
-		return {};
+		const auto It = ResidentPackages.find(Path);
+		return It == ResidentPackages.end()
+			? std::nullopt
+			: std::optional{It->second.PublicationState};
 	}
 
 	auto FAssetRuntimeState::IsPackageReferenced(const DPackage* Package) const -> bool
@@ -6785,7 +7245,7 @@ namespace Durin::Asset
 		if (!Package) return false;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return false;
-		for (const auto& [OtherPath, OtherPackage] : LoadedPackages)
+		for (const auto& [OtherPath, OtherPackage] : ResidentPackages)
 		{
 			if (OtherPackage == Package) continue;
 			const FAssetData* Data = Registry.FindAssetExactPointer(OtherPath);
@@ -6799,13 +7259,24 @@ namespace Durin::Asset
 		return false;
 	}
 
-	auto FAssetRuntimeState::UnloadPackage(const FAssetPath& Path) -> FAssetResult
+	auto FAssetRuntimeState::UnloadPackage(
+		const FAssetPath& Path,
+		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		auto It = LoadedPackages.find(Path);
-		if (It == LoadedPackages.end()) return Error(EAssetError::NotFound, "Package is not loaded.");
+		auto It = ResidentPackages.find(Path);
+		if (It == ResidentPackages.end())
+			return Error(EAssetError::NotFound, "Package is not resident.");
 		if (LoadingPackages.contains(Path) || IsPackageReferenced(It->second)) return Error(EAssetError::InUse, "Package is still referenced.");
-		DPackage* Package = It->second;
-		LoadedPackages.erase(It);
+		DPackage* Package = It->second.Package;
+		const bool bHasUnsavedState =
+			It->second.PublicationState
+				== EAssetPackagePublicationState::NewlyCreated
+			|| (Package && Package->IsDirty());
+		if (bHasUnsavedState
+			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
+			return Error(EAssetError::InUse,
+				"Package has unsaved state; explicit discard policy is required.");
+		ResidentPackages.erase(It);
 		CompatibilityRiskPackages.erase(Package);
 		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
@@ -6816,9 +7287,9 @@ namespace Durin::Asset
 	auto FAssetRuntimeState::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
 	{
 		FAssetPackageLoadSnapshot Snapshot;
-		Snapshot.LoadedPackages.reserve(LoadedPackages.size());
-		for (const auto& [Path, Package] : LoadedPackages) Snapshot.LoadedPackages.push_back(Path);
-		std::ranges::sort(Snapshot.LoadedPackages, {}, [](const FAssetPath& Path) {
+		Snapshot.ResidentPackages.reserve(ResidentPackages.size());
+		for (const auto& [Path, Package] : ResidentPackages) Snapshot.ResidentPackages.push_back(Path);
+		std::ranges::sort(Snapshot.ResidentPackages, {}, [](const FAssetPath& Path) {
 			return Path.ToString();
 		});
 		return Snapshot;
@@ -6831,12 +7302,12 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse, "A package load is still in progress.");
 
 		std::unordered_set<FAssetPath> Protected(
-			Snapshot.LoadedPackages.begin(), Snapshot.LoadedPackages.end());
+			Snapshot.ResidentPackages.begin(), Snapshot.ResidentPackages.end());
 		bool bChanged = true;
 		while (bChanged)
 		{
 			bChanged = false;
-			for (const auto& [Path, Package] : LoadedPackages)
+			for (const auto& [Path, Package] : ResidentPackages)
 			{
 				if (!Protected.contains(Path)) continue;
 				const FAssetData* Data = Registry.FindAssetExactPointer(Path);
@@ -6850,9 +7321,12 @@ namespace Durin::Asset
 		}
 
 		std::vector<DPackage*> ReleasedPackages;
-		for (auto It = LoadedPackages.begin(); It != LoadedPackages.end();)
+		for (auto It = ResidentPackages.begin(); It != ResidentPackages.end();)
 		{
-			if (Protected.contains(It->first))
+			if (Protected.contains(It->first)
+				|| It->second.PublicationState
+					== EAssetPackagePublicationState::NewlyCreated
+				|| (It->second.Package && It->second.Package->IsDirty()))
 			{
 				++It;
 				continue;
@@ -6860,7 +7334,7 @@ namespace Durin::Asset
 			DPackage* Package = It->second;
 			CompatibilityRiskPackages.erase(Package);
 			ReleasedPackages.push_back(Package);
-			It = LoadedPackages.erase(It);
+			It = ResidentPackages.erase(It);
 		}
 		for (DPackage* Package : ReleasedPackages)
 		{
@@ -6882,17 +7356,12 @@ namespace Durin::Asset
 		StopAcceptingRequests();
 		Registry.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
-		Packages.reserve(LoadedPackages.size() + DraftPackages.Size());
-		for (const auto& [Path, Package] : LoadedPackages)
+		Packages.reserve(ResidentPackages.size());
+		for (const auto& [Path, Package] : ResidentPackages)
 		{
 			if (Package) Packages.push_back(Package);
 		}
-		for (const auto& [Path, Package] : DraftPackages)
-		{
-			if (Package) Packages.push_back(Package);
-		}
-		LoadedPackages.clear();
-		DraftPackages.Clear();
+		ResidentPackages.clear();
 		LoadingPackages.clear();
 		CompatibilityRiskPackages.clear();
 		TransactionPackages.clear();
@@ -6908,8 +7377,7 @@ namespace Durin::Asset
 
 	auto FAssetRuntimeState::Initialize() -> void
 	{
-		check(LoadedPackages.empty());
-		check(DraftPackages.Empty());
+		check(ResidentPackages.empty());
 		check(LoadingPackages.empty());
 		check(TransactionPackages.empty());
 		bAcceptingRequests = true;
@@ -6926,7 +7394,7 @@ namespace Durin::Asset
 	{
 		std::string ValidationError;
 		if (!InContext.IsValid(&ValidationError)) return Error(EAssetError::InvalidPath, std::move(ValidationError));
-		if (bPackageLoadStarted || !LoadedPackages.empty() || !DraftPackages.Empty()
+		if (bPackageLoadStarted || !ResidentPackages.empty()
 			|| !LoadingPackages.empty() || LoadDepth != 0)
 			return Error(EAssetError::InUse, "Package load context cannot change after package loading has begun.");
 		PackageLoadContext = std::move(InContext);
@@ -6960,7 +7428,7 @@ namespace Durin::Asset
 		return FAssetRuntimeState::Get().CreateAsset(Path, Class, Size, OutAsset);
 	}
 
-	auto CreateAssetRedirector(
+	auto CreateAssetRedirectorForTesting(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
@@ -6997,7 +7465,7 @@ namespace Durin::Asset
 		{
 			if (Resolution.State == EAssetPathResolveState::NotFound)
 			{
-				DPackage* LoadedPackage = FindLoadedPackage(Path);
+				DPackage* LoadedPackage = FindResidentPackage(Path);
 				DObject* LoadedObject = LoadedPackage ? LoadedPackage->GetAsset() : nullptr;
 				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
 				{
@@ -7025,7 +7493,7 @@ namespace Durin::Asset
 				.State = ESoftObjectResolveState::NotLoaded};
 		}
 
-		DPackage* Package = FindLoadedPackage(Resolution.FinalPath);
+		DPackage* Package = FindResidentPackage(Resolution.FinalPath);
 		if (!Package)
 		{
 			Reference.ResetResolvedObject();
@@ -7140,108 +7608,64 @@ namespace Durin::Asset
 	{
 		return FAssetRuntimeState::Get().SavePackage(Package, Options);
 	}
-	auto AnalyzeAssetRelocationBatch(
+	auto PrepareAssetRelocationTransaction(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationBatchToken& OutToken) -> FAssetResult
+		FAssetMutationSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().AnalyzeAssetRelocationBatch(
-			Mappings, OutToken);
+		return FAssetRuntimeState::Get().PrepareAssetRelocationTransaction(
+			Mappings, OutSummary, OutTransaction);
 	}
-	auto RevalidateAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().RevalidateAssetRelocationBatch(Token);
-	}
-	auto ApplyAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().ApplyAssetRelocationBatch(Token);
-	}
-	auto RestoreAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().RestoreAssetRelocationBatch(Token);
-	}
-	auto AnalyzeRedirectorFixup(
+	auto PrepareRedirectorFixupTransaction(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
+		FAssetRedirectorFixupSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().AnalyzeRedirectorFixup(
-			Redirectors, Mode, OutPlan);
-	}
-	auto RevalidateRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().RevalidateRedirectorFixup(Plan);
-	}
-	auto ApplyRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().ApplyRedirectorFixup(Plan);
-	}
-	auto FixUpRedirectors(
-		std::span<const FAssetPath> Redirectors,
-		EAssetRedirectorFixupMode Mode) -> FAssetResult
-	{
-		FAssetRedirectorFixupPlan Plan;
-		FAssetResult Result = AnalyzeRedirectorFixup(Redirectors, Mode, Plan);
-		return Result ? ApplyRedirectorFixup(Plan) : Result;
-	}
-	auto FixUpAllRedirectors(EAssetRedirectorFixupMode Mode) -> FAssetResult
-	{
-		std::vector<FAssetPath> Redirectors;
-		for (const auto& [Path, Data] : GetAssetCatalogStore().GetAssets())
-			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
-				Redirectors.push_back(Path);
-		std::ranges::sort(Redirectors,
-			[](const FAssetPath& Left, const FAssetPath& Right) {
-				return Left.GetView() < Right.GetView();
-			});
-		if (Redirectors.empty()) return {};
-		return FixUpRedirectors(Redirectors, Mode);
+		return FAssetRuntimeState::Get().PrepareRedirectorFixupTransaction(
+			Redirectors, Mode, OutSummary, OutTransaction);
 	}
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetRuntimeState::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
-	auto AnalyzeAssetDeletionBatch(
+	auto PrepareAssetDeletionTransaction(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionBatchToken& OutToken,
+		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().AnalyzeAssetDeletionBatch(
-			Paths, PhysicalRoots, OutToken, OutBlockers);
+		return FAssetRuntimeState::Get().PrepareAssetDeletionTransaction(
+			Paths, PhysicalRoots, OutTransaction, OutBlockers);
 	}
-	auto RevalidateAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	auto DeleteAssetForTesting(const FAssetPath& Path) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().RevalidateAssetDeletionBatch(
-			Token, OutBlockers);
+		return FAssetRuntimeState::Get().DeleteAssetForTesting(Path);
 	}
-	auto UnloadAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto FindResidentPackage(const FAssetPath& Path) -> DPackage* { return FAssetRuntimeState::Get().FindResidentPackage(Path); }
+	auto GetResidentPackagePublicationState(const FAssetPath& Path)
+		-> std::optional<EAssetPackagePublicationState>
 	{
-		return FAssetRuntimeState::Get().UnloadAssetDeletionBatch(Token);
+		return FAssetRuntimeState::Get().GetResidentPackagePublicationState(Path);
 	}
-	auto ApplyAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto UnloadPackage(
+		const FAssetPath& Path,
+		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().ApplyAssetDeletionBatch(Token);
+		return FAssetRuntimeState::Get().UnloadPackage(Path, Policy);
 	}
-	auto RemoveAssetDeletionBatchRegistryProjection(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	auto UnloadPackage(
+		DPackage* Package,
+		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().RemoveAssetDeletionBatchRegistryProjection(Token);
+		FAssetPath Path;
+		if (!Package || !Package->IsAssetPackage()
+			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+			return Error(EAssetError::InvalidPackageType,
+				"The package to unload is invalid.");
+		FAssetRuntimeState& State = FAssetRuntimeState::Get();
+		if (State.FindResidentPackage(Path) != Package)
+			return Error(EAssetError::NotFound,
+				"The package is not the resident package at its path.");
+		return State.UnloadPackage(Path, Policy);
 	}
-	auto RestoreAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().RestoreAssetDeletionBatch(Token);
-	}
-	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetRuntimeState::Get().DeleteAsset(Path); }
-	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetRuntimeState::Get().FindLoadedPackage(Path); }
-	auto FindDraftPackage(const FAssetPath& Path) -> DPackage* { return FAssetRuntimeState::Get().FindDraftPackage(Path); }
-	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetRuntimeState::Get().UnloadPackage(Path); }
 	auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot
 	{
 		return FAssetRuntimeState::Get().CapturePackageLoadSnapshot();

@@ -212,8 +212,7 @@ namespace Durin::Asset::Import::Standard
 		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
 			return {false, std::move(Error), nullptr};
 		if (Asset::FindAssetExact(ParsedPath)
-			|| Asset::FindLoadedPackage(ParsedPath)
-			|| Asset::FindDraftPackage(ParsedPath))
+			|| Asset::FindResidentPackage(ParsedPath))
 			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(
@@ -236,14 +235,14 @@ namespace Durin::Asset::Import::Standard
 		if (!BuildFromMountedSource(*Heightmap, MountedSource, Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::DiscardUnpublishedPackage(Heightmap->GetPackage());
+			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
 		if (!Saved)
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::DiscardUnpublishedPackage(Heightmap->GetPackage());
+			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Saved.Message, nullptr};
 		}
 		CommitMountedSourceFile(MountedSource);

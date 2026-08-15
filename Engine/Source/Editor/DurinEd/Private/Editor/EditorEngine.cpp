@@ -147,17 +147,29 @@ namespace Durin
 					!Args.empty() && Args[0] == "rewrite-only"
 					? Asset::EAssetRedirectorFixupMode::RewriteOnly
 					: Asset::EAssetRedirectorFixupMode::RewriteAndDelete;
-				size_t RedirectorCount = 0;
-				for (const auto& [_, Data]
+				std::vector<FAssetPath> Redirectors;
+				for (const auto& [Path, Data]
 					: Asset::CaptureAssetCatalogSnapshot().Assets)
-					RedirectorCount += Data.EntryKind
-						== Asset::EAssetRegistryEntryKind::Redirector;
-				const Asset::FAssetResult Result =
-					Asset::FixUpAllRedirectors(Mode);
+					if (Data.EntryKind
+						== Asset::EAssetRegistryEntryKind::Redirector)
+						Redirectors.push_back(Path);
+				std::ranges::sort(Redirectors,
+					[](const FAssetPath& Left, const FAssetPath& Right) {
+						return Left.GetView() < Right.GetView();
+					});
+				Asset::FAssetRedirectorFixupSummary Summary;
+				Asset::FAssetMutationTransaction Transaction;
+				Asset::FAssetResult Result;
+				if (!Redirectors.empty())
+				{
+					Result = Asset::PrepareRedirectorFixupTransaction(
+						Redirectors, Mode, Summary, Transaction);
+					if (Result) Result = Transaction.Commit();
+				}
 				return Result
 					? FConsoleCommandResult::Success(std::format(
 						"Fixed up {} redirector(s) in {} mode.",
-						RedirectorCount,
+						Redirectors.size(),
 						Mode == Asset::EAssetRedirectorFixupMode::RewriteOnly
 							? "rewrite-only" : "rewrite-and-delete"))
 					: FConsoleCommandResult::Failure(Result.Message);

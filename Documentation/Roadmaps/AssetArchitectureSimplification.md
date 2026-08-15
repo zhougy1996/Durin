@@ -18,21 +18,22 @@ later rewrites proven-complete package and external references, and Cook emits
 only canonical real paths. Those semantics remain requirements of this
 roadmap.
 
-The implementation boundary is now wider than those semantics require.
-`AssetSystem.h` exposes registry, loading, save, relocation, deletion, Fix Up,
-cooking, compatibility, test injection, and a stateful singleton manager in one
-header, while free functions duplicate many manager methods. Registry misses
-can still trigger physical-path probing and direct package loading, ordinary
-package decode proves canonical encoding by reserializing, and dormant runtime
-migration and structure-upgrader mechanisms remain beside the only production
-v4 codec. Import owns three overlapping registration paths, and AssetBuildCore
-retains execution abstractions without production executors.
+M0 is complete. The catalog is authoritative, resolution is pure, ordinary
+load performs no registry-miss probing or publication, manager state is
+private, and focused headers replace the former
+`AssetSystem.h` umbrella. M1 is complete: package residency uses explicit
+`NewlyCreated`/`Published` state, and relocation, deletion, and strict Fix Up
+use opaque transaction boundaries owned by AssetCore. Production callers cannot
+sequence mutation phases, and contribution registrations are lifetime-gated.
+Ordinary package decode also still proves
+canonical encoding by reserializing, dormant migration/upgrader mechanisms
+remain beside the production v4 codec, import owns overlapping registration
+paths, and AssetBuildCore retains unused execution abstractions.
 
-The first active child plan is
-[Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md). It
-establishes one exact catalog, one redirect-aware resolver, and one ordinary
-load path without changing redirector persistence, move, Fix Up, or Cook
-semantics. Later child plans are activated only after that boundary is stable.
+The active child plan is
+[Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md).
+It separates ordinary current-format decode from explicit canonical audit and
+removes migration/upgrader machinery that has no proven repository consumer.
 
 ## Outcome
 
@@ -43,8 +44,9 @@ owner:
   redirector at its exact authored path;
 - a pure resolver follows explicit redirector metadata and returns one
   structured final result without loading packages;
-- a package store reads and materializes only final real packages and keeps
-  drafts separate from persistent catalog entries;
+- one resident-package store holds both loaded persistent packages and newly
+  created packages, with explicit `NewlyCreated`/`Published` and dirty state;
+  the persistent catalog remains a separate truth boundary;
 - an authoring service owns create, save, relocation, deletion, Fix Up, and
   their journaled transactions;
 - one import service owns provider discovery, planning, execution, reimport,
@@ -61,7 +63,7 @@ to accept incomplete registry state, or a second asset-loading path.
 ## Scope
 
 - AssetCore public API, internal ownership, catalog refresh, exact lookup,
-  redirect resolution, package loading, drafts, save, relocation, deletion,
+  redirect resolution, package loading, residency, save, relocation, deletion,
   Fix Up, compatibility, cooking, and test seams.
 - Redirector registry metadata, chain compression, corruption diagnostics,
   external reference stores, editor visibility, Undo/Redo, and cooked-output
@@ -127,16 +129,23 @@ to accept incomplete registry state, or a second asset-loading path.
   an unindexed file, validate it, and publish it to the catalog before normal
   loading.
 
-### The catalog is persistent truth; drafts are separate
+### The catalog is persistent truth; residency state is explicit
 
 - Every persistent load begins from one published catalog revision. A load
   does not discover or add catalog entries as a side effect.
 - Catalog refresh publishes one complete replacement or an explicit incomplete
   result. It never returns success while hiding parse or reference-index
   failures only in mutable side-channel arrays.
-- New unsaved packages live in an explicit draft store. Draft lookup is
-  available only to authoring operations that intentionally accept drafts and
-  does not change exact persistent lookup or redirect resolution.
+- Newly created unsaved packages live in the same resident-package store as
+  packages loaded from persistent content. A resident entry explicitly records
+  whether it is `NewlyCreated` or `Published`; dirty state independently records
+  whether its current contents need saving. There is no parallel draft store.
+- Resident lookup may return either publication state to editor authoring code.
+  Persistent catalog lookup, redirect resolution, and ordinary disk-backed load
+  remain catalog-authoritative and never publish an entry as a side effect.
+- Unload rejects newly created or dirty packages by default. Explicit discard
+  policy is required to end residency while losing unsaved state; there is no
+  separate public discard-draft operation.
 - Catalog query results and snapshots have revision-safe value semantics; raw
   pointers into mutable registry containers do not cross the catalog boundary.
 
@@ -202,8 +211,8 @@ to accept incomplete registry state, or a second asset-loading path.
 | Area | Foundation to preserve | Gap to remove | Owning milestone |
 | --- | --- | --- | --- |
 | Redirectors | Exact registry metadata, bounded resolution, direct aliases, atomic relocation, explicit Fix Up, editor and Cook integration | Redirector behavior shares a monolithic manager and load fallback path with unrelated responsibilities | M0-M1 |
-| Catalog | Incremental/full reconciliation, persistent snapshots, revisions, exact and resolved queries | Mutable-pointer results, success with side-channel errors, load-time discovery, and draft/persistent state overlap | M0 |
-| Package loading | Typed load, dependency handling, loaded-package cache, authored/cooked policies | Public singleton manager, duplicate facades, registry-miss disk probing, repeated file reads, and redirector construction seams mixed with normal load | M0 and M2 |
+| Catalog | Incremental/full reconciliation, persistent snapshots, revisions, exact and resolved queries | Mutable-pointer results, success with side-channel errors, and load-time discovery; M1 supersedes the temporary M0 split draft store with explicit resident publication state | M0-M1 |
+| Package loading | Typed load, dependency handling, resident-package cache, authored/cooked policies | Public singleton manager, duplicate facades, registry-miss disk probing, repeated file reads, and redirector construction seams mixed with normal load | M0-M2 |
 | Mutation | Journaled relocation, deletion and Fix Up with Undo/Redo | Public phase orchestration, duplicated revalidation, broad callback/test surface, and all operations co-located in `AssetSystem` | M1 |
 | Compatibility | Deterministic v4 codec, bounded reader, offline audit/resave tools | Empty migration graph, unused structure upgraders, partial compatibility packages, and load-time canonical re-encoding | M2 |
 | Import | Format-neutral planning, publication transactions, source records, reimport, and scene multi-output support | General provider, single-asset handler, and record-handler registries overlap; identity providers exist only as adapters | M3 |
@@ -225,9 +234,9 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Catalog and load boundary | Required; active | [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Current v4, registry, redirector and load tests | One authoritative exact catalog, pure resolution, one-read final-package load, explicit drafts, private manager state, and split public headers | Existing exact/resolved/redirected behavior and production callers are inventoried | Registry miss cannot load implicitly; redirect behavior is unchanged; no public manager or duplicate load path remains |
-| M1: Redirector mutation boundary | Required; proposed | Asset Redirector Mutation Boundary | M0 | One authoring service and one transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | All mutation callers use M0 catalog values and load surface | Callers cannot sequence internal transaction phases; relocation and Fix Up retain the completed redirector failure matrix |
-| M2: Package compatibility simplification | Required; proposed | Asset Package Compatibility Simplification | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Catalog/load reports have stable structured format/schema errors | Ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
+| M0: Catalog and load boundary | Required; completed | [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Current v4, registry, redirector and load tests | One authoritative exact catalog, pure resolution, one-read final-package load, explicit drafts, private manager state, and split public headers | Existing exact/resolved/redirected behavior and production callers are inventoried | Passed: registry miss cannot load implicitly; redirect behavior is unchanged; no public manager or duplicate load path remains |
+| M1: Redirector mutation boundary | Required; completed | [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | M0 | One stateful resident-package model plus one authoring service and transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | Passed: all mutation callers use M0 catalog values and load surface | Passed: no parallel draft store or discard-draft API remains; callers cannot sequence internal transaction phases; relocation, deletion, and Fix Up retain the completed failure matrix |
+| M2: Package compatibility simplification | Required; active | [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Passed: catalog/load reports have stable structured format/schema errors | Ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
 | M3: Import service consolidation | Required; proposed | Asset Import Service Consolidation | M1-M2 | One importer descriptor, request, plan, execution, publication, reimport, record, and async ownership model | Authoring publication and compatibility failures have one owner | Production importers register once and initial import/reimport/multi-output share one pipeline |
 | M4: Build and runtime-domain simplification | Required; proposed | Asset Build and Runtime Domain Simplification | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Package decode and post-load responsibilities are separated | No unused build executor abstraction or mutable package/migration mode remains in production APIs |
 | M5: Final integration and contract handoff | Required; proposed | Asset Architecture Final Integration | M3-M4 | Repository-wide legacy API removal, performance/behavior qualification, and final Runtime/Editor contracts | All owning child plans completed with focused evidence | One public entry per operation, no obsolete compatibility surface, all program validation passes, and lasting contracts own final behavior |
@@ -236,16 +245,16 @@ flowchart LR
 
 | Child plan | Status | Owns | Must not absorb |
 | --- | --- | --- | --- |
-| [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Active | Catalog value/query boundary, resolution, package-store load path, drafts, public runtime header split | Mutation transaction redesign, format migration removal, importer consolidation |
-| Asset Redirector Mutation Boundary | Proposed after M0 | Authoring service, relocation/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
-| Asset Package Compatibility Simplification | Proposed after M0 | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
+| [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Completed | Catalog value/query boundary, resolution, package-store load path, drafts, public runtime header split | Mutation transaction redesign, format migration removal, importer consolidation |
+| [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | Completed | Unified resident-package publication state, unload/discard policy, authoring service, relocation/deletion/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
+| [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | Active | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
 | Asset Import Service Consolidation | Proposed after M1-M2 | Provider registration, planning/execution, single/multi-output reimport, async ownership and publication | General job system or remote import execution |
 | Asset Build and Runtime Domain Simplification | Proposed after M2 | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain | Remote build protocol without a production consumer |
 | Asset Architecture Final Integration | Proposed after M3-M4 | Cross-module legacy search, final benchmarks/smoke tests, lasting contract reconciliation | New asset capabilities unrelated to simplification |
 
-Only the M0 child plan is created now. A later plan is created when its
-dependencies pass and its production caller inventory is current; roadmap text
-does not serve as its implementation checklist.
+M0 and M1 are completed and M2 is the only active child plan. A later plan is created
+when its dependencies pass and its production caller inventory is current;
+roadmap text does not serve as its implementation checklist.
 
 ## Program Validation Matrix
 
@@ -289,6 +298,8 @@ into this roadmap.
   rewrites and deletes them.
 - Persistent loads use one catalog revision, one resolver, and one final-package
   read path; missing catalog entries cannot load by physical-path inference.
+- Newly created and published packages share one resident store with explicit
+  publication and dirty state, and unsaved state is discarded only by policy.
 - Runtime and editor call sites expose no stateful asset manager, duplicate
   member/free operation, manual mutation phase protocol, or production
   failure-injection control.

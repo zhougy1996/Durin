@@ -21,14 +21,17 @@ namespace
 		return {.bRegistryAssetExists = true};
 	}
 
-	auto LoadedPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto PublishedPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{
-		return {.bLoadedPackageExists = true};
+		return {.ResidentPublicationState =
+			Asset::EAssetPackagePublicationState::Published};
 	}
 
-	auto DraftPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto NewlyCreatedPackageOccupancy(const FAssetPath&)
+		-> FAssetDestinationOccupancy
 	{
-		return {.bDraftPackageExists = true};
+		return {.ResidentPublicationState =
+			Asset::EAssetPackagePublicationState::NewlyCreated};
 	}
 
 	auto RedirectorOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
@@ -129,30 +132,34 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	const FAssetDestinationValidation RegistryResult =
 		InspectAssetDestination("/Project/Textures/Registered", RegistryOccupancy);
 	EXPECT_TRUE(RegistryResult.bRegistryAssetExists);
-	EXPECT_FALSE(RegistryResult.bLoadedPackageExists);
+	EXPECT_FALSE(RegistryResult.ResidentPublicationState.has_value());
 	EXPECT_FALSE(RegistryResult);
 	EXPECT_EQ(
 		RegistryResult.Message,
 		"An asset already exists at this path. Choose another destination or delete the existing asset first.");
 
 	const FAssetDestinationValidation LoadedResult =
-		InspectAssetDestination("/Project/Textures/Loaded", LoadedPackageOccupancy);
+		InspectAssetDestination("/Project/Textures/Loaded", PublishedPackageOccupancy);
 	EXPECT_FALSE(LoadedResult.bRegistryAssetExists);
-	EXPECT_TRUE(LoadedResult.bLoadedPackageExists);
+	EXPECT_EQ(
+		LoadedResult.ResidentPublicationState,
+		Asset::EAssetPackagePublicationState::Published);
 	EXPECT_FALSE(LoadedResult);
 	EXPECT_EQ(
 		LoadedResult.Message,
-		"A loaded package already uses this path. Close it or choose another destination.");
+		"A resident package already uses this path. Close it or choose another destination.");
 
 	const FAssetDestinationValidation DraftResult =
-		InspectAssetDestination("/Project/Textures/Draft", DraftPackageOccupancy);
+		InspectAssetDestination(
+			"/Project/Textures/Draft", NewlyCreatedPackageOccupancy);
 	EXPECT_FALSE(DraftResult.bRegistryAssetExists);
-	EXPECT_FALSE(DraftResult.bLoadedPackageExists);
-	EXPECT_TRUE(DraftResult.bDraftPackageExists);
+	EXPECT_EQ(
+		DraftResult.ResidentPublicationState,
+		Asset::EAssetPackagePublicationState::NewlyCreated);
 	EXPECT_FALSE(DraftResult);
 	EXPECT_EQ(
 		DraftResult.Message,
-		"An unpublished asset draft already uses this path. Save or discard it before reusing the destination.");
+		"A newly created unsaved package already uses this path. Save or explicitly discard it before reusing the destination.");
 
 	const FAssetDestinationValidation RedirectorResult =
 		InspectAssetDestination(

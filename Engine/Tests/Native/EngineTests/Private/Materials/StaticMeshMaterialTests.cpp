@@ -11,10 +11,12 @@ namespace
 		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		Durin::Asset::FAssetResult Result =
-			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
-		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+			Durin::Asset::PrepareAssetRelocationTransaction(
+				std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		return Result;
 	}
 }
@@ -175,7 +177,9 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 		RepairError)) << RepairError;
 	EXPECT_EQ(Durin::Asset::Import::Standard::InspectStaticMeshSource(*Mesh).Status,
 		Durin::EStaticMeshSourceStatus::Available);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDefaults)
@@ -397,7 +401,9 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		MeshPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
@@ -607,7 +613,9 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	LoadedBase->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		BasePath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 }
 

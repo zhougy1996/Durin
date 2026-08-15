@@ -8,10 +8,12 @@ namespace
 		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		Durin::Asset::FAssetResult Result =
-			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
-		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+			Durin::Asset::PrepareAssetRelocationTransaction(
+				std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		return Result;
 	}
 }
@@ -198,11 +200,13 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/UI/SharedAsset", SharedAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultAssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CustomAssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		CustomAssetPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SharedAssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(DefaultAssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CustomAssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(SharedAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(DefaultAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CustomAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(SharedAssetPath));
 }
 
 TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
@@ -288,7 +292,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWithoutDirtying)
@@ -339,7 +343,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWit
 	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
@@ -461,8 +465,10 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
 
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(FirstPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		FirstPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SecondPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(FirstPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(SecondPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(FirstPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(SecondPath));
 }

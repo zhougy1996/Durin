@@ -101,7 +101,7 @@ namespace Durin::Editor::Level
 		ASSERT_TRUE(Asset::SavePackage(Cube->GetPackage()));
 		const std::filesystem::path PackagePath = Root / "Content/Sky.dasset";
 		ASSERT_TRUE(Asset::UnloadPackage(CubePath));
-		ASSERT_EQ(Asset::FindLoadedPackage(CubePath), nullptr);
+		ASSERT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
 
 		ContentBrowserItemView::FTextureCubeDetailsCache Cache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
@@ -114,10 +114,10 @@ namespace Durin::Editor::Level
 		EXPECT_EQ(Details.Dimensions, "-");
 		EXPECT_TRUE(Details.BuildDiagnostic.find("not serialized")
 			!= std::string::npos);
-		EXPECT_EQ(Asset::FindLoadedPackage(CubePath), nullptr);
+		EXPECT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
 		Cache.Get(PackagePath.generic_string(),
 			Asset::GetAssetCatalogRevision());
-		EXPECT_EQ(Asset::FindLoadedPackage(CubePath), nullptr);
+		EXPECT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
 	}
 
 	TEST(FContentBrowserItemViewTests, InvalidatesTextureCubeDetailsCache)

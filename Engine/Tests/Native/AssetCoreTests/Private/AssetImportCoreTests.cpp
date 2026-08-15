@@ -457,7 +457,7 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RegistryRevision);
 	for (const Durin::Asset::Import::FImportOutputPreview& Output : First.Plan.GetOutputs())
 	{
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(Output.AssetPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(Output.AssetPath), nullptr);
 		EXPECT_FALSE(std::filesystem::exists(
 			Root / "Content" / (std::string(Output.AssetPath.GetAssetName()) + ".dasset")));
 	}

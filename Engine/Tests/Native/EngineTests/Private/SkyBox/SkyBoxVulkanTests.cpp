@@ -411,7 +411,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FAssetPath CubePath;
 	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
-		EXPECT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
 	}
 	else
 	{
@@ -420,7 +420,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FAssetPath HdrCubePath;
 	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
 	{
-		EXPECT_TRUE(Durin::Asset::DeleteAsset(HdrCubePath));
+		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(HdrCubePath));
 	}
 	else
 	{

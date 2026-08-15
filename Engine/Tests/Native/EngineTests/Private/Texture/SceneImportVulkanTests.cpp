@@ -751,11 +751,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(MeshPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(LODContractPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(MeshPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(TexturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StandardPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LODContractPath));
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

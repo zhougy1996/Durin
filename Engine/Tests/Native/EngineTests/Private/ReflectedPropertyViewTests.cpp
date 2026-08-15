@@ -441,7 +441,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	const Durin::FSoftObjectPath AliasSoftPath = MakeSoftObjectPropertyViewPath("AliasXXX");
 	const Durin::FAssetPath AliasPath = AliasSoftPath.GetAssetPath();
 	Durin::Asset::DAssetRedirector* Redirector = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAssetRedirector(AliasPath, AssetPath, Redirector));
+	ASSERT_TRUE(Durin::Asset::CreateAssetRedirectorForTesting(AliasPath, AssetPath, Redirector));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Redirector->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AliasPath));
 	Object.SoftValues[0].SetPath(AliasSoftPath);
@@ -457,13 +457,13 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.LoadedObject, nullptr);
-	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(AliasPath), nullptr);
 	Error.clear();
 	ASSERT_TRUE(Durin::Editor::LoadSoftObject(
 		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error)) << Error;
 	EXPECT_EQ(LoadedObject->GetPackage()->GetPackagePath(), AssetPath.ToString());
 	EXPECT_EQ(Object.SoftValues[0].GetSoftObjectPath(), AliasSoftPath);
-	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(AliasPath), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, AssetPath}));
 }

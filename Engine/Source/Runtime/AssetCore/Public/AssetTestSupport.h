@@ -4,6 +4,12 @@
 
 namespace Durin::Asset
 {
+	ASSETCORE_API auto CreateAssetRedirectorForTesting(
+		const FAssetPath& RedirectorPath,
+		const FAssetPath& DestinationPath,
+		DAssetRedirector*& OutRedirector) -> FAssetResult;
+	ASSETCORE_API auto DeleteAssetForTesting(const FAssetPath& Path)
+		-> FAssetResult;
 	ASSETCORE_API auto SerializeAssetPackageBytesForFormatForTesting(
 		DPackage* Package,
 		uint32 FormatVersion,

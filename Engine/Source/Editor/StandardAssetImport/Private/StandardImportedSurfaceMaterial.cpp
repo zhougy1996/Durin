@@ -11,8 +11,7 @@ namespace Durin::Asset::Import::Standard
 		if (!FAssetPath::TryCreate(
 			StandardImportedSurfaceMaterialPath, MaterialPath, &OutError)) return nullptr;
 
-		DPackage* LoadedPackage = Asset::FindLoadedPackage(MaterialPath);
-		if (!LoadedPackage) LoadedPackage = Asset::FindDraftPackage(MaterialPath);
+		DPackage* LoadedPackage = Asset::FindResidentPackage(MaterialPath);
 		if (LoadedPackage)
 		{
 			DMaterial* Loaded = Cast<DMaterial>(LoadedPackage->GetAsset());
@@ -65,7 +64,7 @@ namespace Durin::Asset::Import::Standard
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 			Created->GetParameterDefinitions(), OutError))
 		{
-			Asset::DiscardUnpublishedPackage(Created->GetPackage());
+			Asset::UnloadPackage(Created->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(Created->GetPackage());
@@ -74,7 +73,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = std::format(
 				"Failed to save standard imported-surface material: {}",
 				SaveResult.Message);
-			Asset::DiscardUnpublishedPackage(Created->GetPackage());
+			Asset::UnloadPackage(Created->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		OutError.clear();

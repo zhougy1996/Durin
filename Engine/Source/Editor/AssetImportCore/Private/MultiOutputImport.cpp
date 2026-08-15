@@ -132,8 +132,7 @@ namespace Durin::Asset::Import
 			{
 				if (!FAssetPath::TryCreate(std::format(
 					"{}_RecordCandidate_{}", Path.ToString(), Suffix), OutPath)) return false;
-				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::FindDraftPackage(OutPath)
+				if (!Asset::FindResidentPackage(OutPath)
 					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
@@ -395,8 +394,7 @@ namespace Durin::Asset::Import
 			}
 		}
 		else if (Asset::FindAssetExact(Request.RecordPath)
-			|| Asset::FindLoadedPackage(Request.RecordPath)
-			|| Asset::FindDraftPackage(Request.RecordPath))
+			|| Asset::FindResidentPackage(Request.RecordPath))
 		{
 			const Asset::FAssetCatalogEntry Exact =
 				Asset::FindAssetExact(Request.RecordPath);
@@ -438,8 +436,7 @@ namespace Durin::Asset::Import
 			const Asset::FAssetData* Occupant = Resolution && Resolution.FinalAssetData
 				? &*Resolution.FinalAssetData
 				: Exact.Data ? &*Exact.Data : nullptr;
-			DPackage* Loaded = Asset::FindLoadedPackage(Entry.ResolvedAssetPath);
-			if (!Loaded) Loaded = Asset::FindDraftPackage(Entry.ResolvedAssetPath);
+			DPackage* Loaded = Asset::FindResidentPackage(Entry.ResolvedAssetPath);
 			const bool bOccupied = Exact || Resolution || Loaded;
 			const std::vector<FImportRecordManagement> Managers = Index.FindManagers(Entry.AssetPath);
 			if (!Managers.empty()) Entry.ObservedManager = Managers.front().RecordPath;
@@ -643,7 +640,7 @@ namespace Durin::Asset::Import
 		}
 		if (!RecordCandidate->SetState(std::move(RecordState), Result.Message))
 		{
-			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			(void)Asset::UnloadPackage(RecordCandidate->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			AbandonPrepared(Prepared);
 			return Result;
 		}
@@ -652,7 +649,7 @@ namespace Durin::Asset::Import
 			Result.Message = "Import-record candidate preparation was canceled.";
 			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Canceled,
 				"candidate-validation", "record", Result.Message);
-			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			(void)Asset::UnloadPackage(RecordCandidate->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			AbandonPrepared(Prepared);
 			return Result;
 		}
@@ -676,13 +673,13 @@ namespace Durin::Asset::Import
 				|| Plan.GetExistingRecord()->GetFingerprint()
 					!= Plan.ExistingRecordFingerprint
 				|| Index.IsRecordConflicted(Plan.GetRecordPath())
-				|| Asset::FindLoadedPackage(Plan.GetRecordPath())
+				|| Asset::FindResidentPackage(Plan.GetRecordPath())
 					!= Plan.GetExistingRecord()->GetPackage();
 		}
 		else
 		{
 			bStale = bStale || Asset::FindAssetExact(Plan.GetRecordPath())
-				|| Asset::FindDraftPackage(Plan.GetRecordPath()) != RecordCandidate->GetPackage();
+				|| Asset::FindResidentPackage(Plan.GetRecordPath()) != RecordCandidate->GetPackage();
 		}
 		for (const FMultiOutputReconciliation& Entry : Plan.GetReconciliation())
 		{
@@ -698,14 +695,14 @@ namespace Durin::Asset::Import
 						!= Entry.AssetClassName
 					|| Output.ExistingTarget->GetPackage()->GetEditRevision()
 						!= Entry.PackageEditRevision
-					|| Asset::FindLoadedPackage(Entry.ResolvedAssetPath)
+					|| Asset::FindResidentPackage(Entry.ResolvedAssetPath)
 						!= Output.ExistingTarget->GetPackage();
 			}
 			else if (Entry.ProposedAction == EMultiOutputProposedAction::Create)
 			{
 				const FPreparedMultiOutput& Output = *PreparedByIdentity.at(Entry.StableIdentity);
 				bStale = bStale || Asset::FindAssetExact(Entry.AssetPath)
-					|| Asset::FindDraftPackage(Entry.AssetPath)
+					|| Asset::FindResidentPackage(Entry.AssetPath)
 						!= Output.Candidate->GetPackage();
 			}
 		}
@@ -716,7 +713,7 @@ namespace Durin::Asset::Import
 				: Result.Message;
 			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::StalePlan,
 				"publication-preflight", {}, Result.Message);
-			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			(void)Asset::UnloadPackage(RecordCandidate->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			AbandonPrepared(Prepared);
 			return Result;
 		}
@@ -824,14 +821,14 @@ namespace Durin::Asset::Import
 			Result.Message = Save.Message;
 			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::PublicationFailure,
 				"package-publication", {}, Result.Message);
-			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			(void)Asset::UnloadPackage(RecordCandidate->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			AbandonPrepared(Prepared);
 			FinalizeImportDiagnostics(Result.Diagnostics, "package-publication");
 			return Result;
 		}
 
 		if (Plan.GetExistingRecord())
-			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			(void)Asset::UnloadPackage(RecordCandidate->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		for (FPreparedMultiOutput& Output : Prepared.Outputs)
 		{
 			if (Output.Exchange)

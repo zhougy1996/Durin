@@ -44,16 +44,15 @@ namespace Durin::Editor::Level
 				SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		}
 
-		Asset::FAssetRelocationBatchToken Token;
-		Asset::FAssetResult Result = Asset::AnalyzeAssetRelocationBatch(
-			Mappings, Token);
+		Asset::FAssetMutationSummary Summary;
+		Asset::FAssetMutationTransaction Transaction;
+		Asset::FAssetResult Result = Asset::PrepareAssetRelocationTransaction(
+			Mappings, Summary, Transaction);
 		if (!Result) return Result;
-		Result = Asset::RevalidateAssetRelocationBatch(Token);
-		if (!Result) return Result;
-		Result = Asset::ApplyAssetRelocationBatch(Token);
+		Result = Transaction.Commit();
 		if (!Result) return Result;
 		Transactions.CommitApplied(
-			std::make_unique<FAssetRelocationTransaction>(std::move(Token)));
+			std::make_unique<FAssetRelocationTransaction>(std::move(Transaction)));
 		return {};
 	}
 

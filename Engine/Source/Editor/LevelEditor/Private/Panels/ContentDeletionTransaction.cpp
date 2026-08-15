@@ -46,13 +46,6 @@ namespace Durin::Editor::Level
 		, Hooks(std::move(InHooks))
 	{
 		if (!Hooks.Rename) Hooks.Rename = DefaultRename;
-		if (!Hooks.UnloadAssetBatch)
-			Hooks.UnloadAssetBatch = Asset::UnloadAssetDeletionBatch;
-		if (!Hooks.RemoveRegistryProjection)
-			Hooks.RemoveRegistryProjection =
-				Asset::RemoveAssetDeletionBatchRegistryProjection;
-		if (!Hooks.RestoreAssetBatch)
-			Hooks.RestoreAssetBatch = Asset::RestoreAssetDeletionBatch;
 		Description = Plan
 			? std::format("Delete {}", Plan->DisplayName)
 			: "Delete Content";
@@ -247,33 +240,23 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FContentDeletionTransaction::Redo() -> bool
+	auto FContentDeletionTransaction::MakePhysicalTransition()
+		-> Asset::FAssetDeletionPhysicalTransition
 	{
-		Details.clear();
-		if (State != EContentDeletionTransactionState::Restored)
-			return Fail("The deletion transaction is not in a restorable state.");
-		if (!Plan || !Plan->CanExecute())
-			return Fail("The deletion plan is blocked or unavailable.");
-		if (!EnsureStagingRoot() || !ValidatePhysicalState(false)) return false;
-		std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
-		const Asset::FAssetResult Revalidation =
-			Asset::RevalidateAssetDeletionBatch(Plan->AssetBatch, Blockers);
-		if (!Revalidation) return Fail(Revalidation.Message);
-		if (!Blockers.empty()) return Fail(Blockers.front().Details);
+		return {
+			.Stage = [this] { return StagePhysicalDeletion(); },
+			.Restore = [this] { return RestorePhysicalDeletion(); },
+			.IsRecoveryRequired = [this] {
+				return State == EContentDeletionTransactionState::RecoveryRequired;
+			},
+		};
+	}
 
-		State = EContentDeletionTransactionState::Applying;
-		Journal.clear();
-		const Asset::FAssetResult UnloadResult =
-			Hooks.UnloadAssetBatch(Plan->AssetBatch);
-		if (!UnloadResult)
-		{
-			State = EContentDeletionTransactionState::Restored;
-			return Fail(UnloadResult.Message);
-		}
-		Journal.push_back({
-			.Operation = EContentDeletionJournalOperation::UnloadAssetBatch,
-			.bCompleted = true});
-
+	auto FContentDeletionTransaction::StagePhysicalDeletion()
+		-> Asset::FAssetResult
+	{
+		if (!ValidatePhysicalState(false))
+			return {Asset::EAssetError::IoError, Details};
 		size_t Moved = 0;
 		for (const FMove& Move : Moves)
 		{
@@ -288,49 +271,23 @@ namespace Durin::Editor::Level
 						Moved, true, EContentDeletionMovePhase::CompensateApply))
 				{
 					State = EContentDeletionTransactionState::RecoveryRequired;
-					return Fail(std::format(
+					return {Asset::EAssetError::IoError, std::format(
 						"{} Recovery requires retained staging at {}: {}",
-						Cause, StagingRoot.generic_string(), Details));
+						Cause, StagingRoot.generic_string(), Details)};
 				}
-				State = EContentDeletionTransactionState::Restored;
-				return Fail(Cause);
+				return {Asset::EAssetError::IoError, Cause};
 			}
 			Journal.back().bCompleted = true;
 			++Moved;
 		}
-		const Asset::FAssetResult AssetResult =
-			Hooks.RemoveRegistryProjection(Plan->AssetBatch);
-		if (!AssetResult)
-		{
-			const std::string Cause = AssetResult.Message;
-			if (!CompensateMoves(
-					Moved, true, EContentDeletionMovePhase::CompensateApply))
-			{
-				State = EContentDeletionTransactionState::RecoveryRequired;
-				return Fail(std::format(
-					"{} Recovery requires retained staging at {}: {}",
-					Cause, StagingRoot.generic_string(), Details));
-			}
-			State = EContentDeletionTransactionState::Restored;
-			return Fail(Cause);
-		}
-		Journal.push_back({
-			.Operation = EContentDeletionJournalOperation::RemoveRegistryProjection,
-			.bCompleted = true});
-		State = EContentDeletionTransactionState::Applied;
-		Details = std::format("Staged {} deletion root(s).", Moves.size());
-		return true;
+		return {};
 	}
 
-	auto FContentDeletionTransaction::Undo() -> bool
+	auto FContentDeletionTransaction::RestorePhysicalDeletion()
+		-> Asset::FAssetResult
 	{
-		Details.clear();
-		if (State != EContentDeletionTransactionState::Applied)
-			return Fail("The deletion transaction is not applied.");
 		if (!ValidatePhysicalState(true) || !ValidateOriginalDestinations())
-			return false;
-		State = EContentDeletionTransactionState::Restoring;
-		Journal.clear();
+			return {Asset::EAssetError::IoError, Details};
 		size_t Moved = 0;
 		for (const FMove& Move : Moves)
 		{
@@ -345,35 +302,66 @@ namespace Durin::Editor::Level
 						Moved, false, EContentDeletionMovePhase::CompensateUndo))
 				{
 					State = EContentDeletionTransactionState::RecoveryRequired;
-					return Fail(std::format(
+					return {Asset::EAssetError::IoError, std::format(
 						"{} Recovery requires retained staging at {}: {}",
-						Cause, StagingRoot.generic_string(), Details));
+						Cause, StagingRoot.generic_string(), Details)};
 				}
-				State = EContentDeletionTransactionState::Applied;
-				return Fail(Cause);
+				return {Asset::EAssetError::IoError, Cause};
 			}
 			Journal.back().bCompleted = true;
 			++Moved;
 		}
+		return {};
+	}
 
-		const Asset::FAssetResult Restore = Hooks.RestoreAssetBatch(Plan->AssetBatch);
+	auto FContentDeletionTransaction::Redo() -> bool
+	{
+		Details.clear();
+		if (State != EContentDeletionTransactionState::Restored)
+			return Fail("The deletion transaction is not in a restorable state.");
+		if (!Plan || !Plan->CanExecute())
+			return Fail("The deletion plan is blocked or unavailable.");
+		if (!EnsureStagingRoot()) return false;
+		State = EContentDeletionTransactionState::Applying;
+		Journal.clear();
+		const Asset::EAssetMutationTransactionState AssetState =
+			Plan->AssetTransaction.GetState();
+		const Asset::FAssetResult AssetResult =
+			AssetState == Asset::EAssetMutationTransactionState::Prepared
+			? Plan->AssetTransaction.Commit(MakePhysicalTransition())
+			: Plan->AssetTransaction.Redo(MakePhysicalTransition());
+		if (!AssetResult)
+		{
+			if (Plan->AssetTransaction.GetState()
+				== Asset::EAssetMutationTransactionState::RecoveryRequired)
+				State = EContentDeletionTransactionState::RecoveryRequired;
+			else
+				State = EContentDeletionTransactionState::Restored;
+			return Fail(AssetResult.Message);
+		}
+		State = EContentDeletionTransactionState::Applied;
+		Details = std::format("Staged {} deletion root(s).", Moves.size());
+		return true;
+	}
+
+	auto FContentDeletionTransaction::Undo() -> bool
+	{
+		Details.clear();
+		if (State != EContentDeletionTransactionState::Applied)
+			return Fail("The deletion transaction is not applied.");
+		State = EContentDeletionTransactionState::Restoring;
+		Journal.clear();
+		const Asset::FAssetResult Restore =
+			Plan->AssetTransaction.Undo(MakePhysicalTransition());
 		if (!Restore)
 		{
-			const std::string Cause = Restore.Message;
-			if (!CompensateMoves(
-					Moved, false, EContentDeletionMovePhase::CompensateUndo))
-			{
+			if (Plan->AssetTransaction.GetState()
+				== Asset::EAssetMutationTransactionState::RecoveryRequired)
 				State = EContentDeletionTransactionState::RecoveryRequired;
-				return Fail(std::format(
-					"{} Recovery requires retained staging at {}: {}",
-					Cause, StagingRoot.generic_string(), Details));
-			}
-			State = EContentDeletionTransactionState::Applied;
-			return Fail(Cause);
+			else
+				State = EContentDeletionTransactionState::Applied;
+			return Fail(Restore.Message);
 		}
-		Journal.push_back({
-			.Operation = EContentDeletionJournalOperation::RestoreRegistryProjection,
-			.bCompleted = true});
 		State = EContentDeletionTransactionState::Restored;
 		Details = std::format("Restored {} deletion root(s).", Moves.size());
 		return true;

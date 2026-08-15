@@ -1101,12 +1101,18 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
 	ASSERT_NE(CaptureSphere, nullptr);
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(DataTexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(NormalTexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(StaticMeshFixturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(StaticMeshMaterialPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CaptureTexturePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		DataTexturePath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(DataTexturePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		NormalTexturePath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(NormalTexturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CaptureCubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StaticMeshFixturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StaticMeshMaterialPath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);
 	Durin::MarkAsGarbage(InheritedInstance);

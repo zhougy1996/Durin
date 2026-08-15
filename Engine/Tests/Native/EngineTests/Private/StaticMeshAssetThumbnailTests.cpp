@@ -336,7 +336,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		ASSERT_TRUE(Store.Store(CacheKey, ThumbnailPngBytes()));
 	}
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StaticMeshPath));
-	ASSERT_EQ(Durin::Asset::FindLoadedPackage(StaticMeshPath), nullptr);
+	ASSERT_EQ(Durin::Asset::FindResidentPackage(StaticMeshPath), nullptr);
 
 	{
 		Durin::Editor::FRenderedAssetThumbnailCache Cache({}, {
@@ -354,7 +354,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
 		EXPECT_EQ(Stats.UploadsQueued, 1u);
 		EXPECT_FALSE(Stats.bHasPreviewScene);
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(StaticMeshPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(StaticMeshPath), nullptr);
 		Cache.CancelPendingRequests();
 		Durin::FlushRenderingCommands();
 		Cache.BeginFrame();
@@ -415,7 +415,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Cache.BeginFrame();
 		Cache.EndFrame();
 		EXPECT_EQ(Cache.GetStats().Pipeline.Loads, 1u);
-		EXPECT_NE(Durin::Asset::FindLoadedPackage(StaticMeshPath), nullptr);
+		EXPECT_NE(Durin::Asset::FindResidentPackage(StaticMeshPath), nullptr);
 		{
 			Durin::Editor::FAssetThumbnailObjectStore Store({
 				.CacheRoot = CacheRoot,

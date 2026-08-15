@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/AssetPath.h"
+#include "AssetPackage.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Editor::Level
@@ -16,8 +16,8 @@ namespace Durin::Editor::Level
 	struct FAssetDestinationOccupancy
 	{
 		bool bRegistryAssetExists = false;
-		bool bLoadedPackageExists = false;
-		bool bDraftPackageExists = false;
+		std::optional<Asset::EAssetPackagePublicationState>
+			ResidentPublicationState;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
@@ -34,8 +34,8 @@ namespace Durin::Editor::Level
 		bool bAssetPathValid = false;
 		bool bMountedDestination = false;
 		bool bRegistryAssetExists = false;
-		bool bLoadedPackageExists = false;
-		bool bDraftPackageExists = false;
+		std::optional<Asset::EAssetPackagePublicationState>
+			ResidentPublicationState;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
@@ -43,7 +43,7 @@ namespace Durin::Editor::Level
 
 		auto AssetExists() const -> bool
 		{
-			return bRegistryAssetExists || bLoadedPackageExists || bDraftPackageExists;
+			return bRegistryAssetExists || ResidentPublicationState.has_value();
 		}
 		explicit operator bool() const
 		{

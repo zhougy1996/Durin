@@ -397,13 +397,15 @@ namespace Durin
 		CommandStartedFuture.wait();
 		PrimitiveProxy.reset();
 		const Asset::FAssetResult MaterialUnload =
-			Asset::DiscardUnpublishedPackage(Material->GetPackage());
+			Asset::UnloadPackage(Material->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		MarkObjectHierarchyAsGarbage(Actor);
 		CollectGarbage();
 		const Asset::FAssetResult MeshUnload =
 			Asset::UnloadPackage(MeshPath);
 		const Asset::FAssetResult TextureUnload =
-			Asset::UnloadPackage(TexturePath);
+			Asset::UnloadPackage(
+				TexturePath,
+				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		AllowCommandCompletion->set_value();
 		FlushRenderingCommands();
 		EXPECT_TRUE(MaterialUnload) << MaterialUnload.Message;

@@ -906,8 +906,7 @@ namespace Durin::Asset::Import::Standard
 			{
 				if (!FAssetPath::TryCreate(std::format(
 					"{}_SceneCandidate_{}", TargetPath.ToString(), Suffix), OutPath)) return false;
-				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::FindDraftPackage(OutPath)
+				if (!Asset::FindResidentPackage(OutPath)
 					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
@@ -967,7 +966,7 @@ namespace Durin::Asset::Import::Standard
 			}
 			auto Abandon() noexcept -> void override
 			{
-				if (Package) (void)Asset::DiscardUnpublishedPackage(Package);
+				if (Package) (void)Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				Package = nullptr;
 				AssetObject = nullptr;
 			}

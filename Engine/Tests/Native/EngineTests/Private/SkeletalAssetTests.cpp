@@ -994,9 +994,9 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	EXPECT_EQ(Clip->GetPayloadData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(ClipPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(MeshPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(SkeletonPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(ClipPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(MeshPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(SkeletonPath));
 }
 
 TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences)

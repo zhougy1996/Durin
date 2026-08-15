@@ -92,8 +92,8 @@ namespace Durin::Asset
 		RewriteAndDelete
 	};
 
-	// Owns an immutable, fingerprint-bound Fix Up plan and its retained journal.
-	class FAssetRedirectorFixupPlan
+	// Immutable preview of one fingerprint-bound Fix Up transaction.
+	class FAssetRedirectorFixupSummary
 	{
 	public:
 		ASSETCORE_API auto GetMode() const -> EAssetRedirectorFixupMode;
@@ -109,8 +109,14 @@ namespace Durin::Asset
 			-> std::span<const FAssetPath>;
 
 	private:
-		struct FState;
-		std::shared_ptr<FState> State;
+		EAssetRedirectorFixupMode Mode =
+			EAssetRedirectorFixupMode::RewriteOnly;
+		uint64 RegistryRevision = 0;
+		std::vector<FAssetPath> Redirectors;
+		std::vector<FAssetRedirectorFixupMapping> FinalPathMappings;
+		std::vector<FAssetReferenceEdge> PackageOccurrences;
+		std::vector<FAssetReferenceStoreOccurrence> StoreOccurrences;
+		std::vector<FAssetPath> DeletableRedirectors;
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetRuntimeState;
@@ -124,6 +130,66 @@ namespace Durin::Asset
 		FAssetPath DestinationPath;
 
 		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
+	};
+
+	enum class EAssetMutationOperationKind : uint8
+	{
+		Relocation,
+		RedirectorFixup,
+		Deletion,
+	};
+
+	enum class EAssetMutationTransactionState : uint8
+	{
+		Empty,
+		Prepared,
+		Committed,
+		Undone,
+		RecoveryRequired,
+	};
+
+	// Immutable description of the durable state covered by one transaction.
+	class FAssetMutationSummary
+	{
+	public:
+		FAssetMutationSummary() = default;
+		FAssetMutationSummary(
+			EAssetMutationOperationKind InOperationKind,
+			uint64 InRegistryRevision,
+			std::vector<FAssetPath> InScope)
+			: OperationKind(InOperationKind)
+			, RegistryRevision(InRegistryRevision)
+			, Scope(std::move(InScope))
+		{
+		}
+
+		auto GetOperationKind() const -> EAssetMutationOperationKind
+		{
+			return OperationKind;
+		}
+		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
+		auto GetScope() const -> std::span<const FAssetPath> { return Scope; }
+
+	private:
+		EAssetMutationOperationKind OperationKind =
+			EAssetMutationOperationKind::Relocation;
+		uint64 RegistryRevision = 0;
+		std::vector<FAssetPath> Scope;
+	};
+
+	struct FAssetMutationResultDetails
+	{
+		FAssetResult Result;
+		EAssetMutationTransactionState State =
+			EAssetMutationTransactionState::Empty;
+		uint64 RegistryRevision = 0;
+		bool bStateRestored = false;
+		bool bRecoveryRequired = false;
+		std::vector<FAssetPath> RewrittenPaths;
+		std::vector<FAssetPath> RetainedPaths;
+		std::vector<FAssetPath> DeletedPaths;
+		std::vector<FAssetPath> SkippedPaths;
+		std::vector<FAssetPath> FailedPaths;
 	};
 
 	// Restricts a class contribution to files and reversible live state owned
@@ -140,9 +206,14 @@ namespace Durin::Asset
 		const FAssetPath&,
 		const FAssetPath&,
 		FAssetOwnedPayloadRelocation&)>;
+	using FAssetOwnedPayloadRelocatorHandle = uint64;
 	ASSETCORE_API auto RegisterAssetOwnedPayloadRelocator(
 		DClass* Class,
-		FAssetOwnedPayloadRelocator Relocator) -> void;
+		FAssetOwnedPayloadRelocator Relocator,
+		FModuleOwnedCallbackGate OwnerGate = {})
+		-> FAssetOwnedPayloadRelocatorHandle;
+	ASSETCORE_API auto UnregisterAssetOwnedPayloadRelocator(
+		FAssetOwnedPayloadRelocatorHandle Handle) -> void;
 
 	// Receives committed relocation direction changes for transient editor and
 	// cache state. Observers cannot reject or roll back authored publication.
@@ -162,14 +233,18 @@ namespace Durin::Asset
 	ASSETCORE_API auto UnregisterAssetMoveObserver(
 		FAssetMoveObserverHandle Handle) -> void;
 
-	// Owns the immutable relocation plan and its retained pre/post publication
-	// journal. AssetCore alone advances the internal transaction state.
-	class FAssetRelocationBatchToken
+	// Executes one prepared mutation without exposing revalidation, journal, or
+	// compensation phases to its caller.
+	class FAssetMutationTransaction
 	{
 	public:
-		ASSETCORE_API auto GetRegistryRevision() const -> uint64;
-		ASSETCORE_API auto GetMappings() const
-			-> std::span<const FAssetRelocationMapping>;
+		ASSETCORE_API auto GetSummary() const -> const FAssetMutationSummary&;
+		ASSETCORE_API auto GetState() const -> EAssetMutationTransactionState;
+		ASSETCORE_API auto GetLastResultDetails() const
+			-> FAssetMutationResultDetails;
+		ASSETCORE_API auto Commit() -> FAssetResult;
+		ASSETCORE_API auto Undo() -> FAssetResult;
+		ASSETCORE_API auto Redo() -> FAssetResult;
 
 	private:
 		struct FState;
@@ -254,28 +329,37 @@ namespace Durin::Asset
 		bool bLoaded = false;
 	};
 
-	// Owns the immutable-order AssetCore portion of a content-deletion plan. AssetCore
-	// changes package cache and registry projection through this token; its caller owns
-	// all physical file staging.
-	class FAssetDeletionBatchToken
+	// Supplies the editor-owned physical half of a deletion. Each operation must
+	// compensate its own partially completed filesystem work before returning failure.
+	struct FAssetDeletionPhysicalTransition
+	{
+		std::function<FAssetResult()> Stage;
+		std::function<FAssetResult()> Restore;
+		std::function<bool()> IsRecoveryRequired;
+	};
+
+	// Opaque AssetCore contribution retained by the owning content transaction.
+	// AssetCore owns validation, residency, registry publication, and ordering around
+	// the caller-owned physical transition.
+	class FAssetDeletionTransaction
 	{
 	public:
-		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
-		auto GetEntries() const -> std::span<const FAssetDeletionBatchEntry>
-		{
-			return Entries;
-		}
-		auto GetWarnings() const -> std::span<const FAssetDeletionBatchWarning>
-		{
-			return Warnings;
-		}
+		ASSETCORE_API auto GetRegistryRevision() const -> uint64;
+		ASSETCORE_API auto GetEntries() const
+			-> std::span<const FAssetDeletionBatchEntry>;
+		ASSETCORE_API auto GetWarnings() const
+			-> std::span<const FAssetDeletionBatchWarning>;
+		ASSETCORE_API auto GetState() const -> EAssetMutationTransactionState;
+		ASSETCORE_API auto Commit(const FAssetDeletionPhysicalTransition& Transition)
+			-> FAssetResult;
+		ASSETCORE_API auto Undo(const FAssetDeletionPhysicalTransition& Transition)
+			-> FAssetResult;
+		ASSETCORE_API auto Redo(const FAssetDeletionPhysicalTransition& Transition)
+			-> FAssetResult;
 
 	private:
-		uint64 RegistryRevision = 0;
-		uint64 ReferenceStoreRevision = 0;
-		std::vector<FAssetDeletionBatchEntry> Entries;
-		std::vector<FAssetDeletionBatchWarning> Warnings;
-		std::vector<std::filesystem::path> PhysicalRoots;
+		struct FState;
+		std::shared_ptr<FState> State;
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetRuntimeState;
@@ -283,7 +367,13 @@ namespace Durin::Asset
 	};
 
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
-	ASSETCORE_API auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void;
+	using FAssetDeleteContributorHandle = uint64;
+	ASSETCORE_API auto RegisterAssetDeleteContributor(
+		DClass* Class,
+		FAssetDeleteContributor Contributor,
+		FModuleOwnedCallbackGate OwnerGate = {}) -> FAssetDeleteContributorHandle;
+	ASSETCORE_API auto UnregisterAssetDeleteContributor(
+		FAssetDeleteContributorHandle Handle) -> void;
 
 	enum class EAssetCompanionOwnershipState : uint8
 	{
@@ -322,53 +412,22 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	ASSETCORE_API auto CreateAssetRedirector(
-		const FAssetPath& RedirectorPath,
-		const FAssetPath& DestinationPath,
-		DAssetRedirector*& OutRedirector) -> FAssetResult;
 	ASSETCORE_API auto SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
-	ASSETCORE_API auto AnalyzeAssetRelocationBatch(
+	ASSETCORE_API auto PrepareAssetRelocationTransaction(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationBatchToken& OutToken) -> FAssetResult;
-	ASSETCORE_API auto RevalidateAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto ApplyAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto RestoreAssetRelocationBatch(
-		const FAssetRelocationBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto AnalyzeRedirectorFixup(
+		FAssetMutationSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+	ASSETCORE_API auto PrepareRedirectorFixupTransaction(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult;
-	ASSETCORE_API auto RevalidateRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
-	ASSETCORE_API auto ApplyRedirectorFixup(
-		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
-	ASSETCORE_API auto FixUpRedirectors(
-		std::span<const FAssetPath> Redirectors,
-		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete)
-		-> FAssetResult;
-	ASSETCORE_API auto FixUpAllRedirectors(
-		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete)
-		-> FAssetResult;
+		FAssetRedirectorFixupSummary& OutSummary,
+		FAssetMutationTransaction& OutTransaction) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
-	ASSETCORE_API auto AnalyzeAssetDeletionBatch(
+	ASSETCORE_API auto PrepareAssetDeletionTransaction(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionBatchToken& OutToken,
+		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-	ASSETCORE_API auto RevalidateAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-	ASSETCORE_API auto UnloadAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto ApplyAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto RemoveAssetDeletionBatchRegistryProjection(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto RestoreAssetDeletionBatch(
-		const FAssetDeletionBatchToken& Token) -> FAssetResult;
-	ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 }

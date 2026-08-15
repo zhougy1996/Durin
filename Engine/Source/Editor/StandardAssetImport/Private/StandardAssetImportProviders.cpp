@@ -379,8 +379,7 @@ namespace Durin::Asset::Import::Standard
 			{
 				if (!FAssetPath::TryCreate(std::format("{}_ImportCandidate_{}",
 					TargetPath.ToString(), Suffix), OutPath)) return false;
-				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::FindDraftPackage(OutPath)
+				if (!Asset::FindResidentPackage(OutPath)
 					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
@@ -431,7 +430,7 @@ namespace Durin::Asset::Import::Standard
 			auto Abandon() noexcept -> void override
 			{
 				if (!Package) return;
-				(void)Asset::DiscardUnpublishedPackage(Package);
+				(void)Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				Package = nullptr;
 				AssetObject = nullptr;
 			}
@@ -1249,8 +1248,7 @@ namespace Durin::Asset::Import::Standard
 			if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 				return {false, std::move(Error), nullptr};
 			if (Asset::FindAssetExact(ParsedAssetPath)
-				|| Asset::FindLoadedPackage(ParsedAssetPath)
-				|| Asset::FindDraftPackage(ParsedAssetPath))
+				|| Asset::FindResidentPackage(ParsedAssetPath))
 				return {
 					false,
 					std::format("Asset {} already exists.", ParsedAssetPath.ToString()),
@@ -1298,7 +1296,7 @@ namespace Durin::Asset::Import::Standard
 				|| !Mesh->PublishImportedProduct(std::move(Product), Error))
 			{
 				RollbackMountedSourceFile(MountedSource);
-				Asset::DiscardUnpublishedPackage(Mesh->GetPackage());
+				Asset::UnloadPackage(Mesh->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				return {false, std::move(Error), nullptr};
 			}
 
@@ -1306,7 +1304,7 @@ namespace Durin::Asset::Import::Standard
 			if (!SaveResult)
 			{
 				RollbackMountedSourceFile(MountedSource);
-				Asset::DiscardUnpublishedPackage(Mesh->GetPackage());
+				Asset::UnloadPackage(Mesh->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				return {false, SaveResult.Message, nullptr};
 			}
 			CommitMountedSourceFile(MountedSource);

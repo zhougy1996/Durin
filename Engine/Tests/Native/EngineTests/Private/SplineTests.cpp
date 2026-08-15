@@ -462,7 +462,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
 	EXPECT_TRUE(Error.empty());
 	Transactions.Clear();
-	EXPECT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Level->GetPackage()));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Level->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)

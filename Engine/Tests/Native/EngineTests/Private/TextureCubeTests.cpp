@@ -22,10 +22,12 @@ namespace
 		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
 		Durin::Asset::FAssetResult Result =
-			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
-		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+			Durin::Asset::PrepareAssetRelocationTransaction(
+				std::span{&Mapping, 1}, Summary, Transaction);
+		if (Result) Result = Transaction.Commit();
 		return Result;
 	}
 
@@ -205,7 +207,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 		Durin::FAssetPath AssetPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TextureCubeTests/{}", AssetName), AssetPath));
 		EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
-		EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindResidentPackage(AssetPath), nullptr);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Nonsquare_px.tga"));
@@ -231,7 +233,7 @@ TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/Transparent", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Transparent_nz.tga"));
 }
 
@@ -309,7 +311,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/MissingAfterImport", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
@@ -420,7 +422,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/InvalidPanorama", AssetPath));
 	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.hdr"));
 }
@@ -486,7 +488,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSource)
@@ -523,7 +525,7 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/MissingPanorama", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)

@@ -3,15 +3,15 @@
 namespace Durin::Editor::Level
 {
 	FAssetRelocationTransaction::FAssetRelocationTransaction(
-		Asset::FAssetRelocationBatchToken InToken)
-		: Token(std::move(InToken))
+		Asset::FAssetMutationTransaction InTransaction)
+		: Transaction(std::move(InTransaction))
 	{
 	}
 
 	auto FAssetRelocationTransaction::GetDescription() const
 		-> std::string_view
 	{
-		return Token.GetMappings().size() == 1
+		return Transaction.GetSummary().GetScope().size() == 2
 			? "Move Asset" : "Move Assets";
 	}
 
@@ -23,15 +23,13 @@ namespace Durin::Editor::Level
 
 	auto FAssetRelocationTransaction::Undo() -> bool
 	{
-		LastResult = Asset::RestoreAssetRelocationBatch(Token);
+		LastResult = Transaction.Undo();
 		return static_cast<bool>(LastResult);
 	}
 
 	auto FAssetRelocationTransaction::Redo() -> bool
 	{
-		LastResult = Asset::RevalidateAssetRelocationBatch(Token);
-		if (LastResult)
-			LastResult = Asset::ApplyAssetRelocationBatch(Token);
+		LastResult = Transaction.Redo();
 		return static_cast<bool>(LastResult);
 	}
 }

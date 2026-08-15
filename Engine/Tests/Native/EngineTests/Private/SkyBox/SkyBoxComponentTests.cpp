@@ -226,6 +226,6 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");
 
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(ActorPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(ActorPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
 }

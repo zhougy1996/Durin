@@ -199,6 +199,6 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
-	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Component->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Component->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Durin::CollectGarbage();
 }

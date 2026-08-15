@@ -160,9 +160,17 @@ namespace Durin::Asset
 	// deserialization and registered structure upgrades still run, but resource
 	// classes must not build or publish runtime-only state in this headless context.
 	ASSETCORE_API auto IsAssetMigrationLoad() -> bool;
-	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
-	ASSETCORE_API auto FindDraftPackage(const FAssetPath& Path) -> DPackage*;
-	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+	ASSETCORE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
+	ASSETCORE_API auto GetResidentPackagePublicationState(const FAssetPath& Path)
+		-> std::optional<EAssetPackagePublicationState>;
+	ASSETCORE_API auto UnloadPackage(
+		const FAssetPath& Path,
+		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved)
+		-> FAssetResult;
+	ASSETCORE_API auto UnloadPackage(
+		DPackage* Package,
+		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved)
+		-> FAssetResult;
 	ASSETCORE_API auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot;
 	ASSETCORE_API auto ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;

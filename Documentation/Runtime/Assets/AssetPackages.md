@@ -32,14 +32,21 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 ## Runtime Lifetime
 
 `DPackage` is an Outer-less object graph root. AssetCore's private runtime state
-roots loaded packages for garbage collection and caches one package instance
-per final real `FAssetPath`. Newly created unpublished packages live in a
-separate draft store: authoring code finds them with `FindDraftPackage` and
-rolls them back with `DiscardUnpublishedPackage`; ordinary load and
-`FindLoadedPackage` never consult drafts. Public asset loads resolve redirectors
-first and cache only the final real package; redirector packages are constructed
-only through AssetCore's internal exact tooling seam. Unload removes a
-persistent resident package from the active cache, calls
+roots resident packages for garbage collection and caches one package instance
+per `FAssetPath`. Newly created and persistent packages share that store. Each
+resident entry is explicitly `NewlyCreated` or `Published`, while
+`DPackage::IsDirty()` independently records unsaved contents. Authoring code
+uses `FindResidentPackage` for either state; save promotes the same entry to
+`Published` after catalog publication.
+
+Public asset load first accepts an already resident non-redirector package,
+including a newly created package, without file I/O. Otherwise it resolves the
+persistent catalog and caches only the final real package; redirector packages
+are constructed only through AssetCore's internal exact tooling seam. A catalog
+miss never guesses a physical filename or discovers an unindexed file. Unload
+rejects newly created or dirty packages by default. A caller that intentionally
+abandons unsaved work passes `EAssetPackageUnloadPolicy::DiscardUnsaved` to the
+same `UnloadPackage` operation. Successful unload removes residency, calls
 `MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path
 can be loaded again only after GC-controlled physical removal. Objects that
 must survive unload must be reparented out of that package first.
@@ -76,11 +83,12 @@ boundary. Both APIs enforce `T::StaticClass()`; null handling is selected with
 ordinary `FAssetResult` diagnostics without changing the stored path.
 
 Public typed `LoadAsset(...)`, cross-package hard-reference loading, and typed
-soft resolve/load all use `ResolveAssetPath(...)` before constructing a package.
+soft resolve/load accept an exact resident real package first, then use
+`ResolveAssetPath(...)` before constructing a persistent package.
 Expected-class validation applies to the final real metadata, and normal callers
 never receive `DAssetRedirector` in place of the requested type. A catalog miss
-returns `NotFound` without deriving a filename, probing a package header,
-consulting drafts, or publishing metadata. Editor recovery may explicitly call
+with no exact resident package returns `NotFound` without deriving a filename,
+probing a package header, or publishing metadata. Editor recovery may explicitly call
 `AdmitAssetPackageToCatalog`; startup and Cooked-runtime fixtures refresh the
 catalog after publishing their mounts.
 
@@ -90,11 +98,12 @@ redirect lookup, unified hard/soft/redirect reference-index queries, and
 `BuildCookReachability(...)`. Redirect resolution follows at most 32 aliases and reports missing
 requests, missing targets, cycles, depth overflow, unknown final classes, type
 mismatch, and corrupt redirect metadata without changing runtime residency.
-Relocation uses only `AnalyzeAssetRelocationBatch`,
-`RevalidateAssetRelocationBatch`, `ApplyAssetRelocationBatch`, and
-`RestoreAssetRelocationBatch`. Persistent settings and import records keep
-their authored paths and resolve aliases at use sites; relocation never reads
-or saves an arbitrary external store.
+Production relocation uses `PrepareAssetRelocationTransaction` to obtain an
+immutable summary and opaque transaction. `Commit`, `Undo`, and `Redo` own
+final revalidation, journal advancement, compensation, and recovery
+classification. Persistent settings and import records keep their authored
+paths and resolve aliases at use sites; relocation never reads or saves an
+arbitrary external store.
 
 ## File Format
 
@@ -739,13 +748,17 @@ redirector packages, canonicalizes registered output identities, detects aliases
 that collapse onto one output, and publishes only real packages and their bulk
 companions. Cook never edits the authored `.dasset` or external root store.
 
-Asset relocation is atomic and batched even for one mapping. Analysis captures
-the registry revision, exact participant fingerprints, loaded-package state,
-generated redirectors, and exclusively owned payload moves in a getter-only
-token. Apply prepares and journals every output, publishes real destinations,
-owned payloads, source and upstream redirectors, loaded package/object names,
-and the complete registry projection under one revision. Restore and Redo use
-the same retained token rather than computing reverse moves.
+Asset relocation is atomic and batched even for one mapping. Preparation
+captures the registry revision, exact participant fingerprints, resident-package
+state, generated redirectors, and exclusively owned payload moves behind an
+opaque transaction. Its immutable summary exposes the operation kind, captured
+revision, and ordered source/destination scope. `Commit` prepares and journals
+every output, publishes real destinations, owned payloads, source and upstream
+redirectors, resident package/object names, and the complete registry projection
+under one revision. `Undo` and `Redo` use the same retained transaction rather
+than computing reverse moves. Invalid state transitions fail without advancing
+the journal; result details distinguish restored failure from retained
+recovery-required state.
 
 A successful `A -> B` keeps a direct `A -> B` redirector. Moving `B -> C`
 retargets upstream aliases directly to `C`; moving back to an alias path may
@@ -762,14 +775,25 @@ completed/compensated state. An extensionless locator beneath
 `Saved/AssetMutationRecovery` names those roots for recovery tooling but is not
 authoritative data.
 
-Deletion never rewrites persistent paths, but its immutable batch token uses the
-unified graph and registered stores for safety diagnostics. Alias-only deletion,
+Deletion never rewrites persistent paths. Preparation returns one opaque
+deletion transaction whose immutable scope uses the unified graph and
+registered stores for safety diagnostics. Alias-only deletion,
 broken aliases, and target selections missing any direct/upstream alias are
 blocked. Deleting a target together with its complete alias closure requires an
 explicit warning; soft and external-store occurrences warn that authored paths
 will dangle. Registry/store revisions, warning snapshots, exact entries, and
-files are revalidated and retained so Undo/Redo restores redirector metadata
-exactly.
+files are retained so `Commit`, `Undo`, and `Redo` can revalidate and restore
+redirector metadata exactly. AssetCore owns final safety validation, resident
+eviction, catalog removal/restoration, and compensation order around a
+caller-supplied reversible physical stage/restore transition. Callers cannot
+invoke unload or registry-projection phases separately.
+
+Owned-payload relocators, deletion-companion contributors, persistent external
+reference stores, and committed-only move observers register through explicit
+handles. Registrations retain the module-owned resource lease, gate every
+invocation against owner retirement, reject duplicate class providers, and are
+removed by their exact handle. No callback may silently replace another
+module's durable-state owner.
 
 Fix Up is the only path-canonicalizing authoring transaction. It computes
 upstream alias closure, rewrites tagged hard/soft package fields plus registered
@@ -778,6 +802,16 @@ then optionally deletes the aliases. Dirty/incompatible/read-only inputs,
 incomplete indexes, unavailable providers, changed fingerprints, publication
 failure, or verification failure retain valid redirectors and restore every
 participant.
+
+`PrepareRedirectorFixupTransaction` returns an immutable summary of selected
+aliases, final mappings, package/store occurrences, and aliases proven
+deletable, plus the same opaque mutation value used by relocation. `Commit`
+owns the final registry/store/fingerprint checks, journal publication,
+verification, and compensation. Result details separately report rewritten,
+retained, deleted, skipped, and failed paths. Fix Up is an explicit maintenance
+command rather than an editor-history entry, so its transaction deliberately
+does not advertise `Undo` or `Redo`; calling either is rejected without changing
+the committed state.
 
 Registry dependencies are package-level strong-reference edges collected from
 the package header. They support loading, unload guards, move/delete checks, and

@@ -8,6 +8,9 @@
 
 namespace Durin::Asset
 {
+	struct FAssetRelocationState;
+	struct FAssetRedirectorFixupState;
+
 	class FAssetCatalogStore
 	{
 	public:
@@ -87,45 +90,56 @@ namespace Durin::Asset
 			const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
 		ASSETCORE_API auto AdmitAssetPackageToCatalog(
 			const FAssetPath& Path) -> FAssetResult;
-		ASSETCORE_API auto AnalyzeAssetRelocationBatch(
+		ASSETCORE_API auto PrepareAssetRelocationTransaction(
 			std::span<const FAssetRelocationMapping> Mappings,
-			FAssetRelocationBatchToken& OutToken) -> FAssetResult;
-		ASSETCORE_API auto RevalidateAssetRelocationBatch(
-			const FAssetRelocationBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto ApplyAssetRelocationBatch(
-			const FAssetRelocationBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto RestoreAssetRelocationBatch(
-			const FAssetRelocationBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto AnalyzeRedirectorFixup(
+			FAssetMutationSummary& OutSummary,
+			FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+		auto PrepareAssetRelocationState(
+			std::span<const FAssetRelocationMapping> Mappings,
+			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult;
+		auto RevalidateAssetRelocation(
+			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
+		auto ApplyAssetRelocation(
+			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
+		auto RestoreAssetRelocation(
+			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
+		ASSETCORE_API auto PrepareRedirectorFixupTransaction(
 			std::span<const FAssetPath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
-			FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult;
-		ASSETCORE_API auto RevalidateRedirectorFixup(
-			const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
-		ASSETCORE_API auto ApplyRedirectorFixup(
-			const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
+			FAssetRedirectorFixupSummary& OutSummary,
+			FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+		auto PrepareRedirectorFixupState(
+			std::span<const FAssetPath> Redirectors,
+			EAssetRedirectorFixupMode Mode,
+			std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult;
+		auto ValidateRedirectorFixupCommit(
+			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
+		auto CommitRedirectorFixup(
+			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
-		ASSETCORE_API auto AnalyzeAssetDeletionBatch(
+		ASSETCORE_API auto PrepareAssetDeletionTransaction(
 			std::span<const FAssetPath> Paths,
 			std::span<const std::filesystem::path> PhysicalRoots,
-			FAssetDeletionBatchToken& OutToken,
+			FAssetDeletionTransaction& OutTransaction,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		ASSETCORE_API auto RevalidateAssetDeletionBatch(
-			const FAssetDeletionBatchToken& Token,
+		auto ValidateAssetDeletionTransaction(
+			const FAssetDeletionTransaction& Transaction,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		ASSETCORE_API auto UnloadAssetDeletionBatch(
-			const FAssetDeletionBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto ApplyAssetDeletionBatch(
-			const FAssetDeletionBatchToken& Token) -> FAssetResult;
-		// Commit-only half used after the editor transaction has already revalidated,
-		// unloaded, and staged the exact token-owned physical roots.
-		ASSETCORE_API auto RemoveAssetDeletionBatchRegistryProjection(
-			const FAssetDeletionBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto RestoreAssetDeletionBatch(
-			const FAssetDeletionBatchToken& Token) -> FAssetResult;
-		ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
-		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
-		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+		auto UnloadAssetDeletionTransaction(
+			const FAssetDeletionTransaction& Transaction) -> FAssetResult;
+		auto RemoveAssetDeletionRegistryProjection(
+			const FAssetDeletionTransaction& Transaction) -> FAssetResult;
+		auto RestoreAssetDeletionRegistryProjection(
+			const FAssetDeletionTransaction& Transaction) -> FAssetResult;
+		auto DeleteAssetForTesting(const FAssetPath& Path) -> FAssetResult;
+		ASSETCORE_API auto FindResidentPackage(const FAssetPath& Path) const -> DPackage*;
+		ASSETCORE_API auto GetResidentPackagePublicationState(
+			const FAssetPath& Path) const
+			-> std::optional<EAssetPackagePublicationState>;
+		ASSETCORE_API auto UnloadPackage(
+			const FAssetPath& Path,
+			EAssetPackageUnloadPolicy Policy =
+				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetResult;
 		ASSETCORE_API auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		ASSETCORE_API auto ReleasePackagesLoadedSince(
 			const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
@@ -144,13 +158,31 @@ namespace Durin::Asset
 
 		auto GetRegistry() -> FAssetCatalogStore& { return Registry; }
 		auto GetRegistry() const -> const FAssetCatalogStore& { return Registry; }
-		ASSETCORE_API auto FindDraftPackage(const FAssetPath& Path) const -> DPackage*;
-		ASSETCORE_API auto DiscardDraftPackage(const FAssetPath& Path) -> FAssetResult;
-
 	private:
+		struct FResidentPackageEntry
+		{
+			DPackage* Package = nullptr;
+			EAssetPackagePublicationState PublicationState =
+				EAssetPackagePublicationState::Published;
+
+			FResidentPackageEntry() = default;
+			FResidentPackageEntry(
+				DPackage* InPackage,
+				EAssetPackagePublicationState InPublicationState =
+					EAssetPackagePublicationState::Published)
+				: Package(InPackage)
+				, PublicationState(InPublicationState)
+			{
+			}
+
+			auto operator->() const -> DPackage* { return Package; }
+			operator DPackage*() const { return Package; }
+			explicit operator bool() const { return Package != nullptr; }
+		};
+
 		struct FPackageStore
 		{
-			using FMap = std::unordered_map<FAssetPath, DPackage*>;
+			using FMap = std::unordered_map<FAssetPath, FResidentPackageEntry>;
 			FMap Packages;
 
 			auto begin() { return Packages.begin(); }
@@ -160,31 +192,20 @@ namespace Durin::Asset
 			auto find(const FAssetPath& Path) { return Packages.find(Path); }
 			auto find(const FAssetPath& Path) const { return Packages.find(Path); }
 			auto contains(const FAssetPath& Path) const -> bool { return Packages.contains(Path); }
-			auto emplace(const FAssetPath& Path, DPackage* Package) { return Packages.emplace(Path, Package); }
+			auto emplace(
+				const FAssetPath& Path,
+				DPackage* Package,
+				EAssetPackagePublicationState PublicationState =
+					EAssetPackagePublicationState::Published)
+			{
+				return Packages.emplace(
+					Path, FResidentPackageEntry{Package, PublicationState});
+			}
 			auto erase(const FAssetPath& Path) { return Packages.erase(Path); }
 			auto erase(FMap::iterator It) { return Packages.erase(It); }
 			auto empty() const -> bool { return Packages.empty(); }
 			auto size() const -> size_t { return Packages.size(); }
 			auto clear() -> void { Packages.clear(); }
-		};
-
-		struct FDraftStore
-		{
-			std::unordered_map<FAssetPath, DPackage*> Packages;
-			auto begin() const { return Packages.begin(); }
-			auto end() const { return Packages.end(); }
-
-			auto Find(const FAssetPath& Path) const -> DPackage*
-			{
-				const auto It = Packages.find(Path);
-				return It == Packages.end() ? nullptr : It->second;
-			}
-			auto Contains(const FAssetPath& Path) const -> bool { return Packages.contains(Path); }
-			auto Add(const FAssetPath& Path, DPackage* Package) { return Packages.emplace(Path, Package); }
-			auto Remove(const FAssetPath& Path) -> size_t { return Packages.erase(Path); }
-			auto Empty() const -> bool { return Packages.empty(); }
-			auto Size() const -> size_t { return Packages.size(); }
-			auto Clear() -> void { Packages.clear(); }
 		};
 
 		FAssetRuntimeState();
@@ -223,9 +244,8 @@ namespace Durin::Asset
 
 		FAssetCatalogStore Registry;
 
-		// Persistent loaded packages and unpublished authoring drafts have distinct owners.
-		FPackageStore LoadedPackages;
-		FDraftStore DraftPackages;
+		// One UE-style resident set; publication and dirty state are orthogonal.
+		FPackageStore ResidentPackages;
 
 		// Tracks active loads to reject dependency cycles.
 		std::unordered_set<FAssetPath> LoadingPackages;
