@@ -18,6 +18,7 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RendererModule.h"
+#include "Renderers/DisplayMapping.h"
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
 #include "Scene.h"
@@ -31,6 +32,9 @@
 #include <gtest/gtest.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+
+#include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -167,6 +171,29 @@ namespace
 			Source.Pixels[PixelOffset + 2],
 			Source.Pixels[PixelOffset + 3]
 		};
+	}
+
+	auto MapSrgbReferenceThroughDisplay(
+		const std::array<Durin::uint8, 4>& Source) -> std::array<Durin::uint8, 4>
+	{
+		auto Decode = [](Durin::uint8 Value) {
+			const float Encoded = static_cast<float>(Value) / 255.0f;
+			return Encoded <= 0.04045f
+				? Encoded / 12.92f
+				: std::pow((Encoded + 0.055f) / 1.055f, 2.4f);
+		};
+		auto Encode = [](float Linear) {
+			const float Encoded = Linear <= 0.0031308f
+				? 12.92f * Linear
+				: 1.055f * std::pow(Linear, 1.0f / 2.4f) - 0.055f;
+			return static_cast<Durin::uint8>(std::lround(
+				std::clamp(Encoded, 0.0f, 1.0f) * 255.0f));
+		};
+		const Durin::FVector3f Mapped =
+			Durin::DisplayMapping::MapSceneLinearToDisplayLinear(
+				{Decode(Source[0]), Decode(Source[1]), Decode(Source[2])},
+				0.0f);
+		return {Encode(Mapped.x), Encode(Mapped.y), Encode(Mapped.z), Source[3]};
 	}
 
 	auto ExpectRgbNear(

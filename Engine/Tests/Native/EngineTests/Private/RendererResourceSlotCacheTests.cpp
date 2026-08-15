@@ -283,5 +283,36 @@ namespace Durin
 			EXPECT_NE(Cache.Find(3), nullptr);
 			EXPECT_EQ(Cache.Num(), 2);
 		}
+
+		TEST(
+			FRendererResourceSlotCacheTests,
+			RetainedPayloadWeightIgnoresFailedSlotsAndTracksEviction)
+		{
+			FCache Cache;
+			FRenderResourceGeneration Generation;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			ASSERT_NE(Cache.FindOrAdd(2).Slot.Resolve(
+				Generation,
+				[] { return FResult::Success(20); },
+				Reporter), nullptr);
+			ASSERT_NE(Cache.FindOrAdd(3).Slot.Resolve(
+				Generation,
+				[] { return FResult::Success(30); },
+				Reporter), nullptr);
+			Cache.FindOrAdd(4);
+			auto Weight = [&Cache] {
+				return Cache.GetRetainedPayloadWeight(
+					[](int Key, int Payload) {
+						return static_cast<uint64>(Key + Payload);
+					});
+			};
+			EXPECT_EQ(Weight(), 55u);
+			EXPECT_EQ(
+				Cache.GetRetainedPayloadWeight(
+					[](int, int) { return std::numeric_limits<uint64>::max(); }),
+				std::numeric_limits<uint64>::max());
+			EXPECT_TRUE(Cache.EvictOldestExcept(3));
+			EXPECT_EQ(Weight(), 33u);
+		}
 	}
 }

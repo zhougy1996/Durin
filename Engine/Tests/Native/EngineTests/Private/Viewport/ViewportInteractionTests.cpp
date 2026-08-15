@@ -516,14 +516,18 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 	FTestViewportClient Client;
 	Client.SetViewSettings({
 		.bEnableFXAA = false,
+		.ExposureEV = -2.0f,
 		.RenderMode = Durin::ERenderMode::Unlit,
 		.RasterMode = Durin::ERasterMode::Wireframe,
+		.bEnableContactShadows = true,
 	});
 	auto ClientViewport = Durin::FSceneViewport::CreateOffscreen(&Client);
 	Engine.SetTestViewport(ClientViewport);
 	const Durin::FSceneView ClientView = Engine.BuildMainSceneView(640, 480);
 	ExpectVectorNear(ClientView.ViewLocation, {11.0, 12.0, 13.0});
 	EXPECT_FALSE(ClientView.Settings.bEnableFXAA);
+	EXPECT_TRUE(ClientView.Settings.bEnableContactShadows);
+	EXPECT_FLOAT_EQ(ClientView.Settings.ExposureEV, -2.0f);
 	EXPECT_EQ(ClientView.Settings.RenderMode, Durin::ERenderMode::Unlit);
 	EXPECT_EQ(ClientView.Settings.RasterMode, Durin::ERasterMode::Wireframe);
 

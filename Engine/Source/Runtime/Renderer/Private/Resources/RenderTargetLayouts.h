@@ -19,7 +19,7 @@ namespace Durin::RenderTargetLayouts
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
-	// One color-only SRGBA8 target that is cleared and published for shader
+	// One color-only RGBA16_FLOAT target that is cleared and published for
 	// sampling; used by the contact-shadow pass writing corrected Scene Color.
 	RENDERER_API auto MakeContactShadowOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)

@@ -82,6 +82,9 @@ namespace Durin
 	struct FSceneViewSettings
 	{
 		bool bEnableFXAA = true;
+		// Manual display exposure in EV stops. Renderer canonicalizes non-finite
+		// values to zero and clamps authored values to the display contract range.
+		float ExposureEV = 0.0f;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;

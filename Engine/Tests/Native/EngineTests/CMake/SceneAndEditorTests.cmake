@@ -120,6 +120,25 @@ durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ1
 )
 
+durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
+	KIND qualification
+	DOMAINS renderer viewport
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Measures the production HDR copy and FXAA display routes at the frozen 1920x1080 RTX 3090 qualification point."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for hardware-backed timestamp measurements."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/HDRDisplayMappingQualificationTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+	DATA_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Data/HDRDisplayMapping
+)
+
 durin_add_engine_functional_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer
@@ -143,18 +162,18 @@ durin_add_engine_functional_test(EditorRenderingTests
 durin_add_engine_functional_test(EditorGridVulkanTests
 	KIND integration
 	DOMAINS renderer viewport
-	MODULES engine renderer
+	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
 		"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
-	RUNTIME_ONLY_RATIONALE
-		"RHIInit selects VulkanRHI dynamically for the offscreen editor-grid capture."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/EditorGridVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )
 
 durin_add_engine_functional_test(EditorShellTests

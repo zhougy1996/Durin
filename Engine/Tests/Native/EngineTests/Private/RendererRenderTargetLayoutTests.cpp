@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/PostProcessRenderer.h"
+
+#include <limits>
 
 namespace Durin
 {
@@ -13,7 +16,7 @@ namespace Durin
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 2u);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format,
-			EPixelFormat::SRGBA8_UNORM);
+			EPixelFormat::RGBA16_FLOAT);
 		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.Format,
 			EPixelFormat::R11G11B10_FLOAT);
 		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalLayout,
@@ -26,6 +29,38 @@ namespace Durin
 		EXPECT_EQ(Layout.DepthStencilAttachment.StoreAction, ERHIRenderTargetStoreAction::Store);
 		EXPECT_EQ(Layout.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
 		EXPECT_EQ(Layout.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, ContactColorPreservesHDRSceneColor)
+	{
+		const FRHIRenderTargetLayout Layout = MakeContactShadowOutput();
+		ASSERT_TRUE(Layout.IsValid());
+		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format,
+			EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess,
+			ERHIAccess::GraphicsShaderRead);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, SceneTargetByteBudgetIsFormatAware)
+	{
+		EXPECT_EQ(FPostProcessRenderer::SceneTargetBytesPerPixel, 24u);
+		EXPECT_EQ(
+			FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080),
+			49'766'400u);
+		EXPECT_GE(
+			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
+			4u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080));
+		EXPECT_LT(
+			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
+			5u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080));
+		EXPECT_EQ(
+			FPostProcessRenderer::CalculateSceneTargetBytes(
+				std::numeric_limits<uint32>::max(),
+				std::numeric_limits<uint32>::max()),
+			std::numeric_limits<uint64>::max());
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ScenePostProcessLeavesColorReadyForEditorAssistance)

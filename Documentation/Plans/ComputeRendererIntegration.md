@@ -2,7 +2,7 @@
 
 Summary: Integrate synchronous compute into the Renderer through FXAA resolved into a linear storage intermediate, followed by the existing graphics output path, with exact fallback, lifecycle safety, parity, and measured rollout evidence.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-15
 
 Status: Active
 Completed:
@@ -14,16 +14,20 @@ create, bind, dispatch, synchronize, and retain compute work through both
 command executors, including compute-to-graphics handoff. Renderer still owns
 no production compute workload.
 
-This plan selects FXAA as the first Renderer consumer. The existing fragment
-FXAA remains the reference and fallback. The compute path reads Scene Color,
-writes a size-keyed linear floating-point storage intermediate, and hands that
-result to the existing graphics copy/output pass before optional editor
-assistance. This avoids relying on storage support for the current sRGB final
-output or swapchain formats while proving a real compute-to-graphics consumer.
+HDR Scene Color and display mapping landed first. The existing fused fragment
+display-map/FXAA path is now the reference and fallback. The compute path must
+read HDR Scene Color, apply the published display transform to every FXAA
+sample, write a bounded display-linear size-keyed floating-point storage
+intermediate, and hand that result to a non-mapping graphics copy/output pass
+before optional editor assistance. This avoids relying on storage support for
+the current sRGB final output or swapchain formats while preventing a second
+tone map.
 
-The implementation has not started. Stage 0 must freeze image equivalence,
-dispatch extent, eligibility, instrumentation, and fallback semantics before
-the Renderer resource graph changes.
+The implementation has not started. HDR owns the production graphics route and
+this plan is explicitly sequenced after its qualification. Stage 0 must freeze
+image equivalence against that route, dispatch extent, eligibility,
+instrumentation, and fallback semantics before the Renderer resource graph
+changes.
 
 ## Goal
 
@@ -60,8 +64,9 @@ milestone pressure alone.
 - Storage-capable sRGB final targets or swapchains, direct compute-to-Present,
   mutable-format image views, swapchain capability expansion, or changes to
   final-output texture formats.
-- Replacing the FXAA algorithm, changing its quality constants, adding temporal
-  anti-aliasing, exposure, tone mapping, bloom, or a general post-process graph.
+- Replacing the FXAA algorithm, changing its quality constants or the published
+  exposure/tone-mapping contract, adding temporal anti-aliasing, bloom, or a
+  general post-process graph.
 - A render graph, automatic barrier synthesis, transient-resource allocator,
   or generic pass scheduler.
 - Asynchronous compute, a second GPU queue, queue-family ownership transfer, or
@@ -103,11 +108,13 @@ milestone pressure alone.
   clamp, sample positions, alpha preservation, linear-clamp sampling, and
   texel-size source. Common shader helpers are preferred over duplicated
   algorithm bodies.
-- The established `SRGBA8_UNORM` Scene Color and final-output formats remain
-  unchanged. Compute writes linear FXAA color to an `RGBA16_FLOAT`
-  storage-and-sampled intermediate; the existing graphics copy pass owns the
-  final sRGB attachment conversion. Stage 0 must freeze this conversion and
-  parity tolerance rather than assuming sRGB storage-image support.
+- The established `RGBA16_FLOAT` scene-linear Scene Color and
+  `SRGBA8_UNORM` final-output formats remain unchanged. Compute maps each HDR
+  sample and writes bounded display-linear FXAA color to an `RGBA16_FLOAT`
+  storage-and-sampled intermediate; a dedicated non-mapping graphics copy pass
+  owns the final sRGB attachment conversion. Stage 0 must freeze this
+  conversion and parity tolerance rather than assuming sRGB storage-image
+  support or reusing the mapping copy entry point.
 - Automated parity uses deterministic scene-color fixtures and compares exact
   dimensions, alpha, border pixels, flat regions, high-contrast diagonal edges,
   and odd extents. Any unavoidable format-rounding tolerance is recorded in

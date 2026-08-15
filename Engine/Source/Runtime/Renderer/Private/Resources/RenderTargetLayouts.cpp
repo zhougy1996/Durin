@@ -4,11 +4,11 @@ namespace Durin::RenderTargetLayouts
 {
 	namespace
 	{
-		auto MakeColorAttachment(ERHIRenderTargetLoadAction LoadAction, ERHITextureLayout InitialLayout, ERHIAccess InitialAccess,
+		auto MakeColorAttachment(EPixelFormat Format, ERHIRenderTargetLoadAction LoadAction, ERHITextureLayout InitialLayout, ERHIAccess InitialAccess,
 			ERHITextureLayout FinalLayout, ERHIAccess FinalAccess) -> FRHIAttachmentLayout
 		{
 			FRHIAttachmentLayout Layout;
-			Layout.Format = EPixelFormat::SRGBA8_UNORM;
+			Layout.Format = Format;
 			Layout.LoadAction = LoadAction;
 			Layout.InitialLayout = InitialLayout;
 			Layout.InitialAccess = InitialAccess;
@@ -54,6 +54,7 @@ namespace Durin::RenderTargetLayouts
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 2;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -91,6 +92,7 @@ namespace Durin::RenderTargetLayouts
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -105,6 +107,7 @@ namespace Durin::RenderTargetLayouts
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::SRGBA8_UNORM,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -121,6 +124,7 @@ namespace Durin::RenderTargetLayouts
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::SRGBA8_UNORM,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -136,6 +140,7 @@ namespace Durin::RenderTargetLayouts
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::SRGBA8_UNORM,
 			ERHIRenderTargetLoadAction::Load,
 			ERHITextureLayout::ColorAttachment,
 			ERHIAccess::ColorAttachmentReadWrite,

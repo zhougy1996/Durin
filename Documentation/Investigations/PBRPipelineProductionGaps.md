@@ -1,7 +1,7 @@
 # PBR Pipeline Production Gaps
 
-**Status:** Open; findings verified against current source
-**Last reviewed:** 2026-08-06
+**Status:** Open; remaining findings verified against current source
+**Last reviewed:** 2026-08-15
 
 ## Scope And Verdict
 
@@ -16,7 +16,7 @@ The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
-| P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
+| P1 | LDR Scene Color clips PBR radiance before post-processing | Resolved by HDR Scene Color and display mapping | Renderer display contract |
 | P2 | Material static properties do not control render passes | Verified, intentionally deferred limitation | Material roadmap milestone 4 |
 | P2 | Lighting and IBL remain preview-scale and visually disconnected | Verified scope limitation | Future lighting/environment plan |
 | P3 | Removed ambient and rim-light controls remain exposed | Verified stale API/editor state | Bounded cleanup task |
@@ -25,30 +25,23 @@ The findings are ordered by user-visible severity and dependency:
 
 ### P1 — LDR Scene Color clips PBR radiance before post-processing
 
-**Status:** Verified, intentionally deferred limitation; requires a plan rather
-than a local format substitution.
+**Status:** Resolved 2026-08-15 by the
+[HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+contract.
 
-The StaticMesh shader outputs finite, unclamped scene-linear RGB, but Scene Color
-is `SRGBA8_UNORM`. Hardware stores therefore clip values above one before the
-post-process pass samples them. The only current post-process choices are a
-fullscreen copy and FXAA; neither applies exposure or tone mapping.
+The StaticMesh shader outputs finite, unclamped scene-linear RGB. Scene Color
+and its contact-shadow-preserving copy now use `RGBA16_FLOAT`; exact Vulkan
+half-float readback proves representative values above one survive the store.
+Copy and FXAA both apply the same per-view exposure and ACES fitted display
+transform before the existing SDR output.
 
-**Impact:** direct specular values above one, bright studio-environment samples,
-and Emissive values authored up to 64 lose their dynamic range on first store.
-Highlights become flat white, no later bloom or exposure stage can recover
-them, and roughness/metallic comparisons are biased by clipping. The sRGB
-transfer itself is valid; the loss is caused by using the final LDR format as
-the scene-linear intermediate.
+**Resolution:** direct specular, studio-environment, and Emissive radiance up
+to the authored range remain scene-linear through scene and optional contact
+composition. The post-process shader maps them once to display-linear SDR and
+the sRGB attachment owns the sole transfer encode.
 
-**Candidate direction:** select an HDR Scene Color format, exposure ownership,
-tone mapper, post-process ordering, final sRGB conversion, FXAA domain, and
-editor-assistance composition contract together. Main viewports, offscreen
-camera views, material previews, and thumbnails must retain deterministic
-output. This work should not be represented as a one-line switch to RGBA16F.
-
-Acceptance evidence must include values above one surviving the scene pass,
-exposure/tone-map reference values, stable SDR output, emissive response, and
-consistent present/offscreen rendering.
+The lasting format, exposure, curve, alpha, FXAA, cache, ordering, and failure
+rules are owned by the linked runtime contract.
 
 ### P2 — Material static properties do not control render passes
 

@@ -672,11 +672,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				AutomaticLODPixels).ToString(),
-			"36ff62c3dd2df3cd3cf45db46e9e4198");
+			"de874ea4cc2d71f8817147eb7ed5d20d");
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				ForcedLOD0Pixels).ToString(),
-			"bdd34099da4b080de210ad2d9af122a9");
+			"e57edff03c389092946c3d45f091bc06");
 		Durin::VulkanRHI::ArmVulkanCreateFailure(
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
 		const std::vector<Durin::uint8> FailedResourcePixels =

@@ -15,7 +15,8 @@ struct VSOutput
 struct ViewUniform
 {
     float2 InvRenderTargetSize;
-    float2 Padding;
+    float ExposureScale;
+    float Padding;
 };
 
 [[vk::binding(0, 0)]] Texture2D<float4> SceneColor;
@@ -25,6 +26,28 @@ struct ViewUniform
 static float Luma(float3 color)
 {
     return dot(color, float3(0.299, 0.587, 0.114));
+}
+
+static float DisplayMapChannel(float sceneLinear)
+{
+    const float exposed = max(sceneLinear * View.ExposureScale, 0.0);
+    const float mapped =
+        (exposed * (2.51 * exposed + 0.03)) /
+        (exposed * (2.43 * exposed + 0.59) + 0.14);
+    return isfinite(mapped) ? saturate(mapped) : 0.0;
+}
+
+static float3 DisplayMap(float3 sceneLinear)
+{
+    return float3(
+        DisplayMapChannel(sceneLinear.r),
+        DisplayMapChannel(sceneLinear.g),
+        DisplayMapChannel(sceneLinear.b));
+}
+
+static float DisplayAlpha(float sceneAlpha)
+{
+    return isfinite(sceneAlpha) ? saturate(sceneAlpha) : 0.0;
 }
 
 [shader("vertex")]
@@ -39,24 +62,26 @@ VSOutput VertexMain(VSInput input)
 [shader("fragment")]
 float4 CopyFragmentMain(VSOutput input) : SV_Target
 {
-    return SceneColor.Sample(SceneColorSampler, input.uv);
+    const float4 center = SceneColor.Sample(SceneColorSampler, input.uv);
+    return float4(DisplayMap(center.rgb), DisplayAlpha(center.a));
 }
 
 [shader("fragment")]
 float4 FXAAFragmentMain(VSOutput input) : SV_Target
 {
     float2 texel = View.InvRenderTargetSize;
-    float3 rgbNW = SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0, -1.0)).rgb;
-    float3 rgbNE = SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0, -1.0)).rgb;
-    float3 rgbSW = SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0,  1.0)).rgb;
-    float3 rgbSE = SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0,  1.0)).rgb;
+    float3 rgbNW = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0, -1.0)).rgb);
+    float3 rgbNE = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0, -1.0)).rgb);
+    float3 rgbSW = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0,  1.0)).rgb);
+    float3 rgbSE = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0,  1.0)).rgb);
     float4 center = SceneColor.Sample(SceneColorSampler, input.uv);
+    float3 centerDisplay = DisplayMap(center.rgb);
 
     float lumaNW = Luma(rgbNW);
     float lumaNE = Luma(rgbNE);
     float lumaSW = Luma(rgbSW);
     float lumaSE = Luma(rgbSE);
-    float lumaM = Luma(center.rgb);
+    float lumaM = Luma(centerDisplay);
 
     float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
     float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
@@ -70,13 +95,13 @@ float4 FXAAFragmentMain(VSOutput input) : SV_Target
     direction = clamp(direction * inverseDirectionAdjustment, float2(-8.0, -8.0), float2(8.0, 8.0)) * texel;
 
     float3 rgbA = 0.5 * (
-        SceneColor.Sample(SceneColorSampler, input.uv + direction * (1.0 / 3.0 - 0.5)).rgb +
-        SceneColor.Sample(SceneColorSampler, input.uv + direction * (2.0 / 3.0 - 0.5)).rgb);
+        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * (1.0 / 3.0 - 0.5)).rgb) +
+        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * (2.0 / 3.0 - 0.5)).rgb));
     float3 rgbB = rgbA * 0.5 + 0.25 * (
-        SceneColor.Sample(SceneColorSampler, input.uv + direction * -0.5).rgb +
-        SceneColor.Sample(SceneColorSampler, input.uv + direction * 0.5).rgb);
+        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * -0.5).rgb) +
+        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * 0.5).rgb));
 
     float lumaB = Luma(rgbB);
     float3 resolved = (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
-    return float4(resolved, center.a);
+    return float4(resolved, DisplayAlpha(center.a));
 }

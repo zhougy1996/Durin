@@ -1,6 +1,7 @@
 #include "Renderers/PostProcessRenderer.h"
 
 #include "RendererResourceSlotCache.h"
+#include "Renderers/DisplayMapping.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -32,6 +33,7 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FCopySceneColorFragmentShader)
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
 				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(
@@ -62,8 +64,11 @@ namespace Durin
 		struct FPostProcessViewUniform
 		{
 			FVector2f InvRenderTargetSize{1.0f, 1.0f};
-			FVector2f Padding{0.0f, 0.0f};
+			float ExposureScale = 1.0f;
+			float Padding = 0.0f;
 		};
+		static_assert(sizeof(FPostProcessViewUniform) == 16);
+		static_assert(alignof(FPostProcessViewUniform) == alignof(float));
 
 		auto CreatePostProcessPipeline(
 			FName PipelineName,
@@ -380,10 +385,11 @@ namespace Durin
 				"SceneColor",
 				Width,
 				Height,
-				EPixelFormat::SRGBA8_UNORM);
+				EPixelFormat::RGBA16_FLOAT);
 		SceneColorDesc.SetFlags(
 			ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource);
+				| ETextureCreateFlags::ShaderResource
+				| ETextureCreateFlags::SourceCopy);
 		SceneColorDesc.SetClearValue(
 			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 		FRHITextureCreateDesc SceneDepthDesc =
@@ -412,10 +418,11 @@ namespace Durin
 				"ContactColor",
 				Width,
 				Height,
-				EPixelFormat::SRGBA8_UNORM);
+				EPixelFormat::RGBA16_FLOAT);
 		ContactColorDesc.SetFlags(
 			ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource);
+				| ETextureCreateFlags::ShaderResource
+				| ETextureCreateFlags::SourceCopy);
 		ContactColorDesc.SetClearValue(
 			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 
@@ -452,9 +459,18 @@ namespace Durin
 			},
 			ReportRendererResourceCreateDiagnostic);
 		const bool bResolved = Targets != nullptr;
-		// Interactive viewport resizing can produce many transient dimensions.
-		// Retain stable main and preview sizes without keeping every drag size.
-		if (State->SceneTargetsBySize.Num() > 8)
+		// Retain common main and auxiliary extents under a fixed byte budget. RHI
+		// references captured by recorded commands keep evicted resources alive.
+		auto GetRetainedBytes = [this]() {
+			return State->SceneTargetsBySize.GetRetainedPayloadWeight(
+				[](uint64 SizeKey, const FSceneTargets&) {
+					return CalculateSceneTargetBytes(
+						static_cast<uint32>(SizeKey >> 32),
+						static_cast<uint32>(SizeKey));
+				});
+		};
+		while (State->SceneTargetsBySize.Num() > 1
+			&& GetRetainedBytes() > MaximumRetainedSceneTargetBytes)
 		{
 			State->SceneTargetsBySize.EvictOldestExcept(Key);
 		}
@@ -471,7 +487,8 @@ namespace Durin
 		uint32 Height,
 		bool bPresentOutput,
 		bool bEnableFXAA,
-		bool bHasEditorAssistance) -> void
+		bool bHasEditorAssistance,
+		float ExposureEV) -> void
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
 		if (Payload == nullptr)
@@ -524,17 +541,19 @@ namespace Durin
 			FullscreenGeometry.GetIndexBuffer_RenderThread(),
 			0);
 
+		FPostProcessViewUniform ViewUniform;
+		ViewUniform.InvRenderTargetSize = FVector2f(
+			1.0f / static_cast<float>(Width),
+			1.0f / static_cast<float>(Height));
+		ViewUniform.ExposureScale =
+			DisplayMapping::CalculateExposureScale(ExposureEV);
+		const FRHIUniformBufferRange ViewUniformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(
+				&ViewUniform,
+				sizeof(ViewUniform));
+
 		if (bEnableFXAA)
 		{
-			FPostProcessViewUniform ViewUniform;
-			ViewUniform.InvRenderTargetSize = FVector2f(
-				1.0f / static_cast<float>(Width),
-				1.0f / static_cast<float>(Height));
-			const FRHIUniformBufferRange ViewUniformBuffer =
-				CommandList.AllocateDynamicUniformBuffer(
-					&ViewUniform,
-					sizeof(ViewUniform));
-
 			FFXAAFragmentShader::FParameters FragmentParameters;
 			FragmentParameters.SceneColor = SceneColor;
 			FragmentParameters.SceneColorSampler =
@@ -551,6 +570,7 @@ namespace Durin
 			FragmentParameters.SceneColor = SceneColor;
 			FragmentParameters.SceneColorSampler =
 				Payload->SceneColorSampler;
+			FragmentParameters.View = ViewUniformBuffer;
 			SetShaderParameters(
 				CommandList,
 				Payload->CopyFragmentShader,

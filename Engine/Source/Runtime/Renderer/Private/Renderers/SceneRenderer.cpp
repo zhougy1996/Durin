@@ -25,6 +25,8 @@ namespace Durin
 	namespace
 	{
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
+		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
+		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
 
 		auto AddSaturated(uint64 A, uint64 B) -> uint64
 		{
@@ -239,6 +241,16 @@ namespace Durin
 	auto SetSceneColorTimingQuerySink(FSceneColorTimingQuerySink Sink) -> void
 	{
 		GSceneColorTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetPostProcessTimingQuerySink(FPostProcessTimingQuerySink Sink) -> void
+	{
+		GPostProcessTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
+	{
+		GHDRSceneColorCaptureSink.store(Sink, std::memory_order_release);
 	}
 
 	FSceneRenderer::FSceneRenderer()
@@ -800,6 +812,12 @@ namespace Durin
 				++PreparedView.Counters.ContactShadowPassFailures;
 			}
 		}
+		const FHDRSceneColorCaptureSink HDRCaptureSink =
+			GHDRSceneColorCaptureSink.load(std::memory_order_acquire);
+		if (HDRCaptureSink != nullptr)
+		{
+			HDRCaptureSink(CommandList, SceneColor, PostProcessInput);
+		}
 
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
@@ -826,6 +844,15 @@ namespace Durin
 			View.ClearColor.g,
 			View.ClearColor.b,
 			View.ClearColor.a);
+		FGPUTimingQueryRHIRef PostProcessTimingQuery;
+		const FPostProcessTimingQuerySink PostProcessTimingSink =
+			GPostProcessTimingQuerySink.load(std::memory_order_acquire);
+		if (PostProcessTimingSink != nullptr && GDynamicRHI != nullptr)
+		{
+			PostProcessTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+			if (PostProcessTimingQuery)
+				CommandList.BeginGPUTimingQuery(PostProcessTimingQuery);
+		}
 		CommandList.BeginRenderPass(
 			PostProcessPassInfo,
 			bPresentOutput
@@ -838,8 +865,14 @@ namespace Durin
 			Height,
 			bPresentOutput,
 			View.Settings.bEnableFXAA,
-			bHasEditorAssistance);
+			bHasEditorAssistance,
+			RenderView.Settings.ExposureEV);
 		CommandList.EndRenderPass();
+		if (PostProcessTimingQuery)
+		{
+			CommandList.EndGPUTimingQuery(PostProcessTimingQuery);
+			PostProcessTimingSink(PostProcessTimingQuery);
+		}
 		if (!bHasEditorAssistance)
 		{
 			return ERenderViewResult::Success;

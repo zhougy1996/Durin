@@ -3,6 +3,7 @@
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
+#include "Renderers/DisplayMapping.h"
 #include "Modules/ModuleManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
@@ -31,6 +32,21 @@
 
 namespace
 {
+	auto MapSrgbChannelThroughDisplay(Durin::uint8 Source) -> Durin::uint8
+	{
+		const float Encoded = static_cast<float>(Source) / 255.0f;
+		const float Linear = Encoded <= 0.04045f
+			? Encoded / 12.92f
+			: std::pow((Encoded + 0.055f) / 1.055f, 2.4f);
+		const float Mapped = Durin::DisplayMapping::MapSceneLinearToDisplayLinear(
+			{Linear, Linear, Linear}, 0.0f).x;
+		const float DisplayEncoded = Mapped <= 0.0031308f
+			? 12.92f * Mapped
+			: 1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f;
+		return static_cast<Durin::uint8>(std::lround(
+			std::clamp(DisplayEncoded, 0.0f, 1.0f) * 255.0f));
+	}
+
 	class FScopedStandardAssetImportProviders
 	{
 	public:
@@ -229,6 +245,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			return Pixels;
 		};
 		constexpr std::array RoughnessSweep{0.045f, 0.1f, 0.2f, 0.5f, 1.0f};
+		const Durin::uint32 DisplayMappedHighlightThreshold =
+			3u * MapSrgbChannelThroughDisplay(250u);
 		std::array<Durin::uint32, 5> Peaks{};
 		std::array<Durin::uint32, 5> SaturatedPixelCounts{};
 		for (size_t Index = 0; Index < RoughnessSweep.size(); ++Index)
@@ -241,12 +259,13 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 					static_cast<Durin::uint32>(Pixels[Pixel])
 					+ Pixels[Pixel + 1] + Pixels[Pixel + 2];
 				Peaks[Index] = std::max(Peaks[Index], Brightness);
-				SaturatedPixelCounts[Index] += Brightness >= 750 ? 1u : 0u;
+				SaturatedPixelCounts[Index] +=
+					Brightness >= DisplayMappedHighlightThreshold ? 1u : 0u;
 			}
 		}
-		EXPECT_GE(Peaks[0], 750u);
-		EXPECT_GE(Peaks[1], 750u);
-		EXPECT_GE(Peaks[2], 750u);
+		EXPECT_GE(Peaks[0], DisplayMappedHighlightThreshold);
+		EXPECT_GE(Peaks[1], DisplayMappedHighlightThreshold);
+		EXPECT_GE(Peaks[2], DisplayMappedHighlightThreshold);
 		EXPECT_LT(Peaks[3], 600u);
 		EXPECT_LT(Peaks[4], 600u);
 		EXPECT_GT(SaturatedPixelCounts[0], 0u);
@@ -1048,7 +1067,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_NE(PbrBaselinePixels, EmissiveOnlyPixels);
 		EXPECT_NE(LitEmissivePixels, StaticIdentityPixels);
 		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
-		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 2]), 124, 2);
+		EXPECT_NEAR(
+			static_cast<int>(StaticIdentityPixels[Center + 2]),
+			static_cast<int>(MapSrgbChannelThroughDisplay(124u)), 2);
 		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 3]), 102, 2);
 		EXPECT_EQ(MaskedBelowPixels[Center + 3], 0u);
 		EXPECT_GT(MaskedEqualPixels[Center + 3], 0u);

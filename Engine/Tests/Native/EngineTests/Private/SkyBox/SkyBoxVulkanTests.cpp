@@ -68,6 +68,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
 		HdrSourceColors[FaceIndex] = GetSourceColor(
 			*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
+		SourceColors[FaceIndex] =
+			MapSrgbReferenceThroughDisplay(SourceColors[FaceIndex]);
+		HdrSourceColors[FaceIndex] =
+			MapSrgbReferenceThroughDisplay(HdrSourceColors[FaceIndex]);
 	}
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
@@ -403,7 +407,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
 		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
 		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 0u);
-		ExpectRgbNear(Result->Occluded, 17, 8, 8, {255, 0, 0, 255}, 8);
+		ExpectRgbNear(Result->Occluded, 17, 8, 8,
+			MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
 	}
 
 	SceneOwner.reset();

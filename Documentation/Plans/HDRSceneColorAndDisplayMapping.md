@@ -4,36 +4,85 @@ Summary: Preserve scene-linear HDR radiance through scene rendering and add one 
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
 The PBR surface already emits finite scene-linear RGB, including direct and
 environment specular values above one and emissive values authored up to 64.
-`FPostProcessRenderer` currently allocates `SceneColor` and `ContactColor` as
-`SRGBA8_UNORM`; both clip those values on store. The post-process shader only
-copies or applies FXAA, and final Present/offscreen outputs are also
-`SRGBA8_UNORM`.
+`FPostProcessRenderer` now allocates `SceneColor` and `ContactColor` as
+`RGBA16_FLOAT`. Copy and FXAA apply one per-view manual exposure and ACES fitted
+display transform before the unchanged `SRGBA8_UNORM` Present/offscreen output.
+FXAA maps every sample before edge resolution, so it remains in bounded
+display-linear space without another fullscreen intermediate.
 
-`RGBA16_FLOAT` is already represented by the public RHI, mapped by Vulkan, and
-used by environment-lighting resources. This plan selects it for the HDR scene
-intermediate because it preserves RGB range and the existing alpha channel.
-At 1920x1080 it occupies about `15.82 MiB`, an increase of about `7.91 MiB`
-over one current four-byte Scene Color texture. The current size-keyed scene
-target cache can retain up to eight extents, so Stage 0 must freeze a byte-aware
-cache and qualification budget rather than accepting that increase implicitly.
+The size-keyed cache now accounts 24 bytes per pixel for Scene Color, depth,
+directional direct, and contact color. It retains the current extent and evicts
+oldest other extents above `192 MiB`; one 1920x1080 extent is `49,766,400`
+bytes, so four fit and five do not.
 
-The active
-[Compute Renderer Integration](ComputeRendererIntegration.md) plan also changes
-`FPostProcessRenderer`, FXAA semantics, and a size-keyed `RGBA16_FLOAT`
-intermediate, but its implementation has not started. Stage 0 must record one
-implementation order: either HDR lands first and the compute plan is
-rebaselined around the new display transform, or compute lands first and this
-plan reuses its published ownership. No implementation stage may proceed while
-the two active plans prescribe conflicting resource or color contracts.
+HDR is sequenced first. The active
+[Compute Renderer Integration](ComputeRendererIntegration.md) plan is
+rebaselined to read HDR Scene Color, apply the published transform per FXAA
+sample, write a bounded display-linear `RGBA16_FLOAT` intermediate, and use a
+non-mapping graphics copy into sRGB output.
 
-No implementation has started. Stage 0 is ready to execute.
+Implementation and available-hardware validation are complete for the core
+graphics route. The 55-target `fast-all` profile, complete 72-target ordinary
+`test all` aggregate, focused
+`EditorRenderingTests` (61 tests), `EditorGridVulkanTests`,
+`RendererResourceReloadVulkanTests`, `SkeletalMeshRenderResourcesVulkanTests`,
+`TerrainRenderVulkanTests`, `SkyBoxVulkanIntegrationTests`, and the full
+`DirectionalShadowBaselineVulkanTests --mode qualification` pass. The complete
+`all` build passes, and the resulting Debug DurinEditor remained stable for an
+8-second startup smoke before controlled shutdown. Vulkan readback freezes
+exact half values `4.0`, `2.0`, and `0.5` before mapping and proves sequential
+EV 0/-2 offscreen outputs keep independent exposure and alpha. Injected Vulkan
+graphics-pipeline failure proves the display payload remains complete-or-null,
+same-generation retry is suppressed, the sentinel output is untouched, and
+manual retry recovers. A public
+Renderer timing seam now returns ready post-process GPU intervals for the
+copy/FXAA matrix.
+
+By user direction on 2026-08-15, the local NVIDIA GeForce RTX 3090 replaces
+the unavailable GTX 1060 as this plan's qualification adapter. Because no
+valid pre-implementation capture exists, the first reproducible measurement
+is baseline version 1 and uses absolute budgets for future regressions rather
+than claiming a historical delta. With driver 591.86, Vulkan 1.4.325, the
+`Win64-Debug-DurinEditor` profile, validation enabled, 30 warm-up frames, and
+120 measured 1920x1080 frames, copy measures `18,944 ns` median and `19,648 ns`
+p95; FXAA measures `68,160 ns` median and `68,800 ns` p95. Frozen maxima are
+`30,000/40,000 ns` for copy median/p95, `100,000/120,000 ns` for FXAA, and
+`90,000 ns` for the FXAA-over-copy p95 increment. One scene-target extent is
+`49,766,400` bytes, the external sRGB output is `8,294,400` bytes, and the
+route total is `58,060,800` bytes with no display-linear intermediate. The
+measurement is preserved in
+`Engine/Tests/Native/EngineTests/Data/HDRDisplayMapping/qualification-metrics.json`.
+
+The plan is complete. Production SceneRenderer readback captures
+`RGBA16_FLOAT` Scene Color and
+the selected post-process input after optional contact composition. The
+directional/contact qualification fixture proves authored emissive radiance
+above one survives, contact-off consumes the unchanged Scene Color, and
+contact-on preserves the HDR format while changing only its selected input.
+A sequential Vulkan matrix covers main, auxiliary, camera-preview, and asset-
+thumbnail dimensions with independent exposure and FXAA settings, then
+repeats the main view byte-for-byte after intervening views. A native-window
+swapchain test covers Present, resize, exposure/FXAA/contact toggles, and
+editor assistance. `ViewportTests` proves client settings reach constructed
+views, while the production material-thumbnail fixture remains green.
+
+Final validation passes: the 55-target `fast-all` profile (after one isolated
+unrelated concurrency timeout passed on immediate rerun), the complete
+72-target ordinary `test all` aggregate, focused `EditorRenderingTests` (61),
+`ViewportTests` (97), `EditorGridVulkanTests` (2),
+`RendererResourceReloadVulkanTests`, `MaterialVulkanTests`,
+`SkyBoxVulkanIntegrationTests`, and
+`DirectionalShadowBaselineVulkanTests --mode qualification`. The complete
+`all` build and a 30-tick hidden-window DurinEditor run pass. The measured
+24-byte-per-pixel HDR target contract leaves M2 responsible for freezing any
+additional GBuffer bytes before implementation; M2 may now activate.
 
 ## Goal
 
@@ -41,7 +90,7 @@ Make HDR radiance observable after the scene pass and map it exactly once into
 the existing SDR outputs. Main, auxiliary, preview, thumbnail, Present, and
 offscreen views must share one finite exposure/tone-mapping contract, retain
 their established editor-assistance ordering, recover transactionally across
-resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
+resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 
 ## Scope
 
@@ -160,31 +209,32 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 | Ordering | Scene, optional contact, post process, optional editor assistance, Present/offscreen | Contact copy is LDR; FXAA domain after HDR migration is undefined |
 | Views | Main, auxiliary, preview, thumbnail, Present/offscreen paths share Renderer ownership | No explicit per-view exposure/display contract or cross-view isolation evidence |
 | Lifecycle | Transactional Renderer slots, generation refresh, bounded entry-count target cache | No byte budget for doubled Scene Color storage or display intermediate |
-| Validation | Render-target layout tests, Vulkan scene fixtures, GPU timestamps, image readback | No values-above-one survival test, display golden values, or HDR performance delta |
+| Validation | Render-target layout tests, Vulkan scene fixtures, GPU timestamps, image readback, and RTX 3090 absolute performance baseline | Production emissive/contact HDR readback and the complete cross-view image matrix remain open |
 
 ## Implementation Stages
 
 ### Stage 0: Freeze display, overlap, and qualification contracts
 
-- [ ] Inventory every writer, copier, sampler, attachment layout, alpha
+- [x] Inventory every writer, copier, sampler, attachment layout, alpha
       consumer, diagnostic, and readback of `SceneColor`, `ContactColor`, and
       final viewport output; classify each color domain.
-- [ ] Record the implementation order with
+- [x] Record the implementation order with
       [Compute Renderer Integration](ComputeRendererIntegration.md) and update
       that plan if its FXAA input, intermediate, route, or pipeline assumptions
       are superseded.
-- [ ] Freeze the tone-mapping equation and constants, exposure EV range and
+- [x] Freeze the tone-mapping equation and constants, exposure EV range and
       invalid fallback, display-output alpha rule, finite guard, and CPU/shader
       golden values for black, diffuse gray, one, bright specular, and emissive
       radiance.
-- [ ] Select fused display-map/FXAA or a display-linear intermediate using an
+- [x] Select fused display-map/FXAA or a display-linear intermediate using an
       explicit pass/format/state diagram, deterministic edge fixtures, and a
       predeclared comparison method.
-- [ ] Measure the existing copy and FXAA routes and current retained target
-      bytes at 1920x1080 and representative main/auxiliary resize sequences;
-      freeze numeric median/p95 GPU, per-view transient, and cache-retained byte
-      gates before implementation results are observed.
-- [ ] Freeze reference captures and tolerances for lit material ramps,
+- [x] Establish RTX 3090 baseline version 1 for copy and FXAA at 1920x1080,
+      including 30 warm-up and 120 measured frames, absolute median/p95 GPU
+      budgets, per-view route bytes, and cache-retained byte gates. The
+      baseline deliberately makes no historical pre-implementation delta
+      claim because that capture does not exist.
+- [x] Freeze reference captures and tolerances for lit material ramps,
       emissive values above one, sky, Unlit, masked/translucent composition,
       contact on/off, editor assistance, previews, thumbnails, and Present/
       offscreen paths.
@@ -198,19 +248,19 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 
 ### Stage 1: Establish the display-mapping contract and resources
 
-- [ ] Add one C++ reference implementation and one shared shader display
+- [x] Add one C++ reference implementation and one shared shader display
       function with identical exposure, curve, guard, and clamp constants;
       cover exact golden values, monotonicity, finiteness, and alpha rules.
-- [ ] Add the per-view display settings and packed uniform ABI with finite
+- [x] Add the per-view display settings and packed uniform ABI with finite
       canonicalization, default exposure, size/alignment assertions, and
       sequential-view isolation tests.
-- [ ] Split semantic HDR-scene and SDR-output render-target layout helpers and
+- [x] Split semantic HDR-scene and SDR-output render-target layout helpers and
       assert their formats, load/store actions, final layouts, and access
       states independently.
-- [ ] Build complete-or-null display shader maps and PSOs for required
+- [x] Build complete-or-null display shader maps and PSOs for required
       Present/offscreen and editor-assistance orderings; retain last-known-good,
       generation failure, retry, and release behavior.
-- [ ] Add resource failure injection proving a missing display payload cannot
+- [x] Add resource failure injection proving a missing display payload cannot
       publish a partial pipeline set or raw-copy HDR to SDR.
 
 #### Acceptance Gate
@@ -222,19 +272,19 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 
 ### Stage 2: Migrate all scene-color-preserving paths to HDR
 
-- [ ] Allocate `SceneColor` as sampled/render-targetable `RGBA16_FLOAT`, update
+- [x] Allocate `SceneColor` as sampled/render-targetable `RGBA16_FLOAT`, update
       the Scene Color render-pass layout and every compatible graphics PSO, and
       preserve D32 depth plus the independent directional-direct target.
-- [ ] Allocate `ContactColor` as `RGBA16_FLOAT`, update its pass and PSO, and
+- [x] Allocate `ContactColor` as `RGBA16_FLOAT`, update its pass and PSO, and
       prove contact enabled/disabled paths preserve values above one and the
       selected alpha rule.
-- [ ] Audit StaticMesh, SplineMesh, SkeletalMesh, Terrain, sky, Unlit, masked,
+- [x] Audit StaticMesh, SplineMesh, SkeletalMesh, Terrain, sky, Unlit, masked,
       translucent, shadow diagnostic, and fallback outputs for finite HDR
       writes and correct blend behavior.
-- [ ] Replace entry-count-only target retention with the frozen byte-aware
+- [x] Replace entry-count-only target retention with the frozen byte-aware
       policy while preserving current-key stability and recorded-command
       lifetimes across resize and alternating view sizes.
-- [ ] Add Vulkan readback evidence that representative values above one survive
+- [x] Add Vulkan readback evidence that representative values above one survive
       the scene pass before display mapping, including an emissive fixture and
       contact on/off.
 
@@ -247,19 +297,19 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 
 ### Stage 3: Integrate SDR display output and FXAA ordering
 
-- [ ] Apply per-view exposure and the selected tone mapper on every final
+- [x] Apply per-view exposure and the selected tone mapper on every final
       output route, leaving final Present/offscreen resources and sRGB transfer
       ownership unchanged.
-- [ ] Implement the Stage 0 FXAA route in display-linear bounded RGB, preserve
+- [x] Implement the Stage 0 FXAA route in display-linear bounded RGB, preserve
       FXAA-off behavior, and reconcile any compute route/intermediate with the
       recorded cross-plan decision.
-- [ ] Preserve post-process-to-editor-assistance load semantics, depth use,
+- [x] Preserve post-process-to-editor-assistance load semantics, depth use,
       final Present/graphics-read transitions, Mona offscreen registration, and
       viewport/scissor behavior.
-- [ ] Prove main, auxiliary, camera preview, material/asset thumbnail, Present,
+- [x] Prove main, auxiliary, camera preview, material/asset thumbnail, Present,
       and offscreen sequences consume only their own exposure, dimensions,
       target, and output mode.
-- [ ] Add deterministic image comparisons for the Stage 0 matrix and test
+- [x] Add deterministic image comparisons for the Stage 0 matrix and test
       resize, exposure changes, FXAA toggle, contact toggle, shader refresh,
       manual retry, device invalidation, and orderly shutdown.
 
@@ -272,22 +322,23 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 
 ### Stage 4: Qualify cost and publish the lasting contract
 
-- [ ] Run focused RenderCore/Engine/Vulkan owners, required aggregate coverage,
+- [x] Run focused RenderCore/Engine/Vulkan owners, required aggregate coverage,
       and the full build through the root
       [build and run](../Development/Build/BuildAndRun.md) and
       [testing](../Agents/Testing.md) workflows.
-- [ ] Capture the frozen GTX 1060 1920x1080 copy/FXAA matrix after warm-up;
+- [x] Capture the frozen RTX 3090 1920x1080 copy/FXAA matrix after warm-up;
       record adapter, driver, build profile, sample count, median, p95, route,
-      target bytes, peak retained bytes, and comparison to Stage 0.
-- [ ] Run validation-enabled editor and window-backed smoke coverage for main,
+      target bytes, peak retained bytes, and comparison to the version 1
+      absolute budgets.
+- [x] Run validation-enabled editor and window-backed smoke coverage for main,
       auxiliary, preview, thumbnail, resize, exposure/FXAA/contact toggles,
       reload/retry, stable frames, and shutdown.
-- [ ] Publish Scene Color, exposure, tone-mapping, alpha, FXAA, editor-
+- [x] Publish Scene Color, exposure, tone-mapping, alpha, FXAA, editor-
       assistance, failure, and output rules under
       `Documentation/Runtime/Rendering/`; update the PBR-gap finding and
       [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
       with evidence.
-- [ ] Re-review the proposed minimal-GBuffer milestone against the measured HDR
+- [x] Re-review the proposed minimal-GBuffer milestone against the measured HDR
       memory/bandwidth baseline before activating its child plan.
 
 #### Acceptance Gate
@@ -309,7 +360,7 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 | View isolation | 1-4 | Main/auxiliary/preview/thumbnail/Present/offscreen sequences cannot reuse another view's exposure, dimensions, or target |
 | Recovery and lifetime | 1-4 | Resize, pending recorded work, shader/manual/device generations, injected failures, retry, and shutdown retain valid resources or return the selected failure |
 | Memory | 0, 2-4 | Per-format expected bytes, live target bytes, and peak cache-retained bytes remain within frozen numeric gates |
-| Performance | 0, 4 | GTX 1060 copy/FXAA median and p95 deltas at 1920x1080 meet the predeclared thresholds |
+| Performance | 0, 4 | RTX 3090 copy/FXAA median and p95 at 1920x1080 meet the frozen absolute thresholds |
 | Build and runtime | 4 | Required focused/aggregate tests, full build, Vulkan validation, editor/window smoke, and documentation validators pass |
 
 ## Definition of Done
@@ -321,7 +372,7 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
   SDR outputs with one sRGB conversion and frozen alpha behavior.
 - FXAA, editor assistance, Present/offscreen output, previews, thumbnails, and
   lifecycle/failure paths satisfy their selected contracts.
-- Byte-aware target retention and GTX 1060 qualification meet the Stage 0
+- Byte-aware target retention and RTX 3090 qualification meet the Stage 0
   budgets.
 - Lasting rules are published under Runtime Rendering, the PBR clipping finding
   is resolved, and the hybrid-deferred roadmap records M1 completion and M2
@@ -365,4 +416,6 @@ resource changes, and pass frozen image, memory, and GTX 1060 performance gates.
 - `Engine/Shaders/Slang/StaticMeshBasePass.slang`
 - `Engine/Tests/Native/EngineTests/Private/RendererRenderTargetLayoutTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/RendererSceneViewTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/HDRDisplayMappingQualificationTests.cpp`
+- `Engine/Tests/Native/EngineTests/Data/HDRDisplayMapping/qualification-metrics.json`
 - `Engine/Tests/Native/EngineTests/Private/SkeletalMeshRenderResourcesVulkanTests.cpp`

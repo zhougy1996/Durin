@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "date": "2026-08-15",
+  "decision": "The local RTX 3090 becomes the qualification adapter by user direction. This first reproducible post-implementation capture is baseline version 1 and is not presented as a historical pre-change delta.",
+  "performance": {
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "driver": "591.86",
+    "vulkanApi": "1.4.325",
+    "configuration": "Win64-Debug-DurinEditor",
+    "validationEnabled": true,
+    "output": [1920, 1080],
+    "warmupFrames": 30,
+    "measuredFrames": 120,
+    "nanoseconds": {
+      "copyMedian": 18944,
+      "copyP95": 19648,
+      "fxaaMedian": 68160,
+      "fxaaP95": 68800,
+      "fxaaP95IncrementOverCopy": 49152
+    },
+    "budgetsNanoseconds": {
+      "copyMedianMaximum": 30000,
+      "copyP95Maximum": 40000,
+      "fxaaMedianMaximum": 100000,
+      "fxaaP95Maximum": 120000,
+      "fxaaP95IncrementOverCopyMaximum": 90000
+    }
+  },
+  "memory": {
+    "sceneTargetBytesPerPixel": 24,
+    "sceneTargetRetainedBytesAt1920x1080": 49766400,
+    "externalSrgbOutputBytesAt1920x1080": 8294400,
+    "routeBytesAt1920x1080": 58060800,
+    "maximumRetainedSceneTargetBytes": 201326592,
+    "displayLinearIntermediateBytes": 0
+  }
+}

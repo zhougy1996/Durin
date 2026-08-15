@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Renderers/DisplayMapping.h"
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
 #include "Renderers/DirectionalShadowView.h"
@@ -8,6 +9,69 @@
 
 namespace Durin
 {
+	TEST(FDisplayMappingTests, ACESGoldensAreFiniteMonotonicAndClamped)
+	{
+		const std::array<float, 5> Inputs{0.0f, 0.18f, 1.0f, 4.0f, 64.0f};
+		const std::array<float, 5> Expected{
+			0.0f, 0.26689893f, 0.80379748f, 0.97341710f, 1.0f};
+		float Previous = -1.0f;
+		for (size_t Index = 0; Index < Inputs.size(); ++Index)
+		{
+			const FVector3f Mapped =
+				DisplayMapping::MapSceneLinearToDisplayLinear(
+					FVector3f(Inputs[Index]), 0.0f);
+			EXPECT_NEAR(Mapped.x, Expected[Index], 1.0e-6f);
+			EXPECT_EQ(Mapped.x, Mapped.y);
+			EXPECT_EQ(Mapped.y, Mapped.z);
+			EXPECT_TRUE(std::isfinite(Mapped.x));
+			EXPECT_GE(Mapped.x, Previous);
+			EXPECT_GE(Mapped.x, 0.0f);
+			EXPECT_LE(Mapped.x, 1.0f);
+			Previous = Mapped.x;
+		}
+	}
+
+	TEST(FDisplayMappingTests, ExposureAndInvalidValuesUseFrozenFallbacks)
+	{
+		EXPECT_FLOAT_EQ(
+			DisplayMapping::CanonicalizeExposureEV(
+				std::numeric_limits<float>::quiet_NaN()),
+			DisplayMapping::DefaultExposureEV);
+		EXPECT_FLOAT_EQ(
+			DisplayMapping::CanonicalizeExposureEV(100.0f),
+			DisplayMapping::MaximumExposureEV);
+		EXPECT_FLOAT_EQ(
+			DisplayMapping::CanonicalizeExposureEV(-100.0f),
+			DisplayMapping::MinimumExposureEV);
+		EXPECT_FLOAT_EQ(DisplayMapping::CalculateExposureScale(1.0f), 2.0f);
+		const FVector3f PlusOne =
+			DisplayMapping::MapSceneLinearToDisplayLinear(
+				FVector3f(0.18f), 1.0f);
+		EXPECT_NEAR(PlusOne.x, 0.50364438f, 1.0e-6f);
+		const FVector3f Invalid =
+			DisplayMapping::MapSceneLinearToDisplayLinear(
+				{std::numeric_limits<float>::infinity(),
+				 std::numeric_limits<float>::quiet_NaN(), -1.0f},
+				std::numeric_limits<float>::quiet_NaN());
+		EXPECT_EQ(Invalid, FVector3f(0.0f));
+		EXPECT_FLOAT_EQ(DisplayMapping::MapOutputAlpha(0.4f), 0.4f);
+		EXPECT_FLOAT_EQ(DisplayMapping::MapOutputAlpha(2.0f), 1.0f);
+		EXPECT_FLOAT_EQ(
+			DisplayMapping::MapOutputAlpha(
+				std::numeric_limits<float>::quiet_NaN()),
+			0.0f);
+	}
+
+	TEST(FDisplayMappingTests, SceneViewExposureDefaultsAndCopiesPerView)
+	{
+		FSceneView First;
+		FSceneView Second;
+		EXPECT_FLOAT_EQ(First.Settings.ExposureEV, 0.0f);
+		First.Settings.ExposureEV = 2.0f;
+		EXPECT_FLOAT_EQ(First.Settings.ExposureEV, 2.0f);
+		EXPECT_FLOAT_EQ(Second.Settings.ExposureEV, 0.0f);
+	}
+
 	namespace
 	{
 		auto MakePerspectiveProjection(

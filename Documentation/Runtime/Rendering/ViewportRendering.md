@@ -118,7 +118,8 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
    the hidden Engine studio-environment asset for lighting; it does not replace
    or follow the visible SkyBox.
 3. Prepare demanded editor-assistance operations after the scene pass.
-4. Copy or apply FXAA from Scene Color to the final output.
+4. Apply manual exposure and the ACES fitted display transform, with optional
+   FXAA in bounded display-linear space, into the final SDR output.
 5. When assistance has drawable work, load the preserved color and depth and
    draw Grid, X-Ray Gizmo/Line/Icon, then visible Gizmo/Line/Icon.
 6. Transition only the final pass to Present for a window-backed output or
@@ -256,7 +257,7 @@ distance `200000`. The far-plane safety margin is five percent of the clip
 range capped at `10000` world units, preserving older explicitly short camera
 ranges without allowing Terrain distance to meet the projection boundary.
 
-Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
+Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache retains the current extent and evicts oldest other extents above a 192 MiB payload budget, so interactive resizing does not retain every transient dimension. See [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md) for format and byte accounting.
 
 When a scene has an active skybox, the renderer draws it into Scene Color using
 the fitted content viewport and scissor before opaque meshes. The draw has no
@@ -280,7 +281,7 @@ state uses the asset-independent unlit magenta ErrorMaterial, so preview or
 thumbnail rendering cannot disguise an invalid surface as an ordinary neutral
 default and remains diagnosable when Engine Content is unavailable.
 
-Scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
+Scene post-processing maps the RGBA16F scene-linear HDR image exactly once into the SDR image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Each view supplies independent manual exposure; FXAA maps every sample before resolving in bounded display-linear space. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
 
 The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. The grid keeps its world-space plane exact but biases only its emitted depth away from the camera, so coplanar scene geometry wins the preserved scene-depth test without shifting the visual origin. Its fullscreen ray-plane generation, camera-relative precision, decimal world anchoring, adaptive appearance, and bounded depth separation are defined by [Editor Grid](EditorGrid.md). Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.
 
@@ -348,9 +349,9 @@ not recover a lost Vulkan device or a failed RHI executor.
 Size-keyed scene color and depth targets use the same device-dependent slot
 semantics. A failed color/depth pair publishes no cache tombstone, and another
 lookup in the same device/manual generation is suppressed instead of allocating
-every frame. Device or manual invalidation, or normal bounded identity eviction,
-makes a later attempt eligible. The cache continues to retain at most eight size
-identities.
+every frame. Device or manual invalidation, or normal byte-budget eviction,
+makes a later attempt eligible. The cache retains the current extent and evicts
+oldest other extents above its byte budget.
 
 Renderer owns these development commands:
 

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -75,6 +76,25 @@ namespace Durin
 		}
 
 		auto Num() const -> size_t { return Entries.size(); }
+
+		template <typename WeightFunction>
+		auto GetRetainedPayloadWeight(WeightFunction&& GetWeight) const -> uint64
+		{
+			uint64 Total = 0;
+			for (const FEntry& Entry : Entries)
+			{
+				const PayloadType* Payload = Entry.Slot.GetPayload();
+				if (Payload != nullptr)
+				{
+					const uint64 Weight =
+						static_cast<uint64>(GetWeight(Entry.Key, *Payload));
+					Total = Weight > std::numeric_limits<uint64>::max() - Total
+						? std::numeric_limits<uint64>::max()
+						: Total + Weight;
+				}
+			}
+			return Total;
+		}
 
 		auto EvictOldestExcept(const KeyType& RetainedKey) -> bool
 		{
