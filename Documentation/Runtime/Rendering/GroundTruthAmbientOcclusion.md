@@ -11,6 +11,7 @@ factor for production solid Lit views with required deferred opaque ownership.
 `FSceneViewSettings::bEnableGroundTruthAmbientOcclusion` captures the immutable
 per-view selection and defaults to enabled. Forward-reference, migration
 fallback, wireframe, and Unlit views neither allocate nor sample GTAO.
+The viewport View menu exposes the setting as `Post Processing > GTAO`.
 
 Production records:
 

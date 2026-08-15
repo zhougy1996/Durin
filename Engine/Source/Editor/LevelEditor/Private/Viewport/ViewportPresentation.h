@@ -26,6 +26,7 @@ namespace Durin::Editor::Level
 	struct FViewportToolbarLayout
 	{
 		bool bEnableFXAA = true;
+		bool bEnableGroundTruthAmbientOcclusion = true;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		std::string ViewModeLabel;
