@@ -23,9 +23,15 @@ Solid/Wireframe, shadow diagnostics, contact shadows, or FXAA. New-window PIE is
 created with a null viewport client and has no persistent per-window render
 policy at all.
 
-The selected path follows Unreal Engine's separation between World mutation
-authority and viewport render policy, but remains deliberately smaller than a
-full game-viewport framework. No implementation stage has started.
+Stage 0 and Stage 1 are complete. A deterministic regression first proved that
+camera fallback discarded all non-default view settings. Engine now preserves
+the viewport client's exact settings whether matrices come from that client or
+the active gameplay camera. A pure toolbar-capability policy also records the
+Editing, read-only, embedded-PIE, and new-window-PIE permission matrix.
+
+Focused cases and the complete `ViewportTests` target pass 98 of 98 tests. Stage
+2 is next: connect the capability policy to Level Editor presentation and allow
+the bounded diagnostic set during embedded PIE.
 
 ## Goal
 
@@ -208,14 +214,14 @@ Gaps to close:
 
 ### Stage 0: Contract and regression baseline
 
-- [ ] Add focused tests demonstrating that camera fallback currently loses a
+- [x] Add focused tests demonstrating that camera fallback currently loses a
   non-default `FSceneViewSettings` value.
-- [ ] Add presentation-policy tests that enumerate which toolbar capabilities
+- [x] Add presentation-policy tests that enumerate which toolbar capabilities
   remain enabled for Editing, embedded PIE, paused embedded PIE, and new-window
   PIE.
-- [ ] Record the selected embedded persistence and new-window session-isolation
+- [x] Record the selected embedded persistence and new-window session-isolation
   policies in test names and fixtures rather than relying only on UI snapshots.
-- [ ] Confirm the smallest existing native suites for Engine view construction,
+- [x] Confirm the smallest existing native suites for Engine view construction,
   viewport interaction, Level Editor presentation, and PIE lifecycle using
   [Agent Testing Workflow](../Agents/Testing.md).
 
@@ -229,14 +235,14 @@ Gaps to close:
 
 ### Stage 1: Preserve settings through camera fallback
 
-- [ ] Change `DEngine::BuildSceneView()` so a non-null viewport client's
+- [x] Change `DEngine::BuildSceneView()` so a non-null viewport client's
   settings are applied whether matrices come from the client or active-camera
   fallback.
-- [ ] Preserve default settings for null-client standalone and legacy paths.
-- [ ] Cover client view success, client decline plus valid gameplay camera,
+- [x] Preserve default settings for null-client standalone and legacy paths.
+- [x] Cover client view success, client decline plus valid gameplay camera,
   client decline without a camera, null client, and independent main/auxiliary
   viewport cases.
-- [ ] Verify render-command capture still owns a value snapshot and introduces
+- [x] Verify render-command capture still owns a value snapshot and introduces
   no viewport-client access on the render thread.
 
 #### Acceptance Gate

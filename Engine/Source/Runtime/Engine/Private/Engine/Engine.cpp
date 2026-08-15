@@ -385,11 +385,13 @@ namespace Durin
 		{
 			if (const FViewportClient* ViewportClient = SceneViewport->GetViewportClient())
 			{
+				const FSceneViewSettings ViewSettings = ViewportClient->GetViewSettings();
 				if (ViewportClient->CalcSceneView(Width, Height, OutView))
 				{
-					OutView.Settings = ViewportClient->GetViewSettings();
+					OutView.Settings = ViewSettings;
 					return true;
 				}
+				OutView.Settings = ViewSettings;
 			}
 		}
 

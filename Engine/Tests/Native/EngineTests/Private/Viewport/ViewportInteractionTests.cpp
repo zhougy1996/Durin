@@ -564,6 +564,23 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 		.GameModeClass = Durin::AGameMode::StaticClass(),
 		.ViewTargetOverride = ControllerCamera}));
 	Engine.SetTestWorld(World);
+	Durin::FViewportClient FallbackClient;
+	FallbackClient.SetViewSettings({
+		.bEnableFXAA = false,
+		.ExposureEV = 1.5f,
+		.RenderMode = Durin::ERenderMode::Unlit,
+		.RasterMode = Durin::ERasterMode::Wireframe,
+		.bEnableContactShadows = true,
+	});
+	Engine.SetTestViewport(Durin::FSceneViewport::CreateOffscreen(&FallbackClient));
+	const Durin::FSceneView FallbackView = Engine.BuildMainSceneView(640, 480);
+	ExpectVectorNear(FallbackView.ViewLocation, {21.0, 22.0, 23.0});
+	EXPECT_FALSE(FallbackView.Settings.bEnableFXAA);
+	EXPECT_TRUE(FallbackView.Settings.bEnableContactShadows);
+	EXPECT_FLOAT_EQ(FallbackView.Settings.ExposureEV, 1.5f);
+	EXPECT_EQ(FallbackView.Settings.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(FallbackView.Settings.RasterMode, Durin::ERasterMode::Wireframe);
+
 	Engine.SetTestViewport(nullptr);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {21.0, 22.0, 23.0});
 	ASSERT_TRUE(World->DestroyActor(ControllerCamera));

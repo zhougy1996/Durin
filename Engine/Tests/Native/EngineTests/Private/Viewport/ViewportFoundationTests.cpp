@@ -113,6 +113,38 @@ TEST(FViewportStatisticsOverlayTests, FormatsBoundedCountsCompactly)
 	EXPECT_EQ(FormatViewportStatistic(2'500'000'000), "2.50B");
 }
 
+TEST(FViewportToolbarCapabilityTests, SeparatesRenderInspectionFromEditorMutation)
+{
+	using Durin::Editor::Level::ResolveViewportToolbarCapabilities;
+	const auto Editing = ResolveViewportToolbarCapabilities(false, false, false);
+	EXPECT_TRUE(Editing.bCanEditCamera);
+	EXPECT_TRUE(Editing.bCanEditScene);
+	EXPECT_TRUE(Editing.bCanEditRenderSettings);
+	EXPECT_TRUE(Editing.bCanToggleCollision);
+	EXPECT_FALSE(Editing.bTargetsPlayWindow);
+
+	const auto ReadOnly = ResolveViewportToolbarCapabilities(true, false, false);
+	EXPECT_FALSE(ReadOnly.bCanEditCamera);
+	EXPECT_FALSE(ReadOnly.bCanEditScene);
+	EXPECT_TRUE(ReadOnly.bCanEditRenderSettings);
+	EXPECT_FALSE(ReadOnly.bCanToggleCollision);
+	EXPECT_FALSE(ReadOnly.bTargetsPlayWindow);
+
+	const auto EmbeddedPlay = ResolveViewportToolbarCapabilities(true, true, false);
+	EXPECT_FALSE(EmbeddedPlay.bCanEditCamera);
+	EXPECT_FALSE(EmbeddedPlay.bCanEditScene);
+	EXPECT_TRUE(EmbeddedPlay.bCanEditRenderSettings);
+	EXPECT_TRUE(EmbeddedPlay.bCanToggleCollision);
+	EXPECT_FALSE(EmbeddedPlay.bTargetsPlayWindow);
+
+	const auto NewWindowPlay = ResolveViewportToolbarCapabilities(true, true, true);
+	EXPECT_FALSE(NewWindowPlay.bCanEditCamera);
+	EXPECT_FALSE(NewWindowPlay.bCanEditScene);
+	EXPECT_TRUE(NewWindowPlay.bCanEditRenderSettings);
+	EXPECT_TRUE(NewWindowPlay.bCanToggleCollision);
+	EXPECT_TRUE(NewWindowPlay.bTargetsPlayWindow);
+}
+
 TEST(FViewportStatisticsOverlayTests, AnchorsBelowBadgeAndSuppressesUnreadablePanel)
 {
 	ImGuiContext* Context = ImGui::CreateContext();

@@ -73,6 +73,31 @@ namespace Durin::Editor::Level
 		}
 	};
 
+	// Separates non-mutating render inspection from editor camera and scene mutation authority.
+	struct FViewportToolbarCapabilities
+	{
+		bool bCanEditCamera = false;
+		bool bCanEditScene = false;
+		bool bCanEditRenderSettings = true;
+		bool bCanToggleCollision = false;
+		bool bTargetsPlayWindow = false;
+	};
+
+	inline auto ResolveViewportToolbarCapabilities(
+		bool bReadOnly,
+		bool bPlaying,
+		bool bPlayingInNewWindow) -> FViewportToolbarCapabilities
+	{
+		const bool bCanMutateEditor = !bReadOnly && !bPlaying;
+		return {
+			.bCanEditCamera = bCanMutateEditor,
+			.bCanEditScene = bCanMutateEditor,
+			.bCanEditRenderSettings = true,
+			.bCanToggleCollision = !bReadOnly || bPlaying,
+			.bTargetsPlayWindow = bPlaying && bPlayingInNewWindow,
+		};
+	}
+
 	inline auto FormatViewportStatistic(uint64 Value) -> std::string
 	{
 		if (Value < 1000) return std::to_string(Value);
