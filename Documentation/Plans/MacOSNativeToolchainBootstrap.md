@@ -53,10 +53,22 @@ through `@rpath`, and records the Debug runtime directory as an `LC_RPATH`.
 No Editor was launched and runtime support is not claimed. Final qualification
 and documentation remain open.
 
-The Stage 4 control-plane regression pass is green: all 367 applicable
+The Stage 4 control-plane regression pass is green: all 369 applicable
 DurinDevTool tests pass with two host-inapplicable skips, and all 159 DHT tests
 pass. The DevTool suite includes the synthetic Windows setup, profile,
-dependency, build-graph, launcher, and recovery contracts affected by M1.
+dependency, build-graph, launcher, and recovery contracts affected by M1. The
+fresh-worktree repetition also exposed and fixed POSIX directory-symlink cleanup
+in `DevTool worktree remove`; focused tests prove that detach and replacement
+preserve the shared targets, and the temporary worktree was removed safely.
+
+A detached fresh worktree at the Stage 4 commit passed macOS preflight while
+being prepared, validated all 10 third-party manifests, idempotently prepared
+the complete test/development selection, fresh-configured the declared preset,
+parsed all 56 Engine DHT headers on the cold path, and linked the Engine target.
+Its output was Mach-O arm64 with the expected `@rpath` identity and worktree-
+local Debug runtime `LC_RPATH`. The worktree intentionally shared the already
+qualified `.venv`, local configuration, and external dependency tree, so this
+is fresh-worktree evidence rather than a second fresh-host acquisition claim.
 
 ### Validated candidate host
 
@@ -332,7 +344,7 @@ that does not require M2 runtime implementations.
 - [x] Update the authoritative build/run and third-party preparation contracts
   with macOS prerequisites, root command syntax, environment ownership,
   dependency layout, baseline versions, and bounded qualification status.
-- [ ] Record exact fresh-host/fresh-worktree reproduction evidence, resolved
+- [x] Record exact fresh-host/fresh-worktree reproduction evidence, resolved
   binary locations, dylib closure, known limitations, and rollback boundaries.
 - [x] Publish M2's entry diagnostics for process, crash, filesystem/module,
   native dialog, window/input, project ownership, and Editor shell work without

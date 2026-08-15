@@ -58,6 +58,9 @@ def remove_link_or_empty_directory(path: Path, *, dry_run: bool, command_io: Com
     if dry_run:
         command_io.out(f'[dry-run] remove "{path}"')
         return
+    if path.is_symlink():
+        path.unlink()
+        return
     if is_link_like(path) or is_empty_directory(path):
         path.rmdir()
         return
@@ -244,7 +247,10 @@ def validate_directory_links(worktree: Worktree, repository: RepositoryContext) 
 def detach_link(path: Path) -> DetachedLink:
     target = path.resolve(strict=False)
     kind = "symlink" if path.is_symlink() else "junction"
-    path.rmdir()
+    if kind == "symlink":
+        path.unlink()
+    else:
+        path.rmdir()
     return DetachedLink(path, target, kind)
 
 

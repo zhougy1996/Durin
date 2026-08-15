@@ -84,6 +84,41 @@ class TestWorktreeTool:
         with mock.patch.object(worktree_links, 'directory_links_under', return_value=[vscode]), mock.patch.object(worktree_links, 'is_link_like', side_effect=lambda path: path == vscode):
             assert worktree_links.validate_directory_links(worktree, REPOSITORY) == [vscode]
 
+    @pytest.mark.skipif(os.name == 'nt', reason='POSIX directory symlink behavior')
+    def test_removing_directory_symlink_preserves_its_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        target = root / 'target'
+        link = root / 'link'
+        target.mkdir()
+        marker = target / 'preserved.txt'
+        marker.write_text('preserved', encoding='utf-8')
+        link.symlink_to(target, target_is_directory=True)
+
+        worktree_links.remove_link_or_empty_directory(
+            link,
+            dry_run=False,
+            command_io=CommandIO.system(),
+        )
+
+        assert not link.exists()
+        assert marker.read_text(encoding='utf-8') == 'preserved'
+
+    @pytest.mark.skipif(os.name == 'nt', reason='POSIX directory symlink behavior')
+    def test_detaching_directory_symlink_preserves_its_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        target = root / 'target'
+        link = root / 'link'
+        target.mkdir()
+        marker = target / 'preserved.txt'
+        marker.write_text('preserved', encoding='utf-8')
+        link.symlink_to(target, target_is_directory=True)
+
+        detached = worktree_links.detach_link(link)
+
+        assert detached == DetachedLink(link, target, 'symlink')
+        assert not link.exists()
+        assert marker.read_text(encoding='utf-8') == 'preserved'
+
     @pytest.mark.skipif(os.name != 'nt', reason='Windows junction behavior')
     def test_detaching_junction_preserves_its_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
