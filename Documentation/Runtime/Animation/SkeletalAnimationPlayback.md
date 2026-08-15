@@ -2,7 +2,9 @@
 
 Summary: Define deterministic single-clip skeletal pose evaluation, playback ownership, and immutable palette publication.
 
-Modules: Engine
+Modules: Engine, GeometryBuild, StandardAssetImport
+
+Last reviewed: 2026-08-16
 
 ## Ownership Boundary
 
@@ -11,6 +13,12 @@ animation clip, persistent playback settings, and one
 `FSkeletalAnimationInstance`. Assets remain immutable inputs: mutable time,
 play state, looping, rate, revisions, and evaluated poses never live on
 `DSkeleton`, `DSkeletalMesh`, or `DAnimationClip`.
+
+GeometryBuild registers `Durin.GeometryBuild.AnimationClip@1`; its synchronous
+session validates the complete DANM value against the Skeleton/target context.
+StandardAssetImport retains scene capture, clip naming, hard Skeleton
+relationships, and transaction publication. Cache-only authored load never
+invokes scene import, and a valid hit skips payload encoding and another store.
 
 Binding construction is the only playback operation that reads reflected asset
 objects. A successful `FSkeletalAnimationBinding` detaches:

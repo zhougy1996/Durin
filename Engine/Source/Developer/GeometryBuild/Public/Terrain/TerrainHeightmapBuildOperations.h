@@ -17,6 +17,8 @@ namespace Durin::Asset::Build
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
 		uint32 SourceProfileVersion = 0;
 		bool bPersistDerivedData = true;
+		bool bQueryDerivedData = true;
+		std::function<bool()> ShouldCancel;
 	};
 
 	struct FTerrainHeightmapBuildProduct

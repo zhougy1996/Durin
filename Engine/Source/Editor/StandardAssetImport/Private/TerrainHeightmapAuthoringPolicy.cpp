@@ -136,7 +136,9 @@ namespace Durin::Asset::Import::Standard
 				.DecoderId = SourceData.DecoderId,
 				.DecoderVersion = SourceData.DecoderVersion,
 				.SourceFormat = SourceData.SourceFormat,
-				.SourceProfileVersion = SourceData.SourceProfileVersion}, Product, Error))
+				.SourceProfileVersion = SourceData.SourceProfileVersion,
+				.bQueryDerivedData = false,
+				.ShouldCancel = [&Token] { return Token.IsCancellationRequested(); }}, Product, Error))
 			{
 				Result.Diagnostic = std::format("Terrain heightmap source rebuild failed: {}", Error);
 				return Result;
@@ -317,7 +319,7 @@ namespace Durin::Asset::Import::Standard
 				std::filesystem::path(Snapshot.SourcePath.Path).extension().generic_string(),
 				Snapshot.GetBytes(), SourceData, OutError)
 				&& BuildTerrainHeightmapFromSource(Heightmap, std::move(SourceData), Snapshot,
-					OutError, false, false);
+					OutError, false, false, false);
 		}
 
 		auto WaitForTerrainLoad(

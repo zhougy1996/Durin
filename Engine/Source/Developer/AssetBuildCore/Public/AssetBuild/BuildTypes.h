@@ -72,6 +72,15 @@ namespace Durin::Asset::Build
 	};
 	enum class EBuildValueOrigin : uint8 { None, Cache, Local };
 
+	struct FBuildPhaseDurations
+	{
+		uint64 CacheQueryNanoseconds = 0;
+		uint64 CachedValueValidationNanoseconds = 0;
+		uint64 LocalBuildNanoseconds = 0;
+		uint64 BuiltValueValidationNanoseconds = 0;
+		uint64 CacheStoreNanoseconds = 0;
+	};
+
 	struct FBuildOutput
 	{
 		EBuildStatus Status = EBuildStatus::Failed;
@@ -80,6 +89,7 @@ namespace Durin::Asset::Build
 		FBuildValue Value;
 		std::string Diagnostic;
 		std::string StoreDiagnostic;
+		FBuildPhaseDurations PhaseDurations;
 		bool bCacheQueried = false;
 		bool bLocalBuildExecuted = false;
 		auto Succeeded() const -> bool

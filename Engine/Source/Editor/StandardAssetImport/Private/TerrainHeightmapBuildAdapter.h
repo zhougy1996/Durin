@@ -12,7 +12,8 @@ namespace Durin::Asset::Import::Standard
 		const FEncodedSourceSnapshot& Source,
 		std::string& OutError,
 		bool bAdvanceRevision = true,
-		bool bMarkPackageDirty = true) -> bool
+		bool bMarkPackageDirty = true,
+		bool bQueryDerivedData = true) -> bool
 	{
 		Asset::Build::FTerrainHeightmapBuildProduct Product;
 		if (!Asset::Build::BuildTerrainHeightmap({
@@ -24,7 +25,8 @@ namespace Durin::Asset::Import::Standard
 			.DecoderId = SourceData.DecoderId,
 			.DecoderVersion = SourceData.DecoderVersion,
 			.SourceFormat = SourceData.SourceFormat,
-			.SourceProfileVersion = SourceData.SourceProfileVersion}, Product, OutError)) return false;
+			.SourceProfileVersion = SourceData.SourceProfileVersion,
+			.bQueryDerivedData = bQueryDerivedData}, Product, OutError)) return false;
 		return Asset::Build::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
 			.SourcePath = Source.SourcePath,
 			.DecoderId = SourceData.DecoderId,

@@ -113,14 +113,4 @@ namespace Durin::Asset::Build
 		const FSkeletalPayloadSerializationContext& Context,
 		FAnimationClipPayloadData& OutPayload,
 		std::string& OutMessage) -> bool;
-	GEOMETRYBUILD_API auto StoreSkeletalMeshDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		const FSkeletalMeshPayloadData& Payload,
-		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto StoreAnimationClipDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		const FAnimationClipPayloadData& Payload,
-		std::string& OutError) -> bool;
 }

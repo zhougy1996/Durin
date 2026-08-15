@@ -2,7 +2,6 @@
 
 #include "AssetCore.h"
 #include "AssetLoad.h"
-#include "DerivedDataObjectStore.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DynamicRHI.h"
@@ -19,15 +18,8 @@ namespace Durin
 	{
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
-		constexpr uint64 TextureCubeDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
-		constexpr uint32 TextureCubeDerivedDataCleanupDeleteLimit = 16;
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
-
-		auto GetTextureCubeObjectStore() -> Asset::FDerivedDataObjectStore
-		{
-			return Asset::FDerivedDataObjectStore("TextureCube/Objects", MaximumTexturePayloadBytes);
-		}
 
 		auto FaceToIndex(ETextureCubeFace Face) -> size_t
 		{

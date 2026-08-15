@@ -160,6 +160,14 @@ sRGB, payload/projection versions, target platform, and profile. Warm objects
 live under `DerivedDataCache/TextureCube/Objects` and can load from persisted
 identity while source and projection tools are unavailable.
 
+TextureBuild registers `Durin.TextureBuild.TextureCube@1` and executes every
+production query, validation, local build, and store through `FBuildSession`.
+The immutable `TextureCubeBuildInput` owns the six normalized projected faces;
+source paths, decoder state, publication objects, and panorama projection stay
+outside the function. Builds require successful persistence. A valid hit
+returns the existing `TextureCubePayload` without mip generation, compression,
+TXPL encoding, or another store; cache-only post-load contains no local input.
+
 Cube TXPL schema 1 uses the shared texture envelope with exactly six slices in
 the frozen `+X/-X/+Y/-Y/+Z/-Z` order. Every face must have identical square
 dimensions, mip count, format, row pitch, and bounded ranges. Cook publishes

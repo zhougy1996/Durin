@@ -13,6 +13,12 @@ namespace Durin
 		GEOMETRYBUILD_API auto InitializeStaticMeshBuildFunctions(
 			FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
 		GEOMETRYBUILD_API auto ShutdownStaticMeshBuildFunctions() -> void;
+		GEOMETRYBUILD_API auto InitializeSkeletalBuildFunctions(
+			FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
+		GEOMETRYBUILD_API auto ShutdownSkeletalBuildFunctions() -> void;
+		GEOMETRYBUILD_API auto InitializeTerrainBuildFunction(
+			FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
+		GEOMETRYBUILD_API auto ShutdownTerrainBuildFunction() -> void;
 	}
 
 	class FGeometryBuildModule final
@@ -66,6 +72,19 @@ namespace Durin
 			checkf(Asset::Build::InitializeStaticMeshBuildFunctions(
 				BuildHostCallbackRegistration.GetGate(), &Error),
 				"GeometryBuild could not register StaticMesh build functions: {}", Error);
+			if (!Asset::Build::InitializeSkeletalBuildFunctions(
+				BuildHostCallbackRegistration.GetGate(), &Error))
+			{
+				Asset::Build::ShutdownStaticMeshBuildFunctions();
+				checkf(false, "GeometryBuild could not register skeletal build functions: {}", Error);
+			}
+			if (!Asset::Build::InitializeTerrainBuildFunction(
+				BuildHostCallbackRegistration.GetGate(), &Error))
+			{
+				Asset::Build::ShutdownSkeletalBuildFunctions();
+				Asset::Build::ShutdownStaticMeshBuildFunctions();
+				checkf(false, "GeometryBuild could not register Terrain build function: {}", Error);
+			}
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
 				.Identity = "Durin.GeometryBuild.Recipes",
 				.DrainOrder = 50,
@@ -91,6 +110,8 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			delete std::exchange(ServiceRegistration, nullptr);
+			Asset::Build::ShutdownTerrainBuildFunction();
+			Asset::Build::ShutdownSkeletalBuildFunctions();
 			Asset::Build::ShutdownStaticMeshBuildFunctions();
 		}
 	};

@@ -205,17 +205,32 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			const bool bStored = Durin::Asset::Build::StoreSkeletalMeshDerivedData(
-				DerivedDataKey, {
-					.SkeletonBoneCount = Skeleton.GetBoneCount(),
-					.MaterialSlotCount = static_cast<Durin::uint32>(Data.MaterialSlots.size()),
-					.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64,
-					.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game},
-				*Data.Payload, Error);
-			Data.DiagnosticMessage = bStored
-				? std::format("Stored SkeletalMesh DDC key {}.", DerivedDataKey)
-				: std::format("SkeletalMesh DDC write failed for key {}: {}",
-					DerivedDataKey, Error);
+			Durin::Asset::Build::FSkeletalMeshBuildProduct Product;
+			Durin::Asset::Build::FSkeletalMeshBuildKeyInput KeyInput;
+			auto& Fields = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(KeyInput);
+			Fields.ProviderIdentity = "Durin.Tests";
+			Fields.ProviderVersion = 1;
+			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
+			Fields.SettingsHash = Durin::FXxHash128::HashBuffer("settings");
+			Fields.ProviderStateHash = Durin::FXxHash128::HashBuffer("state");
+			Fields.StableOutputIdentity = DerivedDataKey;
+			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
+			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
+			Fields.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
+			const bool bBuilt = Durin::Asset::Build::BuildSkeletalMeshProduct({
+				.SkeletonBoneCount = Skeleton.GetBoneCount(),
+				.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
+				.MeshNodeBindTransform = Data.MeshNodeBindTransform,
+				.MaterialSlotCount = static_cast<Durin::uint32>(Data.MaterialSlots.size()),
+				.Payload = Data.Payload,
+				.KeyInput = std::move(KeyInput)}, Product, Error);
+			if (bBuilt)
+			{
+				Data.Payload = std::move(Product.Payload);
+				Data.DerivedDataKey = std::move(Product.DerivedDataKey);
+				Data.DiagnosticMessage = std::move(Product.Diagnostic);
+			}
+			else Data.DiagnosticMessage = std::format("SkeletalMesh DDC write failed: {}", Error);
 		}
 		ASSERT_TRUE(Mesh.PublishBuiltProduct(std::move(Data), Error)) << Error;
 	}
@@ -259,16 +274,31 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			const bool bStored = Durin::Asset::Build::StoreAnimationClipDerivedData(
-				DerivedDataKey, {
-					.SkeletonBoneCount = Skeleton.GetBoneCount(),
-					.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64,
-					.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game},
-				*Data.Payload, Error);
-			Data.DiagnosticMessage = bStored
-				? std::format("Stored AnimationClip DDC key {}.", DerivedDataKey)
-				: std::format("AnimationClip DDC write failed for key {}: {}",
-					DerivedDataKey, Error);
+			Durin::Asset::Build::FAnimationClipBuildProduct Product;
+			Durin::Asset::Build::FAnimationClipBuildKeyInput KeyInput;
+			auto& Fields = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(KeyInput);
+			Fields.ProviderIdentity = "Durin.Tests";
+			Fields.ProviderVersion = 1;
+			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
+			Fields.SettingsHash = Durin::FXxHash128::HashBuffer("settings");
+			Fields.ProviderStateHash = Durin::FXxHash128::HashBuffer("state");
+			Fields.StableOutputIdentity = DerivedDataKey;
+			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
+			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
+			Fields.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
+			const bool bBuilt = Durin::Asset::Build::BuildAnimationClipProduct({
+				.SkeletonBoneCount = Skeleton.GetBoneCount(),
+				.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
+				.ClipName = Data.ClipName,
+				.Payload = Data.Payload,
+				.KeyInput = std::move(KeyInput)}, Product, Error);
+			if (bBuilt)
+			{
+				Data.Payload = std::move(Product.Payload);
+				Data.DerivedDataKey = std::move(Product.DerivedDataKey);
+				Data.DiagnosticMessage = std::move(Product.Diagnostic);
+			}
+			else Data.DiagnosticMessage = std::format("AnimationClip DDC write failed: {}", Error);
 		}
 		ASSERT_TRUE(Clip.PublishBuiltProduct(std::move(Data), Error)) << Error;
 	}
@@ -790,8 +820,8 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcSkeleton", SkeletonPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcMesh", MeshPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcClip", ClipPath));
-	const std::string MeshKey = Durin::FXxHash128::HashBuffer("mesh-ddc-key").ToString();
-	const std::string ClipKey = Durin::FXxHash128::HashBuffer("clip-ddc-key").ToString();
+	std::string MeshKey = Durin::FXxHash128::HashBuffer("mesh-ddc-key").ToString();
+	std::string ClipKey = Durin::FXxHash128::HashBuffer("clip-ddc-key").ToString();
 
 	Durin::DSkeleton* Skeleton = nullptr;
 	Durin::DSkeletalMesh* Mesh = nullptr;
@@ -800,8 +830,10 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	InitializeSkeleton(*Skeleton);
 	ASSERT_TRUE(Durin::Asset::CreateAsset(MeshPath, Mesh));
 	InitializeMesh(*Mesh, *Skeleton, "Body", MeshKey);
+	MeshKey = Mesh->GetDerivedDataKey();
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ClipPath, Clip));
 	InitializeClip(*Clip, *Skeleton, "Walk", 1.0f, ClipKey);
+	ClipKey = Clip->GetDerivedDataKey();
 	const Durin::FSkeletalMeshPayloadData ExpectedMesh = *Mesh->GetPayloadData();
 	const Durin::FAnimationClipPayloadData ExpectedClip = *Clip->GetPayloadData();
 	EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("Stored"), std::string::npos);
@@ -873,8 +905,8 @@ TEST(FSkeletalAssetTests, AuthoredLoadFailsClosedWithoutRequiredDerivedData)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationMesh", MeshPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationClip", ClipPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationLevel", LevelPath));
-	const std::string MeshKey = Durin::FXxHash128::HashBuffer("migration-mesh-key").ToString();
-	const std::string ClipKey = Durin::FXxHash128::HashBuffer("migration-clip-key").ToString();
+	std::string MeshKey = Durin::FXxHash128::HashBuffer("migration-mesh-key").ToString();
+	std::string ClipKey = Durin::FXxHash128::HashBuffer("migration-clip-key").ToString();
 
 	Durin::DSkeleton* Skeleton = nullptr;
 	Durin::DSkeletalMesh* Mesh = nullptr;
@@ -884,8 +916,10 @@ TEST(FSkeletalAssetTests, AuthoredLoadFailsClosedWithoutRequiredDerivedData)
 	InitializeSkeleton(*Skeleton);
 	ASSERT_TRUE(Durin::Asset::CreateAsset(MeshPath, Mesh));
 	InitializeMesh(*Mesh, *Skeleton, "Body", MeshKey);
+	MeshKey = Mesh->GetDerivedDataKey();
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ClipPath, Clip));
 	InitializeClip(*Clip, *Skeleton, "Walk", 1.0f, ClipKey);
+	ClipKey = Clip->GetDerivedDataKey();
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASkeletalMeshActor>("AnimatedActor");
 	ASSERT_NE(Actor, nullptr);

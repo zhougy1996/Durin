@@ -7,6 +7,9 @@ namespace Durin::Asset::Build
 	TEXTUREBUILD_API auto InitializeTexture2DBuildFunction(
 		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
 	TEXTUREBUILD_API auto ShutdownTexture2DBuildFunction() -> void;
+	TEXTUREBUILD_API auto InitializeTextureCubeBuildFunction(
+		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
+	TEXTUREBUILD_API auto ShutdownTextureCubeBuildFunction() -> void;
 }
 
 namespace Durin
@@ -24,6 +27,12 @@ namespace Durin
 			checkf(Asset::Build::InitializeTexture2DBuildFunction(
 				BuildHostCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register Texture2D build function: {}", Error);
+			if (!Asset::Build::InitializeTextureCubeBuildFunction(
+				BuildHostCallbackRegistration.GetGate(), &Error))
+			{
+				Asset::Build::ShutdownTexture2DBuildFunction();
+				checkf(false, "TextureBuild could not register TextureCube build function: {}", Error);
+			}
 			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
@@ -39,6 +48,7 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			Asset::Build::ShutdownTextureBuildService();
+			Asset::Build::ShutdownTextureCubeBuildFunction();
 			Asset::Build::ShutdownTexture2DBuildFunction();
 		}
 	};

@@ -57,6 +57,23 @@ namespace Durin::Asset::Build
 			return {.Status = EBuildStatus::Failed, .FailurePhase = Phase,
 				.Diagnostic = std::move(Message)};
 		}
+
+		template<typename F>
+		auto MeasureNanoseconds(uint64& OutNanoseconds, F&& Operation)
+		{
+			const auto Start = std::chrono::steady_clock::now();
+			struct FStopwatch
+			{
+				std::chrono::steady_clock::time_point Start;
+				uint64& Output;
+				~FStopwatch()
+				{
+					Output = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - Start).count());
+				}
+			} Stopwatch{Start, OutNanoseconds};
+			return std::forward<F>(Operation)();
+		}
 	}
 
 	auto FBuildValue::FromOwned(std::string InName, std::vector<uint8> InBytes)
@@ -254,11 +271,18 @@ namespace Durin::Asset::Build
 		Asset::FDerivedDataObjectStore Store(Config.CacheRoot, Config.MaximumValueBytes);
 		FBuildCacheClient Cache(Store);
 		FBuildOutput Result;
+		auto FailResult = [&](EBuildFailurePhase Phase, std::string Message) -> FBuildOutput {
+			Result.Status = EBuildStatus::Failed;
+			Result.FailurePhase = Phase;
+			Result.Diagnostic = std::move(Message);
+			return Result;
+		};
 		if (Policy.bQueryCache)
 		{
 			Result.bCacheQueried = true;
-			const auto Query = Cache.Query(Definition.GetKey().ToString(),
-				Config.ExpectedValueName, {.bQueryCache = true});
+			const auto Query = MeasureNanoseconds(Result.PhaseDurations.CacheQueryNanoseconds,
+				[&] { return Cache.Query(Definition.GetKey().ToString(),
+					Config.ExpectedValueName, {.bQueryCache = true}); });
 			if (Query.Status == EBuildCacheQueryStatus::Hit)
 			{
 				std::string Error;
@@ -268,11 +292,15 @@ namespace Durin::Asset::Build
 					if (Gate.IsValid())
 					{
 						auto Invocation = Gate.TryEnter();
-						if (!Invocation) return Fail(EBuildFailurePhase::FunctionLookup,
+						if (!Invocation) return FailResult(EBuildFailurePhase::FunctionLookup,
 							"Build function module owner is retiring.");
-						bValid = Function->Validate(Definition, Query.Value, Error);
+						bValid = MeasureNanoseconds(
+							Result.PhaseDurations.CachedValueValidationNanoseconds,
+							[&] { return Function->Validate(Definition, Query.Value, Error); });
 					}
-					else bValid = Function->Validate(Definition, Query.Value, Error);
+					else bValid = MeasureNanoseconds(
+						Result.PhaseDurations.CachedValueValidationNanoseconds,
+						[&] { return Function->Validate(Definition, Query.Value, Error); });
 				}
 				catch (const std::exception& Exception) { Error = Exception.what(); }
 				catch (...) { Error = "Build function validation threw an unknown exception."; }
@@ -300,8 +328,12 @@ namespace Durin::Asset::Build
 			return Result;
 		}
 		if (Cancellation && Cancellation->IsCanceled())
-			return {.Status = EBuildStatus::Canceled, .FailurePhase = EBuildFailurePhase::LocalBuild,
-				.Diagnostic = "Build request was canceled."};
+		{
+			Result.Status = EBuildStatus::Canceled;
+			Result.FailurePhase = EBuildFailurePhase::LocalBuild;
+			Result.Diagnostic = "Build request was canceled.";
+			return Result;
+		}
 		FBuildValue BuiltValue;
 		std::string Error;
 		{
@@ -312,36 +344,46 @@ namespace Durin::Asset::Build
 				if (Gate.IsValid())
 				{
 					auto Invocation = Gate.TryEnter();
-					if (!Invocation) return Fail(EBuildFailurePhase::FunctionLookup,
+					if (!Invocation) return FailResult(EBuildFailurePhase::FunctionLookup,
 						"Build function module owner is retiring.");
-					bBuilt = Function->Build(FBuildContext(Definition, Cancellation), BuiltValue, Error);
+					bBuilt = MeasureNanoseconds(Result.PhaseDurations.LocalBuildNanoseconds,
+						[&] { return Function->Build(
+							FBuildContext(Definition, Cancellation), BuiltValue, Error); });
 				}
-				else bBuilt = Function->Build(FBuildContext(Definition, Cancellation), BuiltValue, Error);
+				else bBuilt = MeasureNanoseconds(Result.PhaseDurations.LocalBuildNanoseconds,
+					[&] { return Function->Build(
+						FBuildContext(Definition, Cancellation), BuiltValue, Error); });
 				if (!bBuilt)
 				{
 					if (Cancellation && Cancellation->IsCanceled())
-						return {.Status = EBuildStatus::Canceled,
-							.FailurePhase = EBuildFailurePhase::LocalBuild,
-							.Diagnostic = std::move(Error), .bCacheQueried = Result.bCacheQueried,
-							.bLocalBuildExecuted = true};
-					return Fail(EBuildFailurePhase::LocalBuild, std::move(Error));
+					{
+						Result.Status = EBuildStatus::Canceled;
+						Result.FailurePhase = EBuildFailurePhase::LocalBuild;
+						Result.Diagnostic = std::move(Error);
+						return Result;
+					}
+					return FailResult(EBuildFailurePhase::LocalBuild, std::move(Error));
 				}
 			}
 			catch (const std::exception& Exception)
-				{ return Fail(EBuildFailurePhase::LocalBuild, Exception.what()); }
-			catch (...) { return Fail(EBuildFailurePhase::LocalBuild, "Build function threw an unknown exception."); }
+				{ return FailResult(EBuildFailurePhase::LocalBuild, Exception.what()); }
+			catch (...) { return FailResult(EBuildFailurePhase::LocalBuild, "Build function threw an unknown exception."); }
 			bool bValidated = false;
 			if (Gate.IsValid())
 			{
 				auto Invocation = Gate.TryEnter();
-				if (!Invocation) return Fail(EBuildFailurePhase::FunctionLookup,
+				if (!Invocation) return FailResult(EBuildFailurePhase::FunctionLookup,
 					"Build function module owner is retiring.");
-				bValidated = Function->Validate(Definition, BuiltValue, Error);
+				bValidated = MeasureNanoseconds(
+					Result.PhaseDurations.BuiltValueValidationNanoseconds,
+					[&] { return Function->Validate(Definition, BuiltValue, Error); });
 			}
-			else bValidated = Function->Validate(Definition, BuiltValue, Error);
+			else bValidated = MeasureNanoseconds(
+				Result.PhaseDurations.BuiltValueValidationNanoseconds,
+				[&] { return Function->Validate(Definition, BuiltValue, Error); });
 			if (BuiltValue.GetName() != Config.ExpectedValueName
 				|| BuiltValue.GetSize() > Config.MaximumValueBytes || !bValidated)
-				return Fail(EBuildFailurePhase::BuiltValueValidation,
+				return FailResult(EBuildFailurePhase::BuiltValueValidation,
 					Error.empty() ? "Built value violates the function output contract." : std::move(Error));
 		}
 		Result.Status = EBuildStatus::Built;
@@ -350,15 +392,19 @@ namespace Durin::Asset::Build
 		Result.Diagnostic.clear();
 		Result.bLocalBuildExecuted = true;
 		if (Cancellation && Cancellation->IsCanceled())
-			return {.Status = EBuildStatus::Canceled, .FailurePhase = EBuildFailurePhase::CacheStore,
-				.Diagnostic = "Build request was canceled before cache store.",
-				.bCacheQueried = Result.bCacheQueried, .bLocalBuildExecuted = true};
+		{
+			Result.Status = EBuildStatus::Canceled;
+			Result.FailurePhase = EBuildFailurePhase::CacheStore;
+			Result.Diagnostic = "Build request was canceled before cache store.";
+			return Result;
+		}
 		if (Policy.bStoreBuildResult)
 		{
 			std::string StoreError;
-			const bool bStored = Cache.Store(Definition.GetKey().ToString(), BuiltValue,
-				{.bStoreBuildResult = true, .bRequireStoreSuccess = Policy.bRequireStoreSuccess},
-				&StoreError);
+			const bool bStored = MeasureNanoseconds(Result.PhaseDurations.CacheStoreNanoseconds,
+				[&] { return Cache.Store(Definition.GetKey().ToString(), BuiltValue,
+					{.bStoreBuildResult = true, .bRequireStoreSuccess = Policy.bRequireStoreSuccess},
+					&StoreError); });
 			Result.StoreDiagnostic = StoreError;
 			if (!bStored)
 			{

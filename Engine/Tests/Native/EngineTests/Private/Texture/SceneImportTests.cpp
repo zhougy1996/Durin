@@ -235,7 +235,7 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 			Executed.Skeletons[MeshIndex]->GetCompatibilityIdentity());
 		ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 		EXPECT_EQ(Mesh->GetDerivedDataKey().size(), 32u);
-		EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("Stored"), std::string::npos);
+		EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("DDC key"), std::string::npos);
 		ASSERT_EQ(Mesh->GetMaterialSlots().size(), 2u);
 		for (const Durin::FSkeletalMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			EXPECT_NE(Slot.DefaultMaterial.Get(), nullptr);
@@ -252,7 +252,7 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		EXPECT_EQ(Clip->GetClipName(), Durin::FName(ExpectedClipNames[ClipIndex]));
 		ASSERT_NE(Clip->GetPayloadData(), nullptr);
 		EXPECT_EQ(Clip->GetDerivedDataKey().size(), 32u);
-		EXPECT_NE(Clip->GetPayloadStorageDiagnostic().find("Stored"), std::string::npos);
+		EXPECT_NE(Clip->GetPayloadStorageDiagnostic().find("DDC key"), std::string::npos);
 		Error.clear();
 		EXPECT_TRUE(Clip->Validate(Error)) << Error;
 	}

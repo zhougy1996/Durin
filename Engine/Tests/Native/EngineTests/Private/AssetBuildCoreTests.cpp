@@ -92,15 +92,26 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	ASSERT_TRUE(Cold.Succeeded()) << Cold.Diagnostic;
 	EXPECT_EQ(Cold.Status, EBuildStatus::Built);
 	EXPECT_EQ(Function->BuildCount, 1u);
+	EXPECT_GT(Cold.PhaseDurations.CacheQueryNanoseconds, 0u);
+	EXPECT_EQ(Cold.PhaseDurations.CachedValueValidationNanoseconds, 0u);
+	EXPECT_GT(Cold.PhaseDurations.LocalBuildNanoseconds, 0u);
+	EXPECT_GT(Cold.PhaseDurations.BuiltValueValidationNanoseconds, 0u);
+	EXPECT_GT(Cold.PhaseDurations.CacheStoreNanoseconds, 0u);
 	const FBuildCancellationToken Canceled([] { return true; });
 	const FBuildOutput CanceledOutput = FBuildSession().Build(Definition, {}, &Canceled);
 	EXPECT_EQ(CanceledOutput.Status, EBuildStatus::Canceled);
 	EXPECT_EQ(Function->BuildCount, 1u);
+	EXPECT_EQ(CanceledOutput.PhaseDurations.CacheQueryNanoseconds, 0u);
 	const FBuildOutput Warm = FBuildSession().Build(Definition,
 		{.bRequireStoreSuccess = true});
 	ASSERT_TRUE(Warm.Succeeded()) << Warm.Diagnostic;
 	EXPECT_EQ(Warm.Status, EBuildStatus::CacheHit);
 	EXPECT_EQ(Function->BuildCount, 1u);
+	EXPECT_GT(Warm.PhaseDurations.CacheQueryNanoseconds, 0u);
+	EXPECT_GT(Warm.PhaseDurations.CachedValueValidationNanoseconds, 0u);
+	EXPECT_EQ(Warm.PhaseDurations.LocalBuildNanoseconds, 0u);
+	EXPECT_EQ(Warm.PhaseDurations.BuiltValueValidationNanoseconds, 0u);
+	EXPECT_EQ(Warm.PhaseDurations.CacheStoreNanoseconds, 0u);
 
 	FBuildDefinition Missing;
 	FBuildDefinitionBuilder MissingBuilder({"Durin.Tests.SampleFunction", 1}, "SampleOutput");
@@ -110,6 +121,8 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	const FBuildOutput QueryOnly = FBuildSession().Build(Missing,
 		{.bAllowLocalBuild = false, .bStoreBuildResult = false});
 	EXPECT_EQ(QueryOnly.Status, EBuildStatus::CacheMiss);
+	EXPECT_GT(QueryOnly.PhaseDurations.CacheQueryNanoseconds, 0u);
+	EXPECT_EQ(QueryOnly.PhaseDurations.LocalBuildNanoseconds, 0u);
 }
 
 TEST(FAssetBuildCoreTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)

@@ -30,16 +30,19 @@ immutable `FBuildDefinition` selects a versioned local `IBuildFunction`, carries
 an existing canonical key plus opaque local inputs, and declares one expected
 value. `FBuildSession` performs query, cached-value validation, local build,
 built-value validation, store, and cleanup in that order and reports structured
-origin, status, and failure phase. It does not own worker threads, priorities,
+origin, status, failure phase, and bounded nanosecond durations for each
+executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
-GeometryBuild registers the StaticMesh render and collision functions;
-TextureBuild registers the Texture2D function. Their DMSH, collision, and TXPL
-keys, cache roots, value bytes, and codecs remain family-owned and unchanged.
+GeometryBuild registers the StaticMesh render/collision, SkeletalMesh,
+AnimationClip, and TerrainHeightmap functions; TextureBuild registers the
+Texture2D and TextureCube functions. Their DMSH, collision, TXPL, DSKM, DANM,
+and terrain keys, cache roots, value bytes, and codecs remain family-owned and unchanged.
 TextureBuild's coordinator calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
-publication ownership. TextureCube, skeletal/animation, Terrain, shader, and
-other DDC paths remain direct family clients until separately migrated.
+publication ownership. StandardAssetImport likewise retains TextureCube source
+normalization, scene parsing, Terrain source decoding/coalescing, and GameThread
+publication. Shader and other unrelated DDC paths remain direct family clients.
 
 The separate authoring build host still owns service contribution registration,
 startup, completion pumping, bounded wait, admission closure, ordered drain,
@@ -266,13 +269,20 @@ Readers validate magic, versions, declared sizes, allocation limits, structural
 invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
 
-For migrated StaticMesh render/collision and Texture2D requests, invalid cached
+For migrated StaticMesh render/collision, Texture2D/TextureCube,
+SkeletalMesh/AnimationClip, and TerrainHeightmap requests, invalid cached
 bytes are validated by the registered family function and become rebuildable
 misses only when authoritative local inputs are present. Authored cache-only
 loads disable local build and preserve missing, incompatible, and corrupt
-outcomes. Required-store policy remains transactional for these authoring
-operations; best-effort store is an explicit session policy for callers that
-can retain an in-memory result.
+outcomes. Texture and Terrain builds require successful persistence;
+skeletal scene products retain their complete detached value after a
+best-effort store failure and surface the store diagnostic.
+
+TextureCube uses `Durin.TextureBuild.TextureCube@1` with value
+`TextureCubePayload` under `TextureCube/Objects`. Source decode and panorama
+projection precede the immutable request; a valid TXPL hit skips mip generation,
+compression, encoding, and store. Cache-only authored load carries no local
+input and never captures source.
 
 ### Skeletal Derived Data
 
@@ -290,6 +300,25 @@ complete in-memory candidate even when its best-effort DDC write fails. A
 missing or corrupt object is a safe miss only while authoritative import inputs
 are available to the import operation; ordinary authored package load does not
 invent those inputs or silently reimport.
+
+The registered functions are `Durin.GeometryBuild.SkeletalMesh@1` and
+`Durin.GeometryBuild.AnimationClip@1`, both returning `SkeletalPayload`.
+Definitions carry the exact Skeleton/count/material target context. Cache-only
+post-load validates the complete DSKM or DANM value without mutating the asset;
+scene import owns the detached publication transaction and hard Skeleton edges.
+
+### Terrain Heightmap Derived Data
+
+TerrainHeightmap uses `Durin.GeometryBuild.TerrainHeightmap@1`, value
+`TerrainHeightmapPayload`, and `TerrainHeightmap/Objects`. Persisting direct
+builds query/build/store; explicit non-persisting builds disable both query and
+store. Authored load first performs one cache-only session request. Only after
+a miss or invalid value does its existing worker capture and decode source and
+issue a query-disabled build request. The worker adapts its cancellation token
+to the session while StandardAssetImport retains coalescing, admission,
+generation checks, and deferred GameThread publication. Diagnostics map the
+session's cache-query and cached-validation phase durations and never expose a
+physical DDC path.
 
 ## Cooked Packages and Bulk Payloads
 
