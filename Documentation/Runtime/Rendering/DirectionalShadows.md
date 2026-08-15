@@ -124,36 +124,28 @@ contact pass subtracts only an occluded fraction of that attachment; local
 lights, environment lighting, emissive output, Unlit materials, and pixels with
 no remaining directional contribution are unchanged.
 
-The pass reconstructs receiver positions from D32 scene depth and marches 24
-fixed steps toward the selected light. It is bounded to 0.75 world units and 96
-screen pixels, starts 0.01 world units from the receiver, and accepts only
-foreground depth whose reconstructed position lies within a 0.08-world-unit
-ray thickness. Depth is fetched with exact texel loads. Linear depth filtering
-and one-sided unbounded device-depth tests are forbidden because they create
-intermediate silhouette depths and detached false occlusion. Hits inside the
-0.08-world-unit bias-repair interval remove the remaining selected directional
-direct term completely, matching the shadow-map result while preserving all
-indirect and local lighting. The contribution then fades smoothly to zero at
-the 0.75-world-unit bound. Because the method cannot represent off-screen
-occluders, contribution also fades through the outer 5% of the viewport,
-clamped to 16-64 pixels, and a ray stops once it leaves the viewport. This
-prevents hard cuts and stretched contact shadows at close-up screen edges.
-At close range, hit thickness is capped to the reconstructed world footprint
-of eight pixels, and the world march extent contracts when its projection
-would exceed the 96-pixel budget. These projection-aware bounds prevent fixed
-world thickness and steps from expanding into broad or skipped screen bands.
-The 24-step baseline grows to at most 64 steps when required to keep projected
-spacing near 1.5 pixels. The first hit is refined with four binary iterations
-between the preceding miss and hit, then terminates the ray; this removes
-close-up grazing-angle quantization without paying the maximum loop cost after
-a contact has already been found. A receiver plane reconstructed from the
-nearest valid depth neighbor on each screen axis rejects hits that remain
-within a 1.5-pixel plane-distance tolerance, clamped to 0.001-0.005 world
-units. Nearest-side selection keeps reconstruction on one surface at depth
-discontinuities. This prevents both grazing wall self-occlusion and alternating
-wall-floor rejection while retaining perpendicular and object-ground contact.
+The pass is an opt-in detail trace rather than a default shadow tier. It
+reconstructs receiver positions from D32 scene depth and marches exactly 16
+fixed midpoint samples toward the selected light. The trace starts 0.01 world
+units from the receiver, ends at 0.20 world units, accepts foreground depth
+within a 0.012-world-unit thickness, and stops at 48 screen pixels. Contribution
+fades with world distance and across the final 25% of the screen-distance
+budget, so crossing the screen bound does not introduce a full-strength hard
+cut. A ray that leaves the viewport terminates without attempting to represent
+off-screen geometry.
 
-Missing targets, invalid light or matrix input, or resource creation failure
+Depth is fetched with exact texel loads. Linear depth filtering and one-sided
+unbounded device-depth tests are forbidden because they create intermediate
+silhouette depths and detached false occlusion. The fixed start bias and finite
+thickness are the only self-hit controls. The pass does not reconstruct a
+receiver plane from neighboring depth, adaptively increase its step count,
+contract its world extent from endpoint projection, apply a viewport-edge mask,
+or refine hits with extra binary searches. This keeps the worst-case depth
+query budget explicit and avoids view-dependent classification heuristics.
+
+Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
+by the viewport control or a caller-owned view setting. Missing targets,
+invalid light or matrix input, or resource creation failure
 skips the pass and preserves Scene Color. The viewport View menu exposes a
 `Contact Shadows` checkbox. Its mutually exclusive `Shadow Debug Views >
 Contact Shadow Contribution` mode enables the pass and displays the computed

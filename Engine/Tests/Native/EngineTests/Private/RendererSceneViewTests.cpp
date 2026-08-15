@@ -826,4 +826,11 @@ namespace Durin
 			LOD0Bounds.Max.y,
 			LOD2Bounds.Max.y);
 	}
+
+	TEST(FRendererSceneViewTests, ContactShadowsDefaultToOptInDetail)
+	{
+		const FSceneViewSettings Settings;
+		EXPECT_FALSE(Settings.bEnableContactShadows);
+		EXPECT_FALSE(Settings.bShowContactShadowDebug);
+	}
 } // namespace Durin

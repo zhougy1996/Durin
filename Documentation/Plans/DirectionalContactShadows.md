@@ -13,10 +13,15 @@ Stages 0-2 are implemented. The initial whole-SceneColor approximation exposed
 false silhouette occlusion and attenuated backlit/indirect lighting in the
 graybox review, so the selected design now records the post-shadow selected
 directional direct contribution in an R11G11B10 MRT and removes only that
-contribution in the contact pass. Depth reads use exact texel `Load`, hits use
-a 0.08-world-unit finite thickness that covers the directional shadow's maximum
-bias, and 24-step marching is bounded to 0.75 world units and 96 screen pixels
-with a 0.01 start offset. Stage 3 is partial: basic counters
+contribution in the contact pass. The detail trace was simplified after review
+showed that its adaptive 24-64-step march, four-neighbor receiver-plane
+reconstruction, endpoint contraction, viewport-edge mask, and binary hit
+refinement added cost and extra view-dependent rejection without overcoming
+single-layer scene-depth limitations. The selected opt-in path now uses exact
+texel `Load`, 16 fixed midpoint samples, a 0.01-world-unit start, a
+0.20-world-unit extent, 0.012-world-unit hit thickness, and a 48-pixel bound
+whose final 25% fades smoothly. Contact shadows default off. Stage 3 is partial:
+basic counters
 (`ContactShadowEnabledViews`/`ContactShadowPassFailures`) and a `bShowContactShadowDebug`
 overlay are wired. The viewport View menu exposes a production toggle and a
 mutually exclusive red contribution diagnostic, and the viewport statistics
@@ -24,15 +29,15 @@ panel reports contact-shadow enable state.
 
 A focused Vulkan test
 (`FDirectionalShadowBaselineVulkanTests.ContactShadowRunsAndDarkensNearFieldBounded`)
-passes after the correction: with contact shadows enabled the pass runs exactly
-once with zero failures, changes a bounded near-field region, and an added
-Unlit capture with the same depth/occluder layout remains byte-identical to the
-disabled reference. The Renderer module and full DurinEditor builds pass, as do
-the Renderer scene contracts and Static, Skeletal, Terrain, SkyBox, and focused
-contact-shadow Vulkan targets. An eight-second editor smoke reaches first
-present and compiles `/Engine/ContactShadow` without a contact-shadow or MRT
-validation warning. User-scene visual confirmation and target-GPU measurement
-remain open.
+passes after the simplification: with contact shadows enabled the pass runs
+exactly once with zero failures, changes a bounded near-field region in both
+orthographic and perspective captures, and an added Unlit capture with the same
+depth/occluder layout remains byte-identical to the disabled reference. The
+full DurinEditor build, the opt-in default contract, and the focused Vulkan
+qualification pass after the simplification; a five-second editor smoke remains
+running until intentionally terminated. Earlier Renderer scene contracts and
+Static, Skeletal, Terrain, SkyBox targets also pass. User-scene visual
+confirmation and target-GPU measurement remain open.
 
 The complete `DirectionalShadowBaselineVulkanTests` target passes, including
 the shadow-map-only baseline with contact shadows disabled. Image/motion and
@@ -50,21 +55,14 @@ available for a bounded screen-space supplement.
   `ETextureCreateFlags::ShaderResource` and is sampled through a non-comparison
   linear sampler as `Texture2D<float>` (`.r`), matching the existing
   depth-as-resource precedent.
-- Ray march: fixed world-space steps toward the selected directional light.
-  24 steps over a 0.75-world-unit maximum distance, a 0.01-world-unit start
-  offset, a 0.08-world-unit hit thickness, and a 96-pixel maximum screen
-  displacement. Occlusion fully removes leaked selected directional direct
-  light inside the 0.08-world-unit bias-repair interval, then fades smoothly
-  to zero at the maximum distance. It also fades across the outer 5% of the
-  viewport (clamped to 16-64 pixels) and terminates rays that leave the screen,
-  making the off-screen limitation degrade smoothly instead of cutting. At
-  close range, hit thickness is capped to an eight-pixel reconstructed world
-  footprint and the world march contracts to its 96-pixel projection budget.
-  Projected spacing is held near 1.5 pixels by growing from 24 to at most 64
-  steps; the first hit receives four binary refinements and then exits early.
-  A nearest-valid-neighbor receiver plane rejects same-plane samples within a
-  1.5-pixel tolerance (clamped to 0.001-0.005 world units), preventing grazing
-  wall self-occlusion without crossing wall-floor depth discontinuities.
+- Ray march: exactly 16 fixed midpoint samples toward the selected directional
+  light over a 0.20-world-unit maximum distance, with a 0.01-world-unit start,
+  0.012-world-unit hit thickness, and 48-pixel maximum displacement. World
+  distance fades the contribution, and the final 25% of the screen-distance
+  budget fades before termination. Rays stop when they leave the viewport.
+  Fixed start bias and finite thickness are the only self-hit controls; there
+  is no adaptive step growth, neighboring-depth plane classification, endpoint
+  contraction, viewport-edge mask, or binary refinement.
 - Occlusion test: exact point texel loads, convention-aware device-depth
   ordering, and a finite reconstructed world-space separation. Filtered depth
   and unbounded foreground-depth matches are invalid because both create
@@ -79,8 +77,8 @@ available for a bounded screen-space supplement.
   only the selected directional direct term after shadow-map attenuation. The
   contact pass subtracts only the occluded portion of that target, leaving
   environment, local, emissive, Unlit, and already-shadowed output unchanged.
-- Budget and diagnostic counter values remain open for the Stage 3
-  target-GPU gate.
+- The shader has a fixed worst-case budget of 16 marched depth queries per lit
+  receiver pixel; pass time and target-GPU acceptance remain open for Stage 3.
 
 ## Goal
 
@@ -209,7 +207,7 @@ are unavailable.
       enabled/failure counters.
 - [ ] Add marched-distance, step-budget, and pass-time evidence.
 - [ ] Record image, motion, memory, and target-GPU evidence for the selected
-      default against the immediately preceding (no-contact-shadow) result.
+      opt-in tier against the no-contact-shadow default.
 - [x] Run the required build, focused tests, Vulkan validation, and editor smoke.
 
 #### Acceptance Gate
@@ -229,14 +227,14 @@ are unavailable.
 | Geometry gap | 3 | Intentionally defective modular seams remain visibly distinct; the supplement does not hide real gaps. |
 | View isolation | 2-3 | Main/auxiliary/preview/offscreen sequences cannot consume another view's depth, matrix, or contact-shadow state. |
 | Memory and performance | 3 | Pass time, samples, and enabled-minus-disabled delta meet the frozen target-GPU budget. |
-| Build and handoff | 3 | Follow repository build/test guidance; required builds, focused tests, Vulkan validation, and editor smoke pass before the feature becomes the production default. |
+| Build and handoff | 3 | Follow repository build/test guidance; required builds, focused tests, Vulkan validation, and editor smoke pass before the opt-in tier is supported. |
 
 ## Definition of Done
 
 - Stage 0-3 acceptance gates pass in an independently executable plan.
-- The production default recovers near-field contact without new acne, shimmer,
-  or off-screen artifacts, and degrades to the unchanged shadow-map output on
-  any failure.
+- The opt-in tier recovers near-field detail without new acne, shimmer, or
+  off-screen artifacts, and degrades to the unchanged shadow-map output on any
+  failure; the production default remains the shadow-map-only path.
 - Diagnostics and counters distinguish contact-shadow contribution from the
   shadow-map result and from authored geometry gaps.
 - The supplement stays within its frozen world/screen distance bounds and does

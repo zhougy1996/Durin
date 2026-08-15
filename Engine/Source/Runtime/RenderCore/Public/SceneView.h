@@ -98,7 +98,7 @@ namespace Durin
 			EDirectionalShadowCandidate::ThreeCascades;
 		// Screen-space contact-shadow supplement for the selected directional
 		// light; enabled only when the directional shadow is prepared.
-		bool bEnableContactShadows = true;
+		bool bEnableContactShadows = false;
 		// Development overlay that visualizes the contact-shadow occlusion.
 		bool bShowContactShadowDebug = false;
 	};

@@ -46,44 +46,13 @@ float3 ReconstructWorld(float2 uv, float deviceDepth)
     return worldH.xyz / worldH.w;
 }
 
-bool TryLoadWorldPosition(
-    int2 pixel,
-    int2 centerPixel,
-    int2 viewportSize,
-    float bReversedZ,
-    out float3 worldPosition)
-{
-    pixel = clamp(pixel, int2(0), viewportSize - int2(1));
-    if (all(pixel == centerPixel))
-    {
-        worldPosition = float3(0.0);
-        return false;
-    }
-
-    float deviceDepth = SceneDepth.Load(int3(pixel, 0));
-    bool bValid = bReversedZ > 0.5
-        ? (deviceDepth > 0.001) : (deviceDepth < 0.999);
-    if (!bValid)
-    {
-        worldPosition = float3(0.0);
-        return false;
-    }
-
-    float2 uv = (float2(pixel) + 0.5) * Params.InvViewport.xy;
-    worldPosition = ReconstructWorld(uv, deviceDepth);
-    return true;
-}
-
 bool IsContactHit(
     float3 rayPos,
     float2 rayUV,
     float rayDepth,
     float bReversedZ,
     int2 viewportSize,
-    float effectiveRayThickness,
-    float3 receiverWorldPosition,
-    float3 receiverPlaneNormal,
-    float selfIntersectionRejectDistance)
+    float rayThickness)
 {
     int2 rayPixel = clamp(
         int2(rayUV * float2(viewportSize)),
@@ -102,16 +71,8 @@ bool IsContactHit(
         return false;
 
     float3 sceneWorld = ReconstructWorld(sceneUV, sceneDepth);
-    if (length(sceneWorld - rayPos) > effectiveRayThickness)
-        return false;
-
-    // A grazing ray can remain inside the finite thickness of its own receiver
-    // for many pixels, producing large triangular self-shadows on walls. A real
-    // contact caster must leave the receiver plane by more than a small
-    // pixel-scaled tolerance; coplanar depth is the receiver itself.
-    float receiverPlaneDistance = abs(dot(
-        sceneWorld - receiverWorldPosition, receiverPlaneNormal));
-    return receiverPlaneDistance > selfIntersectionRejectDistance;
+    float3 separation = sceneWorld - rayPos;
+    return dot(separation, separation) <= rayThickness * rayThickness;
 }
 
 [shader("fragment")]
@@ -141,186 +102,51 @@ float4 ContactShadowFragmentMain(VSOutput input) : SV_Target
     int2 viewportSize = max(
         int2(round(1.0 / Params.InvViewport.xy)), int2(1));
 
-    // Build receiver tangents from the nearer valid neighbor on each screen
-    // axis. At a wall-floor discontinuity this keeps both tangents on the
-    // receiver instead of letting a derivative quad cross onto the other
-    // surface and alternate the self-intersection classification.
-    float3 worldXPositive;
-    float3 worldXNegative;
-    float3 worldYPositive;
-    float3 worldYNegative;
-    bool bXPositiveValid = TryLoadWorldPosition(
-        centerPixel + int2(1, 0), centerPixel, viewportSize,
-        bReversedZ, worldXPositive);
-    bool bXNegativeValid = TryLoadWorldPosition(
-        centerPixel - int2(1, 0), centerPixel, viewportSize,
-        bReversedZ, worldXNegative);
-    bool bYPositiveValid = TryLoadWorldPosition(
-        centerPixel + int2(0, 1), centerPixel, viewportSize,
-        bReversedZ, worldYPositive);
-    bool bYNegativeValid = TryLoadWorldPosition(
-        centerPixel - int2(0, 1), centerPixel, viewportSize,
-        bReversedZ, worldYNegative);
-    float xPositiveDistance = bXPositiveValid
-        ? length(worldXPositive - worldPos) : 1.0e20;
-    float xNegativeDistance = bXNegativeValid
-        ? length(worldXNegative - worldPos) : 1.0e20;
-    float yPositiveDistance = bYPositiveValid
-        ? length(worldYPositive - worldPos) : 1.0e20;
-    float yNegativeDistance = bYNegativeValid
-        ? length(worldYNegative - worldPos) : 1.0e20;
-    float3 receiverTangentX = xPositiveDistance <= xNegativeDistance
-        ? worldXPositive - worldPos : worldPos - worldXNegative;
-    float3 receiverTangentY = yPositiveDistance <= yNegativeDistance
-        ? worldYPositive - worldPos : worldPos - worldYNegative;
-    float tangentXLength = min(xPositiveDistance, xNegativeDistance);
-    float tangentYLength = min(yPositiveDistance, yNegativeDistance);
-    bool bReceiverPlaneValid = tangentXLength < 1.0e19
-        && tangentYLength < 1.0e19;
-
-    // A fixed world-space thickness becomes an arbitrarily wide band in a
-    // close-up. Cap hit tolerance to an eight-pixel world footprint while
-    // retaining the full world thickness at ordinary viewing distances.
-    float worldUnitsPerPixel = max(
-        bReceiverPlaneValid ? tangentXLength : 0.001,
-        bReceiverPlaneValid ? tangentYLength : 0.001);
-    float effectiveRayThickness = min(
-        rayThickness, max(worldUnitsPerPixel * 8.0, 0.002));
-    float3 receiverPlaneNormal = bReceiverPlaneValid
-        ? cross(receiverTangentX, receiverTangentY)
-        : float3(0.0, 0.0, 1.0);
-    float receiverPlaneNormalLength = length(receiverPlaneNormal);
-    receiverPlaneNormal = receiverPlaneNormalLength > 1.0e-6
-        ? receiverPlaneNormal / receiverPlaneNormalLength
-        : float3(0.0, 0.0, 1.0);
-    float selfIntersectionRejectDistance = clamp(
-        worldUnitsPerPixel * 1.5, 0.001, 0.005);
-
-    // Preserve the fixed step budget, but shorten its world-space extent when
-    // the complete ray would project beyond the screen-space budget. Without
-    // this adjustment a close camera lets one world step jump across many
-    // pixels before the existing screen-distance rejection can run.
-    float marchDistance = maxDistance;
-    float3 fullRayEnd = worldPos + toLight * (startOffset + maxDistance);
-    float4 fullRayEndClip = mul(
-        Params.ViewProjection, float4(fullRayEnd, 1.0));
-    if (fullRayEndClip.w > 1.0e-6)
-    {
-        float2 fullRayEndUV =
-            (fullRayEndClip.xy / fullRayEndClip.w) * 0.5 + 0.5;
-        float fullRayScreenDistancePixels = length(
-            (fullRayEndUV - input.uv) / Params.InvViewport.xy);
-        if (fullRayScreenDistancePixels > Params.InvViewport.w)
-        {
-            marchDistance *=
-                Params.InvViewport.w / fullRayScreenDistancePixels;
-        }
-    }
-    float3 marchRayEnd = worldPos + toLight * (startOffset + marchDistance);
-    float4 marchRayEndClip = mul(
-        Params.ViewProjection, float4(marchRayEnd, 1.0));
-    if (marchRayEndClip.w > 1.0e-6)
-    {
-        float2 marchRayEndUV =
-            (marchRayEndClip.xy / marchRayEndClip.w) * 0.5 + 0.5;
-        float projectedMarchPixels = length(
-            (marchRayEndUV - input.uv) / Params.InvViewport.xy);
-        int projectedStepCount = (int)ceil(projectedMarchPixels / 1.5);
-        stepCount = clamp(max(stepCount, projectedStepCount), stepCount, 64);
-    }
+    // This is a short-range detail trace, not a replacement shadow. Keep one
+    // fixed loop budget on every platform and sample interval midpoints so the
+    // first useful query is close to the receiver without querying the receiver
+    // itself. The start bias and finite thickness are the only self-hit guards.
+    float marchDistance = max(maxDistance - startOffset, 1.0e-4);
     float stepDistance = marchDistance / (float)stepCount;
-    float3 rayPos = worldPos + toLight * startOffset;
-
-    // Screen-space rays cannot represent occluders after either endpoint leaves
-    // the viewport. Fade the supplement through the outer 5% (bounded in
-    // pixels) so this limitation does not appear as a hard cut or stretched
-    // shadow when the camera approaches an object or frames it at an edge.
-    float edgeFadeWidthPixels = clamp(
-        (float)min(viewportSize.x, viewportSize.y) * 0.05, 16.0, 64.0);
-    float2 receiverEdgeDistancePixels = min(
-        input.pos.xy, float2(viewportSize) - input.pos.xy);
-    float receiverEdgeFade = smoothstep(
-        0.0, edgeFadeWidthPixels,
-        min(receiverEdgeDistancePixels.x, receiverEdgeDistancePixels.y));
+    float rayDistance = startOffset + stepDistance * 0.5;
+    float3 rayPos = worldPos + toLight * rayDistance;
 
     float occlusion = 0.0;
     for (int i = 0; i < stepCount; ++i)
     {
-        rayPos += toLight * stepDistance;
-
         float4 clip = mul(Params.ViewProjection, float4(rayPos, 1.0));
         if (clip.w <= 1.0e-6)
-            continue;
+            break;
         float3 ndc = clip.xyz / clip.w;
         float2 rayUV = ndc.xy * 0.5 + 0.5;
         if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0)
             break;
         float2 screenDeltaPixels =
             (rayUV - input.uv) / Params.InvViewport.xy;
-        if (dot(screenDeltaPixels, screenDeltaPixels)
+        float screenDistanceSquared = dot(
+            screenDeltaPixels, screenDeltaPixels);
+        if (screenDistanceSquared
             > Params.InvViewport.w * Params.InvViewport.w)
             break;
 
         float rayDepth = ndc.z;
         if (IsContactHit(
                 rayPos, rayUV, rayDepth, bReversedZ,
-                viewportSize, effectiveRayThickness,
-                worldPos, receiverPlaneNormal,
-                selfIntersectionRejectDistance))
+                viewportSize, rayThickness))
         {
-            // Fixed-step hit distance becomes a visible staircase when a close,
-            // grazing receiver magnifies each interval. Refine the first hit
-            // against the preceding miss to sub-step precision.
-            float3 missRayPos = rayPos - toLight * stepDistance;
-            float3 hitRayPos = rayPos;
-            float2 hitRayUV = rayUV;
-            for (int refinement = 0; refinement < 4; ++refinement)
-            {
-                float3 candidateRayPos = (missRayPos + hitRayPos) * 0.5;
-                float4 candidateClip = mul(
-                    Params.ViewProjection, float4(candidateRayPos, 1.0));
-                if (candidateClip.w <= 1.0e-6)
-                {
-                    missRayPos = candidateRayPos;
-                    continue;
-                }
-                float3 candidateNdc = candidateClip.xyz / candidateClip.w;
-                float2 candidateUV = candidateNdc.xy * 0.5 + 0.5;
-                bool bCandidateOnScreen = candidateUV.x >= 0.0
-                    && candidateUV.x <= 1.0 && candidateUV.y >= 0.0
-                    && candidateUV.y <= 1.0;
-                if (bCandidateOnScreen && IsContactHit(
-                        candidateRayPos, candidateUV, candidateNdc.z,
-                        bReversedZ, viewportSize, effectiveRayThickness,
-                        worldPos, receiverPlaneNormal,
-                        selfIntersectionRejectDistance))
-                {
-                    hitRayPos = candidateRayPos;
-                    hitRayUV = candidateUV;
-                }
-                else
-                {
-                    missRayPos = candidateRayPos;
-                }
-            }
-
-            // The inner interval exists specifically to replace direct light
-            // detached by the shadow-map bias. Keep it fully occluded through
-            // the bias-sized thickness, then fade only the longer-range
-            // screen-space supplement.
-            float traveledDistance = length(hitRayPos - worldPos);
-            float fadeEnd = max(maxDistance, rayThickness + 1.0e-4);
+            float fadeEnd = max(maxDistance, startOffset + 1.0e-4);
             float distanceFade = 1.0 - smoothstep(
-                rayThickness, fadeEnd, traveledDistance);
-            float2 rayEdgeDistancePixels = min(
-                hitRayUV, 1.0 - hitRayUV) / Params.InvViewport.xy;
-            float rayEdgeFade = smoothstep(
-                0.0, edgeFadeWidthPixels,
-                min(rayEdgeDistancePixels.x, rayEdgeDistancePixels.y));
-            float screenEdgeFade = min(receiverEdgeFade, rayEdgeFade);
-            occlusion = distanceFade * screenEdgeFade;
+                startOffset, fadeEnd, rayDistance);
+            float screenFadeStart = Params.InvViewport.w * 0.75;
+            float screenFade = 1.0 - smoothstep(
+                screenFadeStart, Params.InvViewport.w,
+                sqrt(screenDistanceSquared));
+            occlusion = distanceFade * screenFade;
             break;
         }
+
+        rayDistance += stepDistance;
+        rayPos += toLight * stepDistance;
     }
 
     if (Params.InvViewport.z > 0.5)

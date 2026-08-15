@@ -58,18 +58,17 @@ namespace Durin
 		{
 			float InverseViewProjection[16]{};
 			float ViewProjection[16]{};
-			// Cover the directional shadow's maximum 0.08-world-unit bias while
-			// remaining a bounded near-field supplement. A small start offset keeps
-			// the first useful sample close enough to refill foot and wall seams.
-			float ToLight[4]{0.0f, 0.0f, 0.0f, 0.75f};
-			float RayThickness = 0.08f;
-			float StepCount = 24.0f;
+			// A deliberately short, fixed-budget detail trace. It supplements the
+			// shadow map without growing into a second general shadow solution.
+			float ToLight[4]{0.0f, 0.0f, 0.0f, 0.20f};
+			float RayThickness = 0.012f;
+			float StepCount = 16.0f;
 			float StartOffset = 0.01f;
 			float bReversedZ = 0.0f;
 			float InvViewportX = 1.0f;
 			float InvViewportY = 1.0f;
 			float bShowDebug = 0.0f;
-			float MaxScreenDistancePixels = 96.0f;
+			float MaxScreenDistancePixels = 48.0f;
 		};
 		static_assert(sizeof(FContactShadowUniform) == 176);
 

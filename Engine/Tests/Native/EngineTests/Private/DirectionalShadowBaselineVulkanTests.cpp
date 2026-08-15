@@ -1045,7 +1045,10 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	Renderer.StartupModule();
+	auto RendererContext =
+		Durin::FModuleTestContextFactory::CreateStartupContext(
+			"DirectionalContactShadowRendererTest");
+	Renderer.StartupModule(RendererContext);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Quad = MakeQuadRenderData();
@@ -1091,12 +1094,13 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 
 	auto RenderCapture = [&](bool bEnableContactShadows,
 		bool bShowContactShadowDebug,
-		std::vector<Durin::uint8>& OutPixels) -> Durin::FViewRenderCounters
+		std::vector<Durin::uint8>& OutPixels,
+		bool bPerspective = false) -> Durin::FViewRenderCounters
 	{
 		auto Pixels = std::make_shared<std::vector<Durin::uint8>>();
 		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 			[&Renderer, &Scene, bEnableContactShadows,
-				bShowContactShadowDebug, Pixels](
+				bShowContactShadowDebug, bPerspective, Pixels](
 				Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GRenderFrameCounterRenderThread++;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1110,10 +1114,36 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
 				ASSERT_NE(Target, nullptr);
 				Durin::FSceneView View;
-				View.ViewMatrix = Durin::FMatrix(1.0);
-				View.ProjectionMatrix = Durin::FMatrix(1.0);
-				View.ProjectionMatrix[2][2] = -1.0;
-				View.ProjectionMatrix[3][2] = 0.0;
+				if (bPerspective)
+				{
+					// Look down world -Z while preserving world X/Y as screen X/Y.
+					View.ViewLocation = {0.0, 0.0, 1.0};
+					View.ViewMatrix = Durin::FMatrix(0.0);
+					View.ViewMatrix[2][0] = -1.0;
+					View.ViewMatrix[3][0] = 1.0;
+					View.ViewMatrix[0][1] = 1.0;
+					View.ViewMatrix[1][2] = -1.0;
+					View.ViewMatrix[3][3] = 1.0;
+					constexpr double NearClip = 0.1;
+					constexpr double FarClip = 10.0;
+					const double YScale = 1.0 / std::tan(
+						Durin::Math::DegreesToRadians(60.0) * 0.5);
+					View.ProjectionMatrix = Durin::FMatrix(0.0);
+					View.ProjectionMatrix[1][0] = YScale;
+					View.ProjectionMatrix[2][1] = -YScale;
+					View.ProjectionMatrix[0][2] =
+						FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[3][2] =
+						-NearClip * FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[0][3] = 1.0;
+				}
+				else
+				{
+					View.ViewMatrix = Durin::FMatrix(1.0);
+					View.ProjectionMatrix = Durin::FMatrix(1.0);
+					View.ProjectionMatrix[2][2] = -1.0;
+					View.ProjectionMatrix[3][2] = 0.0;
+				}
 				View.ViewProjectionMatrix =
 					View.ProjectionMatrix * View.ViewMatrix;
 				View.ViewportWidth = CaptureWidth;
@@ -1181,6 +1211,22 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_GT(DebugContributionPixels, 0u);
 	EXPECT_LT(DebugContributionPixels, CaptureWidth * CaptureHeight / 2u);
 
+	// One perspective view complements the orthographic fixture without a
+	// costly camera sweep. It catches projection/reconstruction regressions but
+	// does not claim view-independent coverage for this screen-space effect.
+	std::vector<Durin::uint8> PerspectiveOff;
+	std::vector<Durin::uint8> PerspectiveOn;
+	RenderCapture(false, false, PerspectiveOff, true);
+	const Durin::FViewRenderCounters PerspectiveCounters =
+		RenderCapture(true, false, PerspectiveOn, true);
+	EXPECT_EQ(PerspectiveCounters.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(PerspectiveCounters.ContactShadowPassFailures, 0u);
+	const size_t PerspectiveChangedPixels =
+		CountChangedPixels(PerspectiveOn, PerspectiveOff, 2);
+	EXPECT_GT(PerspectiveChangedPixels, 0u);
+	EXPECT_LT(PerspectiveChangedPixels,
+		CaptureWidth * CaptureHeight / 2u);
+
 	const FCaptureStatistics StatsOff =
 		CalculateStatistics("contact_off", PixelsOff, CountersOff);
 	const FCaptureStatistics StatsOn =
@@ -1229,7 +1275,10 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_EQ(UnlitOn, UnlitOff);
 
 	Durin::SetViewRenderCounterSink(nullptr);
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext =
+		Durin::FModuleTestContextFactory::CreateShutdownContext(
+			RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	Durin::FlushRenderingCommands();
