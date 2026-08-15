@@ -145,6 +145,15 @@ TEST(FViewportToolbarCapabilityTests, SeparatesRenderInspectionFromEditorMutatio
 	EXPECT_TRUE(NewWindowPlay.bTargetsPlayWindow);
 }
 
+TEST(FViewportOrientationOverlayTests, HidesEditorOrientationOverEmbeddedPlay)
+{
+	using Durin::Editor::Level::ShouldDrawViewportOrientationOverlay;
+	EXPECT_TRUE(ShouldDrawViewportOrientationOverlay(false, false));
+	EXPECT_TRUE(ShouldDrawViewportOrientationOverlay(false, true));
+	EXPECT_FALSE(ShouldDrawViewportOrientationOverlay(true, false));
+	EXPECT_TRUE(ShouldDrawViewportOrientationOverlay(true, true));
+}
+
 TEST(FViewportStatisticsOverlayTests, AnchorsBelowBadgeAndSuppressesUnreadablePanel)
 {
 	ImGuiContext* Context = ImGui::CreateContext();

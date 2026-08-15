@@ -100,6 +100,16 @@ namespace Durin::Editor::Level
 		};
 	}
 
+	// The embedded viewport displays the gameplay camera during PIE, so editor-camera
+	// orientation must not be overlaid on that image. A detached PIE session leaves
+	// the editor viewport presenting its own editor view.
+	inline auto ShouldDrawViewportOrientationOverlay(
+		bool bPlaying,
+		bool bPlayingInNewWindow) -> bool
+	{
+		return !bPlaying || bPlayingInNewWindow;
+	}
+
 	inline auto FormatViewportStatistic(uint64 Value) -> std::string
 	{
 		if (Value < 1000) return std::to_string(Value);

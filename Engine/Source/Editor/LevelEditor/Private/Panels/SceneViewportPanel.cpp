@@ -447,7 +447,11 @@ namespace Durin::Editor::Level
 					Context, ViewportClient.get(), RenderSettingsClient, &EditModeManager,
 					PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
-				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
+				if (ShouldDrawViewportOrientationOverlay(
+					GEditor && GEditor->IsPlaying(), bPlayingInNewWindow))
+				{
+					DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
+				}
 				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportStatisticsOverlay(
 					VpMin, VpMax, StatisticsSnapshot, bShowStatistics);
