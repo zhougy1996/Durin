@@ -6,6 +6,15 @@ namespace Durin::Asset::Build
 {
 	namespace
 	{
+		// Physical cache policy is private to the session cache adapter. Public
+		// callers select behavior through FBuildPolicy instead.
+		struct FBuildCachePolicy
+		{
+			bool bQueryCache = true;
+			bool bStoreBuildResult = true;
+			bool bRequireStoreSuccess = false;
+		};
+
 		auto SetError(std::string* OutError, std::string Message) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
@@ -236,7 +245,6 @@ namespace Durin::Asset::Build
 			return false;
 		}
 		OutDefinition = Definition;
-		OutDefinition.bHasLocalInputs = !Definition.Inputs.empty();
 		if (OutError) OutError->clear();
 		return true;
 	}

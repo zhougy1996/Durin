@@ -5,7 +5,8 @@
 
 namespace Durin::Asset::Build
 {
-	// Family-neutral workload contribution to the process authoring host.
+	// Family-neutral workload contribution used to aggregate independent async
+	// asset-family queues. Synchronous recipe registration does not contribute.
 	struct FBuildServiceContribution
 	{
 		std::string Identity;

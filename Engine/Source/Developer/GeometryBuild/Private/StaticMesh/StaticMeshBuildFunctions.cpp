@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 
-#include "GeometryBuildCodec.h"
+#include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -24,13 +24,13 @@ namespace Durin::Asset::Build::Private
 			EBodySetupCollisionQueryPolicy& Policy,
 			std::string& OutError) -> bool
 		{
-			size_t Offset = 0;
+			DerivedDataCache::FReader Reader(Bytes);
 			uint32 ModeValue = 0, PolicyValue = 0;
 			uint64 Count = 0;
-			if (!ReadLittleEndianU32(Bytes, Offset, ModeValue)
-				|| !ReadLittleEndianU32(Bytes, Offset, PolicyValue)
-				|| !ReadLittleEndianU64(Bytes, Offset, Count)
-				|| Offset > Bytes.size() || Count > (Bytes.size() - Offset) / 12)
+			if (!Reader.ReadU32(ModeValue)
+				|| !Reader.ReadU32(PolicyValue)
+				|| !Reader.ReadU64(Count)
+				|| Count > Reader.GetRemainingBytes() / 12)
 				goto Invalid;
 			Mode = static_cast<EBodySetupCollisionSourceMode>(ModeValue);
 			Policy = static_cast<EBodySetupCollisionQueryPolicy>(PolicyValue);
@@ -38,23 +38,23 @@ namespace Durin::Asset::Build::Private
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				uint32 X = 0, Y = 0, Z = 0;
-				if (!ReadLittleEndianU32(Bytes, Offset, X)
-					|| !ReadLittleEndianU32(Bytes, Offset, Y)
-					|| !ReadLittleEndianU32(Bytes, Offset, Z)) goto Invalid;
+				if (!Reader.ReadU32(X)
+					|| !Reader.ReadU32(Y)
+					|| !Reader.ReadU32(Z)) goto Invalid;
 				Positions.emplace_back(
 					std::bit_cast<float>(X), std::bit_cast<float>(Y), std::bit_cast<float>(Z));
 			}
-			if (!ReadLittleEndianU64(Bytes, Offset, Count)
-				|| Offset > Bytes.size() || Count > (Bytes.size() - Offset) / 4)
+			if (!Reader.ReadU64(Count)
+				|| Count > Reader.GetRemainingBytes() / 4)
 				goto Invalid;
 			Indices.reserve(Count);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				uint32 Value = 0;
-				if (!ReadLittleEndianU32(Bytes, Offset, Value)) goto Invalid;
+				if (!Reader.ReadU32(Value)) goto Invalid;
 				Indices.push_back(Value);
 			}
-			if (Offset == Bytes.size() && !Positions.empty() && !Indices.empty()
+			if (Reader.IsAtEnd() && !Positions.empty() && !Indices.empty()
 				&& Indices.size() % 3 == 0) return true;
 		Invalid:
 			OutError = "StaticMesh collision local build input is malformed.";
@@ -167,15 +167,14 @@ namespace Durin::Asset::Build::Private
 		std::span<const FVector3f> Positions,
 		std::span<const uint32> Indices) -> FXxHash128
 	{
-		std::vector<uint8> Bytes;
-		Bytes.reserve(16 + Positions.size() * 12 + Indices.size() * 4);
-		AppendLittleEndianU64(Bytes, Positions.size());
+		DerivedDataCache::FWriter Writer;
+		Writer.WriteU64(Positions.size());
 		for (const FVector3f& Position : Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
-				AppendLittleEndianU32(Bytes, std::bit_cast<uint32>(Position[Axis]));
-		AppendLittleEndianU64(Bytes, Indices.size());
-		for (uint32 Index : Indices) AppendLittleEndianU32(Bytes, Index);
-		return FXxHash128::HashBuffer(Bytes);
+				Writer.WriteU32(std::bit_cast<uint32>(Position[Axis]));
+		Writer.WriteU64(Indices.size());
+		for (uint32 Index : Indices) Writer.WriteU32(Index);
+		return FXxHash128::HashBuffer(Writer.GetBytes());
 	}
 
 	auto EncodeStaticMeshRenderData(
@@ -219,16 +218,16 @@ namespace Durin::Asset::Build::Private
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy) -> std::vector<uint8>
 	{
-		std::vector<uint8> Bytes;
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Mode));
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Policy));
-		AppendLittleEndianU64(Bytes, Positions.size());
+		DerivedDataCache::FWriter Writer;
+		Writer.WriteU32(static_cast<uint32>(Mode));
+		Writer.WriteU32(static_cast<uint32>(Policy));
+		Writer.WriteU64(Positions.size());
 		for (const FVector3f& Position : Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
-				AppendLittleEndianU32(Bytes, std::bit_cast<uint32>(Position[Axis]));
-		AppendLittleEndianU64(Bytes, Indices.size());
-		for (uint32 Index : Indices) AppendLittleEndianU32(Bytes, Index);
-		return Bytes;
+				Writer.WriteU32(std::bit_cast<uint32>(Position[Axis]));
+		Writer.WriteU64(Indices.size());
+		for (uint32 Index : Indices) Writer.WriteU32(Index);
+		return Writer.TakeBytes();
 	}
 
 	auto DecodeStaticMeshCollisionValue(

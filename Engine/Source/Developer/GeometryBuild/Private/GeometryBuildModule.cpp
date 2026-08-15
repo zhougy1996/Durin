@@ -1,4 +1,3 @@
-#include "AssetBuild/BuildHost.h"
 #include "GeometryBuildFunctionRegistry.h"
 #include "Modules/ModuleManager.h"
 #include "Skeletal/SkeletalBuildOperations.h"
@@ -16,10 +15,9 @@ namespace Durin
 		// Module teardown owns this token explicitly. Keeping the module object trivially
 		// destructible avoids cross-DLL static-destruction calls when a test process exits
 		// without invoking FModuleManager::UnloadModulesAtShutdown().
-		Asset::Build::FBuildServiceRegistration* ServiceRegistration = nullptr;
 		FModularFeatureRegistration CollisionFeatureRegistration;
 		FModularFeatureRegistration SkeletalFeatureRegistration;
-		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
+		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
 
 		auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
@@ -54,25 +52,11 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			std::string Error;
-			BuildHostCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
+			BuildFunctionCallbackRegistration =
+				FModuleStartup::CreateOwnedCallbackRegistration("GeometryBuild.BuildFunctions");
 			checkf(Asset::Build::InitializeGeometryBuildFunctions(
-				BuildHostCallbackRegistration.GetGate(), &Error),
+				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"GeometryBuild could not register its build functions: {}", Error);
-			auto Registration = Asset::Build::RegisterBuildServiceContribution({
-				.Identity = "Durin.GeometryBuild.Recipes",
-				.DrainOrder = 50,
-				.OwnerGate = BuildHostCallbackRegistration.GetGate(),
-				.Start = [] { return true; },
-				.StopAdmission = [] {},
-				.PumpCompletions = [](uint32) { return 0; },
-				.Wait = [](double) { return true; },
-				.Drain = [] {},
-				.Snapshot = [] { return std::tuple{0u, 0u, 0ull}; }}, &Error);
-			checkf(Registration.IsValid(),
-				"GeometryBuild could not register its recipe service: {}", Error);
-			ServiceRegistration = new Asset::Build::FBuildServiceRegistration(
-				std::move(Registration));
 			CollisionFeatureRegistration = FModuleStartup::RegisterFeature<IStaticMeshCollisionBuildFeature>(*this);
 			SkeletalFeatureRegistration = FModuleStartup::RegisterFeature<ISkeletalDerivedDataFeature>(*this);
 			checkf(CollisionFeatureRegistration.IsValid(),
@@ -83,7 +67,6 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			delete std::exchange(ServiceRegistration, nullptr);
 			Asset::Build::ShutdownGeometryBuildFunctions();
 		}
 	};

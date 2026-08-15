@@ -22,12 +22,21 @@ four hundred to five hundred and fifty lines.
 
 Implementation and validation are complete. AssetBuildCore's ObjectStore cache
 adapter is private and `FBuildSession` is the sole public Build cache path.
-TextureBuild and GeometryBuild now separate module-private primitive codecs,
+TextureBuild and GeometryBuild now separate module-private local-input schemas,
 Build-function execution, typed operations, and registration transactions;
 skeletal key encoding also has its own source owner. TextureBuild registers two
 functions atomically and GeometryBuild registers five, with current-attempt
 rollback and reverse-order shutdown. Production boundary searches find no raw
 cache access or family registration state outside the selected owners.
+
+A post-completion simplification pass removed GeometryBuild's empty Build Host
+service contribution, derives local-input availability directly from the
+definition's input collection, and keeps the physical cache policy private to
+AssetBuildCore. TextureBuild remains the only asynchronous Build Host service;
+GeometryBuild owns function registration only. Texture and Geometry local-input
+schemas now share Core's canonical derived-data primitive reader/writer instead
+of carrying duplicate byte helpers, while their schema construction and
+validation remain module-private.
 
 Focused AssetBuildCore, Texture, Texture Cook, StaticMesh, collision
 qualification, skeletal, SceneImport, Terrain, and Terrain Cook tests pass, as
@@ -69,8 +78,9 @@ contract. After completion:
   outputs: StaticMesh render
   data, StaticMesh collision, Texture2D, TextureCube, SkeletalMesh,
   AnimationClip, and TerrainHeightmap.
-- Private canonical local-input codec helpers within TextureBuild and
-  GeometryBuild, without sharing asset-family schemas across modules.
+- Module-private canonical local-input schemas within TextureBuild and
+  GeometryBuild, using Core's shared derived-data primitive reader/writer
+  without sharing asset-family schemas across modules.
 - Strict family-neutral target-fact access/parsing where the same semantics are
   already repeated by multiple recipe modules.
 - TextureBuild and GeometryBuild function-registration ownership, rollback,

@@ -13,6 +13,8 @@ namespace Durin::Asset::Build
 			std::string Name, std::vector<uint8> Bytes) -> FBuildValue;
 
 		auto GetName() const -> std::string_view { return Name; }
+		// Reserved for content-addressed storage, request deduplication, and remote
+		// execution protocols. Local execution does not currently consume the digest.
 		auto GetContentIdentity() const -> const FXxHash128& { return ContentIdentity; }
 		auto GetBytes() const -> std::span<const uint8>
 		{
@@ -25,14 +27,6 @@ namespace Durin::Asset::Build
 		std::string Name;
 		FXxHash128 ContentIdentity;
 		std::shared_ptr<const std::vector<uint8>> Bytes;
-	};
-
-	// Explicit cache query/store policy for one operation.
-	struct FBuildCachePolicy
-	{
-		bool bQueryCache = true;
-		bool bStoreBuildResult = true;
-		bool bRequireStoreSuccess = false;
 	};
 
 	class FBuildKey
@@ -61,6 +55,8 @@ namespace Durin::Asset::Build
 		bool bAllowLocalBuild = true;
 		bool bStoreBuildResult = true;
 		bool bRequireStoreSuccess = false;
+		// Store-only cache warming may suppress returned bytes without changing
+		// query, build, or persistence behavior.
 		bool bReturnData = true;
 	};
 
@@ -70,6 +66,8 @@ namespace Durin::Asset::Build
 		None, Request, FunctionLookup, CacheQuery, CachedValueValidation,
 		LocalBuild, BuiltValueValidation, CacheStore
 	};
+	// Kept separate from status so future remote and shared-cache origins do not
+	// require multiplying success states.
 	enum class EBuildValueOrigin : uint8 { None, Cache, Local };
 
 	struct FBuildPhaseDurations
@@ -90,6 +88,8 @@ namespace Durin::Asset::Build
 		std::string Diagnostic;
 		std::string StoreDiagnostic;
 		FBuildPhaseDurations PhaseDurations;
+		// Execution markers support telemetry for failed and canceled requests,
+		// where Status and FailurePhase alone do not describe work already done.
 		bool bCacheQueried = false;
 		bool bLocalBuildExecuted = false;
 		auto Succeeded() const -> bool

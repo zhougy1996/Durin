@@ -79,27 +79,27 @@ namespace
 	}
 }
 
-TEST(FBuildRecipeModuleTests, TextureAndGeometryCoexistDrainAndRestart)
+TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyHostService)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
 	const Durin::Asset::Build::FBuildHostSnapshot Running =
 		Durin::Asset::Build::GetBuildHostSnapshot();
-	EXPECT_EQ(Running.ServiceCount, 2u);
+	EXPECT_EQ(Running.ServiceCount, 1u);
 	EXPECT_TRUE(Running.bAcceptingRequests);
 	EXPECT_TRUE(Durin::Asset::Build::WaitForBuildHost(1.0));
 	Durin::Asset::Build::ShutdownBuildHost();
 	const Durin::Asset::Build::FBuildHostSnapshot Stopped =
 		Durin::Asset::Build::GetBuildHostSnapshot();
-	EXPECT_EQ(Stopped.ServiceCount, 2u);
+	EXPECT_EQ(Stopped.ServiceCount, 1u);
 	EXPECT_FALSE(Stopped.bAcceptingRequests);
 	const auto GeometryUnload = Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
 	ASSERT_TRUE(GeometryUnload.Succeeded()) << GeometryUnload.Message;
 	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	EXPECT_TRUE(EnsureTextureBuildHost());
-	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 2u);
+	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);

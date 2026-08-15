@@ -9,17 +9,18 @@ namespace Durin::Asset::Build
 	public:
 		auto GetFunction() const -> const FBuildFunctionIdentity& { return Function; }
 		auto GetKey() const -> const FBuildKey& { return Key; }
+		// The definition carries its output contract independently of the local
+		// registry so it can be serialized for future remote execution.
 		auto GetExpectedValueName() const -> std::string_view { return ExpectedValueName; }
 		ASSETBUILDCORE_API auto GetInput(std::string_view Name) const -> const FBuildValue*;
 		ASSETBUILDCORE_API auto GetTargetFact(std::string_view Name) const -> std::optional<std::string_view>;
-		auto HasLocalInputs() const -> bool { return bHasLocalInputs; }
+		auto HasLocalInputs() const -> bool { return !Inputs.empty(); }
 	private:
 		FBuildFunctionIdentity Function;
 		FBuildKey Key;
 		std::string ExpectedValueName;
 		std::vector<FBuildValue> Inputs;
 		std::vector<std::pair<std::string, std::string>> TargetFacts;
-		bool bHasLocalInputs = false;
 		friend class FBuildDefinitionBuilder;
 	};
 

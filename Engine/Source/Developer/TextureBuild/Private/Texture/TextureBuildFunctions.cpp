@@ -1,7 +1,7 @@
 #include "Texture/TextureBuildFunctions.h"
 
+#include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
-#include "Texture/TextureBuildCodec.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureDerivedData.h"
@@ -24,30 +24,33 @@ namespace Durin::Asset::Build::Private
 			FTextureSourceData& Source, FTexture2DBuildSettings& Settings,
 			bool& bSRGB, std::string& OutError) -> bool
 		{
-			size_t Offset = 0;
+			DerivedDataCache::FReader Reader(Bytes);
 			uint32 Usage = 0, Quality = 0, AlphaMode = 0, AlphaThreshold = 0;
 			uint64 PixelCount = 0;
-			if (!ReadLittleEndianU32(Bytes, Offset, Source.Width)
-				|| !ReadLittleEndianU32(Bytes, Offset, Source.Height)
-				|| Offset > Bytes.size() || Bytes.size() - Offset < 4) goto Invalid;
-			Source.SourceChannelCount = Bytes[Offset++];
-			Source.Format = static_cast<ETextureSourceFormat>(Bytes[Offset++]);
-			Source.bHasTransparency = Bytes[Offset++] != 0;
-			bSRGB = Bytes[Offset++] != 0;
-			if (!ReadLittleEndianU32(Bytes, Offset, Usage)
-				|| !ReadLittleEndianU32(Bytes, Offset, Quality)
-				|| !ReadLittleEndianU32(Bytes, Offset, AlphaMode)
-				|| !ReadLittleEndianU32(Bytes, Offset, AlphaThreshold)
-				|| !ReadLittleEndianU32(Bytes, Offset, Settings.MaxResolution)
-				|| !ReadLittleEndianU64(Bytes, Offset, PixelCount)
-				|| Offset > Bytes.size() || PixelCount > Bytes.size() - Offset
-				|| PixelCount != Bytes.size() - Offset) goto Invalid;
+			uint8 SourceFormat = 0, HasTransparency = 0, SRGB = 0;
+			if (!Reader.ReadU32(Source.Width)
+				|| !Reader.ReadU32(Source.Height)
+				|| !Reader.ReadU8(Source.SourceChannelCount)
+				|| !Reader.ReadU8(SourceFormat)
+				|| !Reader.ReadU8(HasTransparency)
+				|| !Reader.ReadU8(SRGB)
+				|| !Reader.ReadU32(Usage)
+				|| !Reader.ReadU32(Quality)
+				|| !Reader.ReadU32(AlphaMode)
+				|| !Reader.ReadU32(AlphaThreshold)
+				|| !Reader.ReadU32(Settings.MaxResolution)
+				|| !Reader.ReadU64(PixelCount)
+				|| PixelCount != Reader.GetRemainingBytes()
+				|| !Reader.ReadBytes(Source.Pixels, PixelCount, Bytes.size())
+				|| !Reader.IsAtEnd()) goto Invalid;
+			Source.Format = static_cast<ETextureSourceFormat>(SourceFormat);
+			Source.bHasTransparency = HasTransparency != 0;
+			bSRGB = SRGB != 0;
 			Settings.Usage = static_cast<ETextureUsage>(Usage);
 			Settings.CompressionQuality = static_cast<ETextureCompressionQuality>(Quality);
 			Settings.AlphaMipMode = static_cast<ETextureAlphaMipMode>(AlphaMode);
 			Settings.AlphaCoverageThreshold = std::bit_cast<float>(AlphaThreshold);
 			Settings.bSRGB = bSRGB;
-			Source.Pixels.assign(Bytes.begin() + Offset, Bytes.end());
 			if (Source.IsValid()) return true;
 		Invalid:
 			OutError = "Texture2D local build input is malformed.";
@@ -86,20 +89,21 @@ namespace Durin::Asset::Build::Private
 		auto DecodeTextureCubeLocalInput(std::span<const uint8> Bytes,
 			FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
 		{
-			size_t Offset = 0;
+			DerivedDataCache::FReader Reader(Bytes);
 			FTextureCubeSourceData Candidate;
 			for (FTextureSourceData& Face : Candidate.Faces)
 			{
 				uint32 Channels = 0, Format = 0, Transparency = 0;
 				uint64 ByteCount = 0;
-				if (!ReadLittleEndianU32(Bytes, Offset, Face.Width)
-					|| !ReadLittleEndianU32(Bytes, Offset, Face.Height)
-					|| !ReadLittleEndianU32(Bytes, Offset, Channels)
-					|| !ReadLittleEndianU32(Bytes, Offset, Format)
-					|| !ReadLittleEndianU32(Bytes, Offset, Transparency)
-					|| !ReadLittleEndianU64(Bytes, Offset, ByteCount)
+				if (!Reader.ReadU32(Face.Width)
+					|| !Reader.ReadU32(Face.Height)
+					|| !Reader.ReadU32(Channels)
+					|| !Reader.ReadU32(Format)
+					|| !Reader.ReadU32(Transparency)
+					|| !Reader.ReadU64(ByteCount)
 					|| Channels > std::numeric_limits<uint8>::max()
-					|| Offset > Bytes.size() || ByteCount > Bytes.size() - Offset)
+					|| ByteCount > Reader.GetRemainingBytes()
+					|| !Reader.ReadBytes(Face.Pixels, ByteCount, Bytes.size()))
 				{
 					OutError = "TextureCube local build input is malformed.";
 					return false;
@@ -107,10 +111,8 @@ namespace Durin::Asset::Build::Private
 				Face.SourceChannelCount = static_cast<uint8>(Channels);
 				Face.Format = static_cast<ETextureSourceFormat>(Format);
 				Face.bHasTransparency = Transparency != 0;
-				Face.Pixels.assign(Bytes.begin() + Offset, Bytes.begin() + Offset + ByteCount);
-				Offset += static_cast<size_t>(ByteCount);
 			}
-			if (Offset != Bytes.size() || !ValidateCubeSourceData(Candidate, OutError))
+			if (!Reader.IsAtEnd() || !ValidateCubeSourceData(Candidate, OutError))
 			{
 				if (OutError.empty())
 					OutError = "TextureCube local build input has trailing bytes.";
@@ -295,24 +297,23 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
 		-> std::vector<uint8>
 	{
-		std::vector<uint8> Bytes;
-		AppendLittleEndianU32(Bytes, Request.SourceData.Width);
-		AppendLittleEndianU32(Bytes, Request.SourceData.Height);
-		Bytes.push_back(Request.SourceData.SourceChannelCount);
-		Bytes.push_back(static_cast<uint8>(Request.SourceData.Format));
-		Bytes.push_back(Request.SourceData.bHasTransparency);
-		Bytes.push_back(bSRGB);
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Request.Settings.Usage));
-		AppendLittleEndianU32(Bytes,
+		DerivedDataCache::FWriter Writer;
+		Writer.WriteU32(Request.SourceData.Width);
+		Writer.WriteU32(Request.SourceData.Height);
+		Writer.WriteU8(Request.SourceData.SourceChannelCount);
+		Writer.WriteU8(static_cast<uint8>(Request.SourceData.Format));
+		Writer.WriteU8(Request.SourceData.bHasTransparency);
+		Writer.WriteU8(bSRGB);
+		Writer.WriteU32(static_cast<uint32>(Request.Settings.Usage));
+		Writer.WriteU32(
 			static_cast<uint32>(Request.Settings.CompressionQuality));
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Request.Settings.AlphaMipMode));
-		AppendLittleEndianU32(Bytes,
+		Writer.WriteU32(static_cast<uint32>(Request.Settings.AlphaMipMode));
+		Writer.WriteU32(
 			std::bit_cast<uint32>(Request.Settings.AlphaCoverageThreshold));
-		AppendLittleEndianU32(Bytes, Request.Settings.MaxResolution);
-		AppendLittleEndianU64(Bytes, Request.SourceData.Pixels.size());
-		Bytes.insert(Bytes.end(),
-			Request.SourceData.Pixels.begin(), Request.SourceData.Pixels.end());
-		return Bytes;
+		Writer.WriteU32(Request.Settings.MaxResolution);
+		Writer.WriteU64(Request.SourceData.Pixels.size());
+		Writer.WriteBytes(Request.SourceData.Pixels);
+		return Writer.TakeBytes();
 	}
 
 	auto DecodeTexture2DPlatformValue(const FBuildValue& Value,
@@ -329,18 +330,18 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTextureCubeLocalInput(const FTextureCubeSourceData& SourceData)
 		-> std::vector<uint8>
 	{
-		std::vector<uint8> Bytes;
+		DerivedDataCache::FWriter Writer;
 		for (const FTextureSourceData& Face : SourceData.Faces)
 		{
-			AppendLittleEndianU32(Bytes, Face.Width);
-			AppendLittleEndianU32(Bytes, Face.Height);
-			AppendLittleEndianU32(Bytes, Face.SourceChannelCount);
-			AppendLittleEndianU32(Bytes, static_cast<uint32>(Face.Format));
-			AppendLittleEndianU32(Bytes, Face.bHasTransparency ? 1u : 0u);
-			AppendLittleEndianU64(Bytes, Face.Pixels.size());
-			Bytes.insert(Bytes.end(), Face.Pixels.begin(), Face.Pixels.end());
+			Writer.WriteU32(Face.Width);
+			Writer.WriteU32(Face.Height);
+			Writer.WriteU32(Face.SourceChannelCount);
+			Writer.WriteU32(static_cast<uint32>(Face.Format));
+			Writer.WriteU32(Face.bHasTransparency ? 1u : 0u);
+			Writer.WriteU64(Face.Pixels.size());
+			Writer.WriteBytes(Face.Pixels);
 		}
-		return Bytes;
+		return Writer.TakeBytes();
 	}
 
 	auto DecodeTextureCubePlatformValue(const FBuildValue& Value,

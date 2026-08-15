@@ -1,6 +1,6 @@
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 
-#include "GeometryBuildCodec.h"
+#include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
@@ -17,28 +17,31 @@ namespace Durin::Asset::Build::Private
 			ETerrainHeightmapSourceFormat& OutFormat, uint32& OutProfile,
 			std::vector<uint16>& OutSamples, std::string& OutError) -> bool
 		{
-			size_t Offset = 0;
+			DerivedDataCache::FReader Reader(Bytes);
 			uint32 Format = 0, DecoderLength = 0;
-			if (!ReadLittleEndianU32(Bytes, Offset, OutWidth)
-				|| !ReadLittleEndianU32(Bytes, Offset, OutHeight)
-				|| !ReadLittleEndianU32(Bytes, Offset, OutDecoderVersion)
-				|| !ReadLittleEndianU32(Bytes, Offset, Format)
-				|| !ReadLittleEndianU32(Bytes, Offset, OutProfile)
-				|| !ReadLittleEndianU32(Bytes, Offset, DecoderLength)
+			if (!Reader.ReadU32(OutWidth)
+				|| !Reader.ReadU32(OutHeight)
+				|| !Reader.ReadU32(OutDecoderVersion)
+				|| !Reader.ReadU32(Format)
+				|| !Reader.ReadU32(OutProfile)
+				|| !Reader.ReadU32(DecoderLength)
 				|| OutDecoderVersion == 0 || Format == 0 || OutProfile == 0
-				|| DecoderLength == 0 || Offset > Bytes.size()
-				|| DecoderLength > Bytes.size() - Offset)
+				|| DecoderLength == 0 || DecoderLength > Reader.GetRemainingBytes())
 			{
 				OutError = "Terrain heightmap local build input is malformed.";
 				return false;
 			}
-			OutDecoderId.assign(
-				reinterpret_cast<const char*>(Bytes.data() + Offset), DecoderLength);
+			std::vector<uint8> DecoderBytes;
+			if (!Reader.ReadBytes(DecoderBytes, DecoderLength, Bytes.size()))
+			{
+				OutError = "Terrain heightmap local build input is malformed.";
+				return false;
+			}
+			OutDecoderId.assign(DecoderBytes.begin(), DecoderBytes.end());
 			OutFormat = static_cast<ETerrainHeightmapSourceFormat>(Format);
-			Offset += DecoderLength;
 			const uint64 SampleCount = static_cast<uint64>(OutWidth) * OutHeight;
-			if (Offset > Bytes.size() || SampleCount > (Bytes.size() - Offset) / 2
-				|| SampleCount * 2 != Bytes.size() - Offset)
+			if (SampleCount > Reader.GetRemainingBytes() / 2
+				|| SampleCount * 2 != Reader.GetRemainingBytes())
 			{
 				OutError = "Terrain heightmap local sample count is inconsistent.";
 				return false;
@@ -46,10 +49,11 @@ namespace Durin::Asset::Build::Private
 			OutSamples.resize(static_cast<size_t>(SampleCount));
 			for (uint16& Sample : OutSamples)
 			{
-				Sample = uint16(Bytes[Offset]) | uint16(Bytes[Offset + 1]) << 8;
-				Offset += 2;
+				uint8 Low = 0, High = 0;
+				if (!Reader.ReadU8(Low) || !Reader.ReadU8(High)) return false;
+				Sample = uint16(Low) | uint16(High) << 8;
 			}
-			return true;
+			return Reader.IsAtEnd();
 		}
 
 		auto EncodeTerrainHeightmapPayload(const FTerrainHeightmapPayload& Payload,
@@ -154,20 +158,21 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTerrainHeightmapLocalInput(const FTerrainHeightmapBuildRequest& Request)
 		-> std::vector<uint8>
 	{
-		std::vector<uint8> Bytes;
-		AppendLittleEndianU32(Bytes, Request.Width);
-		AppendLittleEndianU32(Bytes, Request.Height);
-		AppendLittleEndianU32(Bytes, Request.DecoderVersion);
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Request.SourceFormat));
-		AppendLittleEndianU32(Bytes, Request.SourceProfileVersion);
-		AppendLittleEndianU32(Bytes, static_cast<uint32>(Request.DecoderId.size()));
-		Bytes.insert(Bytes.end(), Request.DecoderId.begin(), Request.DecoderId.end());
+		DerivedDataCache::FWriter Writer;
+		Writer.WriteU32(Request.Width);
+		Writer.WriteU32(Request.Height);
+		Writer.WriteU32(Request.DecoderVersion);
+		Writer.WriteU32(static_cast<uint32>(Request.SourceFormat));
+		Writer.WriteU32(Request.SourceProfileVersion);
+		Writer.WriteU32(static_cast<uint32>(Request.DecoderId.size()));
+		Writer.WriteBytes(std::span<const uint8>(
+			reinterpret_cast<const uint8*>(Request.DecoderId.data()), Request.DecoderId.size()));
 		for (uint16 Sample : Request.Samples)
 		{
-			Bytes.push_back(static_cast<uint8>(Sample));
-			Bytes.push_back(static_cast<uint8>(Sample >> 8));
+			Writer.WriteU8(static_cast<uint8>(Sample));
+			Writer.WriteU8(static_cast<uint8>(Sample >> 8));
 		}
-		return Bytes;
+		return Writer.TakeBytes();
 	}
 
 	auto DecodeTerrainHeightmapPayload(const FBuildValue& Value,
