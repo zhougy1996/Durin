@@ -1,6 +1,7 @@
 #include "Widgets/MTextureEditor.h"
 
 #include "AssetImportCore.h"
+#include "ImportService.h"
 #include "AssetMutation.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -794,9 +795,7 @@ namespace Durin::Editor::Texture
 		}
 		MonaImGui::PropertyEdit::EndTable();
 		const Asset::Import::FSingleAssetCapabilitySet ImportCapabilities =
-			Asset::Import::QuerySingleAssetCapabilities(
-				*Texture, Asset::Import::GetProviderRegistry(),
-				Asset::Import::GetSingleAssetHandlerRegistry());
+			Asset::Import::GetImportService().QuerySingleAssetCapabilities(*Texture);
 		const Asset::Import::FSingleAssetCapability* ReimportCapability =
 			ImportCapabilities.Find(
 				Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);

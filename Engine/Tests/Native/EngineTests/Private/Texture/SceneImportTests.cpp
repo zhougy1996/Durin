@@ -3,6 +3,7 @@
 #include "Animation/AnimationClip.h"
 #include "AssetMutation.h"
 #include "ImportRecord.h"
+#include "ImportService.h"
 #include "Materials/MaterialInstance.h"
 #include "SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -28,7 +29,7 @@ namespace
 
 		~FAsyncImportSchedulerGuard()
 		{
-			Durin::Asset::Import::CancelAndDrainAllAsyncImports();
+			Durin::Asset::Import::GetImportService().CancelAndDrainAllAsyncImports();
 			Durin::ShutdownTaskScheduler(false);
 			if (bRestoreScheduler && !Durin::InitializeTaskScheduler(PreviousConfig))
 			{
@@ -284,10 +285,9 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		EXPECT_EQ(Reimported.AnimationClips[Index]->GetDerivedDataKey(),
 			ClipDerivedDataKeys[Index]);
 	const Durin::Asset::Import::FImportRecordActionResult ProviderNeutral =
-		Durin::Asset::Import::ExecuteImportRecordAction(
+		Durin::Asset::Import::GetImportService().ExecuteImportRecordAction(
 			*Reimported.Record,
-			Durin::Asset::Import::EImportRecordAction::Reimport,
-			Durin::Asset::Import::GetImportRecordHandlerRegistry());
+			Durin::Asset::Import::EImportRecordAction::Reimport);
 	ASSERT_TRUE(ProviderNeutral) << ProviderNeutral.Message;
 	ASSERT_EQ(ProviderNeutral.Outputs.size(), Reimported.Record->GetOutputs().size());
 	for (size_t OutputIndex = 0; OutputIndex < ProviderNeutral.Outputs.size(); ++OutputIndex)
@@ -784,16 +784,15 @@ TEST(FSceneImportTests, UsesProviderNeutralRecordCapabilitiesForReimport)
 	const auto Inspection = Durin::Asset::Import::InspectImportRecord(
 		RecordPath, Durin::Asset::Import::GetImportRecordIndex());
 	ASSERT_TRUE(Inspection) << Inspection.Message;
-	const auto Capabilities = Durin::Asset::Import::QueryImportRecordCapabilities(
-		Inspection, Durin::Asset::Import::GetImportRecordHandlerRegistry());
+	const auto Capabilities = Durin::Asset::Import::GetImportService()
+		.QueryImportRecordCapabilities(Inspection);
 	const auto* Reimport = Capabilities.Find(
 		Durin::Asset::Import::EImportRecordAction::Reimport);
 	ASSERT_NE(Reimport, nullptr);
 	ASSERT_TRUE(Reimport->bAvailable);
-	const auto Executed = Durin::Asset::Import::ExecuteImportRecordAction(
+	const auto Executed = Durin::Asset::Import::GetImportService().ExecuteImportRecordAction(
 		*Inspection.Record,
-		Durin::Asset::Import::EImportRecordAction::Reimport,
-		Durin::Asset::Import::GetImportRecordHandlerRegistry());
+		Durin::Asset::Import::EImportRecordAction::Reimport);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	EXPECT_EQ(Executed.Record, Initial.Record);
 	EXPECT_EQ(Executed.Outputs.size(), 3u);

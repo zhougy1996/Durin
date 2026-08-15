@@ -1,4 +1,5 @@
 #include "AsyncImport.h"
+#include "ImportService.h"
 
 #include "Threading/Task.h"
 
@@ -140,7 +141,7 @@ namespace Durin::Asset::Import
 								EImportDiagnosticCategory::Canceled,
 								"Asynchronous import preparation was canceled before it started.");
 						}
-						FImportPlanResult Result = CreateImportPlan(Request, GetProviderRegistry());
+						FImportPlanResult Result = GetImportService().CreateImportPlan(Request);
 						if (Token.IsCancellationRequested())
 						{
 							return MakeTerminalResult(
@@ -450,7 +451,7 @@ namespace Durin::Asset::Import
 		return State->Status;
 	}
 
-	auto LaunchAsyncImportPlan(
+	auto FImportService::LaunchAsyncImportPlan(
 		FImportPlanRequest Request,
 		std::string_view OwnerId) -> FAsyncImportPlanHandle
 	{
@@ -469,43 +470,38 @@ namespace Durin::Asset::Import
 		return GetAsyncImportCoordinator().Take(Handle, OutResult);
 	}
 
-	auto CancelAsyncImport(const FAsyncImportPlanHandle& Handle) -> bool
+	auto FImportService::CancelAsyncImport(const FAsyncImportPlanHandle& Handle) -> bool
 	{
 		return GetAsyncImportCoordinator().Cancel(Handle);
 	}
 
-	auto CancelAndDrainAsyncImport(const FAsyncImportPlanHandle& Handle)
+	auto FImportService::CancelAndDrainAsyncImport(const FAsyncImportPlanHandle& Handle)
 		-> EAsyncImportPlanStatus
 	{
 		return GetAsyncImportCoordinator().CancelAndDrain(Handle);
 	}
 
-	auto CancelAndDrainAsyncImportsForOwner(std::string_view OwnerId) -> void
+	auto FImportService::CancelAndDrainAsyncImportsForOwner(std::string_view OwnerId) -> void
 	{
 		GetAsyncImportCoordinator().CancelAndDrainOwner(OwnerId);
 	}
 
-	auto CancelAndDrainAsyncImportsForProvider(std::string_view ProviderId) -> void
+	auto FImportService::CancelAndDrainAsyncImportsForProvider(std::string_view ProviderId) -> void
 	{
 		GetAsyncImportCoordinator().CancelAndDrainProvider(ProviderId);
 	}
 
-	auto CancelAndDrainAllAsyncImports() -> void
+	auto FImportService::CancelAndDrainAllAsyncImports() -> void
 	{
 		GetAsyncImportCoordinator().CancelAndDrainAll();
 	}
 
-	auto OpenAsyncImportProviderAdmission(std::string_view ProviderId) -> void
+	auto FImportService::OpenAsyncImporterAdmission(std::string_view ProviderId) -> void
 	{
 		GetAsyncImportCoordinator().OpenProvider(ProviderId);
 	}
 
-	auto CloseAsyncImportProviderAdmission(std::string_view ProviderId) -> void
-	{
-		GetAsyncImportCoordinator().CloseProvider(ProviderId);
-	}
-
-	auto CloseAsyncImportAdmission() -> void
+	auto FImportService::CloseAsyncAdmission() -> void
 	{
 		GetAsyncImportCoordinator().CloseAdmission();
 	}

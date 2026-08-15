@@ -29,12 +29,13 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
   failed candidate rollback; successful bundle publication promotes the same
   resident entries to `Published`. AssetCore has no knowledge of providers or
   concrete imported asset classes.
-- `AssetImportCore` owns source snapshots, provider discovery, generic plans,
-  diagnostics, candidates, import records, record indexing, and synchronous and
-  asynchronous orchestration.
-- Provider modules own format recognition, dependency discovery, normalized
-  data, settings schemas, output identities, typed state exchange, and
-  reconciliation policy.
+- `AssetImportCore` owns one `FImportService`, importer descriptors, source
+  snapshots, diagnostics, candidates, import records, record indexing, and
+  synchronous and asynchronous orchestration.
+- Provider modules register one immutable descriptor per logical importer. A
+  descriptor owns format recognition, dependency discovery, settings, optional
+  single-asset capabilities, optional record capabilities, output identities,
+  typed state exchange, and reconciliation policy.
 - Editor hosts query framework capabilities. A concrete asset class alone does
   not imply that import or reimport is available.
 
@@ -54,6 +55,25 @@ format admission, and typed translators supplied by StandardAssetImport live in
 `Durin::Asset::Import::Standard`. Implementation-only build composition and
 uncooked policies remain private to the physical module; no compatibility alias
 flattens standard APIs into the framework namespace.
+
+## Import service and registration
+
+`FImportService` is the only registration and orchestration boundary. A module
+registers one `FImporterDescriptor` under its module-owned callback gate; the
+descriptor binds one provider identity and contract version to source
+recognition/planning plus any supported single-asset classes and import-record
+actions. StandardAssetImport registers exactly three descriptors: Scene,
+Assimp geometry, and DurinImage. It does not coordinate separate provider,
+single-asset-handler, or record-handler registries.
+
+Initial planning, single-asset capability/reimport/repair, Scene multi-output
+planning/execution, and record capability/actions are service operations.
+Specialized plan/results remain where they carry distinct reconciliation or
+state-exchange values, but callers never perform a second registry lookup.
+Descriptor registration opens asynchronous admission; unregistration closes
+the provider, cancels and drains its admitted work, and only then retires its
+capabilities and provider lease. Module shutdown therefore cannot race a new
+request or invoke retired provider state.
 
 TextureCube follows the same boundary. `TextureCubeSourceTranslation.h` owns
 six-face and panorama validation, import/reimport, source-reference changes,
@@ -210,8 +230,8 @@ leave a partially published authored asset graph.
 
 ## Asynchronous preparation
 
-The synchronous executor is the semantic reference. One `AssetImportCore`
-coordinator may schedule immutable capture, hashing, dependency discovery,
+The synchronous executor is the semantic reference. The `FImportService` owns
+one AssetImportCore coordinator that may schedule immutable capture, hashing, dependency discovery,
 parsing, normalization, and CPU preparation. It does not create `DObject`
 instances or touch packages, the registry, editor models, render resources, or
 RHI state on a worker.
@@ -266,10 +286,10 @@ record.
 Repository assets must be upgraded or regenerated in the same change that
 removes an old schema.
 
-AssetCore's generic unknown-field reporting and explicit data-loss save guard
-remain safety boundaries, not a migration promise. A package containing a
-retired or unknown import field is reported as incompatible and is not silently
-rewritten. Recreate or reimport that asset with the current provider framework.
+AssetCore's construct-free compatibility audit reports retired or unknown
+import fields, while ordinary load rejects them before package residency. There
+is no partially compatible live package or data-loss save permission. Recreate
+or reimport that asset with the current importer descriptor.
 
 ## Editor workflow
 

@@ -1,4 +1,6 @@
 #include "MultiOutputImport.h"
+#include "ImportService.h"
+#include "ImportRegistryInternal.h"
 
 #include "AssetMutation.h"
 
@@ -337,7 +339,7 @@ namespace Durin::Asset::Import
 		return Preview;
 	}
 
-	auto CreateMultiOutputImportPlan(
+	auto FImportService::CreateMultiOutputImportPlan(
 		const FMultiOutputPlanRequest& Request,
 		FImportRecordIndex& Index) -> FMultiOutputPlanResult
 	{
@@ -531,7 +533,7 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto ExecuteMultiOutputImport(
+	auto FImportService::ExecuteMultiOutputImport(
 		const FMultiOutputImportPlan& Plan,
 		FPreparedMultiOutputImport Prepared,
 		FImportRecordIndex& Index,
@@ -663,8 +665,8 @@ namespace Durin::Asset::Import
 		bool bStale = !Result.Message.empty()
 			|| Index.GetRevision() != Plan.IndexRevision
 			|| Asset::GetAssetCatalogRevision() != Plan.AssetRegistryRevision
-			|| Plan.GetGenericPlan().GetProviderRegistryRevision()
-				!= GetProviderRegistry().GetRevision();
+			|| Plan.GetGenericPlan().GetImporterRevision()
+				!= GetImporterRevision();
 		if (Plan.GetExistingRecord())
 		{
 			bStale = bStale || !Plan.GetExistingRecord()->GetPackage()
@@ -939,20 +941,13 @@ namespace Durin::Asset::Import
 		return Impl->Revision;
 	}
 
-	auto GetImportRecordHandlerRegistry() -> FImportRecordHandlerRegistry&
-	{
-		static FImportRecordHandlerRegistry Registry;
-		return Registry;
-	}
-
-	auto QueryImportRecordCapabilities(
-		const FImportRecordInspection& Inspection,
-		FImportRecordHandlerRegistry& Handlers) -> FImportRecordCapabilitySet
+	auto FImportService::QueryImportRecordCapabilities(
+		const FImportRecordInspection& Inspection) const -> FImportRecordCapabilitySet
 	{
 		if (Inspection.Record)
 		{
 			if (const std::shared_ptr<const IImportRecordHandler> Handler =
-				Handlers.Find(Inspection.Record->GetProviderId()))
+				FindImportRecordHandler(Inspection.Record->GetProviderId()))
 				return Handler->QueryCapabilities(*Inspection.Record, Inspection);
 		}
 		FImportRecordCapabilitySet Result{
@@ -982,15 +977,14 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto ExecuteImportRecordAction(
+	auto FImportService::ExecuteImportRecordAction(
 		DImportRecord& Record,
 		EImportRecordAction Action,
-		FImportRecordHandlerRegistry& Handlers,
 		const FMultiOutputExecutionOptions& Options) -> FImportRecordActionResult
 	{
 		const std::shared_ptr<const IImportRecordHandler> Handler =
-			Handlers.Find(Record.GetProviderId());
-		const FProviderLease Provider = GetProviderRegistry().Find(Record.GetProviderId());
+			FindImportRecordHandler(Record.GetProviderId());
+		const FProviderLease Provider = FindProvider(Record.GetProviderId());
 		if (!Handler || !Provider
 			|| Provider.GetContractVersion() != Record.GetProviderContractVersion())
 		{

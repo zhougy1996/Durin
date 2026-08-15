@@ -2,6 +2,7 @@
 
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
+#include "ImportService.h"
 #include "AssetLoad.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
@@ -153,7 +154,7 @@ namespace
 	public:
 		~FTaskSchedulerGuard()
 		{
-			Durin::Asset::Import::CancelAndDrainAllAsyncImports();
+			Durin::Asset::Import::GetImportService().CancelAndDrainAllAsyncImports();
 			Durin::ShutdownTaskScheduler(false);
 		}
 	};
@@ -252,14 +253,32 @@ namespace
 	};
 
 	auto RegisterGraphProvider(
-		Durin::Asset::Import::FProviderRegistry& Registry,
+		Durin::Asset::Import::FImportService& Registry,
 		std::string_view Id = "Tests.Graph") -> void
 	{
 		std::string Error;
-		ASSERT_TRUE(Registry.Register(
-			std::make_shared<FGraphProvider>(std::string(Id)),
+		ASSERT_TRUE(Registry.RegisterImporter({
+			.Provider = std::make_shared<FGraphProvider>(std::string(Id))},
 			GetImportRegistryTestGate(), Error)) << Error;
 	}
+}
+
+TEST(FAssetImportCoreTests, ImportServiceRegistersOneDescriptorAtomically)
+{
+	Durin::Asset::Import::FImportService Service;
+	std::string Error;
+	ASSERT_TRUE(Service.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>("Tests.Descriptor")},
+		GetImportRegistryTestGate(), Error)) << Error;
+	EXPECT_TRUE(Service.IsImporterRegistered("Tests.Descriptor"));
+
+	EXPECT_FALSE(Service.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>("Tests.Descriptor")},
+		GetImportRegistryTestGate(), Error));
+	EXPECT_TRUE(Service.IsImporterRegistered("Tests.Descriptor"));
+	EXPECT_TRUE(Service.UnregisterImporter("Tests.Descriptor"));
+	EXPECT_FALSE(Service.IsImporterRegistered("Tests.Descriptor"));
+	EXPECT_FALSE(Service.UnregisterImporter("Tests.Descriptor"));
 }
 
 TEST(FAssetImportCoreTests, ProviderOwnerRetirementRejectsLookupAndAuditsLeaseDestruction)
@@ -267,19 +286,19 @@ TEST(FAssetImportCoreTests, ProviderOwnerRetirementRejectsLookupAndAuditsLeaseDe
 	Durin::FModuleTestOwner Context("AssetImportCoreTests.ProviderRetirement");
 	auto Registration = Context.CreateOwnedCallbackRegistration(
 		"AssetImportCore.ProviderRegistry");
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	auto Destroyed = std::make_shared<std::atomic_bool>(false);
 	std::string Error;
-	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FGraphProvider>("Tests.Retirement", true, Destroyed),
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>("Tests.Retirement", true, Destroyed)},
 		Registration.GetGate(), Error)) << Error;
-	auto Lease = Registry.Find("Tests.Retirement");
+	auto Lease = Registry.FindImporter("Tests.Retirement");
 	ASSERT_TRUE(Lease);
 	const auto Retiring = Registration.Retire();
 	// One lease represents registry storage and one represents the escaped provider.
 	EXPECT_EQ(2u, Retiring.RetainedResourceCount);
-	EXPECT_FALSE(Registry.Find("Tests.Retirement"));
-	EXPECT_TRUE(Registry.Unregister("Tests.Retirement"));
+	EXPECT_FALSE(Registry.FindImporter("Tests.Retirement"));
+	EXPECT_TRUE(Registry.UnregisterImporter("Tests.Retirement"));
 	EXPECT_FALSE(Destroyed->load());
 	EXPECT_EQ(Durin::EModularFeatureRetirementStatus::TimedOut,
 		Registration.Reset(std::chrono::milliseconds(1)).Status);
@@ -295,14 +314,14 @@ TEST(FAssetImportCoreTests, CapturedBytesRemainImmutableAfterPhysicalSourceChang
 	WriteSource(Root / "Content" / "Root.graph", "graph\nembedded payload original\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 
 	Durin::Asset::Import::FSourceSnapshotBuilder Builder;
 	std::vector<Durin::Asset::Import::FImportDiagnostic> Diagnostics;
 	ASSERT_TRUE(Builder.CaptureRoot({.Path = "/ImportCoreTests/Root.graph"}, Diagnostics));
 	WriteSource(Root / "Content" / "Root.graph", "graph\nchanged after capture\n");
-	ASSERT_TRUE(Builder.DiscoverDependencies(Registry.Find("Tests.Graph"), Diagnostics));
+	ASSERT_TRUE(Builder.DiscoverDependencies(Registry.FindImporter("Tests.Graph"), Diagnostics));
 	const std::shared_ptr<const Durin::Asset::Import::FSourceSnapshot> Snapshot =
 		Builder.Freeze(Diagnostics);
 	ASSERT_NE(Snapshot, nullptr);
@@ -315,12 +334,12 @@ TEST(FAssetImportCoreTests, CapturedBytesRemainImmutableAfterPhysicalSourceChang
 	EXPECT_EQ(std::string(reinterpret_cast<const char*>(Embedded->GetBytes().data()),
 		Embedded->GetBytes().size()), "original");
 	Durin::Asset::Import::FImportPayload Settings;
-	ASSERT_TRUE(Registry.Find("Tests.Graph").GetProvider()->CaptureSettings(
+	ASSERT_TRUE(Registry.FindImporter("Tests.Graph").GetProvider()->CaptureSettings(
 		Settings, Diagnostics));
 	std::string SettingsError;
 	ASSERT_TRUE(Settings.Finalize(SettingsError)) << SettingsError;
 	const auto Plan = Durin::Asset::Import::BuildImportPlan(
-		Registry.Find("Tests.Graph"), Snapshot, Settings, Registry.GetRevision());
+		Registry.FindImporter("Tests.Graph"), Snapshot, Settings, Registry.GetImporterRevision());
 	ASSERT_TRUE(Plan) << Plan.Message;
 	EXPECT_EQ(Plan.Plan.GetSnapshot().FindSource("root")->ContentHash,
 		Durin::FXxHash128::HashBuffer(Captured->GetBytes()));
@@ -334,17 +353,17 @@ TEST(FAssetImportCoreTests, RejectsTraversalAndRequiredMissingDependencies)
 	WriteSource(Root / "Content" / "Missing.graph", "graph\ndep absent Missing.bin\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 
-	const Durin::Asset::Import::FImportPlanResult Traversal = Durin::Asset::Import::CreateImportPlan(
-		{{.Path = "/ImportCoreTests/Traversal.graph"}}, Registry);
+	const Durin::Asset::Import::FImportPlanResult Traversal = Registry.CreateImportPlan(
+		{{.Path = "/ImportCoreTests/Traversal.graph"}});
 	ASSERT_FALSE(Traversal);
 	EXPECT_EQ(Traversal.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::UnsafeDependency);
 
-	const Durin::Asset::Import::FImportPlanResult Missing = Durin::Asset::Import::CreateImportPlan(
-		{{.Path = "/ImportCoreTests/Missing.graph"}}, Registry);
+	const Durin::Asset::Import::FImportPlanResult Missing = Registry.CreateImportPlan(
+		{{.Path = "/ImportCoreTests/Missing.graph"}});
 	ASSERT_FALSE(Missing);
 	EXPECT_EQ(Missing.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::MissingDependency);
@@ -359,11 +378,11 @@ TEST(FAssetImportCoreTests, HandlesOptionalDuplicateAndCyclicDependenciesCanonic
 	WriteSource(Root / "Content" / "Child.graph", "graph\ndep root Root.graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 
-	const Durin::Asset::Import::FImportPlanResult Result = Durin::Asset::Import::CreateImportPlan(
-		{{.Path = "/ImportCoreTests/Root.graph"}}, Registry);
+	const Durin::Asset::Import::FImportPlanResult Result = Registry.CreateImportPlan(
+		{{.Path = "/ImportCoreTests/Root.graph"}});
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_EQ(Result.Plan.GetSnapshot().GetSources().size(), 2u);
 	EXPECT_EQ(Result.Plan.GetSnapshot().GetSources()[0].StableIdentity, "child");
@@ -385,13 +404,13 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	WriteSource(Root / "Content" / "Child.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 
 	Durin::Asset::Import::FImportPlanRequest CountRequest{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"}};
 	CountRequest.Limits.MaximumSourceCount = 1;
-	const auto CountResult = Durin::Asset::Import::CreateImportPlan(CountRequest, Registry);
+	const auto CountResult = Registry.CreateImportPlan(CountRequest);
 	ASSERT_FALSE(CountResult);
 	EXPECT_EQ(CountResult.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ResourceLimitExceeded);
@@ -399,7 +418,7 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	Durin::Asset::Import::FImportPlanRequest ByteRequest = CountRequest;
 	ByteRequest.Limits.MaximumSourceCount = 8;
 	ByteRequest.Limits.MaximumBytesPerSource = 4;
-	const auto ByteResult = Durin::Asset::Import::CreateImportPlan(ByteRequest, Registry);
+	const auto ByteResult = Registry.CreateImportPlan(ByteRequest);
 	ASSERT_FALSE(ByteResult);
 	EXPECT_EQ(ByteResult.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ResourceLimitExceeded);
@@ -407,7 +426,7 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	Durin::Asset::Import::FImportPlanRequest SettingsRequest = CountRequest;
 	SettingsRequest.Limits.MaximumSourceCount = 8;
 	SettingsRequest.Limits.MaximumSettingsBytes = 2;
-	const auto SettingsResult = Durin::Asset::Import::CreateImportPlan(SettingsRequest, Registry);
+	const auto SettingsResult = Registry.CreateImportPlan(SettingsRequest);
 	ASSERT_FALSE(SettingsResult);
 	EXPECT_EQ(SettingsResult.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ResourceLimitExceeded);
@@ -415,7 +434,7 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	Durin::Asset::Import::FImportPlanRequest DepthRequest = CountRequest;
 	DepthRequest.Limits.MaximumSourceCount = 8;
 	DepthRequest.Limits.MaximumDependencyDepth = 0;
-	const auto DepthResult = Durin::Asset::Import::CreateImportPlan(DepthRequest, Registry);
+	const auto DepthResult = Registry.CreateImportPlan(DepthRequest);
 	ASSERT_FALSE(DepthResult);
 	EXPECT_EQ(DepthResult.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ResourceLimitExceeded);
@@ -424,7 +443,7 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	Durin::Asset::Import::FImportPlanRequest EmbeddedRequest{
 		.RootSource = {.Path = "/ImportCoreTests/Embedded.graph"}};
 	EmbeddedRequest.Limits.MaximumEmbeddedBytes = 2;
-	const auto EmbeddedResult = Durin::Asset::Import::CreateImportPlan(EmbeddedRequest, Registry);
+	const auto EmbeddedResult = Registry.CreateImportPlan(EmbeddedRequest);
 	ASSERT_FALSE(EmbeddedResult);
 	EXPECT_EQ(EmbeddedResult.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ResourceLimitExceeded);
@@ -440,14 +459,14 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 	WriteSource(Root / "Content" / "B.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 	const Durin::uint64 RegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
 	const Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"}};
-	const auto First = Durin::Asset::Import::CreateImportPlan(Request, Registry);
-	const auto Second = Durin::Asset::Import::CreateImportPlan(Request, Registry);
+	const auto First = Registry.CreateImportPlan(Request);
+	const auto Second = Registry.CreateImportPlan(Request);
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_TRUE(Second) << Second.Message;
 	EXPECT_EQ(First.Plan.GetFingerprint(), Second.Plan.GetFingerprint());
@@ -470,32 +489,32 @@ TEST(FAssetImportCoreTests, ReportsProviderAbsenceAmbiguityAndRetainsLeases)
 	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 
 	const Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"}};
-	const auto Absent = Durin::Asset::Import::CreateImportPlan(Request, Registry);
+	const auto Absent = Registry.CreateImportPlan(Request);
 	ASSERT_FALSE(Absent);
 	EXPECT_EQ(Absent.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ProviderUnavailable);
 
 	RegisterGraphProvider(Registry, "Tests.First");
 	RegisterGraphProvider(Registry, "Tests.Second");
-	const auto Ambiguous = Durin::Asset::Import::CreateImportPlan(Request, Registry);
+	const auto Ambiguous = Registry.CreateImportPlan(Request);
 	ASSERT_FALSE(Ambiguous);
 	EXPECT_EQ(Ambiguous.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ProviderAmbiguous);
 
-	Durin::Asset::Import::FProviderLease Lease = Registry.Find("Tests.First");
+	Durin::Asset::Import::FProviderLease Lease = Registry.FindImporter("Tests.First");
 	ASSERT_TRUE(Lease);
-	ASSERT_TRUE(Registry.Unregister("Tests.First"));
+	ASSERT_TRUE(Registry.UnregisterImporter("Tests.First"));
 	EXPECT_TRUE(Lease);
 	EXPECT_EQ(Lease.GetProviderId(), "Tests.First");
-	EXPECT_FALSE(Registry.Find("Tests.First"));
+	EXPECT_FALSE(Registry.FindImporter("Tests.First"));
 
 	Durin::Asset::Import::FImportPlanRequest Explicit = Request;
 	Explicit.ProviderId = "Tests.First";
-	const auto Unregistered = Durin::Asset::Import::CreateImportPlan(Explicit, Registry);
+	const auto Unregistered = Registry.CreateImportPlan(Explicit);
 	ASSERT_FALSE(Unregistered);
 	EXPECT_EQ(Unregistered.Diagnostics.back().Category,
 		Durin::Asset::Import::EImportDiagnosticCategory::ProviderUnavailable);
@@ -508,12 +527,12 @@ TEST(FAssetImportCoreTests, ReportsSynchronousPhaseBoundariesAndDiagnosticContex
 	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	Durin::Asset::Import::FProviderRegistry Registry;
+	Durin::Asset::Import::FImportService Registry;
 	RegisterGraphProvider(Registry);
 	FProgressRecorder Progress;
-	const auto Planned = Durin::Asset::Import::CreateImportPlan({
+	const auto Planned = Registry.CreateImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
-		.Progress = &Progress}, Registry);
+		.Progress = &Progress});
 	ASSERT_TRUE(Planned) << Planned.Message;
 	const std::array Expected = {
 		std::pair{Durin::Asset::Import::EImportPhase::Snapshot,
@@ -538,10 +557,10 @@ TEST(FAssetImportCoreTests, ReportsSynchronousPhaseBoundariesAndDiagnosticContex
 	}
 
 	FProgressRecorder FailureProgress;
-	Durin::Asset::Import::FProviderRegistry EmptyRegistry;
-	const auto Failed = Durin::Asset::Import::CreateImportPlan({
+	Durin::Asset::Import::FImportService EmptyRegistry;
+	const auto Failed = EmptyRegistry.CreateImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
-		.Progress = &FailureProgress}, EmptyRegistry);
+		.Progress = &FailureProgress});
 	ASSERT_FALSE(Failed);
 	ASSERT_FALSE(Failed.Diagnostics.empty());
 	for (const auto& Diagnostic : Failed.Diagnostics)
@@ -568,22 +587,21 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 	WriteSource(Root / "Content" / "Child.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	auto& Registry = Durin::Asset::Import::GetProviderRegistry();
+	auto& Registry = Durin::Asset::Import::GetImportService();
 	const std::string ProviderId = "Tests.AsyncEquivalence";
-	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	std::string Error;
-	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FGraphProvider>(ProviderId),
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>(ProviderId)},
 		GetImportRegistryTestGate(), Error)) << Error;
 
 	Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
 		.ProviderId = ProviderId};
 	Durin::Asset::Import::FImportPlanResult Synchronous =
-		Durin::Asset::Import::CreateImportPlan(Request, Registry);
+		Registry.CreateImportPlan(Request);
 	ASSERT_TRUE(Synchronous) << Synchronous.Message;
 	const Durin::Asset::Import::FAsyncImportPlanHandle Handle =
-		Durin::Asset::Import::LaunchAsyncImportPlan(
+		Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan(
 			Request, "Tests.AsyncEquivalence.Owner");
 	ASSERT_TRUE(Handle);
 	Durin::Asset::Import::FImportPlanResult Asynchronous;
@@ -625,8 +643,8 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 
 	Synchronous = {};
 	Asynchronous = {};
-	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
-	EXPECT_TRUE(Registry.Unregister(ProviderId));
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
 }
 
 TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
@@ -639,19 +657,18 @@ TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
 	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	auto& Registry = Durin::Asset::Import::GetProviderRegistry();
+	auto& Registry = Durin::Asset::Import::GetImportService();
 	const std::string ProviderId = "Tests.AsyncSerial";
-	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	std::string Error;
-	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FGraphProvider>(ProviderId),
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>(ProviderId)},
 		GetImportRegistryTestGate(), Error)) << Error;
 	const Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
 		.ProviderId = ProviderId};
-	const auto First = Durin::Asset::Import::LaunchAsyncImportPlan(
+	const auto First = Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan(
 		Request, "Tests.AsyncSerial.Owner");
-	const auto Second = Durin::Asset::Import::LaunchAsyncImportPlan(
+	const auto Second = Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan(
 		Request, "Tests.AsyncSerial.Owner");
 	ASSERT_LT(First.GetSerial(), Second.GetSerial());
 	Durin::Asset::Import::FImportPlanResult FirstResult;
@@ -662,8 +679,8 @@ TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
 		Durin::Asset::Import::EAsyncImportPlanStatus::Succeeded);
 	EXPECT_TRUE(SecondResult);
 	SecondResult = {};
-	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
-	EXPECT_TRUE(Registry.Unregister(ProviderId));
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
 }
 
 TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUnload)
@@ -676,16 +693,15 @@ TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUn
 	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	auto& Registry = Durin::Asset::Import::GetProviderRegistry();
+	auto& Registry = Durin::Asset::Import::GetImportService();
 	const std::string ProviderId = "Tests.AsyncUnload";
-	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	const auto BlockingState = std::make_shared<FBlockingProviderState>();
 	std::string Error;
-	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState),
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState)},
 		GetImportRegistryTestGate(), Error))
 		<< Error;
-	const auto Handle = Durin::Asset::Import::LaunchAsyncImportPlan({
+	const auto Handle = Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
 		.ProviderId = ProviderId}, "Tests.AsyncUnload.Owner");
 	ASSERT_TRUE(Handle);
@@ -694,15 +710,15 @@ TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUn
 		ASSERT_TRUE(BlockingState->Condition.wait_for(
 			Lock, std::chrono::seconds(5), [&] { return BlockingState->bEntered; }));
 	}
-	Durin::Asset::Import::CancelAndDrainAsyncImportsForProvider(ProviderId);
+	Durin::Asset::Import::GetImportService().CancelAndDrainAsyncImportsForProvider(ProviderId);
 	EXPECT_EQ(Handle.GetStatus(), Durin::Asset::Import::EAsyncImportPlanStatus::Canceled);
 	const Durin::FTaskSchedulerDiagnostics TaskDiagnostics =
 		Durin::GetTaskSchedulerDiagnostics();
 	EXPECT_EQ(TaskDiagnostics.LiveScopeCount, 1u);
 	EXPECT_EQ(TaskDiagnostics.OpenScopeCount, 0u);
 	EXPECT_EQ(TaskDiagnostics.NonquiescentScopeCount, 0u);
-	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
-	EXPECT_TRUE(Registry.Unregister(ProviderId));
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
 }
 
 TEST(FAssetImportCoreTests, OwnerBarrierCancelsRequestAndReachesScopeQuiescence)
@@ -715,17 +731,16 @@ TEST(FAssetImportCoreTests, OwnerBarrierCancelsRequestAndReachesScopeQuiescence)
 	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
-	auto& Registry = Durin::Asset::Import::GetProviderRegistry();
+	auto& Registry = Durin::Asset::Import::GetImportService();
 	const std::string ProviderId = "Tests.AsyncOwnerClose";
 	const std::string OwnerId = "Tests.AsyncOwnerClose.Owner";
-	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	const auto BlockingState = std::make_shared<FBlockingProviderState>();
 	std::string Error;
-	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState),
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState)},
 		GetImportRegistryTestGate(), Error))
 		<< Error;
-	const auto Handle = Durin::Asset::Import::LaunchAsyncImportPlan({
+	const auto Handle = Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
 		.ProviderId = ProviderId}, OwnerId);
 	ASSERT_TRUE(Handle);
@@ -735,21 +750,21 @@ TEST(FAssetImportCoreTests, OwnerBarrierCancelsRequestAndReachesScopeQuiescence)
 			Lock, std::chrono::seconds(5), [&] { return BlockingState->bEntered; }));
 	}
 
-	Durin::Asset::Import::CancelAndDrainAsyncImportsForOwner(OwnerId);
+	Durin::Asset::Import::GetImportService().CancelAndDrainAsyncImportsForOwner(OwnerId);
 	EXPECT_EQ(Handle.GetStatus(), Durin::Asset::Import::EAsyncImportPlanStatus::Canceled);
 	const Durin::FTaskSchedulerDiagnostics TaskDiagnostics =
 		Durin::GetTaskSchedulerDiagnostics();
 	EXPECT_EQ(TaskDiagnostics.OpenScopeCount, 0u);
 	EXPECT_EQ(TaskDiagnostics.NonquiescentScopeCount, 0u);
-	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
-	EXPECT_TRUE(Registry.Unregister(ProviderId));
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
 }
 
 TEST(FAssetImportCoreTests, RejectedSchedulerLaunchIsReportedAsNeverAccepted)
 {
 	Durin::ShutdownTaskScheduler(false);
 	FTaskSchedulerGuard SchedulerGuard;
-	const auto Handle = Durin::Asset::Import::LaunchAsyncImportPlan({
+	const auto Handle = Durin::Asset::Import::GetImportService().LaunchAsyncImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Unavailable.graph"},
 		.ProviderId = "Tests.Rejected"}, "Tests.Rejected.Owner");
 	ASSERT_TRUE(Handle);

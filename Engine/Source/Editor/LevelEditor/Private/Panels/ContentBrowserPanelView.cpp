@@ -2,6 +2,7 @@
 
 #include "StaticMesh/StaticMesh.h"
 #include "AssetImportCore.h"
+#include "ImportService.h"
 #include "MultiOutputImport.h"
 #include "Panels/ContentBrowserItemView.h"
 
@@ -822,8 +823,8 @@ namespace Durin::Editor::Level
 					ImGui::EndMenu();
 				}
 				const Asset::Import::FImportRecordCapabilitySet Capabilities =
-					Asset::Import::QueryImportRecordCapabilities(
-						Inspection, Asset::Import::GetImportRecordHandlerRegistry());
+					Asset::Import::GetImportService().QueryImportRecordCapabilities(
+						Inspection);
 				for (const Asset::Import::EImportRecordAction Action : {
 					Asset::Import::EImportRecordAction::Reimport,
 					Asset::Import::EImportRecordAction::RecreateMissingOutputs,
@@ -875,7 +876,7 @@ namespace Durin::Editor::Level
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset
 			&& !bManagedByRecord
-			&& Asset::Import::GetSingleAssetHandlerRegistry().Find(Item.AssetClassName))
+			&& Asset::Import::GetImportService().HasSingleAssetImporter(Item.AssetClassName))
 		{
 			FAssetPath CapabilityPath;
 			DObject* CapabilityAsset = nullptr;
@@ -885,9 +886,8 @@ namespace Durin::Editor::Level
 			Asset::Import::FSingleAssetCapabilitySet CapabilitySet;
 			if (bLoadedForCapabilities && CapabilityAsset)
 			{
-				CapabilitySet = Asset::Import::QuerySingleAssetCapabilities(
-					*CapabilityAsset, Asset::Import::GetProviderRegistry(),
-					Asset::Import::GetSingleAssetHandlerRegistry());
+				CapabilitySet = Asset::Import::GetImportService().QuerySingleAssetCapabilities(
+					*CapabilityAsset);
 				ReimportCapability = CapabilitySet.Find(
 					Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
 			}

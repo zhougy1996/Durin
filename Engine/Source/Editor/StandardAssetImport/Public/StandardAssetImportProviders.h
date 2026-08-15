@@ -5,8 +5,8 @@
 
 namespace Durin::Asset::Import::Standard
 {
-	// Registers the built-in Scene, StaticMesh, Texture2D, and TextureCube
-	// providers plus their exact-class imported-state handlers. Calls are idempotent.
+	// Registers the built-in Scene, geometry, and image importer descriptors.
+	// Each descriptor owns its planning and reimport capabilities. Calls are idempotent.
 	STANDARDASSETIMPORT_API auto RegisterStandardAssetImportProviders(
 		std::string& OutError, FModuleOwnedCallbackGate OwnerGate) -> bool;
 	STANDARDASSETIMPORT_API auto UnregisterStandardAssetImportProviders() -> void;

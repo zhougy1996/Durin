@@ -323,6 +323,7 @@ namespace Durin::Asset::Import
 	};
 
 	class FProviderLease;
+	class FImporterStore;
 	class FImportPlanBuilder;
 	struct FImportPlanResult;
 	struct FImportPlanRequest;
@@ -374,43 +375,18 @@ namespace Durin::Asset::Import
 		std::shared_ptr<const FProviderLeaseState> State;
 		std::shared_ptr<FModuleOwnedResourceLease> ResourceLease;
 
-		friend class FProviderRegistry;
+		friend class FImporterStore;
 	};
 
-	class ASSETIMPORTCORE_API FProviderRegistry
-	{
-	public:
-		FProviderRegistry();
-		~FProviderRegistry();
-		FProviderRegistry(const FProviderRegistry&) = delete;
-		auto operator=(const FProviderRegistry&) -> FProviderRegistry& = delete;
-
-		auto Register(std::shared_ptr<IImportProvider> Provider,
-			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
-		auto Unregister(std::string_view ProviderId) -> bool;
-		auto Find(std::string_view ProviderId) const -> FProviderLease;
-		auto FindMatching(const FImportSourceRecognition& Source) const -> std::vector<FProviderLease>;
-		auto GetRevision() const -> uint64;
-		auto GetOutstandingLeaseCount(std::string_view ProviderId) const -> uint64;
-
-	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
-	};
-
-	ASSETIMPORTCORE_API auto GetProviderRegistry() -> FProviderRegistry&;
 	// Serializes only final import preflight and authored-package publication.
 	ASSETIMPORTCORE_API auto GetImportPublicationMutex() -> std::mutex&;
 	ASSETIMPORTCORE_API auto BuildImportPlan(
 		const FProviderLease& Provider,
 		std::shared_ptr<const FSourceSnapshot> Snapshot,
 		const FImportPayload& Settings,
-		uint64 ProviderRegistryRevision,
+		uint64 ImporterRevision,
 		std::span<const FImportDiagnostic> PriorDiagnostics = {},
 		IImportProgressReporter* Progress = nullptr) -> FImportPlanResult;
-	ASSETIMPORTCORE_API auto CreateImportPlan(
-		const FImportPlanRequest& Request,
-		FProviderRegistry& Registry) -> FImportPlanResult;
 
 	class ASSETIMPORTCORE_API FSourceSnapshotBuilder
 	{
@@ -495,7 +471,7 @@ namespace Durin::Asset::Import
 		auto GetDiagnostics() const -> std::span<const FImportDiagnostic> { return Diagnostics; }
 		auto GetFingerprint() const -> const FXxHash128& { return Fingerprint; }
 		auto GetProviderData() const -> const std::shared_ptr<const void>& { return ProviderData; }
-		auto GetProviderRegistryRevision() const -> uint64 { return ProviderRegistryRevision; }
+		auto GetImporterRevision() const -> uint64 { return ImporterRevision; }
 
 	private:
 		FProviderLease Provider;
@@ -506,7 +482,7 @@ namespace Durin::Asset::Import
 		std::vector<FImportDiagnostic> Diagnostics;
 		std::shared_ptr<const void> ProviderData;
 		FXxHash128 Fingerprint{};
-		uint64 ProviderRegistryRevision = 0;
+		uint64 ImporterRevision = 0;
 
 		friend ASSETIMPORTCORE_API auto BuildImportPlan(
 			const FProviderLease&,
@@ -515,9 +491,7 @@ namespace Durin::Asset::Import
 			uint64,
 			std::span<const FImportDiagnostic>,
 			IImportProgressReporter*) -> FImportPlanResult;
-		friend ASSETIMPORTCORE_API auto CreateImportPlan(
-			const FImportPlanRequest&,
-			FProviderRegistry&) -> FImportPlanResult;
+		friend class FImportService;
 	};
 
 	struct FImportPlanRequest
@@ -604,6 +578,7 @@ namespace Durin::Asset::Import
 	};
 
 	class FSingleAssetImportPlan;
+	class FImportService;
 	struct FSingleAssetPlanResult;
 	struct FSingleAssetExecutionOptions;
 	struct FSingleAssetExecutionResult;
@@ -659,27 +634,6 @@ namespace Durin::Asset::Import
 			std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool = 0;
 	};
 
-	class ASSETIMPORTCORE_API FSingleAssetHandlerRegistry
-	{
-	public:
-		FSingleAssetHandlerRegistry();
-		~FSingleAssetHandlerRegistry();
-		FSingleAssetHandlerRegistry(const FSingleAssetHandlerRegistry&) = delete;
-		auto operator=(const FSingleAssetHandlerRegistry&) -> FSingleAssetHandlerRegistry& = delete;
-
-		auto Register(std::shared_ptr<ISingleAssetImportHandler> Handler,
-			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
-		auto Unregister(std::string_view AssetClassName) -> bool;
-		auto Find(std::string_view AssetClassName) const -> std::shared_ptr<const ISingleAssetImportHandler>;
-		auto GetRevision() const -> uint64;
-
-	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
-	};
-
-	ASSETIMPORTCORE_API auto GetSingleAssetHandlerRegistry() -> FSingleAssetHandlerRegistry&;
-
 	struct FSingleAssetReimportRequest
 	{
 		DObject* Asset = nullptr;
@@ -700,8 +654,7 @@ namespace Durin::Asset::Import
 		auto GetSnapshot() const -> const FSourceSnapshot& { return *Snapshot; }
 		auto GetProvider() const -> const FProviderLease& { return Provider; }
 		auto GetPackageEditRevision() const -> uint64 { return PackageEditRevision; }
-		auto GetProviderRegistryRevision() const -> uint64 { return ProviderRegistryRevision; }
-		auto GetHandlerRegistryRevision() const -> uint64 { return HandlerRegistryRevision; }
+		auto GetServiceRevision() const -> uint64 { return ServiceRevision; }
 		auto ReplacesSource() const -> bool { return bReplacesSource; }
 
 	private:
@@ -713,20 +666,12 @@ namespace Durin::Asset::Import
 		std::shared_ptr<const FSourceSnapshot> Snapshot;
 		FProviderLease Provider;
 		std::shared_ptr<const ISingleAssetImportHandler> Handler;
-		FProviderRegistry* ProviderRegistry = nullptr;
-		FSingleAssetHandlerRegistry* HandlerRegistry = nullptr;
+		FImportService* Service = nullptr;
 		uint64 PackageEditRevision = 0;
-		uint64 ProviderRegistryRevision = 0;
-		uint64 HandlerRegistryRevision = 0;
+		uint64 ServiceRevision = 0;
 		bool bReplacesSource = false;
 
-		friend ASSETIMPORTCORE_API auto CreateSingleAssetReimportPlan(
-			const FSingleAssetReimportRequest&,
-			FProviderRegistry&,
-			FSingleAssetHandlerRegistry&) -> FSingleAssetPlanResult;
-		friend ASSETIMPORTCORE_API auto ExecuteSingleAssetImport(
-			const FSingleAssetImportPlan&,
-			const FSingleAssetExecutionOptions&) -> FSingleAssetExecutionResult;
+		friend class FImportService;
 	};
 
 	struct FSingleAssetPlanResult
@@ -755,22 +700,5 @@ namespace Durin::Asset::Import
 
 		explicit operator bool() const { return bSucceeded; }
 	};
-
-	ASSETIMPORTCORE_API auto QuerySingleAssetCapabilities(
-		const DObject& Asset,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetCapabilitySet;
-	ASSETIMPORTCORE_API auto CreateSingleAssetReimportPlan(
-		const FSingleAssetReimportRequest& Request,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetPlanResult;
-	ASSETIMPORTCORE_API auto ExecuteSingleAssetImport(
-		const FSingleAssetImportPlan& Plan,
-		const FSingleAssetExecutionOptions& Options = {}) -> FSingleAssetExecutionResult;
-	ASSETIMPORTCORE_API auto RepairSingleAssetSource(
-		DObject& Asset,
-		std::span<const FSourcePath> Sources,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetExecutionResult;
 
 }

@@ -3,6 +3,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "MultiOutputImport.h"
+#include "ImportService.h"
 #include "SceneImport.h"
 #include "AssetMutation.h"
 #include "Editor/EditorEngine.h"
@@ -52,10 +53,9 @@ namespace Durin::Editor::Level
 			for (Asset::Import::DImportRecord* Record : Records)
 			{
 				const Asset::Import::FImportRecordActionResult Result =
-					Asset::Import::ExecuteImportRecordAction(
+					Asset::Import::GetImportService().ExecuteImportRecordAction(
 						*Record,
-						Asset::Import::EImportRecordAction::Reimport,
-						Asset::Import::GetImportRecordHandlerRegistry());
+						Asset::Import::EImportRecordAction::Reimport);
 				if (!Result)
 				{
 					OutError = std::format(

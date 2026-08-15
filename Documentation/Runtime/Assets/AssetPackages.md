@@ -605,8 +605,9 @@ of being silently omitted.
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
 - `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
 - `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
-- Editor modules invoke the provider-neutral import and reimport framework
-  documented in [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+- Editor modules invoke the descriptor-based `FImportService` for initial
+  import, single-asset reimport/repair, and record-backed multi-output actions,
+  as documented in [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Asset-level cooking and deterministic cooked publication are implemented for

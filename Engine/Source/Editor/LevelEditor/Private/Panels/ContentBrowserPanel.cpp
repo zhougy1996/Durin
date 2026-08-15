@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "AssetImportCore.h"
+#include "ImportService.h"
 #include "AssetCanonicalResave.h"
 #include "AssetCompatibility.h"
 #include "SceneImport.h"
@@ -468,9 +469,8 @@ namespace Durin::Editor::Level
 		if (Inspection && Inspection.Record)
 		{
 			const Asset::Import::FImportRecordActionResult Executed =
-				Asset::Import::ExecuteImportRecordAction(
-					*Inspection.Record, Action,
-					Asset::Import::GetImportRecordHandlerRegistry());
+				Asset::Import::GetImportService().ExecuteImportRecordAction(
+					*Inspection.Record, Action);
 			if (!Executed) { SetError(Executed.Message); return; }
 			LastReimportOrphans = Executed.Orphans;
 			PublishMountedContentMutation();
@@ -478,24 +478,21 @@ namespace Durin::Editor::Level
 			return;
 		}
 		const Asset::Import::FSingleAssetCapabilitySet Capabilities =
-			Asset::Import::QuerySingleAssetCapabilities(
-				*AssetObject, Asset::Import::GetProviderRegistry(),
-				Asset::Import::GetSingleAssetHandlerRegistry());
+			Asset::Import::GetImportService().QuerySingleAssetCapabilities(*AssetObject);
 		const Asset::Import::FSingleAssetCapability* Reimport = Capabilities.Find(
 			Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
 		if (Reimport && Reimport->bAvailable && !bRecreateMissingAssets)
 		{
 			const Asset::Import::FSingleAssetPlanResult Planned =
-				Asset::Import::CreateSingleAssetReimportPlan(
-					{.Asset = AssetObject}, Asset::Import::GetProviderRegistry(),
-					Asset::Import::GetSingleAssetHandlerRegistry());
+				Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+					{.Asset = AssetObject});
 			if (!Planned)
 			{
 				SetError(Planned.Message);
 				return;
 			}
 			const Asset::Import::FSingleAssetExecutionResult Executed =
-				Asset::Import::ExecuteSingleAssetImport(Planned.Plan);
+				Asset::Import::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
 			if (!Executed)
 			{
 				SetError(Executed.Message);

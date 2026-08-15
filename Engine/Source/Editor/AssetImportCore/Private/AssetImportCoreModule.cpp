@@ -1,4 +1,5 @@
 #include "AsyncImport.h"
+#include "ImportService.h"
 #include "AssetMutation.h"
 #include "ImportRecordIndex.h"
 #include "Modules/ModuleManager.h"
@@ -20,8 +21,8 @@ namespace Durin
 		{
 			Asset::UnregisterAssetReferenceStore(ReferenceStoreHandle);
 			ReferenceStoreHandle = 0;
-			Asset::Import::CloseAsyncImportAdmission();
-			Asset::Import::CancelAndDrainAllAsyncImports();
+			Asset::Import::GetImportService().CloseAsyncAdmission();
+			Asset::Import::GetImportService().CancelAndDrainAllAsyncImports();
 		}
 
 	private:

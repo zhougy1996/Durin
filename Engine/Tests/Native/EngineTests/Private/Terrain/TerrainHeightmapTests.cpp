@@ -1,4 +1,5 @@
 #include "AssetImportCore.h"
+#include "ImportService.h"
 #include "AssetMutation.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
@@ -472,11 +473,10 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	EXPECT_TRUE(Imported.Asset->GetSourceFile().ends_with(".raw"));
 
 	const Durin::uint64 InitialRevision = Imported.Asset->GetRevision();
-	auto Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
-		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
+	auto Plan = Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Noop = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Noop = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Noop) << Noop.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	const std::array<Durin::uint16, 9> Changed{
@@ -484,11 +484,10 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 		6, 5, 4,
 		3, 2, 1};
 	WriteRaw16(Source, Changed);
-	Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
-		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
+	Plan = Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Updated = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Updated = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Updated) << Updated.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
@@ -566,23 +565,21 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 
-	auto Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
-		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
+	auto Plan = Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
 	const Durin::uint64 InitialRevision = Imported.Asset->GetRevision();
-	const auto Noop = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Noop = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Noop) << Noop.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
 	const std::array<Durin::uint16, 6> Changed{1, 2, 3, 4, 5, 6};
 	WritePng(Source, 3, 2, Changed);
-	Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
-		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
+	Plan = Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Updated = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Updated = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Updated) << Updated.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 1);
@@ -593,11 +590,10 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const auto BeforeFailurePayload = Imported.Asset->GetPayload();
 	const std::array<Durin::uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
 	WritePng(Source, 3, 2, FailedChange);
-	Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
-		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
+	Plan = Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Failed = Durin::Asset::Import::ExecuteSingleAssetImport(
+	const auto Failed = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(
 		Plan.Plan, {.SaveOptions = {.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
 		}}});

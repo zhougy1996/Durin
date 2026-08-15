@@ -1,4 +1,5 @@
 #include "StandardAssetImportProviders.h"
+#include "ImportService.h"
 #include "StandardAssetAuthoringFeatures.h"
 #include "StaticMeshSourceTranslation.h"
 #include "Texture2DSourceTranslation.h"
@@ -479,40 +480,6 @@ namespace Durin::Asset::Import::Standard
 			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
 		private:
 			std::unique_ptr<FStaticMeshImportedStateExchange> Exchange;
-		};
-
-		class FIdentityProvider final : public IImportProvider
-		{
-		public:
-			FIdentityProvider(std::string InId, uint32 InVersion, std::vector<std::string> InExtensions)
-				: Id(std::move(InId)), Version(InVersion), Extensions(std::move(InExtensions)) {}
-			auto GetProviderId() const -> std::string_view override { return Id; }
-			auto GetContractVersion() const -> uint32 override { return Version; }
-			auto CanImport(const FImportSourceRecognition& Source) const -> bool override
-			{
-				std::string Extension = Source.Extension;
-				std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-					return static_cast<char>(std::tolower(Character));
-				});
-				return std::ranges::find(Extensions, Extension) != Extensions.end();
-			}
-			auto CaptureSettings(FImportPayload& OutSettings,
-				std::vector<FImportDiagnostic>&) const -> bool override
-			{
-				OutSettings = MakePayload(std::format("Durin.{}.DefaultSettings", Id), 1, {});
-				return true;
-			}
-			auto DiscoverDependencies(std::span<const FSourceSnapshotEntry>,
-				FDependencyRequestSink&, std::vector<FImportDiagnostic>&) const -> bool override
-			{
-				return true;
-			}
-			auto Plan(const FSourceSnapshot&, const FImportPayload&, FImportPlanBuilder&,
-				std::vector<FImportDiagnostic>&) const -> bool override { return true; }
-		private:
-			std::string Id;
-			uint32 Version = 0;
-			std::vector<std::string> Extensions;
 		};
 
 		auto MakeCapabilities(
@@ -1355,56 +1322,39 @@ namespace Durin::Asset::Import::Standard
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (GRegistered) { OutError.clear(); return true; }
-		OpenAsyncImportProviderAdmission(SceneImportProviderId);
-		OpenAsyncImportProviderAdmission("Assimp");
-		OpenAsyncImportProviderAdmission("DurinImage");
-		auto& Providers = GetProviderRegistry();
-		auto& Handlers = GetSingleAssetHandlerRegistry();
-		auto& RecordHandlers = GetImportRecordHandlerRegistry();
+		auto& Service = GetImportService();
 		auto RollbackFrameworkRegistrations = [&] {
-			Handlers.Unregister("Durin::DStaticMesh");
-			Handlers.Unregister("Durin::DTexture2D");
-			Handlers.Unregister("Durin::DTextureCube");
-			Handlers.Unregister("Durin::DTerrainHeightmap");
-			RecordHandlers.Unregister(SceneImportProviderId);
-			Providers.Unregister("DurinImage");
-			Providers.Unregister("Assimp");
-			Providers.Unregister(SceneImportProviderId);
+			Service.UnregisterImporter("DurinImage");
+			Service.UnregisterImporter("Assimp");
+			Service.UnregisterImporter(SceneImportProviderId);
 		};
-		if (!Providers.Register(CreateSceneImportProvider(), OwnerGate, OutError))
+		if (!Service.RegisterImporter({
+			.Provider = CreateSceneImportProvider(),
+			.RecordHandler = std::make_shared<FSceneRecordHandler>()}, OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!RecordHandlers.Register(
-			std::make_shared<FSceneRecordHandler>(), OwnerGate, OutError))
-		{
-			RollbackFrameworkRegistrations();
-			return false;
-		}
-		if (!Providers.Register(std::make_shared<FIdentityProvider>("Assimp", 3,
-			std::vector<std::string>{
-				".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".ply", ".stl"}),
+		if (!Service.RegisterImporter({
+			.ProviderId = "Assimp",
+			.ContractVersion = 3,
+			.SourceExtensions = {
+				".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".ply", ".stl"},
+			.SingleAssetHandlers = {std::make_shared<FStaticMeshHandler>()}},
 			OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!Providers.Register(std::make_shared<FIdentityProvider>("DurinImage", 1,
-			std::vector<std::string>{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"}),
-			OwnerGate, OutError))
+		if (!Service.RegisterImporter({
+			.ProviderId = "DurinImage",
+			.ContractVersion = 1,
+			.SourceExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"},
+			.SingleAssetHandlers = {
+				std::make_shared<FTexture2DHandler>(),
+				std::make_shared<FTextureCubeHandler>(),
+				std::make_shared<FTerrainHeightmapHandler>()}}, OwnerGate, OutError))
 		{
-			RollbackFrameworkRegistrations();
-			return false;
-		}
-		std::vector<std::shared_ptr<ISingleAssetImportHandler>> Builtins = {
-			std::make_shared<FStaticMeshHandler>(),
-			std::make_shared<FTexture2DHandler>(),
-			std::make_shared<FTextureCubeHandler>(),
-			std::make_shared<FTerrainHeightmapHandler>()};
-		for (const auto& Handler : Builtins)
-		{
-			if (Handlers.Register(Handler, OwnerGate, OutError)) continue;
 			RollbackFrameworkRegistrations();
 			return false;
 		}
@@ -1432,19 +1382,10 @@ namespace Durin::Asset::Import::Standard
 		if (!GRegistered) return;
 		UnregisterTexture2DSourceRelocation();
 		UnregisterTexture2DPropertyEditing();
-		CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
-		CancelAndDrainAsyncImportsForProvider("Assimp");
-		CancelAndDrainAsyncImportsForProvider("DurinImage");
-		auto& Handlers = GetSingleAssetHandlerRegistry();
-		Handlers.Unregister("Durin::DStaticMesh");
-		Handlers.Unregister("Durin::DTexture2D");
-		Handlers.Unregister("Durin::DTextureCube");
-		Handlers.Unregister("Durin::DTerrainHeightmap");
-		GetImportRecordHandlerRegistry().Unregister(SceneImportProviderId);
-		auto& Providers = GetProviderRegistry();
-		Providers.Unregister("DurinImage");
-		Providers.Unregister("Assimp");
-		Providers.Unregister(SceneImportProviderId);
+		auto& Service = GetImportService();
+		Service.UnregisterImporter("DurinImage");
+		Service.UnregisterImporter("Assimp");
+		Service.UnregisterImporter(SceneImportProviderId);
 		GRegistered = false;
 	}
 }

@@ -2,6 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
+#include "ImportService.h"
 #include "AssetMutation.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
@@ -1382,7 +1383,7 @@ namespace Durin::Asset::Import::Standard
 		FImportRecordPayload ProviderState;
 		if (!Data || !MakeSceneProviderState(
 			*Data, Generic.Plan.GetOutputs(), ProviderState, Result.Message)) return Result;
-		FMultiOutputPlanResult Multi = CreateMultiOutputImportPlan({
+		FMultiOutputPlanResult Multi = GetImportService().CreateMultiOutputImportPlan({
 			.GenericPlan = std::move(Generic.Plan),
 			.RecordPath = RecordPath,
 			.ExistingRecord = Request.ExistingRecord,
@@ -1418,7 +1419,7 @@ namespace Durin::Asset::Import::Standard
 				"Scene import requires a mounted root source and destination directory.";
 			return Invalid;
 		}
-		if (!GetProviderRegistry().Find(SceneImportProviderId))
+		if (!GetImportService().IsImporterRegistered(SceneImportProviderId))
 		{
 			Invalid.Message = "The StandardAssetImport Scene provider is unavailable.";
 			return Invalid;
@@ -1427,11 +1428,11 @@ namespace Durin::Asset::Import::Standard
 		if (!MakeSceneSettings(
 			Request.DestinationDirectory, Request.MeshSettings, Settings, Invalid.Message))
 			return Invalid;
-		FImportPlanResult Generic = CreateImportPlan({
+		FImportPlanResult Generic = GetImportService().CreateImportPlan({
 			.RootSource = Request.RootSource,
 			.ProviderId = std::string(SceneImportProviderId),
 			.Settings = std::move(Settings),
-			.Progress = Request.Progress}, GetProviderRegistry());
+			.Progress = Request.Progress});
 		return FinalizeSceneImportPlan(Request, std::move(Generic));
 	}
 
@@ -1460,7 +1461,7 @@ namespace Durin::Asset::Import::Standard
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
 		}
-		if (!GetProviderRegistry().Find(SceneImportProviderId))
+		if (!GetImportService().IsImporterRegistered(SceneImportProviderId))
 		{
 			Invalid.Message = "The StandardAssetImport Scene provider is unavailable.";
 			Handle.ImmediateResult = std::move(Invalid);
@@ -1473,7 +1474,7 @@ namespace Durin::Asset::Import::Standard
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
 		}
-		Handle.GenericHandle = LaunchAsyncImportPlan({
+		Handle.GenericHandle = GetImportService().LaunchAsyncImportPlan({
 			.RootSource = Request.RootSource,
 			.ProviderId = std::string(SceneImportProviderId),
 			.Settings = std::move(Settings)}, OwnerId);
@@ -1517,7 +1518,7 @@ namespace Durin::Asset::Import::Standard
 	{
 		if (Handle.bConsumed) return;
 		if (Handle.GenericHandle)
-			(void)CancelAndDrainAsyncImport(Handle.GenericHandle);
+			(void)GetImportService().CancelAndDrainAsyncImport(Handle.GenericHandle);
 		Handle.ImmediateResult.reset();
 		Handle.bConsumed = true;
 	}
@@ -2083,7 +2084,7 @@ namespace Durin::Asset::Import::Standard
 			EImportProgressState::Succeeded, "root", "request",
 			Prepared.Outputs.size(), Prepared.Outputs.size());
 		if (IsCanceled()) return FailCanceled();
-		FMultiOutputExecutionResult Executed = ExecuteMultiOutputImport(
+		FMultiOutputExecutionResult Executed = GetImportService().ExecuteMultiOutputImport(
 			Plan.MultiOutputPlan, std::move(Prepared), GetImportRecordIndex(), Options);
 		if (Executed)
 		{

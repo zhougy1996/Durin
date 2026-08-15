@@ -1,4 +1,6 @@
 #include "AssetImportCore.h"
+#include "ImportService.h"
+#include "ImportRegistryInternal.h"
 #include "AsyncImport.h"
 
 #include "Misc/Paths.h"
@@ -322,21 +324,21 @@ namespace Durin::Asset::Import
 		return State ? State->OwnerGate.TryEnter() : FModuleOwnedCallbackInvocation{};
 	}
 
-	struct FProviderRegistry::FImpl
+	struct FImporterStore::FImpl
 	{
 		std::map<std::string, std::shared_ptr<FProviderLeaseState>, std::less<>> Providers;
 		std::map<std::string, std::weak_ptr<FProviderLeaseState>, std::less<>> RetiredProviders;
 		uint64 Revision = 1;
 	};
 
-	FProviderRegistry::FProviderRegistry()
+	FImporterStore::FImporterStore()
 		: Impl(std::make_unique<FImpl>())
 	{
 	}
 
-	FProviderRegistry::~FProviderRegistry() = default;
+	FImporterStore::~FImporterStore() = default;
 
-	auto FProviderRegistry::Register(
+	auto FImporterStore::Register(
 		std::shared_ptr<IImportProvider> Provider,
 		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> bool
@@ -383,7 +385,7 @@ namespace Durin::Asset::Import
 		return true;
 	}
 
-	auto FProviderRegistry::Unregister(std::string_view ProviderId) -> bool
+	auto FImporterStore::Unregister(std::string_view ProviderId) -> bool
 	{
 		const auto It = Impl->Providers.find(ProviderId);
 		if (It == Impl->Providers.end()) return false;
@@ -393,7 +395,7 @@ namespace Durin::Asset::Import
 		return true;
 	}
 
-	auto FProviderRegistry::Find(std::string_view ProviderId) const -> FProviderLease
+	auto FImporterStore::Find(std::string_view ProviderId) const -> FProviderLease
 	{
 		const auto It = Impl->Providers.find(ProviderId);
 		if (It == Impl->Providers.end()) return {};
@@ -405,7 +407,7 @@ namespace Durin::Asset::Import
 		return Lease;
 	}
 
-	auto FProviderRegistry::FindMatching(
+	auto FImporterStore::FindMatching(
 		const FImportSourceRecognition& Source) const -> std::vector<FProviderLease>
 	{
 		std::vector<FProviderLease> Result;
@@ -423,12 +425,12 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto FProviderRegistry::GetRevision() const -> uint64
+	auto FImporterStore::GetRevision() const -> uint64
 	{
 		return Impl->Revision;
 	}
 
-	auto FProviderRegistry::GetOutstandingLeaseCount(std::string_view ProviderId) const -> uint64
+	auto FImporterStore::GetOutstandingLeaseCount(std::string_view ProviderId) const -> uint64
 	{
 		const auto Active = Impl->Providers.find(ProviderId);
 		if (Active != Impl->Providers.end())
@@ -437,12 +439,6 @@ namespace Durin::Asset::Import
 		if (Retired == Impl->RetiredProviders.end()) return 0;
 		const std::shared_ptr<FProviderLeaseState> State = Retired->second.lock();
 		return State && State.use_count() > 0 ? State.use_count() - 1 : 0;
-	}
-
-	auto GetProviderRegistry() -> FProviderRegistry&
-	{
-		static FProviderRegistry Registry;
-		return Registry;
 	}
 
 	auto GetImportPublicationMutex() -> std::mutex&
@@ -953,7 +949,7 @@ namespace Durin::Asset::Import
 		const FProviderLease& Provider,
 		std::shared_ptr<const FSourceSnapshot> Snapshot,
 		const FImportPayload& Settings,
-		uint64 ProviderRegistryRevision,
+		uint64 ImporterRevision,
 		std::span<const FImportDiagnostic> PriorDiagnostics,
 		IImportProgressReporter* Progress) -> FImportPlanResult
 	{
@@ -1050,7 +1046,7 @@ namespace Durin::Asset::Import
 		UpdateFingerprint(Fingerprint, Settings.SchemaVersion);
 		UpdateFingerprint(Fingerprint, Settings.ContentHash.HashLow);
 		UpdateFingerprint(Fingerprint, Settings.ContentHash.HashHigh);
-		UpdateFingerprint(Fingerprint, ProviderRegistryRevision);
+		UpdateFingerprint(Fingerprint, ImporterRevision);
 		for (const FSourceSnapshotEntry& Source : Snapshot->GetSources())
 		{
 			UpdateFingerprint(Fingerprint, Source.StableIdentity);
@@ -1103,16 +1099,16 @@ namespace Durin::Asset::Import
 		Result.Plan.Diagnostics = Result.Diagnostics;
 		Result.Plan.ProviderData = std::move(Builder.ProviderData);
 		Result.Plan.Fingerprint = Fingerprint.Finalize();
-		Result.Plan.ProviderRegistryRevision = ProviderRegistryRevision;
+		Result.Plan.ImporterRevision = ImporterRevision;
 		Result.bSucceeded = true;
 		ReportImportProgress(Progress, EImportPhase::Plan,
 			EImportProgressState::Succeeded, "root", "request", 1, 1);
 		return Result;
 	}
 
-	auto CreateImportPlan(
+	auto CreateImportPlanInternal(
 		const FImportPlanRequest& Request,
-		FProviderRegistry& Registry) -> FImportPlanResult
+		FImporterStore& Registry) -> FImportPlanResult
 	{
 		FImportPlanResult Result;
 		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
@@ -1338,12 +1334,6 @@ namespace Durin::Asset::Import
 		return Impl->Revision;
 	}
 
-	auto GetSingleAssetHandlerRegistry() -> FSingleAssetHandlerRegistry&
-	{
-		static FSingleAssetHandlerRegistry Registry;
-		return Registry;
-	}
-
 	namespace
 	{
 		auto GetAssetClassName(const DObject& Asset) -> std::string
@@ -1395,13 +1385,11 @@ namespace Durin::Asset::Import
 
 	}
 
-	auto QuerySingleAssetCapabilities(
-		const DObject& Asset,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetCapabilitySet
+	auto FImportService::QuerySingleAssetCapabilities(
+		const DObject& Asset) const -> FSingleAssetCapabilitySet
 	{
 		const std::string ClassName = GetAssetClassName(Asset);
-		const std::shared_ptr<const ISingleAssetImportHandler> Handler = Handlers.Find(ClassName);
+		const std::shared_ptr<const ISingleAssetImportHandler> Handler = FindSingleAssetHandler(ClassName);
 		if (!Handler)
 			return MakeUnavailableCapabilitySet(ClassName,
 				"No single-asset import handler is registered for this asset class.",
@@ -1422,7 +1410,7 @@ namespace Durin::Asset::Import
 		FSingleAssetCapabilitySet Result = Handler->QueryCapabilities(Asset, Provenance);
 		Result.AssetClassName = ClassName;
 		Result.ProviderId = Provenance.ProviderId;
-		const FProviderLease Provider = Providers.Find(Provenance.ProviderId);
+		const FProviderLease Provider = FindProvider(Provenance.ProviderId);
 		if (!Provider || Provider.GetContractVersion() != Provenance.ProviderContractVersion)
 		{
 			for (FSingleAssetCapability& Capability : Result.Capabilities)
@@ -1437,10 +1425,8 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto CreateSingleAssetReimportPlan(
-		const FSingleAssetReimportRequest& Request,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetPlanResult
+	auto FImportService::CreateSingleAssetReimportPlan(
+		const FSingleAssetReimportRequest& Request) -> FSingleAssetPlanResult
 	{
 		FSingleAssetPlanResult Result;
 		FDiagnosticFinalizer DiagnosticFinalizer(
@@ -1455,7 +1441,7 @@ namespace Durin::Asset::Import
 		}
 
 		const std::string ClassName = GetAssetClassName(*Request.Asset);
-		const std::shared_ptr<const ISingleAssetImportHandler> Handler = Handlers.Find(ClassName);
+		const std::shared_ptr<const ISingleAssetImportHandler> Handler = FindSingleAssetHandler(ClassName);
 		if (!Handler)
 		{
 			Result.Message = "No single-asset import handler is registered for the selected asset.";
@@ -1474,7 +1460,7 @@ namespace Durin::Asset::Import
 					EImportDiagnosticCategory::InvalidSource, "single-asset-plan", "root", Result.Message);
 			return Result;
 		}
-		const FProviderLease Provider = Providers.Find(Observed.ProviderId);
+		const FProviderLease Provider = FindProvider(Observed.ProviderId);
 		if (!Provider || Provider.GetContractVersion() != Observed.ProviderContractVersion
 			|| Handler->GetProviderId() != Observed.ProviderId)
 		{
@@ -1559,11 +1545,9 @@ namespace Durin::Asset::Import
 		Result.Plan.Snapshot = std::move(Snapshot);
 		Result.Plan.Provider = Provider;
 		Result.Plan.Handler = Handler;
-		Result.Plan.ProviderRegistry = &Providers;
-		Result.Plan.HandlerRegistry = &Handlers;
+		Result.Plan.Service = this;
 		Result.Plan.PackageEditRevision = Request.Asset->GetPackage()->GetEditRevision();
-		Result.Plan.ProviderRegistryRevision = Providers.GetRevision();
-		Result.Plan.HandlerRegistryRevision = Handlers.GetRevision();
+		Result.Plan.ServiceRevision = GetRevision();
 		Result.Plan.bReplacesSource = bReplacement;
 		Result.bSucceeded = true;
 		PlanProgress.Succeed();
@@ -1572,7 +1556,7 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto ExecuteSingleAssetImport(
+	auto FImportService::ExecuteSingleAssetImport(
 		const FSingleAssetImportPlan& Plan,
 		const FSingleAssetExecutionOptions& Options) -> FSingleAssetExecutionResult
 	{
@@ -1585,7 +1569,7 @@ namespace Durin::Asset::Import
 			Options.Progress, EImportPhase::CandidateBuild, "root",
 			Plan.AssetPath.IsValid() ? Plan.AssetPath.GetView() : std::string_view("request"));
 		if (!Plan.Asset || !Plan.Asset->GetPackage() || !Plan.Handler || !Plan.Provider
-			|| !Plan.ProviderRegistry || !Plan.HandlerRegistry || !Plan.Snapshot)
+			|| Plan.Service != this || !Plan.Snapshot)
 		{
 			AddExecutionDiagnostic(Result, EImportDiagnosticCategory::InvalidPlan,
 				"candidate-build", "Single-asset import plan is incomplete.");
@@ -1631,15 +1615,14 @@ namespace Durin::Asset::Import
 		std::vector<FImportDiagnostic> PreflightDiagnostics;
 		FAssetPath CurrentPath;
 		const std::shared_ptr<const ISingleAssetImportHandler> CurrentHandler =
-			Plan.HandlerRegistry->Find(Plan.AssetClassName);
+			FindSingleAssetHandler(Plan.AssetClassName);
 		const FProviderLease CurrentProvider =
-			Plan.ProviderRegistry->Find(Plan.Provenance.ProviderId);
+			FindProvider(Plan.Provenance.ProviderId);
 		const bool bStale = Plan.Asset->GetPackage() == nullptr
 			|| !GetAssetPath(*Plan.Asset, CurrentPath) || CurrentPath != Plan.AssetPath
 			|| GetAssetClassName(*Plan.Asset) != Plan.AssetClassName
 			|| Plan.Asset->GetPackage()->GetEditRevision() != Plan.PackageEditRevision
-			|| Plan.ProviderRegistry->GetRevision() != Plan.ProviderRegistryRevision
-			|| Plan.HandlerRegistry->GetRevision() != Plan.HandlerRegistryRevision
+			|| GetRevision() != Plan.ServiceRevision
 			|| CurrentHandler.get() != Plan.Handler.get()
 			|| !CurrentProvider
 			|| CurrentProvider.GetContractVersion() != Plan.Provider.GetContractVersion()
@@ -1712,17 +1695,15 @@ namespace Durin::Asset::Import
 		return Result;
 	}
 
-	auto RepairSingleAssetSource(
+	auto FImportService::RepairSingleAssetSource(
 		DObject& Asset,
-		std::span<const FSourcePath> Sources,
-		FProviderRegistry& Providers,
-		FSingleAssetHandlerRegistry& Handlers) -> FSingleAssetExecutionResult
+		std::span<const FSourcePath> Sources) -> FSingleAssetExecutionResult
 	{
 		FSingleAssetExecutionResult Result;
 		FDiagnosticFinalizer DiagnosticFinalizer(
 			Result.Diagnostics, "source-repair", "root", "asset");
 		const std::string ClassName = GetAssetClassName(Asset);
-		const std::shared_ptr<const ISingleAssetImportHandler> Handler = Handlers.Find(ClassName);
+		const std::shared_ptr<const ISingleAssetImportHandler> Handler = FindSingleAssetHandler(ClassName);
 		if (!Handler)
 		{
 			AddExecutionDiagnostic(Result, EImportDiagnosticCategory::CapabilityUnavailable,
@@ -1731,7 +1712,7 @@ namespace Durin::Asset::Import
 		}
 		FSingleAssetProvenance Provenance;
 		if (!Handler->InspectProvenance(Asset, Provenance, Result.Diagnostics)
-			|| !Providers.Find(Provenance.ProviderId))
+			|| !FindProvider(Provenance.ProviderId))
 		{
 			AddExecutionDiagnostic(Result, EImportDiagnosticCategory::ProviderUnavailable,
 				"source-repair", "The persisted import provider is unavailable.");

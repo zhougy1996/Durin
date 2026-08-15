@@ -88,14 +88,7 @@ namespace Durin::Asset::Import
 		uint64 IndexRevision = 0;
 		uint64 AssetRegistryRevision = 0;
 
-		friend ASSETIMPORTCORE_API auto CreateMultiOutputImportPlan(
-			const FMultiOutputPlanRequest&,
-			FImportRecordIndex&) -> FMultiOutputPlanResult;
-		friend ASSETIMPORTCORE_API auto ExecuteMultiOutputImport(
-			const FMultiOutputImportPlan&,
-			FPreparedMultiOutputImport,
-			FImportRecordIndex&,
-			const FMultiOutputExecutionOptions&) -> FMultiOutputExecutionResult;
+		friend class FImportService;
 	};
 
 	struct FMultiOutputPlanResult
@@ -135,11 +128,7 @@ namespace Durin::Asset::Import
 	private:
 		FProviderLease Provider;
 
-		friend ASSETIMPORTCORE_API auto ExecuteMultiOutputImport(
-			const FMultiOutputImportPlan&,
-			FPreparedMultiOutputImport,
-			FImportRecordIndex&,
-			const FMultiOutputExecutionOptions&) -> FMultiOutputExecutionResult;
+		friend class FImportService;
 	};
 
 	struct FMultiOutputExecutionOptions
@@ -220,45 +209,6 @@ namespace Durin::Asset::Import
 			-> FImportRecordActionResult = 0;
 	};
 
-	class ASSETIMPORTCORE_API FImportRecordHandlerRegistry
-	{
-	public:
-		FImportRecordHandlerRegistry();
-		~FImportRecordHandlerRegistry();
-		FImportRecordHandlerRegistry(const FImportRecordHandlerRegistry&) = delete;
-		auto operator=(const FImportRecordHandlerRegistry&)
-			-> FImportRecordHandlerRegistry& = delete;
-
-		auto Register(std::shared_ptr<IImportRecordHandler> Handler,
-			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
-		auto Unregister(std::string_view ProviderId) -> bool;
-		auto Find(std::string_view ProviderId) const
-			-> std::shared_ptr<const IImportRecordHandler>;
-		auto GetRevision() const -> uint64;
-
-	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
-	};
-
-	ASSETIMPORTCORE_API auto CreateMultiOutputImportPlan(
-		const FMultiOutputPlanRequest& Request,
-		FImportRecordIndex& Index) -> FMultiOutputPlanResult;
-	ASSETIMPORTCORE_API auto ExecuteMultiOutputImport(
-		const FMultiOutputImportPlan& Plan,
-		FPreparedMultiOutputImport Prepared,
-		FImportRecordIndex& Index,
-		const FMultiOutputExecutionOptions& Options = {}) -> FMultiOutputExecutionResult;
 	ASSETIMPORTCORE_API auto BuildMultiOutputImportPreview(
 		const FMultiOutputImportPlan& Plan) -> FImportPreview;
-	ASSETIMPORTCORE_API auto GetImportRecordHandlerRegistry()
-		-> FImportRecordHandlerRegistry&;
-	ASSETIMPORTCORE_API auto QueryImportRecordCapabilities(
-		const FImportRecordInspection& Inspection,
-		FImportRecordHandlerRegistry& Handlers) -> FImportRecordCapabilitySet;
-	ASSETIMPORTCORE_API auto ExecuteImportRecordAction(
-		DImportRecord& Record,
-		EImportRecordAction Action,
-		FImportRecordHandlerRegistry& Handlers,
-		const FMultiOutputExecutionOptions& Options = {}) -> FImportRecordActionResult;
 }

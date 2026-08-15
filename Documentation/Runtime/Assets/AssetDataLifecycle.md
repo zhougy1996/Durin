@@ -131,6 +131,12 @@ accepted editor diagnostics, record indexes, and provider-module identities do
 not enter cooked runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
+Editor importers register once with AssetImportCore's `FImportService`. The
+descriptor binds source recognition and planning to its optional single-asset
+and record-backed capabilities. Initial import, reimport, repair, multi-output
+reconciliation, cancellation, and descriptor retirement therefore share one
+service owner; callers never coordinate parallel provider/handler registries.
+
 The current import behavior is:
 
 | Asset | Import-time build | Persistent outputs |
