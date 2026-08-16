@@ -29,6 +29,7 @@ Relevant implementation and architecture:
   including the `VK_EXT_layer_settings` instance extension and
   `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS` setting;
 - [Vulkan device and descriptor implementation](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanDevice.cpp);
+- [Vulkan RHI macOS test environment](../../Engine/Tests/Native/VulkanRHITests/Private/VulkanRHITestEnvironment.cpp);
 - [viewport rendering](../Runtime/Rendering/ViewportRendering.md), including
   the macOS Metal-layer and presentation path;
 - [macOS platform enablement plan](../Plans/MacOSPlatformRuntime.md).
@@ -122,10 +123,10 @@ workaround produces a measured performance or resource-limit regression.
   were interrupted when macOS entered the lock screen. The native-test process
   was observed waiting in the AppKit application loop rather than failing in
   Vulkan. The visual frame comparison cited above was performed after unlock.
-- **Test gap:** the Vulkan RHI integration suite currently has unrelated macOS
-  fixture failures around primary-window admission and optional surface
-  extension prerequisites. It does not provide an automated regression test
-  for this visual artifact.
+- **Test gap:** the complete Vulkan RHI integration target passes when run
+  through a macOS application bundle with its registered primary presentation
+  window. It qualifies RHI admission and hardware behavior, but does not
+  provide an automated regression test for this visual artifact.
 
 ## Reevaluation Procedure
 
