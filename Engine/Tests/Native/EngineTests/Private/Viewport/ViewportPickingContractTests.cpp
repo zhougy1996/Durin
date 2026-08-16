@@ -611,6 +611,11 @@ TEST(FViewportPickingContractTests, IntersectsExactSplineMeshDerivedLOD0Surface)
 		Durin::DSplineMeshComponent::StaticClass(), Durin::FName("SplineMeshPicking")));
 	ASSERT_NE(Component, nullptr);
 	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle(Fixture.Level));
+	auto Params = Component->GetSplineMeshParams();
+	Params.StartTangent = {100.0, 0.0, 0.0};
+	Params.EndPosition = {100.0, 0.0, 0.0};
+	Params.EndTangent = {100.0, 0.0, 0.0};
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
 	Component->SetWorldLocation({0.0, 0.0, 3.0});
 	ASSERT_TRUE(Component->IsRegistered());
 
