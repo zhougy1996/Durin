@@ -93,6 +93,39 @@ namespace Durin
 			return GetSpirvInterfaceLocations(Shader, StorageClassOutput);
 		}
 
+		auto GetSpirvImageFormats(
+			const FCompiledShader& Shader) -> std::set<uint32>
+		{
+			constexpr uint16 OpTypeImage = 25;
+			std::vector<uint32> Words(
+				Shader.Code->size() / sizeof(uint32));
+			std::memcpy(
+				Words.data(),
+				Shader.Code->data(),
+				Shader.Code->size());
+
+			std::set<uint32> Formats;
+			for (size_t Offset = 5; Offset < Words.size();)
+			{
+				const uint32 Instruction = Words[Offset];
+				const uint16 WordCount =
+					static_cast<uint16>(Instruction >> 16);
+				const uint16 OpCode =
+					static_cast<uint16>(Instruction & 0xffffu);
+				if (WordCount == 0
+					|| Offset + WordCount > Words.size())
+				{
+					return {};
+				}
+				if (OpCode == OpTypeImage && WordCount >= 9)
+				{
+					Formats.insert(Words[Offset + 8]);
+				}
+				Offset += WordCount;
+			}
+			return Formats;
+		}
+
 		auto HasSpirvInputBuiltIn(
 			const FCompiledShader& Shader,
 			uint32 BuiltIn) -> bool
@@ -399,6 +432,9 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Vertex = Output.CompiledShaders[0];
 		EXPECT_EQ(GetSpirvInputLocations(Vertex), (std::set<uint32>{0}));
+		constexpr uint32 SpirvImageFormatR16ui = 38;
+		EXPECT_EQ(GetSpirvImageFormats(Vertex),
+			(std::set<uint32>{SpirvImageFormatR16ui}));
 		ASSERT_EQ(Vertex.Reflection.ResourceBindings.size(), 4u);
 		ExpectBinding(Vertex, "Transform", 0, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "HeightTexture", 23, ERHIBindingType::Texture, EShaderStageFlags::Vertex);

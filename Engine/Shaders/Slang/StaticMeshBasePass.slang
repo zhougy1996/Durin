@@ -100,7 +100,9 @@ struct TerrainUniform
     float4 SpacingHeight; // spacing x/y, signed height scale, height offset
     float4 DistanceTransition; // fade start, render distance, reserved, reserved
 };
-[[vk::binding(23, 0)]] Texture2D<uint> HeightTexture;
+[[vk::binding(23, 0)]]
+[[vk::image_format("r16ui")]]
+Texture2D<uint> HeightTexture;
 [[vk::binding(24, 0)]] ConstantBuffer<TerrainUniform> Terrain;
 struct TerrainInstanceData
 {
