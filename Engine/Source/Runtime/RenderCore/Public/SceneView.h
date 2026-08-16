@@ -33,6 +33,14 @@ namespace Durin
 		ForceLOD0
 	};
 
+	// Selects native or reduced deterministic GTAO generation for one view.
+	enum class EGroundTruthAmbientOcclusionQuality : uint8
+	{
+		HalfResolution,
+		FullResolution,
+		Count,
+	};
+
 	// Defines how normalized device depth maps the validated view clip interval.
 	enum class ESceneDepthConvention : uint8
 	{
@@ -107,6 +115,8 @@ namespace Durin
 		// Indirect-only GTAO for solid Lit views using required deferred opaque
 		// ownership. Optional resource failure degrades this factor to white.
 		bool bEnableGroundTruthAmbientOcclusion = true;
+		EGroundTruthAmbientOcclusionQuality GroundTruthAmbientOcclusionQuality =
+			EGroundTruthAmbientOcclusionQuality::HalfResolution;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

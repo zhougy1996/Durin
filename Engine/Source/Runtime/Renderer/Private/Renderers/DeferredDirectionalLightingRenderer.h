@@ -60,12 +60,15 @@ namespace Durin
 			FRHISampler* DirectionalShadowSampler = nullptr;
 			FRHITexture* GroundTruthAmbientOcclusionRaw = nullptr;
 			FRHITexture* GroundTruthAmbientOcclusionFiltered = nullptr;
+			FRHITexture* GroundTruthAmbientOcclusionResolved = nullptr;
+			FRHITexture* GroundTruthAmbientOcclusionSelector = nullptr;
 			FRHITexture* ContactVisibility = nullptr;
 			FRHIUniformBufferRange Lighting;
 			const FSceneView* View = nullptr;
 			uint32 DiagnosticMode = 0;
 			uint32 GroundTruthAmbientOcclusionDebugMode = 0;
 			bool bGroundTruthAmbientOcclusionEnabled = false;
+			bool bGroundTruthAmbientOcclusionHalfResolution = false;
 			bool bContactVisibilityEnabled = false;
 			bool bContactVisibilityDebug = false;
 		};

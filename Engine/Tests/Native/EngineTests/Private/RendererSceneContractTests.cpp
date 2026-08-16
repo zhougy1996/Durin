@@ -182,6 +182,9 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	EXPECT_EQ(Settings.LODMode, Durin::EViewLODMode::Automatic);
 	EXPECT_EQ(Settings.DirectionalShadowFilterQuality,
 		Durin::EDirectionalShadowFilterQuality::Medium);
+	EXPECT_TRUE(Settings.bEnableGroundTruthAmbientOcclusion);
+	EXPECT_EQ(Settings.GroundTruthAmbientOcclusionQuality,
+		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution);
 }
 
 TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverride)

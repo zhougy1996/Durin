@@ -33,6 +33,10 @@ namespace Durin
 			GGroundTruthAmbientOcclusionTimingQuerySink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionFilterTimingQuerySink>
 			GGroundTruthAmbientOcclusionFilterTimingQuerySink = nullptr;
+		std::atomic<FGroundTruthAmbientOcclusionResolveTimingQuerySink>
+			GGroundTruthAmbientOcclusionResolveTimingQuerySink = nullptr;
+		std::atomic<FGroundTruthAmbientOcclusionFeatureTimingQuerySink>
+			GGroundTruthAmbientOcclusionFeatureTimingQuerySink = nullptr;
 		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
 		std::atomic<FDeferredDirectionalCaptureSink>
@@ -290,6 +294,20 @@ namespace Durin
 		GGroundTruthAmbientOcclusionFilterTimingQuerySink.store(
 			Sink, std::memory_order_release
 		);
+	}
+
+	auto SetGroundTruthAmbientOcclusionResolveTimingQuerySink(
+		FGroundTruthAmbientOcclusionResolveTimingQuerySink Sink) -> void
+	{
+		GGroundTruthAmbientOcclusionResolveTimingQuerySink.store(
+			Sink, std::memory_order_release);
+	}
+
+	auto SetGroundTruthAmbientOcclusionFeatureTimingQuerySink(
+		FGroundTruthAmbientOcclusionFeatureTimingQuerySink Sink) -> void
+	{
+		GGroundTruthAmbientOcclusionFeatureTimingQuerySink.store(
+			Sink, std::memory_order_release);
 	}
 
 	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
@@ -1080,6 +1098,10 @@ namespace Durin
 						GroundTruthAmbientOcclusionFallback,
 					.GroundTruthAmbientOcclusionFiltered =
 						GroundTruthAmbientOcclusionFallback,
+					.GroundTruthAmbientOcclusionResolved =
+						GroundTruthAmbientOcclusionFallback,
+					.GroundTruthAmbientOcclusionSelector =
+						GroundTruthAmbientOcclusionFallback,
 					.ContactVisibility = ContactVisibilityFallback,
 					.Lighting = PreparedView.LightingUniformBuffer,
 					.View = &RenderView,
@@ -1094,7 +1116,8 @@ namespace Durin
 		{
 			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
 			auto* AmbientOcclusionTargets = bGBufferComplete ? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
-																   Width, Height
+														   Width, Height,
+														   RenderView.Settings.GroundTruthAmbientOcclusionQuality
 															   ) :
 															   nullptr;
 			PreparedView.Counters.GroundTruthAmbientOcclusionRetainedBytes =
@@ -1105,6 +1128,17 @@ namespace Durin
 			}
 			else
 			{
+				FGPUTimingQueryRHIRef FeatureTimingQuery;
+				const FGroundTruthAmbientOcclusionFeatureTimingQuerySink
+					FeatureTimingSink =
+						GGroundTruthAmbientOcclusionFeatureTimingQuerySink.load(
+							std::memory_order_acquire);
+				if (FeatureTimingSink != nullptr && GDynamicRHI != nullptr)
+				{
+					FeatureTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+					if (FeatureTimingQuery)
+						CommandList.BeginGPUTimingQuery(FeatureTimingQuery);
+				}
 				FGPUTimingQueryRHIRef TimingQuery;
 				const FGroundTruthAmbientOcclusionTimingQuerySink TimingSink =
 					GGroundTruthAmbientOcclusionTimingQuerySink.load(
@@ -1158,8 +1192,33 @@ namespace Durin
 						);
 					if (FilterTimingQuery)
 						CommandList.EndGPUTimingQuery(FilterTimingQuery);
-					if (bFiltered)
+					FGPUTimingQueryRHIRef ResolveTimingQuery;
+					const FGroundTruthAmbientOcclusionResolveTimingQuerySink
+						ResolveTimingSink =
+							GGroundTruthAmbientOcclusionResolveTimingQuerySink.load(
+								std::memory_order_acquire);
+					if (bFiltered && ResolveTimingSink != nullptr
+						&& GDynamicRHI != nullptr)
 					{
+						ResolveTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+						if (ResolveTimingQuery)
+							CommandList.BeginGPUTimingQuery(ResolveTimingQuery);
+					}
+					const bool bResolved = bFiltered
+						&& GroundTruthAmbientOcclusionRenderer.RenderResolve_RenderThread(
+							CommandList, *AmbientOcclusionTargets,
+							GBufferTargets->Normals, GBufferTargets->Surface,
+							SceneTargets->Depth, RenderView);
+					if (ResolveTimingQuery)
+						CommandList.EndGPUTimingQuery(ResolveTimingQuery);
+					if (FeatureTimingQuery)
+						CommandList.EndGPUTimingQuery(FeatureTimingQuery);
+					if (bResolved)
+					{
+						if (ResolveTimingQuery)
+							ResolveTimingSink(ResolveTimingQuery);
+						if (FeatureTimingQuery)
+							FeatureTimingSink(FeatureTimingQuery);
 						FRHITexture* RawDiagnosticTexture =
 							AmbientOcclusionTargets->Raw;
 						if (Options.GroundTruthAmbientOcclusionDebugMode
@@ -1188,11 +1247,29 @@ namespace Durin
 							RawDiagnosticTexture;
 						DeferredParameters.GroundTruthAmbientOcclusionFiltered =
 							AmbientOcclusionTargets->Raw;
+						DeferredParameters.GroundTruthAmbientOcclusionResolved =
+							AmbientOcclusionTargets->Quality
+								== EGroundTruthAmbientOcclusionQuality::HalfResolution
+							? AmbientOcclusionTargets->Resolved.GetReference()
+							: AmbientOcclusionTargets->Raw.GetReference();
+						DeferredParameters.GroundTruthAmbientOcclusionSelector =
+							AmbientOcclusionTargets->Selector != nullptr
+							? AmbientOcclusionTargets->Selector.GetReference()
+							: GroundTruthAmbientOcclusionFallback;
 						DeferredParameters.bGroundTruthAmbientOcclusionEnabled = true;
+						DeferredParameters.bGroundTruthAmbientOcclusionHalfResolution =
+							AmbientOcclusionTargets->Quality
+								== EGroundTruthAmbientOcclusionQuality::HalfResolution;
 						++PreparedView.Counters.GroundTruthAmbientOcclusionEnabledViews;
+						if (AmbientOcclusionTargets->Quality
+							== EGroundTruthAmbientOcclusionQuality::HalfResolution)
+							++PreparedView.Counters.GroundTruthAmbientOcclusionHalfResolutionViews;
+						else
+							++PreparedView.Counters.GroundTruthAmbientOcclusionFullResolutionViews;
 						PreparedView.Counters.GroundTruthAmbientOcclusionActiveBytes =
 							FGroundTruthAmbientOcclusionRenderer::
-								CalculateTargetBytes(Width, Height);
+								CalculateTargetBytes(Width, Height,
+									AmbientOcclusionTargets->Quality);
 						if (Options.GroundTruthAmbientOcclusionDebugMode
 							!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 						{
@@ -1205,13 +1282,19 @@ namespace Durin
 								CommandList, AmbientOcclusionTargets->Raw, true
 							);
 					}
-					else
+					else if (!bFiltered)
 					{
 						++PreparedView.Counters.GroundTruthAmbientOcclusionFilterPassFailures;
+					}
+					else
+					{
+						++PreparedView.Counters.GroundTruthAmbientOcclusionResolvePassFailures;
 					}
 				}
 				else
 				{
+					if (FeatureTimingQuery)
+						CommandList.EndGPUTimingQuery(FeatureTimingQuery);
 					++PreparedView.Counters.GroundTruthAmbientOcclusionRawPassFailures;
 				}
 			}

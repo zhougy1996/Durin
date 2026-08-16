@@ -32,11 +32,44 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
+				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(FGTAORawFragmentShader, FShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "RawFragmentMain");
+		};
+
+		class FGTAOSelectorFragmentShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FGTAOSelectorFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
+				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
+				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FGTAOSelectorFragmentShader, FShader,
+				"/Engine/GroundTruthAmbientOcclusion",
+				EShaderFrequency::Fragment, "SelectorFragmentMain");
+		};
+
+		class FGTAOHalfRawFragmentShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FGTAOHalfRawFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
+				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
+				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
+				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FGTAOHalfRawFragmentShader, FShader,
+				"/Engine/GroundTruthAmbientOcclusion",
+				EShaderFrequency::Fragment, "HalfRawFragmentMain");
 		};
 
 		class FGTAOFilterFragmentShader final : public FShader
@@ -48,12 +81,43 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(FilterGBufferSurface);
 				DURIN_SHADER_PARAMETER_TEXTURE(FilterSceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Filter);
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(FGTAOFilterFragmentShader, FShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "BilateralFragmentMain");
 		};
+
+		#define DURIN_GTAO_HALF_FILTER_PARAMETERS(ShaderType) \
+			DURIN_BEGIN_SHADER_PARAMETERS(ShaderType) \
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterInputVisibility); \
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterGBufferNormals); \
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterGBufferSurface); \
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterSceneDepth); \
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Filter); \
+				DURIN_SHADER_PARAMETER_TEXTURE(FilterSelector); \
+			DURIN_END_SHADER_PARAMETERS()
+
+		class FGTAOHalfFilterFragmentShader final : public FShader
+		{
+		public:
+			DURIN_GTAO_HALF_FILTER_PARAMETERS(FGTAOHalfFilterFragmentShader);
+			DURIN_DECLARE_SHADER(FGTAOHalfFilterFragmentShader, FShader,
+				"/Engine/GroundTruthAmbientOcclusion",
+				EShaderFrequency::Fragment, "HalfBilateralFragmentMain");
+		};
+
+		class FGTAOResolveFragmentShader final : public FShader
+		{
+		public:
+			DURIN_GTAO_HALF_FILTER_PARAMETERS(FGTAOResolveFragmentShader);
+			DURIN_DECLARE_SHADER(FGTAOResolveFragmentShader, FShader,
+				"/Engine/GroundTruthAmbientOcclusion",
+				EShaderFrequency::Fragment, "ResolveFragmentMain");
+		};
+
+		#undef DURIN_GTAO_HALF_FILTER_PARAMETERS
 	}
 
 	struct FGroundTruthAmbientOcclusionRenderer::FState
@@ -65,16 +129,34 @@ namespace Durin
 			TShaderRef<FGTAOVertexShader> RawVertexShader;
 			TShaderRef<FGTAOVertexShader> FilterVertexShader;
 			TShaderRef<FGTAORawFragmentShader> FragmentShader;
+			TShaderRef<FGTAOSelectorFragmentShader> SelectorFragmentShader;
+			TShaderRef<FGTAOHalfRawFragmentShader> HalfFragmentShader;
 			TShaderRef<FGTAOFilterFragmentShader> FilterFragmentShader;
+			TShaderRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
+			TShaderRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRHIRef SelectorPipelineState;
+			FGraphicsPipelineStateRHIRef HalfPipelineState;
 			FGraphicsPipelineStateRHIRef FilterPipelineState;
+			FGraphicsPipelineStateRHIRef HalfFilterPipelineState;
+			FGraphicsPipelineStateRHIRef ResolvePipelineState;
+		};
+
+		struct FTargetKey
+		{
+			uint32 Width = 0;
+			uint32 Height = 0;
+			EGroundTruthAmbientOcclusionQuality Quality =
+				EGroundTruthAmbientOcclusionQuality::HalfResolution;
+
+			auto operator==(const FTargetKey&) const -> bool = default;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
+		TRendererResourceSlotCache<FTargetKey, FTargets> TargetsBySize{
 			ERenderResourceGenerationDependency::Device};
 	};
 
@@ -102,11 +184,18 @@ namespace Durin
 					Coordinator.ShouldForceShaderRecompile_RenderThread();
 				FShaderType& VertexType = FGTAOVertexShader::StaticType();
 				FShaderType& FragmentType = FGTAORawFragmentShader::StaticType();
+				FShaderType& SelectorType =
+					FGTAOSelectorFragmentShader::StaticType();
+				FShaderType& HalfFragmentType =
+					FGTAOHalfRawFragmentShader::StaticType();
 				FShaderType& FilterType = FGTAOFilterFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> RawTypes{
-					&VertexType, &FragmentType};
-				const std::array<const FShaderType*, 2> FilterTypes{
-					&VertexType, &FilterType};
+				FShaderType& HalfFilterType =
+					FGTAOHalfFilterFragmentShader::StaticType();
+				FShaderType& ResolveType = FGTAOResolveFragmentShader::StaticType();
+				const std::array<const FShaderType*, 4> RawTypes{
+					&VertexType, &FragmentType, &SelectorType, &HalfFragmentType};
+				const std::array<const FShaderType*, 4> FilterTypes{
+					&VertexType, &FilterType, &HalfFilterType, &ResolveType};
 				FPayload Candidate;
 				Candidate.RawShaderMap = std::make_shared<FShaderMapBase>();
 				Candidate.FilterShaderMap = std::make_shared<FShaderMapBase>();
@@ -137,10 +226,21 @@ namespace Durin
 					Candidate.FilterShaderMap->GetShader(&VertexType));
 				auto* Fragment = static_cast<FGTAORawFragmentShader*>(
 					Candidate.RawShaderMap->GetShader(&FragmentType));
+				auto* Selector = static_cast<FGTAOSelectorFragmentShader*>(
+					Candidate.RawShaderMap->GetShader(&SelectorType));
+				auto* HalfFragment = static_cast<FGTAOHalfRawFragmentShader*>(
+					Candidate.RawShaderMap->GetShader(&HalfFragmentType));
 				auto* Filter = static_cast<FGTAOFilterFragmentShader*>(
 					Candidate.FilterShaderMap->GetShader(&FilterType));
+				auto* HalfFilter = static_cast<FGTAOHalfFilterFragmentShader*>(
+					Candidate.FilterShaderMap->GetShader(&HalfFilterType));
+				auto* Resolve = static_cast<FGTAOResolveFragmentShader*>(
+					Candidate.FilterShaderMap->GetShader(&ResolveType));
 				if (RawVertex == nullptr || FilterVertex == nullptr
-					|| Fragment == nullptr || Filter == nullptr)
+					|| Fragment == nullptr || Selector == nullptr
+					|| HalfFragment == nullptr
+					|| Filter == nullptr || HalfFilter == nullptr
+					|| Resolve == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderBinding,
@@ -155,8 +255,16 @@ namespace Durin
 					FilterVertex, Candidate.FilterShaderMap.get()};
 				Candidate.FragmentShader = {
 					Fragment, Candidate.RawShaderMap.get()};
+				Candidate.SelectorFragmentShader = {
+					Selector, Candidate.RawShaderMap.get()};
+				Candidate.HalfFragmentShader = {
+					HalfFragment, Candidate.RawShaderMap.get()};
 				Candidate.FilterFragmentShader = {
 					Filter, Candidate.FilterShaderMap.get()};
+				Candidate.HalfFilterFragmentShader = {
+					HalfFilter, Candidate.FilterShaderMap.get()};
+				Candidate.ResolveFragmentShader = {
+					Resolve, Candidate.FilterShaderMap.get()};
 				FVertexDeclarationElementList Elements;
 				constexpr uint32 Stride =
 					sizeof(FFullscreenGeometryResources::FVertex);
@@ -182,12 +290,22 @@ namespace Durin
 				FRHIShader* FilterVertexRHI =
 					Candidate.FilterVertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
+				FRHIShader* SelectorRHI =
+					Candidate.SelectorFragmentShader.GetRHIShader(false);
+				FRHIShader* HalfFragmentRHI =
+					Candidate.HalfFragmentShader.GetRHIShader(false);
 				FRHIShader* FilterRHI =
 					Candidate.FilterFragmentShader.GetRHIShader(false);
+				FRHIShader* HalfFilterRHI =
+					Candidate.HalfFilterFragmentShader.GetRHIShader(false);
+				FRHIShader* ResolveRHI =
+					Candidate.ResolveFragmentShader.GetRHIShader(false);
 				if (Candidate.VertexDeclaration == nullptr
 					|| RawVertexRHI == nullptr || FilterVertexRHI == nullptr
-					|| FragmentRHI == nullptr
-					|| FilterRHI == nullptr)
+					|| FragmentRHI == nullptr || SelectorRHI == nullptr
+					|| HalfFragmentRHI == nullptr
+					|| FilterRHI == nullptr || HalfFilterRHI == nullptr
+					|| ResolveRHI == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -219,6 +337,29 @@ namespace Durin
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
+				Initializer.BoundShaders.FragmentShader = SelectorRHI;
+				Candidate.SelectorPipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"GroundTruthAmbientOcclusionSelectorPipeline", Initializer);
+				Initializer.BoundShaders.FragmentShader = HalfFragmentRHI;
+				Candidate.HalfPipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"GroundTruthAmbientOcclusionHalfRawPipeline", Initializer);
+				if (Candidate.SelectorPipelineState == nullptr
+					|| Candidate.HalfPipelineState == nullptr)
+				{
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"GroundTruthAmbientOcclusion", "half-raw-pipeline",
+						"RHI graphics pipeline creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				}
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
 				Initializer.BoundShaders.VertexShader = FilterVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FilterRHI;
 				Initializer.PipelineLayout =
@@ -236,6 +377,25 @@ namespace Durin
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
+				Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
+				Candidate.HalfFilterPipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"GroundTruthAmbientOcclusionHalfFilterPipeline", Initializer);
+				Initializer.BoundShaders.FragmentShader = ResolveRHI;
+				Candidate.ResolvePipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"GroundTruthAmbientOcclusionResolvePipeline", Initializer);
+				if (Candidate.HalfFilterPipelineState == nullptr
+					|| Candidate.ResolvePipelineState == nullptr)
+				{
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"GroundTruthAmbientOcclusion", "half-filter-resolve-pipeline",
+						"One or more RHI graphics pipelines returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				}
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnostic);
@@ -243,12 +403,21 @@ namespace Durin
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height) -> FTargets*
+		uint32 Width, uint32 Height,
+		EGroundTruthAmbientOcclusionQuality Quality) -> FTargets*
 	{
-		if (Width == 0 || Height == 0) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
+		if (Width == 0 || Height == 0
+			|| Quality >= EGroundTruthAmbientOcclusionQuality::Count)
+			return nullptr;
+		const FState::FTargetKey Key{Width, Height, Quality};
+		const bool bHalf =
+			Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
+		const uint32 NativeWidth = bHalf ? CalculateHalfExtent(Width) : Width;
+		const uint32 NativeHeight = bHalf ? CalculateHalfExtent(Height) : Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
-			"GroundTruthAmbientOcclusionRaw", Width, Height,
+			bHalf ? "GroundTruthAmbientOcclusionHalfRaw"
+				: "GroundTruthAmbientOcclusionRaw",
+			NativeWidth, NativeHeight,
 			EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource
@@ -258,17 +427,41 @@ namespace Durin
 		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
 		FTargets* Targets = Entry.Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
-			[Key, &Desc]() -> FResult {
+			[Key, Desc, bHalf, Width, Height]() -> FResult {
 				FTargets Candidate;
+				Candidate.Quality = Key.Quality;
 				Candidate.Raw = RHICreateTexture(Desc);
 				auto ScratchDesc = Desc;
-				ScratchDesc.DebugName = "GroundTruthAmbientOcclusionScratch";
+				ScratchDesc.DebugName = bHalf
+					? "GroundTruthAmbientOcclusionHalfScratch"
+					: "GroundTruthAmbientOcclusionScratch";
 				Candidate.Scratch = RHICreateTexture(ScratchDesc);
-				if (Candidate.Raw == nullptr || Candidate.Scratch == nullptr)
+				if (bHalf)
+				{
+					auto SelectorDesc = Desc;
+					SelectorDesc.DebugName =
+						"GroundTruthAmbientOcclusionRepresentativeSelector";
+					SelectorDesc.ClearValue =
+						FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+					Candidate.Selector = RHICreateTexture(SelectorDesc);
+					auto ResolvedDesc = FRHITextureCreateDesc::Create2D(
+						"GroundTruthAmbientOcclusionResolved", Width, Height,
+						EPixelFormat::R8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable
+							| ETextureCreateFlags::ShaderResource
+							| ETextureCreateFlags::SourceCopy)
+						.SetClearValue(
+							FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
+					Candidate.Resolved = RHICreateTexture(ResolvedDesc);
+				}
+				if (Candidate.Raw == nullptr || Candidate.Scratch == nullptr
+					|| (bHalf && (Candidate.Selector == nullptr
+						|| Candidate.Resolved == nullptr)))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
-						"GroundTruthAmbientOcclusionTarget", std::to_string(Key),
+						"GroundTruthAmbientOcclusionTarget",
+						std::to_string(Width) + "x" + std::to_string(Height),
 						"One or more R8_UNORM targets returned null.",
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -279,10 +472,9 @@ namespace Durin
 		const bool bResolved = Targets != nullptr;
 		auto GetRetainedBytes = [this]() {
 			return State->TargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FTargets&) {
-					return CalculateTargetBytes(
-						static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
+				[](const FState::FTargetKey& TargetKey, const FTargets&) {
+					return CalculateTargetBytes(TargetKey.Width,
+						TargetKey.Height, TargetKey.Quality);
 				});
 		};
 		while (State->TargetsBySize.Num() > 1
@@ -307,11 +499,20 @@ namespace Durin
 		check(!CommandList.IsInsideRenderPass());
 		if (Targets.Raw == nullptr || Normals == nullptr || Surface == nullptr
 			|| Depth == nullptr || View.ViewportWidth == 0
-			|| View.ViewportHeight == 0)
+			|| View.ViewportHeight == 0
+			|| (Targets.Quality
+					== EGroundTruthAmbientOcclusionQuality::HalfResolution
+				&& Targets.Selector == nullptr))
 			return false;
 		if (!EnsureResources_RenderThread(CommandList)) return false;
 		FState::FPayload* Payload = State->Resources.GetPayload();
-		if (Payload == nullptr || Payload->PipelineState == nullptr
+		const bool bHalf = Targets.Quality
+			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
+		FGraphicsPipelineStateRHIRef Pipeline = bHalf
+			? Payload != nullptr ? Payload->HalfPipelineState : nullptr
+			: Payload != nullptr ? Payload->PipelineState : nullptr;
+		if (Payload == nullptr || Pipeline == nullptr
+			|| (bHalf && Payload->SelectorPipelineState == nullptr)
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 			return false;
@@ -332,10 +533,58 @@ namespace Durin
 			static_cast<float>(View.ViewportY),
 			static_cast<float>(View.ViewportWidth),
 			static_cast<float>(View.ViewportHeight)};
+		const FRectangle HalfViewport = MapFullRectangleToHalf({
+			View.ViewportX, View.ViewportY,
+			View.ViewportWidth, View.ViewportHeight});
+		Uniform.HalfViewport = {
+			static_cast<float>(HalfViewport.X),
+			static_cast<float>(HalfViewport.Y),
+			static_cast<float>(HalfViewport.Width),
+			static_cast<float>(HalfViewport.Height)};
+		Uniform.Controls[2] = bHalf ? 48.0f : 96.0f;
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
 			return false;
+		const FRectangle RenderViewport = bHalf ? HalfViewport : FRectangle{
+			View.ViewportX, View.ViewportY,
+			View.ViewportWidth, View.ViewportHeight};
+		if (bHalf)
+		{
+			FRHIRenderPassInfo SelectorPassInfo{};
+			SelectorPassInfo.RenderTargetLayout =
+				RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
+			SelectorPassInfo.ColorRenderTargets[0] = Targets.Selector;
+			SelectorPassInfo.ColorClearValues[0] =
+				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+			CommandList.BeginRenderPass(
+				SelectorPassInfo, "GroundTruthAmbientOcclusionSelectorPass");
+			CommandList.SetGraphicsPipelineState(*Payload->SelectorPipelineState);
+			CommandList.SetViewport(
+				static_cast<float>(RenderViewport.X),
+				static_cast<float>(RenderViewport.Y), 0.0f,
+				static_cast<float>(RenderViewport.X + RenderViewport.Width),
+				static_cast<float>(RenderViewport.Y + RenderViewport.Height), 1.0f);
+			CommandList.SetScissor(
+				static_cast<float>(RenderViewport.X),
+				static_cast<float>(RenderViewport.Y),
+				static_cast<float>(RenderViewport.Width),
+				static_cast<float>(RenderViewport.Height));
+			CommandList.BindVertexBuffer(0,
+				FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+			CommandList.BindIndexBuffer(
+				FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+			FGTAOSelectorFragmentShader::FParameters SelectorParameters;
+			SelectorParameters.GBufferNormals = Normals;
+			SelectorParameters.GBufferSurface = Surface;
+			SelectorParameters.SceneDepth = Depth;
+			SelectorParameters.View = ViewUniform;
+			SelectorParameters.RawSelector = Surface;
+			SetShaderParameters(CommandList,
+				Payload->SelectorFragmentShader, SelectorParameters);
+			CommandList.DrawIndexed(3, 0, 0);
+			CommandList.EndRenderPass();
+		}
 
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.RenderTargetLayout =
@@ -343,27 +592,42 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = Targets.Raw;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "GroundTruthAmbientOcclusionRawPass");
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+		CommandList.SetGraphicsPipelineState(*Pipeline);
 		CommandList.SetViewport(
-			static_cast<float>(View.ViewportX),
-			static_cast<float>(View.ViewportY), 0.0f,
-			static_cast<float>(View.ViewportX + View.ViewportWidth),
-			static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+			static_cast<float>(RenderViewport.X),
+			static_cast<float>(RenderViewport.Y), 0.0f,
+			static_cast<float>(RenderViewport.X + RenderViewport.Width),
+			static_cast<float>(RenderViewport.Y + RenderViewport.Height), 1.0f);
 		CommandList.SetScissor(
-			static_cast<float>(View.ViewportX),
-			static_cast<float>(View.ViewportY),
-			static_cast<float>(View.ViewportWidth),
-			static_cast<float>(View.ViewportHeight));
+			static_cast<float>(RenderViewport.X),
+			static_cast<float>(RenderViewport.Y),
+			static_cast<float>(RenderViewport.Width),
+			static_cast<float>(RenderViewport.Height));
 		CommandList.BindVertexBuffer(0,
 			FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 		CommandList.BindIndexBuffer(
 			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
-		FGTAORawFragmentShader::FParameters Parameters;
-		Parameters.GBufferNormals = Normals;
-		Parameters.GBufferSurface = Surface;
-		Parameters.SceneDepth = Depth;
-		Parameters.View = ViewUniform;
-		SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
+		if (bHalf)
+		{
+			FGTAOHalfRawFragmentShader::FParameters Parameters;
+			Parameters.GBufferNormals = Normals;
+			Parameters.GBufferSurface = Surface;
+			Parameters.SceneDepth = Depth;
+			Parameters.View = ViewUniform;
+			Parameters.RawSelector = Targets.Selector;
+			SetShaderParameters(
+				CommandList, Payload->HalfFragmentShader, Parameters);
+		}
+		else
+		{
+			FGTAORawFragmentShader::FParameters Parameters;
+			Parameters.GBufferNormals = Normals;
+			Parameters.GBufferSurface = Surface;
+			Parameters.SceneDepth = Depth;
+			Parameters.View = ViewUniform;
+			Parameters.RawSelector = Surface;
+			SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
+		}
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		return true;
@@ -381,11 +645,19 @@ namespace Durin
 		check(!CommandList.IsInsideRenderPass());
 		if (Targets.Raw == nullptr || Targets.Scratch == nullptr
 			|| Normals == nullptr || Surface == nullptr || Depth == nullptr
-			|| View.ViewportWidth == 0 || View.ViewportHeight == 0)
+			|| View.ViewportWidth == 0 || View.ViewportHeight == 0
+			|| (Targets.Quality
+					== EGroundTruthAmbientOcclusionQuality::HalfResolution
+				&& Targets.Selector == nullptr))
 			return false;
 		if (!EnsureResources_RenderThread(CommandList)) return false;
 		FState::FPayload* Payload = State->Resources.GetPayload();
-		if (Payload == nullptr || Payload->FilterPipelineState == nullptr
+		const bool bHalf = Targets.Quality
+			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
+		FGraphicsPipelineStateRHIRef Pipeline = bHalf
+			? Payload != nullptr ? Payload->HalfFilterPipelineState : nullptr
+			: Payload != nullptr ? Payload->FilterPipelineState : nullptr;
+		if (Payload == nullptr || Pipeline == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 			return false;
@@ -404,6 +676,17 @@ namespace Durin
 			static_cast<float>(View.ViewportY),
 			static_cast<float>(View.ViewportWidth),
 			static_cast<float>(View.ViewportHeight)};
+		const FRectangle HalfViewport = MapFullRectangleToHalf({
+			View.ViewportX, View.ViewportY,
+			View.ViewportWidth, View.ViewportHeight});
+		Uniform.HalfViewport = {
+			static_cast<float>(HalfViewport.X),
+			static_cast<float>(HalfViewport.Y),
+			static_cast<float>(HalfViewport.Width),
+			static_cast<float>(HalfViewport.Height)};
+		const FRectangle RenderViewport = bHalf ? HalfViewport : FRectangle{
+			View.ViewportX, View.ViewportY,
+			View.ViewportWidth, View.ViewportHeight};
 
 		auto RenderDirection = [&](FRHITexture* Input, FRHITexture* Output,
 			float DirectionX, float DirectionY, const char* PassName) {
@@ -421,29 +704,45 @@ namespace Durin
 			PassInfo.ColorClearValues[0] =
 				FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, PassName);
-			CommandList.SetGraphicsPipelineState(*Payload->FilterPipelineState);
+			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.SetViewport(
-				static_cast<float>(View.ViewportX),
-				static_cast<float>(View.ViewportY), 0.0f,
-				static_cast<float>(View.ViewportX + View.ViewportWidth),
-				static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+				static_cast<float>(RenderViewport.X),
+				static_cast<float>(RenderViewport.Y), 0.0f,
+				static_cast<float>(RenderViewport.X + RenderViewport.Width),
+				static_cast<float>(RenderViewport.Y + RenderViewport.Height), 1.0f);
 			CommandList.SetScissor(
-				static_cast<float>(View.ViewportX),
-				static_cast<float>(View.ViewportY),
-				static_cast<float>(View.ViewportWidth),
-				static_cast<float>(View.ViewportHeight));
+				static_cast<float>(RenderViewport.X),
+				static_cast<float>(RenderViewport.Y),
+				static_cast<float>(RenderViewport.Width),
+				static_cast<float>(RenderViewport.Height));
 			CommandList.BindVertexBuffer(0,
 				FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 			CommandList.BindIndexBuffer(
 				FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
-			FGTAOFilterFragmentShader::FParameters Parameters;
-			Parameters.FilterInputVisibility = Input;
-			Parameters.FilterGBufferNormals = Normals;
-			Parameters.FilterGBufferSurface = Surface;
-			Parameters.FilterSceneDepth = Depth;
-			Parameters.Filter = FilterUniform;
-			SetShaderParameters(
-				CommandList, Payload->FilterFragmentShader, Parameters);
+			if (bHalf)
+			{
+				FGTAOHalfFilterFragmentShader::FParameters Parameters;
+				Parameters.FilterInputVisibility = Input;
+				Parameters.FilterGBufferNormals = Normals;
+				Parameters.FilterGBufferSurface = Surface;
+				Parameters.FilterSceneDepth = Depth;
+				Parameters.Filter = FilterUniform;
+				Parameters.FilterSelector = Targets.Selector;
+				SetShaderParameters(CommandList,
+					Payload->HalfFilterFragmentShader, Parameters);
+			}
+			else
+			{
+				FGTAOFilterFragmentShader::FParameters Parameters;
+				Parameters.FilterInputVisibility = Input;
+				Parameters.FilterGBufferNormals = Normals;
+				Parameters.FilterGBufferSurface = Surface;
+				Parameters.FilterSceneDepth = Depth;
+				Parameters.Filter = FilterUniform;
+				Parameters.FilterSelector = Input;
+				SetShaderParameters(
+					CommandList, Payload->FilterFragmentShader, Parameters);
+			}
 			CommandList.DrawIndexed(3, 0, 0);
 			CommandList.EndRenderPass();
 			return true;
@@ -457,15 +756,104 @@ namespace Durin
 				"GroundTruthAmbientOcclusionVerticalFilter");
 	}
 
+	auto FGroundTruthAmbientOcclusionRenderer::RenderResolve_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FTargets& Targets,
+		FRHITexture* Normals,
+		FRHITexture* Surface,
+		FRHITexture* Depth,
+		const FSceneView& View) -> bool
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		if (Targets.Quality
+			!= EGroundTruthAmbientOcclusionQuality::HalfResolution)
+			return true;
+		if (Targets.Raw == nullptr || Targets.Selector == nullptr
+			|| Targets.Resolved == nullptr || Normals == nullptr
+			|| Surface == nullptr || Depth == nullptr
+			|| View.ViewportWidth == 0 || View.ViewportHeight == 0)
+			return false;
+		if (!EnsureResources_RenderThread(CommandList)) return false;
+		FState::FPayload* Payload = State->Resources.GetPayload();
+		if (Payload == nullptr || Payload->ResolvePipelineState == nullptr
+			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
+			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
+			return false;
+
+		FFilterUniform Uniform;
+		for (uint32 Row = 0; Row < 4; ++Row)
+		{
+			for (uint32 Col = 0; Col < 4; ++Col)
+			{
+				Uniform.ProjectionRows[Row][Col] =
+					static_cast<float>(View.ProjectionMatrix[Col][Row]);
+			}
+		}
+		Uniform.Viewport = {
+			static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY),
+			static_cast<float>(View.ViewportWidth),
+			static_cast<float>(View.ViewportHeight)};
+		const FRectangle HalfViewport = MapFullRectangleToHalf({
+			View.ViewportX, View.ViewportY,
+			View.ViewportWidth, View.ViewportHeight});
+		Uniform.HalfViewport = {
+			static_cast<float>(HalfViewport.X),
+			static_cast<float>(HalfViewport.Y),
+			static_cast<float>(HalfViewport.Width),
+			static_cast<float>(HalfViewport.Height)};
+		Uniform.DirectionAndThresholds = {0.0f, 0.0f, 0.90f, 0.01f};
+		const FRHIUniformBufferRange ResolveUniform =
+			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+		if (ResolveUniform.Buffer == nullptr
+			|| ResolveUniform.Size != sizeof(Uniform))
+			return false;
+
+		FRHIRenderPassInfo PassInfo{};
+		PassInfo.RenderTargetLayout =
+			RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
+		PassInfo.ColorRenderTargets[0] = Targets.Resolved;
+		PassInfo.ColorClearValues[0] =
+			FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
+		CommandList.BeginRenderPass(
+			PassInfo, "GroundTruthAmbientOcclusionResolvePass");
+		CommandList.SetGraphicsPipelineState(*Payload->ResolvePipelineState);
+		CommandList.SetViewport(
+			static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY), 0.0f,
+			static_cast<float>(View.ViewportX + View.ViewportWidth),
+			static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+		CommandList.SetScissor(
+			static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY),
+			static_cast<float>(View.ViewportWidth),
+			static_cast<float>(View.ViewportHeight));
+		CommandList.BindVertexBuffer(0,
+			FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		CommandList.BindIndexBuffer(
+			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+		FGTAOResolveFragmentShader::FParameters Parameters;
+		Parameters.FilterInputVisibility = Targets.Raw;
+		Parameters.FilterGBufferNormals = Normals;
+		Parameters.FilterGBufferSurface = Surface;
+		Parameters.FilterSceneDepth = Depth;
+		Parameters.Filter = ResolveUniform;
+		Parameters.FilterSelector = Targets.Selector;
+		SetShaderParameters(
+			CommandList, Payload->ResolveFragmentShader, Parameters);
+		CommandList.DrawIndexed(3, 0, 0);
+		CommandList.EndRenderPass();
+		return true;
+	}
+
 	auto FGroundTruthAmbientOcclusionRenderer::
 		GetRetainedTargetBytes_RenderThread() const -> uint64
 	{
 		check(IsInRenderingThread());
 		return State->TargetsBySize.GetRetainedPayloadWeight(
-			[](uint64 SizeKey, const FTargets&) {
-				return CalculateTargetBytes(
-					static_cast<uint32>(SizeKey >> 32),
-					static_cast<uint32>(SizeKey));
+			[](const FState::FTargetKey& Key, const FTargets&) {
+				return CalculateTargetBytes(Key.Width, Key.Height, Key.Quality);
 			});
 	}
 

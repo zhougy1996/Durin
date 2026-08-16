@@ -9,25 +9,21 @@ Completed:
 
 ## Current Status
 
-The existing production GTAO path is complete, deterministic, non-temporal,
-and full resolution. It runs three slices with four samples per side, then two
-full-resolution bilateral filter passes. Its original RTX 3090 qualification
-measured `766,800/1,059,520 ns` combined median/p95, but a current editor
-RenderDoc capture on the development machine measured approximately `4.27 ms`
-for raw plus filtering and `8.96 ms` for the complete frame. Disabling GTAO
-reduced the same captured frame to approximately `3.94 ms`. The capture is
-entry evidence, not a replacement for the controlled qualification protocol,
-but it proves that the feature can dominate a small continuously rendered
-editor scene.
+Stages 0 through 3 are implemented. Production defaults to half-resolution
+selector-directed GTAO, reduced bilateral filtering, and a full-resolution
+edge-aware resolve; full resolution remains selectable as the reference. The
+qualified raw interval uses a selector prepass because public RHI cannot read
+an attachment being written by the same draw and repeated per-tap 2x2 scans
+failed the relative performance gate.
 
-This plan selects half-resolution generation and filtering followed by an
-explicit full-resolution edge-aware resolve. It does not replace GTAO with a
-second SSAO algorithm. Full-resolution GTAO remains available as the image
-reference and an opt-in high-quality tier. Implementation has not started.
-
-Stage 0 must freeze controlled full/half timing baselines, reduced-viewport
-mapping, selector encoding support, image tolerances, and rollout gates before
-the production default changes.
+RTX 3090 threaded qualification measured full feature `681,808/697,248 ns`,
+half feature `397,568/400,032 ns`, and resolve `116,416/117,600 ns` median/p95.
+Half median is `58.3%` of full and passes the `65%` rollout gate. Focused
+contract, shader, Vulkan lifecycle/reload, threaded and inline qualification,
+full build, documentation validation, and orderly hidden-editor smoke are
+clean. Stage 4 remains active only because the ordinary aggregate is blocked by
+the unrelated, independently reproducible existing failure
+`FViewportPickingContractTests.IntersectsExactSplineMeshDerivedLOD0Surface`.
 
 ## Goal
 
@@ -128,8 +124,11 @@ qualification protocol before becoming the default.
   not let background visibility darken a foreground silhouette. The later
   resolve may under-occlude an unmatched background pixel, but it may not
   borrow an unrelated foreground factor.
-- The raw pass writes half-resolution `R8_UNORM` visibility and a compact
-  selector/validity attachment in the same draw. Stage 0 must freeze a portable
+- The raw interval first writes a compact selector/validity attachment, then
+  writes half-resolution `R8_UNORM` visibility while sampling that selector.
+  Public RHI cannot read an attachment being written by the same draw, and
+  rescanning every 2x2 block for every horizon tap fails the rollout gate.
+  Stage 0 must freeze a portable
   renderable and sampleable encoding, preferring `R8_UNORM` values for the four
   row-major selectors plus invalid. If the exact format is not supported by
   public RHI capability checks, Stage 0 selects another portable compact format
@@ -185,7 +184,7 @@ Half-resolution production records:
 
 ```text
 directional shadow -> GBuffer/D32
-                   -> half raw visibility + representative selector
+                   -> representative selector -> half raw visibility
                    -> half bilateral horizontal/vertical
                    -> full-resolution edge-aware AO resolve
                    -> sky/clear bootstrap
@@ -246,22 +245,22 @@ directional shadow -> GBuffer/D32
 
 ### Stage 0: Freeze reduced mapping, quality, and rollout gates
 
-- [ ] Reproduce full-resolution enabled/disabled GPU timing under the published
+- [x] Reproduce full-resolution enabled/disabled GPU timing under the published
   protocol and record adapter, driver, profile, viewport extent, warm-up,
   sample count, median, and p95 for every existing interval.
-- [ ] Freeze the half-target and half-view integer mapping for zero, minimum,
+- [x] Freeze the half-target and half-view integer mapping for zero, minimum,
   even, odd, nonzero-origin, constrained-aspect, and target-edge rectangles,
   including proof that partial 2x2 blocks never inspect outside the fitted view.
-- [ ] Validate the compact selector attachment through public RHI format/layout
+- [x] Validate the compact selector attachment through public RHI format/layout
   support and freeze its encoding, clear value, shader decode, capture format,
   and exact target-byte formula.
-- [ ] Freeze half/full/off immutable view settings and editor UI behavior,
+- [x] Freeze half/full/off immutable view settings and editor UI behavior,
   default rollout sequencing, counters, debug names, and failure reasons.
-- [ ] Extend the deterministic CPU reference with representative selection,
+- [x] Extend the deterministic CPU reference with representative selection,
   reduced bilateral filtering, and full-resolution resolve; freeze parity and
   edge tolerances for mixed-depth 2x2 blocks, silhouettes, thin plates,
   subpixel gaps, grazing surfaces, odd extents, and viewport boundaries.
-- [ ] Freeze absolute half raw/filter/resolve/feature/total median and p95 gates
+- [x] Freeze absolute half raw/filter/resolve/feature/total median and p95 gates
   plus the same-run relative gate before candidate optimization results are
   accepted.
 
@@ -273,17 +272,17 @@ directional shadow -> GBuffer/D32
 
 ### Stage 1: Add quality-keyed targets and deterministic representatives
 
-- [ ] Add the immutable half/full quality setting and route it through scene
+- [x] Add the immutable half/full quality setting and route it through scene
   view construction, viewport presentation, counters, and qualification options
   while retaining the existing enable toggle.
-- [ ] Add pure ceil-div extent, full-to-half rectangle, full-pixel-to-block, and
+- [x] Add pure ceil-div extent, full-to-half rectangle, full-pixel-to-block, and
   selector encode/decode helpers with focused even/odd/origin/edge tests.
-- [ ] Extend render-target layouts and the GTAO payload with transactional half
+- [x] Extend render-target layouts and the GTAO payload with transactional half
   raw/scratch/selector and full resolved targets, exact active/retained bytes,
   quality-aware cache keys, bounded eviction, and complete-or-null publication.
-- [ ] Make the half raw pass select the frozen representative and emit both
-  visibility and selector while preserving the full-resolution reference path.
-- [ ] Prove allocation, replacement failure, retry, alternating quality/extent,
+- [x] Make the half raw interval publish the frozen representative before
+  selector-directed visibility while preserving the full-resolution reference path.
+- [x] Prove allocation, replacement failure, retry, alternating quality/extent,
   reload, device invalidation, recorded references, eviction, and shutdown
   cannot expose partial or stale targets.
 
@@ -296,17 +295,17 @@ directional shadow -> GBuffer/D32
 
 ### Stage 2: Filter in the reduced domain
 
-- [ ] Adapt both bilateral passes to reduced coordinates and selector-directed
+- [x] Adapt both bilateral passes to reduced coordinates and selector-directed
   full-resolution depth/geometric-normal samples while preserving the selected
   Gaussian, depth, normal, center, and finite-value rules.
-- [ ] Preserve viewport/scissor isolation and reject invalid selectors or
+- [x] Preserve viewport/scissor isolation and reject invalid selectors or
   candidates outside the fitted full view for both filter directions.
-- [ ] Extend raw/filtered capture seams and Confidence diagnostics with native
+- [x] Extend raw/filtered capture seams and Confidence diagnostics with native
   reduced extent, selector validity, and accepted/rejected neighbor evidence.
-- [ ] Prove deterministic repeated frames, alternating origins/extents/views,
+- [x] Prove deterministic repeated frames, alternating origins/extents/views,
   projection changes, camera/object motion, and resource refresh produce no
   cross-view state or stale selection.
-- [ ] Measure half raw and bilateral intervals against the Stage 0 component
+- [x] Measure half raw and bilateral intervals against the Stage 0 component
   gates before adding resolve cost.
 
 #### Acceptance Gate
@@ -317,20 +316,20 @@ directional shadow -> GBuffer/D32
 
 ### Stage 3: Resolve full-resolution visibility and integrate production
 
-- [ ] Implement the dedicated full-resolution depth/normal-aware resolve with
+- [x] Implement the dedicated full-resolution depth/normal-aware resolve with
   four neighboring candidates, normalized accepted weights, exact fitted-view
   writes, and conservative factor-one fallback.
-- [ ] Transition half filtered and selector targets for resolve reads, publish
+- [x] Transition half filtered and selector targets for resolve reads, publish
   resolved output for deferred graphics reads, and retain every recorded RHI
   reference through both command executors without Vulkan escape hatches.
-- [ ] Bind only the resolved full-resolution target in deferred production and
+- [x] Bind only the resolved full-resolution target in deferred production and
   diagnostics; preserve indirect-only composition and the complete white
   fallback when any half/resolve step fails.
-- [ ] Prove foreground/background mixed blocks, silhouettes, disocclusions,
+- [x] Prove foreground/background mixed blocks, silhouettes, disocclusions,
   thin geometry, subpixel gaps, grazing walls, letterbox boundaries, odd
   extents/origins, Present/offscreen, and all supported geometry families
   against full-resolution and CPU references.
-- [ ] Prove FullResolution, HalfResolution, and Off can alternate across main,
+- [x] Prove FullResolution, HalfResolution, and Off can alternate across main,
   preview, auxiliary, and thumbnail views without stale state, blank output,
   or quality leakage.
 
@@ -342,22 +341,22 @@ directional shadow -> GBuffer/D32
 
 ### Stage 4: Measure, select the default, and publish the contract
 
-- [ ] Run focused Renderer/Engine/Vulkan image, layout, failure, lifecycle, and
+- [x] Run focused Renderer/Engine/Vulkan image, layout, failure, lifecycle, and
   timing coverage through the root build/test workflows in dedicated-RHI and
   inline execution modes where recorded commands differ.
 - [ ] Run the ordinary native aggregate, full build, validation-enabled editor
   main/preview/offscreen matrix, resize and quality switching, shader reload,
   stable-frame loop, and orderly shutdown because the default affects every
   solid Lit editor viewport.
-- [ ] Capture same-process full/half/off timing distributions and exact active/
+- [x] Capture same-process full/half/off timing distributions and exact active/
   retained bytes using the frozen protocol; record median, p95, relative saving,
   adapter, driver, profile, extent, sample count, and whether editor assistance
   and FXAA were enabled.
-- [ ] Make HalfResolution the production default only if all image,
+- [x] Make HalfResolution the production default only if all image,
   non-interference, lifecycle, memory, absolute, and relative timing gates pass.
   Otherwise retain FullResolution or Off as policy and record the failed gate;
   mere implementation availability does not complete rollout.
-- [ ] Update the lasting GTAO runtime contract, viewport rendering ownership,
+- [x] Update the lasting GTAO runtime contract, viewport rendering ownership,
   and user-facing View-menu guidance; preserve the archived original plan as
   historical full-resolution evidence.
 

@@ -96,7 +96,8 @@ choices. When the engine builds an `FSceneView`, it copies those choices into
 
 The renderer consumes only that immutable per-view snapshot. Two viewports may
 therefore render the same `IScene` with independent Lit/Unlit,
-Solid/Wireframe, and FXAA choices, and a later UI change cannot alter an
+Solid/Wireframe, FXAA, and Off/HalfResolution/FullResolution GTAO choices, and
+a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
 resources and size-keyed intermediate caches rather than semantic view policy.
 

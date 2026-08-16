@@ -224,9 +224,12 @@ namespace Durin
 		size_t DeferredDirectionalOutputBytes = 0;
 		size_t GroundTruthAmbientOcclusionAttemptedViews = 0;
 		size_t GroundTruthAmbientOcclusionEnabledViews = 0;
+		size_t GroundTruthAmbientOcclusionHalfResolutionViews = 0;
+		size_t GroundTruthAmbientOcclusionFullResolutionViews = 0;
 		size_t GroundTruthAmbientOcclusionUnavailableViews = 0;
 		size_t GroundTruthAmbientOcclusionRawPassFailures = 0;
 		size_t GroundTruthAmbientOcclusionFilterPassFailures = 0;
+		size_t GroundTruthAmbientOcclusionResolvePassFailures = 0;
 		size_t GroundTruthAmbientOcclusionDebugViews = 0;
 		size_t GroundTruthAmbientOcclusionActiveBytes = 0;
 		size_t GroundTruthAmbientOcclusionRetainedBytes = 0;

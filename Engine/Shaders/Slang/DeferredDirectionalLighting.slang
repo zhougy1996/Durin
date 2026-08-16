@@ -59,6 +59,8 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(13, 0)]] Texture2D<float> GroundTruthAmbientOcclusionRaw;
 [[vk::binding(14, 0)]] Texture2D<float> GroundTruthAmbientOcclusionFiltered;
 [[vk::binding(15, 0)]] Texture2D<float> ContactVisibility;
+[[vk::binding(16, 0)]] Texture2D<float> GroundTruthAmbientOcclusionResolved;
+[[vk::binding(17, 0)]] Texture2D<float> GroundTruthAmbientOcclusionSelector;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -80,6 +82,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 	uint aoDiagnostic = View.Params.w < -0.5
 		? (uint)round(-View.Params.w) : 0u;
 	bool gtaoEnabled = View.Params.z >= 0.0;
+	int2 aoNativePixel = View.ContactParams.z > 0.5 ? pixel / 2 : pixel;
     if ((record.flags & GBufferStandardLitFlag) == 0u)
     {
 		if (aoDiagnostic != 0u)
@@ -185,7 +188,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         record.metallic,
         record.roughness,
 		record.ambientOcclusion * (gtaoEnabled
-			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0),
+			? GroundTruthAmbientOcclusionResolved.Load(int3(pixel, 0)) : 1.0),
         frame,
         EnvironmentIrradiance,
         EnvironmentPrefiltered,
@@ -202,12 +205,81 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 	if (aoDiagnostic == 1u)
 	{
 		float visibility = gtaoEnabled
-			? GroundTruthAmbientOcclusionRaw.Load(int3(pixel, 0)) : 1.0;
+			? GroundTruthAmbientOcclusionRaw.Load(int3(aoNativePixel, 0)) : 1.0;
 		return MakeDeferredLightingOutput(
 			float4(visibility.xxx, 1.0), directional);
 	}
 	if (aoDiagnostic == 2u)
 	{
+		if (View.ContactParams.z > 0.5)
+		{
+			float2 halfCoordinate = (float2(pixel) + 0.5) * 0.5 - 0.5;
+			int2 halfBase = int2(floor(halfCoordinate));
+			uint halfWidth;
+			uint halfHeight;
+			GroundTruthAmbientOcclusionSelector.GetDimensions(
+				halfWidth, halfHeight);
+			uint acceptedCount = 0u;
+			bool rejectedDepth = false;
+			bool rejectedNormal = false;
+			[unroll]
+			for (uint index = 0u; index < 4u; ++index)
+			{
+				int2 offset = int2(index & 1u, index >> 1u);
+				int2 halfPixel = halfBase + offset;
+				if (any(halfPixel < int2(0, 0))
+					|| any(halfPixel >= int2(halfWidth, halfHeight)))
+					continue;
+				uint selector = (uint)round(saturate(
+					GroundTruthAmbientOcclusionSelector.Load(
+						int3(halfPixel, 0))) * 255.0);
+				if (selector < 1u || selector > 4u)
+					continue;
+				uint local = selector - 1u;
+				int2 representativePixel = halfPixel * 2
+					+ int2(local & 1u, local >> 1u);
+				if (any(representativePixel < int2(0, 0))
+					|| any(representativePixel
+						>= int2(targetWidth, targetHeight)))
+					continue;
+				FGBufferRecord representativeRecord = DecodeGBuffer(
+					GBufferMaterial.Load(int3(representativePixel, 0)),
+					GBufferNormals.Load(int3(representativePixel, 0)),
+					GBufferSurface.Load(int3(representativePixel, 0)),
+					GBufferEmissive.Load(int3(representativePixel, 0)));
+				float2 representativeUv =
+					(float2(representativePixel) + 0.5 - viewportOrigin)
+					* View.Params.xy;
+				float3 representativePosition;
+				if (!ReconstructViewPositionAnalytic(
+						View.ProjectionRow0, View.ProjectionRow1,
+						View.ProjectionRow2, View.ProjectionRow3,
+						representativeUv * 2.0 - 1.0,
+						SceneDepth.Load(int3(representativePixel, 0)),
+						representativePosition)
+					|| abs(representativePosition.x - viewPosition.x)
+						> abs(viewPosition.x) * 0.01 + 0.01)
+				{
+					rejectedDepth = true;
+					continue;
+				}
+				if (dot(record.geometricNormal,
+						representativeRecord.geometricNormal) < 0.90)
+				{
+					rejectedNormal = true;
+					continue;
+				}
+				++acceptedCount;
+			}
+			float3 confidence = acceptedCount > 0u
+				? float3(0.0, float(acceptedCount) * 0.25, 0.0)
+				: rejectedDepth && rejectedNormal ? float3(1.0, 0.0, 1.0)
+				: rejectedDepth ? float3(1.0, 0.0, 0.0)
+				: rejectedNormal ? float3(0.0, 0.25, 1.0)
+				: float3(1.0);
+			return MakeDeferredLightingOutput(
+				float4(confidence, 1.0), directional);
+		}
 		uint width;
 		uint height;
 		GBufferSurface.GetDimensions(width, height);
@@ -245,14 +317,14 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 	if (aoDiagnostic == 3u)
 	{
 		float visibility = gtaoEnabled
-			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0;
+			? GroundTruthAmbientOcclusionFiltered.Load(int3(aoNativePixel, 0)) : 1.0;
 		return MakeDeferredLightingOutput(
 			float4(visibility.xxx, 1.0), directional);
 	}
 	if (aoDiagnostic == 4u)
 	{
 		float factor = record.ambientOcclusion * (gtaoEnabled
-			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0);
+			? GroundTruthAmbientOcclusionResolved.Load(int3(pixel, 0)) : 1.0);
 		return MakeDeferredLightingOutput(float4(factor.xxx, 1.0), directional);
 	}
     if (diagnostic == 1u)

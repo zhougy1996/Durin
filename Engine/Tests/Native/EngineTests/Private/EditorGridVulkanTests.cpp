@@ -801,7 +801,7 @@ namespace Durin
 		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(
 			Coordinator, FullscreenGeometry
 		);
-		auto Results = std::make_shared<std::array<bool, 13>>();
+		auto Results = std::make_shared<std::array<bool, 14>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
@@ -816,22 +816,26 @@ namespace Durin
 				FRHICommandListImmediate& CommandList
 			) {
 				(*Results)[0] =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32) == nullptr;
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution) == nullptr;
 				(*Results)[1] =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32) == nullptr;
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
 				auto* Recovered =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				(*Results)[2] = Recovered != nullptr && Recovered->Raw != nullptr
 								&& Recovered->Scratch != nullptr
 								&& Recovered->Raw->GetFormat() == EPixelFormat::R8_UNORM;
 				FRHITexture* RecoveredRaw =
 					Recovered != nullptr ? Recovered->Raw.GetReference() : nullptr;
 				auto* Alternate =
-					AmbientOcclusion.EnsureTargets_RenderThread(32, 16);
+					AmbientOcclusion.EnsureTargets_RenderThread(32, 16,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				(*Results)[3] = Alternate != nullptr && Alternate->Raw != nullptr
 								&& Alternate->Raw->GetSizeX() == 32
 								&& Alternate->Raw->GetSizeY() == 16;
@@ -840,13 +844,15 @@ namespace Durin
 					FRendererResourceInvalidationTargets{}
 				);
 				auto* DeviceTargets =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				(*Results)[4] = DeviceTargets != nullptr
 								&& DeviceTargets->Raw.GetReference() != RecoveredRaw;
 				FRHITexture* DeviceRaw = DeviceTargets != nullptr ? DeviceTargets->Raw.GetReference() : nullptr;
 				AmbientOcclusion.ReleaseResources_RenderThread();
 				auto* ReleasedTargets =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				(*Results)[5] = ReleasedTargets != nullptr
 								&& ReleasedTargets->Raw.GetReference() != DeviceRaw;
 				(*Results)[6] = ReleasedTargets != nullptr
@@ -907,6 +913,15 @@ namespace Durin
 					FRendererResourceInvalidationTargets{}
 				);
 				(*Results)[12] = RenderRaw();
+				auto* HalfTargets = AmbientOcclusion.EnsureTargets_RenderThread(
+					65, 33,
+					EGroundTruthAmbientOcclusionQuality::HalfResolution);
+				(*Results)[13] = HalfTargets != nullptr
+					&& HalfTargets->Raw->GetSizeX() == 33
+					&& HalfTargets->Raw->GetSizeY() == 17
+					&& HalfTargets->Selector != nullptr
+					&& HalfTargets->Resolved->GetSizeX() == 65
+					&& HalfTargets->Resolved->GetSizeY() == 33;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				AmbientOcclusion.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();

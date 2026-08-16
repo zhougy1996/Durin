@@ -209,20 +209,65 @@ namespace Durin
 		EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
 		EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Color.FinalAccess, ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(sizeof(FGroundTruthAmbientOcclusionRenderer::FViewUniform), 160u);
+		EXPECT_EQ(sizeof(FGroundTruthAmbientOcclusionRenderer::FViewUniform), 176u);
+		EXPECT_EQ(sizeof(FGroundTruthAmbientOcclusionRenderer::FFilterUniform), 112u);
 		EXPECT_EQ(FGroundTruthAmbientOcclusionRenderer::BytesPerPixel, 1u);
 		EXPECT_EQ(
 			FGroundTruthAmbientOcclusionRenderer::CalculateRawTargetBytes(1920, 1080),
 			2'073'600u);
 		EXPECT_EQ(
-			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080),
+			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080,
+				EGroundTruthAmbientOcclusionQuality::FullResolution),
 			4'147'200u);
+		EXPECT_EQ(
+			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080,
+				EGroundTruthAmbientOcclusionQuality::HalfResolution),
+			3'628'800u);
 		EXPECT_GE(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
 			8u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
-				1920, 1080));
+				1920, 1080,
+				EGroundTruthAmbientOcclusionQuality::FullResolution));
 		EXPECT_LT(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
 			9u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
-				1920, 1080));
+				1920, 1080,
+				EGroundTruthAmbientOcclusionQuality::FullResolution));
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, GroundTruthAmbientOcclusionHalfMappingAndSelectorAreExact)
+	{
+		using FRenderer = FGroundTruthAmbientOcclusionRenderer;
+		EXPECT_EQ(FRenderer::CalculateHalfExtent(0), 0u);
+		EXPECT_EQ(FRenderer::CalculateHalfExtent(1), 1u);
+		EXPECT_EQ(FRenderer::CalculateHalfExtent(4), 2u);
+		EXPECT_EQ(FRenderer::CalculateHalfExtent(5), 3u);
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({0, 0, 4, 6}),
+			(FRenderer::FRectangle{0, 0, 2, 3}));
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({1, 3, 5, 7}),
+			(FRenderer::FRectangle{0, 1, 3, 4}));
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({7, 9, 1, 1}),
+			(FRenderer::FRectangle{3, 4, 1, 1}));
+
+		uint32 LocalX = 99;
+		uint32 LocalY = 99;
+		for (uint32 Y = 0; Y < 2; ++Y)
+		{
+			for (uint32 X = 0; X < 2; ++X)
+			{
+				const uint8 Selector = FRenderer::EncodeSelector(X, Y);
+				ASSERT_TRUE(FRenderer::DecodeSelector(Selector, LocalX, LocalY));
+				EXPECT_EQ(LocalX, X);
+				EXPECT_EQ(LocalY, Y);
+			}
+		}
+		EXPECT_FALSE(FRenderer::DecodeSelector(
+			FRenderer::InvalidSelector, LocalX, LocalY));
+		EXPECT_EQ(FRenderer::EncodeSelector(2, 0), FRenderer::InvalidSelector);
+		EXPECT_EQ(FRenderer::SelectRepresentative({{{false, 0.0f},
+			{false, 0.0f}, {false, 0.0f}, {false, 0.0f}}}),
+			FRenderer::InvalidSelector);
+		EXPECT_EQ(FRenderer::SelectRepresentative({{{true, 4.0f},
+			{true, 2.0f}, {true, 2.0f}, {true, 3.0f}}}), 2u);
+
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, OutputVariantOwnsOnlyTheColorFinalTransition)

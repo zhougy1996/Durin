@@ -591,6 +591,8 @@ namespace Durin::Editor::Level
 			Layout.bEnableFXAA = Settings.bEnableFXAA;
 			Layout.bEnableGroundTruthAmbientOcclusion =
 				Settings.bEnableGroundTruthAmbientOcclusion;
+			Layout.GroundTruthAmbientOcclusionQuality =
+				Settings.GroundTruthAmbientOcclusionQuality;
 			Layout.RenderMode = Settings.RenderMode;
 			Layout.RasterMode = Settings.RasterMode;
 		}
@@ -862,6 +864,25 @@ namespace Durin::Editor::Level
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Ground Truth Ambient Occlusion for indirect environment lighting in Solid Lit views.");
+				if (ImGui::BeginMenu("GTAO Quality"))
+				{
+					const auto SetQuality = [&](const char* Label,
+						EGroundTruthAmbientOcclusionQuality Quality) {
+						if (ImGui::MenuItem(Label, nullptr,
+							Layout.GroundTruthAmbientOcclusionQuality == Quality))
+						{
+							FSceneViewSettings Settings =
+								RenderSettingsClient->GetViewSettings();
+							Settings.GroundTruthAmbientOcclusionQuality = Quality;
+							RenderSettingsClient->SetViewSettings(Settings);
+						}
+					};
+					SetQuality("Half Resolution",
+						EGroundTruthAmbientOcclusionQuality::HalfResolution);
+					SetQuality("Full Resolution",
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
+					ImGui::EndMenu();
+				}
 				bool bEnableFXAA = Layout.bEnableFXAA;
 				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
 				{

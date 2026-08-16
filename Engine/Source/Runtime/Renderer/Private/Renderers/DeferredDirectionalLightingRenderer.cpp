@@ -36,6 +36,8 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionRaw); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionFiltered); \
+	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionResolved); \
+	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionSelector); \
 	DURIN_SHADER_PARAMETER_TEXTURE(ContactVisibility);       \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);      \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
@@ -346,6 +348,8 @@ namespace Durin
 			|| Parameters.DirectionalShadowTexture == nullptr
 			|| Parameters.GroundTruthAmbientOcclusionRaw == nullptr
 			|| Parameters.GroundTruthAmbientOcclusionFiltered == nullptr
+			|| Parameters.GroundTruthAmbientOcclusionResolved == nullptr
+			|| Parameters.GroundTruthAmbientOcclusionSelector == nullptr
 			|| Parameters.ContactVisibility == nullptr
 			|| Parameters.Lighting.Buffer == nullptr)
 		{
@@ -390,7 +394,8 @@ namespace Durin
 		Uniform.ContactParams = {
 			Parameters.bContactVisibilityEnabled ? 1.0f : 0.0f,
 			Parameters.bContactVisibilityDebug ? 1.0f : 0.0f,
-			0.0f, 0.0f};
+			Parameters.bGroundTruthAmbientOcclusionHalfResolution ? 1.0f : 0.0f,
+			0.0f};
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
@@ -442,6 +447,10 @@ namespace Durin
 				Parameters.GroundTruthAmbientOcclusionRaw;
 			ShaderParameters.GroundTruthAmbientOcclusionFiltered =
 				Parameters.GroundTruthAmbientOcclusionFiltered;
+			ShaderParameters.GroundTruthAmbientOcclusionResolved =
+				Parameters.GroundTruthAmbientOcclusionResolved;
+			ShaderParameters.GroundTruthAmbientOcclusionSelector =
+				Parameters.GroundTruthAmbientOcclusionSelector;
 			ShaderParameters.ContactVisibility = Parameters.ContactVisibility;
 			ShaderParameters.View = ViewUniform;
 			ShaderParameters.Lighting = Parameters.Lighting;
