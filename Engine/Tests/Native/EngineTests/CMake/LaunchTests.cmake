@@ -97,6 +97,17 @@ durin_finalize_native_test(LaunchProcessBoundaryTests
 )
 durin_discover_tests(LaunchProcessBoundaryTests)
 
+if(NOT APPLE)
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"macOS crash-handler and Cocoa window lifecycle coverage requires Apple platform APIs."
+		SOURCES
+			Private/Launch/MacOSNativeCrashCharacterizationTests.cpp
+			Private/Launch/MacOSProcessCrashHandlerTests.cpp
+			Private/Launch/MacOSWindowLifecycleTests.cpp
+	)
+endif()
+
 if(WIN32)
 	add_durin_test(NativeCrashCharacterizationTests
 		Private/Launch/NativeCrashCharacterizationTests.cpp

@@ -15,6 +15,15 @@ extern char** environ;
 
 namespace Durin
 {
+	namespace
+	{
+		auto NonInteractiveDialogError() -> FFileDialogResult
+		{
+			return {EFileDialogStatus::Error, {},
+				"Native dialog interaction is disabled for this request."};
+		}
+	}
+
 #if defined(_WIN32)
 	namespace
 	{
@@ -98,8 +107,6 @@ namespace Durin
 			const FFileDialogRequest& Request,
 			std::string_view Kind) -> FFileDialogResult
 		{
-			if (!Request.bAllowUserInteraction)
-				return MacOSDialogError("Native dialog interaction is disabled for this request.");
 			if (pthread_main_np() == 0)
 				return MacOSDialogError("macOS native dialogs must be opened on the main thread.");
 
@@ -209,6 +216,8 @@ end run
 
 	auto OpenFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult
 	{
+		if (!Request.bAllowUserInteraction) return NonInteractiveDialogError();
+
 #if defined(_WIN32)
 		FComScope ComScope;
 		if (FAILED(ComScope.Result)) return {EFileDialogStatus::Error, {}, HResultMessage("COM initialization", ComScope.Result)};
@@ -287,6 +296,8 @@ end run
 
 	auto OpenFolderDialog(const FFileDialogRequest& Request) -> FFileDialogResult
 	{
+		if (!Request.bAllowUserInteraction) return NonInteractiveDialogError();
+
 #if defined(_WIN32)
 		FComScope ComScope;
 		if (FAILED(ComScope.Result))
@@ -361,6 +372,8 @@ end run
 
 	auto SaveFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult
 	{
+		if (!Request.bAllowUserInteraction) return NonInteractiveDialogError();
+
 #if defined(_WIN32)
 		FComScope ComScope;
 		if (FAILED(ComScope.Result)) return {EFileDialogStatus::Error, {}, HResultMessage("COM initialization", ComScope.Result)};

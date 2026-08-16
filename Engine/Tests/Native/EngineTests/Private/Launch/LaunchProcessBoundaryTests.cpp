@@ -23,7 +23,11 @@ TEST(FLaunchProcessBoundaryTests, RejectsParseAndDuplicateFailuresWithCommandLin
 
 TEST(FLaunchProcessBoundaryTests, ReportsWaitFailureAsRuntimeFailure)
 {
+#if defined(_WIN32)
+	EXPECT_EQ(RunLaunchChild("--wait-for-process=4"), 1u);
+#elif defined(__APPLE__)
 	EXPECT_EQ(RunLaunchChild("--wait-for-process=4294967295"), 1u);
+#endif
 }
 
 // Full runtime startup is sensitive to unrelated host load, so keep these
