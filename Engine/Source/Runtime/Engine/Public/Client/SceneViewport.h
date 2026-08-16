@@ -41,7 +41,7 @@ namespace Durin
 		ENGINE_API auto PrepareDisplay(const FVector2f& DesiredSize) -> void override;
 		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
 
-		ENGINE_API auto UpdateRHIViewport() -> void;
+		ENGINE_API auto UpdateRHIViewport() -> void override;
 		ENGINE_API auto IsWindowBacked() const -> bool;
 		ENGINE_API auto GetDesiredSize() const -> FVector2f;
 		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;

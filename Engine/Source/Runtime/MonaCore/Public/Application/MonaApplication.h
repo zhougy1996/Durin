@@ -55,7 +55,7 @@ namespace Durin::Mona
 
 		MONACORE_API auto FlushPendingWindowDestroys() -> void;
 
-		MONACORE_API auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void;
+		MONACORE_API auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void override;
 
 		MONACORE_API auto PollEvents() -> void;
 
