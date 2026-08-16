@@ -4,8 +4,16 @@ Summary: Replace the Windows editor main-frame caption with a Durin-rendered tit
 
 Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
+
+- 2026-08-16: The Windows editor main frame, shared native window bridge,
+  integrated title/menu bar, authored branding, fallback path, and lasting
+  contracts are complete. Focused and broader native tests, full builds, hidden
+  lifecycle runs, and visible editor qualification pass. The user accepted
+  closure after the final branding and icon-glyph corrections; the exhaustive
+  cross-monitor, theme, Snap Layout, and failure-injection matrix is explicitly
+  retained as deferred qualification rather than claimed as completed evidence.
 
 ## Current Status
 
@@ -16,13 +24,17 @@ interaction state, and complete system-frame fallback. MainFrame requests custom
 mode before creation and draws one scaled title/menu bar across project-browser,
 loading, and ready states while sharing all workspace menu commands with fallback.
 
-The implemented visual baseline remains 36 pixels with an 18-pixel brand mark,
-8-pixel gaps, and three 46-pixel caption regions before UI scaling. Inspection of
-the existing project browser established an authored vector Durin mark already in
-editor code; MainFrame reuses that geometry instead of introducing a second image
-resource lifetime. The supported minimum track size is 640 by 480 base pixels,
-scaled by window DPI; the project title truncates and hides before menus or native
-caption regions.
+The implemented visual baseline remains 36 pixels with a 20-pixel square brand
+mark in a compact 24-pixel slot, a 20-pixel whitespace break before the menus,
+and three 46-pixel caption regions before UI scaling. The `Durin` wordmark uses
+the existing Roboto Medium asset at an optically matched size and shares a
+baseline with the regular project suffix; menus retain the normal UI weight.
+MainFrame loads the authored Durin logo through one shared asynchronous GPU
+texture used by both the title bar and Project Browser. A 256-pixel UI derivative
+keeps startup decode and texture memory bounded; alpha-aware runtime mips preserve
+clean edges at the title-bar size and across UI scales. The supported minimum
+track size is 640 by 480 base pixels, scaled by window DPI; the project title
+truncates and hides before menus or native caption regions.
 
 Automated evidence on 2026-08-16: `ApplicationCore` and `MainFrame` target builds,
 a full `all` build, all 72 default native-test targets through `test all`, and
@@ -44,12 +56,26 @@ auto-hidden taskbar band except for its activation edge. The custom bridge owns
 one `WM_SYSCOMMAND` transition per matched button press/release, while
 `HTMAXBUTTON` remains available to Snap Layout.
 
-The plan remains active at Stage 3. The current desktop harness cannot inspect
-another application's pixels, so dark/light screenshots and the full manual
-interaction matrix (Snap Layout, system menu, cross-monitor DPI, taskbar edges,
-and narrow/theme/UI-scale comparisons) remain explicitly unverified. Layout
-snapshot automation and injected hook-failure/maximized-work-area integration
-coverage also remain open.
+A branding follow-up on 2026-08-16 replaced the separately approximated title-bar
+and Project Browser polygons with the shared authored image. The `MainFrame` target
+and full `all` build passed, and a visible Project Browser capture verified the
+complete gradient mark, transparent edges, and small title-bar rendering.
+
+A title-bar polish follow-up on 2026-08-16 tightened the brand's leading space,
+replaced the hard divider with whitespace, and gave only the `Durin` wordmark a
+medium weight with an optically matched size and baseline. The `MainFrame` target
+and full `all` build passed, a 120-tick hidden editor run exited cleanly, and a
+visible title-bar capture verified the compact spacing and vertical alignment.
+Font Awesome remains merged into the default UI font before the independent
+medium face is registered, preserving editor icon glyphs outside the title bar.
+
+The plan is complete at the accepted implementation scope. The single visible
+capture does not cover every configuration, so paired dark/light screenshots,
+the full manual interaction matrix (Snap Layout, system menu, cross-monitor DPI,
+taskbar edges, and narrow/theme/UI-scale comparisons), layout snapshot
+automation, and injected hook-failure coverage remain explicitly deferred and
+unverified. These gaps are recorded below rather than presented as passing
+qualification.
 
 Only the Windows editor main window adopts custom title-bar mode. Detached ImGui
 viewports, PIE/game windows, dialogs, and other Mona windows retain their current
@@ -262,15 +288,17 @@ is:
 ```
 
 Selected base metrics before global UI scaling are a 36-pixel title-bar height,
-an 18-pixel branding mark, 8-pixel internal gaps, and three 46-pixel-wide
+a 20-pixel square branding slot, 8-pixel internal gaps, and three 46-pixel-wide
 caption regions. Stage 0 may adjust these values only after a checked-in design
 comparison records the replacement values and rationale.
 
 The bar uses `ImGuiCol_MenuBarBg`, normal/disabled text, normal button
 hover/active colors, and the semantic error color for close hover/press. It
-reuses `Engine/Content/Editor/Branding/DurinEditorLogo.png`; no second branding
-asset is introduced. The project title comes from the same state used to set
-the native window title.
+derives `Engine/Content/Editor/Branding/DurinEditorLogoUI.png` from
+`Engine/Content/Editor/Branding/DurinEditorLogo.png`, then shares one mipmapped
+GPU texture between the title bar and Project Browser. The smaller derivative is
+the runtime UI asset; the original remains the authored source. The project title
+comes from the same state used to set the native window title.
 
 At narrow widths the project title truncates first, then hides. Menu commands
 and all three caption buttons remain fully hittable, and at least one 48-pixel
@@ -329,8 +357,8 @@ Outcome: implementation begins from one native hook contract, one coordinate
 model, and an approved top-bar geometry rather than discovering these inside UI
 code.
 
-- [ ] Capture the current Windows 11 main-frame caption/menu seam in dark and
-  light themes at 100% DPI and UI scale as baseline evidence.
+- Deferred at closure: capture the previous Windows 11 caption/menu seam in
+  both themes as historical baseline evidence.
 - [x] Record whether the modal-loop plan's shared `FGlfwWindow` hook exists at
   implementation time and select reuse or scaffold-first ownership without
   installing a second hook.
@@ -338,8 +366,8 @@ code.
   caption-interaction value contracts with no Win32 or ImGui public types.
 - [x] Freeze client versus screen coordinate conversion, DPI border metrics,
   first-frame fallback regions, and maximized work-area calculation.
-- [ ] Produce a checked-in or review-captured 36-pixel top-bar comparison in both
-  themes and record any approved metric change in this plan before Stage 1.
+- Deferred at closure: produce a paired 36-pixel top-bar comparison in both
+  themes; the accepted dark-theme captures record the implemented metrics.
 - [x] Identify the supported minimum main-window width and prove the proposed
   responsive order leaves menus, caption controls, and a drag region available.
 - [x] Add pure value tests for hit-test priority, edge/corner classification,
@@ -376,9 +404,9 @@ custom pixels are drawn.
   and retain DWM shadow/corner behavior.
 - [x] Implement DPI-aware resize hit testing, caption/drag hit testing,
   maximized work-area correction, and system fallback on partial failure.
-- [ ] Add Windows integration tests using a hidden/test window for hook lifetime,
-  effective-mode fallback, client extent, hit-test results, maximize bounds, and
-  teardown.
+- Deferred at closure: extend Windows integration coverage from the passing
+  hidden-window, hit-test, maximize, and teardown cases to injected hook/setup
+  failure and complete effective-mode fallback.
 
 Dependencies: Stage 0.
 
@@ -405,8 +433,8 @@ native hit regions that exactly match the rendered geometry.
   system-fallback layouts execute identical File/Edit/Tools/Window behavior.
 - [x] Draw branding, current project/editor title, menus, explicit drag space,
   and three caption controls using the selected theme tokens and metrics.
-- [x] Reuse the established project-browser brand-mark geometry without adding
-  another texture lifetime to MainFrame.
+- [x] Reuse the authored brand image through one shared mipmapped texture
+  lifetime for MainFrame and Project Browser.
 - [x] Publish draggable and caption rectangles only after their final ImGui
   layout is known; publish one complete generation per frame.
 - [x] Render hover, pressed, focus, and maximize/restore states from the native
@@ -416,8 +444,8 @@ native hit regions that exactly match the rendered geometry.
   the minimum drag region without overlapping menus or caption controls.
 - [x] Draw the same bar during project-browser, loading, and ready-workspace
   states so bootstrap never swaps between incompatible top layouts.
-- [ ] Add layout tests for full/minimum widths, long project names, both themes,
-  and every supported editor UI scale.
+- Deferred at closure: add MainFrame layout snapshots for minimum width, long
+  project names, both themes, and every supported editor UI scale.
 
 Dependencies: Stage 1.
 
@@ -438,19 +466,14 @@ Dependencies: Stage 1.
 Outcome: the rendered main frame behaves indistinguishably from a native window
 for window management and remains composable with all current window consumers.
 
-- [ ] Verify native minimize, maximize/restore, close, double-click caption,
-  caption drag, right-click caption system menu, and Alt+Space behavior.
-- [ ] Verify Windows 11 Snap Layout appears from maximize hover and all selected
-  snap commands produce correct restored/maximized state and glyph updates.
-- [ ] Verify menu interaction, docking drag, document tabs, viewport mouse
-  capture, and ordinary client input never enter caption/resize hit paths.
-- [ ] Exercise all resize edges/corners at normal DPI and after live movement
-  across monitors with different DPI and taskbar placement.
-- [ ] Exercise normal, maximized, snapped, minimized, restored, and persisted
-  startup states on primary and secondary monitors.
-- [ ] Compose and test the shared WndProc with MonaImGui's later viewport hook
+- Deferred at closure: manually qualify minimize, maximize/restore, close,
+  double-click caption, caption drag, system-menu, and Alt+Space behavior.
+- Deferred at closure: qualify Windows 11 Snap Layout hover and selections.
+- Deferred at closure: exercise menus, docking, tabs, viewport capture, resize
+  edges, persisted states, mixed-DPI monitors, and taskbar placements.
+- [x] Compose and test the shared WndProc with MonaImGui's later viewport hook
   and any modal-loop messages implemented by the related plan.
-- [ ] Confirm native move/resize modal-loop behavior is no worse than baseline;
+- [x] Confirm native move/resize modal-loop behavior is no worse than baseline;
   record continuous ticking evidence only if the related plan is complete.
 - [x] Add diagnostics for effective decoration mode and invalid/stale layout
   generations without logging per-frame or per-hit-test noise.
@@ -480,19 +503,18 @@ window/UI work routes to maintained contracts instead of this plan.
   workflow.
 - [x] Run focused window/UI tests and the required broader native suite through
   the repository test-selection workflow.
-- [ ] Complete the full visual and interaction matrix on supported Windows 11;
-  run system-fallback qualification on another platform or an injected
-  unsupported path.
-- [ ] Capture before/after dark and light screenshots at representative normal,
-  maximized, snapped, and narrow sizes.
+- Deferred at closure: complete the full Windows 11 visual/interaction matrix
+  and system-fallback qualification on another platform or injected path.
+- Deferred at closure: capture paired dark/light comparisons at representative
+  normal, maximized, snapped, and narrow sizes.
 - [x] Update Editor UI Style with title-bar tokens, responsive order, visual
   states, and custom-versus-fallback ownership.
 - [x] Create a focused implemented Runtime windowing contract under
   `Documentation/Runtime/Core/` covering decoration modes, the shared native
   hook, hit-region coordinates, system-command ownership, DPI, and fallback.
-- [ ] Cross-link the modal-loop plan/contract to the shared native hook if that
+- [x] Cross-link the modal-loop plan/contract to the shared native hook if that
   work has been implemented.
-- [ ] Record exact validation evidence in `Current Status`, close passed
+- [x] Record exact validation evidence in `Current Status`, close passed
   checklists, and complete the plan lifecycle metadata.
 
 Dependencies: Stage 3.
@@ -528,6 +550,12 @@ Dependencies: Stage 3.
 Build, run, and test commands must come from the repository workflows in
 Related Documentation rather than being copied into this plan.
 
+Closure disposition: implementation, automated native coverage, builds,
+lifecycle runs, lasting contracts, and the accepted visible editor path pass.
+The exhaustive manual and injected-failure cells that were not executed are
+reclassified as deferred follow-ups below; completion does not claim those
+matrix cells as passing evidence.
+
 ## Definition of Done
 
 - The Windows editor main window renders one integrated Durin title/menu bar.
@@ -551,6 +579,17 @@ Related Documentation rather than being copied into this plan.
 
 ## Deferred Follow-ups
 
+- Complete the Windows 11 caption interaction and Snap Layout manual matrix,
+  including Alt+Space, right-click system menu, snap selections, and all window
+  states.
+- Qualify mixed-DPI monitors, primary/secondary taskbar placements, supported UI
+  scales, focus states, and both editor themes.
+- Add deterministic MainFrame layout snapshots for narrow/long-title cases and
+  injected custom-frame setup/fallback failure coverage.
+- Capture paired before/after dark and light evidence at normal, maximized,
+  snapped, and narrow sizes.
+- Qualify the complete system-caption fallback on a non-Windows platform or an
+  injected unsupported custom-frame path.
 - Custom title bars for detached ImGui, PIE/game, or standalone windows.
 - macOS traffic-light/titlebar integration and Linux compositor-specific client
   decorations.
@@ -583,8 +622,10 @@ Related Documentation rather than being copied into this plan.
 - [`MonaImGui` platform viewport integration](../../Engine/Source/Runtime/MonaImGui/Private/ImGuiMonaImpl.cpp)
 - [`MonaImGui` theme and metrics](../../Engine/Source/Runtime/MonaImGui/Private/MonaImGui.cpp)
 - [`MainFrame` editor shell](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
+- [`MainFrame` editor branding texture](../../Engine/Source/Editor/MainFrame/Private/EditorBranding.cpp)
 - [Dark editor theme](../../Engine/Configs/DurinEditorTheme.Dark.yaml)
 - [Light editor theme](../../Engine/Configs/DurinEditorTheme.Light.yaml)
 - [Editor branding logo](../../Engine/Content/Editor/Branding/DurinEditorLogo.png)
+- [Editor UI branding logo](../../Engine/Content/Editor/Branding/DurinEditorLogoUI.png)
 - [Viewport foundation tests](../../Engine/Tests/Native/EngineTests/Private/Viewport/ViewportFoundationTests.cpp)
 - [UI style tests](../../Engine/Tests/Native/EngineTests/Private/UIStyleTests.cpp)

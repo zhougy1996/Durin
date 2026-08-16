@@ -1,6 +1,7 @@
 #include "ProjectBrowser.h"
 
 #include "Dialogs/FileDialog.h"
+#include "EditorBranding.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -15,34 +16,6 @@ namespace Durin::Editor::MainFrame
 		constexpr float BrandPanelMaximumWidth = 360.0f;
 		constexpr float CompactBrandHeight = 142.0f;
 		constexpr float ProjectRowHeight = 74.0f;
-		constexpr float BrandMarkAspectRatio = 0.82f;
-
-		auto DrawBrandMark(ImDrawList* DrawList, const ImVec2& Min, float Height) -> void
-		{
-			const float Width = Height * BrandMarkAspectRatio;
-			const auto Point = [&](float X, float Y) { return Min + ImVec2(Width * X, Height * Y); };
-
-			// Match the authored branding silhouette while keeping the small browser mark
-			// flat and theme-independent so it remains recognizable at every UI scale.
-			const std::array Outer = {
-				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f), Point(1.00f, 0.70f),
-				Point(0.65f, 1.00f), Point(0.00f, 1.00f), Point(0.00f, 0.77f), Point(0.63f, 0.77f),
-				Point(0.76f, 0.62f), Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f),
-			};
-			DrawList->AddConcavePolyFilled(Outer.data(), static_cast<int>(Outer.size()), IM_COL32(24, 104, 232, 255));
-
-			const std::array Highlight = {
-				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f),
-				Point(1.00f, 0.46f), Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f),
-			};
-			DrawList->AddConcavePolyFilled(Highlight.data(), static_cast<int>(Highlight.size()), IM_COL32(28, 193, 235, 255));
-
-			const std::array Wedge = {
-				Point(0.00f, 0.17f), Point(0.29f, 0.42f), Point(0.29f, 0.66f), Point(0.00f, 0.83f),
-			};
-			DrawList->AddConvexPolyFilled(Wedge.data(), static_cast<int>(Wedge.size()), IM_COL32(137, 61, 226, 255));
-		}
-
 		auto StatusLabel(ERecentProjectStatus Status) -> const char*
 		{
 			switch (Status)
@@ -83,7 +56,7 @@ namespace Durin::Editor::MainFrame
 		SelectedProject = 0;
 	}
 
-	auto FProjectBrowser::Draw() -> void
+	auto FProjectBrowser::Draw(const FRHITexture* BrandTexture) -> void
 	{
 		ImGuiViewport* Viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -108,7 +81,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, BrandBackground);
 		if (bCompact)
 		{
-			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(Available.x, MonaImGui::ScaleUI(CompactBrandHeight)))) DrawBrandPanel(true);
+			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(Available.x, MonaImGui::ScaleUI(CompactBrandHeight)))) DrawBrandPanel(true, BrandTexture);
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
 			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(Available.x, 0.0f))) DrawProjectContent();
@@ -117,7 +90,7 @@ namespace Durin::Editor::MainFrame
 		else
 		{
 			const float BrandWidth = std::clamp(Available.x * 0.30f, MonaImGui::ScaleUI(BrandPanelMinimumWidth), MonaImGui::ScaleUI(BrandPanelMaximumWidth));
-			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(BrandWidth, Available.y))) DrawBrandPanel(false);
+			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(BrandWidth, Available.y))) DrawBrandPanel(false, BrandTexture);
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
 			ImGui::SameLine(0.0f, 0.0f);
@@ -128,7 +101,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::End();
 	}
 
-	auto FProjectBrowser::DrawBrandPanel(bool bCompact) -> void
+	auto FProjectBrowser::DrawBrandPanel(bool bCompact, const FRHITexture* BrandTexture) -> void
 	{
 		const float Padding = MonaImGui::ScaleUI(bCompact ? 24.0f : 36.0f);
 		const ImVec2 Origin = ImGui::GetWindowPos();
@@ -136,7 +109,7 @@ namespace Durin::Editor::MainFrame
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		const float MarkSize = MonaImGui::ScaleUI(bCompact ? 34.0f : 46.0f);
 		const ImVec2 MarkMin = Origin + ImVec2(Padding, Padding);
-		DrawBrandMark(DrawList, MarkMin, MarkSize);
+		DrawEditorBrandMark(DrawList, BrandTexture, MarkMin, MarkSize);
 
 		ImGui::SetCursorPos(ImVec2(Padding + MarkSize + MonaImGui::ScaleUI(14.0f), Padding + MonaImGui::ScaleUI(2.0f)));
 		ImGui::PushFont(nullptr, bCompact ? 22.0f : 26.0f);

@@ -61,11 +61,13 @@ On Windows, the editor root window uses one integrated title/menu bar drawn by
 If custom-title-bar activation fails, the root keeps the system caption and the
 workspace host draws its ordinary client menu bar.
 
-The base geometry before global UI scaling is a 36-pixel bar, an 18-pixel Durin
-mark, 8-pixel internal gaps, and three 46-pixel caption regions. The order is
-brand, project/editor title, File/Edit/Tools/Window/Help menus, explicit drag
-space, minimize, maximize/restore, and close. At narrow widths the title truncates
-and then disappears; menus and caption regions remain intact.
+The base geometry before global UI scaling is a 36-pixel bar, a 20-pixel Durin
+mark centered in a 42-pixel safe slot, 8-pixel control padding, and three 46-pixel
+caption regions. The order is brand, `Durin - <project>` title, a centered
+18-pixel separator with 12-pixel side gaps, File/Edit/Tools/Window/Help menus,
+explicit drag space, minimize, maximize/restore, and close. At narrow widths the
+title and its separator truncate and then disappear together; menus and caption
+regions remain intact.
 
 Use `ImGuiCol_MenuBarBg` for the bar, normal/disabled text for active/inactive
 windows, and normal button hover/active colors for minimize and maximize. Close

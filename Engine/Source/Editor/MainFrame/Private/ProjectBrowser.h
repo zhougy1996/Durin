@@ -2,6 +2,11 @@
 
 #include "Misc/ProjectHistory.h"
 
+namespace Durin
+{
+	class FRHITexture;
+}
+
 namespace Durin::Editor::MainFrame
 {
 	// Draws and owns state for the startup project-selection window.
@@ -15,10 +20,10 @@ namespace Durin::Editor::MainFrame
 		auto SetOpenProject(FOpenProject InOpenProject) -> void { OpenProject = std::move(InOpenProject); }
 		auto SetError(std::string InError) -> void { Error = std::move(InError); }
 		auto RecordCurrentProject() -> void;
-		auto Draw() -> void;
+		auto Draw(const FRHITexture* BrandTexture) -> void;
 
 	private:
-		auto DrawBrandPanel(bool bCompact) -> void;
+		auto DrawBrandPanel(bool bCompact, const FRHITexture* BrandTexture) -> void;
 		auto DrawProjectContent() -> void;
 		auto DrawRecentProjects(float Height) -> void;
 		auto DrawProjectRow(size_t Index, const FRecentProjectInfo& Project) -> bool;

@@ -65,6 +65,9 @@ namespace Durin
 		// Runtime-selected sizes create distinct ImGui baked-font entries. Keep them on
 		// a shared pixel grid so continuous UI inputs cannot grow the atlas unboundedly.
 		MONAIMGUI_API auto QuantizeDynamicFontSize(float RequestedSize) -> float;
+		// Returns the medium-weight Latin UI font, or the default font when the
+		// authored font asset could not be loaded.
+		MONAIMGUI_API auto GetMediumUIFont() -> ImFont*;
 		MONAIMGUI_API auto GetUIStyleMetrics() -> FUIStyleMetrics;
 		MONAIMGUI_API auto SetColorTheme(EColorTheme Theme) -> void;
 		MONAIMGUI_API auto GetColorTheme() -> EColorTheme;

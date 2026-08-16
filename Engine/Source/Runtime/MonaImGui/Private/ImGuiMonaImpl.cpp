@@ -9,6 +9,12 @@
 namespace Durin::MonaImGui
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
+	static ImFont* GMediumUIFont = nullptr;
+
+	auto GetMediumUIFont() -> ImFont*
+	{
+		return GMediumUIFont ? GMediumUIFont : ImGui::GetIO().FontDefault;
+	}
 
 	// Translates Mona application events into the active ImGui context.
 	class FMonaImGuiEventHandler : public Mona::FMonaEventHandler
@@ -684,6 +690,7 @@ namespace Durin::MonaImGui
 		std::string FontDir = FPaths::EngineDir() + "Content/Fonts/";
 		std::string FontPath_DroidSans = FontDir + "DroidSans.ttf";
 		std::string FontPath_NotoSansSC = FontDir + "NotoSansSC-Regular.ttf";
+		std::string FontPath_RobotoMedium = FontDir + "Roboto-Medium.ttf";
 		std::string FontPath_FontAwesome = FontDir + "FontAwesome/FontAwesome7Free-Solid-900.otf";
 
 		ImFont* FallbackLatinFont = IO.Fonts->AddFontFromFileTTF(FontPath_DroidSans.c_str(), 20.0f);
@@ -694,6 +701,7 @@ namespace Durin::MonaImGui
 		IconFontConfig.GlyphMinAdvanceX = 16.0f;
 		static constexpr ImWchar IconGlyphRanges[]{0xe000, 0xf8ff, 0};
 		IO.Fonts->AddFontFromFileTTF(FontPath_FontAwesome.c_str(), 16.0f, &IconFontConfig, IconGlyphRanges);
+		GMediumUIFont = IO.Fonts->AddFontFromFileTTF(FontPath_RobotoMedium.c_str(), 20.0f);
 		if (ChineseFont)
 		{
 			IO.FontDefault = ChineseFont;

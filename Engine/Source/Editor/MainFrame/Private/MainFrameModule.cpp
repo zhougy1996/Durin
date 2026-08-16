@@ -1,6 +1,7 @@
 #include "MainFrameModule.h"
 #include "AssetCompatibilityWindow.h"
 
+#include "EditorBranding.h"
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 
@@ -39,6 +40,7 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<MWindow> RootWindow;
 		std::shared_ptr<Editor::FWorkspaceManager> WorkspaceManager;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
+		std::unique_ptr<FEditorBrandTexture> BrandTexture;
 		std::shared_ptr<FProfilingToolService> ProfilingTools;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
@@ -47,24 +49,11 @@ namespace Durin::Editor::MainFrame
 	namespace
 	{
 		constexpr float EditorTitleBarHeight = 36.0f;
-		constexpr float EditorTitleBarBrandHeight = 18.0f;
+		constexpr float EditorTitleBarBrandHeight = 20.0f;
+		constexpr float EditorTitleBarBrandSlotWidth = 24.0f;
 		constexpr float EditorCaptionButtonWidth = 46.0f;
 		constexpr float EditorTitleBarGap = 8.0f;
-
-		auto DrawEditorBrandMark(ImDrawList* DrawList, const ImVec2& Min, float Height) -> void
-		{
-			const float Width = Height * 0.82f;
-			const auto Point = [&](float X, float Y) { return Min + ImVec2(Width * X, Height * Y); };
-			const std::array Outer = {
-				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f), Point(1.00f, 0.70f),
-				Point(0.65f, 1.00f), Point(0.00f, 1.00f), Point(0.00f, 0.77f), Point(0.63f, 0.77f),
-				Point(0.76f, 0.62f), Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f)};
-			DrawList->AddConcavePolyFilled(Outer.data(), static_cast<int>(Outer.size()), IM_COL32(24, 104, 232, 255));
-			const std::array Highlight = {
-				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f), Point(1.00f, 0.46f),
-				Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f)};
-			DrawList->AddConcavePolyFilled(Highlight.data(), static_cast<int>(Highlight.size()), IM_COL32(28, 193, 235, 255));
-		}
+		constexpr float EditorTitleBarMenuGap = 20.0f;
 
 		auto TransitionBootstrap(
 			FBootstrapContext& Context,
@@ -521,6 +510,7 @@ namespace Durin::Editor::MainFrame
 		auto DrawCustomEditorTitleBar(
 			Editor::FWorkspaceManager& WorkspaceManager,
 			MWindow& RootWindow,
+			const FRHITexture* BrandTexture,
 			const FProfilingToolService& ProfilingTools,
 			bool bDrawWorkspaceMenus,
 			bool& bAboutDialogOpen,
@@ -545,36 +535,62 @@ namespace Durin::Editor::MainFrame
 			const ImVec2 BarMax(BarMin.x + ImGui::GetWindowWidth(), BarMin.y + ImGui::GetWindowHeight());
 			const float CaptionStartX = BarMax.x - ButtonWidth * 3.0f;
 			const float BrandHeight = MonaImGui::ScaleUI(EditorTitleBarBrandHeight);
-			const float BrandWidth = BrandHeight * 0.82f;
+			const float BrandWidth = BrandHeight;
+			const float BrandSlotWidth = MonaImGui::ScaleUI(EditorTitleBarBrandSlotWidth);
+			const ImVec2 BrandSlotMin = ImGui::GetCursorScreenPos();
 			const ImVec2 BrandMin(
-				ImGui::GetCursorScreenPos().x + MonaImGui::ScaleUI(EditorTitleBarGap),
-				BarMin.y + (BarMax.y - BarMin.y - BrandHeight) * 0.5f);
-			DrawEditorBrandMark(DrawList, BrandMin, BrandHeight);
-			ImGui::Dummy(ImVec2(BrandWidth + MonaImGui::ScaleUI(EditorTitleBarGap * 2.0f), 0.0f));
-			ImGui::SameLine();
+				std::round(BrandSlotMin.x),
+				std::round(BarMin.y + (BarMax.y - BarMin.y - BrandHeight) * 0.5f));
+			DrawEditorBrandMark(DrawList, BrandTexture, BrandMin, BrandHeight);
+			ImGui::Dummy(ImVec2(BrandSlotWidth, 0.0f));
+			ImGui::SameLine(0.0f, 0.0f);
 
 			const std::string WindowTitle = RootWindow.GetTitle();
 			const float RequiredMenuWidth = bDrawWorkspaceMenus ? MonaImGui::ScaleUI(245.0f) : 0.0f;
+			const float MenuGap = MonaImGui::ScaleUI(EditorTitleBarMenuGap);
 			const float AvailableTitleWidth = CaptionStartX - ImGui::GetCursorScreenPos().x
-				- RequiredMenuWidth - MonaImGui::ScaleUI(56.0f);
+				- RequiredMenuWidth - MonaImGui::ScaleUI(56.0f) - MenuGap;
+			bool bDrewTitle = false;
 			if (AvailableTitleWidth >= MonaImGui::ScaleUI(120.0f))
 			{
-				const ImVec2 TitlePosition = ImGui::GetCursorScreenPos();
-				const float TitleWidth = ImGui::CalcTextSize(WindowTitle.c_str()).x;
-				if (TitleWidth <= AvailableTitleWidth)
-				{
-					ImGui::TextUnformatted(WindowTitle.c_str());
-				}
-				else
-				{
-					const ImVec4 ClipRect(
-						TitlePosition.x, BarMin.y, TitlePosition.x + AvailableTitleWidth, BarMax.y);
+				const ImVec2 TitleCursor = ImGui::GetCursorScreenPos();
+				constexpr std::string_view BrandName = "Durin";
+				const bool bHasBrandPrefix = WindowTitle.starts_with(BrandName);
+				const char* Suffix = bHasBrandPrefix ? WindowTitle.c_str() + BrandName.size() : WindowTitle.c_str();
+				ImFont* BrandFont = MonaImGui::GetMediumUIFont();
+				ImFont* BodyFont = ImGui::GetFont();
+				const float FontSize = ImGui::GetFontSize();
+				const float BrandFontSize = MonaImGui::QuantizeDynamicFontSize(FontSize * 0.9f);
+				const ImVec2 TitlePosition(
+					TitleCursor.x,
+					std::round(BarMin.y + (BarMax.y - BarMin.y - FontSize) * 0.5f));
+				const float BrandBaselineOffset = BodyFont->GetFontBaked(FontSize)->Ascent
+					- BrandFont->GetFontBaked(BrandFontSize)->Ascent;
+				const float BrandWidth = bHasBrandPrefix
+					? BrandFont->CalcTextSizeA(
+						BrandFontSize, FLT_MAX, 0.0f, BrandName.data(), BrandName.data() + BrandName.size()).x
+					: 0.0f;
+				const float SuffixWidth = BodyFont->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, Suffix).x;
+				const float TitleWidth = BrandWidth + SuffixWidth;
+				const float DrawWidth = std::min(TitleWidth, AvailableTitleWidth);
+				const ImVec4 ClipRect(
+					TitlePosition.x, BarMin.y, TitlePosition.x + DrawWidth, BarMax.y);
+				const ImU32 TitleColor = ImGui::GetColorU32(ImGuiCol_Text);
+				if (bHasBrandPrefix)
 					DrawList->AddText(
-						ImGui::GetFont(), ImGui::GetFontSize(), TitlePosition, ImGui::GetColorU32(ImGuiCol_Text),
-						WindowTitle.c_str(), nullptr, 0.0f, &ClipRect);
-					ImGui::Dummy(ImVec2(AvailableTitleWidth, 0.0f));
-				}
-				ImGui::SameLine();
+						BrandFont, BrandFontSize, TitlePosition + ImVec2(0.0f, BrandBaselineOffset), TitleColor,
+						BrandName.data(), BrandName.data() + BrandName.size(), 0.0f, &ClipRect);
+				DrawList->AddText(
+					BodyFont, FontSize, TitlePosition + ImVec2(BrandWidth, 0.0f), TitleColor,
+					Suffix, nullptr, 0.0f, &ClipRect);
+				ImGui::Dummy(ImVec2(DrawWidth, 0.0f));
+				ImGui::SameLine(0.0f, 0.0f);
+				bDrewTitle = true;
+			}
+			if (bDrewTitle)
+			{
+				ImGui::Dummy(ImVec2(MenuGap, 0.0f));
+				ImGui::SameLine(0.0f, 0.0f);
 			}
 
 			const float FirstMenuX = ImGui::GetCursorScreenPos().x;
@@ -754,6 +770,10 @@ namespace Durin
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
 		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>();
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
+		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
+		std::string BrandTextureError;
+		if (!Context.BrandTexture->Load(BrandTextureError))
+			DURIN_WARN("Could not load the editor branding texture: {}", BrandTextureError);
 		Context.ProfilingTools =
 			std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		Context.AssetCompatibilityWindow =
@@ -763,8 +783,8 @@ namespace Durin
 			Context.HostSettings->GetWindowWidth(),
 			Context.HostSettings->GetWindowHeight()};
 		Context.RootWindow->SetTitle(GetCurrentProject()
-			? std::format("Durin Editor - {}", GetCurrentProject()->Name)
-			: "Durin Editor - Project Browser");
+			? std::format("Durin - {}", GetCurrentProject()->Name)
+			: "Durin - Project Browser");
 		Context.RootWindow->ReshapeWindow(
 			{100.0f, 100.0f},
 			{static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
@@ -788,11 +808,13 @@ namespace Durin
 				*Context->HostSettings, *Context->RootWindow);
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
 				&& Context->bHasProject && Context->LevelEditorModule;
+			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
 			{
 				DrawCustomEditorTitleBar(
 					*Context->WorkspaceManager,
 					*Context->RootWindow,
+					BrandTexture,
 					*Context->ProfilingTools,
 					bReadyWorkspace,
 					bAboutDialogOpen,
@@ -820,7 +842,7 @@ namespace Durin
 			if (!Context->bHasProject
 				|| Context->State == EBootstrapState::Failed)
 			{
-				Context->ProjectBrowser->Draw();
+				Context->ProjectBrowser->Draw(BrandTexture);
 				return;
 			}
 			DrawLoadingState(*Context);
