@@ -9,6 +9,7 @@
 
 #if defined(_WIN32)
 #include <dwmapi.h>
+#include <shellapi.h>
 #endif
 
 namespace Durin
@@ -30,6 +31,49 @@ namespace Durin
 
 #if defined(_WIN32)
 		constexpr wchar_t GlfwWindowInstanceProperty[] = L"DURIN_APPLICATION_CORE_GLFW_WINDOW";
+		constexpr int32 AutoHideTaskbarActivationEdge = 1;
+
+		auto GetWindowsMaximizedClientRect(HWND WindowHandle, MONITORINFO& OutMonitorInfo) -> RECT
+		{
+			const HMONITOR Monitor = MonitorFromWindow(WindowHandle, MONITOR_DEFAULTTONEAREST);
+			OutMonitorInfo = {.cbSize = sizeof(MONITORINFO)};
+			if (!GetMonitorInfoW(Monitor, &OutMonitorInfo))
+			{
+				OutMonitorInfo.cbSize = 0;
+				return {};
+			}
+
+			RECT MaximizedRect = OutMonitorInfo.rcWork;
+			for (const UINT Edge : {ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM})
+			{
+				APPBARDATA AppBarData{.cbSize = sizeof(APPBARDATA)};
+				AppBarData.uEdge = Edge;
+				AppBarData.rc = OutMonitorInfo.rcMonitor;
+				if (SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &AppBarData) == 0) continue;
+
+				// rcWork can continue reserving the full taskbar band while the bar
+				// auto-hides. Maximize into that band and retain only one physical
+				// pixel so the shell's reveal edge remains reachable.
+				switch (Edge)
+				{
+				case ABE_LEFT:
+					MaximizedRect.left = OutMonitorInfo.rcMonitor.left + AutoHideTaskbarActivationEdge;
+					break;
+				case ABE_TOP:
+					MaximizedRect.top = OutMonitorInfo.rcMonitor.top + AutoHideTaskbarActivationEdge;
+					break;
+				case ABE_RIGHT:
+					MaximizedRect.right = OutMonitorInfo.rcMonitor.right - AutoHideTaskbarActivationEdge;
+					break;
+				case ABE_BOTTOM:
+					MaximizedRect.bottom = OutMonitorInfo.rcMonitor.bottom - AutoHideTaskbarActivationEdge;
+					break;
+				default:
+					break;
+				}
+			}
+			return MaximizedRect;
+		}
 
 		auto WindowTitleBarHitTestToWindows(EWindowTitleBarHitTest HitTest) -> LRESULT
 		{
@@ -60,6 +104,24 @@ namespace Durin
 			case HTCLOSE: return EWindowTitleBarHitTest::Close;
 			case HTCAPTION: return EWindowTitleBarHitTest::Caption;
 			default: return EWindowTitleBarHitTest::Client;
+			}
+		}
+
+		auto IsWindowTitleBarButton(EWindowTitleBarHitTest HitTest) -> bool
+		{
+			return HitTest == EWindowTitleBarHitTest::Minimize
+				|| HitTest == EWindowTitleBarHitTest::Maximize
+				|| HitTest == EWindowTitleBarHitTest::Close;
+		}
+
+		auto WindowTitleBarButtonSystemCommand(EWindowTitleBarHitTest HitTest, bool bMaximized) -> WPARAM
+		{
+			switch (HitTest)
+			{
+			case EWindowTitleBarHitTest::Minimize: return SC_MINIMIZE;
+			case EWindowTitleBarHitTest::Maximize: return bMaximized ? SC_RESTORE : SC_MAXIMIZE;
+			case EWindowTitleBarHitTest::Close: return SC_CLOSE;
+			default: return 0;
 			}
 		}
 
@@ -972,7 +1034,7 @@ namespace Durin
 		SetLastError(ERROR_SUCCESS);
 		const LONG_PTR CurrentStyle = GetWindowLongPtrW(WindowHandle, GWL_STYLE);
 		if (CurrentStyle == 0 && GetLastError() != ERROR_SUCCESS) return false;
-		const LONG_PTR CustomStyle = (CurrentStyle & ~static_cast<LONG_PTR>(WS_CAPTION))
+		const LONG_PTR CustomStyle = CurrentStyle
 			| WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
 		SetLastError(ERROR_SUCCESS);
 		const LONG_PTR PreviousStyle = SetWindowLongPtrW(WindowHandle, GWL_STYLE, CustomStyle);
@@ -1010,17 +1072,17 @@ namespace Durin
 			if (WParam != 0 && IsZoomed(WindowHandle))
 			{
 				auto* Parameters = reinterpret_cast<NCCALCSIZE_PARAMS*>(LParam);
-				const HMONITOR Monitor = MonitorFromWindow(WindowHandle, MONITOR_DEFAULTTONEAREST);
-				MONITORINFO MonitorInfo{.cbSize = sizeof(MONITORINFO)};
-				if (GetMonitorInfoW(Monitor, &MonitorInfo)) Parameters->rgrc[0] = MonitorInfo.rcWork;
+				MONITORINFO MonitorInfo{};
+				const RECT MaximizedRect = GetWindowsMaximizedClientRect(WindowHandle, MonitorInfo);
+				if (MonitorInfo.cbSize != 0) Parameters->rgrc[0] = MaximizedRect;
 			}
 			return 0;
 
 		case WM_GETMINMAXINFO:
 		{
-			const HMONITOR Monitor = MonitorFromWindow(WindowHandle, MONITOR_DEFAULTTONEAREST);
-			MONITORINFO MonitorInfo{.cbSize = sizeof(MONITORINFO)};
-			if (GetMonitorInfoW(Monitor, &MonitorInfo))
+			MONITORINFO MonitorInfo{};
+			const RECT MaximizedRect = GetWindowsMaximizedClientRect(WindowHandle, MonitorInfo);
+			if (MonitorInfo.cbSize != 0)
 			{
 				auto* MinMaxInfo = reinterpret_cast<MINMAXINFO*>(LParam);
 				const UINT Dpi = GetDpiForWindow(WindowHandle);
@@ -1030,11 +1092,11 @@ namespace Durin
 						TitleBarLayout.MinimumWindowWidth),
 					MulDiv(480, static_cast<int32>(Dpi), USER_DEFAULT_SCREEN_DPI)};
 				MinMaxInfo->ptMaxPosition = {
-					MonitorInfo.rcWork.left - MonitorInfo.rcMonitor.left,
-					MonitorInfo.rcWork.top - MonitorInfo.rcMonitor.top};
+					MaximizedRect.left - MonitorInfo.rcMonitor.left,
+					MaximizedRect.top - MonitorInfo.rcMonitor.top};
 				MinMaxInfo->ptMaxSize = {
-					MonitorInfo.rcWork.right - MonitorInfo.rcWork.left,
-					MonitorInfo.rcWork.bottom - MonitorInfo.rcWork.top};
+					MaximizedRect.right - MaximizedRect.left,
+					MaximizedRect.bottom - MaximizedRect.top};
 				bHandled = true;
 				return 0;
 			}
@@ -1086,11 +1148,34 @@ namespace Durin
 
 		case WM_NCLBUTTONDOWN:
 			TitleBarInteractionState.PressedPart = WindowsToWindowTitleBarHitTest(WParam);
+			if (IsWindowTitleBarButton(TitleBarInteractionState.PressedPart))
+			{
+				// Standard caption processing is suppressed by the custom non-client
+				// path, so keep native hit-test semantics for Snap Layout but own the
+				// click-to-system-command transition here.
+				bHandled = true;
+				return 0;
+			}
 			break;
 
 		case WM_NCLBUTTONUP:
+		{
+			const EWindowTitleBarHitTest ReleasedPart = WindowsToWindowTitleBarHitTest(WParam);
+			const EWindowTitleBarHitTest PressedPart = TitleBarInteractionState.PressedPart;
 			TitleBarInteractionState.PressedPart = EWindowTitleBarHitTest::Client;
+			if (IsWindowTitleBarButton(PressedPart))
+			{
+				if (PressedPart == ReleasedPart)
+				{
+					const WPARAM SystemCommand = WindowTitleBarButtonSystemCommand(
+						PressedPart, IsZoomed(WindowHandle) != FALSE);
+					SendMessageW(WindowHandle, WM_SYSCOMMAND, SystemCommand, LParam);
+				}
+				bHandled = true;
+				return 0;
+			}
 			break;
+		}
 
 		case WM_NCACTIVATE:
 			TitleBarInteractionState.bFocused = WParam != 0;

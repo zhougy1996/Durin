@@ -35,10 +35,16 @@ a competing ApplicationCore hook.
 ## Windows Custom Frame
 
 Custom mode starts from a decorated, resizable GLFW window. ApplicationCore keeps
-`WS_THICKFRAME`, `WS_MINIMIZEBOX`, `WS_MAXIMIZEBOX`, and `WS_SYSMENU`, suppresses
-the standard caption, and applies `SWP_FRAMECHANGED` before first show.
+`WS_CAPTION`, `WS_THICKFRAME`, `WS_MINIMIZEBOX`, `WS_MAXIMIZEBOX`, and
+`WS_SYSMENU`, suppresses standard caption layout and painting, and applies
+`SWP_FRAMECHANGED` before first show. Retaining the caption capability bit is
+required for Windows to propose a maximized outer frame that contains the full
+work-area client; removing it produces a positive top offset and clips the
+rendered title bar even when the reported client extent is correct.
 `WM_NCCALCSIZE` extends client rendering through the caption. Maximized bounds and
-`WM_GETMINMAXINFO` use the nearest monitor work area, while DWM shadow and corner
+`WM_GETMINMAXINFO` use the nearest monitor work area. When an app bar on that
+monitor is auto-hidden, the client expands through its otherwise reserved band
+while retaining a one-physical-pixel shell activation edge. DWM shadow and corner
 behavior remain available where Windows provides them.
 
 If hook or frame setup fails, ApplicationCore restores the complete system frame,
@@ -66,9 +72,13 @@ title-bar metrics.
 
 ApplicationCore owns window drag, resize, minimize, maximize/restore, close,
 system menus, and caption double-click through native non-client processing.
+Because custom mode suppresses the standard caption interaction, the shared
+Windows bridge converts one matched native caption-button press/release pair into
+exactly one corresponding `WM_SYSCOMMAND`; `HTMAXBUTTON` remains the hit-test
+result used for Snap Layout.
 MainFrame only draws pixels. It reads a value snapshot containing hovered part,
-pressed part, focus, and maximized state; it does not place ImGui buttons over
-caption regions or synthesize duplicate system commands.
+pressed part, focus, and maximized state, and never places ImGui buttons over
+caption regions.
 
 The native title remains populated for the taskbar, Alt+Tab, accessibility, and
 system-menu metadata. GLFW callbacks remain authoritative for close, focus,

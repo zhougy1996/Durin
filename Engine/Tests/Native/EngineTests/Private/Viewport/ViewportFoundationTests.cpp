@@ -11,6 +11,7 @@
 
 #if defined(_WIN32)
 #include <Windows.h>
+#include <shellapi.h>
 #undef IsMaximized
 #undef IsMinimized
 #endif
@@ -110,6 +111,7 @@ TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTest
 {
 	using namespace Durin;
 	InitializeApplicationCore();
+	GApp = std::make_shared<FGenericApplication>();
 	{
 		std::shared_ptr<FGenericWindow> Window = MakePlatformWindow();
 		auto Definition = std::make_shared<FGenericWindowDefinition>();
@@ -126,7 +128,9 @@ TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTest
 		ASSERT_NE(Handle, nullptr);
 		EXPECT_NE(GetPropW(Handle, L"DURIN_APPLICATION_CORE_GLFW_WINDOW"), nullptr);
 		const LONG_PTR Style = GetWindowLongPtrW(Handle, GWL_STYLE);
-		EXPECT_EQ(Style & WS_CAPTION, 0);
+		// Keep the native caption capability bit for correct Windows maximize
+		// frame calculation; WM_NCCALCSIZE and WM_NCPAINT suppress its pixels.
+		EXPECT_NE(Style & WS_CAPTION, 0);
 		EXPECT_NE(Style & WS_THICKFRAME, 0);
 		EXPECT_NE(Style & WS_MINIMIZEBOX, 0);
 		EXPECT_NE(Style & WS_MAXIMIZEBOX, 0);
@@ -152,6 +156,64 @@ TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTest
 		EXPECT_EQ(NativeHit({780, 20}), HTCLOSE);
 		EXPECT_EQ(NativeHit({630, 20}), HTCLIENT);
 
+		// The editor requests its persisted maximized state while the startup
+		// window is still hidden. Showing must retain that state and make the
+		// client area cover the effective maximized bounds.
+		Window->MaximizeWindow();
+		Window->Show();
+		Window->PollEvents();
+		ASSERT_TRUE(Window->IsMaximized());
+		RECT ClientRect{};
+		ASSERT_TRUE(GetClientRect(Handle, &ClientRect));
+		POINT ClientCorners[]{{ClientRect.left, ClientRect.top}, {ClientRect.right, ClientRect.bottom}};
+		ASSERT_TRUE(ClientToScreen(Handle, &ClientCorners[0]));
+		ASSERT_TRUE(ClientToScreen(Handle, &ClientCorners[1]));
+		MONITORINFO MonitorInfo{.cbSize = sizeof(MONITORINFO)};
+		ASSERT_TRUE(GetMonitorInfoW(MonitorFromWindow(Handle, MONITOR_DEFAULTTONEAREST), &MonitorInfo));
+		RECT ExpectedClientRect = MonitorInfo.rcWork;
+		for (const UINT Edge : {ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM})
+		{
+			APPBARDATA AppBarData{.cbSize = sizeof(APPBARDATA)};
+			AppBarData.uEdge = Edge;
+			AppBarData.rc = MonitorInfo.rcMonitor;
+			if (SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &AppBarData) == 0) continue;
+			if (Edge == ABE_LEFT) ExpectedClientRect.left = MonitorInfo.rcMonitor.left + 1;
+			else if (Edge == ABE_TOP) ExpectedClientRect.top = MonitorInfo.rcMonitor.top + 1;
+			else if (Edge == ABE_RIGHT) ExpectedClientRect.right = MonitorInfo.rcMonitor.right - 1;
+			else if (Edge == ABE_BOTTOM) ExpectedClientRect.bottom = MonitorInfo.rcMonitor.bottom - 1;
+		}
+		EXPECT_EQ(ClientCorners[0].x, ExpectedClientRect.left);
+		EXPECT_EQ(ClientCorners[0].y, ExpectedClientRect.top);
+		EXPECT_EQ(ClientCorners[1].x, ExpectedClientRect.right);
+		EXPECT_EQ(ClientCorners[1].y, ExpectedClientRect.bottom);
+		RECT MaximizedWindowRect{};
+		ASSERT_TRUE(GetWindowRect(Handle, &MaximizedWindowRect));
+		EXPECT_LE(MaximizedWindowRect.left, ClientCorners[0].x);
+		EXPECT_LE(MaximizedWindowRect.top, ClientCorners[0].y);
+		EXPECT_GE(MaximizedWindowRect.right, ClientCorners[1].x);
+		EXPECT_GE(MaximizedWindowRect.bottom, ClientCorners[1].y);
+
+		const auto ClickCaptionButton = [&](WPARAM HitTest, POINT ClientPoint) {
+			ClientToScreen(Handle, &ClientPoint);
+			const LPARAM ScreenPoint = MAKELPARAM(
+				static_cast<int16>(ClientPoint.x), static_cast<int16>(ClientPoint.y));
+			SendMessageW(Handle, WM_NCLBUTTONDOWN, HitTest, ScreenPoint);
+			SendMessageW(Handle, WM_NCLBUTTONUP, HitTest, ScreenPoint);
+			Window->PollEvents();
+		};
+		ClickCaptionButton(HTMAXBUTTON, {730, 20});
+		EXPECT_FALSE(Window->IsMaximized());
+		ClickCaptionButton(HTMAXBUTTON, {730, 20});
+		EXPECT_TRUE(Window->IsMaximized());
+		ClickCaptionButton(HTMINBUTTON, {680, 20});
+		EXPECT_TRUE(Window->IsMinimized());
+		SendMessageW(Handle, WM_SYSCOMMAND, SC_RESTORE, 0);
+		Window->PollEvents();
+		ClickCaptionButton(HTCLOSE, {780, 20});
+		EXPECT_TRUE(Window->ShouldClose());
+		Window->SetShouldClose(false);
+		Window->Hide();
+
 		const std::shared_ptr<FGenericWindow> SystemWindow = MakePlatformWindow();
 		auto SystemDefinition = std::make_shared<FGenericWindowDefinition>(*Definition);
 		SystemDefinition->DecorationMode = EWindowDecorationMode::System;
@@ -171,6 +233,7 @@ TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTest
 		Window.reset();
 		EXPECT_EQ(GetPropW(Handle, L"DURIN_APPLICATION_CORE_GLFW_WINDOW"), nullptr);
 	}
+	GApp.reset();
 	ShutdownApplicationCore();
 }
 #endif

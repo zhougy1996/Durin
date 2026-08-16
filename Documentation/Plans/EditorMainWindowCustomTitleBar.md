@@ -31,6 +31,19 @@ real hidden Win32 window proving retained style capabilities, caption suppressio
 and native `WM_NCHITTEST` results. A visible editor startup reached ready state
 and created the main swapchain without fallback or crash.
 
+A follow-up native regression on 2026-08-16 proves that the persisted hidden-window
+maximize request survives first show, its outer frame contains the active
+monitor's calculated client maximum, and minimize, maximize/restore, and close
+caption messages produce their corresponding system behavior. The reproduced top
+crop was independent of saved ImGui layout: the maximized outer frame began 33
+physical pixels below the monitor while its client falsely reported a zero top.
+Custom mode now retains the native `WS_CAPTION` capability bit while suppressing
+its layout, painting, and standard interaction, restoring Windows' overscanned
+maximized frame. The boundary calculation expands through any detected
+auto-hidden taskbar band except for its activation edge. The custom bridge owns
+one `WM_SYSCOMMAND` transition per matched button press/release, while
+`HTMAXBUTTON` remains available to Snap Layout.
+
 The plan remains active at Stage 3. The current desktop harness cannot inspect
 another application's pixels, so dark/light screenshots and the full manual
 interaction matrix (Snap Layout, system menu, cross-monitor DPI, taskbar edges,
