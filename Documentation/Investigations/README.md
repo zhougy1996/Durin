@@ -1,5 +1,9 @@
 # Engineering Investigations
 
+- [macOS MoltenVK argument-buffer instability](MacOSMoltenVKArgumentBufferInstability.md) —
+  scene geometry is stable when MoltenVK uses discrete resource indexes; keep
+  that qualified workaround until a LunarG SDK containing MoltenVK 1.4.2 or
+  newer can be retested with Metal argument buffers enabled.
 - [Editor icon atlas activation](EditorIconAtlas.md) —
   the current two-icon procedural viewport atlas is deterministic and adequate;
   an offline source-art and packing pipeline needs a larger scheduled icon set
