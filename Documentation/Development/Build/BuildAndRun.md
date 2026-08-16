@@ -123,15 +123,15 @@ configuration.
 
 ## macOS Workflow
 
-Use the extensionless root launcher. The currently qualified M1 target is the
+Use the extensionless root launcher. The qualified native build target is the
 Debug Editor preset on Apple Silicon:
 
 ```bash
 ./DevTool setup
 ./DevTool status
 ./DevTool configure
-./DevTool build --target Engine
-./DevTool rebuild --target Engine
+./DevTool build --target all
+./DevTool rebuild --target all
 ```
 
 `setup` is idempotent. Once `.venv` and `.agents/DevTool.user.json` exist, later
@@ -140,11 +140,17 @@ the local configuration names the Vulkan SDK `setup-env.sh`, DevTool evaluates
 it for each dependency/configure/build invocation; otherwise the current shell
 must already expose the validated Vulkan environment.
 
-M1 qualifies setup, dependency preparation, fresh configuration, and the
-bounded `Engine` dylib closure only. The Engine dylib is arm64 with an `@rpath`
-install name. `Launch` still requires the M2 macOS crash-service implementation,
-and Editor launch, MoltenVK rendering, clean runtime shutdown, `.app` bundles,
-signing, and distribution are not qualified by this workflow.
+The current native baseline qualifies setup, dependency preparation, fresh
+configuration, and the complete Debug Editor link closure. The generated
+executables and dylibs are arm64, and shared libraries retain `@rpath` install
+names. The ordinary Sandbox and Project Browser paths have also passed bounded
+hidden-window startup, rendering, and clean-shutdown smoke tests.
+
+This does not yet declare complete macOS product support. Visible Editor-window
+input and close behavior, multi-monitor and multi-viewport interaction, the
+full MoltenVK rendering and asset compatibility matrices, `.app` bundles,
+signing, notarization, and distribution remain under qualification. Track the
+current boundary in the [macOS Platform Enablement Roadmap](../../Roadmaps/MacOSPlatformEnablement.md).
 
 ## Windows Workflow
 
