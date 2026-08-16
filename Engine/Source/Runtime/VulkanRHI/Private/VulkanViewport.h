@@ -52,7 +52,11 @@ namespace Durin::VulkanRHI
 	class FVulkanViewport : public FRHIViewport
 	{
 	public:
-		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy);
+		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle,
+			uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen,
+			EPixelFormat InPreferredPixelFormat,
+			EViewportPresentModePolicy InPresentModePolicy,
+			vk::SurfaceKHR InPresentationSurface = VK_NULL_HANDLE);
 
 		~FVulkanViewport() override;
 

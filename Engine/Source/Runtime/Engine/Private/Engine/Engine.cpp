@@ -129,10 +129,15 @@ namespace Durin
 					Asset::EAssetRegistryScanMode::Incremental
 				);
 			if (!Refresh)
+			{
 				DURIN_ERROR(
 					"Asset catalog refresh retained revision {} with {} error(s).",
-					Refresh.ResultingRevision, Refresh.Errors.size()
-				);
+					Refresh.ResultingRevision, Refresh.Errors.size());
+				for (const Asset::FAssetResult& Error : Refresh.Errors)
+				{
+					DURIN_ERROR("Asset catalog refresh error: {}", Error.Message);
+				}
+			}
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);

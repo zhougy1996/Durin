@@ -4,6 +4,8 @@
 #include "Window/GenericWindow.h"
 
 #include <gtest/gtest.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 
 namespace
 {
@@ -52,15 +54,30 @@ namespace
 		std::weak_ptr<Durin::FGenericWindow> Window;
 	};
 
-	auto MakeDefinition() -> std::shared_ptr<Durin::FGenericWindowDefinition>
+	auto MakeDefinition(
+		Durin::EWindowDecorationMode DecorationMode = Durin::EWindowDecorationMode::System)
+		-> std::shared_ptr<Durin::FGenericWindowDefinition>
 	{
 		auto Definition = std::make_shared<Durin::FGenericWindowDefinition>();
 		Definition->XDesiredPositionOnScreen = 80.0f;
 		Definition->YDesiredPositionOnScreen = 80.0f;
 		Definition->WidthDesiredOnScreen = 320.0f;
 		Definition->HeightDesiredOnScreen = 240.0f;
+		Definition->DecorationMode = DecorationMode;
 		Definition->Title = "Durin macOS window qualification";
 		return Definition;
+	}
+
+	template <typename ReturnType, typename... ArgumentTypes>
+	auto SendObjectiveCMessage(
+		void* Receiver,
+		const char* SelectorName,
+		ArgumentTypes... Arguments)
+		-> ReturnType
+	{
+		using FMessage = ReturnType (*)(void*, SEL, ArgumentTypes...);
+		return reinterpret_cast<FMessage>(objc_msgSend)(
+			Receiver, sel_registerName(SelectorName), Arguments...);
 	}
 }
 
@@ -89,6 +106,16 @@ TEST(FMacOSWindowLifecycleTests, RepeatedHiddenCocoaWindowsExposeRetinaAndEventS
 		Application->Window = Window;
 		Window->Initialize(MakeDefinition());
 		ASSERT_NE(Window->GetOSNativeWindowHandle(), nullptr) << "cycle " << Cycle;
+		void* ContentView = SendObjectiveCMessage<void*>(
+			Window->GetOSNativeWindowHandle(), "contentView");
+		ASSERT_NE(ContentView, nullptr) << "cycle " << Cycle;
+		void* PresentationLayer = SendObjectiveCMessage<void*>(
+			ContentView, "layer");
+		ASSERT_NE(PresentationLayer, nullptr) << "cycle " << Cycle;
+		EXPECT_STREQ(
+			object_getClassName(reinterpret_cast<id>(PresentationLayer)),
+			"CAMetalLayer")
+			<< "cycle " << Cycle;
 		const Durin::FIntPoint LogicalSize = Window->GetWindowSize();
 		const Durin::FIntPoint ViewportSize = Window->GetViewportSize();
 		EXPECT_EQ(LogicalSize, (Durin::FIntPoint{320, 240}));
@@ -125,5 +152,68 @@ TEST(FMacOSWindowLifecycleTests, CocoaWindowCreationRejectsWorkerThreads)
 	Worker.join();
 	EXPECT_EQ(Window->GetOSNativeWindowHandle(), nullptr);
 	Window.reset();
+	Durin::ShutdownApplicationCore();
+}
+
+TEST(FMacOSWindowLifecycleTests, CustomTitleBarRetainsNativeWindowControlsAndMetalLayer)
+{
+	ASSERT_TRUE(Durin::InitializeApplicationCore());
+	FWindowTestMessageHandler Handler;
+	auto Application = std::make_shared<FWindowTestApplication>(Handler);
+	Durin::GApp = Application;
+
+	for (Durin::uint32 Cycle = 0; Cycle < 3; ++Cycle)
+	{
+		auto Window = Durin::MakePlatformWindow();
+		Application->Window = Window;
+		Window->Initialize(MakeDefinition(Durin::EWindowDecorationMode::CustomTitleBar));
+		ASSERT_NE(Window->GetOSNativeWindowHandle(), nullptr) << "cycle " << Cycle;
+		EXPECT_EQ(
+			Window->GetEffectiveWindowDecorationMode(),
+			Durin::EWindowDecorationMode::CustomTitleBar);
+
+		void* NativeWindow = Window->GetOSNativeWindowHandle();
+		EXPECT_NE(SendObjectiveCMessage<void*>(NativeWindow, "delegate"), nullptr);
+		constexpr Durin::uint64 FullSizeContentViewStyle = 1ull << 15;
+		const Durin::uint64 StyleMask = SendObjectiveCMessage<Durin::uint64>(NativeWindow, "styleMask");
+		EXPECT_NE(StyleMask & FullSizeContentViewStyle, 0u);
+		EXPECT_EQ(SendObjectiveCMessage<Durin::int64>(NativeWindow, "titleVisibility"), 1);
+		EXPECT_TRUE(SendObjectiveCMessage<bool>(NativeWindow, "titlebarAppearsTransparent"));
+
+		for (const Durin::int64 ButtonKind : {0, 1, 2})
+		{
+			void* Button = SendObjectiveCMessage<void*>(
+				NativeWindow, "standardWindowButton:", ButtonKind);
+			ASSERT_NE(Button, nullptr) << "button " << ButtonKind << ", cycle " << Cycle;
+			EXPECT_FALSE(SendObjectiveCMessage<bool>(Button, "isHidden"));
+		}
+
+		const Durin::FWindowTitleBarPlatformMetrics Metrics = Window->GetTitleBarPlatformMetrics();
+		EXPECT_TRUE(Metrics.bNativeWindowControls);
+		EXPECT_GT(Metrics.NativeControlExclusion.MaxX, Metrics.NativeControlExclusion.MinX);
+		EXPECT_GT(Metrics.NativeControlExclusion.MaxY, Metrics.NativeControlExclusion.MinY);
+
+		Durin::FWindowTitleBarLayout Layout;
+		Layout.Generation = Cycle + 1;
+		Layout.bValid = true;
+		Layout.Height = 36;
+		Layout.DragRegions.push_back({Metrics.NativeControlExclusion.MaxX, 0, 300, 36});
+		Window->PublishTitleBarLayout(Layout);
+		Window->SetTitleBarDarkMode(false);
+		Window->SetTitleBarDarkMode(true);
+
+		void* ContentView = SendObjectiveCMessage<void*>(NativeWindow, "contentView");
+		void* PresentationLayer = SendObjectiveCMessage<void*>(ContentView, "layer");
+		ASSERT_NE(PresentationLayer, nullptr);
+		EXPECT_STREQ(
+			object_getClassName(reinterpret_cast<id>(PresentationLayer)),
+			"CAMetalLayer");
+
+		Application->Window.reset();
+		Window.reset();
+	}
+
+	Durin::GApp.reset();
+	Application.reset();
 	Durin::ShutdownApplicationCore();
 }

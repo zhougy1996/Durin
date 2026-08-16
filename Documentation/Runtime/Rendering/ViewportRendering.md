@@ -134,16 +134,21 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 ## Game Window Path
 
-`DGameEngine::Init()` creates the standalone game window and a window-backed
-`FSceneViewport`. The game renders directly to the native backbuffer and does
-not create an `MViewport` or UI texture registration. Detached Play windows
-use the same composition.
+Launch creates the hidden primary `MWindow` and native platform window before
+RHI initialization. `DGameEngine::Init()` adopts and shows that window, then
+creates a window-backed `FSceneViewport`. The game renders directly to the
+native backbuffer and does not create an `MViewport` or UI texture registration.
+Detached Play windows use the same composition.
 
 Flow:
 
 ```text
+FEngineLoop::Init()
+  creates the hidden primary MWindow and native window
+  passes its native handle to RHIInit()
+
 DGameEngine::Init()
-  creates MWindow
+  adopts and shows the primary MWindow
   creates native RHI viewport for the window
   calls FSceneViewport::CreateWindowBacked(...)
   sets DEngine::MainSceneViewport
@@ -154,6 +159,13 @@ DEngine::RedrawViewports()
   clears/renders the backbuffer
   presents through the RHI viewport
 ```
+
+On macOS, ApplicationCore installs the primary window's `CAMetalLayer` while
+window creation is still on the AppKit main thread. Vulkan uses that prepared
+layer to create the real admission surface on the RHI thread before selecting a
+device and queue family. The first viewport for that window consumes the same
+surface. Windows keeps its Win32 presentation-support query and creates the
+viewport surface through the existing path.
 
 ## Editor Viewport Path
 
@@ -435,8 +447,11 @@ allocation.
 
 For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRenderer` for the RHI viewport associated with the `MWindow`. Native window resize events are handled by `FMonaApplication` and the renderer.
 
-Native window identity and resize notification remain owned by the main/UI
-side, but Vulkan surface and swapchain mutation are RHI-thread operations.
+Native window identity, Cocoa view/layer installation, and resize notification
+remain owned by the main/UI side. Vulkan surface creation/destruction and
+swapchain mutation are RHI-thread operations; on macOS they consume the
+already-installed layer rather than calling GLFW's AppKit-mutating surface
+helper from the RHI thread.
 Viewport creation uses a synchronous executor operation. Resize retains its
 main-to-render notification, then the render command synchronously marshals the
 backend phase after all earlier recorded work; no game or rendering thread may
@@ -473,8 +488,10 @@ extent/count ranges, or no supported alpha choice reject the candidate before
 
 The published backbuffer format is derived from the actual selected swapchain
 image format, which may differ from the caller's preferred format. Render-pass
-and framebuffer views must use that published actual format. Main and detached
-viewport qualification records public clear/present work in addition to
+and framebuffer views must use that published actual format. MonaImGui caches
+one graphics pipeline per observed backbuffer format and creates its render-pass
+layout from the same format; the Vulkan selector prefers either RGBA or BGRA
+sRGB output before a linear fallback. Main and detached viewport qualification records public clear/present work in addition to
 candidate failure, unavailable output, resize, recovery, and teardown.
 
 Backbuffer acquisition resolves synchronously before drawing is recorded. An

@@ -43,6 +43,12 @@ namespace Durin
 	auto DEditorEngine::Init(const FEngineInitContext& InitContext)
 		-> FEngineInitializationResult
 	{
+		// The registry extracts references before MainFrame activates the full
+		// authoring stack. Publish editor-authored package classes first so import
+		// records participate in that initial, atomic catalog revision.
+		if (!FModuleManager::Get().LoadModule("AssetImportCore"))
+			return FEngineInitializationResult::Failure(
+				"Editor initialization requires AssetImportCore before the asset catalog scan.");
 		if (FEngineInitializationResult Result = DEngine::Init(InitContext); !Result)
 			return Result;
 		EditorWorld = GetWorld();
@@ -54,7 +60,7 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			MainFrameModule->CreateDefaultFrame();
+			MainFrameModule->CreateDefaultFrame(InitContext.StartupWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 

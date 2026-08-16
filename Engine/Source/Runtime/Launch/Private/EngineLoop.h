@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	class MWindow;
+
 	// Carries semantic process startup choices into the engine loop.
 	struct FEngineStartupParams
 	{
@@ -47,7 +49,7 @@ namespace Durin
 
 	private:
 		auto FailPreInitialization() -> bool;
-		auto FailInitializationAfterRHI() -> bool;
+		auto FailInitialization() -> bool;
 		auto TickPostEventFrame(bool bAllowMinimizedWait) -> void;
 		auto TickModalContinuation() -> void;
 
@@ -56,6 +58,7 @@ namespace Durin
 		EEngineLoopState State = EEngineLoopState::Uninitialized;
 		EInteractiveFrameState FrameState = EInteractiveFrameState::Idle;
 		FApplicationDiagnostics Diagnostics;
+		std::shared_ptr<MWindow> StartupWindow;
 		bool bLoggerStarted = false;
 		bool bProjectAuthoringOwnershipAcquired = false;
 		bool bTaskSchedulerStarted = false;

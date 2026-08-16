@@ -145,9 +145,17 @@ namespace Durin
 		return false;
 	}
 
-	auto FEngineLoop::FailInitializationAfterRHI() -> bool
+	auto FEngineLoop::FailInitialization() -> bool
 	{
+		if (FModuleManager::Get().IsModuleLoaded("Mona"))
+		{
+			const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
+			if (!MonaShutdown.Succeeded())
+				DURIN_ERROR("Mona module shutdown after initialization failure failed: {}",
+					MonaShutdown.Message);
+		}
 		if (GEngine) GEngine->PrepareForShutdown();
+		StartupWindow.reset();
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		bGameThreadDeferredExecutorStarted = false;
 		bTaskSchedulerStarted = false;
@@ -162,8 +170,8 @@ namespace Durin
 		CollectGarbage();
 		const std::array DeferredModules{FName("VulkanRHI")};
 		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
-		// RHIInit owns rollback on failure; neither render-command admission nor
-		// a live dynamic RHI exists at this boundary.
+		if (GRenderingThread) ShutdownRenderingThread();
+		if (GDynamicRHI) RHIExit();
 		ShutdownApplicationCore();
 		if (bProjectAuthoringOwnershipAcquired)
 		{
@@ -201,22 +209,53 @@ namespace Durin
 			State = EEngineLoopState::Exited;
 			return false;
 		}
+
+		if (!FModuleManager::Get().LoadModule("Mona"))
+		{
+			DURIN_ERROR("Engine initialization stopped because Mona platform services could not start.");
+			return FailInitialization();
+		}
+		StartupWindow = std::make_shared<MWindow>();
+#if DURIN_WITH_EDITOR
+		StartupWindow->SetWindowDecorationMode(EWindowDecorationMode::CustomTitleBar);
+		StartupWindow->SetTitle(GetCurrentProject()
+			? std::format("Durin Editor - {}", GetCurrentProject()->Name)
+			: "Durin Editor - Project Browser");
+#else
+		StartupWindow->SetTitle(GetCurrentProject()
+			? GetCurrentProject()->Name : "DurinGame");
+#endif
+		StartupWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
+		Mona::FMonaApplication::Get().AddWindow(StartupWindow, false);
+		const std::shared_ptr<FGenericWindow> StartupNativeWindow =
+			StartupWindow->GetNativeWindow();
+		if (!StartupNativeWindow
+			|| !StartupNativeWindow->GetOSNativeWindowHandle())
+		{
+			DURIN_ERROR("Engine initialization stopped because the primary native window could not be created.");
+			return FailInitialization();
+		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
-			if (!RHIInit())
+			if (!RHIInit(StartupNativeWindow->GetOSNativeWindowHandle()))
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
-				return FailInitializationAfterRHI();
+				return FailInitialization();
 			}
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RHIReady);
-		// Command admission must be running before Mona, the renderer, or editor
+		// Command admission must be running before Mona rendering or editor
 		// modules can publish their first render-thread work.
 		InitRenderingThread();
-		FModuleManager::Get().LoadModuleChecked("Mona");
+		if (!Mona::InitializeRendering())
+		{
+			DURIN_ERROR("Engine initialization stopped because Mona rendering services could not start.");
+			return FailInitialization();
+		}
 
 		FEngineInitContext EngineInitContext;
+		EngineInitContext.StartupWindow = StartupWindow;
 		EngineInitContext.bHeadless = GIsWindowDisplaySuppressed;
 		EngineInitContext.PumpStartupFrame = []() {
 			constexpr double StartupWaitSeconds = 1.0 / 60.0;
@@ -243,7 +282,7 @@ namespace Durin
 					? "Engine initialization was cancelled." : EngineInitResult.Message);
 			else
 				DURIN_ERROR("Engine initialization failed: {}", EngineInitResult.Message);
-			return FailInitializationAfterRHI();
+			return FailInitialization();
 		}
 		LastTickTime = FTime::Seconds();
 
@@ -359,6 +398,7 @@ namespace Durin
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
+		StartupWindow.reset();
 		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
 		SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
 		Asset::ShutdownAssetManager();

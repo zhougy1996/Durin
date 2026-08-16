@@ -9,25 +9,50 @@ Completed:
 
 ## Current Status
 
-The Windows editor main window already uses the shared platform-neutral
-decoration mode, title-bar layout, and interaction snapshots, backed by an
-ApplicationCore-owned WndProc bridge. macOS currently converts a requested
-`CustomTitleBar` mode to effective `System`, so MainFrame retains the ordinary
-client menu bar beneath the AppKit title bar.
+The Windows editor main window uses the shared platform-neutral decoration mode,
+title-bar layout, and interaction snapshots, backed by an
+ApplicationCore-owned WndProc bridge. macOS now reports effective
+`CustomTitleBar` after transactional Cocoa setup; setup failure restores the
+ordinary system frame before first show.
 
-The selected macOS direction is a platform peer, not a line-for-line port of
-the Win32 message bridge. ApplicationCore will own a main-thread Cocoa
-event/notification bridge without replacing GLFW's `NSWindowDelegate`. The
-window will keep its decorated, resizable `NSWindow`, native traffic-light
+The selected macOS direction is now implemented as a platform peer, not a
+line-for-line port of the Win32 message bridge. ApplicationCore owns a
+main-thread Cocoa event bridge without replacing GLFW's `NSWindowDelegate`. The
+window keeps its decorated, resizable `NSWindow`, native traffic-light
 buttons, fullscreen behavior, shadow, accessibility metadata, and system window
-commands. AppKit will expose a transparent full-size title-bar content area;
-Durin will draw the background, branding, project title, and menus around the
+commands. AppKit exposes a transparent full-size title-bar content area; Durin
+draws the background, branding, project title, and menus around the
 native controls.
 
 This is an independent follow-up to the macOS platform-runtime milestone. It
 depends on the qualified Cocoa window lifecycle but does not block completion
-of that milestone's system-decorated Editor shell. No implementation work has
-started under this plan.
+of that milestone's system-decorated Editor shell.
+
+Implementation evidence on 2026-08-16: macOS configure, `ApplicationCore`,
+`MainFrame`, and full `all` builds pass. The application-hosted
+`MacOSWindowLifecycleTests` qualification passes repeated custom-frame
+create/destroy, retained GLFW delegate, AppKit style, native traffic lights,
+platform exclusion geometry, theme changes, and `CAMetalLayer` preservation.
+Focused shared title-bar tests pass 2/2, the non-Windows modal-loop boundary
+passes 1/1, and `VulkanRHIIntegrationTests` qualification passes. A 900-tick
+visible Sandbox Editor run exited cleanly; its capture shows one integrated bar,
+unobscured native traffic lights, correctly offset Durin branding/menus, and a
+presenting 60 FPS Vulkan viewport.
+
+The ordinary native aggregate built successfully but is not recorded as
+passing: `ViewportTests` reproducibly fails the unrelated
+`FViewportPickingContractTests.IntersectsExactSplineMeshDerivedLOD0Surface`
+case because its expected spline hit is absent. The focused shared title-bar,
+window lifecycle, modal-loop boundary, and Vulkan qualification results above
+remain green.
+
+The plan remains active. Native drag/double-click preference, fullscreen,
+multi-monitor, 1x scale, accessibility, and injected rollback still need focused
+qualification. Final Windows evidence also remains mandatory. The repository's
+platform-source CTest currently stops at active macOS-runtime source-manifest
+drift (reported Stage 0 Win64 count 454 versus the frozen 445), before this plan
+can use it as final evidence; this plan's `.mm` source and AppKit link edge are
+explicitly inside `elseif(APPLE)`.
 
 ## Goal
 
@@ -87,14 +112,15 @@ system-frame fallback behavior unchanged.
 
 The Win32 bridge remains Windows-only. macOS uses a dedicated Objective-C++
 component under `ApplicationCore/Private/MacOS` that receives the GLFW Cocoa
-window after creation. The component owns any AppKit event monitor and
-notification registrations, retains no renderer or ImGui objects, and is
-removed before `glfwDestroyWindow`.
+window after creation. The component owns its AppKit event monitor, retains no
+renderer or ImGui objects, and is removed before `glfwDestroyWindow`.
 
 The bridge must not replace `NSWindow.delegate`; GLFW remains the delegate and
 continues to own its normal close, focus, size, framebuffer, and input callback
-translation. AppKit notifications and a window-scoped local event monitor are
-the initial selected composition mechanisms. Stage 0 must prove that
+translation. A window-scoped local event monitor is the selected event
+composition mechanism. Live traffic-light metrics are pulled on the main thread
+once per rendered title-bar frame, avoiding a second notification lifetime. The
+remaining Stage 0 qualification must prove that
 `performWindowDragWithEvent:` preserves native drag and title-bar double-click
 preferences. If that native behavior cannot be demonstrated, Stage 0 must
 record a revised decision before implementation, with a transparent native
@@ -121,8 +147,8 @@ than relying on fixed offsets.
 MainFrame continues to publish one complete, monotonically generated
 `FWindowTitleBarLayout`. The macOS bridge reads only the latest copied value and
 never calls ImGui during AppKit dispatch. A separate platform-metrics snapshot
-reports whether window controls are native and the leading/trailing exclusion
-rectangles MainFrame must reserve; Windows continues to report that Durin draws
+reports whether window controls are native and the native exclusion rectangle
+MainFrame must reserve; Windows continues to report that Durin draws
 its three caption buttons.
 
 Coordinates at the C++ boundary use the same logical client coordinate space as
@@ -147,13 +173,13 @@ snapshot.
 
 ### Setup and teardown are transactional and main-thread-only
 
-All Cocoa frame mutation, monitor/notification registration, geometry refresh,
-and removal occur on the AppKit main thread. Setup captures every modified
-`NSWindow` property. A failure at any step removes partial observers/monitors,
+All Cocoa frame mutation, monitor registration, geometry queries, and removal
+occur on the AppKit main thread. Setup captures every modified `NSWindow`
+property. A failure at any step removes the partial monitor,
 restores the prior window properties, reports effective `System`, and logs one
 diagnostic before the hidden window is shown.
 
-Destruction first makes the bridge inert, removes event/notification tokens,
+Destruction first makes the bridge inert, removes the event monitor,
 restores only properties still owned by the bridge, and then permits GLFW to
 destroy the native window. Repeated create/destroy and failed-initialization
 paths must leave no callback capable of reaching a dead `FGlfwWindow`.
@@ -178,15 +204,13 @@ on a Windows host or CI worker after the final shared-interface change.
   the effective decoration mode.
 - `FGlfwWindow` obtains the `NSWindow` through `glfwGetCocoaWindow` and performs
   Cocoa-dependent Metal-layer preparation on the main thread.
-- macOS currently treats requested custom mode as unsupported and falls back to
-  `System`.
-- The existing Objective-C runtime calls are embedded in common C++; there is no
-  owned Cocoa title-bar bridge or Objective-C++ lifecycle unit.
-- The current layout assumes Durin-rendered caption controls on the right and
-  has no reverse platform-metrics channel for native controls on the left.
-- Cocoa point/client conversion, traffic-light layout changes, native drag
-  dispatch, fullscreen transitions, failure rollback, and repeated teardown are
-  not covered by focused tests.
+- macOS custom mode, the Objective-C++ bridge, and the reverse native-control
+  metrics channel are implemented and pass repeated lifecycle coverage.
+- MainFrame renders around live native-left controls on macOS while retaining
+  Durin-rendered right controls on Windows.
+- Cocoa point/client conversion, native drag dispatch, fullscreen transitions,
+  failure injection, 1x scale, and the complete interaction matrix still need
+  focused evidence.
 - The Windows custom-frame behavior is implemented and documented; its focused
   native tests provide the required non-regression baseline.
 
@@ -209,7 +233,7 @@ traffic-light geometry are proven before shared interfaces change.
   scale, including content-layout origin and Y-axis conversion.
 - [ ] Inventory native traffic-light frames in restored, zoomed, and fullscreen
   states and select the platform-metrics value shape.
-- [ ] Record the pre-change Win64 custom-title-bar and modal-loop focused-test
+- [x] Record the pre-change Win64 custom-title-bar and modal-loop focused-test
   baseline used by the final non-regression gate.
 
 #### Acceptance Gate
@@ -223,18 +247,18 @@ traffic-light geometry are proven before shared interfaces change.
 Outcome: ApplicationCore can activate and safely tear down a native macOS custom
 title-bar frame without involving MainFrame or rendering callbacks.
 
-- [ ] Add a bounded Objective-C++ bridge in `ApplicationCore/Private/MacOS` and
+- [x] Add a bounded Objective-C++ bridge in `ApplicationCore/Private/MacOS` and
   include/link it only for Apple targets with the required AppKit framework.
-- [ ] Install full-size content, transparent title-bar background, hidden native
+- [x] Install full-size content, transparent title-bar background, hidden native
   title text, and retained standard traffic-light controls transactionally.
-- [ ] Add platform-metrics publication for native-control exclusions and refresh
-  it on resize, backing-scale, zoom, focus, screen, and fullscreen changes.
-- [ ] Route only valid drag-region primary-button gestures to AppKit and pass
+- [x] Add a pull-based platform-metrics snapshot for live native-control
+  exclusions so each rendered frame observes AppKit's current layout.
+- [x] Route only valid drag-region primary-button gestures to AppKit and pass
   all other events through unchanged.
-- [ ] Keep title-bar layout exchange value-only and protect event callbacks from
+- [x] Keep title-bar layout exchange value-only and protect event callbacks from
   stale generations, failed setup, and teardown.
-- [ ] Restore system decoration completely on setup failure and remove every
-  monitor/observer before native-window destruction.
+- [x] Restore system decoration completely on setup failure and remove the
+  monitor before native-window destruction.
 - [ ] Add native Cocoa tests for effective mode, style/property state, standard
   control presence, coordinate conversion, event filtering, rollback, and
   repeated create/destroy.
@@ -250,15 +274,15 @@ title-bar frame without involving MainFrame or rendering callbacks.
 Outcome: the editor renders one responsive integrated macOS title/menu bar
 around native traffic lights while Windows rendering remains unchanged.
 
-- [ ] Extend MainFrame's existing integrated layout to consume platform metrics
+- [x] Extend MainFrame's existing integrated layout to consume platform metrics
   and place macOS branding/title/menu/drag content after the native leading
   control exclusion.
-- [ ] Keep Windows' right-side Durin-rendered minimize, maximize/restore, and
+- [x] Keep Windows' right-side Durin-rendered minimize, maximize/restore, and
   close regions pixel- and behavior-compatible with the current implementation.
-- [ ] Exclude traffic lights, menus, project text interactions, docking, and
+- [x] Exclude traffic lights, menus, project text interactions, docking, and
   viewport content from macOS drag regions at every supported UI scale and
   window width.
-- [ ] Preserve the ordinary menu-bar layout whenever effective mode is `System`
+- [x] Preserve the ordinary menu-bar layout whenever effective mode is `System`
   so failed activation never produces two title bars or loses all title bars.
 - [ ] Refresh layout correctly across focus, zoom, fullscreen, monitor, Retina,
   theme, UI-scale, project-browser, loading, and ready-state transitions.
@@ -280,7 +304,7 @@ window or rendering contracts.
 - [ ] Exercise drag, resize, minimize, zoom/restore, fullscreen, close,
   Command-key menus, accessibility inspection, Spaces, and multi-monitor moves
   on the supported macOS baseline.
-- [ ] Run repeated editor startup/shutdown and Vulkan viewport resize/recreate
+- [x] Run repeated editor startup/shutdown and Vulkan viewport resize/recreate
   qualification to prove the title-bar view policy does not disturb the
   `CAMetalLayer`, swapchain extent, or clean RHI teardown.
 - [ ] Run macOS native test aggregates and the application-hosted window
@@ -290,7 +314,7 @@ window or rendering contracts.
   suites after all shared-interface changes are final.
 - [ ] Verify platform source selection excludes Objective-C++/AppKit code from
   Win64 and excludes Win32 bridge code from macOS targets.
-- [ ] Update the Window Frame contract with the implemented cross-platform and
+- [x] Update the Window Frame contract with the implemented cross-platform and
   Cocoa ownership rules; update macOS runtime documentation only where its
   implemented lifecycle contract changes.
 - [ ] Record final evidence, close all required gates, and complete the plan

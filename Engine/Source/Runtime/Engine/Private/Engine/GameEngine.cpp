@@ -26,14 +26,17 @@ namespace Durin
 			return Result;
 		StartupError.clear();
 
-		std::shared_ptr<MWindow> GameWindow = std::make_shared<MWindow>();
+		std::shared_ptr<MWindow> GameWindow = Context.StartupWindow;
+		if (!GameWindow || !GameWindow->GetNativeWindow())
+			return FEngineInitializationResult::Failure(
+				"Game initialization requires a native startup window.");
 		const FProjectInfo* Project = GetCurrentProject();
 		GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
 		GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
 
 		auto& MonaApp = Mona::FMonaApplication::Get();
-		MonaApp.AddWindow(GameWindow, true);
 		MonaApp.GetRenderer()->CreateViewport(GameWindow);
+		MonaApp.AddWindow(GameWindow, true);
 
 		std::shared_ptr<FSceneViewport> SceneViewport = FSceneViewport::CreateWindowBacked(nullptr, GameWindow);
 		SetMainSceneViewport(SceneViewport);

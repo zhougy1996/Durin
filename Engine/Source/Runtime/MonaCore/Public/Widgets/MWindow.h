@@ -51,6 +51,8 @@ namespace Durin
 
 		MONACORE_API auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState;
 
+		MONACORE_API auto GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics;
+
 		MONACORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void;
 
 		MONACORE_API auto GetDesiredScreenPosition() const -> FVector2f;

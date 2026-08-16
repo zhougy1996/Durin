@@ -303,12 +303,19 @@ namespace Durin::MonaImGui
 
 	// ---- Monitors ------------------------------------------------------
 
-	static auto UpdateMonitors() -> void
+	static auto UpdateMonitors() -> bool
 	{
+		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
+		// GLFW may temporarily publish no monitors while macOS is changing desktop
+		// ownership. Keep the last real snapshot instead of replacing it with an
+		// invalid empty list. A session that starts without any monitor degrades to
+		// single-viewport mode in ImGuiMonaImpl_Init().
+		if (Monitors.empty()) return false;
+
 		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
 		PlatformIO.Monitors.resize(0);
 
-		for (const FMonitorInfo& MonitorInfo : EnumerateMonitors())
+		for (const FMonitorInfo& MonitorInfo : Monitors)
 		{
 			PlatformIO.Monitors.push_back(ImGuiPlatformMonitor());
 			ImGuiPlatformMonitor& Monitor = PlatformIO.Monitors.back();
@@ -319,6 +326,7 @@ namespace Durin::MonaImGui
 			Monitor.DpiScale = MonitorInfo.DpiScale;
 			Monitor.PlatformHandle = MonitorInfo.NativeHandle;
 		}
+		return true;
 	}
 
 	// ---- Mouse Cursor --------------------------------------------------
@@ -1074,7 +1082,14 @@ namespace Durin::MonaImGui
 		PlatformIO.Platform_GetWindowFramebufferScale = ImGuiMonaImpl_GetWindowFramebufferScale;
 		PlatformIO.Platform_UpdateWindow = ImGuiMonaImpl_UpdateWindow;
 
-		UpdateMonitors();
+		if (!UpdateMonitors())
+		{
+			// Multi-viewport ImGui requires at least one real platform monitor. Keep
+			// the main Editor window operational without inventing monitor geometry.
+			IO.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+			IO.BackendFlags &= ~ImGuiBackendFlags_PlatformHasViewports;
+			DURIN_WARN("No platform monitors are currently available; ImGui multi-viewport support is disabled for this session.");
+		}
 		InitFonts();
 
 		auto& App = Mona::FMonaApplication::Get();

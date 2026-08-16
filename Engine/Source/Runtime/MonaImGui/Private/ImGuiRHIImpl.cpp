@@ -14,11 +14,12 @@
 
 namespace Durin::MonaImGui
 {
-	static auto MakeImGuiRenderTargetLayout() -> FRHIRenderTargetLayout
+	static auto MakeImGuiRenderTargetLayout(
+		EPixelFormat TargetFormat) -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
-		Layout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::SRGBA8_UNORM;
+		Layout.ColorAttachments[0].RenderTarget.Format = TargetFormat;
 		Layout.ColorAttachments[0].RenderTarget.FinalLayout = ERHITextureLayout::Present;
 		Layout.ColorAttachments[0].RenderTarget.FinalAccess = ERHIAccess::Present;
 		return Layout;
@@ -54,7 +55,8 @@ namespace Durin::MonaImGui
 		TShaderRef<FImGuiVertexShader> VertexShader;
 		TShaderRef<FImGuiFragmentShader> FragmentShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FGraphicsPipelineStateRHIRef PipelineState;
+		std::unordered_map<EPixelFormat, FGraphicsPipelineStateRHIRef>
+			PipelineStates;
 
 		FSamplerRHIRef LinearSampler;
 	};
@@ -286,28 +288,48 @@ namespace Durin::MonaImGui
 		GBackendState.VertexShader = TShaderRef<FImGuiVertexShader>(VertexShader, ShaderMap.get());
 		GBackendState.FragmentShader = TShaderRef<FImGuiFragmentShader>(FragmentShader, ShaderMap.get());
 
-		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([ShaderMap,
-														 VertexShaderRef = GBackendState.VertexShader,
-														 FragmentShaderRef = GBackendState.FragmentShader](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([](FRHICommandListImmediate& CommandList) {
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(ImDrawVert);
 			VertexDeclElements[0] = FVertexElement(0, offsetof(ImDrawVert, pos), EVertexElementType::Float2, 0, VertexStride);
 			VertexDeclElements[1] = FVertexElement(0, offsetof(ImDrawVert, uv), EVertexElementType::Float2, 1, VertexStride);
 			VertexDeclElements[2] = FVertexElement(0, offsetof(ImDrawVert, col), EVertexElementType::UByte4N, 2, VertexStride);
 			GBackendState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
-
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = MakeImGuiRenderTargetLayout();
-			Initializer.BoundShaders.VertexShader = VertexShaderRef.GetRHIShader();
-			Initializer.BoundShaders.FragmentShader = FragmentShaderRef.GetRHIShader();
-			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
-
-			Initializer.ColorBlendStates[0] =
-				FRHIColorBlendState::StraightAlpha();
-			Initializer.RasterizerState.CullMode = ERHICullMode::None;
-			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GBackendState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
 		});
+	}
+
+	static auto ImGuiRHIImplRT_GetPipeline(
+		EPixelFormat TargetFormat) -> FGraphicsPipelineStateRHIRef
+	{
+		check(IsInRenderingThread());
+		if (const auto It = GBackendState.PipelineStates.find(TargetFormat);
+			It != GBackendState.PipelineStates.end())
+			return It->second;
+		if (!GBackendState.VertexDeclaration
+			|| !GBackendState.VertexShader || !GBackendState.FragmentShader)
+			return nullptr;
+
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.RenderTargetLayout =
+			MakeImGuiRenderTargetLayout(TargetFormat);
+		Initializer.BoundShaders.VertexShader =
+			GBackendState.VertexShader.GetRHIShader();
+		Initializer.BoundShaders.FragmentShader =
+			GBackendState.FragmentShader.GetRHIShader();
+		Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
+		Initializer.ColorBlendStates[0] =
+			FRHIColorBlendState::StraightAlpha();
+		Initializer.RasterizerState.CullMode = ERHICullMode::None;
+		Initializer.PipelineLayout =
+			GBackendState.ShaderMap->GetMergedPipelineLayout();
+		const std::string PipelineName = std::format(
+			"ImGuiMainPipeline_{}", GetPixelFormatInfo(TargetFormat).Name);
+		FGraphicsPipelineStateRHIRef Pipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				FName(PipelineName), Initializer);
+		if (Pipeline)
+			GBackendState.PipelineStates.emplace(TargetFormat, Pipeline);
+		return Pipeline;
 	}
 
 	static auto ImGuiRHIImpl_CreateRHIResources()
@@ -345,7 +367,7 @@ namespace Durin::MonaImGui
 			GBackendState.VertexShader = {};
 			GBackendState.FragmentShader = {};
 			GBackendState.VertexDeclaration = nullptr;
-			GBackendState.PipelineState = nullptr;
+			GBackendState.PipelineStates.clear();
 			GBackendState.LinearSampler = nullptr;
 		});
 	}
@@ -570,13 +592,14 @@ namespace Durin::MonaImGui
 		FRHICommandListImmediate& CommandList,
 		const ImDrawData* DrawData,
 		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers,
-		FRHIUniformBufferRange ProjectionUniform
+		FRHIUniformBufferRange ProjectionUniform,
+		const FGraphicsPipelineStateRHIRef& PipelineState
 	) -> void
 	{
 		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
 		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
 
-		CommandList.SetGraphicsPipelineState(*GBackendState.PipelineState);
+		CommandList.SetGraphicsPipelineState(*PipelineState);
 
 		FImGuiVertexShader::FParameters VertexShaderParameters;
 		VertexShaderParameters.Projection = ProjectionUniform;
@@ -595,7 +618,8 @@ namespace Durin::MonaImGui
 		FRHITexture* InTargetFrameBuffer,
 		const ImDrawData* DrawData,
 		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers,
-		const FClearValueBinding& ClearValue
+		const FClearValueBinding& ClearValue,
+		const FGraphicsPipelineStateRHIRef& PipelineState
 	) -> void
 	{
 		check(IsInRenderingThread());
@@ -612,13 +636,15 @@ namespace Durin::MonaImGui
 
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.RenderTargetLayout = MakeImGuiRenderTargetLayout();
+		PassInfo.RenderTargetLayout =
+			MakeImGuiRenderTargetLayout(InTargetFrameBuffer->GetFormat());
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
 		PassInfo.ColorClearValues[0] = ClearValue;
 		const FRHIUniformBufferRange ProjectionUniform = ImGuiRHIImplRT_CreateProjectionUniform(CommandList, DrawData);
 
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
-		ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
+		ImGuiRHIImplRT_SetupRenderState(
+			CommandList, DrawData, RenderBuffers, ProjectionUniform, PipelineState);
 
 		int GlobalVertexOffset = 0;
 		int GlobalIndexOffset = 0;
@@ -634,7 +660,9 @@ namespace Durin::MonaImGui
 					// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
 					if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
 					{
-						ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
+						ImGuiRHIImplRT_SetupRenderState(
+							CommandList, DrawData, RenderBuffers,
+							ProjectionUniform, PipelineState);
 					}
 					else
 					{
@@ -643,7 +671,9 @@ namespace Durin::MonaImGui
 				}
 				else
 				{
-					ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
+					ImGuiRHIImplRT_SetupRenderState(
+						CommandList, DrawData, RenderBuffers,
+						ProjectionUniform, PipelineState);
 
 					const ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
 					const ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
@@ -680,7 +710,8 @@ namespace Durin::MonaImGui
 	) -> void
 	{
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.RenderTargetLayout = MakeImGuiRenderTargetLayout();
+		PassInfo.RenderTargetLayout =
+			MakeImGuiRenderTargetLayout(InTargetFrameBuffer->GetFormat());
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
 		PassInfo.ColorClearValues[0] = ClearValue;
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
@@ -720,14 +751,18 @@ namespace Durin::MonaImGui
 				return;
 			}
 
+			const FGraphicsPipelineStateRHIRef PipelineState =
+				ImGuiRHIImplRT_GetPipeline(BackBuffer->GetFormat());
 			if (DrawData != nullptr
 				&& DrawData->TotalVtxCount > 0
 				&& DrawData->TotalIdxCount > 0
-				&& GBackendState.PipelineState
+				&& PipelineState
 				&& GBackendState.VertexShader
 				&& GBackendState.FragmentShader)
 			{
-				ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame, ClearValue);
+				ImGuiRHIImplRT_RenderDrawData(
+					CommandList, BackBuffer, DrawData,
+					RenderBuffersCurrentFrame, ClearValue, PipelineState);
 			}
 			else
 			{

@@ -97,6 +97,22 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eImmediate);
 	}
 
+	TEST(FVulkanSwapchainSelectionTests, PrefersBgraSrgbOverLinearFallback)
+	{
+		auto Input = MakeInput();
+		Input.Formats = {
+			{vk::Format::eB8G8R8A8Unorm,
+				vk::ColorSpaceKHR::eSrgbNonlinear},
+			{vk::Format::eB8G8R8A8Srgb,
+				vk::ColorSpaceKHR::eSrgbNonlinear}};
+		FVulkanSwapchainConfiguration Configuration;
+		std::string Error;
+		ASSERT_TRUE(SelectVulkanSwapchainConfiguration(
+			Input, Configuration, Error)) << Error;
+		EXPECT_EQ(Configuration.SurfaceFormat.format,
+			vk::Format::eB8G8R8A8Srgb);
+	}
+
 	TEST(FVulkanSwapchainSelectionTests, RejectsIncompleteSurfaceSnapshots)
 	{
 		for (uint32 Case = 0; Case < 4; ++Case)

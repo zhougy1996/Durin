@@ -9,6 +9,7 @@
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanRHITestEnvironment.h"
 
 namespace Durin::VulkanRHI
 {
@@ -134,7 +135,7 @@ namespace Durin::VulkanRHI
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit());
+		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
 		struct FBarrierOverrideScope
 		{
 			~FBarrierOverrideScope()

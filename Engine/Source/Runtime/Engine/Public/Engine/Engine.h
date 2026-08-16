@@ -9,6 +9,8 @@
 
 namespace Durin
 {
+	class MWindow;
+
 	enum class EEngineInitializationStatus : uint8
 	{
 		Succeeded,
@@ -41,6 +43,9 @@ namespace Durin
 	struct FEngineInitContext
 	{
 		std::function<bool()> PumpStartupFrame;
+		// Launch creates the real primary native window before RHI device
+		// admission and transfers the Mona-level owner here for viewport setup.
+		std::shared_ptr<MWindow> StartupWindow;
 		bool bHeadless = false;
 	};
 

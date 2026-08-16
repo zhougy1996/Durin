@@ -26,7 +26,7 @@ namespace Durin
 		ResizeBottomRight
 	};
 
-	// Defines an axis-aligned rectangle in window-client pixels.
+	// Defines an axis-aligned rectangle in renderer-aligned logical client units.
 	struct FWindowTitleBarRect
 	{
 		int32 MinX = 0;
@@ -60,6 +60,13 @@ namespace Durin
 		EWindowTitleBarHitTest PressedPart = EWindowTitleBarHitTest::Client;
 		bool bFocused = false;
 		bool bMaximized = false;
+	};
+
+	// Describes platform-owned title-bar controls that rendered content must avoid.
+	struct FWindowTitleBarPlatformMetrics
+	{
+		bool bNativeWindowControls = false;
+		FWindowTitleBarRect NativeControlExclusion;
 	};
 
 	// Classifies a client point using resize-first custom-title-bar semantics.
@@ -160,6 +167,8 @@ namespace Durin
 		APPLICATIONCORE_API virtual auto PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void;
 
 		APPLICATIONCORE_API virtual auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState;
+
+		APPLICATIONCORE_API virtual auto GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics;
 
 		APPLICATIONCORE_API virtual auto SetTitleBarDarkMode(bool bDarkMode) -> void;
 

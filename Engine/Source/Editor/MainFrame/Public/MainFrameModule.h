@@ -17,7 +17,8 @@ namespace Durin
 		~FMainFrameModule() = default;
 
 		auto ShutdownModule() -> void override;
-		auto CreateDefaultFrame() -> void override;
+		auto CreateDefaultFrame(
+			std::shared_ptr<MWindow> StartupWindow) -> void override;
 		auto DestroyDefaultFrame() -> void override;
 		auto AdvanceDefaultBootstrap(bool bFirstPresentAvailable)
 			-> Editor::MainFrame::FBootstrapProgress override;

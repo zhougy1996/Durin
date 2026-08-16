@@ -533,7 +533,14 @@ namespace Durin::Editor::MainFrame
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 BarMin = ImGui::GetWindowPos();
 			const ImVec2 BarMax(BarMin.x + ImGui::GetWindowWidth(), BarMin.y + ImGui::GetWindowHeight());
-			const float CaptionStartX = BarMax.x - ButtonWidth * 3.0f;
+			const FWindowTitleBarPlatformMetrics PlatformMetrics = RootWindow.GetTitleBarPlatformMetrics();
+			const float NativeControlEndX = BarMin.x + static_cast<float>(PlatformMetrics.NativeControlExclusion.MaxX);
+			const float CaptionStartX = PlatformMetrics.bNativeWindowControls
+				? BarMax.x : BarMax.x - ButtonWidth * 3.0f;
+			if (PlatformMetrics.bNativeWindowControls && ImGui::GetCursorScreenPos().x < NativeControlEndX)
+			{
+				ImGui::SetCursorScreenPos({NativeControlEndX, ImGui::GetCursorScreenPos().y});
+			}
 			const float BrandHeight = MonaImGui::ScaleUI(EditorTitleBarBrandHeight);
 			const float BrandWidth = BrandHeight;
 			const float BrandSlotWidth = MonaImGui::ScaleUI(EditorTitleBarBrandSlotWidth);
@@ -639,9 +646,12 @@ namespace Durin::Editor::MainFrame
 					DrawList->AddLine({Center.x + Radius, Center.y - Radius}, {Center.x - Radius, Center.y + Radius}, TextColor, 1.0f);
 				}
 			};
-			DrawCaptionButton(0, EWindowTitleBarHitTest::Minimize);
-			DrawCaptionButton(1, EWindowTitleBarHitTest::Maximize);
-			DrawCaptionButton(2, EWindowTitleBarHitTest::Close);
+			if (!PlatformMetrics.bNativeWindowControls)
+			{
+				DrawCaptionButton(0, EWindowTitleBarHitTest::Minimize);
+				DrawCaptionButton(1, EWindowTitleBarHitTest::Maximize);
+				DrawCaptionButton(2, EWindowTitleBarHitTest::Close);
+			}
 
 			static uint64 LayoutGeneration = 1;
 			const auto ToClientX = [&](float ScreenX) { return static_cast<int32>(std::round(ScreenX - Viewport->Pos.x)); };
@@ -651,11 +661,17 @@ namespace Durin::Editor::MainFrame
 			Layout.bValid = true;
 			Layout.Height = ClientHeight;
 			Layout.MinimumWindowWidth = static_cast<int32>(std::ceil(MonaImGui::ScaleUI(640.0f)));
-			if (FirstMenuX > BarMin.x) Layout.DragRegions.push_back({0, 0, ToClientX(FirstMenuX), ClientHeight});
+			const int32 LeadingDragX = PlatformMetrics.bNativeWindowControls
+				? PlatformMetrics.NativeControlExclusion.MaxX : 0;
+			if (ToClientX(FirstMenuX) > LeadingDragX)
+				Layout.DragRegions.push_back({LeadingDragX, 0, ToClientX(FirstMenuX), ClientHeight});
 			if (CaptionStartX > MenuEndX) Layout.DragRegions.push_back({ToClientX(MenuEndX), 0, ToClientX(CaptionStartX), ClientHeight});
-			Layout.MinimizeRegion = {ToClientX(CaptionStartX), 0, ToClientX(CaptionStartX + ButtonWidth), ClientHeight};
-			Layout.MaximizeRegion = {ToClientX(CaptionStartX + ButtonWidth), 0, ToClientX(CaptionStartX + ButtonWidth * 2.0f), ClientHeight};
-			Layout.CloseRegion = {ToClientX(CaptionStartX + ButtonWidth * 2.0f), 0, ToClientX(BarMax.x), ClientHeight};
+			if (!PlatformMetrics.bNativeWindowControls)
+			{
+				Layout.MinimizeRegion = {ToClientX(CaptionStartX), 0, ToClientX(CaptionStartX + ButtonWidth), ClientHeight};
+				Layout.MaximizeRegion = {ToClientX(CaptionStartX + ButtonWidth), 0, ToClientX(CaptionStartX + ButtonWidth * 2.0f), ClientHeight};
+				Layout.CloseRegion = {ToClientX(CaptionStartX + ButtonWidth * 2.0f), 0, ToClientX(BarMax.x), ClientHeight};
+			}
 			RootWindow.PublishTitleBarLayout(Layout);
 
 			ImGui::EndMainMenuBar();
@@ -752,9 +768,12 @@ namespace Durin
 		DestroyDefaultFrame();
 	}
 
-	auto FMainFrameModule::CreateDefaultFrame() -> void
+	auto FMainFrameModule::CreateDefaultFrame(
+		std::shared_ptr<MWindow> StartupWindow) -> void
 	{
 		check(BootstrapContext == nullptr);
+		check(StartupWindow != nullptr);
+		check(StartupWindow->GetNativeWindow() != nullptr);
 		BootstrapContext = std::make_shared<FBootstrapContext>();
 		FBootstrapContext& Context = *BootstrapContext;
 		Context.bHasProject = HasCurrentProject();
@@ -765,8 +784,7 @@ namespace Durin
 		Context.HostSettings->Load();
 		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
 		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
-		Context.RootWindow = std::make_shared<MWindow>();
-		Context.RootWindow->SetWindowDecorationMode(EWindowDecorationMode::CustomTitleBar);
+		Context.RootWindow = std::move(StartupWindow);
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
 		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>();
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
@@ -852,7 +870,6 @@ namespace Durin
 		// Keep the native window hidden until its persisted display state has been
 		// applied. Showing it before maximizing causes a visible normal-size frame
 		// during editor startup.
-		Mona::FMonaApplication::Get().AddWindow(Context.RootWindow, false);
 		if (Context.HostSettings->IsWindowMaximized())
 		{
 			Context.RootWindow->MaximizeWindow();

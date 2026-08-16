@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_durin_test(VulkanRHIIntegrationTests
+	Private/VulkanRHITestEnvironment.cpp
 	Private/VulkanFailureInjectionTests.cpp
 	Private/VulkanMemoryPolicyTests.cpp
 	Private/VulkanTextureSamplingTests.cpp

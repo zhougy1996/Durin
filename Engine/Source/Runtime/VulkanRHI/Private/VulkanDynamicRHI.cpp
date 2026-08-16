@@ -2,6 +2,7 @@
 #include "VulkanPresentationSupport.h"
 
 #include "VulkanContext.h"
+#include "VulkanGenericPlatform.h"
 #include "VulkanCompletion.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
@@ -39,6 +40,12 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanDynamicRHI::SetInitializationPresentationWindow(
+		void* InWindowHandle) -> void
+	{
+		InitializationPresentationWindowHandle = InWindowHandle;
+	}
+
 	auto FVulkanDynamicRHI::Init() -> void
 	{
 		CheckVulkanRHIThread();
@@ -47,7 +54,17 @@ namespace Durin::VulkanRHI
 		CreateDebugMessenger();
 		DebugUtils.SetExtensionActive(
 			DiagnosticAvailability.bDebugUtilsActive);
-		SelectDevice();
+#ifdef __APPLE__
+		if (!InitializationPresentationWindowHandle)
+			throw std::runtime_error(
+				"macOS Vulkan initialization requires the primary native window before device admission.");
+		InitializationPresentationSurface = FVulkanGenericPlatform::CreateSurface(
+			InitializationPresentationWindowHandle, Instance);
+		if (!InitializationPresentationSurface)
+			throw std::runtime_error(
+				"macOS Vulkan initialization failed to create the primary Metal presentation surface.");
+#endif
+		SelectDevice(InitializationPresentationSurface);
 		DebugUtils.NameObject(Instance, "Durin.Instance");
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 
@@ -122,6 +139,12 @@ namespace Durin::VulkanRHI
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Device = nullptr;
+		if (InitializationPresentationSurface)
+		{
+			Instance.destroySurfaceKHR(InitializationPresentationSurface);
+			InitializationPresentationSurface = VK_NULL_HANDLE;
+		}
+		InitializationPresentationWindowHandle = nullptr;
 		DebugUtils.ResetDevice();
 		DestroyDebugMessenger();
 		if (Instance)
@@ -406,6 +429,8 @@ namespace Durin::VulkanRHI
 				RequiredExtension);
 #ifdef __APPLE__
 		ExtensionRequestInput.bRequirePortabilityEnumeration = true;
+		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
+			VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
 #endif
 		const FVulkanInstanceExtensionRequest ExtensionRequest =
 			BuildVulkanInstanceExtensionRequest(ExtensionRequestInput);
@@ -452,6 +477,23 @@ namespace Durin::VulkanRHI
 		vk::InstanceCreateInfo InstanceInfo({}, &AppInfo);
 		InstanceInfo.setPEnabledExtensionNames(ExtensionNames)
 			.setPEnabledLayerNames(LayerNames);
+
+#ifdef __APPLE__
+		// Metal argument buffers currently produce unstable descriptor reads for
+		// Durin's per-frame suballocated uniform buffers. Select MoltenVK's
+		// discrete resource-index path at instance creation so every descriptor
+		// set follows the same qualified binding model.
+		const VkBool32 bUseMetalArgumentBuffers = VK_FALSE;
+		const vk::LayerSettingEXT MetalArgumentBufferSetting(
+			"MoltenVK",
+			"MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS",
+			vk::LayerSettingTypeEXT::eBool32,
+			1,
+			&bUseMetalArgumentBuffers);
+		const vk::LayerSettingsCreateInfoEXT MoltenVKLayerSettings(
+			1, &MetalArgumentBufferSetting);
+		InstanceInfo.setPNext(&MoltenVKLayerSettings);
+#endif
 
 		if (ExtensionRequest.bEnablePortabilityEnumeration)
 			InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
@@ -536,7 +578,8 @@ namespace Durin::VulkanRHI
 #endif
 	}
 
-	auto FVulkanDynamicRHI::SelectDevice() -> void
+	auto FVulkanDynamicRHI::SelectDevice(
+		vk::SurfaceKHR PresentationSurface) -> void
 	{
 		CheckVulkanRHIThread();
 		std::vector<vk::PhysicalDevice> Gpus = Instance.enumeratePhysicalDevices();
@@ -575,6 +618,9 @@ namespace Durin::VulkanRHI
 				Properties.limits.maxComputeWorkGroupCount[2]};
 			Candidate.Input.bFillModeNonSolid = Features.fillModeNonSolid == vk::True;
 			Candidate.Input.bIndependentBlend = Features.independentBlend == vk::True;
+#ifdef __APPLE__
+			Candidate.Input.bRequirePortabilitySubset = true;
+#endif
 			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())
 				Candidate.Input.AvailableExtensions.emplace_back(Extension.extensionName.data());
 
@@ -616,7 +662,8 @@ namespace Durin::VulkanRHI
 				Queue.Flags = QueueFamilies[QueueIndex].queueFlags;
 				Queue.QueueCount = QueueFamilies[QueueIndex].queueCount;
 				Queue.bSupportsPresentation =
-					QueryNativeVulkanPresentationSupport(Gpu, QueueIndex);
+					QueryNativeVulkanPresentationSupport(
+						Gpu, QueueIndex, PresentationSurface);
 			}
 			Candidate.Evaluation = EvaluateVulkanPhysicalDeviceCandidate(Candidate.Input);
 			Candidates.push_back(std::move(Candidate));
@@ -646,6 +693,15 @@ namespace Durin::VulkanRHI
 			this, Selected.Gpu, std::move(Selected.Evaluation));
 		DeviceCandidate->InitGpu(static_cast<uint32>(InstanceExtensions.size()));
 		Device = DeviceCandidate.release();
+	}
+
+	auto FVulkanDynamicRHI::TakeInitializationPresentationSurface(
+		void* WindowHandle) const -> vk::SurfaceKHR
+	{
+		if (WindowHandle != InitializationPresentationWindowHandle)
+			return VK_NULL_HANDLE;
+		return std::exchange(
+			InitializationPresentationSurface, VK_NULL_HANDLE);
 	}
 
 }

@@ -201,6 +201,11 @@ namespace Durin
 		return {};
 	}
 
+	auto FGenericWindow::GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics
+	{
+		return {};
+	}
+
 	auto FGenericWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
 	{
 	}

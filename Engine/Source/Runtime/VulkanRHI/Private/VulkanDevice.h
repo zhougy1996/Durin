@@ -30,6 +30,7 @@ namespace Durin::VulkanRHI
 		bool bSynchronization2Feature = false;
 		bool bSwapchainMaintenanceFeature = false;
 		bool bHasSwapchainMaintenanceInstanceDependencies = false;
+		bool bRequirePortabilitySubset = false;
 		std::vector<std::string> AvailableExtensions;
 		std::vector<FVulkanQueueFamilyCandidate> QueueFamilies;
 	};

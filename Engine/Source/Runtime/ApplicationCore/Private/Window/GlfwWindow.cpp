@@ -7,10 +7,16 @@
 #include "ApplicationCore.h"
 #include "CoreGlobals.h"
 
+#if defined(__APPLE__)
+#include "MacOS/MacOSCustomTitleBarBridge.h"
+#endif
+
 #if defined(_WIN32)
 #include <dwmapi.h>
 #include <shellapi.h>
 #elif defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
 #include <pthread.h>
 #endif
 
@@ -173,6 +179,33 @@ namespace Durin
 		bool bModalLoopHookFailureReported = false;
 		bool bModalLoopTimerFailureReported = false;
 
+#endif
+
+#if defined(__APPLE__)
+		template <typename ReturnType, typename... ArgumentTypes>
+		auto SendObjectiveCMessage(
+			void* Receiver, const char* SelectorName,
+			ArgumentTypes... Arguments) -> ReturnType
+		{
+			using FMessage = ReturnType (*)(void*, SEL, ArgumentTypes...);
+			return reinterpret_cast<FMessage>(objc_msgSend)(
+				Receiver, sel_registerName(SelectorName), Arguments...);
+		}
+
+		// vulkan_metal.h is gated by VK_USE_PLATFORM_METAL_EXT, while this
+		// module intentionally shares a platform-neutral PCH. Keep the exact
+		// extension ABI local instead of leaking that define across modules.
+		struct FMetalSurfaceCreateInfo
+		{
+			VkStructureType Type;
+			const void* Next;
+			VkFlags Flags;
+			const void* Layer;
+		};
+
+		using FCreateMetalSurface = VkResult (VKAPI_PTR *)(
+			VkInstance, const FMetalSurfaceCreateInfo*,
+			const VkAllocationCallbacks*, VkSurfaceKHR*);
 #endif
 
 		const std::unordered_map<int32, EKey> GlfwKeyMap = {
@@ -577,6 +610,9 @@ namespace Durin
 		}
 		RemoveWindowsMessageBridge();
 		RemoveModalLoopHook();
+#if defined(__APPLE__)
+		DestroyMacOSCustomTitleBarBridge(MacOSCustomTitleBarBridge);
+#endif
 		glfwSetWindowUserPointer(GlfwWindow, nullptr);
 		glfwSetWindowPosCallback(GlfwWindow, nullptr);
 		glfwSetWindowSizeCallback(GlfwWindow, nullptr);
@@ -672,8 +708,30 @@ namespace Durin
 		}
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
-		EffectiveDecorationMode = Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar
-			? EWindowDecorationMode::System : Definition->DecorationMode;
+		EffectiveDecorationMode = Definition->DecorationMode;
+		if (Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar)
+		{
+			MacOSCustomTitleBarBridge = CreateMacOSCustomTitleBarBridge(OSNativeWindowHandle);
+			if (MacOSCustomTitleBarBridge == nullptr)
+			{
+				EffectiveDecorationMode = EWindowDecorationMode::System;
+				Definition->DecorationMode = EWindowDecorationMode::System;
+				DURIN_ERROR("Failed to activate the macOS custom title bar; using the system frame.");
+			}
+			else
+			{
+				DURIN_DEBUG("Activated macOS custom title bar.");
+			}
+		}
+		if (!PrepareVulkanSurfaceLayer())
+		{
+			DURIN_ERROR("Failed to prepare the Cocoa Metal presentation layer.");
+			DestroyMacOSCustomTitleBarBridge(MacOSCustomTitleBarBridge);
+			glfwDestroyWindow(GlfwWindow);
+			GlfwWindow = nullptr;
+			OSNativeWindowHandle = nullptr;
+			return;
+		}
 #else
 		EffectiveDecorationMode = Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar
 			? EWindowDecorationMode::System : Definition->DecorationMode;
@@ -909,11 +967,78 @@ namespace Durin
 		return {Width, Height};
 	}
 
+	auto FGlfwWindow::PrepareVulkanSurfaceLayer() -> bool
+	{
+#if defined(__APPLE__)
+		if (pthread_main_np() == 0)
+		{
+			DURIN_ERROR(
+				"Cocoa Metal presentation layers must be installed on the main thread.");
+			return false;
+		}
+		if (VulkanSurfaceLayer != nullptr)
+		{
+			return true;
+		}
+
+		void* ContentView = SendObjectiveCMessage<void*>(
+			OSNativeWindowHandle, "contentView");
+		Class MetalLayerClass = objc_getClass("CAMetalLayer");
+		if (ContentView == nullptr || MetalLayerClass == nullptr)
+		{
+			return false;
+		}
+
+		void* Layer = SendObjectiveCMessage<void*>(MetalLayerClass, "alloc");
+		Layer = SendObjectiveCMessage<void*>(Layer, "init");
+		if (Layer == nullptr)
+		{
+			return false;
+		}
+
+		const double BackingScale = SendObjectiveCMessage<double>(
+			OSNativeWindowHandle, "backingScaleFactor");
+		SendObjectiveCMessage<void>(Layer, "setContentsScale:", BackingScale);
+		SendObjectiveCMessage<void>(Layer, "setOpaque:", true);
+		SendObjectiveCMessage<void>(ContentView, "setLayer:", Layer);
+		SendObjectiveCMessage<void>(ContentView, "setWantsLayer:", true);
+		SendObjectiveCMessage<void>(Layer, "release");
+		VulkanSurfaceLayer = Layer;
+		return true;
+#else
+		return true;
+#endif
+	}
+
 	void* FGlfwWindow::CreateVulkanSurface(void* InInstance) const
 	{
 		VkSurfaceKHR Surface;
 		auto VulkanInstance = static_cast<VkInstance>(InInstance);
+#if defined(__APPLE__)
+		if (VulkanSurfaceLayer == nullptr)
+		{
+			DURIN_ERROR(
+				"Cannot create a macOS Vulkan surface before its Metal layer is prepared on the main thread.");
+			return nullptr;
+		}
+		const auto CreateMetalSurface = reinterpret_cast<FCreateMetalSurface>(
+			vkGetInstanceProcAddr(VulkanInstance, "vkCreateMetalSurfaceEXT"));
+		if (CreateMetalSurface == nullptr)
+		{
+			DURIN_ERROR(
+				"Vulkan instance does not expose vkCreateMetalSurfaceEXT.");
+			return nullptr;
+		}
+		FMetalSurfaceCreateInfo SurfaceInfo{
+			.Type = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+			.Next = nullptr,
+			.Flags = 0,
+			.Layer = VulkanSurfaceLayer};
+		if (CreateMetalSurface(
+				VulkanInstance, &SurfaceInfo, nullptr, &Surface) != VK_SUCCESS)
+#else
 		if (glfwCreateWindowSurface(VulkanInstance, GlfwWindow, nullptr, &Surface) != VK_SUCCESS)
+#endif
 		{
 			DURIN_ERROR("Failed to create window surface.");
 			return nullptr;
@@ -997,6 +1122,9 @@ namespace Durin
 		if (EffectiveDecorationMode == EWindowDecorationMode::CustomTitleBar && Layout.Generation >= TitleBarLayout.Generation)
 		{
 			TitleBarLayout = Layout;
+#if defined(__APPLE__)
+			PublishMacOSCustomTitleBarLayout(MacOSCustomTitleBarBridge, TitleBarLayout);
+#endif
 		}
 	}
 
@@ -1008,6 +1136,15 @@ namespace Durin
 		return State;
 	}
 
+	auto FGlfwWindow::GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics
+	{
+#if defined(__APPLE__)
+		return GetMacOSCustomTitleBarPlatformMetrics(MacOSCustomTitleBarBridge);
+#else
+		return {};
+#endif
+	}
+
 	auto FGlfwWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
 	{
 #if defined(_WIN32)
@@ -1017,6 +1154,8 @@ namespace Durin
 			DWMWA_USE_IMMERSIVE_DARK_MODE,
 			&bUseDarkMode,
 			sizeof(bUseDarkMode));
+#elif defined(__APPLE__)
+		SetMacOSCustomTitleBarDarkMode(MacOSCustomTitleBarBridge, bDarkMode);
 #endif
 	}
 

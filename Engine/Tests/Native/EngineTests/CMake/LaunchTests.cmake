@@ -188,7 +188,10 @@ if(WIN32)
 	add_durin_test(MacOSWindowLifecycleTests
 		Private/Launch/MacOSWindowLifecycleTests.cpp
 	)
-	target_link_libraries(MacOSWindowLifecycleTests PRIVATE ApplicationCore)
+	target_link_libraries(MacOSWindowLifecycleTests PRIVATE
+		ApplicationCore
+		"-framework Cocoa"
+	)
 	set_target_properties(MacOSWindowLifecycleTests PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE

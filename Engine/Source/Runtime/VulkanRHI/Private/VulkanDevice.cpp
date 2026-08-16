@@ -50,6 +50,12 @@ namespace Durin::VulkanRHI
 			Result.RejectionReasons.emplace_back("device API version is below Vulkan 1.1");
 		if (!HasExtension(Input.AvailableExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
 			Result.RejectionReasons.emplace_back("missing platform required extension VK_KHR_swapchain");
+		constexpr std::string_view PortabilitySubsetExtension =
+			"VK_KHR_portability_subset";
+		if (Input.bRequirePortabilitySubset
+			&& !HasExtension(Input.AvailableExtensions, PortabilitySubsetExtension))
+			Result.RejectionReasons.emplace_back(
+				"missing platform required extension VK_KHR_portability_subset");
 		if (!Input.bFillModeNonSolid)
 			Result.RejectionReasons.emplace_back("missing required fillModeNonSolid feature");
 		if (!Input.bIndependentBlend)
@@ -83,6 +89,8 @@ namespace Durin::VulkanRHI
 		if (!Result.IsSuitable()) return Result;
 
 		Result.EnabledExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		if (Input.bRequirePortabilitySubset)
+			Result.EnabledExtensions.emplace_back(PortabilitySubsetExtension);
 		const bool bSynchronization2Extension = HasExtension(
 			Input.AvailableExtensions, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 		Result.bEnableSynchronization2 = Input.bSynchronization2Feature

@@ -164,6 +164,11 @@ namespace Durin
 		return NativeWindow != nullptr ? NativeWindow->GetTitleBarInteractionState() : FWindowTitleBarInteractionState{};
 	}
 
+	auto MWindow::GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics
+	{
+		return NativeWindow != nullptr ? NativeWindow->GetTitleBarPlatformMetrics() : FWindowTitleBarPlatformMetrics{};
+	}
+
 	auto MWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
 	{
 		bTitleBarDarkMode = bDarkMode;

@@ -102,11 +102,14 @@ namespace Durin::Editor::MainFrame
 
 namespace Durin
 {
+	class MWindow;
+
 	// Defines the module boundary that hosts editor workspaces in the main frame.
 	class IMainFrameModule : public IModuleInterface
 	{
 	public:
-		virtual auto CreateDefaultFrame() -> void = 0;
+		virtual auto CreateDefaultFrame(
+			std::shared_ptr<MWindow> StartupWindow) -> void = 0;
 		virtual auto DestroyDefaultFrame() -> void = 0;
 		virtual auto AdvanceDefaultBootstrap(bool bFirstPresentAvailable)
 			-> Editor::MainFrame::FBootstrapProgress = 0;

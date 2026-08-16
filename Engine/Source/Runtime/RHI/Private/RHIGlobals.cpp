@@ -102,7 +102,8 @@ namespace Durin
 			FDynamicRHI* Backend,
 			bool bThreaded,
 			bool bForceThreadLaunchFailure,
-			bool bOwnsBackendModule) -> bool
+			bool bOwnsBackendModule,
+			void* PresentationWindowHandle = nullptr) -> bool
 		{
 			LastRHIInitializationDiagnostic.clear();
 			if (!Backend)
@@ -124,6 +125,8 @@ namespace Durin
 				return false;
 			}
 
+			Backend->SetInitializationPresentationWindow(
+				PresentationWindowHandle);
 			GDynamicRHI = Backend;
 			GOwnsBackendModule = bOwnsBackendModule;
 			if (bThreaded)
@@ -203,10 +206,11 @@ namespace Durin
 		return ERHIExecutionMode::Threaded;
 	}
 
-	auto RHIInit() -> bool
+	auto RHIInit(void* PresentationWindowHandle) -> bool
 	{
 		return InitializeRHI(
-			CreateDynamicRHI(), UseThreadedRHIExecution(), false, true);
+			CreateDynamicRHI(), UseThreadedRHIExecution(), false, true,
+			PresentationWindowHandle);
 	}
 
 	auto GetLastRHIInitializationDiagnostic() -> std::string_view
@@ -217,10 +221,12 @@ namespace Durin
 	auto RHIInitWithBackendForTests(
 		FDynamicRHI* Backend,
 		bool bThreaded,
-		bool bForceThreadLaunchFailure) -> bool
+		bool bForceThreadLaunchFailure,
+		void* PresentationWindowHandle) -> bool
 	{
 		return InitializeRHI(
-			Backend, bThreaded, bForceThreadLaunchFailure, false);
+			Backend, bThreaded, bForceThreadLaunchFailure, false,
+			PresentationWindowHandle);
 	}
 
 	auto RHIExit() -> void

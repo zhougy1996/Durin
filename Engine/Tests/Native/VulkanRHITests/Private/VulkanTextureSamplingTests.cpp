@@ -18,6 +18,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
+#include "VulkanRHITestEnvironment.h"
 
 namespace Durin
 {
@@ -280,7 +281,7 @@ namespace Durin
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit());
+		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 		ASSERT_NE(GDynamicRHI, nullptr);
 		auto* VulkanRHI = static_cast<VulkanRHI::IVulkanDynamicRHI*>(GDynamicRHI);
 		const VkDevice Device = VulkanRHI->RHIGetVkDevice();
@@ -526,7 +527,7 @@ namespace Durin
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit());
+		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 		VulkanRHI::ResetVulkanMemoryBaselineStatistics();
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
@@ -796,7 +797,7 @@ namespace Durin
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit());
+		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(RHICmdList,
 			FRHIBufferCreateDesc::Create("FormattedView", 64, 0,
@@ -845,7 +846,7 @@ namespace Durin
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit());
+		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
 		FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(
 			RHICmdList,
@@ -908,7 +909,7 @@ namespace Durin
 					_putenv_s("DURIN_RHI_EXECUTION", "");
 				}
 			} Scope(Mode);
-			ASSERT_TRUE(RHIInit()) << Mode;
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle())) << Mode;
 			FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
 
 			const FRHITextureCreateDesc SourceDesc = FRHITextureCreateDesc::Create2D(
@@ -1112,7 +1113,7 @@ namespace Durin
 					_putenv_s("DURIN_RHI_EXECUTION", "");
 				}
 			} Scope(Mode);
-			ASSERT_TRUE(RHIInit());
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
 				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
@@ -1364,7 +1365,7 @@ namespace Durin
 					_putenv_s("DURIN_RHI_EXECUTION", "");
 				}
 			} Scope(Mode);
-			ASSERT_TRUE(RHIInit());
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestPresentationWindowHandle()));
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			auto MakeShader = [&](uint32 Index) {
 				const FCompiledShader& Shader = Compiled.CompiledShaders[Index];

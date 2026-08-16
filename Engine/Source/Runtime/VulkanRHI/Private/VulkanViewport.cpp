@@ -96,7 +96,11 @@ namespace Durin::VulkanRHI
 		else Found->second = Access;
 	}
 
-	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy)
+	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice,
+		void* InWindowHandle, uint32 InSizeX, uint32 InSizeY,
+		bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat,
+		EViewportPresentModePolicy InPresentModePolicy,
+		vk::SurfaceKHR InPresentationSurface)
 		: Device(InDevice)
 		, SizeX(InSizeX)
 		, SizeY(InSizeY)
@@ -106,15 +110,30 @@ namespace Durin::VulkanRHI
 		, PresentModePolicy(InPresentModePolicy)
 	{
 		CheckVulkanRHIThread();
-		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
-		Device.GetRHI().GetDebugUtils().NameObject(Surface,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("Surface"));
-		bSwapchainNeedsRecreate = true;
-		bSwapchainRetryEligible = true;
-		PrepareSwapchain();
-		if (!RHIBackBuffer)
+		Surface = InPresentationSurface
+			? InPresentationSurface
+			: FVulkanGenericPlatform::CreateSurface(
+				InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
+		try
 		{
-			RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+			Device.GetRHI().GetDebugUtils().NameObject(Surface,
+				Device.GetRHI().GetDebugUtils().MakeInternalName("Surface"));
+			bSwapchainNeedsRecreate = true;
+			bSwapchainRetryEligible = true;
+			PrepareSwapchain();
+			if (!RHIBackBuffer)
+			{
+				RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+			}
+		}
+		catch (...)
+		{
+			if (Surface)
+			{
+				FVulkanDynamicRHI::Get().RHIGetVkInstance().destroySurfaceKHR(Surface);
+				Surface = VK_NULL_HANDLE;
+			}
+			throw;
 		}
 	}
 
@@ -582,20 +601,25 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport>
 	{
 		check(IsInGameThread());
+		const vk::SurfaceKHR PresentationSurface =
+			TakeInitializationPresentationSurface(WindowHandle);
 		TRefCountPtr<FRHIViewport> Result;
 		if (GRHIThread)
 		{
 			GCommandListExecutor.ExecuteSynchronousOperation(false,
 				[this, WindowHandle, SizeX, SizeY, bIsFullscreen,
-				 PreferredPixelFormat, InPresentModePolicy, &Result]() {
+					 PreferredPixelFormat, InPresentModePolicy,
+					 PresentationSurface, &Result]() {
 					Result = MakeRefCount<FVulkanViewport>(
 						*Device, WindowHandle, SizeX, SizeY, bIsFullscreen,
-						PreferredPixelFormat, InPresentModePolicy);
+						PreferredPixelFormat, InPresentModePolicy,
+						PresentationSurface);
 				});
 			return Result;
 		}
 		return MakeRefCount<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY,
-			bIsFullscreen, PreferredPixelFormat, InPresentModePolicy);
+			bIsFullscreen, PreferredPixelFormat, InPresentModePolicy,
+			PresentationSurface);
 	}
 
 	auto FVulkanDynamicRHI::RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void

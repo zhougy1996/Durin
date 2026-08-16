@@ -4,6 +4,7 @@
 #include "MonaUIBackend.h"
 #include "MonaCoreGlobals.h"
 #include "Modules/ModuleManager.h"
+#include "RHI.h"
 
 namespace Durin
 {
@@ -14,21 +15,21 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			Mona::FMonaApplication::Create();
-			Mona::FMonaApplication::Get().Initialize();
+			if (GDynamicRHI && !Mona::InitializeRendering())
+			{
+				DURIN_ERROR("Mona rendering services failed to initialize.");
+			}
 
-#if DURIN_WITH_EDITOR
-			FModuleManager::Get().LoadModule("MonaImGui");
-#endif
-
-			DURIN_DEBUG(STR("Mona initialized successfully."));
+			DURIN_DEBUG(STR("Mona platform services initialized successfully."));
 		}
 
 		auto ShutdownModule() -> void override
 		{
-#if DURIN_WITH_EDITOR
-			const auto Result = FModuleManager::Get().UnloadModule("MonaImGui");
-			if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload MonaImGui during Mona shutdown: {}"), Result.Message);
-#endif
+			if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
+			{
+				const auto Result = FModuleManager::Get().UnloadModule("MonaImGui");
+				if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload MonaImGui during Mona shutdown: {}"), Result.Message);
+			}
 
 			Mona::FMonaApplication::Shutdown();
 			DURIN_DEBUG(STR("Mona shutdown."));
@@ -40,6 +41,29 @@ namespace Durin
 
 namespace Durin::Mona
 {
+	auto InitializeRendering() -> bool
+	{
+		if (!FMonaApplication::IsInitialized() || !GDynamicRHI) return false;
+		if (FMonaApplication::Get().GetRenderer()) return true;
+
+		FMonaApplication::Get().Initialize();
+#if DURIN_WITH_EDITOR
+		if (!FModuleManager::Get().LoadModule("MonaImGui"))
+		{
+			FMonaApplication::Get().ShutdownRenderer();
+			return false;
+		}
+#endif
+		DURIN_DEBUG(STR("Mona rendering services initialized successfully."));
+		return true;
+	}
+
+	auto IsRenderingInitialized() -> bool
+	{
+		return FMonaApplication::IsInitialized()
+			&& FMonaApplication::Get().GetRenderer() != nullptr;
+	}
+
 	auto NewFrame() -> void
 	{
 		if (GActiveUIBackend)

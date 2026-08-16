@@ -16,6 +16,7 @@ namespace Durin
 			bool bInitOnRHIThread = false;
 			bool bShutdownOnRHIThread = false;
 			bool bCapabilitiesClearedAtShutdown = false;
+			void* PresentationWindowHandle = nullptr;
 		};
 
 		class FFailingDynamicRHI final : public FDynamicRHI
@@ -32,6 +33,12 @@ namespace Durin
 			~FFailingDynamicRHI() override
 			{
 				++Observation.DestructionCount;
+			}
+
+			auto SetInitializationPresentationWindow(
+				void* InWindowHandle) -> void override
+			{
+				Observation.PresentationWindowHandle = InWindowHandle;
 			}
 
 			auto Init() -> void override
@@ -132,6 +139,19 @@ namespace Durin
 		EXPECT_TRUE(Observation.bShutdownOnRHIThread);
 		EXPECT_EQ(GetLastRHIInitializationDiagnostic(),
 			"intentional backend init failure");
+	}
+
+	TEST(FRHIInitializationTests,
+		PresentationWindowIsPublishedBeforeBackendInitialization)
+	{
+		FInitializationObservation Observation;
+		auto* Backend = new FFailingDynamicRHI(Observation);
+		void* const WindowHandle = reinterpret_cast<void*>(uintptr_t{0x1234});
+		EXPECT_FALSE(RHIInitWithBackendForTests(
+			Backend, false, false, WindowHandle));
+
+		EXPECT_EQ(Observation.PresentationWindowHandle, WindowHandle);
+		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 
 	TEST(FRHIInitializationTests, ExecutionModeDefaultsThreadedAndRetainsInlineOverride)

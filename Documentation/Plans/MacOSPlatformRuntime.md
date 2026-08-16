@@ -18,20 +18,31 @@ DevTool/DHT Python tests, and CMake metadata tests pass with clean processes.
 
 Stage 3 has qualified standalone main-thread Cocoa/GLFW construction, logical
 and Retina framebuffer sizing, resize and close state, worker-thread rejection,
-and repeated teardown. A later run in a display-less desktop session reported
-zero monitors, so monitor/input injection evidence is not treated as complete.
-Keyboard, text, mouse, focus, minimize, and restoration remain an open native
-qualification boundary rather than a fabricated test response.
+and repeated teardown. If GLFW reports no monitors at session startup, MonaImGui
+truthfully disables multi-viewport support for that session instead of
+publishing fabricated monitor geometry; a transient empty result preserves the
+last real snapshot. Keyboard, text, mouse, focus, minimize, restoration, and
+full multi-monitor injection remain an open native qualification boundary.
 
 The complete Debug Editor and Launch closure link as Mach-O arm64 with valid
-runtime `@rpath` dependencies. Normal Editor startup acquires the selected
-project and reaches an actionable M3 diagnostic, then unloads VulkanRHI,
-joins workers, collects objects, and exits with ordinary failure code 1. It
-cannot yet satisfy the final M2 gate: the current normal order calls `RHIInit()`
-before Mona creates the Editor Cocoa window, so MoltenVK presentation admission
-has no Metal surface. Resolving that surface-first ordering belongs to M3 and
-must not be bypassed by claiming presentation support. This plan remains active
-until that handoff and the remaining input/window evidence are qualified.
+runtime `@rpath` dependencies. Launch now creates the final hidden primary
+Cocoa window before `RHIInit()`. ApplicationCore installs the window's
+`CAMetalLayer` while still on the AppKit main thread; the RHI thread then uses
+that prepared layer to create the real MoltenVK surface without mutating the
+Cocoa view hierarchy. MoltenVK selects a surface-qualified queue family,
+requires and enables
+`VK_KHR_portability_subset`, and lets the first viewport consume that same
+surface. Runtime smoke on the Apple M4 host creates an sRGB BGRA swapchain
+through this path; Windows keeps its existing Win32 presentation-support query.
+
+Editor startup now loads `AssetImportCore` before the atomic asset-registry
+scan, so authored import-record classes are available and the Sandbox catalog
+publishes all 28 packages instead of retaining a stale revision. MonaImGui
+builds its render-pass layout and pipeline from the actual swapchain format.
+Both Sandbox and Project Browser complete three hidden ticks and the ordinary
+shutdown path with exit code 0. The plan remains active only for the remaining
+input and visible normal-close evidence; it does not claim the full M3 rendering
+vertical slice.
 
 This plan is M2 of the
 [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
@@ -73,9 +84,10 @@ bypassing or weakening it.
 
 ## Non-Goals
 
-- Completing MoltenVK device admission, portability-subset negotiation,
-  graphics/compute correctness, swapchain presentation, shader parity, or
-  resize/recreate rendering behavior; those belong to M3.
+- Completing MoltenVK graphics/compute correctness, shader parity,
+  resize/recreate presentation behavior, or the full rendering qualification
+  matrix; those belong to M3. M2 includes only the bounded real-surface device
+  admission required to enter the ordinary Editor shell.
 - Deciding cooked asset sharing or recooking, derived-data keys, or MacOS cook
   output; those belong to M4.
 - Building an `.app` bundle, signing, notarization, packaging, installation,
@@ -166,8 +178,11 @@ bodies; and failure paths provide actionable native diagnostics.
   cursor, monitor, DPI/Retina framebuffer sizing, minimize, and restoration.
 - [x] Validate repeated window/application construction and teardown without
   dangling callbacks, late events, or module lifetime violations.
-- [x] Preserve the explicit Vulkan-surface handoff while leaving device,
+- [x] Preserve the explicit Vulkan-surface handoff and qualify the bounded
+  real-surface device admission needed by ordinary startup while leaving full
   swapchain, presentation, and rendering correctness to M3.
+- [x] Prepare the Cocoa `CAMetalLayer` on the main thread before RHI startup and
+  keep Vulkan surface creation on the RHI thread without later AppKit mutation.
 
 #### Acceptance Gate
 
@@ -182,8 +197,11 @@ bodies; and failure paths provide actionable native diagnostics.
 - [x] Launch through the normal Editor startup path, exercise project selection
   and ownership plus relaunch/open-path behavior, and reach the real rendering
   boundary without bypasses.
-- [ ] Validate normal close, startup failure, repeated launch, and shutdown with
-  clean process exit and preserved logs/crash diagnostics.
+- [x] Validate startup failure plus repeated hidden Sandbox/Project Browser
+  launch and automated normal shutdown with clean process exit and preserved
+  logs/crash diagnostics.
+- [ ] Validate visible operator close with clean process exit and preserved
+  logs/crash diagnostics.
 - [x] Run the selected native, DevTool, DHT, CMake metadata, and Windows contract
   regression suites.
 - [x] Update lasting platform/runtime documentation and publish exact M3 entry
@@ -231,8 +249,9 @@ repository [agent build workflow](../Agents/BuildAndRun.md),
 
 ## Deferred Follow-ups
 
-- M3 owns MoltenVK device/surface/swapchain admission, shaders, rendering,
-  synchronization, presentation, resize, and GPU diagnostics.
+- M3 owns full MoltenVK device/surface/swapchain qualification beyond the
+  bounded startup-admission slice, plus shaders, rendering, synchronization,
+  presentation, resize, and GPU diagnostics.
 - M4 owns cooked payload compatibility, platform cook outputs, derived-data
   identities, migrations, and representative content.
 - M5 owns configuration expansion, `.app` assembly, CI, signing, notarization,

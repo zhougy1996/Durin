@@ -75,18 +75,23 @@ After worker-scheduler startup, `PreInit()` installs the bounded
 startup; the engine does not expose a partially initialized task system.
 
 `FEngineLoop::Init()` handles common runtime startup, including
-`ApplicationCore`, `RHI`, the rendering thread, the `Mona` module, and
-`GEngine`.
-Render-command admission opens immediately after `RHIInit()` and before Mona,
-the renderer, editor previews, or engine initialization can enqueue work.
+`ApplicationCore`, the platform half of `Mona`, the hidden primary window,
+`RHI`, the rendering thread, Mona rendering, and `GEngine`. Launch creates the
+final primary `MWindow` and its native window before `RHIInit()`, then passes
+the native handle into RHI initialization. Render-command admission opens
+immediately after `RHIInit()` and before Mona rendering, editor previews, or
+engine initialization can enqueue work.
 
-On macOS M2, ApplicationCore and the Cocoa-capable GLFW runtime initialize, but
-the ordinary Editor path still reaches Vulkan physical-device admission before
-Mona constructs the Editor window and its Metal-backed surface. The platform
-adapter therefore rejects presentation with an explicit surface-qualified M3
-diagnostic. Hardware-backed Vulkan tests are classified as macOS qualification
-work until M3 changes this ordering and qualifies MoltenVK device, surface, and
-presentation behavior; ordinary startup never fabricates presentation support.
+On macOS, ApplicationCore installs the primary window's `CAMetalLayer` on the
+AppKit main thread before `RHIInit()`. After instance creation, the RHI thread
+creates the Vulkan Metal surface from that prepared non-owning layer and never
+mutates the Cocoa view hierarchy. Device admission requires the selected queue
+family to report presentation support for the surface. The selected device also
+enables the required portability-subset extension. The first window-backed viewport adopts
+the admission surface instead of creating a second surface. Windows receives
+the same early primary-window lifecycle but keeps its existing Win32
+presentation-support query and does not create an admission surface. Ordinary
+startup never fabricates presentation support.
 
 Current engine selection is semantic:
 
@@ -97,8 +102,10 @@ Host-specific startup then lives in the concrete engine overrides.
 
 Concrete engine initialization returns an owning
 `FEngineInitializationResult` that distinguishes success, user cancellation,
-and failure. Launch supplies an `FEngineInitContext` with only a startup-frame
-pump and the headless policy; editor modules do not depend on Launch internals.
+and failure. Launch supplies an `FEngineInitContext` with the primary startup
+window, a startup-frame pump, and the headless policy; editor modules do not
+depend on Launch internals. Editor and Game adopt that same window rather than
+creating a replacement after RHI initialization.
 A failed result enters the partial-startup unwind before the normal main loop.
 A close request while the editor is initializing is cancellation, uses the same
 exact-once unwind, and maps to a clean process result.
@@ -119,7 +126,10 @@ produces an actionable startup error and leaves the World stopped.
 
 `DEditorEngine::Init()` constructs the production MainFrame shell and drives
 workspace activation plus default-Level opening to a terminal result before it
-returns. Visible startup first pumps a real Mona/ImGui frame and waits for the
+returns. It loads `AssetImportCore` before the base Engine performs its atomic
+catalog scan, ensuring editor-authored package classes such as import records
+are available to reference extraction; the remaining authoring providers still
+start with workspace activation. Visible startup first pumps a real Mona/ImGui frame and waits for the
 Vulkan presentation path to publish `FirstPresent`; hidden startup skips that
 presentation gate. Project Browser initialization completes after its visible
 host frame, or immediately after shell construction in headless mode, without

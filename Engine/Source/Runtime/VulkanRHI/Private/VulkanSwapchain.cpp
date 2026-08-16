@@ -58,11 +58,20 @@ namespace Durin::VulkanRHI
 		{
 			return {vk::Format::eR8G8B8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear};
 		}
-		for (const vk::SurfaceFormatKHR& Format : AvailableFormats)
+		for (const vk::Format PreferredFormat : {
+				vk::Format::eR8G8B8A8Srgb,
+				vk::Format::eB8G8R8A8Srgb})
 		{
-			if (Format.format == vk::Format::eR8G8B8A8Srgb && Format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear)
+			const auto It = std::ranges::find_if(
+				AvailableFormats,
+				[PreferredFormat](const vk::SurfaceFormatKHR& Format) {
+					return Format.format == PreferredFormat
+						&& Format.colorSpace
+							== vk::ColorSpaceKHR::eSrgbNonlinear;
+				});
+			if (It != AvailableFormats.end())
 			{
-				return Format;
+				return *It;
 			}
 		}
 		return AvailableFormats[0];

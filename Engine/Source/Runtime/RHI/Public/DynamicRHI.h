@@ -193,6 +193,12 @@ namespace Durin
 
 		virtual ~FDynamicRHI() = default;
 
+		// Publishes the native window used for device presentation admission.
+		// Backends that can admit presentation without a concrete surface may
+		// ignore it. The call happens on the game thread before Init ownership is
+		// transferred to the RHI thread.
+		RHI_API virtual auto SetInitializationPresentationWindow(
+			void* InWindowHandle) -> void;
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;

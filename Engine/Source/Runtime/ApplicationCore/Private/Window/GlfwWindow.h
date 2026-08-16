@@ -8,6 +8,7 @@ struct GLFWwindow;
 namespace Durin
 {
 	struct FWindowsModalLoopBridge;
+	struct FMacOSCustomTitleBarBridge;
 
 	auto InitGlfwCursors() -> void;
 
@@ -81,6 +82,8 @@ namespace Durin
 
 		APPLICATIONCORE_API auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState override;
 
+		APPLICATIONCORE_API auto GetTitleBarPlatformMetrics() const -> FWindowTitleBarPlatformMetrics override;
+
 		APPLICATIONCORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void override;
 
 		APPLICATIONCORE_API auto SetMousePassthrough(bool bPassthrough) -> void override;
@@ -110,6 +113,7 @@ namespace Durin
 		auto InstallWindowsMessageBridge() -> bool;
 		auto RemoveWindowsMessageBridge() -> void;
 		auto ApplyWindowsCustomFrame() -> bool;
+		auto PrepareVulkanSurfaceLayer() -> bool;
 
 		GLFWwindow* GlfwWindow = nullptr;
 		FWindowTitleBarLayout TitleBarLayout;
@@ -121,6 +125,13 @@ namespace Durin
 		bool bWindowsMessageBridgeInstalled = false;
 		bool bLoggedInvalidTitleBarLayout = false;
 		bool bLoggedStaleTitleBarLayout = false;
+#if defined(__APPLE__)
+		FMacOSCustomTitleBarBridge* MacOSCustomTitleBarBridge = nullptr;
+
+		// Non-owning. The Cocoa content view retains the layer for the lifetime of
+		// the native window; Vulkan surface creation only consumes the pointer.
+		void* VulkanSurfaceLayer = nullptr;
+#endif
 	};
 
 }

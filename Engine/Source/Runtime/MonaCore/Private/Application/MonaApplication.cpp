@@ -121,7 +121,14 @@ namespace Durin::Mona
 		{
 			ActiveTopLevelWindow = RootWindow;
 		}
-		MakeWindow(InMonaWindow, bShowImmediately);
+		if (!InMonaWindow->GetNativeWindow())
+		{
+			MakeWindow(InMonaWindow, bShowImmediately);
+		}
+		else if (bShowImmediately)
+		{
+			InMonaWindow->ShowWindow();
+		}
 
 		return InMonaWindow;
 	}
@@ -133,7 +140,13 @@ namespace Durin::Mona
 
 	auto FMonaApplication::InitializeRenderer() -> void
 	{
+		if (Renderer) return;
 		Renderer = std::make_shared<FMonaRHIRenderer>();
+	}
+
+	auto FMonaApplication::ShutdownRenderer() -> void
+	{
+		Renderer.reset();
 	}
 
 	auto FMonaApplication::RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void
@@ -152,7 +165,7 @@ namespace Durin::Mona
 			{
 				ActiveTopLevelWindow.reset();
 			}
-			Renderer->OnWindowDestroyed(WindowToDestroy);
+			if (Renderer) Renderer->OnWindowDestroyed(WindowToDestroy);
 		}
 	}
 
@@ -301,7 +314,7 @@ namespace Durin::Mona
 			}
 		}
 
-		Renderer->RenderViewports();
+		if (Renderer) Renderer->RenderViewports();
 	}
 
 	auto FMonaApplication::FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>

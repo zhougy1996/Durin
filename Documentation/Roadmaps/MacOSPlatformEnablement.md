@@ -14,16 +14,23 @@ open-path services, cross-process project ownership, actionable dylib loading,
 native-dialog failure policy, balanced ApplicationCore/GLFW teardown, and a
 clean ordinary native aggregate on Apple Silicon. Launch and the complete Debug
 Editor closure link as Mach-O arm64 with audited `@rpath` dependencies. The
-ordinary Editor startup owns the selected project and cleanly rolls back at an
-explicit diagnostic instead of crashing or fabricating presentation support.
+ordinary Sandbox and Project Browser paths now initialize, render bounded
+hidden frames, and shut down cleanly with exit code 0.
 
-The remaining M2 exit blocker is the window/surface ordering shared with M3:
-normal startup performs Vulkan physical-device presentation admission before
-Mona creates the Editor's Cocoa window and Metal-backed surface. Standalone
-Cocoa/GLFW construction, Retina sizing, resize, close-state, worker rejection,
-and repeated teardown are implemented, but complete input injection and the
-normal Editor-window lifecycle are not yet qualified. The M2 child plan remains
-active until the surface-first handoff is resolved with the bounded M3 work.
+The window/surface ordering shared with M3 is now resolved: Launch creates the
+final hidden primary Cocoa window before RHI initialization, ApplicationCore
+installs its `CAMetalLayer` on the AppKit main thread, and MoltenVK creates the
+surface on the RHI thread without mutating the Cocoa view hierarchy. MoltenVK
+then admits a surface-qualified device with the portability subset enabled, and
+the first viewport reuses that surface. A smoke on the Apple M4 host creates an
+sRGB BGRA swapchain, and MonaImGui derives its pipeline and render-pass format
+from that actual output. Windows retains its existing Win32
+presentation-support query.
+Editor-authored asset classes are published before the initial registry scan,
+so the Sandbox default level opens normally. A monitor-less session degrades to
+single-viewport ImGui without inventing monitor geometry. Complete input and
+multi-monitor injection plus the visible Editor-window close lifecycle are not
+yet qualified, so the M2 child plan remains active for that evidence.
 
 [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,
@@ -124,8 +131,8 @@ assumptions.
 | --- | --- | --- |
 | Build metadata | CMake detects `APPLE`; macOS presets and output platform names exist. | Presets are stale x64 entries, host tooling is Windows-oriented, and no native compiler/build is qualified. |
 | Platform core | macOS types, dylib loading, allocation, case-insensitive compare, and thread IDs exist. | Process services, source-set isolation, crash abstraction, native dialogs, ownership, and shell behavior are incomplete. |
-| Window/input | GLFW creates Cocoa no-API windows, exposes the native handle, handles Retina framebuffer sizing, and creates Vulkan surfaces. | Keyboard conventions, IME, DPI, monitors, focus, cursor, and multi-viewport behavior need native evidence. |
-| Vulkan RHI | Vulkan 1.1+, swapchain, synchronization, diagnostics, Slang SPIR-V, and portability instance flags exist. | Instance/surface requirements and queue admission are Win32-coupled; MoltenVK capabilities and lifecycle are unqualified. |
+| Window/input | GLFW creates the final primary Cocoa no-API window before RHI, exposes the native handle, handles Retina framebuffer sizing, and creates Vulkan surfaces. | Keyboard conventions, IME, DPI, monitors, focus, cursor, multi-viewport behavior, and normal close need native evidence. |
+| Vulkan RHI | Vulkan 1.1+, swapchain, synchronization, diagnostics, Slang SPIR-V, portability flags/subset negotiation, real-surface queue admission, and first-viewport surface reuse work through MoltenVK. | The full MoltenVK feature/format matrix, shader/resource behavior, presentation recovery, resize, and repeated rendering lifecycle remain unqualified. |
 | Dependencies | Most libraries build from source and Slang CMake accepts a dylib. | Preparation manifests, Vulkan SDK/MoltenVK layout, arm64 artifacts, dylib deployment, and rpaths are missing. |
 | Assets | Versioned cooked payloads and compatibility diagnostics exist. | Cook targets and many geometry/texture/animation/environment checks accept only Win64. |
 | Delivery | Runtime variants and isolated binary layouts exist. | `.app` bundle structure, resource discovery, signing, notarization, packaging, and macOS CI are absent. |
@@ -172,15 +179,17 @@ rendering correctness.
 
 Owns macOS process and shell services, platform source implementations, crash
 diagnostic policy, project ownership, native dialogs, Cocoa/GLFW behavior,
-Editor shell lifecycle, and platform-focused tests. It may launch a backend
-diagnostic window but does not weaken or complete MoltenVK device admission.
+Editor shell lifecycle, and platform-focused tests. It owns the bounded
+surface-first startup handoff and real-surface device admission needed by the
+ordinary shell, but does not complete MoltenVK rendering qualification.
 
 ### `MacOSMoltenVKRendering`
 
-Owns MoltenVK instance/device/surface/swapchain negotiation, portability subset,
-feature and format admission, Slang output compatibility, synchronization,
-resize and presentation lifecycle, GPU diagnostics, and representative public
-RHI plus Editor rendering evidence. It does not decide every asset payload.
+Owns full MoltenVK instance/device/surface/swapchain qualification beyond the
+landed startup-admission slice, feature and format admission, Slang output
+compatibility, synchronization, resize and presentation lifecycle, GPU
+diagnostics, and representative public RHI plus Editor rendering evidence. It
+does not decide every asset payload.
 
 ### `MacOSAssetCookCompatibility`
 

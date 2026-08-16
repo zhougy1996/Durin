@@ -35,6 +35,8 @@ namespace Durin::VulkanRHI
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
+		auto SetInitializationPresentationWindow(
+			void* InWindowHandle) -> void override;
 		auto Init() -> void override;
 		auto Shutdown() -> void override;
 
@@ -123,7 +125,9 @@ namespace Durin::VulkanRHI
 		auto CreateInstance() -> void;
 		auto CreateDebugMessenger() -> void;
 		auto DestroyDebugMessenger() -> void;
-		auto SelectDevice() -> void;
+		auto SelectDevice(vk::SurfaceKHR PresentationSurface) -> void;
+		auto TakeInitializationPresentationSurface(
+			void* WindowHandle) const -> vk::SurfaceKHR;
 
 	private:
 		vk::Instance Instance;
@@ -136,6 +140,8 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice* Device = nullptr;
 		std::unique_ptr<FVulkanViewCache> ViewCache;
+		void* InitializationPresentationWindowHandle = nullptr;
+		mutable vk::SurfaceKHR InitializationPresentationSurface = VK_NULL_HANDLE;
 	};
 
 	extern FVulkanDynamicRHI* GVulkanRHI;
