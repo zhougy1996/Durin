@@ -199,6 +199,9 @@ if(WIN32)
 	add_durin_test(MacOSWindowLifecycleTests
 		Private/Launch/MacOSWindowLifecycleTests.cpp
 	)
+	target_include_directories(MacOSWindowLifecycleTests PRIVATE
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/ApplicationCore/Private
+	)
 	target_link_libraries(MacOSWindowLifecycleTests PRIVATE
 		ApplicationCore
 		"-framework Cocoa"

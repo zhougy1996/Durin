@@ -40,14 +40,6 @@ namespace Durin
 				static_cast<int32>(std::lround(NSHeight(ContentView.bounds) - ContentPoint.y))};
 		}
 
-		auto IsDragPoint(const FWindowTitleBarLayout& Layout, FIntPoint Point) -> bool
-		{
-			if (!Layout.bValid) return false;
-			return std::ranges::any_of(Layout.DragRegions, [Point](const FWindowTitleBarRect& Region) {
-				return Region.Contains(Point);
-			});
-		}
-
 			auto RestoreWindowProperties(FMacOSCustomTitleBarBridge& Bridge) -> void
 		{
 			if (Bridge.Window == nil) return;
@@ -96,9 +88,21 @@ namespace Durin
 			Bridge->EventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown
 				handler:^NSEvent* (NSEvent* Event) {
 					if (!Bridge->bActive || Event.window != Bridge->Window) return Event;
-					if (!IsDragPoint(Bridge->Layout, MakeClientPoint(Bridge->Window, Event))) return Event;
-					[Bridge->Window performWindowDragWithEvent:Event];
-					return nil;
+					switch (ResolveMacOSCustomTitleBarMouseDown(
+						Bridge->Layout,
+						MakeClientPoint(Bridge->Window, Event),
+						static_cast<uint32>(Event.clickCount)))
+					{
+					case EMacOSCustomTitleBarMouseDownAction::PassThrough:
+						return Event;
+					case EMacOSCustomTitleBarMouseDownAction::Zoom:
+						[Bridge->Window performZoom:nil];
+						return nil;
+					case EMacOSCustomTitleBarMouseDownAction::Drag:
+						[Bridge->Window performWindowDragWithEvent:Event];
+						return nil;
+					}
+					return Event;
 				}];
 			if (Bridge->EventMonitor == nil)
 			{

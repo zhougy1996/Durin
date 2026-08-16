@@ -1,6 +1,7 @@
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 #include "ApplicationCoreGlobals.h"
+#include "MacOS/MacOSCustomTitleBarBridge.h"
 #include "Window/GenericWindow.h"
 
 #include <gtest/gtest.h>
@@ -153,6 +154,28 @@ TEST(FMacOSWindowLifecycleTests, CocoaWindowCreationRejectsWorkerThreads)
 	EXPECT_EQ(Window->GetOSNativeWindowHandle(), nullptr);
 	Window.reset();
 	Durin::ShutdownApplicationCore();
+}
+
+TEST(FMacOSWindowLifecycleTests, CustomTitleBarRoutesDoubleClickToNativeZoom)
+{
+	Durin::FWindowTitleBarLayout Layout;
+	Layout.bValid = true;
+	Layout.DragRegions.push_back({40, 0, 300, 36});
+
+	EXPECT_EQ(
+		Durin::ResolveMacOSCustomTitleBarMouseDown(Layout, {100, 10}, 1),
+		Durin::EMacOSCustomTitleBarMouseDownAction::Drag);
+	EXPECT_EQ(
+		Durin::ResolveMacOSCustomTitleBarMouseDown(Layout, {100, 10}, 2),
+		Durin::EMacOSCustomTitleBarMouseDownAction::Zoom);
+	EXPECT_EQ(
+		Durin::ResolveMacOSCustomTitleBarMouseDown(Layout, {20, 10}, 2),
+		Durin::EMacOSCustomTitleBarMouseDownAction::PassThrough);
+
+	Layout.bValid = false;
+	EXPECT_EQ(
+		Durin::ResolveMacOSCustomTitleBarMouseDown(Layout, {100, 10}, 2),
+		Durin::EMacOSCustomTitleBarMouseDownAction::PassThrough);
 }
 
 TEST(FMacOSWindowLifecycleTests, CustomTitleBarRetainsNativeWindowControlsAndMetalLayer)
