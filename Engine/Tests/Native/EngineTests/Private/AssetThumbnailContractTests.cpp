@@ -109,6 +109,7 @@ namespace Durin
 					Pixels->Height = 1;
 					Pixels->AssetRevision = 1;
 					OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
+					OutRequest.AssetRevision = Pixels->AssetRevision;
 					OutRequest.GeneratedPixels = std::move(Pixels);
 				}
 				OutError.clear();
@@ -1369,6 +1370,52 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State,
 			Editor::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
+	}
+
+	TEST(FAssetThumbnailContractTests, GeneratedPixelsWithCapturedRevisionServeWarmHit)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsWarmHit");
+		Editor::FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto Provider = std::make_shared<FTestThumbnailProvider>(
+			Editor::FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DTerrainHeightmap",
+				.ProviderName = "TerrainHeightmapCanonicalThumbnail",
+				.GeneratorSchemaVersion = 1},
+			true,
+			true);
+		ASSERT_TRUE(Registry.Register(Provider, Error)) << Error;
+
+		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+			"/ThumbnailTests/GeneratedTerrainWarmHit", "DTerrainHeightmap", 1);
+		{
+			Editor::FAssetThumbnailScheduler Scheduler(Registry);
+			Editor::FRenderedAssetThumbnailPipeline Pipeline(
+				Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
+			ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+			auto Cold = Pipeline.StartNextDetailed();
+			ASSERT_TRUE(Cold.ColdJob);
+			const auto& Generated =
+				*Cold.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
+			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
+				*Cold.ColdJob,
+				Generated.AssetRevision,
+				Generated.Pixels,
+				Generated.Width,
+				Generated.Height));
+		}
+
+		Editor::FAssetThumbnailScheduler WarmScheduler(Registry);
+		Editor::FRenderedAssetThumbnailPipeline WarmPipeline(
+			WarmScheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
+		ASSERT_TRUE(WarmScheduler.Request(Request, Error)) << Error;
+		Editor::FRenderedAssetThumbnailStartResult Warm =
+			WarmPipeline.StartNextDetailed();
+		EXPECT_FALSE(Warm.ColdJob);
+		ASSERT_TRUE(Warm.WarmJob);
+		EXPECT_EQ(WarmScheduler.Find(Request.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::Ready);
+		EXPECT_EQ(WarmPipeline.GetStats().DiskHits, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, GeneratedPixelsBypassResourceBoundRenderedJob)

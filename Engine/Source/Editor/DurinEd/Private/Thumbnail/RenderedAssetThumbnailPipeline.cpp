@@ -178,7 +178,11 @@ namespace Durin::Editor
 		if (LoadResult == EAssetThumbnailObjectLoadResult::Hit)
 		{
 			if (Impl->Scheduler.Transition(
-					*ScheduledJob, EAssetThumbnailState::Loading, EAssetThumbnailState::Ready))
+					*ScheduledJob,
+					EAssetThumbnailState::Loading,
+					EAssetThumbnailState::Ready,
+					ScheduledJob->GenerationRequest.AssetRevision,
+					ScheduledJob->GenerationRequest.ResourceRevision))
 			{
 				++Impl->Stats.DiskHits;
 				Result.WarmJob = std::move(*ScheduledJob);
