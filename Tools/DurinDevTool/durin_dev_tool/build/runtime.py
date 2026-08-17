@@ -21,6 +21,7 @@ from .config import (
     preset_cache_string,
 )
 from .locations import resolve_location
+from .native_test_registry import load_native_test_registry, resolve_selection
 from .output import BuildOutput
 from .process import run_command
 from .crash import analyze_crash, discover_current_crash, format_crash_summary, format_windows_status
@@ -106,6 +107,27 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
             cwd=paths.root,
             state_directory=paths.state_directory,
         )
+
+
+def run_exact_native_test(context: BuildContext, output: BuildOutput) -> None:
+    """Execute one configured target through its registry-selected strategy."""
+    registry = load_native_test_registry(context)
+    resolved = resolve_selection(
+        registry,
+        context.target,
+        admit_characterization=False,
+        admit_qualification=False,
+    )
+    if len(resolved.targets) != 1:
+        raise BuildToolError(
+            f'Exact native-test target "{context.target}" resolved '
+            f"{len(resolved.targets)} targets."
+        )
+    if resolved.targets[0].resolved_execution_host == "application":
+        context.resolved_test_targets = resolved.names
+        run_selected_native_tests(context, output)
+    else:
+        run_native_test(context, output)
 
 
 def ctest_command(cmake: str) -> str:

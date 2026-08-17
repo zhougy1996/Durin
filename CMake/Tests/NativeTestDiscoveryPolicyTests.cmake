@@ -48,8 +48,9 @@ function(configure_metadata_probe probe expect_success expected_text)
 			"-DCMAKE_MAKE_PROGRAM=${DURIN_MAKE_PROGRAM}"
 			-S "${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/NativeTestMetadata"
 			-B "${_durin_probe_binary}"
-			"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
-			"-DDURIN_METADATA_PROBE=${probe}"
+				"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+				"-DDURIN_METADATA_PROBE=${probe}"
+				"-DCMAKE_BUILD_TYPE=Debug"
 		RESULT_VARIABLE _durin_result
 		OUTPUT_VARIABLE _durin_output
 		ERROR_VARIABLE _durin_error
@@ -81,9 +82,22 @@ function(configure_metadata_probe probe expect_success expected_text)
 			if(_durin_first_registry MATCHES "\"name\"")
 				message(FATAL_ERROR "Unavailable metadata probe emitted a target record.")
 			endif()
-		elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 3")
-			message(FATAL_ERROR "Metadata probe registry omitted schema version 3.")
-		endif()
+			elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 3")
+				message(FATAL_ERROR "Metadata probe registry omitted schema version 3.")
+			endif()
+			if(expected_text AND NOT _durin_first_registry MATCHES "${expected_text}")
+				message(FATAL_ERROR
+					"Metadata probe '${probe}' registry omitted '${expected_text}':\n"
+					"${_durin_first_registry}")
+			endif()
+			if(NOT probe STREQUAL "unavailable")
+				file(READ "${_durin_probe_binary}/ProbeTests-paths.txt" _durin_paths)
+				if(_durin_paths MATCHES "\\$<CONFIG>")
+					message(FATAL_ERROR
+						"Metadata probe '${probe}' generated a literal $<CONFIG> path:\n"
+						"${_durin_paths}")
+				endif()
+			endif()
 		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
 		file(READ "${_durin_registry}.copy" _durin_second_registry)
 		assert_list_equals("${_durin_first_registry}" "${_durin_second_registry}"
@@ -272,7 +286,7 @@ assert_policy_rejected(
 	"target-owned POST_BUILD runtime copy"
 )
 
-configure_metadata_probe("valid" TRUE "")
+configure_metadata_probe("valid" TRUE "\"executionHost\":\"direct\",\"resolvedExecutionHost\":\"direct\"")
 configure_metadata_probe("qualification" TRUE "\"kind\":\"qualification\"")
 configure_metadata_probe("unavailable" TRUE "")
 configure_metadata_probe("missing-kind" FALSE "requires KIND")
@@ -284,7 +298,11 @@ configure_metadata_probe("reserved-label" FALSE "reserved native-test prefix")
 configure_metadata_probe("characterization-direct" FALSE "KIND characterization requires")
 configure_metadata_probe("private-source" FALSE "compiles production-private source")
 configure_metadata_probe("application-host" TRUE "\"executionHost\":\"application\"")
-configure_metadata_probe("invalid-execution-host" FALSE "DURIN_TEST_EXECUTION_HOST 'gui' is invalid")
-configure_metadata_probe("empty-execution-host" FALSE "DURIN_TEST_EXECUTION_HOST must not be empty")
+configure_metadata_probe("legacy-application-host" TRUE "\"executionHost\":\"application\"")
+configure_metadata_probe("matching-execution-host" TRUE "\"executionHost\":\"application\"")
+configure_metadata_probe("synthetic-platform-resolution" TRUE "\"executionHost\":\"direct\"")
+configure_metadata_probe("conflicting-execution-host" FALSE "execution host conflicts")
+configure_metadata_probe("invalid-execution-host" FALSE "execution host 'gui' is invalid")
+configure_metadata_probe("empty-execution-host" FALSE "execution host must not be empty")
 configure_metadata_probe("late-execution-host" FALSE "changed after")
 run_test_launcher_probe()

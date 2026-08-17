@@ -22,8 +22,9 @@ set(_durin_editor_test_modules
 )
 
 function(durin_add_engine_functional_test target_name)
-	set(options APPLICATION_HOST EDITOR_ONLY GPU)
+	set(options EDITOR_ONLY GPU)
 	set(one_value_args
+		EXECUTION_HOST
 		KIND
 		TIMEOUT
 		RUNTIME_STACK_RATIONALE
@@ -127,11 +128,6 @@ function(durin_add_engine_functional_test target_name)
 		Engine
 		${DURIN_ENGINE_TEST_LIBRARIES}
 	)
-	if(DURIN_ENGINE_TEST_APPLICATION_HOST)
-		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_EXECUTION_HOST application)
-	endif()
-
 	if(DURIN_ENGINE_TEST_GPU)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_RESOURCE_LOCKS durin-gpu
@@ -142,8 +138,14 @@ function(durin_add_engine_functional_test target_name)
 			DURIN_TEST_TIMEOUT "${DURIN_ENGINE_TEST_TIMEOUT}"
 		)
 	endif()
+	set(_durin_engine_test_execution_host)
+	if(DURIN_ENGINE_TEST_EXECUTION_HOST)
+		set(_durin_engine_test_execution_host
+			EXECUTION_HOST "${DURIN_ENGINE_TEST_EXECUTION_HOST}")
+	endif()
 	durin_finalize_native_test(${target_name}
 		KIND ${DURIN_ENGINE_TEST_KIND}
+		${_durin_engine_test_execution_host}
 		DOMAINS ${DURIN_ENGINE_TEST_DOMAINS}
 		MODULES ${DURIN_ENGINE_TEST_MODULES}
 		BACKENDS ${DURIN_ENGINE_TEST_BACKENDS}

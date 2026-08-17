@@ -43,13 +43,12 @@ from .recovery import (
 from .runtime import (
     run_all_native_tests,
     run_application,
-    run_native_test,
+    run_exact_native_test,
     run_selected_native_tests,
 )
 from .native_test_registry import (
     is_test_set_selection,
     load_native_test_registry,
-    registry_path,
     resolve_selection,
 )
 from .toolchain_context import prepare_toolchain_context
@@ -440,20 +439,7 @@ def execute_context(
                 elif context.resolved_test_targets:
                     run_selected_native_tests(context, output)
                 else:
-                    application_hosted = False
-                    if registry_path(context).is_file():
-                        registry = load_native_test_registry(context)
-                        resolved = resolve_selection(
-                            registry,
-                            context.target,
-                            admit_characterization=False,
-                        )
-                        if resolved.targets[0].resolved_execution_host == "application":
-                            context.resolved_test_targets = resolved.names
-                            run_selected_native_tests(context, output)
-                            application_hosted = True
-                    if not application_hosted:
-                        run_native_test(context, output)
+                    run_exact_native_test(context, output)
     elapsed = perf_counter() - started
     if context.request.action is not Action.PURGE:
         output.success(f"{context.request.action.value} completed in {elapsed:.2f}s.")

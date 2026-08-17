@@ -398,6 +398,100 @@ function(durin_assert_native_test_labels_not_reserved target_name)
 	endforeach()
 endfunction()
 
+function(durin_resolve_native_test_execution_host
+		out_execution_host out_resolved_execution_host target_name execution_host platform_is_apple)
+	if(NOT execution_host)
+		message(FATAL_ERROR
+			"${target_name} execution host must not be empty; expected one of: "
+			"${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
+	endif()
+	string(TOLOWER "${execution_host}" _durin_execution_host)
+	if(NOT _durin_execution_host IN_LIST DURIN_NATIVE_TEST_EXECUTION_HOSTS)
+		message(FATAL_ERROR
+			"${target_name} execution host '${_durin_execution_host}' is invalid; "
+			"expected one of: ${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
+	endif()
+	if(NOT platform_is_apple STREQUAL "TRUE"
+		AND NOT platform_is_apple STREQUAL "FALSE")
+		message(FATAL_ERROR
+			"${target_name} execution-host platform selector must be TRUE or FALSE.")
+	endif()
+	if(platform_is_apple AND _durin_execution_host STREQUAL "application")
+		set(_durin_resolved_execution_host application)
+	else()
+		set(_durin_resolved_execution_host direct)
+	endif()
+	set(${out_execution_host} "${_durin_execution_host}" PARENT_SCOPE)
+	set(${out_resolved_execution_host}
+		"${_durin_resolved_execution_host}" PARENT_SCOPE)
+endfunction()
+
+function(durin_configure_macos_native_test_application_layout target_name)
+	string(SHA256 _durin_application_artifact_identity "${CMAKE_BINARY_DIR}")
+	string(SUBSTRING "${_durin_application_artifact_identity}" 0 16
+		_durin_application_artifact_identity)
+	set(_durin_application_artifact_configuration "${CMAKE_BUILD_TYPE}")
+	if(NOT _durin_application_artifact_configuration)
+		set(_durin_application_artifact_configuration "default")
+	endif()
+	set(_durin_application_artifact_root
+		"/private/tmp/DurinNativeTestApplicationArtifacts/${_durin_application_artifact_identity}/${_durin_application_artifact_configuration}")
+	get_target_property(_durin_application_original_root
+		${target_name} DURIN_TEST_ROOT_DIR)
+	get_target_property(_durin_application_original_bin
+		${target_name} DURIN_TEST_BIN_DIR)
+	get_target_property(_durin_application_original_data
+		${target_name} DURIN_TEST_DATA_DIR)
+	get_target_property(_durin_application_original_work
+		${target_name} DURIN_TEST_WORK_DIR)
+	foreach(_durin_application_path IN ITEMS root bin data work)
+		string(REPLACE "$<CONFIG>" "${_durin_application_artifact_configuration}"
+			_durin_application_original_${_durin_application_path}
+			"${_durin_application_original_${_durin_application_path}}")
+		if(_durin_application_original_${_durin_application_path} MATCHES "\\$<CONFIG>")
+			message(FATAL_ERROR
+				"${target_name} application ${_durin_application_path} path contains an "
+				"unevaluated literal $<CONFIG>.")
+		endif()
+		cmake_path(RELATIVE_PATH _durin_application_original_${_durin_application_path}
+			BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
+			OUTPUT_VARIABLE _durin_application_relative_${_durin_application_path})
+	endforeach()
+	set_target_properties(${target_name} PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY
+			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+		LIBRARY_OUTPUT_DIRECTORY
+			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+		BUILD_RPATH "@loader_path"
+		DURIN_TEST_ROOT_DIR
+			"${_durin_application_artifact_root}/${_durin_application_relative_root}"
+		DURIN_TEST_BIN_DIR
+			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+		DURIN_TEST_DATA_DIR
+			"${_durin_application_artifact_root}/${_durin_application_relative_data}"
+		DURIN_TEST_WORK_DIR
+			"${_durin_application_artifact_root}/${_durin_application_relative_work}"
+		DURIN_TEST_APPLICATION_ARTIFACT_ROOT
+			"${_durin_application_artifact_root}"
+	)
+	if(NOT TARGET DurinNativeTestApplicationRuntimeLayout)
+		add_custom_target(DurinNativeTestApplicationRuntimeLayout
+		COMMAND ${CMAKE_COMMAND} -E make_directory
+			"${_durin_application_artifact_root}/Engine/Content"
+			"${_durin_application_artifact_root}/Engine/Binaries"
+			"${_durin_application_artifact_root}/Engine/Shaders"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+			"${CMAKE_SOURCE_DIR}/Engine/Content"
+			"${_durin_application_artifact_root}/Engine/Content"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+			"${CMAKE_SOURCE_DIR}/Engine/Shaders"
+			"${_durin_application_artifact_root}/Engine/Shaders"
+		COMMENT "Preparing application-hosted Engine runtime layout"
+		VERBATIM)
+	endif()
+	add_dependencies(${target_name} DurinNativeTestApplicationRuntimeLayout)
+endfunction()
+
 function(durin_finalize_native_test target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR
@@ -409,7 +503,7 @@ function(durin_finalize_native_test target_name)
 			"${target_name} structured metadata must be finalized before durin_discover_tests.")
 	endif()
 
-	set(one_value_args KIND PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
+	set(one_value_args KIND EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 	set(multi_value_args DOMAINS MODULES BACKENDS STACKS)
 	cmake_parse_arguments(DURIN_METADATA "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 	if(DURIN_METADATA_UNPARSED_ARGUMENTS)
@@ -442,83 +536,47 @@ function(durin_finalize_native_test target_name)
 	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
 		set(_durin_direct_lifecycle TRUE)
 	endif()
-	get_target_property(_durin_execution_host ${target_name} DURIN_TEST_EXECUTION_HOST)
-	if(_durin_execution_host MATCHES "-NOTFOUND$")
-		set(_durin_execution_host direct)
-	elseif(NOT _durin_execution_host)
+	get_property(_durin_legacy_execution_host_set TARGET ${target_name}
+		PROPERTY DURIN_TEST_EXECUTION_HOST SET)
+	if(_durin_legacy_execution_host_set)
+		get_target_property(_durin_legacy_execution_host
+			${target_name} DURIN_TEST_EXECUTION_HOST)
+	endif()
+	if(EXECUTION_HOST IN_LIST DURIN_METADATA_KEYWORDS_MISSING_VALUES)
 		message(FATAL_ERROR
-			"${target_name} DURIN_TEST_EXECUTION_HOST must not be empty; expected one of: "
+			"${target_name} EXECUTION_HOST must name one of: "
 			"${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
 	endif()
-	string(TOLOWER "${_durin_execution_host}" _durin_execution_host)
-	if(NOT _durin_execution_host IN_LIST DURIN_NATIVE_TEST_EXECUTION_HOSTS)
-		message(FATAL_ERROR
-			"${target_name} DURIN_TEST_EXECUTION_HOST '${_durin_execution_host}' is invalid; "
-			"expected one of: ${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
-	endif()
-	if(APPLE AND _durin_execution_host STREQUAL "application")
-		set(_durin_resolved_execution_host application)
-		string(SHA256 _durin_application_artifact_identity "${CMAKE_BINARY_DIR}")
-		string(SUBSTRING "${_durin_application_artifact_identity}" 0 16
-			_durin_application_artifact_identity)
-		set(_durin_application_artifact_configuration "${CMAKE_BUILD_TYPE}")
-		if(NOT _durin_application_artifact_configuration)
-			set(_durin_application_artifact_configuration "default")
+	if(DEFINED DURIN_METADATA_EXECUTION_HOST)
+		set(_durin_declared_execution_host "${DURIN_METADATA_EXECUTION_HOST}")
+		if(_durin_legacy_execution_host_set)
+			string(TOLOWER "${_durin_legacy_execution_host}"
+				_durin_legacy_execution_host_normalized)
+			string(TOLOWER "${_durin_declared_execution_host}"
+				_durin_declared_execution_host_normalized)
+			if(NOT _durin_legacy_execution_host_normalized
+				STREQUAL _durin_declared_execution_host_normalized)
+				message(FATAL_ERROR
+					"${target_name} execution host conflicts between EXECUTION_HOST "
+					"'${_durin_declared_execution_host}' and legacy "
+					"DURIN_TEST_EXECUTION_HOST '${_durin_legacy_execution_host}'.")
+			endif()
 		endif()
-		set(_durin_application_artifact_root
-			"/private/tmp/DurinNativeTestApplicationArtifacts/${_durin_application_artifact_identity}/${_durin_application_artifact_configuration}")
-		get_target_property(_durin_application_original_root
-			${target_name} DURIN_TEST_ROOT_DIR)
-		get_target_property(_durin_application_original_bin
-			${target_name} DURIN_TEST_BIN_DIR)
-		get_target_property(_durin_application_original_data
-			${target_name} DURIN_TEST_DATA_DIR)
-		get_target_property(_durin_application_original_work
-			${target_name} DURIN_TEST_WORK_DIR)
-		foreach(_durin_application_path IN ITEMS root bin data work)
-			string(REPLACE "$<CONFIG>" "${_durin_application_artifact_configuration}"
-				_durin_application_original_${_durin_application_path}
-				"${_durin_application_original_${_durin_application_path}}")
-			cmake_path(RELATIVE_PATH _durin_application_original_${_durin_application_path}
-				BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
-				OUTPUT_VARIABLE _durin_application_relative_${_durin_application_path})
-		endforeach()
-		set_target_properties(${target_name} PROPERTIES
-			RUNTIME_OUTPUT_DIRECTORY
-				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
-			LIBRARY_OUTPUT_DIRECTORY
-				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
-			BUILD_RPATH "@loader_path"
-			DURIN_TEST_ROOT_DIR
-				"${_durin_application_artifact_root}/${_durin_application_relative_root}"
-			DURIN_TEST_BIN_DIR
-				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
-			DURIN_TEST_DATA_DIR
-				"${_durin_application_artifact_root}/${_durin_application_relative_data}"
-			DURIN_TEST_WORK_DIR
-				"${_durin_application_artifact_root}/${_durin_application_relative_work}"
-			DURIN_TEST_APPLICATION_ARTIFACT_ROOT
-				"${_durin_application_artifact_root}"
-		)
-		if(NOT TARGET DurinNativeTestApplicationRuntimeLayout)
-			add_custom_target(DurinNativeTestApplicationRuntimeLayout
-			COMMAND ${CMAKE_COMMAND} -E make_directory
-				"${_durin_application_artifact_root}/Engine/Content"
-				"${_durin_application_artifact_root}/Engine/Binaries"
-				"${_durin_application_artifact_root}/Engine/Shaders"
-			COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-				"${CMAKE_SOURCE_DIR}/Engine/Content"
-				"${_durin_application_artifact_root}/Engine/Content"
-			COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-				"${CMAKE_SOURCE_DIR}/Engine/Shaders"
-				"${_durin_application_artifact_root}/Engine/Shaders"
-			COMMENT "Preparing application-hosted Engine runtime layout"
-			VERBATIM)
-		endif()
-		add_dependencies(${target_name}
-			DurinNativeTestApplicationRuntimeLayout)
+	elseif(_durin_legacy_execution_host_set)
+		set(_durin_declared_execution_host "${_durin_legacy_execution_host}")
 	else()
-		set(_durin_resolved_execution_host direct)
+		set(_durin_declared_execution_host direct)
+	endif()
+	if(APPLE)
+		set(_durin_platform_is_apple TRUE)
+	else()
+		set(_durin_platform_is_apple FALSE)
+	endif()
+	durin_resolve_native_test_execution_host(
+		_durin_execution_host _durin_resolved_execution_host
+		"${target_name}" "${_durin_declared_execution_host}" "${_durin_platform_is_apple}")
+	if(_durin_resolved_execution_host STREQUAL "application")
+		durin_configure_macos_native_test_application_layout(${target_name})
 	endif()
 	get_target_property(_durin_labels ${target_name} DURIN_TEST_LABELS)
 	if(_durin_labels MATCHES "-NOTFOUND$")

@@ -1,4 +1,5 @@
 #include "NativeTestApplicationProtocol.h"
+#include "NativeTestApplicationProcess.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -85,12 +86,12 @@ namespace
 
 	auto CopyFileToDescriptor(const std::filesystem::path& Path, int Destination) -> void
 	{
-		const int Source = open(Path.c_str(), O_RDONLY | O_NOFOLLOW);
-		if (Source < 0) return;
+		FScopedFileDescriptor Source(open(Path.c_str(), O_RDONLY | O_NOFOLLOW));
+		if (!Source.IsValid()) return;
 		char Buffer[16384];
 		for (;;)
 		{
-			const ssize_t Read = read(Source, Buffer, sizeof(Buffer));
+			const ssize_t Read = read(Source.Get(), Buffer, sizeof(Buffer));
 			if (Read < 0 && errno == EINTR) continue;
 			if (Read <= 0) break;
 			size_t Offset = 0;
@@ -103,7 +104,6 @@ namespace
 				Offset += static_cast<size_t>(Written);
 			}
 		}
-		close(Source);
 	}
 
 	auto ReadRecordedPid(const std::filesystem::path& Directory,
@@ -228,16 +228,21 @@ int main(int ArgumentCount, char** Arguments)
 		return 125;
 	}
 
-	std::vector<std::string> Request{
-		Nonce, Executable.string(), WorkingDirectory.string(), std::to_string(getpid()),
-		Parsed.ArtifactRoot.string()};
-	Request.insert(Request.end(), Parsed.TestCommand.begin() + 1, Parsed.TestCommand.end());
+	FRequest Request{
+		Nonce,
+		Executable,
+		WorkingDirectory,
+		static_cast<int>(getpid()),
+		Parsed.ArtifactRoot,
+	};
+	Request.Arguments.assign(
+		Parsed.TestCommand.begin() + 1, Parsed.TestCommand.end());
 	std::vector<std::string> Environment;
 	for (char** Entry = environ; Entry != nullptr && *Entry != nullptr; ++Entry)
 	{
 		Environment.emplace_back(*Entry);
 	}
-	if (!WriteStringVectorAtomic(ControlDirectory / RequestFile, Request, Error)
+	if (!WriteRequestAtomic(ControlDirectory / RequestFile, Request, Error)
 		|| !WriteStringVectorAtomic(ControlDirectory / EnvironmentFile, Environment, Error))
 	{
 		std::cerr << "Durin native-test application controller: " << Error << '\n';
@@ -290,22 +295,21 @@ int main(int ArgumentCount, char** Arguments)
 	CopyFileToDescriptor(ControlDirectory / StandardErrorFile, STDERR_FILENO);
 	FResult Result;
 	if (!ReadResult(ControlDirectory / ResultFile, Result, Error)
-		|| !ValidateResult(Result, Error) || Result.Nonce != Nonce)
+		|| !ValidateResult(Result, Nonce, Error))
 	{
-		if (Error.empty()) Error = "completion nonce mismatch";
 		std::cerr << "Durin native-test application controller: " << Error
 			<< "; evidence: " << ControlDirectory << '\n';
 		TerminateExactProcesses(ControlDirectory);
 		PruneRetainedInvocations(Parsed.ControlRoot, ControlDirectory);
 		return 125;
 	}
-	if (Result.Status == "passed" && Result.ExitCode == 0)
+	if (Result.Status == EResultStatus::Passed)
 	{
 		std::filesystem::remove_all(ControlDirectory, PathError);
 		return 0;
 	}
-	std::cerr << "Durin native-test application controller: " << Result.Status
-		<< " during " << Result.Stage;
+	std::cerr << "Durin native-test application controller: "
+		<< ResultStatusName(Result.Status) << " during " << ResultStageName(Result.Stage);
 	if (!Result.Message.empty()) std::cerr << ": " << Result.Message;
 	std::cerr << "; evidence: " << ControlDirectory << '\n';
 	PruneRetainedInvocations(Parsed.ControlRoot, ControlDirectory);

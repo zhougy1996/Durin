@@ -47,12 +47,11 @@ if(APPLE)
 	# MoltenVK hardware execution is part of the surface-qualified M3 gate. Keep
 	# the target buildable on macOS, but out of the ordinary non-GPU aggregate.
 	set(_durin_vulkan_rhi_test_kind qualification)
-	set_target_properties(VulkanRHIIntegrationTests PROPERTIES
-		DURIN_TEST_EXECUTION_HOST application
-	)
+	set(_durin_vulkan_rhi_execution_host EXECUTION_HOST application)
 endif()
 durin_finalize_native_test(VulkanRHIIntegrationTests
 	KIND ${_durin_vulkan_rhi_test_kind}
+	${_durin_vulkan_rhi_execution_host}
 	DOMAINS renderer viewport
 	MODULES rendercore rhi vulkan-rhi
 	BACKENDS vulkan

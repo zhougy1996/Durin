@@ -1,7 +1,7 @@
 #include "NativeTestApplicationProtocol.h"
+#include "NativeTestApplicationProcess.h"
 
 #include <cerrno>
-#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstring>
@@ -71,11 +71,11 @@ namespace
 		return true;
 	}
 
-	auto PublishFailure(const FInvocation& Invocation, std::string Stage,
-		std::string Message) -> int
-	{
-		FResult Result{Invocation.Nonce, std::move(Stage), "launcher-failure", 125, 0,
-			std::move(Message)};
+		auto PublishFailure(const FInvocation& Invocation, EResultStage Stage,
+			std::string Message) -> int
+		{
+			FResult Result{Invocation.Nonce, Stage, EResultStatus::LauncherFailure, 125, 0,
+				std::move(Message)};
 		std::string PublishError;
 		if (!WriteResultAtomic(Invocation.ControlDirectory / ResultFile, Result, PublishError))
 		{
@@ -144,62 +144,47 @@ int main(int ArgumentCount, char** Arguments)
 	if (!WritePidAtomic(Invocation.ControlDirectory / HostPidFile,
 		static_cast<int>(getpid()), Error))
 	{
-		return PublishFailure(Invocation, "host-admission", Error);
+		return PublishFailure(Invocation, EResultStage::HostAdmission, Error);
 	}
 
-	std::vector<std::string> Request;
-	if (!ReadStringVector(Invocation.ControlDirectory / RequestFile, Request, Error)
-		|| Request.size() < 5)
+	FRequest Request;
+	if (!ReadRequest(Invocation.ControlDirectory / RequestFile, Request, Error))
 	{
-		return PublishFailure(Invocation, "request-read",
-			Error.empty() ? "request record is incomplete" : Error);
+		return PublishFailure(Invocation, EResultStage::RequestRead, Error);
 	}
-	for (const std::string& Field : Request)
+	if (!ValidateRequest(Request, Invocation.Nonce, Error))
 	{
-		if (Field.find('\0') != std::string::npos)
-		{
-			return PublishFailure(Invocation, "request-validation",
-				"request record contains an embedded NUL");
-		}
-	}
-	if (Request[0] != Invocation.Nonce)
-	{
-		return PublishFailure(Invocation, "request-validation", "request nonce mismatch");
-	}
-	int ControllerPid = 0;
-	const char* ControllerBegin = Request[3].data();
-	const char* ControllerEnd = ControllerBegin + Request[3].size();
-	const auto [ControllerPosition, ControllerError] = std::from_chars(
-		ControllerBegin, ControllerEnd, ControllerPid);
-	if (ControllerError != std::errc{} || ControllerPosition != ControllerEnd
-		|| ControllerPid <= 1)
-	{
-		return PublishFailure(Invocation, "request-validation", "controller PID is invalid");
+		return PublishFailure(Invocation, EResultStage::RequestValidation, Error);
 	}
 
-	std::filesystem::path Executable = std::filesystem::canonical(Request[1], PathError);
+	std::filesystem::path Executable = std::filesystem::canonical(
+		Request.Executable, PathError);
 	if (PathError || !std::filesystem::is_regular_file(Executable))
 	{
-		return PublishFailure(Invocation, "request-validation", "test executable is invalid");
+		return PublishFailure(Invocation, EResultStage::RequestValidation,
+			"request executable is invalid");
 	}
-	std::filesystem::path WorkingDirectory = std::filesystem::canonical(Request[2], PathError);
+	std::filesystem::path WorkingDirectory = std::filesystem::canonical(
+		Request.WorkingDirectory, PathError);
 	if (PathError || !std::filesystem::is_directory(WorkingDirectory))
 	{
-		return PublishFailure(Invocation, "request-validation", "working directory is invalid");
+		return PublishFailure(Invocation, EResultStage::RequestValidation,
+			"request workingDirectory is invalid");
 	}
-	std::filesystem::path ArtifactRoot = std::filesystem::canonical(Request[4], PathError);
+	std::filesystem::path ArtifactRoot = std::filesystem::canonical(
+		Request.ArtifactRoot, PathError);
 	if (PathError || !std::filesystem::is_directory(ArtifactRoot)
 		|| !IsContainedPath(ArtifactRoot, Executable)
 		|| !IsContainedPath(ArtifactRoot, WorkingDirectory))
 	{
-		return PublishFailure(Invocation, "request-validation",
-			"executable or working directory escaped the artifact root");
+		return PublishFailure(Invocation, EResultStage::RequestValidation,
+			"request executable or workingDirectory escaped artifactRoot");
 	}
 
 	std::vector<std::string> Environment;
 	if (!ReadStringVector(Invocation.ControlDirectory / EnvironmentFile, Environment, Error))
 	{
-		return PublishFailure(Invocation, "environment-read", Error);
+		return PublishFailure(Invocation, EResultStage::EnvironmentRead, Error);
 	}
 	for (const std::string& Entry : Environment)
 	{
@@ -207,28 +192,27 @@ int main(int ArgumentCount, char** Arguments)
 		if (Separator == 0 || Separator == std::string::npos
 			|| Entry.find('\0') != std::string::npos)
 		{
-			return PublishFailure(Invocation, "environment-validation",
+			return PublishFailure(Invocation, EResultStage::EnvironmentValidation,
 				"environment record contains an invalid entry");
 		}
 	}
 
-	const int StandardOutput = open(
+	FScopedFileDescriptor StandardOutput(open(
 		(Invocation.ControlDirectory / StandardOutputFile).c_str(),
-		O_WRONLY | O_CREAT | O_EXCL, 0600);
-	const int StandardError = open(
+		O_WRONLY | O_CREAT | O_EXCL, 0600));
+	FScopedFileDescriptor StandardError(open(
 		(Invocation.ControlDirectory / StandardErrorFile).c_str(),
-		O_WRONLY | O_CREAT | O_EXCL, 0600);
-	if (StandardOutput < 0 || StandardError < 0)
+		O_WRONLY | O_CREAT | O_EXCL, 0600));
+	if (!StandardOutput.IsValid() || !StandardError.IsValid())
 	{
-		if (StandardOutput >= 0) close(StandardOutput);
-		if (StandardError >= 0) close(StandardError);
-		return PublishFailure(Invocation, "output-open", std::strerror(errno));
+		return PublishFailure(Invocation, EResultStage::OutputOpen, std::strerror(errno));
 	}
 
 	std::vector<std::string> ArgumentStorage;
-	ArgumentStorage.reserve(Request.size() - 4);
+	ArgumentStorage.reserve(Request.Arguments.size() + 1);
 	ArgumentStorage.push_back(Executable.string());
-	ArgumentStorage.insert(ArgumentStorage.end(), Request.begin() + 5, Request.end());
+	ArgumentStorage.insert(ArgumentStorage.end(),
+		Request.Arguments.begin(), Request.Arguments.end());
 	std::vector<char*> ChildArguments;
 	for (std::string& Argument : ArgumentStorage) ChildArguments.push_back(Argument.data());
 	ChildArguments.push_back(nullptr);
@@ -236,72 +220,90 @@ int main(int ArgumentCount, char** Arguments)
 	for (std::string& Entry : Environment) ChildEnvironment.push_back(Entry.data());
 	ChildEnvironment.push_back(nullptr);
 
-	posix_spawn_file_actions_t FileActions;
-	posix_spawn_file_actions_init(&FileActions);
-	posix_spawn_file_actions_adddup2(&FileActions, StandardOutput, STDOUT_FILENO);
-	posix_spawn_file_actions_adddup2(&FileActions, StandardError, STDERR_FILENO);
-	posix_spawn_file_actions_addclose(&FileActions, StandardOutput);
-	posix_spawn_file_actions_addclose(&FileActions, StandardError);
+	FScopedSpawnFileActions FileActions;
+	int FileActionsResult = FileActions.GetInitializationResult();
+	if (FileActionsResult == 0)
+	{
+		FileActionsResult = posix_spawn_file_actions_adddup2(
+			FileActions.Get(), StandardOutput.Get(), STDOUT_FILENO);
+	}
+	if (FileActionsResult == 0)
+	{
+		FileActionsResult = posix_spawn_file_actions_adddup2(
+			FileActions.Get(), StandardError.Get(), STDERR_FILENO);
+	}
+	if (FileActionsResult == 0)
+	{
+		FileActionsResult = posix_spawn_file_actions_addclose(
+			FileActions.Get(), StandardOutput.Get());
+	}
+	if (FileActionsResult == 0)
+	{
+		FileActionsResult = posix_spawn_file_actions_addclose(
+			FileActions.Get(), StandardError.Get());
+	}
+	if (FileActionsResult != 0)
+	{
+		return PublishFailure(Invocation, EResultStage::ChildStart,
+			std::strerror(FileActionsResult));
+	}
 	if (chdir(WorkingDirectory.c_str()) != 0)
 	{
-		posix_spawn_file_actions_destroy(&FileActions);
-		close(StandardOutput);
-		close(StandardError);
-		return PublishFailure(Invocation, "child-start", std::strerror(errno));
+		return PublishFailure(Invocation, EResultStage::ChildStart, std::strerror(errno));
 	}
 
 	std::signal(SIGTERM, HandleTermination);
 	std::signal(SIGINT, HandleTermination);
 	std::signal(SIGHUP, HandleTermination);
 	pid_t Child = 0;
-	const int SpawnResult = posix_spawn(&Child, Executable.c_str(), &FileActions, nullptr,
+	const int SpawnResult = posix_spawn(&Child, Executable.c_str(), FileActions.Get(), nullptr,
 		ChildArguments.data(), ChildEnvironment.data());
-	posix_spawn_file_actions_destroy(&FileActions);
-	close(StandardOutput);
-	close(StandardError);
+	StandardOutput.Reset();
+	StandardError.Reset();
 	if (SpawnResult != 0)
 	{
-		return PublishFailure(Invocation, "child-start", std::strerror(SpawnResult));
+		return PublishFailure(Invocation, EResultStage::ChildStart, std::strerror(SpawnResult));
 	}
 	if (!WritePidAtomic(Invocation.ControlDirectory / ChildPidFile,
 		static_cast<int>(Child), Error))
 	{
 		kill(Child, SIGTERM);
 		waitpid(Child, nullptr, 0);
-		return PublishFailure(Invocation, "child-publication", Error);
+		return PublishFailure(Invocation, EResultStage::ChildPublication, Error);
 	}
 
 	bool Cancelled = false;
-	const int ChildStatus = WaitForChild(Child, ControllerPid, Cancelled);
+	const int ChildStatus = WaitForChild(Child, Request.ControllerPid, Cancelled);
 	FResult Result;
 	Result.Nonce = Invocation.Nonce;
-	Result.Stage = Cancelled ? "cancellation" : "test";
+	Result.Stage = Cancelled ? EResultStage::Cancellation : EResultStage::Test;
 	if (ChildStatus < 0)
 	{
-		Result.Status = "launcher-failure";
+		Result.Status = EResultStatus::LauncherFailure;
 		Result.ExitCode = 125;
 		Result.Message = "waitpid failed: " + std::string(std::strerror(errno));
 	}
 	else if (Cancelled)
 	{
-		Result.Status = "cancelled";
+		Result.Status = EResultStatus::Cancelled;
 		Result.ExitCode = 124;
 		Result.Signal = GTerminationSignal;
 	}
 	else if (WIFEXITED(ChildStatus))
 	{
-		Result.Status = WEXITSTATUS(ChildStatus) == 0 ? "passed" : "failed";
+		Result.Status = WEXITSTATUS(ChildStatus) == 0
+			? EResultStatus::Passed : EResultStatus::Failed;
 		Result.ExitCode = WEXITSTATUS(ChildStatus);
 	}
 	else if (WIFSIGNALED(ChildStatus))
 	{
-		Result.Status = "crashed";
+		Result.Status = EResultStatus::Crashed;
 		Result.Signal = WTERMSIG(ChildStatus);
 		Result.ExitCode = 128 + Result.Signal;
 	}
 	else
 	{
-		Result.Status = "launcher-failure";
+		Result.Status = EResultStatus::LauncherFailure;
 		Result.ExitCode = 125;
 		Result.Message = "child ended with an unsupported wait status";
 	}

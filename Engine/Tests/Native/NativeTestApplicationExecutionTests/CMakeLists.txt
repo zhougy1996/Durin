@@ -5,10 +5,10 @@ add_durin_test(NativeTestApplicationExecutionTests
 )
 set_target_properties(NativeTestApplicationExecutionTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	DURIN_TEST_EXECUTION_HOST application
 )
 durin_finalize_native_test(NativeTestApplicationExecutionTests
 	KIND infrastructure
+	EXECUTION_HOST application
 	DOMAINS launch
 	MODULES native-test-support
 	STACKS process

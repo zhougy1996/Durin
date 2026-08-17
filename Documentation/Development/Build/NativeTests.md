@@ -310,15 +310,16 @@ known and before `durin_discover_tests(...)`. `KIND` is exactly one of
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
 
-`DURIN_TEST_EXECUTION_HOST` declares the process lifecycle required by the
-target and is independent of kind, direct-lifecycle registration, labels, and
-locks. Its default is `direct`; set it to `application` before finalization
-when a target initializes Cocoa, AppKit, a GLFW Cocoa window, a Metal layer, or
-native presentation. On macOS, CMake resolves `application` to the repository
-LaunchServices host and uses `TEST_LAUNCHER` for both `PRE_TEST` GoogleTest
-discovery and execution. Platforms where an ordinary process already owns the
-required application lifecycle may resolve the same declaration to direct
-execution. Do not create target-local `.app` wrappers or call `open` manually.
+`EXECUTION_HOST` on `durin_finalize_native_test(...)` declares the process
+lifecycle required by the target and is independent of kind, direct-lifecycle
+registration, labels, and locks. Omit it for the `direct` default; use
+`EXECUTION_HOST application` when a target initializes Cocoa, AppKit, a GLFW
+Cocoa window, a Metal layer, or native presentation. On macOS, CMake resolves
+`application` to the repository LaunchServices host and uses `TEST_LAUNCHER`
+for both `PRE_TEST` GoogleTest discovery and execution. Platforms where an
+ordinary process already owns the required application lifecycle may resolve
+the same declaration to direct execution. Do not create target-local `.app`
+wrappers or call `open` manually.
 
 The macOS controller preserves the exact GoogleTest arguments and environment,
 publishes stdout/stderr and the signal-derived child result, and cleans only

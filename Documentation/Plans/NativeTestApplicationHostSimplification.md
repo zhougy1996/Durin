@@ -9,26 +9,36 @@ Completed:
 
 ## Current Status
 
-The macOS native-test application host is implemented and committed in
-`026eefca`. It provides the required LaunchServices admission, internal-volume
-artifact layout, exact child-result propagation, cancellation, bounded
-retention, and CTest/DevTool integration. Those behaviors are validated and are
-not candidates for removal.
+Stages 1 through 4 are implemented in the working tree. Native-test authors now
+declare `EXECUTION_HOST application` in the structured finalization call; the
+legacy target property remains a conflict-checked compatibility input. Host
+resolution and macOS artifact layout have separate CMake functions, the V1
+wire order is contained behind typed `FRequest` and enum-backed `FResult`
+conversion, file descriptors and spawn actions have scoped ownership, and
+DurinDevTool delegates every routine exact target to one registry-driven
+strategy.
 
-The remaining complexity is concentrated in four implementation seams:
+The CMake configure gate passes with direct/application registry goldens,
+canonical/legacy/conflict/default probes, synthetic Apple/non-Apple resolution,
+and generated-path checks. The nine focused protocol tests pass, including
+typed request wire compatibility, unknown enum values, stale nonces, embedded
+NULs, numeric consistency, truncation, trailing data, and protocol limits. The
+complete DurinDevTool suite passes with 374 tests and 2 platform skips.
 
-- test authors must set `DURIN_TEST_EXECUTION_HOST` separately and before
-  `durin_finalize_native_test`, creating an avoidable ordering rule;
-- `durin_finalize_native_test` owns metadata validation, platform resolution,
-  output relocation, runtime layout, and registry state in one function;
-- the controller/host protocol exposes positional string vectors and repeated
-  status strings instead of typed request and result boundaries;
-- DurinDevTool's exact-target path contains an execution-host special case
-  instead of delegating to one target execution strategy.
-
-This plan simplifies those seams incrementally. Each stage must preserve the
-existing wire behavior or provide an explicit compatibility transition, and
-must pass direct and application-hosted regression gates before the next stage.
+Stage 5 is not complete. Before and after the refactor, this macOS session
+rejects the valid internal Host bundle at LaunchServices admission with
+`kLSNoExecutableErr`; copying it to `/private/tmp` and applying a valid ad-hoc
+signature produces the same pre-Host failure. The direct focused baseline took
+0.88 seconds but failed only in its four controller cases at that same gate.
+Consequently application execution, cancellation/concurrency process audits,
+ordinary aggregate validation, and launcher-overhead comparison cannot be
+claimed here. The required `test all` attempt completed the `DurinNativeTests`
+build closure in 0.24 seconds and then stopped during CTest `PRE_TEST`
+discovery at the same admission error; recovery state remained clean and 17
+retained control directories remain within the limit of 32. Process listing is
+unavailable in the current sandbox, so no-orphan evidence is also still open.
+Windows direct-host evidence requires a Windows runner. The plan remains active
+until those external gates are obtained.
 
 ## Goal
 
@@ -143,17 +153,21 @@ than positional fields and repeated cleanup branches.
 
 ### Stage 0: Freeze behavior and simplification boundaries
 
-- [ ] Record golden configured registry records and generated CTest commands
+- [x] Record golden configured registry records and generated CTest commands
   for one direct and one application-hosted target.
-- [ ] Add a generated-source/build-command assertion that no native-test path
+- [x] Add a generated-source/build-command assertion that no native-test path
   contains a literal `$<CONFIG>`.
-- [ ] Inventory all repository declarations of
+- [x] Inventory all repository declarations of
   `DURIN_TEST_EXECUTION_HOST`, `APPLICATION_HOST`, and direct-registration
   names.
-- [ ] Decide whether `Durin.NativeTestDirect.<Target>` is renamed in this plan
+- [x] Decide whether `Durin.NativeTestDirect.<Target>` is renamed in this plan
   or explicitly deferred, including CI and command compatibility impact.
 - [ ] Record baseline focused direct and application-hosted execution times for
   comparison after structural changes.
+
+The registration rename is deferred. CI commands, saved CTest invocations, and
+DurinDevTool regular expressions consume the existing name; changing it does
+not simplify host ownership and would require a separate compatibility window.
 
 #### Acceptance Gate
 
@@ -162,17 +176,17 @@ than positional fields and repeated cleanup branches.
 
 ### Stage 1: Simplify the CMake authoring and layout API
 
-- [ ] Add optional `EXECUTION_HOST` parsing to
+- [x] Add optional `EXECUTION_HOST` parsing to
   `durin_finalize_native_test`, defaulting to `direct`.
-- [ ] Define compatibility and conflict rules for the legacy target property,
+- [x] Define compatibility and conflict rules for the legacy target property,
   then migrate repository-owned declarations and helper options.
-- [ ] Extract semantic validation/platform resolution into a focused internal
+- [x] Extract semantic validation/platform resolution into a focused internal
   function with synthetic Apple and non-Apple probes.
-- [ ] Extract macOS application artifact relocation and Engine runtime-layout
+- [x] Extract macOS application artifact relocation and Engine runtime-layout
   staging into a focused internal function or module.
-- [ ] Keep deployment helpers operating on finalized Data, Work, and runtime
+- [x] Keep deployment helpers operating on finalized Data, Work, and runtime
   paths without imposing application behavior on direct targets.
-- [ ] Extend CMake probes for defaulting, conflicts, invalid values, platform
+- [x] Extend CMake probes for defaulting, conflicts, invalid values, platform
   resolution, late mutation compatibility, and generator-expression output.
 
 #### Acceptance Gate
@@ -183,15 +197,15 @@ than positional fields and repeated cleanup branches.
 
 ### Stage 2: Introduce typed protocol boundaries
 
-- [ ] Add `FRequest` encode/decode functions and remove positional request
+- [x] Add `FRequest` encode/decode functions and remove positional request
   indexing from the Host.
-- [ ] Replace free-form result status/stage construction with enums or closed
+- [x] Replace free-form result status/stage construction with enums or closed
   typed values and centralized wire conversion.
-- [ ] Move all request/result consistency checks to validation functions that
+- [x] Move all request/result consistency checks to validation functions that
   return actionable field-specific diagnostics.
-- [ ] Preserve the existing binary framing unless a versioned migration is
+- [x] Preserve the existing binary framing unless a versioned migration is
   objectively smaller and safer than compatibility.
-- [ ] Expand unit tests for every request field, unknown status/stage values,
+- [x] Expand unit tests for every request field, unknown status/stage values,
   stale nonces, embedded NULs, invalid PID/exit/signal combinations, truncation,
   trailing data, and maximum field limits.
 
@@ -203,17 +217,22 @@ than positional fields and repeated cleanup branches.
 
 ### Stage 3: Consolidate macOS resource ownership
 
-- [ ] Add minimal scoped wrappers for file descriptors and
+- [x] Add minimal scoped wrappers for file descriptors and
   `posix_spawn_file_actions_t`.
-- [ ] Add a local owned-child abstraction only if it eliminates repeated wait,
+- [x] Add a local owned-child abstraction only if it eliminates repeated wait,
   liveness, terminate, grace-period, and kill code without hiding PID policy.
-- [ ] Convert early-return paths in Controller and Host to deterministic scoped
+- [x] Convert early-return paths in Controller and Host to deterministic scoped
   cleanup.
-- [ ] Keep signal-handler work async-signal-safe and keep policy decisions in
+- [x] Keep signal-handler work async-signal-safe and keep policy decisions in
   the normal control flow.
 - [ ] Add or retain focused tests for spawn failure, output-open failure, PID
   publication failure, controller disappearance, interruption before and after
   child publication, escalation, concurrent execution, and retention limits.
+
+No owned-child wrapper was added: the remaining waits encode controller
+disappearance and bounded exact-PID escalation policy, so wrapping them would
+hide rather than reduce policy. Descriptor and spawn-action early returns now
+have one scoped owner.
 
 #### Acceptance Gate
 
@@ -223,15 +242,15 @@ than positional fields and repeated cleanup branches.
 
 ### Stage 4: Simplify DurinDevTool routing and diagnostics
 
-- [ ] Move exact-target execution choice into one target execution strategy
+- [x] Move exact-target execution choice into one target execution strategy
   function driven by configured registry metadata.
-- [ ] Keep direct exact targets on the focused executable path and application
+- [x] Keep direct exact targets on the focused executable path and application
   exact targets on their launcher-aware CTest registration.
-- [ ] Preserve filter, compact/full output, shuffle seed, isolation, stress,
+- [x] Preserve filter, compact/full output, shuffle seed, isolation, stress,
   report, characterization, qualification, timeout, and environment behavior.
-- [ ] Implement or defer the Stage 0 registration-name decision with explicit
+- [x] Implement or defer the Stage 0 registration-name decision with explicit
   compatibility tests.
-- [ ] Update list/explain and failure diagnostics only where the simpler model
+- [x] Update list/explain and failure diagnostics only where the simpler model
   makes the execution path clearer to operators.
 
 #### Acceptance Gate
@@ -250,7 +269,7 @@ than positional fields and repeated cleanup branches.
   locks, process exit, and measured launcher overhead against Stage 0.
 - [ ] Obtain Windows direct-host evidence before claiming cross-platform
   completion, without imposing macOS artifacts or dependencies on Windows.
-- [ ] Update the native-test authoring contract to show only the canonical API
+- [x] Update the native-test authoring contract to show only the canonical API
   and remove transitional guidance after repository declarations migrate.
 - [ ] Record final evidence, complete this plan only after all gates pass, and
   archive it through the repository plan workflow.

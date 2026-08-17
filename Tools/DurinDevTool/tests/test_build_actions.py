@@ -42,6 +42,61 @@ class TestCore:
             build_runtime.run_native_test(context, output)
         assert run.call_args.args[0] == [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
         assert run.call_args.kwargs['colorize_test_output']
+    @pytest.mark.parametrize(
+        ('resolved_host', 'expected_runner'),
+        (('direct', 'run_native_test'), ('application', 'run_selected_native_tests')),
+    )
+    def test_exact_native_test_uses_registry_driven_strategy(
+        self, resolved_host: str, expected_runner: str
+    ) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            request_fixtures.command_request(
+                build_config.Action.TEST,
+                options=request_fixtures.TestActionOptions(target='LaunchTests'),
+            ),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=1,
+            environment={},
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        resolved = mock.Mock(
+            names=('LaunchTests',),
+            targets=(mock.Mock(resolved_execution_host=resolved_host),),
+        )
+        with mock.patch.object(build_runtime, 'load_native_test_registry', return_value=mock.Mock()), mock.patch.object(build_runtime, 'resolve_selection', return_value=resolved), mock.patch.object(build_runtime, 'run_native_test') as direct, mock.patch.object(build_runtime, 'run_selected_native_tests') as selected:
+            build_runtime.run_exact_native_test(context, output)
+        runners = {'run_native_test': direct, 'run_selected_native_tests': selected}
+        runners[expected_runner].assert_called_once_with(context, output)
+        runners[({'run_native_test', 'run_selected_native_tests'} - {expected_runner}).pop()].assert_not_called()
+        assert context.resolved_test_targets == (
+            ('LaunchTests',) if resolved_host == 'application' else ()
+        )
+    def test_exact_native_test_reports_stale_registry_failure(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            request_fixtures.command_request(
+                build_config.Action.TEST,
+                options=request_fixtures.TestActionOptions(target='CoreTests'),
+            ),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(
+            build_runtime,
+            'load_native_test_registry',
+            side_effect=build_config.BuildToolError('registry identity does not match'),
+        ), pytest.raises(build_config.BuildToolError, match='identity does not match'):
+            build_runtime.run_exact_native_test(context, output)
     def test_all_native_tests_use_ctest_registration(self) -> None:
         preset = self.make_preset()
         cmake = 'C:/Tools/CMake/bin/cmake.exe'
