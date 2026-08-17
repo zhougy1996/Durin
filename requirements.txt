@@ -5,4 +5,6 @@ libclang==18.1.1
 jsonschema==4.25.1
 # Repository Python tests, including DurinHeaderTool and DurinDevTool, run with pytest.
 pytest==9.1.1
+# Cross-platform line editing, history, and completion for the interactive shell.
+prompt-toolkit==3.0.52
 rich==14.2.0

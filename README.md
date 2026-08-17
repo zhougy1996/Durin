@@ -143,7 +143,9 @@ DurinDevTool> exit
 ```
 
 The selected preset is session-local. Shell commands accept the same named
-options as their direct command forms.
+options as their direct command forms. The interactive shell provides command
+history and context-aware Tab completion for commands, subcommands, options,
+and fixed option values on Windows and macOS.
 
 ## Interrupted Operations
 

@@ -88,6 +88,22 @@ class TestCommandRegistry:
         assert result == 0
         assert 'Durin Developer Tool shell' in stdout.getvalue()
 
+    def test_shell_completion_follows_command_hierarchy_and_arguments(self) -> None:
+        from durin_dev_tool.shell import shell_completion_candidates
+
+        registry = CommandRegistry()
+        assert 'build' in shell_completion_candidates(registry, 'bu')
+        assert shell_completion_candidates(registry, 'doc pl') == ('plan',)
+        assert shell_completion_candidates(registry, 'doc plan val') == ('validate',)
+        assert '--output' in shell_completion_candidates(registry, 'build --o')
+        assert shell_completion_candidates(registry, 'build --output c') == ('compact',)
+        assert shell_completion_candidates(registry, 'build --output=c') == ('--output=compact',)
+
+    def test_shell_completion_ignores_large_numeric_choice_ranges(self) -> None:
+        from durin_dev_tool.shell import shell_completion_candidates
+
+        assert shell_completion_candidates(CommandRegistry(), 'test --timeout ') == ()
+
 class TestLauncher:
 
     def test_launcher_prefers_venv_then_python_launcher_then_path_python(self) -> None:

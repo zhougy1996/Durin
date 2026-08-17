@@ -460,6 +460,13 @@ validates the toolchain once; later commands and preset switches reuse that
 environment for the rest of the session. Read-only and artifact commands remain
 available when the compiler toolchain is unavailable.
 
+The prepared shell uses the same interactive line editor on Windows and macOS.
+Up and Down navigate session history; Tab completes registered commands,
+subcommands, option names, and fixed option values according to the current
+command path. Before Setup has installed the prepared Python dependencies, the
+shell falls back to the host's standard line editor so Setup remains
+bootstrap-safe.
+
 If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\DevTool.bat stop` from a second terminal, or enter `stop` in another already-open DurinDevTool shell. It stops the active DurinDevTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
 
 The selected preset is session-local and does not modify `.agents/DevTool.user.json`:
