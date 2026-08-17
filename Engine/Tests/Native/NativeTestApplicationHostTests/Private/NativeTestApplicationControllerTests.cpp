@@ -1,4 +1,5 @@
 #include "NativeTestApplicationProtocol.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -25,8 +26,8 @@ namespace
 	public:
 		static auto ControlRootForMode(std::string_view Mode) -> std::filesystem::path
 		{
-			return std::filesystem::path(
-				"/private/tmp/DurinNativeTestApplicationControllerTests")
+			return Durin::Testing::GetTestWorkDirectory()
+				/ "NativeTestApplicationController"
 				/ ("run-p" + std::to_string(getpid()) + "-" + std::string(Mode));
 		}
 
@@ -171,7 +172,8 @@ TEST(NativeTestApplicationController, InterruptionBeforeChildPublicationIsBounde
 	const std::filesystem::path ControlRoot =
 		FControllerProcess::ControlRootForMode("early-cancel");
 	std::error_code Error;
-	std::filesystem::remove_all(ControlRoot, Error);
+	Durin::Testing::RemoveTestWorkDirectory(ControlRoot, Error);
+	ASSERT_FALSE(Error);
 	FControllerProcess Early("early-cancel");
 	ASSERT_EQ(Early.SpawnResult, 0);
 	ASSERT_TRUE(Early.WaitForControlRoot());
@@ -224,7 +226,8 @@ TEST(NativeTestApplicationController, FailedInvocationRetentionIsBounded)
 	const std::filesystem::path ControlRoot =
 		FControllerProcess::ControlRootForMode("fail");
 	std::error_code Error;
-	std::filesystem::remove_all(ControlRoot, Error);
+	Durin::Testing::RemoveTestWorkDirectory(ControlRoot, Error);
+	ASSERT_FALSE(Error);
 	for (int Index = 0; Index < 36; ++Index)
 	{
 		FControllerProcess Failing("fail");
