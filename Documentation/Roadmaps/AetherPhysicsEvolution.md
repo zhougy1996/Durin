@@ -2,72 +2,29 @@
 
 Summary: Evolve Aether from a deterministic query-only reference scene into a scalable collision and physics foundation without changing Engine-facing World, component, or asset ownership.
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-18
 
 Status: Active
 Completed:
 
 ## Current Status
 
-The completed
-[Physics Scene And Character Collision Plan](../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
-established the correct first-slice ownership chain: `Core -> AetherCore ->
-Aether -> Engine`. `AetherCore` owns Engine-independent shape, filter, handle,
-hit, validation, and reference geometry values; `Aether` owns one synchronous
-`FPhysicsScene`; Engine owns `DBodySetup`, `FBodyInstance`, component
-synchronization, collision profiles, and the `DWorld` query facade. Sandbox
-movement now uses capsule sweeps against authored geometry rather than a fixed
-ground plane.
+The initial ownership slice and required M0-M3 query-scalability program are
+complete through [Physics Scene And Character Collision](../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md),
+[Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md),
+[Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md),
+[Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md),
+and [Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
+The resulting Reference, Production, and Compare paths, shared immutable
+geometry, broad phases, cooked mesh collision, diagnostics, and qualification
+evidence are summarized in the milestone table and owned permanently by the
+[Runtime Collision](../Runtime/Physics/Collision.md) contract.
 
-The scene separates a retained flat Reference executor from the indexed
-Production pipeline. M2 now stores immutable shared primitive or 1-64 child
-compound resources, dispatches the complete Box/Sphere/Capsule Ray/Sweep/
-Overlap matrix behind AetherCore, and replaces Production Capsule/Box nested
-search with exact segment/box features plus bounded advancement.
-
-This roadmap treats that implementation as the semantic oracle rather than as
-the storage layout to extend. M0-M3 are the required query-scalability program.
-Rigid-body simulation, parallel execution, and alternate backends are
-conditional tracks activated by concrete consumers and measurements; they are
-not prerequisites for fixing current collision-query cost.
-
-M0 completed through the
-[Aether Physics Query Observability Plan](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md).
-Reference, Production, and Compare preserve complete query semantics; bounded
-query/mutation diagnostics reconcile; fixed-seed and 0/32/1,000/10,000 parity
-qualification has zero mismatch; and real Sandbox movement plus controlled
-Release baselines separate traversal from pair cost. M1 completed through the
-[Aether Scene Query Acceleration Plan](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md).
-Generation-checked dense slots, explicit motion, compact conservative bounds,
-a deterministic static BVH, an incremental moving fat-AABB tree, bounded
-traversal, exact near-time pruning, and complete Reference fallback now back
-Production. Qualified 10,000-body sparse misses emit zero candidates; retained
-capacity fits 64 bytes per body plus 64 KiB; Release query and mutation gates
-pass with zero mismatch, overflow, or fallback. M2 geometry and narrow-phase
-architecture completed at source revision `82fef8cb` through the
-[Aether Geometry And Narrowphase Plan](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md).
-The 176-byte body record retains one 16-byte reference; 10,000 bodies can share
-one payload identity; the complete directed primitive matrix and compound
-ordering pass; and the controlled Release Capsule/Box median improves 25.17x
-with zero ordinary unsupported, non-convergence, or fallback. M3 cooked world
-collision completed on 2026-08-12 through the
-[Aether Cooked Collision Geometry Plan](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
-Explicit StaticMeshes now produce independently versioned immutable hull or
-triangle resources, deterministic asset BVHs and DDC/DCOL payloads, transactional
-reimport/Cook/load, render-independent World publication, bounded inspection and
-debug facts, and shared identity across 10,000 bodies. The 100,352-triangle
-qualification mesh retains 4,270,912 bytes with a 23,147,864-byte estimated
-builder peak; sparse Production work is one node and zero features versus
-100,352 Reference features, with zero qualified mismatch or fallback.
-
-Terrain T2 completed on 2026-08-13 through the
-[Aether Heightfield Collision Plan](../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
-AetherCore now owns immutable exact-sample HeightFields, deterministic 8x8-cell
-hierarchies, complete Reference/Production Ray/Sweep/Overlap, bounded work
-counters, and weak interning. Engine atomically republishes Terrain render and
-physics revisions across Worlds and builds collision from source-free THPL.
-The 1025x1025 Release fixture retains 3,412,178 bytes, builds in 6.841 ms, and
-averages 21.9 microseconds per sparse Production ray with zero exceptional path.
+Terrain T2 is also complete through
+[Aether Heightfield Collision](../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
+Rigid-body simulation, Engine dynamics, parallel execution, and alternate
+backends remain conditional tracks whose entry gates require named consumers or
+measurement evidence.
 
 ## Outcome
 
@@ -316,47 +273,10 @@ measured benefit has been proposed.
 
 ## Child Plan Boundaries
 
-### [Aether Physics Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md)
-
-This plan owns instrumentation, fixtures, reference preservation, execution
-policy, and the internal query-pipeline seam. It may move existing flat query
-loops behind a reference implementation but does not add a spatial index,
-change geometry math, alter World APIs, or claim performance improvement. Its
-main output is trustworthy evidence for M1 and M2.
-
-### [Aether Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md)
-
-This plan owns generational body storage, body motion classification, world
-AABB publication, static/moving partitioning, broad-phase data structures,
-mutation/refit/rebuild rules, traversal, scratch capacity, and accelerated
-parity. It does not add triangle meshes, generic convex algorithms, rigid-body
-state, Engine events, or task scheduling.
-
-The child plan should evaluate the existing editor picking AABB tree as
-evidence, not copy it as a subsystem. Physics requires segment/swept-volume/
-overlap traversal, moving-body mutation, collision filtering, stable physics
-handles, and World lifetime. Only a genuinely consumer-neutral math or
-container primitive proven by both systems may move to Core; the two scene
-indexes retain separate ownership.
-
-### [Aether Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md)
-
-This plan owns geometry-resource identity and lifetime, compound layout,
-shape-pair dispatch, analytic and generic convex algorithms, contact semantics,
-iteration budgets, and narrow-phase diagnostics. It does not serialize Engine
-assets, cook render/source meshes, schedule simulation, or add editor UI. M1's
-scene traversal consumes its interface without knowing the selected pair
-algorithm.
-
-### [Aether Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md)
-
-This plan owns the Engine/AssetCore-to-Aether cook boundary, BodySetup cook
-settings and version, immutable convex/triangle payloads, asset BVH, derived
-data, serialization, import invalidation, runtime memory, and inspection. It
-does not reuse render BVHs as collision truth, add dynamic mesh deformation,
-or introduce rigid-body simulation. Heightfields are now owned by the separate
-[Aether Heightfield Collision](../Plans/Archive/2026-08/AetherHeightfieldCollision.md) plan and
-its concrete Terrain consumer rather than expanding this completed milestone.
+Completed child-plan boundaries and evidence remain in the linked archived
+plans and the milestone table above. Future plans must preserve their published
+Reference/Production semantics, ownership direction, geometry identity, and
+runtime collision contract rather than reopening completed local design.
 
 ### `AetherRigidBodySimulation`
 

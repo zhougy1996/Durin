@@ -4,7 +4,7 @@ Summary: Define task scheduling, dependencies, cancellation, waiting, and worker
 
 Modules: Core
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-18
 
 Durin's CPU task system provides process-wide bounded background execution for
 runtime and editor subsystems. It owns task admission, dependencies, typed
@@ -20,11 +20,9 @@ tests, and explicitly owned dedicated pools.
 
 ## Process Lifetime
 
-The engine uses a UE-style process lifetime: `FEngineLoop::PreInit()` initializes
-the worker scheduler and then installs the GameThread deferred executor. Startup
-fails if either initialization fails. `FEngineLoop::Exit()` calls
-`ShutdownTaskSystem(Drain)` after CPU-work producers are detached. The normal
-engine does not restart either executor.
+Engine placement of the worker scheduler and GameThread deferred executor in
+startup and exit is defined by [Runtime Lifecycle](RuntimeLifecycle.md). The
+normal engine uses one lifetime and does not restart either executor.
 
 Core permits a fully stopped scheduler to be started again so isolated tests
 and non-engine programs can run sequential lifetimes. A start while shutdown is
@@ -540,21 +538,6 @@ scope-named zones, plots, source locations, or retained history.
 before `DURIN_PROFILE_FRAME_MARK()`. The publication surface copies only the
 fixed owner/category aggregates; with Tracy disabled it remains a no-op after
 the same bounded runtime traversal.
-
-Normal engine exit detaches CPU-work producers, drains the scheduler, performs
-the object and module drains, and only then closes render-command admission and
-stops the rendering thread. The complete process order is owned by
-`RuntimeLifecycle.md`.
-
-## Deferred Features
-
-Dedicated IO scheduling, work stealing, fibers or coroutine-backed waits,
-multi-stage unique-result production, a general
-serialized-lane abstraction, and RenderGraph task integration require
-workload-specific evidence and a clear owner. RenderThread and RHIThread are not
-generic task targets; any adapter requires a named production caller, an
-owning-module callable and lifetime contract, and non-blocking worker-side
-admission.
 
 ## Related Documentation
 

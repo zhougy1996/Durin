@@ -2,53 +2,23 @@
 
 Summary: Establish production-ready compute shader execution through a sequence of bounded synchronization, pipeline, integration, and optional asynchronous-compute plans.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-18
 
 Status: Active
 Completed:
 
 ## Current Status
 
-The repository has compute-aware shader compilation, reflection, storage
-resources, Vulkan descriptor mappings, a raw Vulkan compute dispatch test, and
-a completed portable resource-transition foundation. Vulkan device admission
-already requires one queue family that supports graphics, compute, and
-presentation; the logical device exposes that single queue as the current
-graphics, compute, transfer, and present queue, so M2 needs no queue-family or
-cross-queue design.
+Recorded command replay, the dedicated RHI thread, M1 resource transitions, and
+M2 synchronous compute are complete through their linked plans in the milestone
+table. Their lasting contracts are owned by
+[RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md),
+[RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md), and
+[Synchronous Compute Pipelines](../Runtime/Rendering/SynchronousComputePipelines.md).
 
-M2 completed on 2026-08-12 through
-[Synchronous Compute Pipeline](../Plans/Archive/2026-08/SynchronousComputePipeline.md). Public
-RHI now owns canonical complete-or-null compute PSOs, reflected parameters and
-push constants, direct dispatch, exact limits, synchronous replay through both
-executors, and buffer/image handoffs to compute, graphics, copy, and readback.
-
-Two upstream RHI submission plans are complete:
-[Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) establishes the
-record/replay and payload-lifetime boundary required by new compute commands,
-and [Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md) moves replay onto its
-own CPU thread. The recorded-command-list contract is required before the
-resource-transition and synchronous-compute implementations. The dedicated RHI
-thread is not a prerequisite for synchronous compute, but is required before
-the evidence-gated asynchronous-compute milestone.
-
-M1 completed on 2026-08-10 through
-[GPU Resource Transitions](../Plans/Archive/2026-08/GPUResourceTransitions.md), shared with the
-RHI and Vulkan Backend Evolution roadmap. Public buffer and texture transitions
-now record exact ranges, preserve lifetimes through inline or threaded replay,
-and map through one Vulkan state authority using published synchronization2
-availability or the legacy fallback. Focused RHI, RenderCore, and Vulkan tests,
-the native aggregate, full Debug Editor build, and hidden-window runtime smoke
-passed. The lasting contract is recorded in
-[RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md).
-
-The M3 entry gate is met and
-[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) is active
-as of 2026-08-12. It selects FXAA resolved into a size-keyed linear storage
-intermediate as the first Renderer workload, retains fragment FXAA as the exact
-fallback, and owns the compute-to-graphics-output handoff, refresh/lifetime
-behavior, pixel parity, and measured rollout decision. Final sRGB offscreen and
-Present targets remain ordinary graphics attachments.
+[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) is the
+active required M3 plan. Indirect dispatch and asynchronous compute remain
+conditional on a concrete workload and measured entry evidence.
 
 ## Outcome
 
@@ -190,42 +160,9 @@ marked deferred with the evidence reviewed.
 
 ## Child Plan Boundaries
 
-### Upstream RHI submission plans
-
-[Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) owns immutable
-command batches, payload/resource lifetime, inline replay, submission serials,
-and precise flush semantics. Compute child plans add transition and dispatch
-command types to that established recording surface; they do not restore direct
-context calls.
-
-[Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md) owns CPU-thread transfer,
-backend affinity, replay, queue submission, frame/present lifecycle, and
-shutdown drain. It can proceed independently of synchronous compute after its
-recorded-command-list prerequisite. Only M5 requires it; M1 through M3 remain
-valid in inline executor mode.
-
-### [GPUResourceTransitions](../Plans/Archive/2026-08/GPUResourceTransitions.md)
-
-Owns the backend-neutral access vocabulary, buffer and image transition
-descriptors, subresource/range semantics, command-list API, Vulkan barrier
-mapping, and reconciliation with render-pass and transfer layout tracking. It
-does not add compute PSOs or queue ownership transfers.
-
-The plan must decide whether the first implementation uses Vulkan legacy
-pipeline barriers or synchronization2 based on enabled device features. That
-choice stays local so the roadmap does not promise an unavailable API.
-
-### [Synchronous Compute Pipeline](../Plans/Archive/2026-08/SynchronousComputePipeline.md)
-
-Owns compute RHI resource types and references, canonical initializer
-validation, complete-or-null DynamicRHI publication, bounded descriptor-keyed
-reuse, active command-context selection, compute PSO construction, common
-descriptor/pipeline-layout state, push constants, direct dispatch, and
-public-RHI tests. It consumes the M1 transition API and does not create an
-asynchronous scheduler.
-
-The implementation must preserve graphics behavior while removing hard-coded
-graphics bind points only from facilities shared by both pipeline types.
+Completed upstream, M1, and M2 boundaries are preserved by their archived plans
+and lasting runtime contracts. Later milestones consume those interfaces and do
+not reopen their local implementation stages.
 
 ### [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md)
 

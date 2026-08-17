@@ -2,44 +2,22 @@
 
 Summary: Deliver a finite authored heightfield terrain primitive through bounded asset, rendering, LOD, collision, and editor plans while preserving one authoritative height dataset.
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-18
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Durin now has a dedicated `DTerrainHeightmap` asset with exact grayscale16 PNG
-import, immutable row-major samples, a deterministic regional min/max
-hierarchy, transactional reimport, DDC restore, and source-free cooked-runtime
-load. It remains renderer- and collision-neutral.
-The renderer already provides typed scene proxies and SceneInfo storage,
-conservative per-view frustum visibility, projected-size LOD selection,
-material pass classification, PBR surface binding, and counted indexed draws.
-RHI exposes sampled `R16_UNORM`, `R16_FLOAT`, and `R32_FLOAT` formats, but the
-authored `DTexture2D` path decodes source images to RGBA8 and selects BC formats;
-it cannot preserve a 16-bit height contract.
+T0-T3 are complete. Their lasting asset, rendering, LOD, and collision behavior
+is owned by [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md),
+[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md), and
+[Runtime Collision](../Runtime/Physics/Collision.md); detailed completion
+evidence remains in the linked milestone plans below.
 
-AetherCore now owns the qualified immutable shared HeightField implementation with
-exact samples, regular-grid hierarchy, on-demand triangles, and complete
-Ray/Sweep/Overlap dispatch. Terrain publishes it through ordinary BodyInstance
-and source-free THPL runtime construction. T2's golden/randomized, lifecycle,
-Release-performance, diagnostics, Cook/Game, and editor-overlay qualification
-matrix passes at the 1025x1025 collision ceiling.
-
-T0 is complete; its lasting contract is
-[Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md).
-T1 is complete; its lasting contract is
-[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T2 is complete
-through the [Aether Heightfield Collision Plan](../Plans/Archive/2026-08/AetherHeightfieldCollision.md);
-its lasting behavior is owned by [Runtime Collision](../Runtime/Physics/Collision.md).
-T3 patch LOD/crack control is complete through the
-[Terrain Patch LOD Plan](../Plans/Archive/2026-08/TerrainPatchLOD.md). Its lasting deterministic
-error, selection, adjacency, index-only stitching, complete topology-key,
-counter, overlay, and qualification contracts are owned by
-[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T4 editor
-workflow is active through the
+T4 editor workflow is complete through the archived
 [Terrain Editor Workflow Plan](../Plans/Archive/2026-08/TerrainEditorWorkflow.md).
+The remaining roadmap work is the bounded T5 long-range rendering milestone.
 
 ## Outcome
 

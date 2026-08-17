@@ -4,7 +4,7 @@ Summary: Establish a qualified Apple Silicon macOS development path for the Duri
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -32,16 +32,16 @@ single-viewport ImGui without inventing monitor geometry. Operator-driven
 input, monitor/Retina, window-management, integrated-title-bar, and
 visible-close qualification now completes that native lifecycle evidence.
 
-[macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
+[macOS Host-Independent Preparation](../../../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,
 neutral Launch/Vulkan boundaries, target-aware DHT preprocessing, arm64 preset
 intent, dependency diagnostics, cook inventories, and the first-host checklist
 are qualified. An Apple Silicon development host is now available, so
-[macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
+[macOS Native Toolchain Bootstrap](../../../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
 completed M1. Its native setup, dependency, configuration, graph, fresh-
 worktree reproduction, bounded Engine compile, durable documentation, and M2
 entry diagnostics are qualified without claiming runtime support.
-[macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) completed M2. The
+[macOS Platform Runtime](../../../Plans/Archive/2026-08/MacOSPlatformRuntime.md) completed M2. The
 landed MoltenVK path, application-hosted Vulkan/window qualification, and
 visible 900-tick presenting Editor run complete the M3 development rendering
 vertical slice without requiring a separate child plan. On 2026-08-18 the
@@ -168,16 +168,16 @@ flowchart LR
 
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
-| M1: Native toolchain bootstrap | Required; completed | [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Met: the declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies, repeatable setup diagnostics, and fresh-worktree evidence. |
-| M2: Platform runtime and Editor shell | Required; completed | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) | Met: M1 toolchain and dependency preparation are stable. | Met: core services and the Editor shell launch, create and service Cocoa windows, process input, relaunch/open paths, enforce ownership, and shut down cleanly. |
-| M3: MoltenVK rendering vertical slice | Required; completed in landed runtime/title-bar work | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md), [macOS Custom Title Bar Bridge](../Plans/MacOSCustomTitleBarBridge.md) | Met: M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Met: application-hosted Vulkan qualification and a visible presenting Editor run cover surface/device/swapchain admission, resize/recreate, representative rendering, and clean shutdown. |
+| M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../../../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
+| M1: Native toolchain bootstrap | Required; completed | [macOS Native Toolchain Bootstrap](../../../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Met: the declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies, repeatable setup diagnostics, and fresh-worktree evidence. |
+| M2: Platform runtime and Editor shell | Required; completed | [macOS Platform Runtime](../../../Plans/Archive/2026-08/MacOSPlatformRuntime.md) | Met: M1 toolchain and dependency preparation are stable. | Met: core services and the Editor shell launch, create and service Cocoa windows, process input, relaunch/open paths, enforce ownership, and shut down cleanly. |
+| M3: MoltenVK rendering vertical slice | Required; completed in landed runtime/title-bar work | [macOS Platform Runtime](../../../Plans/Archive/2026-08/MacOSPlatformRuntime.md), [macOS Custom Title Bar Bridge](../../../Plans/Archive/2026-08/MacOSCustomTitleBarBridge.md) | Met: M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Met: application-hosted Vulkan qualification and a visible presenting Editor run cover surface/device/swapchain admission, resize/recreate, representative rendering, and clean shutdown. |
 | M4: Asset and cook compatibility | Conditional; deferred | Future `MacOSAssetCookCompatibility` only when an incompatible payload or Mac cook product requirement is selected. | Not selected: representative current content already loads on the qualified host. | Dispositioned: the Sandbox publishes and loads all 28 packages; broader shared-or-recooked decisions remain future product work. |
 | M5: Product qualification and distribution | Conditional; deferred | Future `MacOSProductQualification` productization roadmap. | Not selected: no Shipping distribution or supported-machine commitment is in scope. | Dispositioned: `.app` assembly, signing/notarization, installation, CI, Game, and support matrices are explicitly not claimed by this roadmap. |
 
 ## Child Plan Boundaries
 
-### [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
+### [macOS Host-Independent Preparation](../../../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 
 Owns platform source selection, neutral common APIs, deterministic Vulkan
 admission/extension policy models, target-aware DHT configuration, coherent
@@ -185,7 +185,7 @@ arm64 preset metadata, and the first-native-host readiness handoff. It does not
 add uncompiled Objective-C++ implementations, pin unverified macOS binary URLs,
 or claim native support.
 
-### [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
+### [macOS Native Toolchain Bootstrap](../../../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
 
 Owns the supported macOS/Xcode baseline, command entrypoints, arm64 dependency
 acquisition/build, Vulkan SDK and MoltenVK layout, Slang dylib selection, CMake
@@ -193,7 +193,7 @@ configure, compiler repairs, rpaths for development binaries, and a small native
 compile qualification set. It does not implement full Editor services or
 rendering correctness.
 
-### [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md)
+### [macOS Platform Runtime](../../../Plans/Archive/2026-08/MacOSPlatformRuntime.md)
 
 Owns macOS process and shell services, platform source implementations, crash
 diagnostic policy, project ownership, native dialogs, Cocoa/GLFW behavior,
@@ -235,8 +235,8 @@ installation, CI, support diagnostics, and durable user/developer contracts.
 | Cook/build -> runtime interpretation | Conditional M4 | Representative current Sandbox packages load; a per-family shared/recooked matrix is deferred until a Mac cook or incompatible payload is selected. |
 | Build output -> distributable application | Conditional M5 | Development dylib closure is audited; distributable `.app`, signing/notarization, CI, and supported-machine evidence are deferred and not claimed. |
 
-All build and native-test execution follows the repository [build and run](../Development/Build/BuildAndRun.md)
-and [native testing](../Development/Build/NativeTests.md) contracts rather than
+All build and native-test execution follows the repository [build and run](../../../Development/Build/BuildAndRun.md)
+and [native testing](../../../Development/Build/NativeTests.md) contracts rather than
 embedding command recipes in child plans.
 
 ## Risks and Control Gates
@@ -272,11 +272,11 @@ embedding command recipes in child plans.
 
 ## Related Documentation
 
-- [Build System](../Development/Build/BuildSystem.md)
-- [Third-Party Dependency Preparation](../Development/Build/ThirdPartyBootstrap.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
 
 ## Related Code
 

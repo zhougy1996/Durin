@@ -79,26 +79,13 @@ clean.
 ## Editor Ray-Query Acceleration
 
 In editor builds each published `FStaticMeshLODResources` may carry one
-immutable CPU ray-query acceleration allocation. It is built before render-data
-publication from the same finite CPU positions and uint32 index triplets, so it
-cannot outlive or mismatch the LOD generation that owns it. Replacement,
-reimport, exchange, release, and destruction retire it with that render data;
-component instances and editor viewports borrow the same allocation.
-
-The flat binary hierarchy uses longest-axis centroid partitioning, triangle
-ordinal as the deterministic split tie-break, and at most eight triangles per
-leaf. Nodes contain local-space bounds plus child or triangle ranges. Exact
-retained bytes and build nanoseconds are stored with the allocation. The asset
-ceiling is 256 MiB and the measured layout allowance is 96 bytes per indexed
-triangle with a 1 KiB small-asset floor. Invalid geometry, integer overflow, a
-failed allocation, or either ceiling leaves acceleration absent; consumers
-must use the complete reference geometry rather than a partial hierarchy.
-
-LevelEditor currently queries only LOD 0 to preserve its semantic picking
-contract. It transforms rays to local space, visits nearer child bounds first,
-prunes against the current world-distance winner, and retains the double-sided
-reference triangle test. This data is not serialized or added to derived data;
-non-editor builds do not construct it.
+immutable CPU ray-query acceleration allocation built from the same validated
+positions and indices. It shares the LOD generation's lifetime, is neither
+serialized nor stored in derived data, and is omitted from non-editor builds.
+Invalid or over-budget geometry leaves acceleration absent rather than
+publishing a partial hierarchy. Level Editor traversal, fallback, budgets, and
+semantic picking behavior are owned by
+[Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md).
 
 `IsReadyForRendering()` requires the selected LOD's vertex buffers, index
 buffer, and vertex factory to be ready and the same geometry validation to
@@ -147,31 +134,11 @@ StaticMesh-specific shutdown registry or global render flush is required.
 
 ## Editor Thumbnail Contract
 
-The editor's rendered-thumbnail cache queries `GetRenderResourceStatus()` and
-`GetLOD0LocalBounds()` without waiting. A cold StaticMesh request loads the exact
-asset class, initializes resources only from the unavailable state, and waits
-across editor frames until a ready nonzero revision is published. The shared
-preview scene then assigns one `DStaticMeshComponent`, mutually exclusive with
-its Material sphere and TextureCube assignments.
-
-Framing is derived deterministically from finite, non-degenerate LOD 0 bounds,
-the frozen camera direction and field of view, output aspect ratio, and image
-margin. The preview transform centers the local bounds; the returned camera and
-clip planes contain every projected corner. Rendering normally uses the same
-automatic per-view LOD policy as other scene views; test and comparison previews
-can request forced LOD 0 explicitly. Material resolution uses the normal
-positional default described below, including the shared default and
-ErrorMaterial fallbacks. The clear region remains transparent while rendered
-mesh pixels retain their coverage, allowing the card background to show through
-without a fixed-color square.
-
-The cache revalidates the captured render-resource revision immediately before
-capture, after readback, and after PNG encoding before atomic publication. A
-revision mismatch, cancellation, resource failure, invalid bounds, or shutdown
-resets the shared component and view, releases the loaded reference, and leaves
-the Content Browser fallback icon. Warm persistent hits decode and upload the
-PNG without loading or initializing the StaticMesh and without creating or
-mutating the preview scene.
+StaticMesh exposes nonblocking render-resource status, a nonzero resource
+revision, and validated LOD 0 local bounds to the editor thumbnail provider.
+Provider ownership, framing, material resolution, revision revalidation,
+persistence, failure, and shutdown behavior are owned by
+[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
 
 ## Vertex Streams and Declaration
 

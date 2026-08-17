@@ -4,7 +4,7 @@ Summary: Add an AppKit-owned bridge for the macOS editor main window so Durin ca
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -335,8 +335,8 @@ window or rendering contracts.
 | Windows | Win64 Editor configure/build; existing shared title-bar, native custom-frame, modal-loop, and launch-boundary suites; no AppKit/Objective-C++ source or link dependency. |
 | Documentation | Changed-doc validation plus all-plan and all-roadmap lifecycle validation. |
 
-Validation follows the repository [Build and Run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md), and [Documentation](../Agents/Documentation.md)
+Validation follows the repository [Build and Run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md), and [Documentation](../../../Agents/Documentation.md)
 agent workflows rather than embedding command lines that may become stale.
 
 ## Definition of Done
@@ -370,10 +370,10 @@ agent workflows rather than embedding command lines that may become stale.
 
 ## Related Documentation
 
-- [Window Frame Contract](../Runtime/Core/WindowFrames.md)
-- [Editor Main Window Custom Title Bar Plan](Archive/2026-08/EditorMainWindowCustomTitleBar.md)
+- [Window Frame Contract](../../../Runtime/Core/WindowFrames.md)
+- [Editor Main Window Custom Title Bar Plan](EditorMainWindowCustomTitleBar.md)
 - [macOS Platform Runtime Plan](MacOSPlatformRuntime.md)
-- [macOS Platform Enablement Roadmap](../Roadmaps/MacOSPlatformEnablement.md)
+- [macOS Platform Enablement Roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
 - [macOS Native Test Application Host Plan](MacOSNativeTestApplicationHost.md)
 
 ## Related Code

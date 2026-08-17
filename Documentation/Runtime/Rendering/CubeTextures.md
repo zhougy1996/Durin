@@ -89,35 +89,13 @@ face and labeled edge markers matching the source-orientation table.
 
 ## Editor Thumbnail Sampling
 
-The Content Browser TextureCube provider presents the authored cube as an
-opaque, camera-oriented environment with a 100-degree vertical field of view.
-The projection reproduces the established float-quantized 100-degree output,
-and sampling uses the same face, row, and direction-to-face contract defined
-above. The provider waits for an exact ready build/resource revision and
-includes the package fingerprint, provider schema, wide-environment fixture,
-and shader contract in its persistent key. The in-flight revision is
-revalidated before and after capture and before publication. Byte-compatible
-migration to this path retained the existing cache versions. A warm PNG hit
-performs no cube load, GPU build, preview render, or readback. General ownership,
-scheduling, persistence, and recovery rules are documented in
+The TextureCube provider presents the authored cube as an opaque 100-degree
+environment and samples through the face, row, and direction contract above.
+It supplies a counted stable texture reference as one submission-local view
+environment; accepted work retains no asset, concrete resource, Actor,
+Component, or Scene membership. Provider identity, scheduling, revision checks,
+persistence, failure, and reset behavior are owned by
 [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
-
-Before a render job is accepted, the provider uses producer-side asset lifetime
-only for load, readiness, revision checks, and diagnostics. It passes a counted
-stable `FRHITextureReferenceRef` through the RenderCore-owned view-environment
-value. The pool snapshots that value into the render command; accepted work
-retains no `DTextureCube`, concrete `FTextureCubeResource`, TextureEditor
-callback, Actor, Component, mesh, primitive proxy, or Scene membership. A later
-render-thread retarget is observed through the same stable reference.
-
-The explicit environment applies only to that renderer submission and takes
-precedence over any scene SkyBox without mutating `FScene`. It executes through
-the shared SkyBox renderer before scene geometry. The reference must resolve to
-a concrete cube texture; a null target, incompatible dimension, or unavailable
-SkyBox resource is a required-environment failure. The thumbnail pool performs
-no readback or persistence after that failure and never converts the runtime
-black-cube fallback into success. Reset and cancellation release only counted
-consumer values and cannot prolong the concrete resource lifetime.
 
 ## Equirectangular Panorama Import
 
@@ -154,26 +132,15 @@ shared source art. Legacy face and panorama filename fields are rejected.
 
 ### Derived Data and Cooking
 
-TextureCube builder version 1 hashes layout, all six ordered face hashes or the
-panorama hash, face dimension, finite exposure (with negative zero rejected),
-sRGB, payload/projection versions, target platform, and profile. Warm objects
-live under `DerivedDataCache/TextureCube/Objects` and can load from persisted
-identity while source and projection tools are unavailable.
-
-TextureBuild registers `Durin.TextureBuild.TextureCube@1` and executes every
-production query, validation, local build, and store through `FBuildSession`.
-The immutable `TextureCubeBuildInput` owns the six normalized projected faces;
-source paths, decoder state, publication objects, and panorama projection stay
-outside the function. Builds require successful persistence. A valid hit
-returns the existing `TextureCubePayload` without mip generation, compression,
-TXPL encoding, or another store; cache-only post-load contains no local input.
-
-Cube TXPL schema 1 uses the shared texture envelope with exactly six slices in
-the frozen `+X/-X/+Y/-Y/+Z/-Z` order. Every face must have identical square
-dimensions, mip count, format, row pitch, and bounded ranges. Cook publishes
-the payload under stable ID `d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`, strips
-source provenance, and the cooked loader uses only the logical descriptor,
-DBLK companion, and transactional TXPL decoder.
+Builder identity covers the active source layout and hashes, face dimension,
+finite exposure, sRGB policy, schema versions, target platform, and profile.
+Cube TXPL schema 1 uses the shared texture envelope with exactly six matching
+slices in the frozen `+X/-X/+Y/-Y/+Z/-Z` order. Cook strips source provenance
+and publishes the payload under stable ID
+`d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`. Generic DDC, build-session, Cook, DBLK,
+and runtime fallback rules are defined by
+[Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md) and
+[Texture System](TextureSystem.md).
 
 ### Projection Coordinates
 
@@ -402,43 +369,8 @@ source pixel.
 
 ## Editor Workflow
 
-- The Content Browser's Import menu provides `Texture Cube...`. The modal
-  switches between `Six Faces` and `Equirectangular Panorama` without discarding
-  either mode's current inputs. Six-face mode owns one source slot for each
-  named face in `+X/-X/+Y/-Y/+Z/-Z` order and displays the corresponding Durin
-  direction and source-image top/right orientation from this document.
-- Each mode explicitly selects Reference Existing Source or Ingest External
-  Source. Referencing an allowed mounted source performs no copy; ingestion
-  requires a complete destination in a writable mount content directory. Asset
-  and source identities remain typed but share the same physical namespace.
-- Reimport reads the persisted face or panorama sources without writing them.
-  Change-reference, shared replacement, repair, and multi-package relocation
-  remain explicit operations with impact preview and transactional rollback.
-- Panorama mode accepts one PNG, JPEG, BMP, TGA, or Radiance HDR source. A face
-  dimension of zero selects the documented `Width / 4` default; explicit values
-  are limited to `[1, 4096]`. Exposure is retained across mode changes, is
-  editable only for HDR sources, and remains an offline HDR-to-LDR setting.
-- The modal calls the same decode, projection, color, mip-build, and
-  platform-format validation used by final import. It revalidates on every
-  relevant edit and immediately before filesystem mutation. The preview reports
-  source dimensions and range, output face dimension and mip count, projection
-  convention, and the existing LDR runtime format.
-- Content Browser tiles use a stable cube icon and identify the asset as
-  `Texture Cube`. Selection details load the asset summary and report source
-  layout, authoritative panorama filename and original dimensions when
-  applicable, face override, HDR exposure, output dimensions, mip count, and
-  the explicitly LDR pixel format.
-- `Sky Box Actor` is available through the ordinary reflected actor-creation
-  menu and owns its `DSkyBoxComponent` by default. The component's reflected
-  object property names `DTextureCube` as its required class, so the shared
-  Details asset picker excludes incompatible assets.
-- Tint, nonnegative Intensity, and actor/component rotation use ordinary
-  reflected edits. Preview edits publish scene updates and committed edits
-  dirty the level package through the standard property transaction path.
-- If more than one visible skybox is registered, the component Details view
-  shows a nonblocking warning naming the active actor and every ignored actor.
-  The editor model mirrors the renderer's GUID, object-path, then instance-ID
-  ordering; it does not query render-thread scene state.
+The user-facing import, inspection, reimport, and Sky Box workflow is documented
+in [Texture Cube Workflow](../../Editor/Guides/TextureCubeWorkflow.md).
 
 ## Related Code
 

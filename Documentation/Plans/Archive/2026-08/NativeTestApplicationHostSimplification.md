@@ -4,7 +4,7 @@ Summary: Reduce authoring and maintenance complexity around native-test executio
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -345,9 +345,9 @@ have one scoped owner.
 | Regression | macOS application targets, ordinary native aggregate, Windows direct targets, generated path audit, and launcher-overhead comparison. |
 
 Build, test selection, and documentation validation follow the repository
-[agent build workflow](../Agents/BuildAndRun.md),
-[agent testing workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md).
+[agent build workflow](../../../Agents/BuildAndRun.md),
+[agent testing workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md).
 
 ## Definition of Done
 
@@ -378,9 +378,9 @@ Build, test selection, and documentation validation follow the repository
 ## Related Documentation
 
 - [macOS Native Test Application Host Plan](MacOSNativeTestApplicationHost.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

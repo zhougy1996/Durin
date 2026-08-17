@@ -4,7 +4,7 @@ Summary: Make half-resolution GTAO the production default through deterministic 
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -415,12 +415,12 @@ directional shadow -> GBuffer/D32
 
 ## Related Documentation
 
-- [Ground Truth Ambient Occlusion](../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Original Ground Truth Ambient Occlusion Plan](Archive/2026-08/GroundTruthAmbientOcclusion.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Original Ground Truth Ambient Occlusion Plan](GroundTruthAmbientOcclusion.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

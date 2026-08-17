@@ -32,7 +32,7 @@ Relevant implementation and architecture:
 - [Vulkan RHI macOS test environment](../../Engine/Tests/Native/VulkanRHITests/Private/VulkanRHITestEnvironment.cpp);
 - [viewport rendering](../Runtime/Rendering/ViewportRendering.md), including
   the macOS Metal-layer and presentation path;
-- [macOS platform enablement plan](../Plans/MacOSPlatformRuntime.md).
+- [macOS platform enablement plan](../Plans/Archive/2026-08/MacOSPlatformRuntime.md).
 
 ## Verified Findings
 

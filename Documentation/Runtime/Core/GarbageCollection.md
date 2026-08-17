@@ -190,7 +190,3 @@ For changes that affect runtime behavior or public lifecycle contracts, also bui
 ```powershell
 .\DevTool.bat build --target all --plain
 ```
-
-## Deferred Work
-
-The current collector does not provide reflected weak-reference properties, clusters, incremental or concurrent marking, multithreaded sweep, compaction, or editor transaction integration. Finish readiness may defer an individual object's physical release across collections, but GC execution itself remains synchronous.

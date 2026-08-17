@@ -121,74 +121,19 @@ disambiguate two reflected headers with the same filename. This is a deliberate
 module-authoring constraint rather than a requirement to mirror source
 directories in generated output.
 
-## Build Flow
+## Build Integration
 
-The build flow is:
+Reflected modules run a public-symbol export command before reflection
+generation so dependencies can resolve qualified reflected identities without
+reparsing their headers. CMake stamps and byproducts, persistent DHT phase
+state, parser-worker scheduling, cache invalidation, output repair, and logging
+are build-system responsibilities defined by
+[Build System](../../Development/Build/BuildSystem.md). They do not alter the
+runtime reflection schema defined below.
 
-```text
-.dmodule and runtime-variant config
--> generated module CMake metadata
--> module export file
--> module reflection files
--> C++ compile/link
-```
-
-`add_durin_module(...)` wires two DurinHeaderTool commands for reflected modules:
-
-- `generate_module_export_file`
-- `generate_reflection_files`
-
-Each command exposes a stamp as its primary build output. The public export and
-generated C++ files are declared CMake `BYPRODUCTS`; the stamp is
-touched only after DHT completes successfully. This lets Ninja repair any missing
-generated artifact while avoiding a repeated command when a semantic export or
-generated source remains byte-for-byte unchanged. In particular, an unchanged
-public `.export` keeps its timestamp so downstream modules are not regenerated.
-
-These disposable outputs are reconstructed from two module phase bundles at
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHTState/`:
-`export-state.json` retains raw symbol projections and
-`reflection-state.json` retains generated text, counts, dependency snapshots,
-output ownership, and output digests. Both are canonical, checksummed JSON with
-independent schemas. DHT validates the bundle envelope and phase context before
-reuse; an invalid per-header record reparses only that header.
-
-CMake clean does not own this cache, so a warm rebuild can rematerialize every
-missing generated output with zero parser calls. Project purge removes the
-enclosing runtime-variant intermediate root and intentionally makes the next
-generation cold. Interrupted cache replacement leaves the previous complete
-entry usable when possible, while interrupted output materialization is repaired
-from already published entries on the next ordinary build.
-
-CMake computes a stable tool fingerprint from the DHT Python implementation and
-its pinned requirements. A tool input change triggers reconfiguration and both
-generation stages. DHT records the fingerprint in each phase bundle, so parser
-or writer changes invalidate reusable state even when reflected headers have not
-changed.
-
-The export command runs before reflection generation so other modules can
-resolve reflected base classes and object-pointer property types without
-reparsing dependency headers. A module export command also depends on the
-public exports of reflected dependency modules; reflection generation depends
-on the same exports plus its owning module export.
-
-Reflection generation also depends directly on the module's reflected headers. A whitespace-only header edit may leave the public `.export` symbol index unchanged, but it still must regenerate that header's `.gen.h/.gen.cpp` because `GENERATED_BODY()` macro names include source line numbers.
-
-DurinHeaderTool logs key build progress at `INFO` level:
-
-- export skip status, scan start/end, and symbol count
-- aggregate export cache hits, misses, materializations, parses, and miss reasons
-- export parse worker count when multiple headers require parsing
-- reflection phase-state preparation
-- number of regenerated/skipped headers
-- aggregate reflection cache hits, misses, materializations, parses, and miss reasons
-- reflection parse worker count when multiple headers require regeneration
-- dependency export loading
-- module reflection completion time
-
-Per-header timings and cache decisions are DEBUG-only. Invalid entry shape,
-truncation, or checksum disagreement emits a warning and follows the normal
-parser fallback; manual cache deletion is not required for recovery.
+`GENERATED_BODY()` identities include source line numbers, so any reflected
+header edit remains a direct generation input even when its public export is
+byte-for-byte unchanged.
 
 ## Symbol Model
 
@@ -268,45 +213,12 @@ directly.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
-## Persistent Reflection Phase State
+## Persistent Generation State
 
-Each reflected module writes clean-surviving private reconstruction state:
-
-```text
-<Module>/DHTState/reflection-state.json
-```
-
-The reflection payload currently uses schema v1 inside the same canonical,
-checksummed envelope and is private to DurinHeaderTool. It records:
-
-- `ToolFingerprint`
-- `NativeLibClangFingerprint`
-- `ContextDigest`, covering the symbol-name scheme and generator/parser options
-- `Module`
-- `RuntimeVariant`
-- `Platform`
-- reflected header fingerprints
-- `GeneratedOutputs`, the complete set of reflection outputs owned by the module
-- content digests for generated outputs, used to repair damaged files from a
-  valid persistent entry
-- `PendingCleanupOutputs`, stale owned outputs whose deletion must be retried
-- dependency export content digests
-- resolved reflected-symbol dependencies per header
-
-Changing the tool fingerprint, schema, context digest, runtime variant,
-platform, resolved dependency symbols, or reflected header fingerprints
-invalidates the affected generated reflection outputs.
-
-Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing or damaged generated outputs are rematerialized from stored generated text. A missing, truncated, checksum-invalid, or structurally invalid bundle is a typed state miss and is regenerated.
-
-After all new reflection outputs are committed, DHT writes the phase state with
-the difference between the old and new ownership sets in
-`PendingCleanupOutputs`. It then deletes only those named files and clears the
-pending list in a final atomic state write. An interrupted or failed deletion
-is therefore retried by the next generation command, while a failed generation
-never removes outputs belonging to the last successful state. Old output
-manifests and per-header cache entries are deliberately treated as misses; an
-ordinary build regenerates the new bundle without requiring manual deletion.
+DHT phase bundles are disposable reconstruction data rather than public
+reflection inputs. Their schemas, ownership, invalidation, clean/purge behavior,
+and interrupted-output recovery are defined by
+[Build System](../../Development/Build/BuildSystem.md).
 
 ## Generated Header Contract
 
@@ -584,165 +496,13 @@ GC schema tokens are an internal execution detail rather than a public reflectio
 
 Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, garbage requests, GC-controlled destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
 
-## Serialization
+## Serialization Integration
 
-Core owns the generic byte Archive in `Serialization/Archive.h`. It provides
-canonical little-endian primitives, raw transfer, bounded span regions,
-position/remaining-byte queries, sticky structured failures, format/custom
-versions, counting and hashing Archives, and bounded string, buffer, sequence,
-alignment and zero-padding helpers. Persistent serializers use
-`FCanonicalMemoryWriter`/`FCanonicalMemoryReader`; they never persist native
-object representation, pointers, container capacity, ABI padding or unordered
-iteration. `FArchiveState` independently carries direction, persistence, Cook,
-editor-only filtering, bulk policy, purpose and target facts.
-
-Persistent values expose one bidirectional customization: member
-`Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
-UE-style member taking a stable owner/context when the value cannot interpret
-itself alone. Archive direction selects loading versus saving. A different
-function is justified only for a materially different semantic layout such as
-Cook streaming, not merely for the opposite direction.
-
-CoreDObject layers `FObjectArchive` over that byte substrate. It owns reflected
-logical descriptors, object/field/container scopes, hard and soft object
-references and object-aware adapters. `DObject/Archive.h` forwards the Core
-Archive API and temporarily aliases its prior memory-Archive spellings to the
-object-aware canonical implementations for named migration consumers; it does
-not contain a second primitive serializer.
-
-`DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
-Its base implementation calls `SerializeDObjectProperties(...)`, which enters
-stable reflected-field scopes and walks supported non-`Transient` properties.
-A derived override calls its superclass implementation exactly once and may add
-native state only through explicitly named `FArchiveFieldDescriptor` scopes and
-semantic value operations. Missing or duplicate base calls, duplicate field
-identities, nested object entry, and unbalanced scopes are deterministic
-Archive failures.
-
-Purpose selects Discovery, ObjectGraph, Duplicate, PropertySnapshot,
-EditableCopy, AuthoredPackage, DerivedDataKey, DerivedDataPayload,
-CookedPackage, CookedPayload, or BulkData. Capabilities describe structured
-fields, bounded raw payloads, canonical Map order, hard and soft references,
-unknown-field retention, remaining-byte and position queries, custom versions,
-and multi-pass discovery. Consumers branch on capabilities and Archive context
-rather than implementation type. Discovery is save-like and may call a
-serializer once before emission; a serializer must therefore expose the same
-fields, logical types, versions, and references in both passes and must not
-mutate persistent state.
-
-`FArchiveLogicalTypeDescriptor` describes fixed-width scalars, enums, String,
-Name, Guid, bytes, hard and soft objects, structs, Array, Map, and fixed arrays
-without using C++ layout. There is no generic `sizeof(T)` serialization
-fallback. `FArchiveFieldDescriptor` combines that recursive logical type with
-the stable declaring type, field name, array dimension, and property flags;
-offsets, padding, addresses, registration order, and RTTI are not persistent
-identities. Raw bytes require explicit Archive support and, for a structured
-authored Archive, an active field with a byte logical type.
-
-Object, field, array, and Map scopes maintain a structured diagnostic path.
-`FArchive::Fail(...)` stores the first failure and later operations cannot clear
-or replace it. Unsupported capabilities and types, malformed or truncated
-payloads, invalid references and paths, unsupported versions, serializer
-contract violations, and scope errors therefore abort the owning operation at
-a stable path. A consumer owns construction, publication, rollback, and
-destruction; those lifecycle steps are never hidden inside `Serialize`.
-
-The semantic reflected-value layer is shared by object graphs, duplication,
-property snapshots, editable copying, and authored-package Archives. Hard
-references are delegated to the selected Archive and are never persisted as
-process addresses. Soft references transfer only their bounded logical path.
-Map writers that advertise canonical ordering use stable logical key tokens, so
-supported Maps do not depend on bucket or insertion history.
-
-### Default-Relative Logical Planning
-
-`BuildDefaultDeltaPlan(...)` consumes the same Archive field and logical-type
-descriptors as ordinary serialization and produces no package bytes. Discovery
-and value capture run over the same virtual `Serialize` entry; the manifest,
-types, container shapes, and canonical Map keys must agree before planning.
-Reflected and native named fields enter one canonical order by declaring type
-and field name. Captured values are detached logical nodes; published nodes do
-not retain source-memory pointers.
-
-In `EDefaultDeltaMode::Enabled`, top-level fields compare with the paired class
-default object. Once a Struct is emitted, its fields recursively compare with
-the Struct type default, including Structs inside fixed arrays, Arrays, and Map
-values. Containers are complete authored values rather than insert/remove
-deltas. A class-specific non-type-default Struct can therefore emit an empty
-Struct block when it is explicit but every child equals the type default.
-Planning is transactional: missing defaults, unavailable identity, graph or
-Archive failure, manifest drift, duplicate fields, and depth/count/path bounds
-clear the output and return a typed diagnostic.
-
-`EDefaultDeltaMode::NoDelta` does not read class or Struct defaults. It walks the
-complete live Outer-owned graph and emits every supported non-`Transient`
-logical field and child with forced provenance. It is not a raw-memory fallback:
-unstable descriptors, incomplete/custom reflected Structs, unsupported logical
-values, malformed serializers, or limit violations still fail before output.
-
-### Authored Override Intent
-
-An ordinary `DObject` may lazily own an `FAuthoredOverrideLedger`; an untouched
-object allocates no ledger, and templates reject entries. The ledger uses
-copy-on-write immutable snapshots for concurrent reads and contains no object,
-property, schema, or memory pointer. A canonical path begins with a declaring
-type and field name, then may use Struct field identities, fixed-array indices,
-positional Array indices, or Map values selected by collision-checked canonical
-key bytes. Mutation validates the current discovery/value schema, token form,
-depth, byte length, provenance, bounds, and key availability before atomic
-publication. Bulk replacement sorts complete paths and rejects duplicates
-without changing the prior ledger.
-
-Known intent is exactly `LoadedExplicit` or `Forced`; absence means no known
-intent, while retained unknown v4 values remain separate AssetCore state.
-Enabled planning applies `Forced`, then `LoadedExplicit`, then logical
-difference, then omission. Nested intent emits every required parent record.
-Forced state cannot be downgraded by a loaded-explicit update. Exact clear,
-subtree clear, and reset change only intent, never the reflected value. Missing
-Array positions and removed Map keys or fields are ignored during planning;
-incompatible surviving routes fail closed. Array marks are intentionally not
-remapped after structural edits, while Map marks survive iteration-order changes.
-
-`DuplicateObjectGraph(...)` copies ledger snapshots only after the destination
-graph exists and revalidates every path against the destination. GC ignores the
-pointer-free tokens, object destruction releases the snapshot, and class/Struct
-default teardown cannot invalidate it. Current DAST v3 load creates no ledger
-and current v3 save never queries one.
-
-Structs use the reflected non-`Transient` field walk by default. A declared
-`FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk
-for every Archive purpose and is invoked exactly once per value. Loading always
-decodes into default-constructed managed storage. After the complete field walk
-or custom serializer succeeds, an optional `PostDeserialize` callback receives
-the Archive purpose and source format version. Only successful repair is
-copy-assigned into the live destination, so truncation, missing capabilities,
-or `PostDeserializeRejected` leaves the prior value unchanged. Hidden GC
-references remain the separate responsibility of `CollectReferences`.
-
-### Transient Object Graphs and Duplication
-
-Object-graph v2 saving first runs a Discovery Archive over the same virtual
-`DObject::Serialize` entries used for emission. Scope includes the root,
-structural Outer descendants and required Outer chains, plus serialized hard
-references; raw references, soft references, and GC-only hidden references do
-not enlarge it. The discovered objects and ids are frozen before writing, and
-late objects, fields, types, references, or versions fail without publishing
-bytes. Emission retains deterministic root/Outer ordering.
-
-Loading validates the v2 header and all record bounds, creates every object
-skeleton before resolving reference ids, then invokes each object's virtual
-serializer exactly once. A failure retires the entire constructed graph. The
-format is process-local engine plumbing and has no v1 reader or migration path;
-long-lived content uses the independently versioned, field-tagged `.dasset`
-contract documented in [Asset Packages](../Assets/AssetPackages.md).
-
-`DuplicateObjectGraph(...)` uses purpose-specific save and load Archives over
-the same virtual entry. References inside the duplicated Outer tree remap to
-their duplicate, external references remain shared, and constructor-created
-inners may be reused. Any failure retires the incomplete duplicate graph.
-Property snapshots and editable copies operate on selected values rather than
-pretending to serialize a complete object; snapshots root their captured hard
-references and remain process-local and unversioned.
+Reflection supplies stable type, field, container, flag, and logical-value
+metadata to object serialization, duplication, property snapshots, and authored
+packages. Archive capabilities, scopes, object graphs, default-relative
+planning, authored override intent, and transactional failure behavior are
+defined by [Serialization](Serialization.md).
 
 ## Enum Metadata
 
@@ -916,34 +676,11 @@ later in generated C++.
 
 Runtime nested metadata can be walked with `ForEachNestedProperty(...)`. The helper visits array inner properties and map key/value properties recursively. Nested properties also expose their containing property through `FProperty::GetOwnerProperty()`.
 
-## Testing And Verification
+## Verification
 
-The current focused DHT tests live under:
-
-```text
-Engine/Source/Programs/DurinHeaderTool/tests
-```
-
-The implementation entrypoint lives inside the package at `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/__main__.py`.
-Internal code lives under `Engine/Source/Programs/DurinHeaderTool/durin_header_tool`, split by role:
-`cli`, `config`, `io`, `model`, `parser`, `resolver`, `cache`, `writers`, and `generators`.
-
-Run them with:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
-```
-
-For C++ verification, build the registered Agent profile through the repository build driver:
-
-```powershell
-.\DevTool.bat build --target all --plain
-```
-
-Run the focused CoreDObject tests after lifecycle, GC, or serialization changes:
-
-```powershell
-.\DevTool.bat test CoreObjectTests --plain
-```
-
-When adding new reflection behavior, validate both the DHT tests and a real C++ build. The generated files are part of the compile surface, and macro/friend/access errors often appear only during C++ compilation.
+DurinHeaderTool parser and generator tests cover extraction, namespace lookup,
+export identity, generated output, and recovery behavior. Native CoreDObject and
+asset tests cover runtime metadata, properties, serialization, duplication, and
+container behavior. Test selection and execution follow
+[Native C++ Tests](../../Development/Build/NativeTests.md) and
+[Build and Run](../../Development/Build/BuildAndRun.md).

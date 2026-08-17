@@ -61,15 +61,16 @@ explicit timeout of at least 10 minutes. A failed assertion, crash, or timeout
 does not require a rebuild; fix or diagnose the cause and rerun the same test
 selection.
 
-## Read the Complete Specification
+## Read the Complete Specifications
 
-Continue to [Native C++ Tests](../Development/Build/NativeTests.md) only when
-the task does one of the following:
+Continue to [Native Test Execution](../Development/Build/NativeTests.md) when
+the task changes discovery, selection, registry consumption, harness execution,
+aggregate behavior, test CI, application hosting, or characterization,
+qualification, stress, report, and case-isolation modes. Use it also for
+failure diagnosis beyond a focused rerun.
 
-- adds, splits, classifies, or registers a test target;
-- changes test discovery, selection, CMake metadata, the registry, harness,
-  deployment, isolation, resource locks, aggregate behavior, or test CI;
-- needs characterization, qualification, stress, report, or case-isolation
-  modes;
-- requires fixture, sandbox, runtime-dependency, or failure-diagnosis rules not
-  covered by a focused rerun.
+Continue to
+[Native Test Authoring](../Development/Build/NativeTestAuthoring.md) when the
+task adds, splits, classifies, or registers a test target, or changes target
+metadata, source ownership, fixtures, sandboxes, runtime dependencies,
+deployment, capability guards, lifecycle isolation, or resource locks.

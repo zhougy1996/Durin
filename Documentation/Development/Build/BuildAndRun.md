@@ -159,7 +159,7 @@ This does not yet declare complete macOS product support. Visible Editor-window
 input and close behavior, multi-monitor and multi-viewport interaction, the
 full MoltenVK rendering and asset compatibility matrices, `.app` bundles,
 signing, notarization, and distribution remain under qualification. Track the
-current boundary in the [macOS Platform Enablement Roadmap](../../Roadmaps/MacOSPlatformEnablement.md).
+current boundary in the [macOS Platform Enablement Roadmap](../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md).
 
 ## Windows Workflow
 
@@ -406,52 +406,10 @@ smoke test, launch the runtime with PowerShell `Start-Process`, pass
 process after verification. `-WindowStyle Hidden` only affects process startup
 and is not a substitute for the application argument.
 
-## Asset Audit And Canonical Resave
+## Preset Selection
 
-Audit the engine, active project, and configured auto-scan mounts without
-starting an editor workspace:
-
-```powershell
-.\DevTool.bat build --target DurinAssetTool
-.\DevTool.bat asset baseline --project Sandbox\Sandbox.dproject
-.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject
-.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --format json
-.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --fail-on incompatible --fail-on unsupported --fail-on error
-```
-
-The default human output groups incompatible, unsupported, failed, and stale
-records. `--format json` emits the versioned schema in
-`Tools/DurinDevTool/schemas/asset-audit-v2.schema.json`; packages are ordered by
-virtual path, each record exposes its DAST `formatVersion`, and enum values use
-stable names. The three `--fail-on` options are
-independent and repeated options combine by logical OR. With no policy option,
-incompatible and unsupported packages are reported but do not fail the command.
-
-`asset baseline` is the repository and CI gate. It performs the same read-only
-discovery and compatibility probing, then succeeds only when every discovered
-authored package is the current DAST v4 format with no schema finding. It
-returns `0` for a current baseline, `3` for any older, newer, incompatible,
-unsupported, failed, or stale package, `1` for operational failure, and `130`
-for cancellation. Run it after changing authored packages and in repository
-validation before obsolete format support is removed.
-
-Exit status `0` means the scan and serialization completed and no selected
-policy matched. Status `3` means a selected policy matched. Status `1` is an
-operational scan/process/schema or command-line validation failure, and
-Ctrl+C/cancellation uses status `130`. Audit initializes
-only project paths, mount definitions, reflected types, and streaming AssetCore
-probing. They do not enter Launch, create an editor or renderer, load package
-objects or expose a source mutation path.
-
-`DurinAssetTool --operation=canonical-resave` is the explicitly selected
-current-format maintenance operation. It is a dry run unless `--apply` is
-present, refreshes and validates the Asset Catalog before ordinary package
-loading, rejects non-current or incompatible inputs, and publishes each changed
-package atomically. It is not a package-format migration command. Durin retains
-no general migration graph; a future real corpus conversion requires its own
-bounded plan and temporary offline converter.
-
-Select another registered configure preset with `--preset`:
+Select another registered configure preset explicitly when the default profile
+is not the intended target:
 
 ```powershell
 .\DevTool.bat build --preset Win64-Release-DurinEditor --target all
@@ -459,321 +417,27 @@ Select another registered configure preset with `--preset`:
 .\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
 ```
 
-`CMakePresets.json` remains the source of truth for preset configuration.
-`Tools/DurinDevTool/DevTool.json` selects that file and the tracked
-`AgentBuildProfiles.json` manifest, which controls which presets DurinDevTool may
-own for each host environment. The IDE-only
-`Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
+`CMakePresets.json` remains the configuration source of truth.
+`Tools/DurinDevTool/DevTool.json` selects it together with the tracked
+`AgentBuildProfiles.json` ownership manifest. The IDE-only
+`Win64-Debug-DurinEditor-FastConfigure` preset is excluded from build ownership;
+its generated targets reject DHT, compilation, and linking and exist only for
+IDE indexing.
 
-FastConfigure is marked code-model-only. Its generated build targets fail before
-DHT, compilation, or linking can start; it may only configure for IDE indexing.
+## Asset Maintenance
 
-## Interactive Shell
+The compatibility audit is read-only and exposes the same package inspection
+model through the editor and DurinDevTool. Package compatibility semantics are
+defined by [Asset Packages](../../Runtime/Assets/AssetPackages.md); the
+user-facing rewrite procedure is
+[Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 
-Run `DurinDevTool` without arguments, or pass `shell`, to open the human-oriented command shell:
+## DurinDevTool Command Reference
 
-```powershell
-.\DevTool.bat
-.\DevTool.bat shell
-```
-
-Opening the shell loads repository configuration, build profiles, and registered
-presets, but does not initialize CMake, Visual Studio, or the compiler toolchain.
-The first `configure`, `build`, `clean`, `rebuild`, or `test` command resolves and
-validates the toolchain once; later commands and preset switches reuse that
-environment for the rest of the session. Read-only and artifact commands remain
-available when the compiler toolchain is unavailable.
-
-The prepared shell uses the same interactive line editor on Windows and macOS.
-Up and Down navigate session history; Tab completes registered commands,
-subcommands, option names, and fixed option values according to the current
-command path. Before Setup has installed the prepared Python dependencies, the
-shell falls back to the host's standard line editor so Setup remains
-bootstrap-safe.
-
-If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\DevTool.bat stop` from a second terminal, or enter `stop` in another already-open DurinDevTool shell. It stops the active DurinDevTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
-
-The selected preset is session-local and does not modify `.agents/DevTool.user.json`:
-
-```text
-DurinDevTool> presets
-   1  Win64-Debug-DurinEditor [default, current]
-   2  Win64-Release-DurinEditor
-   3  Win64-Release-DurinEditor-Profiling
-   4  Win64-Debug-DurinGame
-   5  Win64-Release-DurinGame
-   6  Win64-Release-DurinGame-Profiling
-   7  Win64-Shipping-DurinGame
-DurinDevTool> preset 2
-DurinDevTool> preset
-CMake preset: "Win64-Release-DurinEditor"
-DurinDevTool> preset Win64-Debug-DurinGame
-DurinDevTool> configure --fresh
-DurinDevTool> build
-DurinDevTool> recover
-DurinDevTool> rebuild --target DurinLauncher
-DurinDevTool> test CoreConcurrencyTests FTaskSchedulerTests.* --timeout 300
-DurinDevTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
-DurinDevTool> path runtime
-DurinDevTool> open runtime
-DurinDevTool> status
-DurinDevTool> stop
-DurinDevTool> exit
-```
-
-`presets` only displays the registered list and immediately returns to the
-normal prompt. `preset` without an argument displays the current preset;
-`preset <number>` selects the corresponding displayed entry, and `preset
-<full-name>` selects a preset by its case-insensitive full name. Direct and
-interactive selection resolve the same entry, while only an interactive shell
-retains it for later commands. `build` and `rebuild` default to target `all`.
-Shell commands use the same grammar as their direct forms. Native-test
-selection is positional (`test <target> [filter]`); build targets use
-`--target`, and runtime arguments follow `--args`. `run` launches the current preset's existing
-runtime executable and returns to the shell when it exits. Its typed
-`--project <descriptor>` option follows the same normalization and conflict
-rules as the direct command; place it before `--args`. `path`
-prints a registered absolute path and `open` opens the same registered location
-in the platform file manager.
-`status` reports the host build profile, preset, runtime variant, build
-directory, configuration, recovery
-state, and whether CMake, parallelism, and the toolchain environment are resolved
-or still deferred. `stop` stops an operation held by another DurinDevTool process.
-Use `help` for the complete command list, `help <command>` for a command, and
-`help <group> <command>` for a nested command such as `help worktree add`. A
-leading slash remains accepted for compatibility but is not required. A bare
-group without a selected safe default displays its group help and returns to the
-interactive prompt.
-
-`test all` defaults to one process per ordinary native-test target and
-excludes characterization and performance-qualification targets. Run a bounded
-`@kind=qualification` selection with `--mode qualification` when those
-measurements are required.
-Do not run unfiltered `test all --granularity case`; use a focused target
-and positional GoogleTest filter for ordinary failure diagnosis. Case granularity remains
-available with a narrow case-name `--ctest-regex` or for explicit isolation
-qualification. `--granularity hybrid` is retained for rollout compatibility
-and currently matches target mode. `--schedule-random` also
-shuffles cases inside batched target processes and prints the reproducible
-GoogleTest seed. A focused `test <Target> <Filter>` always
-launches one filtered target process. See
-[Native C++ Tests](NativeTests.md) for lifecycle, sandbox, and authoring rules.
-
-## Repository Locations
-
-`path <location>` writes one absolute native path without a label, so scripts
-can capture it directly. `path --all --plain` writes one stable tab-separated
-`name<TAB>path` record per canonical location. Location names are
-case-insensitive:
-
-| Location | Resolved directory |
-| --- | --- |
-| `root` | Current repository checkout root |
-| `build` | Selected CMake preset's `binaryDir` |
-| `binaries` | Configured runtime-binaries root, currently `Engine/Binaries` |
-| `output` | Selected platform and configuration below `binaries` |
-| `runtime` | Selected runtime variant directory containing its launcher |
-| `tests` | Selected runtime variant's native-test `Bin` directory |
-| `logs` | DurinDevTool command-log directory below the configured state directory |
-
-`bin` is the documented compact alias for `binaries`. `path` resolves and
-prints a registered location even before its directory has been created. `open`
-requires an existing directory and otherwise reports the resolved path plus the
-command expected to create it. Neither command initializes the compiler
-toolchain or acquires the checkout operation lock; only `open` launches an
-external process. Arbitrary filesystem paths are intentionally not accepted.
-
-## Documentation Operations
-
-DurinDevTool exposes repository documentation through the `doc` command group.
-Ordinary discovery excludes `Documentation/Plans/Archive` and
-`Documentation/Roadmaps/Archive`; add
-`--include-archive` only when historical plans or roadmaps are intentionally
-part of the request:
-
-```powershell
-.\DevTool.bat doc list --under Documentation\Runtime
-.\DevTool.bat doc find "asset package" --kind contract
-.\DevTool.bat doc list --kind task
-.\DevTool.bat doc refs Documentation\Runtime\Assets\AssetPackages.md
-.\DevTool.bat doc validate --scope changed
-.\DevTool.bat doc validate --scope all --format json
-```
-
-`list`, `find`, `refs`, and `validate` accept terminal, Markdown, or
-schema-versioned JSON output. Direct calls default to Markdown and the
-interactive shell defaults to terminal output. Validation checks mechanical
-repository contracts such as UTF-8 Markdown, top-level titles, local-link
-targets, required investigation metadata, and open-task structure. It does not
-replace human/Agent review of the document ownership boundaries in
-`Documentation/AGENTS.md`.
-
-Create ordinary documents with a type, repository-relative destination, and
-title. Move operations repair Markdown links and explicit repository-relative
-paths in tracked and untracked Markdown files:
-
-```powershell
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
-```
-
-Both operations are dry runs unless `--apply` is present. Applying verifies
-that every previewed source still has the same content, writes atomically,
-validates the resulting documentation tree, and rolls back every affected file
-if the transaction fails. Task, plan, investigation, and policy creation remains
-owned by their nearest authoring rules rather than a generic template.
-
-Open-task commands are nested under `doc task`. The list is derived directly
-from task files and uses the first Outcome paragraph as its compact summary; no
-separate task index is maintained:
-
-```powershell
-.\DevTool.bat doc task list
-.\DevTool.bat doc task list --query "HeaderTool" --format json
-.\DevTool.bat doc task validate
-.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
-.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md --apply
-```
-
-Task removal is a dry run unless `--apply` is present. Applying verifies the
-previewed task fingerprint, rejects remaining inbound repository-Markdown
-references, deletes the task, validates the resulting documentation tree, and
-restores the task if validation fails. Completion and cancellation history
-remains in Git; tasks have no status field or archive.
-
-Implementation-plan lifecycle commands are nested under `doc plan`:
-
-```powershell
-.\DevTool.bat doc plan list
-.\DevTool.bat doc plan validate --scope all
-.\DevTool.bat doc plan archive 2026-07
-.\DevTool.bat doc plan archive 2026-07 --apply
-```
-
-Engineering-roadmap lifecycle commands use the same metadata validation,
-monthly archive layout, transactional link repair, and dry-run/apply boundary:
-
-```powershell
-.\DevTool.bat doc roadmap list
-.\DevTool.bat doc roadmap validate --scope all
-.\DevTool.bat doc roadmap archive 2026-07
-.\DevTool.bat doc roadmap archive 2026-07 --apply
-```
-
-## Creating Modules
-
-Create a workspace module with one DurinDevTool command. The project descriptor
-may be relative to the workspace root or absolute:
-
-```powershell
-.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
-.\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
-.\DevTool.bat create module AssetRecipes --project Sandbox\Sandbox.dproject --kind developer --private-dependency Core
-```
-
-Without `--path`, runtime modules are created under
-`Source/Runtime/<ModuleName>` and added to `BaseModules`; editor modules are
-created under `Source/Editor/<ModuleName>` and added to
-`ExtraModules.DurinEditor.Modules`; developer modules are created under
-`Source/Developer/<ModuleName>` and also default to
-`ExtraModules.DurinEditor.Modules`. Developer is a scaffolding/selection
-default for non-game tools and recipes, not a runtime variant or a property
-inferred from the path. The directory names are scaffolding defaults, not
-build-system classification. The built-in asset-authoring example is
-`AssetBuildCore` plus the independently selectable `TextureBuild` and
-`GeometryBuild` recipes; explicit host roots own startup, pumping and drain.
-Use `--path <ProjectRelativePath>`
-to place the module elsewhere inside its owning project:
-
-```powershell
-.\DevTool.bat create module Combat --project MyGame\MyGame.dproject --path Source\Game\Combat --private-dependency Core
-.\DevTool.bat create module WorldTools --project MyGame\MyGame.dproject --path "Source\Tools\World Tools" --kind editor --private-dependency Core
-```
-
-An absolute `--path` is also accepted when it resolves inside the owning
-project. The destination must be new and cannot contain, be contained by, or
-otherwise overlap an existing module root. `--kind` still selects the default
-path when `--path` is omitted and controls the default enablement; it does not
-otherwise classify the custom directory.
-
-Use `--enable none`, `--enable base`, or repeat
-`--enable <RuntimeVariant>` to replace the default enablement. Dependency options
-are repeatable:
-
-```text
---public-dependency
---private-dependency
---optional-public-dependency
---optional-private-dependency
-```
-
-Shared linkage and a self PCH are the defaults. `--link static` selects static
-linkage, while `--pch <Name>` selects an existing shared PCH. A self-PCH module
-also receives `Private/PCH.<ModuleName>.h`. The minimal generated entry point
-uses Core's module interface, so include `Core` directly or through a dependency
-whose public interface exposes Core.
-
-Within the selected module root, ordinary source discovery currently uses the
-generated `Public/` and `Private/` directories recursively. A project may choose
-any higher-level organization—such as `Source/Game`, `Source/Features`, or
-`Source/Tools`—while retaining those module-internal visibility directories.
-
-Preview the complete operation without creating directories, temporary files,
-or descriptor edits:
-
-```powershell
-.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
-```
-
-Creation validates names, workspace-wide dependencies, runtime variants, paths, and
-CMake target collisions before writing. During mutation, new files and
-directories are tracked and the prior project descriptor is backed up. Any
-write or final descriptor-validation failure restores the original bytes and
-removes only paths created by that invocation. Repeating a successful request
-reports an existing-name or destination conflict instead of overwriting it.
-Generated files are rendered from the reviewed templates under
-`Templates/Scaffolding/module`.
-The same `create module` syntax is available in the interactive DurinDevTool shell.
-
-## Creating Workspace Projects
-
-Create and register a workspace-local project with one command:
-
-```powershell
-.\DevTool.bat create project MyGame --path MyGame
-```
-
-The project path may be relative to the workspace root or an absolute path
-resolving to the same location. In the current workspace-local workflow, it
-must be a new direct child of the workspace root. Project names must be valid
-C++ identifiers and case-insensitively unique among projects, modules, and
-CMake targets.
-
-The command creates `MyGame.dproject`, the project `CMakeLists.txt`,
-`CMake/MyGameSetup.cmake`, empty `Configs/` and `Content/` roots, and a
-same-named runtime module under `Source/Runtime/MyGame`. The initial module is
-enabled in `BaseModules`, uses the self PCH and shared-linkage defaults, and
-depends privately on `Core`. DurinDevTool also appends one quoted
-`add_subdirectory(...)` registration after the existing workspace project
-registrations in the root `CMakeLists.txt`.
-
-Preview the complete operation without changing the workspace:
-
-```powershell
-.\DevTool.bat create project MyGame --path MyGame --dry-run --plain
-```
-
-Project creation validates containment, project/module/target name collisions,
-existing and overlapping destinations, and the root CMake registration before
-writing. The project tree and root CMake edit are one transaction: a failure
-restores the previous root file byte-for-byte and removes only paths created by
-that invocation. Installed-engine projects, external project roots, and nested
-workspace project paths are not supported by this command. The same syntax is
-available in the interactive DurinDevTool shell. Project-specific files are
-rendered from `Templates/Scaffolding/project`, while the initial module reuses
-the module templates.
+Interactive-shell behavior, repository path discovery, documentation lifecycle
+commands, and module/project scaffolding are defined by
+[DurinDevTool Command Interface](../Tooling/DurinDevTool.md). Build, run, clean,
+recovery, and output ownership remain in this document.
 
 ## Clean And Purge
 
@@ -935,7 +599,9 @@ The opt-in Release profiling workflow is documented in
 - `Documentation/Agents/BuildAndRun.md`
 - `Documentation/Development/Build/ThirdPartyBootstrap.md`
 - `Documentation/Development/Build/NativeTests.md`
+- `Documentation/Development/Build/NativeTestAuthoring.md`
 - `Documentation/Development/Tooling/IDECodeModel.md`
+- `Documentation/Development/Tooling/DurinDevTool.md`
 - `Documentation/Development/Build/BuildSystem.md`
 - `Documentation/Development/Build/RuntimeVariants.md`
 - `Documentation/Development/Build/Profiling.md`

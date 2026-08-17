@@ -15,21 +15,31 @@ not open the other rows or scan an entire directory.
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
+| DurinDevTool shell, path discovery, documentation commands, or scaffolding | [DurinDevTool command interface](Development/Tooling/DurinDevTool.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |
-| Adding, classifying, registering, or changing native-test infrastructure | [Native tests](Development/Build/NativeTests.md) |
+| Advanced native-test selection, modes, diagnosis, aggregates, or CI execution | [Native test execution](Development/Build/NativeTests.md) |
+| Adding, classifying, registering, or changing native-test targets | [Native test authoring](Development/Build/NativeTestAuthoring.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
+| Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/AssetPackages.md) |
+| Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
+| Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
+| Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
+| Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/Core/Serialization.md) |
 | Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Core/WindowFrames.md) |
 | Image decoding, Radiance HDR, or grayscale16 PNG | [Core image codec](Runtime/Core/ImageCodec.md) |
 | Actor or Component Tick registration, groups, ordering, or mutation | [Tick scheduling](Runtime/World/TickScheduling.md) |
+| Level ownership, World play state, gameplay session, lifecycle mutation, or Actor iteration | [Level system](Runtime/World/LevelSystem.md) |
 | Sandbox gameplay controls, tuning, camera, or ground-plane limits | [Sandbox gameplay](Runtime/Gameplay/SandboxGameplay.md) |
 | Core math aliases, operation semantics, or the GLM boundary | [Core math](Runtime/Core/Math.md) |
 | Collision shapes, body setup/instance, physics scene, traces, sweeps, or overlaps | [Runtime collision](Runtime/Physics/Collision.md) |
 | Physics-framework long-term scaling, broadphase/narrowphase, cooked collision, dynamics, or backend evolution | [Aether physics evolution roadmap](Roadmaps/AetherPhysicsEvolution.md) |
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
+| Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/RenderResourceLifecycle.md) |
+| Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |
 | Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/DeferredDirectionalLighting.md) |
 | Shadow quality, bias, PCF, cascades, contact shadows, or future local-light shadow development | [Shadow system evolution roadmap](Roadmaps/Archive/2026-08/ShadowSystemEvolution.md) |

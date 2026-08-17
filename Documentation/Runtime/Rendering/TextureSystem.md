@@ -325,6 +325,11 @@ directory from Content.
 - Opacity and OpacityMask texture data are resolved into the surface, but the
   current fixed opaque pass does not use either value for coverage or depth.
 
+## Related Documentation
+
+- [Render Resource Lifecycle](RenderResourceLifecycle.md)
+- [Asset Data Lifecycle And Storage](../Assets/AssetDataLifecycle.md)
+
 ## Related Code
 
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`

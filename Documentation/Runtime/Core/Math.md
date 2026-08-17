@@ -119,13 +119,5 @@ a rationale in
 include, changed count, or stale entry. Completed migration must not leave a
 `migration-debt` or `deferred-plan` entry.
 
-## Future Value-Type Replacement
-
-A proposal to replace GLM storage must separately account for alias ABI,
-constructors and operators, component and matrix indexing, reflection
-registration, serialized fields, import adapters, and CPU-to-shader layouts.
-The `Durin::Math` operation surface already isolates algorithm semantics, but
-does not solve those storage and interoperability concerns.
-
 Build and test execution follows [Build and Run](../../Development/Build/BuildAndRun.md)
 and [Native Tests](../../Development/Build/NativeTests.md).

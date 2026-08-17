@@ -61,3 +61,25 @@ research in ignored `Documentation/Local/` or outside the repository.
   code-agnostic or cross-repository guidance. These fields are routing metadata,
   not substitutes for ownership details in the document body.
 - Add a `Last reviewed` date where required by the nearest authoring rules.
+
+### Growth Reviews
+
+Apply these checks to long-lived `Development`, `Runtime`, `Editor`, and
+`Workspace` documents. Plans, roadmaps, tasks, investigations, and archives
+follow their own lifecycle rules.
+
+- Treat 500 lines as a review trigger, not a size limit. The trigger alone does
+  not require a split, and cohesive wire formats, formulas, state machines, or
+  ordering contracts should remain intact when separation would obscure them.
+- Before materially extending or adding a top-level section to a document at
+  or above the trigger, confirm that the new material has the same authoritative
+  concern, audience, and ownership. Split when two or more concerns can be
+  routed and maintained independently.
+- Before expanding any long-lived document, check the closest domain contracts
+  for an existing authority. Content owned elsewhere gets only the boundary
+  needed for local context plus a direct link; do not restate its mechanics or
+  status, and keep a local example only when it explains a distinct local use.
+- After a split, leave a concise ownership link in the originating document,
+  add reciprocal related-document links where they aid navigation, and update
+  `Documentation/README.md` only when the new document has a distinct task
+  trigger.

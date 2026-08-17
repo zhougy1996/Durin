@@ -4,7 +4,7 @@ Summary: Implement and qualify the Apple Silicon macOS process, crash, shell, wi
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -55,9 +55,9 @@ targets and the full `all` build remained clean. Stages 3 and 4 and this plan
 are complete; completion does not claim the full M3 rendering vertical slice.
 
 This plan is M2 of the
-[macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
+[macOS Platform Enablement roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md) and
 consumes the archived M1
-[native toolchain handoff](Archive/2026-08/MacOSNativeToolchainBootstrap.md#m2-entry-diagnostics-and-rollback-boundary).
+[native toolchain handoff](MacOSNativeToolchainBootstrap.md#m2-entry-diagnostics-and-rollback-boundary).
 
 ## Goal
 
@@ -239,9 +239,9 @@ bodies; and failure paths provide actionable native diagnostics.
 | Regression | Focused native suites, DevTool and DHT Python suites, CMake metadata checks, and synthetic/hosted Windows contract coverage. |
 
 Build, native-test selection, and documentation validation follow the
-repository [agent build workflow](../Agents/BuildAndRun.md),
-[agent testing workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md).
+repository [agent build workflow](../../../Agents/BuildAndRun.md),
+[agent testing workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md).
 
 ## Definition of Done
 
@@ -269,13 +269,13 @@ repository [agent build workflow](../Agents/BuildAndRun.md),
 
 ## Related Documentation
 
-- [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md)
-- [macOS Native Toolchain Bootstrap](Archive/2026-08/MacOSNativeToolchainBootstrap.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Documentation Workflow](../Agents/Documentation.md)
+- [macOS Platform Enablement roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
+- [macOS Native Toolchain Bootstrap](MacOSNativeToolchainBootstrap.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 

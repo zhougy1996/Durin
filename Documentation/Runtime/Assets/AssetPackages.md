@@ -1,8 +1,10 @@
 # Asset Packages
 
-Summary: Define asset identity, registry, package serialization, loading, compatibility audit, derived data, and cooking.
+Summary: Define asset identity, package serialization, runtime residency, loading, and compatibility inspection.
 
 Modules: AssetCore, CoreDObject
+
+Last reviewed: 2026-08-18
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -14,15 +16,13 @@ must match a registered mount. `FSourcePath` uses the same logical mount and
 retains the filename extension. Both types resolve relative to the mount's
 single `GetContentDir()`; neither virtual path includes `Root` or `ContentPath`.
 
-The immutable Core registry publishes `/Engine/` and `/Game/` plus validated
-project-declared extension and external-source mounts. Every mount may contain
-`.dasset` packages and ordinary authoring files. `AutoScan` controls recursive
-package discovery and therefore ordinary load visibility. A package under a
-manual-scan mount is still a valid authored identity, but it must be admitted
-explicitly before `LoadAsset` can see it. Typed
-resolution reports invalid paths, unknown mounts, unavailable content
-directories, escapes, missing files, forbidden dependencies, and read-only
-authoring policy distinctly.
+The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
+validated project-declared extension and external-source mounts. Every mount
+may contain `.dasset` packages and ordinary authoring files. Typed resolution
+reports invalid paths, unknown mounts, unavailable content directories,
+escapes, missing files, forbidden dependencies, and read-only authoring policy
+distinctly. `AutoScan`, explicit admission, and load-visibility projection are
+defined by [Asset Catalog And Mutation](AssetCatalogAndMutation.md).
 
 Existing paths and not-yet-created destinations are checked against canonical
 content directories, including junction and symbolic-link targets.
@@ -92,18 +92,9 @@ probing a package header, or publishing metadata. Editor recovery may explicitly
 `AdmitAssetPackageToCatalog`; startup and Cooked-runtime fixtures refresh the
 catalog after publishing their mounts.
 
-The registry exposes `FindAssetExact(...)` for physical entry identity,
-`ResolveAssetPath(...)` for final real identity, deterministic direct reverse
-redirect lookup, unified hard/soft/redirect reference-index queries, and
-`BuildCookReachability(...)`. Redirect resolution follows at most 32 aliases and reports missing
-requests, missing targets, cycles, depth overflow, unknown final classes, type
-mismatch, and corrupt redirect metadata without changing runtime residency.
-Production relocation uses `PrepareAssetRelocationTransaction` to obtain an
-immutable summary and opaque transaction. `Commit`, `Undo`, and `Redo` own
-final revalidation, journal advancement, compensation, and recovery
-classification. Persistent settings and import records keep their authored
-paths and resolve aliases at use sites; relocation never reads or saves an
-arbitrary external store.
+Catalog queries, redirect diagnostics, reference projections, Cook reachability,
+and transactional relocation are defined by
+[Asset Catalog And Mutation](AssetCatalogAndMutation.md).
 
 ## File Format
 
@@ -625,200 +616,16 @@ package format. An engine release rewrites a package only through an explicit
 current-format canonical resave or a separately planned temporary corpus
 converter.
 
-## Rebuildable Asset Caches
+## Related Asset Data Contracts
 
-Durin stores asset discovery metadata and source-image thumbnails beneath `FPaths::DerivedDataCacheDir()`. The active project owns this directory; without a project, the engine directory is the fallback. It is ignored generated data, is never a content mount, and may be deleted in full while the editor is stopped. Mounted `Content` remains authoritative and repopulates both caches.
+Platform payload DDC objects, cooked DBLK companions, deterministic publication,
+and authored-versus-cooked runtime policy are defined by
+[Asset Data Lifecycle and Storage](AssetDataLifecycle.md). Asset-specific build
+and payload details remain with their owning contracts, including
+[Texture System](../Rendering/TextureSystem.md) and
+[Static Mesh Rendering](../Rendering/StaticMeshRendering.md).
 
-Compiled shader manifests, SPIR-V, and reflection sidecars also live beneath `DerivedDataCache/Shaders/`. Their virtual shader mount namespace prevents engine, project, and extension shaders from colliding. Authored Slang sources remain authoritative and rebuild the shader cache after deletion.
-
-`StaticMesh/Objects/<key-prefix>/<key>.bin` stores DMSH render payloads built
-from exact source bytes, importer identity and version, semantic import
-settings, payload/builder versions, target platform, and target profile.
-StaticMesh import writes this object for immediate editor reuse. A safe miss can
-be rebuilt from source, and a cook can reuse the resulting render data without
-making runtime depend on the DDC path.
-
-`AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, entry kind, redirect destination, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse and verifies redirector bodies. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the private catalog store and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly runtime shutdown. Public callers receive owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values, never pointers into the store. `RefreshAssetCatalog` returns requested mode, completeness, prior/resulting revisions, catalog and reference counters, warnings, and structured errors in one value. The monotonic process-local revision advances only when published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure/redirector counts, and package-header read attempts and physical/logical bytes.
-
-Public ownership is split by purpose: `AssetPackage.h` owns package-format and
-inspection values, `AssetCatalog.h` owns immutable discovery values,
-`AssetLoad.h` owns runtime resolution/residency, `AssetMutation.h` owns current
-authoring operations, and `AssetTestSupport.h` owns deterministic failure seams.
-No public manager or mutable catalog container is part of the contract.
-
-`AssetRegistry/References.bin` is the single rebuildable hard, soft, and
-redirect occurrence projection. Every source entry is keyed by its full package
-size, stable last-write time, 128-bit content hash, DAST version, and extractor
-schema. Each occurrence records source package and object identity, declaring
-type, top-level field, kind, expected class, target path, a typed
-fixed-array/Array/Map/struct route, and a deterministic display path. Results
-sort deterministically and support target-to-referencer and deduplicated
-source-to-target queries without changing package-header dependency semantics.
-
-Incremental reconciliation treats an exact package path, file-size, and stable
-last-write-time match as a trusted cheap cache hit before reading any package
-payload. It carries forward the cached content hash and occurrences without
-recomputing them. A writer that changes bytes while restoring both size and
-timestamp can therefore remain invisible until `FullValidation`; that explicit
-mode bypasses both registry and reference reuse, reads and hashes every package,
-and performs complete package and reference validation. Reference-index scan
-diagnostics report payload-read attempts and bytes separately from logical
-reuse and extraction counts, and reset for every scan.
-
-With a missing or invalid reference cache, reconciliation attempts one payload
-read for each discovered source; an unchanged warm incremental scan attempts
-none, a single metadata-visible source change attempts one, and
-`FullValidation` attempts one per source. Failed opens count as attempts but add
-no bytes. Explicit Content Browser Refresh still reconciles every registered
-auto-scan mount through this incremental path; its current-folder scope applies
-only to the visible item snapshot, not to registry discovery.
-
-Extraction reads package fields and reflection metadata without constructing
-owner objects, invoking `PostLoad`, resolving targets, or changing residency.
-It accepts at most four container levels, 100,000 occurrences per package,
-1,000,000 occurrences per snapshot, 1 MiB paths and Map-key tokens, and 4 KiB
-display paths. Cache miss, fingerprint change, full validation, schema change,
-or corrupt cache re-extracts the authoritative package; save, source relocation,
-source deletion, and registry reconciliation update or invalidate the affected
-source projection. A failed source extraction publishes no partial source
-entry.
-
-The registry's cook-reachability query resolves explicit roots and registered
-external runtime roots to final real assets, then traverses canonical hard and
-soft targets. It validates expected classes at the final metadata, rejects
-missing/cyclic/corrupt redirects and incomplete source indexing, excludes alias
-packages from the result, and terminates ordinary reference cycles through its
-visited set. External providers contribute values without modifying their
-authored stores. This Cook graph does not alter runtime loading or unload guards,
-which continue to use only package-header hard dependencies.
-
-`CanonicalizeAssetPackageForCook(...)` losslessly rewrites hard and soft paths
-in produced bytes to final real paths and verifies that no dependency or field
-still names a redirector. `FCookContext` runs that pass before staging, rejects
-redirector packages, canonicalizes registered output identities, detects aliases
-that collapse onto one output, and publishes only real packages and their bulk
-companions. Cook never edits the authored `.dasset` or external root store.
-
-Asset relocation is atomic and batched even for one mapping. Preparation
-captures the registry revision, exact participant fingerprints, resident-package
-state, generated redirectors, and exclusively owned payload moves behind an
-opaque transaction. Its immutable summary exposes the operation kind, captured
-revision, and ordered source/destination scope. `Commit` prepares and journals
-every output, publishes real destinations, owned payloads, source and upstream
-redirectors, resident package/object names, and the complete registry projection
-under one revision. `Undo` and `Redo` use the same retained transaction rather
-than computing reverse moves. Invalid state transitions fail without advancing
-the journal; result details distinguish restored failure from retained
-recovery-required state.
-
-A successful `A -> B` keeps a direct `A -> B` redirector. Moving `B -> C`
-retargets upstream aliases directly to `C`; moving back to an alias path may
-reclaim it only when exact resolution proves that it denotes the same real
-asset. Unrelated aliases and real assets remain hard collisions. Relocation
-does not consult reference-index completeness, load or save referencers,
-rewrite hard or soft authored paths, or modify project settings/import records.
-Stale tokens, read-only participants, collisions, staging failures, and
-publication failures either make no authoritative change or run reverse-order
-compensation; failed compensation retains an explicit recovery-required
-journal beneath every affected content mount. Its versioned entries record
-physical/staged paths, pre/post fingerprints, publication order, and
-completed/compensated state. An extensionless locator beneath
-`Saved/AssetMutationRecovery` names those roots for recovery tooling but is not
-authoritative data.
-
-Deletion never rewrites persistent paths. Preparation returns one opaque
-deletion transaction whose immutable scope uses the unified graph and
-registered stores for safety diagnostics. Alias-only deletion,
-broken aliases, and target selections missing any direct/upstream alias are
-blocked. Deleting a target together with its complete alias closure requires an
-explicit warning; soft and external-store occurrences warn that authored paths
-will dangle. Registry/store revisions, warning snapshots, exact entries, and
-files are retained so `Commit`, `Undo`, and `Redo` can revalidate and restore
-redirector metadata exactly. AssetCore owns final safety validation, resident
-eviction, catalog removal/restoration, and compensation order around a
-caller-supplied reversible physical stage/restore transition. Callers cannot
-invoke unload or registry-projection phases separately.
-
-Owned-payload relocators, deletion-companion contributors, persistent external
-reference stores, and committed-only move observers register through explicit
-handles. Registrations retain the module-owned resource lease, gate every
-invocation against owner retirement, reject duplicate class providers, and are
-removed by their exact handle. No callback may silently replace another
-module's durable-state owner.
-
-Fix Up is the only path-canonicalizing authoring transaction. It computes
-upstream alias closure, rewrites tagged hard/soft package fields plus registered
-external stores, verifies zero remaining incoming persistent occurrences, and
-then optionally deletes the aliases. Dirty/incompatible/read-only inputs,
-incomplete indexes, unavailable providers, changed fingerprints, publication
-failure, or verification failure retain valid redirectors and restore every
-participant.
-
-`PrepareRedirectorFixupTransaction` returns an immutable summary of selected
-aliases, final mappings, package/store occurrences, and aliases proven
-deletable, plus the same opaque mutation value used by relocation. `Commit`
-owns the final registry/store/fingerprint checks, journal publication,
-verification, and compensation. Result details separately report rewritten,
-retained, deleted, skipped, and failed paths. Fix Up is an explicit maintenance
-command rather than an editor-history entry, so its transaction deliberately
-does not advertise `Undo` or `Redo`; calling either is rejected without changing
-the committed state.
-
-Registry dependencies are package-level strong-reference edges collected from
-the package header. They support loading, unload guards, move/delete checks, and
-dependency-closure queries, but do not record which reflected property produced
-an edge. In particular, they are not material Parent tags and cannot answer
-which unloaded material instances are direct children of a material. Loaded
-material hierarchy queries instead inspect canonical Parent chains; an unloaded
-child query requires a future searchable-property metadata contract.
-
-`Thumbnails/Index.bin` maps stable provider-neutral keys to PNG objects under
-`Thumbnails/Objects/`. Source-image keys include normalized source identity,
-source size and last-write time, maximum dimensions, generator schema,
-color-space policy, and output encoding version. Rendered Material,
-MaterialInstance, and TextureCube keys instead include virtual asset identity,
-exact class, package fingerprint, provider and visual-contract schemas, fixed
-output settings, and preview-fixture identity; material keys also include the
-sorted transitive package-dependency closure. In-flight generation separately
-revalidates asset and render-resource revisions before publication. A warm hit
-decodes the generated PNG and follows the asynchronous, serial-validated RHI
-upload path without reopening source input or loading and rendering the authored
-asset. Missing or modified inputs, changed dependencies, settings, revisions or
-versions, corrupt indexes or PNGs, and missing objects become safe misses.
-Object and index writes are atomic; persistence failure does not fail valid
-in-memory pixels. Encoded objects use an independent disk LRU budget, while RHI
-textures retain their process-local GPU budget. Cleanup resolves and validates
-every target beneath the exact thumbnail cache root before deletion. Editor
-provider, scheduling, lifetime, and presentation ownership is documented in
-[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
-
-`Textures/Objects/<key-prefix>/<key>.bin` and
-`TextureCube/Objects/<key-prefix>/<key>.bin` store Texture2D and TextureCube
-platform mip chains. Their 128-bit keys cover exact source-content identities,
-every platform build setting, builder/payload/projection versions where
-applicable, target platform, and target profile. Texture2D source fingerprints
-avoid reopening unchanged source, while either texture class can use a valid
-persisted identity and warm DDC object when source files are unavailable. Each
-cache object is TXPL schema 1 with bounded mip/slice records and a payload
-checksum.
-Missing, incompatible, truncated, corrupt, or structurally invalid objects are
-safe misses; a successful source build atomically replaces the object, while a
-cache write failure does not invalidate usable in-memory platform data.
-
-DDC objects are content-addressed generated files, so `.dasset` packages do not
-store cache paths or byte offsets. Cooked packages instead serialize logical
-payload descriptors and resolve their required DMSH or TXPL bytes from validated
-DBLK companions beneath the configured cook root.
-
-AssetCore constructs one immutable authored or cooked runtime configuration.
-Authored execution permits source and derived-data fallback. Cooked construction
-validates an absolute normalized cook root and requires cooked payloads; it is
-read-only and has no source/DDC fallback. Engine asset post-load paths query
-that fixed payload policy. Switching domains requires AssetCore shutdown and a
-fresh initialization, so no package can observe a process-wide mode mutation.
-
-The shared authored/DDC/cooked storage classes, `.bin` versus `.dbulk`
-semantics, loose companion naming, logical bulk descriptors, and runtime failure
-policy are defined in [Asset Data Lifecycle and Storage](AssetDataLifecycle.md).
-
-Repository storage rules for packages, source assets, and generated data are documented in [Content Version Control](../../Development/VersionControl/ContentVersionControl.md).
+Thumbnail keys, persistence, scheduling, lifetime, and presentation are defined
+by [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md). Repository
+storage rules for packages, sources, caches, and cooked output are defined by
+[Content Version Control](../../Development/VersionControl/ContentVersionControl.md).

@@ -4,7 +4,7 @@ Summary: Add a declarative native-test application host that preserves GoogleTes
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -324,9 +324,9 @@ CMake and the platform launcher select the correct host.
 | Cross-platform | Unchanged direct execution on Windows and console-only macOS targets plus the shared native-test infrastructure and ordinary aggregate gates. |
 
 Build, test selection, and documentation validation follow the repository
-[agent build workflow](../Agents/BuildAndRun.md),
-[agent testing workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md).
+[agent build workflow](../../../Agents/BuildAndRun.md),
+[agent testing workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md).
 
 ## Definition of Done
 
@@ -358,12 +358,12 @@ Build, test selection, and documentation validation follow the repository
 
 ## Related Documentation
 
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 - [macOS Platform Runtime Plan](MacOSPlatformRuntime.md)
-- [macOS Platform Enablement Roadmap](../Roadmaps/MacOSPlatformEnablement.md)
-- [macOS MoltenVK argument-buffer instability](../Investigations/MacOSMoltenVKArgumentBufferInstability.md)
+- [macOS Platform Enablement Roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
+- [macOS MoltenVK argument-buffer instability](../../../Investigations/MacOSMoltenVKArgumentBufferInstability.md)
 
 ## Related Code
 

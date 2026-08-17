@@ -234,7 +234,3 @@ continue using shared runtime-variant names such as `DurinEditor` and
 ## Workflow Note
 
 For normal development, open the workspace root rather than a single project subdirectory. Build targets from `Engine` and game projects inside the same workspace.
-
-## Future Direction
-
-An installed-engine or game-root workflow may eventually justify project-specific host identities, but that is not the current model.

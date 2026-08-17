@@ -4,6 +4,8 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, StandardAssetImport
 
+Last reviewed: 2026-08-18
+
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
 merely whether a file contains binary bytes.
@@ -65,23 +67,12 @@ module callback gate for bounded calls but does not become a hosted scheduler.
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
 | Local state | `Saved/` | Format-specific | Diagnostics, sessions, and user-local state | Yes |
 
-`FAssetPath` and reflected asset references always identify the main asset in a
-`.dasset` package through a mount. `FSourcePath` identifies an editor source
-file through the same mount. Both resolve relative to `GetContentDir()`;
-neither type identifies a DDC key, `.bin` object, `.dbulk` file, byte offset,
-or physical workstation path, and the two path types are not interchangeable.
+Persistent asset and source identity is defined by
+[Asset Packages](AssetPackages.md#paths-and-mounts). Neither path type
+identifies a DDC key, `.bin` object, `.dbulk` file, byte offset, or physical
+workstation path, and the two path types are not interchangeable.
 
-## Catalog and residency state
-
-Mounted `.dasset` metadata becomes load-visible only through an atomic catalog
-refresh, successful authored publication, or explicit editor admission.
-An exact resident real package satisfies `LoadAsset` without a package read.
-Otherwise ordinary load resolves one immutable catalog revision, validates the
-final real class, reads and decodes the final package once, and validates every
-serialized class and field signature before constructing objects or publishing
-it to residency. A catalog miss with no resident package performs no disk
-probe. Construct-free audit may classify incompatible content in detail, but
-ordinary load never creates a partially compatible resident package.
+## Runtime Data Domain
 
 AssetCore has one immutable `FAssetRuntimeConfiguration` for each initialized
 runtime lifetime. `Authored()` selects the authored execution domain with
@@ -92,23 +83,12 @@ runtime with a new configuration, but it rejects replacement while a different
 configuration is initialized. Engine post-load code queries only this read-only
 domain and payload policy. There is no mutable process-wide package-load mode.
 
-`CreateAsset` creates a `NewlyCreated`, Dirty resident package. It can satisfy
-in-memory load and soft-reference resolution but does not appear in persistent
-catalog snapshots. A successful save publishes package metadata and changes the
-same resident entry to `Published`; dirty state is cleared independently.
-Default `UnloadPackage` rejects newly created or dirty state. Failed
-import/build/save rollback explicitly passes `DiscardUnsaved` to unload the
-resident package. Cooked-runtime startup publishes its Cook mounts
-and refreshes their catalog before loading, so Cooked package identity follows
-the same authoritative boundary as authored content.
-
-Create and save are focused direct authoring entries; every previewable
-mutation prepares immutable scope plus an opaque transaction. Relocation and
-Fix Up own their complete byte/catalog journals. Deletion additionally accepts
-one reversible physical transition from its editor owner, while AssetCore still
-owns final validation, residency changes, catalog publication, compensation,
-and transaction state. Raw redirector construction and immediate deletion are
-not production APIs.
+Package creation, publication, load, unload, and residency transitions are
+defined by [Asset Packages](AssetPackages.md#runtime-lifetime). Catalog
+admission and refresh plus relocation, deletion, and Fix Up transactions are
+defined by [Asset Catalog And Mutation](AssetCatalogAndMutation.md). This
+document uses those boundaries only to select authored versus cooked payload
+policy.
 
 ## Authored Packages
 
@@ -496,6 +476,10 @@ Packaging,
 patch generation, installation, and cleanup operate from that manifest rather
 than by assuming that every `.dbulk` in a directory is live.
 
+This contract covers asset-level Cook contribution and deterministic
+publication. Project-wide Cook-set discovery and installable-build
+orchestration require a separately selected workflow.
+
 ## Load and Failure Policy
 
 Editor loading may use a valid DDC object and rebuild from source on a safe miss.
@@ -557,36 +541,10 @@ generated directories. Cooked output is nevertheless authoritative within a
 specific staged build: ignored means reproducible distribution output, not
 disposable while that build is running or installed.
 
-## Current Implementation Status
-
-The shared DDC object store, cache-and-host-only AssetBuildCore surface, DBLK
-container, logical descriptors, deterministic cook publication, manifest, and
-immutable authored/cooked runtime construction are implemented. StaticMesh uses
-DMSH schema 2; Texture2D and TextureCube
-use TXPL schema 1; SkeletalMesh uses DSKM schema 1; AnimationClip uses DANM
-schema 1. Their cooked loaders validate the complete descriptor, container,
-target, payload schema, ranges, hash, and asset-specific structure
-transactionally, and never invoke source or DDC fallback.
-
-StaticMesh, Texture2D, TextureCube, Skeleton, SkeletalMesh, and AnimationClip
-expose asset-level `AddToCook` operations for the Win64 Game target. Payload-
-bearing assets can obtain or validate the required payload, add it to an
-`FCookContext`, serialize a cooked `.dasset` with logical descriptors, and
-publish the matching DBLK companion and manifest through that context.
-Skeleton contributes only its package. Cooked SkeletalMesh and AnimationClip
-load their Skeleton dependency and DBLK payload transactionally; they have no
-source, provider, DDC, Assimp, editor-decoder, playback, or rendering fallback.
-
-End-to-end packaging orchestration is not yet connected to an editor command or
-DurinDevTool action. There is currently no user-facing command that discovers an
-entire project cook set, invokes every asset contributor, and stages a complete
-installable build. Asset-level cook and publication behavior is exercised
-directly by native tests; its presence must not be interpreted as a completed
-packaging workflow or as import-time cooking.
-
 ## Related Documentation
 
 - [Asset Packages](AssetPackages.md)
+- [Asset Catalog And Mutation](AssetCatalogAndMutation.md)
 - [Texture System](../Rendering/TextureSystem.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
 - [Asynchronous Texture2D Build and Readiness Plan](../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md)

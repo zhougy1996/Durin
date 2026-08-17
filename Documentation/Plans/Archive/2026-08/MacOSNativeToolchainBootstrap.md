@@ -91,7 +91,7 @@ is fresh-worktree evidence rather than a second fresh-host acquisition claim.
   platform zlib.
 
 This plan is M1 of the
-[macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md) and
+[macOS Platform Enablement roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md) and
 consumes the archived M0
 [first-host handoff](MacOSHostIndependentPreparation.md#m1-first-host-handoff).
 It ends at repeatable native configuration and a bounded compile gate; M2-M5
@@ -458,7 +458,7 @@ and target ownership rather than duplicating mutable command recipes.
 
 ## Related Documentation
 
-- [macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md)
+- [macOS Platform Enablement roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
 - [macOS Host-Independent Preparation](MacOSHostIndependentPreparation.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)

@@ -19,7 +19,7 @@ and hidden-window runtime smoke passed. macOS remains pending native
 qualification; M1 is not active because no Apple Silicon worker was available.
 
 This plan is M0 of the
-[macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md).
+[macOS Platform Enablement roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md).
 Every implementation stage is intentionally executable and qualifiable on the
 current Windows host. The plan ends with a native-host handoff, not with a
 macOS support claim.
@@ -429,7 +429,7 @@ duplicating command recipes.
 
 ## Related Documentation
 
-- [macOS Platform Enablement Roadmap](../../../Roadmaps/MacOSPlatformEnablement.md)
+- [macOS Platform Enablement Roadmap](../../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md)
 - [Build System](../../../Development/Build/BuildSystem.md)
 - [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)

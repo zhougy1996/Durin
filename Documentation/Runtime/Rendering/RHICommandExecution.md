@@ -237,6 +237,7 @@ queue sizing; they are not GPU timing measurements.
 ## Related Documentation
 
 - [Runtime lifecycle](../Core/RuntimeLifecycle.md)
+- [Render resource lifecycle](RenderResourceLifecycle.md)
 - [Viewport rendering](ViewportRendering.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md)

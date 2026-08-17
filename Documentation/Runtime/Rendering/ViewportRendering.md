@@ -284,134 +284,24 @@ distance `200000`. The far-plane safety margin is five percent of the clip
 range capped at `10000` world units, preserving older explicitly short camera
 ranges without allowing Terrain distance to meet the projection boundary.
 
-Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache retains the current extent and evicts oldest other extents above a 96 MiB payload budget, so interactive resizing does not retain every transient dimension. Optional contact visibility and GBuffer diagnostics use separately owned on-demand targets. See [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md) for format and byte accounting.
+All viewport types share the same scene-color, material-pass, sky,
+post-process, and editor-assistance contracts. Fixed-aspect views constrain
+those operations to the fitted content rectangle and leave cleared bars
+untouched. Detailed ownership is defined by
+[HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md),
+[Material System](MaterialSystem.md), [Cube Textures](CubeTextures.md),
+[Editor Grid](EditorGrid.md), and
+[Renderer Resource Recovery](RendererResourceRecovery.md).
 
-When a scene has an active skybox, the renderer draws it into Scene Color using
-the fitted content viewport and scissor before opaque meshes. The draw has no
-depth interaction, so geometry replaces the background normally. The complete
-target is still cleared first; fixed-aspect regions outside the content
-rectangle remain black. Main, auxiliary camera-preview, and window-backed views
-all use this same `FSceneView`-driven sky path.
-
-Lit StaticMesh output uses the same direct-light and image-based PBR surface
-contract in the main level viewport, auxiliary camera preview, Material
-Preview, and thumbnails. Unlit mode uses BaseColor plus Emissive. Each view
-independently prepares Opaque, Masked, and back-to-front Translucent section
-buckets before drawing them in that order. Mask coverage, straight-alpha
-blending, depth-write overrides, authored culling, mirrored winding, and
-Solid/Wireframe state therefore apply identically to present and offscreen
-outputs, including fitted fixed-aspect content rectangles.
-
-All of those consumers resolve an unassigned StaticMesh slot through the same
-Engine-retained `/Engine/Materials/DefaultMaterial` proxy. Broken material
-state uses the asset-independent unlit magenta ErrorMaterial, so preview or
-thumbnail rendering cannot disguise an invalid surface as an ordinary neutral
-default and remains diagnosable when Engine Content is unavailable.
-
-Scene post-processing maps the RGBA16F scene-linear HDR image exactly once into the SDR image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Each view supplies independent manual exposure; FXAA maps every sample before resolving in bounded display-linear space. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
-
-The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. The grid keeps its world-space plane exact but biases only its emitted depth away from the camera, so coplanar scene geometry wins the preserved scene-depth test without shifting the visual origin. Its fullscreen ray-plane generation, camera-relative precision, decimal world anchoring, adaptive appearance, and bounded depth separation are defined by [Editor Grid](EditorGrid.md). Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.
-
-Editor-assistance demand is derived from the immutable `FSceneView` submitted
-for the current output. An empty view initializes no assistance feature or
-pipeline and omits the final assistance pass. Grid, Gizmo, Line, and Icon base
-resources belong to one Renderer-private, render-thread-owned assistance
-renderer, while dynamic geometry counts and available operations belong to the
-prepared result for one view. The shared fullscreen geometry used by Post
-Process and Grid has its own explicit Renderer-private lifetime.
-
-Each demanded operation requests only the pipeline identified by its feature,
-current Present or Offscreen output, depth mode, and Gizmo topology. Base and
-pipeline failures are isolated to their feature or exact key, so every
-independent available operation remains drawable. Failed creation is suppressed
-for the same relevant resource generation rather than retried every frame.
-Shader or explicit manual invalidation permits a lazy retry and retains a valid
-last-known-good payload if refresh fails; device invalidation clears dependent
-RHI payloads before retry. Renderer shutdown resets payloads, generation-scoped
-attempts, dynamic capacities, and diagnostics together.
+Window-backed output finishes in Present. Render-target-backed output finishes
+in ShaderReadOnly and is exposed to Mona through the viewport display-source
+boundary without exposing intermediate scene targets.
 
 ## Recoverable Renderer Resources
 
-Nullable RHI creation is a complete-or-null boundary. Vulkan buffer, texture,
-shader, graphics-pipeline, sampler, and vertex-declaration factories publish a
-reference only after all native handles and allocations required by that object
-exist. Expected creation failure returns null without failing the RHI executor;
-device loss, command replay, submission, presentation, and invariant failures
-remain terminal.
-
-`RHICreateGraphicsPipelineState` is a creation-only factory. Its `DebugName`
-labels diagnostics and captures but does not select, reuse, or retain a PSO;
-every successful request returns a distinct complete pipeline. Renderer slots
-and explicit Renderer-owned payloads hold the logical strong reference. A
-recorded draw may hold a transient reference until replay finishes, after which
-replacement, reset, device invalidation, and shutdown flow through the ordinary
-RHI pending-delete and Vulkan frame-safe deferred-deletion paths. Vulkan may
-continue caching structural descriptor layouts and compatible render passes,
-but those caches do not own logical graphics PSOs.
-
-Fixed Renderer resources, static-mesh shader and pipeline identities, editor
-assistance, shared fullscreen geometry, and Texture Editor preview resources
-use `TRenderResourceCreationSlot`. A slot constructs a complete candidate in
-local ownership and publishes it only after every shader binding, RHI resource,
-and pipeline required by that identity succeeds. Callers therefore observe
-either the prior complete payload, a newly committed complete payload, or no
-payload; partially initialized aggregates are never visible.
-
-Each owner tracks independent shader, device, and manual generations. A failed
-attempt records the selected generation, error category, context, identity,
-owned diagnostic text, retry dependencies, and whether a fallback remains.
-Another lookup in the same relevant generation does not call the factory or log
-the same failure again. A later relevant generation permits one new lazy
-attempt. Shader and manual refresh failures may retain a complete
-last-known-good payload as stale-ready; device-generation changes discard old
-RHI payloads before attempting replacement.
-
-Last-known-good retention is limited to a slot's declared dependency contract.
-A shader or manual refresh may retain a complete payload only while its device
-generation remains current. Device invalidation clears every device-dependent
-payload, so stale RHI objects are never used as fallback across a device
-generation. This invalidation seam coordinates resource reconstruction; it does
-not recover a lost Vulkan device or a failed RHI executor.
-
-Size-keyed scene color and depth targets use the same device-dependent slot
-semantics. A failed color/depth pair publishes no cache tombstone, and another
-lookup in the same device/manual generation is suppressed instead of allocating
-every frame. Device or manual invalidation, or normal byte-budget eviction,
-makes a later attempt eligible. The cache retains the current extent and evicts
-oldest other extents above its byte budget.
-
-Renderer owns these development commands:
-
-- `renderer.reload-shaders changed` advances shader generation and lets normal
-  dependency fingerprints select changed output on the next demanded lookup.
-- `renderer.reload-shaders all` advances shader generation and forces
-  compilation for each next-demanded shader candidate in that generation.
-- `renderer.retry-resources` advances manual generation for failed resources
-  whose retained error permits explicit retry.
-
-Console callbacks enqueue one render command. Views submitted before that
-command retain the old generation, while later views observe the new one;
-resource construction remains synchronous and demand-driven on the render
-thread. New failures and changed failure fingerprints produce one structured
-diagnostic, retained stale-ready failures identify their fallback, and a
-successful retry reports one recovery transition.
-
-`FRendererResourceCoordinator` owns command admission and the shader, device,
-and manual generation counters. `FSceneRenderer` receives each accepted
-request and explicitly fans it out to the concrete resource owners. Shader and
-manual invalidation advance their relevant generation and leave reconstruction
-lazy. Device invalidation releases every dependent payload before advancing
-the device generation, then recreates only startup defaults; feature resources
-are rebuilt on their next demand.
-
-The internal device-invalidation request is a tested Renderer seam rather than
-a claim of Vulkan device-loss recovery. It clears fixed and keyed payloads,
-scene targets, assistance state, dynamic capacities, fullscreen geometry, and
-diagnostics before publishing the new device generation. Renderer shutdown
-first closes command admission and unregisters the development commands, then
-enqueues resource release and flushes rendering work. Texture Editor retains
-module ownership of its preview slot and releases it through its own ordered
-shutdown path.
+Complete-or-null publication, generation-scoped retry, last-known-good
+retention, device invalidation, development commands, and shutdown ownership
+are defined by [Renderer Resource Recovery](RendererResourceRecovery.md).
 
 ## Interface Boundary
 
