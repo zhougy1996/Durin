@@ -10,10 +10,10 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)
 if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationHostTests)
 	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationExecutionTests)
-elseif(APPLE)
+else()
 	durin_exclude_native_test_sources(
 		RATIONALE
-			"LaunchServices application-host infrastructure is disabled by default and runs only in an explicitly enabled validation configuration."
+			"LaunchServices application-host infrastructure is available only on macOS and runs only in an explicitly enabled validation configuration."
 		SOURCES
 			${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationHostTests/Private/NativeTestApplicationProtocolTests.cpp
 			${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationHostTests/Private/NativeTestApplicationControllerTests.cpp
