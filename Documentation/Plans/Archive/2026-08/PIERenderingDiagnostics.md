@@ -4,7 +4,7 @@ Summary: Add viewport-owned rendering diagnostics to embedded and new-window PIE
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -228,7 +228,7 @@ Gaps to close:
   policies in test names and fixtures rather than relying only on UI snapshots.
 - [x] Confirm the smallest existing native suites for Engine view construction,
   viewport interaction, Level Editor presentation, and PIE lifecycle using
-  [Agent Testing Workflow](../Agents/Testing.md).
+  [Agent Testing Workflow](../../../Agents/Testing.md).
 
 #### Acceptance Gate
 
@@ -315,8 +315,8 @@ Gaps to close:
   integration path without depending on screenshot color alone for all policy
   assertions.
 - [x] Run the targeted native suites, then the required broader validation from
-  [Agent Build and Run Workflow](../Agents/BuildAndRun.md) and
-  [Agent Testing Workflow](../Agents/Testing.md).
+  [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md) and
+  [Agent Testing Workflow](../../../Agents/Testing.md).
 - [x] Run the editor visible smoke path for embedded/new-window, Play/Pause/Step,
   mouse release/recapture, Stop, and repeated sessions.
 - [x] Update the lasting contracts in Viewport Rendering and Play In Editor
@@ -384,12 +384,12 @@ Gaps to close:
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Play In Editor](../Editor/Guides/PlayInEditor.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor](../../../Editor/Guides/PlayInEditor.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

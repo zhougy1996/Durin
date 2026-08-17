@@ -4,7 +4,7 @@ Summary: Consolidate production scene rendering behind `RenderScene_RenderThread
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -358,15 +358,15 @@ or stale attachments.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 - [Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Ground Truth Ambient Occlusion](../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

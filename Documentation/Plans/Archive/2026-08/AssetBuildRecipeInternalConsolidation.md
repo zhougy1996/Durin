@@ -4,7 +4,7 @@ Summary: Consolidate migrated asset Build recipes behind clear internal seams, r
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -431,8 +431,8 @@ cooked runtime behavior remain covered by the same production-facing tests.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); select focused targets first and never
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); select focused targets first and never
 overlap build process trees.
 
 | Concern | Required evidence |
@@ -491,36 +491,36 @@ overlap build process trees.
 ## Related Documentation
 
 - [Remaining Asset Derived Data Build Migrations Plan](RemainingAssetDerivedDataBuildMigrations.md)
-- [Local Derived Data Build Requests Plan](Archive/2026-08/LocalDerivedDataBuildRequests.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Local Derived Data Build Requests Plan](LocalDerivedDataBuildRequests.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BuildDefinition.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildDefinition.h)
-- [`BuildSession.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
-- [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [`TextureBuildModule.cpp`](../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
-- [`TextureBuildFunctionRegistry.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildFunctionRegistry.cpp)
-- [`TextureBuildFunctions.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildFunctions.cpp)
-- [`TextureBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
-- [`TextureCubeBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
-- [`GeometryBuildModule.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
-- [`GeometryBuildFunctionRegistry.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildFunctionRegistry.cpp)
-- [`StaticMeshBuildFunctions.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildFunctions.cpp)
-- [`StaticMeshBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildOperations.cpp)
-- [`SkeletalBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildOperations.cpp)
-- [`SkeletalBuildFunctions.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildFunctions.cpp)
-- [`TerrainHeightmapBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildOperations.cpp)
-- [`TerrainHeightmapBuildFunctions.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildFunctions.cpp)
-- [`AssetBuildCoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
-- [`TextureCubeTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp)
-- [`StaticMeshDerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp)
-- [`SkeletalAssetTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
-- [`TerrainHeightmapTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)
+- [`BuildDefinition.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildDefinition.h)
+- [`BuildSession.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
+- [`AssetBuildCore.cpp`](../../../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [`TextureBuildModule.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
+- [`TextureBuildFunctionRegistry.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildFunctionRegistry.cpp)
+- [`TextureBuildFunctions.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildFunctions.cpp)
+- [`TextureBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
+- [`TextureCubeBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
+- [`GeometryBuildModule.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
+- [`GeometryBuildFunctionRegistry.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildFunctionRegistry.cpp)
+- [`StaticMeshBuildFunctions.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildFunctions.cpp)
+- [`StaticMeshBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildOperations.cpp)
+- [`SkeletalBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildOperations.cpp)
+- [`SkeletalBuildFunctions.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildFunctions.cpp)
+- [`TerrainHeightmapBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildOperations.cpp)
+- [`TerrainHeightmapBuildFunctions.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildFunctions.cpp)
+- [`AssetBuildCoreTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
+- [`TextureCubeTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp)
+- [`StaticMeshDerivedDataCacheTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp)
+- [`SkeletalAssetTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
+- [`TerrainHeightmapTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)

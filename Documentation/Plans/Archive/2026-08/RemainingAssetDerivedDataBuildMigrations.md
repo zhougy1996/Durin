@@ -4,13 +4,13 @@ Summary: Migrate TextureCube, SkeletalMesh, AnimationClip, and TerrainHeightmap 
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
 
 Implementation and validation are complete. The completed
-[Local Derived Data Build Requests Plan](Archive/2026-08/LocalDerivedDataBuildRequests.md)
+[Local Derived Data Build Requests Plan](LocalDerivedDataBuildRequests.md)
 provides the synchronous `FBuildSession`, immutable definitions, function
 registration, cache policy, cancellation, and structured output now used by
 all six production families. TextureCube, SkeletalMesh, AnimationClip, and
@@ -426,8 +426,8 @@ Dependencies: Stages 1-3 complete.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); select focused targets first and never
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); select focused targets first and never
 overlap build process trees.
 
 | Concern | Required evidence |
@@ -506,38 +506,38 @@ request followed by a query-disabled build only after source decode.
 
 ## Related Documentation
 
-- [Local Derived Data Build Requests Plan](Archive/2026-08/LocalDerivedDataBuildRequests.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Terrain Editing Architecture](../Editor/Architecture/TerrainEditing.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Local Derived Data Build Requests Plan](LocalDerivedDataBuildRequests.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Terrain Editing Architecture](../../../Editor/Architecture/TerrainEditing.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BuildTypes.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildTypes.h)
-- [`BuildFunction.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildFunction.h)
-- [`BuildSession.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
-- [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [`TextureBuildModule.cpp`](../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
-- [`TextureCubeBuildOperations.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureCubeBuildOperations.h)
-- [`TextureCubeBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
-- [`TextureCubeDerivedData.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureCubeDerivedData.h)
-- [`TextureCubeSourceTranslation.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/TextureCubeSourceTranslation.cpp)
-- [`TextureCubePostLoadPolicy.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/TextureCubePostLoadPolicy.cpp)
-- [`GeometryBuildModule.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
-- [`SkeletalBuildOperations.h`](../../Engine/Source/Developer/GeometryBuild/Public/Skeletal/SkeletalBuildOperations.h)
-- [`SkeletalBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildOperations.cpp)
-- [`SceneImport.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/SceneImport.cpp)
-- [`TerrainHeightmapBuildOperations.h`](../../Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainHeightmapBuildOperations.h)
-- [`TerrainHeightmapBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildOperations.cpp)
-- [`TerrainHeightmapAuthoringPolicy.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
-- [`AssetBuildCoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
-- [`TextureCubeTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp)
-- [`SkeletalAssetTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
-- [`SceneImportTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/SceneImportTests.cpp)
-- [`TerrainHeightmapTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)
+- [`BuildTypes.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildTypes.h)
+- [`BuildFunction.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildFunction.h)
+- [`BuildSession.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
+- [`AssetBuildCore.cpp`](../../../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [`TextureBuildModule.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
+- [`TextureCubeBuildOperations.h`](../../../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureCubeBuildOperations.h)
+- [`TextureCubeBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
+- [`TextureCubeDerivedData.h`](../../../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureCubeDerivedData.h)
+- [`TextureCubeSourceTranslation.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/TextureCubeSourceTranslation.cpp)
+- [`TextureCubePostLoadPolicy.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/TextureCubePostLoadPolicy.cpp)
+- [`GeometryBuildModule.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
+- [`SkeletalBuildOperations.h`](../../../../Engine/Source/Developer/GeometryBuild/Public/Skeletal/SkeletalBuildOperations.h)
+- [`SkeletalBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Skeletal/SkeletalBuildOperations.cpp)
+- [`SceneImport.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/SceneImport.cpp)
+- [`TerrainHeightmapBuildOperations.h`](../../../../Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainHeightmapBuildOperations.h)
+- [`TerrainHeightmapBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainHeightmapBuildOperations.cpp)
+- [`TerrainHeightmapAuthoringPolicy.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
+- [`AssetBuildCoreTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
+- [`TextureCubeTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp)
+- [`SkeletalAssetTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
+- [`SceneImportTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/SceneImportTests.cpp)
+- [`TerrainHeightmapTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)

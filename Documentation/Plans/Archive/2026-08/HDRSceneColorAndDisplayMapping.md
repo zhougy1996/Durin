@@ -399,7 +399,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 - [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
 - [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
 - [Compute Renderer Integration](../../ComputeRendererIntegration.md)
-- [Directional Contact Shadows](../../DirectionalContactShadows.md)
+- [Directional Contact Shadows](DirectionalContactShadows.md)
 
 ## Related Code
 

@@ -374,7 +374,7 @@ agent workflows rather than embedding command lines that may become stale.
 ## Related Documentation
 
 - [Window Frame Contract](../Runtime/Core/WindowFrames.md)
-- [Editor Main Window Custom Title Bar Plan](EditorMainWindowCustomTitleBar.md)
+- [Editor Main Window Custom Title Bar Plan](Archive/2026-08/EditorMainWindowCustomTitleBar.md)
 - [macOS Platform Runtime Plan](MacOSPlatformRuntime.md)
 - [macOS Platform Enablement Roadmap](../Roadmaps/MacOSPlatformEnablement.md)
 - [macOS Native Test Application Host Plan](MacOSNativeTestApplicationHost.md)

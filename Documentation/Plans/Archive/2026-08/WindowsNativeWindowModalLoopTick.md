@@ -4,7 +4,7 @@ Summary: Keep gameplay, editor UI, and rendering advancing while Windows owns a 
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 - 2026-08-16: The implementation portions of Stages 0-3 landed locally with
@@ -398,12 +398,12 @@ Tracy capture; no profiler or per-scenario visual artifact is claimed.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Play In Editor](../Editor/Guides/PlayInEditor.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor](../../../Editor/Guides/PlayInEditor.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

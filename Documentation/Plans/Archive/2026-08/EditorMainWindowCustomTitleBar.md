@@ -4,7 +4,7 @@ Summary: Replace the Windows editor main-frame caption with a Durin-rendered tit
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 - 2026-08-16: The Windows editor main frame, shared native window bridge,
@@ -602,30 +602,30 @@ matrix cells as passing evidence.
 
 ## Related Documentation
 
-- [Editor UI Style](../Editor/Design/UIStyle.md)
-- [Window Frame Contract](../Runtime/Core/WindowFrames.md)
+- [Editor UI Style](../../../Editor/Design/UIStyle.md)
+- [Window Frame Contract](../../../Runtime/Core/WindowFrames.md)
 - [Windows Native Window Modal-Loop Ticking](WindowsNativeWindowModalLoopTick.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 
 ## Related Code
 
-- [`FGenericWindowDefinition`](../../Engine/Source/Runtime/ApplicationCore/Public/Window/GenericWindowDefinition.h)
-- [`FGenericWindow`](../../Engine/Source/Runtime/ApplicationCore/Public/Window/GenericWindow.h)
-- [`FGenericWindow` defaults](../../Engine/Source/Runtime/ApplicationCore/Private/Window/GenericWindow.cpp)
-- [`FGlfwWindow`](../../Engine/Source/Runtime/ApplicationCore/Private/Window/GlfwWindow.h)
-- [`FGlfwWindow` implementation](../../Engine/Source/Runtime/ApplicationCore/Private/Window/GlfwWindow.cpp)
-- [`MWindow`](../../Engine/Source/Runtime/MonaCore/Public/Widgets/MWindow.h)
-- [`MWindow` implementation](../../Engine/Source/Runtime/MonaCore/Private/Widgets/MWindow.cpp)
-- [`FMonaApplication` window creation](../../Engine/Source/Runtime/MonaCore/Private/Application/MonaApplication.cpp)
-- [`MonaImGui` platform viewport integration](../../Engine/Source/Runtime/MonaImGui/Private/ImGuiMonaImpl.cpp)
-- [`MonaImGui` theme and metrics](../../Engine/Source/Runtime/MonaImGui/Private/MonaImGui.cpp)
-- [`MainFrame` editor shell](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
-- [`MainFrame` editor branding texture](../../Engine/Source/Editor/MainFrame/Private/EditorBranding.cpp)
-- [Dark editor theme](../../Engine/Configs/DurinEditorTheme.Dark.yaml)
-- [Light editor theme](../../Engine/Configs/DurinEditorTheme.Light.yaml)
-- [Editor branding logo](../../Engine/Content/Editor/Branding/DurinEditorLogo.png)
-- [Editor UI branding logo](../../Engine/Content/Editor/Branding/DurinEditorLogoUI.png)
-- [Viewport foundation tests](../../Engine/Tests/Native/EngineTests/Private/Viewport/ViewportFoundationTests.cpp)
-- [UI style tests](../../Engine/Tests/Native/EngineTests/Private/UIStyleTests.cpp)
+- [`FGenericWindowDefinition`](../../../../Engine/Source/Runtime/ApplicationCore/Public/Window/GenericWindowDefinition.h)
+- [`FGenericWindow`](../../../../Engine/Source/Runtime/ApplicationCore/Public/Window/GenericWindow.h)
+- [`FGenericWindow` defaults](../../../../Engine/Source/Runtime/ApplicationCore/Private/Window/GenericWindow.cpp)
+- [`FGlfwWindow`](../../../../Engine/Source/Runtime/ApplicationCore/Private/Window/GlfwWindow.h)
+- [`FGlfwWindow` implementation](../../../../Engine/Source/Runtime/ApplicationCore/Private/Window/GlfwWindow.cpp)
+- [`MWindow`](../../../../Engine/Source/Runtime/MonaCore/Public/Widgets/MWindow.h)
+- [`MWindow` implementation](../../../../Engine/Source/Runtime/MonaCore/Private/Widgets/MWindow.cpp)
+- [`FMonaApplication` window creation](../../../../Engine/Source/Runtime/MonaCore/Private/Application/MonaApplication.cpp)
+- [`MonaImGui` platform viewport integration](../../../../Engine/Source/Runtime/MonaImGui/Private/ImGuiMonaImpl.cpp)
+- [`MonaImGui` theme and metrics](../../../../Engine/Source/Runtime/MonaImGui/Private/MonaImGui.cpp)
+- [`MainFrame` editor shell](../../../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
+- [`MainFrame` editor branding texture](../../../../Engine/Source/Editor/MainFrame/Private/EditorBranding.cpp)
+- [Dark editor theme](../../../../Engine/Configs/DurinEditorTheme.Dark.yaml)
+- [Light editor theme](../../../../Engine/Configs/DurinEditorTheme.Light.yaml)
+- [Editor branding logo](../../../../Engine/Content/Editor/Branding/DurinEditorLogo.png)
+- [Editor UI branding logo](../../../../Engine/Content/Editor/Branding/DurinEditorLogoUI.png)
+- [Viewport foundation tests](../../../../Engine/Tests/Native/EngineTests/Private/Viewport/ViewportFoundationTests.cpp)
+- [UI style tests](../../../../Engine/Tests/Native/EngineTests/Private/UIStyleTests.cpp)

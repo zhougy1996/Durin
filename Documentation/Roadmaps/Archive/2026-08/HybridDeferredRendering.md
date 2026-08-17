@@ -186,7 +186,7 @@ decals still have no selected product requirement.
 | Optional consumer plans | One measured extension each | Bundled renderer modernization | Deferred contact visibility completed 2026-08-16; other candidates remain declined |
 
 The existing
-[Directional Contact Shadows](../../../Plans/DirectionalContactShadows.md) plan
+[Directional Contact Shadows](../../../Plans/Archive/2026-08/DirectionalContactShadows.md) plan
 remains separate and completed after the roadmap. Its GBuffer-aware deferred
 visibility is an opt-in detail term, not an M1-M4 dependency.
 

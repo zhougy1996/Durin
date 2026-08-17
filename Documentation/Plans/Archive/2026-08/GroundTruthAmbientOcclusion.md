@@ -386,7 +386,7 @@ forward, display, and editor-assistance semantics.
 - [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
 - [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
 - [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Directional Contact Shadows](../../DirectionalContactShadows.md)
+- [Directional Contact Shadows](DirectionalContactShadows.md)
 - [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
 
 ## Related Code

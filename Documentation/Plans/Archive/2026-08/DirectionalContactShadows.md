@@ -4,7 +4,7 @@ Summary: Move directional contact shadows into deferred Lit-opaque visibility, c
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -382,15 +382,15 @@ visibility, matrices, or extent.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
