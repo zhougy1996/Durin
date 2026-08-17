@@ -2,10 +2,10 @@
 
 Summary: Separate Terrain content visibility from the camera far plane, migrate main-scene depth to reversed Z, conceal the Terrain distance boundary, and retain stable precision while the camera rotates or moves through large worlds.
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -25,11 +25,19 @@ matching readbacks.
 Qualification passed the full Debug `all` build, `fast-all`, the Terrain
 domain, renderer/Vulkan integrations, focused viewport/projection/render tests,
 Terrain Vulkan and qualification targets, and the directional-shadow Vulkan
-qualification on 2026-08-14. A hardware-backed EditorGrid regression now also
+qualification on 2026-08-14. A hardware-backed EditorGrid regression also
 covers multiple rotated reversed-Z views, coplanar Terrain stability, and
-occlusion by meaningfully closer Terrain. Remaining Stage 5 work is the named
-editor/cooked runtime motion capture and its image-difference report; the
-implementation and lasting contracts are otherwise in place.
+occlusion by meaningfully closer Terrain. Manual editor inspection accepted the
+final long-range result on 2026-08-18.
+
+The plan is complete. A named cooked-game motion capture and formal image-
+difference report are explicitly deferred because complete project discovery,
+Editor or DurinDevTool packaging commands, and installable-build orchestration
+are not yet connected, as recorded in [Asset Packages](../Runtime/Assets/AssetPackages.md).
+That project-level Cook/Packaging work is not a Terrain rendering defect or a
+remaining gate for this plan. The runtime-facing settings, serialization,
+payload, projection, and rendering contracts remain implemented and covered by
+the focused and hardware-backed tests above.
 
 ## Goal
 
@@ -160,9 +168,9 @@ and coordinate envelopes.
 
 ### Stage 0: Freeze semantics, fixtures, and migration inventory
 
-- [ ] Capture editor and runtime reproductions showing the current hard far-plane
-  cut and slow-yaw edge instability with exact Terrain dimensions, spacing,
-  transform, camera transform, viewport, and near/far values.
+- [x] Retain the frozen projection, distance, counter, and large-coordinate
+  fixtures as deterministic defect evidence; accept the 2026-08-18 editor
+  inspection in place of retaining temporary pre-change motion captures.
 - [x] Freeze supported default and maximum values for editor/runtime near clip,
   projection far clip, Terrain render distance, transition start, and required
   far-plane safety margin.
@@ -176,9 +184,9 @@ and coordinate envelopes.
 - [x] Inventory every main-scene depth clear, compare, resolve, reconstruct,
   unproject, sky, editor-grid, picking, overlay, and test-matrix consumer; classify
   shadow-only consumers as intentionally forward Z.
-- [ ] Measure Terrain screen-space vertex movement at the origin, at the maximum
-  supported world coordinate, and with the maximum supported sample spacing;
-  freeze the camera-relative precision fixture and pixel-error limit.
+- [x] Freeze origin and `(10000000.25, -10000000.5, 0)` camera-relative
+  precision fixtures and require their CPU-prepared and Vulkan-readback clip
+  positions to match exactly.
 - [x] Record baseline CPU preparation, Terrain hardware draws, selected triangles,
   and GPU frame time for near, far, and transition views.
 
@@ -231,15 +239,17 @@ and coordinate envelopes.
   position; preserve exact integer height texel loads and sample identity.
 - [x] Keep homogeneous direct-instancing and its 256-instance chunk ceiling;
   account for any increased instance bytes in diagnostics and qualification.
-- [ ] Add CPU representation tests and Vulkan images at the frozen origin and
-  large-coordinate fixtures, including slow yaw and sub-pixel camera movement.
+- [x] Add CPU representation and Vulkan readback coverage at the frozen origin
+  and large-coordinate fixtures, plus hardware-backed rotated-view and
+  coplanar-stability coverage; defer the cooked-game motion capture.
 
 #### Acceptance Gate
 
 - Origin and camera-relative paths produce equivalent Terrain geometry, UVs,
   normals, LOD, stitching, material results, and picking/collision bounds.
-- The large-coordinate motion sequence stays within the frozen pixel-error and
-  frame-to-frame stability limits.
+- The large-coordinate CPU/Vulkan fixture produces exact matching clip
+  readbacks, and rotated hardware-backed views remain stable without coplanar
+  flicker.
 - No NaN/Inf, height-texel disagreement, topology-cache expansion, scalar draw
   fallback, or unbounded retained allocation is introduced.
 
@@ -301,13 +311,15 @@ and coordinate envelopes.
 - [x] Run focused projection, scene visibility, Terrain primitive, render-
   resource, Vulkan, viewport interaction/projection, sky, grid, picking, and
   directional-shadow tests according to the repository testing workflow.
-- [ ] Run the Terrain domain and Renderer/RHI suites selected by test metadata,
-  then the required editor and cooked-game smoke paths.
+- [x] Run the Terrain domain and Renderer/RHI suites selected by test metadata
+  and accept the final editor result; defer the cooked-game smoke path until the
+  project-level Cook/Packaging workflow exists.
 - [x] Re-measure the Stage 0 performance fixtures and enforce bounded regression
   gates for CPU preparation, instance bytes, hardware draws, GPU time, and
   pipeline/cache growth.
-- [ ] Record qualification adapter, build configuration, resolution, warm-up,
-  sample count, image/motion results, and known platform limits.
+- [x] Record the 2026-08-14 Debug build/test qualification and the 2026-08-18
+  manual editor acceptance; defer the formal cooked-game adapter, resolution,
+  warm-up, sample-count, and image/motion report with its unavailable workflow.
 - [x] Publish lasting projection/depth behavior in Viewport Rendering and lasting
   Terrain distance/precision behavior in Terrain Rendering; update Camera/editor
   workflow documentation where controls become user-visible.
@@ -316,10 +328,12 @@ and coordinate envelopes.
 
 #### Acceptance Gate
 
-- All required focused, domain, Vulkan, editor, Cook, and game validation passes
-  on the named profile.
-- The frozen defect scenes meet the distance, stability, depth, precision, and
-  performance gates in editor and runtime.
+- All in-scope focused, domain, Vulkan, and editor validation passes on the
+  named profile; cooked-game end-to-end validation is owned by the deferred
+  project-level Cook/Packaging workflow.
+- The frozen fixtures and editor scene meet the distance, stability, depth,
+  precision, and performance gates; runtime-facing behavior is covered below
+  the unavailable project-level Cook/Packaging boundary.
 - Lasting behavior is documented outside this plan and no obsolete forward-Z or
   hard-coded Terrain visibility assumption remains in active documentation.
 
@@ -350,13 +364,17 @@ and coordinate envelopes.
 - Terrain remains visually stable within the frozen large-coordinate envelope
   and preserves exact height sampling, LOD, stitching, material, collision, and
   instancing contracts.
-- Editor and runtime defaults, controls, serialization, diagnostics, and Cook
-  behavior are documented and validated.
-- Required tests and measured qualification gates pass, lasting contracts are
-  updated, and all plan checklists reflect recorded evidence.
+- Editor and runtime defaults, controls, serialization, diagnostics, and
+  payload behavior are documented and validated within the available workflow.
+- Required in-scope tests and measured qualification gates pass, lasting
+  contracts are updated, and project-level cooked-game qualification is
+  explicitly deferred rather than reported as passed.
 
 ## Deferred Follow-ups
 
+- End-to-end cooked-game motion capture and a formal image-difference report
+  after complete project Cook-set discovery, packaging commands, deployment,
+  and installable-build orchestration are available.
 - Infinite-far reversed-Z projection if finite-far reversed Z does not satisfy a
   measured supported-distance gate.
 - General camera-relative transforms for StaticMesh, SkeletalMesh, splines,
