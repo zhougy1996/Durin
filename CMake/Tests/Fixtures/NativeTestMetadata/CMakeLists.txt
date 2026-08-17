@@ -36,9 +36,19 @@ elseif(DURIN_METADATA_PROBE STREQUAL "qualification")
 	set(_durin_metadata KIND qualification DOMAINS renderer)
 elseif(DURIN_METADATA_PROBE STREQUAL "private-source")
 	target_sources(ProbeTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/FakeModule/Private/Foreign.cpp")
+elseif(DURIN_METADATA_PROBE STREQUAL "application-host")
+	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_EXECUTION_HOST application)
+elseif(DURIN_METADATA_PROBE STREQUAL "invalid-execution-host")
+	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_EXECUTION_HOST gui)
+elseif(DURIN_METADATA_PROBE STREQUAL "empty-execution-host")
+	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_EXECUTION_HOST "")
 endif()
 
 durin_finalize_native_test(ProbeTests ${_durin_metadata})
+if(DURIN_METADATA_PROBE STREQUAL "late-execution-host")
+	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_EXECUTION_HOST application)
+	durin_validate_native_test_finalization(ProbeTests)
+endif()
 set_target_properties(ProbeTests PROPERTIES
 	DURIN_TEST_DISCOVERED TRUE
 	DURIN_TEST_DISCOVERY_RESOURCE_LOCKS "durin-gpu"

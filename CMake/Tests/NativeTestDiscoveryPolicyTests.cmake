@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.24)
 if(NOT DEFINED DURIN_WORKSPACE_DIR)
 	message(FATAL_ERROR "DURIN_WORKSPACE_DIR is required.")
 endif()
+if(NOT DEFINED DURIN_CMAKE_GENERATOR OR NOT DEFINED DURIN_CXX_COMPILER)
+	message(FATAL_ERROR "DURIN_CMAKE_GENERATOR and DURIN_CXX_COMPILER are required.")
+endif()
 
 include("${DURIN_WORKSPACE_DIR}/CMake/Project/ProjectTargets.cmake")
 
@@ -78,8 +81,8 @@ function(configure_metadata_probe probe expect_success expected_text)
 			if(_durin_first_registry MATCHES "\"name\"")
 				message(FATAL_ERROR "Unavailable metadata probe emitted a target record.")
 			endif()
-		elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 2")
-			message(FATAL_ERROR "Metadata probe registry omitted schema version 2.")
+		elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 3")
+			message(FATAL_ERROR "Metadata probe registry omitted schema version 3.")
 		endif()
 		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
 		file(READ "${_durin_registry}.copy" _durin_second_registry)
@@ -94,6 +97,58 @@ function(configure_metadata_probe probe expect_success expected_text)
 				"Metadata probe '${probe}' did not report '${expected_text}':\n${_durin_text}")
 		endif()
 	endif()
+endfunction()
+
+function(run_test_launcher_probe)
+	set(_durin_probe_binary "${DURIN_TEST_BINARY_DIR}/TestLauncherProbe")
+	file(REMOVE_RECURSE "${_durin_probe_binary}")
+	execute_process(
+		COMMAND "${CMAKE_COMMAND}"
+			-G "${DURIN_CMAKE_GENERATOR}"
+			"-DCMAKE_MAKE_PROGRAM=${DURIN_MAKE_PROGRAM}"
+			"-DCMAKE_CXX_COMPILER=${DURIN_CXX_COMPILER}"
+			-S "${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/NativeTestLauncher"
+			-B "${_durin_probe_binary}"
+		RESULT_VARIABLE _durin_configure_result
+		OUTPUT_VARIABLE _durin_configure_output
+		ERROR_VARIABLE _durin_configure_error
+	)
+	if(NOT _durin_configure_result EQUAL 0)
+		message(FATAL_ERROR
+			"TEST_LAUNCHER probe configure failed:\n"
+			"${_durin_configure_output}\n${_durin_configure_error}")
+	endif()
+	execute_process(
+		COMMAND "${CMAKE_COMMAND}" --build "${_durin_probe_binary}"
+		RESULT_VARIABLE _durin_build_result
+		OUTPUT_VARIABLE _durin_build_output
+		ERROR_VARIABLE _durin_build_error
+	)
+	if(NOT _durin_build_result EQUAL 0)
+		message(FATAL_ERROR
+			"TEST_LAUNCHER probe build failed:\n"
+			"${_durin_build_output}\n${_durin_build_error}")
+	endif()
+	execute_process(
+		COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${_durin_probe_binary}"
+			--output-on-failure
+		RESULT_VARIABLE _durin_ctest_result
+		OUTPUT_VARIABLE _durin_ctest_output
+		ERROR_VARIABLE _durin_ctest_error
+	)
+	if(NOT _durin_ctest_result EQUAL 0)
+		message(FATAL_ERROR
+			"TEST_LAUNCHER probe execution failed:\n"
+			"${_durin_ctest_output}\n${_durin_ctest_error}")
+	endif()
+	file(READ "${_durin_probe_binary}/launcher.log" _durin_launcher_log)
+	foreach(_durin_expected IN ITEMS discovery case whole-target)
+		if(NOT _durin_launcher_log MATCHES "${_durin_expected}")
+			message(FATAL_ERROR
+				"TEST_LAUNCHER probe did not observe ${_durin_expected}:\n"
+				"${_durin_launcher_log}")
+		endif()
+	endforeach()
 endfunction()
 
 durin_resolve_native_test_discovery_policy(
@@ -228,3 +283,8 @@ configure_metadata_probe("duplicate" FALSE "duplicate value 'world'")
 configure_metadata_probe("reserved-label" FALSE "reserved native-test prefix")
 configure_metadata_probe("characterization-direct" FALSE "KIND characterization requires")
 configure_metadata_probe("private-source" FALSE "compiles production-private source")
+configure_metadata_probe("application-host" TRUE "\"executionHost\":\"application\"")
+configure_metadata_probe("invalid-execution-host" FALSE "DURIN_TEST_EXECUTION_HOST 'gui' is invalid")
+configure_metadata_probe("empty-execution-host" FALSE "DURIN_TEST_EXECUTION_HOST must not be empty")
+configure_metadata_probe("late-execution-host" FALSE "changed after")
+run_test_launcher_probe()

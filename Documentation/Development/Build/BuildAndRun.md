@@ -269,6 +269,16 @@ failed statuses are colored consistently even when the child process disables
 its own terminal colors.
 `--plain` controls styling independently and does not select an output volume.
 
+On macOS, native targets whose registry metadata reports `host=application`
+are admitted through the repository's internal LaunchServices `.app` host.
+Use the same `DevTool test` commands as for direct targets; do not assemble a
+bundle or invoke `open` manually. The graphical login session must be active,
+and terminal or automation sandbox policy must allow LaunchServices application
+launch. Admission, test, crash, timeout, cancellation, and cleanup failures
+retain a bounded evidence directory under `/private/tmp` and print its exact
+path. Product application packaging, signing, and installation are unrelated
+to this internal test artifact.
+
 Agents invoke toolchain-backed commands with `--agent`. This preset selects
 plain compact output and emits a short heartbeat every 30 seconds while a
 configure, build, clean, or test child command remains alive. An explicit

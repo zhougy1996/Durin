@@ -235,7 +235,8 @@ function(add_durin_test target_name)
 		_durin_native_test_main_suffix)
 	set(_durin_native_test_main
 		"${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>/NativeTestMain-${_durin_native_test_main_suffix}.cpp")
-	set(DURIN_NATIVE_TEST_WORK_ROOT "${_durin_test_work_dir}")
+	set(DURIN_NATIVE_TEST_WORK_ROOT
+		"$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_WORK_DIR>>")
 	file(READ
 		"${CMAKE_SOURCE_DIR}/Engine/Tests/NativeTestSupport/Private/NativeTestMain.cpp.in"
 		_durin_native_test_main_template)
@@ -300,9 +301,9 @@ function(add_durin_test target_name)
 	endforeach()
 
 	target_compile_definitions(${target_name} PRIVATE
-		DURIN_TEST_ROOT_DIR="${_durin_test_root_dir}"
-		DURIN_TEST_BIN_DIR="${_durin_test_bin_dir}"
-		DURIN_TEST_DATA_DIR="${_durin_test_data_dir}"
+		DURIN_TEST_ROOT_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_ROOT_DIR>>"
+		DURIN_TEST_BIN_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_BIN_DIR>>"
+		DURIN_TEST_DATA_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_DATA_DIR>>"
 	)
 
 	if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
@@ -328,9 +329,9 @@ function(add_durin_test target_name)
 
 	add_custom_command(TARGET ${target_name} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory
-		"${_durin_test_bin_dir}"
-		"${_durin_test_data_dir}"
-		"${_durin_test_work_dir}"
+		"$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_BIN_DIR>>"
+		"$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_DATA_DIR>>"
+		"$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_WORK_DIR>>"
 		COMMENT "Preparing test sandbox: ${target_name}"
 		VERBATIM
 	)
@@ -346,6 +347,10 @@ set(DURIN_NATIVE_TEST_KINDS
 	characterization
 	infrastructure
 	qualification
+)
+set(DURIN_NATIVE_TEST_EXECUTION_HOSTS
+	direct
+	application
 )
 set(DURIN_NATIVE_TEST_RESERVED_LABEL_PREFIXES
 	kind-
@@ -436,6 +441,84 @@ function(durin_finalize_native_test target_name)
 	get_target_property(_durin_direct_lifecycle ${target_name} DURIN_TEST_DIRECT_LIFECYCLE)
 	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
 		set(_durin_direct_lifecycle TRUE)
+	endif()
+	get_target_property(_durin_execution_host ${target_name} DURIN_TEST_EXECUTION_HOST)
+	if(_durin_execution_host MATCHES "-NOTFOUND$")
+		set(_durin_execution_host direct)
+	elseif(NOT _durin_execution_host)
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_EXECUTION_HOST must not be empty; expected one of: "
+			"${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
+	endif()
+	string(TOLOWER "${_durin_execution_host}" _durin_execution_host)
+	if(NOT _durin_execution_host IN_LIST DURIN_NATIVE_TEST_EXECUTION_HOSTS)
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_EXECUTION_HOST '${_durin_execution_host}' is invalid; "
+			"expected one of: ${DURIN_NATIVE_TEST_EXECUTION_HOSTS}.")
+	endif()
+	if(APPLE AND _durin_execution_host STREQUAL "application")
+		set(_durin_resolved_execution_host application)
+		string(SHA256 _durin_application_artifact_identity "${CMAKE_BINARY_DIR}")
+		string(SUBSTRING "${_durin_application_artifact_identity}" 0 16
+			_durin_application_artifact_identity)
+		set(_durin_application_artifact_configuration "${CMAKE_BUILD_TYPE}")
+		if(NOT _durin_application_artifact_configuration)
+			set(_durin_application_artifact_configuration "default")
+		endif()
+		set(_durin_application_artifact_root
+			"/private/tmp/DurinNativeTestApplicationArtifacts/${_durin_application_artifact_identity}/${_durin_application_artifact_configuration}")
+		get_target_property(_durin_application_original_root
+			${target_name} DURIN_TEST_ROOT_DIR)
+		get_target_property(_durin_application_original_bin
+			${target_name} DURIN_TEST_BIN_DIR)
+		get_target_property(_durin_application_original_data
+			${target_name} DURIN_TEST_DATA_DIR)
+		get_target_property(_durin_application_original_work
+			${target_name} DURIN_TEST_WORK_DIR)
+		foreach(_durin_application_path IN ITEMS root bin data work)
+			string(REPLACE "$<CONFIG>" "${_durin_application_artifact_configuration}"
+				_durin_application_original_${_durin_application_path}
+				"${_durin_application_original_${_durin_application_path}}")
+			cmake_path(RELATIVE_PATH _durin_application_original_${_durin_application_path}
+				BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
+				OUTPUT_VARIABLE _durin_application_relative_${_durin_application_path})
+		endforeach()
+		set_target_properties(${target_name} PROPERTIES
+			RUNTIME_OUTPUT_DIRECTORY
+				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			LIBRARY_OUTPUT_DIRECTORY
+				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			BUILD_RPATH "@loader_path"
+			DURIN_TEST_ROOT_DIR
+				"${_durin_application_artifact_root}/${_durin_application_relative_root}"
+			DURIN_TEST_BIN_DIR
+				"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			DURIN_TEST_DATA_DIR
+				"${_durin_application_artifact_root}/${_durin_application_relative_data}"
+			DURIN_TEST_WORK_DIR
+				"${_durin_application_artifact_root}/${_durin_application_relative_work}"
+			DURIN_TEST_APPLICATION_ARTIFACT_ROOT
+				"${_durin_application_artifact_root}"
+		)
+		if(NOT TARGET DurinNativeTestApplicationRuntimeLayout)
+			add_custom_target(DurinNativeTestApplicationRuntimeLayout
+			COMMAND ${CMAKE_COMMAND} -E make_directory
+				"${_durin_application_artifact_root}/Engine/Content"
+				"${_durin_application_artifact_root}/Engine/Binaries"
+				"${_durin_application_artifact_root}/Engine/Shaders"
+			COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+				"${CMAKE_SOURCE_DIR}/Engine/Content"
+				"${_durin_application_artifact_root}/Engine/Content"
+			COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+				"${CMAKE_SOURCE_DIR}/Engine/Shaders"
+				"${_durin_application_artifact_root}/Engine/Shaders"
+			COMMENT "Preparing application-hosted Engine runtime layout"
+			VERBATIM)
+		endif()
+		add_dependencies(${target_name}
+			DurinNativeTestApplicationRuntimeLayout)
+	else()
+		set(_durin_resolved_execution_host direct)
 	endif()
 	get_target_property(_durin_labels ${target_name} DURIN_TEST_LABELS)
 	if(_durin_labels MATCHES "-NOTFOUND$")
@@ -529,6 +612,9 @@ function(durin_finalize_native_test target_name)
 		DURIN_TEST_LABELS "${_durin_labels}"
 		DURIN_TEST_PRIVATE_SOURCE_OWNER "${DURIN_METADATA_PRIVATE_SOURCE_OWNER}"
 		DURIN_TEST_PRIVATE_SOURCE_RATIONALE "${DURIN_METADATA_PRIVATE_SOURCE_RATIONALE}"
+		DURIN_TEST_EXECUTION_HOST "${_durin_execution_host}"
+		DURIN_TEST_RESOLVED_EXECUTION_HOST "${_durin_resolved_execution_host}"
+		DURIN_TEST_FINALIZED_EXECUTION_HOST "${_durin_execution_host}"
 	)
 endfunction()
 
@@ -542,6 +628,14 @@ function(durin_validate_native_test_finalization target_name)
 		message(FATAL_ERROR
 			"Native-test target ${target_name} must call durin_finalize_native_test "
 			"with KIND and DOMAINS before durin_discover_tests.")
+	endif()
+	get_target_property(_durin_execution_host ${target_name} DURIN_TEST_EXECUTION_HOST)
+	get_target_property(_durin_finalized_execution_host
+		${target_name} DURIN_TEST_FINALIZED_EXECUTION_HOST)
+	if(NOT _durin_execution_host STREQUAL _durin_finalized_execution_host)
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_EXECUTION_HOST changed after "
+			"durin_finalize_native_test; declare execution policy before finalization.")
 	endif()
 endfunction()
 
@@ -914,7 +1008,8 @@ function(durin_generate_native_test_registry output_path)
 		endif()
 		foreach(_durin_property
 			KIND DOMAINS MODULES BACKENDS STACKS
-			DIRECT_LIFECYCLE TIMEOUT DISCOVERY_RESOURCE_LOCKS
+			DIRECT_LIFECYCLE EXECUTION_HOST RESOLVED_EXECUTION_HOST
+			TIMEOUT DISCOVERY_RESOURCE_LOCKS
 			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
 				${_durin_target} DURIN_TEST_${_durin_property})
@@ -937,6 +1032,9 @@ function(durin_generate_native_test_registry output_path)
 		endif()
 		durin_json_escape(_durin_name_json "${_durin_target}")
 		durin_json_escape(_durin_kind_json "${_durin_KIND}")
+		durin_json_escape(_durin_execution_host_json "${_durin_EXECUTION_HOST}")
+		durin_json_escape(_durin_resolved_execution_host_json
+			"${_durin_RESOLVED_EXECUTION_HOST}")
 		durin_json_escape(_durin_private_source_owner_json "${_durin_PRIVATE_SOURCE_OWNER}")
 		durin_json_escape(_durin_private_source_rationale_json "${_durin_PRIVATE_SOURCE_RATIONALE}")
 		string(CONCAT _durin_record
@@ -944,6 +1042,8 @@ function(durin_generate_native_test_registry output_path)
 			"\"kind\":\"${_durin_kind_json}\","
 			"\"domains\":${_durin_DOMAINS_json},\"modules\":${_durin_MODULES_json},"
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
+			"\"executionHost\":\"${_durin_execution_host_json}\","
+			"\"resolvedExecutionHost\":\"${_durin_resolved_execution_host_json}\","
 			"\"directLifecycle\":${_durin_direct_json},\"timeoutSeconds\":${_durin_TIMEOUT},"
 			"\"resourceLocks\":${_durin_DISCOVERY_RESOURCE_LOCKS_json},"
 			"\"heavyRuntime\":${_durin_heavy_json},"
@@ -962,7 +1062,7 @@ function(durin_generate_native_test_registry output_path)
 	durin_json_escape(_durin_configuration_json "${CMAKE_BUILD_TYPE}")
 	string(CONCAT _durin_registry
 		"{\n"
-		"  \"schemaVersion\": 2,\n"
+		"  \"schemaVersion\": 3,\n"
 		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
 		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
 		"\"configuration\":\"${_durin_configuration_json}\"},\n"
@@ -1028,6 +1128,8 @@ function(durin_discover_tests target_name)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
 	endif()
+	get_target_property(_durin_resolved_execution_host
+		${target_name} DURIN_TEST_RESOLVED_EXECUTION_HOST)
 	get_target_property(_durin_target_lock_rationale ${target_name}
 		DURIN_TEST_TARGET_LOCK_RATIONALE)
 	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
@@ -1063,10 +1165,41 @@ function(durin_discover_tests target_name)
 		DURIN_TEST_DISCOVERED TRUE
 	)
 
+	set(_durin_discovery_args)
+	if(_durin_resolved_execution_host STREQUAL "application")
+		if(NOT TARGET DurinNativeTestApplicationController
+			OR NOT TARGET DurinNativeTestApplicationHost)
+			message(FATAL_ERROR
+				"${target_name} requires the macOS native-test application host, but its "
+				"controller or bundle target is unavailable.")
+		endif()
+		string(SHA256 _durin_application_build_identity "${CMAKE_BINARY_DIR}")
+		string(SUBSTRING "${_durin_application_build_identity}" 0 16
+			_durin_application_build_identity)
+		set(_durin_application_control_root
+			"/private/tmp/DurinNativeTestApplicationHost/${_durin_application_build_identity}/$<CONFIG>")
+		get_target_property(_durin_application_artifact_root
+			${target_name} DURIN_TEST_APPLICATION_ARTIFACT_ROOT)
+		set_property(TARGET ${target_name} PROPERTY TEST_LAUNCHER
+			"$<TARGET_FILE:DurinNativeTestApplicationController>"
+			"--host-bundle"
+			"$<TARGET_BUNDLE_DIR:DurinNativeTestApplicationHost>"
+			"--control-root"
+			"${_durin_application_control_root}"
+			"--artifact-root"
+			"${_durin_application_artifact_root}"
+			"--")
+		add_dependencies(${target_name}
+			DurinNativeTestApplicationController
+			DurinNativeTestApplicationHost)
+		list(APPEND _durin_discovery_args DISCOVERY_MODE PRE_TEST)
+	endif()
+
 	gtest_discover_tests(${target_name}
 		WORKING_DIRECTORY "${_durin_work_dir}"
 		DISCOVERY_TIMEOUT 30
 		PROPERTIES TIMEOUT "${_durin_timeout}"
+		${_durin_discovery_args}
 	)
 
 	# GoogleTest's discovery helper loses the grouping of semicolon-separated
@@ -1095,7 +1228,7 @@ function(durin_discover_tests target_name)
 	if(_durin_direct_lifecycle)
 		add_test(
 			NAME "Durin.NativeTestDirect.${target_name}"
-			COMMAND "$<TARGET_FILE:${target_name}>" --gtest_brief=1
+			COMMAND ${target_name}
 			WORKING_DIRECTORY "${_durin_work_dir}"
 		)
 		set_tests_properties(

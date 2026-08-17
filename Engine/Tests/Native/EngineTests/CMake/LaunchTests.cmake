@@ -208,6 +208,7 @@ if(WIN32)
 	)
 	set_target_properties(MacOSWindowLifecycleTests PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+		DURIN_TEST_EXECUTION_HOST application
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Creates real hidden Cocoa windows and exercises the host monitor and event services."
 		DURIN_TEST_TARGET_LOCK_RATIONALE

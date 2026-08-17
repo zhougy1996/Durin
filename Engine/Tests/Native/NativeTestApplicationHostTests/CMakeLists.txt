@@ -1,0 +1,28 @@
+include(GoogleTest)
+
+add_durin_test(NativeTestApplicationHostTests
+	Private/NativeTestApplicationProtocolTests.cpp
+	Private/NativeTestApplicationControllerTests.cpp
+)
+target_link_libraries(NativeTestApplicationHostTests PRIVATE
+	DurinNativeTestApplicationProtocol
+)
+target_compile_definitions(NativeTestApplicationHostTests PRIVATE
+	DURIN_APPLICATION_TEST_CONTROLLER="$<TARGET_FILE:DurinNativeTestApplicationController>"
+	DURIN_APPLICATION_TEST_HOST_BUNDLE="$<TARGET_BUNDLE_DIR:DurinNativeTestApplicationHost>"
+	DURIN_APPLICATION_TEST_PROBE="$<TARGET_FILE:DurinNativeTestApplicationProbe>"
+)
+add_dependencies(NativeTestApplicationHostTests
+	DurinNativeTestApplicationController
+	DurinNativeTestApplicationHost
+	DurinNativeTestApplicationProbe)
+set_target_properties(NativeTestApplicationHostTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_finalize_native_test(NativeTestApplicationHostTests
+	KIND infrastructure
+	DOMAINS launch
+	MODULES native-test-support
+	STACKS process
+)
+durin_discover_tests(NativeTestApplicationHostTests)

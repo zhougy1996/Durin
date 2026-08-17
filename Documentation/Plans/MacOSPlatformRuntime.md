@@ -2,7 +2,7 @@
 
 Summary: Implement and qualify the Apple Silicon macOS process, crash, shell, window, input, ownership, and Editor lifecycle required before MoltenVK rendering qualification.
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-17
 
 Status: Active
 Completed:
@@ -23,6 +23,13 @@ truthfully disables multi-viewport support for that session instead of
 publishing fabricated monitor geometry; a transient empty result preserves the
 last real snapshot. Keyboard, text, mouse, focus, minimize, restoration, and
 full multi-monitor injection remain an open native qualification boundary.
+Targets that require this lifecycle now declare the shared native-test
+application host rather than using temporary bundles. LaunchServices owns the
+Host process; CTest retains discovery, scheduling, timeout, locks, and exact
+result policy. The complete Vulkan RHI qualification passes through that path.
+The current session still reports no GLFW monitors, and the window lifecycle
+qualification preserves that condition as a bounded failure instead of
+fabricating display state or skipping the case.
 
 The complete Debug Editor and Launch closure link as Mach-O arm64 with valid
 runtime `@rpath` dependencies. Launch now creates the final hidden primary

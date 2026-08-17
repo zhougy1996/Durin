@@ -1,0 +1,100 @@
+#include "NativeTestApplicationProtocol.h"
+#include "NativeTestSupport.h"
+
+#include <fstream>
+#include <gtest/gtest.h>
+
+namespace Durin::Testing::ApplicationHost
+{
+	namespace
+	{
+		class FProtocolDirectory
+		{
+		public:
+			explicit FProtocolDirectory(std::string_view Name)
+				: Path(CreateTestFixtureDirectory(Name))
+			{
+			}
+
+			~FProtocolDirectory()
+			{
+				RemoveTestWorkDirectory(Path);
+			}
+
+			std::filesystem::path Path;
+		};
+	}
+
+	TEST(NativeTestApplicationProtocol, StringVectorRoundTripPreservesExactValues)
+	{
+		FProtocolDirectory Directory("ApplicationHostProtocolRoundTrip");
+		const std::filesystem::path Record = Directory.Path / "record.bin";
+		const std::vector<std::string> Expected{
+			"nonce", "argument with spaces", "line one\nline two", "NAME=value=with=equals"};
+		std::string Error;
+		ASSERT_TRUE(WriteStringVectorAtomic(Record, Expected, Error)) << Error;
+		std::vector<std::string> Actual;
+		ASSERT_TRUE(ReadStringVector(Record, Actual, Error)) << Error;
+		EXPECT_EQ(Actual, Expected);
+	}
+
+	TEST(NativeTestApplicationProtocol, ResultRoundTripPreservesFailureClassification)
+	{
+		FProtocolDirectory Directory("ApplicationHostResultRoundTrip");
+		const std::filesystem::path Record = Directory.Path / "result.bin";
+		const FResult Expected{"nonce", "test", "crashed", 139, 11, "signal evidence"};
+		std::string Error;
+		ASSERT_TRUE(WriteResultAtomic(Record, Expected, Error)) << Error;
+		FResult Actual;
+		ASSERT_TRUE(ReadResult(Record, Actual, Error)) << Error;
+		EXPECT_EQ(Actual.Nonce, Expected.Nonce);
+		EXPECT_EQ(Actual.Stage, Expected.Stage);
+		EXPECT_EQ(Actual.Status, Expected.Status);
+		EXPECT_EQ(Actual.ExitCode, Expected.ExitCode);
+		EXPECT_EQ(Actual.Signal, Expected.Signal);
+		EXPECT_EQ(Actual.Message, Expected.Message);
+	}
+
+	TEST(NativeTestApplicationProtocol, ResultValidationRejectsInconsistentStates)
+	{
+		std::string Error;
+		EXPECT_TRUE(ValidateResult({"nonce", "test", "passed", 0, 0, ""}, Error));
+		EXPECT_TRUE(ValidateResult({"nonce", "test", "failed", 7, 0, ""}, Error));
+		EXPECT_TRUE(ValidateResult({"nonce", "test", "crashed", 134, 6, ""}, Error));
+		EXPECT_FALSE(ValidateResult({"nonce", "test", "passed", 7, 0, ""}, Error));
+		EXPECT_FALSE(ValidateResult({"nonce", "test", "unknown", 0, 0, ""}, Error));
+		EXPECT_FALSE(ValidateResult({"nonce", "test", "crashed", 7, 6, ""}, Error));
+	}
+
+	TEST(NativeTestApplicationProtocol, RejectsTruncatedAndTrailingRecords)
+	{
+		FProtocolDirectory Directory("ApplicationHostMalformedRecords");
+		std::string Error;
+		const std::filesystem::path Truncated = Directory.Path / "truncated.bin";
+		{
+			std::ofstream Output(Truncated, std::ios::binary);
+			Output << "invalid";
+		}
+		std::vector<std::string> Values;
+		EXPECT_FALSE(ReadStringVector(Truncated, Values, Error));
+
+		const std::filesystem::path Trailing = Directory.Path / "trailing.bin";
+		Error.clear();
+		ASSERT_TRUE(WriteStringVectorAtomic(Trailing, {"valid"}, Error)) << Error;
+		{
+			std::ofstream Output(Trailing, std::ios::binary | std::ios::app);
+			Output << 'x';
+		}
+		Error.clear();
+		EXPECT_FALSE(ReadStringVector(Trailing, Values, Error));
+		EXPECT_NE(Error.find("trailing"), std::string::npos);
+	}
+
+	TEST(NativeTestApplicationProtocol, ContainmentRejectsRootAndSiblingPrefixes)
+	{
+		const std::filesystem::path Root = "/tmp/durin-host";
+		EXPECT_TRUE(IsContainedPath(Root, Root / "run-p1-nonce"));
+		EXPECT_FALSE(IsContainedPath(Root, Root));
+		EXPECT_FALSE(IsContainedPath(Root, "/tmp/durin-host-escape/run"));
+	}
+}

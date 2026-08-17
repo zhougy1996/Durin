@@ -39,6 +39,8 @@ def target(
         modules=modules,
         backends=backends,
         stacks=(),
+        execution_host="direct",
+        resolved_execution_host="direct",
         direct_lifecycle=kind != "characterization",
         timeout_seconds=300,
         resource_locks=(),
@@ -151,7 +153,7 @@ def test_private_source_report_selects_owned_seams(
 
 def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:
     document = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "identity": {
             "sourceDir": str(REPOSITORY_ROOT),
             "binaryDir": str(tmp_path),

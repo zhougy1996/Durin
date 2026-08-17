@@ -212,6 +212,8 @@ def _aggregate_test_environment(
 ) -> dict[str, str]:
     environment = dict(context.environment or os.environ)
     request = context.request
+    if output.compact:
+        environment["GTEST_BRIEF"] = "1"
     if (
         not request.test_schedule_random
         or request.test_granularity is TestGranularity.CASE
@@ -298,6 +300,10 @@ def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> Non
         str(context.jobs),
     ]
     environment = dict(context.environment or os.environ)
+    if output.compact:
+        environment["GTEST_BRIEF"] = "1"
+    if request.test_filter:
+        environment["GTEST_FILTER"] = request.test_filter
     if request.test_mode in {TestMode.ISOLATION, TestMode.CHARACTERIZATION}:
         command.extend(["-L", "native-test-case", "-L", f"^({escaped_names})$"])
         if request.test_mode is TestMode.CHARACTERIZATION:

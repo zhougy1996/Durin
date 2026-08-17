@@ -22,7 +22,7 @@ set(_durin_editor_test_modules
 )
 
 function(durin_add_engine_functional_test target_name)
-	set(options EDITOR_ONLY GPU)
+	set(options APPLICATION_HOST EDITOR_ONLY GPU)
 	set(one_value_args
 		KIND
 		TIMEOUT
@@ -127,21 +127,10 @@ function(durin_add_engine_functional_test target_name)
 		Engine
 		${DURIN_ENGINE_TEST_LIBRARIES}
 	)
-
-	if(DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS
-		OR DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES)
-		durin_test_register_runtime_only_dependencies(${target_name}
-			RATIONALE "${DURIN_ENGINE_TEST_RUNTIME_ONLY_RATIONALE}"
-			TARGETS ${DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS}
-			FILES ${DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES}
-		)
+	if(DURIN_ENGINE_TEST_APPLICATION_HOST)
+		set_target_properties(${target_name} PROPERTIES
+			DURIN_TEST_EXECUTION_HOST application)
 	endif()
-	foreach(_durin_data_directory IN LISTS DURIN_ENGINE_TEST_DATA_DIRECTORIES)
-		durin_test_deploy_directory_to_data(
-			${target_name}
-			"${_durin_data_directory}"
-		)
-	endforeach()
 
 	if(DURIN_ENGINE_TEST_GPU)
 		set_target_properties(${target_name} PROPERTIES
@@ -163,6 +152,20 @@ function(durin_add_engine_functional_test target_name)
 		PRIVATE_SOURCE_RATIONALE
 			"${DURIN_ENGINE_TEST_PRIVATE_SOURCE_RATIONALE}"
 	)
+	if(DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS
+		OR DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES)
+		durin_test_register_runtime_only_dependencies(${target_name}
+			RATIONALE "${DURIN_ENGINE_TEST_RUNTIME_ONLY_RATIONALE}"
+			TARGETS ${DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS}
+			FILES ${DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES}
+		)
+	endif()
+	foreach(_durin_data_directory IN LISTS DURIN_ENGINE_TEST_DATA_DIRECTORIES)
+		durin_test_deploy_directory_to_data(
+			${target_name}
+			"${_durin_data_directory}"
+		)
+	endforeach()
 	durin_discover_tests(${target_name})
 endfunction()
 

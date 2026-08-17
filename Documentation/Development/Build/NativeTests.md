@@ -43,10 +43,12 @@ target or domain when a change touches integration behavior, and retain
 `test all` for the complete ordinary correctness aggregate.
 
 The first command runs one target process. The second passes a GoogleTest
-filter. The `@viewport` command resolves a configured domain set, prints the
-exact target list, builds only those executables and their dependency closures,
-and runs their direct CTest registrations. A test executable has a 300-second
-timeout
+filter. Direct-hosted exact targets retain the focused executable path;
+application-hosted exact targets run the same whole-target CTest registration
+used by bounded sets so the platform launcher remains in force. The `@viewport`
+command resolves a configured domain set, prints the exact target list, builds
+only those executables and their dependency closures, and runs their CTest
+registrations. A test executable has a 300-second timeout
 by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for
 an intentionally long diagnostic run. The timeout starts after the target has
 finished building.
@@ -203,6 +205,13 @@ process-isolation harness as CTest. Add `--durin-keep-test-work`, or set
 `DURIN_TEST_KEEP_WORK=1`, to retain a successful run's files. CTest discovery
 state is in `Build/Win64-Debug-DurinEditor`.
 
+Do not run an application-hosted macOS executable directly for diagnosis; that
+bypasses LaunchServices admission. Use the ordinary DevTool target, filtered,
+isolation, stress, report, or qualification command and inspect the retained
+control directory printed by a failed launcher invocation. These tests require
+an active graphical login session. A locked or missing GUI session is a real,
+bounded test failure rather than a skip.
+
 ## Output Layout
 
 - Test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
@@ -300,6 +309,26 @@ known and before `durin_discover_tests(...)`. `KIND` is exactly one of
 `qualification`; `DOMAINS` contains at least one stable selection slice.
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
+
+`DURIN_TEST_EXECUTION_HOST` declares the process lifecycle required by the
+target and is independent of kind, direct-lifecycle registration, labels, and
+locks. Its default is `direct`; set it to `application` before finalization
+when a target initializes Cocoa, AppKit, a GLFW Cocoa window, a Metal layer, or
+native presentation. On macOS, CMake resolves `application` to the repository
+LaunchServices host and uses `TEST_LAUNCHER` for both `PRE_TEST` GoogleTest
+discovery and execution. Platforms where an ordinary process already owns the
+required application lifecycle may resolve the same declaration to direct
+execution. Do not create target-local `.app` wrappers or call `open` manually.
+
+The macOS controller preserves the exact GoogleTest arguments and environment,
+publishes stdout/stderr and the signal-derived child result, and cleans only
+the retained Host and child PIDs for its invocation. Successful control
+directories are removed; failed, crashed, timed-out, cancelled, or malformed
+invocations retain bounded evidence under `/private/tmp`. Application-hosted
+artifacts, deployment closure, Data, and Work roots are also placed under a
+build-identity-specific internal temporary root. This is required when a
+LaunchServices child originates from a checkout on an external volume; direct
+targets retain the ordinary output layout below.
 
 Metadata values are lowercase slugs matching
 `[a-z][a-z0-9]*(-[a-z0-9]+)*`; duplicate values are errors and emitted values

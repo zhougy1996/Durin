@@ -440,13 +440,20 @@ def execute_context(
                 elif context.resolved_test_targets:
                     run_selected_native_tests(context, output)
                 else:
+                    application_hosted = False
                     if registry_path(context).is_file():
-                        resolve_selection(
-                            load_native_test_registry(context),
+                        registry = load_native_test_registry(context)
+                        resolved = resolve_selection(
+                            registry,
                             context.target,
                             admit_characterization=False,
                         )
-                    run_native_test(context, output)
+                        if resolved.targets[0].resolved_execution_host == "application":
+                            context.resolved_test_targets = resolved.names
+                            run_selected_native_tests(context, output)
+                            application_hosted = True
+                    if not application_hosted:
+                        run_native_test(context, output)
     elapsed = perf_counter() - started
     if context.request.action is not Action.PURGE:
         output.success(f"{context.request.action.value} completed in {elapsed:.2f}s.")

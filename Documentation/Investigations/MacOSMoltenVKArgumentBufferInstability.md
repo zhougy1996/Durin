@@ -3,7 +3,7 @@
 **Status:** Open; discrete resource indexes are the qualified workaround, and
 reevaluation is due when the supported LunarG SDK bundles MoltenVK 1.4.2 or newer
 
-**Last reviewed:** 2026-08-16
+**Last reviewed:** 2026-08-17
 
 ## Scope And Verdict
 
@@ -123,10 +123,13 @@ workaround produces a measured performance or resource-limit regression.
   were interrupted when macOS entered the lock screen. The native-test process
   was observed waiting in the AppKit application loop rather than failing in
   Vulkan. The visual frame comparison cited above was performed after unlock.
-- **Test gap:** the complete Vulkan RHI integration target passes when run
-  through a macOS application bundle with its registered primary presentation
-  window. It qualifies RHI admission and hardware behavior, but does not
-  provide an automated regression test for this visual artifact.
+- **Test gap:** the complete Vulkan RHI integration target passes through its
+  declared repository application host with the registered primary
+  presentation window. Run it with
+  `./DevTool test VulkanRHIIntegrationTests --mode qualification`; no temporary
+  bundle or manual `open` command is required. It qualifies RHI admission and
+  hardware behavior, but does not provide an automated regression test for
+  this visual artifact.
 
 ## Reevaluation Procedure
 

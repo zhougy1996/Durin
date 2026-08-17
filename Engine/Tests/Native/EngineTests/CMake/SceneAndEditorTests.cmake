@@ -177,6 +177,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 )
 
 durin_add_engine_functional_test(EditorGridVulkanTests
+	APPLICATION_HOST
 	KIND integration
 	DOMAINS renderer viewport
 	MODULES engine renderer vulkan-rhi

@@ -11,7 +11,7 @@ from typing import Iterable
 from .config import BuildContext, BuildToolError, default_build_paths, preset_build_directory
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 REGISTRY_FILE_NAME = "DurinNativeTestRegistry.json"
 SELECTOR_DIMENSIONS = {
     "kind": "kind",
@@ -32,6 +32,8 @@ class NativeTestTarget:
     modules: tuple[str, ...]
     backends: tuple[str, ...]
     stacks: tuple[str, ...]
+    execution_host: str
+    resolved_execution_host: str
     direct_lifecycle: bool
     timeout_seconds: int
     resource_locks: tuple[str, ...]
@@ -126,6 +128,16 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
         if not isinstance(record, dict) or not isinstance(record.get("name"), str):
             raise BuildToolError(f'Configured native-test registry "{path}" has an invalid target record.')
         name = str(record["name"])
+        execution_host = record.get("executionHost")
+        resolved_execution_host = record.get("resolvedExecutionHost")
+        if execution_host not in {"direct", "application"}:
+            raise BuildToolError(
+                f'Native-test registry target "{name}" has an invalid executionHost.'
+            )
+        if resolved_execution_host not in {"direct", "application"}:
+            raise BuildToolError(
+                f'Native-test registry target "{name}" has an invalid resolvedExecutionHost.'
+            )
         targets.append(
             NativeTestTarget(
                 name=name,
@@ -134,6 +146,8 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
                 modules=_string_list(record, "modules", target=name),
                 backends=_string_list(record, "backends", target=name),
                 stacks=_string_list(record, "stacks", target=name),
+                execution_host=execution_host,
+                resolved_execution_host=resolved_execution_host,
                 direct_lifecycle=record.get("directLifecycle") is True,
                 timeout_seconds=int(record.get("timeoutSeconds", 0)),
                 resource_locks=_string_list(record, "resourceLocks", target=name),
@@ -279,6 +293,12 @@ def target_metadata_text(target: NativeTestTarget) -> str:
         f"modules={'+'.join(target.modules)}" if target.modules else "",
         f"backends={'+'.join(target.backends)}" if target.backends else "",
         f"stacks={'+'.join(target.stacks)}" if target.stacks else "",
+        f"host={target.execution_host}",
+        (
+            f"resolved-host={target.resolved_execution_host}"
+            if target.resolved_execution_host != target.execution_host
+            else ""
+        ),
         f"locks={'+'.join(target.resource_locks)}" if target.resource_locks else "",
         "heavy" if target.heavy_runtime else "",
         (

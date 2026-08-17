@@ -52,7 +52,7 @@ class TestCore:
             build_runtime.run_all_native_tests(context, output)
         run.assert_called_once_with(
             [str(Path(cmake).with_name('ctest.exe')), '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_config.default_build_paths().root / 'Build/results.xml')],
-            environment={'PATH': 'cached'},
+            environment={'PATH': 'cached', 'GTEST_BRIEF': '1'},
             output=output,
             recovery_required_on_interrupt=False,
             interruption_message='Native test run was interrupted.',
@@ -206,7 +206,12 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime.secrets, 'randbelow', return_value=40), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_all_native_tests(context, output)
-        assert run.call_args.kwargs['environment'] == {'PATH': 'cached', 'GTEST_SHUFFLE': '1', 'GTEST_RANDOM_SEED': '41'}
+        assert run.call_args.kwargs['environment'] == {
+            'PATH': 'cached',
+            'GTEST_BRIEF': '1',
+            'GTEST_SHUFFLE': '1',
+            'GTEST_RANDOM_SEED': '41',
+        }
         assert '--schedule-random' in run.call_args.args[0]
         assert 'GoogleTest shuffle seed: 41' in stdout.getvalue()
     def test_batched_failure_prints_focused_target_diagnostic(self) -> None:

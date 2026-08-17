@@ -7,6 +7,10 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/AssetCoreTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/RHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/RenderCoreTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)
+if(APPLE)
+	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationHostTests)
+	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestApplicationExecutionTests)
+endif()
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/VulkanRHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/EngineTests)
 
@@ -30,11 +34,13 @@ add_test(
 		"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
 		"-DDURIN_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
 		"-DDURIN_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+		"-DDURIN_CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+		"-DDURIN_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
 		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/NativeTestDiscoveryPolicyTests.cmake"
 )
 set_tests_properties(Durin.NativeTestDiscoveryPolicy PROPERTIES
 	LABELS "native-test;infrastructure;native-test-target;native-test-default"
-	TIMEOUT 30
+	TIMEOUT 120
 )
 
 add_test(

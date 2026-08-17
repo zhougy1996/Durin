@@ -35,8 +35,6 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 if(DURIN_WITH_EDITOR)
 	target_link_libraries(VulkanRHIIntegrationTests PRIVATE TextureBuild)
 endif()
-durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
-
 set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
@@ -49,6 +47,9 @@ if(APPLE)
 	# MoltenVK hardware execution is part of the surface-qualified M3 gate. Keep
 	# the target buildable on macOS, but out of the ordinary non-GPU aggregate.
 	set(_durin_vulkan_rhi_test_kind qualification)
+	set_target_properties(VulkanRHIIntegrationTests PROPERTIES
+		DURIN_TEST_EXECUTION_HOST application
+	)
 endif()
 durin_finalize_native_test(VulkanRHIIntegrationTests
 	KIND ${_durin_vulkan_rhi_test_kind}
@@ -60,5 +61,7 @@ durin_finalize_native_test(VulkanRHIIntegrationTests
 	PRIVATE_SOURCE_RATIONALE
 		"Owns the RenderCore shader-compiler white-box seam used by Vulkan integration coverage."
 )
+
+durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 durin_discover_tests(VulkanRHIIntegrationTests)
