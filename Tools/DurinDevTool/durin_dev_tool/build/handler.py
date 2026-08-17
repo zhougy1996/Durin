@@ -70,6 +70,7 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             context=context,
             output=output,
             fresh=bool(namespace_value(namespace, "fresh", False)),
+            defines=tuple(namespace_value(namespace, "defines", ())),
         )
     if action is Action.BUILD:
         return BuildRequest(

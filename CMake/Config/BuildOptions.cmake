@@ -21,6 +21,14 @@ option(DURIN_ENABLE_TRACY "Enable Tracy CPU profiling instrumentation." OFF)
 if(CMAKE_BUILD_TYPE STREQUAL "Shipping" AND DURIN_ENABLE_TRACY)
 	message(FATAL_ERROR "DURIN_ENABLE_TRACY cannot be enabled for Shipping builds.")
 endif()
+
+option(DURIN_ENABLE_APPLICATION_TESTS
+	"Enable macOS native tests that require LaunchServices application hosting."
+	OFF)
+if(DURIN_ENABLE_APPLICATION_TESTS AND NOT APPLE)
+	message(FATAL_ERROR
+		"DURIN_ENABLE_APPLICATION_TESTS is supported only on macOS.")
+endif()
 if(DURIN_ENABLE_TRACY)
 	set(DURIN_WITH_TRACY 1)
 else()
@@ -40,7 +48,7 @@ set(DURIN_THIRDPARTY_OUTPUT_CONFIG "$<CONFIG>")
 message(STATUS
 	"Durin build: runtime variant=${DURIN_RUNTIME_VARIANT}, "
 	"configuration=${CMAKE_BUILD_TYPE}, preset role=${DURIN_PRESET_ROLE}, "
-	"Tracy=${DURIN_ENABLE_TRACY}"
+	"Tracy=${DURIN_ENABLE_TRACY}, application tests=${DURIN_ENABLE_APPLICATION_TESTS}"
 )
 
 if(NOT DEFINED ENABLE_DURIN_TIMER)

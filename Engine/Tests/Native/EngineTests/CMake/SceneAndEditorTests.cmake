@@ -176,23 +176,31 @@ durin_add_engine_functional_test(EditorRenderingTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(EditorGridVulkanTests
-	EXECUTION_HOST application
-	KIND integration
-	DOMAINS renderer viewport
-	MODULES engine renderer vulkan-rhi
-	BACKENDS vulkan
-	STACKS editor renderer
-	GPU
-	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
-	SOURCES Private/EditorGridVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
-	INCLUDE_DIRECTORIES
-		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
-)
+if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
+	durin_add_engine_functional_test(EditorGridVulkanTests
+		EXECUTION_HOST application
+		KIND integration
+		DOMAINS renderer viewport
+		MODULES engine renderer vulkan-rhi
+		BACKENDS vulkan
+		STACKS editor renderer
+		GPU
+		TIMEOUT 900
+		RUNTIME_STACK_RATIONALE
+			"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
+		SOURCES Private/EditorGridVulkanTests.cpp
+		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		INCLUDE_DIRECTORIES
+			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"Window-backed editor-grid Vulkan qualification runs only when application tests are explicitly enabled."
+		SOURCES Private/EditorGridVulkanTests.cpp
+	)
+endif()
 
 durin_add_engine_functional_test(EditorShellTests
 	KIND feature

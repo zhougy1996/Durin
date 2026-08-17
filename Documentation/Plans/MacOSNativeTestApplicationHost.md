@@ -2,7 +2,7 @@
 
 Summary: Add a declarative native-test application host that preserves GoogleTest, CTest, and DurinDevTool policy while giving Cocoa-dependent macOS targets a LaunchServices-owned process lifecycle with exact result propagation and cleanup.
 
-Last reviewed: 2026-08-17
+Last reviewed: 2026-08-18
 
 Status: Active
 Completed:
@@ -10,26 +10,26 @@ Completed:
 ## Current Status
 
 Stages 0 through 3 are implemented, and the available macOS portion of Stage 4
-passes. CMake now validates and serializes `DURIN_TEST_EXECUTION_HOST`, CTest
-applies one generic LaunchServices application host through `TEST_LAUNCHER`,
-and DurinDevTool preserves target/case selection, filters, isolation, stress,
-report, qualification, and direct execution behavior.
+passes. Native-test authors declare `EXECUTION_HOST application` through
+`durin_finalize_native_test`; CMake serializes the resulting execution-host
+metadata, CTest applies one generic LaunchServices application host through
+`TEST_LAUNCHER`, and DurinDevTool preserves target/case selection, filters,
+isolation, stress, report, qualification, and direct execution behavior.
 
 The controller and application host use nonce-bound binary control records,
 mode-restricted environment transfer, exact PID ownership, atomic result
 publication, bounded signal escalation, output replay, bounded failed-run
-retention, and exact child-result mapping. Application-hosted executables and
-their runtime layout are staged under a build-identity-specific
-`/private/tmp/DurinNativeTestApplicationArtifacts` root. This internal-volume
-layout is required because LaunchServices children executing from the external
-workspace volume stalled during admission; the mirrored `Engine` layout also
-preserves `FPaths` runtime lookup.
+retention, and exact child-result mapping. Application-hosted executables,
+runtime dependencies, control files, and retained evidence stay under the
+owning target's Bin/Data/Work root. They are not relocated to `/private/tmp`;
+an unauthorized external-volume checkout fails LaunchServices admission until
+the user grants the ordinary macOS permission.
 
 Evidence on the macOS arm64 Debug editor profile includes:
 
 - the checked-in CMake launcher/discovery probe passes on CMake 4.4.2;
-- all 373 DurinDevTool tests complete with 371 passes and two expected skips;
-- all nine protocol/controller native tests pass, including ordinary failure,
+- all 376 DurinDevTool tests complete with 374 passes and two expected skips;
+- all 19 protocol/controller native tests pass, including ordinary failure,
   crash retention, and bounded cancellation;
 - application-host pass/report/isolation/stress paths pass, two case
   registrations run concurrently in about 0.10 seconds each, successful
@@ -40,21 +40,11 @@ Evidence on the macOS arm64 Debug editor profile includes:
 - the complete ordinary `test all` aggregate passes after building the shared
   native-test target set.
 
-A later post-configure aggregate repeat completed 66 targets but timed out in
-the unrelated direct `RenderContractTests` target. Its immediate focused rerun
-passed all 39 cases in 14 milliseconds, so the direct timeout is recorded as a
-parallel-run flake and the Stage 4 repeatability gate remains open.
-
-Two rollout gates remain external to this checkout. Windows is not available
-to provide measured direct-host regression evidence. The current macOS GUI
-session reports no GLFW monitors, so three of four
-  `MacOSWindowLifecycleTests` cases pass and the monitor-dependent case fails
-  quickly with an explicit empty-monitor assertion, as required instead of being
-  converted to a skip. Inventory also identified and declared
-  `EditorGridVulkanTests` as application-hosted. Its ordinary qualification
-  command reaches Vulkan presentation through the host but exposes existing
-  renderer visibility and attachment-format failures, so that rollout gate
-  remains open rather than reverting the target to an incorrect direct lifecycle.
+The macOS regression matrix now also passes focused direct, filtered
+application, isolation, stress, report, concurrent-case, crash
+characterization, Vulkan/window qualification, and ordinary aggregate runs.
+Windows remains unavailable to provide measured direct-host regression
+evidence, so cross-platform completion stays open.
 
 ## Goal
 
@@ -102,9 +92,9 @@ CMake and the platform launcher select the correct host.
 
 - `durin_finalize_native_test` remains the structured target declaration, and
   `durin_discover_tests` remains the only GoogleTest/CTest registration path.
-- Add `DURIN_TEST_EXECUTION_HOST` with the values `direct` and `application`.
-  The default is `direct`. `application` describes a semantic lifecycle
-  requirement, not a test kind or an Apple-only feature.
+- `durin_finalize_native_test(... EXECUTION_HOST direct|application ...)` owns
+  the declaration. The default is `direct`; `application` describes a semantic
+  lifecycle requirement, not a test kind or an Apple-only feature.
 - `DURIN_TEST_DIRECT_LIFECYCLE` remains an independent property: it decides
   whether the ordinary whole-target CTest registration exists. It must not be
   overloaded to select the platform process host.
@@ -222,9 +212,8 @@ CMake and the platform launcher select the correct host.
 
 ### Stage 1: Add declarative execution-host metadata and CMake policy
 
-- [x] Validate `DURIN_TEST_EXECUTION_HOST` during target finalization and reject
-  missing, unknown, contradictory, or late mutations with target-specific
-  diagnostics.
+- [x] Validate `EXECUTION_HOST` during target finalization and reject missing,
+  unknown, or late mutations with target-specific diagnostics.
 - [x] Extend the deterministic native-test registry schema and DurinDevTool
   reader with the execution-host field; expose it through list/explain output.
 - [x] Generate the macOS application-host artifact and attach its controller
@@ -259,10 +248,10 @@ CMake and the platform launcher select the correct host.
 - [x] Preserve compact/full output, GoogleTest brief mode, filters, shuffle
   seeds, report output, NativeTestSupport work retention, and Vulkan SDK
   environment values.
-- [ ] Add deterministic unit tests for command construction, quoting-free
+- [x] Add deterministic unit tests for command construction, quoting-free
   environment round trips, status validation, stale/malformed files, signal
   mapping, timeout escalation, cleanup, and concurrent invocation isolation.
-- [ ] Add native probe cases for pass, GoogleTest assertion failure, ordinary
+- [x] Add native probe cases for pass, GoogleTest assertion failure, ordinary
   nonzero exit, intentional crash, timeout, controller interruption, and
   output/report publication.
 
@@ -279,7 +268,7 @@ CMake and the platform launcher select the correct host.
   GLFW, AppKit, Cocoa dialogs, Metal layers, or native presentation.
 - [x] Keep target-owned application/window fixtures explicit and remove only
   temporary or duplicated process-launch workarounds.
-- [ ] Qualify focused target, filtered case, case isolation, stress, report,
+- [x] Qualify focused target, filtered case, case isolation, stress, report,
   characterization where applicable, and qualification modes through ordinary
   DevTool commands without manual `.app` assembly or direct `open` commands.
 - [ ] Verify locked-session and missing-GUI-session failures are bounded and
@@ -299,15 +288,15 @@ CMake and the platform launcher select the correct host.
 
 - [ ] Prove direct targets on Windows and macOS retain their existing CTest
   commands, environment, results, and aggregate membership.
-- [ ] Run the shared CMake policy suite, DurinDevTool Python suite,
+- [x] Run the shared CMake policy suite, DurinDevTool Python suite,
   NativeTestSupport infrastructure targets, migrated macOS application targets,
   and the complete ordinary native aggregate required for shared harness
   changes.
 - [x] Exercise repeated and concurrent application-hosted runs while auditing
   process, control-directory, sandbox, GPU-lock, and result cleanup.
-- [ ] Record measured launcher overhead and ensure application hosting is
+- [x] Record measured launcher overhead and ensure application hosting is
   opt-in rather than imposed on console-only targets.
-- [ ] Transfer lasting authoring and runtime rules to the native-test contract,
+- [x] Transfer lasting authoring and runtime rules to the native-test contract,
   remove superseded temporary guidance, and complete/archive this plan only
   after all gates land.
 

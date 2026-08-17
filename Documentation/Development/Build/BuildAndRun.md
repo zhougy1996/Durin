@@ -140,6 +140,15 @@ the local configuration names the Vulkan SDK `setup-env.sh`, DevTool evaluates
 it for each dependency/configure/build invocation; otherwise the current shell
 must already expose the validated Vulkan environment.
 
+The default `MacOS-arm64-Debug-DurinEditor` preset omits all native tests that
+require LaunchServices application hosting. Run
+`./DevTool configure -DDURIN_ENABLE_APPLICATION_TESTS=ON` in the main or
+other designated validation checkout when those tests are required. This
+reuses the ordinary build directory; a later `./DevTool configure` reapplies
+the preset's explicit `OFF` value. External-volume checkouts may enable the
+option after the one-time interactive macOS permission is approved; unattended
+validation should prefer an already authorized checkout.
+
 The current native baseline qualifies setup, dependency preparation, fresh
 configuration, and the complete Debug Editor link closure. The generated
 executables and dylibs are arm64, and shared libraries retain `@rpath` install
@@ -229,7 +238,10 @@ CTest-registered test. The interactive shell also accepts the compact
 directly, so preset discovery, context inspection, path capture, and artifact
 directory access do not require entering the interactive shell.
 
-An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
+An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to
+discard it explicitly, or repeat `-DNAME=VALUE` to override CMake cache
+values for that configuration. `rebuild` and automatic recovery from an
+unusable or incompatible build tree always fresh-configure before building.
 
 DurinDevTool separates its resolved context, execution stages, raw CMake/Ninja output, and final result so failures remain identifiable in long logs. Styled output is enabled for interactive terminals. Pass `--plain`, set `NO_COLOR`, or redirect the output to select stable text-only output without ANSI sequences:
 
@@ -274,10 +286,12 @@ are admitted through the repository's internal LaunchServices `.app` host.
 Use the same `DevTool test` commands as for direct targets; do not assemble a
 bundle or invoke `open` manually. The graphical login session must be active,
 and terminal or automation sandbox policy must allow LaunchServices application
-launch. Admission, test, crash, timeout, cancellation, and cleanup failures
-retain a bounded evidence directory under `/private/tmp` and print its exact
-path. Product application packaging, signing, and installation are unrelated
-to this internal test artifact.
+launch. Application binaries and runtime dependencies remain below the owning
+test's output root. Admission, test, crash, timeout, cancellation, and cleanup
+failures retain a bounded evidence directory below that test's
+`Work/ApplicationHost` directory and print its exact path. Product application
+packaging, signing, and installation are unrelated to this internal test
+artifact.
 
 Agents invoke toolchain-backed commands with `--agent`. This preset selects
 plain compact output and emits a short heartbeat every 30 seconds while a

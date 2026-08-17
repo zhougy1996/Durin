@@ -24,6 +24,7 @@ from durin_dev_tool.build.requests import (
 class BuildActionOptions:
     target: str = ""
     fresh: bool = False
+    defines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ def command_request(
 ):
     if action is Action.CONFIGURE:
         value = options if isinstance(options, BuildActionOptions) else BuildActionOptions()
-        return ConfigureRequest(context, output, value.fresh)
+        return ConfigureRequest(context, output, value.fresh, value.defines)
     if action is Action.BUILD:
         value = options if isinstance(options, BuildActionOptions) else BuildActionOptions()
         return BuildRequest(context, output, value.target)

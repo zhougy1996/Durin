@@ -78,7 +78,20 @@ COMMAND_SPECS = (
         CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("location", nargs="?"), argument("--all", dest="all_locations", action="store_true")),
     ),
     build_command("open", "open a registered repository location", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("location"),)),
-    build_command("configure", "configure the selected preset", TOOL_ARGUMENTS + (argument("--fresh", action="store_true"),)),
+    build_command(
+        "configure", "configure the selected preset",
+        TOOL_ARGUMENTS + (
+            argument("--fresh", action="store_true"),
+            argument(
+                "-D", "--define",
+                dest="defines",
+                action="append",
+                default=[],
+                metavar="NAME=VALUE",
+                help="set a CMake cache value; may be repeated",
+            ),
+        ),
+    ),
     build_command("build", "build a CMake target", TOOL_ARGUMENTS + (argument("--target", default="all"),)),
     build_command("clean", "clean the selected preset", TOOL_ARGUMENTS),
     build_command("recover", "resume an interrupted build incrementally", TOOL_ARGUMENTS),

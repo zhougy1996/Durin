@@ -8,39 +8,19 @@ namespace Durin::Testing::ApplicationHost
 	class FScopedFileDescriptor
 	{
 	public:
-		FScopedFileDescriptor() = default;
 		explicit FScopedFileDescriptor(int File) : File(File) {}
-		~FScopedFileDescriptor() { Reset(); }
+		~FScopedFileDescriptor() { Close(); }
 
 		FScopedFileDescriptor(const FScopedFileDescriptor&) = delete;
 		auto operator=(const FScopedFileDescriptor&) -> FScopedFileDescriptor& = delete;
 
-		FScopedFileDescriptor(FScopedFileDescriptor&& Other) noexcept
-			: File(Other.Release())
-		{
-		}
-
-		auto operator=(FScopedFileDescriptor&& Other) noexcept
-			-> FScopedFileDescriptor&
-		{
-			if (this != &Other) Reset(Other.Release());
-			return *this;
-		}
-
 		auto Get() const -> int { return File; }
 		auto IsValid() const -> bool { return File >= 0; }
 
-		auto Release() -> int
-		{
-			const int Released = File;
-			File = -1;
-			return Released;
-		}
-
-		auto Reset(int NewFile = -1) -> void
+		auto Close() -> void
 		{
 			if (File >= 0) close(File);
-			File = NewFile;
+			File = -1;
 		}
 
 	private:

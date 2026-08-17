@@ -198,6 +198,34 @@ DurinDevTool> test all
 DurinDevTool rejects `test` for an IDE-only or custom preset that does not
 enable `BUILD_TESTING`.
 
+On macOS, the default `MacOS-arm64-Debug-DurinEditor` preset sets the
+application-test capability to its default of `OFF`. Tests that require
+LaunchServices, together with their Host and Controller infrastructure, are
+omitted from that preset's configured registry and build graph. Enable the
+capability explicitly only in a checkout selected for application validation:
+
+```bash
+./DevTool configure -DDURIN_ENABLE_APPLICATION_TESTS=ON
+./DevTool test NativeTestApplicationExecutionTests
+```
+
+`-DNAME=VALUE` (or `--define NAME=VALUE`) forwards a repeatable CMake cache
+override through the ordinary configure command. The example reuses the normal
+`MacOS-arm64-Debug-DurinEditor` build directory and may run from an
+external-volume checkout after macOS has received the required interactive
+LaunchServices permission. Run ordinary `./DevTool configure` afterward to
+reapply the preset's explicit `OFF` default. A main checkout on an internal
+volume remains the recommended unattended validation lane.
+
+This is an explicit optional validation lane, not a routine requirement. Do
+not enable or execute application-hosted tests unless the user, the selected
+plan gate, or the active CI job specifically requests that coverage. When the
+current sandbox or graphical session cannot use LaunchServices, configuration
+and compilation may still be checked, but application execution remains not
+run and must be reported that way. Do not escape the current sandbox, change
+macOS authorization, relocate the test artifacts, or use the product
+application merely to satisfy this optional coverage.
+
 For diagnosis, the corresponding executable is under
 `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly
 with normal GoogleTest arguments. Direct and filtered runs use the same
@@ -321,14 +349,22 @@ ordinary process already owns the required application lifecycle may resolve
 the same declaration to direct execution. Do not create target-local `.app`
 wrappers or call `open` manually.
 
+Repository declarations that resolve to the macOS application host must be
+guarded by `DURIN_ENABLE_APPLICATION_TESTS`. The option defaults to `OFF`; an
+unguarded application declaration is a configuration error rather than being
+silently executed as a direct process.
+
 The macOS controller preserves the exact GoogleTest arguments and environment,
 publishes stdout/stderr and the signal-derived child result, and cleans only
 the retained Host and child PIDs for its invocation. Successful control
 directories are removed; failed, crashed, timed-out, cancelled, or malformed
-invocations retain bounded evidence under `/private/tmp`. Application-hosted
-artifacts, deployment closure, Data, and Work roots are also placed under a
-build-identity-specific internal temporary root. This is required when a
-LaunchServices child originates from a checkout on an external volume; direct
+invocations retain bounded evidence below the owning test's
+`Work/ApplicationHost` directory. When explicitly enabled, each
+application-hosted target keeps its executable and deployment closure in its
+own `Bin` directory beside `Data` and `Work`; Host, Controller, and Probe
+infrastructure remains in the ordinary build tree. No application-test output
+is redirected to `/private/tmp`. An unauthorized external-volume checkout is
+expected to fail LaunchServices admission until the user approves it. Direct
 targets retain the ordinary output layout below.
 
 Metadata values are lowercase slugs matching

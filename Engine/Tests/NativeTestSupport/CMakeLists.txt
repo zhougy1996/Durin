@@ -16,7 +16,7 @@ set_target_properties(NativeTestSupport PROPERTIES
 	FOLDER "Tests/Infrastructure"
 )
 
-if(APPLE)
+if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 	add_library(DurinNativeTestApplicationProtocol STATIC
 		Private/MacOS/NativeTestApplicationProtocol.cpp
 	)
@@ -44,8 +44,6 @@ if(APPLE)
 	target_compile_features(DurinNativeTestApplicationProbe PRIVATE cxx_std_20)
 	set_target_properties(DurinNativeTestApplicationProbe PROPERTIES
 		FOLDER "Tests/Infrastructure"
-		RUNTIME_OUTPUT_DIRECTORY
-			"/private/tmp/DurinNativeTestApplicationProbe/$<CONFIG>"
 	)
 
 	add_executable(DurinNativeTestApplicationHost MACOSX_BUNDLE
@@ -61,7 +59,4 @@ if(APPLE)
 		MACOSX_BUNDLE_BUNDLE_NAME "Durin Native Test Application Host"
 		MACOSX_BUNDLE_GUI_IDENTIFIER "com.durin.tests.application-host"
 	)
-	add_dependencies(DurinNativeTestApplicationController
-		DurinNativeTestApplicationHost
-		DurinNativeTestApplicationProbe)
 endif()

@@ -1,5 +1,20 @@
 include(GoogleTest)
 
+if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"macOS Vulkan qualification requires explicitly enabled LaunchServices application tests."
+		SOURCES
+			Private/VulkanRHITestEnvironment.cpp
+			Private/VulkanFailureInjectionTests.cpp
+			Private/VulkanMemoryPolicyTests.cpp
+			Private/VulkanTextureSamplingTests.cpp
+			Private/VulkanResourceTransitionTests.cpp
+			Private/VulkanSwapchainSelectionTests.cpp
+	)
+	return()
+endif()
+
 add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanRHITestEnvironment.cpp
 	Private/VulkanFailureInjectionTests.cpp

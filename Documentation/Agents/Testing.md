@@ -43,6 +43,15 @@ running it, or select a registered domain when the behavior crosses targets.
    infrastructure, or concrete evidence that bounded validation is
    insufficient. State the reason before starting it.
 
+Application-hosted tests are never implicit validation. Unless the user, a
+selected plan acceptance gate, or the active CI job explicitly requires
+application-host coverage, leave `DURIN_ENABLE_APPLICATION_TESTS` off and do
+not run those targets. If that coverage is required but the current sandbox or
+session cannot use LaunchServices, validate configuration or compilation when
+useful and report application execution as not run. Do not leave the current
+sandbox, change machine authorization, relocate artifacts, or substitute the
+product application merely to make this optional lane pass.
+
 Use positional selections. `--target` is deprecated. Whole-target execution is
 the default and recommended granularity. Never run an unfiltered aggregate at
 case granularity; isolate an aggregate failure with its named target and case.

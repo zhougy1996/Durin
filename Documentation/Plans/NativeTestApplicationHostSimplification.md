@@ -11,15 +11,19 @@ Completed:
 
 Stages 1 through 4 are implemented in the repository. Native-test authors now
 declare `EXECUTION_HOST application` in the structured finalization call; the
-legacy target property remains a conflict-checked compatibility input. Host
-resolution and macOS artifact layout have separate CMake functions, the V1
+retired pre-finalization target-property input has no repository callers and
+has been removed. Host resolution and macOS artifact layout have separate
+CMake functions, the V1
 wire order is contained behind typed `FRequest` and enum-backed `FResult`
 conversion, file descriptors and spawn actions have scoped ownership, and
 DurinDevTool delegates every routine exact target to one registry-driven
-strategy.
+strategy. Application-hosted tests are now an explicit macOS capability:
+`MacOS-arm64-Debug-DurinEditor` defaults them off, while a repeatable DevTool
+configure definition enables them in the same build directory for a designated
+validation checkout.
 
 The CMake configure gate passes with direct/application registry goldens,
-canonical/legacy/conflict/default probes, synthetic Apple/non-Apple resolution,
+canonical/default probes, synthetic Apple/non-Apple resolution,
 and generated-path checks. The metadata fixture evaluates target generator
 expressions before auditing paths, so a literal `$<CONFIG>` is rejected instead
 of hidden by a nested target property. All 19 focused host/controller/protocol
@@ -36,12 +40,41 @@ the ordinary aggregate all pass. The final aggregate native-test run completes
 in 11.91 seconds after adding the lifecycle regression coverage. Concurrent
 application cases remain at 0.10 seconds each, matching
 the recorded pre-refactor result, and whole-target application execution is
-0.09 seconds. Generated CTest records preserve concrete paths, `/private/tmp`
+0.09 seconds. Generated CTest records preserve concrete paths, target-local
 working directories, timeouts, target/GPU locks, and JUnit output. Successful
-runs leave no retained evidence or Host/Controller/Probe process; 20 historical
-failure directories remain below the limit of 32. Stage 5 remains incomplete
-only because Windows direct-host evidence requires a Windows runner; the plan
-must not be completed or archived until that cross-platform gate is recorded.
+runs leave no retained evidence or Host/Controller/Probe process; the follow-up
+cleanup removed the historical internal-temporary evidence directories. Stage 5
+remains incomplete only because Windows direct-host evidence requires a Windows
+runner; the plan must not be completed or archived until that cross-platform
+gate is recorded.
+The default-off preset produces no application targets or Host/Controller build
+targets and passes the ordinary direct aggregate. The configure override
+restores all four application targets in the same build directory; its 19
+focused Host tests and end-to-end application execution target pass.
+External-volume execution is supported
+after interactive macOS approval, so internal-volume placement is a recommended
+automation policy rather than a platform requirement.
+
+A follow-up layout decision removes the original internal-temporary relocation:
+explicitly enabled application targets now keep Bin, Data, Work, control files,
+and retained evidence under the owning test output root, while Host, Controller,
+and Probe remain in the ordinary build tree. This intentionally allows an
+unauthorized external-volume worktree to fail LaunchServices admission; these
+tests are opt-in and the user can approve the checkout before running them.
+The target-local layout passes the 19 focused Host/Controller tests and the
+end-to-end application execution target from the authorized external-volume
+checkout, and neither run recreates a Durin directory under `/private/tmp`.
+The follow-up framework audit also removes the two application-only path
+aliases, derives Bin/Data/Work from the concrete owning root, stops application
+targets from building the test-only Probe transitively, and narrows descriptor
+RAII to the operations used by Host and Controller. The shared test declaration
+also stops exporting the unused `DURIN_TEST_ROOT_DIR` and
+`DURIN_TEST_BIN_DIR` C++ macros while retaining both as CMake deployment
+properties.
+The testing workflow now makes application execution explicitly opt-in at the
+validation-policy level: without a user request, selected plan gate, or CI
+requirement, agents leave it off; a sandbox without LaunchServices access
+reports the lane as not run instead of escaping that sandbox.
 
 ## Goal
 
@@ -56,8 +89,8 @@ than positional fields and repeated cleanup branches.
 
 - Add `EXECUTION_HOST direct|application` to
   `durin_finalize_native_test` and make it the canonical authoring surface.
-- Preserve a bounded compatibility path for existing target-property
-  declarations while migrating repository targets and helpers.
+- Remove the bounded target-property compatibility path after repository
+  targets and helpers migrate to the structured declaration.
 - Split execution-host resolution and application artifact-layout setup out of
   native-test metadata finalization.
 - Replace positional request access and free-form result states with typed
@@ -80,7 +113,8 @@ than positional fields and repeated cleanup branches.
   retention, timeout, signal-forwarding, or exact-exit validation.
 - Moving fixture ownership into the generic host; tests continue to own
   ApplicationCore, `GApp`, windows, surfaces, RHI, and renderer setup.
-- Moving application-hosted artifacts back to the external workspace volume.
+- Automatically admitting an unauthorized external-volume checkout to
+  LaunchServices.
 - Designing a general-purpose cross-platform process or serialization library.
 - Fixing `EditorGridVulkanTests` renderer failures, GUI-session provisioning,
   Windows qualification, or the open gates in the original host plan.
@@ -93,9 +127,8 @@ than positional fields and repeated cleanup branches.
 - `durin_finalize_native_test(... EXECUTION_HOST application ...)` becomes the
   preferred declaration.
 - Omitted `EXECUTION_HOST` continues to mean `direct`.
-- A pre-existing `DURIN_TEST_EXECUTION_HOST` property may be read during a
-  documented transition, but specifying both surfaces with different values
-  is a target-specific configuration error.
+- `DURIN_TEST_EXECUTION_HOST` is finalized metadata for registry generation and
+  CTest discovery, not a second authoring surface.
 - Final target properties remain available for registry generation and CTest
   discovery; the simplification changes authorship, not configured metadata.
 
@@ -104,8 +137,11 @@ than positional fields and repeated cleanup branches.
 - Metadata normalization remains platform-neutral.
 - Execution-host semantic validation, platform resolution, and macOS artifact
   layout become named internal functions with focused inputs and outputs.
-- Only the resolved macOS application host may select the `/private/tmp`
-  layout and `@loader_path` behavior.
+- Only the resolved macOS application host may select the target-local Bin and
+  Work layout and `@loader_path` behavior.
+- Application-test binaries, control files, and retained evidence must not be
+  redirected to `/private/tmp`; an unauthorized external volume fails
+  explicitly instead of being bypassed through relocation.
 - Generator expressions must be evaluated exactly once; probes must reject
   generated paths containing a literal `$<CONFIG>`.
 
@@ -181,12 +217,12 @@ not simplify host ownership and would require a separate compatibility window.
 
 - [x] Add optional `EXECUTION_HOST` parsing to
   `durin_finalize_native_test`, defaulting to `direct`.
-- [x] Define compatibility and conflict rules for the legacy target property,
-  then migrate repository-owned declarations and helper options.
+- [x] Migrate repository-owned declarations and helper options, then remove
+  the legacy target-property authoring path and its transition-only probes.
 - [x] Extract semantic validation/platform resolution into a focused internal
   function with synthetic Apple and non-Apple probes.
-- [x] Extract macOS application artifact relocation and Engine runtime-layout
-  staging into a focused internal function or module.
+- [x] Extract the macOS application target-local artifact layout into a focused
+  internal function or module.
 - [x] Keep deployment helpers operating on finalized Data, Work, and runtime
   paths without imposing application behavior on direct targets.
 - [x] Extend CMake probes for defaulting, conflicts, invalid values, platform
@@ -270,6 +306,18 @@ have one scoped owner.
   concurrent-case, Vulkan qualification, and ordinary aggregate validation.
 - [x] Audit generated paths, control-directory retention, sandboxes, resource
   locks, process exit, and measured launcher overhead against Stage 0.
+- [x] Default macOS application-hosted tests off and expose a generic DevTool
+  configure definition override for designated validation worktrees.
+- [x] Keep explicitly enabled application artifacts, control files, and
+  retained evidence under the owning test output root without `/private/tmp`
+  relocation.
+- [x] Remove relocation-only path aliases, unused descriptor operations, and
+  the Probe dependency from the ordinary application-test build closure.
+- [x] Remove unused test-root and test-bin compile definitions while preserving
+  their CMake-only deployment ownership.
+- [x] Document that application execution is not routine validation and must
+  not cause an agent to leave its current sandbox when LaunchServices is
+  unavailable.
 - [ ] Obtain Windows direct-host evidence before claiming cross-platform
   completion, without imposing macOS artifacts or dependencies on Windows.
 - [x] Update the native-test authoring contract to show only the canonical API

@@ -284,6 +284,7 @@ def perform_action(
         if fresh:
             command.append("--fresh")
         command.extend(["--preset", context.preset.name])
+        command.extend(f"-D{definition}" for definition in request.defines)
         with output.stage("Configure"):
             run_command(
                 command,

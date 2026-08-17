@@ -136,7 +136,8 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
-        "DURIN_RUNTIME_VARIANT": "DurinEditor"
+        "DURIN_RUNTIME_VARIANT": "DurinEditor",
+        "DURIN_ENABLE_APPLICATION_TESTS": "OFF"
       }
     }
   ]

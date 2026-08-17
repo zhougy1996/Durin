@@ -301,8 +301,6 @@ function(add_durin_test target_name)
 	endforeach()
 
 	target_compile_definitions(${target_name} PRIVATE
-		DURIN_TEST_ROOT_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_ROOT_DIR>>"
-		DURIN_TEST_BIN_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_BIN_DIR>>"
 		DURIN_TEST_DATA_DIR="$<TARGET_GENEX_EVAL:${target_name},$<TARGET_PROPERTY:${target_name},DURIN_TEST_DATA_DIR>>"
 	)
 
@@ -427,69 +425,34 @@ function(durin_resolve_native_test_execution_host
 endfunction()
 
 function(durin_configure_macos_native_test_application_layout target_name)
-	string(SHA256 _durin_application_artifact_identity "${CMAKE_BINARY_DIR}")
-	string(SUBSTRING "${_durin_application_artifact_identity}" 0 16
-		_durin_application_artifact_identity)
 	set(_durin_application_artifact_configuration "${CMAKE_BUILD_TYPE}")
 	if(NOT _durin_application_artifact_configuration)
 		set(_durin_application_artifact_configuration "default")
 	endif()
-	set(_durin_application_artifact_root
-		"/private/tmp/DurinNativeTestApplicationArtifacts/${_durin_application_artifact_identity}/${_durin_application_artifact_configuration}")
-	get_target_property(_durin_application_original_root
+	get_target_property(_durin_application_root
 		${target_name} DURIN_TEST_ROOT_DIR)
-	get_target_property(_durin_application_original_bin
-		${target_name} DURIN_TEST_BIN_DIR)
-	get_target_property(_durin_application_original_data
-		${target_name} DURIN_TEST_DATA_DIR)
-	get_target_property(_durin_application_original_work
-		${target_name} DURIN_TEST_WORK_DIR)
-	foreach(_durin_application_path IN ITEMS root bin data work)
-		string(REPLACE "$<CONFIG>" "${_durin_application_artifact_configuration}"
-			_durin_application_original_${_durin_application_path}
-			"${_durin_application_original_${_durin_application_path}}")
-		if(_durin_application_original_${_durin_application_path} MATCHES "\\$<CONFIG>")
-			message(FATAL_ERROR
-				"${target_name} application ${_durin_application_path} path contains an "
-				"unevaluated literal $<CONFIG>.")
-		endif()
-		cmake_path(RELATIVE_PATH _durin_application_original_${_durin_application_path}
-			BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
-			OUTPUT_VARIABLE _durin_application_relative_${_durin_application_path})
-	endforeach()
+	string(REPLACE "$<CONFIG>" "${_durin_application_artifact_configuration}"
+		_durin_application_root "${_durin_application_root}")
+	if(_durin_application_root MATCHES "\\$<CONFIG>")
+		message(FATAL_ERROR
+			"${target_name} application root path contains an unevaluated literal "
+			"$<CONFIG>.")
+	endif()
 	set_target_properties(${target_name} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY
-			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			"${_durin_application_root}/Bin"
 		LIBRARY_OUTPUT_DIRECTORY
-			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			"${_durin_application_root}/Bin"
 		BUILD_RPATH "@loader_path"
 		DURIN_TEST_ROOT_DIR
-			"${_durin_application_artifact_root}/${_durin_application_relative_root}"
+			"${_durin_application_root}"
 		DURIN_TEST_BIN_DIR
-			"${_durin_application_artifact_root}/${_durin_application_relative_bin}"
+			"${_durin_application_root}/Bin"
 		DURIN_TEST_DATA_DIR
-			"${_durin_application_artifact_root}/${_durin_application_relative_data}"
+			"${_durin_application_root}/Data"
 		DURIN_TEST_WORK_DIR
-			"${_durin_application_artifact_root}/${_durin_application_relative_work}"
-		DURIN_TEST_APPLICATION_ARTIFACT_ROOT
-			"${_durin_application_artifact_root}"
+			"${_durin_application_root}/Work"
 	)
-	if(NOT TARGET DurinNativeTestApplicationRuntimeLayout)
-		add_custom_target(DurinNativeTestApplicationRuntimeLayout
-		COMMAND ${CMAKE_COMMAND} -E make_directory
-			"${_durin_application_artifact_root}/Engine/Content"
-			"${_durin_application_artifact_root}/Engine/Binaries"
-			"${_durin_application_artifact_root}/Engine/Shaders"
-		COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-			"${CMAKE_SOURCE_DIR}/Engine/Content"
-			"${_durin_application_artifact_root}/Engine/Content"
-		COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-			"${CMAKE_SOURCE_DIR}/Engine/Shaders"
-			"${_durin_application_artifact_root}/Engine/Shaders"
-		COMMENT "Preparing application-hosted Engine runtime layout"
-		VERBATIM)
-	endif()
-	add_dependencies(${target_name} DurinNativeTestApplicationRuntimeLayout)
 endfunction()
 
 function(durin_finalize_native_test target_name)
@@ -536,11 +499,12 @@ function(durin_finalize_native_test target_name)
 	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
 		set(_durin_direct_lifecycle TRUE)
 	endif()
-	get_property(_durin_legacy_execution_host_set TARGET ${target_name}
+	get_property(_durin_execution_host_property_set TARGET ${target_name}
 		PROPERTY DURIN_TEST_EXECUTION_HOST SET)
-	if(_durin_legacy_execution_host_set)
-		get_target_property(_durin_legacy_execution_host
-			${target_name} DURIN_TEST_EXECUTION_HOST)
+	if(_durin_execution_host_property_set)
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_EXECUTION_HOST is finalized metadata; "
+			"declare EXECUTION_HOST in durin_finalize_native_test instead.")
 	endif()
 	if(EXECUTION_HOST IN_LIST DURIN_METADATA_KEYWORDS_MISSING_VALUES)
 		message(FATAL_ERROR
@@ -549,21 +513,6 @@ function(durin_finalize_native_test target_name)
 	endif()
 	if(DEFINED DURIN_METADATA_EXECUTION_HOST)
 		set(_durin_declared_execution_host "${DURIN_METADATA_EXECUTION_HOST}")
-		if(_durin_legacy_execution_host_set)
-			string(TOLOWER "${_durin_legacy_execution_host}"
-				_durin_legacy_execution_host_normalized)
-			string(TOLOWER "${_durin_declared_execution_host}"
-				_durin_declared_execution_host_normalized)
-			if(NOT _durin_legacy_execution_host_normalized
-				STREQUAL _durin_declared_execution_host_normalized)
-				message(FATAL_ERROR
-					"${target_name} execution host conflicts between EXECUTION_HOST "
-					"'${_durin_declared_execution_host}' and legacy "
-					"DURIN_TEST_EXECUTION_HOST '${_durin_legacy_execution_host}'.")
-			endif()
-		endif()
-	elseif(_durin_legacy_execution_host_set)
-		set(_durin_declared_execution_host "${_durin_legacy_execution_host}")
 	else()
 		set(_durin_declared_execution_host direct)
 	endif()
@@ -576,6 +525,13 @@ function(durin_finalize_native_test target_name)
 		_durin_execution_host _durin_resolved_execution_host
 		"${target_name}" "${_durin_declared_execution_host}" "${_durin_platform_is_apple}")
 	if(_durin_resolved_execution_host STREQUAL "application")
+		if(NOT DURIN_ENABLE_APPLICATION_TESTS)
+			message(FATAL_ERROR
+				"${target_name} requires LaunchServices application hosting, but "
+				"DURIN_ENABLE_APPLICATION_TESTS is OFF. Gate the target declaration "
+				"or configure the designated validation worktree with "
+				"-DDURIN_ENABLE_APPLICATION_TESTS=ON.")
+		endif()
 		durin_configure_macos_native_test_application_layout(${target_name})
 	endif()
 	get_target_property(_durin_labels ${target_name} DURIN_TEST_LABELS)
@@ -1231,21 +1187,18 @@ function(durin_discover_tests target_name)
 				"${target_name} requires the macOS native-test application host, but its "
 				"controller or bundle target is unavailable.")
 		endif()
-		string(SHA256 _durin_application_build_identity "${CMAKE_BINARY_DIR}")
-		string(SUBSTRING "${_durin_application_build_identity}" 0 16
-			_durin_application_build_identity)
-		set(_durin_application_control_root
-			"/private/tmp/DurinNativeTestApplicationHost/${_durin_application_build_identity}/$<CONFIG>")
-		get_target_property(_durin_application_artifact_root
-			${target_name} DURIN_TEST_APPLICATION_ARTIFACT_ROOT)
+		get_target_property(_durin_application_root
+			${target_name} DURIN_TEST_ROOT_DIR)
+		get_target_property(_durin_application_work
+			${target_name} DURIN_TEST_WORK_DIR)
 		set_property(TARGET ${target_name} PROPERTY TEST_LAUNCHER
 			"$<TARGET_FILE:DurinNativeTestApplicationController>"
 			"--host-bundle"
 			"$<TARGET_BUNDLE_DIR:DurinNativeTestApplicationHost>"
 			"--control-root"
-			"${_durin_application_control_root}"
+			"${_durin_application_work}/ApplicationHost"
 			"--artifact-root"
-			"${_durin_application_artifact_root}"
+			"${_durin_application_root}"
 			"--")
 		add_dependencies(${target_name}
 			DurinNativeTestApplicationController

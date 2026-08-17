@@ -42,6 +42,10 @@ endfunction()
 function(configure_metadata_probe probe expect_success expected_text)
 	set(_durin_probe_binary "${DURIN_TEST_BINARY_DIR}/MetadataProbe/${probe}")
 	file(REMOVE_RECURSE "${_durin_probe_binary}")
+	set(_durin_application_tests OFF)
+	if(probe STREQUAL "application-host")
+		set(_durin_application_tests ON)
+	endif()
 	execute_process(
 		COMMAND "${CMAKE_COMMAND}"
 			-G Ninja
@@ -50,6 +54,7 @@ function(configure_metadata_probe probe expect_success expected_text)
 			-B "${_durin_probe_binary}"
 				"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
 				"-DDURIN_METADATA_PROBE=${probe}"
+				"-DDURIN_ENABLE_APPLICATION_TESTS=${_durin_application_tests}"
 				"-DCMAKE_BUILD_TYPE=Debug"
 		RESULT_VARIABLE _durin_result
 		OUTPUT_VARIABLE _durin_output
@@ -96,6 +101,21 @@ function(configure_metadata_probe probe expect_success expected_text)
 				message(FATAL_ERROR
 					"Metadata probe '${probe}' generated a literal $<CONFIG> path:\n"
 					"${_durin_paths}")
+			endif()
+			if(probe STREQUAL "application-host")
+				if(_durin_paths MATCHES "/private/tmp")
+					message(FATAL_ERROR
+						"Metadata probe '${probe}' escaped into /private/tmp:\n"
+						"${_durin_paths}")
+				endif()
+				foreach(_durin_expected_path IN ITEMS Bin Data Work)
+					if(NOT _durin_paths MATCHES
+						"Generated/Debug/ProbeTests/${_durin_expected_path}")
+						message(FATAL_ERROR
+							"Metadata probe '${probe}' omitted target-local "
+							"${_durin_expected_path}:\n${_durin_paths}")
+					endif()
+				endforeach()
 			endif()
 		endif()
 		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
@@ -297,12 +317,11 @@ configure_metadata_probe("duplicate" FALSE "duplicate value 'world'")
 configure_metadata_probe("reserved-label" FALSE "reserved native-test prefix")
 configure_metadata_probe("characterization-direct" FALSE "KIND characterization requires")
 configure_metadata_probe("private-source" FALSE "compiles production-private source")
+configure_metadata_probe("application-host-disabled" FALSE "DURIN_ENABLE_APPLICATION_TESTS is OFF")
 configure_metadata_probe("application-host" TRUE "\"executionHost\":\"application\"")
-configure_metadata_probe("legacy-application-host" TRUE "\"executionHost\":\"application\"")
-configure_metadata_probe("matching-execution-host" TRUE "\"executionHost\":\"application\"")
+configure_metadata_probe("property-execution-host" FALSE "is finalized metadata")
 configure_metadata_probe("synthetic-platform-resolution" TRUE "\"executionHost\":\"direct\"")
-configure_metadata_probe("conflicting-execution-host" FALSE "execution host conflicts")
 configure_metadata_probe("invalid-execution-host" FALSE "execution host 'gui' is invalid")
-configure_metadata_probe("empty-execution-host" FALSE "execution host must not be empty")
+configure_metadata_probe("empty-execution-host" FALSE "EXECUTION_HOST must name")
 configure_metadata_probe("late-execution-host" FALSE "changed after")
 run_test_launcher_probe()

@@ -7,7 +7,6 @@
 #include <cstring>
 #include <fcntl.h>
 #include <iterator>
-#include <limits>
 #include <utility>
 #include <unistd.h>
 
@@ -46,69 +45,69 @@ namespace Durin::Testing::ApplicationHost
 			return true;
 		}
 
-			auto TemporaryPath(const std::filesystem::path& Path) -> std::filesystem::path
+		auto TemporaryPath(const std::filesystem::path& Path) -> std::filesystem::path
 		{
-				return Path.string() + ".tmp-p" + std::to_string(getpid());
-			}
-
-			auto ParseInteger(std::string_view Value, int& Output) -> bool
-			{
-				const auto [Position, ErrorCode] = std::from_chars(
-					Value.data(), Value.data() + Value.size(), Output);
-				return ErrorCode == std::errc{}
-					&& Position == Value.data() + Value.size();
-			}
-
-			auto ContainsNul(std::string_view Value) -> bool
-			{
-				return Value.find('\0') != std::string_view::npos;
-			}
-
-			auto ParseResultStage(std::string_view Value, EResultStage& Stage) -> bool
-			{
-				static constexpr std::pair<std::string_view, EResultStage> Values[]{
-					{"host-admission", EResultStage::HostAdmission},
-					{"request-read", EResultStage::RequestRead},
-					{"request-validation", EResultStage::RequestValidation},
-					{"environment-read", EResultStage::EnvironmentRead},
-					{"environment-validation", EResultStage::EnvironmentValidation},
-					{"output-open", EResultStage::OutputOpen},
-					{"child-start", EResultStage::ChildStart},
-					{"child-publication", EResultStage::ChildPublication},
-					{"test", EResultStage::Test},
-					{"cancellation", EResultStage::Cancellation},
-				};
-				for (const auto& [Name, Candidate] : Values)
-				{
-					if (Value == Name)
-					{
-						Stage = Candidate;
-						return true;
-					}
-				}
-				return false;
-			}
-
-			auto ParseResultStatus(std::string_view Value, EResultStatus& Status) -> bool
-			{
-				static constexpr std::pair<std::string_view, EResultStatus> Values[]{
-					{"passed", EResultStatus::Passed},
-					{"failed", EResultStatus::Failed},
-					{"crashed", EResultStatus::Crashed},
-					{"cancelled", EResultStatus::Cancelled},
-					{"launcher-failure", EResultStatus::LauncherFailure},
-				};
-				for (const auto& [Name, Candidate] : Values)
-				{
-					if (Value == Name)
-					{
-						Status = Candidate;
-						return true;
-					}
-				}
-				return false;
-			}
+			return Path.string() + ".tmp-p" + std::to_string(getpid());
 		}
+
+		auto ParseInteger(std::string_view Value, int& Output) -> bool
+		{
+			const auto [Position, ErrorCode] = std::from_chars(
+				Value.data(), Value.data() + Value.size(), Output);
+			return ErrorCode == std::errc{}
+				&& Position == Value.data() + Value.size();
+		}
+
+		auto ContainsNul(std::string_view Value) -> bool
+		{
+			return Value.find('\0') != std::string_view::npos;
+		}
+
+		auto ParseResultStage(std::string_view Value, EResultStage& Stage) -> bool
+		{
+			static constexpr std::pair<std::string_view, EResultStage> Values[]{
+				{"host-admission", EResultStage::HostAdmission},
+				{"request-read", EResultStage::RequestRead},
+				{"request-validation", EResultStage::RequestValidation},
+				{"environment-read", EResultStage::EnvironmentRead},
+				{"environment-validation", EResultStage::EnvironmentValidation},
+				{"output-open", EResultStage::OutputOpen},
+				{"child-start", EResultStage::ChildStart},
+				{"child-publication", EResultStage::ChildPublication},
+				{"test", EResultStage::Test},
+				{"cancellation", EResultStage::Cancellation},
+			};
+			for (const auto& [Name, Candidate] : Values)
+			{
+				if (Value == Name)
+				{
+					Stage = Candidate;
+					return true;
+				}
+			}
+			return false;
+		}
+
+		auto ParseResultStatus(std::string_view Value, EResultStatus& Status) -> bool
+		{
+			static constexpr std::pair<std::string_view, EResultStatus> Values[]{
+				{"passed", EResultStatus::Passed},
+				{"failed", EResultStatus::Failed},
+				{"crashed", EResultStatus::Crashed},
+				{"cancelled", EResultStatus::Cancelled},
+				{"launcher-failure", EResultStatus::LauncherFailure},
+			};
+			for (const auto& [Name, Candidate] : Values)
+			{
+				if (Value == Name)
+				{
+					Status = Candidate;
+					return true;
+				}
+			}
+			return false;
+		}
+	}
 
 	auto IsContainedPath(const std::filesystem::path& Root,
 		const std::filesystem::path& Candidate) -> bool
@@ -162,7 +161,7 @@ namespace Durin::Testing::ApplicationHost
 		}
 		if (Success) Success = fsync(File.Get()) == 0;
 		int SavedError = errno;
-		File.Reset();
+		File.Close();
 		if (Success)
 		{
 			if (rename(Temporary.c_str(), Path.c_str()) == 0) return true;

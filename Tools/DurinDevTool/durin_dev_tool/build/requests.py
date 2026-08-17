@@ -80,6 +80,7 @@ class SimpleRequest(BaseRequest):
 @dataclass(frozen=True)
 class ConfigureRequest(BaseRequest):
     fresh: bool = False
+    defines: tuple[str, ...] = ()
     action: Action = Action.CONFIGURE
 
     @property

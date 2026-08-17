@@ -196,31 +196,39 @@ if(WIN32)
 	)
 	durin_discover_tests(MacOSNativeCrashCharacterizationTests)
 
-	add_durin_test(MacOSWindowLifecycleTests
-		Private/Launch/MacOSWindowLifecycleTests.cpp
-	)
-	target_include_directories(MacOSWindowLifecycleTests PRIVATE
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/ApplicationCore/Private
-	)
-	target_link_libraries(MacOSWindowLifecycleTests PRIVATE
-		ApplicationCore
-		"-framework Cocoa"
-	)
-	set_target_properties(MacOSWindowLifecycleTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
-		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
-			"Creates real hidden Cocoa windows and exercises the host monitor and event services."
-		DURIN_TEST_TARGET_LOCK_RATIONALE
-			"Serializes access to the process-global GLFW Cocoa lifecycle."
-	)
-	durin_finalize_native_test(MacOSWindowLifecycleTests
-		KIND qualification
-		EXECUTION_HOST application
-		DOMAINS launch
-		MODULES application-core
-		STACKS window
-	)
-	durin_discover_tests(MacOSWindowLifecycleTests)
+	if(DURIN_ENABLE_APPLICATION_TESTS)
+		add_durin_test(MacOSWindowLifecycleTests
+			Private/Launch/MacOSWindowLifecycleTests.cpp
+		)
+		target_include_directories(MacOSWindowLifecycleTests PRIVATE
+			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/ApplicationCore/Private
+		)
+		target_link_libraries(MacOSWindowLifecycleTests PRIVATE
+			ApplicationCore
+			"-framework Cocoa"
+		)
+		set_target_properties(MacOSWindowLifecycleTests PROPERTIES
+			DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+			DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+				"Creates real hidden Cocoa windows and exercises the host monitor and event services."
+			DURIN_TEST_TARGET_LOCK_RATIONALE
+				"Serializes access to the process-global GLFW Cocoa lifecycle."
+		)
+		durin_finalize_native_test(MacOSWindowLifecycleTests
+			KIND qualification
+			EXECUTION_HOST application
+			DOMAINS launch
+			MODULES application-core
+			STACKS window
+		)
+		durin_discover_tests(MacOSWindowLifecycleTests)
+	else()
+		durin_exclude_native_test_sources(
+			RATIONALE
+				"Cocoa window qualification runs only when application tests are explicitly enabled."
+			SOURCES Private/Launch/MacOSWindowLifecycleTests.cpp
+		)
+	endif()
 	else()
 	durin_exclude_native_test_sources(
 		RATIONALE

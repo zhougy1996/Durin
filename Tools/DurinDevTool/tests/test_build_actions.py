@@ -307,6 +307,20 @@ class TestCore:
             context.request = replace(context.request, fresh=True)
             build_core.perform_action(context, output)
             assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']
+            context.request = replace(
+                context.request,
+                fresh=False,
+                defines=(
+                    'DURIN_ENABLE_APPLICATION_TESTS=ON',
+                    'DURIN_DHT_WORKERS=4',
+                ),
+            )
+            build_core.perform_action(context, output)
+            assert run.call_args.args[0] == [
+                'cmake', '--preset', 'debug',
+                '-DDURIN_ENABLE_APPLICATION_TESTS=ON',
+                '-DDURIN_DHT_WORKERS=4',
+            ]
     def test_configure_recovers_an_unusable_existing_cache_with_fresh(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())

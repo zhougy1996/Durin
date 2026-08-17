@@ -9,6 +9,7 @@
 #include <iostream>
 #include <spawn.h>
 #include <thread>
+#include <utility>
 #include <unistd.h>
 #include <sys/wait.h>
 
@@ -71,11 +72,11 @@ namespace
 		return true;
 	}
 
-		auto PublishFailure(const FInvocation& Invocation, EResultStage Stage,
-			std::string Message) -> int
-		{
-			FResult Result{Invocation.Nonce, Stage, EResultStatus::LauncherFailure, 125, 0,
-				std::move(Message)};
+	auto PublishFailure(const FInvocation& Invocation, EResultStage Stage,
+		std::string Message) -> int
+	{
+		FResult Result{Invocation.Nonce, Stage, EResultStatus::LauncherFailure, 125, 0,
+			std::move(Message)};
 		std::string PublishError;
 		if (!WriteResultAtomic(Invocation.ControlDirectory / ResultFile, Result, PublishError))
 		{
@@ -258,8 +259,8 @@ int main(int ArgumentCount, char** Arguments)
 	pid_t Child = 0;
 	const int SpawnResult = posix_spawn(&Child, Executable.c_str(), FileActions.Get(), nullptr,
 		ChildArguments.data(), ChildEnvironment.data());
-	StandardOutput.Reset();
-	StandardError.Reset();
+	StandardOutput.Close();
+	StandardError.Close();
 	if (SpawnResult != 0)
 	{
 		return PublishFailure(Invocation, EResultStage::ChildStart, std::strerror(SpawnResult));

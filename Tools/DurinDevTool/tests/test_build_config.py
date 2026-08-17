@@ -115,7 +115,7 @@ from durin_dev_tool.build import purge, recovery, runtime
             'Win64-Shipping-DurinGame',
         )
 
-    def test_macos_profile_selects_the_single_arm64_editor_preset(self) -> None:
+    def test_macos_profile_keeps_application_tests_in_the_default_build_tree(self) -> None:
         profile = build_config.load_profiles()['macos-xcode-arm64']
         assert profile.host == 'macos'
         assert profile.environment_provider is build_config.EnvironmentProvider.INHERIT
@@ -134,19 +134,21 @@ from durin_dev_tool.build import purge, recovery, runtime
                     presets[preset_name], 'BUILD_TESTING'
                 ), preset_name
 
-    def test_macos_bootstrap_preset_is_arm64_debug_editor_only(self) -> None:
+    def test_macos_presets_keep_application_tests_explicit(self) -> None:
         manifest = json.loads((REPO_ROOT / 'CMakePresets.json').read_text(encoding='utf-8'))
         macos_presets = [
             preset for preset in manifest['configurePresets']
             if preset['name'].startswith('MacOS-')
         ]
         assert [preset['name'] for preset in macos_presets] == [
-            'MacOS-arm64-Debug-DurinEditor'
+            'MacOS-arm64-Debug-DurinEditor',
         ]
-        preset = macos_presets[0]
-        assert preset['cacheVariables']['CMAKE_BUILD_TYPE'] == 'Debug'
-        assert preset['cacheVariables']['CMAKE_OSX_ARCHITECTURES'] == 'arm64'
-        assert preset['cacheVariables']['DURIN_RUNTIME_VARIANT'] == 'DurinEditor'
+        presets = build_config.load_configure_presets()
+        default = presets['MacOS-arm64-Debug-DurinEditor']
+        assert build_config.preset_cache_string(default, 'CMAKE_BUILD_TYPE') == 'Debug'
+        assert build_config.preset_cache_string(default, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
+        assert build_config.preset_cache_string(default, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
+        assert not build_config.preset_cache_bool(default, 'DURIN_ENABLE_APPLICATION_TESTS')
         base = next(
             item for item in manifest['configurePresets'] if item['name'] == 'macos-base'
         )
