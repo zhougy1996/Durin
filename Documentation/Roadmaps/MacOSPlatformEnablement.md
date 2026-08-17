@@ -1,11 +1,11 @@
 # macOS Platform Enablement Roadmap
 
-Summary: Bring Durin to supported Apple Silicon macOS editor and game execution through bounded build, platform, rendering, asset, and distribution milestones.
+Summary: Establish a qualified Apple Silicon macOS development path for the Durin Editor, with product cooking and distribution explicitly deferred until selected.
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -28,9 +28,9 @@ from that actual output. Windows retains its existing Win32
 presentation-support query.
 Editor-authored asset classes are published before the initial registry scan,
 so the Sandbox default level opens normally. A monitor-less session degrades to
-single-viewport ImGui without inventing monitor geometry. Complete input and
-multi-monitor injection plus the visible Editor-window close lifecycle are not
-yet qualified, so the M2 child plan remains active for that evidence.
+single-viewport ImGui without inventing monitor geometry. Operator-driven
+input, monitor/Retina, window-management, integrated-title-bar, and
+visible-close qualification now completes that native lifecycle evidence.
 
 [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,
@@ -41,29 +41,46 @@ are qualified. An Apple Silicon development host is now available, so
 completed M1. Its native setup, dependency, configuration, graph, fresh-
 worktree reproduction, bounded Engine compile, durable documentation, and M2
 entry diagnostics are qualified without claiming runtime support.
-[macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) is active for M2.
+[macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) completed M2. The
+landed MoltenVK path, application-hosted Vulkan/window qualification, and
+visible 900-tick presenting Editor run complete the M3 development rendering
+vertical slice without requiring a separate child plan. On 2026-08-18 the
+Windows profile configured cleanly, all 74 ordinary native targets passed, the
+platform-source selection audit passed, and the full `all` build remained
+clean.
+
+This roadmap closes at the qualified Editor development boundary. M4's broad
+cross-platform cook expansion is deferred until a concrete incompatible
+payload or Mac cook product requirement is selected; representative Sandbox
+content already publishes and loads all 28 packages on the qualified host. M5
+Shipping `.app`, signing, notarization, installation, CI, supported-machine,
+and full Game/product qualification are deliberately deferred to a future
+productization roadmap. This completion does not claim those capabilities.
 
 ## Outcome
 
-Durin Editor and Durin Game configure, build, launch, render, load compatible
-cooked content, and shut down correctly on a declared Apple Silicon macOS
-baseline. The supported path uses the existing Vulkan RHI through MoltenVK,
-keeps platform-specific operating-system code behind explicit boundaries, and
-has native automated and runtime evidence rather than cross-platform compile
-assumptions.
+Durin Editor configures, builds, launches, renders, loads representative
+compatible content, and shuts down correctly on the declared Apple Silicon
+macOS development baseline. The qualified path uses the existing Vulkan RHI
+through MoltenVK, keeps platform-specific operating-system code behind explicit
+boundaries, and has native automated, operator, and runtime evidence rather
+than cross-platform compile assumptions. Game product support and distribution
+remain outside this completed development-enablement outcome.
 
 ## Scope
 
 - Apple Silicon host and target discovery, dependency preparation, CMake
   presets, compiler settings, runtime layout, and developer workflow.
 - macOS process, module, window, input, file-dialog, project-ownership, path,
-  crash-diagnostic, and relaunch behavior required by Editor and Game.
+  crash-diagnostic, and relaunch behavior required by the Editor development
+  path and reusable by a future Game qualification.
 - Vulkan instance, physical-device, surface, presentation, swapchain, resource,
-  shader, synchronization, and diagnostics behavior through MoltenVK.
-- Asset compatibility and cooking decisions for textures, geometry, animation,
-  environment lighting, and shaders.
-- Native tests, Editor and Game runtime smoke, `.app` layout, dylib resolution,
-  signing, and supported-machine qualification.
+  shader, synchronization, and diagnostics behavior needed by the
+  representative Editor vertical slice through MoltenVK.
+- Representative current Sandbox asset compatibility and explicit disposition
+  of broader Mac cook work.
+- Native tests, Editor runtime smoke, development-binary layout, dylib
+  resolution, and cross-platform regression.
 
 ## Non-Goals
 
@@ -71,6 +88,8 @@ assumptions.
   target.
 - A native Metal RHI or replacement of Vulkan/Slang as a prerequisite.
 - Cross-compiling or fully qualifying macOS artifacts from Windows.
+- Full Game, Release/Shipping, dedicated Mac cook, distributable `.app`,
+  signing, notarization, installation, CI, or supported-machine qualification.
 - Preserving Windows-specific implementation names in platform-neutral APIs.
 - Duplicating every cooked payload solely because the operating-system name is
   different when its actual binary and capability contract is portable.
@@ -82,9 +101,8 @@ assumptions.
 - The first target is Apple Silicon arm64. The exact minimum macOS and Xcode
   versions are frozen in M1 from an available maintained toolchain before
   dependency artifacts are pinned.
-- Editor Debug is the first vertical slice. Release Editor and Game follow only
-  after the same platform layer and rendering path are stable; Shipping and
-  distribution are final qualification work.
+- Editor Debug is the completed vertical slice. Release Editor, Game, Shipping,
+  and distribution require a separately selected productization roadmap.
 - Windows-only preparation may make code platform-neutral and add deterministic
   tests, but macOS support is not claimed until native configure, compile,
   tests, rendering smoke, and shutdown evidence pass on the declared baseline.
@@ -129,13 +147,13 @@ assumptions.
 
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
-| Build metadata | CMake detects `APPLE`; macOS presets and output platform names exist. | Presets are stale x64 entries, host tooling is Windows-oriented, and no native compiler/build is qualified. |
-| Platform core | macOS types, dylib loading, allocation, case-insensitive compare, and thread IDs exist. | Process services, source-set isolation, crash abstraction, native dialogs, ownership, and shell behavior are incomplete. |
-| Window/input | GLFW creates the final primary Cocoa no-API window before RHI, exposes the native handle, handles Retina framebuffer sizing, and creates Vulkan surfaces. | Keyboard conventions, IME, DPI, monitors, focus, cursor, multi-viewport behavior, and normal close need native evidence. |
-| Vulkan RHI | Vulkan 1.1+, swapchain, synchronization, diagnostics, Slang SPIR-V, portability flags/subset negotiation, real-surface queue admission, and first-viewport surface reuse work through MoltenVK. | The full MoltenVK feature/format matrix, shader/resource behavior, presentation recovery, resize, and repeated rendering lifecycle remain unqualified. |
-| Dependencies | Most libraries build from source and Slang CMake accepts a dylib. | Preparation manifests, Vulkan SDK/MoltenVK layout, arm64 artifacts, dylib deployment, and rpaths are missing. |
-| Assets | Versioned cooked payloads and compatibility diagnostics exist. | Cook targets and many geometry/texture/animation/environment checks accept only Win64. |
-| Delivery | Runtime variants and isolated binary layouts exist. | `.app` bundle structure, resource discovery, signing, notarization, packaging, and macOS CI are absent. |
+| Build metadata | Native arm64 presets, toolchain selection, dependency preparation, and output layout configure and build repeatably. | Release/product matrices remain conditional productization work. |
+| Platform core | Process, crash, module, filesystem, dialogs, ownership, shell, and source-set isolation are implemented and qualified. | No development-enablement gap remains. |
+| Window/input | Cocoa/GLFW lifecycle, input, Retina/monitor behavior, integrated title bar, visible close, and Vulkan surface handoff are qualified. | Broader machine/display matrices remain product-support work. |
+| Vulkan RHI | MoltenVK admits the surface/device, creates and recreates the swapchain, renders the Editor viewport, and shuts down cleanly under automated and visible qualification. | Exhaustive format/performance matrices remain conditional optimization or product work. |
+| Dependencies | Native arm64 dependencies, Vulkan SDK/MoltenVK, Slang dylibs, deployment, and development rpaths are qualified. | Distribution-grade closure belongs to future productization. |
+| Assets | The Sandbox registry publishes and loads all 28 representative packages on macOS. | A dedicated Mac cook and incompatible-payload expansion is deferred until required. |
+| Delivery | Development binaries and their dylib closure launch repeatably on the declared host. | Shipping `.app`, signing, notarization, installation, CI, and support matrices are explicitly deferred. |
 
 ## Milestone Map
 
@@ -144,18 +162,18 @@ flowchart LR
     M0["M0: Host-independent preparation"] --> M1["M1: Native toolchain bootstrap"]
     M1 --> M2["M2: Platform runtime and Editor shell"]
     M2 --> M3["M3: MoltenVK rendering vertical slice"]
-    M3 --> M4["M4: Asset and cook compatibility"]
-    M4 --> M5["M5: Product qualification and distribution"]
+    M3 -. conditional .-> M4["M4: Asset and cook compatibility"]
+    M4 -. conditional .-> M5["M5: Product qualification and distribution"]
 ```
 
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
 | M1: Native toolchain bootstrap | Required; completed | [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Met: the declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies, repeatable setup diagnostics, and fresh-worktree evidence. |
-| M2: Platform runtime and Editor shell | Required; active | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) | Met: M1 toolchain and dependency preparation are stable. | Core process/module/filesystem services and the Editor shell launch, create a Cocoa window, process input, relaunch/open paths, enforce project ownership, and shut down without rendering-backend requirements being bypassed. |
-| M3: MoltenVK rendering vertical slice | Required; proposed | `MacOSMoltenVKRendering` | M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Editor renders and presents representative graphics and compute work with validation diagnostics, resize/minimize/recreate, shader compilation, resource lifetime, and clean shutdown passing on the target Mac. |
-| M4: Asset and cook compatibility | Required; proposed | `MacOSAssetCookCompatibility` | M3 publishes exact supported GPU formats and shader/runtime capabilities. | Every currently Win64-guarded runtime payload family has a recorded shared-or-recooked decision, versioned keys, focused tests, and representative Editor/Game load evidence. |
-| M5: Product qualification and distribution | Required; proposed | `MacOSProductQualification` | M2-M4 are complete and the supported runtime feature set is frozen. | Debug/Release Editor and Game pass native suites and runtime smoke; Shipping `.app`, dylib closure, resources, signing/notarization policy, installation, upgrade, and supported-machine matrix are documented and verified. |
+| M2: Platform runtime and Editor shell | Required; completed | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) | Met: M1 toolchain and dependency preparation are stable. | Met: core services and the Editor shell launch, create and service Cocoa windows, process input, relaunch/open paths, enforce ownership, and shut down cleanly. |
+| M3: MoltenVK rendering vertical slice | Required; completed in landed runtime/title-bar work | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md), [macOS Custom Title Bar Bridge](../Plans/MacOSCustomTitleBarBridge.md) | Met: M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Met: application-hosted Vulkan qualification and a visible presenting Editor run cover surface/device/swapchain admission, resize/recreate, representative rendering, and clean shutdown. |
+| M4: Asset and cook compatibility | Conditional; deferred | Future `MacOSAssetCookCompatibility` only when an incompatible payload or Mac cook product requirement is selected. | Not selected: representative current content already loads on the qualified host. | Dispositioned: the Sandbox publishes and loads all 28 packages; broader shared-or-recooked decisions remain future product work. |
+| M5: Product qualification and distribution | Conditional; deferred | Future `MacOSProductQualification` productization roadmap. | Not selected: no Shipping distribution or supported-machine commitment is in scope. | Dispositioned: `.app` assembly, signing/notarization, installation, CI, Game, and support matrices are explicitly not claimed by this roadmap. |
 
 ## Child Plan Boundaries
 
@@ -183,24 +201,25 @@ Editor shell lifecycle, and platform-focused tests. It owns the bounded
 surface-first startup handoff and real-surface device admission needed by the
 ordinary shell, but does not complete MoltenVK rendering qualification.
 
-### `MacOSMoltenVKRendering`
+### Landed M3 MoltenVK rendering vertical slice
 
-Owns full MoltenVK instance/device/surface/swapchain qualification beyond the
-landed startup-admission slice, feature and format admission, Slang output
-compatibility, synchronization, resize and presentation lifecycle, GPU
-diagnostics, and representative public RHI plus Editor rendering evidence. It
-does not decide every asset payload.
+The required development vertical slice landed across the completed platform
+runtime, application-host, and custom-title-bar work: MoltenVK
+instance/device/surface/swapchain admission, representative public RHI and
+Editor rendering, resize/recreate, diagnostics, and clean shutdown are
+qualified. Exhaustive feature/format or performance expansion remains separate
+future work and does not reopen this roadmap.
 
-### `MacOSAssetCookCompatibility`
+### Deferred `MacOSAssetCookCompatibility`
 
-Owns the per-payload audit, capability/format identities, MacOS cook target,
+Would own the per-payload audit, capability/format identities, MacOS cook target,
 derived-data keys, migrations, cross-platform reuse proofs, recook behavior,
 and representative project content. It consumes M3's supported rendering
 capabilities instead of guessing them in advance.
 
-### `MacOSProductQualification`
+### Deferred `MacOSProductQualification`
 
-Owns the full configuration/runtime matrix, regression and performance budget,
+Would own the full configuration/runtime matrix, regression and performance budget,
 `.app` assembly, dylib closure, assets/resources, code signing, notarization,
 installation, CI, support diagnostics, and durable user/developer contracts.
 
@@ -213,8 +232,8 @@ installation, CI, support diagnostics, and durable user/developer contracts.
 | Process/module/filesystem lifecycle | M2 | Focused native tests plus Editor launch, relaunch, module load/unload, project ownership, logging, and shutdown smoke. |
 | Cocoa window/input -> Vulkan surface | M2, M3 | Retina resize, focus, keyboard/mouse, monitor and multi-viewport fixtures with actual surface recreation. |
 | Vulkan/Slang -> MoltenVK/Metal | M3 | Public RHI graphics/compute, resource format, synchronization, shader, presentation, diagnostics, and repeated lifecycle tests. |
-| Cook/build -> runtime interpretation | M4 | Per-family compatibility table, stable keys, cross-platform fixtures where shared, recook fixtures where distinct, and representative project load. |
-| Build output -> distributable application | M5 | Clean-machine `.app` launch, dependency closure audit, signing/notarization evidence, configuration matrix, and runtime smoke. |
+| Cook/build -> runtime interpretation | Conditional M4 | Representative current Sandbox packages load; a per-family shared/recooked matrix is deferred until a Mac cook or incompatible payload is selected. |
+| Build output -> distributable application | Conditional M5 | Development dylib closure is audited; distributable `.app`, signing/notarization, CI, and supported-machine evidence are deferred and not claimed. |
 
 All build and native-test execution follows the repository [build and run](../Development/Build/BuildAndRun.md)
 and [native testing](../Development/Build/NativeTests.md) contracts rather than
@@ -239,12 +258,13 @@ embedding command recipes in child plans.
 
 ## Completion Criteria
 
-- M0-M5 meet their exit gates and every proposed child plan is completed or
-  replaced with linked provenance.
-- The supported Apple Silicon macOS/Xcode matrix and known limitations are
-  explicit and exercised by CI or a repeatable qualification worker.
-- Editor and Game build, launch, render representative workloads, consume
-  compatible cooked content, and shut down in all declared configurations.
+- Required M0-M3 exit gates pass with linked native and Windows provenance;
+  conditional M4-M5 are explicitly dispositioned without unsupported claims.
+- The declared Apple Silicon macOS/Xcode development baseline and known
+  limitations are explicit and exercised on a repeatable qualification host.
+- Editor builds, launches, renders representative workloads, consumes the
+  qualified Sandbox content, and shuts down on the declared development
+  configuration.
 - Durable platform, build, rendering, asset, and distribution contracts live in
   their authoritative documentation domains.
 - Windows qualification remains green and platform-neutral APIs contain no

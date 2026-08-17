@@ -4,8 +4,8 @@ Summary: Reduce authoring and maintenance complexity around native-test executio
 
 Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -43,10 +43,12 @@ the recorded pre-refactor result, and whole-target application execution is
 0.09 seconds. Generated CTest records preserve concrete paths, target-local
 working directories, timeouts, target/GPU locks, and JUnit output. Successful
 runs leave no retained evidence or Host/Controller/Probe process; the follow-up
-cleanup removed the historical internal-temporary evidence directories. Stage 5
-remains incomplete only because Windows direct-host evidence requires a Windows
-runner; the plan must not be completed or archived until that cross-platform
-gate is recorded.
+cleanup removed the historical internal-temporary evidence directories.
+Windows cross-platform evidence completed on 2026-08-18: the
+`Win64-Debug-DurinEditor` profile configured cleanly, its application-host
+metadata resolved to direct execution without macOS artifacts or dependencies,
+the complete 74-target ordinary native aggregate passed, and the full `all`
+build remained clean. Stage 5 and the plan are complete.
 The default-off preset produces no application targets or Host/Controller build
 targets and passes the ordinary direct aggregate. The configure override
 restores all four application targets in the same build directory; its 19
@@ -318,11 +320,11 @@ have one scoped owner.
 - [x] Document that application execution is not routine validation and must
   not cause an agent to leave its current sandbox when LaunchServices is
   unavailable.
-- [ ] Obtain Windows direct-host evidence before claiming cross-platform
+- [x] Obtain Windows direct-host evidence before claiming cross-platform
   completion, without imposing macOS artifacts or dependencies on Windows.
 - [x] Update the native-test authoring contract to show only the canonical API
   and remove transitional guidance after repository declarations migrate.
-- [ ] Record final evidence, complete this plan only after all gates pass, and
+- [x] Record final evidence, complete this plan only after all gates pass, and
   archive it through the repository plan workflow.
 
 #### Acceptance Gate

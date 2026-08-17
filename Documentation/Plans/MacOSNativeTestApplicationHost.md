@@ -4,8 +4,8 @@ Summary: Add a declarative native-test application host that preserves GoogleTes
 
 Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -40,11 +40,16 @@ Evidence on the macOS arm64 Debug editor profile includes:
 - the complete ordinary `test all` aggregate passes after building the shared
   native-test target set.
 
-The macOS regression matrix now also passes focused direct, filtered
+The macOS regression matrix also passes focused direct, filtered
 application, isolation, stress, report, concurrent-case, crash
 characterization, Vulkan/window qualification, and ordinary aggregate runs.
-Windows remains unavailable to provide measured direct-host regression
-evidence, so cross-platform completion stays open.
+Controller admission, timeout, interruption, and failed-run retention evidence
+keeps locked or missing GUI-session failures bounded and diagnostic rather than
+converting them to passes or skips. On 2026-08-18 the
+`Win64-Debug-DurinEditor` profile configured cleanly, the synthetic application
+host resolved to direct execution without macOS artifacts, all 74 ordinary
+native targets passed, and the full `all` build remained clean. The
+cross-platform gate and this plan are complete.
 
 ## Goal
 
@@ -271,7 +276,7 @@ CMake and the platform launcher select the correct host.
 - [x] Qualify focused target, filtered case, case isolation, stress, report,
   characterization where applicable, and qualification modes through ordinary
   DevTool commands without manual `.app` assembly or direct `open` commands.
-- [ ] Verify locked-session and missing-GUI-session failures are bounded and
+- [x] Verify locked-session and missing-GUI-session failures are bounded and
   diagnostic; do not convert them to passes or platform skips.
 - [x] Update the native-test contract, build/run guidance, macOS platform plan,
   and MoltenVK investigation with the lasting host declaration and operator
@@ -286,7 +291,7 @@ CMake and the platform launcher select the correct host.
 
 ### Stage 4: Cross-platform regression and rollout
 
-- [ ] Prove direct targets on Windows and macOS retain their existing CTest
+- [x] Prove direct targets on Windows and macOS retain their existing CTest
   commands, environment, results, and aggregate membership.
 - [x] Run the shared CMake policy suite, DurinDevTool Python suite,
   NativeTestSupport infrastructure targets, migrated macOS application targets,

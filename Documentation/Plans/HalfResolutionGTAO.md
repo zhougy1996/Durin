@@ -2,10 +2,10 @@
 
 Summary: Make half-resolution GTAO the production default through deterministic 2x2 representative selection and full-resolution depth/normal-aware resolve while retaining full-resolution GTAO as the quality reference.
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -21,9 +21,10 @@ half feature `397,568/400,032 ns`, and resolve `116,416/117,600 ns` median/p95.
 Half median is `58.3%` of full and passes the `65%` rollout gate. Focused
 contract, shader, Vulkan lifecycle/reload, threaded and inline qualification,
 full build, documentation validation, and orderly hidden-editor smoke are
-clean. Stage 4 remains active only because the ordinary aggregate is blocked by
-the unrelated, independently reproducible existing failure
-`FViewportPickingContractTests.IntersectsExactSplineMeshDerivedLOD0Surface`.
+clean. On 2026-08-18 the `Win64-Debug-DurinEditor` ordinary native aggregate
+passed all 74 targets, including `ViewportTests`, and the incremental full
+`all` build remained clean. The previous unrelated viewport-picking blocker no
+longer reproduces; Stage 4 and the plan are complete.
 
 ## Goal
 
@@ -344,7 +345,7 @@ directional shadow -> GBuffer/D32
 - [x] Run focused Renderer/Engine/Vulkan image, layout, failure, lifecycle, and
   timing coverage through the root build/test workflows in dedicated-RHI and
   inline execution modes where recorded commands differ.
-- [ ] Run the ordinary native aggregate, full build, validation-enabled editor
+- [x] Run the ordinary native aggregate, full build, validation-enabled editor
   main/preview/offscreen matrix, resize and quality switching, shader reload,
   stable-frame loop, and orderly shutdown because the default affects every
   solid Lit editor viewport.

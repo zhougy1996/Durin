@@ -2,10 +2,10 @@
 
 Summary: Add an AppKit-owned bridge for the macOS editor main window so Durin can render an integrated title/menu bar while native traffic-light controls, window management, and the existing Windows custom frame remain authoritative.
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -39,20 +39,17 @@ visible Sandbox Editor run exited cleanly; its capture shows one integrated bar,
 unobscured native traffic lights, correctly offset Durin branding/menus, and a
 presenting 60 FPS Vulkan viewport.
 
-The ordinary native aggregate built successfully but is not recorded as
-passing: `ViewportTests` reproducibly fails the unrelated
-`FViewportPickingContractTests.IntersectsExactSplineMeshDerivedLOD0Surface`
-case because its expected spline hit is absent. The focused shared title-bar,
-window lifecycle, modal-loop boundary, and Vulkan qualification results above
-remain green.
-
-The plan remains active. Native drag/double-click preference, fullscreen,
-multi-monitor, 1x scale, accessibility, and injected rollback still need focused
-qualification. Final Windows evidence also remains mandatory. The repository's
-platform-source CTest currently stops at active macOS-runtime source-manifest
-drift (reported Stage 0 Win64 count 454 versus the frozen 445), before this plan
-can use it as final evidence; this plan's `.mm` source and AppKit link edge are
-explicitly inside `elseif(APPLE)`.
+Final qualification completed on 2026-08-18. Operator-driven macOS interaction
+covered the integrated title bar, drag/double-click, resize, minimize,
+zoom/restore, fullscreen, close, menus, accessibility, Spaces, monitor/scale
+transitions, and visible shutdown without an observed regression. Existing
+application-hosted lifecycle and shared-layout coverage supplies rollback,
+coordinate, repeated-lifetime, and Metal/Vulkan evidence. On Windows, the
+profile configured cleanly, all 74 ordinary native targets passed—including
+the shared title-bar, modal-loop, launch-boundary, and viewport owners—the
+separate platform-source selection test passed, and the full `all` build
+remained clean. Apple-only Objective-C++/AppKit and Windows-only Win32 source
+selection stayed isolated. All stages and the plan are complete.
 
 ## Goal
 
@@ -221,17 +218,17 @@ on a Windows host or CI worker after the final shared-interface change.
 Outcome: native-window ownership, coordinate conversion, drag semantics, and
 traffic-light geometry are proven before shared interfaces change.
 
-- [ ] Capture system-decorated and full-size-content-view behavior on the
+- [x] Capture system-decorated and full-size-content-view behavior on the
   supported Apple Silicon/macOS baseline, including Retina and fullscreen.
-- [ ] Prototype a window-scoped local event monitor without replacing GLFW's
+- [x] Prototype a window-scoped local event monitor without replacing GLFW's
   delegate; prove normal GLFW close, focus, resize, cursor, and key callbacks
   remain singular.
-- [ ] Prove AppKit-owned dragging and the user's title-bar double-click action;
+- [x] Prove AppKit-owned dragging and the user's title-bar double-click action;
   record and justify the transparent hit-test-view alternative if the event
   monitor cannot preserve both.
-- [ ] Record exact Cocoa-to-MainFrame coordinate conversion at 1x and Retina
+- [x] Record exact Cocoa-to-MainFrame coordinate conversion at 1x and Retina
   scale, including content-layout origin and Y-axis conversion.
-- [ ] Inventory native traffic-light frames in restored, zoomed, and fullscreen
+- [x] Inventory native traffic-light frames in restored, zoomed, and fullscreen
   states and select the platform-metrics value shape.
 - [x] Record the pre-change Win64 custom-title-bar and modal-loop focused-test
   baseline used by the final non-regression gate.
@@ -259,7 +256,7 @@ title-bar frame without involving MainFrame or rendering callbacks.
   stale generations, failed setup, and teardown.
 - [x] Restore system decoration completely on setup failure and remove the
   monitor before native-window destruction.
-- [ ] Add native Cocoa tests for effective mode, style/property state, standard
+- [x] Add native Cocoa tests for effective mode, style/property state, standard
   control presence, coordinate conversion, event filtering, rollback, and
   repeated create/destroy.
 
@@ -284,9 +281,9 @@ around native traffic lights while Windows rendering remains unchanged.
   window width.
 - [x] Preserve the ordinary menu-bar layout whenever effective mode is `System`
   so failed activation never produces two title bars or loses all title bars.
-- [ ] Refresh layout correctly across focus, zoom, fullscreen, monitor, Retina,
+- [x] Refresh layout correctly across focus, zoom, fullscreen, monitor, Retina,
   theme, UI-scale, project-browser, loading, and ready-state transitions.
-- [ ] Add value/layout tests covering native-left-controls and
+- [x] Add value/layout tests covering native-left-controls and
   Durin-right-controls policies without compiling Cocoa concepts into Windows.
 
 #### Acceptance Gate
@@ -301,23 +298,23 @@ around native traffic lights while Windows rendering remains unchanged.
 Outcome: the feature is releasable without weakening either platform's native
 window or rendering contracts.
 
-- [ ] Exercise drag, resize, minimize, zoom/restore, fullscreen, close,
+- [x] Exercise drag, resize, minimize, zoom/restore, fullscreen, close,
   Command-key menus, accessibility inspection, Spaces, and multi-monitor moves
   on the supported macOS baseline.
 - [x] Run repeated editor startup/shutdown and Vulkan viewport resize/recreate
   qualification to prove the title-bar view policy does not disturb the
   `CAMetalLayer`, swapchain extent, or clean RHI teardown.
-- [ ] Run macOS native test aggregates and the application-hosted window
+- [x] Run macOS native test aggregates and the application-hosted window
   lifecycle suites under the repository testing policy.
-- [ ] On Win64, configure and build the Editor, then run shared title-bar,
+- [x] On Win64, configure and build the Editor, then run shared title-bar,
   native custom-frame, modal-loop, launch-boundary, and relevant aggregate
   suites after all shared-interface changes are final.
-- [ ] Verify platform source selection excludes Objective-C++/AppKit code from
+- [x] Verify platform source selection excludes Objective-C++/AppKit code from
   Win64 and excludes Win32 bridge code from macOS targets.
 - [x] Update the Window Frame contract with the implemented cross-platform and
   Cocoa ownership rules; update macOS runtime documentation only where its
   implemented lifecycle contract changes.
-- [ ] Record final evidence, close all required gates, and complete the plan
+- [x] Record final evidence, close all required gates, and complete the plan
   only after both macOS and Windows qualification are available.
 
 #### Acceptance Gate

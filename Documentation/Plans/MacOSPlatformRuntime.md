@@ -2,10 +2,10 @@
 
 Summary: Implement and qualify the Apple Silicon macOS process, crash, shell, window, input, ownership, and Editor lifecycle required before MoltenVK rendering qualification.
 
-Last reviewed: 2026-08-17
+Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
@@ -47,9 +47,12 @@ scan, so authored import-record classes are available and the Sandbox catalog
 publishes all 28 packages instead of retaining a stale revision. MonaImGui
 builds its render-pass layout and pipeline from the actual swapchain format.
 Both Sandbox and Project Browser complete three hidden ticks and the ordinary
-shutdown path with exit code 0. The plan remains active only for the remaining
-input and visible normal-close evidence; it does not claim the full M3 rendering
-vertical slice.
+shutdown path with exit code 0. Final operator-driven macOS qualification on
+2026-08-18 exercised focus, keyboard, text, mouse, cursor, monitor/Retina,
+minimize/restore, close, and visible normal shutdown without an observed
+regression. The same-day Windows ordinary native aggregate passed all 74
+targets and the full `all` build remained clean. Stages 3 and 4 and this plan
+are complete; completion does not claim the full M3 rendering vertical slice.
 
 This plan is M2 of the
 [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
@@ -181,7 +184,7 @@ bodies; and failure paths provide actionable native diagnostics.
 
 - [x] Create and destroy a Cocoa-backed GLFW window on the main thread through
   the normal ApplicationCore path.
-- [ ] Qualify event pumping, close requests, focus, keyboard, text, mouse,
+- [x] Qualify event pumping, close requests, focus, keyboard, text, mouse,
   cursor, monitor, DPI/Retina framebuffer sizing, minimize, and restoration.
 - [x] Validate repeated window/application construction and teardown without
   dangling callbacks, late events, or module lifetime violations.
@@ -207,7 +210,7 @@ bodies; and failure paths provide actionable native diagnostics.
 - [x] Validate startup failure plus repeated hidden Sandbox/Project Browser
   launch and automated normal shutdown with clean process exit and preserved
   logs/crash diagnostics.
-- [ ] Validate visible operator close with clean process exit and preserved
+- [x] Validate visible operator close with clean process exit and preserved
   logs/crash diagnostics.
 - [x] Run the selected native, DevTool, DHT, CMake metadata, and Windows contract
   regression suites.
