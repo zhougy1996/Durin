@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 1 through 4 are implemented in the working tree. Native-test authors now
+Stages 1 through 4 are implemented in the repository. Native-test authors now
 declare `EXECUTION_HOST application` in the structured finalization call; the
 legacy target property remains a conflict-checked compatibility input. Host
 resolution and macOS artifact layout have separate CMake functions, the V1
@@ -20,25 +20,28 @@ strategy.
 
 The CMake configure gate passes with direct/application registry goldens,
 canonical/legacy/conflict/default probes, synthetic Apple/non-Apple resolution,
-and generated-path checks. The nine focused protocol tests pass, including
-typed request wire compatibility, unknown enum values, stale nonces, embedded
-NULs, numeric consistency, truncation, trailing data, and protocol limits. The
-complete DurinDevTool suite passes with 374 tests and 2 platform skips.
+and generated-path checks. The metadata fixture evaluates target generator
+expressions before auditing paths, so a literal `$<CONFIG>` is rejected instead
+of hidden by a nested target property. All 19 focused host/controller/protocol
+tests pass, including spawn/output/PID-publication failures, interruption before
+and after child publication, controller disappearance, exact-PID escalation,
+concurrency, and retention. The complete DurinDevTool suite passes with 374
+tests and 2 platform skips.
 
-Stage 5 is not complete. Before and after the refactor, this macOS session
-rejects the valid internal Host bundle at LaunchServices admission with
-`kLSNoExecutableErr`; copying it to `/private/tmp` and applying a valid ad-hoc
-signature produces the same pre-Host failure. The direct focused baseline took
-0.88 seconds but failed only in its four controller cases at that same gate.
-Consequently application execution, cancellation/concurrency process audits,
-ordinary aggregate validation, and launcher-overhead comparison cannot be
-claimed here. The required `test all` attempt completed the `DurinNativeTests`
-build closure in 0.24 seconds and then stopped during CTest `PRE_TEST`
-discovery at the same admission error; recovery state remained clean and 17
-retained control directories remain within the limit of 32. Process listing is
-unavailable in the current sandbox, so no-orphan evidence is also still open.
-Windows direct-host evidence requires a Windows runner. The plan remains active
-until those external gates are obtained.
+The macOS Stage 5 matrix passes outside the filesystem sandbox, where
+LaunchServices can admit the internal Host bundle: exact direct and application
+targets, filtered application execution, isolation, stress, report, concurrent
+case execution, crash characterization, Vulkan and window qualification, and
+the ordinary aggregate all pass. The final aggregate native-test run completes
+in 11.91 seconds after adding the lifecycle regression coverage. Concurrent
+application cases remain at 0.10 seconds each, matching
+the recorded pre-refactor result, and whole-target application execution is
+0.09 seconds. Generated CTest records preserve concrete paths, `/private/tmp`
+working directories, timeouts, target/GPU locks, and JUnit output. Successful
+runs leave no retained evidence or Host/Controller/Probe process; 20 historical
+failure directories remain below the limit of 32. Stage 5 remains incomplete
+only because Windows direct-host evidence requires a Windows runner; the plan
+must not be completed or archived until that cross-platform gate is recorded.
 
 ## Goal
 
@@ -162,7 +165,7 @@ than positional fields and repeated cleanup branches.
   names.
 - [x] Decide whether `Durin.NativeTestDirect.<Target>` is renamed in this plan
   or explicitly deferred, including CI and command compatibility impact.
-- [ ] Record baseline focused direct and application-hosted execution times for
+- [x] Record baseline focused direct and application-hosted execution times for
   comparison after structural changes.
 
 The registration rename is deferred. CI commands, saved CTest invocations, and
@@ -225,7 +228,7 @@ not simplify host ownership and would require a separate compatibility window.
   cleanup.
 - [x] Keep signal-handler work async-signal-safe and keep policy decisions in
   the normal control flow.
-- [ ] Add or retain focused tests for spawn failure, output-open failure, PID
+- [x] Add or retain focused tests for spawn failure, output-open failure, PID
   publication failure, controller disappearance, interruption before and after
   child publication, escalation, concurrent execution, and retention limits.
 
@@ -261,11 +264,11 @@ have one scoped owner.
 
 ### Stage 5: Regression, documentation, and completion
 
-- [ ] Run the shared CMake policy suite, complete DurinDevTool Python suite,
+- [x] Run the shared CMake policy suite, complete DurinDevTool Python suite,
   NativeTestSupport host/controller targets, and application execution probes.
-- [ ] Run focused direct, filtered application, isolation, stress, report,
+- [x] Run focused direct, filtered application, isolation, stress, report,
   concurrent-case, Vulkan qualification, and ordinary aggregate validation.
-- [ ] Audit generated paths, control-directory retention, sandboxes, resource
+- [x] Audit generated paths, control-directory retention, sandboxes, resource
   locks, process exit, and measured launcher overhead against Stage 0.
 - [ ] Obtain Windows direct-host evidence before claiming cross-platform
   completion, without imposing macOS artifacts or dependencies on Windows.

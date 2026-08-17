@@ -21,5 +21,10 @@ int main(int ArgumentCount, char** Arguments)
 	{
 		for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
+	if (Mode == "ignore-term")
+	{
+		std::signal(SIGTERM, SIG_IGN);
+		for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+	}
 	return 64;
 }

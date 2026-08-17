@@ -172,6 +172,9 @@ int main(int ArgumentCount, char** Arguments)
 		std::cerr << "Durin native-test application controller: " << Error << '\n';
 		return 125;
 	}
+	std::signal(SIGTERM, HandleTermination);
+	std::signal(SIGINT, HandleTermination);
+	std::signal(SIGHUP, HandleTermination);
 
 	std::error_code PathError;
 	Parsed.HostBundle = std::filesystem::canonical(Parsed.HostBundle, PathError);
@@ -267,9 +270,6 @@ int main(int ArgumentCount, char** Arguments)
 		return 125;
 	}
 
-	std::signal(SIGTERM, HandleTermination);
-	std::signal(SIGINT, HandleTermination);
-	std::signal(SIGHUP, HandleTermination);
 	int OpenStatus = 0;
 	for (;;)
 	{

@@ -1,8 +1,15 @@
 #include "NativeTestApplicationProtocol.h"
+#include "NativeTestApplicationProcess.h"
 #include "NativeTestSupport.h"
 
+#include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <spawn.h>
+#include <unistd.h>
+
+extern char** environ;
 
 namespace Durin::Testing::ApplicationHost
 {
@@ -186,5 +193,43 @@ namespace Durin::Testing::ApplicationHost
 		EXPECT_TRUE(IsContainedPath(Root, Root / "run-p1-nonce"));
 		EXPECT_FALSE(IsContainedPath(Root, Root));
 		EXPECT_FALSE(IsContainedPath(Root, "/tmp/durin-host-escape/run"));
+	}
+
+	TEST(NativeTestApplicationProcess, ScopedResourcesCoverOutputAndSpawnFailures)
+	{
+		FProtocolDirectory Directory("ApplicationHostScopedResources");
+		const std::filesystem::path Output = Directory.Path / "stdout.log";
+		int RawDescriptor = -1;
+		{
+			FScopedFileDescriptor Descriptor(open(
+				Output.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600));
+			ASSERT_TRUE(Descriptor.IsValid());
+			RawDescriptor = Descriptor.Get();
+		}
+		errno = 0;
+		EXPECT_EQ(fcntl(RawDescriptor, F_GETFD), -1);
+		EXPECT_EQ(errno, EBADF);
+		FScopedFileDescriptor Duplicate(open(
+			Output.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600));
+		EXPECT_FALSE(Duplicate.IsValid());
+		EXPECT_EQ(errno, EEXIST);
+
+		FScopedSpawnFileActions Actions;
+		ASSERT_EQ(Actions.GetInitializationResult(), 0);
+		std::string Missing = (Directory.Path / "missing-executable").string();
+		char* Arguments[]{Missing.data(), nullptr};
+		pid_t Child = 0;
+		EXPECT_EQ(posix_spawn(&Child, Missing.c_str(), Actions.Get(), nullptr,
+			Arguments, environ), ENOENT);
+	}
+
+	TEST(NativeTestApplicationProtocol, PidPublicationFailureIsActionable)
+	{
+		FProtocolDirectory Directory("ApplicationHostPidPublicationFailure");
+		const std::filesystem::path Record = Directory.Path / "child.pid";
+		ASSERT_TRUE(std::filesystem::create_directory(Record));
+		std::string Error;
+		EXPECT_FALSE(WritePidAtomic(Record, 42, Error));
+		EXPECT_NE(Error.find("publish protocol file"), std::string::npos);
 	}
 }

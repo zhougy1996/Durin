@@ -81,8 +81,10 @@ set_target_properties(ProbeTests PROPERTIES
 )
 set_property(GLOBAL APPEND PROPERTY DURIN_NATIVE_TEST_TARGETS ProbeTests)
 durin_generate_native_test_registry("${CMAKE_BINARY_DIR}/DurinNativeTestRegistry.json")
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ProbeTests-paths.txt" CONTENT
-	"$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_ROOT_DIR>\n"
-	"$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_BIN_DIR>\n"
-	"$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_DATA_DIR>\n"
-	"$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_WORK_DIR>\n")
+string(CONCAT _durin_probe_paths
+	"$<TARGET_GENEX_EVAL:ProbeTests,$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_ROOT_DIR>>\n"
+	"$<TARGET_GENEX_EVAL:ProbeTests,$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_BIN_DIR>>\n"
+	"$<TARGET_GENEX_EVAL:ProbeTests,$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_DATA_DIR>>\n"
+	"$<TARGET_GENEX_EVAL:ProbeTests,$<TARGET_PROPERTY:ProbeTests,DURIN_TEST_WORK_DIR>>\n")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ProbeTests-paths.txt"
+	CONTENT "${_durin_probe_paths}")

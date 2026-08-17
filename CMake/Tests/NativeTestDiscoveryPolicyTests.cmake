@@ -82,22 +82,22 @@ function(configure_metadata_probe probe expect_success expected_text)
 			if(_durin_first_registry MATCHES "\"name\"")
 				message(FATAL_ERROR "Unavailable metadata probe emitted a target record.")
 			endif()
-			elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 3")
-				message(FATAL_ERROR "Metadata probe registry omitted schema version 3.")
-			endif()
-			if(expected_text AND NOT _durin_first_registry MATCHES "${expected_text}")
+		elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 3")
+			message(FATAL_ERROR "Metadata probe registry omitted schema version 3.")
+		endif()
+		if(expected_text AND NOT _durin_first_registry MATCHES "${expected_text}")
+			message(FATAL_ERROR
+				"Metadata probe '${probe}' registry omitted '${expected_text}':\n"
+				"${_durin_first_registry}")
+		endif()
+		if(NOT probe STREQUAL "unavailable")
+			file(READ "${_durin_probe_binary}/ProbeTests-paths.txt" _durin_paths)
+			if(_durin_paths MATCHES "\\$<CONFIG>")
 				message(FATAL_ERROR
-					"Metadata probe '${probe}' registry omitted '${expected_text}':\n"
-					"${_durin_first_registry}")
+					"Metadata probe '${probe}' generated a literal $<CONFIG> path:\n"
+					"${_durin_paths}")
 			endif()
-			if(NOT probe STREQUAL "unavailable")
-				file(READ "${_durin_probe_binary}/ProbeTests-paths.txt" _durin_paths)
-				if(_durin_paths MATCHES "\\$<CONFIG>")
-					message(FATAL_ERROR
-						"Metadata probe '${probe}' generated a literal $<CONFIG> path:\n"
-						"${_durin_paths}")
-				endif()
-			endif()
+		endif()
 		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
 		file(READ "${_durin_registry}.copy" _durin_second_registry)
 		assert_list_equals("${_durin_first_registry}" "${_durin_second_registry}"
