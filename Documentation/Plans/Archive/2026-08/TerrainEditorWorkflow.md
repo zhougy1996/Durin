@@ -331,7 +331,7 @@ contracts.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)

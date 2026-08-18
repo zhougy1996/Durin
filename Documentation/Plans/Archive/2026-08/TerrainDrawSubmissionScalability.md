@@ -410,7 +410,7 @@ conservation remain mandatory.
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Terrain Patch LOD Plan](TerrainPatchLOD.md)
 - [Terrain Editor Workflow Plan](TerrainEditorWorkflow.md)
-- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
 - [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)

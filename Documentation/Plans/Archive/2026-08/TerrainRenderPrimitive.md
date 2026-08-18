@@ -461,7 +461,7 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)

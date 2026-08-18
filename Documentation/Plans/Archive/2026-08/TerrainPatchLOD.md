@@ -440,7 +440,7 @@ Dependencies: Stages 1-3 complete end-to-end rendering.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)

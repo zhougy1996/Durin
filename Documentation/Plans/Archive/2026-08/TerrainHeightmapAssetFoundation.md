@@ -18,7 +18,7 @@ Content Browser import action.
 
 The lasting contract is
 [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md). The
-[Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md) records T0 as
+[Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md) records T0 as
 complete and makes T1/T2 ready for plan selection.
 
 ## Goal
@@ -428,7 +428,7 @@ inventing their own height authority.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
