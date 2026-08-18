@@ -171,6 +171,7 @@ namespace Durin::Editor::Level
 		enum class EViewportToolbarIcon : uint8
 		{
 			None,
+			ShadingSphere,
 			Translate,
 			Rotate,
 			Scale,
@@ -188,6 +189,16 @@ namespace Durin::Editor::Level
 			const float Thickness = FMath::Max(1.0f, 1.6f * Scale);
 			switch (Icon)
 			{
+			case EViewportToolbarIcon::ShadingSphere:
+				{
+					const float Radius = 6.5f * Scale;
+					DrawList->PathClear();
+					DrawList->PathLineTo(ImVec2(Center.x, Center.y - Radius));
+					DrawList->PathArcTo(Center, Radius, -1.5708f, 1.5708f, 12);
+					DrawList->PathFillConvex(Color);
+					DrawList->AddCircle(Center, Radius, Color, 24, Thickness);
+					break;
+				}
 			case EViewportToolbarIcon::Translate:
 				{
 					const float Radius = 6.0f * Scale;
@@ -413,6 +424,56 @@ namespace Durin::Editor::Level
 			return bPressed;
 		}
 
+		auto DrawViewportDisplayButton(
+			const ImVec2& Position,
+			const ImVec2& Size,
+			const char* Tooltip) -> bool
+		{
+			ImGui::SetCursorScreenPos(Position);
+			const bool bPressed = ImGui::InvisibleButton("##ViewModeButton", Size);
+			const bool bHovered = ImGui::IsItemHovered();
+			const bool bHeld = ImGui::IsItemActive();
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			DrawToolbarButtonBackground(
+				DrawList,
+				Position,
+				ImVec2(Position.x + Size.x, Position.y + Size.y),
+				false,
+				false,
+				bHovered,
+				bHeld);
+
+			const float IconScale = ImGui::GetFontSize() / 15.0f;
+			const float SphereWidth = 16.0f * IconScale;
+			const float ChevronWidth = 10.0f * IconScale;
+			const float Gap = MonaImGui::ScaleUI(6.0f);
+			const float ContentX = Position.x
+				+ (Size.x - SphereWidth - Gap - ChevronWidth) * 0.5f;
+			const float CenterY = Position.y + Size.y * 0.5f;
+			const ImU32 Color = ImGui::GetColorU32(
+				bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			DrawToolbarIcon(
+				DrawList,
+				EViewportToolbarIcon::ShadingSphere,
+				ImVec2(ContentX + SphereWidth * 0.5f, CenterY),
+				Color,
+				IconScale);
+			DrawToolbarIcon(
+				DrawList,
+				EViewportToolbarIcon::ChevronDown,
+				ImVec2(ContentX + SphereWidth + Gap + ChevronWidth * 0.5f, CenterY),
+				Color,
+				IconScale);
+
+			if (bHovered && Tooltip != nullptr)
+			{
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(Tooltip);
+				ImGui::EndTooltip();
+			}
+			return bPressed;
+		}
+
 		// Reports which half of a split toolbar button was activated.
 		struct FSplitButtonResult
 		{
@@ -608,9 +669,6 @@ namespace Durin::Editor::Level
 			Layout.RasterMode = Settings.Mode.RasterMode;
 		}
 
-		Layout.ViewModeLabel = Layout.RasterMode == ERasterMode::Wireframe
-			? GetModeLabel(Layout.RasterMode, RasterModeOptions)
-			: GetModeLabel(Layout.RenderMode, RenderModeOptions);
 		Layout.EditModeLabel = EditModeManager && !EditModeManager->GetActiveModeId().empty() ? std::string(EditModeManager->GetActiveModeId()) : "Select";
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x;
 		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(560.0f), MonaImGui::ScaleUI(980.0f));
@@ -630,7 +688,9 @@ namespace Durin::Editor::Level
 		Layout.SnapButtonWidth = Layout.Height;
 		Layout.DropDownWidth = FMath::Max(MonaImGui::ScaleUI(24.0f), Layout.Height * 0.8f);
 		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
-		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f, Layout.Height);
+		Layout.ViewModeButtonSize = ImVec2(
+			TransformIconWidth + ContentGap + ChevronWidth + ContentPadding * 2.0f,
+			Layout.Height);
 		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth;
 		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(3.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(3.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(3.0f));
@@ -811,10 +871,15 @@ namespace Durin::Editor::Level
 			&& RenderSettingsClient != nullptr;
 		if (!bRenderSettingsAvailable) ImGui::BeginDisabled();
 
-		const char* ViewModeTooltip = Layout.bRenderSettingsTargetIsPlayWindow
-			? "Play Window rendering settings"
-			: "Viewport settings";
-		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, ViewModeTooltip))
+		const std::string ViewModeTooltip = std::format(
+			"{} Display ({} - {})",
+			Layout.bRenderSettingsTargetIsPlayWindow ? "Play Window" : "Viewport",
+			GetModeLabel(Layout.RenderMode, RenderModeOptions),
+			GetModeLabel(Layout.RasterMode, RasterModeOptions));
+		if (DrawViewportDisplayButton(
+			Layout.ViewModeButtonPosition,
+			Layout.ViewModeButtonSize,
+			ViewModeTooltip.c_str()))
 		{
 			ImGui::OpenPopup("ViewModePopup");
 		}

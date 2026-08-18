@@ -31,7 +31,6 @@ namespace Durin::Editor::Level
 			EGroundTruthAmbientOcclusionQuality::HalfResolution;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
-		std::string ViewModeLabel;
 		std::string EditModeLabel;
 		ImVec2 ViewportMin;
 		ImVec2 ViewportMax;
