@@ -214,6 +214,7 @@ namespace Durin::Editor::Level
 		std::string FocusPhysicalPath;
 		std::string RevealAssetPath;
 		std::string OpenAssetClassName;
+		std::string Warning;
 
 		explicit operator bool() const { return static_cast<bool>(Status); }
 	};
@@ -224,10 +225,13 @@ namespace Durin::Editor::Level
 	public:
 		using FMoveAssets =
 			std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+		using FRemoveDirectory = std::function<bool(
+			const std::filesystem::path&, std::error_code&)>;
 
 		FContentBrowserOperations(
 			FContentBrowserModel& InModel,
-			FMoveAssets InMoveAssets
+			FMoveAssets InMoveAssets,
+			FRemoveDirectory InRemoveDirectory = {}
 		);
 
 		auto Rename(const FContentBrowserItem& Item, std::string_view NewName)
@@ -262,12 +266,16 @@ namespace Durin::Editor::Level
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
 	private:
-		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName)
+		auto RenameFolder(
+			const FContentBrowserItem& Item,
+			std::string_view NewName,
+			std::string& OutWarning)
 			-> Asset::FAssetResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FAssetPath>;
 
 		FContentBrowserModel& Model;
 		FMoveAssets MoveAssets;
+		FRemoveDirectory RemoveDirectory;
 	};
 } // namespace Durin::Editor::Level

@@ -126,6 +126,7 @@ namespace Durin::Editor::Level
 		auto FormatFileSize(uintmax_t Bytes) const -> std::string;
 		auto FormatFileTime(const std::filesystem::file_time_type& Time) const -> std::string;
 		auto SetError(std::string Message) -> void;
+		auto SetWarning(std::string Message) -> void;
 		auto RepairSelection() -> void;
 
 		FLevelEditorSessionSettings& SessionSettings;
@@ -158,6 +159,7 @@ namespace Durin::Editor::Level
 		FContentDeletionPlanPtr PendingDeletionPlan;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
+		std::string WarningMessage;
 		std::vector<FAssetPath> LastReimportOrphans;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
 		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;

@@ -1281,6 +1281,7 @@ namespace Durin::Editor::Level
 		}
 
 		MonaImGui::ErrorDialog("Content Browser Error", ErrorMessage);
+		MonaImGui::ErrorDialog("Content Browser Warning", WarningMessage);
 	}
 
 } // namespace Durin::Editor::Level

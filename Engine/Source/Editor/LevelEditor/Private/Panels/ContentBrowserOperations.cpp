@@ -164,10 +164,17 @@ namespace Durin::Editor::Level
 
 	FContentBrowserOperations::FContentBrowserOperations(
 		FContentBrowserModel& InModel,
-		FMoveAssets InMoveAssets)
+		FMoveAssets InMoveAssets,
+		FRemoveDirectory InRemoveDirectory)
 		: Model(InModel)
 		, MoveAssets(std::move(InMoveAssets))
+		, RemoveDirectory(std::move(InRemoveDirectory))
 	{
+		if (!RemoveDirectory)
+			RemoveDirectory = [](const std::filesystem::path& Path,
+				std::error_code& Error) {
+				return std::filesystem::remove(Path, Error);
+			};
 	}
 
 	auto FContentBrowserOperations::Rename(
@@ -211,9 +218,15 @@ namespace Durin::Editor::Level
 
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
-			const Asset::FAssetResult Result = RenameFolder(Item, NewName);
+			std::string Warning;
+			const Asset::FAssetResult Result = RenameFolder(Item, NewName, Warning);
 			if (!Result) return {Result};
-			return {};
+			FContentBrowserOperationResult Outcome;
+			Outcome.FocusPhysicalPath = NormalizePath(
+				(std::filesystem::path(Item.PhysicalPath).parent_path()
+					/ std::filesystem::path(NewName)).generic_string());
+			Outcome.Warning = std::move(Warning);
+			return Outcome;
 		}
 
 		Asset::FAssetCompanionOwnership Ownership;
@@ -271,7 +284,8 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserOperations::RenameFolder(
 		const FContentBrowserItem& Item,
-		std::string_view NewName) -> Asset::FAssetResult
+		std::string_view NewName,
+		std::string& OutWarning) -> Asset::FAssetResult
 	{
 		const std::filesystem::path OldFolder(Item.PhysicalPath);
 		const std::filesystem::path NewFolder =
@@ -454,11 +468,12 @@ namespace Durin::Editor::Level
 				 It.increment(Ec))
 				if (It->is_directory(Ec)) OldDirectories.push_back(It->path());
 			if (Ec)
-				return {
-					Asset::EAssetError::IoError,
-					std::format(
-						"Assets moved, but the source folder could not be inspected for cleanup: {}",
-						Ec.message())};
+			{
+				OutWarning = std::format(
+					"Assets were moved successfully, but the source folder could not be inspected for cleanup: {}",
+					Ec.message());
+				return {};
+			}
 			std::ranges::sort(
 				OldDirectories,
 				[](const auto& A, const auto& B) {
@@ -467,21 +482,23 @@ namespace Durin::Editor::Level
 			for (const auto& Directory : OldDirectories)
 			{
 				Ec.clear();
-				if (!std::filesystem::remove(Directory, Ec) && !Ec) continue;
+				if (!RemoveDirectory(Directory, Ec) && !Ec) continue;
 				if (Ec)
-					return {
-						Asset::EAssetError::IoError,
-						std::format(
-							"Assets moved, but source-folder cleanup failed for {}: {}",
-							Directory.generic_string(), Ec.message())};
+				{
+					OutWarning = std::format(
+						"Assets were moved successfully, but source-folder cleanup failed for {}: {}",
+						Directory.generic_string(), Ec.message());
+					return {};
+				}
 			}
 			Ec.clear();
-			if (!std::filesystem::remove(OldFolder, Ec) || Ec)
-				return {
-					Asset::EAssetError::IoError,
-					std::format(
-						"Assets moved, but the source folder is not empty or could not be removed: {}",
-						Ec ? Ec.message() : OldFolder.generic_string())};
+			if (!RemoveDirectory(OldFolder, Ec) || Ec)
+			{
+				OutWarning = std::format(
+					"Assets were moved successfully, but the source folder is not empty or could not be removed: {}",
+					Ec ? Ec.message() : OldFolder.generic_string());
+				return {};
+			}
 		}
 		return {};
 	}

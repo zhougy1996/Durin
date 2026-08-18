@@ -650,7 +650,7 @@ TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
 
-TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndIncompleteFolderMoveFails)
+TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMoveWarnsOnCleanup)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Folder = Root / "Content/OwnedFolder";
@@ -715,12 +715,65 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndIncompleteFolderMo
 		.PhysicalPath = Folder.generic_string()};
 	const FContentBrowserOperationResult FolderResult =
 		Operations.Rename(FolderItem, "MovedFolder");
-	EXPECT_FALSE(FolderResult);
+	EXPECT_TRUE(FolderResult);
 	EXPECT_TRUE(bMoveCalled);
-	EXPECT_TRUE(FolderResult.Status.Message.find("source folder")
+	EXPECT_TRUE(FolderResult.Warning.find("source folder")
 		!= std::string::npos);
 	EXPECT_TRUE(std::filesystem::exists(Folder));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+}
+
+TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCleanupFailure)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Folder = Root / "Content/CleanupSource";
+	std::filesystem::create_directories(Folder);
+	FAssetPath SourcePath;
+	FAssetPath DestinationPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/CleanupSource/Asset", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/CleanupDestination/Asset", DestinationPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+	Asset::FAssetMutationTransaction MoveTransaction;
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model,
+		[&](std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult {
+			std::vector<Asset::FAssetRelocationMapping> Mappings;
+			Mappings.reserve(Moves.size());
+			for (const FEditorAssetMove& Move : Moves)
+				Mappings.push_back({Move.OldPath, Move.NewPath});
+			Asset::FAssetMutationSummary Summary;
+			Asset::FAssetResult Result = Asset::PrepareAssetRelocationTransaction(
+				Mappings, Summary, MoveTransaction);
+			return Result ? MoveTransaction.Commit() : Result;
+		},
+		[](const std::filesystem::path&, std::error_code& Error) {
+			Error = std::make_error_code(std::errc::permission_denied);
+			return false;
+		});
+	const FContentBrowserItem FolderItem{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "CleanupSource",
+		.PhysicalPath = Folder.generic_string()};
+
+	const FContentBrowserOperationResult Result =
+		Operations.Rename(FolderItem, "CleanupDestination");
+
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_TRUE(Result.Warning.find("cleanup failed") != std::string::npos
+		|| Result.Warning.find("could not be removed") != std::string::npos);
+	EXPECT_EQ(Result.FocusPhysicalPath,
+		std::filesystem::absolute(Root / "Content/CleanupDestination")
+			.lexically_normal().generic_string());
+	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath, DestinationPath);
+	ASSERT_TRUE(MoveTransaction.Undo());
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(SourcePath));
 }
 
 TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)

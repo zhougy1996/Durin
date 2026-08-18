@@ -376,6 +376,7 @@ namespace Durin::Editor::Level
 		Selection.clear();
 		if (!Result.FocusPhysicalPath.empty())
 			Selection.insert(Result.FocusPhysicalPath);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		PublishMountedContentMutation();
 		return true;
 	}
@@ -706,5 +707,10 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::SetError(std::string Message) -> void
 	{
 		ErrorMessage = std::move(Message);
+	}
+
+	auto FContentBrowserPanel::SetWarning(std::string Message) -> void
+	{
+		WarningMessage = std::move(Message);
 	}
 } // namespace Durin::Editor::Level
