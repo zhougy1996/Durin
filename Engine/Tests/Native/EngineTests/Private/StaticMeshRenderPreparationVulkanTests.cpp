@@ -526,7 +526,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Small.SelectedTriangles, 1u);
 
 			Durin::FSceneView Forced = MakeOrthographicView(5.0);
-			Forced.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			Forced.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			const Durin::FPreparedStaticMeshView ForcedLOD0 = Prepare(Forced);
 			ASSERT_EQ(ForcedLOD0.Primitives.size(), 1u);
 			EXPECT_EQ(ForcedLOD0.Primitives[0].RequestedLODIndex, 0u);

@@ -70,17 +70,17 @@ namespace Durin
 					FViewportClient* PlayViewportClient =
 						GEditor->GetPlayViewportRenderSettingsClient();
 					checkf(PlayViewportClient
-						&& PlayViewportClient->GetViewSettings().RenderMode
-							== EditorSettingsBefore.RenderMode
-						&& PlayViewportClient->GetViewSettings().RasterMode
-							== EditorSettingsBefore.RasterMode
-						&& PlayViewportClient->GetViewSettings().bEnableFXAA
-							== EditorSettingsBefore.bEnableFXAA,
+						&& PlayViewportClient->GetViewSettings().Mode.RenderMode
+							== EditorSettingsBefore.Mode.RenderMode
+						&& PlayViewportClient->GetViewSettings().Mode.RasterMode
+							== EditorSettingsBefore.Mode.RasterMode
+						&& PlayViewportClient->GetViewSettings().PostProcess.bEnableFXAA
+							== EditorSettingsBefore.PostProcess.bEnableFXAA,
 						"New-window PIE did not seed an independent render policy.");
 					if (PlayViewportClient)
 					{
 						FSceneViewSettings PlaySettings = PlayViewportClient->GetViewSettings();
-						PlaySettings.RenderMode = PlaySettings.RenderMode == ERenderMode::Lit
+						PlaySettings.Mode.RenderMode = PlaySettings.Mode.RenderMode == ERenderMode::Lit
 							? ERenderMode::Unlit
 							: ERenderMode::Lit;
 						PlayViewportClient->SetViewSettings(PlaySettings);
@@ -119,12 +119,12 @@ namespace Durin
 				{
 					checkf(GEditor->GetPlayViewportRenderSettingsClient() == nullptr
 						&& EditorViewportClient
-						&& EditorViewportClient->GetViewSettings().RenderMode
-							== EditorSettingsBefore.RenderMode
-						&& EditorViewportClient->GetViewSettings().RasterMode
-							== EditorSettingsBefore.RasterMode
-						&& EditorViewportClient->GetViewSettings().bEnableFXAA
-							== EditorSettingsBefore.bEnableFXAA,
+						&& EditorViewportClient->GetViewSettings().Mode.RenderMode
+							== EditorSettingsBefore.Mode.RenderMode
+						&& EditorViewportClient->GetViewSettings().Mode.RasterMode
+							== EditorSettingsBefore.Mode.RasterMode
+						&& EditorViewportClient->GetViewSettings().PostProcess.bEnableFXAA
+							== EditorSettingsBefore.PostProcess.bEnableFXAA,
 						"New-window PIE leaked render policy across Stop.");
 				}
 				Mona::FMonaApplication::Get().Tick();

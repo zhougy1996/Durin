@@ -350,7 +350,7 @@ namespace Durin
 			Candidate.CasterView.ViewportWidth = DirectionalShadowResolution;
 			Candidate.CasterView.ViewportHeight = DirectionalShadowResolution;
 			Candidate.CasterView.DepthConvention = ESceneDepthConvention::ForwardZ;
-			Candidate.CasterView.Settings.RasterMode = ERasterMode::Solid;
+			Candidate.CasterView.Settings.Mode.RasterMode = ERasterMode::Solid;
 			Candidate.bEnabled = true;
 			OutCascade = Candidate;
 			return true;
@@ -366,7 +366,7 @@ namespace Durin
 		FPreparedDirectionalShadowView Candidate;
 		FReceiverFrustum ReceiverFrustum;
 		const EDirectionalShadowCandidate RequestedCandidate =
-			View.Settings.DirectionalShadowCandidate
+			View.Settings.DirectionalShadow.Candidate
 			== EDirectionalShadowCandidate::ThreeCascades
 			? EDirectionalShadowCandidate::ThreeCascades
 			: EDirectionalShadowCandidate::SingleMap;
@@ -390,7 +390,7 @@ namespace Durin
 			== EDirectionalShadowCandidate::ThreeCascades
 			? ReceiverFrustum.DepthTransform : FVector4{0.0};
 		const FDirectionalShadowFilter Filter = PrepareDirectionalShadowFilter(
-			View.Settings.DirectionalShadowFilterQuality);
+			View.Settings.DirectionalShadow.FilterQuality);
 		const FVector3 Forward = Math::Normalize(Light.Direction);
 		const FVector3 PreferredUp{0.0, 0.0, 1.0};
 		const FVector3 FallbackUp{0.0, 1.0, 0.0};
@@ -403,9 +403,9 @@ namespace Durin
 			return false;
 		Candidate.LightDirection = Light.Direction;
 		Candidate.DiagnosticMode = static_cast<size_t>(
-			View.Settings.DirectionalShadowDiagnosticMode)
+			View.Settings.DirectionalShadow.DiagnosticMode)
 			< static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)
-			? View.Settings.DirectionalShadowDiagnosticMode
+			? View.Settings.DirectionalShadow.DiagnosticMode
 			: EDirectionalShadowDiagnosticMode::Lit;
 		Candidate.SplitDepths[0] = RequestedCandidate
 			== EDirectionalShadowCandidate::ThreeCascades

@@ -193,13 +193,13 @@ namespace Durin::Editor::StaticMesh
 		{
 			if (ViewportClient == nullptr) return;
 			FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-			Settings.RasterMode = bWireframe ? ERasterMode::Wireframe : ERasterMode::Solid;
+			Settings.Mode.RasterMode = bWireframe ? ERasterMode::Wireframe : ERasterMode::Solid;
 			ViewportClient->SetViewSettings(Settings);
 		}
 
 		auto IsWireframe() const -> bool
 		{
-			return ViewportClient != nullptr && ViewportClient->GetViewSettings().RasterMode == ERasterMode::Wireframe;
+			return ViewportClient != nullptr && ViewportClient->GetViewSettings().Mode.RasterMode == ERasterMode::Wireframe;
 		}
 
 		auto ResetView() -> void

@@ -213,10 +213,10 @@ namespace Durin::Editor::SkeletalMesh
 	auto FSkeletalAssetPreview::Draw(DSkeletalMesh* Mesh, DAnimationClip* Clip, float Height) -> void { Impl->Draw(Mesh, Clip, Height); }
 	auto FSkeletalAssetPreview::SetVisible(bool Visible) -> void { Impl->SetVisible(Visible); }
 	auto FSkeletalAssetPreview::ResetView() -> void { if (Impl->ViewportClient) Impl->ViewportClient->GetController().Reset(); }
-	auto FSkeletalAssetPreview::SetWireframe(bool Wireframe) -> void { if (Impl->ViewportClient) { auto Settings = Impl->ViewportClient->GetViewSettings(); Settings.RasterMode = Wireframe ? ERasterMode::Wireframe : ERasterMode::Solid; Impl->ViewportClient->SetViewSettings(Settings); } }
-	auto FSkeletalAssetPreview::IsWireframe() const -> bool { return Impl->ViewportClient && Impl->ViewportClient->GetViewSettings().RasterMode == ERasterMode::Wireframe; }
-	auto FSkeletalAssetPreview::SetLit(bool Lit) -> void { if (Impl->ViewportClient) { auto Settings = Impl->ViewportClient->GetViewSettings(); Settings.RenderMode = Lit ? ERenderMode::Lit : ERenderMode::Unlit; Impl->ViewportClient->SetViewSettings(Settings); } }
-	auto FSkeletalAssetPreview::IsLit() const -> bool { return !Impl->ViewportClient || Impl->ViewportClient->GetViewSettings().RenderMode == ERenderMode::Lit; }
+	auto FSkeletalAssetPreview::SetWireframe(bool Wireframe) -> void { if (Impl->ViewportClient) { auto Settings = Impl->ViewportClient->GetViewSettings(); Settings.Mode.RasterMode = Wireframe ? ERasterMode::Wireframe : ERasterMode::Solid; Impl->ViewportClient->SetViewSettings(Settings); } }
+	auto FSkeletalAssetPreview::IsWireframe() const -> bool { return Impl->ViewportClient && Impl->ViewportClient->GetViewSettings().Mode.RasterMode == ERasterMode::Wireframe; }
+	auto FSkeletalAssetPreview::SetLit(bool Lit) -> void { if (Impl->ViewportClient) { auto Settings = Impl->ViewportClient->GetViewSettings(); Settings.Mode.RenderMode = Lit ? ERenderMode::Lit : ERenderMode::Unlit; Impl->ViewportClient->SetViewSettings(Settings); } }
+	auto FSkeletalAssetPreview::IsLit() const -> bool { return !Impl->ViewportClient || Impl->ViewportClient->GetViewSettings().Mode.RenderMode == ERenderMode::Lit; }
 	auto FSkeletalAssetPreview::Play(std::string& Error) -> bool { return Impl->ComponentOrNull() && Impl->ComponentOrNull()->Play(Error); }
 	auto FSkeletalAssetPreview::Pause() -> void { if (Impl->ComponentOrNull()) Impl->ComponentOrNull()->Pause(); }
 	auto FSkeletalAssetPreview::ResetPlayback(std::string& Error) -> bool { return Impl->ComponentOrNull() && Impl->ComponentOrNull()->Stop(Error); }

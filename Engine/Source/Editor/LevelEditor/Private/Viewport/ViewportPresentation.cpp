@@ -89,13 +89,13 @@ namespace Durin::Editor::Level
 			if (ViewportClient == nullptr) return;
 			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
 			const EDirectionalShadowDiagnosticMode CurrentMode =
-				CurrentSettings.DirectionalShadowDiagnosticMode;
+				CurrentSettings.DirectionalShadow.DiagnosticMode;
 			const bool bDebugViewsActive = CurrentMode != EDirectionalShadowDiagnosticMode::Lit
-				|| CurrentSettings.bShowContactShadowDebug;
+				|| CurrentSettings.DirectionalShadow.bShowContactDebug;
 			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
 				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-				Settings.DirectionalShadowDiagnosticMode = Mode;
-				Settings.bShowContactShadowDebug = false;
+				Settings.DirectionalShadow.DiagnosticMode = Mode;
+				Settings.DirectionalShadow.bShowContactDebug = false;
 				ViewportClient->SetViewSettings(Settings);
 			};
 
@@ -107,12 +107,12 @@ namespace Durin::Editor::Level
 				ImGui::SetTooltip("Disable all shadow diagnostics without changing production rendering settings.");
 			ImGui::Separator();
 			if (ImGui::RadioButton("Contact Shadow Contribution",
-				CurrentSettings.bShowContactShadowDebug))
+				CurrentSettings.DirectionalShadow.bShowContactDebug))
 			{
 				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-				Settings.DirectionalShadowDiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
-				Settings.bEnableContactShadows = true;
-				Settings.bShowContactShadowDebug = true;
+				Settings.DirectionalShadow.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
+				Settings.DirectionalShadow.bEnableContactShadows = true;
+				Settings.DirectionalShadow.bShowContactDebug = true;
 				ViewportClient->SetViewSettings(Settings);
 			}
 			ImGui::Separator();
@@ -137,11 +137,11 @@ namespace Durin::Editor::Level
 		{
 			if (ViewportClient == nullptr) return;
 			const EDirectionalShadowFilterQuality CurrentQuality =
-				ViewportClient->GetViewSettings().DirectionalShadowFilterQuality;
+				ViewportClient->GetViewSettings().DirectionalShadow.FilterQuality;
 			DrawModeOptions(CurrentQuality, DirectionalShadowQualityOptions,
 				[ViewportClient](EDirectionalShadowFilterQuality Quality) {
 					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
-					Settings.DirectionalShadowFilterQuality = Quality;
+					Settings.DirectionalShadow.FilterQuality = Quality;
 					ViewportClient->SetViewSettings(Settings);
 				});
 		}
@@ -588,13 +588,13 @@ namespace Durin::Editor::Level
 		if (RenderSettingsClient != nullptr)
 		{
 			const FSceneViewSettings& Settings = RenderSettingsClient->GetViewSettings();
-			Layout.bEnableFXAA = Settings.bEnableFXAA;
+			Layout.bEnableFXAA = Settings.PostProcess.bEnableFXAA;
 			Layout.bEnableGroundTruthAmbientOcclusion =
-				Settings.bEnableGroundTruthAmbientOcclusion;
+				Settings.AmbientOcclusion.bEnabled;
 			Layout.GroundTruthAmbientOcclusionQuality =
-				Settings.GroundTruthAmbientOcclusionQuality;
-			Layout.RenderMode = Settings.RenderMode;
-			Layout.RasterMode = Settings.RasterMode;
+				Settings.AmbientOcclusion.Quality;
+			Layout.RenderMode = Settings.Mode.RenderMode;
+			Layout.RasterMode = Settings.Mode.RasterMode;
 		}
 
 		Layout.ViewModeLabel = Layout.RasterMode == ERasterMode::Wireframe
@@ -819,7 +819,7 @@ namespace Durin::Editor::Level
 				DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RenderSettingsClient](ERenderMode Mode) {
 					if (RenderSettingsClient == nullptr) return;
 					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.RenderMode = Mode;
+					Settings.Mode.RenderMode = Mode;
 					RenderSettingsClient->SetViewSettings(Settings);
 				});
 				ImGui::EndMenu();
@@ -829,7 +829,7 @@ namespace Durin::Editor::Level
 				DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RenderSettingsClient](ERasterMode Mode) {
 					if (RenderSettingsClient == nullptr) return;
 					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.RasterMode = Mode;
+					Settings.Mode.RasterMode = Mode;
 					RenderSettingsClient->SetViewSettings(Settings);
 				});
 				ImGui::EndMenu();
@@ -840,27 +840,27 @@ namespace Durin::Editor::Level
 				DrawDirectionalShadowQualityOptions(RenderSettingsClient);
 				ImGui::Separator();
 				bool bEnableContactShadows =
-					RenderSettingsClient->GetViewSettings().bEnableContactShadows;
+					RenderSettingsClient->GetViewSettings().DirectionalShadow.bEnableContactShadows;
 				if (ImGui::Checkbox("Contact Shadows", &bEnableContactShadows))
 				{
 					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.bEnableContactShadows = bEnableContactShadows;
+					Settings.DirectionalShadow.bEnableContactShadows = bEnableContactShadows;
 					if (!bEnableContactShadows)
-						Settings.bShowContactShadowDebug = false;
+						Settings.DirectionalShadow.bShowContactDebug = false;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
 				if (ImGui::BeginMenu("Contact Visibility Route"))
 				{
 					const EContactShadowRoutePreference CurrentRoute =
 						RenderSettingsClient->GetViewSettings()
-							.ContactShadowRoutePreference;
+							.DirectionalShadow.ContactRoutePreference;
 					const auto DrawRoute = [&](const char* Label,
 						EContactShadowRoutePreference Route) {
 						if (ImGui::MenuItem(Label, nullptr, CurrentRoute == Route))
 						{
 							FSceneViewSettings Settings =
 								RenderSettingsClient->GetViewSettings();
-							Settings.ContactShadowRoutePreference = Route;
+							Settings.DirectionalShadow.ContactRoutePreference = Route;
 							RenderSettingsClient->SetViewSettings(Settings);
 						}
 					};
@@ -884,7 +884,7 @@ namespace Durin::Editor::Level
 				if (ImGui::Checkbox("GTAO", &bEnableGroundTruthAmbientOcclusion))
 				{
 					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.bEnableGroundTruthAmbientOcclusion =
+					Settings.AmbientOcclusion.bEnabled =
 						bEnableGroundTruthAmbientOcclusion;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
@@ -899,7 +899,7 @@ namespace Durin::Editor::Level
 						{
 							FSceneViewSettings Settings =
 								RenderSettingsClient->GetViewSettings();
-							Settings.GroundTruthAmbientOcclusionQuality = Quality;
+							Settings.AmbientOcclusion.Quality = Quality;
 							RenderSettingsClient->SetViewSettings(Settings);
 						}
 					};
@@ -913,7 +913,7 @@ namespace Durin::Editor::Level
 				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
 				{
 					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.bEnableFXAA = bEnableFXAA;
+					Settings.PostProcess.bEnableFXAA = bEnableFXAA;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
 				ImGui::EndMenu();
@@ -1255,30 +1255,30 @@ namespace Durin::Editor::Level
 			{
 				const FSceneViewStatistics& Statistics = Snapshot.Statistics;
 				DrawRow("Visible primitives", std::format("{} / {}",
-					FormatViewportStatistic(Statistics.VisiblePrimitives),
-					FormatViewportStatistic(Statistics.SubmittedPrimitives)));
-				DrawRow("Triangles", FormatViewportStatistic(Statistics.Triangles));
-				DrawRow("Draw calls", FormatViewportStatistic(Statistics.DrawCalls));
+					FormatViewportStatistic(Statistics.Visibility.VisiblePrimitives),
+					FormatViewportStatistic(Statistics.Visibility.SubmittedPrimitives)));
+				DrawRow("Triangles", FormatViewportStatistic(Statistics.Summary.Triangles));
+				DrawRow("Draw calls", FormatViewportStatistic(Statistics.Summary.DrawCalls));
 				Y += MonaImGui::ScaleUI(3.0f);
-				DrawRow("Static mesh", FormatViewportStatistic(Statistics.StaticMeshTriangles));
-				DrawRow("Spline mesh", FormatViewportStatistic(Statistics.SplineMeshTriangles));
-				DrawRow("Skeletal mesh", FormatViewportStatistic(Statistics.SkeletalMeshTriangles));
-				DrawRow("Terrain", FormatViewportStatistic(Statistics.TerrainTriangles));
-				DrawRow("Shadow", Statistics.bShadowEnabled
-					? FormatViewportStatistic(Statistics.ShadowTriangles) : "Off");
+				DrawRow("Static mesh", FormatViewportStatistic(Statistics.StaticMesh.Triangles));
+				DrawRow("Spline mesh", FormatViewportStatistic(Statistics.SplineMesh.Triangles));
+				DrawRow("Skeletal mesh", FormatViewportStatistic(Statistics.SkeletalMesh.Triangles));
+				DrawRow("Terrain", FormatViewportStatistic(Statistics.Terrain.Triangles));
+				DrawRow("Shadow", Statistics.Shadow.bEnabled
+					? FormatViewportStatistic(Statistics.Shadow.Triangles) : "Off");
 				const char* ContactShadowRoute = "Off";
-				if (Statistics.ContactShadowRoute
+				if (Statistics.Shadow.ContactRoute
 					== EContactShadowExecutionRoute::Compute)
 					ContactShadowRoute = "Compute";
-				else if (Statistics.ContactShadowRoute
+				else if (Statistics.Shadow.ContactRoute
 					== EContactShadowExecutionRoute::Fragment)
 					ContactShadowRoute = "Fragment";
-				else if (Statistics.bContactShadowEnabled)
+				else if (Statistics.Shadow.bContactEnabled)
 					ContactShadowRoute = "Unknown";
 				DrawRow("Contact shadow", ContactShadowRoute);
 				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
-					Statistics.DirectionalLights, Statistics.PointLights,
-					Statistics.SpotLights));
+					Statistics.Lights.Directional, Statistics.Lights.Point,
+					Statistics.Lights.Spot));
 
 				if (ImGui::IsMouseHoveringRect(Layout.PanelMin, Layout.PanelMax))
 				{
@@ -1286,15 +1286,15 @@ namespace Durin::Editor::Level
 						"Exact values\nPrimitives: %llu / %llu\nTriangles: %llu\n"
 						"Draw calls: %llu\nStatic draws: %llu\nSkeletal draws: %llu\n"
 						"Terrain draws: %llu\nShadow draws: %llu\nShadow cascades: %u",
-						static_cast<unsigned long long>(Statistics.VisiblePrimitives),
-						static_cast<unsigned long long>(Statistics.SubmittedPrimitives),
-						static_cast<unsigned long long>(Statistics.Triangles),
-						static_cast<unsigned long long>(Statistics.DrawCalls),
-						static_cast<unsigned long long>(Statistics.StaticMeshDrawCalls),
-						static_cast<unsigned long long>(Statistics.SkeletalMeshDrawCalls),
-						static_cast<unsigned long long>(Statistics.TerrainDrawCalls),
-						static_cast<unsigned long long>(Statistics.ShadowDrawCalls),
-						Statistics.ShadowCascades);
+						static_cast<unsigned long long>(Statistics.Visibility.VisiblePrimitives),
+						static_cast<unsigned long long>(Statistics.Visibility.SubmittedPrimitives),
+						static_cast<unsigned long long>(Statistics.Summary.Triangles),
+						static_cast<unsigned long long>(Statistics.Summary.DrawCalls),
+						static_cast<unsigned long long>(Statistics.StaticMesh.DrawCalls),
+						static_cast<unsigned long long>(Statistics.SkeletalMesh.DrawCalls),
+						static_cast<unsigned long long>(Statistics.Terrain.DrawCalls),
+						static_cast<unsigned long long>(Statistics.Shadow.DrawCalls),
+						Statistics.Shadow.Cascades);
 				}
 			}
 		}

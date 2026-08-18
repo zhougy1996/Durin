@@ -178,14 +178,14 @@ TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)
 TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLOD)
 {
 	const Durin::FSceneViewSettings Settings;
-	EXPECT_EQ(Settings.VisibilityMode, Durin::EViewVisibilityMode::Normal);
-	EXPECT_EQ(Settings.LODMode, Durin::EViewLODMode::Automatic);
-	EXPECT_EQ(Settings.DirectionalShadowFilterQuality,
+	EXPECT_EQ(Settings.Mode.VisibilityMode, Durin::EViewVisibilityMode::Normal);
+	EXPECT_EQ(Settings.Mode.LODMode, Durin::EViewLODMode::Automatic);
+	EXPECT_EQ(Settings.DirectionalShadow.FilterQuality,
 		Durin::EDirectionalShadowFilterQuality::Medium);
-	EXPECT_EQ(Settings.ContactShadowRoutePreference,
+	EXPECT_EQ(Settings.DirectionalShadow.ContactRoutePreference,
 		Durin::EContactShadowRoutePreference::Auto);
-	EXPECT_TRUE(Settings.bEnableGroundTruthAmbientOcclusion);
-	EXPECT_EQ(Settings.GroundTruthAmbientOcclusionQuality,
+	EXPECT_TRUE(Settings.AmbientOcclusion.bEnabled);
+	EXPECT_EQ(Settings.AmbientOcclusion.Quality,
 		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution);
 }
 
@@ -204,12 +204,12 @@ TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverrid
 TEST(FRendererSceneContractTests, ViewStatisticsDefaultToAnEmptyBoundedSummary)
 {
 	const Durin::FSceneViewStatistics Statistics;
-	EXPECT_EQ(Statistics.SubmittedPrimitives, 0u);
-	EXPECT_EQ(Statistics.VisiblePrimitives, 0u);
-	EXPECT_EQ(Statistics.Triangles, 0u);
-	EXPECT_EQ(Statistics.DrawCalls, 0u);
-	EXPECT_FALSE(Statistics.bShadowEnabled);
-	EXPECT_EQ(Statistics.ContactShadowRoute,
+	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 0u);
+	EXPECT_EQ(Statistics.Visibility.VisiblePrimitives, 0u);
+	EXPECT_EQ(Statistics.Summary.Triangles, 0u);
+	EXPECT_EQ(Statistics.Summary.DrawCalls, 0u);
+	EXPECT_FALSE(Statistics.Shadow.bEnabled);
+	EXPECT_EQ(Statistics.Shadow.ContactRoute,
 		Durin::EContactShadowExecutionRoute::None);
 }
 
@@ -241,29 +241,36 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 
 	const Durin::FSceneViewStatistics Statistics =
 		Durin::BuildSceneViewStatistics(Counters);
-	EXPECT_EQ(Statistics.SubmittedPrimitives, 13u);
-	EXPECT_EQ(Statistics.VisiblePrimitives, 8u);
-	EXPECT_EQ(Statistics.StaticMeshTriangles, 100u);
-	EXPECT_EQ(Statistics.SplineMeshTriangles, 20u);
-	EXPECT_EQ(Statistics.SkeletalMeshTriangles, 40u);
-	EXPECT_EQ(Statistics.TerrainTriangles, 60u);
-	EXPECT_EQ(Statistics.Triangles, 220u);
-	EXPECT_EQ(Statistics.ShadowTriangles, 500u);
-	EXPECT_EQ(Statistics.StaticMeshDrawCalls, 5u);
-	EXPECT_EQ(Statistics.SkeletalMeshDrawCalls, 2u);
-	EXPECT_EQ(Statistics.TerrainDrawCalls, 1u);
-	EXPECT_EQ(Statistics.ShadowDrawCalls, 7u);
-	EXPECT_TRUE(Statistics.bShadowEnabled);
-	EXPECT_EQ(Statistics.ShadowCascades, 3u);
-	EXPECT_TRUE(Statistics.bContactShadowEnabled);
-	EXPECT_EQ(Statistics.ContactShadowRoute,
+	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 13u);
+	EXPECT_EQ(Statistics.Visibility.VisiblePrimitives, 8u);
+	EXPECT_EQ(Statistics.StaticMesh.Primitives, 4u);
+	EXPECT_EQ(Statistics.SplineMesh.Primitives, 1u);
+	EXPECT_EQ(Statistics.SkeletalMesh.Primitives, 2u);
+	EXPECT_EQ(Statistics.Terrain.VisiblePatches, 3u);
+	EXPECT_EQ(Statistics.StaticMesh.Triangles, 100u);
+	EXPECT_EQ(Statistics.SplineMesh.Triangles, 20u);
+	EXPECT_EQ(Statistics.SkeletalMesh.Triangles, 40u);
+	EXPECT_EQ(Statistics.Terrain.Triangles, 60u);
+	EXPECT_EQ(Statistics.Summary.Triangles, 220u);
+	EXPECT_EQ(Statistics.Shadow.Triangles, 500u);
+	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 5u);
+	EXPECT_EQ(Statistics.SkeletalMesh.DrawCalls, 2u);
+	EXPECT_EQ(Statistics.Terrain.DrawCalls, 1u);
+	EXPECT_EQ(Statistics.Shadow.DrawCalls, 7u);
+	EXPECT_TRUE(Statistics.Shadow.bEnabled);
+	EXPECT_EQ(Statistics.Shadow.Cascades, 3u);
+	EXPECT_TRUE(Statistics.Shadow.bContactEnabled);
+	EXPECT_EQ(Statistics.Shadow.ContactRoute,
 		Durin::EContactShadowExecutionRoute::Compute);
+	EXPECT_EQ(Statistics.Lights.Directional, 1u);
+	EXPECT_EQ(Statistics.Lights.Point, 3u);
+	EXPECT_EQ(Statistics.Lights.Spot, 2u);
 
 	Counters.ContactShadowComputeViews = 0;
 	Counters.ContactShadowFragmentViews = 1;
 	const Durin::FSceneViewStatistics FragmentStatistics =
 		Durin::BuildSceneViewStatistics(Counters);
-	EXPECT_EQ(FragmentStatistics.ContactShadowRoute,
+	EXPECT_EQ(FragmentStatistics.Shadow.ContactRoute,
 		Durin::EContactShadowExecutionRoute::Fragment);
 }
 
@@ -276,13 +283,13 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsAreCoherentAndIsolated)
 		Durin::FSceneViewport::CreateOffscreen(nullptr);
 
 	Durin::FSceneViewStatistics MainStatistics;
-	MainStatistics.VisiblePrimitives = 4;
-	MainStatistics.Triangles = 120;
-	MainStatistics.DrawCalls = 7;
+	MainStatistics.Visibility.VisiblePrimitives = 4;
+	MainStatistics.Summary.Triangles = 120;
+	MainStatistics.Summary.DrawCalls = 7;
 	Durin::FSceneViewStatistics AuxiliaryStatistics;
-	AuxiliaryStatistics.VisiblePrimitives = 1;
-	AuxiliaryStatistics.Triangles = 12;
-	AuxiliaryStatistics.DrawCalls = 3;
+	AuxiliaryStatistics.Visibility.VisiblePrimitives = 1;
+	AuxiliaryStatistics.Summary.Triangles = 12;
+	AuxiliaryStatistics.Summary.DrawCalls = 3;
 
 	struct FPublishViewportStatisticsCommand
 	{
@@ -337,7 +344,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 		{
 			const auto Snapshot = Viewport->GetRenderStatisticsSnapshot();
 			if (Snapshot.bAvailable
-				&& Snapshot.Statistics.Triangles != Snapshot.Statistics.DrawCalls)
+				&& Snapshot.Statistics.Summary.Triangles != Snapshot.Statistics.Summary.DrawCalls)
 				bObservedMixedSnapshot.store(true, std::memory_order_relaxed);
 			ReadCount.fetch_add(1, std::memory_order_relaxed);
 		}
@@ -357,8 +364,8 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 			for (Durin::uint64 Value = 1; Value <= 1000; ++Value)
 			{
 				Durin::FSceneViewStatistics Statistics;
-				Statistics.Triangles = Value;
-				Statistics.DrawCalls = Value;
+				Statistics.Summary.Triangles = Value;
+				Statistics.Summary.DrawCalls = Value;
 				Viewport->PublishRenderStatistics_RenderThread(Statistics, true);
 			}
 		});
@@ -370,8 +377,8 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	EXPECT_FALSE(bObservedMixedSnapshot.load(std::memory_order_relaxed));
 	const auto Snapshot = Viewport->GetRenderStatisticsSnapshot();
 	EXPECT_EQ(Snapshot.Revision, 1000u);
-	EXPECT_EQ(Snapshot.Statistics.Triangles, 1000u);
-	EXPECT_EQ(Snapshot.Statistics.DrawCalls, 1000u);
+	EXPECT_EQ(Snapshot.Statistics.Summary.Triangles, 1000u);
+	EXPECT_EQ(Snapshot.Statistics.Summary.DrawCalls, 1000u);
 
 	std::weak_ptr<Durin::FSceneViewport> WeakViewport = Viewport;
 	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
@@ -404,7 +411,7 @@ TEST(FRendererSceneContractTests,
 	Durin::FSceneView View;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
-	View.Settings.DirectionalShadowCandidate =
+	View.Settings.DirectionalShadow.Candidate =
 		Durin::EDirectionalShadowCandidate::SingleMap;
 	View.ViewportWidth = 1920;
 	View.ViewportHeight = 1080;
@@ -527,7 +534,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(Counters.InvalidViewFallbacks, 0u);
 	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
 
-	View.Settings.VisibilityMode =
+	View.Settings.Mode.VisibilityMode =
 		Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	Durin::FViewRenderCounters DisabledCounters;
 	const Durin::FSceneVisibilityResult Disabled =
@@ -537,7 +544,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(DisabledCounters.VisiblePrimitives, 3u);
 	EXPECT_EQ(Disabled.StaticMeshSceneInfos.size(), 3u);
 
-	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::Normal;
+	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::Normal;
 	View.ProjectionMatrix[0][0] =
 		std::numeric_limits<double>::quiet_NaN();
 	Durin::FViewRenderCounters InvalidViewCounters;
@@ -587,7 +594,7 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 		1u);
 
 	Durin::FSceneView SubmittedView = MainView;
-	SubmittedView.Settings.VisibilityMode =
+	SubmittedView.Settings.Mode.VisibilityMode =
 		Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	auto ObservedMode = std::make_shared<Durin::EViewVisibilityMode>(
 		Durin::EViewVisibilityMode::Normal);
@@ -601,9 +608,9 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	Durin::EnqueueRenderCommand<FObserveVisibilityPolicyCommand>(
 		[ViewSnapshot = SubmittedView, ObservedMode](
 			Durin::FRHICommandListImmediate&) {
-			*ObservedMode = ViewSnapshot.Settings.VisibilityMode;
+			*ObservedMode = ViewSnapshot.Settings.Mode.VisibilityMode;
 		});
-	SubmittedView.Settings.VisibilityMode = Durin::EViewVisibilityMode::Normal;
+	SubmittedView.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::Normal;
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(
 		*ObservedMode,
@@ -699,7 +706,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	};
 	auto Observed = std::make_shared<FObservedPreparation>();
 	Durin::FSceneView View;
-	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	struct FPrepareLightsCommand
 	{
 		static constexpr auto GetName() -> const char* { return "PrepareLights"; }
@@ -790,7 +797,7 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
 	Durin::FViewRenderCounters Counters;
 	Durin::FSceneView View;
-	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	const Durin::FSceneVisibilityResult Visibility =
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
 	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
@@ -840,7 +847,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 
 	Durin::FViewRenderCounters Counters;
 	Durin::FSceneView View;
-	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	const Durin::FSceneVisibilityResult Visibility =
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
 	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);

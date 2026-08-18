@@ -169,9 +169,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 65;
 			View.ViewportHeight = 65;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Readback));
@@ -182,7 +182,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				false, QualificationOptions), Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *QualificationReadback));
-			View.Settings.LODMode = Durin::EViewLODMode::Automatic;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::Automatic;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -284,10 +284,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 65;
 			View.ViewportHeight = 65;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -321,10 +321,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 65;
 			View.ViewportHeight = 65;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -362,10 +362,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewLocation = LargeWorldOrigin;
 			View.ViewportWidth = 65;
 			View.ViewportHeight = 65;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			Durin::FSceneViewRenderOptions QualificationOptions;
 			QualificationOptions.bEnableGBufferQualification = true;
 			QualificationOptions.bEnableDeferredDirectionalQualification = true;
@@ -428,9 +428,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewProjectionMatrix = View.ProjectionMatrix;
 			View.ViewportWidth = 65;
 			View.ViewportHeight = 65;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.bShowTerrainLODOverlay = true;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Terrain.bShowLODOverlay = true;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -509,9 +509,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				View.ViewProjectionMatrix = View.ProjectionMatrix;
 				View.ViewportWidth = 33;
 				View.ViewportHeight = 33;
-				View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-				View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				View.Settings.bDisableTerrainBatching = Mask == 0;
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+				View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.Terrain.bDisableBatching = Mask == 0;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
 				EXPECT_GE(GCounters.TerrainStitchMaskHistogram[Mask], 1u);
@@ -544,8 +544,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.FarClipDistance = 20000.0;
 			View.ViewFadeStart = 4.0;
 			View.ViewRenderDistance = 6.0;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);

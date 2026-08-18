@@ -903,45 +903,46 @@ TEST(FEditorPlayViewportTests, SeedsAndIsolatesNewWindowRenderSettingsPerSession
 	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "PlayViewportSettingsEngine");
 	Durin::FViewportClient EditorClient;
 	EditorClient.SetViewSettings({
-		.bEnableFXAA = false,
-		.ExposureEV = -1.25f,
-		.RenderMode = Durin::ERenderMode::Unlit,
-		.RasterMode = Durin::ERasterMode::Wireframe,
-		.bEnableContactShadows = true,
+		.Mode = {
+			.RenderMode = Durin::ERenderMode::Unlit,
+			.RasterMode = Durin::ERasterMode::Wireframe,
+		},
+		.PostProcess = {.bEnableFXAA = false, .ExposureEV = -1.25f},
+		.DirectionalShadow = {.bEnableContactShadows = true},
 	});
 
 	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, &EditorClient);
 	Durin::FViewportClient* PlayClient = Engine->GetPlayViewportRenderSettingsClient();
 	ASSERT_NE(PlayClient, nullptr);
 	EXPECT_NE(PlayClient, &EditorClient);
-	EXPECT_FALSE(PlayClient->GetViewSettings().bEnableFXAA);
-	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, -1.25f);
-	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
-	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
-	EXPECT_TRUE(PlayClient->GetViewSettings().bEnableContactShadows);
+	EXPECT_FALSE(PlayClient->GetViewSettings().PostProcess.bEnableFXAA);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().PostProcess.ExposureEV, -1.25f);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_TRUE(PlayClient->GetViewSettings().DirectionalShadow.bEnableContactShadows);
 
 	Durin::FSceneViewSettings PlaySettings = PlayClient->GetViewSettings();
-	PlaySettings.RenderMode = Durin::ERenderMode::Lit;
-	PlaySettings.RasterMode = Durin::ERasterMode::Solid;
-	PlaySettings.ExposureEV = 2.0f;
+	PlaySettings.Mode.RenderMode = Durin::ERenderMode::Lit;
+	PlaySettings.Mode.RasterMode = Durin::ERasterMode::Solid;
+	PlaySettings.PostProcess.ExposureEV = 2.0f;
 	PlayClient->SetViewSettings(PlaySettings);
-	EXPECT_EQ(EditorClient.GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
-	EXPECT_EQ(EditorClient.GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
-	EXPECT_FLOAT_EQ(EditorClient.GetViewSettings().ExposureEV, -1.25f);
+	EXPECT_EQ(EditorClient.GetViewSettings().Mode.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(EditorClient.GetViewSettings().Mode.RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_FLOAT_EQ(EditorClient.GetViewSettings().PostProcess.ExposureEV, -1.25f);
 
 	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, &EditorClient);
 	PlayClient = Engine->GetPlayViewportRenderSettingsClient();
 	ASSERT_NE(PlayClient, nullptr);
-	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
-	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
-	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, -1.25f);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().PostProcess.ExposureEV, -1.25f);
 	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, nullptr);
 	PlayClient = Engine->GetPlayViewportRenderSettingsClient();
 	ASSERT_NE(PlayClient, nullptr);
-	EXPECT_TRUE(PlayClient->GetViewSettings().bEnableFXAA);
-	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Lit);
-	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Solid);
-	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, 0.0f);
+	EXPECT_TRUE(PlayClient->GetViewSettings().PostProcess.bEnableFXAA);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RenderMode, Durin::ERenderMode::Lit);
+	EXPECT_EQ(PlayClient->GetViewSettings().Mode.RasterMode, Durin::ERasterMode::Solid);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().PostProcess.ExposureEV, 0.0f);
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	Durin::CollectGarbage();

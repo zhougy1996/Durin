@@ -110,7 +110,7 @@ namespace Durin
 		if (OutStatistics != nullptr)
 		{
 			if (Result == ERenderViewResult::Success)
-				OutStatistics->DrawCalls =
+				OutStatistics->Summary.DrawCalls =
 					CommandList.GetNumRecordedDrawCommands() - DrawsBefore;
 			else
 				*OutStatistics = {};

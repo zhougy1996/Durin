@@ -67,10 +67,10 @@ namespace Durin
 	{
 		FSceneView First;
 		FSceneView Second;
-		EXPECT_FLOAT_EQ(First.Settings.ExposureEV, 0.0f);
-		First.Settings.ExposureEV = 2.0f;
-		EXPECT_FLOAT_EQ(First.Settings.ExposureEV, 2.0f);
-		EXPECT_FLOAT_EQ(Second.Settings.ExposureEV, 0.0f);
+		EXPECT_FLOAT_EQ(First.Settings.PostProcess.ExposureEV, 0.0f);
+		First.Settings.PostProcess.ExposureEV = 2.0f;
+		EXPECT_FLOAT_EQ(First.Settings.PostProcess.ExposureEV, 2.0f);
+		EXPECT_FLOAT_EQ(Second.Settings.PostProcess.ExposureEV, 0.0f);
 	}
 
 	namespace
@@ -411,7 +411,7 @@ namespace Durin
 				EDirectionalShadowCandidate::SingleMap,
 				EDirectionalShadowCandidate::ThreeCascades})
 		{
-			View.Settings.DirectionalShadowCandidate = Candidate;
+			View.Settings.DirectionalShadow.Candidate = Candidate;
 			FPreparedDirectionalShadowView Shadow;
 			ASSERT_TRUE(TryPrepareDirectionalShadowView(
 				View, FLightSceneId(9), Light, Shadow));
@@ -437,7 +437,7 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakePerspectiveProjection(90.0, 2.0, 1.0, 11.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
-		View.Settings.DirectionalShadowCandidate =
+		View.Settings.DirectionalShadow.Candidate =
 			EDirectionalShadowCandidate::SingleMap;
 		View.ViewportWidth = 1920;
 		View.ViewportHeight = 1080;
@@ -452,7 +452,7 @@ namespace Durin
 		ASSERT_EQ(Shadow.CascadeCount, 1u);
 		const auto& Cascade = Shadow.Cascades[0];
 		EXPECT_EQ(Cascade.CasterView.ViewportWidth, DirectionalShadowResolution);
-		EXPECT_EQ(Cascade.CasterView.Settings.RasterMode, ERasterMode::Solid);
+		EXPECT_EQ(Cascade.CasterView.Settings.Mode.RasterMode, ERasterMode::Solid);
 		EXPECT_TRUE(Math::IsFinite(Cascade.WorldToShadowMatrix));
 		EXPECT_GT(Cascade.TexelWorldSize.x, 0.0);
 		EXPECT_GT(Cascade.TexelWorldSize.y, 0.0);
@@ -485,7 +485,7 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 600.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
-		View.Settings.DirectionalShadowCandidate =
+		View.Settings.DirectionalShadow.Candidate =
 			EDirectionalShadowCandidate::SingleMap;
 		View.ViewportWidth = 800;
 		View.ViewportHeight = 400;
@@ -531,7 +531,7 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakePerspectiveProjection(90.0, 2.0, 1.0, 600.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
-		View.Settings.DirectionalShadowCandidate =
+		View.Settings.DirectionalShadow.Candidate =
 			EDirectionalShadowCandidate::ThreeCascades;
 		FDirectionalLightSceneData Light;
 		Light.Direction = {0.0, 0.0, -1.0};
@@ -592,7 +592,7 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 600.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
-		View.Settings.DirectionalShadowCandidate =
+		View.Settings.DirectionalShadow.Candidate =
 			static_cast<EDirectionalShadowCandidate>(255);
 		FDirectionalLightSceneData Light;
 		Light.Direction = {0.0, -1.0, -1.0};
@@ -602,7 +602,7 @@ namespace Durin
 		EXPECT_EQ(Single.Candidate, EDirectionalShadowCandidate::SingleMap);
 		EXPECT_EQ(Single.CascadeCount, 1u);
 
-		View.Settings.DirectionalShadowCandidate =
+		View.Settings.DirectionalShadow.Candidate =
 			EDirectionalShadowCandidate::ThreeCascades;
 		FPreparedDirectionalShadowView Cascaded;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
@@ -767,12 +767,12 @@ namespace Durin
 		FDirectionalLightSceneData Light;
 		Light.Direction = {0.0, 0.0, -1.0};
 		FPreparedDirectionalShadowView First;
-		View.Settings.DirectionalShadowDiagnosticMode =
+		View.Settings.DirectionalShadow.DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::ReceiverBiased;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, First));
 		FPreparedDirectionalShadowView Second;
-		View.Settings.DirectionalShadowDiagnosticMode =
+		View.Settings.DirectionalShadow.DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::TexelGrid;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, Second));
@@ -781,7 +781,7 @@ namespace Durin
 		EXPECT_EQ(Second.DiagnosticMode,
 			EDirectionalShadowDiagnosticMode::TexelGrid);
 		FPreparedDirectionalShadowView Invalid;
-		View.Settings.DirectionalShadowDiagnosticMode =
+		View.Settings.DirectionalShadow.DiagnosticMode =
 			static_cast<EDirectionalShadowDiagnosticMode>(255);
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, Invalid));
@@ -800,17 +800,17 @@ namespace Durin
 		FDirectionalLightSceneData Light;
 		Light.Direction = {0.0, 0.0, -1.0};
 
-		View.Settings.DirectionalShadowFilterQuality =
+		View.Settings.DirectionalShadow.FilterQuality =
 			EDirectionalShadowFilterQuality::High;
 		FPreparedDirectionalShadowView High;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, High));
-		View.Settings.DirectionalShadowFilterQuality =
+		View.Settings.DirectionalShadow.FilterQuality =
 			EDirectionalShadowFilterQuality::Low;
 		FPreparedDirectionalShadowView Low;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, Low));
-		View.Settings.DirectionalShadowFilterQuality =
+		View.Settings.DirectionalShadow.FilterQuality =
 			static_cast<EDirectionalShadowFilterQuality>(255);
 		FPreparedDirectionalShadowView Invalid;
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
@@ -1027,7 +1027,7 @@ namespace Durin
 	TEST(FRendererSceneViewTests, ContactShadowsDefaultToOptInDetail)
 	{
 		const FSceneViewSettings Settings;
-		EXPECT_FALSE(Settings.bEnableContactShadows);
-		EXPECT_FALSE(Settings.bShowContactShadowDebug);
+		EXPECT_FALSE(Settings.DirectionalShadow.bEnableContactShadows);
+		EXPECT_FALSE(Settings.DirectionalShadow.bShowContactDebug);
 	}
 } // namespace Durin

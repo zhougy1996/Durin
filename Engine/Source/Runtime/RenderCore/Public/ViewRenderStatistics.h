@@ -11,37 +11,85 @@ namespace Durin
 		Fragment,
 	};
 
-	// Carries the stable, bounded summary produced by one complete scene-view render.
-	struct FSceneViewStatistics
+	struct FSceneViewVisibilityStatistics
 	{
 		uint64 SubmittedPrimitives = 0;
 		uint64 VisiblePrimitives = 0;
-		uint64 StaticMeshPrimitives = 0;
-		uint64 SplineMeshPrimitives = 0;
-		uint64 SkeletalMeshPrimitives = 0;
-		uint64 VisibleTerrainPatches = 0;
 
+		auto operator==(const FSceneViewVisibilityStatistics&) const
+			-> bool = default;
+	};
+
+	struct FSceneViewSummaryStatistics
+	{
 		uint64 Triangles = 0;
-		uint64 StaticMeshTriangles = 0;
-		uint64 SplineMeshTriangles = 0;
-		uint64 SkeletalMeshTriangles = 0;
-		uint64 TerrainTriangles = 0;
-		uint64 ShadowTriangles = 0;
-
 		uint64 DrawCalls = 0;
-		uint64 StaticMeshDrawCalls = 0;
-		uint64 SkeletalMeshDrawCalls = 0;
-		uint64 TerrainDrawCalls = 0;
-		uint64 ShadowDrawCalls = 0;
 
-		uint64 DirectionalLights = 0;
-		uint64 PointLights = 0;
-		uint64 SpotLights = 0;
-		uint32 ShadowCascades = 0;
-		bool bShadowEnabled = false;
-		bool bContactShadowEnabled = false;
-		EContactShadowExecutionRoute ContactShadowRoute =
+		auto operator==(const FSceneViewSummaryStatistics&) const -> bool = default;
+	};
+
+	struct FSceneViewGeometryStatistics
+	{
+		uint64 Primitives = 0;
+		uint64 Triangles = 0;
+
+		auto operator==(const FSceneViewGeometryStatistics&) const -> bool = default;
+	};
+
+	struct FSceneViewMeshStatistics
+	{
+		uint64 Primitives = 0;
+		uint64 Triangles = 0;
+		uint64 DrawCalls = 0;
+
+		auto operator==(const FSceneViewMeshStatistics&) const -> bool = default;
+	};
+
+	struct FSceneViewTerrainStatistics
+	{
+		uint64 VisiblePatches = 0;
+		uint64 Triangles = 0;
+		uint64 DrawCalls = 0;
+
+		auto operator==(const FSceneViewTerrainStatistics&) const -> bool = default;
+	};
+
+	struct FSceneViewShadowStatistics
+	{
+		uint64 Triangles = 0;
+		uint64 DrawCalls = 0;
+		uint32 Cascades = 0;
+		bool bEnabled = false;
+		bool bContactEnabled = false;
+		EContactShadowExecutionRoute ContactRoute =
 			EContactShadowExecutionRoute::None;
+
+		auto operator==(const FSceneViewShadowStatistics&) const -> bool = default;
+	};
+
+	struct FSceneViewLightStatistics
+	{
+		uint64 Directional = 0;
+		uint64 Point = 0;
+		uint64 Spot = 0;
+
+		auto operator==(const FSceneViewLightStatistics&) const -> bool = default;
+	};
+
+	// Carries the stable, bounded summary produced by one complete scene-view render.
+	struct FSceneViewStatistics
+	{
+		FSceneViewVisibilityStatistics Visibility;
+		// Headline totals cover the complete scene-view invocation and need not
+		// equal the sum of the feature-owned breakdowns.
+		FSceneViewSummaryStatistics Summary;
+		FSceneViewMeshStatistics StaticMesh;
+		// Spline draws share the static-mesh route and have no independent count.
+		FSceneViewGeometryStatistics SplineMesh;
+		FSceneViewMeshStatistics SkeletalMesh;
+		FSceneViewTerrainStatistics Terrain;
+		FSceneViewShadowStatistics Shadow;
+		FSceneViewLightStatistics Lights;
 
 		auto operator==(const FSceneViewStatistics&) const -> bool = default;
 	};

@@ -373,12 +373,12 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.ViewportHeight = TimingHeight;
 			// Keep the qualification target isolated from the production deferred
 			// interval while exercising the same Lit material records.
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.DirectionalShadowCandidate =
+			View.Settings.DirectionalShadow.Candidate =
 				Durin::EDirectionalShadowCandidate::SingleMap;
-			View.Settings.DirectionalShadowFilterQuality =
+			View.Settings.DirectionalShadow.FilterQuality =
 				Durin::EDirectionalShadowFilterQuality::Medium;
 			Durin::FSceneViewRenderOptions Options;
 			Options.bEnableGBufferQualification = true;
@@ -524,10 +524,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = TimingWidth;
 			View.ViewportHeight = TimingHeight;
-			View.Settings.RenderMode = Durin::ERenderMode::Lit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.GroundTruthAmbientOcclusionQuality =
+			View.Settings.AmbientOcclusion.Quality =
 				Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
 			Durin::FSceneViewRenderOptions Options;
 			Options.bEnableGroundTruthAmbientOcclusionQualification = true;
@@ -683,10 +683,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 					View.ProjectionMatrix * View.ViewMatrix;
 				View.ViewportWidth = Width;
 				View.ViewportHeight = Height;
-				View.Settings.RenderMode = Durin::ERenderMode::Lit;
-				View.Settings.VisibilityMode =
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				View.Settings.GroundTruthAmbientOcclusionQuality =
+				View.Settings.AmbientOcclusion.Quality =
 					Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
 				Durin::FSceneViewRenderOptions Options;
 				Options.bEnableGroundTruthAmbientOcclusionQualification = true;
@@ -869,19 +869,19 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				View.ViewportY = ProductionViewportY;
 				View.ViewportWidth = ProductionViewportWidth;
 				View.ViewportHeight = ProductionViewportHeight;
-				View.Settings.RenderMode = Durin::ERenderMode::Lit;
-				View.Settings.VisibilityMode =
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				View.Settings.DirectionalShadowCandidate =
+				View.Settings.DirectionalShadow.Candidate =
 					Durin::EDirectionalShadowCandidate::SingleMap;
-				View.Settings.DirectionalShadowFilterQuality =
+				View.Settings.DirectionalShadow.FilterQuality =
 					Durin::EDirectionalShadowFilterQuality::Medium;
-				View.Settings.bEnableFXAA = true;
-				View.Settings.bEnableGroundTruthAmbientOcclusion =
+				View.Settings.PostProcess.bEnableFXAA = true;
+				View.Settings.AmbientOcclusion.bEnabled =
 					bEnableProductionAmbientOcclusion;
-				View.Settings.bEnableContactShadows =
+				View.Settings.DirectionalShadow.bEnableContactShadows =
 					bEnableProductionContactShadows;
-				View.Settings.GroundTruthAmbientOcclusionQuality =
+				View.Settings.AmbientOcclusion.Quality =
 					ProductionAmbientOcclusionQuality;
 				Durin::FSceneViewRenderOptions Options;
 				Options.bForceFragmentContactVisibility =
@@ -1235,10 +1235,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 320;
 			View.ViewportHeight = 180;
-			View.Settings.RenderMode = Durin::ERenderMode::Lit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.DirectionalShadowCandidate =
+			View.Settings.DirectionalShadow.Candidate =
 				Durin::EDirectionalShadowCandidate::SingleMap;
 			Durin::FSceneViewRenderOptions Options;
 			for (Durin::uint32 Frame = 0; Frame < 2; ++Frame)
@@ -1279,10 +1279,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.ViewportY = 18;
 			View.ViewportWidth = 320;
 			View.ViewportHeight = 180;
-			View.Settings.RenderMode = Durin::ERenderMode::Lit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.bEnableGroundTruthAmbientOcclusion = false;
+			View.Settings.AmbientOcclusion.bEnabled = false;
 			Durin::FSceneViewRenderOptions Options;
 			++Durin::GRenderFrameCounterRenderThread;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1295,7 +1295,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				GLastCounters.GroundTruthAmbientOcclusionActiveBytes, 0u
 			);
 
-			View.Settings.bEnableGroundTruthAmbientOcclusion = true;
+			View.Settings.AmbientOcclusion.bEnabled = true;
 			for (const auto Mode : {
 					 Durin::EGroundTruthAmbientOcclusionDebugMode::Raw,
 					 Durin::EGroundTruthAmbientOcclusionDebugMode::Confidence,
@@ -1353,8 +1353,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 384;
 			View.ViewportHeight = 216;
-			View.Settings.RenderMode = Durin::ERenderMode::Lit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			Durin::FSceneViewRenderOptions Options;
 			++Durin::GRenderFrameCounterRenderThread;

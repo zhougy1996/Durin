@@ -125,10 +125,10 @@ namespace Durin
 			View.ViewportHeight = 129;
 			View.DepthConvention = ESceneDepthConvention::ReversedZ;
 			View.ClearColor = {0.0f, 0.0f, 0.0f, 1.0f};
-			View.Settings.RenderMode = ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = EViewLODMode::ForceLOD0;
+			View.Settings.Mode.LODMode = EViewLODMode::ForceLOD0;
 			View.EditorGrid.bVisible = true;
 			View.EditorGrid.Height = 0.0;
 			View.EditorGrid.FadeDistance = 1000.0f;
@@ -221,7 +221,7 @@ namespace Durin
 					ASSERT_NE(Target, nullptr);
 
 					FSceneView View = MakeGridView(Forward);
-					if (bLit) View.Settings.RenderMode = ERenderMode::Lit;
+					if (bLit) View.Settings.Mode.RenderMode = ERenderMode::Lit;
 					FSceneViewRenderOptions Options;
 					EXPECT_EQ(Renderer.RenderView(CommandList, Scene, View, Target, false, Options), ERenderViewResult::Success);
 					ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
@@ -289,7 +289,7 @@ namespace Durin
 				));
 				FSceneView View;
 				View.ClearColor = {4.0f, 2.0f, 1.0f, 1.0f};
-				View.Settings.bEnableFXAA = false;
+				View.Settings.PostProcess.bEnableFXAA = false;
 				(*FailureResults)[0] = Renderer.RenderView(
 					CommandList, nullptr, View, Output, false, {}
 				);
@@ -355,8 +355,8 @@ namespace Durin
 					EXPECT_NE(Output, nullptr);
 					FSceneView View;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
-					View.Settings.bEnableFXAA = false;
-					View.Settings.ExposureEV = ExposureEV;
+					View.Settings.PostProcess.bEnableFXAA = false;
+					View.Settings.PostProcess.ExposureEV = ExposureEV;
 					EXPECT_EQ(Renderer.RenderView(CommandList, nullptr, View, Output, false, {}), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
 						CommandList, Output, 0, 0, Pixels
@@ -456,8 +456,8 @@ namespace Durin
 					View.ViewportWidth = Route.Width;
 					View.ViewportHeight = Route.Height;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
-					View.Settings.ExposureEV = Route.ExposureEV;
-					View.Settings.bEnableFXAA = Route.bEnableFXAA;
+					View.Settings.PostProcess.ExposureEV = Route.ExposureEV;
+					View.Settings.PostProcess.bEnableFXAA = Route.bEnableFXAA;
 					FSceneViewRenderOptions Options;
 					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::Flags : EGBufferDebugMode::Disabled;
 					Options.bEnableDeferredDirectionalQualification =
@@ -1148,12 +1148,12 @@ namespace Durin
 				View.ViewportWidth = 64;
 				View.ViewportHeight = 32;
 				View.ClearColor = {0.25f, 0.5f, 1.0f, 0.75f};
-				View.Settings.RenderMode = ERenderMode::Unlit;
+				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 				*ForwardResult = Renderer.RenderView(
 					CommandList, nullptr, View, *Output, false, {}
 				);
 
-				View.Settings.RenderMode = ERenderMode::Lit;
+				View.Settings.Mode.RenderMode = ERenderMode::Lit;
 				VulkanRHI::ArmVulkanCreateFailure(
 					VulkanRHI::EVulkanCreateFailurePoint::Image
 				);
@@ -1390,9 +1390,9 @@ namespace Durin
 					View.ViewportWidth = Width;
 					View.ViewportHeight = Height;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
-					View.Settings.ExposureEV = ExposureEV;
-					View.Settings.bEnableFXAA = bEnableFXAA;
-					View.Settings.bEnableContactShadows =
+					View.Settings.PostProcess.ExposureEV = ExposureEV;
+					View.Settings.PostProcess.bEnableFXAA = bEnableFXAA;
+					View.Settings.DirectionalShadow.bEnableContactShadows =
 						bEnableContactShadows;
 					FSceneViewRenderOptions Options;
 					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::ReconstructionError : EGBufferDebugMode::Disabled;

@@ -729,7 +729,7 @@ namespace Durin
 				++Result.ProjectedSizeFallbacks;
 			}
 			const uint32 RequestedLODIndex =
-				View.Settings.LODMode == EViewLODMode::ForceLOD0 ? 0u : SelectStaticMeshLOD(ProjectedSize.NormalizedScreenSize, ScreenSizes);
+				View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ? 0u : SelectStaticMeshLOD(ProjectedSize.NormalizedScreenSize, ScreenSizes);
 			const uint32 SelectedLODIndex = ResolveAvailableStaticMeshLOD(
 				RequestedLODIndex, ReadyLODs
 			);

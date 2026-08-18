@@ -287,7 +287,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 										 const Durin::FSceneViewRenderOptions& Options,
 										 Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit) {
 				Durin::FSceneView RenderView = View;
-				RenderView.Settings.RenderMode = RenderMode;
+				RenderView.Settings.Mode.RenderMode = RenderMode;
 				Durin::FSceneViewStatistics Statistics;
 				if (Renderer.RenderView(
 						CommandList, &Scene, RenderView, Color, false, Options,
@@ -357,8 +357,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					Result->ExplicitOverride,
 					OverrideOptions
 				)) return;
-			Result->InvalidViewStatistics.Triangles = 999;
-			Result->InvalidViewStatistics.DrawCalls = 999;
+			Result->InvalidViewStatistics.Summary.Triangles = 999;
+			Result->InvalidViewStatistics.Summary.DrawCalls = 999;
 			Result->InvalidOutputResult = Renderer.RenderView(
 				CommandList,
 				&Scene,
@@ -424,9 +424,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::ERenderViewResult::RequiredEnvironmentUnavailable
 		);
 		EXPECT_TRUE(Result->bCapturedFirstViewStatistics);
-		EXPECT_EQ(Result->FirstViewStatistics.VisiblePrimitives, 0u);
-		EXPECT_EQ(Result->FirstViewStatistics.Triangles, 0u);
-		EXPECT_GT(Result->FirstViewStatistics.DrawCalls, 0u);
+		EXPECT_EQ(Result->FirstViewStatistics.Visibility.VisiblePrimitives, 0u);
+		EXPECT_EQ(Result->FirstViewStatistics.Summary.Triangles, 0u);
+		EXPECT_GT(Result->FirstViewStatistics.Summary.DrawCalls, 0u);
 		EXPECT_EQ(Result->InvalidViewStatistics, Durin::FSceneViewStatistics{});
 		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
 		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);

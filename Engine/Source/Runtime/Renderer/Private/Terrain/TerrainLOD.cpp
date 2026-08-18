@@ -33,7 +33,7 @@ namespace Durin
 		const FSceneView& View, const FMatrix& LocalToWorld,
 		const FTerrainPatchDescriptor& Patch) -> FTerrainLODSelection
 	{
-		if (View.Settings.LODMode == EViewLODMode::ForceLOD0) return {};
+		if (View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0) return {};
 		if (Patch.LODSteps.empty() || Patch.LODSteps.size() != Patch.LODErrors.size()
 			|| Patch.LODSteps.front() != 1 || View.ViewportWidth == 0
 			|| View.ViewportHeight == 0 || !Math::IsFinite(LocalToWorld)

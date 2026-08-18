@@ -220,41 +220,41 @@ namespace Durin
 		-> FSceneViewStatistics
 	{
 		FSceneViewStatistics Result;
-		Result.SubmittedPrimitives = Counters.SubmittedPrimitives;
-		Result.VisiblePrimitives = Counters.VisiblePrimitives;
-		Result.StaticMeshPrimitives = Counters.PreparedStaticMeshPrimitives;
-		Result.SplineMeshPrimitives = Counters.PreparedSplineMeshPrimitives;
-		Result.SkeletalMeshPrimitives = Counters.PreparedSkeletalMeshPrimitives;
-		Result.VisibleTerrainPatches = Counters.VisibleTerrainPatches;
+		Result.Visibility.SubmittedPrimitives = Counters.SubmittedPrimitives;
+		Result.Visibility.VisiblePrimitives = Counters.VisiblePrimitives;
+		Result.StaticMesh.Primitives = Counters.PreparedStaticMeshPrimitives;
+		Result.SplineMesh.Primitives = Counters.PreparedSplineMeshPrimitives;
+		Result.SkeletalMesh.Primitives = Counters.PreparedSkeletalMeshPrimitives;
+		Result.Terrain.VisiblePatches = Counters.VisibleTerrainPatches;
 
-		Result.SplineMeshTriangles = Counters.PreparedSplineMeshTriangles;
-		Result.StaticMeshTriangles = Counters.PreparedStaticMeshTriangles
+		Result.SplineMesh.Triangles = Counters.PreparedSplineMeshTriangles;
+		Result.StaticMesh.Triangles = Counters.PreparedStaticMeshTriangles
 									 - std::min(Counters.PreparedStaticMeshTriangles, Counters.PreparedSplineMeshTriangles);
-		Result.SkeletalMeshTriangles = Counters.PreparedSkeletalMeshTriangles;
-		Result.TerrainTriangles = Counters.PreparedTerrainTriangles;
-		Result.Triangles = AddSaturated(
-			AddSaturated(Result.StaticMeshTriangles, Result.SplineMeshTriangles),
-			AddSaturated(Result.SkeletalMeshTriangles, Result.TerrainTriangles)
+		Result.SkeletalMesh.Triangles = Counters.PreparedSkeletalMeshTriangles;
+		Result.Terrain.Triangles = Counters.PreparedTerrainTriangles;
+		Result.Summary.Triangles = AddSaturated(
+			AddSaturated(Result.StaticMesh.Triangles, Result.SplineMesh.Triangles),
+			AddSaturated(Result.SkeletalMesh.Triangles, Result.Terrain.Triangles)
 		);
-		Result.ShadowTriangles = Counters.ShadowPreparedTriangles;
+		Result.Shadow.Triangles = Counters.ShadowPreparedTriangles;
 
-		Result.StaticMeshDrawCalls = Counters.StaticMeshSuccessfulDraws;
-		Result.SkeletalMeshDrawCalls = Counters.SkeletalMeshSuccessfulDraws;
-		Result.TerrainDrawCalls = Counters.TerrainSuccessfulDraws;
-		Result.ShadowDrawCalls = Counters.ShadowSuccessfulDraws;
-		Result.DirectionalLights = Counters.SelectedDirectionalLights;
-		Result.PointLights = Counters.SelectedPointLights;
-		Result.SpotLights = Counters.SelectedSpotLights;
-		Result.ShadowCascades = static_cast<uint32>(std::min<size_t>(
+		Result.StaticMesh.DrawCalls = Counters.StaticMeshSuccessfulDraws;
+		Result.SkeletalMesh.DrawCalls = Counters.SkeletalMeshSuccessfulDraws;
+		Result.Terrain.DrawCalls = Counters.TerrainSuccessfulDraws;
+		Result.Shadow.DrawCalls = Counters.ShadowSuccessfulDraws;
+		Result.Lights.Directional = Counters.SelectedDirectionalLights;
+		Result.Lights.Point = Counters.SelectedPointLights;
+		Result.Lights.Spot = Counters.SelectedSpotLights;
+		Result.Shadow.Cascades = static_cast<uint32>(std::min<size_t>(
 			Counters.ShadowCascadeCount, std::numeric_limits<uint32>::max()
 		));
-		Result.bShadowEnabled = Counters.ShadowValidReceiverViews != 0
+		Result.Shadow.bEnabled = Counters.ShadowValidReceiverViews != 0
 								&& Counters.ShadowCascadeCount != 0;
-		Result.bContactShadowEnabled = Counters.ContactShadowEnabledViews != 0;
+		Result.Shadow.bContactEnabled = Counters.ContactShadowEnabledViews != 0;
 		if (Counters.ContactShadowComputeViews != 0)
-			Result.ContactShadowRoute = EContactShadowExecutionRoute::Compute;
+			Result.Shadow.ContactRoute = EContactShadowExecutionRoute::Compute;
 		else if (Counters.ContactShadowFragmentViews != 0)
-			Result.ContactShadowRoute = EContactShadowExecutionRoute::Fragment;
+			Result.Shadow.ContactRoute = EContactShadowExecutionRoute::Fragment;
 		return Result;
 	}
 
@@ -763,18 +763,18 @@ namespace Durin
 				CommandList,
 				Visibility.StaticMeshSceneInfos,
 				RenderView,
-				RenderView.Settings.RasterMode,
+				RenderView.Settings.Mode.RasterMode,
 				Visibility.SplineMeshSceneInfos
 			);
 			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
-				RenderView.Settings.RasterMode
+				RenderView.Settings.Mode.RasterMode
 			);
 			PreparedView.Terrains = PrepareTerrainView_RenderThread(
 				Visibility.TerrainSceneInfos, RenderView,
-				RenderView.Settings.RasterMode
+				RenderView.Settings.Mode.RasterMode
 			);
-			if (RenderView.Settings.bShowTerrainLODOverlay)
+			if (RenderView.Settings.Terrain.bShowLODOverlay)
 			{
 				auto AddTerrainDrawOverlay = [&RenderView](const FPreparedTerrainDraw& Draw) {
 					if (!Draw.SceneInfo || !Draw.Patch) return;
@@ -804,8 +804,8 @@ namespace Durin
 			}
 		}
 		const bool bRequiresDeferredOpaque =
-			RenderView.Settings.RenderMode == ERenderMode::Lit
-			&& RenderView.Settings.RasterMode == ERasterMode::Solid;
+			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
+			&& RenderView.Settings.Mode.RasterMode == ERasterMode::Solid;
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.StaticMeshes, !bRequiresDeferredOpaque
 		);
@@ -883,7 +883,7 @@ namespace Durin
 		const bool bWantsProductionDeferred = bRequiresDeferredOpaque;
 		const bool bWantsProductionGroundTruthAmbientOcclusion =
 			bWantsProductionDeferred
-			&& RenderView.Settings.bEnableGroundTruthAmbientOcclusion;
+			&& RenderView.Settings.AmbientOcclusion.bEnabled;
 		const bool bWantsGroundTruthAmbientOcclusion =
 			bWantsIsolatedGroundTruthAmbientOcclusion
 			|| bWantsProductionGroundTruthAmbientOcclusion;
@@ -1121,7 +1121,7 @@ namespace Durin
 			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
 			auto* AmbientOcclusionTargets = bGBufferComplete ? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
 														   Width, Height,
-														   RenderView.Settings.GroundTruthAmbientOcclusionQuality
+														   RenderView.Settings.AmbientOcclusion.Quality
 															   ) :
 															   nullptr;
 			PreparedView.Counters.GroundTruthAmbientOcclusionRetainedBytes =
@@ -1305,13 +1305,13 @@ namespace Durin
 		}
 
 		const bool bWantsContactVisibility = bWantsProductionDeferred
-			&& RenderView.Settings.bEnableContactShadows
+			&& RenderView.Settings.DirectionalShadow.bEnableContactShadows
 			&& PreparedView.DirectionalShadow.bEnabled;
 		if (bWantsContactVisibility && bGBufferComplete
 			&& PreparedView.Counters.GBufferSuccessfulDraws != 0)
 		{
 			const EContactShadowRoutePreference RoutePreference =
-				RenderView.Settings.ContactShadowRoutePreference;
+				RenderView.Settings.DirectionalShadow.ContactRoutePreference;
 			const bool bForceFragment = Options.bForceFragmentContactVisibility
 				|| RoutePreference == EContactShadowRoutePreference::Fragment;
 			const bool bForceCompute = !Options.bForceFragmentContactVisibility
@@ -1340,7 +1340,7 @@ namespace Durin
 				DeferredParameters.ContactVisibility = ContactResult.Visibility;
 				DeferredParameters.bContactVisibilityEnabled = true;
 				DeferredParameters.bContactVisibilityDebug =
-					RenderView.Settings.bShowContactShadowDebug;
+					RenderView.Settings.DirectionalShadow.bShowContactDebug;
 				++PreparedView.Counters.ContactShadowEnabledViews;
 				if (ContactResult.Route
 					== FContactShadowVisibilityRenderer::ERoute::Compute)
@@ -1542,9 +1542,9 @@ namespace Durin
 			Width,
 			Height,
 			bPresentOutput,
-			View.Settings.bEnableFXAA,
+			View.Settings.PostProcess.bEnableFXAA,
 			bHasEditorAssistance,
-			RenderView.Settings.ExposureEV
+			RenderView.Settings.PostProcess.ExposureEV
 		);
 		CommandList.EndRenderPass();
 		if (PostProcessTimingQuery)
@@ -1590,8 +1590,8 @@ namespace Durin
 		const FSceneView& View = PreparedView.View;
 		if (SceneColor == nullptr || Depth == nullptr)
 			return ERenderViewResult::RendererResourcesUnavailable;
-		if (View.Settings.RenderMode != ERenderMode::Lit
-			|| View.Settings.RasterMode != ERasterMode::Solid)
+		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
+			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
 		{
 			FRHIRenderPassInfo ScenePassInfo{};
 			ScenePassInfo.RenderTargetLayout =
@@ -1707,7 +1707,7 @@ namespace Durin
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, PreparedView.LightingUniformBuffer,
-						View.Settings.RenderMode, Pass, Draw,
+						View.Settings.Mode.RenderMode, Pass, Draw,
 						PreparedView.StaticMeshes, true
 					);
 				}
@@ -1718,7 +1718,7 @@ namespace Durin
 				{
 					SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, PreparedView.LightingUniformBuffer,
-						View.Settings.RenderMode, Pass, Draw,
+						View.Settings.Mode.RenderMode, Pass, Draw,
 						PreparedView.SkeletalMeshes, true
 					);
 				}
@@ -1729,7 +1729,7 @@ namespace Durin
 				{
 					TerrainRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, PreparedView.LightingUniformBuffer,
-						View.Settings.RenderMode, Draw, PreparedView.Terrains,
+						View.Settings.Mode.RenderMode, Draw, PreparedView.Terrains,
 						true
 					);
 				}
@@ -1740,21 +1740,21 @@ namespace Durin
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes, true
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes, true
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode,
+					View.Settings.Mode.RenderMode,
 					PreparedView.Terrains.Translucent[Draw.DrawIndex],
 					PreparedView.Terrains, true
 				);
@@ -1830,15 +1830,15 @@ namespace Durin
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(
 				CommandList, View, PreparedView.LightingUniformBuffer,
-				View.Settings.RenderMode, Pass, PreparedView.StaticMeshes
+				View.Settings.Mode.RenderMode, Pass, PreparedView.StaticMeshes
 			);
 			SkeletalMeshRenderer.ExecutePass_RenderThread(
 				CommandList, View, PreparedView.LightingUniformBuffer,
-				View.Settings.RenderMode, Pass, PreparedView.SkeletalMeshes
+				View.Settings.Mode.RenderMode, Pass, PreparedView.SkeletalMeshes
 			);
 			TerrainRenderer.ExecutePass_RenderThread(
 				CommandList, View, PreparedView.LightingUniformBuffer,
-				View.Settings.RenderMode, Pass, PreparedView.Terrains
+				View.Settings.Mode.RenderMode, Pass, PreparedView.Terrains
 			);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -1847,21 +1847,21 @@ namespace Durin
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.RenderMode,
+					View.Settings.Mode.RenderMode,
 					PreparedView.Terrains.Translucent[Draw.DrawIndex],
 					PreparedView.Terrains
 				);

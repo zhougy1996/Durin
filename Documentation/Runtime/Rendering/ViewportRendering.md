@@ -94,8 +94,11 @@ selects window-backed or render-target-backed output, while its
 choices. When the engine builds an `FSceneView`, it copies those choices into
 `FSceneView::Settings` before enqueueing the render command.
 
-The renderer consumes only that immutable per-view snapshot. Two viewports may
-therefore render the same `IScene` with independent Lit/Unlit,
+The renderer consumes only that immutable per-view snapshot. Settings are
+grouped by feature ownership (`Mode`, `PostProcess`, `Terrain`,
+`DirectionalShadow`, and `AmbientOcclusion`) while the outer value remains the
+single submission snapshot. Two viewports may therefore render the same
+`IScene` with independent Lit/Unlit,
 Solid/Wireframe, FXAA, and Off/HalfResolution/FullResolution GTAO choices, and
 a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
@@ -242,10 +245,12 @@ The Level Editor finalizes one scene-view snapshot after all of its panels have 
 ### Viewport Rendering Statistics
 
 Every `IRendererModule::RenderView` invocation may produce one bounded
-`FSceneViewStatistics` value. Renderer reduces its private visibility,
-geometry, light, terrain, and shadow diagnostics only after command recording
-has completed successfully. RHI supplies the total draw-call value from the
-monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
+`FSceneViewStatistics` value. Its visibility, mesh, terrain, shadow, and light
+breakdowns are feature-owned subvalues; headline triangle and draw-call totals
+still describe the complete invocation. Renderer reduces its private
+visibility, geometry, light, terrain, and shadow diagnostics only after command
+recording has completed successfully. RHI supplies the total draw-call value
+from the monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
 that exact invocation; the value therefore includes SkyBox, shadow, scene,
 post-process, and editor-assistance graphics passes, but not ImGui or compute
 dispatches. Contact-shadow statistics carry the actual `Compute`, `Fragment`,

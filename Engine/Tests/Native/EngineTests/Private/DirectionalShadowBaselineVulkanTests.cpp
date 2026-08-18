@@ -899,16 +899,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 				View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 				View.ViewportWidth = CaptureWidth;
 				View.ViewportHeight = CaptureHeight;
-				View.Settings.RenderMode = Fixture.RenderMode;
-				View.Settings.VisibilityMode =
+				View.Settings.Mode.RenderMode = Fixture.RenderMode;
+				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				View.Settings.DirectionalShadowDiagnosticMode =
+				View.Settings.DirectionalShadow.DiagnosticMode =
 					Fixture.DiagnosticMode;
-				View.Settings.DirectionalShadowFilterQuality =
+				View.Settings.DirectionalShadow.FilterQuality =
 					Fixture.FilterQuality;
-				View.Settings.DirectionalShadowCandidate = Fixture.Candidate;
+				View.Settings.DirectionalShadow.Candidate = Fixture.Candidate;
 				// Contact-shadow supplement stays off for the shadow-map-only baseline.
-				View.Settings.bEnableContactShadows = false;
+				View.Settings.DirectionalShadow.bEnableContactShadows = false;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
@@ -1246,16 +1246,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				View.ViewportWidth = CaptureWidth;
 				View.ViewportHeight = CaptureHeight;
 				View.AspectRatioConstraint = AspectRatioConstraint;
-				View.Settings.VisibilityMode =
+				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				View.Settings.RenderMode = RenderMode;
-				View.Settings.DirectionalShadowCandidate = ShadowCandidate;
-				View.Settings.DirectionalShadowFilterQuality = ShadowFilter;
-				View.Settings.DirectionalShadowDiagnosticMode = ShadowDiagnostic;
-				View.Settings.bEnableContactShadows = bEnableContactShadows;
-				View.Settings.bShowContactShadowDebug =
+				View.Settings.Mode.RenderMode = RenderMode;
+				View.Settings.DirectionalShadow.Candidate = ShadowCandidate;
+				View.Settings.DirectionalShadow.FilterQuality = ShadowFilter;
+				View.Settings.DirectionalShadow.DiagnosticMode = ShadowDiagnostic;
+				View.Settings.DirectionalShadow.bEnableContactShadows = bEnableContactShadows;
+				View.Settings.DirectionalShadow.bShowContactDebug =
 					bShowContactShadowDebug;
-				View.Settings.ContactShadowRoutePreference =
+				View.Settings.DirectionalShadow.ContactRoutePreference =
 					bForceFragmentContactVisibility
 						? Durin::EContactShadowRoutePreference::Fragment
 						: Durin::EContactShadowRoutePreference::Auto;

@@ -421,7 +421,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			Durin::FTextureRHIRef Color =
 				Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
 			Durin::FSceneView View;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;

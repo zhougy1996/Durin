@@ -34,7 +34,7 @@ namespace Durin
 			const FSceneView& View,
 			const FViewFrustum* Frustum) -> bool
 		{
-			if (View.Settings.VisibilityMode != EViewVisibilityMode::Normal
+			if (View.Settings.Mode.VisibilityMode != EViewVisibilityMode::Normal
 				|| Frustum == nullptr) return true;
 			return ClassifyWorldBounds(*Frustum, Info.GetInfluenceBounds())
 				!= EViewBoundsClassification::Outside;

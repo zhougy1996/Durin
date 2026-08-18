@@ -248,7 +248,7 @@ corners into the fitted content viewport, selects the first transition threshold
 satisfied by the normalized diameter, and validates readiness independently for
 the requested LOD. A missing requested LOD searches toward lower detail first,
 then higher detail; invalid projection or bounds math conservatively requests
-LOD 0. `FSceneViewSettings::LODMode` selects automatic behavior or the qualified
+LOD 0. `FSceneViewSettings::Mode.LODMode` selects automatic behavior or the qualified
 forced-LOD-0 comparison path without process-global state.
 
 Preparation stores transform, requested/selected indices, and the selected LOD

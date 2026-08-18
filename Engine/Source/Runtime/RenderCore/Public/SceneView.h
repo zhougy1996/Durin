@@ -96,39 +96,65 @@ namespace Durin
 		Count,
 	};
 
-	// Captures rendering behavior with the view submitted to the render thread.
-	struct FSceneViewSettings
+	struct FSceneViewModeSettings
+	{
+		ERenderMode RenderMode = ERenderMode::Lit;
+		ERasterMode RasterMode = ERasterMode::Solid;
+		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
+		EViewLODMode LODMode = EViewLODMode::Automatic;
+	};
+
+	struct FSceneViewPostProcessSettings
 	{
 		bool bEnableFXAA = true;
 		// Manual display exposure in EV stops. Renderer canonicalizes non-finite
 		// values to zero and clamps authored values to the display contract range.
 		float ExposureEV = 0.0f;
-		ERenderMode RenderMode = ERenderMode::Lit;
-		ERasterMode RasterMode = ERasterMode::Solid;
-		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
-		EViewLODMode LODMode = EViewLODMode::Automatic;
+	};
+
+	struct FSceneViewTerrainSettings
+	{
 		// Development diagnostic; emits bounded transient terrain patch/LOD lines.
-		bool bShowTerrainLODOverlay = false;
+		bool bShowLODOverlay = false;
 		// Development comparison mode; emits one eligible Terrain patch per batch.
-		bool bDisableTerrainBatching = false;
-		EDirectionalShadowDiagnosticMode DirectionalShadowDiagnosticMode =
+		bool bDisableBatching = false;
+	};
+
+	struct FSceneViewDirectionalShadowSettings
+	{
+		EDirectionalShadowDiagnosticMode DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
-		EDirectionalShadowFilterQuality DirectionalShadowFilterQuality =
+		EDirectionalShadowFilterQuality FilterQuality =
 			EDirectionalShadowFilterQuality::Medium;
-		EDirectionalShadowCandidate DirectionalShadowCandidate =
+		EDirectionalShadowCandidate Candidate =
 			EDirectionalShadowCandidate::ThreeCascades;
 		// Screen-space contact-shadow supplement for the selected directional
 		// light; enabled only when the directional shadow is prepared.
 		bool bEnableContactShadows = false;
-		EContactShadowRoutePreference ContactShadowRoutePreference =
+		EContactShadowRoutePreference ContactRoutePreference =
 			EContactShadowRoutePreference::Auto;
 		// Development overlay that visualizes the contact-shadow occlusion.
-		bool bShowContactShadowDebug = false;
+		bool bShowContactDebug = false;
+	};
+
+	struct FSceneViewAmbientOcclusionSettings
+	{
 		// Indirect-only GTAO for solid Lit views using required deferred opaque
 		// ownership. Optional resource failure degrades this factor to white.
-		bool bEnableGroundTruthAmbientOcclusion = true;
-		EGroundTruthAmbientOcclusionQuality GroundTruthAmbientOcclusionQuality =
+		bool bEnabled = true;
+		EGroundTruthAmbientOcclusionQuality Quality =
 			EGroundTruthAmbientOcclusionQuality::HalfResolution;
+	};
+
+	// Captures rendering behavior with the view submitted to the render thread.
+	// Feature-owned groups keep the immutable snapshot cohesive as capabilities grow.
+	struct FSceneViewSettings
+	{
+		FSceneViewModeSettings Mode;
+		FSceneViewPostProcessSettings PostProcess;
+		FSceneViewTerrainSettings Terrain;
+		FSceneViewDirectionalShadowSettings DirectionalShadow;
+		FSceneViewAmbientOcclusionSettings AmbientOcclusion;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

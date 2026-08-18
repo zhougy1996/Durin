@@ -128,9 +128,9 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 			for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				Durin::GRenderFrameCounterRenderThread++;
@@ -266,8 +266,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			const auto Begin = std::chrono::steady_clock::now();

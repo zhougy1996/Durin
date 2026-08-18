@@ -318,7 +318,7 @@ namespace Durin
 		FPreparedTerrainView Result;
 		const auto LogicalBegin = std::chrono::steady_clock::now();
 		FViewFrustum Frustum;
-		const bool bCull = View.Settings.VisibilityMode == EViewVisibilityMode::Normal;
+		const bool bCull = View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
 		const bool bValidView = !bCull || TryBuildViewFrustum(View, Frustum);
 		const bool bApplyDistance =
 			View.DepthConvention == ESceneDepthConvention::ReversedZ;
@@ -473,8 +473,8 @@ namespace Durin
 		std::ranges::sort(Result.Translucent, [](const auto& A, const auto& B) {
 			return A.TranslucentDistanceSquared != B.TranslucentDistanceSquared ? A.TranslucentDistanceSquared > B.TranslucentDistanceSquared : A.SortKey.PrimitiveId < B.SortKey.PrimitiveId;
 		});
-		BuildTerrainBatches(Result.Opaque, Result.OpaqueBatches, View.Settings.bDisableTerrainBatching);
-		BuildTerrainBatches(Result.Masked, Result.MaskedBatches, View.Settings.bDisableTerrainBatching);
+		BuildTerrainBatches(Result.Opaque, Result.OpaqueBatches, View.Settings.Terrain.bDisableBatching);
+		BuildTerrainBatches(Result.Masked, Result.MaskedBatches, View.Settings.Terrain.bDisableBatching);
 		Result.PreparedBatches = Result.OpaqueBatches.size() + Result.MaskedBatches.size();
 		Result.BatchChunks = Result.PreparedBatches;
 		for (const auto* Batches : {&Result.OpaqueBatches, &Result.MaskedBatches})

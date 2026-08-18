@@ -136,7 +136,7 @@ shadow views build and execute their own batches. Translucent Terrain remains
 scalar so its exact cross-family back-to-front order is unchanged. Allocation
 or resource failure rejects the complete affected batch; production never
 expands it into a hidden scalar fallback. The disabled-by-default
-`FSceneViewSettings::bDisableTerrainBatching` development comparison switch
+`FSceneViewSettings::Terrain.bDisableBatching` development comparison switch
 emits one eligible patch per batch without changing logical preparation; it is
 never activated by production failure.
 
@@ -178,7 +178,7 @@ complete the Debug validation-layer gate within 300 seconds on the named GTX
 1060 adapter, so T1 deliberately rejects it. This is the correct single-LOD
 baseline for the later LOD plan, not a scalability target.
 
-`FSceneViewSettings::bShowTerrainLODOverlay` is a disabled-by-default
+`FSceneViewSettings::Terrain.bShowLODOverlay` is a disabled-by-default
 development diagnostic. It adds only transient bounded patch rectangles to the
 existing editor-assistance line path: resolved levels range from green toward
 red and stitched edges are red and wider. It does not retain expanded terrain

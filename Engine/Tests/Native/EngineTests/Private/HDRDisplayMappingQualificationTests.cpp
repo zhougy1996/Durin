@@ -89,7 +89,7 @@ namespace Durin
 					View.ViewportWidth = TimingWidth;
 					View.ViewportHeight = TimingHeight;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
-					View.Settings.bEnableFXAA = bEnableFXAA;
+					View.Settings.PostProcess.bEnableFXAA = bEnableFXAA;
 					for (uint32 Frame = 0;
 						Frame < WarmupFrames + MeasuredFrames;
 						++Frame)

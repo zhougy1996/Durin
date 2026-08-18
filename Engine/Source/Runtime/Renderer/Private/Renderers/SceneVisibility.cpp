@@ -46,7 +46,7 @@ namespace Durin
 
 		FViewFrustum Frustum;
 		const bool bCullingEnabled =
-			View.Settings.VisibilityMode == EViewVisibilityMode::Normal;
+			View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
 		const bool bValidView =
 			!bCullingEnabled || TryBuildViewFrustum(View, Frustum);
 		std::unordered_set<FPrimitiveSceneId, FSceneIdHash> ClassifiedIds;

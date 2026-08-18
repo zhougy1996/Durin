@@ -459,8 +459,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 33;
 			View.ViewportHeight = 33;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			(void)Renderer.RenderView(
 				CommandList, &Scene, View, Target, false, {}
@@ -520,10 +520,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 				View.ViewportWidth = 33;
 				View.ViewportHeight = 33;
-				View.Settings.RenderMode = Durin::ERenderMode::Lit;
-				View.Settings.DirectionalShadowCandidate =
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.DirectionalShadow.Candidate =
 					Durin::EDirectionalShadowCandidate::SingleMap;
-				View.Settings.VisibilityMode =
+				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				Durin::FSceneViewRenderOptions RenderOptions;
 				RenderOptions.bEnableGBufferQualification =
@@ -634,8 +634,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 					View.ViewportWidth = 1920;
 					View.ViewportHeight = 1080;
-					View.Settings.RenderMode = Durin::ERenderMode::Lit;
-					View.Settings.VisibilityMode =
+					View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.Mode.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					for (Durin::uint32 Frame = 0;
 						 Frame < WarmupFrames + MeasuredFrames; ++Frame)
@@ -752,11 +752,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.ViewProjectionMatrix = View.ProjectionMatrix;
 					View.ViewportWidth = 1920;
 					View.ViewportHeight = 1080;
-					View.Settings.RenderMode = Durin::ERenderMode::Lit;
-					View.Settings.DirectionalShadowDiagnosticMode = DiagnosticMode;
-					View.Settings.DirectionalShadowFilterQuality = FilterQuality;
-					View.Settings.DirectionalShadowCandidate = Candidate;
-					View.Settings.VisibilityMode =
+					View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.DirectionalShadow.DiagnosticMode = DiagnosticMode;
+					View.Settings.DirectionalShadow.FilterQuality = FilterQuality;
+					View.Settings.DirectionalShadow.Candidate = Candidate;
+					View.Settings.Mode.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					for (Durin::uint32 Frame = 0;
 						 Frame < ShadowWarmupFrames + ShadowMeasuredFrames; ++Frame)
@@ -928,8 +928,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 33;
 			View.ViewportHeight = 33;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode =
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			(void)Renderer.RenderView(
 				CommandList, &Scene, View, Target, false, {}
@@ -951,10 +951,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			AuxiliaryView.ViewportWidth = 48;
 			AuxiliaryView.ViewportHeight = 27;
 			AuxiliaryView.AspectRatioConstraint = 16.0f / 9.0f;
-			AuxiliaryView.Settings.RenderMode = Durin::ERenderMode::Lit;
-			AuxiliaryView.Settings.RasterMode = Durin::ERasterMode::Wireframe;
-			AuxiliaryView.Settings.bEnableFXAA = false;
-			AuxiliaryView.Settings.VisibilityMode =
+			AuxiliaryView.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+			AuxiliaryView.Settings.Mode.RasterMode = Durin::ERasterMode::Wireframe;
+			AuxiliaryView.Settings.PostProcess.bEnableFXAA = false;
+			AuxiliaryView.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			(void)Renderer.RenderView(CommandList, &Scene, AuxiliaryView, AuxiliaryTarget, false, {});
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
@@ -998,8 +998,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = 33;
 			View.ViewportHeight = 33;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			Durin::FSceneViewRenderOptions QualificationOptions;
 			QualificationOptions.bEnableGBufferQualification = true;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, QualificationOptions), Durin::ERenderViewResult::Success);
@@ -1040,8 +1040,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 				View.ViewportWidth = 33;
 				View.ViewportHeight = 33;
-				View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-				View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+				View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				Durin::FSceneViewRenderOptions RenderOptions;
 				RenderOptions.bEnableGBufferQualification =
 					bEnableGBufferQualification;
@@ -1157,8 +1157,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 					View.ViewportWidth = 1920;
 					View.ViewportHeight = 1080;
-					View.Settings.RenderMode = Durin::ERenderMode::Unlit;
-					View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+					View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
 					{
 						Durin::GRenderFrameCounterRenderThread++;

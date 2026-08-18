@@ -191,7 +191,7 @@ namespace
 		View.ViewportWidth = 128;
 		View.ViewportHeight = 128;
 		EXPECT_EQ(Durin::SelectTerrainPatchLOD(View, Durin::FMatrix(1.0), Patch).LODIndex, 6u);
-		View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+		View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
 		EXPECT_EQ(Durin::SelectTerrainPatchLOD(View, Durin::FMatrix(1.0), Patch).LODIndex, 0u);
 	}
 
