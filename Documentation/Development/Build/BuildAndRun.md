@@ -408,6 +408,37 @@ and is not a substitute for the application argument.
 
 ## Preset Selection
 
+### Routine Coverage
+
+Do not configure or build every registered preset in every worktree. An
+ordinary feature worktree maintains only the selected host profile's default
+preset and uses the smallest build target and native-test selection that cover
+the change. The current defaults are `Win64-Debug-DurinEditor` on Windows and
+`MacOS-arm64-Debug-DurinEditor` on macOS. A user-visible Editor change still
+requires the full default Editor `all` build at handoff, as described in the
+agent workflow.
+
+Add another preset only when it is registered for the selected host profile and
+the changed behavior needs its distinct configuration or runtime graph:
+
+| Change or gate | Additional preset coverage |
+| --- | --- |
+| Optimized behavior, configuration-dependent code, concurrency, memory layout, undefined-behavior risk, or a merge/release qualification gate | Corresponding Release Editor preset |
+| Game startup, cooked runtime behavior, runtime-only modules, or an Editor/Game dependency boundary | Corresponding Debug or Release Game preset |
+| Shipping-only macros, logging removal, packaging behavior, or release qualification | Corresponding Shipping Game preset |
+| Profiling integration or instrumentation | Corresponding Profiling preset |
+
+A Release Editor preset is therefore a periodic or risk-triggered lane, not a
+mandatory companion to every Debug Editor build. Broad runtime and
+configuration matrices belong in a designated integration or qualification
+checkout after the changes under test coexist. Feature worktrees should not
+retain non-default build trees merely because the presets are registered. A
+host profile with only one registered preset, such as the current macOS
+profile, uses that preset for routine and handoff validation until another
+qualification lane is registered.
+
+### Selecting a Non-Default Preset
+
 Select another registered configure preset explicitly when the default profile
 is not the intended target:
 

@@ -17,6 +17,12 @@ validates the change:
 .\DevTool.bat status
 ```
 
+In an ordinary feature worktree, keep only the selected host profile's default
+preset configured unless the change requires another registered runtime or
+configuration. Additional presets are risk-based qualification lanes, not a
+per-worktree build matrix; see
+[Build And Run](../Development/Build/BuildAndRun.md#routine-coverage).
+
 `build` defaults to target `all`; prefer `--target <Target>` when a smaller
 target provides sufficient validation. Use `configure --fresh`, `clean`,
 `rebuild`, or `purge` only when their specific behavior is required, not as a
