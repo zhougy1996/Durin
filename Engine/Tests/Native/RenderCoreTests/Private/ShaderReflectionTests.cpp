@@ -596,6 +596,36 @@ namespace Durin
 	}
 
 	TEST(FShaderReflectionTests,
+		ContactVisibilityComputeFreezesR8StorageAbi)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "ContactShadow.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/ContactShadow";
+		Options.EntryPoints = {"ContactVisibilityComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const FShaderCompilerOutput Output =
+			FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+		const FCompiledShader& Compute = Output.CompiledShaders[0];
+		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
+		for (uint32 Index = 0; Index < 5; ++Index)
+		{
+			const std::array<const char*, 5> Names{
+				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
+				"GBufferEmissive", "SceneDepth"};
+			ExpectBinding(Compute, Names[Index], Index,
+				ERHIBindingType::Texture, EShaderStageFlags::Compute);
+		}
+		ExpectBinding(Compute, "Params", 5,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Compute);
+		ExpectBinding(Compute, "ContactVisibilityOutput", 6,
+			ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
+	}
+
+	TEST(FShaderReflectionTests,
 		DeferredDirectionalLightingFreezesPublishedInputAbi)
 	{
 		const std::filesystem::path ShaderPath =

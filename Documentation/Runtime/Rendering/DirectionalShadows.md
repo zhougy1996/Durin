@@ -117,7 +117,11 @@ environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
 The optional contact-shadow pass is a deferred visibility producer for valid
 standard-Lit opaque and masked GBuffer receivers. It runs after the GBuffer is
 complete and before deferred lighting, writes one on-demand `R8_UNORM` scalar
-target, and never reads or writes Scene Color. Deferred lighting multiplies
+target, and never reads or writes Scene Color. Eligible views normally use an
+`8x8x1` synchronous compute dispatch over the complete owning target. The
+existing fullscreen fragment pass remains an independently owned same-feature
+fallback; if neither route is available, deferred lighting samples the white
+factor-one texture. Deferred lighting multiplies
 only the selected directional term after cascade attenuation by this factor;
 local lights, environment lighting, emissive output, retained-forward Unlit
 and translucent surfaces, and already-shadowed contributions are unchanged.
@@ -162,16 +166,33 @@ or refine hits with extra binary searches. This keeps the worst-case depth
 query budget explicit and avoids view-dependent classification heuristics.
 
 Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
-by the viewport control or a caller-owned view setting. Missing targets,
-invalid light or matrix input, or resource creation failure binds the complete
-white fallback and continues the same deferred path. A view with no successful
+by the viewport control or a caller-owned view setting. The compute route
+transitions all five GBuffer/depth inputs from graphics read to compute read,
+transitions its discarded output to compute read/write, dispatches outside a
+render pass, then restores every input and publishes the output as graphics
+read before deferred lighting. There is no copy pass, device-idle dependency,
+backend handle, second queue, or queue-family transfer. Every in-bounds target
+pixel is overwritten; pixels outside a constrained viewport are exactly one,
+matching fragment clear-plus-scissor behavior.
+
+Compute and fragment shader/PSO slots and size-keyed target caches publish
+transactionally and invalidate independently. Compute uses a sampled/storage
+`R8_UNORM` target with validated canonical views; fragment retains its
+render-targetable target. Missing compute payload, unsupported format/extent,
+or compute-target failure selects fragment before any compute transition is
+recorded. Missing fragment resources, invalid light or matrix input, or total
+resource creation failure binds the complete white fallback and continues the
+same deferred path. A view with no successful
 deferred receiver draw records no target or pass. The viewport View menu
 exposes a `Shadows > Contact Shadows` checkbox. Its mutually exclusive `Debug
 Views > Contact Shadow Contribution` mode enables the pass and displays the
 computed contribution as a red mask; selecting another diagnostic clears that
 mode. `Debug Views > Reset Debug Views` restores normal rendering and clears
-every shadow diagnostic mode.
-Per-view counters distinguish enabled passes from pass failures. The method
+every shadow diagnostic mode. Per-view counters distinguish compute, fragment,
+and factor-one routes; exact dispatch/draw counts, bounded route reasons, and
+active/retained bytes are reported separately. An optional route-tagged GPU
+timing sink measures producer transitions and work through output handoff
+without including deferred consumption. The method
 remains screen-space: off-screen casters are not
 represented and contact shadows do not replace cascade coverage.
 

@@ -133,6 +133,16 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 6. Transition only the final pass to Present for a window-backed output or
    ShaderReadOnly for an offscreen output.
 
+When the production hybrid-deferred route is active, its GBuffer is completed
+inside step 2 before deferred lighting. Requested directional contact
+visibility is produced there by synchronous compute, or by its fragment
+fallback, and consumed immediately by deferred lighting before retained
+forward geometry. The visibility route is independent of the final output:
+main, camera-preview, other auxiliary offscreen, and window-backed Present
+views use the same route decision and compute-to-graphics handoff. Display
+mapping and editor assistance remain after deferred/retained composition and
+never consume the storage target directly.
+
 ## Game Window Path
 
 Launch creates the hidden primary `MWindow` and native platform window before

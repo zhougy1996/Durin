@@ -21,6 +21,7 @@ struct ContactShadowUniform
 [[vk::binding(3, 0)]] Texture2D<float3> GBufferEmissive;
 [[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(5, 0)]] ConstantBuffer<ContactShadowUniform> Params;
+[[vk::binding(6, 0)]] RWTexture2D<unorm float> ContactVisibilityOutput;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -105,10 +106,8 @@ bool IsContactHit(float3 segmentStart, float3 segmentEnd,
     return dot(footprintDelta, footprintDelta) <= surfaceRadius * surfaceRadius;
 }
 
-[shader("fragment")]
-float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
+float CalculateContactVisibility(int2 pixel)
 {
-    int2 pixel = int2(input.pos.xy);
     FGBufferRecord receiver = DecodeGBuffer(
         GBufferMaterial.Load(int3(pixel, 0)),
         GBufferNormals.Load(int3(pixel, 0)),
@@ -176,4 +175,28 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
         rayPosition += toLight * stepDistance;
     }
     return 1.0 - saturate(occlusion);
+}
+
+[shader("fragment")]
+float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
+{
+    return CalculateContactVisibility(int2(input.pos.xy));
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ContactVisibilityComputeMain(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint targetWidth;
+    uint targetHeight;
+    ContactVisibilityOutput.GetDimensions(targetWidth, targetHeight);
+    if (dispatchThreadId.x >= targetWidth || dispatchThreadId.y >= targetHeight)
+        return;
+    int2 pixel = int2(dispatchThreadId.xy);
+    int2 viewportOrigin = int2(Params.Viewport.zw);
+    int2 viewportSize = max(int2(round(rcp(Params.Viewport.xy))), int2(1));
+    const bool insideViewport = all(pixel >= viewportOrigin)
+        && all(pixel < viewportOrigin + viewportSize);
+    ContactVisibilityOutput[pixel] = insideViewport
+        ? CalculateContactVisibility(pixel) : 1.0;
 }

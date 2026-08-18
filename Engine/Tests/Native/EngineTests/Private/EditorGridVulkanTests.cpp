@@ -953,12 +953,12 @@ namespace Durin
 		FFullscreenGeometryResources FullscreenGeometry;
 		FContactShadowVisibilityRenderer ContactVisibility(
 			Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 8>>();
+		auto Results = std::make_shared<std::array<bool, 18>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image);
 		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
 			[&Coordinator, &ContactVisibility, &FullscreenGeometry, Results](
-				FRHICommandListImmediate&) {
+				FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
 				(*Results)[1] =
@@ -996,6 +996,108 @@ namespace Durin
 					CalculateTargetBytes(64, 32) == 2048;
 				(*Results)[7] = ContactVisibility.
 					GetRetainedTargetBytes_RenderThread() == 2048;
+				VulkanRHI::ArmVulkanCreateFailure(
+					VulkanRHI::EVulkanCreateFailurePoint::Image);
+				(*Results)[8] =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33) == nullptr;
+				(*Results)[9] =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				auto* ComputeTargets =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
+				(*Results)[10] = ComputeTargets != nullptr
+					&& ComputeTargets->Visibility != nullptr
+					&& ComputeTargets->Visibility->GetFormat() == EPixelFormat::R8_UNORM
+					&& ComputeTargets->SampledView != nullptr
+					&& ComputeTargets->StorageView != nullptr;
+				FRHITexture* ComputeTexture = ComputeTargets != nullptr
+					? ComputeTargets->Visibility.GetReference() : nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					FRendererResourceInvalidationTargets{});
+				auto* RecreatedCompute =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
+				(*Results)[11] = RecreatedCompute != nullptr
+					&& RecreatedCompute->Visibility.GetReference() != ComputeTexture;
+				FRHITexture* RecreatedComputeTexture = RecreatedCompute != nullptr
+					? RecreatedCompute->Visibility.GetReference() : nullptr;
+				ContactVisibility.ReleaseResources_RenderThread();
+				auto* ReleasedCompute =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
+				(*Results)[12] = ReleasedCompute != nullptr
+					&& ReleasedCompute->Visibility.GetReference()
+						!= RecreatedComputeTexture;
+				(*Results)[13] = FContactShadowVisibilityRenderer::
+					CalculateGroupCount(65) == 9;
+
+				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				auto MakeInput = [&CommandList](const char* Name,
+					EPixelFormat Format, ETextureCreateFlags Flags) {
+					return GDynamicRHI->RHICreateTexture(CommandList,
+						FRHITextureCreateDesc::Create2D(Name, 65, 33, Format)
+							.SetFlags(Flags));
+				};
+				const ETextureCreateFlags Sampled = ETextureCreateFlags::ShaderResource;
+				FTextureRHIRef Material = MakeInput(
+					"ContactFailureMaterial", EPixelFormat::RGBA8_UNORM, Sampled);
+				FTextureRHIRef Normals = MakeInput(
+					"ContactFailureNormals", EPixelFormat::RGBA8_UNORM, Sampled);
+				FTextureRHIRef Surface = MakeInput(
+					"ContactFailureSurface", EPixelFormat::RGBA8_UNORM, Sampled);
+				FTextureRHIRef Emissive = MakeInput(
+					"ContactFailureEmissive", EPixelFormat::R11G11B10_FLOAT, Sampled);
+				FTextureRHIRef Depth = MakeInput("ContactFailureDepth",
+					EPixelFormat::D32, ETextureCreateFlags::DepthStencilTargetable
+						| ETextureCreateFlags::ShaderResource);
+				ASSERT_TRUE(Material && Normals && Surface && Emissive && Depth);
+				const std::array InputTransitions{
+					FRHITextureTransition::Whole(Material, ERHIAccess::Discard,
+						ERHIAccess::GraphicsShaderRead),
+					FRHITextureTransition::Whole(Normals, ERHIAccess::Discard,
+						ERHIAccess::GraphicsShaderRead),
+					FRHITextureTransition::Whole(Surface, ERHIAccess::Discard,
+						ERHIAccess::GraphicsShaderRead),
+					FRHITextureTransition::Whole(Emissive, ERHIAccess::Discard,
+						ERHIAccess::GraphicsShaderRead),
+					FRHITextureTransition::Whole(Depth, ERHIAccess::Discard,
+						ERHIAccess::GraphicsShaderRead)};
+				CommandList.TransitionTextures(InputTransitions);
+				auto* FragmentTargets =
+					ContactVisibility.EnsureTargets_RenderThread(65, 33);
+				auto* FailureComputeTargets =
+					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
+				FSceneView View;
+				View.ViewProjectionMatrix = FMatrix(1.0);
+				View.ViewportWidth = 65;
+				View.ViewportHeight = 33;
+				VulkanRHI::ArmVulkanCreateFailure(
+					VulkanRHI::EVulkanCreateFailurePoint::PipelineLayout);
+				const auto FailedCompute = ContactVisibility.Render_RenderThread(
+					CommandList, true, FragmentTargets, FailureComputeTargets,
+					Material, Normals, Surface, Emissive, Depth, View,
+					FVector3(0.0, 0.0, -1.0), 65, 33);
+				(*Results)[14] = FailedCompute.Route
+					== FContactShadowVisibilityRenderer::ERoute::Fragment;
+				const auto SuppressedRetry = ContactVisibility.Render_RenderThread(
+					CommandList, true, FragmentTargets, FailureComputeTargets,
+					Material, Normals, Surface, Emissive, Depth, View,
+					FVector3(0.0, 0.0, -1.0), 65, 33);
+				(*Results)[15] = SuppressedRetry.Route
+					== FContactShadowVisibilityRenderer::ERoute::Fragment;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				const auto RecoveredCompute = ContactVisibility.Render_RenderThread(
+					CommandList, true, FragmentTargets, FailureComputeTargets,
+					Material, Normals, Surface, Emissive, Depth, View,
+					FVector3(0.0, 0.0, -1.0), 65, 33);
+				(*Results)[16] = RecoveredCompute.Route
+					== FContactShadowVisibilityRenderer::ERoute::Compute;
+				(*Results)[17] = RecoveredCompute.Visibility
+					== FailureComputeTargets->Visibility.GetReference();
+				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				ContactVisibility.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			});

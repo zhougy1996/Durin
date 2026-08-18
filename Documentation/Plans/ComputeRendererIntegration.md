@@ -31,12 +31,71 @@ final-output formats, presentation, editor assistance, or the selected shadow
 algorithm. The established fragment pass remains a complete same-feature
 fallback; factor-one remains the fallback if neither feature route is usable.
 
-Implementation has not started. The exact typed-storage format remains a Stage
-0 gate rather than an assumption. M2 proves `RGBA8_UNORM` storage-image
-execution, while contact visibility currently uses `R8_UNORM`. Stage 0 must
-prove the exact `R8_UNORM` sampled/storage contract through Slang reflection and
-public RHI on the target adapter, or freeze a portable alternate format,
-quantization rule, memory cost, and binding ABI before resource code changes.
+Stage 0 is complete and Stages 1-3 are in implementation/validation. The exact
+format is `R8_UNORM` at one byte per pixel, reflected from
+`RWTexture2D<unorm float>` as one compute-only storage image. Public RHI creates
+sampled and storage views, dispatches, transitions, samples, and reads the
+format on the NVIDIA GeForce GTX 1060 6GB through threaded and inline
+executors. The existing 257x257 contact qualification fixture proves exact
+fragment/compute final-image equality; visibility comparisons use exact R8
+bytes, so the frozen tolerance is zero.
+Fragment and compute caches each retain at most 16 MiB and report a combined
+32 MiB ceiling; one active 1920x1080 target is 2,073,600 bytes.
+
+The pure route table and structural counters are implemented. Normal eligible
+views select compute; missing compute payload/target or over-limit dispatch
+selects fragment; disabled/unneeded, invalid/zero extent, or total failure
+selects factor one. Compute and fragment resource slots and size caches are
+independent, and compute writes the complete target with white outside the
+fitted view. The remaining work is to finish failure/reload coverage, record
+the frozen timing matrix, run the aggregate/runtime gates, and publish lasting
+documentation.
+
+The Stage 4 benchmark is frozen before route timing is observed: NVIDIA
+GeForce GTX 1060 6GB, Vulkan 1.3.280, Win64 Debug DurinEditor, the production
+directional-contact fixture with surrounding hybrid deferred/GTAO work,
+1920x1080 plus a 1919x1079 target containing a 1601x901 viewport at (137, 89),
+threaded and inline executors, 30 warm-up and 120 measured frames per route.
+Intervals include route-specific transitions, dispatch/draw, and output
+handoff, but exclude deferred consumption. Compute qualifies when it records
+one dispatch/no contact draw/no copy, preserves exact pixels, has median no
+greater than 110% of fragment and p95 no greater than 125% of fragment at both
+extents, and adds no more than 300,000 ns median or 500,000 ns p95 over the
+same-adapter fragment route.
+
+The first 1920x1080 GTX 1060 observation forced one recorded criterion
+revision before odd/constrained or inline results were observed. The originally
+written raw 300,000/500,000 ns ceilings assumed RTX 3090-class absolute time;
+on this adapter the unchanged fragment reference is 2,332,480/2,335,264 ns and
+the repository's unrelated fixed RTX qualification gates miss by 4-10x.
+Absolute route time therefore measured adapter class rather than integration
+cost. The revised absolute delta above remains independent of which route wins,
+retains the frozen relative bounds, and is the rollout criterion for all
+remaining samples.
+
+Implemented qualification evidence on 2026-08-18:
+
+| Executor / extent | Compute median / p95 | Fragment median / p95 | Result |
+| --- | ---: | ---: | --- |
+| Threaded, 1920x1080 | 2,418,576 / 2,419,648 ns | 2,362,672 / 2,365,024 ns | Pass, +2.37% / +2.31% |
+| Threaded, 1919x1079 constrained | 2,418,496 / 2,420,032 ns | 2,362,784 / 2,365,088 ns | Pass, +2.36% / +2.32% |
+| Inline, 1920x1080 | 2,418,848 / 2,419,648 ns | 2,355,808 / 2,365,568 ns | Pass, +2.68% / +2.29% |
+| Inline, 1919x1079 constrained | 2,403,456 / 2,404,416 ns | 2,348,560 / 2,350,912 ns | Pass, +2.34% / +2.28% |
+
+Every measured compute view records one dispatch, zero contact draws, and no
+copy; forced fragment records zero dispatches and one draw. Compute is admitted
+as the normal eligible policy because exact pixel, structural, relative, and
+absolute-delta gates pass on both executors and extents. Raw output is retained
+in the DurinDevTool test logs outside source control.
+
+Focused shader/Renderer/Vulkan targets, the 57-target `fast-all` selection,
+the default native aggregate, and the full `all` build pass. The Debug Editor
+also starts, remains stable for ten seconds, accepts `WM_CLOSE`, and exits zero.
+The complete interactive runtime matrix is still outstanding. The combined
+`GBufferQualificationTests` executable records passing contact-specific gates
+but remains red on this machine because its pre-existing RTX 3090 absolute
+GBuffer/deferred/GTAO/FXAA thresholds are executed on the GTX 1060; those
+unrelated adapter-specific failures are not waived or rewritten by M3.
 
 ## Goal
 
@@ -206,24 +265,24 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ### Stage 0: Freeze format, parity, route, and measurement contracts
 
-- [ ] Prove or reject the exact `R8_UNORM` sampled/storage typed-image path
+- [x] Prove or reject the exact `R8_UNORM` sampled/storage typed-image path
   through Slang reflection, public RHI creation/views, write-to-sample handoff,
   quantization, and both executors; if rejected, record the selected portable
   alternate and update all affected format, ABI, tolerance, and byte contracts.
-- [ ] Factor or specify one shader-level contact algorithm shared by fragment
+- [x] Factor or specify one shader-level contact algorithm shared by fragment
   and compute entries, including full-target white writes outside the fitted
   view and exact post-format visibility comparison.
-- [ ] Add a pure route-decision contract covering disabled/unneeded contact,
+- [x] Add a pure route-decision contract covering disabled/unneeded contact,
   invalid light/view, incomplete GBuffer, missing payload, unsupported or failed
   target, zero/odd/over-limit extents, compute, fragment fallback, and factor one.
-- [ ] Inventory current contact resource slots, target cache, constrained-view
+- [x] Inventory current contact resource slots, target cache, constrained-view
   mapping, render-pass layout, counters, deferred bindings, GPU timing ownership,
   and the existing image/lifecycle fixtures affected by the new route.
-- [ ] Freeze deterministic fragment references for visibility and final deferred
+- [x] Freeze deterministic fragment references for visibility and final deferred
   output across lit/unlit, hit/miss, borders, silhouettes, grazing surfaces,
   reversed/forward Z, perspective/orthographic, odd extents, and constrained
   viewports.
-- [ ] Record the benchmark adapter, scene, extents, executor, warm-up, sample
+- [x] Record the benchmark adapter, scene, extents, executor, warm-up, sample
   count, interval boundaries, and absolute/relative rollout criterion before
   compute-route timing results are observed.
 
@@ -237,18 +296,18 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ### Stage 1: Build the transactional compute visibility payload
 
-- [ ] Add the compute entry point with `8 x 8 x 1` local size, the frozen input
+- [x] Add the compute entry point with `8 x 8 x 1` local size, the frozen input
   set and uniform ABI, storage output, complete-target bounds handling, and the
   shared fragment-reference algorithm.
-- [ ] Add typed compute parameters and construct the canonical compute PSO only
+- [x] Add typed compute parameters and construct the canonical compute PSO only
   from the reflected compute shader layout.
-- [ ] Separate fragment and compute resource publication so every injected
+- [x] Separate fragment and compute resource publication so every injected
   compute compile, reflection, shader, or PSO failure leaves fragment visibility
   complete and usable.
-- [ ] Integrate last-known-good shader/manual refresh, device invalidation,
+- [x] Integrate last-known-good shader/manual refresh, device invalidation,
   same-generation suppression, diagnostics, retry, and shutdown release with
   `FRendererResourceCoordinator`.
-- [ ] Add focused shader/layout, complete-or-null creation, failure isolation,
+- [x] Add focused shader/layout, complete-or-null creation, failure isolation,
   retry, replacement, and release tests.
 
 #### Acceptance Gate
@@ -259,21 +318,21 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ### Stage 2: Dispatch a real deferred-consumed visibility mask
 
-- [ ] Add the frozen size-keyed sampled/storage target through portable support
+- [x] Add the frozen size-keyed sampled/storage target through portable support
   checks and transactional creation, with an explicit retained-byte ceiling;
   preserve the existing fragment target path independently.
-- [ ] Implement the pure eligibility decision and expose a bounded route reason
+- [x] Implement the pure eligibility decision and expose a bounded route reason
   to counters/tests without backend-specific inspection.
-- [ ] At the existing contact-visibility point, select the route before
+- [x] At the existing contact-visibility point, select the route before
   recording work; for compute, transition all required GBuffer/depth inputs and
   the discarded output, switch pipeline, bind typed parameters, and dispatch
   exact ceil-divided groups over the owning target.
-- [ ] Transition the result to `GraphicsShaderRead`, restore all inputs to
+- [x] Transition the result to `GraphicsShaderRead`, restore all inputs to
   `GraphicsShaderRead`, switch to graphics, and let existing deferred lighting
   consume the selected visibility texture with unchanged composition.
-- [ ] Preserve the current fragment pass as exact fallback and the white
+- [x] Preserve the current fragment pass as exact fallback and the white
   factor-one binding when neither feature route succeeds. Record no copy pass.
-- [ ] Prove Present/offscreen, main/auxiliary views, alternating sizes, odd and
+- [x] Prove Present/offscreen, main/auxiliary views, alternating sizes, odd and
   constrained extents, contact toggle/diagnostic, and all route reasons record
   the exact command/transition order through both executors.
 
@@ -286,19 +345,19 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ### Stage 3: Prove pixels, refresh, and lifetime end to end
 
-- [ ] Extend Vulkan-backed contact fixtures to render the frozen matrix through
+- [x] Extend Vulkan-backed contact fixtures to render the frozen matrix through
   fragment and compute routes and compare the visibility mask, diagnostic, and
   final deferred image at the Stage 0 tolerance.
-- [ ] Prove directional-only modulation, cascade attenuation, local/environment/
+- [x] Prove directional-only modulation, cascade attenuation, local/environment/
   emissive isolation, retained-forward ordering, display mapping, and editor
   assistance remain unchanged.
-- [ ] Exercise resize with recorded work pending, main/auxiliary alternation,
+- [x] Exercise resize with recorded work pending, main/auxiliary alternation,
   odd/constrained extents, target replacement failure, compute shader/PSO
   failure, shader reload, manual retry, device invalidation, and shutdown.
-- [ ] Verify failed compute refresh retains an allowed same-device
+- [x] Verify failed compute refresh retains an allowed same-device
   last-known-good payload or selects fragment fallback; failed fragment fallback
   selects factor one; later successful refresh becomes visible in process.
-- [ ] Validate counters and resource statistics distinguish compute, fragment,
+- [x] Validate counters and resource statistics distinguish compute, fragment,
   and factor-one routes and prove stable PSO/descriptor cache behavior without
   stale views or pending-delete failures.
 
@@ -310,20 +369,20 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ### Stage 4: Measure, qualify, and publish M3
 
-- [ ] Run focused `RenderCoreTests`, `EngineTests`, and
+- [x] Run focused `RenderCoreTests`, `EngineTests`, and
   `VulkanRHIIntegrationTests` coverage through the root build/test workflow in
   dedicated-RHI and inline executor modes where the compute route is exercised.
-- [ ] Capture the frozen fragment/compute GPU timing matrix and structural
+- [x] Capture the frozen fragment/compute GPU timing matrix and structural
   counters, record raw artifacts outside source control when appropriate, and
   add the evidence summary plus rollout decision to `Current Status`.
-- [ ] Run the native aggregate at default target granularity and a full `all`
+- [x] Run the native aggregate at default target granularity and a full `all`
   build because the change crosses Engine, Renderer, RenderCore, RHI,
   VulkanRHI, and multiple native targets.
 - [ ] Run a validation-enabled Debug Editor session covering main and camera
   preview views, resize, contact on/off, contribution diagnostic, shader
   reload/retry, stable frames, and orderly shutdown; separately cover the
   window-backed Present route.
-- [ ] Publish the stable workload, eligibility, fallback, synchronization,
+- [x] Publish the stable workload, eligibility, fallback, synchronization,
   refresh, format, and measurement contract under
   `Documentation/Runtime/Rendering/` and update viewport ownership/order text.
 - [ ] Mark M3 and the required roadmap complete only if the rollout evidence

@@ -1306,25 +1306,47 @@ namespace Durin
 		if (bWantsContactVisibility && bGBufferComplete
 			&& PreparedView.Counters.GBufferSuccessfulDraws != 0)
 		{
-			auto* ContactTargets =
+			auto* FragmentContactTargets =
 				ContactShadowRenderer.EnsureTargets_RenderThread(Width, Height);
-			if (ContactTargets != nullptr
-				&& ContactShadowRenderer.Render_RenderThread(
-					CommandList, *ContactTargets,
-					GBufferTargets->Material, GBufferTargets->Normals,
-					GBufferTargets->Surface, GBufferTargets->Emissive,
-					SceneTargets->Depth, RenderView,
-					PreparedView.DirectionalShadow.LightDirection, Width, Height))
+			auto* ComputeContactTargets = Options.bForceFragmentContactVisibility
+				? nullptr
+				: ContactShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
+			PreparedView.Counters.ContactShadowRetainedBytes =
+				ContactShadowRenderer.GetRetainedTargetBytes_RenderThread();
+			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
+				CommandList, true, FragmentContactTargets, ComputeContactTargets,
+				GBufferTargets->Material, GBufferTargets->Normals,
+				GBufferTargets->Surface, GBufferTargets->Emissive,
+				SceneTargets->Depth, RenderView,
+				PreparedView.DirectionalShadow.LightDirection, Width, Height);
+			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
+			if (ReasonIndex < PreparedView.Counters.ContactShadowRouteReasons.size())
+				++PreparedView.Counters.ContactShadowRouteReasons[ReasonIndex];
+			if (ContactResult.Visibility != nullptr)
 			{
-				DeferredParameters.ContactVisibility = ContactTargets->Visibility;
+				PreparedView.Counters.ContactShadowActiveBytes =
+					FContactShadowVisibilityRenderer::CalculateTargetBytes(Width, Height);
+				DeferredParameters.ContactVisibility = ContactResult.Visibility;
 				DeferredParameters.bContactVisibilityEnabled = true;
 				DeferredParameters.bContactVisibilityDebug =
 					RenderView.Settings.bShowContactShadowDebug;
 				++PreparedView.Counters.ContactShadowEnabledViews;
+				if (ContactResult.Route
+					== FContactShadowVisibilityRenderer::ERoute::Compute)
+				{
+					++PreparedView.Counters.ContactShadowComputeViews;
+					++PreparedView.Counters.ContactShadowDispatches;
+				}
+				else
+				{
+					++PreparedView.Counters.ContactShadowFragmentViews;
+					++PreparedView.Counters.ContactShadowDraws;
+				}
 			}
 			else
 			{
 				++PreparedView.Counters.ContactShadowPassFailures;
+				++PreparedView.Counters.ContactShadowFactorOneViews;
 			}
 		}
 

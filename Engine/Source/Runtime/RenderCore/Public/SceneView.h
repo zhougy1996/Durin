@@ -185,6 +185,8 @@ namespace Durin
 		bool bEnableDeferredDirectionalQualification = false;
 		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
 			EDeferredDirectionalDebugMode::Disabled;
+		// Development-only A/B path for contact visibility parity evidence.
+		bool bForceFragmentContactVisibility = false;
 		// Development-only M5 path. Produces isolated raw and filtered R8
 		// visibility from the qualified production depth/normal inputs.
 		bool bEnableGroundTruthAmbientOcclusionQualification = false;

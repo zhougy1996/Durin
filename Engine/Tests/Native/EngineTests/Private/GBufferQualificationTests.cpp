@@ -13,6 +13,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RendererModule.h"
+#include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowRenderer.h"
 #include "Renderers/GBufferRenderer.h"
@@ -47,6 +48,9 @@ namespace
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GContactTimingQueries = nullptr;
+	Durin::FContactShadowVisibilityRenderer::ERoute GExpectedContactRoute =
+		Durin::FContactShadowVisibilityRenderer::ERoute::FactorOne;
 	std::vector<Durin::FGPUTimingQueryRHIRef>*
 		GGroundTruthAmbientOcclusionTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>*
@@ -95,6 +99,13 @@ namespace
 	{
 		if (GShadowTimingQueries != nullptr)
 			GShadowTimingQueries->push_back(Query);
+	}
+
+	auto CaptureContactTiming(const Durin::FGPUTimingQueryRHIRef& Query,
+		Durin::FContactShadowVisibilityRenderer::ERoute Route) -> void
+	{
+		if (GContactTimingQueries != nullptr && Route == GExpectedContactRoute)
+			GContactTimingQueries->push_back(Query);
 	}
 
 	auto CaptureGroundTruthAmbientOcclusionTiming(
@@ -804,25 +815,48 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionSceneQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionPostProcessQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionShadowQueries;
+	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionContactQueries;
 	std::vector<Durin::uint64> ProductionGBufferDurations;
 	std::vector<Durin::uint64> ProductionDeferredDurations;
 	std::vector<Durin::uint64> ProductionDeferredWithoutAODurations;
 	std::vector<Durin::uint64> ProductionSceneDurations;
 	std::vector<Durin::uint64> ProductionPostProcessDurations;
 	std::vector<Durin::uint64> ProductionShadowDurations;
+	std::vector<Durin::uint64> ProductionComputeContactDurations;
+	std::vector<Durin::uint64> ProductionFragmentContactDurations;
+	std::vector<Durin::uint64> ConstrainedComputeContactDurations;
+	std::vector<Durin::uint64> ConstrainedFragmentContactDurations;
 	bool bEnableProductionAmbientOcclusion = true;
+	bool bEnableProductionContactShadows = false;
+	bool bForceProductionFragmentContact = false;
+	Durin::uint32 ProductionWidth = TimingWidth;
+	Durin::uint32 ProductionHeight = TimingHeight;
+	Durin::uint32 ProductionViewportX = 0;
+	Durin::uint32 ProductionViewportY = 0;
+	Durin::uint32 ProductionViewportWidth = TimingWidth;
+	Durin::uint32 ProductionViewportHeight = TimingHeight;
 	Durin::EGroundTruthAmbientOcclusionQuality ProductionAmbientOcclusionQuality =
 		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution;
 	auto RenderProductionFrames = [&Renderer, &Scene,
 								   &bEnableProductionAmbientOcclusion,
+								   &bEnableProductionContactShadows,
+								   &bForceProductionFragmentContact,
+								   &ProductionWidth, &ProductionHeight,
+								   &ProductionViewportX, &ProductionViewportY,
+								   &ProductionViewportWidth,
+								   &ProductionViewportHeight,
 								   &ProductionAmbientOcclusionQuality]() {
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[&Renderer, &Scene, bEnableProductionAmbientOcclusion,
+			 bEnableProductionContactShadows, bForceProductionFragmentContact,
+			 ProductionWidth, ProductionHeight, ProductionViewportX,
+			 ProductionViewportY, ProductionViewportWidth,
+			 ProductionViewportHeight,
 			 ProductionAmbientOcclusionQuality](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
-									  "HybridProductionQualification", TimingWidth, TimingHeight,
+									  "HybridProductionQualification", ProductionWidth, ProductionHeight,
 									  Durin::EPixelFormat::SRGBA8_UNORM
 				)
 									  .SetFlags(Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::ShaderResource);
@@ -831,8 +865,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				ASSERT_NE(Target, nullptr);
 				Durin::FSceneView View;
 				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
-				View.ViewportWidth = TimingWidth;
-				View.ViewportHeight = TimingHeight;
+				View.ViewportX = ProductionViewportX;
+				View.ViewportY = ProductionViewportY;
+				View.ViewportWidth = ProductionViewportWidth;
+				View.ViewportHeight = ProductionViewportHeight;
 				View.Settings.RenderMode = Durin::ERenderMode::Lit;
 				View.Settings.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
@@ -843,9 +879,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				View.Settings.bEnableFXAA = true;
 				View.Settings.bEnableGroundTruthAmbientOcclusion =
 					bEnableProductionAmbientOcclusion;
+				View.Settings.bEnableContactShadows =
+					bEnableProductionContactShadows;
 				View.Settings.GroundTruthAmbientOcclusionQuality =
 					ProductionAmbientOcclusionQuality;
 				Durin::FSceneViewRenderOptions Options;
+				Options.bForceFragmentContactVisibility =
+					bForceProductionFragmentContact;
 				for (Durin::uint32 Frame = 0;
 					 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 				{
@@ -919,6 +959,57 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		GGroundTruthAmbientOcclusionResolveTimingQueries,
 		Durin::SetGroundTruthAmbientOcclusionResolveTimingQuerySink,
 		CaptureGroundTruthAmbientOcclusionResolveTiming);
+	bEnableProductionContactShadows = true;
+	bForceProductionFragmentContact = false;
+	GExpectedContactRoute =
+		Durin::FContactShadowVisibilityRenderer::ERoute::Compute;
+	ProfileProductionInterval(ProductionContactQueries,
+		ProductionComputeContactDurations, GContactTimingQueries,
+		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
+		CaptureContactTiming);
+	const Durin::FViewRenderCounters ProductionComputeContactCounters =
+		GLastCounters;
+	bForceProductionFragmentContact = true;
+	GExpectedContactRoute =
+		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
+	ProfileProductionInterval(ProductionContactQueries,
+		ProductionFragmentContactDurations, GContactTimingQueries,
+		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
+		CaptureContactTiming);
+	const Durin::FViewRenderCounters ProductionFragmentContactCounters =
+		GLastCounters;
+	ProductionWidth = 1919;
+	ProductionHeight = 1079;
+	ProductionViewportX = 137;
+	ProductionViewportY = 89;
+	ProductionViewportWidth = 1601;
+	ProductionViewportHeight = 901;
+	bForceProductionFragmentContact = false;
+	GExpectedContactRoute =
+		Durin::FContactShadowVisibilityRenderer::ERoute::Compute;
+	ProfileProductionInterval(ProductionContactQueries,
+		ConstrainedComputeContactDurations, GContactTimingQueries,
+		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
+		CaptureContactTiming);
+	const Durin::FViewRenderCounters ConstrainedComputeContactCounters =
+		GLastCounters;
+	bForceProductionFragmentContact = true;
+	GExpectedContactRoute =
+		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
+	ProfileProductionInterval(ProductionContactQueries,
+		ConstrainedFragmentContactDurations, GContactTimingQueries,
+		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
+		CaptureContactTiming);
+	const Durin::FViewRenderCounters ConstrainedFragmentContactCounters =
+		GLastCounters;
+	ProductionWidth = TimingWidth;
+	ProductionHeight = TimingHeight;
+	ProductionViewportX = 0;
+	ProductionViewportY = 0;
+	ProductionViewportWidth = TimingWidth;
+	ProductionViewportHeight = TimingHeight;
+	bEnableProductionContactShadows = false;
+	bForceProductionFragmentContact = false;
 	ProfileProductionInterval(ProductionGBufferQueries, ProductionGBufferDurations, GGBufferTimingQueries, Durin::SetGBufferTimingQuerySink, CaptureGBufferTiming);
 	ProfileProductionInterval(ProductionDeferredQueries, ProductionDeferredDurations, GDeferredTimingQueries, Durin::SetDeferredDirectionalTimingQuerySink, CaptureDeferredTiming);
 	bEnableProductionAmbientOcclusion = false;
@@ -938,6 +1029,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	ASSERT_EQ(FullGTAOFeatureDurations.size(), MeasuredFrames);
 	ASSERT_EQ(HalfGTAOFeatureDurations.size(), MeasuredFrames);
 	ASSERT_EQ(HalfGTAOResolveDurations.size(), MeasuredFrames);
+	ASSERT_EQ(ProductionComputeContactDurations.size(), MeasuredFrames);
+	ASSERT_EQ(ProductionFragmentContactDurations.size(), MeasuredFrames);
+	ASSERT_EQ(ConstrainedComputeContactDurations.size(), MeasuredFrames);
+	ASSERT_EQ(ConstrainedFragmentContactDurations.size(), MeasuredFrames);
 	for (size_t Index = 0; Index < MeasuredFrames; ++Index)
 	{
 		ProductionRetainedDurations.push_back(
@@ -962,6 +1057,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::ranges::sort(FullGTAOFeatureDurations);
 	std::ranges::sort(HalfGTAOFeatureDurations);
 	std::ranges::sort(HalfGTAOResolveDurations);
+	std::ranges::sort(ProductionComputeContactDurations);
+	std::ranges::sort(ProductionFragmentContactDurations);
+	std::ranges::sort(ConstrainedComputeContactDurations);
+	std::ranges::sort(ConstrainedFragmentContactDurations);
 	const Durin::uint64 ProductionGBufferMedian = Median(ProductionGBufferDurations);
 	const Durin::uint64 ProductionDeferredMedian = Median(ProductionDeferredDurations);
 	const Durin::uint64 ProductionDeferredWithoutAOMedian =
@@ -978,7 +1077,43 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Median(HalfGTAOFeatureDurations);
 	const Durin::uint64 HalfGTAOResolveMedian =
 		Median(HalfGTAOResolveDurations);
+	const Durin::uint64 ProductionComputeContactMedian =
+		Median(ProductionComputeContactDurations);
+	const Durin::uint64 ProductionFragmentContactMedian =
+		Median(ProductionFragmentContactDurations);
+	const Durin::uint64 ConstrainedComputeContactMedian =
+		Median(ConstrainedComputeContactDurations);
+	const Durin::uint64 ConstrainedFragmentContactMedian =
+		Median(ConstrainedFragmentContactDurations);
 	constexpr size_t P95Index = 113;
+	EXPECT_GT(ProductionComputeContactMedian, 0u);
+	EXPECT_GT(ProductionFragmentContactMedian, 0u);
+	EXPECT_LE(ProductionComputeContactMedian,
+		ProductionFragmentContactMedian + 300'000u);
+	EXPECT_LE(ProductionComputeContactDurations[P95Index],
+		ProductionFragmentContactDurations[P95Index] + 500'000u);
+	EXPECT_LE(ProductionComputeContactMedian * 100u,
+		ProductionFragmentContactMedian * 110u);
+	EXPECT_LE(ProductionComputeContactDurations[P95Index] * 100u,
+		ProductionFragmentContactDurations[P95Index] * 125u);
+	EXPECT_GT(ConstrainedComputeContactMedian, 0u);
+	EXPECT_GT(ConstrainedFragmentContactMedian, 0u);
+	EXPECT_LE(ConstrainedComputeContactMedian,
+		ConstrainedFragmentContactMedian + 300'000u);
+	EXPECT_LE(ConstrainedComputeContactDurations[P95Index],
+		ConstrainedFragmentContactDurations[P95Index] + 500'000u);
+	EXPECT_LE(ConstrainedComputeContactMedian * 100u,
+		ConstrainedFragmentContactMedian * 110u);
+	EXPECT_LE(ConstrainedComputeContactDurations[P95Index] * 100u,
+		ConstrainedFragmentContactDurations[P95Index] * 125u);
+	EXPECT_EQ(ProductionComputeContactCounters.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ProductionComputeContactCounters.ContactShadowDraws, 0u);
+	EXPECT_EQ(ProductionFragmentContactCounters.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ProductionFragmentContactCounters.ContactShadowDraws, 1u);
+	EXPECT_EQ(ConstrainedComputeContactCounters.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ConstrainedComputeContactCounters.ContactShadowDraws, 0u);
+	EXPECT_EQ(ConstrainedFragmentContactCounters.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ConstrainedFragmentContactCounters.ContactShadowDraws, 1u);
 	EXPECT_GT(FullGTAOFeatureMedian, 0u);
 	EXPECT_LE(FullGTAOFeatureMedian, 850'000u);
 	EXPECT_LE(FullGTAOFeatureDurations[P95Index], 1'100'000u);
@@ -1056,6 +1191,22 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			  << ",fxaa_p95_ns=" << ProductionPostProcessDurations[P95Index]
 			  << ",shadow_median_ns=" << ProductionShadowMedian
 			  << ",shadow_p95_ns=" << ProductionShadowDurations[P95Index]
+			  << ",contact_compute_median_ns="
+			  << ProductionComputeContactMedian
+			  << ",contact_compute_p95_ns="
+			  << ProductionComputeContactDurations[P95Index]
+			  << ",contact_fragment_median_ns="
+			  << ProductionFragmentContactMedian
+			  << ",contact_fragment_p95_ns="
+			  << ProductionFragmentContactDurations[P95Index]
+			  << ",contact_constrained_compute_median_ns="
+			  << ConstrainedComputeContactMedian
+			  << ",contact_constrained_compute_p95_ns="
+			  << ConstrainedComputeContactDurations[P95Index]
+			  << ",contact_constrained_fragment_median_ns="
+			  << ConstrainedFragmentContactMedian
+			  << ",contact_constrained_fragment_p95_ns="
+			  << ConstrainedFragmentContactDurations[P95Index]
 			  << ",total_median_ns=" << ProductionTotalMedian
 			  << ",total_p95_ns=" << ProductionTotalDurations[P95Index]
 			  << ",full_gtao_feature_median_ns=" << FullGTAOFeatureMedian

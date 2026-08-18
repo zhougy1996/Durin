@@ -38,6 +38,75 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::BytesPerPixel, 1u);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::CalculateTargetBytes(1920, 1080), 2'073'600u);
+		EXPECT_EQ(FContactShadowVisibilityRenderer::MaximumRetainedBytes,
+			32u * 1024u * 1024u);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, ContactVisibilityRouteTableIsPureAndBounded)
+	{
+		using FRenderer = FContactShadowVisibilityRenderer;
+		auto MakeEligible = [] {
+			return FRenderer::FRouteInputs{
+				.bRequested = true,
+				.bInputsValid = true,
+				.bComputePayloadReady = true,
+				.bComputeTargetReady = true,
+				.bFragmentReady = true,
+				.Width = 1921,
+				.Height = 1081,
+				.MaxGroupCountX = 65'535,
+				.MaxGroupCountY = 65'535};
+		};
+		auto Inputs = MakeEligible();
+		auto Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Compute);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::Compute);
+		EXPECT_EQ(FRenderer::CalculateGroupCount(1921), 241u);
+		EXPECT_EQ(FRenderer::CalculateGroupCount(1081), 136u);
+
+		Inputs = MakeEligible();
+		Inputs.bRequested = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::FactorOne);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::DisabledOrUnneeded);
+
+		Inputs = MakeEligible();
+		Inputs.bInputsValid = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::FactorOne);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::InvalidInputs);
+
+		Inputs = MakeEligible();
+		Inputs.Width = 0;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::FactorOne);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::InvalidExtent);
+
+		Inputs = MakeEligible();
+		Inputs.bComputePayloadReady = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::ComputePayloadUnavailable);
+
+		Inputs = MakeEligible();
+		Inputs.bComputeTargetReady = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::ComputeTargetUnavailable);
+
+		Inputs = MakeEligible();
+		Inputs.MaxGroupCountX = 240;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::ComputeExtentUnsupported);
+
+		Inputs.bFragmentReady = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::FactorOne);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::FragmentUnavailable);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, GBufferTargetsFreezeFormatsStatesAndByteBudget)

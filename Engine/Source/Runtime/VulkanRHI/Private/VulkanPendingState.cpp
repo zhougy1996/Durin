@@ -734,8 +734,12 @@ namespace Durin::VulkanRHI
 		DescriptorEntryOccupancy += EntryCount;
 		DescriptorValueOccupancy += ValueCount;
 		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
-		Stats.DescriptorSnapshots.Occupancy = DescriptorEntryOccupancy;
-		Stats.DescriptorValueOccupancy = DescriptorValueOccupancy;
+		check(Stats.DescriptorSnapshots.Occupancy
+			<= std::numeric_limits<uint64>::max() - EntryCount);
+		check(Stats.DescriptorValueOccupancy
+			<= std::numeric_limits<uint64>::max() - ValueCount);
+		Stats.DescriptorSnapshots.Occupancy += EntryCount;
+		Stats.DescriptorValueOccupancy += ValueCount;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);
 #endif
@@ -749,8 +753,10 @@ namespace Durin::VulkanRHI
 		DescriptorEntryOccupancy -= EntryCount;
 		DescriptorValueOccupancy -= ValueCount;
 		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
-		Stats.DescriptorSnapshots.Occupancy = DescriptorEntryOccupancy;
-		Stats.DescriptorValueOccupancy = DescriptorValueOccupancy;
+		check(EntryCount <= Stats.DescriptorSnapshots.Occupancy);
+		check(ValueCount <= Stats.DescriptorValueOccupancy);
+		Stats.DescriptorSnapshots.Occupancy -= EntryCount;
+		Stats.DescriptorValueOccupancy -= ValueCount;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (EntryCount != 0 || ValueCount != 0)
 			GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);

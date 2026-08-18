@@ -10,6 +10,7 @@
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
+#include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -1172,10 +1173,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 							 Durin::EDirectionalShadowCandidate ShadowCandidate =
 								 Durin::EDirectionalShadowCandidate::SingleMap,
 							 Durin::EDirectionalShadowFilterQuality ShadowFilter =
-								 Durin::EDirectionalShadowFilterQuality::Low,
+							 Durin::EDirectionalShadowFilterQuality::Low,
 							 Durin::EDirectionalShadowDiagnosticMode ShadowDiagnostic =
 								 Durin::EDirectionalShadowDiagnosticMode::Lit,
-							 float AspectRatioConstraint = 0.0f)
+								 float AspectRatioConstraint = 0.0f,
+								 bool bForceFragmentContactVisibility = false)
 		-> Durin::FViewRenderCounters {
 		auto Pixels = std::make_shared<std::vector<Durin::uint8>>();
 		GHDRSceneColorPixels = HDRSceneColorPixels;
@@ -1195,7 +1197,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			 bShowContactShadowDebug, bPerspective,
 			 bEnableGBufferQualification, GBufferDebugMode, RenderMode,
 			 bEnableDeferredDirectional, DeferredDebugMode, ShadowCandidate,
-			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint, Pixels](
+			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint,
+			 bForceFragmentContactVisibility, Pixels](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				Durin::GRenderFrameCounterRenderThread++;
@@ -1259,6 +1262,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				RenderOptions.bEnableDeferredDirectionalQualification =
 					bEnableDeferredDirectional;
 				RenderOptions.DeferredDirectionalDebugMode = DeferredDebugMode;
+				RenderOptions.bForceFragmentContactVisibility =
+					bForceFragmentContactVisibility;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
@@ -1733,16 +1738,47 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Low,
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
+	std::vector<Durin::uint8> ContactFragmentOutput;
+	std::vector<Durin::uint8> ContactFragmentHDR;
+	const Durin::FViewRenderCounters ContactFragmentCounters = RenderCapture(
+		true, false, ContactFragmentOutput, false, &ContactFragmentHDR, nullptr,
+		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
+		nullptr, nullptr, Durin::ERenderMode::Lit, false,
+		Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
+		Durin::EDirectionalShadowCandidate::SingleMap,
+		Durin::EDirectionalShadowFilterQuality::Low,
+		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f, true);
+	EXPECT_EQ(ContactFragmentOutput, ContactHybridOutput);
+	EXPECT_EQ(ContactFragmentHDR, ContactHybridHDR);
 	ExpectDeferredParity(ContactForwardHDR, ContactHybridHDR, ContactHybridSurface, "production-contact-shadow");
 	EXPECT_EQ(ContactHybridCounters.HybridDeferredEnabledViews, 1u);
 	EXPECT_EQ(ContactHybridCounters.ContactShadowEnabledViews, 1u);
 	EXPECT_EQ(ContactHybridCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadowComputeViews, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadowFragmentViews, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadowDraws, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadowActiveBytes,
+		Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
+			CaptureWidth, CaptureHeight));
+	EXPECT_EQ(ContactHybridCounters.ContactShadowRetainedBytes,
+		2u * Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
+			CaptureWidth, CaptureHeight));
+	EXPECT_EQ(ContactFragmentCounters.ContactShadowComputeViews, 0u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadowFragmentViews, 1u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadowDraws, 1u);
 
 	// The pass must run exactly once when enabled, zero when disabled, and
 	// never report a resource/input failure.
 	EXPECT_EQ(CountersOff.ContactShadowEnabledViews, 0u);
+	EXPECT_EQ(CountersOff.ContactShadowDispatches, 0u);
+	EXPECT_EQ(CountersOff.ContactShadowDraws, 0u);
 	EXPECT_EQ(CountersOn.ContactShadowEnabledViews, 1u);
 	EXPECT_EQ(CountersOn.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(CountersOn.ContactShadowComputeViews, 1u);
+	EXPECT_EQ(CountersOn.ContactShadowDispatches, 1u);
+	EXPECT_EQ(CountersOn.ContactShadowDraws, 0u);
 	EXPECT_EQ(GBufferCounters.GBufferEnabledViews, 1u);
 	EXPECT_EQ(GBufferCounters.GBufferUnavailableViews, 0u);
 	EXPECT_EQ(GBufferCounters.GBufferAttachmentBytes, Durin::FGBufferRenderer::CalculateTargetBytes(CaptureWidth, CaptureHeight));
@@ -1923,6 +1959,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	std::vector<Durin::uint8> DebugPixels;
 	const Durin::FViewRenderCounters DebugCounters =
 		RenderCapture(true, true, DebugPixels);
+	std::vector<Durin::uint8> FragmentDebugPixels;
+	RenderCapture(true, true, FragmentDebugPixels, false, nullptr, nullptr,
+		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
+		nullptr, nullptr, Durin::ERenderMode::Lit, false,
+		Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
+		Durin::EDirectionalShadowCandidate::SingleMap,
+		Durin::EDirectionalShadowFilterQuality::Low,
+		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f, true);
+	EXPECT_EQ(FragmentDebugPixels, DebugPixels);
 	EXPECT_EQ(DebugCounters.ContactShadowEnabledViews, 1u);
 	EXPECT_EQ(DebugCounters.ContactShadowPassFailures, 0u);
 	size_t DebugContributionPixels = 0;

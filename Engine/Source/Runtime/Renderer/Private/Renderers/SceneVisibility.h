@@ -192,6 +192,14 @@ namespace Durin
 		size_t ShadowBiasClamps = 0;
 		size_t ContactShadowEnabledViews = 0;
 		size_t ContactShadowPassFailures = 0;
+		size_t ContactShadowComputeViews = 0;
+		size_t ContactShadowFragmentViews = 0;
+		size_t ContactShadowFactorOneViews = 0;
+		size_t ContactShadowDispatches = 0;
+		size_t ContactShadowDraws = 0;
+		size_t ContactShadowActiveBytes = 0;
+		size_t ContactShadowRetainedBytes = 0;
+		std::array<size_t, 8> ContactShadowRouteReasons{};
 		size_t GBufferEnabledViews = 0;
 		size_t GBufferUnavailableViews = 0;
 		size_t GBufferDebugViews = 0;
