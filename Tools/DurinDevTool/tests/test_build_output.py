@@ -170,6 +170,19 @@ class TestOutput:
         assert 'Preset: debug' in text
         assert 'Target: CoreTests' in text
 
+    def test_failure_without_target_uses_ascii_placeholder(self) -> None:
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        request = request_fixtures.command_request(
+            build_config.Action.TEST,
+            context=build_config.RequestContext(preset='debug'),
+            options=request_fixtures.TestActionOptions(),
+        )
+        output.failure(build_config.BuildToolError('validation failed'), None, 0.5, request=request)
+        text = stderr.getvalue()
+        assert 'Target: -' in text
+        assert text.isascii()
+
     def test_no_color_environment_forces_plain_output(self) -> None:
         with mock.patch.dict(os.environ, {'NO_COLOR': '1'}):
             output = BuildOutput(stdout=io.StringIO(), stderr=io.StringIO(), force_terminal=True)

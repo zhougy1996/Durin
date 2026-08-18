@@ -225,7 +225,7 @@ class BuildOutput:
             "Action": context.request.action.value,
             "Profile": context.profile.name,
             "Preset": context.preset.name,
-            "Target": context.target or "—",
+            "Target": context.target or "-",
             "Build directory": preset_build_directory(context.preset),
             "CMake": context.cmake or "not required",
             "Parallel jobs": context.jobs or "not required",
@@ -286,15 +286,15 @@ class BuildOutput:
                 [
                     ("Action", context.request.action.value),
                     ("Preset", context.preset.name),
-                    ("Target", context.target or "—"),
+                    ("Target", context.target or "-"),
                 ]
             )
         elif active_request is not None and active_request.action is not Action.SHELL:
             details.extend(
                 [
                     ("Action", active_request.action.value),
-                    ("Preset", preset or active_request.preset or "—"),
-                    ("Target", request_target(active_request) or "—"),
+                    ("Preset", preset or active_request.preset or "-"),
+                    ("Target", request_target(active_request) or "-"),
                 ]
             )
         if error.command:
