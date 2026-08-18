@@ -6,6 +6,8 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
+#include <unordered_map>
+
 namespace Durin
 {
 	struct FPreparedSkeletalMeshPrimitive
@@ -16,6 +18,29 @@ namespace Durin
 		std::shared_ptr<const FSkeletalPosePalette> Pose;
 		FMatrix LocalToWorld{1.0};
 		FRHIStorageBufferRange PaletteRange;
+	};
+
+	// One render-submission-local registry shared by the receiver view and every
+	// directional-shadow cascade. A primitive publishes one immutable pose into
+	// the registry and every view reuses the resulting dynamic storage range.
+	struct FPreparedSkeletalPaletteTable
+	{
+		struct FEntry
+		{
+			std::shared_ptr<const FSkeletalPosePalette> Pose;
+			FRHIStorageBufferRange Range;
+			bool bUploadAttempted = false;
+		};
+
+		std::vector<FEntry> Entries;
+		std::unordered_map<FPrimitiveSceneId, uint32, FSceneIdHash>
+			PrimitiveToEntry;
+		uint64 UploadedBytes = 0;
+		size_t RequestedPalettes = 0;
+		size_t UploadedPalettes = 0;
+		size_t ReusedPalettes = 0;
+		size_t RejectedPalettes = 0;
+		size_t UploadedMatrices = 0;
 	};
 
 	struct FPreparedSkeletalMeshDraw
@@ -100,5 +125,7 @@ namespace Durin
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
-		ERasterMode RasterMode) -> FPreparedSkeletalMeshView;
+		ERasterMode RasterMode,
+		FPreparedSkeletalPaletteTable& PaletteTable
+	) -> FPreparedSkeletalMeshView;
 }

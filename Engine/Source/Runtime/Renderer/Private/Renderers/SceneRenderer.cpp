@@ -115,9 +115,15 @@ namespace Durin
 
 		auto CopySkeletalMeshCounters(
 			const FPreparedSkeletalMeshView& Meshes,
+			const FPreparedSkeletalPaletteTable& Palettes,
 			FViewRenderCounters& Counters
 		) -> void
 		{
+			check(Palettes.RequestedPalettes
+				== Palettes.UploadedPalettes + Palettes.ReusedPalettes
+					+ Palettes.RejectedPalettes);
+			check(Palettes.UploadedBytes
+				== Palettes.UploadedMatrices * sizeof(FMatrix4f));
 			Counters.PreparedSkeletalMeshPrimitives = Meshes.Primitives.size();
 			Counters.RejectedSkeletalMeshPrimitives = Meshes.RejectedPrimitives;
 			Counters.PreparedSkeletalMeshSections = Meshes.SelectedSections;
@@ -144,12 +150,12 @@ namespace Durin
 			Counters.SkeletalMeshAttemptedDraws = Meshes.AttemptedDraws;
 			Counters.SkeletalMeshSuccessfulDraws = Meshes.SuccessfulDraws;
 			Counters.SkeletalMeshRejectedDraws = Meshes.RejectedDraws;
-			Counters.RequestedSkeletalPaletteUploads = Meshes.RequestedPaletteUploads;
-			Counters.UploadedSkeletalPalettes = Meshes.UploadedPalettes;
-			Counters.ReusedSkeletalPalettes = Meshes.ReusedPalettes;
-			Counters.RejectedSkeletalPalettes = Meshes.RejectedPalettes;
-			Counters.UploadedSkeletalPaletteMatrices = Meshes.UploadedPaletteMatrices;
-			Counters.UploadedSkeletalPaletteBytes = Meshes.UploadedPaletteBytes;
+			Counters.RequestedSkeletalPaletteUploads = Palettes.RequestedPalettes;
+			Counters.UploadedSkeletalPalettes = Palettes.UploadedPalettes;
+			Counters.ReusedSkeletalPalettes = Palettes.ReusedPalettes;
+			Counters.RejectedSkeletalPalettes = Palettes.RejectedPalettes;
+			Counters.UploadedSkeletalPaletteMatrices = Palettes.UploadedMatrices;
+			Counters.UploadedSkeletalPaletteBytes = Palettes.UploadedBytes;
 		}
 
 		auto CopyTerrainCounters(
@@ -693,7 +699,7 @@ namespace Durin
 						);
 						SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 							CommandList, Casters.SkeletalMeshes, Cascade.CasterView,
-							ERasterMode::Solid
+							ERasterMode::Solid, PreparedView.SkeletalPalettes
 						);
 						Terrains = PrepareTerrainView_RenderThread(
 							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid
@@ -768,7 +774,8 @@ namespace Durin
 			);
 			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
-				RenderView.Settings.Mode.RasterMode
+				RenderView.Settings.Mode.RasterMode,
+				PreparedView.SkeletalPalettes
 			);
 			PreparedView.Terrains = PrepareTerrainView_RenderThread(
 				Visibility.TerrainSceneInfos, RenderView,
@@ -810,7 +817,8 @@ namespace Durin
 			CommandList, PreparedView.StaticMeshes, !bRequiresDeferredOpaque
 		);
 		SkeletalMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.SkeletalMeshes, !bRequiresDeferredOpaque
+			CommandList, PreparedView.SkeletalPalettes,
+			PreparedView.SkeletalMeshes, !bRequiresDeferredOpaque
 		);
 		TerrainRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Terrains, !bRequiresDeferredOpaque
@@ -843,7 +851,8 @@ namespace Durin
 			PreparedView.StaticMeshes, PreparedView.Counters
 		);
 		CopySkeletalMeshCounters(
-			PreparedView.SkeletalMeshes, PreparedView.Counters
+			PreparedView.SkeletalMeshes, PreparedView.SkeletalPalettes,
+			PreparedView.Counters
 		);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
@@ -1455,7 +1464,8 @@ namespace Durin
 			PreparedView.StaticMeshes, PreparedView.Counters
 		);
 		CopySkeletalMeshCounters(
-			PreparedView.SkeletalMeshes, PreparedView.Counters
+			PreparedView.SkeletalMeshes, PreparedView.SkeletalPalettes,
+			PreparedView.Counters
 		);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 

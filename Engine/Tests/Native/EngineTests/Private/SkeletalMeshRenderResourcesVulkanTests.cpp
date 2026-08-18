@@ -22,6 +22,7 @@
 #include "Shader/ShaderCompilerCore.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -192,6 +193,25 @@ namespace
 		};
 		Data->LocalBounds = Data->Sections[0].LocalBounds;
 		return Data;
+	}
+
+	auto MakePerspectiveProjection(
+		double VerticalFieldOfViewDegrees,
+		double AspectRatio,
+		double NearClip,
+		double FarClip
+	) -> Durin::FMatrix
+	{
+		const double YScale = 1.0 / std::tan(
+			Durin::Math::DegreesToRadians(VerticalFieldOfViewDegrees) * 0.5
+		);
+		Durin::FMatrix Projection(0.0);
+		Projection[1][0] = YScale / AspectRatio;
+		Projection[2][1] = -YScale;
+		Projection[0][2] = FarClip / (FarClip - NearClip);
+		Projection[3][2] = -NearClip * FarClip / (FarClip - NearClip);
+		Projection[0][3] = 1.0;
+		return Projection;
 	}
 
 	auto MakeSplineSourceRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
@@ -499,12 +519,19 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 						 0u;
 	EXPECT_GT(RedPixels, 0u);
 	auto RenderLitReadback = [&](
-								 std::string Name, bool bEnableGBufferQualification = false
-							 ) {
+		std::string Name,
+		bool bEnableGBufferQualification = false,
+		Durin::EDirectionalShadowCandidate ShadowCandidate =
+			Durin::EDirectionalShadowCandidate::SingleMap,
+		Durin::EViewVisibilityMode VisibilityMode =
+			Durin::EViewVisibilityMode::FrustumCullingDisabled,
+		Durin::FMatrix ViewProjection = Durin::FMatrix(1.0)
+	) {
 		auto Result = std::make_shared<std::vector<Durin::uint8>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
-			 bEnableGBufferQualification](
+			 bEnableGBufferQualification, ShadowCandidate, VisibilityMode,
+			 ViewProjection](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				Durin::GRenderFrameCounterRenderThread++;
@@ -517,14 +544,15 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
 				ASSERT_NE(Target, nullptr);
 				Durin::FSceneView View;
-				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+				View.ProjectionMatrix = ViewProjection;
+				View.ViewProjectionMatrix = ViewProjection;
 				View.ViewportWidth = 33;
 				View.ViewportHeight = 33;
 				View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 				View.Settings.DirectionalShadow.Candidate =
-					Durin::EDirectionalShadowCandidate::SingleMap;
+					ShadowCandidate;
 				View.Settings.Mode.VisibilityMode =
-					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					VisibilityMode;
 				Durin::FSceneViewRenderOptions RenderOptions;
 				RenderOptions.bEnableGBufferQualification =
 					bEnableGBufferQualification;
@@ -602,6 +630,46 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastCounters.ShadowAttemptedDraws, 2u);
 	EXPECT_EQ(GLastCounters.ShadowSuccessfulDraws, 2u);
 	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 1u);
+	EXPECT_EQ(GLastCounters.RequestedSkeletalPaletteUploads, 2u);
+	EXPECT_EQ(GLastCounters.ReusedSkeletalPalettes, 1u);
+
+	auto OffscreenPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
+	Scene.UpdatePrimitiveTransform(
+		Durin::FPrimitiveSceneId(1),
+		glm::translate(
+			Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)
+		)
+	);
+	Scene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FSkeletalMeshSceneProxy>(
+			Complete.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{
+				Opaque, Masked, Translucent},
+			1, OffscreenPose
+		),
+		glm::translate(
+			Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 5.0)
+		)
+	);
+	Durin::FlushRenderingCommands();
+	const auto OffscreenCasterReadback = RenderLitReadback(
+		"OffscreenSkeletalCasterColor", false,
+		Durin::EDirectionalShadowCandidate::SingleMap,
+		Durin::EViewVisibilityMode::Normal,
+		MakePerspectiveProjection(90.0, 2.0, 1.0, 11.0)
+	);
+	EXPECT_FALSE(OffscreenCasterReadback->empty());
+	EXPECT_EQ(GLastCounters.PreparedSkeletalMeshPrimitives, 1u);
+	EXPECT_EQ(GLastCounters.ShadowPreparedSkeletalMeshCasters, 2u);
+	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 2u);
+	EXPECT_EQ(GLastCounters.RequestedSkeletalPaletteUploads, 3u);
+	EXPECT_EQ(GLastCounters.ReusedSkeletalPalettes, 1u);
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
+	Scene.UpdatePrimitiveTransform(
+		Durin::FPrimitiveSceneId(1), Durin::FMatrix(1.0)
+	);
+	Durin::FlushRenderingCommands();
 	if (std::getenv("DURIN_RUN_LIGHTING_PROFILE") != nullptr)
 	{
 		Scene.RemoveLight(Durin::FLightSceneId(11));

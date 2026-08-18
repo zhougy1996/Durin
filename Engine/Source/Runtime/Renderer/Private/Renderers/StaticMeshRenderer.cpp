@@ -562,6 +562,81 @@ namespace Durin
 													   std::array<uint32, 6>{};
 			return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, 0, Draw.SectionIndex);
 		}
+
+		enum class ESkeletalPaletteResolveResult : uint8
+		{
+			Uploaded,
+			Reused,
+			Rejected,
+		};
+
+		auto ResolveSkeletalPalette_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FPreparedSkeletalPaletteTable& Table,
+			FPreparedSkeletalMeshPrimitive& Primitive
+		) -> ESkeletalPaletteResolveResult
+		{
+			constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
+			++Table.RequestedPalettes;
+			if (Primitive.Pose == nullptr)
+			{
+				++Table.RejectedPalettes;
+				return ESkeletalPaletteResolveResult::Rejected;
+			}
+
+			const FPrimitiveSceneId PrimitiveId = Primitive.PrimitiveId;
+			auto It = Table.PrimitiveToEntry.find(PrimitiveId);
+			if (It == Table.PrimitiveToEntry.end())
+			{
+				const uint32 EntryIndex = static_cast<uint32>(Table.Entries.size());
+				It = Table.PrimitiveToEntry.emplace(PrimitiveId, EntryIndex).first;
+				Table.Entries.push_back({.Pose = Primitive.Pose});
+			}
+			auto& Entry = Table.Entries[It->second];
+			if (Entry.Pose != Primitive.Pose)
+			{
+				++Table.RejectedPalettes;
+				return ESkeletalPaletteResolveResult::Rejected;
+			}
+			if (Entry.Range.Buffer != nullptr)
+			{
+				Primitive.PaletteRange = Entry.Range;
+				++Table.ReusedPalettes;
+				return ESkeletalPaletteResolveResult::Reused;
+			}
+			if (Entry.bUploadAttempted)
+			{
+				++Table.RejectedPalettes;
+				return ESkeletalPaletteResolveResult::Rejected;
+			}
+			Entry.bUploadAttempted = true;
+			const uint64 Bytes = Primitive.Pose->Matrices.size() * sizeof(FMatrix4f);
+			if (Bytes == 0 || Table.UploadedBytes + Bytes > PaletteBudget)
+			{
+				++Table.RejectedPalettes;
+				return ESkeletalPaletteResolveResult::Rejected;
+			}
+
+			Entry.Range = CommandList.AllocateDynamicStorageBuffer(
+				Primitive.Pose->Matrices.data(), static_cast<uint32>(Bytes)
+			);
+			if (Entry.Range.Buffer == nullptr || Entry.Range.Size != Bytes)
+			{
+				Entry.Range = {};
+				++Table.RejectedPalettes;
+				return ESkeletalPaletteResolveResult::Rejected;
+			}
+			const std::array Transition{FRHIBufferTransition{
+				Entry.Range.Buffer, Entry.Range.Offset, Entry.Range.Size,
+				ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead
+			}};
+			CommandList.TransitionBuffers(Transition);
+			Primitive.PaletteRange = Entry.Range;
+			Table.UploadedBytes += Bytes;
+			++Table.UploadedPalettes;
+			Table.UploadedMatrices += Primitive.Pose->Matrices.size();
+			return ESkeletalPaletteResolveResult::Uploaded;
+		}
 	} // namespace
 
 	struct FStaticMeshRenderer::FState
@@ -1070,7 +1145,8 @@ namespace Durin
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
-		ERasterMode RasterMode
+		ERasterMode RasterMode,
+		FPreparedSkeletalPaletteTable& PaletteTable
 	) -> FPreparedSkeletalMeshView
 	{
 		check(IsInRenderingThread());
@@ -1090,7 +1166,20 @@ namespace Durin
 			const FSkeletalMeshSceneProxy& Proxy =
 				SceneInfo->GetSkeletalMeshProxy();
 			const FSkeletalMeshRenderData* RenderData = Proxy.GetRenderData();
-			const std::shared_ptr<const FSkeletalPosePalette>& Pose = Proxy.GetPose();
+			std::shared_ptr<const FSkeletalPosePalette> Pose;
+			const FPrimitiveSceneId PrimitiveId = SceneInfo->GetId();
+			if (const auto It = PaletteTable.PrimitiveToEntry.find(PrimitiveId);
+				It != PaletteTable.PrimitiveToEntry.end())
+			{
+				Pose = PaletteTable.Entries[It->second].Pose;
+			}
+			else
+			{
+				Pose = Proxy.GetPose();
+				const uint32 EntryIndex = static_cast<uint32>(PaletteTable.Entries.size());
+				PaletteTable.PrimitiveToEntry.emplace(PrimitiveId, EntryIndex);
+				PaletteTable.Entries.push_back({.Pose = Pose});
+			}
 			const FMatrix& LocalToWorld = SceneInfo->GetTransform();
 			const bool bPoseComplete = Pose != nullptr && !Pose->Matrices.empty()
 									   && RenderData != nullptr
@@ -2530,72 +2619,31 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::PrepareResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
+		FPreparedSkeletalPaletteTable& PaletteTable,
 		FPreparedSkeletalMeshView& PreparedView,
 		bool bPrepareLitOpaqueForward
 	) -> bool
 	{
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
 		EnsureBaseResources_RenderThread();
-		constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
-		uint64 RequestedBytes = 0;
-		struct FPaletteKey
-		{
-			uint64 PrimitiveId = 0;
-			uint64 Revision = 0;
-			auto operator==(const FPaletteKey&) const -> bool = default;
-		};
-		struct FPaletteKeyHash
-		{
-			auto operator()(const FPaletteKey& Key) const -> size_t
-			{
-				return static_cast<size_t>(Key.PrimitiveId ^ (Key.Revision + 0x9e3779b97f4a7c15ull + (Key.PrimitiveId << 6) + (Key.PrimitiveId >> 2)));
-			}
-		};
-		std::unordered_map<FPaletteKey, FRHIStorageBufferRange, FPaletteKeyHash>
-			Uploaded;
 		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
-			if (Primitive.Pose == nullptr)
+			switch (ResolveSkeletalPalette_RenderThread(
+				CommandList, PaletteTable, Primitive
+			))
 			{
-				++PreparedView.RejectedPalettes;
-				continue;
-			}
-			const uint64 Bytes = Primitive.Pose->Matrices.size() * sizeof(FMatrix4f);
-			const FPaletteKey Key{
-				Primitive.PrimitiveId.Value, Primitive.Pose->Revision
-			};
-			if (const auto It = Uploaded.find(Key); It != Uploaded.end())
-			{
-				Primitive.PaletteRange = It->second;
+			case ESkeletalPaletteResolveResult::Uploaded:
+				++PreparedView.UploadedPalettes;
+				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
+				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
+				break;
+			case ESkeletalPaletteResolveResult::Reused:
 				++PreparedView.ReusedPalettes;
-				continue;
-			}
-			if (Bytes == 0 || RequestedBytes + Bytes > PaletteBudget)
-			{
+				break;
+			case ESkeletalPaletteResolveResult::Rejected:
 				++PreparedView.RejectedPalettes;
-				continue;
+				break;
 			}
-			Primitive.PaletteRange = CommandList.AllocateDynamicStorageBuffer(
-				Primitive.Pose->Matrices.data(), static_cast<uint32>(Bytes)
-			);
-			if (Primitive.PaletteRange.Buffer == nullptr
-				|| Primitive.PaletteRange.Size != Bytes)
-			{
-				Primitive.PaletteRange = {};
-				++PreparedView.RejectedPalettes;
-				continue;
-			}
-			const std::array Transition{FRHIBufferTransition{
-				Primitive.PaletteRange.Buffer, Primitive.PaletteRange.Offset,
-				Primitive.PaletteRange.Size, ERHIAccess::HostWrite,
-				ERHIAccess::GraphicsShaderRead
-			}};
-			CommandList.TransitionBuffers(Transition);
-			Uploaded.emplace(Key, Primitive.PaletteRange);
-			RequestedBytes += Bytes;
-			++PreparedView.UploadedPalettes;
-			PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
-			PreparedView.UploadedPaletteBytes += Bytes;
 		}
 		auto PrepareBucket = [&](auto& Bucket, bool bOpaqueOrMasked) {
 			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
@@ -2659,34 +2707,31 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::PrepareShadowResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FPreparedSkeletalMeshView& BaseView,
+		FPreparedSkeletalPaletteTable& PaletteTable,
 		FPreparedSkeletalMeshView& PreparedView
 	) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
-		check(BaseView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
 		check(PreparedView.Translucent.empty());
 		EnsureBaseResources_RenderThread();
 		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
-			const auto Match = std::ranges::find_if(
-				BaseView.Primitives,
-				[&Primitive](const FPreparedSkeletalMeshPrimitive& Candidate) {
-					return Candidate.PrimitiveId == Primitive.PrimitiveId
-						   && Candidate.Pose != nullptr && Primitive.Pose != nullptr
-						   && Candidate.Pose->Revision == Primitive.Pose->Revision;
-				}
-			);
-			if (Match != BaseView.Primitives.end()
-				&& Match->PaletteRange.Buffer != nullptr)
+			switch (ResolveSkeletalPalette_RenderThread(
+				CommandList, PaletteTable, Primitive
+			))
 			{
-				Primitive.PaletteRange = Match->PaletteRange;
+			case ESkeletalPaletteResolveResult::Uploaded:
+				++PreparedView.UploadedPalettes;
+				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
+				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
+				break;
+			case ESkeletalPaletteResolveResult::Reused:
 				++PreparedView.ReusedPalettes;
-			}
-			else
-			{
+				break;
+			case ESkeletalPaletteResolveResult::Rejected:
 				++PreparedView.RejectedPalettes;
+				break;
 			}
 		}
 		for (auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})

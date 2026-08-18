@@ -141,7 +141,7 @@ namespace Durin
 			bReady = StaticMeshes.PrepareShadowResources_RenderThread(
 				CommandList, View.ShadowStaticMeshes[Cascade]) && bReady;
 			bReady = SkeletalMeshes.PrepareShadowResources_RenderThread(
-				CommandList, View.SkeletalMeshes,
+				CommandList, View.SkeletalPalettes,
 				View.ShadowSkeletalMeshes[Cascade]) && bReady;
 			bReady = Terrains.PrepareShadowResources_RenderThread(
 				CommandList, View.ShadowTerrains[Cascade]) && bReady;

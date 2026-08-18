@@ -14,6 +14,7 @@ namespace Durin
 	struct FPreparedSkeletalMeshView;
 	struct FPreparedSkeletalMeshDraw;
 	struct FPreparedSkeletalMeshPrimitive;
+	struct FPreparedSkeletalPaletteTable;
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
 	struct FSceneView;
@@ -34,6 +35,7 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
+			FPreparedSkeletalPaletteTable& PaletteTable,
 			FPreparedSkeletalMeshView& PreparedView,
 			bool bPrepareLitOpaqueForward
 		) -> bool;
@@ -42,7 +44,7 @@ namespace Durin
 		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FPreparedSkeletalMeshView& BaseView,
+			FPreparedSkeletalPaletteTable& PaletteTable,
 			FPreparedSkeletalMeshView& PreparedView
 		) -> bool;
 		auto ExecuteShadow_RenderThread(

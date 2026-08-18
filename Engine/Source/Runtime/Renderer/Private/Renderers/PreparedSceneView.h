@@ -40,6 +40,7 @@ namespace Durin
 		FSceneView View;
 		FPreparedLightView Lights;
 		FPreparedDirectionalShadowView DirectionalShadow;
+		FPreparedSkeletalPaletteTable SkeletalPalettes;
 		std::array<FPreparedStaticMeshView,
 			DirectionalShadowCascadeCount> ShadowStaticMeshes;
 		std::array<FPreparedSkeletalMeshView,
