@@ -48,12 +48,13 @@ namespace Durin::Editor::MainFrame
 
 	namespace
 	{
-		constexpr float EditorTitleBarHeight = 36.0f;
-		constexpr float EditorTitleBarBrandHeight = 20.0f;
-		constexpr float EditorTitleBarBrandSlotWidth = 24.0f;
+		constexpr float EditorTitleBarHeight = 44.0f;
+		constexpr float EditorTitleBarBrandHeight = 22.0f;
+		constexpr float EditorTitleBarBrandSlotWidth = 30.0f;
 		constexpr float EditorCaptionButtonWidth = 46.0f;
-		constexpr float EditorTitleBarGap = 8.0f;
-		constexpr float EditorTitleBarMenuGap = 20.0f;
+		constexpr float EditorTitleBarGap = 10.0f;
+		constexpr float EditorTitleBarMenuGap = 28.0f;
+		constexpr float EditorTitleBarTitleGap = 12.0f;
 
 		auto TransitionBootstrap(
 			FBootstrapContext& Context,
@@ -557,43 +558,68 @@ namespace Durin::Editor::MainFrame
 			ImGui::SameLine(0.0f, 0.0f);
 
 			const std::string WindowTitle = RootWindow.GetTitle();
-			const float RequiredMenuWidth = bDrawWorkspaceMenus ? MonaImGui::ScaleUI(245.0f) : 0.0f;
+			const float RequiredMenuWidth = bDrawWorkspaceMenus ? MonaImGui::ScaleUI(265.0f) : 0.0f;
 			const float MenuGap = MonaImGui::ScaleUI(EditorTitleBarMenuGap);
 			const float AvailableTitleWidth = CaptionStartX - ImGui::GetCursorScreenPos().x
 				- RequiredMenuWidth - MonaImGui::ScaleUI(56.0f) - MenuGap;
 			bool bDrewTitle = false;
-			if (AvailableTitleWidth >= MonaImGui::ScaleUI(120.0f))
+			if (AvailableTitleWidth >= MonaImGui::ScaleUI(148.0f))
 			{
 				const ImVec2 TitleCursor = ImGui::GetCursorScreenPos();
 				constexpr std::string_view BrandName = "Durin";
 				const bool bHasBrandPrefix = WindowTitle.starts_with(BrandName);
-				const char* Suffix = bHasBrandPrefix ? WindowTitle.c_str() + BrandName.size() : WindowTitle.c_str();
+				std::string_view ProjectName = bHasBrandPrefix
+					? std::string_view(WindowTitle).substr(BrandName.size()) : std::string_view(WindowTitle);
+				if (ProjectName.starts_with(" - ")) ProjectName.remove_prefix(3);
+				else
+				{
+					while (!ProjectName.empty() && (ProjectName.front() == ' ' || ProjectName.front() == '-'))
+						ProjectName.remove_prefix(1);
+				}
 				ImFont* BrandFont = MonaImGui::GetMediumUIFont();
 				ImFont* BodyFont = ImGui::GetFont();
 				const float FontSize = ImGui::GetFontSize();
-				const float BrandFontSize = MonaImGui::QuantizeDynamicFontSize(FontSize * 0.9f);
+				const float BrandFontSize = MonaImGui::QuantizeDynamicFontSize(FontSize * 0.95f);
+				const float ProjectFontSize = MonaImGui::QuantizeDynamicFontSize(FontSize * 0.9f);
 				const ImVec2 TitlePosition(
 					TitleCursor.x,
 					std::round(BarMin.y + (BarMax.y - BarMin.y - FontSize) * 0.5f));
 				const float BrandBaselineOffset = BodyFont->GetFontBaked(FontSize)->Ascent
 					- BrandFont->GetFontBaked(BrandFontSize)->Ascent;
-				const float BrandWidth = bHasBrandPrefix
-					? BrandFont->CalcTextSizeA(
-						BrandFontSize, FLT_MAX, 0.0f, BrandName.data(), BrandName.data() + BrandName.size()).x
-					: 0.0f;
-				const float SuffixWidth = BodyFont->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, Suffix).x;
-				const float TitleWidth = BrandWidth + SuffixWidth;
+				const float ProjectBaselineOffset = BodyFont->GetFontBaked(FontSize)->Ascent
+					- BodyFont->GetFontBaked(ProjectFontSize)->Ascent;
+				const float BrandWidth = BrandFont->CalcTextSizeA(
+					BrandFontSize, FLT_MAX, 0.0f, BrandName.data(), BrandName.data() + BrandName.size()).x;
+				const float TitleGap = MonaImGui::ScaleUI(EditorTitleBarTitleGap);
+				const float ProjectOffset = BrandWidth + TitleGap * 2.0f + 1.0f;
+				const float ProjectWidth = ProjectName.empty() ? 0.0f : BodyFont->CalcTextSizeA(
+					ProjectFontSize, FLT_MAX, 0.0f, ProjectName.data(), ProjectName.data() + ProjectName.size()).x;
+				const float TitleWidth = ProjectName.empty() ? BrandWidth : ProjectOffset + ProjectWidth;
 				const float DrawWidth = std::min(TitleWidth, AvailableTitleWidth);
 				const ImVec4 ClipRect(
 					TitlePosition.x, BarMin.y, TitlePosition.x + DrawWidth, BarMax.y);
 				const ImU32 TitleColor = ImGui::GetColorU32(ImGuiCol_Text);
-				if (bHasBrandPrefix)
-					DrawList->AddText(
-						BrandFont, BrandFontSize, TitlePosition + ImVec2(0.0f, BrandBaselineOffset), TitleColor,
-						BrandName.data(), BrandName.data() + BrandName.size(), 0.0f, &ClipRect);
 				DrawList->AddText(
-					BodyFont, FontSize, TitlePosition + ImVec2(BrandWidth, 0.0f), TitleColor,
-					Suffix, nullptr, 0.0f, &ClipRect);
+					BrandFont, BrandFontSize, TitlePosition + ImVec2(0.0f, BrandBaselineOffset), TitleColor,
+					BrandName.data(), BrandName.data() + BrandName.size(), 0.0f, &ClipRect);
+				if (!ProjectName.empty())
+				{
+					const float SeparatorX = TitlePosition.x + BrandWidth + TitleGap;
+					if (SeparatorX < ClipRect.z)
+					{
+						const float SeparatorHalfHeight = MonaImGui::ScaleUI(8.0f);
+						const float SeparatorCenterY = std::round((BarMin.y + BarMax.y) * 0.5f);
+						DrawList->AddLine(
+							{SeparatorX, SeparatorCenterY - SeparatorHalfHeight},
+							{SeparatorX, SeparatorCenterY + SeparatorHalfHeight},
+							ImGui::GetColorU32(ImGuiCol_Separator));
+					}
+					DrawList->AddText(
+						BodyFont, ProjectFontSize,
+						TitlePosition + ImVec2(ProjectOffset, ProjectBaselineOffset),
+						ImGui::GetColorU32(ImGuiCol_TextDisabled), ProjectName.data(),
+						ProjectName.data() + ProjectName.size(), 0.0f, &ClipRect);
+				}
 				ImGui::Dummy(ImVec2(DrawWidth, 0.0f));
 				ImGui::SameLine(0.0f, 0.0f);
 				bDrewTitle = true;
@@ -656,6 +682,9 @@ namespace Durin::Editor::MainFrame
 				DrawCaptionButton(1, EWindowTitleBarHitTest::Maximize);
 				DrawCaptionButton(2, EWindowTitleBarHitTest::Close);
 			}
+			DrawList->AddLine(
+				{BarMin.x, BarMax.y - 1.0f}, {BarMax.x, BarMax.y - 1.0f},
+				ImGui::GetColorU32(ImGuiCol_Separator));
 
 			static uint64 LayoutGeneration = 1;
 			const auto ToClientX = [&](float ScreenX) { return static_cast<int32>(std::round(ScreenX - Viewport->Pos.x)); };
