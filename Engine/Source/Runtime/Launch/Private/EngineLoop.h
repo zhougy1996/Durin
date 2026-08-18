@@ -48,8 +48,6 @@ namespace Durin
 		auto GetState() const -> EEngineLoopState { return State; }
 
 	private:
-		auto FailPreInitialization() -> bool;
-		auto FailInitialization() -> bool;
 		auto TickPostEventFrame(bool bAllowMinimizedWait) -> void;
 		auto TickModalContinuation() -> void;
 
@@ -60,7 +58,6 @@ namespace Durin
 		FApplicationDiagnostics Diagnostics;
 		std::shared_ptr<MWindow> StartupWindow;
 		bool bLoggerStarted = false;
-		bool bProjectAuthoringOwnershipAcquired = false;
 		bool bTaskSchedulerStarted = false;
 		bool bGameThreadDeferredExecutorStarted = false;
 		bool bInitializationCancelled = false;

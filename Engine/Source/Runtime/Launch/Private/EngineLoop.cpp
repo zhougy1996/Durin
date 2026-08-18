@@ -86,9 +86,9 @@ namespace Durin
 			&& !AcquireProjectAuthoringOwnership(&ProjectError))
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
-			return FailPreInitialization();
+			Exit();
+			return false;
 		}
-		bProjectAuthoringOwnershipAcquired = HasCurrentProject();
 #endif
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
@@ -100,18 +100,21 @@ namespace Durin
 		if (!PathUtilities::InitDefaultMountPoints(&MountError))
 		{
 			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
-			return FailPreInitialization();
+			Exit();
+			return false;
 		}
 		if (!InitializeTaskScheduler())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
-			return FailPreInitialization();
+			Exit();
+			return false;
 		}
 		bTaskSchedulerStarted = true;
 		if (!InitializeGameThreadDeferredExecutor())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the GameThread deferred executor could not start.");
-			return FailPreInitialization();
+			Exit();
+			return false;
 		}
 		bGameThreadDeferredExecutorStarted = true;
 
@@ -121,65 +124,6 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		State = EEngineLoopState::PreInitialized;
 		return true;
-	}
-
-	auto FEngineLoop::FailPreInitialization() -> bool
-	{
-		if (bGameThreadDeferredExecutorStarted)
-		{
-			ShutdownTaskSystem(ETaskShutdownMode::Drain);
-			bGameThreadDeferredExecutorStarted = false;
-			bTaskSchedulerStarted = false;
-		}
-		else if (bTaskSchedulerStarted)
-		{
-			ShutdownTaskScheduler(false);
-			bTaskSchedulerStarted = false;
-		}
-		if (bProjectAuthoringOwnershipAcquired)
-		{
-			ReleaseProjectAuthoringOwnership();
-			bProjectAuthoringOwnershipAcquired = false;
-		}
-		State = EEngineLoopState::Exited;
-		return false;
-	}
-
-	auto FEngineLoop::FailInitialization() -> bool
-	{
-		if (FModuleManager::Get().IsModuleLoaded("Mona"))
-		{
-			const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
-			if (!MonaShutdown.Succeeded())
-				DURIN_ERROR("Mona module shutdown after initialization failure failed: {}",
-					MonaShutdown.Message);
-		}
-		if (GEngine) GEngine->PrepareForShutdown();
-		StartupWindow.reset();
-		ShutdownTaskSystem(ETaskShutdownMode::Drain);
-		bGameThreadDeferredExecutorStarted = false;
-		bTaskSchedulerStarted = false;
-		RemoveFromRoot(GEngine);
-		MarkObjectHierarchyAsGarbage(GEngine);
-		GEngine = nullptr;
-		Asset::ShutdownAssetManager();
-		ReleaseClassDefaultObjects();
-		ReleaseDStructDefaults();
-		CollectGarbage();
-		if (GRenderingThread) FlushRenderingCommands();
-		CollectGarbage();
-		const std::array DeferredModules{FName("VulkanRHI")};
-		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
-		if (GRenderingThread) ShutdownRenderingThread();
-		if (GDynamicRHI) RHIExit();
-		ShutdownApplicationCore();
-		if (bProjectAuthoringOwnershipAcquired)
-		{
-			ReleaseProjectAuthoringOwnership();
-			bProjectAuthoringOwnershipAcquired = false;
-		}
-		State = EEngineLoopState::Exited;
-		return false;
 	}
 
 	auto FEngineLoop::Init() -> bool
@@ -197,23 +141,15 @@ namespace Durin
 		if (!InitializeApplicationCore())
 		{
 			DURIN_ERROR("Engine initialization stopped because ApplicationCore could not start.");
-			RemoveFromRoot(GEngine);
-			MarkObjectHierarchyAsGarbage(GEngine);
-			GEngine = nullptr;
-			CollectGarbage();
-			if (bProjectAuthoringOwnershipAcquired)
-			{
-				ReleaseProjectAuthoringOwnership();
-				bProjectAuthoringOwnershipAcquired = false;
-			}
-			State = EEngineLoopState::Exited;
+			Exit();
 			return false;
 		}
 
 		if (!FModuleManager::Get().LoadModule("Mona"))
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona platform services could not start.");
-			return FailInitialization();
+			Exit();
+			return false;
 		}
 		StartupWindow = std::make_shared<MWindow>();
 #if DURIN_WITH_EDITOR
@@ -233,7 +169,8 @@ namespace Durin
 			|| !StartupNativeWindow->GetOSNativeWindowHandle())
 		{
 			DURIN_ERROR("Engine initialization stopped because the primary native window could not be created.");
-			return FailInitialization();
+			Exit();
+			return false;
 		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
@@ -241,7 +178,8 @@ namespace Durin
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
-				return FailInitialization();
+				Exit();
+				return false;
 			}
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RHIReady);
@@ -251,7 +189,8 @@ namespace Durin
 		if (!Mona::InitializeRendering())
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona rendering services could not start.");
-			return FailInitialization();
+			Exit();
+			return false;
 		}
 
 		FEngineInitContext EngineInitContext;
@@ -282,7 +221,8 @@ namespace Durin
 					? "Engine initialization was cancelled." : EngineInitResult.Message);
 			else
 				DURIN_ERROR("Engine initialization failed: {}", EngineInitResult.Message);
-			return FailInitialization();
+			Exit();
+			return false;
 		}
 		LastTickTime = FTime::Seconds();
 
@@ -369,71 +309,115 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		if (State == EEngineLoopState::Exited || State == EEngineLoopState::Uninitialized) return;
-		if (State != EEngineLoopState::Running)
-		{
-			FailPreInitialization();
-			return;
-		}
+		if (State == EEngineLoopState::Exited || State == EEngineLoopState::Uninitialized
+			|| State == EEngineLoopState::ShuttingDown) return;
+		const bool bWasRunning = State == EEngineLoopState::Running;
 		SetModalLoopTickCallback(nullptr);
 		GModalLoopFrameOwner = nullptr;
 		FrameState = EInteractiveFrameState::ShuttingDown;
 		State = EEngineLoopState::ShuttingDown;
-		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
-		Diagnostics.BeginConsumerDetachment();
-
-		const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
-		if (!MonaShutdown.Succeeded())
+		if (bWasRunning)
 		{
-			DURIN_ERROR(STR("Mona module shutdown failed: {}"), MonaShutdown.Message);
+			SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
+			Diagnostics.BeginConsumerDetachment();
 		}
 
-		Diagnostics.BeforeAssetServiceShutdown();
-		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
-		GEngine->PrepareForShutdown();
-		SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
-		ShutdownTaskSystem(ETaskShutdownMode::Drain);
-		Diagnostics.AfterTaskSystemShutdown();
+		if (FModuleManager::Get().IsModuleLoaded("Mona"))
+		{
+			const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
+			if (!MonaShutdown.Succeeded())
+			{
+				DURIN_ERROR(STR("Mona module shutdown failed: {}"), MonaShutdown.Message);
+			}
+		}
 
-		RemoveFromRoot(GEngine);
-		MarkObjectHierarchyAsGarbage(GEngine);
-		GEngine = nullptr;
+		if (bWasRunning)
+		{
+			Diagnostics.BeforeAssetServiceShutdown();
+			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
+		}
+		if (GEngine) GEngine->PrepareForShutdown();
+		if (bGameThreadDeferredExecutorStarted)
+		{
+			SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
+			bGameThreadDeferredExecutorStarted = false;
+			bTaskSchedulerStarted = false;
+			if (bWasRunning) Diagnostics.AfterTaskSystemShutdown();
+		}
+		else if (bTaskSchedulerStarted)
+		{
+			ShutdownTaskScheduler(false);
+			bTaskSchedulerStarted = false;
+		}
+
+		if (GEngine)
+		{
+			RemoveFromRoot(GEngine);
+			MarkObjectHierarchyAsGarbage(GEngine);
+			GEngine = nullptr;
+		}
 		StartupWindow.reset();
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
-		SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
-		Asset::ShutdownAssetManager();
-		ReleaseClassDefaultObjects();
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ClassDefaultsReleased);
-		ReleaseDStructDefaults();
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
-		SetProcessCrashPhase(EProcessCrashPhase::ObjectCollection);
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
-		Diagnostics.AtObjectCollection();
-		CollectGarbage();
+		if (IsDObjectInitialized())
+		{
+			if (bWasRunning)
+			{
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
+				SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
+			}
+			Asset::ShutdownAssetManager();
+			ReleaseClassDefaultObjects();
+			if (bWasRunning)
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ClassDefaultsReleased);
+			ReleaseDStructDefaults();
+			if (bWasRunning)
+			{
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
+				SetProcessCrashPhase(EProcessCrashPhase::ObjectCollection);
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
+				Diagnostics.AtObjectCollection();
+			}
+			CollectGarbage();
 
+			if (GRenderingThread)
+			{
+				FlushRenderingCommands();
+				if (bWasRunning)
+					AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::RenderingCommandsFlushed);
+			}
+			if (bWasRunning)
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::SecondObjectCollection);
+			CollectGarbage();
+			if (bWasRunning)
+			{
+				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
+				CheckNoDeferredDestroyObjects("shutdown object destruction");
+				SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
+			}
+			const std::array DeferredModules{FName("VulkanRHI")};
+			FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
+		}
+		if (bWasRunning) AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
 		if (GRenderingThread)
 		{
-			FlushRenderingCommands();
-			AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::RenderingCommandsFlushed);
+			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);
+			ShutdownRenderingThread();
 		}
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::SecondObjectCollection);
-		CollectGarbage();
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
-		CheckNoDeferredDestroyObjects("shutdown object destruction");
-		SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
-		const std::array DeferredModules{FName("VulkanRHI")};
-		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
-		SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);
-		ShutdownRenderingThread();
-		SetProcessCrashPhase(EProcessCrashPhase::RHIShutdown);
-		RHIExit();
+		if (GDynamicRHI)
+		{
+			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::RHIShutdown);
+			RHIExit();
+		}
 
-		SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
-		ShutdownApplicationCore();
-		if (bProjectAuthoringOwnershipAcquired) ReleaseProjectAuthoringOwnership();
-		bProjectAuthoringOwnershipAcquired = false;
-		DURIN_INFO(STR("Durin Engine exited."));
+		if (IsApplicationCoreInitialized())
+		{
+			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
+			ShutdownApplicationCore();
+		}
+#if DURIN_WITH_EDITOR
+		ReleaseProjectAuthoringOwnership();
+#endif
+		if (bWasRunning) DURIN_INFO(STR("Durin Engine exited."));
 		State = EEngineLoopState::Exited;
 	}
 } // namespace Durin

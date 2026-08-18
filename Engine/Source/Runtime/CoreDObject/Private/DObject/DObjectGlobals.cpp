@@ -19,6 +19,8 @@ namespace Durin
 {
 	namespace
 	{
+		std::atomic_bool GDObjectInitialized = false;
+
 		auto GetGeneratedPropertyOwnerName(const FFieldVariant& Owner) -> std::string
 		{
 			if (DObject* Object = Owner.ToDObject()) return Object->GetName();
@@ -479,6 +481,12 @@ namespace Durin
 		GCSettings.PendingKillThreshold = GCConfig.GetView("PendingKillThreshold").GetUInt(128);
 		GCSettings.ObjectGrowthThreshold = GCConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
 		ConfigureAutomaticGarbageCollection(GCSettings, FTime::Seconds());
+		GDObjectInitialized.store(true, std::memory_order_release);
+	}
+
+	auto IsDObjectInitialized() -> bool
+	{
+		return GDObjectInitialized.load(std::memory_order_acquire);
 	}
 
 	auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*

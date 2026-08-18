@@ -67,6 +67,8 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto DObjectInit() -> void;
+	// Returns whether process-wide DObject initialization has completed.
+	COREDOBJECT_API auto IsDObjectInitialized() -> bool;
 
 	COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
