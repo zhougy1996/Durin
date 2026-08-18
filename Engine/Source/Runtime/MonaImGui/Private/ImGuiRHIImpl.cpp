@@ -176,7 +176,7 @@ namespace Durin::MonaImGui
 			return;
 		}
 
-		ViewportData.ViewportRHI = Renderer->GetRHIViewport(*Window);
+		ViewportData.ViewportRHI = Renderer->PrepareViewportForDraw(*Window);
 		if (ViewportData.ViewportRHI == nullptr)
 		{
 			return;

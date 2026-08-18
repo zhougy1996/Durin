@@ -192,9 +192,11 @@ namespace Durin::VulkanRHI
 		}
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
-		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
 		std::vector<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface);
 		std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface);
+		// Query the size-sensitive capabilities last so the selected extent is as
+		// close as possible to native swapchain creation.
+		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
 
 		FVulkanSwapchainConfiguration Configuration;
 		std::string SelectionError;

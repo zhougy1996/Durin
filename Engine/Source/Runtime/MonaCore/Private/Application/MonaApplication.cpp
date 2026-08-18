@@ -316,8 +316,6 @@ namespace Durin::Mona
 				Window->Draw();
 			}
 		}
-
-		if (Renderer) Renderer->RenderViewports();
 	}
 
 	auto FMonaApplication::FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>

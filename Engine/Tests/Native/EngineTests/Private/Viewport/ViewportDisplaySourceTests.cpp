@@ -2,6 +2,7 @@
 
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
+#include "Rendering/MonaRHIRenderer.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MViewport.h"
 
@@ -85,6 +86,31 @@ namespace
 			Durin::Mona::GActiveUIBackend = nullptr;
 		}
 	};
+}
+
+TEST(FViewportDisplaySourceTests, CoalescesWindowResizeRequestsUntilPrepared)
+{
+	Durin::Mona::FMonaViewportInfo ViewportInfo;
+	ViewportInfo.SubmittedExtent = {640, 480};
+
+	ViewportInfo.QueueResize({640, 480});
+	EXPECT_FALSE(ViewportInfo.PendingExtent.has_value());
+
+	ViewportInfo.QueueResize({800, 600});
+	ViewportInfo.QueueResize({1024, 768});
+	ASSERT_TRUE(ViewportInfo.PendingExtent.has_value());
+	EXPECT_EQ(*ViewportInfo.PendingExtent, Durin::FIntPoint(1024, 768));
+
+	const std::optional<Durin::FIntPoint> PendingExtent =
+		ViewportInfo.TakePendingResize();
+	ASSERT_TRUE(PendingExtent.has_value());
+	EXPECT_EQ(*PendingExtent, Durin::FIntPoint(1024, 768));
+	EXPECT_FALSE(ViewportInfo.PendingExtent.has_value());
+	EXPECT_EQ(ViewportInfo.SubmittedExtent, Durin::FIntPoint(640, 480));
+
+	ViewportInfo.SubmittedExtent = *PendingExtent;
+	ViewportInfo.QueueResize({1024, 768});
+	EXPECT_FALSE(ViewportInfo.PendingExtent.has_value());
 }
 
 TEST(FViewportDisplaySourceTests, PublishesSizeBeforeReadingTextureAndDoesNotRetainSource)

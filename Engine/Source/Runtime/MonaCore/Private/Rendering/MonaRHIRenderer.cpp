@@ -85,8 +85,7 @@ namespace Durin::Mona
 			bAdoptInitializationPresentationCandidate = false;
 		}
 		ViewportInfo->bFullScreen = bFullScreen;
-		ViewportInfo->CurrentWidth = Width;
-		ViewportInfo->CurrentHeight = Height;
+		ViewportInfo->SubmittedExtent = {Width, Height};
 		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
 	}
 
@@ -103,19 +102,11 @@ namespace Durin::Mona
 			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
 			const uint32 ClampedWidth = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Width)));
 			const uint32 ClampedHeight = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Height)));
-			if (ViewportInfo->CurrentWidth == ClampedWidth && ViewportInfo->CurrentHeight == ClampedHeight)
-			{
-				return;
-			}
-
-			ViewportInfo->PendingResizeWidth = ClampedWidth;
-			ViewportInfo->PendingResizeHeight = ClampedHeight;
-			ViewportInfo->bResizeRequested = true;
+			const FIntPoint RequestedExtent{
+				static_cast<int32>(ClampedWidth),
+				static_cast<int32>(ClampedHeight)};
+			ViewportInfo->QueueResize(RequestedExtent);
 		}
-	}
-
-	auto FMonaRHIRenderer::RenderViewports() -> void
-	{
 	}
 
 	auto FMonaRHIRenderer::OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void
@@ -128,23 +119,21 @@ namespace Durin::Mona
 		}
 	}
 
-	auto FMonaRHIRenderer::GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>
+	auto FMonaRHIRenderer::PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport>
 	{
 		const auto ViewportInfoIt = WindowToViewportInfoMap.find(&Window);
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())
 		{
 			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
-			if (ViewportInfo->bResizeRequested)
+			if (const std::optional<FIntPoint> PendingExtent = ViewportInfo->TakePendingResize())
 			{
-				ViewportInfo->bResizeRequested = false;
 				GDynamicRHI->RHIResizeViewport(
 					ViewportInfo->ViewportRHI.GetReference(),
-					ViewportInfo->PendingResizeWidth,
-					ViewportInfo->PendingResizeHeight,
+					static_cast<uint32>(PendingExtent->x),
+					static_cast<uint32>(PendingExtent->y),
 					ViewportInfo->bFullScreen
 				);
-				ViewportInfo->CurrentWidth = ViewportInfo->PendingResizeWidth;
-				ViewportInfo->CurrentHeight = ViewportInfo->PendingResizeHeight;
+				ViewportInfo->SubmittedExtent = *PendingExtent;
 			}
 			return ViewportInfo->ViewportRHI;
 		}

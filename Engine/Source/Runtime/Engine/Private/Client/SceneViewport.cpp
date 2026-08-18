@@ -56,7 +56,7 @@ namespace Durin
 
 			if (Mona::FMonaRenderer* Renderer = Mona::FMonaApplication::Get().GetRenderer())
 			{
-				ViewportRHI = Renderer->GetRHIViewport(*WindowPtr);
+				ViewportRHI = Renderer->PrepareViewportForDraw(*WindowPtr);
 			}
 			return;
 		}

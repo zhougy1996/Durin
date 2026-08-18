@@ -81,6 +81,19 @@ to the rendering thread.
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.
 
+Window resize follows a request/prepare boundary. Platform framebuffer callbacks
+overwrite the window's latest pending extent without enqueueing RHI work. Immediately
+before a scene or ImGui window submits its draw, `PrepareViewportForDraw()` consumes
+that extent and queues `RHIResizeViewport()` ahead of the draw and present commands.
+An accessor never resizes a viewport, and intermediate native sizes do not accumulate
+as render commands.
+
+On Windows, the native move/resize modal loop continues to request engine frames on
+its timer. Each modal continuation drains its render and RHI work before returning to
+the window procedure, so the operating system cannot advance the surface extent while
+Vulkan is still creating the swapchain for the current callback. Ordinary frames keep
+the normal pipelined end-of-frame synchronization.
+
 `FSceneViewport` exposes unambiguous Engine-owned factories:
 
 - `CreateWindowBacked(FViewportClient*, std::shared_ptr<MWindow>)` creates a native-window viewport.

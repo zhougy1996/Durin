@@ -308,7 +308,12 @@ namespace Durin
 		TryRunModalContinuationFrame(
 			FrameState,
 			State == EEngineLoopState::Running && !GIsRequestingExit,
-			[this]() { TickPostEventFrame(false); });
+			[this]() {
+				TickPostEventFrame(false);
+				// Keep resize and draw commands inside the current native callback.
+				// Windows cannot advance the surface extent until this callback returns.
+				FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
+			});
 	}
 
 	auto FEngineLoop::Exit() -> void
