@@ -80,6 +80,10 @@ namespace Durin::Editor::Level
 		auto NavigateHistory(int32 Delta) -> void;
 		auto RefreshMountSnapshot() -> void;
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
+		auto QueueTreeAction(std::function<void()> Action) -> void;
+		auto QueueContentAction(std::function<void()> Action) -> void;
+		auto ExecuteTreeAction() -> void;
+		auto ExecuteContentAction() -> void;
 
 		auto DrawToolbar() -> void;
 		auto DrawDirectoryTree() -> void;
@@ -157,6 +161,7 @@ namespace Durin::Editor::Level
 		bool bDeletionPlanRefreshed = false;
 		bool bRefreshItemsOnFirstDraw = true;
 		FContentDeletionPlanPtr PendingDeletionPlan;
+		std::function<void()> DeferredTreeAction;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::string WarningMessage;

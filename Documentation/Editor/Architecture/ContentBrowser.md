@@ -38,6 +38,20 @@ progress. An unreadable entry is skipped without truncating later siblings;
 traversal failures stop safely and appear as bounded warnings in the status bar.
 Reparse points are never followed while building the snapshot or directory tree.
 
+### Directory Tree Snapshots
+
+Directory drawing queues missing child snapshots without performing filesystem
+enumeration. The model publishes those requests before a later frame draws either
+browser pane. A published child vector remains alive and unchanged for the complete
+recursive tree traversal, so nodes may retain non-owning spans into it. Inserting a
+distinct cache entry is allowed because map growth does not invalidate existing element
+references; clearing, erasing, replacing, or mutating an observed entry is not.
+
+Tree navigation and directory context actions commit after recursive tree drawing and
+before the content pane, preserving same-frame navigation without invalidating ancestor
+spans. Filesystem mutations delivered by drag and drop commit after both panes finish
+using their frame snapshots.
+
 ## Hidden Content
 
 Any item beneath a path component whose name starts with `.` is hidden by

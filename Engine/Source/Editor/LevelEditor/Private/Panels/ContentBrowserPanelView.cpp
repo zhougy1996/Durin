@@ -130,6 +130,36 @@ namespace Durin::Editor::Level
 		Model.RefreshRequestedDirectoryChildrenSnapshots();
 	}
 
+	auto FContentBrowserPanel::QueueTreeAction(std::function<void()> Action) -> void
+	{
+		check(!DeferredTreeAction);
+		if (DeferredTreeAction) return;
+		DeferredTreeAction = std::move(Action);
+	}
+
+	auto FContentBrowserPanel::QueueContentAction(std::function<void()> Action) -> void
+	{
+		check(!DeferredContentAction);
+		if (DeferredContentAction) return;
+		DeferredContentAction = std::move(Action);
+	}
+
+	auto FContentBrowserPanel::ExecuteTreeAction() -> void
+	{
+		if (!DeferredTreeAction) return;
+		auto Action = std::move(DeferredTreeAction);
+		DeferredTreeAction = {};
+		Action();
+	}
+
+	auto FContentBrowserPanel::ExecuteContentAction() -> void
+	{
+		if (!DeferredContentAction) return;
+		auto Action = std::move(DeferredContentAction);
+		DeferredContentAction = {};
+		Action();
+	}
+
 	auto FContentBrowserPanel::DrawContents() -> void
 	{
 		DrawToolbar();
@@ -143,6 +173,7 @@ namespace Durin::Editor::Level
 		const float ContentHeight = std::max(MonaImGui::ScaleUI(MinimumContentHeight), ImGui::GetContentRegionAvail().y);
 		if (ImGui::BeginChild("ContentBrowserTree", ImVec2(TreeWidth, ContentHeight), ImGuiChildFlags_Borders)) DrawDirectoryTree();
 		ImGui::EndChild();
+		ExecuteTreeAction();
 		ImGui::SameLine();
 		MonaImGui::DrawSplitter("ContentBrowserSplitter", MonaImGui::EUISplitterAxis::X, ContentHeight, AvailableWidth, ScaledMinimumTreeWidth, ScaledMinimumContentWidth, DirectoryTreeWidth);
 		ImGui::SameLine();
@@ -150,12 +181,7 @@ namespace Durin::Editor::Level
 		ImGui::EndChild();
 		// Context-menu actions can rebuild items, so execute them only after both browser panes
 		// have finished traversing their current frame snapshots.
-		if (DeferredContentAction)
-		{
-			auto Action = std::move(DeferredContentAction);
-			DeferredContentAction = {};
-			Action();
-		}
+		ExecuteContentAction();
 		DrawDialogs();
 
 		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, Model.IsShowingHiddenFiles(), Model.GetCurrentPhysicalPath());
@@ -343,11 +369,10 @@ namespace Durin::Editor::Level
 			Model.HasDirectoryChildrenSnapshot(Physical);
 		if (!bHasChildrenSnapshot)
 			Model.RequestDirectoryChildrenSnapshot(Physical);
-		// Drawing a descendant can navigate and clear the model cache, so keep this node's traversal independent.
-		const std::span<const std::filesystem::path> CachedChildren =
+		// Tree actions cannot clear or mutate observed entries until traversal ends;
+		// inserting distinct cache entries does not invalidate this span.
+		const std::span<const std::filesystem::path> Children =
 			Model.GetDirectoryChildren(Physical);
-		const std::vector<std::filesystem::path> Children(
-			CachedChildren.begin(), CachedChildren.end());
 		const bool bHasChildren = !bHasChildrenSnapshot
 			|| std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -356,7 +381,8 @@ namespace Durin::Editor::Level
 		if (bMountRoot) Flags |= ImGuiTreeNodeFlags_DefaultOpen;
 		const std::string NodeLabel = std::format("{} {}##{}", Model.GetCurrentPhysicalPath() == Physical ? Icons::FolderOpen : Icons::Folder, Label, Physical);
 		const bool bOpen = ImGui::TreeNodeEx(NodeLabel.c_str(), Flags);
-		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) NavigateToPhysical(Physical);
+		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+			QueueTreeAction([this, Physical] { NavigateToPhysical(Physical); });
 		AcceptAssetDrop(Physical, true);
 		if (ImGui::BeginPopupContextItem())
 		{
@@ -602,7 +628,7 @@ namespace Durin::Editor::Level
 					bContentItemHovered |= bHovered;
 					if (ImGui::IsItemClicked()) SelectItem(Index);
 					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-						DeferredContentAction = [this, Item] { OpenItem(Item); };
+						QueueContentAction([this, Item] { OpenItem(Item); });
 					BeginAssetDragDrop(Item);
 					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 					if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
@@ -748,7 +774,7 @@ namespace Durin::Editor::Level
 				if (ImGui::IsItemClicked()) SelectItem(Index);
 				if (ImGui::IsItemHovered()
 					&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					DeferredContentAction = [this, Item] { OpenItem(Item); };
+					QueueContentAction([this, Item] { OpenItem(Item); });
 				BeginAssetDragDrop(Item);
 				if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 				if (ImGui::BeginPopupContextItem("ItemContext"))
@@ -782,7 +808,7 @@ namespace Durin::Editor::Level
 			: Item.Kind == EContentBrowserItemKind::Redirector
 				? "Open Destination"
 				: "Open"))
-			DeferredContentAction = [this, Item] { OpenItem(Item); };
+			QueueContentAction([this, Item] { OpenItem(Item); });
 		bool bManagedByRecord = false;
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
@@ -792,12 +818,12 @@ namespace Durin::Editor::Level
 				DPackage* LoadedPackage = Asset::FindResidentPackage(PackagePath);
 				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
-					DeferredContentAction = [this, PackagePath] { SaveAssetPackage(PackagePath); };
+					QueueContentAction([this, PackagePath] { SaveAssetPackage(PackagePath); });
 				if (!bCanSave && ImGui::IsItemHovered())
 					ImGui::SetTooltip("Available only for a loaded package with authored changes.");
 				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
 					? "Resave Package (recommended)" : "Resave Package"))
-					DeferredContentAction = [this, PackagePath] { ResaveAssetPackages({PackagePath}); };
+					QueueContentAction([this, PackagePath] { ResaveAssetPackages({PackagePath}); });
 				if (Selection.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
 				{
 					std::vector<FAssetPath> SelectedPaths;
@@ -809,9 +835,9 @@ namespace Durin::Editor::Level
 							if (FAssetPath::TryCreate(SelectedItem.VirtualPath, SelectedPath))
 								SelectedPaths.push_back(std::move(SelectedPath));
 						}
-					DeferredContentAction = [this, Paths = std::move(SelectedPaths)]() mutable {
+					QueueContentAction([this, Paths = std::move(SelectedPaths)]() mutable {
 						ResaveAssetPackages(std::move(Paths));
-					};
+					});
 				}
 				ImGui::Separator();
 			}
@@ -830,13 +856,13 @@ namespace Durin::Editor::Level
 			{
 				bManagedByRecord = Inspection.SelectedOutputPath.IsValid();
 				if (bManagedByRecord && ImGui::MenuItem("Reveal Import Record"))
-					DeferredContentAction = [this, Path = Inspection.RecordPath.ToString()] {
+					QueueContentAction([this, Path = Inspection.RecordPath.ToString()] {
 						RevealAsset(Path);
-					};
+					});
 				if (ImGui::MenuItem("Resave Import Record"))
-					DeferredContentAction = [this, Path = Inspection.RecordPath] {
+					QueueContentAction([this, Path = Inspection.RecordPath] {
 						ResaveAssetPackages({Path});
-					};
+					});
 				if (ImGui::BeginMenu("Reveal Managed Output"))
 				{
 					for (const Asset::Import::FImportRecordManagement& Output : Inspection.Outputs)
@@ -846,9 +872,9 @@ namespace Durin::Editor::Level
 							&Asset::Import::FImportRecordOutput::StableIdentity);
 						if (Recorded != Inspection.Record->GetOutputs().end()
 							&& ImGui::MenuItem(Recorded->AssetPath.GetAssetName().data()))
-							DeferredContentAction = [this, Path = Recorded->AssetPath.ToString()] {
+							QueueContentAction([this, Path = Recorded->AssetPath.ToString()] {
 								RevealAsset(Path);
-							};
+							});
 					}
 					ImGui::EndMenu();
 				}
@@ -863,7 +889,7 @@ namespace Durin::Editor::Level
 					const Asset::Import::FImportRecordCapability* Capability = Capabilities.Find(Action);
 					if (!Capability) continue;
 					if (ImGui::MenuItem(Capability->Label.c_str(), nullptr, false, Capability->bAvailable))
-						DeferredContentAction = [this, Item, Action] { ReimportAsset(Item, Action); };
+						QueueContentAction([this, Item, Action] { ReimportAsset(Item, Action); });
 					if (!Capability->bAvailable && ImGui::IsItemHovered()
 						&& !Capability->Diagnostics.empty())
 						ImGui::SetTooltip("%s", Capability->Diagnostics.back().Message.c_str());
@@ -875,7 +901,7 @@ namespace Durin::Editor::Level
 							return Output.AssetPath == Inspection.SelectedOutputPath;
 						});
 					if (Managed != Inspection.Record->GetOutputs().end())
-						DeferredContentAction = [this,
+						QueueContentAction([this,
 							RecordPath = Inspection.RecordPath,
 							Identity = Managed->StableIdentity] {
 							Asset::Import::DImportRecord* Record = nullptr;
@@ -887,10 +913,10 @@ namespace Durin::Editor::Level
 							if (!Result) { SetError(Result.Message); return; }
 							PublishMountedContentMutation();
 							RevealAsset(Result.RevealPath.ToString());
-						};
+						});
 				}
 				if (Inspection.bConflicted && ImGui::MenuItem("Repair Record Identity"))
-					DeferredContentAction = [this, RecordPath = Inspection.RecordPath] {
+					QueueContentAction([this, RecordPath = Inspection.RecordPath] {
 						Asset::Import::DImportRecord* Record = nullptr;
 						const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
 						if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
@@ -900,7 +926,7 @@ namespace Durin::Editor::Level
 						if (!Result) { SetError(Result.Message); return; }
 						PublishMountedContentMutation();
 						RevealAsset(Result.RevealPath.ToString());
-					};
+					});
 				ImGui::Separator();
 			}
 		}
@@ -925,9 +951,9 @@ namespace Durin::Editor::Level
 			if (ImGui::MenuItem(
 				bCanSingleReimport ? ReimportCapability->Label.c_str() : "Reimport from Current Source",
 				nullptr, false, bCanSingleReimport))
-				DeferredContentAction = [this, Item] {
+				QueueContentAction([this, Item] {
 					ReimportAsset(Item, Asset::Import::EImportRecordAction::Reimport);
-				};
+				});
 			if (ReimportCapability && ImGui::IsItemHovered())
 				ImGui::SetTooltip("%s", ReimportCapability->ReplacedStateDescription.c_str());
 			if (!bCanSingleReimport && ReimportCapability && ImGui::IsItemHovered()
@@ -936,18 +962,18 @@ namespace Durin::Editor::Level
 			if (Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
 				&& !bCanSingleReimport
 				&& ImGui::MenuItem("Reimport Legacy Scene and Recreate Missing Outputs"))
-				DeferredContentAction = [this, Item] {
+				QueueContentAction([this, Item] {
 					ReimportAsset(Item, Asset::Import::EImportRecordAction::RecreateMissingOutputs);
-				};
+				});
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))
 			{
 				for (const FAssetPath& Orphan : LastReimportOrphans)
 				{
 					if (ImGui::MenuItem(Orphan.GetAssetName().data()))
-						DeferredContentAction = [this, Path = Orphan.ToString()] {
+						QueueContentAction([this, Path = Orphan.ToString()] {
 							RevealAsset(Path);
-						};
+						});
 				}
 				ImGui::EndMenu();
 			}
@@ -988,10 +1014,10 @@ namespace Durin::Editor::Level
 				{
 					for (const FAssetPath& Referencer : Referencers)
 						if (ImGui::MenuItem(Referencer.ToString().c_str()))
-							DeferredContentAction =
+							QueueContentAction(
 								[this, Referencer] {
 									RevealAsset(Referencer.ToString());
-								};
+								});
 					ImGui::EndMenu();
 				}
 			}
@@ -999,14 +1025,14 @@ namespace Durin::Editor::Level
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 		{
 			if (ImGui::MenuItem("Reveal Destination"))
-				DeferredContentAction = [this, Destination = Item.RedirectDestination] {
+				QueueContentAction([this, Destination = Item.RedirectDestination] {
 					RevealAsset(Destination.ToString());
-				};
+				});
 			if (ImGui::MenuItem(
 				Selection.size() > 1
 					? "Fix Up Selected Redirectors"
 					: "Fix Up Redirector"))
-				DeferredContentAction = [this, Item] { FixUpRedirector(Item); };
+				QueueContentAction([this, Item] { FixUpRedirector(Item); });
 			ImGui::Separator();
 		}
 		if (ImGui::MenuItem(
@@ -1029,29 +1055,29 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void
 	{
 		if (ImGui::MenuItem("New Folder", "Ctrl+Shift+N"))
-			DeferredContentAction = [this, Directory = std::string(PhysicalDirectory)] { CreateFolder(Directory); };
+			QueueContentAction([this, Directory = std::string(PhysicalDirectory)] { CreateFolder(Directory); });
 		ImGui::SeparatorText("Assets");
 		if (ImGui::MenuItem("Level"))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateLevelAsset(Directory); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { CreateLevelAsset(Directory); });
 		if (ImGui::MenuItem("Material"))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, false); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, false); });
 		if (ImGui::MenuItem("Material Instance"))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, true); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, true); });
 	}
 
 	auto FContentBrowserPanel::DrawImportMenu(std::string_view VirtualDirectory) -> void
 	{
 		ImGui::BeginDisabled(!RequestImport);
 		if (ImGui::MenuItem("Texture..."))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); });
 		if (ImGui::MenuItem("Texture Cube..."))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TextureCube); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TextureCube); });
 		if (ImGui::MenuItem("Terrain Heightmap..."))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TerrainHeightmap); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TerrainHeightmap); });
 		if (ImGui::MenuItem("Static Mesh (Geometry Only)..."))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::StaticMesh); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::StaticMesh); });
 		if (ImGui::MenuItem("Scene Source (FBX/glTF)..."))
-			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Scene); };
+			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Scene); });
 		ImGui::EndDisabled();
 	}
 
@@ -1059,7 +1085,10 @@ namespace Durin::Editor::Level
 	{
 		const std::string VirtualDirectory = PhysicalToVirtualDirectory(PhysicalDirectory);
 		const bool bIsCurrent = NormalizePath(PhysicalDirectory) == Model.GetCurrentPhysicalPath();
-		if (ImGui::MenuItem("Open Folder", nullptr, false, !bIsCurrent)) NavigateToPhysical(PhysicalDirectory);
+		if (ImGui::MenuItem("Open Folder", nullptr, false, !bIsCurrent))
+			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
+				NavigateToPhysical(Directory);
+			});
 		if (ImGui::BeginMenu("Create", !VirtualDirectory.empty()))
 		{
 			DrawCreateMenu(PhysicalDirectory, VirtualDirectory);
@@ -1073,19 +1102,25 @@ namespace Durin::Editor::Level
 		ImGui::Separator();
 		ImGui::BeginDisabled(bMountRoot);
 		if (ImGui::MenuItem("Rename", "F2"))
-			if (const FContentBrowserItem* Item = FocusFolderInParent(PhysicalDirectory)) BeginRename(*Item);
+			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
+				if (const FContentBrowserItem* Item = FocusFolderInParent(Directory))
+					BeginRename(*Item);
+			});
 		if (ImGui::MenuItem("Delete", "Delete"))
-			if (FocusFolderInParent(PhysicalDirectory)) RequestDeleteSelection();
+			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
+				if (FocusFolderInParent(Directory)) RequestDeleteSelection();
+			});
 		ImGui::EndDisabled();
 		ImGui::Separator();
 		if (!VirtualDirectory.empty() && ImGui::MenuItem("Copy Virtual Path")) CopyToClipboard(VirtualDirectory);
 		if (!VirtualDirectory.empty() && ImGui::MenuItem("Fix Up Redirectors in Folder"))
-			DeferredContentAction = [this, VirtualDirectory] {
+			QueueContentAction([this, VirtualDirectory] {
 				FixUpFolder(VirtualDirectory);
-			};
+			});
 		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(PhysicalDirectory);
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(PhysicalDirectory);
-		if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
+		if (ImGui::MenuItem("Refresh", "F5"))
+			QueueTreeAction([this] { Refresh(true); });
 	}
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
@@ -1119,11 +1154,13 @@ namespace Durin::Editor::Level
 				if (FAssetPath::TryCreate(Destination + std::string(OldPath.GetAssetName()), NewPath) && NewPath != OldPath)
 				{
 					const FEditorAssetMove Move{OldPath, NewPath};
-					const Asset::FAssetResult Result = Operations.Move(std::span{&Move, 1});
-					if (!Result)
-						SetError(Result.Message);
-					else
-						PublishMountedContentMutation();
+					QueueContentAction([this, Move] {
+						const Asset::FAssetResult Result = Operations.Move(std::span{&Move, 1});
+						if (!Result)
+							SetError(Result.Message);
+						else
+							PublishMountedContentMutation();
+					});
 				}
 			}
 		}
@@ -1169,12 +1206,12 @@ namespace Durin::Editor::Level
 			ImGui::Separator();
 			if (!Model.GetCurrentVirtualPath().empty()
 				&& ImGui::MenuItem("Fix Up Redirectors in Folder"))
-				DeferredContentAction = [this,
+				QueueContentAction([this,
 					Directory = Model.GetCurrentVirtualPath()] {
 					FixUpFolder(Directory);
-				};
+				});
 			if (ImGui::MenuItem("Fix Up All Redirectors"))
-				DeferredContentAction = [this] { FixUpProject(); };
+				QueueContentAction([this] { FixUpProject(); });
 			ImGui::Separator();
 			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Model.GetCurrentPhysicalPath());

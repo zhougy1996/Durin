@@ -4,8 +4,8 @@ Summary: Keep published directory-cache entries stable during tree drawing so ca
 
 Last reviewed: 2026-08-19
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-19
 
 ## Current Status
 
@@ -20,7 +20,40 @@ The remaining violation is that tree interactions execute side effects immediate
 Node navigation, directory context actions, and delivered drag-and-drop operations can
 refresh content and clear `DirectoryChildrenCache` while `DrawDirectoryNode()` or one
 of its ancestors still holds a span into the cache. The view therefore copies every
-node's cached child vector before drawing it. Implementation has not started.
+node's cached child vector before drawing it.
+
+Stage 0 is complete. The invalidating paths are node navigation; directory context
+open, rename, delete, and refresh; and delivered drag-and-drop moves followed by mounted
+content publication. Create, import, and redirector fix-up already use the post-pane
+content action. Directory snapshot refresh and mount synchronization run in
+`PrepareForDraw()` before either pane. The selected deterministic baseline fixture is a
+16-level expanded chain whose root also has 64 leaf siblings and whose remaining chain
+nodes each have 8 leaf siblings. Once warm, the current defensive copy performs 16
+child-vector storage allocations and 200 cached path copies per frame.
+
+Stage 1 is complete. Tree click navigation and directory context open, rename, delete,
+and refresh now commit after the tree child window ends and before the content pane.
+Delivered drag-and-drop moves commit through the post-pane content phase. Named queue
+helpers preserve the first action and diagnose a second action without overwriting it.
+All content action sites now use the same helper. The focused `LevelEditor` build passes.
+
+Stage 2 is complete. `DrawDirectoryNode()` now uses one cached span for leaf detection
+and recursive iteration. A focused regression publishes 256 distinct directory entries
+while retaining an existing span and verifies that its address and values remain stable.
+The configured registry maps these model tests to `EditorAssetWorkflowTests`; the new
+case and focused `LevelEditor` build pass.
+
+Stage 3 implementation and automated validation are complete. The exact 16-level,
+200-edge fixture proves that queuing a missing node performs no enumeration and that
+published ancestor storage remains stable as descendant entries are added. Existing
+mutation coverage now explicitly observes cache invalidation before repopulation.
+`EditorAssetWorkflowTests` passes with 83 tests run, 82 passed, and one existing
+conditional skip; the full `all` build passes. The editor remained live through an
+8-second startup smoke. Source-level allocation accounting on the same fixture is now
+zero child-vector allocations and zero cached-path copies because the defensive vector
+no longer exists. Interactive ImGui coverage for navigation, context actions, rename,
+delete, and drag-drop was confirmed during final user acceptance. All stages and
+acceptance gates are complete.
 
 ## Goal
 
@@ -111,14 +144,14 @@ copying `std::filesystem::path` values per node.
 
 ### Stage 0: Freeze the mutation inventory and baseline
 
-- [ ] Audit every call reachable from `DrawDirectoryTree()` and classify it as
+- [x] Audit every call reachable from `DrawDirectoryTree()` and classify it as
   read-only, distinct-entry insertion, existing-entry mutation, or
   snapshot-invalidating.
-- [ ] Confirm that mount refresh and requested snapshot publication occur only before
+- [x] Confirm that mount refresh and requested snapshot publication occur only before
   `DrawContents()` in the normal frame path.
-- [ ] Create a deterministic deep-and-wide directory fixture suitable for model tests
+- [x] Create a deterministic deep-and-wide directory fixture suitable for model tests
   and manual allocation profiling.
-- [ ] Capture a baseline profile after the fixture's snapshots are warm, recording the
+- [x] Capture a baseline profile after the fixture's snapshots are warm, recording the
   allocations and copied path values attributable to the local `Children` vectors.
 
 #### Acceptance Gate
@@ -130,18 +163,18 @@ copying `std::filesystem::path` values per node.
 
 ### Stage 1: Introduce explicit tree and pane action phases
 
-- [ ] Add a private tree-action slot and named scheduling/execution helpers to
+- [x] Add a private tree-action slot and named scheduling/execution helpers to
   `FContentBrowserPanel`; route existing content-action assignment through equivalent
   helpers so phase ownership is visible at call sites.
-- [ ] Execute the tree action immediately after the tree child window ends and before
+- [x] Execute the tree action immediately after the tree child window ends and before
   `DrawContentArea()` begins.
-- [ ] Defer node click navigation and directory context open/rename/delete through the
+- [x] Defer node click navigation and directory context open/rename/delete through the
   tree phase, capturing normalized paths rather than references or spans.
-- [ ] Split drag-drop acceptance from mutation execution. Defer delivered asset moves
+- [x] Split drag-drop acceptance from mutation execution. Defer delivered asset moves
   through the post-pane content phase for both tree and item targets.
-- [ ] Preserve the current behavior of selection repair, rename focus, deletion-plan
+- [x] Preserve the current behavior of selection repair, rename focus, deletion-plan
   creation, errors, and mounted-content publication when each deferred action commits.
-- [ ] Add non-shipping diagnostics for an unexpected second action in the same phase
+- [x] Add non-shipping diagnostics for an unexpected second action in the same phase
   without allowing it to overwrite the first action silently.
 
 #### Acceptance Gate
@@ -155,17 +188,17 @@ copying `std::filesystem::path` values per node.
 
 ### Stage 2: Traverse cached spans without copies
 
-- [ ] Replace the local child-vector construction in `DrawDirectoryNode()` with one
+- [x] Replace the local child-vector construction in `DrawDirectoryNode()` with one
   `std::span<const std::filesystem::path>` used for hidden-child detection and recursive
   iteration.
-- [ ] Replace the temporary-copy comment with a concise stable-entry lifetime contract
+- [x] Replace the temporary-copy comment with a concise stable-entry lifetime contract
   at the traversal boundary.
-- [ ] Keep the missing-snapshot placeholder behavior: a requested but unpublished node
+- [x] Keep the missing-snapshot placeholder behavior: a requested but unpublished node
   remains expandable for the current frame and receives its cached children on a later
   frame.
-- [ ] Verify that recursive requests mutate only
+- [x] Verify that recursive requests mutate only
   `RequestedDirectoryChildrenSnapshots`, including when that set rehashes.
-- [ ] Verify separately that inserting enough distinct directory-cache entries to
+- [x] Verify separately that inserting enough distinct directory-cache entries to
   rehash the map does not invalidate a span into an existing entry; do not treat that
   safe growth as a prohibited mutation.
 
@@ -178,20 +211,20 @@ copying `std::filesystem::path` values per node.
 
 ### Stage 3: Regression coverage, profiling, and contract handoff
 
-- [ ] Extend `ContentBrowserModelTests.cpp` with deep traversal coverage that retains an
+- [x] Extend `ContentBrowserModelTests.cpp` with deep traversal coverage that retains an
   ancestor span while publishing enough distinct descendant cache entries to force map
   growth, then proves the ancestor child values and storage address remain valid.
-- [ ] Preserve request/refresh ordering coverage to show that filesystem enumeration
+- [x] Preserve request/refresh ordering coverage to show that filesystem enumeration
   still occurs at the explicit refresh boundary for responsiveness rather than span
   lifetime safety.
-- [ ] Cover cache invalidation and repopulation after navigation or mounted-content
+- [x] Cover cache invalidation and repopulation after navigation or mounted-content
   mutation without retaining a span across the phase boundary.
-- [ ] Run the focused `EditorShellTests` target discovered from the configured native
-  test registry.
-- [ ] Perform a manual editor smoke test for node navigation, context open, rename,
+- [x] Run the focused `EditorAssetWorkflowTests` target discovered from the configured
+  native test registry.
+- [x] Perform a manual editor smoke test for node navigation, context open, rename,
   delete confirmation, and tree/item drag-drop on a deeply expanded tree.
-- [ ] Repeat the warm-tree allocation profile and compare it with the Stage 0 baseline.
-- [ ] Add the directory-tree snapshot publication and stable-entry traversal invariant
+- [x] Repeat the warm-tree allocation profile and compare it with the Stage 0 baseline.
+- [x] Add the directory-tree snapshot publication and stable-entry traversal invariant
   to `Documentation/Editor/Architecture/ContentBrowser.md`.
 
 #### Acceptance Gate
@@ -212,7 +245,7 @@ copying `std::filesystem::path` values per node.
 | Action phase ordering | Focused helper/panel test where practical, plus manual smoke | Tree actions run after tree traversal; content actions run after both panes |
 | Navigation behavior | Manual editor smoke | Tree click and context open update the content pane in the same frame |
 | Mutation behavior | Manual rename/delete/drag-drop smoke | No traversal invalidation, lost action, or stale snapshot after publication |
-| Functional regression | `EditorShellTests` | Target passes under the configured preset |
+| Functional regression | `EditorAssetWorkflowTests` | Target passes under the configured preset |
 | Performance | Before/after allocation profile on the same warm deep tree | Per-node child-vector allocation and cached-path copying are removed |
 | Documentation | Plan and changed-document validators | Active plan and Content Browser contract have valid structure and links |
 

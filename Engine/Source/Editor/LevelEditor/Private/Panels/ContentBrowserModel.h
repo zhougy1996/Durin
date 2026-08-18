@@ -150,6 +150,8 @@ namespace Durin::Editor::Level
 			return SuppressedEnumerationDiagnosticCount;
 		}
 
+		// The returned span survives insertion of distinct cache entries, but not
+		// invalidation or mutation of its published entry.
 		auto GetDirectoryChildren(std::string_view PhysicalDirectory) const
 			-> std::span<const std::filesystem::path>;
 		auto HasDirectoryChildrenSnapshot(std::string_view PhysicalDirectory) const

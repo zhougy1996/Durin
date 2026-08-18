@@ -489,6 +489,94 @@ TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndCachesDirectorySnapshot
 	EXPECT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
 }
 
+TEST_F(FContentBrowserModelTests, KeepsPublishedChildrenStableWhileDistinctSnapshotsGrowCache)
+{
+	const std::filesystem::path TreeRoot = Root / "Content/StableTreeCache";
+	constexpr size_t BranchCount = 256;
+	std::vector<std::filesystem::path> Branches;
+	Branches.reserve(BranchCount);
+	for (size_t Index = 0; Index < BranchCount; ++Index)
+	{
+		std::filesystem::path Branch = TreeRoot / std::format("Branch{:03}", Index);
+		std::filesystem::create_directories(Branch);
+		Branches.push_back(std::move(Branch));
+	}
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
+	Model.RequestDirectoryChildrenSnapshot(TreeRoot.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	const std::span<const std::filesystem::path> PublishedChildren =
+		Model.GetDirectoryChildren(TreeRoot.generic_string());
+	ASSERT_EQ(PublishedChildren.size(), BranchCount);
+	const std::filesystem::path* PublishedStorage = PublishedChildren.data();
+	const std::vector<std::filesystem::path> ExpectedChildren(
+		PublishedChildren.begin(), PublishedChildren.end());
+
+	for (const std::filesystem::path& Branch : Branches)
+		Model.RequestDirectoryChildrenSnapshot(Branch.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+
+	EXPECT_EQ(PublishedChildren.data(), PublishedStorage);
+	EXPECT_TRUE(std::ranges::equal(PublishedChildren, ExpectedChildren));
+}
+
+TEST_F(FContentBrowserModelTests, StagesDeepTreeRequestsWithoutInvalidatingAncestorSpan)
+{
+	const std::filesystem::path TreeRoot = Root / "Content/DeepStableTreeCache";
+	constexpr size_t Depth = 16;
+	std::vector<std::filesystem::path> Chain;
+	Chain.reserve(Depth);
+	std::filesystem::path Parent = TreeRoot;
+	for (size_t Level = 0; Level < Depth; ++Level)
+	{
+		const size_t SiblingCount = Level == 0 ? 64 : 8;
+		for (size_t Sibling = 0; Sibling < SiblingCount; ++Sibling)
+			std::filesystem::create_directories(
+				Parent / std::format("Sibling{:02}", Sibling));
+		std::filesystem::path Child = Parent / std::format("Chain{:02}", Level);
+		std::filesystem::create_directories(Child);
+		Chain.push_back(Child);
+		Parent = std::move(Child);
+	}
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
+	size_t EntryQueryCount = 0;
+	Model.SetEntryStatusQueryForTesting(
+		[&](const std::filesystem::directory_entry& Entry,
+			std::error_code& Error) {
+			++EntryQueryCount;
+			return Entry.symlink_status(Error);
+		});
+
+	Model.RequestDirectoryChildrenSnapshot(TreeRoot.generic_string());
+	EXPECT_EQ(EntryQueryCount, 0);
+	EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(TreeRoot.generic_string()));
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	const std::span<const std::filesystem::path> RootChildren =
+		Model.GetDirectoryChildren(TreeRoot.generic_string());
+	ASSERT_EQ(RootChildren.size(), 65);
+	const std::filesystem::path* RootStorage = RootChildren.data();
+	const std::vector<std::filesystem::path> ExpectedRootChildren(
+		RootChildren.begin(), RootChildren.end());
+
+	for (const std::filesystem::path& Directory : Chain)
+	{
+		const size_t QueriesBeforeRequest = EntryQueryCount;
+		Model.RequestDirectoryChildrenSnapshot(Directory.generic_string());
+		EXPECT_EQ(EntryQueryCount, QueriesBeforeRequest);
+		EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(Directory.generic_string()));
+		EXPECT_EQ(RootChildren.data(), RootStorage);
+		EXPECT_TRUE(std::ranges::equal(RootChildren, ExpectedRootChildren));
+
+		Model.RefreshRequestedDirectoryChildrenSnapshots();
+		EXPECT_TRUE(Model.HasDirectoryChildrenSnapshot(Directory.generic_string()));
+		EXPECT_EQ(RootChildren.data(), RootStorage);
+		EXPECT_TRUE(std::ranges::equal(RootChildren, ExpectedRootChildren));
+	}
+}
+
 TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOptIn)
 {
 	const std::string RootPath =
@@ -1018,6 +1106,8 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 		Operations.CreateFolder((Root / "Content").generic_string());
 	ASSERT_TRUE(CreateResult) << CreateResult.Status.Message;
 	Model.RefreshItemsSnapshot();
+	EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(
+		(Root / "Content").generic_string()));
 	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	EXPECT_EQ(
