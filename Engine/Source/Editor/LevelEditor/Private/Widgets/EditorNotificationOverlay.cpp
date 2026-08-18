@@ -113,17 +113,24 @@ namespace Durin::Editor::Level
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float
 	{
-		return ImGui::GetFrameHeight() + ImGui::GetStyle().ChildBorderSize * 2.0f;
+		return ImGui::GetFrameHeight() + MonaImGui::ScaleUI(4.0f);
 	}
 
 	auto FEditorNotificationOverlay::DrawStatusBar(::Durin::Editor::FNotificationManager& Notifications) -> void
 	{
 		const float Height = GetStatusBarHeight();
-		const ImVec2 StatusPadding(ImGui::GetStyle().WindowPadding.x, 0.0f);
+		const float SeparatorSize = ImGui::GetStyle().SeparatorSize;
+		const ImVec2 StatusPadding(ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(2.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, StatusPadding);
-		if (ImGui::BeginChild("##EditorStatusBar", ImVec2(0.0f, Height), ImGuiChildFlags_Borders,
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+		if (ImGui::BeginChild("##EditorStatusBar", ImVec2(0.0f, Height), ImGuiChildFlags_AlwaysUseWindowPadding,
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
+			const ImVec2 BarMin = ImGui::GetWindowPos();
+			ImGui::GetWindowDrawList()->AddRectFilled(
+				BarMin,
+				ImVec2(BarMin.x + ImGui::GetWindowWidth(), BarMin.y + SeparatorSize),
+				ImGui::GetColorU32(ImGuiCol_Separator));
 			const ::Durin::Editor::FNotification* Status = Notifications.GetStatusNotification()
 				? &*Notifications.GetStatusNotification() : nullptr;
 			const char* ActivityLabel = Icons::List;
@@ -165,7 +172,7 @@ namespace Durin::Editor::Level
 			if (Status) Notifications.SetHovered(Status->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 		}
 		ImGui::EndChild();
-		ImGui::PopStyleVar();
+		ImGui::PopStyleVar(2);
 	}
 
 	auto FEditorNotificationOverlay::DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void

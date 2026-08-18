@@ -499,7 +499,7 @@ namespace Durin::Editor::Level
 		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 		if (NotificationOverlay && GEditor)
 			DockSpaceSize.y = std::max(0.0f, DockSpaceSize.y
-				- NotificationOverlay->GetStatusBarHeight() - ImGui::GetStyle().ItemSpacing.y);
+				- NotificationOverlay->GetStatusBarHeight());
 		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
 		if (bNeedsDefaultLayout || bResetLayoutRequested)
 		{
@@ -507,7 +507,10 @@ namespace Durin::Editor::Level
 			BuildDefaultLayout(DockSpaceId, DockSpaceSize.x, DockSpaceSize.y);
 			bResetLayoutRequested = false;
 		}
+		const ImVec2 ItemSpacing = ImGui::GetStyle().ItemSpacing;
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ItemSpacing.x, 0.0f));
 		::Durin::Editor::WorkspaceUI::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
+		ImGui::PopStyleVar();
 		if (NotificationOverlay && GEditor)
 			NotificationOverlay->DrawStatusBar(GEditor->GetNotificationManager());
 		RootWindow.End();
