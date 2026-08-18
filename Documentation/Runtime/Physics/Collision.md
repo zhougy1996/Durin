@@ -369,4 +369,4 @@ stepping, moving platforms, overlap events, and project-defined
 profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
 and evidence-gated simulation or backend work is maintained in the
-[Aether Physics Evolution Roadmap](../../Roadmaps/AetherPhysicsEvolution.md).
+[Aether Physics Evolution Roadmap](../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md).

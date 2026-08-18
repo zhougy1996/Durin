@@ -10,7 +10,7 @@ Completed: 2026-08-11
 ## Current Status
 
 Completed as M1 of the
-[Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md) from
+[Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md) from
 source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`. The implementation
 adds generation-checked dense slots, explicit Static/Kinematic/Dynamic
 publication, outward-rounded compact exact bounds, a deterministic static BVH,
@@ -470,7 +470,7 @@ Dependencies: Stage 4 evidence and every preceding gate.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
 - [Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
 - [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)

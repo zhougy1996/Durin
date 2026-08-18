@@ -4,24 +4,24 @@ Summary: Evolve Aether from a deterministic query-only reference scene into a sc
 
 Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-18
 
 ## Current Status
 
 The initial ownership slice and required M0-M3 query-scalability program are
-complete through [Physics Scene And Character Collision](../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md),
-[Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md),
-[Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md),
-[Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md),
-and [Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
+complete through [Physics Scene And Character Collision](../../../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md),
+[Query Observability](../../../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md),
+[Scene Query Acceleration](../../../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md),
+[Geometry And Narrowphase](../../../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md),
+and [Cooked Collision Geometry](../../../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
 The resulting Reference, Production, and Compare paths, shared immutable
 geometry, broad phases, cooked mesh collision, diagnostics, and qualification
 evidence are summarized in the milestone table and owned permanently by the
-[Runtime Collision](../Runtime/Physics/Collision.md) contract.
+[Runtime Collision](../../../Runtime/Physics/Collision.md) contract.
 
 Terrain T2 is also complete through
-[Aether Heightfield Collision](../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
+[Aether Heightfield Collision](../../../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
 Rigid-body simulation, Engine dynamics, parallel execution, and alternate
 backends remain conditional tracks whose entry gates require named consumers or
 measurement evidence.
@@ -250,10 +250,10 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
-| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Aether Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
-| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Aether Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
-| M3: Cooked world collision | Required; completed 2026-08-12 | [Aether Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
+| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../../../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
+| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Aether Scene Query Acceleration](../../../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
+| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Aether Geometry And Narrowphase](../../../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
+| M3: Cooked world collision | Required; completed 2026-08-12 | [Aether Cooked Collision Geometry](../../../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
 | M4: Rigid-body simulation kernel | Conditional; deferred | `AetherRigidBodySimulation` | M1-M2; concrete Dynamic-body gameplay requirement and accepted stability budget | Fixed-step scene state, mass/inertia, forces/impulses, broad-phase pair generation, persistent manifolds, islands, iterative constraint solver, sleeping, kinematic targets, and bounded CCD policy | Not met: no selected dynamic-body consumer, stack/joint scale, timestep, determinism, CCD, failure, or performance budget | Selected dynamic scenarios remain stable within frozen tolerances; query and simulation body identity agree; pause/step/restart/teardown are deterministic; solver/island/contact work and energy/error bounds are observable |
 | M5: Engine dynamics and events | Conditional; deferred | `AetherEngineDynamicsIntegration` | M4 and selected Engine/gameplay consumers | Engine motion publication and state application, physics materials, hit/overlap event queues, safe object resolution, transaction/PIE lifecycle, and migration or retirement of legacy `DPhysicsComponent` | Not met until M4 exists and event ordering, transform authority, teleports, ownership, and gameplay consumers are frozen | Exactly one transform authority per body mode; stale events cannot resolve retired objects; PIE/standalone lifecycle, moving bodies/platforms, material responses, and event ordering pass focused and full integration gates |
 | M6: Batch and parallel execution | Conditional; deferred | `AetherParallelPhysicsExecution` | M0-M2 diagnostics; accepted CPU task-system integration; measured query or step pressure | Batch query API, bounded scratch arenas, mutation commands, committed query snapshot, worker scheduling, cancellation/teardown, and latency/freshness diagnostics | Not met: single-thread query cost must first be reduced; activate only when profiles show remaining parallel work and freeze synchronous-query visibility semantics | Supported batch/worker results match synchronous reference semantics; no DObject crosses threads; buffers and in-flight work are bounded; shutdown, cancellation, World replacement, and fallback complete without races or hidden waits |
@@ -369,20 +369,20 @@ selected backend and remain below Engine.
 
 ## Related Documentation
 
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Viewport Picking Roadmap](Archive/2026-08/ViewportPicking.md)
-- [Physics Scene And Character Collision Plan](../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Viewport Picking Roadmap](ViewportPicking.md)
+- [Physics Scene And Character Collision Plan](../../../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
 
 ## Related Code
 
-- [`Engine/Source/Runtime/AetherCore`](../../Engine/Source/Runtime/AetherCore)
-- [`Engine/Source/Runtime/Aether`](../../Engine/Source/Runtime/Aether)
-- [`Engine/Source/Runtime/Engine/Public/Physics`](../../Engine/Source/Runtime/Engine/Public/Physics)
-- [`Engine/Source/Runtime/Engine/Public/Collision`](../../Engine/Source/Runtime/Engine/Public/Collision)
-- [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
-- [`Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp)
-- [`Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp`](../../Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp)
+- [`Engine/Source/Runtime/AetherCore`](../../../../Engine/Source/Runtime/AetherCore)
+- [`Engine/Source/Runtime/Aether`](../../../../Engine/Source/Runtime/Aether)
+- [`Engine/Source/Runtime/Engine/Public/Physics`](../../../../Engine/Source/Runtime/Engine/Public/Physics)
+- [`Engine/Source/Runtime/Engine/Public/Collision`](../../../../Engine/Source/Runtime/Engine/Public/Collision)
+- [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
+- [`Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp)
+- [`Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp`](../../../../Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp)
