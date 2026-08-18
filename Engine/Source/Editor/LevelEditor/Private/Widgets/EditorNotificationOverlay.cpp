@@ -127,8 +127,20 @@ namespace Durin::Editor::Level
 		const float Height = GetStatusBarHeight();
 		const float SeparatorSize = ImGui::GetStyle().SeparatorSize;
 		const ImVec2 StatusPadding(ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(2.0f));
+		const ImVec4 Transparent(0.0f, 0.0f, 0.0f, 0.0f);
+		ImVec4 ToolHovered = ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered);
+		ToolHovered.w *= 0.48f;
+		ImVec4 ToolActive = ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
+		ToolActive.w *= 0.62f;
+		ImVec4 ToolSelected = ImGui::GetStyleColorVec4(ImGuiCol_Header);
+		ToolSelected.w *= 0.72f;
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, StatusPadding);
 		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+			ImVec2(ImGui::GetStyle().CellPadding.x, 0.0f));
 		if (ImGui::BeginChild("##EditorStatusBar", ImVec2(0.0f, Height), ImGuiChildFlags_AlwaysUseWindowPadding,
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
@@ -141,10 +153,12 @@ namespace Durin::Editor::Level
 				? &*Notifications.GetStatusNotification() : nullptr;
 			const bool bCompact = ImGui::GetContentRegionAvail().x < MonaImGui::ScaleUI(760.0f);
 			const std::string ContentLabel = std::format("{}{}###EditorContentDrawer", Icons::FolderOpen,
-				bCompact ? "" : "  Content Drawer");
+				bCompact ? "" : "  Content Browser");
 			const std::string ConsoleLabel = ConsoleUnreadCount == 0
-				? std::format("{}###EditorConsole", bCompact ? ">_" : "Console")
-				: std::format("{}  {}###EditorConsole", bCompact ? ">_" : "Console", ConsoleUnreadCount);
+				? std::format("{}{}###EditorConsole", Icons::Terminal,
+					bCompact ? "" : "  Console")
+				: std::format("{}{}  {}###EditorConsole", Icons::Terminal,
+					bCompact ? "" : "  Console", ConsoleUnreadCount);
 			const std::string ActivityLabel = std::format("{}###EditorActivityHistory", Icons::List);
 			const float ContentWidth = ImGui::CalcTextSize(ContentLabel.c_str(), nullptr, true).x
 				+ ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -165,15 +179,24 @@ namespace Durin::Editor::Level
 			auto DrawToolButton = [&](const std::string& Label, const char* Tooltip,
 				EEditorStatusBarAction Action) {
 				const bool bSelected = SelectedDrawer == Action;
+				ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ToolSelected : Transparent);
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToolHovered);
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToolActive);
+				if (ImGui::Button(Label.c_str())) Result = Action;
+				ImGui::PopStyleColor(3);
 				if (bSelected)
 				{
-					ImGui::PushStyleColor(ImGuiCol_Button,
-						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionPrimary));
-					ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionSecondary));
+					const ImVec2 ItemMin = ImGui::GetItemRectMin();
+					const ImVec2 ItemMax = ImGui::GetItemRectMax();
+					const float IndicatorInset = ImGui::GetStyle().FramePadding.x;
+					const float IndicatorHeight = MonaImGui::ScaleUI(2.0f);
+					ImGui::GetWindowDrawList()->AddRectFilled(
+						ImVec2(ItemMin.x + IndicatorInset, ItemMax.y - IndicatorHeight),
+						ImVec2(ItemMax.x - IndicatorInset, ItemMax.y),
+						ImGui::ColorConvertFloat4ToU32(
+							MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionSecondary)),
+						IndicatorHeight);
 				}
-				if (ImGui::Button(Label.c_str())) Result = Action;
-				if (bSelected) ImGui::PopStyleColor(2);
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
 			};
 
@@ -224,7 +247,8 @@ namespace Durin::Editor::Level
 			if (Status) Notifications.SetHovered(Status->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 		}
 		ImGui::EndChild();
-		ImGui::PopStyleVar(2);
+		ImGui::PopStyleVar(5);
+		ImGui::PopStyleColor();
 		return Result;
 	}
 

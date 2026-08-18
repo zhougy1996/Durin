@@ -5,6 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
+#include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/WorkspaceUI.h"
@@ -19,6 +20,22 @@
 
 namespace Durin::Editor::Level
 {
+	namespace
+	{
+		auto DrawObjectIdentity(const DObject* Object) -> void
+		{
+			if (!Object) return;
+
+			ImGui::TextUnformatted(Object->GetName().c_str());
+			ImGui::SameLine();
+			ImGui::TextDisabled("(%s)", Helpers::ClassDisplayName(Object->GetClass()).c_str());
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				ImGui::SetTooltip("Full Type Name: %s", Object->GetClass()->GetQualifiedName().ToString().c_str());
+			}
+		}
+	} // namespace
+
 	FDetailsPanel::FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings)
 		: SessionSettings(InSessionSettings)
 		, ComponentPaneRatio(InSessionSettings.GetDetailsPaneRatio())
@@ -76,8 +93,6 @@ namespace Durin::Editor::Level
 		}
 		Context.SelectComponent(DetailsPanelTargeting::ResolveSelectedComponent(Actor, Context.GetSelectedComponent()));
 
-		ImGui::TextUnformatted(Actor->GetName().c_str());
-		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
 		if (Context.bReadOnly) ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime values (read-only)");
 		if (Context.GetSelectedActors().size() > 1)
 		{
@@ -101,7 +116,8 @@ namespace Durin::Editor::Level
 		if (MonaImGui::DrawSplitter("DetailsSplitter", MonaImGui::EUISplitterAxis::Y, ImGui::GetContentRegionAvail().x, UsableHeight, MonaImGui::ScaleUI(90.0f), MonaImGui::ScaleUI(120.0f), ComponentPaneRatio))
 			SessionSettings.SetDetailsPaneRatio(ComponentPaneRatio);
 
-		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
+		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders,
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			DObject* InspectedObject = Context.GetSelectedComponent() ? static_cast<DObject*>(Context.GetSelectedComponent()) : static_cast<DObject*>(Actor);
 			const bool bGeneratedSelection = Context.GetSelectedComponent()
@@ -129,9 +145,14 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		ImGui::TextDisabled("%s", Object->GetClass()->GetName().c_str());
+		DrawObjectIdentity(Object);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##PropertySearch", "Search properties...", PropertySearchText.data(), PropertySearchText.size());
+		if (!ImGui::BeginChild("DetailsPropertyRows", ImVec2(0.0f, 0.0f)))
+		{
+			ImGui::EndChild();
+			return;
+		}
 
 		FObjectPropertyViewBuilder Builder(PropertySearchText.data());
 		for (const std::shared_ptr<IObjectDetailsCustomization>& Customization
@@ -139,7 +160,11 @@ namespace Durin::Editor::Level
 		{
 			Customization->CustomizeDetails(Context, Object, Builder);
 		}
-		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable"))
+		{
+			ImGui::EndChild();
+			return;
+		}
 
 		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
 		::Durin::Editor::FObjectPropertyViewResult ObjectViewResult;
@@ -162,6 +187,7 @@ namespace Durin::Editor::Level
 				? "No properties match the current search."
 				: "This object has no reflected Edit properties.");
 		}
+		ImGui::EndChild();
 	}
 
 	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> ::Durin::Editor::FPropertyViewContext

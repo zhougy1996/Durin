@@ -732,7 +732,12 @@ namespace Durin::Editor::Level
 			.AnchorMin = DrawerHostState->AnchorMin,
 			.AnchorMax = DrawerHostState->AnchorMax,
 		};
-		if (!MonaImGui::BeginBottomDrawer(Config, DrawerHostState->Drawer)) return;
+		const ImVec2 DrawerPadding(
+			ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(4.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, DrawerPadding);
+		const bool bDrawerVisible = MonaImGui::BeginBottomDrawer(Config, DrawerHostState->Drawer);
+		ImGui::PopStyleVar();
+		if (!bDrawerVisible) return;
 
 		const bool bConsole = DrawerHostState->SelectedTool
 			== ELevelEditorDrawerTool::Console;

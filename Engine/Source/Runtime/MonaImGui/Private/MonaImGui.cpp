@@ -188,6 +188,7 @@ namespace Durin::MonaImGui
 			Style.FrameBorderSize = 0.0f;
 			Style.TabBorderSize = 0.0f;
 			Style.TabBarBorderSize = 0.0f;
+			Style.TabBarOverlineSize = 0.0f;
 			Style.DockingNodeHasCloseButton = false;
 			Style.DisabledAlpha = 0.4f;
 			Style.WindowRounding = 5.0f;

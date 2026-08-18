@@ -767,18 +767,18 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	Durin::Editor::Level::FEditorVisualizationCollector Selected;
 	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, true, true}, Selected);
 	ASSERT_EQ(Selected.GetIcons().size(), 1u);
-	EXPECT_TRUE(Selected.GetLines().empty());
-	ASSERT_EQ(Selected.GetPrimitives().size(), 1u);
+	ASSERT_EQ(Selected.GetLines().size(), 5u);
+	EXPECT_TRUE(Selected.GetPrimitives().empty());
 	const Durin::FVector3 Origin = Actor->GetLightComponent()->GetWorldLocation();
 	const Durin::FVector3 Forward = Actor->GetLightComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
-	const Durin::Editor::Level::FEditorVisualizationPrimitive& Arrow = Selected.GetPrimitives().front();
-	EXPECT_EQ(Arrow.Shape, Durin::EViewOverlayShape::Arrow);
-	const Durin::FVector3 ArrowOrigin = Durin::FVector3(
-		Arrow.LocalToWorld * Durin::FVector4(Durin::FVector3(0.0), 1.0));
-	const Durin::FVector3 ArrowTip = Durin::FVector3(
-		Arrow.LocalToWorld * Durin::FVector4(Durin::FVector3(1.0, 0.0, 0.0), 1.0));
-	EXPECT_NEAR(Durin::Math::Length(ArrowOrigin - Origin), 0.0, 1.e-6);
-	EXPECT_GT(Durin::Math::Dot(ArrowTip - ArrowOrigin, Forward), 0.0);
+	const Durin::Editor::Level::FEditorVisualizationLine& Shaft = Selected.GetLines().front();
+	EXPECT_NEAR(Durin::Math::Length(Shaft.Start - Origin), 0.0, 1.e-6);
+	EXPECT_GT(Durin::Math::Dot(Shaft.End - Shaft.Start, Forward), 0.0);
+	EXPECT_FLOAT_EQ(Shaft.WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
+	EXPECT_TRUE(std::ranges::all_of(Selected.GetLines(), [](const auto& Line) {
+		return Durin::Math::IsFinite(Line.End - Line.Start)
+			&& Durin::Math::Length(Line.End - Line.Start) > Durin::kSmallNumber;
+	}));
 	EXPECT_TRUE(Selected.GetIcons().front().bDepthIndependentHit);
 }
 
@@ -820,19 +820,14 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	ASSERT_EQ(Selected.GetIcons().size(), 1u);
 	EXPECT_FLOAT_EQ(Selected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(40.0f));
 	EXPECT_FALSE(Selected.GetIcons().front().HoverColor.has_value());
-	EXPECT_EQ(Selected.GetLines().size(), 100u);
+	EXPECT_EQ(Selected.GetLines().size(), 105u);
 	EXPECT_FLOAT_EQ(Selected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
-	ASSERT_EQ(Selected.GetPrimitives().size(), 1u);
-	const Durin::Editor::Level::FEditorVisualizationPrimitive& Arrow = Selected.GetPrimitives().front();
-	EXPECT_EQ(Arrow.Shape, Durin::EViewOverlayShape::Arrow);
-	const Durin::FVector3 ArrowOrigin = Durin::FVector3(
-		Arrow.LocalToWorld * Durin::FVector4(Durin::FVector3(0.0), 1.0));
-	const Durin::FVector3 ArrowTip = Durin::FVector3(
-		Arrow.LocalToWorld * Durin::FVector4(Durin::FVector3(1.0, 0.0, 0.0), 1.0));
+	EXPECT_TRUE(Selected.GetPrimitives().empty());
+	const Durin::Editor::Level::FEditorVisualizationLine& ArrowShaft = Selected.GetLines()[100];
 	const Durin::FVector3 Forward = PlayerStart->GetRootComponent()->GetWorldRotation()
 		* Durin::FVectorConstants::Forward;
-	EXPECT_NEAR(Durin::Math::Length(ArrowOrigin - (Origin + Forward * 0.4)), 0.0, 1.e-6);
-	EXPECT_GT(Durin::Math::Dot(ArrowTip - ArrowOrigin, Forward), 0.0);
+	EXPECT_NEAR(Durin::Math::Length(ArrowShaft.Start - (Origin + Forward * 0.4)), 0.0, 1.e-6);
+	EXPECT_GT(Durin::Math::Dot(ArrowShaft.End - ArrowShaft.Start, Forward), 0.0);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

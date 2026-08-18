@@ -14,6 +14,7 @@ namespace Durin::Icons
 	inline constexpr auto File = "\xef\x85\x9b";
 	inline constexpr auto FileLines = "\xef\x85\x9c";
 	inline constexpr auto Search = "\xef\x80\x82";
+	inline constexpr auto Terminal = "\xef\x84\xa0";
 	inline constexpr auto Crosshairs = "\xef\x81\x9b";
 	inline constexpr auto Trash = "\xef\x87\xb8";
 	inline constexpr auto Copy = "\xef\x83\x85";
@@ -37,6 +38,9 @@ namespace Durin::Icons
 	inline constexpr auto Warning = "\xef\x81\xb1";
 	inline constexpr auto Error = "\xef\x81\xaa";
 	inline constexpr auto Home = "\xef\x80\x95";
+	inline constexpr auto House = Home;
+	inline constexpr auto Flag = "\xef\x80\xa4";
+	inline constexpr auto Sun = "\xef\x86\x85";
 	inline constexpr auto Menu = "\xef\x83\x89";
 	inline constexpr auto List = "\xef\x80\xba";
 	inline constexpr auto TableCells = "\xef\x80\x8a";

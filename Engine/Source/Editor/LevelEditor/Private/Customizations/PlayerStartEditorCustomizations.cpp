@@ -92,16 +92,16 @@ namespace Durin::Editor::Level
 				}
 
 				const FVector3 ArrowStart = Origin + Forward * Radius;
-				constexpr double ArrowLength = 0.95;
-				Collector.AddPrimitive({
-					.Shape = EViewOverlayShape::Arrow,
-					.LocalToWorld = Math::TranslationMatrix(ArrowStart)
-						* Math::RotationMatrix(Rotation)
-						* Math::ScaleMatrix(FVector3(ArrowLength)),
-					.Color = Color,
-					.Actor = PlayerStart,
-					.Component = Root,
-				});
+				constexpr double ArrowLength = 0.75;
+				constexpr double HeadLength = 0.2;
+				constexpr double HeadRadius = 0.12;
+				const FVector3 ArrowTip = ArrowStart + Forward * ArrowLength;
+				const FVector3 HeadBase = ArrowTip - Forward * HeadLength;
+				AddLine(ArrowStart, ArrowTip);
+				AddLine(ArrowTip, HeadBase + Right * HeadRadius);
+				AddLine(ArrowTip, HeadBase - Right * HeadRadius);
+				AddLine(ArrowTip, HeadBase + Up * HeadRadius);
+				AddLine(ArrowTip, HeadBase - Up * HeadRadius);
 			}
 		};
 	} // namespace

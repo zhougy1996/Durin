@@ -82,6 +82,20 @@ namespace Durin
 				const float Bottom = 43.0f * (1.0f - T) + 52.0f * T;
 				return Y >= Top && Y <= Bottom;
 			};
+			auto InsideTriangle = [](float X, float Y, const FVector2f& A,
+				const FVector2f& B, const FVector2f& C) {
+				auto Edge = [](const FVector2f& Start, const FVector2f& End,
+					const FVector2f& Point) {
+					return (Point.x - Start.x) * (End.y - Start.y)
+						- (Point.y - Start.y) * (End.x - Start.x);
+				};
+				const FVector2f Point{X, Y};
+				const float AB = Edge(A, B, Point);
+				const float BC = Edge(B, C, Point);
+				const float CA = Edge(C, A, Point);
+				return (AB >= 0.0f && BC >= 0.0f && CA >= 0.0f)
+					|| (AB <= 0.0f && BC <= 0.0f && CA <= 0.0f);
+			};
 			for (uint32 Y = 0; Y < Size; ++Y)
 			{
 				for (uint32 X = 0; X < Size; ++X)
@@ -178,15 +192,17 @@ namespace Durin
 						for (uint32 SampleX = 0; SampleX < SamplesPerAxis; ++SampleX)
 						{
 							const float PX = static_cast<float>(X)
-								+ (static_cast<float>(SampleX) + 0.5f) / SamplesPerAxis - 32.0f;
+								+ (static_cast<float>(SampleX) + 0.5f) / SamplesPerAxis;
 							const float PY = static_cast<float>(Y)
-								+ (static_cast<float>(SampleY) + 0.5f) / SamplesPerAxis - 26.0f;
-							const float Radius = std::sqrt(PX * PX + PY * PY);
-							const bool bPinHead = Radius <= 16.0f;
-							const float TailHalfWidth = std::max(0.0f, (20.0f - PY) * 0.32f);
-							const bool bPinTail = PY >= 8.0f && PY <= 24.0f && std::abs(PX) <= TailHalfWidth;
-							const bool bCenterHole = Radius <= 5.5f;
-							if ((bPinHead || bPinTail) && !bCenterHole) ++CoveredSamples;
+								+ (static_cast<float>(SampleY) + 0.5f) / SamplesPerAxis;
+							const bool bPole = PX >= 19.0f && PX <= 24.0f
+								&& PY >= 9.0f && PY <= 56.0f;
+							const bool bFlag = InsideTriangle(PX, PY,
+								{23.0f, 12.0f}, {56.0f, 23.5f}, {23.0f, 35.0f});
+							const bool bFinial = InsideCircle(PX, PY, 21.5f, 8.5f, 3.5f);
+							const bool bFoot = PX >= 14.0f && PX <= 29.0f
+								&& PY >= 54.0f && PY <= 58.0f;
+							if (bPole || bFlag || bFinial || bFoot) ++CoveredSamples;
 						}
 					}
 					const size_t Offset =

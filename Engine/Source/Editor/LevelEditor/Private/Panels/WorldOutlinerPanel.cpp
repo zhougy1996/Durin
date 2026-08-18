@@ -1,11 +1,10 @@
 #include "Panels/WorldOutlinerPanel.h"
 
 #include "Panels/ActorAttachmentTransaction.h"
+#include "Panels/WorldOutlinerPresentation.h"
 
 #include "Actors/CameraActor.h"
-#include "Actors/DirectionalLightActor.h"
 #include "Actors/StaticMeshActor.h"
-#include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Actor.h"
@@ -165,12 +164,34 @@ namespace Durin::Editor::Level
 			return Level->GetName().empty() ? "Transient Level" : Level->GetName();
 		}
 
-		auto ActorIcon(AActor* Actor) -> const char*
+		auto IconGlyph(EWorldOutlinerIcon Icon) -> const char*
 		{
-			if (Actor->IsA<ACameraActor>()) return Icons::Camera;
-			if (Actor->IsA<ADirectionalLightActor>()) return Icons::Lightbulb;
-			if (Actor->FindComponentByClass<DStaticMeshComponent>()) return Icons::Cube;
-			return Icons::Circle;
+			switch (Icon)
+			{
+			case EWorldOutlinerIcon::Camera: return Icons::Camera;
+			case EWorldOutlinerIcon::DirectionalLight: return Icons::Sun;
+			case EWorldOutlinerIcon::Level: return Icons::House;
+			case EWorldOutlinerIcon::PlayerStart: return Icons::Flag;
+			case EWorldOutlinerIcon::StaticMesh: return Icons::Cube;
+			case EWorldOutlinerIcon::Actor:
+			default: return Icons::Circle;
+			}
+		}
+
+		auto DrawSelectionSummary(size_t ActorCount, size_t SelectedCount) -> void
+		{
+			const std::string FullSummary = std::format("{} actors | {} selected", ActorCount, SelectedCount);
+			const std::string CompactSummary = std::format("{} selected", SelectedCount);
+			ImGui::SameLine();
+			const float MinimumX = ImGui::GetCursorPosX();
+			const float RightX = ImGui::GetWindowContentRegionMax().x;
+			const bool bUseCompactSummary = ImGui::CalcTextSize(FullSummary.c_str()).x > RightX - MinimumX;
+			const std::string& Summary = bUseCompactSummary ? CompactSummary : FullSummary;
+			ImGui::SetCursorPosX(std::max(MinimumX, RightX - ImGui::CalcTextSize(Summary.c_str()).x));
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("%s", Summary.c_str());
+			if (bUseCompactSummary && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+				ImGui::SetTooltip("%s", FullSummary.c_str());
 		}
 
 	} // namespace
@@ -380,7 +401,8 @@ namespace Durin::Editor::Level
 		ImGui::PushID(Actor);
 		const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
 		const std::string VisibilityIcon = Actor->IsHidden() ? std::format("{}  ", Icons::EyeSlash) : std::string();
-		const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon(Actor), Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon(Actor), Actor->GetName());
+		const char* ActorIcon = IconGlyph(ClassifyWorldOutlinerActorIcon(Actor));
+		const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon, Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon, Actor->GetName());
 		if (Actor->IsHidden()) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 		const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
 		if (Actor->IsHidden()) ImGui::PopStyleColor();
@@ -439,7 +461,7 @@ namespace Durin::Editor::Level
 		else
 			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		ImGui::PushID(Context.Level);
-		const std::string LevelLabel = std::format("{}  {}", Icons::FolderOpen, LevelName);
+		const std::string LevelLabel = std::format("{}  {}", IconGlyph(EWorldOutlinerIcon::Level), LevelName);
 		ImGuiTreeNodeFlags LevelFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 		if (bLevelSelected) LevelFlags |= ImGuiTreeNodeFlags_Selected;
 		const bool bLevelOpen = MonaImGui::CompactTreeNode("LevelNode", LevelFlags, "%s", LevelLabel.c_str());
@@ -666,19 +688,6 @@ namespace Durin::Editor::Level
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime World (read-only)");
 			ImGui::Separator();
 		}
-
-		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
-		ImGui::SameLine();
-		if (ImGui::Button(Icons::Compress)) ExpandRequest = -1;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collapse all");
-		ImGui::SameLine();
-		DrawAttachmentRuleMenu();
-
-		ImGui::SetNextItemWidth(-1.0f);
-		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors or types...", SearchText.data(), SearchText.size());
-		ImGui::Separator();
-
 		if (Context.Level == nullptr)
 		{
 			DisplayedLevel = nullptr;
@@ -687,21 +696,43 @@ namespace Durin::Editor::Level
 			bRenamingLevel = false;
 			RenamingActor = nullptr;
 			RenameDialog.Cancel();
-			ImGui::TextDisabled("No level is open.");
+		}
+		else
+		{
+			if (DisplayedLevel.Get() != Context.Level)
+			{
+				DisplayedLevel = Context.Level;
+				bLevelSelected = false;
+				bRenamingLevel = false;
+				RenamingActor = nullptr;
+				RenameDialog.Cancel();
+			}
+			if (HierarchyModel.NeedsRebuild(Context.Level, Context.Level->GetEditorActorHierarchyRevision()))
+				RebuildHierarchyCache(Context.Level);
+		}
+
+		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
+		ImGui::SameLine();
+		if (ImGui::Button(Icons::Compress)) ExpandRequest = -1;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collapse all");
+		ImGui::SameLine();
+		DrawAttachmentRuleMenu();
+		DrawSelectionSummary(HierarchyModel.GetNodes().size(), Context.GetSelectedActors().size());
+
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors or types...", SearchText.data(), SearchText.size());
+		ImGui::Separator();
+
+		if (Context.Level == nullptr)
+		{
+			if (ImGui::BeginChild("OutlinerHierarchy", ImVec2(0.0f, 0.0f)))
+				ImGui::TextDisabled("No level is open.");
+			ImGui::EndChild();
+			ExpandRequest = 0;
 			ImGui::End();
 			return;
 		}
-		if (DisplayedLevel.Get() != Context.Level)
-		{
-			DisplayedLevel = Context.Level;
-			bLevelSelected = false;
-			bRenamingLevel = false;
-			RenamingActor = nullptr;
-			RenameDialog.Cancel();
-		}
-
-		if (HierarchyModel.NeedsRebuild(Context.Level, Context.Level->GetEditorActorHierarchyRevision()))
-			RebuildHierarchyCache(Context.Level);
 		const std::string_view Filter(SearchText.data());
 		if (HierarchyModel.GetFilter() != Filter) RebuildFilterCache(Filter);
 		const bool bRestoreExpansion = bWasSearching && Filter.empty();
@@ -710,12 +741,17 @@ namespace Durin::Editor::Level
 		bool bRequestDelete = false;
 
 		const std::string LevelName = LevelDisplayName(Context.Level);
-		DrawLevelNode(Context, LevelName, Filter, bRestoreExpansion, bRequestDelete);
+		bool bHierarchyBlankClicked = false;
+		if (ImGui::BeginChild("OutlinerHierarchy", ImVec2(0.0f, 0.0f)))
+		{
+			DrawLevelNode(Context, LevelName, Filter, bRestoreExpansion, bRequestDelete);
+			bHierarchyBlankClicked = ImGui::IsWindowHovered()
+				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered();
+		}
+		ImGui::EndChild();
 		ExpandRequest = 0;
 		bWasSearching = !Filter.empty();
 
-		ImGui::Spacing();
-		ImGui::TextDisabled("%zu actors | %zu selected", HierarchyModel.GetNodes().size(), Context.GetSelectedActors().size());
 		DrawShortcuts(Context, LevelName, bRequestDelete);
 		DrawRenameDialog(Context, LevelName);
 		if (bRequestDelete)
@@ -725,7 +761,7 @@ namespace Durin::Editor::Level
 		}
 		DrawDeletePopup(Context);
 
-		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
+		if (bHierarchyBlankClicked)
 		{
 			Context.ClearSelection();
 			bLevelSelected = false;

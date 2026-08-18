@@ -41,19 +41,27 @@ namespace Durin::Editor::Level
 				if (!Context.bSelected) return;
 
 				const FQuat Rotation = Light->GetWorldRotation();
-				// Directional lights have no physical extent, so scale the cue with viewing distance
-				// while preserving the component's origin as the transform and picking anchor.
+				const FVector3 Forward = Math::Normalize(Rotation * FVectorConstants::Forward);
+				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
+				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
+				// Keep the direction cue legible at a distance without reusing the solid transform-gizmo
+				// arrow. The open four-sided head reads as orientation instead of an editable axis.
 				const double ViewDistance = Math::Length(Origin - Context.View.ViewLocation);
-				const double DirectionLength = std::max(1.0, ViewDistance * 0.2);
-				Collector.AddPrimitive({
-					.Shape = EViewOverlayShape::Arrow,
-					.LocalToWorld = Math::TranslationMatrix(Origin)
-						* Math::RotationMatrix(Rotation)
-						* Math::ScaleMatrix(FVector3(DirectionLength)),
-					.Color = Color,
-					.Actor = Actor,
-					.Component = Light,
-				});
+				const double DirectionLength = std::max(1.0, ViewDistance * 0.1);
+				const double HeadLength = DirectionLength * 0.22;
+				const double HeadRadius = DirectionLength * 0.1;
+				const FVector3 Tip = Origin + Forward * DirectionLength;
+				const FVector3 HeadBase = Tip - Forward * HeadLength;
+				const float LineWidth = MonaImGui::ScaleUI(2.0f);
+				auto AddDirectionLine = [&](const FVector3& Start, const FVector3& End) {
+					Collector.AddLine({Start, End, Color, LineWidth, MonaImGui::ScaleUI(6.0f),
+						80, Actor, Light});
+				};
+				AddDirectionLine(Origin, Tip);
+				AddDirectionLine(Tip, HeadBase + Right * HeadRadius);
+				AddDirectionLine(Tip, HeadBase - Right * HeadRadius);
+				AddDirectionLine(Tip, HeadBase + Up * HeadRadius);
+				AddDirectionLine(Tip, HeadBase - Up * HeadRadius);
 			}
 		};
 	} // namespace
