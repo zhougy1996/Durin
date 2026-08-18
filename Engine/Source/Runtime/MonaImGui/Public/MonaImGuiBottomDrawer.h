@@ -27,10 +27,10 @@ namespace Durin::MonaImGui
 		float Visibility = 0.0f;
 
 	private:
-		friend auto BeginBottomDrawer(
+		friend MONAIMGUI_API auto BeginBottomDrawer(
 			const FBottomDrawerConfig& Config,
 			FBottomDrawerState& State) -> bool;
-		friend auto EndBottomDrawer(FBottomDrawerState& State) -> void;
+		friend MONAIMGUI_API auto EndBottomDrawer(FBottomDrawerState& State) -> void;
 
 		bool bOpen = false;
 		bool bBegun = false;
