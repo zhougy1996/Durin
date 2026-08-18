@@ -47,6 +47,7 @@ namespace Durin::MonaImGui
 	struct ImGuiMonaImpl_ViewportData
 	{
 		std::shared_ptr<MWindow> Window;
+		FMonaImGuiCursorState CursorState;
 		int32 IgnoreWindowPosEventFrame = -1;
 		int32 IgnoreWindowSizeEventFrame = -1;
 #if defined(_WIN32)
@@ -87,7 +88,11 @@ namespace Durin::MonaImGui
 			Viewport->PlatformUserData = ViewportData;
 		}
 
-		ViewportData->Window = Window;
+		if (ViewportData->Window != Window)
+		{
+			ViewportData->Window = Window;
+			ViewportData->CursorState.Reset();
+		}
 		return ViewportData;
 	}
 
@@ -331,6 +336,39 @@ namespace Durin::MonaImGui
 
 	// ---- Mouse Cursor --------------------------------------------------
 
+	auto FMonaImGuiCursorState::Reset() -> void
+	{
+		LastCursor = EMouseCursor::Count;
+		LastMode = ECursorMode::Free;
+	}
+
+	auto FMonaImGuiCursorState::Apply(
+		FGenericWindow& Window,
+		EMouseCursor DesiredCursor,
+		bool bDrawSoftwareCursor) -> void
+	{
+		if (Window.GetCursorMode() == ECursorMode::Captured)
+		{
+			return;
+		}
+
+		const ECursorMode DesiredMode = DesiredCursor == EMouseCursor::None || bDrawSoftwareCursor
+			? ECursorMode::Hidden
+			: ECursorMode::Free;
+		if (LastCursor == DesiredCursor && LastMode == DesiredMode && Window.GetCursorMode() == DesiredMode)
+		{
+			return;
+		}
+
+		if (DesiredMode == ECursorMode::Free)
+		{
+			Window.SetCursor(DesiredCursor);
+		}
+		Window.SetCursorMode(DesiredMode);
+		LastCursor = DesiredCursor;
+		LastMode = DesiredMode;
+	}
+
 	static auto UpdateMouseCursor() -> void
 	{
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -350,17 +388,10 @@ namespace Durin::MonaImGui
 		if (HoveredViewport)
 		{
 			FGenericWindow* NativeWindow = static_cast<FGenericWindow*>(HoveredViewport->PlatformHandle);
-			if (NativeWindow && NativeWindow->GetCursorMode() != ECursorMode::Captured)
+			ImGuiMonaImpl_ViewportData* ViewportData = GetPlatformViewportData(HoveredViewport);
+			if (NativeWindow && ViewportData)
 			{
-				if (DesiredCursor == EMouseCursor::None || IO.MouseDrawCursor)
-				{
-					NativeWindow->SetCursorMode(ECursorMode::Hidden);
-				}
-				else
-				{
-					NativeWindow->SetCursor(DesiredCursor);
-					NativeWindow->SetCursorMode(ECursorMode::Free);
-				}
+				ViewportData->CursorState.Apply(*NativeWindow, DesiredCursor, IO.MouseDrawCursor);
 			}
 		}
 	}

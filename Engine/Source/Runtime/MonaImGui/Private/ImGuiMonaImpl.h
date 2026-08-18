@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaImGuiAPI.h"
+#include "Window/GenericWindow.h"
 
 #include <memory>
 
@@ -18,6 +19,18 @@ namespace Durin
 
 namespace Durin::MonaImGui
 {
+	// Caches the cursor state last applied by the ImGui backend for one platform window.
+	// Native non-client interactions may temporarily own the visible cursor, so the
+	// backend must not rewrite an unchanged client cursor every frame.
+	struct FMonaImGuiCursorState
+	{
+		EMouseCursor LastCursor = EMouseCursor::Count;
+		ECursorMode LastMode = ECursorMode::Free;
+
+		MONAIMGUI_API auto Reset() -> void;
+		MONAIMGUI_API auto Apply(FGenericWindow& Window, EMouseCursor DesiredCursor, bool bDrawSoftwareCursor) -> void;
+	};
+
 	extern ImGuiContext* GMonaImGuiContext;
 
 	auto ImGuiMonaImpl_Init() -> void;

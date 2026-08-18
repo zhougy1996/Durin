@@ -40,6 +40,27 @@ namespace
 		Durin::FVector2d Position{0.0};
 		std::vector<std::string> Operations;
 	};
+
+	class FTestImGuiCursorWindow final : public Durin::FGenericWindow
+	{
+	public:
+		auto SetCursor(Durin::EMouseCursor Cursor) -> void override
+		{
+			FGenericWindow::SetCursor(Cursor);
+			Operations.emplace_back("cursor");
+		}
+
+		auto GetOperations() const -> const std::vector<std::string>& { return Operations; }
+
+	protected:
+		auto ApplyCursorMode(Durin::ECursorMode Mode) -> void override
+		{
+			Operations.emplace_back(Mode == Durin::ECursorMode::Hidden ? "hidden" : "free");
+		}
+
+	private:
+		std::vector<std::string> Operations;
+	};
 }
 
 TEST(FGenericWindowCursorTests, KeepsCursorShapeAndModeAsIndependentState)
@@ -60,6 +81,43 @@ TEST(FGenericWindowCursorTests, KeepsCursorShapeAndModeAsIndependentState)
 	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Free);
 	EXPECT_EQ(Window.GetCursorPosition(), Durin::FVector2d(31.0, 47.0));
 	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"captured", "free", "position"}));
+}
+
+TEST(FMonaImGuiCursorTests, AppliesCursorChangesOncePerPlatformWindow)
+{
+	using namespace Durin;
+	FTestImGuiCursorWindow Window;
+	MonaImGui::FMonaImGuiCursorState State;
+
+	State.Apply(Window, EMouseCursor::Arrow, false);
+	State.Apply(Window, EMouseCursor::Arrow, false);
+	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"cursor"}));
+
+	State.Apply(Window, EMouseCursor::TextInput, false);
+	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"cursor", "cursor"}));
+
+	State.Apply(Window, EMouseCursor::TextInput, true);
+	State.Apply(Window, EMouseCursor::TextInput, true);
+	EXPECT_EQ(Window.GetCursorMode(), ECursorMode::Hidden);
+	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"cursor", "cursor", "hidden"}));
+
+	State.Apply(Window, EMouseCursor::TextInput, false);
+	EXPECT_EQ(Window.GetCursorMode(), ECursorMode::Free);
+	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"cursor", "cursor", "hidden", "cursor", "free"}));
+}
+
+TEST(FMonaImGuiCursorTests, DoesNotOverrideCapturedCursorState)
+{
+	using namespace Durin;
+	FTestImGuiCursorWindow Window;
+	MonaImGui::FMonaImGuiCursorState State;
+	Window.SetCursorMode(ECursorMode::Captured);
+	const size_t OperationsBeforeUpdate = Window.GetOperations().size();
+
+	State.Apply(Window, EMouseCursor::Arrow, false);
+
+	EXPECT_EQ(Window.GetCursorMode(), ECursorMode::Captured);
+	EXPECT_EQ(Window.GetOperations().size(), OperationsBeforeUpdate);
 }
 
 TEST(FGenericWindowTitleBarTests, PrioritizesResizeCaptionButtonsDragAndClientRegions)
