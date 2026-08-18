@@ -343,6 +343,7 @@ namespace Durin::Editor::Level
 			Model.HasDirectoryChildrenSnapshot(Physical);
 		if (!bHasChildrenSnapshot)
 			Model.RequestDirectoryChildrenSnapshot(Physical);
+		// Drawing a descendant can navigate and clear the model cache, so keep this node's traversal independent.
 		const std::span<const std::filesystem::path> CachedChildren =
 			Model.GetDirectoryChildren(Physical);
 		const std::vector<std::filesystem::path> Children(
