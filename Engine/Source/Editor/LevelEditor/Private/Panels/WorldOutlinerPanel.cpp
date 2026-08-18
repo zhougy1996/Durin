@@ -631,23 +631,25 @@ namespace Durin::Editor::Level
 	auto FWorldOutlinerPanel::DrawAttachmentRuleMenu() -> void
 	{
 		if (ImGui::Button(Icons::Link)) ImGui::OpenPopup("OutlinerAttachmentRules");
+		const ImVec2 PopupAnchor = {ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + ImGui::GetStyle().ItemSpacing.y};
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
 			ImGui::SetTooltip("Transform rules\nAttach: %s\nDetach: %s",
 				AttachmentRuleName(AttachmentRule), DetachmentRuleName(DetachmentRule));
+		ImGui::SetNextWindowPos(PopupAnchor, ImGuiCond_Appearing);
 		if (!ImGui::BeginPopup("OutlinerAttachmentRules")) return;
 
-		ImGui::TextDisabled("Attach actors");
-		if (ImGui::MenuItem("Keep World", nullptr, AttachmentRule == EAttachmentTransformRule::KeepWorld))
+		ImGui::TextDisabled("Attachment Transform");
+		if (ImGui::RadioButton("Keep World", AttachmentRule == EAttachmentTransformRule::KeepWorld))
 			AttachmentRule = EAttachmentTransformRule::KeepWorld;
-		if (ImGui::MenuItem("Keep Relative", nullptr, AttachmentRule == EAttachmentTransformRule::KeepRelative))
+		if (ImGui::RadioButton("Keep Relative", AttachmentRule == EAttachmentTransformRule::KeepRelative))
 			AttachmentRule = EAttachmentTransformRule::KeepRelative;
-		if (ImGui::MenuItem("Snap to Target", nullptr, AttachmentRule == EAttachmentTransformRule::SnapToTarget))
+		if (ImGui::RadioButton("Snap to Target", AttachmentRule == EAttachmentTransformRule::SnapToTarget))
 			AttachmentRule = EAttachmentTransformRule::SnapToTarget;
 		ImGui::Separator();
-		ImGui::TextDisabled("Detach actors");
-		if (ImGui::MenuItem("Keep World##Detach", nullptr, DetachmentRule == EDetachmentTransformRule::KeepWorld))
+		ImGui::TextDisabled("Detachment Transform");
+		if (ImGui::RadioButton("Keep World##Detach", DetachmentRule == EDetachmentTransformRule::KeepWorld))
 			DetachmentRule = EDetachmentTransformRule::KeepWorld;
-		if (ImGui::MenuItem("Keep Relative##Detach", nullptr, DetachmentRule == EDetachmentTransformRule::KeepRelative))
+		if (ImGui::RadioButton("Keep Relative##Detach", DetachmentRule == EDetachmentTransformRule::KeepRelative))
 			DetachmentRule = EDetachmentTransformRule::KeepRelative;
 		ImGui::EndPopup();
 	}
