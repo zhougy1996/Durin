@@ -232,6 +232,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserModel::RefreshItemsSnapshot() -> void
 	{
+		bSnapshotInjectedForTesting = false;
 		DirectoryChildrenCache.clear();
 		ItemsSnapshot.clear();
 		EnumerationDiagnostics.clear();
@@ -242,20 +243,9 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		std::error_code IteratorError;
-		std::filesystem::recursive_directory_iterator It(
-				 CurrentPhysicalPath,
-				 std::filesystem::directory_options::skip_permission_denied,
-				 IteratorError);
-		const std::filesystem::recursive_directory_iterator End;
-		if (IteratorError)
-			AddEnumerationDiagnostic(
-				EEnumerationDiagnosticKind::Traversal,
-				CurrentPhysicalPath,
-				std::format("Could not enumerate directory: {}", IteratorError.message()));
-		while (!IteratorError && It != End)
+		auto AppendFilesystemEntry =
+			[&](const std::filesystem::directory_entry& Entry) -> bool
 		{
-			const std::filesystem::directory_entry& Entry = *It;
 			const std::filesystem::path EntryPath = Entry.path();
 			const std::string Name = EntryPath.filename().generic_string();
 			std::error_code EntryError;
@@ -263,16 +253,14 @@ namespace Durin::Editor::Level
 				QueryEntryStatus(Entry, EntryError);
 			if (EntryError)
 			{
-				It.disable_recursion_pending();
 				AddEnumerationDiagnostic(
 					EEnumerationDiagnosticKind::Entry,
 					EntryPath,
 					std::format("Skipped entry because its status could not be read: {}", EntryError.message()));
+				return true;
 			}
 			else if (std::filesystem::is_symlink(Status))
-			{
-				It.disable_recursion_pending();
-			}
+				return true;
 			else if (std::filesystem::is_directory(Status))
 			{
 				ItemsSnapshot.push_back(
@@ -302,58 +290,142 @@ namespace Durin::Editor::Level
 				else
 					ItemsSnapshot.push_back(std::move(Item));
 			}
+			return false;
+		};
 
-			IteratorError.clear();
-			It.increment(IteratorError);
+		std::error_code IteratorError;
+		if (Search.empty())
+		{
+			std::filesystem::directory_iterator It(
+				CurrentPhysicalPath,
+				std::filesystem::directory_options::skip_permission_denied,
+				IteratorError);
+			const std::filesystem::directory_iterator End;
 			if (IteratorError)
 				AddEnumerationDiagnostic(
 					EEnumerationDiagnosticKind::Traversal,
-					EntryPath,
-					std::format("Directory traversal stopped: {}", IteratorError.message()));
+					CurrentPhysicalPath,
+					std::format("Could not enumerate directory: {}", IteratorError.message()));
+			while (!IteratorError && It != End)
+			{
+				const std::filesystem::path EntryPath = It->path();
+				AppendFilesystemEntry(*It);
+				IteratorError.clear();
+				It.increment(IteratorError);
+				if (IteratorError)
+					AddEnumerationDiagnostic(
+						EEnumerationDiagnosticKind::Traversal,
+						EntryPath,
+						std::format("Directory traversal stopped: {}", IteratorError.message()));
+			}
+		}
+		else
+		{
+			std::filesystem::recursive_directory_iterator It(
+				CurrentPhysicalPath,
+				std::filesystem::directory_options::skip_permission_denied,
+				IteratorError);
+			const std::filesystem::recursive_directory_iterator End;
+			if (IteratorError)
+				AddEnumerationDiagnostic(
+					EEnumerationDiagnosticKind::Traversal,
+					CurrentPhysicalPath,
+					std::format("Could not enumerate directory: {}", IteratorError.message()));
+			while (!IteratorError && It != End)
+			{
+				const std::filesystem::path EntryPath = It->path();
+				if (AppendFilesystemEntry(*It)) It.disable_recursion_pending();
+				IteratorError.clear();
+				It.increment(IteratorError);
+				if (IteratorError)
+					AddEnumerationDiagnostic(
+						EEnumerationDiagnosticKind::Traversal,
+						EntryPath,
+						std::format("Directory traversal stopped: {}", IteratorError.message()));
+			}
 		}
 
-		for (const auto& [Path, Data]
-			: Asset::CaptureAssetCatalogSnapshot().Assets)
+		RefreshAssetDirectoryIndex();
+		if (Search.empty())
 		{
-			if (!IsInsideCurrentDirectory(Data.PhysicalPath, true)) continue;
-			FContentBrowserItem Item{
-				Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector
-					? EContentBrowserItemKind::Redirector
-					: EContentBrowserItemKind::Asset,
-				std::string(Path.GetAssetName()),
-				Path.ToString(),
-				NormalizePath(Data.PhysicalPath),
-				Data.AssetClassName,
-				".dasset"};
-			Item.RedirectDestination = Data.RedirectDestination;
-			std::error_code FileEc;
-			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
-			Item.LastWriteTime = Data.LastWriteTime;
-			::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
-			std::string ThumbnailError;
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService =
-				::Durin::Editor::GetDefaultRenderedAssetThumbnailService();
-			if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
+			if (const auto It = AssetDirectoryIndex.find(CurrentPhysicalPath);
+				It != AssetDirectoryIndex.end())
 			{
-				if (ThumbnailService.CaptureSourceImage(
-						Data, SourceImage, ThumbnailError))
-				{
-					Item.ThumbnailIdentity = Item.VirtualPath;
-					Item.ThumbnailSourcePath = SourceImage.PhysicalPath;
-					Item.ThumbnailFileSize = SourceImage.FileSize;
-					Item.ThumbnailLastWriteTime = SourceImage.LastWriteTime;
-				}
+				for (const FIndexedAsset& Asset : It->second)
+					AppendAssetItem(*Asset.Path, *Asset.Data);
 			}
-			else if (ThumbnailService.Find(Data.AssetClassName))
+		}
+		else
+		{
+			for (const auto& [Directory, Assets] : AssetDirectoryIndex)
 			{
-				Item.ThumbnailIdentity = Item.VirtualPath;
-				Item.ThumbnailFileSize = Data.FileSize;
-				Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
-				Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
+				if (Directory != CurrentPhysicalPath
+					&& !PathUtilities::IsLexicalDescendantPath(
+						Directory, CurrentPhysicalPath, true))
+					continue;
+				for (const FIndexedAsset& Asset : Assets)
+					AppendAssetItem(*Asset.Path, *Asset.Data);
 			}
-			ItemsSnapshot.push_back(std::move(Item));
 		}
 		RebuildItems();
+	}
+
+	auto FContentBrowserModel::RefreshAssetDirectoryIndex() -> void
+	{
+		const uint64 Revision = Asset::GetAssetCatalogRevision();
+		if (AssetCatalogSnapshot.Revision == Revision) return;
+
+		AssetCatalogSnapshot = Asset::CaptureAssetCatalogSnapshot();
+		AssetDirectoryIndex.clear();
+		for (const auto& [Path, Data] : AssetCatalogSnapshot.Assets)
+		{
+			const std::string Directory = NormalizePath(
+				std::filesystem::path(Data.PhysicalPath)
+					.parent_path()
+					.generic_string());
+			AssetDirectoryIndex[Directory].push_back({&Path, &Data});
+		}
+	}
+
+	auto FContentBrowserModel::AppendAssetItem(
+		const FAssetPath& Path,
+		const Asset::FAssetData& Data) -> void
+	{
+		FContentBrowserItem Item{
+			Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+				? EContentBrowserItemKind::Redirector
+				: EContentBrowserItemKind::Asset,
+			std::string(Path.GetAssetName()),
+			Path.ToString(),
+			NormalizePath(Data.PhysicalPath),
+			Data.AssetClassName,
+			".dasset"};
+		Item.RedirectDestination = Data.RedirectDestination;
+		std::error_code FileEc;
+		Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
+		Item.LastWriteTime = Data.LastWriteTime;
+		::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
+		std::string ThumbnailError;
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService =
+			::Durin::Editor::GetDefaultRenderedAssetThumbnailService();
+		if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
+		{
+			if (ThumbnailService.CaptureSourceImage(Data, SourceImage, ThumbnailError))
+			{
+				Item.ThumbnailIdentity = Item.VirtualPath;
+				Item.ThumbnailSourcePath = SourceImage.PhysicalPath;
+				Item.ThumbnailFileSize = SourceImage.FileSize;
+				Item.ThumbnailLastWriteTime = SourceImage.LastWriteTime;
+			}
+		}
+		else if (ThumbnailService.Find(Data.AssetClassName))
+		{
+			Item.ThumbnailIdentity = Item.VirtualPath;
+			Item.ThumbnailFileSize = Data.FileSize;
+			Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
+			Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
+		}
+		ItemsSnapshot.push_back(std::move(Item));
 	}
 
 	auto FContentBrowserModel::MatchesTypeFilter(
@@ -460,7 +532,13 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserModel::SetSearch(std::string_view InSearch) -> void
 	{
+		const bool bScopeChanged = Search.empty() != InSearch.empty();
 		Search = InSearch;
+		if (bScopeChanged && !bSnapshotInjectedForTesting)
+		{
+			RefreshItemsSnapshot();
+			return;
+		}
 		RebuildItems();
 	}
 
@@ -571,6 +649,7 @@ namespace Durin::Editor::Level
 								  .lexically_normal()
 								  .generic_string();
 		ItemsSnapshot = std::move(Snapshot);
+		bSnapshotInjectedForTesting = true;
 		DirectoryChildrenCache.clear();
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;

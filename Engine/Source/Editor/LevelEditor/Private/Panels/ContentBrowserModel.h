@@ -160,9 +160,18 @@ namespace Durin::Editor::Level
 		}
 
 	private:
+		struct FIndexedAsset
+		{
+			const FAssetPath* Path = nullptr;
+			const Asset::FAssetData* Data = nullptr;
+		};
+
 		auto QueryEntryStatus(
 			const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) const -> std::filesystem::file_status;
+		auto RefreshAssetDirectoryIndex() -> void;
+		auto AppendAssetItem(const FAssetPath& Path, const Asset::FAssetData& Data)
+			-> void;
 		auto AddEnumerationDiagnostic(
 			EEnumerationDiagnosticKind Kind,
 			const std::filesystem::path& Path,
@@ -173,6 +182,8 @@ namespace Durin::Editor::Level
 		std::string CurrentVirtualPath;
 		std::vector<FMountSnapshot> MountSnapshot;
 		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
+		Asset::FAssetCatalogSnapshot AssetCatalogSnapshot;
+		std::unordered_map<std::string, std::vector<FIndexedAsset>> AssetDirectoryIndex;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;
 		std::vector<FEnumerationDiagnostic> EnumerationDiagnostics;
@@ -186,5 +197,6 @@ namespace Durin::Editor::Level
 		bool bSortAscending = true;
 		bool bShowHiddenFiles = false;
 		bool bShowRedirectors = false;
+		bool bSnapshotInjectedForTesting = false;
 	};
 } // namespace Durin::Editor::Level

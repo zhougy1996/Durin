@@ -348,6 +348,43 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	EXPECT_EQ(Model.GetItems().front().Name, "Stone");
 }
 
+TEST_F(FContentBrowserModelTests, DefersRecursiveEnumerationUntilSearchStarts)
+{
+	const std::filesystem::path ScanRoot = Root / "Content/DeferredSearch";
+	std::filesystem::create_directories(ScanRoot / "Nested");
+	{
+		std::ofstream DirectFile(ScanRoot / "Direct.txt");
+		DirectFile << "direct";
+		std::ofstream NestedFile(ScanRoot / "Nested/Needle.txt");
+		NestedFile << "needle";
+	}
+
+	FContentBrowserModel Model;
+	bool bObservedNestedFile = false;
+	Model.SetEntryStatusQueryForTesting(
+		[&](const std::filesystem::directory_entry& Entry,
+			std::error_code& Error) {
+			if (Entry.path().filename() == "Needle.txt")
+				bObservedNestedFile = true;
+			return Entry.symlink_status(Error);
+		});
+
+	ASSERT_TRUE(Model.NavigateToPhysical(ScanRoot.generic_string()));
+	EXPECT_FALSE(bObservedNestedFile);
+	EXPECT_EQ(std::ranges::count_if(
+		Model.GetItems(),
+		[](const FContentBrowserItem& Item) { return Item.Name == "Needle.txt"; }), 0);
+
+	Model.SetSearch("needle");
+	EXPECT_TRUE(bObservedNestedFile);
+	ASSERT_EQ(Model.GetItems().size(), 1);
+	EXPECT_EQ(Model.GetItems().front().Name, "Needle.txt");
+
+	bObservedNestedFile = false;
+	Model.SetSearch(std::string_view{});
+	EXPECT_FALSE(bObservedNestedFile);
+}
+
 TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackages)
 {
 	{
