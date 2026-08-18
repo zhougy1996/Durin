@@ -5,8 +5,10 @@ namespace Durin::VulkanRHI
 	auto QueryNativeVulkanPresentationSupport(
 		vk::PhysicalDevice Gpu,
 		uint32 QueueFamilyIndex,
-		vk::SurfaceKHR) -> bool
+		vk::SurfaceKHR PresentationSurface) -> bool
 	{
-		return Gpu.getWin32PresentationSupportKHR(QueueFamilyIndex);
+		if (!PresentationSurface) return false;
+		return Gpu.getSurfaceSupportKHR(
+			QueueFamilyIndex, PresentationSurface) == vk::True;
 	}
 }

@@ -1,8 +1,8 @@
 # RHI Capabilities and Vulkan Startup
 
 Summary: Define the immutable public capability snapshot, exact texture support,
-Vulkan startup negotiation, Win64 queue/WSI topology, and complete structural
-candidate rules.
+Vulkan startup negotiation, presentation-aware queue/WSI topology, and complete
+structural candidate rules.
 
 Modules: RHI, VulkanRHI, ApplicationCore
 
@@ -87,9 +87,12 @@ are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
 `shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers,
 positive storage-buffer alignment/range and direct-dispatch group-count limits,
 and one queue family with queue
-zero, graphics and compute flags, and presentation support. On Win64 that fact
-is supplied by the focused native Win32 presentation adapter. Rejected
-devices never receive a ranking position.
+zero, graphics and compute flags, and presentation support. In presentation
+mode Vulkan creates the real startup surface first and calls
+`getSurfaceSupportKHR` for that exact surface on both Windows and macOS.
+Headless mode creates no surface and selects the lowest graphics/compute family
+without publishing a presentation claim. Rejected devices never receive a
+ranking position.
 
 Suitable devices rank deterministically by device type, descending 2D limit,
 descending API version, then ascending vendor ID, device ID, and name. Complete
@@ -111,6 +114,23 @@ They belong to one concrete surface snapshot and are queried for every
 transactional main or detached swapchain create/recreate candidate. The
 candidate validates them without mutating Vulkan state; dynamic WSI values are
 never published in the immutable `FRHICapabilities` snapshot.
+
+## Startup Presentation Ownership
+
+Windowed startup supplies an explicit `FRHIInitializationContext` with the
+primary native handle. On macOS ApplicationCore installs the `CAMetalLayer` on
+the AppKit main thread before RHI initialization; surface creation remains an
+RHI-thread operation on both platforms. `FVulkanPresentationCandidate` owns the
+surface across instance creation, device admission, and logical-device setup.
+If initialization or shutdown occurs before adoption, that RAII owner destroys
+the surface before the instance.
+
+The startup viewport requests the one allowed transfer with
+`FRHIViewportCreateInfo::bAdoptInitializationPresentationCandidate`. The stored
+native handle rejects an accidental wrong-window adoption but is not a generic
+window identity and does not drive consumption. Mismatch and duplicate adoption
+fail deterministically without replacement-surface fallback. Ordinary later
+viewports create and own independent surfaces.
 
 ## Complete Structural Candidates
 

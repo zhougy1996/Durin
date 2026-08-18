@@ -152,7 +152,7 @@ namespace Durin::VulkanRHI
 				_putenv_s("DURIN_RHI_EXECUTION", "");
 			}
 		} Scope;
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
 			FRHIBufferCreateDesc::Create("MappedFailureBuffer", 256, 16,
@@ -180,7 +180,7 @@ namespace Durin::VulkanRHI
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		GDynamicRHI->RHIResetMemoryStatistics();
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		auto CreateBuffer = [&Commands](const char* Name, EBufferUsageFlags Usage) {
@@ -275,7 +275,7 @@ namespace Durin::VulkanRHI
 				_putenv_s("DURIN_RHI_EXECUTION", "");
 			}
 		} Scope;
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
 		ASSERT_NE(Device, nullptr);
 
@@ -408,7 +408,7 @@ namespace Durin::VulkanRHI
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ResetVulkanMemoryBaselineStatistics();
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
@@ -456,7 +456,7 @@ namespace Durin::VulkanRHI
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		const std::array<uint64, 5> FrameNumbers{0, 17, 2, 101, 4};
 		uint64 PreviousSubmittedToken = 0;
 		for (uint64 FrameNumber : FrameNumbers)

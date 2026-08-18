@@ -18,6 +18,7 @@ namespace Durin::VulkanRHI
 	{
 		Instance,
 		DebugMessenger,
+		Surface,
 		Device,
 		Swapchain,
 		SwapchainImageView,

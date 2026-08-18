@@ -16,7 +16,8 @@ namespace Durin
 			bool bInitOnRHIThread = false;
 			bool bShutdownOnRHIThread = false;
 			bool bCapabilitiesClearedAtShutdown = false;
-			void* PresentationWindowHandle = nullptr;
+			FRHIInitializationContext InitializationContext =
+				FRHIInitializationContext::Headless();
 		};
 
 		class FFailingDynamicRHI final : public FDynamicRHI
@@ -35,15 +36,10 @@ namespace Durin
 				++Observation.DestructionCount;
 			}
 
-			auto SetInitializationPresentationWindow(
-				void* InWindowHandle) -> void override
-			{
-				Observation.PresentationWindowHandle = InWindowHandle;
-			}
-
-			auto Init() -> void override
+			auto Init(const FRHIInitializationContext& Context) -> void override
 			{
 				++Observation.InitCount;
+				Observation.InitializationContext = Context;
 				Observation.bInitOnRHIThread = IsInRHIThread();
 				if (bFailInit)
 				{
@@ -74,8 +70,7 @@ namespace Durin
 			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
 			auto RHIEndFrame() -> void override {}
 			auto RHICreateViewport(
-				void*, uint32, uint32, bool, EPixelFormat,
-				EViewportPresentModePolicy) const
+				const FRHIViewportCreateInfo&)
 				-> TRefCountPtr<FRHIViewport> override { return {}; }
 			auto RHIResizeViewport(
 				FRHIViewport*, uint32, uint32, bool) -> void override {}
@@ -114,7 +109,8 @@ namespace Durin
 	{
 		FInitializationObservation Observation;
 		EXPECT_FALSE(RHIInitWithBackendForTests(
-			new FFailingDynamicRHI(Observation), true, true));
+			new FFailingDynamicRHI(Observation), true, true,
+			FRHIInitializationContext::Headless()));
 
 		EXPECT_EQ(GDynamicRHI, nullptr);
 		EXPECT_EQ(Observation.InitCount, 0u);
@@ -129,7 +125,8 @@ namespace Durin
 	{
 		FInitializationObservation Observation;
 		EXPECT_FALSE(RHIInitWithBackendForTests(
-			new FFailingDynamicRHI(Observation), true));
+			new FFailingDynamicRHI(Observation), true, false,
+			FRHIInitializationContext::Headless()));
 
 		EXPECT_EQ(GDynamicRHI, nullptr);
 		EXPECT_EQ(Observation.InitCount, 1u);
@@ -142,15 +139,20 @@ namespace Durin
 	}
 
 	TEST(FRHIInitializationTests,
-		PresentationWindowIsPublishedBeforeBackendInitialization)
+		PresentationContextIsDeliveredToBackendInitialization)
 	{
 		FInitializationObservation Observation;
 		auto* Backend = new FFailingDynamicRHI(Observation);
 		void* const WindowHandle = reinterpret_cast<void*>(uintptr_t{0x1234});
+		const FRHIPresentationTarget Target{
+			.NativeWindowHandle = WindowHandle};
 		EXPECT_FALSE(RHIInitWithBackendForTests(
-			Backend, false, false, WindowHandle));
+			Backend, false, false,
+			FRHIInitializationContext::Presentation(Target)));
 
-		EXPECT_EQ(Observation.PresentationWindowHandle, WindowHandle);
+		ASSERT_TRUE(Observation.InitializationContext.GetPresentationTarget());
+		EXPECT_EQ(Observation.InitializationContext.GetPresentationTarget()
+			->NativeWindowHandle, WindowHandle);
 		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 
@@ -167,7 +169,7 @@ namespace Durin
 		FInitializationObservation Observation;
 		auto* Backend = new FFailingDynamicRHI(Observation, false);
 		EXPECT_EQ(Backend->RHIGetCapabilities(), nullptr);
-		Backend->Init();
+		Backend->Init(FRHIInitializationContext::Headless());
 		const FRHICapabilities* Capabilities = Backend->RHIGetCapabilities();
 		ASSERT_NE(Capabilities, nullptr);
 		EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);

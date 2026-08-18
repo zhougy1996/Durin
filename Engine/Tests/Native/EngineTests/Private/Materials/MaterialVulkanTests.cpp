@@ -168,7 +168,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	WaitForRenderingThread();
 	Durin::ShutdownRenderingThread();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit();
+	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 

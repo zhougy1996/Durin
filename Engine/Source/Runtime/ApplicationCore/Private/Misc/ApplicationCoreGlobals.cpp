@@ -2,6 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "Application/GenericApplication.h"
+#include "Misc/GlfwVulkanInitialization.h"
 #include "ThirdParty/Glfw/GlfwCommon.h"
 #include "Window/GlfwWindow.h"
 
@@ -17,12 +18,23 @@ namespace Durin
 			#endif
 		}
 
-		auto AppendRequiredGlfwVulkanInstanceExtensions() -> void
+		auto AppendRequiredGlfwVulkanInstanceExtensions() -> bool
 		{
-			// Collect the platform extensions GLFW needs before Vulkan startup.
-			uint32_t GlfwExtensionCount = 0;
-			const char** GlfwExtensions = glfwGetRequiredInstanceExtensions(&GlfwExtensionCount);
-			GMonaRequiredVulkanInstanceExtensions.insert(GMonaRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
+			FGlfwVulkanExtensionQueryResult Result =
+				QueryRequiredGlfwVulkanInstanceExtensions(
+					[](uint32_t* Count) {
+						return glfwGetRequiredInstanceExtensions(Count);
+					},
+					[](const char** Description) {
+						return glfwGetError(Description);
+					});
+			if (!Result.Succeeded())
+			{
+				DURIN_ERROR("{}", Result.Diagnostic);
+				return false;
+			}
+			GMonaRequiredVulkanInstanceExtensions = std::move(Result.Extensions);
+			return true;
 		}
 	}
 
@@ -45,7 +57,13 @@ namespace Durin
 			return false;
 		}
 		InitGlfwCursors();
-		AppendRequiredGlfwVulkanInstanceExtensions();
+		if (!AppendRequiredGlfwVulkanInstanceExtensions())
+		{
+			DestroyGlfwCursors();
+			glfwTerminate();
+			GMonaRequiredVulkanInstanceExtensions.clear();
+			return false;
+		}
 		GApplicationCoreInitializationCount = 1;
 		return true;
 	}

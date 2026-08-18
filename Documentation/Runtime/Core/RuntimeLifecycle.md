@@ -72,10 +72,15 @@ startup; the engine does not expose a partially initialized task system.
 `FEngineLoop::Init()` handles common runtime startup, including
 `ApplicationCore`, the platform half of `Mona`, the hidden primary window,
 `RHI`, the rendering thread, Mona rendering, and `GEngine`. Launch creates the
-final primary `MWindow` and its native window before `RHIInit()`, then passes
-the native handle into RHI initialization. Render-command admission opens
-immediately after `RHIInit()` and before Mona rendering, editor previews, or
-engine initialization can enqueue work.
+final primary `MWindow` and its native window before `RHIInit()`, then passes an
+explicit presentation `FRHIInitializationContext` containing the native handle.
+Vulkan creates and owns a startup presentation candidate before device
+selection. Launch carries one explicit adoption intent into Mona rendering, and
+the startup viewport transfers that candidate exactly once; later viewports
+create their own surfaces. Headless startup instead uses the explicit headless
+context and creates no surface. Render-command admission opens immediately
+after `RHIInit()` and before Mona rendering, editor previews, or engine
+initialization can enqueue work.
 
 Primary-window, platform-surface, and first-viewport ownership is defined by
 [Viewport Rendering](../Rendering/ViewportRendering.md). Vulkan instance,

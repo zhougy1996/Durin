@@ -244,7 +244,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
@@ -617,7 +617,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -792,7 +792,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -945,7 +945,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -1119,7 +1119,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
@@ -1194,7 +1194,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -1346,21 +1346,19 @@ namespace Durin
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
 		FModuleTestHarness RendererLifecycle("HDRDisplayMappingPresentTest");
 		RendererLifecycle.Start(Renderer);
 
-		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport(
-			Window->GetOSNativeWindowHandle(),
-			96,
-			64,
-			false,
-			EPixelFormat::SRGBA8_UNORM,
-			EViewportPresentModePolicy::MainWindow
-		);
+		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({
+			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
+			.SizeX = 96,
+			.SizeY = 64,
+			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
+			.PresentModePolicy = EViewportPresentModePolicy::MainWindow});
 		ASSERT_NE(Viewport, nullptr);
 		auto RenderPresent = [&Renderer, &Viewport](
 								 uint32 Width,

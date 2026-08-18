@@ -1,9 +1,63 @@
 #include "Application/ModalLoopTick.h"
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
+#include "Runtime/ApplicationCore/Private/Misc/GlfwVulkanInitialization.h"
 #include "Window/GenericWindow.h"
 
 #include <gtest/gtest.h>
+
+TEST(FGlfwVulkanInitializationTests, RejectsMissingRequiredExtensionStorage)
+{
+	const Durin::FGlfwVulkanExtensionQueryResult Result =
+		Durin::QueryRequiredGlfwVulkanInstanceExtensions(
+			[](uint32_t* Count) -> const char** {
+				*Count = 0;
+				return nullptr;
+			},
+			[](const char** Description) {
+				*Description = "Vulkan is unavailable";
+				return 65542;
+			});
+
+	EXPECT_FALSE(Result.Succeeded());
+	EXPECT_TRUE(Result.Extensions.empty());
+	EXPECT_EQ(Result.Diagnostic,
+		"GLFW Vulkan instance-extension discovery failed (65542): Vulkan is unavailable.");
+}
+
+TEST(FGlfwVulkanInitializationTests, RejectsInvalidRequiredExtensionName)
+{
+	const char* Extensions[] = {"VK_KHR_surface", nullptr};
+	const Durin::FGlfwVulkanExtensionQueryResult Result =
+		Durin::QueryRequiredGlfwVulkanInstanceExtensions(
+			[&Extensions](uint32_t* Count) {
+				*Count = 2;
+				return Extensions;
+			},
+			[](const char**) { return 0; });
+
+	EXPECT_FALSE(Result.Succeeded());
+	EXPECT_TRUE(Result.Extensions.empty());
+	EXPECT_EQ(Result.Diagnostic,
+		"GLFW Vulkan instance-extension discovery returned an invalid name at index 1.");
+}
+
+TEST(FGlfwVulkanInitializationTests, RetainsValidatedBorrowedExtensions)
+{
+	const char* Extensions[] = {"VK_KHR_surface", "VK_KHR_win32_surface"};
+	const Durin::FGlfwVulkanExtensionQueryResult Result =
+		Durin::QueryRequiredGlfwVulkanInstanceExtensions(
+			[&Extensions](uint32_t* Count) {
+				*Count = 2;
+				return Extensions;
+			},
+			[](const char**) { return 0; });
+
+	ASSERT_TRUE(Result.Succeeded());
+	ASSERT_EQ(Result.Extensions.size(), 2u);
+	EXPECT_STREQ(Result.Extensions[0], "VK_KHR_surface");
+	EXPECT_STREQ(Result.Extensions[1], "VK_KHR_win32_surface");
+}
 
 #if defined(_WIN32)
 #include <Windows.h>

@@ -1,5 +1,6 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanPresentationSupport.h"
+#include "VulkanPresentationCandidate.h"
 
 #include "VulkanContext.h"
 #include "VulkanGenericPlatform.h"
@@ -40,13 +41,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::SetInitializationPresentationWindow(
-		void* InWindowHandle) -> void
-	{
-		InitializationPresentationWindowHandle = InWindowHandle;
-	}
-
-	auto FVulkanDynamicRHI::Init() -> void
+	auto FVulkanDynamicRHI::Init(const FRHIInitializationContext& Context) -> void
 	{
 		CheckVulkanRHIThread();
 		CreateInstance();
@@ -54,17 +49,23 @@ namespace Durin::VulkanRHI
 		CreateDebugMessenger();
 		DebugUtils.SetExtensionActive(
 			DiagnosticAvailability.bDebugUtilsActive);
-#ifdef __APPLE__
-		if (!InitializationPresentationWindowHandle)
-			throw std::runtime_error(
-				"macOS Vulkan initialization requires the primary native window before device admission.");
-		InitializationPresentationSurface = FVulkanGenericPlatform::CreateSurface(
-			InitializationPresentationWindowHandle, Instance);
-		if (!InitializationPresentationSurface)
-			throw std::runtime_error(
-				"macOS Vulkan initialization failed to create the primary Metal presentation surface.");
-#endif
-		SelectDevice(InitializationPresentationSurface);
+		if (const std::optional<FRHIPresentationTarget>& Target =
+			Context.GetPresentationTarget())
+		{
+			const vk::SurfaceKHR Surface = FVulkanGenericPlatform::CreateSurface(
+				Target->NativeWindowHandle, Instance);
+			if (!Surface)
+				throw std::runtime_error(
+					"Vulkan initialization failed to create the startup presentation surface.");
+			InitializationPresentationCandidate =
+				std::make_unique<FVulkanPresentationCandidate>(
+					Instance, *Target, Surface);
+		}
+		SelectDevice(
+			InitializationPresentationCandidate
+				? InitializationPresentationCandidate->GetSurfaceForAdmission()
+				: VK_NULL_HANDLE,
+			!Context.IsHeadless());
 		DebugUtils.NameObject(Instance, "Durin.Instance");
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 
@@ -139,12 +140,7 @@ namespace Durin::VulkanRHI
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Device = nullptr;
-		if (InitializationPresentationSurface)
-		{
-			Instance.destroySurfaceKHR(InitializationPresentationSurface);
-			InitializationPresentationSurface = VK_NULL_HANDLE;
-		}
-		InitializationPresentationWindowHandle = nullptr;
+		InitializationPresentationCandidate.reset();
 		DebugUtils.ResetDevice();
 		DestroyDebugMessenger();
 		if (Instance)
@@ -579,9 +575,11 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanDynamicRHI::SelectDevice(
-		vk::SurfaceKHR PresentationSurface) -> void
+		vk::SurfaceKHR PresentationSurface,
+		bool bRequirePresentation) -> void
 	{
 		CheckVulkanRHIThread();
+		require(!bRequirePresentation || PresentationSurface);
 		std::vector<vk::PhysicalDevice> Gpus = Instance.enumeratePhysicalDevices();
 
 		if (Gpus.empty())
@@ -618,6 +616,7 @@ namespace Durin::VulkanRHI
 				Properties.limits.maxComputeWorkGroupCount[2]};
 			Candidate.Input.bFillModeNonSolid = Features.fillModeNonSolid == vk::True;
 			Candidate.Input.bIndependentBlend = Features.independentBlend == vk::True;
+			Candidate.Input.bRequirePresentation = bRequirePresentation;
 #ifdef __APPLE__
 			Candidate.Input.bRequirePortabilitySubset = true;
 #endif
@@ -661,8 +660,8 @@ namespace Durin::VulkanRHI
 				FVulkanQueueFamilyCandidate& Queue = Candidate.Input.QueueFamilies.emplace_back();
 				Queue.Flags = QueueFamilies[QueueIndex].queueFlags;
 				Queue.QueueCount = QueueFamilies[QueueIndex].queueCount;
-				Queue.bSupportsPresentation =
-					QueryNativeVulkanPresentationSupport(
+				Queue.bSupportsPresentation = bRequirePresentation
+					&& QueryNativeVulkanPresentationSupport(
 						Gpu, QueueIndex, PresentationSurface);
 			}
 			Candidate.Evaluation = EvaluateVulkanPhysicalDeviceCandidate(Candidate.Input);
@@ -693,15 +692,6 @@ namespace Durin::VulkanRHI
 			this, Selected.Gpu, std::move(Selected.Evaluation));
 		DeviceCandidate->InitGpu(static_cast<uint32>(InstanceExtensions.size()));
 		Device = DeviceCandidate.release();
-	}
-
-	auto FVulkanDynamicRHI::TakeInitializationPresentationSurface(
-		void* WindowHandle) const -> vk::SurfaceKHR
-	{
-		if (WindowHandle != InitializationPresentationWindowHandle)
-			return VK_NULL_HANDLE;
-		return std::exchange(
-			InitializationPresentationSurface, VK_NULL_HANDLE);
 	}
 
 }

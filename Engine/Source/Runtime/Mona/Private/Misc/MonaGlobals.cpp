@@ -15,7 +15,7 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			Mona::FMonaApplication::Create();
-			if (GDynamicRHI && !Mona::InitializeRendering())
+			if (GDynamicRHI && !Mona::InitializeRendering(false))
 			{
 				DURIN_ERROR("Mona rendering services failed to initialize.");
 			}
@@ -41,12 +41,14 @@ namespace Durin
 
 namespace Durin::Mona
 {
-	auto InitializeRendering() -> bool
+	auto InitializeRendering(
+		bool bAdoptInitializationPresentationCandidate) -> bool
 	{
 		if (!FMonaApplication::IsInitialized() || !GDynamicRHI) return false;
 		if (FMonaApplication::Get().GetRenderer()) return true;
 
-		FMonaApplication::Get().Initialize();
+		FMonaApplication::Get().Initialize(
+			bAdoptInitializationPresentationCandidate);
 #if DURIN_WITH_EDITOR
 		if (!FModuleManager::Get().LoadModule("MonaImGui"))
 		{

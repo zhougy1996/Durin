@@ -408,6 +408,20 @@ namespace Durin::VulkanRHI
 	}
 
 	TEST(FVulkanDeviceCandidateTests,
+		HeadlessAdmissionDoesNotClaimPresentationSupport)
+	{
+		FVulkanPhysicalDeviceCandidateInput Input =
+			MakePhysicalDeviceCandidateInput();
+		Input.bRequirePresentation = false;
+		Input.QueueFamilies[0].bSupportsPresentation = false;
+
+		const FVulkanPhysicalDeviceCandidateEvaluation Result =
+			EvaluateVulkanPhysicalDeviceCandidate(Input);
+		ASSERT_TRUE(Result.IsSuitable());
+		EXPECT_EQ(Result.GraphicsPresentQueueFamilyIndex, 0);
+	}
+
+	TEST(FVulkanDeviceCandidateTests,
 		RequiresAndEnablesPortabilitySubsetWhenPlatformRequestsIt)
 	{
 		FVulkanPhysicalDeviceCandidateInput Input =
@@ -516,14 +530,14 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(ExpectedDiagnostic);
 			ArmVulkanCreateFailure(FailurePoint);
 
-			EXPECT_FALSE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+			EXPECT_FALSE(RHIInit(GetVulkanTestInitializationContext()));
 			EXPECT_EQ(GDynamicRHI, nullptr);
 			EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("VulkanRHI"));
 			EXPECT_NE(GetLastRHIInitializationDiagnostic().find(
 				ExpectedDiagnostic), std::string_view::npos);
 		}
 
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		EXPECT_TRUE(GetLastRHIInitializationDiagnostic().empty());
 		EXPECT_TRUE(FModuleManager::Get().IsModuleLoaded("VulkanRHI"));
 		RHIExit();
@@ -535,7 +549,7 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_VULKAN_VALIDATION", "off");
 		ResetVulkanDebugMessengerTestStats();
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
 		EXPECT_FALSE(VulkanRHI->GetDiagnosticAvailability().bRequested);
 		EXPECT_FALSE(VulkanRHI->GetDiagnosticAvailability().bDebugUtilsActive);
@@ -546,7 +560,7 @@ namespace Durin::VulkanRHI
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		ResetVulkanDebugMessengerTestStats();
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::DebugMessenger);
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
 		EXPECT_TRUE(VulkanRHI->GetDiagnosticAvailability().bRequested);
 		EXPECT_TRUE(VulkanRHI->GetDiagnosticAvailability().bDebugUtilsSupported);
@@ -557,7 +571,7 @@ namespace Durin::VulkanRHI
 		ExpectVulkanModuleUnloaded();
 
 		ResetVulkanDebugMessengerTestStats();
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
 		EXPECT_TRUE(VulkanRHI->GetDiagnosticAvailability().bMessengerActive);
 		FVulkanDebugMessengerTestStats Statistics =
@@ -580,7 +594,7 @@ namespace Durin::VulkanRHI
 		NamesPublicBufferAndReplaysNestedDiagnosticRegions)
 	{
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ResetVulkanDebugUtilsEventsForTest();
 
 		FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
@@ -678,7 +692,7 @@ namespace Durin::VulkanRHI
 		{
 			SCOPED_TRACE(Mode);
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
 			FGPUTimingQueryRHIRef Query =
 				GDynamicRHI->RHICreateGPUTimingQuery();
@@ -799,7 +813,7 @@ namespace Durin::VulkanRHI
 		TimingQueryPoolFailureExhaustionAndReuseAreRecoverable)
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::QueryPool);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
@@ -843,7 +857,7 @@ namespace Durin::VulkanRHI
 		DiagnosticSnapshotComposesAuthoritiesAndResetPreservesLiveState)
 	{
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
 		ASSERT_TRUE(Query);
 		FRHIDiagnosticSnapshot Before;
@@ -932,7 +946,7 @@ namespace Durin::VulkanRHI
 		{
 			SCOPED_TRACE(Modes[Index]);
 			_putenv_s("DURIN_RHI_EXECUTION", Modes[Index]);
-			ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
 			ASSERT_TRUE(Query);
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
@@ -986,7 +1000,7 @@ namespace Durin::VulkanRHI
 		{
 			SCOPED_TRACE(Modes[ModeIndex]);
 			_putenv_s("DURIN_RHI_EXECUTION", Modes[ModeIndex]);
-			ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			ResetVulkanHotPathWorkTestStats();
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 
@@ -1182,7 +1196,7 @@ namespace Durin::VulkanRHI
 		InlineRuntimeFactoryFailureReturnsNullThenRecovers)
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		EXPECT_EQ(GRHIThread, nullptr);
 		ResetVulkanMemoryBaselineStatistics();
 
@@ -1209,7 +1223,7 @@ namespace Durin::VulkanRHI
 		CapabilitiesAndExactTextureSupportRejectBeforeNativeCreation)
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		const FRHICapabilities* Capabilities = GDynamicRHI->RHIGetCapabilities();
 		ASSERT_NE(Capabilities, nullptr);
 		EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);
@@ -1284,7 +1298,7 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanCreateFailureInjectionTests,
 		RuntimeFactoriesReturnNullThenRecoverOnTheSameRHIThread)
 	{
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ResetVulkanMemoryBaselineStatistics();
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
@@ -1879,7 +1893,21 @@ namespace Durin::VulkanRHI
 			Window->GetOSNativeWindowHandle()), Window);
 
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
-		ASSERT_TRUE(RHIInit(Window->GetOSNativeWindowHandle()));
+		const FRHIInitializationContext InitializationContext =
+			FRHIInitializationContext::Presentation({
+			.NativeWindowHandle = Window->GetOSNativeWindowHandle()});
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Surface);
+		EXPECT_FALSE(RHIInit(InitializationContext));
+		EXPECT_EQ(GDynamicRHI, nullptr);
+		EXPECT_NE(GetLastRHIInitializationDiagnostic().find(
+			"startup presentation surface"), std::string_view::npos);
+		ExpectVulkanModuleUnloaded();
+
+		ASSERT_TRUE(RHIInit(InitializationContext));
+		RHIExit();
+		ExpectVulkanModuleUnloaded();
+
+		ASSERT_TRUE(RHIInit(InitializationContext));
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1892,12 +1920,23 @@ namespace Durin::VulkanRHI
 			~FRenderingThreadScope() { ShutdownRenderingThread(); }
 		} RenderingThreadScope;
 
+		FRHIViewportCreateInfo MainCreateInfo{
+			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
+			.SizeX = 64,
+			.SizeY = 64,
+			.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,
+			.PresentModePolicy = EViewportPresentModePolicy::MainWindow,
+			.bAdoptInitializationPresentationCandidate = true};
+		FRHIViewportCreateInfo MismatchedCreateInfo = MainCreateInfo;
+		MismatchedCreateInfo.NativeWindowHandle =
+			DetachedWindow->GetOSNativeWindowHandle();
+		EXPECT_FALSE(GDynamicRHI->RHICreateViewport(MismatchedCreateInfo));
+
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Swapchain);
-		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport(
-			Window->GetOSNativeWindowHandle(), 64, 64, false,
-			EPixelFormat::SBGRA8_UNORM,
-			EViewportPresentModePolicy::MainWindow);
+		TRefCountPtr<FRHIViewport> Viewport =
+			GDynamicRHI->RHICreateViewport(MainCreateInfo);
 		ASSERT_TRUE(Viewport);
+		EXPECT_FALSE(GDynamicRHI->RHICreateViewport(MainCreateInfo));
 
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport.GetReference());
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [VulkanViewport]() {
@@ -2040,10 +2079,15 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(VulkanViewport->HasAvailableOutput());
 		});
 
-		TRefCountPtr<FRHIViewport> DetachedViewport = GDynamicRHI->RHICreateViewport(
-			DetachedWindow->GetOSNativeWindowHandle(), 64, 64, false,
-			EPixelFormat::SBGRA8_UNORM,
-			EViewportPresentModePolicy::ImGuiDetachedViewport);
+		TRefCountPtr<FRHIViewport> DetachedViewport =
+			GDynamicRHI->RHICreateViewport({
+				.NativeWindowHandle =
+					DetachedWindow->GetOSNativeWindowHandle(),
+				.SizeX = 64,
+				.SizeY = 64,
+				.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,
+				.PresentModePolicy =
+					EViewportPresentModePolicy::ImGuiDetachedViewport});
 		ASSERT_TRUE(DetachedViewport);
 		auto* DetachedVulkanViewport = static_cast<FVulkanViewport*>(DetachedViewport.GetReference());
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [DetachedVulkanViewport]() {

@@ -4,10 +4,6 @@
 
 namespace Durin
 {
-	auto FDynamicRHI::SetInitializationPresentationWindow(void*) -> void
-	{
-	}
-
 	auto FormatRHIDiagnosticSnapshot(
 		const FRHIDiagnosticSnapshot& S) -> std::string
 	{

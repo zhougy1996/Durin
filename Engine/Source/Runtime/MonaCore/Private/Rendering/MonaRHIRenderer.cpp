@@ -6,6 +6,13 @@
 
 namespace Durin::Mona
 {
+	FMonaRHIRenderer::FMonaRHIRenderer(
+		bool bInAdoptInitializationPresentationCandidate)
+		: bAdoptInitializationPresentationCandidate(
+			bInAdoptInitializationPresentationCandidate)
+	{
+	}
+
 	constexpr int32 MIN_VIEWPORT_SIZE = 8;
 
 	namespace
@@ -61,14 +68,22 @@ namespace Durin::Mona
 		}
 
 		auto* ViewportInfo = new FMonaViewportInfo();
-		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(
-			PlatformWindow->GetOSNativeWindowHandle(),
-			Width,
-			Height,
-			bFullScreen,
-			EPixelFormat::SRGBA8_UNORM,
-			Window->GetViewportPresentModePolicy()
-		);
+		FRHIViewportCreateInfo CreateInfo{
+			.NativeWindowHandle = PlatformWindow->GetOSNativeWindowHandle(),
+			.SizeX = static_cast<uint32>(Width),
+			.SizeY = static_cast<uint32>(Height),
+			.bIsFullscreen = bFullScreen,
+			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
+			.PresentModePolicy = Window->GetViewportPresentModePolicy(),
+			.bAdoptInitializationPresentationCandidate =
+				bAdoptInitializationPresentationCandidate};
+		ViewportInfo->ViewportRHI =
+			GDynamicRHI->RHICreateViewport(CreateInfo);
+		if (ViewportInfo->ViewportRHI
+			&& CreateInfo.bAdoptInitializationPresentationCandidate)
+		{
+			bAdoptInitializationPresentationCandidate = false;
+		}
 		ViewportInfo->bFullScreen = bFullScreen;
 		ViewportInfo->CurrentWidth = Width;
 		ViewportInfo->CurrentHeight = Height;

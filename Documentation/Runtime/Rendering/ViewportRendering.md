@@ -166,11 +166,12 @@ Flow:
 ```text
 FEngineLoop::Init()
   creates the hidden primary MWindow and native window
-  passes its native handle to RHIInit()
+  passes a presentation initialization context to RHIInit()
+  creates and qualifies the startup surface on the RHI thread
 
 DGameEngine::Init()
   adopts and shows the primary MWindow
-  creates native RHI viewport for the window
+  explicitly adopts the initialization surface into its native RHI viewport
   calls FSceneViewport::CreateWindowBacked(...)
   sets DEngine::MainSceneViewport
 
@@ -181,12 +182,23 @@ DEngine::RedrawViewports()
   presents through the RHI viewport
 ```
 
-On macOS, ApplicationCore installs the primary window's `CAMetalLayer` while
-window creation is still on the AppKit main thread. Vulkan uses that prepared
-layer to create the real admission surface on the RHI thread before selecting a
-device and queue family. The first viewport for that window consumes the same
-surface. Windows keeps its Win32 presentation-support query and creates the
-viewport surface through the existing path.
+Windowed startup passes an explicit `FRHIInitializationContext` containing the
+primary native handle. Vulkan creates the real startup surface on the RHI
+thread before selecting a device and queue family, and both Windows and macOS
+qualify presentation support against that exact surface. On macOS,
+ApplicationCore first installs the primary window's `CAMetalLayer` while window
+creation is still on the AppKit main thread; Windows needs no equivalent
+platform preparation.
+
+The surface remains in a move-only `FVulkanPresentationCandidate` until the
+startup viewport explicitly sets
+`FRHIViewportCreateInfo::bAdoptInitializationPresentationCandidate`. Adoption
+transfers ownership exactly once. The candidate's native handle is only a
+defensive wrong-window check: `FGenericWindow` has no presentation identity or
+token. A mismatched or duplicate adoption fails without silently creating a
+replacement surface. Detached and later viewports do not request adoption and
+create independent surfaces. Headless initialization creates no presentation
+candidate.
 
 ## Editor Viewport Path
 

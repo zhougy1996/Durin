@@ -135,7 +135,7 @@ namespace Durin::VulkanRHI
 			}
 		} Scope;
 
-		ASSERT_TRUE(RHIInit(GetVulkanTestPresentationWindowHandle()));
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		struct FBarrierOverrideScope
 		{
 			~FBarrierOverrideScope()

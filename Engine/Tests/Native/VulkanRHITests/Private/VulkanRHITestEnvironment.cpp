@@ -75,6 +75,15 @@ namespace Durin::VulkanRHI
 				return Handle;
 			}
 
+			auto GetInitializationContext() -> FRHIInitializationContext
+			{
+				void* Handle = GetNativeHandle();
+				if (!Handle || !Window)
+					return FRHIInitializationContext::Headless();
+				return FRHIInitializationContext::Presentation({
+					.NativeWindowHandle = Handle});
+			}
+
 		private:
 			bool bApplicationCoreInitialized = false;
 			std::shared_ptr<FGenericWindow> Window;
@@ -83,13 +92,13 @@ namespace Durin::VulkanRHI
 #endif
 	}
 
-	auto GetVulkanTestPresentationWindowHandle() -> void*
+	auto GetVulkanTestInitializationContext() -> FRHIInitializationContext
 	{
 #ifdef __APPLE__
 		static FVulkanTestPresentationWindow PresentationWindow;
-		return PresentationWindow.GetNativeHandle();
+		return PresentationWindow.GetInitializationContext();
 #else
-		return nullptr;
+		return FRHIInitializationContext::Headless();
 #endif
 	}
 }

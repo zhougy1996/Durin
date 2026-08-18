@@ -77,15 +77,16 @@ namespace Durin::VulkanRHI
 			const FVulkanQueueFamilyCandidate& Queue = Input.QueueFamilies[Index];
 			const vk::QueueFlags Required = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
 			if (Queue.QueueCount > 0 && (Queue.Flags & Required) == Required
-				&& Queue.bSupportsPresentation)
+				&& (!Input.bRequirePresentation || Queue.bSupportsPresentation))
 			{
 				Result.GraphicsPresentQueueFamilyIndex = static_cast<int32>(Index);
 				break;
 			}
 		}
 		if (Result.GraphicsPresentQueueFamilyIndex < 0)
-			Result.RejectionReasons.emplace_back(
-				"no queue family provides graphics, compute, and presentation");
+			Result.RejectionReasons.emplace_back(Input.bRequirePresentation
+				? "no queue family provides graphics, compute, and presentation for the startup surface"
+				: "no queue family provides graphics and compute");
 		if (!Result.IsSuitable()) return Result;
 
 		Result.EnabledExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);

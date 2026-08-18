@@ -1,8 +1,9 @@
 #pragma once
 
+#include "RHIInitialization.h"
+
 namespace Durin::VulkanRHI
 {
-	// Lazily owns the hidden platform window required for hardware RHI admission
-	// and keeps it registered with the active test application for the process.
-	auto GetVulkanTestPresentationWindowHandle() -> void*;
+	// Supplies the explicit initialization mode required by Vulkan integration tests.
+	auto GetVulkanTestInitializationContext() -> FRHIInitializationContext;
 }

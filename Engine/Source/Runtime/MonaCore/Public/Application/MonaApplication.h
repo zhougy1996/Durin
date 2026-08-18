@@ -42,9 +42,11 @@ namespace Durin::Mona
 
 		MONACORE_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto Initialize() -> void;
+		MONACORE_API auto Initialize(
+			bool bAdoptInitializationPresentationCandidate) -> void;
 
-		MONACORE_API auto InitializeRenderer() -> void;
+		MONACORE_API auto InitializeRenderer(
+			bool bAdoptInitializationPresentationCandidate) -> void;
 		MONACORE_API auto ShutdownRenderer() -> void;
 
 		MONACORE_API auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;

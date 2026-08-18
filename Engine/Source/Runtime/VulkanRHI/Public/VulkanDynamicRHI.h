@@ -7,6 +7,7 @@
 
 namespace Durin::VulkanRHI
 {
+	class FVulkanPresentationCandidate;
 	class FVulkanDevice;
 	class FVulkanViewport;
 	class FVulkanCommandListContext;
@@ -35,9 +36,7 @@ namespace Durin::VulkanRHI
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
-		auto SetInitializationPresentationWindow(
-			void* InWindowHandle) -> void override;
-		auto Init() -> void override;
+		auto Init(const FRHIInitializationContext& Context) -> void override;
 		auto Shutdown() -> void override;
 
 		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
@@ -58,7 +57,8 @@ namespace Durin::VulkanRHI
 			-> FVulkanDebugMessageStatistics { return DebugCallbackState.Snapshot(); }
 		auto GetDebugUtils() -> FVulkanDebugUtils& { return DebugUtils; }
 
-		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
+		auto RHICreateViewport(const FRHIViewportCreateInfo& CreateInfo)
+			-> FViewportRHIRef override;
 		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;
 		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHICreateComputePipelineState(FName DebugName,
@@ -125,9 +125,9 @@ namespace Durin::VulkanRHI
 		auto CreateInstance() -> void;
 		auto CreateDebugMessenger() -> void;
 		auto DestroyDebugMessenger() -> void;
-		auto SelectDevice(vk::SurfaceKHR PresentationSurface) -> void;
-		auto TakeInitializationPresentationSurface(
-			void* WindowHandle) const -> vk::SurfaceKHR;
+		auto SelectDevice(
+			vk::SurfaceKHR PresentationSurface,
+			bool bRequirePresentation) -> void;
 
 	private:
 		vk::Instance Instance;
@@ -140,8 +140,8 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice* Device = nullptr;
 		std::unique_ptr<FVulkanViewCache> ViewCache;
-		void* InitializationPresentationWindowHandle = nullptr;
-		mutable vk::SurfaceKHR InitializationPresentationSurface = VK_NULL_HANDLE;
+		std::unique_ptr<FVulkanPresentationCandidate>
+			InitializationPresentationCandidate;
 	};
 
 	extern FVulkanDynamicRHI* GVulkanRHI;

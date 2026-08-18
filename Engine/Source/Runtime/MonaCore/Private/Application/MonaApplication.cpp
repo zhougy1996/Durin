@@ -133,15 +133,18 @@ namespace Durin::Mona
 		return InMonaWindow;
 	}
 
-	auto FMonaApplication::Initialize() -> void
+	auto FMonaApplication::Initialize(
+		bool bAdoptInitializationPresentationCandidate) -> void
 	{
-		InitializeRenderer();
+		InitializeRenderer(bAdoptInitializationPresentationCandidate);
 	}
 
-	auto FMonaApplication::InitializeRenderer() -> void
+	auto FMonaApplication::InitializeRenderer(
+		bool bAdoptInitializationPresentationCandidate) -> void
 	{
 		if (Renderer) return;
-		Renderer = std::make_shared<FMonaRHIRenderer>();
+		Renderer = std::make_shared<FMonaRHIRenderer>(
+			bAdoptInitializationPresentationCandidate);
 	}
 
 	auto FMonaApplication::ShutdownRenderer() -> void

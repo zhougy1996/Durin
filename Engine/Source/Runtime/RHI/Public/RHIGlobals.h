@@ -1,5 +1,6 @@
 #pragma once
 #include "RHIAPI.h"
+#include "RHIInitialization.h"
 
 namespace Durin
 {
@@ -17,9 +18,7 @@ namespace Durin
 	RHI_API auto ResolveRHIExecutionMode(const char* ConfiguredMode)
 		-> ERHIExecutionMode;
 
-	// PresentationWindowHandle identifies the real primary native window when
-	// a backend requires a surface-qualified device admission decision.
-	RHI_API auto RHIInit(void* PresentationWindowHandle = nullptr) -> bool;
+	RHI_API auto RHIInit(FRHIInitializationContext Context) -> bool;
 	RHI_API auto RHIExit() -> void;
 	// Retains the owned cause from the most recent failed initialization attempt.
 	// A later successful attempt clears it.
@@ -30,6 +29,6 @@ namespace Durin
 	RHI_API auto RHIInitWithBackendForTests(
 		FDynamicRHI* Backend,
 		bool bThreaded,
-		bool bForceThreadLaunchFailure = false,
-		void* PresentationWindowHandle = nullptr) -> bool;
+		bool bForceThreadLaunchFailure,
+		FRHIInitializationContext Context) -> bool;
 }

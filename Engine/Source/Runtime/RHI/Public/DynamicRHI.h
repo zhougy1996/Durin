@@ -2,6 +2,7 @@
 
 #include "RHIAPI.h"
 #include "RHIFwd.h"
+#include "RHIInitialization.h"
 #include "Misc/ViewportPresentModePolicy.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
@@ -185,6 +186,19 @@ namespace Durin
 	RHI_API auto FormatRHIDiagnosticSnapshot(
 		const FRHIDiagnosticSnapshot& Snapshot) -> std::string;
 
+	// Describes one window-backed viewport and an optional startup-surface adoption.
+	struct FRHIViewportCreateInfo
+	{
+		void* NativeWindowHandle = nullptr;
+		uint32 SizeX = 0;
+		uint32 SizeY = 0;
+		bool bIsFullscreen = false;
+		EPixelFormat PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM;
+		EViewportPresentModePolicy PresentModePolicy =
+			EViewportPresentModePolicy::MainWindow;
+		bool bAdoptInitializationPresentationCandidate = false;
+	};
+
 	// Defines the backend-neutral device interface used to create resources and submit frame work.
 	class FDynamicRHI
 	{
@@ -193,13 +207,8 @@ namespace Durin
 
 		virtual ~FDynamicRHI() = default;
 
-		// Publishes the native window used for device presentation admission.
-		// Backends that can admit presentation without a concrete surface may
-		// ignore it. The call happens on the game thread before Init ownership is
-		// transferred to the RHI thread.
-		RHI_API virtual auto SetInitializationPresentationWindow(
-			void* InWindowHandle) -> void;
-		virtual auto Init() -> void = 0;
+		// Initializes the backend from one complete context on the RHI execution thread.
+		virtual auto Init(const FRHIInitializationContext& Context) -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// Counters accumulate for the device lifetime until explicitly reset.
@@ -229,7 +238,8 @@ namespace Durin
 		RHI_API virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
 		// Must be called from the main thread.
-		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport> = 0;
+		virtual auto RHICreateViewport(const FRHIViewportCreateInfo& CreateInfo)
+			-> TRefCountPtr<FRHIViewport> = 0;
 		// Must be called from the main thread.
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 

@@ -1,4 +1,5 @@
 #include "VulkanGenericPlatform.h"
+#include "VulkanRHIPrivate.h"
 
 #include "ApplicationCore.h"
 #include "Application/GenericApplication.h"
@@ -8,6 +9,13 @@ namespace Durin::VulkanRHI
 {
 	auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Surface))
+		{
+			DURIN_ERROR("Vulkan surface creation failed at the injected native boundary.");
+			return VK_NULL_HANDLE;
+		}
+#endif
 		auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
 		if (!Window)
 		{

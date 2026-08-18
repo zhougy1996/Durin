@@ -47,11 +47,12 @@ namespace Durin
 			}
 		}
 
-		auto InitializeBackendWithRollback() -> FRHIThreadWorkResult
+		auto InitializeBackendWithRollback(
+			const FRHIInitializationContext& Context) -> FRHIThreadWorkResult
 		{
 			try
 			{
-				GDynamicRHI->Init();
+				GDynamicRHI->Init(Context);
 				return FRHIThreadWorkResult::Success();
 			}
 			catch (const std::exception& Exception)
@@ -103,7 +104,7 @@ namespace Durin
 			bool bThreaded,
 			bool bForceThreadLaunchFailure,
 			bool bOwnsBackendModule,
-			void* PresentationWindowHandle = nullptr) -> bool
+			FRHIInitializationContext Context) -> bool
 		{
 			LastRHIInitializationDiagnostic.clear();
 			if (!Backend)
@@ -125,8 +126,6 @@ namespace Durin
 				return false;
 			}
 
-			Backend->SetInitializationPresentationWindow(
-				PresentationWindowHandle);
 			GDynamicRHI = Backend;
 			GOwnsBackendModule = bOwnsBackendModule;
 			if (bThreaded)
@@ -141,8 +140,8 @@ namespace Durin
 					return false;
 				}
 				FRHIThreadWork InitWork;
-				InitWork.Execute = []() {
-					return InitializeBackendWithRollback();
+				InitWork.Execute = [Context]() {
+					return InitializeBackendWithRollback(Context);
 				};
 				const FRHIThreadSynchronousResult InitResult =
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
@@ -163,7 +162,7 @@ namespace Durin
 			else
 			{
 				const FRHIThreadWorkResult InitResult =
-					InitializeBackendWithRollback();
+					InitializeBackendWithRollback(Context);
 				if (!InitResult.bSucceeded)
 				{
 					LastRHIInitializationDiagnostic = InitResult.Diagnostic;
@@ -206,11 +205,11 @@ namespace Durin
 		return ERHIExecutionMode::Threaded;
 	}
 
-	auto RHIInit(void* PresentationWindowHandle) -> bool
+	auto RHIInit(FRHIInitializationContext Context) -> bool
 	{
 		return InitializeRHI(
 			CreateDynamicRHI(), UseThreadedRHIExecution(), false, true,
-			PresentationWindowHandle);
+			std::move(Context));
 	}
 
 	auto GetLastRHIInitializationDiagnostic() -> std::string_view
@@ -222,11 +221,11 @@ namespace Durin
 		FDynamicRHI* Backend,
 		bool bThreaded,
 		bool bForceThreadLaunchFailure,
-		void* PresentationWindowHandle) -> bool
+		FRHIInitializationContext Context) -> bool
 	{
 		return InitializeRHI(
 			Backend, bThreaded, bForceThreadLaunchFailure, false,
-			PresentationWindowHandle);
+			std::move(Context));
 	}
 
 	auto RHIExit() -> void

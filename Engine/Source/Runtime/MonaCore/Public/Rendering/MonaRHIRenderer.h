@@ -28,6 +28,8 @@ namespace Durin::Mona
 	class FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
+		MONACORE_API explicit FMonaRHIRenderer(
+			bool bAdoptInitializationPresentationCandidate);
 		MONACORE_API ~FMonaRHIRenderer() override;
 
 		MONACORE_API auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
@@ -39,5 +41,8 @@ namespace Durin::Mona
 
 		// Window keys are non-owning; this renderer owns every mapped viewport record.
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;
+
+	private:
+		bool bAdoptInitializationPresentationCandidate = false;
 	};
 }

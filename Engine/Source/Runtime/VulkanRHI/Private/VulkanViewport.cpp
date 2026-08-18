@@ -1,4 +1,5 @@
 #include "VulkanViewport.h"
+#include "VulkanPresentationCandidate.h"
 
 #include "RHICommandList.h"
 #include "VulkanCommon.h"
@@ -598,27 +599,53 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport>
+	auto FVulkanDynamicRHI::RHICreateViewport(
+		const FRHIViewportCreateInfo& CreateInfo) -> TRefCountPtr<FRHIViewport>
 	{
 		check(IsInGameThread());
-		const vk::SurfaceKHR PresentationSurface =
-			TakeInitializationPresentationSurface(WindowHandle);
+		if (!CreateInfo.NativeWindowHandle
+			|| CreateInfo.SizeX == 0 || CreateInfo.SizeY == 0)
+		{
+			DURIN_ERROR("Cannot create a Vulkan viewport from an invalid presentation target or zero extent.");
+			return {};
+		}
+		vk::SurfaceKHR PresentationSurface = VK_NULL_HANDLE;
+		if (CreateInfo.bAdoptInitializationPresentationCandidate)
+		{
+			if (!InitializationPresentationCandidate)
+			{
+				DURIN_ERROR("Vulkan startup presentation candidate adoption was requested after no candidate was available.");
+				return {};
+			}
+			PresentationSurface =
+				InitializationPresentationCandidate->TakeForNativeWindow(
+					CreateInfo.NativeWindowHandle);
+			if (!PresentationSurface)
+			{
+				DURIN_ERROR("Vulkan startup presentation candidate is mismatched or already consumed.");
+				return {};
+			}
+		}
 		TRefCountPtr<FRHIViewport> Result;
 		if (GRHIThread)
 		{
 			GCommandListExecutor.ExecuteSynchronousOperation(false,
-				[this, WindowHandle, SizeX, SizeY, bIsFullscreen,
-					 PreferredPixelFormat, InPresentModePolicy,
+				[this, CreateInfo,
 					 PresentationSurface, &Result]() {
 					Result = MakeRefCount<FVulkanViewport>(
-						*Device, WindowHandle, SizeX, SizeY, bIsFullscreen,
-						PreferredPixelFormat, InPresentModePolicy,
+						*Device, CreateInfo.NativeWindowHandle,
+						CreateInfo.SizeX, CreateInfo.SizeY,
+						CreateInfo.bIsFullscreen,
+						CreateInfo.PreferredPixelFormat,
+						CreateInfo.PresentModePolicy,
 						PresentationSurface);
 				});
 			return Result;
 		}
-		return MakeRefCount<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY,
-			bIsFullscreen, PreferredPixelFormat, InPresentModePolicy,
+		return MakeRefCount<FVulkanViewport>(*Device,
+			CreateInfo.NativeWindowHandle,
+			CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
+			CreateInfo.PreferredPixelFormat, CreateInfo.PresentModePolicy,
 			PresentationSurface);
 	}
 

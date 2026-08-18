@@ -60,7 +60,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit();
+		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 

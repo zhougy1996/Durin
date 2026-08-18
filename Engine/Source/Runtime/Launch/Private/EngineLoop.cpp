@@ -172,9 +172,13 @@ namespace Durin
 			Exit();
 			return false;
 		}
+		const FRHIPresentationTarget PresentationTarget{
+			.NativeWindowHandle =
+				StartupNativeWindow->GetOSNativeWindowHandle()};
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
-			if (!RHIInit(StartupNativeWindow->GetOSNativeWindowHandle()))
+			if (!RHIInit(FRHIInitializationContext::Presentation(
+					PresentationTarget)))
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
@@ -186,7 +190,7 @@ namespace Durin
 		// Command admission must be running before Mona rendering or editor
 		// modules can publish their first render-thread work.
 		InitRenderingThread();
-		if (!Mona::InitializeRendering())
+		if (!Mona::InitializeRendering(true))
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona rendering services could not start.");
 			Exit();
