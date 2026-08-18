@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserOperations.h"
+#include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetMutation.h"
 #include "Engine/Level.h"
@@ -22,10 +23,7 @@ namespace Durin::Editor::Level
 
 		auto NormalizePath(std::string_view Path) -> std::string
 		{
-			if (Path.empty()) return {};
-			return std::filesystem::absolute(std::filesystem::path(Path))
-				.lexically_normal()
-				.generic_string();
+			return ContentBrowserFilesystem::NormalizeAbsolute(Path);
 		}
 
 		auto Failure(Asset::EAssetError Error, std::string Message)
@@ -266,7 +264,13 @@ namespace Durin::Editor::Level
 			return Failure(
 				Asset::EAssetError::ReadOnlyMode,
 				"This content mount is read-only for authoring. Choose a writable mount before renaming the file.");
-		if (std::filesystem::exists(Destination))
+		const ContentBrowserFilesystem::FPathProbe DestinationProbe =
+			ContentBrowserFilesystem::Probe(Destination);
+		if (DestinationProbe.Error)
+			return Failure(
+				Asset::EAssetError::IoError,
+				std::format("Could not inspect the rename destination: {}", DestinationProbe.Error.message()));
+		if (DestinationProbe.Exists())
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"An item with that name already exists.");
@@ -302,7 +306,13 @@ namespace Durin::Editor::Level
 			return {
 				Asset::EAssetError::ReadOnlyMode,
 				"This content mount is read-only for authoring. Choose a writable mount before renaming the folder."};
-		if (std::filesystem::exists(NewFolder))
+		const ContentBrowserFilesystem::FPathProbe NewFolderProbe =
+			ContentBrowserFilesystem::Probe(NewFolder);
+		if (NewFolderProbe.Error)
+			return {
+				Asset::EAssetError::IoError,
+				std::format("Could not inspect the folder rename destination: {}", NewFolderProbe.Error.message())};
+		if (NewFolderProbe.Exists())
 			return {
 				Asset::EAssetError::InvalidPath,
 				"A folder with that name already exists."};
@@ -424,7 +434,13 @@ namespace Durin::Editor::Level
 		{
 			const std::filesystem::path DestinationDirectory =
 				NewFolder / RelativeDirectory;
-			const bool bExisted = std::filesystem::exists(DestinationDirectory);
+			const ContentBrowserFilesystem::FPathProbe DestinationDirectoryProbe =
+				ContentBrowserFilesystem::Probe(DestinationDirectory);
+			if (DestinationDirectoryProbe.Error)
+				return {Asset::EAssetError::IoError, std::format(
+					"Could not inspect an empty destination directory: {}",
+					DestinationDirectoryProbe.Error.message())};
+			const bool bExisted = DestinationDirectoryProbe.Exists();
 			Ec.clear();
 			std::filesystem::create_directories(DestinationDirectory, Ec);
 			if (!Ec)
@@ -457,7 +473,16 @@ namespace Durin::Editor::Level
 
 		std::vector<std::filesystem::path> OldDirectories;
 		Ec.clear();
-		if (std::filesystem::exists(OldFolder))
+		const ContentBrowserFilesystem::FPathProbe OldFolderProbe =
+			ContentBrowserFilesystem::Probe(OldFolder);
+		if (OldFolderProbe.Error)
+		{
+			OutWarning = std::format(
+				"Assets were moved successfully, but the source folder could not be inspected for cleanup: {}",
+				OldFolderProbe.Error.message());
+			return {};
+		}
+		if (OldFolderProbe.Exists())
 		{
 			for (std::filesystem::recursive_directory_iterator It(
 					 OldFolder,
@@ -525,7 +550,13 @@ namespace Durin::Editor::Level
 				: std::format("New Folder ({})", Suffix + 1);
 			const std::filesystem::path Path =
 				std::filesystem::path(NormalizedDirectory) / Name;
-			if (std::filesystem::exists(Path)) continue;
+			const ContentBrowserFilesystem::FPathProbe CandidateProbe =
+				ContentBrowserFilesystem::Probe(Path);
+			if (CandidateProbe.Error)
+				return Failure(
+					Asset::EAssetError::IoError,
+					std::format("Could not inspect a folder candidate: {}", CandidateProbe.Error.message()));
+			if (CandidateProbe.Exists()) continue;
 			const FContentBrowserModel::FMountPath DestinationMount =
 				Model.ResolveMountPath(Path.generic_string());
 			if (!DestinationMount || DestinationMount.Mount != DirectoryMount.Mount)
@@ -1239,7 +1270,7 @@ namespace Durin::Editor::Level
 		const std::filesystem::path Path(PhysicalPath);
 		std::filesystem::path PreferredPath = Path;
 		const std::wstring WidePath = PreferredPath.make_preferred().wstring();
-		if (std::filesystem::is_directory(Path))
+		if (ContentBrowserFilesystem::Probe(Path).IsDirectory())
 			ShellExecuteW(
 				nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOW);
 		else

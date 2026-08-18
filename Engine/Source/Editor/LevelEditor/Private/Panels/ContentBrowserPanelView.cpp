@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/ContentBrowserFilesystem.h"
 
 #include "StaticMesh/StaticMesh.h"
 #include "AssetImportCore.h"
@@ -34,8 +35,7 @@ namespace Durin::Editor::Level
 
 		auto NormalizePath(std::string_view Path) -> std::string
 		{
-			if (Path.empty()) return {};
-			return std::filesystem::absolute(std::filesystem::path(Path)).lexically_normal().generic_string();
+			return ContentBrowserFilesystem::NormalizeAbsolute(Path);
 		}
 
 		auto ClassLeaf(std::string_view QualifiedName) -> std::string
@@ -127,6 +127,7 @@ namespace Durin::Editor::Level
 		}
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
+		Model.RefreshRequestedDirectoryChildrenSnapshots();
 	}
 
 	auto FContentBrowserPanel::DrawContents() -> void
@@ -320,7 +321,6 @@ namespace Durin::Editor::Level
 	{
 		for (const FContentBrowserModel::FMountSnapshot& Mount : Model.GetMounts())
 		{
-			if (!std::filesystem::is_directory(Mount.PhysicalRoot)) continue;
 			std::string Label = Mount.VirtualRoot;
 			if (Label.starts_with('/')) Label.erase(Label.begin());
 			if (Label.ends_with('/')) Label.pop_back();
@@ -339,12 +339,16 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::DrawDirectoryNode(const std::filesystem::path& Path, std::string_view Label, bool bMountRoot) -> void
 	{
 		const std::string Physical = NormalizePath(Path.generic_string());
-		// Recursing can grow and rehash the model cache, so keep this node's traversal independent.
+		const bool bHasChildrenSnapshot =
+			Model.HasDirectoryChildrenSnapshot(Physical);
+		if (!bHasChildrenSnapshot)
+			Model.RequestDirectoryChildrenSnapshot(Physical);
 		const std::span<const std::filesystem::path> CachedChildren =
 			Model.GetDirectoryChildren(Physical);
 		const std::vector<std::filesystem::path> Children(
 			CachedChildren.begin(), CachedChildren.end());
-		const bool bHasChildren = std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
+		const bool bHasChildren = !bHasChildrenSnapshot
+			|| std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
 		if (Model.GetCurrentPhysicalPath() == Physical) Flags |= ImGuiTreeNodeFlags_Selected;

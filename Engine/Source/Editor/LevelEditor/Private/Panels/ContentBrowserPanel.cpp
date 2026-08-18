@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetImportCore.h"
 #include "ImportService.h"
@@ -122,8 +123,7 @@ namespace Durin::Editor::Level
 		{
 			for (const FContentBrowserModel::FMountSnapshot& Mount :
 				 Model.GetMounts())
-				if (std::filesystem::is_directory(Mount.PhysicalRoot)
-					&& NavigateToPhysical(Mount.PhysicalRoot))
+				if (NavigateToPhysical(Mount.PhysicalRoot))
 					break;
 		}
 	}
@@ -208,20 +208,15 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::RefreshPublishedContent() -> void
 	{
 		ThumbnailCache->CancelPendingRequests();
-		std::filesystem::path Directory = Model.GetCurrentPhysicalPath();
-		while (!Directory.empty() && !std::filesystem::is_directory(Directory))
-		{
-			const std::filesystem::path Parent = Directory.parent_path();
-			if (Parent == Directory) break;
-			Directory = Parent;
-		}
+		const std::string AvailableDirectory =
+			Model.FindNearestAvailableDirectory(Model.GetCurrentPhysicalPath());
 		Model.RefreshMountSnapshot();
-		if (!Directory.empty()
-			&& Directory.generic_string() != Model.GetCurrentPhysicalPath()
-			&& NavigateToPhysical(Directory.generic_string()))
+		if (!AvailableDirectory.empty()
+			&& AvailableDirectory != Model.GetCurrentPhysicalPath()
+			&& NavigateToPhysical(AvailableDirectory))
 			return;
 		if (Model.GetCurrentPhysicalPath().empty()
-			|| !std::filesystem::is_directory(Model.GetCurrentPhysicalPath())
+			|| AvailableDirectory.empty()
 			|| !Model.ResolveMountPath(Model.GetCurrentPhysicalPath()))
 		{
 			for (const FContentBrowserModel::FMountSnapshot& Mount :
@@ -580,9 +575,7 @@ namespace Durin::Editor::Level
 		std::string_view PhysicalDirectory) -> const FContentBrowserItem*
 	{
 		const std::string NormalizedDirectory =
-			std::filesystem::absolute(std::filesystem::path(PhysicalDirectory))
-				.lexically_normal()
-				.generic_string();
+			ContentBrowserFilesystem::NormalizeAbsolute(PhysicalDirectory);
 		const std::filesystem::path Parent =
 			std::filesystem::path(NormalizedDirectory).parent_path();
 		if (!NavigateToPhysical(Parent.generic_string()))

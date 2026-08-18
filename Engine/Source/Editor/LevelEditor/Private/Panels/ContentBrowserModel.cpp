@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserModel.h"
+#include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetLoad.h"
 #include "Misc/LexicalPath.h"
@@ -14,10 +15,7 @@ namespace Durin::Editor::Level
 
 		auto NormalizePath(std::string_view Path) -> std::string
 		{
-			if (Path.empty()) return {};
-			return std::filesystem::absolute(std::filesystem::path(Path))
-				.lexically_normal()
-				.generic_string();
+			return ContentBrowserFilesystem::NormalizeAbsolute(Path);
 		}
 
 		auto ClassLeaf(std::string_view QualifiedName) -> std::string
@@ -92,6 +90,7 @@ namespace Durin::Editor::Level
 
 		MountSnapshot = std::move(NextMountSnapshot);
 		DirectoryChildrenCache.clear();
+		RequestedDirectoryChildrenSnapshots.clear();
 		if (!CurrentPhysicalPath.empty() && !ResolveMountPath(CurrentPhysicalPath))
 		{
 			CurrentPhysicalPath.clear();
@@ -164,8 +163,7 @@ namespace Durin::Editor::Level
 	{
 		RefreshMountSnapshot();
 		const FMountPath Resolved = ResolveMountPath(PhysicalPath);
-		if (!Resolved
-			|| !std::filesystem::is_directory(Resolved.NormalizedPhysicalPath))
+		if (!Resolved || !IsDirectoryAvailable(Resolved.NormalizedPhysicalPath))
 			return false;
 		std::string Virtual = Resolved.VirtualPath;
 		if (!Virtual.ends_with('/')) Virtual += '/';
@@ -234,6 +232,7 @@ namespace Durin::Editor::Level
 	{
 		bSnapshotInjectedForTesting = false;
 		DirectoryChildrenCache.clear();
+		RequestedDirectoryChildrenSnapshots.clear();
 		ItemsSnapshot.clear();
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
@@ -570,13 +569,40 @@ namespace Durin::Editor::Level
 	}
 
 	auto FContentBrowserModel::GetDirectoryChildren(
-		std::string_view PhysicalDirectory)
+		std::string_view PhysicalDirectory) const
 		-> std::span<const std::filesystem::path>
 	{
 		const std::string Physical = NormalizePath(PhysicalDirectory);
-		auto [It, bInserted] = DirectoryChildrenCache.try_emplace(Physical);
-		if (bInserted)
+		const auto It = DirectoryChildrenCache.find(Physical);
+		if (It != DirectoryChildrenCache.end()) return It->second;
+		static const std::vector<std::filesystem::path> Empty;
+		return Empty;
+	}
+
+	auto FContentBrowserModel::HasDirectoryChildrenSnapshot(
+		std::string_view PhysicalDirectory) const -> bool
+	{
+		return DirectoryChildrenCache.contains(NormalizePath(PhysicalDirectory));
+	}
+
+	auto FContentBrowserModel::RequestDirectoryChildrenSnapshot(
+		std::string_view PhysicalDirectory) -> void
+	{
+		const std::string Physical = NormalizePath(PhysicalDirectory);
+		if (!DirectoryChildrenCache.contains(Physical))
+			RequestedDirectoryChildrenSnapshots.insert(Physical);
+	}
+
+	auto FContentBrowserModel::RefreshRequestedDirectoryChildrenSnapshots() -> void
+	{
+		std::vector<std::string> Requests(
+			RequestedDirectoryChildrenSnapshots.begin(),
+			RequestedDirectoryChildrenSnapshots.end());
+		RequestedDirectoryChildrenSnapshots.clear();
+		for (const std::string& Physical : Requests)
 		{
+			auto [Cache, bInserted] = DirectoryChildrenCache.try_emplace(Physical);
+			if (!bInserted) continue;
 			std::error_code IteratorError;
 			std::filesystem::directory_iterator EntryIt(
 					 Physical,
@@ -601,7 +627,7 @@ namespace Durin::Editor::Level
 						EntryPath,
 						std::format("Skipped tree entry because its status could not be read: {}", EntryError.message()));
 				else if (std::filesystem::is_directory(Status))
-					It->second.push_back(EntryIt->path());
+					Cache->second.push_back(EntryPath);
 				IteratorError.clear();
 				EntryIt.increment(IteratorError);
 				if (IteratorError)
@@ -610,9 +636,21 @@ namespace Durin::Editor::Level
 						EntryPath,
 						std::format("Directory tree traversal stopped: {}", IteratorError.message()));
 			}
-			std::ranges::sort(It->second);
+			std::ranges::sort(Cache->second);
 		}
-		return It->second;
+	}
+
+	auto FContentBrowserModel::FindNearestAvailableDirectory(
+		std::string_view PhysicalPath) const -> std::string
+	{
+		std::filesystem::path Directory = NormalizePath(PhysicalPath);
+		while (!Directory.empty() && !IsDirectoryAvailable(Directory))
+		{
+			const std::filesystem::path Parent = Directory.parent_path();
+			if (Parent == Directory) return {};
+			Directory = Parent;
+		}
+		return Directory.generic_string();
 	}
 
 	auto FContentBrowserModel::QueryEntryStatus(
@@ -622,6 +660,23 @@ namespace Durin::Editor::Level
 		return EntryStatusQuery
 			? EntryStatusQuery(Entry, Error)
 			: Entry.symlink_status(Error);
+	}
+
+	auto FContentBrowserModel::QueryPathStatus(
+		const std::filesystem::path& Path,
+		std::error_code& Error) const -> std::filesystem::file_status
+	{
+		return PathStatusQuery
+			? PathStatusQuery(Path, Error)
+			: std::filesystem::status(Path, Error);
+	}
+
+	auto FContentBrowserModel::IsDirectoryAvailable(
+		const std::filesystem::path& Path) const -> bool
+	{
+		std::error_code Error;
+		const std::filesystem::file_status Status = QueryPathStatus(Path, Error);
+		return !Error && std::filesystem::is_directory(Status);
 	}
 
 	auto FContentBrowserModel::AddEnumerationDiagnostic(
@@ -651,6 +706,7 @@ namespace Durin::Editor::Level
 		ItemsSnapshot = std::move(Snapshot);
 		bSnapshotInjectedForTesting = true;
 		DirectoryChildrenCache.clear();
+		RequestedDirectoryChildrenSnapshots.clear();
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
 		RebuildItems();

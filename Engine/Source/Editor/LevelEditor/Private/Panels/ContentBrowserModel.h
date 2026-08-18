@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Durin::Editor::Level
 {
@@ -88,6 +89,9 @@ namespace Durin::Editor::Level
 		using FEntryStatusQuery = std::function<std::filesystem::file_status(
 			const std::filesystem::directory_entry&,
 			std::error_code&)>;
+		using FPathStatusQuery = std::function<std::filesystem::file_status(
+			const std::filesystem::path&,
+			std::error_code&)>;
 
 		// Maps one virtual mount to its source and imported physical roots.
 		struct FMountSnapshot
@@ -146,8 +150,16 @@ namespace Durin::Editor::Level
 			return SuppressedEnumerationDiagnosticCount;
 		}
 
-		auto GetDirectoryChildren(std::string_view PhysicalDirectory)
+		auto GetDirectoryChildren(std::string_view PhysicalDirectory) const
 			-> std::span<const std::filesystem::path>;
+		auto HasDirectoryChildrenSnapshot(std::string_view PhysicalDirectory) const
+			-> bool;
+		// Queues tree-node I/O for the next pre-draw model refresh.
+		auto RequestDirectoryChildrenSnapshot(std::string_view PhysicalDirectory)
+			-> void;
+		auto RefreshRequestedDirectoryChildrenSnapshots() -> void;
+		auto FindNearestAvailableDirectory(std::string_view PhysicalPath) const
+			-> std::string;
 
 		// Replaces the captured data without filesystem access for deterministic model tests.
 		auto SetSnapshotForTesting(
@@ -157,6 +169,10 @@ namespace Durin::Editor::Level
 		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void
 		{
 			EntryStatusQuery = std::move(Query);
+		}
+		auto SetPathStatusQueryForTesting(FPathStatusQuery Query) -> void
+		{
+			PathStatusQuery = std::move(Query);
 		}
 
 	private:
@@ -169,6 +185,10 @@ namespace Durin::Editor::Level
 		auto QueryEntryStatus(
 			const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) const -> std::filesystem::file_status;
+		auto QueryPathStatus(
+			const std::filesystem::path& Path,
+			std::error_code& Error) const -> std::filesystem::file_status;
+		auto IsDirectoryAvailable(const std::filesystem::path& Path) const -> bool;
 		auto RefreshAssetDirectoryIndex() -> void;
 		auto AppendAssetItem(const FAssetPath& Path, const Asset::FAssetData& Data)
 			-> void;
@@ -182,6 +202,7 @@ namespace Durin::Editor::Level
 		std::string CurrentVirtualPath;
 		std::vector<FMountSnapshot> MountSnapshot;
 		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
+		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
 		Asset::FAssetCatalogSnapshot AssetCatalogSnapshot;
 		std::unordered_map<std::string, std::vector<FIndexedAsset>> AssetDirectoryIndex;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
@@ -189,6 +210,7 @@ namespace Durin::Editor::Level
 		std::vector<FEnumerationDiagnostic> EnumerationDiagnostics;
 		size_t SuppressedEnumerationDiagnosticCount = 0;
 		FEntryStatusQuery EntryStatusQuery;
+		FPathStatusQuery PathStatusQuery;
 		std::vector<std::string> NavigationHistory;
 		int32 HistoryIndex = -1;
 		std::string Search;

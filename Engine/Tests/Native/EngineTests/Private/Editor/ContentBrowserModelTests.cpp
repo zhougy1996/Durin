@@ -127,6 +127,29 @@ TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 	EXPECT_FALSE(Model.NavigateHistory(1));
 }
 
+TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemException)
+{
+	const std::filesystem::path Unavailable = Root / "Content/B";
+	FContentBrowserModel Model;
+	Model.SetPathStatusQueryForTesting(
+		[Unavailable](const std::filesystem::path& Path, std::error_code& Error) {
+			if (Path == Unavailable)
+			{
+				Error = std::make_error_code(std::errc::permission_denied);
+				return std::filesystem::file_status{};
+			}
+			return std::filesystem::status(Path, Error);
+		});
+
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
+	EXPECT_FALSE(Model.NavigateToPhysical(Unavailable.generic_string()));
+	EXPECT_EQ(
+		Model.FindNearestAvailableDirectory((Unavailable / "RemovedChild").generic_string()),
+		std::filesystem::absolute(Root / "Content")
+			.lexically_normal()
+			.generic_string());
+}
+
 TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 {
 	InitializeDObjectSystem();
@@ -436,36 +459,34 @@ TEST_F(FContentBrowserModelTests, SkipsFailedSnapshotEntryAndKeepsLaterEntries)
 		!= std::string::npos);
 }
 
-TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndReportsTraversalFailure)
+TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndCachesDirectorySnapshot)
 {
 	const std::filesystem::path TreeRoot = Root / "Content/EnumerationTree";
 	for (const std::string_view Name : {"First", "Second", "Third"})
 		std::filesystem::create_directories(TreeRoot / Name);
+	size_t QueryCount = 0;
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
-	size_t QueryCount = 0;
 	Model.SetEntryStatusQueryForTesting(
 		[&](const std::filesystem::directory_entry& Entry,
 			std::error_code& Error) {
-			if (++QueryCount == 1)
+			if (Entry.path().parent_path() == TreeRoot && ++QueryCount == 1)
 			{
 				Error = std::make_error_code(std::errc::permission_denied);
 				return std::filesystem::file_status{};
 			}
 			return Entry.symlink_status(Error);
 		});
+	Model.RequestDirectoryChildrenSnapshot(TreeRoot.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	EXPECT_EQ(Model.GetDirectoryChildren(TreeRoot.generic_string()).size(), 2);
 	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
 	EXPECT_EQ(
 		Model.GetEnumerationDiagnostics().front().Kind,
 		FContentBrowserModel::EEnumerationDiagnosticKind::Entry);
-
 	EXPECT_TRUE(Model.GetDirectoryChildren(
 		(Root / "MissingDirectory").generic_string()).empty());
-	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 2);
-	EXPECT_EQ(
-		Model.GetEnumerationDiagnostics().back().Kind,
-		FContentBrowserModel::EEnumerationDiagnosticKind::Traversal);
+	EXPECT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
 }
 
 TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOptIn)
@@ -983,6 +1004,8 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 {
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	const size_t ChildrenBefore = Model.GetDirectoryChildren(
 		(Root / "Content").generic_string()).size();
 	FContentBrowserOperations Operations(
@@ -995,6 +1018,8 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 		Operations.CreateFolder((Root / "Content").generic_string());
 	ASSERT_TRUE(CreateResult) << CreateResult.Status.Message;
 	Model.RefreshItemsSnapshot();
+	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	EXPECT_EQ(
 		Model.GetDirectoryChildren((Root / "Content").generic_string()).size(),
 		ChildrenBefore + 1);
