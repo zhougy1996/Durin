@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Workspace/LevelEditorUILayout.h"
+#include "Workspace/LevelEditorPresentationPolicy.h"
 #include "MonaImGui.h"
 
 namespace Durin::Editor::Level
@@ -12,6 +13,20 @@ namespace Durin::Editor::Level
 		EXPECT_EQ(ResolveEditorUILayout(520.0f, 520.0f, 780.0f), EEditorUILayoutMode::Compact);
 		EXPECT_EQ(ResolveEditorUILayout(779.0f, 520.0f, 780.0f), EEditorUILayoutMode::Compact);
 		EXPECT_EQ(ResolveEditorUILayout(780.0f, 520.0f, 780.0f), EEditorUILayoutMode::Full);
+	}
+
+	TEST(FEditorUILayoutTests, AppliesViewportFirstPanelAndUnreadPolicies)
+	{
+		EXPECT_TRUE(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::Persistent));
+		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::DrawerTool));
+		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::ActivityHistory));
+		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Info), 4u);
+		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Warn), 5u);
+		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(998, ELogLevel::Error), 999u);
+		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(999, ELogLevel::Fatal), 999u);
 	}
 
 	TEST(FMonaImGuiStyleTests, ClampsScaleAndReturnsScaledMetrics)
@@ -44,6 +59,93 @@ namespace Durin::Editor::Level
 		EXPECT_GT(LightWarning.w, 0.0f);
 		EXPECT_NE(DarkWarning.x, LightWarning.x);
 		MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
+		ImGui::DestroyContext(Context);
+	}
+
+	TEST(FMonaImGuiStyleTests, BottomDrawerAnimationAndGeometryStayBounded)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		MonaImGui::SetGlobalUIScale(1.0f);
+		MonaImGui::FBottomDrawerState State;
+		State.Open();
+		MonaImGui::AdvanceBottomDrawerAnimation(State, 0.07f, 0.14f);
+		EXPECT_FLOAT_EQ(State.Visibility, 0.5f);
+
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "TestDrawer",
+			.AnchorMin = ImVec2(20.0f, 30.0f),
+			.AnchorMax = ImVec2(1020.0f, 830.0f),
+		};
+		const MonaImGui::FBottomDrawerGeometry Geometry =
+			MonaImGui::ResolveBottomDrawerGeometry(Config, State);
+		EXPECT_FLOAT_EQ(Geometry.OpenHeight, 288.0f);
+		EXPECT_FLOAT_EQ(Geometry.VisibleHeight, 144.0f);
+		EXPECT_FLOAT_EQ(Geometry.Min.x, 20.0f);
+		EXPECT_FLOAT_EQ(Geometry.Min.y, 686.0f);
+		EXPECT_FLOAT_EQ(Geometry.Size.x, 1000.0f);
+		EXPECT_FLOAT_EQ(Geometry.Size.y, 144.0f);
+
+		State.HeightFraction = 10.0f;
+		const MonaImGui::FBottomDrawerGeometry Clamped =
+			MonaImGui::ResolveBottomDrawerGeometry(Config, State);
+		EXPECT_FLOAT_EQ(Clamped.OpenHeight, 720.0f);
+		for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
+		{
+			MonaImGui::SetGlobalUIScale(Scale);
+			const MonaImGui::FBottomDrawerGeometry Scaled =
+				MonaImGui::ResolveBottomDrawerGeometry(Config, State);
+			EXPECT_TRUE(std::isfinite(Scaled.VisibleHeight));
+			EXPECT_GE(Scaled.OpenHeight, MonaImGui::ScaleUI(180.0f));
+			EXPECT_LE(Scaled.OpenHeight, 800.0f);
+		}
+		MonaImGui::SetGlobalUIScale(1.0f);
+		ImGui::DestroyContext(Context);
+	}
+
+	TEST(FMonaImGuiStyleTests, BottomDrawerInvalidTimingSettlesAtTarget)
+	{
+		MonaImGui::FBottomDrawerState State;
+		State.Open();
+		MonaImGui::AdvanceBottomDrawerAnimation(State, 0.0f, 0.14f);
+		EXPECT_FLOAT_EQ(State.Visibility, 1.0f);
+		State.Close();
+		MonaImGui::AdvanceBottomDrawerAnimation(State, 0.1f, 0.0f);
+		EXPECT_FLOAT_EQ(State.Visibility, 0.0f);
+	}
+
+	TEST(FMonaImGuiStyleTests, BottomDrawerBeginsAsTransientOverlay)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1280.0f, 720.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		MonaImGui::FBottomDrawerState State;
+		State.Open();
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "DrawerOverlayTest",
+			.AnchorMin = ImVec2(10.0f, 20.0f),
+			.AnchorMax = ImVec2(1010.0f, 620.0f),
+			.AnimationDuration = 0.0f,
+		};
+
+		ImGui::NewFrame();
+		ASSERT_TRUE(MonaImGui::BeginBottomDrawer(Config, State));
+		EXPECT_FLOAT_EQ(ImGui::GetWindowPos().x, 10.0f);
+		EXPECT_FLOAT_EQ(ImGui::GetWindowPos().y, 404.0f);
+		EXPECT_FLOAT_EQ(ImGui::GetWindowSize().x, 1000.0f);
+		EXPECT_FLOAT_EQ(ImGui::GetWindowSize().y, 216.0f);
+		ImGui::TextUnformatted("Drawer contents");
+		MonaImGui::EndBottomDrawer(State);
+		ImGui::Render();
+
+		State.Close();
+		ImGui::NewFrame();
+		EXPECT_FALSE(MonaImGui::BeginBottomDrawer(Config, State));
+		ImGui::Render();
 		ImGui::DestroyContext(Context);
 	}
 

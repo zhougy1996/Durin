@@ -93,16 +93,7 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
-		// The Level Editor workspace is constructed before feature modules register
-		// their thumbnail providers. Rebuild the restored directory snapshot once
-		// those registrations have completed and the panel is first submitted.
-		if (bRefreshItemsOnFirstDraw)
-		{
-			RefreshItemsSnapshot();
-			bRefreshItemsOnFirstDraw = false;
-		}
-		SynchronizeMountedContentMutation();
-		RefreshMountSnapshot();
+		PrepareForDraw();
 		const ImVec2 PanelPadding(ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(4.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, PanelPadding);
 		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
@@ -113,6 +104,33 @@ namespace Durin::Editor::Level
 			ImGui::End();
 			return;
 		}
+		DrawContents();
+		ImGui::End();
+	}
+
+	auto FContentBrowserPanel::DrawEmbedded(FLevelEditorContext& Context) -> void
+	{
+		(void)Context;
+		PrepareForDraw();
+		DrawContents();
+	}
+
+	auto FContentBrowserPanel::PrepareForDraw() -> void
+	{
+		// The Level Editor workspace is constructed before feature modules register
+		// their thumbnail providers. Rebuild the restored directory snapshot once
+		// those registrations have completed and the panel is first submitted.
+		if (bRefreshItemsOnFirstDraw)
+		{
+			RefreshItemsSnapshot();
+			bRefreshItemsOnFirstDraw = false;
+		}
+		SynchronizeMountedContentMutation();
+		RefreshMountSnapshot();
+	}
+
+	auto FContentBrowserPanel::DrawContents() -> void
+	{
 		DrawToolbar();
 
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
@@ -140,11 +158,15 @@ namespace Durin::Editor::Level
 		DrawDialogs();
 
 		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, Model.IsShowingHiddenFiles(), Model.GetCurrentPhysicalPath());
-		ImGui::End();
 	}
 
 	auto FContentBrowserPanel::DrawToolbar() -> void
 	{
+		auto FocusSearch = [this] {
+			if (!bFocusSearch) return;
+			ImGui::SetKeyboardFocusHere();
+			bFocusSearch = false;
+		};
 		int32 TypeFilter = static_cast<int32>(Model.GetTypeFilter());
 		const float ToolbarWidth = ImGui::GetContentRegionAvail().x;
 		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(ToolbarWidth, MonaImGui::ScaleUI(CompactToolbarWidth), MonaImGui::ScaleUI(FullToolbarWidth));
@@ -270,6 +292,7 @@ namespace Durin::Editor::Level
 				Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(SearchWidth);
+			FocusSearch();
 			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
 		else if (bCompactLayout)
@@ -278,6 +301,7 @@ namespace Durin::Editor::Level
 			DrawViewControls();
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(-FLT_MIN);
+			FocusSearch();
 			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
 
@@ -287,6 +311,7 @@ namespace Durin::Editor::Level
 			DrawViewControls();
 			ImGui::NewLine();
 			ImGui::SetNextItemWidth(-FLT_MIN);
+			FocusSearch();
 			if (ImGui::InputTextWithHint("##ContentSearchNarrow", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
 	}

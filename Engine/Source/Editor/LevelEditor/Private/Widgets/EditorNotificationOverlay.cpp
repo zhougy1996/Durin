@@ -116,8 +116,12 @@ namespace Durin::Editor::Level
 		return ImGui::GetFrameHeight() + MonaImGui::ScaleUI(4.0f);
 	}
 
-	auto FEditorNotificationOverlay::DrawStatusBar(::Durin::Editor::FNotificationManager& Notifications) -> void
+	auto FEditorNotificationOverlay::DrawStatusBar(
+		::Durin::Editor::FNotificationManager& Notifications,
+		EEditorStatusBarAction SelectedDrawer,
+		uint32 ConsoleUnreadCount) -> EEditorStatusBarAction
 	{
+		EEditorStatusBarAction Result = EEditorStatusBarAction::None;
 		const float Height = GetStatusBarHeight();
 		const float SeparatorSize = ImGui::GetStyle().SeparatorSize;
 		const ImVec2 StatusPadding(ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(2.0f));
@@ -133,18 +137,51 @@ namespace Durin::Editor::Level
 				ImGui::GetColorU32(ImGuiCol_Separator));
 			const ::Durin::Editor::FNotification* Status = Notifications.GetStatusNotification()
 				? &*Notifications.GetStatusNotification() : nullptr;
-			const char* ActivityLabel = Icons::List;
-			const float ActivityWidth = ImGui::CalcTextSize(ActivityLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+			const bool bCompact = ImGui::GetContentRegionAvail().x < MonaImGui::ScaleUI(760.0f);
+			const std::string ContentLabel = std::format("{}{}###EditorContentDrawer", Icons::FolderOpen,
+				bCompact ? "" : "  Content Drawer");
+			const std::string ConsoleLabel = ConsoleUnreadCount == 0
+				? std::format("{}###EditorConsole", bCompact ? ">_" : "Console")
+				: std::format("{}  {}###EditorConsole", bCompact ? ">_" : "Console", ConsoleUnreadCount);
+			const std::string ActivityLabel = std::format("{}###EditorActivityHistory", Icons::List);
+			const float ContentWidth = ImGui::CalcTextSize(ContentLabel.c_str(), nullptr, true).x
+				+ ImGui::GetStyle().FramePadding.x * 2.0f;
+			const float ConsoleWidth = ImGui::CalcTextSize(ConsoleLabel.c_str(), nullptr, true).x
+				+ ImGui::GetStyle().FramePadding.x * 2.0f;
+			const float ActivityWidth = ImGui::CalcTextSize(ActivityLabel.c_str(), nullptr, true).x
+				+ ImGui::GetStyle().FramePadding.x * 2.0f;
 			const float ActionWidth = Status && Status->Action
 				? ImGui::CalcTextSize(Status->Action->Label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f
 				: 0.0f;
 
-			if (ImGui::BeginTable("##EditorStatusLayout", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+			auto DrawToolButton = [&](const std::string& Label, const char* Tooltip,
+				EEditorStatusBarAction Action) {
+				const bool bSelected = SelectedDrawer == Action;
+				if (bSelected)
+				{
+					ImGui::PushStyleColor(ImGuiCol_Button,
+						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionPrimary));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionSecondary));
+				}
+				if (ImGui::Button(Label.c_str())) Result = Action;
+				if (bSelected) ImGui::PopStyleColor(2);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
+			};
+
+			if (ImGui::BeginTable("##EditorStatusLayout", 5,
+				ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 			{
+				ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthFixed, ContentWidth);
 				ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch);
 				ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, ActionWidth);
+				ImGui::TableSetupColumn("Console", ImGuiTableColumnFlags_WidthFixed, ConsoleWidth);
 				ImGui::TableSetupColumn("Activity", ImGuiTableColumnFlags_WidthFixed, ActivityWidth);
 				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				DrawToolButton(ContentLabel, "Content Browser (Ctrl+Space)",
+					EEditorStatusBarAction::ContentBrowser);
+
 				ImGui::TableNextColumn();
 				if (Status)
 				{
@@ -161,18 +198,30 @@ namespace Durin::Editor::Level
 				if (Status && Status->Action) DrawActionButton(Notifications, *Status);
 
 				ImGui::TableNextColumn();
-				if (ImGui::Button(ActivityLabel))
-				{
-					SetOpen(true);
-					bFocusHistoryRequested = true;
-				}
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Activity History");
+				if (ConsoleUnreadCount > 0)
+					ImGui::PushStyleColor(ImGuiCol_Text,
+						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
+				DrawToolButton(ConsoleLabel, ConsoleUnreadCount == 0
+					? "Console" : "Console has unread warnings or errors",
+					EEditorStatusBarAction::Console);
+				if (ConsoleUnreadCount > 0) ImGui::PopStyleColor();
+
+				ImGui::TableNextColumn();
+				DrawToolButton(ActivityLabel, "Activity History",
+					EEditorStatusBarAction::ActivityHistory);
 				ImGui::EndTable();
 			}
 			if (Status) Notifications.SetHovered(Status->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 		}
 		ImGui::EndChild();
 		ImGui::PopStyleVar(2);
+		return Result;
+	}
+
+	auto FEditorNotificationOverlay::OpenHistory() -> void
+	{
+		SetOpen(true);
+		bFocusHistoryRequested = true;
 	}
 
 	auto FEditorNotificationOverlay::DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void
@@ -277,7 +326,9 @@ namespace Durin::Editor::Level
 	auto FEditorNotificationOverlay::DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void
 	{
 		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(420.0f)), ImGuiCond_FirstUseEver);
-		if (::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Activity History", "ActivityHistory", bOpen))
+		if (::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+			Workspace::Type, "Activity History", "ActivityHistory", bOpen,
+			ImGuiWindowFlags_NoDocking))
 		{
 			const std::vector<::Durin::Editor::FNotification>& History = Notifications.GetHistory();
 			ImGui::TextDisabled("Editor activity from this session");

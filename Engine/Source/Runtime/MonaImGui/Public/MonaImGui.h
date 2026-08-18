@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaImGuiAPI.h"
+#include "MonaImGuiBottomDrawer.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaImGuiWidgets.h"
 #include "Math/MathFwd.h"

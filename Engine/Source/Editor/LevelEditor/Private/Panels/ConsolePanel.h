@@ -20,10 +20,17 @@ namespace Durin::Editor::Level
 		auto GetWindowName() const -> const char* override { return "Console"; }
 		auto TickWhenHidden() -> void override;
 		auto Draw(FLevelEditorContext& Context) -> void override;
+		auto DrawEmbedded(FLevelEditorContext& Context) -> void;
+		auto RequestInputFocus() -> void { bRefocusInput = true; }
+		auto GetUnreadImportantRecordCount() const -> uint32
+		{
+			return UnreadImportantRecordCount;
+		}
 
 	private:
 		static auto InputTextCallback(ImGuiInputTextCallbackData* Data) -> int;
-		auto PollLogRecords() -> bool;
+		auto PollLogRecords(bool bCountUnread = false) -> bool;
+		auto DrawContents(bool bReceivedRecords) -> void;
 		auto ApplyPendingRequests() -> bool;
 		auto MarkRecordsChanged() -> void;
 		auto RefreshVisibleRecords() -> void;
@@ -47,5 +54,6 @@ namespace Durin::Editor::Level
 		bool bVisibleRecordsDirty = true;
 		bool bRefocusInput = false;
 		uint8 ScrollToLatestFrames = 0;
+		uint32 UnreadImportantRecordCount = 0;
 	};
 } // namespace Durin::Editor::Level

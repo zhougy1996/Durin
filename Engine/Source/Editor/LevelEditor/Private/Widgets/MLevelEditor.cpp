@@ -18,10 +18,12 @@
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
+#include "Workspace/LevelEditorPresentationPolicy.h"
 #include "Misc/Project.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "MonaImGuiWidgets.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -38,6 +40,21 @@
 
 namespace Durin::Editor::Level
 {
+	enum class ELevelEditorDrawerTool : uint8
+	{
+		ContentBrowser,
+		Console,
+	};
+
+	// Owns transient drawer selection and geometry for one Level Editor instance.
+	struct FLevelEditorDrawerHostState
+	{
+		MonaImGui::FBottomDrawerState Drawer;
+		ELevelEditorDrawerTool SelectedTool = ELevelEditorDrawerTool::ContentBrowser;
+		ImVec2 AnchorMin{};
+		ImVec2 AnchorMax{};
+	};
+
 	namespace
 	{
 		template<typename TDialog>
@@ -57,6 +74,7 @@ namespace Durin::Editor::Level
 		, WorkspaceManager(InWorkspaceManager)
 		, OwnerGate(std::move(InOwnerGate))
 		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
+		, DrawerHostState(std::make_unique<FLevelEditorDrawerHostState>())
 	{
 	}
 
@@ -131,7 +149,9 @@ namespace Durin::Editor::Level
 		auto Details = std::make_unique<FDetailsPanel>(SessionSettings);
 		DetailsPanel = Details.get();
 		Panels.emplace_back(std::move(Details));
-		Panels.emplace_back(std::make_unique<FConsolePanel>(OwnerGate));
+		auto Console = std::make_unique<FConsolePanel>(OwnerGate);
+		ConsolePanel = Console.get();
+		Panels.emplace_back(std::move(Console));
 	}
 
 	auto MLevelEditor::CreateDocumentServices() -> void
@@ -254,6 +274,17 @@ namespace Durin::Editor::Level
 	{
 		if (!ContentBrowserPanel || !AssetPath.IsValid()) return false;
 		ContentBrowserPanel->RevealAsset(AssetPath.ToString());
+		if (ContentBrowserPanel->IsOpen())
+		{
+			const std::string WindowName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(
+				"Content Browser", Workspace::Type, "ContentBrowser");
+			ImGui::SetWindowFocus(WindowName.c_str());
+			ContentBrowserPanel->RequestSearchFocus();
+		}
+		else if (!DrawerHostState || !DrawerHostState->Drawer.IsOpen()
+			|| DrawerHostState->SelectedTool != ELevelEditorDrawerTool::ContentBrowser)
+			ToggleBottomDrawer(false);
+		else ContentBrowserPanel->RequestSearchFocus();
 		return true;
 	}
 
@@ -419,19 +450,25 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::ResetLayout() -> void
 	{
 		bResetLayoutRequested = true;
-		bSelectDefaultBottomPanelRequested = true;
+		if (DrawerHostState) DrawerHostState->Drawer.Reset();
+		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
+		{
+			const ELevelEditorPanelRole Role = Panel.get() == NotificationOverlay
+				? ELevelEditorPanelRole::ActivityHistory
+				: (Panel.get() == ContentBrowserPanel || Panel.get() == ConsolePanel
+					? ELevelEditorPanelRole::DrawerTool
+					: ELevelEditorPanelRole::Persistent);
+			const bool bDefaultOpen = IsLevelEditorPanelOpenByDefault(Role);
+			Panel->SetOpen(bDefaultOpen);
+		}
 	}
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!Context || !DocumentController || !SceneImportDialog || !StaticMeshImportDialog
 			|| !TextureImportDialog || !TerrainHeightmapImportDialog) return false;
-		if (bActive && !bWasActive)
-		{
-			// Internal panel windows are not submitted while another workspace is visible, so
-			// restore the asset-oriented default before the last submitted tab wins selection.
-			bSelectDefaultBottomPanelRequested = true;
-		}
+		if (!bActive && bWasActive && DrawerHostState)
+			DrawerHostState->Drawer.Reset();
 		bWasActive = bActive;
 		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {
 			return Document.WorkspaceType == Workspace::Type;
@@ -484,6 +521,9 @@ namespace Durin::Editor::Level
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && GEditor) GEditor->StepPlaySession();
+			if (!IO.WantTextInput && IO.KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_Space, false))
+				ToggleBottomDrawer(false);
 		}
 		if (GEditor && bPlaying != GEditor->IsPlaying())
 		{
@@ -501,18 +541,43 @@ namespace Durin::Editor::Level
 			DockSpaceSize.y = std::max(0.0f, DockSpaceSize.y
 				- NotificationOverlay->GetStatusBarHeight());
 		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-		if (bNeedsDefaultLayout || bResetLayoutRequested)
+		const bool bCanBuildDefaultLayout = DockSpaceSize.x >= MonaImGui::ScaleUI(900.0f)
+			&& DockSpaceSize.y >= MonaImGui::ScaleUI(500.0f);
+		if ((bNeedsDefaultLayout || bResetLayoutRequested) && bCanBuildDefaultLayout)
 		{
 			// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 			BuildDefaultLayout(DockSpaceId, DockSpaceSize.x, DockSpaceSize.y);
 			bResetLayoutRequested = false;
 		}
 		const ImVec2 ItemSpacing = ImGui::GetStyle().ItemSpacing;
+		if (DrawerHostState)
+		{
+			DrawerHostState->AnchorMin = ImGui::GetCursorScreenPos();
+			DrawerHostState->AnchorMax = DrawerHostState->AnchorMin + DockSpaceSize;
+		}
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ItemSpacing.x, 0.0f));
 		::Durin::Editor::WorkspaceUI::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
 		ImGui::PopStyleVar();
 		if (NotificationOverlay && GEditor)
-			NotificationOverlay->DrawStatusBar(GEditor->GetNotificationManager());
+		{
+			EEditorStatusBarAction SelectedDrawer = EEditorStatusBarAction::None;
+			if (DrawerHostState && DrawerHostState->Drawer.IsOpen())
+			{
+				SelectedDrawer = DrawerHostState->SelectedTool == ELevelEditorDrawerTool::Console
+					? EEditorStatusBarAction::Console
+					: EEditorStatusBarAction::ContentBrowser;
+			}
+			const EEditorStatusBarAction Action = NotificationOverlay->DrawStatusBar(
+				GEditor->GetNotificationManager(), SelectedDrawer,
+				ConsolePanel ? ConsolePanel->GetUnreadImportantRecordCount() : 0);
+			switch (Action)
+			{
+			case EEditorStatusBarAction::ContentBrowser: ToggleBottomDrawer(false); break;
+			case EEditorStatusBarAction::Console: ToggleBottomDrawer(true); break;
+			case EEditorStatusBarAction::ActivityHistory: NotificationOverlay->OpenHistory(); break;
+			case EEditorStatusBarAction::None: break;
+			}
+		}
 		RootWindow.End();
 		if (RootWindowState.bCloseRequested)
 		{
@@ -532,6 +597,13 @@ namespace Durin::Editor::Level
 		MonaImGui::ErrorDialog("Editor Error", EditorError);
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
+			const bool bDrawerOwnsPanel = DrawerHostState
+				&& DrawerHostState->Drawer.IsVisible() && !Panel->IsOpen()
+				&& ((DrawerHostState->SelectedTool == ELevelEditorDrawerTool::ContentBrowser
+						&& Panel.get() == ContentBrowserPanel)
+					|| (DrawerHostState->SelectedTool == ELevelEditorDrawerTool::Console
+						&& Panel.get() == ConsolePanel));
+			if (bDrawerOwnsPanel) continue;
 			if (!Panel->IsOpen())
 			{
 				Panel->TickWhenHidden();
@@ -543,13 +615,7 @@ namespace Durin::Editor::Level
 			if (bDisablePanel) ImGui::EndDisabled();
 		}
 		if (SceneViewportPanel) SceneViewportPanel->FinalizeViewportFrame(*Context);
-		if (bSelectDefaultBottomPanelRequested)
-		{
-			// Docking tabs do not exist until every panel has submitted its window this frame.
-			const std::string ContentBrowserName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Content Browser", Workspace::Type, "ContentBrowser");
-			ImGui::SetWindowFocus(ContentBrowserName.c_str());
-			bSelectDefaultBottomPanelRequested = false;
-		}
+		DrawBottomDrawer(*Context);
 
 		if (NotificationOverlay && GEditor)
 		{
@@ -621,6 +687,101 @@ namespace Durin::Editor::Level
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
+	auto MLevelEditor::ToggleBottomDrawer(bool bConsole) -> void
+	{
+		if (!DrawerHostState) return;
+		ILevelEditorPanel* TargetPanel = bConsole
+			? static_cast<ILevelEditorPanel*>(ConsolePanel)
+			: static_cast<ILevelEditorPanel*>(ContentBrowserPanel);
+		if (!TargetPanel) return;
+
+		if (TargetPanel->IsOpen())
+		{
+			const char* DisplayName = bConsole ? "Console" : "Content Browser";
+			const char* PanelKey = bConsole ? "OutputLog" : "ContentBrowser";
+			const std::string WindowName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(
+				DisplayName, Workspace::Type, PanelKey);
+			ImGui::SetWindowFocus(WindowName.c_str());
+			if (bConsole) ConsolePanel->RequestInputFocus();
+			else ContentBrowserPanel->RequestSearchFocus();
+			return;
+		}
+
+		const ELevelEditorDrawerTool Tool = bConsole
+			? ELevelEditorDrawerTool::Console
+			: ELevelEditorDrawerTool::ContentBrowser;
+		if (DrawerHostState->Drawer.IsOpen()
+			&& DrawerHostState->SelectedTool == Tool)
+		{
+			DrawerHostState->Drawer.Close();
+			return;
+		}
+
+		DrawerHostState->SelectedTool = Tool;
+		DrawerHostState->Drawer.Open();
+		if (bConsole) ConsolePanel->RequestInputFocus();
+		else ContentBrowserPanel->RequestSearchFocus();
+	}
+
+	auto MLevelEditor::DrawBottomDrawer(FLevelEditorContext& Context) -> void
+	{
+		if (!DrawerHostState || (!DrawerHostState->Drawer.IsOpen()
+			&& !DrawerHostState->Drawer.IsVisible())) return;
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "Level Editor Bottom Drawer###Durin.LevelEditor.BottomDrawer",
+			.AnchorMin = DrawerHostState->AnchorMin,
+			.AnchorMax = DrawerHostState->AnchorMax,
+		};
+		if (!MonaImGui::BeginBottomDrawer(Config, DrawerHostState->Drawer)) return;
+
+		const bool bConsole = DrawerHostState->SelectedTool
+			== ELevelEditorDrawerTool::Console;
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted(bConsole ? "Console" : "Content Browser");
+		const float CloseWidth = ImGui::CalcTextSize(Icons::Close).x
+			+ ImGui::GetStyle().FramePadding.x * 2.0f;
+		const bool bCompactHeader = ImGui::GetContentRegionAvail().x
+			< MonaImGui::ScaleUI(480.0f);
+		const char* OpenLabel = bCompactHeader ? Icons::Expand : "Open in Window";
+		const float OpenWidth = ImGui::CalcTextSize(OpenLabel).x
+			+ ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
+			ImGui::GetWindowContentRegionMax().x - OpenWidth - CloseWidth
+				- ImGui::GetStyle().ItemSpacing.x));
+		const bool bOpenInWindow = ImGui::Button(OpenLabel);
+		if (bCompactHeader && ImGui::IsItemHovered()) ImGui::SetTooltip("Open in Window");
+		ImGui::SameLine();
+		if (ImGui::Button(Icons::Close)) DrawerHostState->Drawer.Close();
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Close drawer");
+		ImGui::Separator();
+
+		if (bConsole && ConsolePanel)
+			ConsolePanel->DrawEmbedded(Context);
+		else if (!bConsole && ContentBrowserPanel)
+		{
+			const bool bDisablePanel = GEditor && GEditor->IsPlaying();
+			if (bDisablePanel) ImGui::BeginDisabled();
+			ContentBrowserPanel->DrawEmbedded(Context);
+			if (bDisablePanel) ImGui::EndDisabled();
+		}
+		MonaImGui::EndBottomDrawer(DrawerHostState->Drawer);
+
+		if (bOpenInWindow)
+		{
+			if (bConsole && ConsolePanel)
+			{
+				ConsolePanel->SetOpen(true);
+				ConsolePanel->RequestInputFocus();
+			}
+			else if (ContentBrowserPanel)
+			{
+				ContentBrowserPanel->SetOpen(true);
+				ContentBrowserPanel->RequestSearchFocus();
+			}
+			DrawerHostState->Drawer.Reset();
+		}
+	}
+
 	auto MLevelEditor::DrawWindowMenu() -> void
 	{
 		if (ImGui::BeginMenu("Panels###Durin.LevelEditor.Windows"))
@@ -630,7 +791,22 @@ namespace Durin::Editor::Level
 				bool bPanelOpen = Panel->IsOpen();
 				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bPanelOpen))
 				{
-					if (bPanelOpen || Panel.get() != DetailsPanel || RequestDeactivate()) Panel->SetOpen(bPanelOpen);
+					if (!bPanelOpen && Panel.get() == DetailsPanel && !RequestDeactivate())
+						continue;
+					if (bPanelOpen && Panel.get() == NotificationOverlay)
+					{
+						NotificationOverlay->OpenHistory();
+						continue;
+					}
+					Panel->SetOpen(bPanelOpen);
+					if (bPanelOpen && DrawerHostState
+						&& (Panel.get() == ContentBrowserPanel || Panel.get() == ConsolePanel))
+					{
+						DrawerHostState->Drawer.Reset();
+						if (Panel.get() == ContentBrowserPanel)
+							ContentBrowserPanel->RequestSearchFocus();
+						else ConsolePanel->RequestInputFocus();
+					}
 				}
 			}
 			ImGui::EndMenu();
@@ -788,21 +964,16 @@ namespace Durin::Editor::Level
 			DockSpaceNode->WindowClass = ::Durin::Editor::WorkspaceUI::MakeWindowClass(Workspace::Type);
 
 		ImGuiID MainDockId = DockSpaceId;
-		const ImGuiID LeftDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Left, 0.20f, nullptr, &MainDockId);
-		const ImGuiID RightDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Right, 0.25f, nullptr, &MainDockId);
-		const ImGuiID BottomDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Down, 0.25f, nullptr, &MainDockId);
+		ImGuiID DetailsDockId = ImGui::DockBuilderSplitNode(
+			MainDockId, ImGuiDir_Right, 0.24f, nullptr, &MainDockId);
+		const ImGuiID WorldOutlinerDockId = ImGui::DockBuilderSplitNode(
+			DetailsDockId, ImGuiDir_Up, 0.35f, nullptr, &DetailsDockId);
 
 		const std::string WorldOutlinerName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("World Outliner", Workspace::Type, "WorldOutliner");
 		const std::string DetailsName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Details", Workspace::Type, "Details");
-		const std::string ContentBrowserName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Content Browser", Workspace::Type, "ContentBrowser");
-		const std::string ConsoleName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Console", Workspace::Type, "OutputLog");
-		const std::string ActivityHistoryName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Activity History", Workspace::Type, "ActivityHistory");
 		const std::string SceneViewportName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Scene Viewport", Workspace::Type, "SceneViewport");
-		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), LeftDockId);
-		ImGui::DockBuilderDockWindow(DetailsName.c_str(), RightDockId);
-		ImGui::DockBuilderDockWindow(ActivityHistoryName.c_str(), BottomDockId);
-		ImGui::DockBuilderDockWindow(ContentBrowserName.c_str(), BottomDockId);
-		ImGui::DockBuilderDockWindow(ConsoleName.c_str(), BottomDockId);
+		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), WorldOutlinerDockId);
+		ImGui::DockBuilderDockWindow(DetailsName.c_str(), DetailsDockId);
 		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}

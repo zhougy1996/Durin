@@ -54,6 +54,27 @@ Level Editor toolbars classify their available width as full, compact, or narrow
 and primary actions, and narrow layouts move secondary actions to another row or an overflow
 menu. New panels should degrade in the same order instead of clipping fixed-width controls.
 
+## Bottom Drawers
+
+`MonaImGui` owns the reusable bottom-drawer presentation primitive. A drawer is
+an undecorated transient ImGui overlay anchored to a caller-provided workspace
+rectangle; it does not create or split a dock node and does not change the
+underlying viewport's render allocation. Feature modules own tool selection,
+shortcuts, badges, and the content drawn inside it.
+
+The default drawer height is 36% of its anchor, clamped between scaled 180- and
+720-unit limits. Its top edge is vertically resizable for the current session.
+Open/close motion uses a short time-based transition, recomputes its screen
+geometry every frame, and leaves no interactive rectangle after it becomes
+invisible. Ordinary focus loss does not dismiss a drawer because editor tools
+may begin a drag operation inside it and complete the drop on the viewport.
+
+A selected status-bar action toggles its drawer; selecting another drawer tool
+switches content in place. Escape dismisses only when the drawer owns focus and
+no text input, popup, active item, or drag-and-drop operation has precedence.
+Drawer headers provide close and open-in-window actions. At compact widths the
+open-in-window label degrades to an icon with a tooltip.
+
 ## Editor Main Window Title Bar
 
 On Windows, the editor root window uses one integrated title/menu bar drawn by

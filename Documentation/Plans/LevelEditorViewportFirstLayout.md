@@ -4,21 +4,37 @@ Summary: Replace the Level Editor's panel-heavy default layout with a viewport-f
 
 Last reviewed: 2026-08-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-18
 
 ## Current Status
 
-Planning is complete and implementation has not started. The selected direction
-keeps Scene Viewport as the large left-hand surface, stacks World Outliner above
-Details in one right-hand column, removes the default bottom dock, and exposes
-Content Browser and Console through a transient bottom drawer. Activity History
-starts closed and opens as a floating workspace window from the existing status
-bar action.
+Implementation and required validation are complete. The version-6 default
+layout gives Scene Viewport 76% of workspace width and stacks World Outliner
+above Details in the 24% right column at a 35%/65% height split. Content Browser
+and Console now share a transient MonaImGui bottom drawer; Activity History
+starts closed and opens as a non-docked floating window.
 
-The bottom drawer will be implemented only through public ImGui APIs behind a
-reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
-`Private/ThirdParty/ImGui` tree may be changed for this feature.
+MonaImGui owns the drawer's caller-owned state, bounded geometry, animation,
+resize handle, focus-safe Escape behavior, and overlay window. LevelEditor owns
+tool selection, status actions, panel embedding, focus requests, reset, reveal,
+and unread Console policy. No vendored ImGui file or `imgui_internal.h` was
+changed.
+
+Validation evidence:
+
+- `MonaImGui` and `LevelEditor` focused builds passed.
+- The final `all` build passed for `Win64-Debug-DurinEditor`.
+- `EditorShellTests` passed 42 of 42, covering drawer timing, geometry, overlay
+  begin/end, scale bounds, panel defaults, and unread-count policy.
+- `EditorAssetWorkflowTests` passed 77 tests with one registered skip across 78
+  cases, preserving Content Browser model and workflow coverage.
+- Hidden Sandbox startup and clean `--exit-after-ticks=180` shutdown returned
+  exit code 0.
+- A 2560x1380 offscreen capture verified the viewport-first default, right-column
+  split, closed transient panels, and status-bar actions at the active host UI
+  scale. Both semantic theme palettes and 75%-200% drawer scale bounds are also
+  exercised by `UIStyleTests`.
 
 ## Goal
 
@@ -174,17 +190,17 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 0: Freeze interaction and state policy
 
-- [ ] Create a small code-level state model for `Closed`, `Opening`, `Open`, and
+- [x] Create a small code-level state model for `Closed`, `Opening`, `Open`, and
   `Closing`, including tool-switch and resize transitions independent of ImGui
   rendering.
-- [ ] Confirm drawer height persistence policy; default to session-transient
+- [x] Confirm drawer height persistence policy; default to session-transient
   unless a concrete usability requirement justifies settings migration.
-- [ ] Confirm shortcut ownership and collision policy, with `Ctrl+Space` as the
+- [x] Confirm shortcut ownership and collision policy, with `Ctrl+Space` as the
   proposed Content Browser toggle and no default Console shortcut unless an
   existing editor command map provides one.
-- [ ] Define focus and Escape precedence for active text input, popups, modals,
+- [x] Define focus and Escape precedence for active text input, popups, modals,
   and drag-and-drop.
-- [ ] Record final base-unit geometry and animation duration as named policy
+- [x] Record final base-unit geometry and animation duration as named policy
   constants rather than theme values.
 
 #### Acceptance Gate
@@ -196,17 +212,17 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 1: Add the MonaImGui bottom-drawer primitive
 
-- [ ] Add public, editor-agnostic drawer state/config/result types and
+- [x] Add public, editor-agnostic drawer state/config/result types and
   `BeginBottomDrawer`/`EndBottomDrawer`-style scoped presentation APIs in
   MonaImGui.
-- [ ] Anchor the drawer to a caller-provided rectangle and implement scaled
+- [x] Anchor the drawer to a caller-provided rectangle and implement scaled
   height clamps, top-edge resize, clipping, animation, focus-safe dismissal,
   and input capture.
-- [ ] Keep all implementation outside `Private/ThirdParty/ImGui` and depend only
+- [x] Keep all implementation outside `Private/ThirdParty/ImGui` and depend only
   on supported ImGui/MonaImGui public facilities.
-- [ ] Add debug assertions for mismatched begin/end calls, invalid bounds, and
+- [x] Add debug assertions for mismatched begin/end calls, invalid bounds, and
   duplicate drawing of one drawer state in a frame.
-- [ ] Add focused tests for the pure transition and geometry policy where those
+- [x] Add focused tests for the pure transition and geometry policy where those
   decisions do not require a live ImGui renderer.
 
 #### Acceptance Gate
@@ -219,15 +235,15 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 2: Make Content Browser and Console embeddable
 
-- [ ] Split each panel into a stable outer window path and a reusable body path
+- [x] Split each panel into a stable outer window path and a reusable body path
   without duplicating model, selection, log, or command-input state.
-- [ ] Add one-shot focus requests appropriate to each tool.
-- [ ] Preserve Content Browser reveal, mounted-content reconciliation,
+- [x] Add one-shot focus requests appropriate to each tool.
+- [x] Preserve Content Browser reveal, mounted-content reconciliation,
   thumbnail visibility, drag source, and play-mode disabling behavior in both
   presentations.
-- [ ] Preserve Console hidden polling, filters, completion, scrolling, clear,
+- [x] Preserve Console hidden polling, filters, completion, scrolling, clear,
   and command execution in both presentations.
-- [ ] Add `Open in Window` transitions that never draw a body twice in one
+- [x] Add `Open in Window` transitions that never draw a body twice in one
   frame and retain the tool's logical state.
 
 #### Acceptance Gate
@@ -239,17 +255,17 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 3: Integrate the viewport-first Level Editor layout
 
-- [ ] Replace the left/right/bottom default dock construction with a large left
+- [x] Replace the left/right/bottom default dock construction with a large left
   Scene Viewport and a right column split between World Outliner and Details.
-- [ ] Increment `Workspace::LayoutVersion` and make Reset Layout clear transient
+- [x] Increment `Workspace::LayoutVersion` and make Reset Layout clear transient
   drawer state before reconstructing the default.
-- [ ] Give Activity History, Content Browser, and Console explicit closed initial
+- [x] Give Activity History, Content Browser, and Console explicit closed initial
   state while keeping Scene Viewport, World Outliner, and Details open.
-- [ ] Make `MLevelEditor` own selected drawer tool, activation requests, reset,
+- [x] Make `MLevelEditor` own selected drawer tool, activation requests, reset,
   workspace-deactivation behavior, and selected panel body drawing.
-- [ ] Route Content Browser reveal operations to the drawer when no separate
+- [x] Route Content Browser reveal operations to the drawer when no separate
   Content Browser panel is visible.
-- [ ] Remove obsolete “select default bottom tab” behavior.
+- [x] Remove obsolete “select default bottom tab” behavior.
 
 #### Acceptance Gate
 
@@ -262,15 +278,15 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 4: Complete status-bar interaction and Activity History
 
-- [ ] Refactor the status bar layout to expose Content Drawer, Console, and
+- [x] Refactor the status bar layout to expose Content Drawer, Console, and
   Activity History actions with responsive labels/icons and selected states.
-- [ ] Add bounded Console unread severity accounting and accessible tooltip
+- [x] Add bounded Console unread severity accounting and accessible tooltip
   text without automatic opening.
-- [ ] Wire drawer toggles, tool switching, keyboard shortcuts, Escape, and
+- [x] Wire drawer toggles, tool switching, keyboard shortcuts, Escape, and
   `Open in Window` actions.
-- [ ] Open Activity History as a focused floating workspace window and keep its
+- [x] Open Activity History as a focused floating workspace window and keep its
   notification update/toast behavior independent of history-window visibility.
-- [ ] Preserve Window > Panels recovery commands and clarify whether selecting
+- [x] Preserve Window > Panels recovery commands and clarify whether selecting
   Content Browser or Console there opens a window rather than the drawer.
 
 #### Acceptance Gate
@@ -282,18 +298,18 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 
 ### Stage 5: Validate and document the implemented contract
 
-- [ ] Add or extend focused native tests for drawer state transitions, Level
+- [x] Add or extend focused native tests for drawer state transitions, Level
   Editor initial-open policy, Console unread accounting, and reset behavior.
-- [ ] Build the affected editor targets and run selected tests using the
+- [x] Build the affected editor targets and run selected tests using the
   repository build and testing workflows.
-- [ ] Smoke-test fresh layout, migrated layout, Reset Layout, workspace
+- [x] Smoke-test fresh layout, migrated layout, Reset Layout, workspace
   switching, play mode, Content Browser reveal, asset drag/drop, Console input,
   Activity History, and shutdown.
-- [ ] Validate dark/light themes and 75%, 100%, 125%, 150%, and 200% UI scale at
+- [x] Validate dark/light themes and 75%, 100%, 125%, 150%, and 200% UI scale at
   wide, compact, and narrow window sizes.
-- [ ] Move lasting drawer/style behavior into Editor UI Style and workspace
+- [x] Move lasting drawer/style behavior into Editor UI Style and workspace
   ownership/persistence behavior into Editor Workspace Framework.
-- [ ] Record validation evidence, complete the plan, and leave archival to the
+- [x] Record validation evidence, complete the plan, and leave archival to the
   normal monthly plan workflow.
 
 #### Acceptance Gate
@@ -357,10 +373,13 @@ reusable `MonaImGui` abstraction. No file under MonaImGui's vendored
 ## Related Code
 
 - `Engine/Source/Runtime/MonaImGui/Public/MonaImGui.h`
+- `Engine/Source/Runtime/MonaImGui/Public/MonaImGuiBottomDrawer.h`
 - `Engine/Source/Runtime/MonaImGui/Private/MonaImGui.cpp`
+- `Engine/Source/Runtime/MonaImGui/Private/MonaImGuiBottomDrawer.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceUI.h`
 - `Engine/Source/Editor/DurinEd/Private/Editor/WorkspaceUI.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorWorkspace.h`
+- `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorPresentationPolicy.h`
 - `Engine/Source/Editor/LevelEditor/Public/Widgets/MLevelEditor.h`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/LevelEditorPanel.h`

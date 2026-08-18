@@ -62,11 +62,15 @@ namespace Durin::Editor::Level
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
+		auto DrawEmbedded(FLevelEditorContext& Context) -> void;
+		auto RequestSearchFocus() -> void { bFocusSearch = true; }
 		auto RevealAsset(std::string_view AssetPath) -> void;
 		auto RevealDirectory(std::string_view DirectoryPath) -> void;
 		auto NotifyMountedContentChanged() -> void;
 
 	private:
+		auto PrepareForDraw() -> void;
+		auto DrawContents() -> void;
 		auto Refresh(bool bRescanRegistry) -> void;
 		auto RefreshPublishedContent() -> void;
 		auto PublishMountedContentMutation() -> void;
@@ -136,6 +140,7 @@ namespace Durin::Editor::Level
 		std::unordered_set<std::string> Selection;
 		std::string SelectionAnchor;
 		std::array<char, 256> SearchBuffer{};
+		bool bFocusSearch = false;
 		EContentBrowserViewMode ViewMode = EContentBrowserViewMode::Grid;
 		bool bShowSelectionDetails = false;
 		bool bIconSizeLocked = false;

@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
+#include "Workspace/LevelEditorPresentationPolicy.h"
 
 #ifdef _WIN32
 	#include <shellapi.h>
@@ -86,7 +87,9 @@ namespace Durin::Editor::Level
 		std::shared_ptr<FMountedContentReconciliationState>
 			InMountedContentReconciliationState,
 		FTaskScopeToken InThumbnailTaskScope)
-		: SessionSettings(InSessionSettings)
+		: ILevelEditorPanel(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::DrawerTool))
+		, SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
 		, ExecuteTransaction(std::move(InExecuteTransaction))

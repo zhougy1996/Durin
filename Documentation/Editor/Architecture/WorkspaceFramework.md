@@ -91,6 +91,32 @@ cannot add or replace top-level menus. Activating a document changes only the
 target of Save, Undo, and Redo. Workspace-local actions belong in that editor's
 toolbar or panels rather than replacing the application menu bar.
 
+## Level Editor Presentation
+
+The Level Editor's version-6 default internal layout is viewport-first. Scene
+Viewport occupies the left side, while one right column places World Outliner
+above Details. Content Browser, Console, and Activity History have no default
+dock assignment and start closed. Reset Layout reconstructs that default,
+reopens its three persistent surfaces, closes the transient tools, and clears
+bottom-drawer state.
+
+LevelEditor owns the selected bottom-drawer tool and presents Content Browser
+or Console through the reusable MonaImGui drawer. Drawer selection and open
+state are session-transient and do not extend `LevelEditorSession.yaml` or
+`imgui.ini`. Each hosted panel separates its ordinary window wrapper from one
+state-preserving content body, and that body is submitted at most once per
+frame. Content Browser reveal requests select its drawer unless a separate
+Content Browser window is already visible.
+
+The Level Editor status bar exposes Content Drawer, Console, and Activity
+History. `Ctrl+Space` toggles Content Drawer. Console continues bounded log
+polling while hidden and reports a bounded unread warning/error count without
+opening or taking focus. Activity History opens as a non-docked floating ImGui
+window; notification updates, status presentation, and toasts do not depend on
+that window being visible. Window > Panels opens Content Browser or Console as
+an ordinary workspace-class window and remains the recovery path for every
+surface.
+
 ## Workspace Registration
 
 `DurinEd` owns the reusable editor workspace and document framework under

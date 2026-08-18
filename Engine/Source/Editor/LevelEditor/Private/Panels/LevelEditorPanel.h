@@ -8,6 +8,10 @@ namespace Durin::Editor::Level
 	class ILevelEditorPanel
 	{
 	public:
+		explicit ILevelEditorPanel(bool bInitiallyOpen = true)
+			: bOpen(bInitiallyOpen)
+		{
+		}
 		virtual ~ILevelEditorPanel() = default;
 
 		virtual auto GetWindowName() const -> const char* = 0;
@@ -19,6 +23,6 @@ namespace Durin::Editor::Level
 		auto GetOpenPtr() -> bool* { return &bOpen; }
 
 	private:
-		bool bOpen = true;
+		bool bOpen;
 	};
 } // namespace Durin::Editor::Level

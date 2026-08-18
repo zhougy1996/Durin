@@ -34,10 +34,12 @@ namespace Durin::Editor::Level
 	class FTextureCubeImportDialog;
 	class FTerrainHeightmapImportDialog;
 	class FContentBrowserPanel;
+	class FConsolePanel;
 	struct FMountedContentReconciliationState;
 	class FDetailsPanel;
 	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
+	struct FLevelEditorDrawerHostState;
 
 	// Hosts level documents, panels, play controls, and project settings.
 	class MLevelEditor final : public ::Durin::Editor::IWorkspace
@@ -92,6 +94,8 @@ namespace Durin::Editor::Level
 		auto StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
+		auto ToggleBottomDrawer(bool bConsole) -> void;
+		auto DrawBottomDrawer(FLevelEditorContext& Context) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
 		// Module-owned services outlive this registered workspace.
@@ -113,10 +117,11 @@ namespace Durin::Editor::Level
 		// Panel pointers are non-owning aliases into the Panels collection.
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
+		FConsolePanel* ConsolePanel = nullptr;
 		FDetailsPanel* DetailsPanel = nullptr;
+		std::unique_ptr<FLevelEditorDrawerHostState> DrawerHostState;
 		::Durin::Editor::FWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
-		bool bSelectDefaultBottomPanelRequested = true;
 		bool bWasActive = false;
 		bool bProjectSettingsOpen = false;
 		TSoftObjectPtr<DLevel> DefaultLevel;

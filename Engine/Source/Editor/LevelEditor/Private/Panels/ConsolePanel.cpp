@@ -6,6 +6,7 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Workspace/LevelEditorHelpers.h"
+#include "Workspace/LevelEditorPresentationPolicy.h"
 #include "Logging/Logger.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -140,7 +141,9 @@ namespace Durin::Editor::Level
 	} // namespace
 
 	FConsolePanel::FConsolePanel(FModuleOwnedCallbackGate OwnerGate)
-		: State(std::make_shared<FConsolePanelState>())
+		: ILevelEditorPanel(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::DrawerTool))
+		, State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
 		ClearCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({"clear", "Clears the editor console.", "clear", [WeakState](std::span<const std::string> Args) {
@@ -161,7 +164,7 @@ namespace Durin::Editor::Level
 
 	auto FConsolePanel::TickWhenHidden() -> void
 	{
-		(void)PollLogRecords();
+		(void)PollLogRecords(true);
 	}
 
 	auto FConsolePanel::Draw(FLevelEditorContext& Context) -> void
@@ -174,7 +177,22 @@ namespace Durin::Editor::Level
 			ImGui::End();
 			return;
 		}
+		UnreadImportantRecordCount = 0;
+		DrawContents(bReceivedRecords);
+		ImGui::End();
+	}
 
+	auto FConsolePanel::DrawEmbedded(FLevelEditorContext& Context) -> void
+	{
+		(void)Context;
+		const bool bHadNewConsoleRecords = std::exchange(bHasNewConsoleRecords, false);
+		const bool bReceivedRecords = PollLogRecords() || bHadNewConsoleRecords;
+		UnreadImportantRecordCount = 0;
+		DrawContents(bReceivedRecords);
+	}
+
+	auto FConsolePanel::DrawContents(bool bReceivedRecords) -> void
+	{
 		if (DrawToolbarIconButton(Icons::Gear, "ConsoleOptionsButton")) ImGui::OpenPopup("ConsoleOptions");
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Options");
 		if (ImGui::BeginPopup("ConsoleOptions"))
@@ -272,7 +290,6 @@ namespace Durin::Editor::Level
 			CommandText.fill('\0');
 			bRefocusInput = true;
 		}
-		ImGui::End();
 	}
 
 	auto FConsolePanel::InputTextCallback(ImGuiInputTextCallbackData* Data) -> int
@@ -322,7 +339,7 @@ namespace Durin::Editor::Level
 		return 0;
 	}
 
-	auto FConsolePanel::PollLogRecords() -> bool
+	auto FConsolePanel::PollLogRecords(bool bCountUnread) -> bool
 	{
 		bool bChanged = ApplyPendingRequests();
 		FLogReadResult Read = FLogger::Get().ReadRecords(NextLogSequence);
@@ -343,6 +360,9 @@ namespace Durin::Editor::Level
 		bool bAddedLogs = false;
 		for (FLogRecord& Log : Read.Records)
 		{
+			if (bCountUnread)
+				UnreadImportantRecordCount = AccumulateConsoleUnreadImportantRecord(
+					UnreadImportantRecordCount, Log.Level);
 			State->Records.AddLog(std::move(Log));
 			bAddedLogs = true;
 			bChanged = true;
@@ -363,6 +383,7 @@ namespace Durin::Editor::Level
 		State->Records.Clear();
 		EvictedLogRecordCount = 0;
 		bHasNewConsoleRecords = false;
+		UnreadImportantRecordCount = 0;
 		MarkRecordsChanged();
 		return true;
 	}
@@ -432,5 +453,6 @@ namespace Durin::Editor::Level
 		EvictedLogRecordCount = 0;
 		MarkRecordsChanged();
 		bHasNewConsoleRecords = false;
+		UnreadImportantRecordCount = 0;
 	}
 } // namespace Durin::Editor::Level
