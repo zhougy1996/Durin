@@ -88,6 +88,12 @@ as the normal eligible policy because exact pixel, structural, relative, and
 absolute-delta gates pass on both executors and extents. Raw output is retained
 in the DurinDevTool test logs outside source control.
 
+The editor View > Shadows menu now exposes Auto, Compute Only, and Fragment
+Only contact-visibility route preferences for runtime A/B work. The expanded
+viewport statistics panel reports the producer that actually completed the
+latest view; Auto remains the shipping compute-first policy with fragment
+fallback.
+
 Focused shader/Renderer/Vulkan targets, the 57-target `fast-all` selection,
 the default native aggregate, and the full `all` build pass. The Debug Editor
 also starts, remains stable for ten seconds, accepts `WM_CLOSE`, and exits zero.

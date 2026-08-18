@@ -86,6 +86,16 @@ namespace Durin
 		Count,
 	};
 
+	// Selects the requested contact-visibility producer for development A/B.
+	// Auto preserves the production compute-first policy and fragment fallback.
+	enum class EContactShadowRoutePreference : uint8
+	{
+		Auto,
+		Compute,
+		Fragment,
+		Count,
+	};
+
 	// Captures rendering behavior with the view submitted to the render thread.
 	struct FSceneViewSettings
 	{
@@ -110,6 +120,8 @@ namespace Durin
 		// Screen-space contact-shadow supplement for the selected directional
 		// light; enabled only when the directional shadow is prepared.
 		bool bEnableContactShadows = false;
+		EContactShadowRoutePreference ContactShadowRoutePreference =
+			EContactShadowRoutePreference::Auto;
 		// Development overlay that visualizes the contact-shadow occlusion.
 		bool bShowContactShadowDebug = false;
 		// Indirect-only GTAO for solid Lit views using required deferred opaque

@@ -4,6 +4,13 @@
 
 namespace Durin
 {
+	enum class EContactShadowExecutionRoute : uint8
+	{
+		None,
+		Compute,
+		Fragment,
+	};
+
 	// Carries the stable, bounded summary produced by one complete scene-view render.
 	struct FSceneViewStatistics
 	{
@@ -33,6 +40,8 @@ namespace Durin
 		uint32 ShadowCascades = 0;
 		bool bShadowEnabled = false;
 		bool bContactShadowEnabled = false;
+		EContactShadowExecutionRoute ContactShadowRoute =
+			EContactShadowExecutionRoute::None;
 
 		auto operator==(const FSceneViewStatistics&) const -> bool = default;
 	};

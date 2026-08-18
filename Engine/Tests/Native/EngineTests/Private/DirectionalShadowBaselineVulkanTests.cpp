@@ -1255,6 +1255,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				View.Settings.bEnableContactShadows = bEnableContactShadows;
 				View.Settings.bShowContactShadowDebug =
 					bShowContactShadowDebug;
+				View.Settings.ContactShadowRoutePreference =
+					bForceFragmentContactVisibility
+						? Durin::EContactShadowRoutePreference::Fragment
+						: Durin::EContactShadowRoutePreference::Auto;
 				Durin::FSceneViewRenderOptions RenderOptions;
 				RenderOptions.bEnableGBufferQualification =
 					bEnableGBufferQualification;
@@ -1262,8 +1266,6 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				RenderOptions.bEnableDeferredDirectionalQualification =
 					bEnableDeferredDirectional;
 				RenderOptions.DeferredDirectionalDebugMode = DeferredDebugMode;
-				RenderOptions.bForceFragmentContactVisibility =
-					bForceFragmentContactVisibility;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels

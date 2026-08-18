@@ -248,7 +248,9 @@ has completed successfully. RHI supplies the total draw-call value from the
 monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
 that exact invocation; the value therefore includes SkyBox, shadow, scene,
 post-process, and editor-assistance graphics passes, but not ImGui or compute
-dispatches.
+dispatches. Contact-shadow statistics carry the actual `Compute`, `Fragment`,
+or inactive route so editor A/B controls cannot confuse a requested preference
+with the producer that completed the view.
 
 Headline triangles count selected main-pass static, spline, skeletal, and
 terrain geometry once at the rendered LOD. Shadow triangle submissions remain

@@ -849,6 +849,32 @@ namespace Durin::Editor::Level
 						Settings.bShowContactShadowDebug = false;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
+				if (ImGui::BeginMenu("Contact Visibility Route"))
+				{
+					const EContactShadowRoutePreference CurrentRoute =
+						RenderSettingsClient->GetViewSettings()
+							.ContactShadowRoutePreference;
+					const auto DrawRoute = [&](const char* Label,
+						EContactShadowRoutePreference Route) {
+						if (ImGui::MenuItem(Label, nullptr, CurrentRoute == Route))
+						{
+							FSceneViewSettings Settings =
+								RenderSettingsClient->GetViewSettings();
+							Settings.ContactShadowRoutePreference = Route;
+							RenderSettingsClient->SetViewSettings(Settings);
+						}
+					};
+					DrawRoute("Auto (Compute Preferred)",
+						EContactShadowRoutePreference::Auto);
+					DrawRoute("Compute Only",
+						EContactShadowRoutePreference::Compute);
+					DrawRoute("Fragment Only",
+						EContactShadowRoutePreference::Fragment);
+					ImGui::Separator();
+					ImGui::TextDisabled(
+						"Compute Only disables fragment fallback for A/B testing.");
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Post Processing"))
@@ -1240,8 +1266,16 @@ namespace Durin::Editor::Level
 				DrawRow("Terrain", FormatViewportStatistic(Statistics.TerrainTriangles));
 				DrawRow("Shadow", Statistics.bShadowEnabled
 					? FormatViewportStatistic(Statistics.ShadowTriangles) : "Off");
-				DrawRow("Contact shadow",
-					Statistics.bContactShadowEnabled ? "On" : "Off");
+				const char* ContactShadowRoute = "Off";
+				if (Statistics.ContactShadowRoute
+					== EContactShadowExecutionRoute::Compute)
+					ContactShadowRoute = "Compute";
+				else if (Statistics.ContactShadowRoute
+					== EContactShadowExecutionRoute::Fragment)
+					ContactShadowRoute = "Fragment";
+				else if (Statistics.bContactShadowEnabled)
+					ContactShadowRoute = "Unknown";
+				DrawRow("Contact shadow", ContactShadowRoute);
 				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
 					Statistics.DirectionalLights, Statistics.PointLights,
 					Statistics.SpotLights));

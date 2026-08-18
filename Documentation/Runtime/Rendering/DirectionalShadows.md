@@ -184,12 +184,17 @@ recorded. Missing fragment resources, invalid light or matrix input, or total
 resource creation failure binds the complete white fallback and continues the
 same deferred path. A view with no successful
 deferred receiver draw records no target or pass. The viewport View menu
-exposes a `Shadows > Contact Shadows` checkbox. Its mutually exclusive `Debug
-Views > Contact Shadow Contribution` mode enables the pass and displays the
-computed contribution as a red mask; selecting another diagnostic clears that
-mode. `Debug Views > Reset Debug Views` restores normal rendering and clears
-every shadow diagnostic mode. Per-view counters distinguish compute, fragment,
-and factor-one routes; exact dispatch/draw counts, bounded route reasons, and
+exposes a `Shadows > Contact Shadows` checkbox and a `Contact Visibility Route`
+development selector. `Auto` preserves compute-first production fallback,
+`Compute Only` suppresses fragment fallback, and `Fragment Only` bypasses
+compute. Its mutually exclusive `Debug Views > Contact Shadow Contribution`
+mode enables the pass and displays the computed contribution as a red mask;
+selecting another diagnostic clears that mode. `Debug Views > Reset Debug
+Views` restores normal rendering and clears
+every shadow diagnostic mode. The expanded viewport statistics panel reports
+the producer that actually completed the current view. Per-view counters
+distinguish compute, fragment, and factor-one routes; exact dispatch/draw
+counts, bounded route reasons, and
 active/retained bytes are reported separately. An optional route-tagged GPU
 timing sink measures producer transitions and work through output handoff
 without including deferred consumption. The method

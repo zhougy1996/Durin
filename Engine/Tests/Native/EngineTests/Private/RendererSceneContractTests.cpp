@@ -182,6 +182,8 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	EXPECT_EQ(Settings.LODMode, Durin::EViewLODMode::Automatic);
 	EXPECT_EQ(Settings.DirectionalShadowFilterQuality,
 		Durin::EDirectionalShadowFilterQuality::Medium);
+	EXPECT_EQ(Settings.ContactShadowRoutePreference,
+		Durin::EContactShadowRoutePreference::Auto);
 	EXPECT_TRUE(Settings.bEnableGroundTruthAmbientOcclusion);
 	EXPECT_EQ(Settings.GroundTruthAmbientOcclusionQuality,
 		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution);
@@ -207,6 +209,8 @@ TEST(FRendererSceneContractTests, ViewStatisticsDefaultToAnEmptyBoundedSummary)
 	EXPECT_EQ(Statistics.Triangles, 0u);
 	EXPECT_EQ(Statistics.DrawCalls, 0u);
 	EXPECT_FALSE(Statistics.bShadowEnabled);
+	EXPECT_EQ(Statistics.ContactShadowRoute,
+		Durin::EContactShadowExecutionRoute::None);
 }
 
 TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
@@ -232,6 +236,8 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Counters.SelectedSpotLights = 2;
 	Counters.ShadowValidReceiverViews = 1;
 	Counters.ShadowCascadeCount = 3;
+	Counters.ContactShadowEnabledViews = 1;
+	Counters.ContactShadowComputeViews = 1;
 
 	const Durin::FSceneViewStatistics Statistics =
 		Durin::BuildSceneViewStatistics(Counters);
@@ -249,6 +255,16 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.ShadowDrawCalls, 7u);
 	EXPECT_TRUE(Statistics.bShadowEnabled);
 	EXPECT_EQ(Statistics.ShadowCascades, 3u);
+	EXPECT_TRUE(Statistics.bContactShadowEnabled);
+	EXPECT_EQ(Statistics.ContactShadowRoute,
+		Durin::EContactShadowExecutionRoute::Compute);
+
+	Counters.ContactShadowComputeViews = 0;
+	Counters.ContactShadowFragmentViews = 1;
+	const Durin::FSceneViewStatistics FragmentStatistics =
+		Durin::BuildSceneViewStatistics(Counters);
+	EXPECT_EQ(FragmentStatistics.ContactShadowRoute,
+		Durin::EContactShadowExecutionRoute::Fragment);
 }
 
 TEST(FRendererSceneContractTests, SceneViewportStatisticsAreCoherentAndIsolated)

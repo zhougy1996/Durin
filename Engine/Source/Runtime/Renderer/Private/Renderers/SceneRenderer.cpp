@@ -251,6 +251,10 @@ namespace Durin
 		Result.bShadowEnabled = Counters.ShadowValidReceiverViews != 0
 								&& Counters.ShadowCascadeCount != 0;
 		Result.bContactShadowEnabled = Counters.ContactShadowEnabledViews != 0;
+		if (Counters.ContactShadowComputeViews != 0)
+			Result.ContactShadowRoute = EContactShadowExecutionRoute::Compute;
+		else if (Counters.ContactShadowFragmentViews != 0)
+			Result.ContactShadowRoute = EContactShadowExecutionRoute::Fragment;
 		return Result;
 	}
 
@@ -1306,9 +1310,16 @@ namespace Durin
 		if (bWantsContactVisibility && bGBufferComplete
 			&& PreparedView.Counters.GBufferSuccessfulDraws != 0)
 		{
-			auto* FragmentContactTargets =
-				ContactShadowRenderer.EnsureTargets_RenderThread(Width, Height);
-			auto* ComputeContactTargets = Options.bForceFragmentContactVisibility
+			const EContactShadowRoutePreference RoutePreference =
+				RenderView.Settings.ContactShadowRoutePreference;
+			const bool bForceFragment = Options.bForceFragmentContactVisibility
+				|| RoutePreference == EContactShadowRoutePreference::Fragment;
+			const bool bForceCompute = !Options.bForceFragmentContactVisibility
+				&& RoutePreference == EContactShadowRoutePreference::Compute;
+			auto* FragmentContactTargets = bForceCompute
+				? nullptr
+				: ContactShadowRenderer.EnsureTargets_RenderThread(Width, Height);
+			auto* ComputeContactTargets = bForceFragment
 				? nullptr
 				: ContactShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
 			PreparedView.Counters.ContactShadowRetainedBytes =
