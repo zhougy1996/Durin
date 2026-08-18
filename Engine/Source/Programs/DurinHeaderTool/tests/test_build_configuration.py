@@ -398,7 +398,7 @@ class TestIntermediateLayout:
         assert output_path == expected_root / "Engine.project.cmake"
         assert expected_root.as_posix() in content
         assert (
-            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/ThirdParty/${DURIN_THIRDPARTY_OUTPUT_CONFIG}"
+            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/${DURIN_THIRDPARTY_OUTPUT_CONFIG}/ThirdParty"
             in content
         )
 

@@ -75,6 +75,12 @@ def collect_purge_paths(
         for third_party_config in third_party_configs:
             paths.add(
                 require_purge_child(
+                    project_root / "Binaries" / profile.platform / third_party_config / "ThirdParty",
+                    project_root / "Binaries",
+                )
+            )
+            paths.add(
+                require_purge_child(
                     project_root / "Binaries" / profile.platform / "ThirdParty" / third_party_config,
                     project_root / "Binaries",
                 )

@@ -481,10 +481,11 @@ regenerates them normally.
 
 Purge only removes registered preset trees under `Build/` and `Install/`,
 project `Binaries/<Platform>/<OutputConfig>/` roots, shared
-`Binaries/<Platform>/ThirdParty/<CMakeConfig>/` roots, and project
-`Intermediate/Build/<Platform>/<RuntimeVariant>/` roots. It intentionally
-preserves bootstrapped dependencies such as `Build/ThirdParty` and
-`Engine/External`.
+`Binaries/<Platform>/<CMakeConfig>/ThirdParty/` roots, and project
+`Intermediate/Build/<Platform>/<RuntimeVariant>/` roots. It also removes legacy
+`Binaries/<Platform>/ThirdParty/<CMakeConfig>/` runtime roots left by the former
+output layout. It intentionally preserves bootstrapped dependencies such as
+`Build/ThirdParty` and `Engine/External`.
 
 Because each `DHTState` directory is inside its registered module's
 runtime-variant intermediate directory, purge removes it. The next DHT
@@ -551,7 +552,7 @@ CMake, and Ninja have exited for the checkout.
 - Runtime logs: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Logs/`
 - Complete native crash artifacts: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Crashes/<CrashId>/`
 - Pre-initialization fallback crash artifacts: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Crashes/<CrashId>/`
-- Third-party runtime DLLs: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
+- Third-party runtime DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 - Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<RuntimeVariant>/Bin/`
 
 The launcher target is `DurinLauncher`, while the executable name follows the

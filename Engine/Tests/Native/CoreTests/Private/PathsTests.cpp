@@ -116,8 +116,8 @@ TEST(FPathsTests, ThirdPartyRuntimeBinariesAreSharedByBuildConfiguration)
 		std::filesystem::path(Durin::FPaths::EngineThirdPartyRuntimeBinariesDir()).lexically_normal();
 	if (ThirdPartyDir.filename().empty()) ThirdPartyDir = ThirdPartyDir.parent_path();
 
-	EXPECT_EQ(ThirdPartyDir.filename(), DURIN_BUILD_CONFIGURATION);
-	EXPECT_EQ(ThirdPartyDir.parent_path().filename(), "ThirdParty");
+	EXPECT_EQ(ThirdPartyDir.filename(), "ThirdParty");
+	EXPECT_EQ(ThirdPartyDir.parent_path().filename(), DURIN_BUILD_CONFIGURATION);
 	EXPECT_EQ(ThirdPartyDir.parent_path().parent_path().parent_path(), (EngineDir / "Binaries").lexically_normal());
 }
 

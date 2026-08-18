@@ -63,7 +63,7 @@ Agent Build Profile manifest location belong in the tracked
   `Engine/External/Packages/<Tool>/<Version>/<Platform>`
 - Shared install: `Engine/External/Install/<Platform>/<Config>/<Library>`
 - Shared third-party build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
-- Runtime deployment: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
+- Runtime deployment: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 
 `Shipping` main-project builds import shared-install third-party packages from the `Release` install tree.
 
@@ -126,7 +126,7 @@ Current examples: `spdlog`, `glfw`, `rapidyaml`, `assimp`
 
 ## Runtime Library Notes
 
-- Use `Engine/Binaries/<Platform>/ThirdParty/<Config>/` for shared third-party
+- Use `Engine/Binaries/<Platform>/<Config>/ThirdParty/` for shared third-party
   runtime DLLs. Preset roles such as Profiling share this directory with the
   matching ordinary CMake configuration.
 - If a library is delay-loaded or path-sensitive on Windows, also copy it beside the consuming runtime binary.

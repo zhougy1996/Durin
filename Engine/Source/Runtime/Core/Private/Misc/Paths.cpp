@@ -805,7 +805,7 @@ namespace Durin
 		static std::string CachedThirdPartyDir = []() -> std::string {
 			const std::filesystem::path OutputRoot = FindOutputRootDirFromLaunchDir();
 			const std::filesystem::path ThirdPartyRoot =
-				OutputRoot.parent_path() / "ThirdParty" / DURIN_BUILD_CONFIGURATION;
+				OutputRoot.parent_path() / DURIN_BUILD_CONFIGURATION / "ThirdParty";
 			return ThirdPartyRoot.generic_string() + "/";
 		}();
 		return CachedThirdPartyDir;

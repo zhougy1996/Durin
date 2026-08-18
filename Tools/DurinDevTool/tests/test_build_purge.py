@@ -31,8 +31,28 @@ class TestCore:
         paths = set(build_purge.collect_purge_paths(self.make_profile(), [self.make_preset()], root=root))
         assert root / 'Build/debug' in paths
         assert root / 'Engine/Binaries/Win64/Debug' in paths
+        assert root / 'Engine/Binaries/Win64/Debug/ThirdParty' in paths
         assert root / 'Engine/Binaries/Win64/ThirdParty/Debug' in paths
         assert root / 'Engine/Intermediate/Build/Win64/DurinEditor' in paths
+
+    def test_profiling_purge_reuses_release_third_party_directory(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        project = root / 'Engine'
+        project.mkdir()
+        (project / 'Engine.dproject').touch()
+        values = dict(self.make_preset(name='profiling').values)
+        cache = dict(values['cacheVariables'])
+        cache['CMAKE_BUILD_TYPE'] = 'Release'
+        cache['DURIN_PRESET_ROLE'] = 'Profiling'
+        preset = build_config.ConfigurePreset('profiling', {**values, 'cacheVariables': cache})
+
+        paths = set(build_purge.collect_purge_paths(self.make_profile(), [preset], root=root))
+
+        assert root / 'Engine/Binaries/Win64/Release-Profiling' in paths
+        assert root / 'Engine/Binaries/Win64/Release/ThirdParty' in paths
+        assert root / 'Engine/Binaries/Win64/Release-Profiling/ThirdParty' not in paths
+        assert root / 'Engine/Binaries/Win64/ThirdParty/Release' in paths
+
     def test_project_purge_removes_persistent_dht_cache(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         root = Path(tmp_path_factory.mktemp('case'))
         project = root / 'Engine'
