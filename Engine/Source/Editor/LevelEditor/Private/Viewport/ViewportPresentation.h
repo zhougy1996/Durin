@@ -123,6 +123,11 @@ namespace Durin::Editor::Level
 		return std::format("{:.2f}B", static_cast<double>(Value) / 1'000'000'000.0);
 	}
 
+	inline auto GetViewportHudSurfaceOutset() -> float
+	{
+		return MonaImGui::ScaleUI(3.0f);
+	}
+
 	inline auto CalculateViewportStatisticsOverlayLayout(
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,
@@ -145,11 +150,15 @@ namespace Durin::Editor::Level
 
 		const float Margin = MonaImGui::ScaleUI(10.0f);
 		const float Gap = MonaImGui::ScaleUI(5.0f);
+		// The FPS button sits inside the top-right HUD surface, whose border
+		// extends three scaled pixels beyond the button's interaction bounds.
+		// Anchor the panel to that visible border so the two surfaces align.
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x - Margin * 2.0f;
 		const float PanelWidth = std::min(MonaImGui::ScaleUI(248.0f), AvailableWidth);
 		const float PanelHeight = MonaImGui::ScaleUI(270.0f);
 		Layout.PanelMax = ImVec2(
-			Layout.BadgeMax.x, Layout.BadgeMax.y + Gap + PanelHeight);
+			Layout.BadgeMax.x + GetViewportHudSurfaceOutset(),
+			Layout.BadgeMax.y + Gap + PanelHeight);
 		Layout.PanelMin = ImVec2(
 			Layout.PanelMax.x - PanelWidth, Layout.BadgeMax.y + Gap);
 		Layout.bPanelVisible = bExpanded

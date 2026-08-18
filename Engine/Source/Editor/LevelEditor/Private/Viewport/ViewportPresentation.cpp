@@ -701,7 +701,9 @@ namespace Durin::Editor::Level
 			DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 			DrawViewportHudSurface(
 				ImVec2(SpeedPosition.x - MonaImGui::ScaleUI(3.0f), SpeedPosition.y - MonaImGui::ScaleUI(3.0f)),
-				ImVec2(ViewportMax.x - MonaImGui::ScaleUI(7.0f), SpeedPosition.y + SpeedSize.y + MonaImGui::ScaleUI(3.0f)));
+				ImVec2(
+					ViewportMax.x - MonaImGui::ScaleUI(10.0f) + GetViewportHudSurfaceOutset(),
+					SpeedPosition.y + SpeedSize.y + MonaImGui::ScaleUI(3.0f)));
 			const float HudSeparatorX = SpeedPosition.x + SpeedSize.x + MonaImGui::ScaleUI(3.0f);
 			DrawToolbarSeparator(DrawList, HudSeparatorX, SpeedPosition.y, SpeedSize.y);
 			DrawList->PopClipRect();

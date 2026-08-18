@@ -339,7 +339,7 @@ TEST(FViewportOrientationOverlayTests, HidesEditorOrientationOverEmbeddedPlay)
 	EXPECT_TRUE(ShouldDrawViewportOrientationOverlay(true, true));
 }
 
-TEST(FViewportStatisticsOverlayTests, AnchorsBelowBadgeAndSuppressesUnreadablePanel)
+TEST(FViewportStatisticsOverlayTests, AlignsWithHudSurfaceAndSuppressesUnreadablePanel)
 {
 	ImGuiContext* Context = ImGui::CreateContext();
 	ASSERT_NE(Context, nullptr);
@@ -354,7 +354,12 @@ TEST(FViewportStatisticsOverlayTests, AnchorsBelowBadgeAndSuppressesUnreadablePa
 		Durin::Editor::Level::CalculateViewportStatisticsOverlayLayout(
 			ImVec2(100.0f, 50.0f), ImVec2(900.0f, 650.0f), true);
 	EXPECT_TRUE(Layout.bPanelVisible);
-	EXPECT_FLOAT_EQ(Layout.PanelMax.x, Layout.BadgeMax.x);
+	EXPECT_FLOAT_EQ(
+		Layout.PanelMax.x,
+		900.0f - Durin::MonaImGui::ScaleUI(7.0f));
+	EXPECT_FLOAT_EQ(
+		Layout.PanelMax.x - Layout.BadgeMax.x,
+		Durin::Editor::Level::GetViewportHudSurfaceOutset());
 	EXPECT_GT(Layout.PanelMin.y, Layout.BadgeMax.y);
 	EXPECT_TRUE(Layout.Contains(ImVec2(
 		(Layout.BadgeMin.x + Layout.BadgeMax.x) * 0.5f,
