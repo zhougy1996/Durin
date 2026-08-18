@@ -8,6 +8,8 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
 
+#include <algorithm>
+
 namespace Durin::Editor::Level
 {
 	namespace
@@ -150,6 +152,12 @@ namespace Durin::Editor::Level
 				+ ImGui::GetStyle().FramePadding.x * 2.0f;
 			const float ActivityWidth = ImGui::CalcTextSize(ActivityLabel.c_str(), nullptr, true).x
 				+ ImGui::GetStyle().FramePadding.x * 2.0f;
+			const float StatusWidth = Status
+				? std::min(
+					ImGui::CalcTextSize(TypeIcon(Status->Type)).x + ImGui::GetStyle().ItemSpacing.x
+						+ ImGui::CalcTextSize(Status->Message.c_str()).x,
+					ImGui::GetContentRegionAvail().x * 0.45f)
+				: ImGui::CalcTextSize("Ready").x;
 			const float ActionWidth = Status && Status->Action
 				? ImGui::CalcTextSize(Status->Action->Label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f
 				: 0.0f;
@@ -169,19 +177,30 @@ namespace Durin::Editor::Level
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
 			};
 
-			if (ImGui::BeginTable("##EditorStatusLayout", 5,
+			if (ImGui::BeginTable("##EditorStatusLayout", 6,
 				ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 			{
 				ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthFixed, ContentWidth);
-				ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch);
-				ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, ActionWidth);
 				ImGui::TableSetupColumn("Console", ImGuiTableColumnFlags_WidthFixed, ConsoleWidth);
+				ImGui::TableSetupColumn("Spacer", ImGuiTableColumnFlags_WidthStretch);
+				ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, StatusWidth);
+				ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, ActionWidth);
 				ImGui::TableSetupColumn("Activity", ImGuiTableColumnFlags_WidthFixed, ActivityWidth);
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
 				DrawToolButton(ContentLabel, "Content Browser (Ctrl+Space)",
 					EEditorStatusBarAction::ContentBrowser);
 
+				ImGui::TableNextColumn();
+				if (ConsoleUnreadCount > 0)
+					ImGui::PushStyleColor(ImGuiCol_Text,
+						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
+				DrawToolButton(ConsoleLabel, ConsoleUnreadCount == 0
+					? "Console" : "Console has unread warnings or errors",
+					EEditorStatusBarAction::Console);
+				if (ConsoleUnreadCount > 0) ImGui::PopStyleColor();
+
+				ImGui::TableNextColumn();
 				ImGui::TableNextColumn();
 				if (Status)
 				{
@@ -196,15 +215,6 @@ namespace Durin::Editor::Level
 
 				ImGui::TableNextColumn();
 				if (Status && Status->Action) DrawActionButton(Notifications, *Status);
-
-				ImGui::TableNextColumn();
-				if (ConsoleUnreadCount > 0)
-					ImGui::PushStyleColor(ImGuiCol_Text,
-						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
-				DrawToolButton(ConsoleLabel, ConsoleUnreadCount == 0
-					? "Console" : "Console has unread warnings or errors",
-					EEditorStatusBarAction::Console);
-				if (ConsoleUnreadCount > 0) ImGui::PopStyleColor();
 
 				ImGui::TableNextColumn();
 				DrawToolButton(ActivityLabel, "Activity History",

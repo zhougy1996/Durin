@@ -155,9 +155,9 @@ Validation evidence:
 
 ### Status bar and Activity History
 
-- The status bar keeps a stretch status-message region. `Content Drawer` is the
-  primary left-side tool action; Console and Activity History remain compact
-  right-side actions.
+- The status bar keeps a stretch spacer between its two groups. `Content Drawer`
+  and Console are left-side tool actions; workspace status, notification actions,
+  and Activity History remain compact right-side items.
 - Console displays a bounded unread warning/error badge. Receiving records does
   not steal focus or open the drawer; opening Console clears the relevant unread
   presentation count without clearing Console history.

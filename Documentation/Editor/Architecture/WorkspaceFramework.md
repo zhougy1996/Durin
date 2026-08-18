@@ -108,14 +108,15 @@ state-preserving content body, and that body is submitted at most once per
 frame. Content Browser reveal requests select its drawer unless a separate
 Content Browser window is already visible.
 
-The Level Editor status bar exposes Content Drawer, Console, and Activity
-History. `Ctrl+Space` toggles Content Drawer. Console continues bounded log
-polling while hidden and reports a bounded unread warning/error count without
-opening or taking focus. Activity History opens as a non-docked floating ImGui
-window; notification updates, status presentation, and toasts do not depend on
-that window being visible. Window > Panels opens Content Browser or Console as
-an ordinary workspace-class window and remains the recovery path for every
-surface.
+The Level Editor status bar exposes Content Drawer and Console on the left,
+with workspace status (`Ready` when idle), notification actions, and Activity
+History aligned on the right. `Ctrl+Space` toggles Content Drawer. Console
+continues bounded log polling while hidden and reports a bounded unread
+warning/error count without opening or taking focus. Activity History opens as
+a non-docked floating ImGui window; notification updates, status presentation,
+and toasts do not depend on that window being visible. Window > Panels opens
+Content Browser or Console as an ordinary workspace-class window and remains
+the recovery path for every surface.
 
 ## Workspace Registration
 
