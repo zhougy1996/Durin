@@ -197,21 +197,25 @@ namespace Durin::Editor::MainFrame
 				Message = "Opening default level...";
 			const FBootstrapProgress Progress = MakeBootstrapProgress(Context);
 			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
+			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float ContentWidth = MonaImGui::ScaleUI(360.0f);
 			const float ContentHeight = MonaImGui::ScaleUI(72.0f);
+			const float ContentLeft = ContentOrigin.x
+				+ FMath::Max(0.0f, (Available.x - ContentWidth) * 0.5f);
+			const float ContentTop = ContentOrigin.y
+				+ FMath::Max(0.0f, (Available.y - ContentHeight) * 0.5f);
 			ImGui::SetCursorPos({
-				FMath::Max(0.0f, (Available.x - ContentWidth) * 0.5f),
-				FMath::Max(0.0f, (Available.y - ContentHeight) * 0.5f)});
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX()
-				+ FMath::Max(0.0f, (ContentWidth - MessageSize.x) * 0.5f));
+				ContentLeft + FMath::Max(0.0f, (ContentWidth - MessageSize.x) * 0.5f),
+				ContentTop});
 			ImGui::TextUnformatted(Message);
 			ImGui::Spacing();
+			ImGui::SetCursorPosX(ContentLeft);
 			ImGui::ProgressBar(
 				static_cast<float>(Progress.PhaseIndex) / Progress.PhaseCount,
 				{ContentWidth, MonaImGui::ScaleUI(8.0f)}, "");
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX()
-				+ ContentWidth - MonaImGui::ScaleUI(70.0f));
+			ImGui::SetCursorPosX(
+				ContentLeft + ContentWidth - MonaImGui::ScaleUI(70.0f));
 			ImGui::TextDisabled("Phase %u/%u", Progress.PhaseIndex, Progress.PhaseCount);
 			ImGui::End();
 		}
