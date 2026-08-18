@@ -184,8 +184,9 @@ recorded. Missing fragment resources, invalid light or matrix input, or total
 resource creation failure binds the complete white fallback and continues the
 same deferred path. A view with no successful
 deferred receiver draw records no target or pass. The viewport View menu
-exposes a `Shadows > Contact Shadows` checkbox and a `Contact Visibility Route`
-development selector. `Auto` preserves compute-first production fallback,
+groups the controls under `Shadows > Directional Shadows`: `Filter Quality`
+contains the PCF tier, while `Contact Shadows` contains an `Enabled` checkbox
+and a `Visibility Route` selector. `Auto` preserves compute-first production fallback,
 `Compute Only` suppresses fragment fallback, and `Fragment Only` bypasses
 compute. Its mutually exclusive `Debug Views > Contact Shadow Contribution`
 mode enables the pass and displays the computed contribution as a red mask;

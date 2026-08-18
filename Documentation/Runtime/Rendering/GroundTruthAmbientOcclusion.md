@@ -14,7 +14,8 @@ per-view enable selection and defaults to enabled. The separate immutable
 production default, or `FullResolution`, the quality reference. Forward-reference,
 migration fallback, wireframe, and Unlit views neither allocate nor sample
 GTAO. The viewport View menu exposes the toggle and quality under
-`Post Processing > GTAO` and `GTAO Quality`.
+`Post Processing > GTAO`; the submenu contains an `Enabled` checkbox and the
+mutually exclusive quality choices.
 
 Production half resolution records:
 

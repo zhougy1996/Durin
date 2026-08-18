@@ -104,6 +104,13 @@ a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
 resources and size-keyed intermediate caches rather than semantic view policy.
 
+The Level Editor View menu mirrors that ownership. Features with subordinate
+quality or route policy own one submenu containing their boolean `Enabled`
+checkbox and mutually exclusive radio choices. Independent visibility toggles
+such as grid and collision remain checkboxes. Instantaneous commands use plain
+actions. Checkbox and radio controls do not close their popup hierarchy,
+allowing repeated A/B changes without reopening the menu.
+
 For the main scene viewport, a valid view supplied by its `FViewportClient`
 still has first priority. If it supplies none, Engine resolves the active
 World's local `APlayerController` view target and uses that Actor's live

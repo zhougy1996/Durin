@@ -42,6 +42,17 @@ namespace Durin::Editor::Level
 			TViewportModeOption{EDirectionalShadowFilterQuality::High, "High"}
 		};
 
+		constexpr std::array ContactShadowRouteOptions = {
+			TViewportModeOption{EContactShadowRoutePreference::Auto, "Auto (Compute Preferred)"},
+			TViewportModeOption{EContactShadowRoutePreference::Compute, "Compute Only"},
+			TViewportModeOption{EContactShadowRoutePreference::Fragment, "Fragment Only"}
+		};
+
+		constexpr std::array GroundTruthAmbientOcclusionQualityOptions = {
+			TViewportModeOption{EGroundTruthAmbientOcclusionQuality::HalfResolution, "Half Resolution"},
+			TViewportModeOption{EGroundTruthAmbientOcclusionQuality::FullResolution, "Full Resolution"}
+		};
+
 		constexpr std::array DirectionalShadowBiasDiagnosticOptions = {
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ShadowDepthCoverage, "Shadow Depth Coverage"},
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverUnbiased, "Receiver Unbiased"},
@@ -836,85 +847,90 @@ namespace Durin::Editor::Level
 			}
 			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadows"))
 			{
-				ImGui::TextDisabled("Directional Shadow Quality");
-				DrawDirectionalShadowQualityOptions(RenderSettingsClient);
-				ImGui::Separator();
-				bool bEnableContactShadows =
-					RenderSettingsClient->GetViewSettings().DirectionalShadow.bEnableContactShadows;
-				if (ImGui::Checkbox("Contact Shadows", &bEnableContactShadows))
+				if (ImGui::BeginMenu("Directional Shadows"))
 				{
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.DirectionalShadow.bEnableContactShadows = bEnableContactShadows;
-					if (!bEnableContactShadows)
-						Settings.DirectionalShadow.bShowContactDebug = false;
-					RenderSettingsClient->SetViewSettings(Settings);
-				}
-				if (ImGui::BeginMenu("Contact Visibility Route"))
-				{
-					const EContactShadowRoutePreference CurrentRoute =
-						RenderSettingsClient->GetViewSettings()
-							.DirectionalShadow.ContactRoutePreference;
-					const auto DrawRoute = [&](const char* Label,
-						EContactShadowRoutePreference Route) {
-						if (ImGui::MenuItem(Label, nullptr, CurrentRoute == Route))
+					if (ImGui::BeginMenu("Filter Quality"))
+					{
+						DrawDirectionalShadowQualityOptions(RenderSettingsClient);
+						ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("Contact Shadows"))
+					{
+						const FSceneViewSettings CurrentSettings =
+							RenderSettingsClient->GetViewSettings();
+						bool bEnabled =
+							CurrentSettings.DirectionalShadow.bEnableContactShadows;
+						if (ImGui::Checkbox("Enabled", &bEnabled))
 						{
 							FSceneViewSettings Settings =
 								RenderSettingsClient->GetViewSettings();
-							Settings.DirectionalShadow.ContactRoutePreference = Route;
+							Settings.DirectionalShadow.bEnableContactShadows = bEnabled;
+							if (!bEnabled)
+								Settings.DirectionalShadow.bShowContactDebug = false;
 							RenderSettingsClient->SetViewSettings(Settings);
 						}
-					};
-					DrawRoute("Auto (Compute Preferred)",
-						EContactShadowRoutePreference::Auto);
-					DrawRoute("Compute Only",
-						EContactShadowRoutePreference::Compute);
-					DrawRoute("Fragment Only",
-						EContactShadowRoutePreference::Fragment);
-					ImGui::Separator();
-					ImGui::TextDisabled(
-						"Compute Only disables fragment fallback for A/B testing.");
+						ImGui::Separator();
+						if (ImGui::BeginMenu("Visibility Route"))
+						{
+							DrawModeOptions(
+								CurrentSettings.DirectionalShadow.ContactRoutePreference,
+								ContactShadowRouteOptions,
+								[RenderSettingsClient](EContactShadowRoutePreference Route) {
+									FSceneViewSettings Settings =
+										RenderSettingsClient->GetViewSettings();
+									Settings.DirectionalShadow.ContactRoutePreference = Route;
+									RenderSettingsClient->SetViewSettings(Settings);
+								});
+							ImGui::Separator();
+							ImGui::TextDisabled(
+								"Compute Only disables fragment fallback for A/B testing.");
+							ImGui::EndMenu();
+						}
+						ImGui::EndMenu();
+					}
 					ImGui::EndMenu();
 				}
 				ImGui::EndMenu();
 			}
 			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Post Processing"))
 			{
-				bool bEnableGroundTruthAmbientOcclusion =
-					Layout.bEnableGroundTruthAmbientOcclusion;
-				if (ImGui::Checkbox("GTAO", &bEnableGroundTruthAmbientOcclusion))
+				if (ImGui::BeginMenu("GTAO"))
 				{
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.AmbientOcclusion.bEnabled =
-						bEnableGroundTruthAmbientOcclusion;
-					RenderSettingsClient->SetViewSettings(Settings);
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Ground Truth Ambient Occlusion for indirect environment lighting in Solid Lit views.");
-				if (ImGui::BeginMenu("GTAO Quality"))
-				{
-					const auto SetQuality = [&](const char* Label,
-						EGroundTruthAmbientOcclusionQuality Quality) {
-						if (ImGui::MenuItem(Label, nullptr,
-							Layout.GroundTruthAmbientOcclusionQuality == Quality))
-						{
+					bool bEnabled = Layout.bEnableGroundTruthAmbientOcclusion;
+					if (ImGui::Checkbox("Enabled", &bEnabled))
+					{
+						FSceneViewSettings Settings =
+							RenderSettingsClient->GetViewSettings();
+						Settings.AmbientOcclusion.bEnabled = bEnabled;
+						RenderSettingsClient->SetViewSettings(Settings);
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip(
+							"Ground Truth Ambient Occlusion for indirect environment lighting in Solid Lit views.");
+					ImGui::Separator();
+					ImGui::TextDisabled("Quality");
+					DrawModeOptions(
+						Layout.GroundTruthAmbientOcclusionQuality,
+						GroundTruthAmbientOcclusionQualityOptions,
+						[RenderSettingsClient](EGroundTruthAmbientOcclusionQuality Quality) {
 							FSceneViewSettings Settings =
 								RenderSettingsClient->GetViewSettings();
 							Settings.AmbientOcclusion.Quality = Quality;
 							RenderSettingsClient->SetViewSettings(Settings);
-						}
-					};
-					SetQuality("Half Resolution",
-						EGroundTruthAmbientOcclusionQuality::HalfResolution);
-					SetQuality("Full Resolution",
-						EGroundTruthAmbientOcclusionQuality::FullResolution);
+						});
 					ImGui::EndMenu();
 				}
-				bool bEnableFXAA = Layout.bEnableFXAA;
-				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
+				if (ImGui::BeginMenu("FXAA"))
 				{
-					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-					Settings.PostProcess.bEnableFXAA = bEnableFXAA;
-					RenderSettingsClient->SetViewSettings(Settings);
+					bool bEnabled = Layout.bEnableFXAA;
+					if (ImGui::Checkbox("Enabled", &bEnabled))
+					{
+						FSceneViewSettings Settings =
+							RenderSettingsClient->GetViewSettings();
+						Settings.PostProcess.bEnableFXAA = bEnabled;
+						RenderSettingsClient->SetViewSettings(Settings);
+					}
+					ImGui::EndMenu();
 				}
 				ImGui::EndMenu();
 			}
@@ -925,7 +941,8 @@ namespace Durin::Editor::Level
 				{
 					if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
 					bool bShowGrid = ViewportClient->IsGridVisible();
-					if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
+					if (ImGui::Checkbox("World Grid", &bShowGrid))
+						ViewportClient->SetGridVisible(bShowGrid);
 					if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
 				}
 				if (Context.World)
@@ -1011,7 +1028,7 @@ namespace Durin::Editor::Level
 					DrawTransformSpaceOptions();
 					ImGui::EndMenu();
 				}
-				if (ImGui::MenuItem("Enable Snapping", nullptr, Gizmo.GetSnapSettings().bEnabled)) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
+				ImGui::Checkbox("Snapping", &Gizmo.GetSnapSettings().bEnabled);
 				if (ImGui::MenuItem("Snap Settings...")) bOpenSnapSettings = true;
 				ImGui::EndPopup();
 			}
@@ -1043,7 +1060,7 @@ namespace Durin::Editor::Level
 			ImGui::SameLine();
 			ImGui::TextColored(Settings.bEnabled ? ImGui::GetStyleColorVec4(ImGuiCol_CheckMark) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), Settings.bEnabled ? "Enabled" : "Disabled");
 			ImGui::Separator();
-			ImGui::Checkbox("Enable snapping", &Settings.bEnabled);
+			ImGui::Checkbox("Enabled", &Settings.bEnabled);
 			ImGui::Spacing();
 			ImGui::TextDisabled("Step size");
 			ImGui::TextUnformatted("Move");
@@ -1114,8 +1131,13 @@ namespace Durin::Editor::Level
 				if (ImGui::MenuItem("Apply Selected Runtime Changes", nullptr, false, bHasSelection) && Context.ApplyPlayChanges) Context.ApplyPlayChanges(true);
 				if (ImGui::MenuItem("Apply All Runtime Changes") && Context.ApplyPlayChanges) Context.ApplyPlayChanges(false);
 				ImGui::Separator();
-				bool bPhysicsEnabled = GEditor->GetPlayWorld() && GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
-				if (ImGui::Checkbox("Simulate Physics", &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
+				bool bPhysicsEnabled = GEditor->GetPlayWorld()
+					&& GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
+				if (ImGui::Checkbox("Simulate Physics", &bPhysicsEnabled)
+					&& GEditor->GetPlayWorld())
+				{
+					GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
+				}
 				ImGui::EndPopup();
 			}
 		}
