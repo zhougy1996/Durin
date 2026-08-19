@@ -313,6 +313,32 @@ namespace Durin
 			return Result;
 		}
 
+		auto CreateMaterialSampler(
+			const FMaterialSamplerState& State,
+			std::string Context
+		) -> TRenderResourceCreateResult<FSamplerRHIRef>
+		{
+			using FResult = TRenderResourceCreateResult<FSamplerRHIRef>;
+			FSamplerRHIRef Candidate =
+				RHICreateSampler(MakeMaterialSamplerDesc(State));
+			if (Candidate != nullptr)
+			{
+				return FResult::Success(std::move(Candidate));
+			}
+			return FResult::Failure(MakeRendererResourceCreateError(
+				ERenderResourceCreateErrorCategory::RHIResource,
+				std::move(Context),
+				std::format(
+					"min={},mag={},u={},v={}",
+					static_cast<uint8>(State.MinFilter),
+					static_cast<uint8>(State.MagFilter),
+					static_cast<uint8>(State.AddressU),
+					static_cast<uint8>(State.AddressV)),
+				"RHI sampler creation returned null.",
+				ERenderResourceGenerationDependency::Device
+					| ERenderResourceGenerationDependency::Manual));
+		}
+
 		auto GetIdentityText(
 			const FMaterialShaderMapIdentity& Identity
 		) -> std::string
@@ -1415,26 +1441,11 @@ namespace Durin
 																ERenderResourceGenerationDependency::Device
 			)
 							 .first;
-			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
 			FSamplerRHIRef* Sampler = Entry->second.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
-				[SamplerState]() -> FSamplerResult {
-					FSamplerRHIRef Candidate =
-						RHICreateSampler(MakeMaterialSamplerDesc(SamplerState));
-					if (Candidate == nullptr)
-					{
-						return FSamplerResult::Failure(
-							MakeRendererResourceCreateError(
-								ERenderResourceCreateErrorCategory::RHIResource,
-								"StaticMeshMaterialSampler",
-								std::format("min={},mag={},u={},v={}", static_cast<uint8>(SamplerState.MinFilter), static_cast<uint8>(SamplerState.MagFilter), static_cast<uint8>(SamplerState.AddressU), static_cast<uint8>(SamplerState.AddressV)),
-								"RHI sampler creation returned null.",
-								ERenderResourceGenerationDependency::Device
-									| ERenderResourceGenerationDependency::Manual
-							)
-						);
-					}
-					return FSamplerResult::Success(std::move(Candidate));
+				[SamplerState] {
+					return CreateMaterialSampler(
+						SamplerState, "StaticMeshMaterialSampler");
 				},
 				ReportRendererResourceCreateDiagnostic
 			);
@@ -2407,14 +2418,11 @@ namespace Durin
 													   ERenderResourceGenerationDependency::Device
 			)
 							 .first;
-			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
 			if (Entry->second.Resolve(
 					Coordinator.GetGeneration_RenderThread(),
-					[SamplerState]() -> FSamplerResult {
-						FSamplerRHIRef Candidate = RHICreateSampler(
-							MakeMaterialSamplerDesc(SamplerState)
-						);
-						return Candidate != nullptr ? FSamplerResult::Success(std::move(Candidate)) : FSamplerResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::RHIResource, "SkeletalMeshMaterialSampler", "material sampler", "RHI sampler creation returned null.", ERenderResourceGenerationDependency::Device));
+					[SamplerState] {
+						return CreateMaterialSampler(
+							SamplerState, "SkeletalMeshMaterialSampler");
 					},
 					ReportRendererResourceCreateDiagnostic
 				)
