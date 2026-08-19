@@ -8,12 +8,10 @@ Last reviewed: 2026-08-20
 
 `DLevel` is the persistent scene asset. A packaged level is the main asset of a
 `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
-Each Actor's transient reflected `RuntimeOwnedComponents` array is the ordered
-runtime authority for every live component. The legacy-named persistent
-`OwnedComponents` field and `InstanceComponents` provide package and
-duplication authority until an asset migration permits the internal names to
-be corrected. Their Outer hierarchy separately provides structural containment
-and object paths.
+Each Actor's transient reflected `OwnedComponents` array is the ordered runtime
+authority for every live component. The persistent `AuthoredComponents` field
+and `InstanceComponents` provide package and duplication authority. Their Outer
+hierarchy separately provides structural containment and object paths.
 
 Actors index transient generated components by stable native-construction keys.
 Those components also participate in unified live ownership and World/editor

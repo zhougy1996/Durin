@@ -20,7 +20,7 @@ Every actor component has one `EComponentCreationMethod`:
 
 `GetAuthoredComponents()` returns native and instance-authored components.
 `GetComponents()` returns a non-allocating const view of
-`RuntimeOwnedComponents`, the ordered authority for every live authored and
+`OwnedComponents`, the ordered authority for every live authored and
 generated component.
 `GetComponents<T>(OutComponents)` and `FindComponentByClass<T>()` preserve the
 requested pointer type; `FindComponentByExactClass<T>()` is the Durin-specific
@@ -28,10 +28,9 @@ exact-class query. Mutating component ownership invalidates iterators and
 references into the live view. Code that can invoke component callbacks uses
 `GetComponentsSnapshot()` and revalidates each handle before publication.
 
-The legacy-named persistent `OwnedComponents` field and its
-`InstanceComponents` subset retain authored state. Its name is preserved until
-the asset corpus can migrate; generic runtime code must not use it as live
-ownership authority. `RuntimeOwnedComponents` is the transient reflected
+The persistent `AuthoredComponents` field and its `InstanceComponents` subset
+retain authored state. Generic runtime code must not use authored storage as
+live ownership authority. `OwnedComponents` is the transient reflected
 strong-reference collection, while `GeneratedComponents` is the keyed
 reconstruction index. Serialization and object-graph duplication use only
 authored component state; the destination actor regenerates its own derived
@@ -39,7 +38,7 @@ identities.
 
 Generated objects use `EObjectConstructionPurpose::Generated`, carry the
 `Transient` object flag, and are retained explicitly through
-the reflected transient `RuntimeOwnedComponents` collection. Editor hierarchy diagnostics may display them,
+the reflected transient `OwnedComponents` collection. Editor hierarchy diagnostics may display them,
 but label them read-only; reflected editing, rename, duplicate, delete, reorder,
 reparent, and drag/drop operations do not accept them. Domain-specific details
 actions redirect authoring to the owning Actor or authored input component.
@@ -66,7 +65,7 @@ Equal key and class reuse the committed component. Invalid or duplicate keys,
 an unconstructible class, or an equal key with a different exact class fail the
 pass. New components remain unregistered and are not actor-owned candidates
 until the desired set is valid. Commit attaches candidates to the root, then
-publishes authored-first/generated-desired `RuntimeOwnedComponents` and the keyed
+publishes authored-first/generated-desired `OwnedComponents` and the keyed
 registry as one observable membership state. It registers and begins new
 components consistently with the actor, then retires unclaimed components in
 reverse lifecycle order. Failure destroys unpublished candidates and preserves

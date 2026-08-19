@@ -9,28 +9,28 @@ Completed: 2026-08-20
 
 ## Current Status
 
-Implementation and validation are complete. `RuntimeOwnedComponents` is now the
-single ordered live-membership authority, and public queries use UE-compatible
+Implementation, validation, and the repository asset migration are complete.
+`OwnedComponents` is now the single ordered live-membership authority, and
+public queries use UE-compatible
 `GetComponents()`, typed `GetComponents<T>()`, `FindComponentByClass<T>()`,
 `AddOwnedComponent()`, and `RemoveOwnedComponent()` semantics without allocating
 for membership or first-match reads.
 
-The implementation deliberately retains the old persistent member name
-`OwnedComponents` for authored data because Durin does not yet provide reflected
-property redirects. Renaming it immediately would make existing packages lose
-their stored component field. The new transient all-live member therefore uses
-the transitional internal name `RuntimeOwnedComponents`; the public API and
-behavior already match the selected UE model. A later asset-migration window
-may rename the persistent member to `AuthoredComponents` and drop the prefix.
+The persistent authored member is `AuthoredComponents`; the transient all-live
+member is `OwnedComponents`, matching the selected UE ownership meaning. The
+two repository level packages containing the former persistent
+`OwnedComponents` schema field were decoded, rewritten, canonically re-encoded,
+and verified before the transitional member was removed.
 
 Generated candidates remain unpublished until successful reconstruction commit.
 Lifecycle paths use explicit frozen snapshots, ordinary readers use the live
 view, and authored-first/generated-desired ordering, rollback, duplication,
 package round trips, PIE, spline generation, and editor selection all passed.
 
-Validation evidence on Win64 Debug DurinEditor: `WorldTests` 105/105,
-`SplineTests` 40/40, `ViewportTests` 104/104, `LevelAuthoringTests` 15/15, and
-the full `all` build passed on 2026-08-20.
+Validation evidence on Win64 Debug DurinEditor after the final rename and asset
+migration: `WorldTests` 105/105, `SplineTests` 40/40, `ViewportTests` 104/104,
+`LevelAuthoringTests` 15/15, the full `all` build, and the authored-asset audit
+with 29/29 compatible packages passed on 2026-08-20.
 
 ## Goal
 
@@ -41,7 +41,7 @@ explicit at mutation-capable lifecycle boundaries.
 The completed API and storage model must:
 
 - establish one runtime collection for every currently live component owned by
-  the Actor, using a transitional internal name until asset migration;
+  the Actor;
 - answer membership and first-match queries without allocating;
 - provide UE-style `GetComponents()` and typed `GetComponents<T>()` access;
 - preserve strong typing in all templated query results;
@@ -83,9 +83,9 @@ The completed API and storage model must:
 
 ## Design Decisions and Invariants
 
-### `RuntimeOwnedComponents` Is The Runtime Membership Authority
+### `OwnedComponents` Is The Runtime Membership Authority
 
-`AActor::RuntimeOwnedComponents` contains every live native, instance, and generated
+`AActor::OwnedComponents` contains every live native, instance, and generated
 component for which `Component->GetOwner() == Actor` and
 `Actor->OwnsComponent(Component)` is true. Generic runtime and editor systems
 must not concatenate category-specific collections to discover the Actor's
@@ -103,11 +103,11 @@ The intended fields are equivalent to:
 ```cpp
 // Every currently live component owned by this Actor; never serialized.
 DPROPERTY(Transient)
-std::vector<TObjectPtr<DActorComponent>> RuntimeOwnedComponents;
+std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
 
 // Persistent native and per-instance authored component state.
 DPROPERTY()
-std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
+std::vector<TObjectPtr<DActorComponent>> AuthoredComponents;
 
 // Per-instance authored subset, matching UE's InstanceComponents concept.
 DPROPERTY()
@@ -120,24 +120,22 @@ std::vector<FGeneratedComponentRecord> GeneratedComponents;
 The set relationships are:
 
 ```text
-InstanceComponents  subset of persistent OwnedComponents
-persistent OwnedComponents subset of RuntimeOwnedComponents
-GeneratedComponents subset of RuntimeOwnedComponents
-persistent OwnedComponents disjoint from GeneratedComponents
+InstanceComponents subset of AuthoredComponents
+AuthoredComponents subset of OwnedComponents
+GeneratedComponents subset of OwnedComponents
+AuthoredComponents disjoint from GeneratedComponents
 ```
 
-The transient reflected `RuntimeOwnedComponents` collection is the strong
-runtime reference authority. The legacy-named persistent `OwnedComponents`
-remains the package and object-graph duplication authority until asset
-migration. `GeneratedComponents` remains a keyed secondary index;
+The transient reflected `OwnedComponents` collection is the strong runtime
+reference authority. Persistent `AuthoredComponents` is the package and
+object-graph duplication authority. `GeneratedComponents` remains a keyed secondary index;
 it does not independently define whether a component is owned.
 
 ### Names Follow UE Only Where Semantics Match
 
 Adopt or retain these UE-compatible names:
 
-- `RuntimeOwnedComponents` as the temporary internal name for the all-live
-  membership collection;
+- `OwnedComponents` for the all-live membership collection;
 - `InstanceComponents`, `AddInstanceComponent()`, and
   `RemoveInstanceComponent()` for the per-instance authored subset;
 - `AddOwnedComponent()` and `RemoveOwnedComponent()` for centralized runtime
@@ -151,8 +149,8 @@ Adopt or retain these UE-compatible names:
 Retain Durin-specific names where adopting a UE name would claim nonexistent
 semantics:
 
-- `GetAuthoredComponents()` describes Durin package authority; its backing
-  member temporarily retains the old `OwnedComponents` serialized name;
+- `GetAuthoredComponents()` and `AuthoredComponents` describe Durin package
+  authority;
 - `GeneratedComponents`, `FActorGeneratedComponentKey`, and
   `EComponentCreationMethod::Generated` describe native keyed reconstruction,
   not Blueprint construction;
@@ -165,7 +163,7 @@ must not be confused with UE's polymorphic `FindComponentByClass<T>()`.
 
 ### Live Views And Frozen Snapshots Are Different Contracts
 
-`GetComponents()` returns a const reference to `RuntimeOwnedComponents` and performs no
+`GetComponents()` returns a const reference to `OwnedComponents` and performs no
 allocation. As in UE, adding, removing, transferring, or destroying a component
 invalidates affected iterators and references. Callers may use this view only
 while they do not invoke code capable of mutating Actor component membership.
@@ -189,7 +187,7 @@ If retained as a convenience wrapper, `FindComponentsByClass<T>()` returns
 `std::vector<T*>`, never `std::vector<DActorComponent*>`.
 
 The UE-style output overload clears the supplied output before filling it and
-preserves `RuntimeOwnedComponents` order. The first-match APIs return the first live
+preserves `OwnedComponents` order. The first-match APIs return the first live
 entry in that same order. Null entries are not published by typed query APIs.
 
 ### Ownership Mutation Is Centralized And Idempotent
@@ -203,7 +201,7 @@ not independently coordinate multiple Actor collections.
 The mutation helpers enforce or diagnose these invariants:
 
 - the component is non-null and structurally belongs to the Actor;
-- a component appears in `RuntimeOwnedComponents` at most once;
+- a component appears in `OwnedComponents` at most once;
 - `SetOwnedByActor(true)` is published with successful membership insertion;
 - removal clears owned, authored, instance, and generated membership exactly
   once where applicable;
@@ -214,7 +212,7 @@ The mutation helpers enforce or diagnose these invariants:
 ### Reconstruction Publishes One Atomic Desired Set
 
 New generated candidates may have `Outer == Actor` during staging, but they are
-not present in `RuntimeOwnedComponents` and do not report owned membership until
+not present in `OwnedComponents` and do not report owned membership until
 `FActorConstructionContext::Commit()` succeeds.
 
 Commit validates the complete desired set before changing public membership.
@@ -227,8 +225,8 @@ candidates.
 
 Generated components remain transient object-graph output. Save, load,
 duplication, PIE, and undo/redo paths must never treat the transient
-`RuntimeOwnedComponents` property as authored input. After load or duplication,
-runtime owned membership is rebuilt from persistent `OwnedComponents` before native
+`OwnedComponents` property as authored input. After load or duplication,
+runtime owned membership is rebuilt from persistent `AuthoredComponents` before native
 reconstruction publishes generated membership.
 
 ## Current Foundations and Gaps
@@ -293,10 +291,11 @@ Verified gaps:
 
 Dependencies: Stage 0.
 
-- [x] Retain the persistent `OwnedComponents` member until reflected property
-  redirects or a complete asset resave make an internal rename safe.
-- [x] Add transient reflected `RuntimeOwnedComponents` containing all live
-  components.
+- [x] Retain the former persistent `OwnedComponents` member through the initial
+  refactor, then migrate the complete repository asset corpus and rename it to
+  `AuthoredComponents`.
+- [x] Add the transient reflected all-live collection and finalize its name as
+  `OwnedComponents` after asset migration.
 - [x] Add UE-named `AddOwnedComponent()` and centralize
   `RemoveOwnedComponent()` so membership and owned flags change together.
 - [x] Route native default and instance creation through authored-subset
@@ -313,7 +312,7 @@ Dependencies: Stage 0.
 
 #### Acceptance Gate
 
-- `RuntimeOwnedComponents` is the only authority used to answer whether an Actor owns
+- `OwnedComponents` is the only authority used to answer whether an Actor owns
   a live component.
 - Native, instance, and generated components enter and leave it exactly once.
 - Existing authored assets and duplicated/PIE Actors restore authored identity
@@ -324,11 +323,11 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [x] Keep newly acquired generated candidates outside `RuntimeOwnedComponents` and
+- [x] Keep newly acquired generated candidates outside `OwnedComponents` and
   clear of the owned flag during staging.
 - [x] Validate the complete desired set before publishing owned membership or
   replacing the generated key registry.
-- [x] Publish `RuntimeOwnedComponents` in authored-first and generated-desired order at
+- [x] Publish `OwnedComponents` in authored-first and generated-desired order at
   commit.
 - [x] Preserve reused generated component identity while reordering it to the
   current desired-set order.
@@ -353,7 +352,7 @@ Dependencies: Stage 1.
 Dependencies: Stages 1 and 2.
 
 - [x] Add allocation-free `GetComponents() const` returning a const reference to
-  the live `RuntimeOwnedComponents` collection with UE-style invalidation guidance.
+  the live `OwnedComponents` collection with UE-style invalidation guidance.
 - [x] Add typed `GetComponents<T>(OutComponents) const` overloads required by
   current pointer and `TObjectPtr` consumers; avoid a larger allocator framework
   until a concrete caller requires it.
@@ -456,9 +455,9 @@ discovered from the configured registry rather than inferred from source paths.
 
 ## Definition of Done
 
-- `AActor::RuntimeOwnedComponents` contains every live component owned by the
-  Actor and is the sole generic membership authority; the public API already
-  matches UE semantics while the internal name protects existing assets.
+- `AActor::OwnedComponents` contains every live component owned by the
+  Actor and is the sole generic membership authority; the public API and final
+  internal name match UE ownership semantics.
 - Authored serialization and generated reconstruction remain disjoint, with no
   generated component serialized or duplicated as source state.
 - UE-compatible `GetComponents()`, typed `GetComponents<T>()`,
@@ -482,9 +481,9 @@ discovered from the configured registry rather than inferred from source paths.
   ownership feature.
 - Revisit default-subobject and UE `CreateDefaultSubobject()` naming under a
   dedicated archetype/class-default-object plan.
-- After a controlled asset resave or reflected-property redirect exists, rename
-  persistent `OwnedComponents` to `AuthoredComponents` and transient
-  `RuntimeOwnedComponents` to `OwnedComponents`.
+- Add property-level `LegacyNames` only when compatibility with external asset
+  corpora requires field aliases; the repository corpus no longer needs one for
+  this rename.
 - Add runtime-class `GetComponentsByClass(DClass*)` only when scripting or
   reflection callers require the non-template surface.
 

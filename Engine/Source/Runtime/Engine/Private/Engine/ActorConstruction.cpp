@@ -111,7 +111,7 @@ namespace Durin
 		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
 
 		Actor.GeneratedComponents = Next;
-		Actor.RuntimeOwnedComponents = Actor.OwnedComponents;
+		Actor.OwnedComponents = Actor.AuthoredComponents;
 		for (const FDesiredEntry& Entry : Desired)
 		{
 			Actor.AddOwnedComponent(Entry.Component);
