@@ -75,6 +75,16 @@ the provider, cancels and drains its admitted work, and only then retires its
 capabilities and provider lease. Module shutdown therefore cannot race a new
 request or invoke retired provider state.
 
+Production registration ownership is represented by a move-only
+`FImporterRegistration`. The service mints an identity for the exact installed
+descriptor; resetting or destroying the handle validates that identity before
+closing admission and removing capabilities. A failed collision acquires no
+handle, and a stale handle cannot remove a later descriptor that reused the
+same provider ID. Aggregate providers retain handles in installation order and
+reset them in strict reverse order, including partial-startup unwind. The
+string-based registration query remains diagnostic; production teardown uses
+the exact handle rather than an ID-only unregister request.
+
 TextureCube follows the same boundary. `TextureCubeSourceTranslation.h` owns
 six-face and panorama validation, import/reimport, source-reference changes,
 ingestion, package save, and rollback. It decodes concrete image bytes, submits

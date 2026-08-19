@@ -240,6 +240,129 @@ namespace Durin::Editor::Level
 		bOpenRequested = false;
 	}
 
+	auto FMeshCoordinateImportModel::Reset() -> void
+	{
+		SetPreset(EPreset::Durin);
+	}
+
+	auto FMeshCoordinateImportModel::SetPreset(EPreset InPreset) -> void
+	{
+		Preset = InPreset;
+		if (Preset == EPreset::Durin)
+			Settings = FStaticMeshImportSettings::MakeDurin();
+		else if (Preset == EPreset::YUpNegativeZForward)
+			Settings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	}
+
+	auto FMeshCoordinateImportModel::Draw() -> void
+	{
+		static constexpr const char* PresetNames[] = {
+			"Durin (+X Forward, +Y Right, +Z Up)",
+			"Y-Up / -Z Forward (+X Right)",
+			"Custom"};
+		static constexpr const char* AxisNames[] = {
+			"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+		int PresetIndex = static_cast<int>(Preset);
+		if (ImGui::Combo("Preset", &PresetIndex, PresetNames, std::size(PresetNames)))
+		{
+			SetPreset(static_cast<EPreset>(PresetIndex));
+		}
+		if (Preset == EPreset::Custom)
+		{
+			auto DrawAxis = [&](const char* Label, EStaticMeshImportAxis& Axis) {
+				int Value = static_cast<int>(Axis);
+				if (!ImGui::Combo(Label, &Value, AxisNames, std::size(AxisNames))) return;
+				Axis = static_cast<EStaticMeshImportAxis>(Value);
+			};
+			DrawAxis("Forward", Settings.ForwardAxis);
+			DrawAxis("Right", Settings.RightAxis);
+			DrawAxis("Up", Settings.UpAxis);
+		}
+		else
+		{
+			ImGui::TextDisabled(
+				"Source axes are baked into Durin's +X Forward / +Y Right / +Z Up basis.");
+		}
+	}
+
+	auto FMountedSourceImportFormModel::Reset() -> void
+	{
+		SourcePath.fill(0);
+		Destination.fill(0);
+		LastSuggestion.clear();
+		Mode = EMountedSourceImportMode::IngestExternal;
+	}
+
+	auto FMountedSourceImportFormModel::SuggestDestination(
+		std::string_view SuggestedPath) -> void
+	{
+		const std::string_view Current = Destination.data();
+		if (Current.empty() || Current == LastSuggestion)
+		{
+			Destination.fill(0);
+			std::memcpy(Destination.data(), SuggestedPath.data(),
+				std::min(SuggestedPath.size(), Destination.size() - 1));
+		}
+		LastSuggestion = SuggestedPath;
+	}
+
+	auto FMountedSourceImportFormModel::SetDestination(
+		std::string_view VirtualPath) -> bool
+	{
+		if (VirtualPath.size() >= Destination.size()) return false;
+		Destination.fill(0);
+		std::memcpy(Destination.data(), VirtualPath.data(), VirtualPath.size());
+		LastSuggestion.clear();
+		return true;
+	}
+
+	auto FMountedSourceImportFormModel::Inspect(std::string_view ReferencingPath,
+		bool bEngineAuthoringContext) const -> FMountedSourceImportDiagnostic
+	{
+		return InspectMountedSourceImport(SourcePath.data(), ReferencingPath,
+			Destination.data(), Mode, bEngineAuthoringContext);
+	}
+
+	auto FMountedSourceImportFormModel::DrawMode(
+		std::string_view ExternalDescription) -> void
+	{
+		if (ImGui::RadioButton("Reference Existing Source",
+			Mode == EMountedSourceImportMode::ReferenceExisting))
+			Mode = EMountedSourceImportMode::ReferenceExisting;
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Ingest External Source",
+			Mode == EMountedSourceImportMode::IngestExternal))
+			Mode = EMountedSourceImportMode::IngestExternal;
+		if (Mode == EMountedSourceImportMode::ReferenceExisting)
+			ImGui::TextDisabled(
+				"Keeps a source already inside an allowed mount; no copy is created.");
+		else
+			ImGui::TextDisabled("%s", std::string(ExternalDescription).c_str());
+	}
+
+	auto FMountedSourceImportFormModel::DrawSourceRow(const char* InputId,
+		const char* Hint, float BrowseButtonWidth) -> bool
+	{
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
+			- ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint(InputId, Hint, SourcePath.data(), SourcePath.size(),
+			ImGuiInputTextFlags_ReadOnly);
+		ImGui::SameLine();
+		return ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f));
+	}
+
+	auto FMountedSourceImportFormModel::DrawDestinationRow(const char* InputId,
+		const char* Hint, float BrowseButtonWidth) -> bool
+	{
+		if (Mode != EMountedSourceImportMode::IngestExternal) return false;
+		ImGui::TextUnformatted("Source virtual path");
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
+			- ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint(InputId, Hint, Destination.data(), Destination.size());
+		ImGui::SameLine();
+		return ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f));
+	}
+
 	auto DrawImportDialogWarning(std::string_view Message) -> void
 	{
 		if (Message.empty()) return;

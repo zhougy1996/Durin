@@ -7,20 +7,14 @@
 
 namespace Durin::Editor::Level
 {
-	// Selects the mesh-coordinate policy applied while importing a Scene source.
-	enum class ESceneMeshImportPreset : uint8
-	{
-		Durin,
-		YUpNegativeZForward,
-		Custom
-	};
-
 	// Imports one supported Scene source into a typed multi-asset directory.
 	class FSceneImportDialog
 	{
 	public:
 		explicit FSceneImportDialog(FImportDialogCallbacks InCallbacks);
 		~FSceneImportDialog();
+		FSceneImportDialog(const FSceneImportDialog&) = delete;
+		auto operator=(const FSceneImportDialog&) -> FSceneImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
@@ -39,13 +33,11 @@ namespace Durin::Editor::Level
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDirectoryModel DestinationDirectory;
 		FImportDialogModalState ModalState;
-		std::array<char, 512> SourcePathBuffer{};
-		std::array<char, 512> SourceDestinationBuffer{};
-		std::string LastSuggestedSourceDestination;
-		FStaticMeshImportSettings ImportSettings;
-		ESceneMeshImportPreset ImportPreset = ESceneMeshImportPreset::Durin;
-		EMountedSourceImportMode SourceMode =
-			EMountedSourceImportMode::IngestExternal;
+		FMountedSourceImportFormModel SourceForm;
+		std::array<char, 512>& SourcePathBuffer = SourceForm.GetSourcePathBuffer();
+		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
+		FMeshCoordinateImportModel Coordinates;
+		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 		std::string PreviewKey;
 		std::optional<Asset::Import::Standard::FSceneImportPlanResult> Preview;
 		std::optional<Asset::Import::Standard::FSceneImportAsyncPlanHandle> PreviewRequest;

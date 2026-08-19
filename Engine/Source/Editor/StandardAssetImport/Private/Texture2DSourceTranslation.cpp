@@ -257,7 +257,7 @@ namespace Durin::Asset::Import::Standard
 			Settings.SourceDestination,
 			StoredSourcePath,
 			Error)) return {false, std::move(Error), nullptr};
-		FMountedSourceFile MountedSource;
+		FScopedMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(
 			Input,
 			ParsedAssetPath.ToString(),
@@ -272,7 +272,6 @@ namespace Durin::Asset::Import::Standard
 		FEncodedSourceSnapshot Snapshot;
 		if (!CaptureEncodedSource(MountedSource, Snapshot, Error))
 		{
-			RollbackMountedSourceFile(MountedSource);
 			return {false, std::move(Error), nullptr};
 		}
 
@@ -280,7 +279,6 @@ namespace Durin::Asset::Import::Standard
 		const Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
 		if (!CreateResult)
 		{
-			RollbackMountedSourceFile(MountedSource);
 			return {false, CreateResult.Message, nullptr};
 		}
 		if (!BuildTexture2DCandidateFromSnapshot(
@@ -289,18 +287,16 @@ namespace Durin::Asset::Import::Standard
 			Settings,
 			Error))
 		{
-			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
 		{
-			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, SaveResult.Message, nullptr};
 		}
-		CommitMountedSourceFile(MountedSource);
+		MountedSource.Commit();
 		return {true, {}, Texture};
 	}
 
@@ -379,7 +375,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged textures can retain source provenance.";
 			return false;
 		}
-		FMountedSourceFile Source;
+		FScopedMountedSourceFile Source;
 		if (!ResolveMountedSourceReference(
 			Texture.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
 			return false;
@@ -402,7 +398,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged textures can retain source provenance.";
 			return false;
 		}
-		FMountedSourceFile Source;
+		FScopedMountedSourceFile Source;
 		if (!PrepareMountedSourceFile(
 			FilePath,
 			Texture.GetPackage()->GetPackagePath(),
@@ -415,8 +411,7 @@ namespace Durin::Asset::Import::Standard
 			MakeTexture2DBuildSettings(Texture),
 			OutError,
 			Asset::Build::ETexture2DBuildPriority::Interactive);
-		if (bSubmitted) CommitMountedSourceFile(Source);
-		else RollbackMountedSourceFile(Source);
+		if (bSubmitted) Source.Commit();
 		return bSubmitted;
 	}
 

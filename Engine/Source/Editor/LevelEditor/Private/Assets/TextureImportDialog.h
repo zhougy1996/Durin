@@ -15,6 +15,8 @@ namespace Durin::Editor::Level
 	{
 	public:
 		explicit FTextureImportDialog(FImportDialogCallbacks InCallbacks);
+		FTextureImportDialog(const FTextureImportDialog&) = delete;
+		auto operator=(const FTextureImportDialog&) -> FTextureImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
@@ -30,11 +32,10 @@ namespace Durin::Editor::Level
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;
 		FImportDialogModalState ModalState;
-		std::array<char, 512> SourcePathBuffer{};
-		std::array<char, 512> SourceDestinationBuffer{};
-		std::string LastSuggestedSourceDestination;
+		FMountedSourceImportFormModel SourceForm;
+		std::array<char, 512>& SourcePathBuffer = SourceForm.GetSourcePathBuffer();
+		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
 		ETextureUsage Usage = static_cast<ETextureUsage>(0);
-		EMountedSourceImportMode SourceMode =
-			EMountedSourceImportMode::IngestExternal;
+		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 	};
 } // namespace Durin::Editor::Level

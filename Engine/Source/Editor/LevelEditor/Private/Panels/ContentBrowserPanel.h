@@ -125,10 +125,6 @@ namespace Durin::Editor::Level
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
-		auto ItemTypeLabel(const FContentBrowserItem& Item) const -> std::string;
-		auto ItemIcon(const FContentBrowserItem& Item) const -> const char*;
-		auto FormatFileSize(uintmax_t Bytes) const -> std::string;
-		auto FormatFileTime(const std::filesystem::file_time_type& Time) const -> std::string;
 		auto SetError(std::string Message) -> void;
 		auto SetWarning(std::string Message) -> void;
 		auto RepairSelection() -> void;

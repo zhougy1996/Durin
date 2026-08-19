@@ -46,8 +46,27 @@ namespace Durin::Asset
 		std::string_view DestinationSourcePath,
 		FMountedSourceFile& OutSource,
 		std::string& OutError) -> bool;
-	ASSETCORE_API auto CommitMountedSourceFile(FMountedSourceFile& Source) -> void;
-	ASSETCORE_API auto RollbackMountedSourceFile(FMountedSourceFile& Source) -> void;
+	ASSETCORE_API auto CommitMountedSourceFile(FMountedSourceFile& Source) noexcept -> void;
+	ASSETCORE_API auto RollbackMountedSourceFile(FMountedSourceFile& Source) noexcept -> void;
+
+	// Owns rollback for a successfully prepared mounted source until Commit is
+	// called. Move transfers that ownership; referenced and reused files remain
+	// non-owning because their bCreatedFile flag is false.
+	class ASSETCORE_API FScopedMountedSourceFile final : public FMountedSourceFile
+	{
+	public:
+		FScopedMountedSourceFile() = default;
+		~FScopedMountedSourceFile() noexcept;
+		FScopedMountedSourceFile(const FScopedMountedSourceFile&) = delete;
+		auto operator=(const FScopedMountedSourceFile&)
+			-> FScopedMountedSourceFile& = delete;
+		FScopedMountedSourceFile(FScopedMountedSourceFile&& Other) noexcept;
+		auto operator=(FScopedMountedSourceFile&& Other) noexcept
+			-> FScopedMountedSourceFile&;
+
+		auto Commit() noexcept -> void;
+		auto Reset() noexcept -> void;
+	};
 
 	// Resolves a persisted or user-selected virtual source reference without
 	// mutating source files.

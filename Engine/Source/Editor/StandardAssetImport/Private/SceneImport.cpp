@@ -1279,7 +1279,7 @@ namespace Durin::Asset::Import::Standard
 		bool bEngineAuthoringContext) -> bool
 	{
 		OutBundle = {};
-		FMountedSourceFile Root;
+		FScopedMountedSourceFile Root;
 		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
 			ExternalIngestDestination, Root, OutError,
 			bEngineAuthoringContext
@@ -1315,7 +1315,7 @@ namespace Durin::Asset::Import::Standard
 						"glTF dependency '{}' escapes the source document directory.", Uri);
 					return false;
 				}
-				FMountedSourceFile Dependency;
+				FScopedMountedSourceFile Dependency;
 				if (!PrepareMountedSourceFile(
 					InputParent / Relative, ReferencingContentPath,
 					(TargetParent / Relative).generic_string(), Dependency, OutError,
@@ -1618,7 +1618,7 @@ namespace Durin::Asset::Import::Standard
 			Plan.MultiOutputPlan.GetGenericPlan().GetProvider());
 		ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
 			EImportProgressState::Started);
-		std::vector<FMountedSourceFile> EmbeddedSources;
+		std::vector<FScopedMountedSourceFile> EmbeddedSources;
 		std::unordered_map<std::string, DObject*> PublishedObjects;
 		std::unordered_map<std::string, DObject*> ProspectiveObjects;
 		auto FailPrepared = [&](std::string Message) -> FSceneImportExecutionResult {
@@ -1749,7 +1749,7 @@ namespace Durin::Asset::Import::Standard
 					return FailPrepared(Error.empty()
 						? "Scene derived texture generation failed." : std::move(Error));
 				}
-				FMountedSourceFile DerivedSource;
+				FScopedMountedSourceFile DerivedSource;
 				const FSourceSnapshotEntry* Root =
 					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
 				if (!Root || !PrepareMountedSourceBytes(
@@ -1768,7 +1768,7 @@ namespace Durin::Asset::Import::Standard
 			}
 			else if (!Image.EmbeddedEncodedBytes.empty())
 			{
-				FMountedSourceFile EmbeddedSource;
+				FScopedMountedSourceFile EmbeddedSource;
 				const FSourceSnapshotEntry* Root =
 					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
 				if (!Root || !PrepareMountedSourceBytes(

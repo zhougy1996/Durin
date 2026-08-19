@@ -40,11 +40,8 @@ namespace Durin::Editor::Level
 
 	auto FTextureImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
-		SourcePathBuffer.fill(0);
-		SourceDestinationBuffer.fill(0);
-		LastSuggestedSourceDestination.clear();
+		SourceForm.Reset();
 		Usage = ETextureUsage::Color;
-		SourceMode = EMountedSourceImportMode::IngestExternal;
 		Destination.Reset(DestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -63,21 +60,11 @@ namespace Durin::Editor::Level
 		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external file into a writable mount.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source image");
-		if (ImGui::RadioButton("Reference Existing Source",
-			SourceMode == EMountedSourceImportMode::ReferenceExisting))
-			SourceMode = EMountedSourceImportMode::ReferenceExisting;
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Ingest External Source",
-			SourceMode == EMountedSourceImportMode::IngestExternal))
-			SourceMode = EMountedSourceImportMode::IngestExternal;
-		ImGui::TextDisabled(SourceMode == EMountedSourceImportMode::ReferenceExisting
-			? "Keeps a source already inside an allowed mount; no copy is created."
-			: "Copies an external file transactionally to the explicit mounted source path.");
+		SourceForm.DrawMode(
+			"Copies an external file transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint("##TextureImportSource", "Choose a PNG, JPEG, BMP, or TGA image...", SourcePathBuffer.data(), SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
-		ImGui::SameLine();
-		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseSource();
+		if (SourceForm.DrawSourceRow("##TextureImportSource",
+			"Choose a PNG, JPEG, BMP, or TGA image...", BrowseButtonWidth)) BrowseSource();
 
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
@@ -93,28 +80,17 @@ namespace Durin::Editor::Level
 			"/Project/Textures/AssetName", "Choose...", BrowseButtonWidth))
 			BrowseDestination();
 
-		if (SourceMode == EMountedSourceImportMode::IngestExternal)
-		{
-			ImGui::TextUnformatted("Source virtual path");
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-			ImGui::InputTextWithHint(
-				"##TextureImportSourceDestination",
-				"/Project/Sources/Textures/AssetName.png",
-				SourceDestinationBuffer.data(),
-				SourceDestinationBuffer.size());
-			ImGui::SameLine();
-			if (ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f)))
-				BrowseSourceDestination();
-		}
+		if (SourceForm.DrawDestinationRow("##TextureImportSourceDestination",
+			"/Project/Sources/Textures/AssetName.png", BrowseButtonWidth))
+			BrowseSourceDestination();
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
 		const bool bEngineAuthoringContext = DestinationValidation.Mount
 			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		const FMountedSourceImportDiagnostic SourceDiagnostic = DestinationValidation.bAssetPathValid
-			? InspectMountedSourceImport(
-				SourcePathBuffer.data(), DestinationValidation.AssetPath.GetView(),
-				SourceDestinationBuffer.data(), SourceMode, bEngineAuthoringContext)
+			? SourceForm.Inspect(
+				DestinationValidation.AssetPath.GetView(), bEngineAuthoringContext)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -221,22 +197,10 @@ namespace Durin::Editor::Level
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const std::string AssetName = StringUtils::SanitizeFileName(
 			SourcePath.stem().generic_string(), "Texture");
-		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
 		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "Textures",
 			AssetName + SourcePath.extension().generic_string());
-		if (PreviousSourceDestination.empty()
-			|| PreviousSourceDestination == LastSuggestedSourceDestination)
-		{
-			SourceDestinationBuffer.fill(0);
-			std::memcpy(
-				SourceDestinationBuffer.data(),
-				SuggestedSourceDestination.data(),
-				std::min(
-					SuggestedSourceDestination.size(),
-					SourceDestinationBuffer.size() - 1));
-		}
-		LastSuggestedSourceDestination = SuggestedSourceDestination;
+		SourceForm.SuggestDestination(SuggestedSourceDestination);
 	}
 
 	auto FTextureImportDialog::BrowseDestination() -> void
@@ -306,9 +270,7 @@ namespace Durin::Editor::Level
 			SetError("The selected source destination is too long for the import form.");
 			return;
 		}
-		SourceDestinationBuffer.fill(0);
-		std::memcpy(SourceDestinationBuffer.data(), VirtualPath.data(), VirtualPath.size());
-		LastSuggestedSourceDestination.clear();
+		SourceForm.SetDestination(VirtualPath);
 	}
 
 	auto FTextureImportDialog::Import() -> bool

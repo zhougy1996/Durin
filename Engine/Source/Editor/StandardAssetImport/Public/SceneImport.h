@@ -38,7 +38,7 @@ namespace Durin::Asset::Import::Standard
 
 	struct FPreparedSceneSourceBundle
 	{
-		std::vector<Asset::FMountedSourceFile> Sources;
+		std::vector<Asset::FScopedMountedSourceFile> Sources;
 		FSourcePath RootSource;
 	};
 	struct FSceneImportPlanResult;

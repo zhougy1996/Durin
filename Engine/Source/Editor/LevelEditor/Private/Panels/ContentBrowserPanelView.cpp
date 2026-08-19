@@ -486,7 +486,7 @@ namespace Durin::Editor::Level
 				if (ImGui::IsItemHovered() && ImGui::CalcTextSize(DisplayValue.c_str()).x > ImGui::GetContentRegionAvail().x)
 					ImGui::SetTooltip("%s", DisplayValue.c_str());
 			};
-			Row("Type", ItemTypeLabel(Item));
+			Row("Type", ContentBrowserItemView::TypeLabel(Item));
 			Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
 			Row("Physical", Item.PhysicalPath);
 			if (Item.Kind == EContentBrowserItemKind::Asset
@@ -697,15 +697,15 @@ namespace Durin::Editor::Level
 						ImGui::Separator();
 						ImGui::TextDisabled("Type");
 						ImGui::SameLine();
-						ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
+						ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
 						if (Item.Kind != EContentBrowserItemKind::Folder)
 						{
 							ImGui::TextDisabled("Size");
 							ImGui::SameLine();
-							ImGui::TextUnformatted(FormatFileSize(Item.FileSize).c_str());
+							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
 							ImGui::TextDisabled("Modified");
 							ImGui::SameLine();
-							ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
+							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
 						}
 						if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
@@ -768,7 +768,8 @@ namespace Durin::Editor::Level
 				DrawRenameEditor(Item);
 			else
 			{
-				const std::string Label = std::format("{} {}", ItemIcon(Item), Item.Name);
+				const std::string Label = std::format(
+					"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
 				ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
 				bContentItemHovered |= ImGui::IsItemHovered();
 				if (ImGui::IsItemClicked()) SelectItem(Index);
@@ -789,11 +790,13 @@ namespace Durin::Editor::Level
 				}
 			}
 			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
+			ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
 			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileSize(Item.FileSize).c_str());
+			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
+				: ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
 			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileTime(Item.LastWriteTime).c_str());
+			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
+				: ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
 			ImGui::PopID();
 		}
 		DrawBackgroundContextMenu();
@@ -1130,7 +1133,7 @@ namespace Durin::Editor::Level
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
 		ImGui::SetDragDropPayload(ContentBrowserAssetPayloadType, &Payload, sizeof(Payload));
-		ImGui::Text("%s %s", ItemIcon(Item), Item.Name.c_str());
+		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item), Item.Name.c_str());
 		ImGui::EndDragDropSource();
 	}
 

@@ -166,6 +166,16 @@ while `Editor::FWorkspaceDocumentHost` composes that transition across the
 per-resource documents used by Material, Texture, and StaticMesh editors. The
 singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
+Material and Texture additionally compose
+`Editor::FEditableAssetDocumentModel`. It owns active-resource identity,
+document focus, package dirty/save/discard behavior, and forwarding to the
+global transaction manager without depending on either concrete editor module.
+Concrete workspaces still load exact asset types and run hooks before a switch,
+close, discard, or save; Texture retains build cancellation and pending-build
+rejection, while each editor retains its preview and type-specific diagnostics.
+The read-only StaticMesh inspector and specialized Level workspace do not use
+this editable composition because their document semantics differ.
+
 Document open and close operations return explicit results. A deferred singleton
 open preserves the current document until its replacement succeeds. For dirty
 closes, `Editor::FWorkspaceManager` owns the single pending document and routes

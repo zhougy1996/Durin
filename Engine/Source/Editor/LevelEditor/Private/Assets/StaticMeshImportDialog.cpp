@@ -13,13 +13,6 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr const char* ImportPresetNames[] = {
-			"Durin (+X Forward, +Y Right, +Z Up)",
-			"Y-Up / -Z Forward (+X Right)",
-			"Custom"
-		};
-		constexpr const char* ImportAxisNames[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
-
 		auto Lowercase(std::string Value) -> std::string
 		{
 			std::ranges::transform(Value, Value.begin(), [](unsigned char Character) {
@@ -44,14 +37,6 @@ namespace Durin::Editor::Level
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto DrawImportAxisCombo(const char* Label, EStaticMeshImportAxis& Axis) -> bool
-		{
-			int Value = static_cast<int>(Axis);
-			if (!ImGui::Combo(Label, &Value, ImportAxisNames, std::size(ImportAxisNames)))
-				return false;
-			Axis = static_cast<EStaticMeshImportAxis>(Value);
-			return true;
-		}
 	} // namespace
 
 	FStaticMeshImportDialog::FStaticMeshImportDialog(
@@ -62,12 +47,8 @@ namespace Durin::Editor::Level
 
 	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
-		SourcePathBuffer.fill(0);
-		SourceDestinationBuffer.fill(0);
-		LastSuggestedSourceDestination.clear();
-		ImportSettings = FStaticMeshImportSettings::MakeDurin();
-		ImportPreset = EImportPreset::Durin;
-		SourceMode = EMountedSourceImportMode::IngestExternal;
+		SourceForm.Reset();
+		Coordinates.Reset();
 		Destination.Reset(DestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -87,24 +68,11 @@ namespace Durin::Editor::Level
 		ImGui::TextDisabled("Materials and textures are not created; use Scene Source for a complete FBX or glTF scene.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source model");
-		if (ImGui::RadioButton("Reference Existing Source",
-			SourceMode == EMountedSourceImportMode::ReferenceExisting))
-			SourceMode = EMountedSourceImportMode::ReferenceExisting;
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Ingest External Source",
-			SourceMode == EMountedSourceImportMode::IngestExternal))
-			SourceMode = EMountedSourceImportMode::IngestExternal;
-		ImGui::TextDisabled(SourceMode == EMountedSourceImportMode::ReferenceExisting
-			? "Keeps a source already inside an allowed mount; no copy is created."
-			: "Copies an external model transactionally to the explicit mounted source path.");
+		SourceForm.DrawMode(
+			"Copies an external model transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
-			- ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint("##StaticMeshImportSource",
-			"Choose an OBJ or another supported model...", SourcePathBuffer.data(),
-			SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
-		ImGui::SameLine();
-		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseSource();
+		if (SourceForm.DrawSourceRow("##StaticMeshImportSource",
+			"Choose an OBJ or another supported model...", BrowseButtonWidth)) BrowseSource();
 
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
@@ -115,54 +83,26 @@ namespace Durin::Editor::Level
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Coordinate system");
-		int PresetIndex = static_cast<int>(ImportPreset);
-		if (ImGui::Combo("Preset", &PresetIndex, ImportPresetNames, std::size(ImportPresetNames)))
-		{
-			ImportPreset = static_cast<EImportPreset>(PresetIndex);
-			if (ImportPreset == EImportPreset::Durin)
-				ImportSettings = FStaticMeshImportSettings::MakeDurin();
-			else if (ImportPreset == EImportPreset::YUpNegativeZForward)
-				ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
-		}
-		if (ImportPreset == EImportPreset::Custom)
-		{
-			DrawImportAxisCombo("Forward", ImportSettings.ForwardAxis);
-			DrawImportAxisCombo("Right", ImportSettings.RightAxis);
-			DrawImportAxisCombo("Up", ImportSettings.UpAxis);
-		}
-		else
-		{
-			ImGui::TextDisabled("Source axes are baked into Durin's +X Forward / +Y Right / +Z Up basis.");
-		}
+		Coordinates.Draw();
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		if (Destination.DrawRow("Asset path (one .dasset)", "##StaticMeshImportAssetPath",
 			"/Project/StaticMeshes/AssetName", "Choose...", BrowseButtonWidth))
 			BrowseDestination();
-		if (SourceMode == EMountedSourceImportMode::IngestExternal)
-		{
-			ImGui::TextUnformatted("Source virtual path");
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
-				- ImGui::GetStyle().ItemSpacing.x);
-			ImGui::InputTextWithHint("##StaticMeshSourceDestination",
-				"/Project/Sources/Models/AssetName.obj", SourceDestinationBuffer.data(),
-				SourceDestinationBuffer.size());
-			ImGui::SameLine();
-			if (ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f)))
-				BrowseSourceDestination();
-		}
+		if (SourceForm.DrawDestinationRow("##StaticMeshSourceDestination",
+			"/Project/Sources/Models/AssetName.obj", BrowseButtonWidth))
+			BrowseSourceDestination();
 
 		const FAssetDestinationValidation DestinationValidation = Destination.Inspect();
 		const bool bEngineAuthoringContext = DestinationValidation.Mount
 			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		std::string ImportSettingsError;
-		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
+		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bAssetPathValid
-			? InspectMountedSourceImport(SourcePathBuffer.data(),
-				DestinationValidation.AssetPath.GetView(), SourceDestinationBuffer.data(),
-				SourceMode, bEngineAuthoringContext)
+			? SourceForm.Inspect(
+				DestinationValidation.AssetPath.GetView(), bEngineAuthoringContext)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -258,13 +198,12 @@ namespace Durin::Editor::Level
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), Result.FilePath.size());
 		if (Lowercase(std::filesystem::path(Result.FilePath).extension().generic_string()) == ".obj")
 		{
-			ImportPreset = EImportPreset::YUpNegativeZForward;
-			ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+			Coordinates.SetPreset(
+				FMeshCoordinateImportModel::EPreset::YUpNegativeZForward);
 		}
 		else
 		{
-			ImportPreset = EImportPreset::Durin;
-			ImportSettings = FStaticMeshImportSettings::MakeDurin();
+			Coordinates.SetPreset(FMeshCoordinateImportModel::EPreset::Durin);
 		}
 		const std::string AssetName = StringUtils::SanitizeFileName(
 			std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
@@ -280,18 +219,10 @@ namespace Durin::Editor::Level
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const std::string AssetName = StringUtils::SanitizeFileName(
 			SourcePath.stem().generic_string(), "StaticMesh");
-		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
 		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "Models",
 			AssetName + SourcePath.extension().generic_string());
-		if (PreviousSourceDestination.empty()
-			|| PreviousSourceDestination == LastSuggestedSourceDestination)
-		{
-			SourceDestinationBuffer.fill(0);
-			std::memcpy(SourceDestinationBuffer.data(), SuggestedSourceDestination.data(),
-				std::min(SuggestedSourceDestination.size(), SourceDestinationBuffer.size() - 1));
-		}
-		LastSuggestedSourceDestination = SuggestedSourceDestination;
+		SourceForm.SuggestDestination(SuggestedSourceDestination);
 	}
 
 	auto FStaticMeshImportDialog::BrowseDestination() -> void
@@ -355,17 +286,14 @@ namespace Durin::Editor::Level
 			SetError("The selected source destination is too long for the import form.");
 			return;
 		}
-		SourceDestinationBuffer.fill(0);
-		std::memcpy(SourceDestinationBuffer.data(),
-			Classified.NormalizedVirtualPath.data(), Classified.NormalizedVirtualPath.size());
-		LastSuggestedSourceDestination.clear();
+		SourceForm.SetDestination(Classified.NormalizedVirtualPath);
 	}
 
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
 		const FStaticMeshImportResult Result = Asset::Import::Standard::ImportStaticMeshAsset(
-			SourcePathBuffer.data(), Destination.GetPath(), ImportSettings,
+			SourcePathBuffer.data(), Destination.GetPath(), Coordinates.GetSettings(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
 			IsEngineAuthoringDestination(Destination.GetPath()));

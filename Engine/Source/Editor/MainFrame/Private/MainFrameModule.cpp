@@ -34,7 +34,6 @@ namespace Durin::Editor::MainFrame
 		EDefaultDocumentState DefaultDocumentState =
 			EDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
-		bool bWorkspaceActivationStarted = false;
 		std::string FailureMessage;
 		std::shared_ptr<FHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
@@ -48,6 +47,14 @@ namespace Durin::Editor::MainFrame
 
 	namespace
 	{
+		struct FMainFrameViewState
+		{
+			bool bAboutDialogOpen = false;
+			bool bEditorPreferencesOpen = false;
+			std::string ProfilingStatusMessage;
+			bool bProfilingStatusOpen = false;
+			bool bAssetCompatibilityOpen = false;
+		};
 		constexpr float EditorTitleBarHeight = 44.0f;
 		constexpr float EditorTitleBarBrandHeight = 22.0f;
 		constexpr float EditorTitleBarBrandSlotWidth = 30.0f;
@@ -465,11 +472,7 @@ namespace Durin::Editor::MainFrame
 			Editor::FWorkspaceManager& WorkspaceManager,
 			const std::shared_ptr<Editor::IWorkspace>& ActiveWorkspace,
 			const FProfilingToolService& ProfilingTools,
-			bool& bAboutDialogOpen,
-			bool& bEditorPreferencesOpen,
-			std::string& ProfilingStatusMessage,
-			bool& bProfilingStatusOpen,
-			bool& bAssetCompatibilityOpen) -> void
+			FMainFrameViewState& ViewState) -> void
 		{
 			const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
 			if (ImGui::BeginMenu("File"))
@@ -489,11 +492,12 @@ namespace Durin::Editor::MainFrame
 				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
 				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
 				ImGui::Separator();
-				if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
+				if (ImGui::MenuItem("Editor Preferences...")) ViewState.bEditorPreferencesOpen = true;
 				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
-			DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
+			DrawProfilingMenu(ProfilingTools, ViewState.ProfilingStatusMessage,
+				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
@@ -507,7 +511,7 @@ namespace Durin::Editor::MainFrame
 			}
 			if (ImGui::BeginMenu("Help"))
 			{
-				if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
+				if (ImGui::MenuItem("About Durin...")) ViewState.bAboutDialogOpen = true;
 				ImGui::EndMenu();
 			}
 		}
@@ -518,11 +522,7 @@ namespace Durin::Editor::MainFrame
 			const FRHITexture* BrandTexture,
 			const FProfilingToolService& ProfilingTools,
 			bool bDrawWorkspaceMenus,
-			bool& bAboutDialogOpen,
-			bool& bEditorPreferencesOpen,
-			std::string& ProfilingStatusMessage,
-			bool& bProfilingStatusOpen,
-			bool& bAssetCompatibilityOpen) -> void
+			FMainFrameViewState& ViewState) -> void
 		{
 			const float BarHeight = MonaImGui::ScaleUI(EditorTitleBarHeight);
 			const float ButtonWidth = MonaImGui::ScaleUI(EditorCaptionButtonWidth);
@@ -637,8 +637,7 @@ namespace Durin::Editor::MainFrame
 			if (bDrawWorkspaceMenus)
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ProfilingTools, bAboutDialogOpen, bEditorPreferencesOpen,
-					ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
+					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
 			}
 			const float MenuEndX = ImGui::GetCursorScreenPos().x;
 
@@ -716,12 +715,8 @@ namespace Durin::Editor::MainFrame
 			FHostSettings& HostSettings,
 			MWindow& RootWindow,
 			const FProfilingToolService& ProfilingTools,
-			bool& bAboutDialogOpen,
-			bool& bEditorPreferencesOpen,
-			std::string& ProfilingStatusMessage,
-			bool& bProfilingStatusOpen,
+			FMainFrameViewState& ViewState,
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
-			bool& bAssetCompatibilityOpen,
 			::Durin::FLevelEditorModule& LevelEditorModule
 		) -> void
 		{
@@ -755,14 +750,14 @@ namespace Durin::Editor::MainFrame
 			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
 				DrawWorkspaceMenus(
-					WorkspaceManager, ActiveWorkspace, ProfilingTools, bAboutDialogOpen, bEditorPreferencesOpen,
-					ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
+					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
 				ImGui::EndMenuBar();
 			}
-			DrawAboutDialog(bAboutDialogOpen);
-			DrawPreferences(HostSettings, RootWindow, bEditorPreferencesOpen);
-			DrawProfilingToolStatusDialog(bProfilingStatusOpen, ProfilingStatusMessage);
-			AssetCompatibilityWindow.Draw(bAssetCompatibilityOpen,
+			DrawAboutDialog(ViewState.bAboutDialogOpen);
+			DrawPreferences(HostSettings, RootWindow, ViewState.bEditorPreferencesOpen);
+			DrawProfilingToolStatusDialog(
+				ViewState.bProfilingStatusOpen, ViewState.ProfilingStatusMessage);
+			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,
 				[&LevelEditorModule](const FAssetPath& Path) {
 					(void)LevelEditorModule.RevealAssetInContentBrowser(Path);
 				});
@@ -849,8 +844,7 @@ namespace Durin
 		const std::weak_ptr<FBootstrapContext> WeakContext =
 			BootstrapContext;
 		EditorRootWidget->Construct([WeakContext,
-			bAboutDialogOpen = false, bEditorPreferencesOpen = false, ProfilingStatusMessage = std::string{},
-			bProfilingStatusOpen = false, bAssetCompatibilityOpen = false]() mutable {
+			ViewState = FMainFrameViewState{}]() mutable {
 			const std::shared_ptr<FBootstrapContext> Context =
 				WeakContext.lock();
 			if (!Context) return;
@@ -868,11 +862,7 @@ namespace Durin
 					BrandTexture,
 					*Context->ProfilingTools,
 					bReadyWorkspace,
-					bAboutDialogOpen,
-					bEditorPreferencesOpen,
-					ProfilingStatusMessage,
-					bProfilingStatusOpen,
-					bAssetCompatibilityOpen);
+					ViewState);
 			}
 			if (bReadyWorkspace)
 			{
@@ -881,12 +871,8 @@ namespace Durin
 					*Context->HostSettings,
 					*Context->RootWindow,
 					*Context->ProfilingTools,
-					bAboutDialogOpen,
-					bEditorPreferencesOpen,
-					ProfilingStatusMessage,
-					bProfilingStatusOpen,
+					ViewState,
 					*Context->AssetCompatibilityWindow,
-					bAssetCompatibilityOpen,
 					*Context->LevelEditorModule);
 				return;
 			}
@@ -957,9 +943,6 @@ namespace Durin
 		}
 		if (Context.State == EBootstrapState::LoadingWorkspace)
 		{
-			if (Context.bWorkspaceActivationStarted)
-				return MakeBootstrapProgress(Context);
-			Context.bWorkspaceActivationStarted = true;
 			TransitionBootstrap(
 				Context,
 				ActivateEditorWorkspaces(Context)

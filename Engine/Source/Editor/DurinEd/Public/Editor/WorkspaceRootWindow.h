@@ -4,6 +4,8 @@
 #include "Editor/WorkspaceTypes.h"
 #include "MonaImGui.h"
 
+namespace Durin { class DObject; }
+
 namespace Durin::Editor
 {
 	class FWorkspaceManager;
@@ -67,5 +69,36 @@ namespace Durin::Editor
 
 	private:
 		std::unordered_map<uint64, FWorkspaceRootWindow> DocumentWindows;
+	};
+
+	// Composes the class-neutral package, focus, active-document, and transaction
+	// behavior shared by editable asset workspaces. Concrete editors retain
+	// loading, property finalization, previews, builds, and type-specific errors.
+	class FEditableAssetDocumentModel
+	{
+	public:
+		DURINED_API auto Activate(const FDocumentTab& Document, ::Durin::DObject* Object) -> bool;
+		DURINED_API auto Close(std::string_view ResourceId) -> void;
+		auto GetActiveResourceId() const -> std::string_view { return ActiveResourceId; }
+		auto GetDocumentHost() -> FWorkspaceDocumentHost& { return DocumentHost; }
+
+		DURINED_API auto IsDirty(const ::Durin::DObject* Object) const -> bool;
+		DURINED_API auto CanSave(const ::Durin::DObject* Object) const -> bool;
+		DURINED_API auto Save(::Durin::DObject* Object,
+			const std::function<bool()>& BeforeSave,
+			const std::function<void(std::string)>& ReportError) -> bool;
+		DURINED_API auto Discard(::Durin::DObject* Object,
+			const std::function<void()>& BeforeDiscard = {}) -> bool;
+
+		DURINED_API auto CanUndo() const -> bool;
+		DURINED_API auto CanRedo() const -> bool;
+		DURINED_API auto GetUndoDescription() const -> std::string_view;
+		DURINED_API auto GetRedoDescription() const -> std::string_view;
+		DURINED_API auto Undo() -> bool;
+		DURINED_API auto Redo() -> bool;
+
+	private:
+		FWorkspaceDocumentHost DocumentHost;
+		std::string ActiveResourceId;
 	};
 }

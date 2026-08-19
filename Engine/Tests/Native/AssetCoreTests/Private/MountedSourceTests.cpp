@@ -56,3 +56,97 @@ TEST(FMountedSourceTests, StagesCommitsAndRollsBackWithoutEngine)
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "Game" / "Content" / "Textures" / "Moved.bin"));
 }
+
+TEST(FMountedSourceTests, ScopedOwnerRollsBackAndTransfersExactlyOnce)
+{
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "AssetCoreScopedMountedSource";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	const std::filesystem::path ExternalSource = Root / "External" / "Input.bin";
+	std::filesystem::create_directories(ExternalSource.parent_path());
+	std::filesystem::create_directories(Root / "Game" / "Content");
+	{
+		std::ofstream Stream(ExternalSource, std::ios::binary);
+		Stream << "scoped-mounted-source";
+	}
+	const std::array Mounts = {
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.Root = Root / "Game",
+			.ContentPath = "Content",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	std::string Error;
+	const std::filesystem::path Destination =
+		Root / "Game" / "Content" / "Textures" / "Input.bin";
+
+	{
+		Durin::Asset::FScopedMountedSourceFile Source;
+		ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
+			ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Input.bin",
+			Source, Error)) << Error;
+		ASSERT_TRUE(Source.bCreatedFile);
+	}
+	EXPECT_FALSE(std::filesystem::exists(Destination));
+
+	{
+		Durin::Asset::FScopedMountedSourceFile Source;
+		ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
+			ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Input.bin",
+			Source, Error)) << Error;
+		Durin::Asset::FScopedMountedSourceFile Moved(std::move(Source));
+		EXPECT_FALSE(Source.bCreatedFile);
+		EXPECT_TRUE(Moved.bCreatedFile);
+	}
+	EXPECT_FALSE(std::filesystem::exists(Destination));
+}
+
+TEST(FMountedSourceTests, ScopedOwnerNeverRemovesReferencedOrReusedFiles)
+{
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "AssetCoreNonOwningMountedSource";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	const std::filesystem::path Mounted =
+		Root / "Game" / "Content" / "Textures" / "Existing.bin";
+	const std::filesystem::path External = Root / "External" / "Same.bin";
+	std::filesystem::create_directories(Mounted.parent_path());
+	std::filesystem::create_directories(External.parent_path());
+	for (const std::filesystem::path& Path : {Mounted, External})
+	{
+		std::ofstream Stream(Path, std::ios::binary);
+		Stream << "identical";
+	}
+	const std::array Mounts = {
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.Root = Root / "Game",
+			.ContentPath = "Content",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	std::string Error;
+
+	{
+		Durin::Asset::FScopedMountedSourceFile Source;
+		ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
+			Mounted, "/Game/Textures/Asset", "/Game/Unused.bin", Source, Error)) << Error;
+		EXPECT_EQ(Durin::Asset::ESourceFileDisposition::ReferenceExisting,
+			Source.Disposition);
+	}
+	EXPECT_TRUE(std::filesystem::is_regular_file(Mounted));
+
+	{
+		Durin::Asset::FScopedMountedSourceFile Source;
+		ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
+			External, "/Game/Textures/Asset", "/Game/Textures/Existing.bin",
+			Source, Error)) << Error;
+		EXPECT_EQ(Durin::Asset::ESourceFileDisposition::ReusedIdentical,
+			Source.Disposition);
+	}
+	EXPECT_TRUE(std::filesystem::is_regular_file(Mounted));
+}

@@ -3,6 +3,50 @@
 
 namespace Durin::Asset::Import
 {
+FImporterRegistration::FImporterRegistration(FImportService& InOwner,
+		std::weak_ptr<void> InOwnerLifetime, std::string InProviderId, uint64 InIdentity)
+		: Owner(&InOwner), OwnerLifetime(std::move(InOwnerLifetime)),
+		ProviderId(std::move(InProviderId)), Identity(InIdentity) {}
+
+	FImporterRegistration::~FImporterRegistration()
+	{
+		Reset();
+	}
+
+	FImporterRegistration::FImporterRegistration(FImporterRegistration&& Other) noexcept
+		: Owner(std::exchange(Other.Owner, nullptr)),
+		OwnerLifetime(std::move(Other.OwnerLifetime)),
+		ProviderId(std::move(Other.ProviderId)), Identity(std::exchange(Other.Identity, 0)) {}
+
+	auto FImporterRegistration::operator=(FImporterRegistration&& Other) noexcept
+		-> FImporterRegistration&
+	{
+		if (this == &Other) return *this;
+		Reset();
+		Owner = std::exchange(Other.Owner, nullptr);
+		OwnerLifetime = std::move(Other.OwnerLifetime);
+		ProviderId = std::move(Other.ProviderId);
+		Identity = std::exchange(Other.Identity, 0);
+		return *this;
+	}
+
+	auto FImporterRegistration::Reset() -> bool
+	{
+		if (!Owner) return false;
+		const std::shared_ptr<void> LifetimeGuard = OwnerLifetime.lock();
+		if (!LifetimeGuard)
+		{
+			Owner = nullptr;
+			ProviderId.clear();
+			Identity = 0;
+			return false;
+		}
+		FImportService* Service = std::exchange(Owner, nullptr);
+		const uint64 RegistrationIdentity = std::exchange(Identity, 0);
+		const std::string RegistrationProviderId = std::move(ProviderId);
+		return Service->UnregisterImporter(RegistrationProviderId, RegistrationIdentity);
+	}
+
 	namespace
 	{
 		class FDeclarativeImportProvider final : public IImportProvider
@@ -55,6 +99,7 @@ namespace Durin::Asset::Import
 		{
 			std::vector<std::string> AssetClassNames;
 			bool bHasRecordHandler = false;
+			uint64 Identity = 0;
 		};
 
 		mutable std::mutex Mutex;
@@ -63,15 +108,33 @@ namespace Durin::Asset::Import
 		FImportRecordHandlerRegistry RecordHandlers;
 		std::map<std::string, FRegistration, std::less<>> Registrations;
 		uint64 Revision = 1;
+		uint64 NextRegistrationIdentity = 1;
 	};
 
 	FImportService::FImportService()
-		: Impl(std::make_unique<FImpl>()) {}
+		: Lifetime(std::make_shared<uint8>(0)), Impl(std::make_unique<FImpl>()) {}
 
-	FImportService::~FImportService() = default;
+	FImportService::~FImportService()
+	{
+		Lifetime.reset();
+	}
 
 	auto FImportService::RegisterImporter(FImporterDescriptor Descriptor,
 		FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool
+	{
+		FImporterRegistration Registration = RegisterImporterScoped(
+			std::move(Descriptor), OwnerGate, OutError);
+		if (!Registration) return false;
+		Registration.Owner = nullptr;
+		Registration.OwnerLifetime.reset();
+		Registration.ProviderId.clear();
+		Registration.Identity = 0;
+		return true;
+	}
+
+	auto FImportService::RegisterImporterScoped(FImporterDescriptor Descriptor,
+		FModuleOwnedCallbackGate OwnerGate, std::string& OutError)
+		-> FImporterRegistration
 	{
 		if (!Descriptor.Provider)
 		{
@@ -79,7 +142,7 @@ namespace Durin::Asset::Import
 				|| Descriptor.SourceExtensions.empty())
 			{
 				OutError = "An importer descriptor requires a provider or declarative source identity.";
-				return false;
+				return {};
 			}
 			Descriptor.Provider = std::make_shared<FDeclarativeImportProvider>(
 				std::move(Descriptor.ProviderId), Descriptor.ContractVersion,
@@ -89,21 +152,21 @@ namespace Durin::Asset::Import
 		if (ProviderId.empty())
 		{
 			OutError = "An importer descriptor requires a non-empty provider id.";
-			return false;
+			return {};
 		}
 		for (const auto& Handler : Descriptor.SingleAssetHandlers)
 		{
 			if (!Handler || Handler->GetProviderId() != ProviderId)
 			{
 				OutError = "Every single-asset capability must belong to the descriptor provider.";
-				return false;
+				return {};
 			}
 		}
 		if (Descriptor.RecordHandler
 			&& Descriptor.RecordHandler->GetProviderId() != ProviderId)
 		{
 			OutError = "The record capability must belong to the descriptor provider.";
-			return false;
+			return {};
 		}
 
 		std::lock_guard Lock(Impl->Mutex);
@@ -111,12 +174,13 @@ namespace Durin::Asset::Import
 		{
 			OutError = "An importer descriptor is already registered for provider '"
 				+ ProviderId + "'.";
-			return false;
+			return {};
 		}
 		if (!Impl->Providers.Register(std::move(Descriptor.Provider), OwnerGate, OutError))
-			return false;
+			return {};
 
 		FImpl::FRegistration Registration;
+		Registration.Identity = Impl->NextRegistrationIdentity++;
 		auto Rollback = [&]
 		{
 			for (auto It = Registration.AssetClassNames.rbegin();
@@ -133,7 +197,7 @@ namespace Durin::Asset::Import
 				std::move(Descriptor.RecordHandler), OwnerGate, OutError))
 			{
 				Rollback();
-				return false;
+				return {};
 			}
 			Registration.bHasRecordHandler = true;
 		}
@@ -143,15 +207,16 @@ namespace Durin::Asset::Import
 			if (!Impl->SingleAssetHandlers.Register(std::move(Handler), OwnerGate, OutError))
 			{
 				Rollback();
-				return false;
+				return {};
 			}
 			Registration.AssetClassNames.push_back(AssetClassName);
 		}
+		const uint64 Identity = Registration.Identity;
 		Impl->Registrations.emplace(ProviderId, std::move(Registration));
 		++Impl->Revision;
 		OpenAsyncImporterAdmission(ProviderId);
 		OutError.clear();
-		return true;
+		return FImporterRegistration(*this, Lifetime, ProviderId, Identity);
 	}
 
 	auto FImportService::UnregisterImporter(std::string_view ProviderId) -> bool
@@ -159,6 +224,25 @@ namespace Durin::Asset::Import
 		std::lock_guard Lock(Impl->Mutex);
 		const auto It = Impl->Registrations.find(ProviderId);
 		if (It == Impl->Registrations.end()) return false;
+		CancelAndDrainAsyncImportsForProvider(ProviderId);
+		for (auto ClassIt = It->second.AssetClassNames.rbegin();
+			ClassIt != It->second.AssetClassNames.rend(); ++ClassIt)
+			Impl->SingleAssetHandlers.Unregister(*ClassIt);
+		if (It->second.bHasRecordHandler)
+			Impl->RecordHandlers.Unregister(ProviderId);
+		Impl->Providers.Unregister(ProviderId);
+		Impl->Registrations.erase(It);
+		++Impl->Revision;
+		return true;
+	}
+
+	auto FImportService::UnregisterImporter(
+		std::string_view ProviderId, uint64 Identity) -> bool
+	{
+		std::lock_guard Lock(Impl->Mutex);
+		const auto It = Impl->Registrations.find(ProviderId);
+		if (It == Impl->Registrations.end() || It->second.Identity != Identity)
+			return false;
 		CancelAndDrainAsyncImportsForProvider(ProviderId);
 		for (auto ClassIt = It->second.AssetClassNames.rbegin();
 			ClassIt != It->second.AssetClassNames.rend(); ++ClassIt)

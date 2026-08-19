@@ -72,9 +72,8 @@ namespace Durin::Editor::Material
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
-		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
+		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
-		std::string ActiveResourceId;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;

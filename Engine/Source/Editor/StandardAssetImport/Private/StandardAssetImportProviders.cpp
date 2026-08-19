@@ -1070,7 +1070,9 @@ namespace Durin::Asset::Import::Standard
 		};
 
 		std::mutex GRegistrationMutex;
-		bool GRegistered = false;
+		FImporterRegistration GSceneRegistration;
+		FImporterRegistration GAssimpRegistration;
+		FImporterRegistration GImageRegistration;
 	}
 
 		auto InspectStaticMeshSource(
@@ -1118,7 +1120,7 @@ namespace Durin::Asset::Import::Standard
 				OutError = "Only packaged static meshes can retain source provenance.";
 				return false;
 			}
-			FMountedSourceFile Source;
+			FScopedMountedSourceFile Source;
 			if (!ResolveMountedSourceReference(
 				Mesh.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
 				return false;
@@ -1149,16 +1151,13 @@ namespace Durin::Asset::Import::Standard
 				OutError = "Only packaged static meshes can retain source provenance.";
 				return false;
 			}
-			FMountedSourceFile Source;
+			FScopedMountedSourceFile Source;
 			if (!PrepareMountedSourceFile(
 				FilePath, Mesh.GetPackage()->GetPackagePath(),
 				TargetSourceVirtualPath, Source, OutError)) return false;
 			const bool bChanged = ChangeStaticMeshSourceReference(
 				Mesh, Source.SourcePath.Path, OutError);
-			if (bChanged)
-				CommitMountedSourceFile(Source);
-			else
-				RollbackMountedSourceFile(Source);
+			if (bChanged) Source.Commit();
 			return bChanged;
 		}
 
@@ -1227,7 +1226,7 @@ namespace Durin::Asset::Import::Standard
 				ParsedAssetPath, Input.extension().generic_string(), SourceDestination,
 				Destination, StoredSourcePath, Error))
 				return {false, std::move(Error), nullptr};
-			FMountedSourceFile MountedSource;
+			FScopedMountedSourceFile MountedSource;
 			if (!PrepareMountedSourceFile(
 				Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
 				bEngineAuthoringContext
@@ -1239,7 +1238,6 @@ namespace Durin::Asset::Import::Standard
 			std::string SourceHash;
 			if (!HashStaticMeshSource(Destination, SourceHash, Error))
 			{
-				RollbackMountedSourceFile(MountedSource);
 				return {false, std::move(Error), nullptr};
 			}
 
@@ -1247,7 +1245,6 @@ namespace Durin::Asset::Import::Standard
 			const Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
 			if (!CreateResult)
 			{
-				RollbackMountedSourceFile(MountedSource);
 				return {false, CreateResult.Message, nullptr};
 			}
 			FStaticMeshAuthoringProduct Product;
@@ -1262,7 +1259,6 @@ namespace Durin::Asset::Import::Standard
 					Destination.generic_string(), Product, Error)
 				|| !Mesh->PublishImportedProduct(std::move(Product), Error))
 			{
-				RollbackMountedSourceFile(MountedSource);
 				Asset::UnloadPackage(Mesh->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				return {false, std::move(Error), nullptr};
 			}
@@ -1270,11 +1266,10 @@ namespace Durin::Asset::Import::Standard
 			const Asset::FAssetResult SaveResult = Asset::SavePackage(Mesh->GetPackage());
 			if (!SaveResult)
 			{
-				RollbackMountedSourceFile(MountedSource);
 				Asset::UnloadPackage(Mesh->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				return {false, SaveResult.Message, nullptr};
 			}
-			CommitMountedSourceFile(MountedSource);
+			MountedSource.Commit();
 			return {true, {}, Mesh};
 		}
 	auto FStandardAssetAuthoringFeatures::BuildFileProduct(
@@ -1321,39 +1316,46 @@ namespace Durin::Asset::Import::Standard
 		std::string& OutError, FModuleOwnedCallbackGate OwnerGate) -> bool
 	{
 		std::lock_guard Lock(GRegistrationMutex);
-		if (GRegistered) { OutError.clear(); return true; }
+		if (GSceneRegistration && GAssimpRegistration && GImageRegistration)
+		{
+			OutError.clear();
+			return true;
+		}
 		auto& Service = GetImportService();
 		auto RollbackFrameworkRegistrations = [&] {
-			Service.UnregisterImporter("DurinImage");
-			Service.UnregisterImporter("Assimp");
-			Service.UnregisterImporter(SceneImportProviderId);
+			GImageRegistration.Reset();
+			GAssimpRegistration.Reset();
+			GSceneRegistration.Reset();
 		};
-		if (!Service.RegisterImporter({
+		GSceneRegistration = Service.RegisterImporterScoped({
 			.Provider = CreateSceneImportProvider(),
-			.RecordHandler = std::make_shared<FSceneRecordHandler>()}, OwnerGate, OutError))
+			.RecordHandler = std::make_shared<FSceneRecordHandler>()}, OwnerGate, OutError);
+		if (!GSceneRegistration)
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!Service.RegisterImporter({
+		GAssimpRegistration = Service.RegisterImporterScoped({
 			.ProviderId = "Assimp",
 			.ContractVersion = 3,
 			.SourceExtensions = {
 				".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".ply", ".stl"},
 			.SingleAssetHandlers = {std::make_shared<FStaticMeshHandler>()}},
-			OwnerGate, OutError))
+			OwnerGate, OutError);
+		if (!GAssimpRegistration)
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!Service.RegisterImporter({
+		GImageRegistration = Service.RegisterImporterScoped({
 			.ProviderId = "DurinImage",
 			.ContractVersion = 1,
 			.SourceExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"},
 			.SingleAssetHandlers = {
 				std::make_shared<FTexture2DHandler>(),
 				std::make_shared<FTextureCubeHandler>(),
-				std::make_shared<FTerrainHeightmapHandler>()}}, OwnerGate, OutError))
+				std::make_shared<FTerrainHeightmapHandler>()}}, OwnerGate, OutError);
+		if (!GImageRegistration)
 		{
 			RollbackFrameworkRegistrations();
 			return false;
@@ -1371,7 +1373,6 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Failed to register Texture2D source relocation policy.";
 			return false;
 		}
-		GRegistered = true;
 		OutError.clear();
 		return true;
 	}
@@ -1379,13 +1380,11 @@ namespace Durin::Asset::Import::Standard
 	auto UnregisterStandardAssetImportProviders() -> void
 	{
 		std::lock_guard Lock(GRegistrationMutex);
-		if (!GRegistered) return;
+		if (!GSceneRegistration && !GAssimpRegistration && !GImageRegistration) return;
 		UnregisterTexture2DSourceRelocation();
 		UnregisterTexture2DPropertyEditing();
-		auto& Service = GetImportService();
-		Service.UnregisterImporter("DurinImage");
-		Service.UnregisterImporter("Assimp");
-		Service.UnregisterImporter(SceneImportProviderId);
-		GRegistered = false;
+		GImageRegistration.Reset();
+		GAssimpRegistration.Reset();
+		GSceneRegistration.Reset();
 	}
 }

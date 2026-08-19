@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Assets/AssetDestinationValidation.h"
+#include "Assets/MountedSourceImport.h"
+#include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::Level
 {
@@ -82,6 +84,53 @@ namespace Durin::Editor::Level
 
 	private:
 		bool bOpenRequested = false;
+	};
+
+	class FMeshCoordinateImportModel
+	{
+	public:
+		enum class EPreset : uint8
+		{
+			Durin,
+			YUpNegativeZForward,
+			Custom
+		};
+
+		auto Reset() -> void;
+		auto SetPreset(EPreset InPreset) -> void;
+		auto Draw() -> void;
+		auto GetSettings() -> FStaticMeshImportSettings& { return Settings; }
+		auto GetSettings() const -> const FStaticMeshImportSettings& { return Settings; }
+
+	private:
+		FStaticMeshImportSettings Settings = FStaticMeshImportSettings::MakeDurin();
+		EPreset Preset = EPreset::Durin;
+	};
+
+	class FMountedSourceImportFormModel
+	{
+	public:
+		static constexpr size_t PathCapacity = 512;
+
+		auto Reset() -> void;
+		auto SuggestDestination(std::string_view SuggestedPath) -> void;
+		auto SetDestination(std::string_view VirtualPath) -> bool;
+		auto Inspect(std::string_view ReferencingPath,
+			bool bEngineAuthoringContext = false) const -> FMountedSourceImportDiagnostic;
+		auto DrawMode(std::string_view ExternalDescription) -> void;
+		auto DrawSourceRow(const char* InputId, const char* Hint,
+			float BrowseButtonWidth) -> bool;
+		auto DrawDestinationRow(const char* InputId, const char* Hint,
+			float BrowseButtonWidth) -> bool;
+		auto GetSourcePathBuffer() -> std::array<char, PathCapacity>& { return SourcePath; }
+		auto GetDestinationBuffer() -> std::array<char, PathCapacity>& { return Destination; }
+		auto GetMode() -> EMountedSourceImportMode& { return Mode; }
+
+	private:
+		std::array<char, PathCapacity> SourcePath{};
+		std::array<char, PathCapacity> Destination{};
+		std::string LastSuggestion;
+		EMountedSourceImportMode Mode = EMountedSourceImportMode::IngestExternal;
 	};
 
 	auto DrawImportDialogWarning(std::string_view Message) -> void;

@@ -142,8 +142,7 @@ namespace Durin::Editor::Material
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
-		if (Material) ActiveResourceId = Document.ResourceId;
-		DocumentHost.RequestFocus(Document.Id);
+		Documents.Activate(Document, Material);
 	}
 
 	auto MMaterialEditor::RequestDeactivate() -> bool
@@ -158,7 +157,7 @@ namespace Durin::Editor::Material
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
-		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
+		Documents.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
 
@@ -169,22 +168,17 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
-		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		if (!Material || !Material->GetPackage()) return false;
-		Material->GetPackage()->ClearDirty();
-		return true;
+		return Documents.Discard(FindOpenMaterial(Document.ResourceId));
 	}
 
 	auto MMaterialEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
 	{
-		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		return Material && Material->GetPackage() && Material->GetPackage()->IsDirty();
+		return Documents.IsDirty(FindOpenMaterial(Document.ResourceId));
 	}
 
 	auto MMaterialEditor::CanSaveActiveDocument() const -> bool
 	{
-		DMaterialInterface* Material = GetActiveMaterial();
-		return Material && Material->GetPackage();
+		return Documents.CanSave(GetActiveMaterial());
 	}
 
 	auto MMaterialEditor::SaveActiveDocument() -> bool
@@ -195,7 +189,7 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		return DocumentHost.DrawDocuments(
+		return Documents.GetDocumentHost().DrawDocuments(
 			WorkspaceManager,
 			Workspace::Type,
 			Workspace::RootKey,
@@ -227,49 +221,44 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::GetActiveMaterial() const -> DMaterialInterface*
 	{
-		return FindOpenMaterial(ActiveResourceId);
+		return FindOpenMaterial(Documents.GetActiveResourceId());
 	}
 
 	auto MMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
-		if (!Material || !Material->GetPackage()) return false;
-		const Asset::FAssetResult Result = Asset::SavePackage(Material->GetPackage());
-		if (!Result)
-		{
-			SetError(Result.Message);
-			return false;
-		}
-		return true;
+		return Documents.Save(Material, {}, [this](std::string Message) {
+			SetError(std::move(Message));
+		});
 	}
 
 	auto MMaterialEditor::CanUndo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactionManager().CanUndo();
+		return Documents.CanUndo();
 	}
 
 	auto MMaterialEditor::CanRedo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactionManager().CanRedo();
+		return Documents.CanRedo();
 	}
 
 	auto MMaterialEditor::GetUndoDescription() const -> std::string_view
 	{
-		return CanUndo() ? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+		return Documents.GetUndoDescription();
 	}
 
 	auto MMaterialEditor::GetRedoDescription() const -> std::string_view
 	{
-		return CanRedo() ? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+		return Documents.GetRedoDescription();
 	}
 
 	auto MMaterialEditor::Undo() -> bool
 	{
-		return CanUndo() && GEditor->GetTransactionManager().Undo();
+		return Documents.Undo();
 	}
 
 	auto MMaterialEditor::Redo() -> bool
 	{
-		return CanRedo() && GEditor->GetTransactionManager().Redo();
+		return Documents.Redo();
 	}
 
 	auto MMaterialEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
@@ -282,7 +271,7 @@ namespace Durin::Editor::Material
 		else
 			DrawNarrowLayout(Document, Material);
 
-		if (ActiveResourceId != Document.ResourceId) return;
+		if (Documents.GetActiveResourceId() != Document.ResourceId) return;
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
 	}
 

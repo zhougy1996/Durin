@@ -112,9 +112,10 @@ namespace Durin::Asset::Import::Standard
 				Snapshot.ContentHash, Snapshot.SourcePath, Settings, OutError);
 		}
 
+		template <typename TSource>
 		auto BuildFaces(
 			DTextureCube& Texture,
-			const std::array<Asset::FMountedSourceFile, TextureCubeFaceCount>& Sources,
+			const std::array<TSource, TextureCubeFaceCount>& Sources,
 			const FTextureCubeImportSettings& Settings,
 			std::string& OutError) -> bool
 		{
@@ -312,7 +313,7 @@ namespace Durin::Asset::Import::Standard
 		if (!MakeCanonicalSourceLocation(ParsedAssetPath, "_panorama",
 			Input.extension().generic_string(), SourceDestination,
 			StoredSourcePath, Error)) return {false, std::move(Error), nullptr};
-		Asset::FMountedSourceFile Source;
+		Asset::FScopedMountedSourceFile Source;
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
 			StoredSourcePath, Source, Error, MutationContext(bEngineAuthoringContext)))
 			return {false, std::move(Error), nullptr};
@@ -320,18 +321,16 @@ namespace Durin::Asset::Import::Standard
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
 		if (!Created || !BuildPanorama(*Texture, Source, Settings, Error))
 		{
-			Asset::RollbackMountedSourceFile(Source);
 			if (Created) Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Created ? std::move(Error) : Created.Message, nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
 		if (!Saved)
 		{
-			Asset::RollbackMountedSourceFile(Source);
 			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Saved.Message, nullptr};
 		}
-		Asset::CommitMountedSourceFile(Source);
+		Source.Commit();
 		return {true, {}, Texture};
 	}
 
@@ -349,10 +348,7 @@ namespace Durin::Asset::Import::Standard
 		if (Asset::FindAssetExact(ParsedAssetPath)
 			|| Asset::FindResidentPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
-		std::array<Asset::FMountedSourceFile, TextureCubeFaceCount> Sources;
-		auto Rollback = [&] {
-			for (auto& Source : Sources) Asset::RollbackMountedSourceFile(Source);
-		};
+		std::array<Asset::FScopedMountedSourceFile, TextureCubeFaceCount> Sources;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			const std::filesystem::path Input =
@@ -360,7 +356,6 @@ namespace Durin::Asset::Import::Standard
 			if (!std::filesystem::is_regular_file(Input)
 				|| !IsTextureCubeFaceSourceExtension(Input.extension().generic_string()))
 			{
-				Rollback();
 				return {false, std::format("{} face source is unavailable.", FaceNames[Index]), nullptr};
 			}
 			std::string StoredSourcePath;
@@ -371,7 +366,6 @@ namespace Durin::Asset::Import::Standard
 					StoredSourcePath, Sources[Index], Error,
 					MutationContext(bEngineAuthoringContext)))
 			{
-				Rollback();
 				return {false, std::move(Error), nullptr};
 			}
 		}
@@ -379,18 +373,16 @@ namespace Durin::Asset::Import::Standard
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
 		if (!Created || !BuildFaces(*Texture, Sources, Settings, Error))
 		{
-			Rollback();
 			if (Created) Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Created ? std::move(Error) : Created.Message, nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
 		if (!Saved)
 		{
-			Rollback();
 			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Saved.Message, nullptr};
 		}
-		for (auto& Source : Sources) Asset::CommitMountedSourceFile(Source);
+		for (auto& Source : Sources) Source.Commit();
 		return {true, {}, Texture};
 	}
 
@@ -406,7 +398,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged panorama-backed texture cubes can be reimported.";
 			return false;
 		}
-		Asset::FMountedSourceFile Source;
+		Asset::FScopedMountedSourceFile Source;
 		if (!LoadMountedSource(Texture.GetSourceImportData().Panorama.SourcePath,
 			Source, Texture.GetPackage()->GetPackagePath(), OutError)) return false;
 		std::error_code Error;
@@ -467,7 +459,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged texture cubes can retain source provenance.";
 			return false;
 		}
-		Asset::FMountedSourceFile Source;
+		Asset::FScopedMountedSourceFile Source;
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
 			SourceVirtualPath, Source, OutError)) return false;
 		return BuildAndSaveCandidate(Texture,
@@ -510,14 +502,13 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged texture cubes can retain source provenance.";
 			return false;
 		}
-		Asset::FMountedSourceFile Source;
+		Asset::FScopedMountedSourceFile Source;
 		if (!Asset::PrepareMountedSourceFile(FilePath,
 			Texture.GetPackage()->GetPackagePath(), TargetSourceVirtualPath,
 			Source, OutError)) return false;
 		const bool bChanged = ChangeTextureCubePanoramaSourceReference(
 			Texture, Source.SourcePath.Path, Settings, OutError);
-		if (bChanged) Asset::CommitMountedSourceFile(Source);
-		else Asset::RollbackMountedSourceFile(Source);
+		if (bChanged) Source.Commit();
 		return bChanged;
 	}
 
@@ -533,7 +524,7 @@ namespace Durin::Asset::Import::Standard
 			OutError = "Only packaged texture cubes can retain source provenance.";
 			return false;
 		}
-		std::array<Asset::FMountedSourceFile, TextureCubeFaceCount> Sources;
+		std::array<Asset::FScopedMountedSourceFile, TextureCubeFaceCount> Sources;
 		std::array<std::string, TextureCubeFaceCount> VirtualPaths;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
@@ -541,7 +532,6 @@ namespace Durin::Asset::Import::Standard
 				Texture.GetPackage()->GetPackagePath(), TargetSourceVirtualPaths[Index],
 				Sources[Index], OutError))
 			{
-				for (auto& Source : Sources) Asset::RollbackMountedSourceFile(Source);
 				return false;
 			}
 			VirtualPaths[Index] = Sources[Index].SourcePath.Path;
@@ -550,8 +540,7 @@ namespace Durin::Asset::Import::Standard
 			Texture, VirtualPaths, Settings, OutError);
 		for (auto& Source : Sources)
 		{
-			if (bChanged) Asset::CommitMountedSourceFile(Source);
-			else Asset::RollbackMountedSourceFile(Source);
+			if (bChanged) Source.Commit();
 		}
 		return bChanged;
 	}

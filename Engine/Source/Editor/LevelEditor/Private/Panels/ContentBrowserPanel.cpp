@@ -328,7 +328,7 @@ namespace Durin::Editor::Level
 			if (!OpenAsset || !OpenAsset(Item.VirtualPath, Item.AssetClassName))
 				SetError(std::format(
 					"No editor is registered for {} assets.",
-					ItemTypeLabel(Item)));
+					ContentBrowserItemView::TypeLabel(Item)));
 			return;
 		}
 #ifdef _WIN32
@@ -659,30 +659,6 @@ namespace Durin::Editor::Level
 		Selection.clear();
 		Selection.insert(PhysicalPath);
 		SelectionAnchor.clear();
-	}
-
-	auto FContentBrowserPanel::ItemTypeLabel(
-		const FContentBrowserItem& Item) const -> std::string
-	{
-		return ContentBrowserItemView::TypeLabel(Item);
-	}
-
-	auto FContentBrowserPanel::ItemIcon(
-		const FContentBrowserItem& Item) const -> const char*
-	{
-		return ContentBrowserItemView::Icon(Item);
-	}
-
-	auto FContentBrowserPanel::FormatFileSize(uintmax_t Bytes) const
-		-> std::string
-	{
-		return ContentBrowserItemView::FormatFileSize(Bytes);
-	}
-
-	auto FContentBrowserPanel::FormatFileTime(
-		const std::filesystem::file_time_type& Time) const -> std::string
-	{
-		return ContentBrowserItemView::FormatFileTime(Time);
 	}
 
 	auto FContentBrowserPanel::ShowInExplorer(

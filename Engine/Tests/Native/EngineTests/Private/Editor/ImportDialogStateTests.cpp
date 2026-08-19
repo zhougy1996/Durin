@@ -112,3 +112,41 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 	EXPECT_EQ(Validation.PhysicalPath.lexically_normal(),
 		(Root / "Project/Content/Textures/Stone.dasset").lexically_normal());
 }
+
+TEST(FMountedSourceImportFormModelTests, PreservesManualDestinationAndResetsMode)
+{
+	Durin::Editor::Level::FMountedSourceImportFormModel Model;
+	Model.Reset();
+	EXPECT_EQ(Model.GetMode(),
+		Durin::Editor::Level::EMountedSourceImportMode::IngestExternal);
+	Model.SuggestDestination("/Project/Sources/Textures/First.png");
+	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
+		"/Project/Sources/Textures/First.png");
+	Model.SuggestDestination("/Project/Sources/Textures/Second.png");
+	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
+		"/Project/Sources/Textures/Second.png");
+	ASSERT_TRUE(Model.SetDestination("/Project/Sources/Manual.png"));
+	Model.SuggestDestination("/Project/Sources/Textures/Third.png");
+	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
+		"/Project/Sources/Manual.png");
+	Model.GetMode() = Durin::Editor::Level::EMountedSourceImportMode::ReferenceExisting;
+	Model.Reset();
+	EXPECT_EQ(Model.GetMode(),
+		Durin::Editor::Level::EMountedSourceImportMode::IngestExternal);
+	EXPECT_EQ(Model.GetDestinationBuffer()[0], '\0');
+}
+
+TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)
+{
+	Durin::Editor::Level::FMeshCoordinateImportModel Model;
+	Model.SetPreset(Durin::Editor::Level::FMeshCoordinateImportModel::EPreset::
+		YUpNegativeZForward);
+	const Durin::FStaticMeshImportSettings Expected =
+		Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	EXPECT_EQ(Model.GetSettings().ForwardAxis, Expected.ForwardAxis);
+	EXPECT_EQ(Model.GetSettings().RightAxis, Expected.RightAxis);
+	EXPECT_EQ(Model.GetSettings().UpAxis, Expected.UpAxis);
+	Model.Reset();
+	EXPECT_EQ(Model.GetSettings().ForwardAxis,
+		Durin::FStaticMeshImportSettings::MakeDurin().ForwardAxis);
+}

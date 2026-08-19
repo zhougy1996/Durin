@@ -66,8 +66,7 @@ namespace Durin::Editor::Texture
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
-		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
-		std::string ActiveResourceId;
+		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
 		::Durin::Editor::FSourceReferenceIndex SourceReferenceIndex;

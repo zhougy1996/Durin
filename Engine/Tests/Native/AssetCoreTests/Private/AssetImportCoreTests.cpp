@@ -281,6 +281,59 @@ TEST(FAssetImportCoreTests, ImportServiceRegistersOneDescriptorAtomically)
 	EXPECT_FALSE(Service.UnregisterImporter("Tests.Descriptor"));
 }
 
+TEST(FAssetImportCoreTests, ScopedImporterCollisionCannotRemoveForeignRegistration)
+{
+	Durin::Asset::Import::FImportService Service;
+	std::string Error;
+	auto Existing = Service.RegisterImporterScoped({
+		.Provider = std::make_shared<FGraphProvider>("Tests.ScopedCollision")},
+		GetImportRegistryTestGate(), Error);
+	ASSERT_TRUE(Existing) << Error;
+
+	auto Collision = Service.RegisterImporterScoped({
+		.Provider = std::make_shared<FGraphProvider>("Tests.ScopedCollision")},
+		GetImportRegistryTestGate(), Error);
+	EXPECT_FALSE(Collision);
+	EXPECT_TRUE(Service.IsImporterRegistered("Tests.ScopedCollision"));
+	EXPECT_TRUE(Service.FindImporter("Tests.ScopedCollision"));
+	EXPECT_TRUE(Existing.Reset());
+	EXPECT_FALSE(Service.IsImporterRegistered("Tests.ScopedCollision"));
+}
+
+TEST(FAssetImportCoreTests, StaleScopedImporterCannotRemoveReusedProviderId)
+{
+	Durin::Asset::Import::FImportService Service;
+	std::string Error;
+	auto Stale = Service.RegisterImporterScoped({
+		.Provider = std::make_shared<FGraphProvider>("Tests.ScopedReuse")},
+		GetImportRegistryTestGate(), Error);
+	ASSERT_TRUE(Stale) << Error;
+	ASSERT_TRUE(Service.UnregisterImporter("Tests.ScopedReuse"));
+
+	auto Current = Service.RegisterImporterScoped({
+		.Provider = std::make_shared<FGraphProvider>("Tests.ScopedReuse")},
+		GetImportRegistryTestGate(), Error);
+	ASSERT_TRUE(Current) << Error;
+	EXPECT_FALSE(Stale.Reset());
+	EXPECT_TRUE(Service.IsImporterRegistered("Tests.ScopedReuse"));
+	EXPECT_TRUE(Service.FindImporter("Tests.ScopedReuse"));
+	EXPECT_TRUE(Current.Reset());
+}
+
+TEST(FAssetImportCoreTests, ScopedImporterHandleMayOutliveService)
+{
+	Durin::Asset::Import::FImporterRegistration Registration;
+	{
+		Durin::Asset::Import::FImportService Service;
+		std::string Error;
+		Registration = Service.RegisterImporterScoped({
+			.Provider = std::make_shared<FGraphProvider>("Tests.ScopedLifetime")},
+			GetImportRegistryTestGate(), Error);
+		ASSERT_TRUE(Registration) << Error;
+	}
+	EXPECT_FALSE(Registration.Reset());
+}
+
 TEST(FAssetImportCoreTests, ProviderOwnerRetirementRejectsLookupAndAuditsLeaseDestruction)
 {
 	Durin::FModuleTestOwner Context("AssetImportCoreTests.ProviderRetirement");

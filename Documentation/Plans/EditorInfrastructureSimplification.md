@@ -2,36 +2,27 @@
 
 Summary: Replace manual editor registration and mounted-source lifecycles with scoped ownership, then consolidate repeated import-form and editable-asset workspace glue.
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-20
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-20
 
 ## Current Status
 
-The initial static review is complete and implementation has not started. The
-review found two lifecycle seams with correctness risk and four bounded sources
-of repeated editor glue:
+All stages are complete. Import registrations now use exact move-only handles;
+prepared mounted sources carry rollback ownership until commit; the three
+single-source import dialogs share mounted-source form state and the two mesh
+dialogs share one coordinate model; Material and Texture compose one editable
+document model in `DurinEd`; and the bounded MainFrame and Content Browser glue
+has been removed. Lasting contracts are published in the related architecture
+and workflow documents.
 
-- `StandardAssetImport` rolls back importer registration by unconditional
-  provider ID, so a collision can unregister a pre-existing provider that the
-  failed registration attempt did not acquire.
-- mounted-source ingestion requires every caller to pair preparation with an
-  explicit commit or rollback across every early return.
-- Texture, StaticMesh, and Scene import dialogs independently maintain the same
-  mounted-source form state, browsing, suggestion, and validation flow.
-- StaticMesh and Scene import dialogs independently implement the same mesh
-  coordinate preset and custom-axis controls.
-- Material and Texture workspaces independently implement the same editable
-  asset document, package-dirty, save/discard, transaction-command, and
-  property-edit deactivation glue.
-- MainFrame bootstrap/view state and Content Browser presentation contain a
-  small number of redundant fields and pure forwarding functions.
-
-Stage 0 is ready. It freezes the existing lifecycle and UI-state contracts
-before changing ownership. Later stages must reduce manual cleanup and repeated
-state without merging concrete asset policy into `DurinEd` or changing visible
-editor workflows.
+Validation completed on 2026-08-20: `AssetImportCoreTests` (31),
+`AssetMountedSourceTests` (3), `EditorAssetWorkflowTests` (84 passed, one
+skipped), `EditorShellTests` (42), `AssetImportTests` (17), `SceneImportTests`
+(15), and `TextureTests` (66 passed, two skipped) passed. The `fast-all`
+aggregate, full `all` build, hidden Project Browser startup/shutdown, and hidden
+Engine-project workspace startup/shutdown also passed.
 
 ## Goal
 
@@ -169,22 +160,22 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 0: Freeze lifecycle and presentation contracts
 
-- [ ] Add an importer collision test proving a failed registration attempt
+- [x] Add an importer collision test proving a failed registration attempt
   cannot remove an existing provider, its single-asset handlers, or its record
   handler.
-- [ ] Add importer teardown tests for exact-owner reset, reverse batch unwind,
+- [x] Add importer teardown tests for exact-owner reset, reverse batch unwind,
   stale-handle reset after ID reuse, outstanding lease drain, and partial
   StandardAssetImport startup failure.
-- [ ] Extend mounted-source tests to cover automatic rollback after every
+- [x] Extend mounted-source tests to cover automatic rollback after every
   post-prepare failure boundary, explicit commit, move transfer, referenced and
   reused inputs, arrays with partial preparation, and idempotent empty cleanup.
-- [ ] Freeze Texture, StaticMesh, and Scene dialog state tests for source-mode
+- [x] Freeze Texture, StaticMesh, and Scene dialog state tests for source-mode
   switching, suggested destination updates, manual override preservation,
   mount/extension validation, coordinate presets, and validation precedence.
-- [ ] Freeze Material and Texture workspace tests for open/activate/switch,
+- [x] Freeze Material and Texture workspace tests for open/activate/switch,
   dirty close, Save/Discard/Cancel, property-edit deactivation, Undo/Redo, close
   cleanup, and failed hook behavior.
-- [ ] Add or identify bootstrap coverage proving the synchronous
+- [x] Add or identify bootstrap coverage proving the synchronous
   `LoadingWorkspace` transition and capture current MainFrame/Content Browser
   visible behavior for the incidental cleanup.
 
@@ -196,16 +187,16 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 1: Introduce exact scoped importer registrations
 
-- [ ] Add a move-only importer registration handle whose reset operation is
+- [x] Add a move-only importer registration handle whose reset operation is
   validated against an exact service-owned registration identity.
-- [ ] Change `FImportService` registration state to mint and validate that
+- [x] Change `FImportService` registration state to mint and validate that
   identity while preserving atomic descriptor installation, revision changes,
   provider admission, cancellation, draining, handler teardown, and leases.
-- [ ] Migrate StandardAssetImport's Scene, Assimp, and DurinImage descriptors to
+- [x] Migrate StandardAssetImport's Scene, Assimp, and DurinImage descriptors to
   retained handles and remove unconditional ID-based rollback and `GRegistered`.
-- [ ] Make partial registration failure unwind only successfully acquired
+- [x] Make partial registration failure unwind only successfully acquired
   handles in reverse order, then retain the same reverse order at shutdown.
-- [ ] Keep an ID-based query API for lookup/diagnostics, but remove production
+- [x] Keep an ID-based query API for lookup/diagnostics, but remove production
   unregister calls that do not carry ownership.
 
 #### Acceptance Gate
@@ -216,16 +207,16 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 2: Make prepared mounted-source files scoped
 
-- [ ] Introduce move-only rollback ownership around `FMountedSourceFile` with a
+- [x] Introduce move-only rollback ownership around `FMountedSourceFile` with a
   no-throw destructor and explicit commit/release operation.
-- [ ] Migrate Texture2D, TextureCube, Terrain, Scene, and Standard provider
+- [x] Migrate Texture2D, TextureCube, Terrain, Scene, and Standard provider
   source-translation paths; remove local rollback lambdas and repeated
   per-return cleanup that the scoped owner now guarantees.
-- [ ] Preserve explicit package unload and build cancellation where those are
+- [x] Preserve explicit package unload and build cancellation where those are
   separate resources; do not hide them inside the source owner.
-- [ ] For multi-file inputs, use one bounded owner collection whose commit and
+- [x] For multi-file inputs, use one bounded owner collection whose commit and
   rollback order is deterministic and covered by failure injection.
-- [ ] Remove the old free commit/rollback surface after all production callers
+- [x] Remove the old free commit/rollback surface after all production callers
   use scoped ownership, unless a non-owning compatibility call remains required
   and is documented.
 
@@ -238,16 +229,16 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 3: Consolidate mounted-source import form state
 
-- [ ] Add one private LevelEditor mounted-source form model and migrate
+- [x] Add one private LevelEditor mounted-source form model and migrate
   Texture2D and StaticMesh first, proving the single-asset destination path.
-- [ ] Migrate Scene using destination-directory callbacks while retaining its
+- [x] Migrate Scene using destination-directory callbacks while retaining its
   asynchronous preview/import state outside the shared form.
-- [ ] Add the shared mesh-coordinate model and remove the duplicate preset enum,
+- [x] Add the shared mesh-coordinate model and remove the duplicate preset enum,
   labels, axis-combo helper, and settings synchronization from StaticMesh and
   Scene.
-- [ ] Keep concrete format admission, settings, preview contents, import button,
+- [x] Keep concrete format admission, settings, preview contents, import button,
   and final service calls in each concrete dialog.
-- [ ] Compare visible labels, default paths, validation messages, enablement,
+- [x] Compare visible labels, default paths, validation messages, enablement,
   manual override behavior, and cancellation against Stage 0 fixtures.
 
 #### Acceptance Gate
@@ -258,16 +249,16 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 4: Consolidate editable asset document glue
 
-- [ ] Add a class-neutral editable-asset document composition beside the
+- [x] Add a class-neutral editable-asset document composition beside the
   existing workspace document host, with explicit concrete hooks and no
   dependency on MaterialEditor or TextureEditor.
-- [ ] Migrate MaterialEditor first and validate load, dirty, save/discard,
+- [x] Migrate MaterialEditor first and validate load, dirty, save/discard,
   transaction, property-edit, preview, and close behavior.
-- [ ] Migrate TextureEditor, retaining Texture build cancellation, preview
+- [x] Migrate TextureEditor, retaining Texture build cancellation, preview
   state, mounted-source operations, and type-specific errors in TextureEditor.
-- [ ] Remove duplicated active-resource, package-state, global transaction, and
+- [x] Remove duplicated active-resource, package-state, global transaction, and
   document-host forwarding only after both modules pass the same shared tests.
-- [ ] Keep LevelEditor and read-only inspectors on their specialized paths and
+- [x] Keep LevelEditor and read-only inspectors on their specialized paths and
   document why their semantics do not use the editable composition.
 
 #### Acceptance Gate
@@ -278,18 +269,18 @@ removing duplicated cleanup paths and pass-through glue.
 
 ### Stage 5: Remove bounded incidental editor glue and qualify
 
-- [ ] Remove the redundant MainFrame workspace-activation field and branch.
-- [ ] Aggregate transient MainFrame menu/dialog state into one private view
+- [x] Remove the redundant MainFrame workspace-activation field and branch.
+- [x] Aggregate transient MainFrame menu/dialog state into one private view
   state and shorten title-bar/menu/workspace-host signatures without changing
   persistence or capture lifetime.
-- [ ] Remove pure Content Browser forwarding declarations/definitions and call
+- [x] Remove pure Content Browser forwarding declarations/definitions and call
   the existing model, operations, and item-view authorities directly.
-- [ ] Remove obsolete helpers, includes, compatibility overloads, and comments
+- [x] Remove obsolete helpers, includes, compatibility overloads, and comments
   made inaccurate by the completed ownership changes.
-- [ ] Run focused native tests, affected module builds, aggregate editor tests,
+- [x] Run focused native tests, affected module builds, aggregate editor tests,
   and an editor startup/import/open/edit/save/close/shutdown smoke workflow
   following the repository testing and build/run guides.
-- [ ] Publish lasting registration, mounted-source ownership, and workspace
+- [x] Publish lasting registration, mounted-source ownership, and workspace
   composition rules in their authoritative documents, then validate changed
   documentation and all active plans.
 

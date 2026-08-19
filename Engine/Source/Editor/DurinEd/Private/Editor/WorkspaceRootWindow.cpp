@@ -1,5 +1,11 @@
 #include "Editor/WorkspaceRootWindow.h"
 
+#include "AssetMutation.h"
+#include "DObject/Object.h"
+#include "DObject/Package.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
+
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
 
@@ -108,5 +114,81 @@ namespace Durin::Editor
 		for (FDocumentId DocumentId : CloseRequests)
 			WorkspaceManager.RequestCloseDocument(DocumentId);
 		return bWorkspaceActivated;
+	}
+
+	auto FEditableAssetDocumentModel::Activate(
+		const FDocumentTab& Document, DObject* Object) -> bool
+	{
+		DocumentHost.RequestFocus(Document.Id);
+		if (!Object) return false;
+		ActiveResourceId = Document.ResourceId;
+		return true;
+	}
+
+	auto FEditableAssetDocumentModel::Close(std::string_view ResourceId) -> void
+	{
+		if (ActiveResourceId == ResourceId) ActiveResourceId.clear();
+	}
+
+	auto FEditableAssetDocumentModel::IsDirty(const DObject* Object) const -> bool
+	{
+		return Object && Object->GetPackage() && Object->GetPackage()->IsDirty();
+	}
+
+	auto FEditableAssetDocumentModel::CanSave(const DObject* Object) const -> bool
+	{
+		return Object && Object->GetPackage();
+	}
+
+	auto FEditableAssetDocumentModel::Save(DObject* Object,
+		const std::function<bool()>& BeforeSave,
+		const std::function<void(std::string)>& ReportError) -> bool
+	{
+		if (!CanSave(Object) || (BeforeSave && !BeforeSave())) return false;
+		const Asset::FAssetResult Result = Asset::SavePackage(Object->GetPackage());
+		if (Result) return true;
+		if (ReportError) ReportError(Result.Message);
+		return false;
+	}
+
+	auto FEditableAssetDocumentModel::Discard(DObject* Object,
+		const std::function<void()>& BeforeDiscard) -> bool
+	{
+		if (!CanSave(Object)) return false;
+		if (BeforeDiscard) BeforeDiscard();
+		Object->GetPackage()->ClearDirty();
+		return true;
+	}
+
+	auto FEditableAssetDocumentModel::CanUndo() const -> bool
+	{
+		return GEditor && GEditor->GetTransactionManager().CanUndo();
+	}
+
+	auto FEditableAssetDocumentModel::CanRedo() const -> bool
+	{
+		return GEditor && GEditor->GetTransactionManager().CanRedo();
+	}
+
+	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string_view
+	{
+		return CanUndo()
+			? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+	}
+
+	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string_view
+	{
+		return CanRedo()
+			? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+	}
+
+	auto FEditableAssetDocumentModel::Undo() -> bool
+	{
+		return CanUndo() && GEditor->GetTransactionManager().Undo();
+	}
+
+	auto FEditableAssetDocumentModel::Redo() -> bool
+	{
+		return CanRedo() && GEditor->GetTransactionManager().Redo();
 	}
 }

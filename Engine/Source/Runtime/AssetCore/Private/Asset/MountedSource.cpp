@@ -294,12 +294,12 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto CommitMountedSourceFile(FMountedSourceFile& Source) -> void
+	auto CommitMountedSourceFile(FMountedSourceFile& Source) noexcept -> void
 	{
 		Source.bCreatedFile = false;
 	}
 
-	auto RollbackMountedSourceFile(FMountedSourceFile& Source) -> void
+	auto RollbackMountedSourceFile(FMountedSourceFile& Source) noexcept -> void
 	{
 		if (Source.bCreatedFile)
 		{
@@ -307,6 +307,46 @@ namespace Durin::Asset
 			std::filesystem::remove(Source.PhysicalPath, Error);
 		}
 		Source = {};
+	}
+
+	FScopedMountedSourceFile::~FScopedMountedSourceFile() noexcept
+	{
+		Reset();
+	}
+
+	FScopedMountedSourceFile::FScopedMountedSourceFile(
+		FScopedMountedSourceFile&& Other) noexcept
+	{
+		SourcePath = std::move(Other.SourcePath);
+		PhysicalPath = std::move(Other.PhysicalPath);
+		Disposition = Other.Disposition;
+		bCreatedFile = std::exchange(Other.bCreatedFile, false);
+		Other.SourcePath = {};
+		Other.PhysicalPath.clear();
+	}
+
+	auto FScopedMountedSourceFile::operator=(
+		FScopedMountedSourceFile&& Other) noexcept -> FScopedMountedSourceFile&
+	{
+		if (this == &Other) return *this;
+		Reset();
+		SourcePath = std::move(Other.SourcePath);
+		PhysicalPath = std::move(Other.PhysicalPath);
+		Disposition = Other.Disposition;
+		bCreatedFile = std::exchange(Other.bCreatedFile, false);
+		Other.SourcePath = {};
+		Other.PhysicalPath.clear();
+		return *this;
+	}
+
+	auto FScopedMountedSourceFile::Commit() noexcept -> void
+	{
+		CommitMountedSourceFile(*this);
+	}
+
+	auto FScopedMountedSourceFile::Reset() noexcept -> void
+	{
+		RollbackMountedSourceFile(*this);
 	}
 
 	auto PrepareMountedSourceReplacement(

@@ -6,6 +6,34 @@
 
 namespace Durin::Asset::Import
 {
+	class FImportService;
+
+	class ASSETIMPORTCORE_API FImporterRegistration final
+	{
+	public:
+		FImporterRegistration() = default;
+		~FImporterRegistration();
+		FImporterRegistration(const FImporterRegistration&) = delete;
+		auto operator=(const FImporterRegistration&) -> FImporterRegistration& = delete;
+		FImporterRegistration(FImporterRegistration&& Other) noexcept;
+		auto operator=(FImporterRegistration&& Other) noexcept
+			-> FImporterRegistration&;
+
+		explicit operator bool() const { return Owner != nullptr; }
+		auto Reset() -> bool;
+
+	private:
+		friend class FImportService;
+		FImporterRegistration(FImportService& InOwner,
+			std::weak_ptr<void> InOwnerLifetime, std::string InProviderId,
+			uint64 InIdentity);
+
+		FImportService* Owner = nullptr;
+		std::weak_ptr<void> OwnerLifetime;
+		std::string ProviderId;
+		uint64 Identity = 0;
+	};
+
 	struct FImporterDescriptor
 	{
 		std::string ProviderId;
@@ -26,6 +54,9 @@ namespace Durin::Asset::Import
 
 		auto RegisterImporter(FImporterDescriptor Descriptor,
 			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
+		auto RegisterImporterScoped(FImporterDescriptor Descriptor,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError)
+			-> FImporterRegistration;
 		auto UnregisterImporter(std::string_view ProviderId) -> bool;
 		auto IsImporterRegistered(std::string_view ProviderId) const -> bool;
 		auto FindImporter(std::string_view ProviderId) const -> FProviderLease;
@@ -66,7 +97,9 @@ namespace Durin::Asset::Import
 		auto GetRevision() const -> uint64;
 
 	private:
+		friend class FImporterRegistration;
 		struct FImpl;
+		std::shared_ptr<void> Lifetime;
 		std::unique_ptr<FImpl> Impl;
 		auto FindProvider(std::string_view ProviderId) const -> FProviderLease;
 		auto FindSingleAssetHandler(std::string_view AssetClassName) const
@@ -74,6 +107,7 @@ namespace Durin::Asset::Import
 		auto FindImportRecordHandler(std::string_view ProviderId) const
 			-> std::shared_ptr<const IImportRecordHandler>;
 		auto OpenAsyncImporterAdmission(std::string_view ProviderId) -> void;
+		auto UnregisterImporter(std::string_view ProviderId, uint64 Identity) -> bool;
 
 	};
 

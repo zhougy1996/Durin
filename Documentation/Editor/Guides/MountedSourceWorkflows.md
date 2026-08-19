@@ -21,6 +21,15 @@ Choose one source mode:
   Equal existing bytes are reused; a different collision is rejected. A failed
   build or publication rolls back the staged copy and package.
 
+Prepared files use a move-only `FScopedMountedSourceFile` owner. A newly copied
+or generated file remains rollback-owned until the caller explicitly commits
+it; destruction performs best-effort no-throw cleanup, and moving transfers
+that responsibility exactly once. Existing mounted references and identical
+reused files never carry deletion ownership. Multi-file import paths retain a
+bounded owner collection and commit only after the dependent build, publication,
+and package save have succeeded. Replacement and relocation keep their separate
+publish/restore transactions because they have different commit semantics.
+
 Import captures the selected source and its provider-declared dependency
 closure into one immutable snapshot. A single-output import stores lightweight
 provenance on that asset. A multi-output import publishes peer assets plus an

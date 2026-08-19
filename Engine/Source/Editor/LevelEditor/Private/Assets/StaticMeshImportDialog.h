@@ -11,18 +11,13 @@ namespace Durin::Editor::Level
 	{
 	public:
 		explicit FStaticMeshImportDialog(FImportDialogCallbacks InCallbacks);
+		FStaticMeshImportDialog(const FStaticMeshImportDialog&) = delete;
+		auto operator=(const FStaticMeshImportDialog&) -> FStaticMeshImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
 
 	private:
-		enum class EImportPreset : uint8
-		{
-			Durin,
-			YUpNegativeZForward,
-			Custom
-		};
-
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
 		auto BrowseSourceDestination() -> void;
@@ -33,13 +28,10 @@ namespace Durin::Editor::Level
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;
 		FImportDialogModalState ModalState;
-		std::array<char, 512> SourcePathBuffer{};
-		std::array<char, 512> SourceDestinationBuffer{};
-		std::string LastSuggestedSourceDestination;
-		FStaticMeshImportSettings ImportSettings =
-			FStaticMeshImportSettings::MakeDurin();
-		EImportPreset ImportPreset = EImportPreset::Durin;
-		EMountedSourceImportMode SourceMode =
-			EMountedSourceImportMode::IngestExternal;
+		FMountedSourceImportFormModel SourceForm;
+		std::array<char, 512>& SourcePathBuffer = SourceForm.GetSourcePathBuffer();
+		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
+		FMeshCoordinateImportModel Coordinates;
+		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 	};
 } // namespace Durin::Editor::Level

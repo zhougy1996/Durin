@@ -218,7 +218,7 @@ namespace Durin::Asset::Import::Standard
 		if (!MakeCanonicalSourceLocation(
 			ParsedPath, Settings.SourceDestination, Extension, StoredSourcePath, Error))
 			return {false, std::move(Error), nullptr};
-		FMountedSourceFile MountedSource;
+		FScopedMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(Input, ParsedPath.ToString(), StoredSourcePath,
 			MountedSource, Error,
 			bEngineAuthoringContext
@@ -229,23 +229,20 @@ namespace Durin::Asset::Import::Standard
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);
 		if (!Created)
 		{
-			RollbackMountedSourceFile(MountedSource);
 			return {false, Created.Message, nullptr};
 		}
 		if (!BuildFromMountedSource(*Heightmap, MountedSource, Error))
 		{
-			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
 		if (!Saved)
 		{
-			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, Saved.Message, nullptr};
 		}
-		CommitMountedSourceFile(MountedSource);
+		MountedSource.Commit();
 		return {true, {}, Heightmap};
 	}
 
