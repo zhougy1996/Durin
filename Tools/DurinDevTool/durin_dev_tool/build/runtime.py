@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..context import RepositoryContext
@@ -146,12 +147,61 @@ def _resolved_junit_path(path: Path | None, *, root: Path | None = None) -> Path
     return resolved
 
 
-def _all_native_tests_command(
+@dataclass(frozen=True)
+class CTestInvocation:
+    command: list[str]
+    environment: dict[str, str]
+
+
+def _ctest_environment(
     context: BuildContext,
+    output: BuildOutput,
     *,
-    granularity: TestGranularity,
+    gtest_filter: str = "",
+    shuffle: bool = False,
+) -> dict[str, str]:
+    environment = dict(context.environment or os.environ)
+    if output.compact:
+        environment["GTEST_BRIEF"] = "1"
+    if gtest_filter:
+        environment["GTEST_FILTER"] = gtest_filter
+    if not shuffle:
+        return environment
+
+    seed_text = environment.get("GTEST_RANDOM_SEED", "")
+    if seed_text:
+        try:
+            seed = int(seed_text)
+        except ValueError as error:
+            raise BuildToolError(
+                "GTEST_RANDOM_SEED must be an integer from 1 through 99999."
+            ) from error
+        if seed < 1 or seed > 99999:
+            raise BuildToolError(
+                "GTEST_RANDOM_SEED must be an integer from 1 through 99999."
+            )
+    else:
+        seed = secrets.randbelow(99999) + 1
+    environment["GTEST_SHUFFLE"] = "1"
+    environment["GTEST_RANDOM_SEED"] = str(seed)
+    output.info(
+        f"GoogleTest shuffle seed: {seed} "
+        f"(reproduce with GTEST_RANDOM_SEED={seed})"
+    )
+    return environment
+
+
+def _ctest_invocation(
+    context: BuildContext,
+    output: BuildOutput,
+    *,
+    selection_arguments: list[str],
     junit_path: Path | None,
-) -> list[str]:
+    schedule_random: bool = False,
+    shuffle_google_test: bool = False,
+    gtest_filter: str = "",
+    ctest_regex: str = "",
+) -> CTestInvocation:
     request = context.request
     paths = _context_paths(context)
     command = [
@@ -163,23 +213,24 @@ def _all_native_tests_command(
         "-j",
         str(context.jobs),
     ]
-    selected_label = {
-        TestGranularity.CASE: "native-test-case",
-        TestGranularity.TARGET: "native-test-target",
-        TestGranularity.HYBRID: "native-test-default",
-    }[granularity]
-    command.extend(
-        ["-L", selected_label, "-LE", "native-test-characterization|native-test-qualification"]
-    )
+    command.extend(selection_arguments)
     if request.test_timeout_seconds:
         command.extend(["--timeout", str(request.test_timeout_seconds)])
-    if request.test_schedule_random:
+    if schedule_random:
         command.append("--schedule-random")
-    if request.test_ctest_regex:
-        command.extend(["-R", request.test_ctest_regex])
+    if ctest_regex:
+        command.extend(["-R", ctest_regex])
     if junit_path is not None:
         command.extend(["--output-junit", str(junit_path)])
-    return command
+    return CTestInvocation(
+        command=command,
+        environment=_ctest_environment(
+            context,
+            output,
+            gtest_filter=gtest_filter,
+            shuffle=shuffle_google_test,
+        ),
+    )
 
 
 def _run_all_native_test_phase(
@@ -189,20 +240,35 @@ def _run_all_native_test_phase(
     stage_name: str,
     granularity: TestGranularity,
     junit_path: Path | None,
-    environment: dict[str, str],
 ) -> None:
     request = context.request
     paths = _context_paths(context)
-    command = _all_native_tests_command(
+    selected_label = {
+        TestGranularity.CASE: "native-test-case",
+        TestGranularity.TARGET: "native-test-target",
+        TestGranularity.HYBRID: "native-test-default",
+    }[granularity]
+    invocation = _ctest_invocation(
         context,
-        granularity=granularity,
+        output,
+        selection_arguments=[
+            "-L",
+            selected_label,
+            "-LE",
+            "native-test-characterization|native-test-qualification",
+        ],
         junit_path=junit_path,
+        schedule_random=request.test_schedule_random,
+        shuffle_google_test=(
+            request.test_schedule_random and granularity is not TestGranularity.CASE
+        ),
+        ctest_regex=request.test_ctest_regex,
     )
     with output.stage(stage_name):
         try:
             run_command(
-                command,
-                environment=environment,
+                invocation.command,
+                environment=invocation.environment,
                 output=output,
                 recovery_required_on_interrupt=False,
                 interruption_message="Native test run was interrupted.",
@@ -228,42 +294,6 @@ def _run_all_native_test_phase(
             raise
 
 
-def _aggregate_test_environment(
-    context: BuildContext,
-    output: BuildOutput,
-) -> dict[str, str]:
-    environment = dict(context.environment or os.environ)
-    request = context.request
-    if output.compact:
-        environment["GTEST_BRIEF"] = "1"
-    if (
-        not request.test_schedule_random
-        or request.test_granularity is TestGranularity.CASE
-    ):
-        return environment
-    seed_text = environment.get("GTEST_RANDOM_SEED", "")
-    if seed_text:
-        try:
-            seed = int(seed_text)
-        except ValueError as error:
-            raise BuildToolError(
-                "GTEST_RANDOM_SEED must be an integer from 1 through 99999."
-            ) from error
-        if seed < 1 or seed > 99999:
-            raise BuildToolError(
-                "GTEST_RANDOM_SEED must be an integer from 1 through 99999."
-            )
-    else:
-        seed = secrets.randbelow(99999) + 1
-    environment["GTEST_SHUFFLE"] = "1"
-    environment["GTEST_RANDOM_SEED"] = str(seed)
-    output.info(
-        f"GoogleTest shuffle seed: {seed} "
-        f"(reproduce with GTEST_RANDOM_SEED={seed})"
-    )
-    return environment
-
-
 def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     request = context.request
     granularity = request.test_granularity
@@ -272,7 +302,6 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
         junit_path = _resolved_junit_path(
             Path("Build") / "NativeTestResults" / context.preset.name / "all.xml"
         )
-    environment = _aggregate_test_environment(context, output)
     try:
         _run_all_native_test_phase(
             context,
@@ -280,7 +309,6 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
             stage_name=f"Test {granularity.value} native tests",
             granularity=granularity,
             junit_path=junit_path,
-            environment=environment,
         )
     except BuildToolError:
         if granularity is not TestGranularity.CASE:
@@ -312,68 +340,50 @@ def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> Non
         raise BuildToolError("Native-test selection resolved no targets.")
     escaped_names = "|".join(re.escape(name) for name in names)
     paths = _context_paths(context)
-    command = [
-        ctest_command(context.cmake),
-        "--test-dir",
-        str(preset_build_directory(context.preset, root=paths.root)),
-        "--output-on-failure",
-        "--no-tests=error",
-        "-j",
-        str(context.jobs),
-    ]
-    environment = dict(context.environment or os.environ)
-    if output.compact:
-        environment["GTEST_BRIEF"] = "1"
-    if request.test_filter:
-        environment["GTEST_FILTER"] = request.test_filter
+    selection_arguments: list[str]
     if request.test_mode in {TestMode.ISOLATION, TestMode.CHARACTERIZATION}:
-        command.extend(["-L", "native-test-case", "-L", f"^({escaped_names})$"])
+        selection_arguments = ["-L", "native-test-case", "-L", f"^({escaped_names})$"]
         if request.test_mode is TestMode.CHARACTERIZATION:
-            command.extend(["-L", "native-test-characterization"])
+            selection_arguments.extend(["-L", "native-test-characterization"])
         else:
-            command.extend(["-LE", "native-test-characterization|native-test-qualification"])
+            selection_arguments.extend(
+                ["-LE", "native-test-characterization|native-test-qualification"]
+            )
         if request.test_filter:
-            command.extend(["-R", request.test_filter])
+            selection_arguments.extend(["-R", request.test_filter])
     elif request.test_mode is TestMode.QUALIFICATION:
-        command.extend(
-            [
-                "-L",
-                "native-test-target",
-                "-L",
-                "native-test-qualification",
-                "-R",
-                rf"^Durin\.NativeTestDirect\.({escaped_names})$",
-            ]
-        )
+        selection_arguments = [
+            "-L",
+            "native-test-target",
+            "-L",
+            "native-test-qualification",
+            "-R",
+            rf"^Durin\.NativeTestDirect\.({escaped_names})$",
+        ]
     else:
-        command.extend(
-            [
-                "-L",
-                "native-test-target",
-                "-LE",
-                "native-test-characterization|native-test-qualification",
-                "-R",
-                rf"^Durin\.NativeTestDirect\.({escaped_names})$",
-            ]
-        )
-    if request.test_timeout_seconds:
-        command.extend(["--timeout", str(request.test_timeout_seconds)])
-    if request.test_mode is TestMode.STRESS:
-        command.append("--schedule-random")
-        seed_text = environment.get("GTEST_RANDOM_SEED", "")
-        seed = int(seed_text) if seed_text else secrets.randbelow(99999) + 1
-        if seed < 1 or seed > 99999:
-            raise BuildToolError("GTEST_RANDOM_SEED must be an integer from 1 through 99999.")
-        environment["GTEST_SHUFFLE"] = "1"
-        environment["GTEST_RANDOM_SEED"] = str(seed)
-        output.info(f"GoogleTest shuffle seed: {seed} (reproduce with GTEST_RANDOM_SEED={seed})")
+        selection_arguments = [
+            "-L",
+            "native-test-target",
+            "-LE",
+            "native-test-characterization|native-test-qualification",
+            "-R",
+            rf"^Durin\.NativeTestDirect\.({escaped_names})$",
+        ]
     junit_path = _selected_report_path(context)
-    if junit_path is not None:
-        command.extend(["--output-junit", str(junit_path)])
+    stress = request.test_mode is TestMode.STRESS
+    invocation = _ctest_invocation(
+        context,
+        output,
+        selection_arguments=selection_arguments,
+        junit_path=junit_path,
+        schedule_random=stress,
+        shuffle_google_test=stress,
+        gtest_filter=request.test_filter,
+    )
     with output.stage(f"Test {request.test_mode.value} selection"):
         run_command(
-            command,
-            environment=environment,
+            invocation.command,
+            environment=invocation.environment,
             output=output,
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",

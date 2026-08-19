@@ -296,6 +296,63 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         with pytest.raises(build_config.BuildToolError, match='must be an integer'):
             build_runtime.run_all_native_tests(context, output)
+    def test_stress_selection_rejects_invalid_environment_seed(self) -> None:
+        preset = self.make_preset()
+        request = request_fixtures.command_request(
+            build_config.Action.TEST,
+            options=request_fixtures.TestActionOptions(
+                target='@viewport',
+                mode=build_config.TestMode.STRESS,
+            ),
+        )
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=4,
+            environment={'GTEST_RANDOM_SEED': 'invalid'},
+            resolved_test_targets=('ViewportTests',),
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with pytest.raises(build_config.BuildToolError, match='must be an integer'):
+            build_runtime.run_selected_native_tests(context, output)
+    def test_stress_selection_uses_shared_random_invocation(self) -> None:
+        preset = self.make_preset()
+        request = request_fixtures.command_request(
+            build_config.Action.TEST,
+            options=request_fixtures.TestActionOptions(
+                target='@viewport',
+                mode=build_config.TestMode.STRESS,
+                timeout_seconds=60,
+            ),
+        )
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=4,
+            environment={'GTEST_RANDOM_SEED': '41'},
+            resolved_test_targets=('ViewportTests',),
+        )
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_runtime.run_selected_native_tests(context, output)
+        assert run.call_args.args[0][-3:] == ['--timeout', '60', '--schedule-random']
+        assert run.call_args.kwargs['environment'] == {
+            'GTEST_RANDOM_SEED': '41',
+            'GTEST_BRIEF': '1',
+            'GTEST_SHUFFLE': '1',
+        }
+        assert 'GoogleTest shuffle seed: 41' in stdout.getvalue()
     def test_configure_preserves_cache_unless_fresh_is_requested(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
