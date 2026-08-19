@@ -5,13 +5,13 @@
     "PrivateDependencies": [
         "Core",
         "RHI",
-        "Engine",
         "ApplicationCore",
         "MonaCore",
         "Mona"
     ],
     "PublicDependencies": [
         "AssetCore",
+        "Engine",
         "RenderCore",
         "MonaImGui"
     ],
