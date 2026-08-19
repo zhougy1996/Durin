@@ -1,25 +1,16 @@
 import pytest
 import io
 import json
-import os
 from pathlib import Path
+from . import build_request_fixtures as request_fixtures
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
-if str(DEV_TOOL_DIR) not in os.sys.path:
-    os.sys.path.insert(0, str(DEV_TOOL_DIR))
 from durin_dev_tool.build import operations as build_cli
 from durin_dev_tool.build import config as build_config
 from durin_dev_tool.build import descriptors as build_descriptors
 from durin_dev_tool.build import scaffolding as build_scaffolding
-from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
-from durin_dev_tool.registry import CommandRegistry
 
-def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
-    _spec, namespace = CommandRegistry().parse(arguments)
-    if getattr(namespace, 'selected_preset', ''):
-        namespace.preset = namespace.selected_preset
-    return request_from_namespace(namespace)
+parse_build_request = request_fixtures.parse_build_request
 
 class TestScaffoldingInfrastructure:
 

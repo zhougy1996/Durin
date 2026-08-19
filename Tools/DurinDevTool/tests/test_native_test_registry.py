@@ -1,6 +1,5 @@
 
 import json
-import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,10 +8,6 @@ from unittest import mock
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-PRODUCT_ROOT = REPOSITORY_ROOT / "Tools" / "DurinDevTool"
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
-
 from durin_dev_tool.build.config import BuildToolError
 from durin_dev_tool.build.native_test_registry import (
     filter_targets,

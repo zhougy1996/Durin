@@ -1,7 +1,7 @@
 from . import build_request_fixtures as request_fixtures
 
 import io
-import sys
+from functools import partial
 from pathlib import Path
 from unittest import mock
 
@@ -9,10 +9,6 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEV_TOOL_DIR = REPO_ROOT / "Tools" / "DurinDevTool"
-if str(DEV_TOOL_DIR) not in sys.path:
-    sys.path.insert(0, str(DEV_TOOL_DIR))
-
 from durin_dev_tool.build import config as build_config
 from durin_dev_tool.build import locations as build_locations
 from durin_dev_tool.build import operations as build_operations
@@ -21,32 +17,8 @@ from durin_dev_tool.build import runtime as build_runtime
 from durin_dev_tool.build.output import BuildOutput
 
 
-def make_profile() -> build_config.BuildProfile:
-    return build_config.BuildProfile(
-        "test-profile",
-        "windows",
-        "debug",
-        ("debug",),
-        build_config.EnvironmentProvider.INHERIT,
-        "Win64",
-        ".exe",
-        True,
-        (),
-    )
-
-
-def make_preset() -> build_config.ConfigurePreset:
-    return build_config.ConfigurePreset(
-        "debug",
-        {
-            "name": "debug",
-            "binaryDir": "${sourceDir}/Build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "DURIN_RUNTIME_VARIANT": "DurinEditor",
-            },
-        },
-    )
+make_profile = partial(request_fixtures.make_profile, ("debug",))
+make_preset = partial(request_fixtures.make_preset, testing=None)
 
 
 class TestBuildLocations:

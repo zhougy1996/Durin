@@ -2,13 +2,9 @@ from . import build_request_fixtures as request_fixtures
 import pytest
 import io
 import os
-import sys
 from pathlib import Path
 from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-PRODUCT_ROOT = REPOSITORY_ROOT / 'Tools' / 'DurinDevTool'
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
 from durin_dev_tool.build.config import Action, ConcreteRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode, OutputOptions, RequestContext

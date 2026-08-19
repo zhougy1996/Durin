@@ -1,14 +1,8 @@
 
 import io
-import sys
 from pathlib import Path
 
 import pytest
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-PRODUCT_ROOT = REPOSITORY_ROOT / "Tools" / "DurinDevTool"
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
 
 from durin_dev_tool import scene
 from durin_dev_tool.errors import DevToolError

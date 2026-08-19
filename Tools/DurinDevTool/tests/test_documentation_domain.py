@@ -1,13 +1,8 @@
 import pytest
 import io
 import subprocess
-import sys
 from pathlib import Path
 from unittest import mock
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PRODUCT_ROOT = REPO_ROOT / 'Tools' / 'DurinDevTool'
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool import cli
 from durin_dev_tool.documentation import archive as archive_module
 from durin_dev_tool.documentation import changes as changes_module

@@ -1,13 +1,9 @@
 import pytest
 import argparse
 import subprocess
-import sys
 from pathlib import Path
 from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-PRODUCT_ROOT = REPOSITORY_ROOT / 'Tools' / 'DurinDevTool'
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.bootstrap import agent_config, application as bootstrap_application, handler, manifests as dependency_manifests, preflight, setup, toolchain_selection
 from durin_dev_tool.context import CommandIO, RepositoryContext
 from durin_dev_tool.registry import CommandRegistry
@@ -68,4 +64,3 @@ class TestWorktreeTool:
         assert 'list' in family.summary
         assert 'inspect' not in family.summary
         assert not hasattr(handler, 'create_parser')
-

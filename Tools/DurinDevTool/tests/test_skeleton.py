@@ -6,8 +6,6 @@ from pathlib import Path
 from unittest import mock
 PRODUCT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PRODUCT_ROOT.parents[1]
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool import cli
 from durin_dev_tool.python_environment import launcher_command, prepared_python_path
 from durin_dev_tool.registry import CommandRegistry, require_prepared_environment

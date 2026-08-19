@@ -11,9 +11,6 @@ import pytest
 
 PRODUCT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PRODUCT_ROOT.parents[1]
-if str(PRODUCT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PRODUCT_ROOT))
-
 from durin_dev_tool import cli
 from durin_dev_tool.context import CommandIO, RepositoryContext
 from durin_dev_tool.bootstrap import manifests as bootstrap_manifests

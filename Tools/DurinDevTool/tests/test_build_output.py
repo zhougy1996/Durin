@@ -4,20 +4,8 @@ import io
 import os
 from pathlib import Path
 from unittest import mock
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
-if str(DEV_TOOL_DIR) not in os.sys.path:
-    os.sys.path.insert(0, str(DEV_TOOL_DIR))
 from durin_dev_tool.build import config as build_config
-from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
-from durin_dev_tool.registry import CommandRegistry
-
-def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
-    _spec, namespace = CommandRegistry().parse(arguments)
-    if getattr(namespace, 'selected_preset', ''):
-        namespace.preset = namespace.selected_preset
-    return request_from_namespace(namespace)
 
 class TestOutput:
 

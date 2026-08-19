@@ -1,33 +1,19 @@
 from . import build_request_fixtures as request_fixtures
 import pytest
 import io
-import os
 from dataclasses import replace
 from pathlib import Path
 from unittest import mock
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
-if str(DEV_TOOL_DIR) not in os.sys.path:
-    os.sys.path.insert(0, str(DEV_TOOL_DIR))
 from durin_dev_tool.build import config as build_config
 from durin_dev_tool.build import core as build_core
 from durin_dev_tool.build import runtime as build_runtime
-from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
-from durin_dev_tool.registry import CommandRegistry
-
-def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
-    _spec, namespace = CommandRegistry().parse(arguments)
-    if getattr(namespace, 'selected_preset', ''):
-        namespace.preset = namespace.selected_preset
-    return request_from_namespace(namespace)
 
 
 class TestCore:
-    def make_profile(self) -> build_config.BuildProfile:
-        return build_config.BuildProfile('test-profile', 'windows', 'debug', ('debug', 'release'), build_config.EnvironmentProvider.INHERIT, 'Win64', '.exe', True, ())
-    def make_preset(self, name: str='debug', testing: str='ON', runtime_variant: str='DurinEditor') -> build_config.ConfigurePreset:
-        return build_config.ConfigurePreset(name, {'name': name, 'binaryDir': '${sourceDir}/Build/${presetName}', 'cacheVariables': {'CMAKE_BUILD_TYPE': 'Debug', 'DURIN_RUNTIME_VARIANT': runtime_variant, 'BUILD_TESTING': testing}})
+    make_profile = staticmethod(request_fixtures.make_profile)
+    make_preset = staticmethod(request_fixtures.make_preset)
+
     def test_test_action_rejects_non_test_preset(self) -> None:
         request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests'))
         with pytest.raises(build_config.BuildToolError, match='does not enable BUILD_TESTING'):

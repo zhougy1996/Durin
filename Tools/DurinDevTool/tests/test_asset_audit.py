@@ -2,7 +2,6 @@
 import io
 import json
 import subprocess
-import sys
 from pathlib import Path
 from unittest import mock
 
@@ -11,9 +10,6 @@ from jsonschema import validate
 
 DEV_TOOL_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
-if str(DEV_TOOL_ROOT) not in sys.path:
-    sys.path.insert(0, str(DEV_TOOL_ROOT))
-
 from durin_dev_tool import cli
 from durin_dev_tool import asset
 from durin_dev_tool.errors import DevToolError
