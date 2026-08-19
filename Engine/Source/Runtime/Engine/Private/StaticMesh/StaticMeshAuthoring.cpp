@@ -1,22 +1,15 @@
 #include "StaticMesh/StaticMeshAuthoring.h"
 
+#include "Modules/ModularFeatureInvocation.h"
+
 namespace Durin
 {
 	namespace
 	{
-		template<typename F>
-		auto InvokeStaticMeshFeature(F&& Visitor, std::string_view Unavailable, std::string& OutError) -> bool
-		{
-			const auto Result = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshAuthoringFeature>(
-				std::forward<F>(Visitor));
-			if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
-			if (Result.Status == EFeatureInvokeStatus::Unavailable) OutError = Unavailable;
-			else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
-				OutError = "StaticMesh authoring capability is ambiguous.";
-			else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
-				OutError = "StaticMesh authoring provider failed.";
-			return false;
-		}
+		constexpr std::string_view StaticMeshAuthoringAmbiguousMessage =
+			"StaticMesh authoring capability is ambiguous.";
+		constexpr std::string_view StaticMeshAuthoringVisitorFailedMessage =
+			"StaticMesh authoring provider failed.";
 	}
 
 	auto InvokeStaticMeshPostLoadFeature(
@@ -24,9 +17,15 @@ namespace Durin
 		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
 		std::string& OutError) -> bool
 	{
-		const bool bSucceeded = InvokeStaticMeshFeature([&](IStaticMeshAuthoringFeature& Feature) {
-			return Feature.PostLoadUncooked(Mesh, OutDiagnostic, OutError);
-		}, "StaticMesh uncooked load policy is unavailable.", OutError);
+		const bool bSucceeded = Private::InvokeSingleModularFeature<IStaticMeshAuthoringFeature>(
+			[&](IStaticMeshAuthoringFeature& Feature) {
+				return Feature.PostLoadUncooked(Mesh, OutDiagnostic, OutError);
+			},
+			{
+				.Unavailable = "StaticMesh uncooked load policy is unavailable.",
+				.Ambiguous = StaticMeshAuthoringAmbiguousMessage,
+				.VisitorFailed = StaticMeshAuthoringVisitorFailedMessage},
+			OutError);
 		if (!bSucceeded && OutError == "StaticMesh uncooked load policy is unavailable.")
 		{
 			OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
@@ -43,19 +42,16 @@ namespace Durin
 		FStaticMeshCollisionAuthoringProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
-		const auto Result = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshCollisionBuildFeature>(
+		return Private::InvokeSingleModularFeature<IStaticMeshCollisionBuildFeature>(
 			[&](IStaticMeshCollisionBuildFeature& Feature) {
 				return Feature.BuildCollisionProduct(
 					RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
-			});
-		if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
-		if (Result.Status == EFeatureInvokeStatus::Unavailable)
-			OutError = "StaticMesh collision build capability is unavailable.";
-		else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
-			OutError = "StaticMesh collision build capability is ambiguous.";
-		else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
-			OutError = "StaticMesh collision build provider failed.";
-		return false;
+			},
+			{
+				.Unavailable = "StaticMesh collision build capability is unavailable.",
+				.Ambiguous = "StaticMesh collision build capability is ambiguous.",
+				.VisitorFailed = "StaticMesh collision build provider failed."},
+			OutError);
 	}
 
 	auto InvokeStaticMeshSourceChangeHandler(
@@ -63,8 +59,14 @@ namespace Durin
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
 	{
-		return InvokeStaticMeshFeature([&](IStaticMeshAuthoringFeature& Feature) {
-			return Feature.ChangeSourceReference(Mesh, SourceVirtualPath, OutError);
-		}, "StaticMesh source translation is unavailable.", OutError);
+		return Private::InvokeSingleModularFeature<IStaticMeshAuthoringFeature>(
+			[&](IStaticMeshAuthoringFeature& Feature) {
+				return Feature.ChangeSourceReference(Mesh, SourceVirtualPath, OutError);
+			},
+			{
+				.Unavailable = "StaticMesh source translation is unavailable.",
+				.Ambiguous = StaticMeshAuthoringAmbiguousMessage,
+				.VisitorFailed = StaticMeshAuthoringVisitorFailedMessage},
+			OutError);
 	}
 }

@@ -1,22 +1,15 @@
 #include "SkeletalMesh/SkeletalAssetPostLoad.h"
 
+#include "Modules/ModularFeatureInvocation.h"
+
 namespace Durin
 {
 	namespace
 	{
-		template<typename F>
-		auto InvokeSkeletalFeature(F&& Visitor, std::string_view UnavailableMessage, std::string& OutMessage) -> bool
-		{
-			const auto Result = FModularFeatureRegistry::Get().InvokeSingle<ISkeletalDerivedDataFeature>(
-				std::forward<F>(Visitor));
-			if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
-			if (Result.Status == EFeatureInvokeStatus::Unavailable) OutMessage = UnavailableMessage;
-			else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
-				OutMessage = "Skeletal derived-data capability is ambiguous.";
-			else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
-				OutMessage = "Skeletal derived-data provider failed.";
-			return false;
-		}
+		constexpr std::string_view SkeletalDerivedDataAmbiguousMessage =
+			"Skeletal derived-data capability is ambiguous.";
+		constexpr std::string_view SkeletalDerivedDataVisitorFailedMessage =
+			"Skeletal derived-data provider failed.";
 	}
 
 	auto InvokeSkeletalMeshUncookedPayloadLoader(
@@ -25,9 +18,15 @@ namespace Durin
 		FSkeletalMeshPayloadData& OutPayload,
 		std::string& OutMessage) -> bool
 	{
-		return InvokeSkeletalFeature([&](ISkeletalDerivedDataFeature& Feature) {
-			return Feature.LoadSkeletalMeshPayload(Key, Context, OutPayload, OutMessage);
-		}, "No uncooked SkeletalMesh payload policy is registered.", OutMessage);
+		return Private::InvokeSingleModularFeature<ISkeletalDerivedDataFeature>(
+			[&](ISkeletalDerivedDataFeature& Feature) {
+				return Feature.LoadSkeletalMeshPayload(Key, Context, OutPayload, OutMessage);
+			},
+			{
+				.Unavailable = "No uncooked SkeletalMesh payload policy is registered.",
+				.Ambiguous = SkeletalDerivedDataAmbiguousMessage,
+				.VisitorFailed = SkeletalDerivedDataVisitorFailedMessage},
+			OutMessage);
 	}
 
 	auto InvokeAnimationClipUncookedPayloadLoader(
@@ -36,8 +35,14 @@ namespace Durin
 		FAnimationClipPayloadData& OutPayload,
 		std::string& OutMessage) -> bool
 	{
-		return InvokeSkeletalFeature([&](ISkeletalDerivedDataFeature& Feature) {
-			return Feature.LoadAnimationClipPayload(Key, Context, OutPayload, OutMessage);
-		}, "No uncooked AnimationClip payload policy is registered.", OutMessage);
+		return Private::InvokeSingleModularFeature<ISkeletalDerivedDataFeature>(
+			[&](ISkeletalDerivedDataFeature& Feature) {
+				return Feature.LoadAnimationClipPayload(Key, Context, OutPayload, OutMessage);
+			},
+			{
+				.Unavailable = "No uncooked AnimationClip payload policy is registered.",
+				.Ambiguous = SkeletalDerivedDataAmbiguousMessage,
+				.VisitorFailed = SkeletalDerivedDataVisitorFailedMessage},
+			OutMessage);
 	}
 }
