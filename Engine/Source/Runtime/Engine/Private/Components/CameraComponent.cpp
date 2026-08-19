@@ -43,6 +43,32 @@ namespace Durin
 		{
 			return Math::Normalize(Math::RotateVector(Rotation, FVectorConstants::Up));
 		}
+
+		auto NormalizeProjectionSettings(FCameraProjectionSettings Settings) -> FCameraProjectionSettings
+		{
+			Settings.FieldOfViewDegrees = static_cast<float>(
+				SceneViewProjection::ClampFieldOfViewDegrees(Settings.FieldOfViewDegrees));
+			double NearClip = 0.0;
+			double FarClip = 0.0;
+			SceneViewProjection::ClampPerspectiveClipRange(
+				Settings.NearClip, Settings.FarClip, NearClip, FarClip);
+			Settings.NearClip = static_cast<float>(NearClip);
+			Settings.FarClip = static_cast<float>(FarClip);
+			Settings.CustomAspectRatio = std::clamp(Settings.CustomAspectRatio, 0.1f, 10.0f);
+			return Settings;
+		}
+
+		auto NormalizeViewDistanceSettings(
+			float FarClip, FViewDistanceSettings Settings) -> FViewDistanceSettings
+		{
+			double FadeStart = 0.0;
+			double RenderDistance = 0.0;
+			SceneViewProjection::ClampViewDistances(
+				FarClip, Settings.FadeStart, Settings.RenderDistance, FadeStart, RenderDistance);
+			Settings.FadeStart = static_cast<float>(FadeStart);
+			Settings.RenderDistance = static_cast<float>(RenderDistance);
+			return Settings;
+		}
 	}
 
 	auto DCameraComponent::GetFieldOfViewDegrees() const -> float
@@ -77,15 +103,11 @@ namespace Durin
 
 	auto DCameraComponent::SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void
 	{
-		ProjectionSettings.FieldOfViewDegrees = static_cast<float>(
-			SceneViewProjection::ClampFieldOfViewDegrees(InFieldOfViewDegrees));
-		double NearClip = 0.0;
-		double FarClip = 0.0;
-		SceneViewProjection::ClampPerspectiveClipRange(InNearClip, InFarClip, NearClip, FarClip);
-		ProjectionSettings.NearClip = static_cast<float>(NearClip);
-		ProjectionSettings.FarClip = static_cast<float>(FarClip);
-		SetViewDistance(ViewDistance.FadeStart, ViewDistance.RenderDistance);
-		MarkPackageDirty();
+		FCameraProjectionSettings NewProjectionSettings = ProjectionSettings;
+		NewProjectionSettings.FieldOfViewDegrees = InFieldOfViewDegrees;
+		NewProjectionSettings.NearClip = InNearClip;
+		NewProjectionSettings.FarClip = InFarClip;
+		CommitSettings(NewProjectionSettings, ViewDistance);
 	}
 
 	auto DCameraComponent::GetViewDistance() const -> const FViewDistanceSettings&
@@ -100,13 +122,10 @@ namespace Durin
 
 	auto DCameraComponent::SetViewDistance(float InFadeStart, float InRenderDistance) -> void
 	{
-		double FadeStart = 0.0;
-		double RenderDistance = 0.0;
-		SceneViewProjection::ClampViewDistances(ProjectionSettings.FarClip,
-			InFadeStart, InRenderDistance, FadeStart, RenderDistance);
-		ViewDistance.FadeStart = static_cast<float>(FadeStart);
-		ViewDistance.RenderDistance = static_cast<float>(RenderDistance);
-		MarkPackageDirty();
+		FViewDistanceSettings NewViewDistance = ViewDistance;
+		NewViewDistance.FadeStart = InFadeStart;
+		NewViewDistance.RenderDistance = InRenderDistance;
+		CommitSettings(ProjectionSettings, NewViewDistance);
 	}
 
 	auto DCameraComponent::GetViewFadeStart() const -> float
@@ -131,9 +150,10 @@ namespace Durin
 
 	auto DCameraComponent::SetAspectRatio(ECameraAspectRatioMode InMode, float InCustomAspectRatio) -> void
 	{
-		ProjectionSettings.AspectRatioMode = InMode;
-		ProjectionSettings.CustomAspectRatio = std::clamp(InCustomAspectRatio, 0.1f, 10.0f);
-		MarkPackageDirty();
+		FCameraProjectionSettings NewProjectionSettings = ProjectionSettings;
+		NewProjectionSettings.AspectRatioMode = InMode;
+		NewProjectionSettings.CustomAspectRatio = InCustomAspectRatio;
+		CommitSettings(NewProjectionSettings, ViewDistance);
 	}
 
 	auto DCameraComponent::GetProjectionSettings() const -> const FCameraProjectionSettings&
@@ -143,8 +163,21 @@ namespace Durin
 
 	auto DCameraComponent::SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void
 	{
-		SetProjectionParameters(InSettings.FieldOfViewDegrees, InSettings.NearClip, InSettings.FarClip);
-		SetAspectRatio(InSettings.AspectRatioMode, InSettings.CustomAspectRatio);
+		CommitSettings(InSettings, ViewDistance);
+	}
+
+	auto DCameraComponent::CommitSettings(
+		FCameraProjectionSettings InProjectionSettings,
+		FViewDistanceSettings InViewDistance) -> void
+	{
+		FCameraProjectionSettings NewProjectionSettings = NormalizeProjectionSettings(InProjectionSettings);
+		FViewDistanceSettings NewViewDistance = NormalizeViewDistanceSettings(
+			NewProjectionSettings.FarClip, InViewDistance);
+		if (ProjectionSettings == NewProjectionSettings && ViewDistance == NewViewDistance) return;
+
+		ProjectionSettings = NewProjectionSettings;
+		ViewDistance = NewViewDistance;
+		MarkPackageDirty();
 	}
 
 	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
@@ -156,15 +189,7 @@ namespace Durin
 		{
 			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			Settings->FieldOfViewDegrees = static_cast<float>(
-				SceneViewProjection::ClampFieldOfViewDegrees(Settings->FieldOfViewDegrees));
-			double NearClip = 0.0;
-			double FarClip = 0.0;
-			SceneViewProjection::ClampPerspectiveClipRange(
-				Settings->NearClip, Settings->FarClip, NearClip, FarClip);
-			Settings->NearClip = static_cast<float>(NearClip);
-			Settings->FarClip = static_cast<float>(FarClip);
-			Settings->CustomAspectRatio = std::clamp(Settings->CustomAspectRatio, 0.1f, 10.0f);
+			*Settings = NormalizeProjectionSettings(*Settings);
 			return true;
 		}
 
@@ -172,12 +197,7 @@ namespace Durin
 		{
 			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FViewDistanceSettings>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			double FadeStart = 0.0;
-			double RenderDistance = 0.0;
-			SceneViewProjection::ClampViewDistances(ProjectionSettings.FarClip,
-				Settings->FadeStart, Settings->RenderDistance, FadeStart, RenderDistance);
-			Settings->FadeStart = static_cast<float>(FadeStart);
-			Settings->RenderDistance = static_cast<float>(RenderDistance);
+			*Settings = NormalizeViewDistanceSettings(ProjectionSettings.FarClip, *Settings);
 			return true;
 		}
 
@@ -200,15 +220,14 @@ namespace Durin
 
 	auto DCameraComponent::SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void
 	{
+		FTransform Transform = GetWorldTransform();
+		Transform.Translation = InLocation;
 		const FVector3 Forward = InTarget - InLocation;
-		if (Math::LengthSquared(Forward) < kSmallNumber)
+		if (Math::LengthSquared(Forward) >= kSmallNumber)
 		{
-			SetWorldLocation(InLocation);
-			return;
+			Transform.Rotation = MakeCameraBasisRotation(Forward);
 		}
-
-		SetWorldLocation(InLocation);
-		SetWorldRotation(MakeCameraBasisRotation(Forward));
+		SetWorldTransform(Transform);
 	}
 
 	auto DCameraComponent::GetViewMatrix() const -> FMatrix

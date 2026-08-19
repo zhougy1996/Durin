@@ -2,6 +2,8 @@
 #include "Actors/SplineMeshActor.h"
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"
+#include "DObject/AssetPath.h"
+#include "DObject/Package.h"
 
 TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
 {
@@ -283,6 +285,67 @@ TEST(FCameraComponentTests, ViewDistanceIsIndependentAndReclampedAgainstFarClip)
 	EXPECT_LT(Camera->GetViewFadeStart(), Camera->GetViewRenderDistance());
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues)
+{
+	InitializeDObjectSystem();
+	static const bool bMountRegistered = [] {
+		const std::filesystem::path Root =
+			Durin::Testing::GetTestWorkDirectory() / "CameraComponentAtomicUpdates";
+		std::filesystem::create_directories(Root);
+		Durin::PathUtilities::RegisterMountPointForTests(
+			"/CameraComponentTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountRegistered;
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CameraComponentTests/AtomicUpdates", Path));
+	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
+	Package->InitializeAssetPackage(Path);
+	auto* World = Durin::NewObject<Durin::DWorld>(Package, "World");
+	ASSERT_TRUE(Package->SetAsset(World));
+	auto* Level = Durin::NewObject<Durin::DLevel>(World, "Level");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	Durin::DCameraComponent* Camera = CameraActor->GetCameraComponent();
+	ASSERT_NE(Camera, nullptr);
+
+	Camera->SetViewDistance(500.0f, 900.0f);
+	Package->ClearDirty();
+	Durin::FCameraProjectionSettings Settings = Camera->GetProjectionSettings();
+	Settings.FieldOfViewDegrees = 200.0f;
+	Settings.NearClip = -5.0f;
+	Settings.FarClip = 100.0f;
+	Settings.AspectRatioMode = Durin::ECameraAspectRatioMode::Custom;
+	Settings.CustomAspectRatio = 20.0f;
+	const Durin::uint64 SettingsRevision = Package->GetEditRevision();
+	Camera->SetProjectionSettings(Settings);
+	EXPECT_EQ(Package->GetEditRevision(), SettingsRevision + 1);
+	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 170.0f);
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 100.0f);
+	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
+	EXPECT_LT(Camera->GetViewRenderDistance(), 100.0f);
+
+	Package->ClearDirty();
+	const Durin::uint64 EquivalentRevision = Package->GetEditRevision();
+	Camera->SetProjectionSettings(Camera->GetProjectionSettings());
+	Camera->SetViewDistance(Camera->GetViewDistance());
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Package->GetEditRevision(), EquivalentRevision);
+
+	const Durin::uint64 TransformRevision = Package->GetEditRevision();
+	Camera->SetLookAt({10.0, 20.0, 30.0}, {11.0, 20.0, 30.0});
+	EXPECT_EQ(Package->GetEditRevision(), TransformRevision + 1);
+	ExpectVectorNear(Camera->GetWorldLocation(), {10.0, 20.0, 30.0});
+	ExpectVectorNear(
+		Durin::Math::RotateVector(Camera->GetWorldRotation(), Durin::FVectorConstants::Forward),
+		Durin::FVectorConstants::Forward);
+
+	Durin::MarkObjectHierarchyAsGarbage(Package);
 	Durin::CollectGarbage();
 }
 

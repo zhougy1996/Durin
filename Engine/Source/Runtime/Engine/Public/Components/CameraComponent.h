@@ -96,6 +96,10 @@ namespace Durin
 		ENGINE_API auto GetProjectionMatrix(float AspectRatio) const -> FMatrix;
 
 	private:
+		auto CommitSettings(
+			FCameraProjectionSettings InProjectionSettings,
+			FViewDistanceSettings InViewDistance) -> void;
+
 		DPROPERTY(Edit)
 		FCameraProjectionSettings ProjectionSettings;
 
