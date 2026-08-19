@@ -18,7 +18,7 @@ set(_durin_editor_test_modules
 	GeometryBuild
 	AssetBuildCore
 	TextureBuild
-	StandardAssetImport
+	AssetForge
 )
 
 function(durin_add_engine_functional_test target_name)

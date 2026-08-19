@@ -4,7 +4,7 @@
 #include "AssetMutation.h"
 #include "ImportRecord.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	enum class EImportRecordIndexDiagnostic : uint8
 	{

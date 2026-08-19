@@ -4,7 +4,7 @@
 #include "ImportRecord.h"
 #include "ImportRecordIndex.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	enum class EMultiOutputObservedState : uint8
 	{

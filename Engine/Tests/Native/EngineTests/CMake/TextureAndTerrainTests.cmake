@@ -30,7 +30,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS texture
-		MODULES engine texture-build standard-asset-import
+		MODULES engine texture-build asset-forge
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -54,13 +54,13 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(SceneImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES asset-import-core engine standard-asset-import
+		MODULES asset-import-core engine asset-forge
 		STACKS editor
 		TIMEOUT 600
 	)
 else()
 	durin_exclude_native_test_sources(
-		RATIONALE "Texture authoring and scene import require editor-only Build and StandardAssetImport services."
+		RATIONALE "Texture authoring and scene import require editor-only Build and AssetForge services."
 		SOURCES
 			Private/Texture/TextureTestEnvironment.cpp
 			Private/Texture/TextureImportAndCacheTests.cpp
@@ -78,24 +78,24 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES engine geometry-build standard-asset-import
+	MODULES engine geometry-build asset-forge
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport DurinEd GeometryBuild
+	LIBRARIES AssetImportCore AssetForge DurinEd GeometryBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine geometry-build standard-asset-import
+	MODULES engine geometry-build asset-forge
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES GeometryBuild StandardAssetImport
+	LIBRARIES GeometryBuild AssetForge
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests

@@ -6,9 +6,9 @@
   ],
   "entries": [
     {
-      "path": "Engine/Source/Editor/StandardAssetImport/Private/GltfSceneAdapter.cpp",
+      "path": "Engine/Source/Editor/AssetForge/Private/GltfSceneAdapter.cpp",
       "category": "third-party-interop",
-      "owner": "StandardAssetImport",
+      "owner": "AssetForge",
       "rationale": "Direct GLM spelling is part of a bounded external-format adapter boundary.",
       "includes": {},
       "symbols": {

@@ -1,6 +1,6 @@
 #include "TextureTestSupport.h"
-#include "StandardAssetAuthoringTestSupport.h"
-#include "StandardAssetImportProviders.h"
+#include "AssetForgeAuthoringTestSupport.h"
+#include "AssetForgeProviders.h"
 
 namespace
 {
@@ -14,14 +14,14 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureBuildHost());
 			std::string Error;
-			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
+			ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
 				Error, GetEngineTestModuleCallbackGate())) << Error;
 		}
 
 		auto TearDown() -> void override
 		{
-			Durin::Asset::Import::Standard::UnregisterStandardAssetImportProviders();
+			Durin::Asset::Forge::UnregisterAssetForgeProviders();
 			Durin::Asset::Build::ShutdownBuildHost();
 			Durin::Asset::Build::ShutdownTextureBuildService();
 		}

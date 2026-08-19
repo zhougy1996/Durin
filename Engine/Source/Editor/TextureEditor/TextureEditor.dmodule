@@ -11,7 +11,7 @@
         "Engine",
         "AssetCore",
         "AssetImportCore",
-        "StandardAssetImport",
+        "AssetForge",
         "TextureBuild",
         "MonaImGui",
         "MonaCore",

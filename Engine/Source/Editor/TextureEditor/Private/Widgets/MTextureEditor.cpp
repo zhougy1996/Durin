@@ -780,11 +780,11 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		const Asset::Import::FSingleAssetCapabilitySet ImportCapabilities =
-			Asset::Import::GetImportService().QuerySingleAssetCapabilities(*Texture);
-		const Asset::Import::FSingleAssetCapability* ReimportCapability =
+		const Asset::FSingleAssetCapabilitySet ImportCapabilities =
+			Asset::GetImportService().QuerySingleAssetCapabilities(*Texture);
+		const Asset::FSingleAssetCapability* ReimportCapability =
 			ImportCapabilities.Find(
-				Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
+				Asset::ESingleAssetImportCapability::ReimportCurrentSource);
 		const bool bCanReimport = ReimportCapability && ReimportCapability->bAvailable;
 		const char* ReimportLabel = ReimportCapability
 			&& !ReimportCapability->Label.empty()
@@ -836,7 +836,7 @@ namespace Durin::Editor::Texture
 	{
 		if (!Texture) return;
 		std::string Error;
-		if (!Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, Error))
+		if (!Asset::Forge::ReimportTexture2DSource(*Texture, {}, Error))
 			SetError(std::move(Error));
 	}
 
@@ -871,7 +871,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::Standard::ChangeTexture2DSourceReference(
+		if (!Asset::Forge::ChangeTexture2DSourceReference(
 			*Texture, Classified.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -935,7 +935,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::Standard::IngestAndChangeTexture2DSource(
+		if (!Asset::Forge::IngestAndChangeTexture2DSource(
 			*Texture, Input.FilePath, ClassifiedDestination.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -962,7 +962,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::Standard::RepairTexture2DSourcePath(
+		if (!Asset::Forge::RepairTexture2DSourcePath(
 			*Texture, Result.FilePath, Error))
 		{
 			SetError(std::move(Error));
@@ -1044,13 +1044,13 @@ namespace Durin::Editor::Texture
 			{
 				SetError(std::move(Error));
 			}
-			else if (!Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, Error)
+			else if (!Asset::Forge::ReimportTexture2DSource(*Texture, {}, Error)
 				|| !Asset::Build::WaitForTexture2DBuild(*Texture)
 				|| !SaveTexture(Texture))
 			{
 				RollbackMountedSourceReplacement(Replacement);
 				std::string RestoreError;
-				Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, RestoreError);
+				Asset::Forge::ReimportTexture2DSource(*Texture, {}, RestoreError);
 				Asset::Build::WaitForTexture2DBuild(*Texture);
 				if (!Error.empty()) SetError(std::move(Error));
 			}
@@ -1236,7 +1236,7 @@ namespace Durin::Editor::Texture
 		}
 		const std::string SourceDestination = Classified.RelativePath.generic_string();
 		std::string Error;
-		if (!Asset::Import::Standard::ChangeTexture2DSourceLocation(
+		if (!Asset::Forge::ChangeTexture2DSourceLocation(
 			*Texture, SourceDestination, Error))
 			SetError(std::move(Error));
 	}

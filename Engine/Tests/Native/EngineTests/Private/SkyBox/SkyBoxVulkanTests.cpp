@@ -32,7 +32,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
@@ -53,7 +53,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FModuleTestHarness RendererLifecycle("SkyBoxRendererTest");
 	RendererLifecycle.Start(Renderer);
 
-	Durin::Asset::Import::Standard::FTextureCubeImportResult CubeResult = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
+	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
 		{.FaceDimension = 64}
@@ -62,7 +62,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(CubeReference, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
-	Durin::Asset::Import::Standard::FTextureCubeImportResult HdrCubeResult = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
+	Durin::Asset::Forge::FTextureCubeImportResult HdrCubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
 		{.FaceDimension = 64, .ExposureEV = 1.0f}

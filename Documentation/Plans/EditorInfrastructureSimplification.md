@@ -36,7 +36,7 @@ removing duplicated cleanup paths and pass-through glue.
 ## Scope
 
 - Importer descriptor registration ownership in `AssetImportCore` and
-  `StandardAssetImport`, including collision-safe rollback and shutdown drain.
+  `AssetForge`, including collision-safe rollback and shutdown drain.
 - Scoped ownership for prepared `FMountedSourceFile` values used by editor
   import and source-translation workflows.
 - Shared mounted-source form state for Texture2D, StaticMesh, and Scene import
@@ -77,7 +77,7 @@ removing duplicated cleanup paths and pass-through glue.
 - Resetting a handle closes provider admission, cancels and drains admitted
   work, retires registered handlers, and removes only that handle's registration.
   A stale handle cannot unregister a later registration that reused the same ID.
-- `StandardAssetImport` retains its three handles in declaration order and
+- `AssetForge` retains its three handles in declaration order and
   resets them in strict reverse order. Partial startup failure unwinds only
   handles acquired by that attempt.
 - Module callback gates and retained resource leases continue to bound code
@@ -150,7 +150,7 @@ removing duplicated cleanup paths and pass-through glue.
 
 | Area | Existing foundation | Selected gap |
 | --- | --- | --- |
-| Import registration | `FImportService` already registers one descriptor atomically and unregisters with admission drain. | Callers own registration by provider ID and StandardAssetImport rollback unconditionally unregisters IDs it may not own. |
+| Import registration | `FImportService` already registers one descriptor atomically and unregisters with admission drain. | Callers own registration by provider ID and AssetForge rollback unconditionally unregisters IDs it may not own. |
 | Mounted source | AssetCore already records whether preparation created a file; commit clears ownership and rollback removes only a created file. | Callers manually cover every early return, and multi-source paths repeat rollback loops. |
 | Import dialogs | Destination and modal models already centralize asset-path editing and popup admission. | Source mode, source destination, browsing, suggestion, mount preview, and mesh-coordinate state remain repeated. |
 | Workspace framework | `FWorkspaceDocumentHost`, `FWorkspaceManager`, property editing, and global transactions already own shared contracts. | Material and Texture still duplicate the editable package/document adapter around those contracts. |
@@ -165,7 +165,7 @@ removing duplicated cleanup paths and pass-through glue.
   handler.
 - [x] Add importer teardown tests for exact-owner reset, reverse batch unwind,
   stale-handle reset after ID reuse, outstanding lease drain, and partial
-  StandardAssetImport startup failure.
+  AssetForge startup failure.
 - [x] Extend mounted-source tests to cover automatic rollback after every
   post-prepare failure boundary, explicit commit, move transfer, referenced and
   reused inputs, arrays with partial preparation, and idempotent empty cleanup.
@@ -192,7 +192,7 @@ removing duplicated cleanup paths and pass-through glue.
 - [x] Change `FImportService` registration state to mint and validate that
   identity while preserving atomic descriptor installation, revision changes,
   provider admission, cancellation, draining, handler teardown, and leases.
-- [x] Migrate StandardAssetImport's Scene, Assimp, and DurinImage descriptors to
+- [x] Migrate AssetForge's Scene, Assimp, and DurinImage descriptors to
   retained handles and remove unconditional ID-based rollback and `GRegistered`.
 - [x] Make partial registration failure unwind only successfully acquired
   handles in reverse order, then retain the same reverse order at shutdown.
@@ -349,7 +349,7 @@ removing duplicated cleanup paths and pass-through glue.
 
 - `Engine/Source/Editor/AssetImportCore/Public/ImportService.h`
 - `Engine/Source/Editor/AssetImportCore/Private/ImportService.cpp`
-- `Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp`
+- `Engine/Source/Editor/AssetForge/Private/AssetForgeProviders.cpp`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/MountedSource.h`
 - `Engine/Source/Runtime/AssetCore/Private/Asset/MountedSource.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.h`

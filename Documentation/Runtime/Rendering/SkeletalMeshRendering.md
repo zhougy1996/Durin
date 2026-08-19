@@ -2,7 +2,7 @@
 
 Summary: Define production GPU skinning, animated bounds, scene preparation, palette transport, passes, counters, and recovery.
 
-Modules: Engine, GeometryBuild, StandardAssetImport, Renderer, RenderCore, RHI, VulkanRHI
+Modules: Engine, GeometryBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
 
 Last reviewed: 2026-08-16
 
@@ -15,7 +15,7 @@ actor.
 GeometryBuild registers `Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
 session validates complete DSKM values against Skeleton bone count, material
 slot count, target, and request identity. Scene parsing and detached candidate
-construction remain in StandardAssetImport, which also owns the atomic asset
+construction remain in AssetForge, which also owns the atomic asset
 graph publication and hard Skeleton relationship. A valid cache hit skips
 payload encoding and another store.
 

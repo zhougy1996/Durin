@@ -15,8 +15,8 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StandardAssetImportProviders.h"
-#include "StandardAssetAuthoringTestSupport.h"
+#include "AssetForgeProviders.h"
+#include "AssetForgeAuthoringTestSupport.h"
 #include "StaticMeshSourceTranslation.h"
 
 #include <gtest/gtest.h>
@@ -57,9 +57,9 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Asset::RefreshAssetCatalog());
 	std::string ProviderError;
-	ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+	ASSERT_TRUE(Asset::Forge::RegisterAssetForgeProviders(
 		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
-	ASSERT_TRUE(Tests::InstallStandardAssetAuthoringFeatures());
+	ASSERT_TRUE(Tests::InstallAssetForgeAuthoringFeatures());
 	FAssetPath Path;
 	ASSERT_TRUE(FAssetPath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
@@ -78,7 +78,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	EXPECT_FLOAT_EQ(*LongitudinalSections.rbegin(), 0.75f);
 	EXPECT_TRUE(Asset::UnloadPackage(
 		Path, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	Asset::Import::Standard::UnregisterStandardAssetImportProviders();
+	Asset::Forge::UnregisterAssetForgeProviders();
 }
 
 TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
@@ -309,10 +309,10 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
 	DLevel* Level = nullptr;
 	std::string ProviderError;
-	ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+	ASSERT_TRUE(Asset::Forge::RegisterAssetForgeProviders(
 		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	FStaticMeshImportResult MeshImport = Asset::Import::Standard::ImportStaticMeshAsset(
+	FStaticMeshImportResult MeshImport = Asset::Forge::ImportStaticMeshAsset(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
@@ -344,7 +344,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_EQ(State->Params, Loaded->GetSplineMeshParams());
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);
 	EXPECT_TRUE(Asset::UnloadPackage(Path));
-	Asset::Import::Standard::UnregisterStandardAssetImportProviders();
+	Asset::Forge::UnregisterAssetForgeProviders();
 }
 
 TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)

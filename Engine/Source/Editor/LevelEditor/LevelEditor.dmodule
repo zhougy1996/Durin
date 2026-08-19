@@ -13,7 +13,7 @@
         "MonaImGui",
         "AssetCore",
         "AssetImportCore",
-        "StandardAssetImport",
+        "AssetForge",
         "GeometryBuild",
         "TextureBuild",
         "DurinEd"

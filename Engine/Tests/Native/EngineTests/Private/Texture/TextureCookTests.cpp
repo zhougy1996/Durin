@@ -131,7 +131,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path Source = Root / "NpotTexture.tga";
 	WriteNpotTextureFixture(Source);
-	const Durin::FTexture2DImportResult Import = Durin::Asset::Import::Standard::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Import = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureCookTests/Texture");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

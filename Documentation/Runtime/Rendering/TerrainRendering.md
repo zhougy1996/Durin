@@ -2,7 +2,7 @@
 
 Summary: Defines finite Terrain ownership, deterministic patch LOD, crack-free stitched topology, direct-instanced submission, exact height resources, materials, diagnostics, and lifecycle contracts.
 
-Modules: Engine, GeometryBuild, StandardAssetImport, RHI, VulkanRHI, RenderCore, Renderer, LevelEditor
+Modules: Engine, GeometryBuild, AssetForge, RHI, VulkanRHI, RenderCore, Renderer, LevelEditor
 
 Last reviewed: 2026-08-16
 
@@ -31,7 +31,7 @@ render-derived generation available; stale or failed work never publishes a
 partial proxy.
 
 GeometryBuild owns the synchronous `Durin.GeometryBuild.TerrainHeightmap@1`
-request and complete payload validation. StandardAssetImport's existing worker
+request and complete payload validation. AssetForge's existing worker
 first issues one cache-only request; after a miss it captures and decodes source
 and issues a query-disabled local build. Cancellation, request coalescing,
 subscriber/generation checks, and deferred GameThread publication remain with

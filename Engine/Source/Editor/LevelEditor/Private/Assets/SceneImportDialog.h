@@ -39,8 +39,8 @@ namespace Durin::Editor::Level
 		FMeshCoordinateImportModel Coordinates;
 		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 		std::string PreviewKey;
-		std::optional<Asset::Import::Standard::FSceneImportPlanResult> Preview;
-		std::optional<Asset::Import::Standard::FSceneImportAsyncPlanHandle> PreviewRequest;
-		std::optional<Asset::Import::Standard::FSceneImportAsyncPlanHandle> ImportRequest;
+		std::optional<Asset::Forge::FSceneImportPlanResult> Preview;
+		std::optional<Asset::Forge::FSceneImportAsyncPlanHandle> PreviewRequest;
+		std::optional<Asset::Forge::FSceneImportAsyncPlanHandle> ImportRequest;
 	};
 } // namespace Durin::Editor::Level

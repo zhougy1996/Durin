@@ -111,7 +111,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
+		Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;
 		if (InitializedRoots.insert(Root).second)

@@ -903,7 +903,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Capt
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = Asset::Import::Standard::CreateTransientStaticMeshFromFile(
+	DStaticMesh* Mesh = Asset::Forge::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionSourceFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -1016,7 +1016,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage5Tests, Insp
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = Asset::Import::Standard::CreateTransientStaticMeshFromFile(
+	DStaticMesh* Mesh = Asset::Forge::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(

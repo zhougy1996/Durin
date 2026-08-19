@@ -2,7 +2,7 @@
 
 #include "AssetImportCore.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	class FImporterStore final
 	{

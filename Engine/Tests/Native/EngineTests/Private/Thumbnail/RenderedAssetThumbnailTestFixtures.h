@@ -15,8 +15,8 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "StandardAssetImportProviders.h"
-#include "StandardAssetAuthoringFeatures.h"
+#include "AssetForgeProviders.h"
+#include "AssetForgeAuthoringFeatures.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
@@ -306,7 +306,7 @@ namespace Durin::Tests
 	{
 		InitializeDObjectSystem();
 		static FModuleTestOwner AuthoringContext("RenderedAssetThumbnailFixtures.Authoring");
-		static Asset::Import::Standard::FStandardAssetAuthoringFeatures AuthoringFeatures;
+		static Asset::Forge::FAssetForgeAuthoringFeatures AuthoringFeatures;
 		static auto StaticMeshAuthoring =
 			AuthoringContext.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
 		static auto Texture2DAuthoring =
@@ -316,7 +316,7 @@ namespace Durin::Tests
 		(void)StaticMeshAuthoring;
 		(void)Texture2DAuthoring;
 		(void)TextureCubeAuthoring;
-		if (!Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		if (!Asset::Forge::RegisterAssetForgeProviders(
 			OutError, GetEngineTestModuleCallbackGate())) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
@@ -377,12 +377,12 @@ namespace Durin::Tests
 		}
 
 		const std::filesystem::path DataRoot = std::filesystem::path(DURIN_TEST_DATA_DIR) / "SkyBoxConvention";
-		const FTexture2DImportResult ParentTextureResult = Asset::Import::Standard::ImportTexture2DAsset(
+		const FTexture2DImportResult ParentTextureResult = Asset::Forge::ImportTexture2DAsset(
 			(DataRoot / "PositiveX.png").generic_string(), ParentTexturePath.ToString());
 		if (!ParentTextureResult) return Fail(ParentTextureResult.Message);
 		OutFixtures.ParentTexture = ParentTextureResult.Asset;
 
-		const FTexture2DImportResult OverrideTextureResult = Asset::Import::Standard::ImportTexture2DAsset(
+		const FTexture2DImportResult OverrideTextureResult = Asset::Forge::ImportTexture2DAsset(
 			(DataRoot / "NegativeX.png").generic_string(), OverrideTexturePath.ToString());
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
@@ -463,7 +463,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		const Asset::Import::Standard::FTextureCubeImportResult CubeResult = Asset::Import::Standard::ImportTextureCubeFaces(
+		const Asset::Forge::FTextureCubeImportResult CubeResult = Asset::Forge::ImportTextureCubeFaces(
 			GetRenderedThumbnailDirectionalCubeFaces(),
 			FRenderedAssetThumbnailFixtureSet::DirectionalCubePath);
 		if (!CubeResult) return Fail(CubeResult.Message);

@@ -4,7 +4,7 @@
 #include "AsyncImport.h"
 #include "MultiOutputImport.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	class FImportService;
 

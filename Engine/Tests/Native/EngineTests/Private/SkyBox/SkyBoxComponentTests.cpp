@@ -201,7 +201,7 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 {
 	InitializeSkyBoxAssetMount();
-	Durin::Asset::Import::Standard::FTextureCubeImportResult CubeResult = Durin::Asset::Import::Standard::ImportTextureCubeFaces(
+	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubeFaces(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/Cube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 

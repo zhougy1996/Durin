@@ -441,10 +441,10 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::ReimportAsset(
 		const FContentBrowserItem& Item,
-		Asset::Import::EImportRecordAction Action) -> void
+		Asset::EImportRecordAction Action) -> void
 	{
 		const bool bRecreateMissingAssets =
-			Action != Asset::Import::EImportRecordAction::Reimport;
+			Action != Asset::EImportRecordAction::Reimport;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
 		{
@@ -459,16 +459,16 @@ namespace Durin::Editor::Level
 			SetError(Load ? "The selected asset could not be loaded." : Load.Message);
 			return;
 		}
-		Asset::Import::FImportRecordInspection Inspection =
-			Cast<Asset::Import::DImportRecord>(AssetObject)
-				? Asset::Import::InspectImportRecord(
-					Path, Asset::Import::GetImportRecordIndex())
-				: Asset::Import::InspectImportRecordForOutput(
-					Path, Asset::Import::GetImportRecordIndex());
+		Asset::FImportRecordInspection Inspection =
+			Cast<Asset::DImportRecord>(AssetObject)
+				? Asset::InspectImportRecord(
+					Path, Asset::GetImportRecordIndex())
+				: Asset::InspectImportRecordForOutput(
+					Path, Asset::GetImportRecordIndex());
 		if (Inspection && Inspection.Record)
 		{
-			const Asset::Import::FImportRecordActionResult Executed =
-				Asset::Import::GetImportService().ExecuteImportRecordAction(
+			const Asset::FImportRecordActionResult Executed =
+				Asset::GetImportService().ExecuteImportRecordAction(
 					*Inspection.Record, Action);
 			if (!Executed) { SetError(Executed.Message); return; }
 			LastReimportOrphans = Executed.Orphans;
@@ -476,22 +476,22 @@ namespace Durin::Editor::Level
 			RevealAsset(Path.ToString());
 			return;
 		}
-		const Asset::Import::FSingleAssetCapabilitySet Capabilities =
-			Asset::Import::GetImportService().QuerySingleAssetCapabilities(*AssetObject);
-		const Asset::Import::FSingleAssetCapability* Reimport = Capabilities.Find(
-			Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
+		const Asset::FSingleAssetCapabilitySet Capabilities =
+			Asset::GetImportService().QuerySingleAssetCapabilities(*AssetObject);
+		const Asset::FSingleAssetCapability* Reimport = Capabilities.Find(
+			Asset::ESingleAssetImportCapability::ReimportCurrentSource);
 		if (Reimport && Reimport->bAvailable && !bRecreateMissingAssets)
 		{
-			const Asset::Import::FSingleAssetPlanResult Planned =
-				Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+			const Asset::FSingleAssetPlanResult Planned =
+				Asset::GetImportService().CreateSingleAssetReimportPlan(
 					{.Asset = AssetObject});
 			if (!Planned)
 			{
 				SetError(Planned.Message);
 				return;
 			}
-			const Asset::Import::FSingleAssetExecutionResult Executed =
-				Asset::Import::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
+			const Asset::FSingleAssetExecutionResult Executed =
+				Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
 			if (!Executed)
 			{
 				SetError(Executed.Message);

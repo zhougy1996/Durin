@@ -7,9 +7,9 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "StandardAssetImportProviders.h"
-#include "StandardAssetAuthoringTestSupport.h"
-#include "StandardAssetImportProviderTestFixture.h"
+#include "AssetForgeProviders.h"
+#include "AssetForgeAuthoringTestSupport.h"
+#include "AssetForgeProviderTestFixture.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -524,8 +524,8 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
-	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-	Durin::Tests::FScopedStandardAssetImportProviders Providers;
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
+	Durin::Tests::FScopedAssetForgeProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
@@ -564,8 +564,8 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
-	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-	Durin::Tests::FScopedStandardAssetImportProviders Providers;
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
+	Durin::Tests::FScopedAssetForgeProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FMaterialPreviewHarness Harness;

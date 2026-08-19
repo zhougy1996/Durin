@@ -2,7 +2,7 @@
 
 Summary: Define deterministic single-clip skeletal pose evaluation, playback ownership, and immutable palette publication.
 
-Modules: Engine, GeometryBuild, StandardAssetImport
+Modules: Engine, GeometryBuild, AssetForge
 
 Last reviewed: 2026-08-16
 
@@ -16,7 +16,7 @@ play state, looping, rate, revisions, and evaluated poses never live on
 
 GeometryBuild registers `Durin.GeometryBuild.AnimationClip@1`; its synchronous
 session validates the complete DANM value against the Skeleton/target context.
-StandardAssetImport retains scene capture, clip naming, hard Skeleton
+AssetForge retains scene capture, clip naming, hard Skeleton
 relationships, and transaction publication. Cache-only authored load never
 invokes scene import, and a valid hit skips payload encoding and another store.
 

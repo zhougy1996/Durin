@@ -57,7 +57,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild StandardAssetImport bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForge bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -141,7 +141,7 @@ durin_add_engine_functional_test(MaterialTests
 		AssetImportCore
 		RenderCore
 		Renderer
-		StandardAssetImport
+		AssetForge
 		MonaCore
 		Mona
 		MonaImGui
@@ -174,7 +174,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		AssetImportCore
 		RenderCore
 		Renderer
-		StandardAssetImport
+		AssetForge
 		MonaCore
 		Mona
 		MonaImGui
@@ -212,7 +212,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetImportCore GeometryBuild AssetForge RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -242,13 +242,13 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	KIND integration
 	DOMAINS asset-import skeletal-mesh
-	MODULES engine skeletal-mesh-editor standard-asset-import
+	MODULES engine skeletal-mesh-editor asset-forge
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport RenderCore DurinEd SkeletalMeshEditor
+	LIBRARIES AssetImportCore AssetForge RenderCore DurinEd SkeletalMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -269,7 +269,7 @@ durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForge/Private
 )
 set(_durin_texture_test_libraries
 	Core
@@ -279,7 +279,7 @@ set(_durin_texture_test_libraries
 	AssetImportCore
 	GeometryBuild
 	TextureBuild
-	StandardAssetImport
+	AssetForge
 	RenderCore
 	Renderer
 	DurinEd

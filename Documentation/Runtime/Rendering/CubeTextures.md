@@ -2,19 +2,19 @@
 
 Summary: Define cube-texture assets, source ingestion, platform payloads, upload, and rendering use.
 
-Modules: Engine, StandardAssetImport, TextureBuild, Renderer, RHI
+Modules: Engine, AssetForge, TextureBuild, Renderer, RHI
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
 
 Runtime Engine owns reflected source provenance, TextureCube runtime/platform
 values, serialization, Cooked loading, detached publication, and render
-resources. `StandardAssetImport/TextureCubeSourceTranslation.h` owns validation,
+resources. `AssetForge/TextureCubeSourceTranslation.h` owns validation,
 format admission, typed source translation, import/reimport, mounted-source
 mutation, package save, and rollback. One immutable source capture supplies the
 bytes, hash, size, path, and fingerprint used by each operation. TextureBuild owns source-independent face/panorama recipes and
 DDC policy. Runtime Engine has no authoring callback bundle; the only uncooked
-load seam is the independently reversible StandardAssetImport
+load seam is the independently reversible AssetForge
 `TextureCubePostLoadPolicy`, which reuses the same translator.
 
 ## Coordinate System

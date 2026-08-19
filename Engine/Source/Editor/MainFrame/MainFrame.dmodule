@@ -15,7 +15,7 @@
 		"AssetBuildCore",
 		"GeometryBuild",
 		"TextureBuild",
-		"StandardAssetImport",
+		"AssetForge",
         "LevelEditor",
         "MaterialEditor",
         "TextureEditor",

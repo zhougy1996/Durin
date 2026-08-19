@@ -14,15 +14,15 @@ namespace Durin
 			RegistryCallbacks =
 				FModuleStartup::CreateOwnedCallbackRegistration("AssetCore.ReferenceStores");
 			ReferenceStoreHandle = Asset::RegisterAssetReferenceStore(
-				&Asset::Import::GetImportRecordIndex(), RegistryCallbacks.GetGate());
+				&Asset::GetImportRecordIndex(), RegistryCallbacks.GetGate());
 		}
 
 		auto ShutdownModule() -> void override
 		{
 			Asset::UnregisterAssetReferenceStore(ReferenceStoreHandle);
 			ReferenceStoreHandle = 0;
-			Asset::Import::GetImportService().CloseAsyncAdmission();
-			Asset::Import::GetImportService().CancelAndDrainAllAsyncImports();
+			Asset::GetImportService().CloseAsyncAdmission();
+			Asset::GetImportService().CancelAndDrainAllAsyncImports();
 		}
 
 	private:

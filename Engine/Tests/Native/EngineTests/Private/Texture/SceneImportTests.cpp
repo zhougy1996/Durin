@@ -8,7 +8,7 @@
 #include "SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "StandardAssetImportProviders.h"
+#include "AssetForgeProviders.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
 
@@ -29,7 +29,7 @@ namespace
 
 		~FAsyncImportSchedulerGuard()
 		{
-			Durin::Asset::Import::GetImportService().CancelAndDrainAllAsyncImports();
+			Durin::Asset::GetImportService().CancelAndDrainAllAsyncImports();
 			Durin::ShutdownTaskScheduler(false);
 			if (bRestoreScheduler && !Durin::InitializeTaskScheduler(PreviousConfig))
 			{
@@ -64,7 +64,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		EXPECT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
 			Error, GetEngineTestModuleCallbackGate())) << Error;
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "SceneImport" / std::string(Name);
@@ -88,7 +88,7 @@ namespace
 					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();
-		EXPECT_NE(Durin::Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(Error), nullptr)
+		EXPECT_NE(Durin::Asset::Forge::EnsureImportedSurfaceMaterial(Error), nullptr)
 			<< Error;
 		const std::filesystem::path Destination =
 			Root / "Project/Content" / "Scenes" / (std::string(Name) + ".gltf");
@@ -133,9 +133,9 @@ namespace
 	}
 
 	auto PlanAndExecute(const FSceneFixture& Fixture, size_t ExpectedOutputCount = 3)
-		-> Durin::Asset::Import::Standard::FSceneImportExecutionResult
+		-> Durin::Asset::Forge::FSceneImportExecutionResult
 	{
-		const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+		const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 			.RootSource = Fixture.Source,
 			.DestinationDirectory = Fixture.DestinationDirectory,
 			.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
@@ -144,7 +144,7 @@ namespace
 		EXPECT_EQ(
 			Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(),
 			ExpectedOutputCount);
-		return Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+		return Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	}
 
 }
@@ -152,13 +152,13 @@ namespace
 TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("Initial");
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed = PlanAndExecute(Fixture);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed = PlanAndExecute(Fixture);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	ASSERT_NE(Executed.Record, nullptr);
 	ASSERT_EQ(Executed.Meshes.size(), 1u);
 	ASSERT_EQ(Executed.Materials.size(), 1u);
 	ASSERT_EQ(Executed.Textures.size(), 1u);
-	EXPECT_EQ(Executed.Record->GetProviderId(), Durin::Asset::Import::Standard::SceneImportProviderId);
+	EXPECT_EQ(Executed.Record->GetProviderId(), Durin::Asset::Forge::SceneImportProviderId);
 	EXPECT_FALSE(Executed.Record->GetPrimaryOutput().IsValid());
 	EXPECT_EQ(Executed.Record->GetOutputs().size(), 3u);
 	EXPECT_TRUE(Executed.Record->IsCookExcluded());
@@ -173,19 +173,19 @@ TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
 TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimportsIt)
 {
 	const FSceneFixture Fixture = InitializeSkeletalSceneFixture("SkeletalGraph");
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	ASSERT_TRUE(Planned) << Planned.Message;
-	const Durin::Asset::Import::FImportPlan& Generic =
+	const Durin::Asset::FImportPlan& Generic =
 		Planned.Plan.GetMultiOutputPlan().GetGenericPlan();
 	ASSERT_EQ(Generic.GetOutputs().size(), 11u);
 	EXPECT_FALSE(Planned.Plan.GetMultiOutputPlan().GetPrimaryOutput().IsValid());
 
 	std::unordered_map<std::string, size_t> RoleCounts;
 	size_t AnimationClipCount = 0;
-	for (const Durin::Asset::Import::FImportOutputPreview& Output : Generic.GetOutputs())
+	for (const Durin::Asset::FImportOutputPreview& Output : Generic.GetOutputs())
 	{
 		++RoleCounts[Output.Role];
 		const std::string Parent = std::filesystem::path(
@@ -202,8 +202,8 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 	EXPECT_EQ(RoleCounts["SkeletalMesh"], 2u);
 	EXPECT_EQ(AnimationClipCount, 4u);
 
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	ASSERT_NE(Executed.Record, nullptr);
 	ASSERT_EQ(Executed.Record->GetOutputs().size(), 11u);
@@ -267,11 +267,11 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		MeshDerivedDataKeys.push_back(Mesh->GetDerivedDataKey());
 	for (Durin::DAnimationClip* Clip : Executed.AnimationClips)
 		ClipDerivedDataKeys.push_back(Clip->GetDerivedDataKey());
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult ReimportPlan =
-		Durin::Asset::Import::Standard::PlanSceneReimport(*Executed.Record);
+	const Durin::Asset::Forge::FSceneImportPlanResult ReimportPlan =
+		Durin::Asset::Forge::PlanSceneReimport(*Executed.Record);
 	ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Reimported =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(ReimportPlan.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Reimported =
+		Durin::Asset::Forge::ExecuteSceneImport(ReimportPlan.Plan);
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_EQ(Reimported.Record, Executed.Record);
 	EXPECT_EQ(Reimported.Record->GetFingerprint(), RecordFingerprint);
@@ -284,10 +284,10 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 	for (size_t Index = 0; Index < Reimported.AnimationClips.size(); ++Index)
 		EXPECT_EQ(Reimported.AnimationClips[Index]->GetDerivedDataKey(),
 			ClipDerivedDataKeys[Index]);
-	const Durin::Asset::Import::FImportRecordActionResult ProviderNeutral =
-		Durin::Asset::Import::GetImportService().ExecuteImportRecordAction(
+	const Durin::Asset::FImportRecordActionResult ProviderNeutral =
+		Durin::Asset::GetImportService().ExecuteImportRecordAction(
 			*Reimported.Record,
-			Durin::Asset::Import::EImportRecordAction::Reimport);
+			Durin::Asset::EImportRecordAction::Reimport);
 	ASSERT_TRUE(ProviderNeutral) << ProviderNeutral.Message;
 	ASSERT_EQ(ProviderNeutral.Outputs.size(), Reimported.Record->GetOutputs().size());
 	for (size_t OutputIndex = 0; OutputIndex < ProviderNeutral.Outputs.size(); ++OutputIndex)
@@ -311,7 +311,7 @@ TEST(FSceneImportTests, GltfAndGlbPublishEquivalentSkeletalGraphsAcrossRepeatedR
 	{
 		SCOPED_TRACE(FixtureFile);
 		const FSceneFixture Fixture = InitializeSkeletalSceneFixture(Name, FixtureFile);
-		const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture, 11);
+		const Durin::Asset::Forge::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture, 11);
 		ASSERT_TRUE(Initial) << Initial.Message;
 		ASSERT_NE(Initial.Record, nullptr);
 		ASSERT_EQ(Initial.Record->GetOutputs().size(), 11u);
@@ -365,11 +365,11 @@ TEST(FSceneImportTests, GltfAndGlbPublishEquivalentSkeletalGraphsAcrossRepeatedR
 		for (size_t ReimportIndex = 0; ReimportIndex < 2; ++ReimportIndex)
 		{
 			SCOPED_TRACE(std::format("reimport {}", ReimportIndex));
-			const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned =
-				Durin::Asset::Import::Standard::PlanSceneReimport(*Initial.Record);
+			const Durin::Asset::Forge::FSceneImportPlanResult Planned =
+				Durin::Asset::Forge::PlanSceneReimport(*Initial.Record);
 			ASSERT_TRUE(Planned) << Planned.Message;
-			const Durin::Asset::Import::Standard::FSceneImportExecutionResult Reimported =
-				Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+			const Durin::Asset::Forge::FSceneImportExecutionResult Reimported =
+				Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 			ASSERT_TRUE(Reimported) << Reimported.Message;
 			EXPECT_EQ(Reimported.Record, Initial.Record);
 			EXPECT_EQ(Reimported.Record->GetFingerprint(), RecordFingerprint);
@@ -393,16 +393,16 @@ TEST(FSceneImportTests, GltfAndGlbPublishEquivalentSkeletalGraphsAcrossRepeatedR
 TEST(FSceneImportTests, SkeletalStaleCollisionPublishesNothing)
 {
 	const FSceneFixture Fixture = InitializeSkeletalSceneFixture("SkeletalStaleCollision");
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	ASSERT_TRUE(Planned) << Planned.Message;
-	const Durin::Asset::Import::FImportPlan& Generic =
+	const Durin::Asset::FImportPlan& Generic =
 		Planned.Plan.GetMultiOutputPlan().GetGenericPlan();
 	const auto SkeletonOutput = std::ranges::find(
 		Generic.GetOutputs(), std::string("Skeleton"),
-		&Durin::Asset::Import::FImportOutputPreview::Role);
+		&Durin::Asset::FImportOutputPreview::Role);
 	ASSERT_NE(SkeletonOutput, Generic.GetOutputs().end());
 	Durin::DSkeleton* Occupant = nullptr;
 	const Durin::Asset::FAssetResult Created =
@@ -415,14 +415,14 @@ TEST(FSceneImportTests, SkeletalStaleCollisionPublishesNothing)
 		.ParentIndex = -1,
 		.ReferenceTransform = Durin::FSkeletonTransform{}}}, Error)) << Error;
 
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	EXPECT_FALSE(Executed);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(
 		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(
 		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
-	for (const Durin::Asset::Import::FImportOutputPreview& Output : Generic.GetOutputs())
+	for (const Durin::Asset::FImportOutputPreview& Output : Generic.GetOutputs())
 	{
 		Durin::DPackage* Draft = Durin::Asset::FindResidentPackage(Output.AssetPath);
 		if (Output.AssetPath == SkeletonOutput->AssetPath)
@@ -435,13 +435,13 @@ TEST(FSceneImportTests, SkeletalStaleCollisionPublishesNothing)
 TEST(FSceneImportTests, SkeletalRootLastFailureRestoresEveryPackage)
 {
 	const FSceneFixture Fixture = InitializeSkeletalSceneFixture("SkeletalFailureRestore");
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult InitialPlan = Durin::Asset::Import::Standard::PlanSceneImport({
+	const Durin::Asset::Forge::FSceneImportPlanResult InitialPlan = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	ASSERT_TRUE(InitialPlan) << InitialPlan.Message;
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(InitialPlan.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Initial =
+		Durin::Asset::Forge::ExecuteSceneImport(InitialPlan.Plan);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	std::vector<std::pair<Durin::DPackage*, std::vector<Durin::uint8>>> BeforeBytes;
 	auto Capture = [&](Durin::DObject* Object) {
@@ -460,15 +460,15 @@ TEST(FSceneImportTests, SkeletalRootLastFailureRestoresEveryPackage)
 	for (Durin::DAnimationClip* Clip : Initial.AnimationClips) Capture(Clip);
 	ASSERT_EQ(BeforeBytes.size(), 12u);
 
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult ReimportPlan =
-		Durin::Asset::Import::Standard::PlanSceneReimport(*Initial.Record);
+	const Durin::Asset::Forge::FSceneImportPlanResult ReimportPlan =
+		Durin::Asset::Forge::PlanSceneReimport(*Initial.Record);
 	ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
-	Durin::Asset::Import::FMultiOutputExecutionOptions Options;
+	Durin::Asset::FMultiOutputExecutionOptions Options;
 	Options.SaveOptions.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 		return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRootPackage;
 	};
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Failed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(ReimportPlan.Plan, Options);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Failed =
+		Durin::Asset::Forge::ExecuteSceneImport(ReimportPlan.Plan, Options);
 	EXPECT_FALSE(Failed);
 	for (const auto& [Package, ExpectedBytes] : BeforeBytes)
 	{
@@ -483,16 +483,16 @@ TEST(FSceneImportTests, SkeletalRootLastFailureRestoresEveryPackage)
 TEST(FSceneImportTests, ImportsGltfPbrFactorsSemanticTexturesAndPackedChannels)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("PbrContract");
-	Durin::Asset::Import::Standard::FPreparedSceneSourceBundle Bundle;
+	Durin::Asset::Forge::FPreparedSceneSourceBundle Bundle;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::PrepareSceneSourceBundle(
+	ASSERT_TRUE(Durin::Asset::Forge::PrepareSceneSourceBundle(
 		std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "StaticModelMaterials/ImportedPbrContract.gltf",
 		Fixture.DestinationDirectory.ToString(),
 		"/SceneImportTests/Ingested/ImportedPbrContract.gltf",
 		Bundle, Error)) << Error;
-	Durin::Asset::Import::Standard::CommitSceneSourceBundle(Bundle);
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	Durin::Asset::Forge::CommitSceneSourceBundle(Bundle);
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Bundle.RootSource,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
@@ -500,8 +500,8 @@ TEST(FSceneImportTests, ImportsGltfPbrFactorsSemanticTexturesAndPackedChannels)
 	EXPECT_EQ(Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 9u);
 	EXPECT_TRUE(Planned.Plan.GetWarnings().empty());
 
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	ASSERT_EQ(Executed.Materials.size(), 1u);
 	ASSERT_EQ(Executed.Textures.size(), 7u);
@@ -594,11 +594,11 @@ TEST(FSceneImportTests, ImportsGltfPbrFactorsSemanticTexturesAndPackedChannels)
 	std::vector<std::string> TextureKeys;
 	for (Durin::DTexture2D* Texture : TextureIdentities)
 		TextureKeys.push_back(Texture->GetDerivedDataKey());
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult ReimportPlan =
-		Durin::Asset::Import::Standard::PlanSceneReimport(*Executed.Record);
+	const Durin::Asset::Forge::FSceneImportPlanResult ReimportPlan =
+		Durin::Asset::Forge::PlanSceneReimport(*Executed.Record);
 	ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Reimported =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(ReimportPlan.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Reimported =
+		Durin::Asset::Forge::ExecuteSceneImport(ReimportPlan.Plan);
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	ASSERT_EQ(Reimported.Materials.size(), 1u);
 	EXPECT_EQ(Reimported.Materials[0], Material);
@@ -615,16 +615,16 @@ TEST(FSceneImportTests, PlansPeerOutputsInsideTypedSceneDirectories)
 	FSceneFixture Fixture = InitializeSceneFixture("Robot");
 	Fixture.DestinationDirectory = MakeAssetPath(
 		"/SceneImportTests/Scenes/Robot");
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	ASSERT_TRUE(Planned) << Planned.Message;
 
-	const Durin::Asset::Import::FImportPlan& Generic =
+	const Durin::Asset::FImportPlan& Generic =
 		Planned.Plan.GetMultiOutputPlan().GetGenericPlan();
 	ASSERT_EQ(Generic.GetOutputs().size(), 3u);
-	for (const Durin::Asset::Import::FImportOutputPreview& Output : Generic.GetOutputs())
+	for (const Durin::Asset::FImportOutputPreview& Output : Generic.GetOutputs())
 	{
 		const std::string Parent = std::filesystem::path(
 			Output.AssetPath.ToString()).parent_path().generic_string();
@@ -652,14 +652,14 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 	Durin::ShutdownTaskScheduler(false);
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	const FSceneFixture Fixture = InitializeSceneFixture("AsyncEquivalence");
-	Durin::Asset::Import::Standard::FSceneImportRequest Request{
+	Durin::Asset::Forge::FSceneImportRequest Request{
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
-	Durin::Asset::Import::Standard::FSceneImportPlanResult Synchronous = Durin::Asset::Import::Standard::PlanSceneImport(Request);
+	Durin::Asset::Forge::FSceneImportPlanResult Synchronous = Durin::Asset::Forge::PlanSceneImport(Request);
 	ASSERT_TRUE(Synchronous) << Synchronous.Message;
-	Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Synchronous.Plan);
+	Durin::Asset::Forge::FSceneImportExecutionResult Initial =
+		Durin::Asset::Forge::ExecuteSceneImport(Synchronous.Plan);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	ASSERT_NE(Initial.Record, nullptr);
 	ASSERT_EQ(Initial.Meshes.size(), 1u);
@@ -681,20 +681,20 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 		CaptureBytes(Texture->GetPackage());
 	const std::string TextureDerivedDataKey = Initial.Textures[0]->GetDerivedDataKey();
 	Request.ExistingRecord = Initial.Record;
-	Durin::Asset::Import::Standard::FSceneImportAsyncPlanHandle Handle = Durin::Asset::Import::Standard::BeginSceneImportPlan(
+	Durin::Asset::Forge::FSceneImportAsyncPlanHandle Handle = Durin::Asset::Forge::BeginSceneImportPlan(
 		Request, "Tests.SceneImport.AsyncEquivalence");
 	ASSERT_TRUE(Handle);
-	Durin::Asset::Import::Standard::FSceneImportPlanResult Asynchronous;
-	Durin::Asset::Import::EAsyncImportPlanStatus Status =
-		Durin::Asset::Import::EAsyncImportPlanStatus::Pending;
+	Durin::Asset::Forge::FSceneImportPlanResult Asynchronous;
+	Durin::Asset::EAsyncImportPlanStatus Status =
+		Durin::Asset::EAsyncImportPlanStatus::Pending;
 	for (Durin::uint32 Attempt = 0; Attempt < 10'000
-		&& Status == Durin::Asset::Import::EAsyncImportPlanStatus::Pending; ++Attempt)
+		&& Status == Durin::Asset::EAsyncImportPlanStatus::Pending; ++Attempt)
 	{
-		Status = Durin::Asset::Import::Standard::PollSceneImportPlan(Handle, Asynchronous);
-		if (Status == Durin::Asset::Import::EAsyncImportPlanStatus::Pending)
+		Status = Durin::Asset::Forge::PollSceneImportPlan(Handle, Asynchronous);
+		if (Status == Durin::Asset::EAsyncImportPlanStatus::Pending)
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	EXPECT_EQ(Status, Durin::Asset::Import::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_EQ(Status, Durin::Asset::EAsyncImportPlanStatus::Succeeded);
 	ASSERT_TRUE(Asynchronous) << Asynchronous.Message;
 	const auto& SyncGeneric =
 		Synchronous.Plan.GetMultiOutputPlan().GetGenericPlan();
@@ -704,15 +704,15 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 	EXPECT_TRUE(std::ranges::equal(
 		SyncGeneric.GetOutputs(), AsyncGeneric.GetOutputs()));
 	EXPECT_EQ(Synchronous.Diagnostics, Asynchronous.Diagnostics);
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Canceled = Durin::Asset::Import::Standard::ExecuteSceneImport(
+	const Durin::Asset::Forge::FSceneImportExecutionResult Canceled = Durin::Asset::Forge::ExecuteSceneImport(
 		Asynchronous.Plan, {
 			.IsCancellationRequested = [] { return true; }});
 	ASSERT_FALSE(Canceled);
 	ASSERT_FALSE(Canceled.Diagnostics.empty());
 	EXPECT_EQ(Canceled.Diagnostics.back().Category,
-		Durin::Asset::Import::EImportDiagnosticCategory::Canceled);
-	Durin::Asset::Import::Standard::FSceneImportExecutionResult Reimported =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Asynchronous.Plan);
+		Durin::Asset::EImportDiagnosticCategory::Canceled);
+	Durin::Asset::Forge::FSceneImportExecutionResult Reimported =
+		Durin::Asset::Forge::ExecuteSceneImport(Asynchronous.Plan);
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_EQ(Reimported.Record, Initial.Record);
 	ASSERT_EQ(Reimported.Textures.size(), 1u);
@@ -735,38 +735,38 @@ TEST(FSceneImportTests, SkeletalAsyncPreparationMatchesSynchronousAssetGraph)
 	Durin::ShutdownTaskScheduler(false);
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	const FSceneFixture Fixture = InitializeSkeletalSceneFixture("SkeletalAsyncEquivalence");
-	const Durin::Asset::Import::Standard::FSceneImportRequest Request{
+	const Durin::Asset::Forge::FSceneImportRequest Request{
 		.RootSource = Fixture.Source,
 		.DestinationDirectory = Fixture.DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Synchronous = Durin::Asset::Import::Standard::PlanSceneImport(Request);
+	const Durin::Asset::Forge::FSceneImportPlanResult Synchronous = Durin::Asset::Forge::PlanSceneImport(Request);
 	ASSERT_TRUE(Synchronous) << Synchronous.Message;
 
-	Durin::Asset::Import::Standard::FSceneImportAsyncPlanHandle Handle = Durin::Asset::Import::Standard::BeginSceneImportPlan(
+	Durin::Asset::Forge::FSceneImportAsyncPlanHandle Handle = Durin::Asset::Forge::BeginSceneImportPlan(
 		Request, "Tests.SceneImport.SkeletalAsyncEquivalence");
 	ASSERT_TRUE(Handle);
-	Durin::Asset::Import::Standard::FSceneImportPlanResult Asynchronous;
-	Durin::Asset::Import::EAsyncImportPlanStatus Status =
-		Durin::Asset::Import::EAsyncImportPlanStatus::Pending;
+	Durin::Asset::Forge::FSceneImportPlanResult Asynchronous;
+	Durin::Asset::EAsyncImportPlanStatus Status =
+		Durin::Asset::EAsyncImportPlanStatus::Pending;
 	for (Durin::uint32 Attempt = 0; Attempt < 10'000
-		&& Status == Durin::Asset::Import::EAsyncImportPlanStatus::Pending; ++Attempt)
+		&& Status == Durin::Asset::EAsyncImportPlanStatus::Pending; ++Attempt)
 	{
-		Status = Durin::Asset::Import::Standard::PollSceneImportPlan(Handle, Asynchronous);
-		if (Status == Durin::Asset::Import::EAsyncImportPlanStatus::Pending)
+		Status = Durin::Asset::Forge::PollSceneImportPlan(Handle, Asynchronous);
+		if (Status == Durin::Asset::EAsyncImportPlanStatus::Pending)
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	ASSERT_EQ(Status, Durin::Asset::Import::EAsyncImportPlanStatus::Succeeded);
+	ASSERT_EQ(Status, Durin::Asset::EAsyncImportPlanStatus::Succeeded);
 	ASSERT_TRUE(Asynchronous) << Asynchronous.Message;
-	const Durin::Asset::Import::FImportPlan& SyncGeneric =
+	const Durin::Asset::FImportPlan& SyncGeneric =
 		Synchronous.Plan.GetMultiOutputPlan().GetGenericPlan();
-	const Durin::Asset::Import::FImportPlan& AsyncGeneric =
+	const Durin::Asset::FImportPlan& AsyncGeneric =
 		Asynchronous.Plan.GetMultiOutputPlan().GetGenericPlan();
 	EXPECT_EQ(SyncGeneric.GetFingerprint(), AsyncGeneric.GetFingerprint());
 	EXPECT_TRUE(std::ranges::equal(SyncGeneric.GetOutputs(), AsyncGeneric.GetOutputs()));
 	EXPECT_EQ(Synchronous.Diagnostics, Asynchronous.Diagnostics);
 
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Asynchronous.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
+		Durin::Asset::Forge::ExecuteSceneImport(Asynchronous.Plan);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	EXPECT_EQ(Executed.Skeletons.size(), 2u);
 	EXPECT_EQ(Executed.SkeletalMeshes.size(), 2u);
@@ -776,23 +776,23 @@ TEST(FSceneImportTests, SkeletalAsyncPreparationMatchesSynchronousAssetGraph)
 TEST(FSceneImportTests, UsesProviderNeutralRecordCapabilitiesForReimport)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("RecordCapabilities");
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	Durin::FAssetPath RecordPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Initial.Record->GetPackage()->GetPackagePath(), RecordPath));
-	const auto Inspection = Durin::Asset::Import::InspectImportRecord(
-		RecordPath, Durin::Asset::Import::GetImportRecordIndex());
+	const auto Inspection = Durin::Asset::InspectImportRecord(
+		RecordPath, Durin::Asset::GetImportRecordIndex());
 	ASSERT_TRUE(Inspection) << Inspection.Message;
-	const auto Capabilities = Durin::Asset::Import::GetImportService()
+	const auto Capabilities = Durin::Asset::GetImportService()
 		.QueryImportRecordCapabilities(Inspection);
 	const auto* Reimport = Capabilities.Find(
-		Durin::Asset::Import::EImportRecordAction::Reimport);
+		Durin::Asset::EImportRecordAction::Reimport);
 	ASSERT_NE(Reimport, nullptr);
 	ASSERT_TRUE(Reimport->bAvailable);
-	const auto Executed = Durin::Asset::Import::GetImportService().ExecuteImportRecordAction(
+	const auto Executed = Durin::Asset::GetImportService().ExecuteImportRecordAction(
 		*Inspection.Record,
-		Durin::Asset::Import::EImportRecordAction::Reimport);
+		Durin::Asset::EImportRecordAction::Reimport);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	EXPECT_EQ(Executed.Record, Initial.Record);
 	EXPECT_EQ(Executed.Outputs.size(), 3u);
@@ -812,32 +812,32 @@ TEST(FSceneImportTests, RuntimeOutputsDoNotReflectSceneOwnershipState)
 TEST(FSceneImportTests, IngestsExternalGltfBundleAndPlansFbxBeforePublication)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("ExternalBundle");
-	Durin::Asset::Import::Standard::FPreparedSceneSourceBundle Bundle;
+	Durin::Asset::Forge::FPreparedSceneSourceBundle Bundle;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::PrepareSceneSourceBundle(
+	ASSERT_TRUE(Durin::Asset::Forge::PrepareSceneSourceBundle(
 		std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "StaticModelMaterials/MaterialContract.gltf",
 		Fixture.DestinationDirectory.ToString(),
 		"/SceneImportTests/Ingested/MaterialContract.gltf",
 		Bundle, Error)) << Error;
 	ASSERT_EQ(Bundle.Sources.size(), 3u);
-	Durin::Asset::Import::Standard::CommitSceneSourceBundle(Bundle);
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	Durin::Asset::Forge::CommitSceneSourceBundle(Bundle);
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = Bundle.RootSource,
 		.DestinationDirectory = MakeAssetPath(
 			"/SceneImportTests/SceneImport/ExternalBundle/Gltf"),
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	EXPECT_TRUE(Planned) << Planned.Message;
 
-	Durin::Asset::Import::Standard::FPreparedSceneSourceBundle FbxBundle;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::PrepareSceneSourceBundle(
+	Durin::Asset::Forge::FPreparedSceneSourceBundle FbxBundle;
+	ASSERT_TRUE(Durin::Asset::Forge::PrepareSceneSourceBundle(
 		std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "StaticModelMaterials/PhongMaterial.fbx",
 		Fixture.DestinationDirectory.ToString(),
 		"/SceneImportTests/Ingested/PhongMaterial.fbx",
 		FbxBundle, Error)) << Error;
-	Durin::Asset::Import::Standard::CommitSceneSourceBundle(FbxBundle);
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult FbxPlanned = Durin::Asset::Import::Standard::PlanSceneImport({
+	Durin::Asset::Forge::CommitSceneSourceBundle(FbxBundle);
+	const Durin::Asset::Forge::FSceneImportPlanResult FbxPlanned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = FbxBundle.RootSource,
 		.DestinationDirectory = MakeAssetPath(
 			"/SceneImportTests/SceneImport/ExternalBundle/Fbx"),
@@ -848,7 +848,7 @@ TEST(FSceneImportTests, IngestsExternalGltfBundleAndPlansFbxBeforePublication)
 TEST(FSceneImportTests, ReimportsManagedPeersInPlaceAndKeepsRecordAuthoritative)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("Reimport");
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	const std::string PreviousRecordFingerprint = Initial.Record->GetFingerprint();
 	ASSERT_EQ(Initial.Meshes.size(), 1u);
@@ -856,11 +856,11 @@ TEST(FSceneImportTests, ReimportsManagedPeersInPlaceAndKeepsRecordAuthoritative)
 	Durin::DMaterialInstance* Material = Initial.Materials[0];
 	Durin::DTexture2D* Texture = Initial.Textures[0];
 
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned =
-		Durin::Asset::Import::Standard::PlanSceneReimport(*Initial.Record);
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned =
+		Durin::Asset::Forge::PlanSceneReimport(*Initial.Record);
 	ASSERT_TRUE(Planned) << Planned.Message;
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Reimported =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Reimported =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_EQ(Reimported.Record, Initial.Record);
 	ASSERT_EQ(Reimported.Meshes.size(), 1u);
@@ -875,7 +875,7 @@ TEST(FSceneImportTests, ReimportsManagedPeersInPlaceAndKeepsRecordAuthoritative)
 TEST(FSceneImportTests, FailedRootLastReimportRestoresEveryPeerAndRecord)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("FailureRestore");
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	const std::string RecordFingerprint = Initial.Record->GetFingerprint();
 	ASSERT_EQ(Initial.Meshes.size(), 1u);
@@ -883,15 +883,15 @@ TEST(FSceneImportTests, FailedRootLastReimportRestoresEveryPeerAndRecord)
 		->GetSourceImportData().SourceContentHash;
 	const std::string TextureKey = Initial.Textures[0]->GetDerivedDataKey();
 
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned =
-		Durin::Asset::Import::Standard::PlanSceneReimport(*Initial.Record);
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned =
+		Durin::Asset::Forge::PlanSceneReimport(*Initial.Record);
 	ASSERT_TRUE(Planned) << Planned.Message;
-	Durin::Asset::Import::FMultiOutputExecutionOptions Options;
+	Durin::Asset::FMultiOutputExecutionOptions Options;
 	Options.SaveOptions.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 		return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRootPackage;
 	};
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Failed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan, Options);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Failed =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan, Options);
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Initial.Record->GetFingerprint(), RecordFingerprint);
 	EXPECT_EQ(Initial.Meshes[0]->GetSourceImportData().SourceContentHash, MeshFingerprint);
@@ -901,13 +901,13 @@ TEST(FSceneImportTests, FailedRootLastReimportRestoresEveryPeerAndRecord)
 TEST(FSceneImportTests, RecordReloadDoesNotLoadOutputDependencyClosure)
 {
 	const FSceneFixture Fixture = InitializeSceneFixture("RecordReload");
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	Durin::FAssetPath RecordPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Initial.Record->GetPackage()->GetPackagePath(), RecordPath));
 	std::vector<Durin::FAssetPath> Outputs;
-	for (const Durin::Asset::Import::FImportRecordOutput& Output
+	for (const Durin::Asset::FImportRecordOutput& Output
 		: Initial.Record->GetOutputs()) Outputs.push_back(Output.AssetPath);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(
 		MakeAssetPath(Initial.Meshes[0]->GetPackage()->GetPackagePath())));
@@ -919,7 +919,7 @@ TEST(FSceneImportTests, RecordReloadDoesNotLoadOutputDependencyClosure)
 			MakeAssetPath(Texture->GetPackage()->GetPackagePath())));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RecordPath));
 
-	Durin::Asset::Import::DImportRecord* Reloaded = nullptr;
+	Durin::Asset::DImportRecord* Reloaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RecordPath, Reloaded));
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetOutputs().size(), Outputs.size());

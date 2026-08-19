@@ -2,7 +2,7 @@
 
 Summary: Defines the exact unsigned 16-bit terrain-height authority, regional extrema, source import, DDC, package, and cooked-runtime contracts.
 
-Modules: AssetCore, Engine, AssetImportCore, StandardAssetImport, DurinEd, LevelEditor
+Modules: AssetCore, Engine, AssetImportCore, AssetForge, DurinEd, LevelEditor
 
 Last reviewed: 2026-08-14
 
@@ -128,7 +128,7 @@ DDC, `DTexture2D`, or zero height.
 
 The Content Browser exposes an explicit **Terrain Heightmap** import action for
 `.png` and `.raw`. Ordinary PNG import remains `DTexture2D`, and generic import
-does not reinterpret arbitrary RAW files; the StandardAssetImport heightmap
+does not reinterpret arbitrary RAW files; the AssetForge heightmap
 handler is selected only for a `DTerrainHeightmap` target. The copied mounted
 source preserves its admitted extension, and an explicit source destination
 with a different extension is rejected. Import builds and

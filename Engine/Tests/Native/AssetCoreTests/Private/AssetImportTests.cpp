@@ -7,8 +7,7 @@
 
 namespace Durin::Asset
 {
-	using Import::EImportDiagnosticSeverity;
-	using namespace Import::Standard;
+	using namespace Forge;
 
 	namespace
 	{

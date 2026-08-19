@@ -6,7 +6,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "StandardAssetImportProviders.h"
+#include "AssetForgeProviders.h"
 #include "StaticMeshSourceTranslation.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
@@ -33,22 +33,22 @@ namespace
 		}();
 		(void)Initialized;
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		EXPECT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
 			Error, GetEngineTestModuleCallbackGate())) << Error;
 		return Root;
 	}
 
 	auto PlanCurrent(Durin::DObject* Asset)
-		-> Durin::Asset::Import::FSingleAssetPlanResult
+		-> Durin::Asset::FSingleAssetPlanResult
 	{
-		return Durin::Asset::Import::GetImportService().CreateSingleAssetReimportPlan(
+		return Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 			{.Asset = Asset});
 	}
 }
 
-TEST(FStandardImageSourcePolicyTests, KeepsCodecCapabilitySeparateFromAssetAdmission)
+TEST(FAssetForgeImageSourcePolicyTests, KeepsCodecCapabilitySeparateFromAssetAdmission)
 {
-	using namespace Durin::Asset::Import::Standard;
+	using namespace Durin::Asset::Forge;
 	EXPECT_TRUE(IsTexture2DSourceExtension(".PNG"));
 	EXPECT_FALSE(IsTexture2DSourceExtension(".hdr"));
 	EXPECT_TRUE(IsTextureCubeFaceSourceExtension(".tga"));
@@ -71,7 +71,7 @@ TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFa
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetTexture2D.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::Standard::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/Texture2D");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Identity = Imported.Asset;
@@ -81,15 +81,15 @@ TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFa
 
 	auto PlanResult = PlanCurrent(Identity);
 	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const auto Capabilities = Durin::Asset::Import::GetImportService()
+	const auto Capabilities = Durin::Asset::GetImportService()
 		.QuerySingleAssetCapabilities(*Identity);
 	const auto* Capability = Capabilities.Find(
-		Durin::Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
+		Durin::Asset::ESingleAssetImportCapability::ReimportCurrentSource);
 	ASSERT_NE(Capability, nullptr);
 	EXPECT_TRUE(Capability->bAvailable);
 	EXPECT_NE(Capability->ReplacedStateDescription.find("render resource"), std::string::npos);
 
-	const auto Failed = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(
+	const auto Failed = Durin::Asset::GetImportService().ExecuteSingleAssetImport(
 		PlanResult.Plan,
 		{.SaveOptions = {.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
@@ -109,18 +109,18 @@ TEST(FSingleAssetImportTests, RejectsStalePackageRevisionBeforeExchange)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStale.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::Standard::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/StaleTexture");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
 	ASSERT_TRUE(PlanResult) << PlanResult.Message;
 	const std::string PriorKey = Imported.Asset->GetDerivedDataKey();
 	Imported.Asset->GetPackage()->MarkDirty();
-	const auto Result = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
+	const auto Result = Durin::Asset::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), PriorKey);
 	EXPECT_TRUE(std::ranges::any_of(Result.Diagnostics, [](const auto& Diagnostic) {
-		return Diagnostic.Category == Durin::Asset::Import::EImportDiagnosticCategory::StalePlan;
+		return Diagnostic.Category == Durin::Asset::EImportDiagnosticCategory::StalePlan;
 	}));
 }
 
@@ -131,12 +131,12 @@ TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStaticMeshDdc");
 	const std::filesystem::path Source =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	Durin::FStaticMeshImportResult Imported = Durin::Asset::Import::Standard::ImportStaticMeshAsset(
+	Durin::FStaticMeshImportResult Imported = Durin::Asset::Forge::ImportStaticMeshAsset(
 		Source.generic_string(), "/SingleAssetStage2/Geometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
 	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const auto Result = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
+	const auto Result = Durin::Asset::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
 	EXPECT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Asset, Imported.Asset);
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
@@ -149,12 +149,12 @@ TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetTextureCubeDdc");
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR)
 		/ "EquirectangularPanorama" / "AnalyticalLDR.tga";
-	Durin::Asset::Import::Standard::FTextureCubeImportResult Imported = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
+	Durin::Asset::Forge::FTextureCubeImportResult Imported = Durin::Asset::Forge::ImportTextureCubePanorama(
 		Source.generic_string(), "/SingleAssetStage2/Panorama");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
 	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const auto Result = Durin::Asset::Import::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
+	const auto Result = Durin::Asset::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
 	EXPECT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Asset, Imported.Asset);
 	EXPECT_EQ(Imported.Asset->GetSourceLayout(),

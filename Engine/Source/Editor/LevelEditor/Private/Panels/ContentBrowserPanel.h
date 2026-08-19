@@ -10,7 +10,7 @@
 #include <array>
 #include <unordered_set>
 
-namespace Durin::Asset::Import { enum class EImportRecordAction : uint8; }
+namespace Durin::Asset { enum class EImportRecordAction : uint8; }
 
 namespace Durin::Editor::Level
 {
@@ -112,7 +112,7 @@ namespace Durin::Editor::Level
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
 		auto ReimportAsset(
 			const FContentBrowserItem& Item,
-			Asset::Import::EImportRecordAction Action) -> void;
+			Asset::EImportRecordAction Action) -> void;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
 		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;

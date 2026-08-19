@@ -5,7 +5,7 @@
 
 #include "Misc/Paths.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	namespace
 	{

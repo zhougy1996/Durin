@@ -21,7 +21,7 @@ function(durin_add_asset_functional_test target_name)
 	)
 
 	if(DURIN_ASSET_TEST_IMPORT_RUNTIME)
-		target_link_libraries(${target_name} PRIVATE AssetImportCore StandardAssetImport)
+		target_link_libraries(${target_name} PRIVATE AssetImportCore AssetForge)
 		durin_test_deploy_directory_to_data(
 			${target_name}
 			"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
@@ -84,7 +84,7 @@ if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES asset-core asset-import-core standard-asset-import
+		MODULES asset-core asset-import-core asset-forge
 		IMPORT_RUNTIME
 		TIMEOUT 600
 		SOURCES Private/AssetImportTests.cpp

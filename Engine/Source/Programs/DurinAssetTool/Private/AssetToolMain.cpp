@@ -132,7 +132,7 @@ int main(int ArgC, char** ArgV)
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
-	(void)Durin::Asset::Import::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
+	(void)Durin::Asset::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
 		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	Durin::Asset::FAssetPackageDiscoverySnapshot Snapshot =

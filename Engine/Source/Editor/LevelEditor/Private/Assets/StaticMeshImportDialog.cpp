@@ -292,7 +292,7 @@ namespace Durin::Editor::Level
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
-		const FStaticMeshImportResult Result = Asset::Import::Standard::ImportStaticMeshAsset(
+		const FStaticMeshImportResult Result = Asset::Forge::ImportStaticMeshAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), Coordinates.GetSettings(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},

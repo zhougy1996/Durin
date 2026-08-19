@@ -94,7 +94,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
@@ -147,9 +147,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	// Replace catalog paths captured from the default mounts before mutating test assets.
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	const Durin::FAssetPath StandardPath =
-		MakeAssetPath(Durin::Asset::Import::Standard::StandardImportedSurfaceMaterialPath);
+		MakeAssetPath(Durin::Asset::Forge::ImportedSurfaceMaterialPath);
 	std::string MaterialError;
-	ASSERT_NE(Durin::Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(MaterialError), nullptr)
+	ASSERT_NE(Durin::Asset::Forge::EnsureImportedSurfaceMaterial(MaterialError), nullptr)
 		<< MaterialError;
 	const Durin::Asset::FAssetCatalogEntry StandardMaterialEntry =
 		Durin::Asset::FindAssetExact(StandardPath);
@@ -168,7 +168,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	const Durin::Asset::Import::Standard::FSceneImportPlanResult Planned = Durin::Asset::Import::Standard::PlanSceneImport({
+	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
 		.RootSource = {.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
 		.DestinationDirectory = DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
@@ -177,7 +177,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
-	for (const Durin::Asset::Import::FImportOutputPreview& Output
+	for (const Durin::Asset::FImportOutputPreview& Output
 		: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 	{
 		if (Output.AssetClassName
@@ -193,8 +193,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(MeshPath.IsValid());
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
-	const Durin::Asset::Import::Standard::FSceneImportExecutionResult Executed =
-		Durin::Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
+		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
 	ASSERT_TRUE(Executed) << Executed.Message;
 	ASSERT_EQ(Executed.Meshes.size(), 1u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
@@ -205,7 +205,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FAssetPath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
 	const Durin::FStaticMeshImportResult LODContractImport =
-		Durin::Asset::Import::Standard::ImportStaticMeshAsset(
+		Durin::Asset::Forge::ImportStaticMeshAsset(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "MultiSection.gltf").generic_string(),
 			LODContractPath.ToString());

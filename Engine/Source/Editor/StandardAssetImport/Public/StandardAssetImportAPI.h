@@ -1,9 +1,0 @@
-#pragma once
-
-#include "HAL/Platform.h"
-
-#if defined(STANDARDASSETIMPORT_EXPORTS)
-	#define STANDARDASSETIMPORT_API DLLEXPORT
-#else
-	#define STANDARDASSETIMPORT_API DLLIMPORT
-#endif

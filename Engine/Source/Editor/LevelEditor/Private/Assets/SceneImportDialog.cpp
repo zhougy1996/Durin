@@ -33,7 +33,7 @@ namespace Durin::Editor::Level
 		Preview.reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
-		if (!Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(Error)) SetError(std::move(Error));
+		if (!Asset::Forge::EnsureImportedSurfaceMaterial(Error)) SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 
@@ -108,7 +108,7 @@ namespace Durin::Editor::Level
 		{
 			if (PreviewRequest)
 			{
-				Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
+				Asset::Forge::CancelAndDrainSceneImportPlan(*PreviewRequest);
 				PreviewRequest.reset();
 			}
 			PreviewKey.clear();
@@ -121,21 +121,21 @@ namespace Durin::Editor::Level
 		{
 			ImGui::BeginChild("ImportOutputPreview",
 				ImVec2(0.0f, MonaImGui::ScaleUI(190.0f)), ImGuiChildFlags_Borders);
-			const Asset::Import::FImportPreview& ImportPreview =
+			const Asset::FImportPreview& ImportPreview =
 				Preview->Plan.GetMultiOutputPlan().GetPreview();
 			ImGui::TextDisabled("Peer outputs (role, action, destination, estimated CPU/GPU/Disk)");
-			for (const Asset::Import::FImportPreviewOutput& Asset : ImportPreview.Outputs)
+			for (const Asset::FImportPreviewOutput& Asset : ImportPreview.Outputs)
 			{
 				const char* Action = "Create";
 				switch (Asset.Action)
 				{
-				case Asset::Import::EImportPreviewAction::Create: Action = "Create"; break;
-				case Asset::Import::EImportPreviewAction::Replace: Action = "Replace managed"; break;
-				case Asset::Import::EImportPreviewAction::Reference: Action = "Reference"; break;
-				case Asset::Import::EImportPreviewAction::KeepDetached: Action = "Keep detached"; break;
-				case Asset::Import::EImportPreviewAction::Missing: Action = "Missing"; break;
-				case Asset::Import::EImportPreviewAction::Collision: Action = "Collision"; break;
-				case Asset::Import::EImportPreviewAction::Orphan: Action = "Orphan"; break;
+				case Asset::EImportPreviewAction::Create: Action = "Create"; break;
+				case Asset::EImportPreviewAction::Replace: Action = "Replace managed"; break;
+				case Asset::EImportPreviewAction::Reference: Action = "Reference"; break;
+				case Asset::EImportPreviewAction::KeepDetached: Action = "Keep detached"; break;
+				case Asset::EImportPreviewAction::Missing: Action = "Missing"; break;
+				case Asset::EImportPreviewAction::Collision: Action = "Collision"; break;
+				case Asset::EImportPreviewAction::Orphan: Action = "Orphan"; break;
 				}
 				ImGui::BulletText("%s  [%s]  %s  (%.2f / %.2f / %.2f MiB)",
 					Asset.Output.Role.c_str(), Action,
@@ -146,16 +146,16 @@ namespace Durin::Editor::Level
 			}
 			ImGui::Spacing();
 			ImGui::TextDisabled("Captured sources");
-			for (const Asset::Import::FImportSourcePreview& Source : ImportPreview.Sources)
+			for (const Asset::FImportSourcePreview& Source : ImportPreview.Sources)
 				ImGui::BulletText("%s", Source.SourcePath.Path.c_str());
 			ImGui::TextDisabled("Estimate: CPU %.2f MiB  GPU %.2f MiB  Disk %.2f MiB",
 				static_cast<double>(ImportPreview.EstimatedCpuBytes) / (1024.0 * 1024.0),
 				static_cast<double>(ImportPreview.EstimatedGpuBytes) / (1024.0 * 1024.0),
 				static_cast<double>(ImportPreview.EstimatedDiskBytes) / (1024.0 * 1024.0));
-			for (const Asset::Import::FImportWarningPreview& Warning : ImportPreview.Warnings)
+			for (const Asset::FImportWarningPreview& Warning : ImportPreview.Warnings)
 			{
-				const char* Change = Warning.Change == Asset::Import::EImportWarningChange::New
-					? "New warning" : Warning.Change == Asset::Import::EImportWarningChange::Resolved
+				const char* Change = Warning.Change == Asset::EImportWarningChange::New
+					? "New warning" : Warning.Change == Asset::EImportWarningChange::Resolved
 						? "Resolved" : "Previously accepted";
 				ImGui::BulletText("%s: %s", Change, Warning.Diagnostic.Message.c_str());
 			}
@@ -327,7 +327,7 @@ namespace Durin::Editor::Level
 			static_cast<int32>(Coordinates.GetSettings().UpAxis));
 		if (Key != PreviewKey)
 		{
-			if (PreviewRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
+			if (PreviewRequest) Asset::Forge::CancelAndDrainSceneImportPlan(*PreviewRequest);
 			PreviewRequest.reset();
 			Preview.reset();
 			PreviewKey = Key;
@@ -336,20 +336,20 @@ namespace Durin::Editor::Level
 				PathUtilities::ClassifySourcePath(SourcePathBuffer.data());
 			if (!Source)
 			{
-				Preview = Asset::Import::Standard::FSceneImportPlanResult{.Message = Source.Message};
+				Preview = Asset::Forge::FSceneImportPlanResult{.Message = Source.Message};
 				return;
 			}
-			PreviewRequest = Asset::Import::Standard::BeginSceneImportPlan({
+			PreviewRequest = Asset::Forge::BeginSceneImportPlan({
 				.RootSource = {.Path = Source.NormalizedVirtualPath},
 				.DestinationDirectory = InDestinationDirectory,
 				.MeshSettings = Coordinates.GetSettings()},
 				"LevelEditor.SceneImportDialog.Preview");
 		}
 		if (!PreviewRequest) return;
-		Asset::Import::Standard::FSceneImportPlanResult Completed;
-		const Asset::Import::EAsyncImportPlanStatus Status =
-			Asset::Import::Standard::PollSceneImportPlan(*PreviewRequest, Completed);
-		if (Status != Asset::Import::EAsyncImportPlanStatus::Pending)
+		Asset::Forge::FSceneImportPlanResult Completed;
+		const Asset::EAsyncImportPlanStatus Status =
+			Asset::Forge::PollSceneImportPlan(*PreviewRequest, Completed);
+		if (Status != Asset::EAsyncImportPlanStatus::Pending)
 		{
 			Preview = std::move(Completed);
 			PreviewRequest.reset();
@@ -368,8 +368,8 @@ namespace Durin::Editor::Level
 			SetError(std::move(Error));
 			return false;
 		}
-		Asset::Import::Standard::FPreparedSceneSourceBundle Sources;
-		if (!Asset::Import::Standard::PrepareSceneSourceBundle(
+		Asset::Forge::FPreparedSceneSourceBundle Sources;
+		if (!Asset::Forge::PrepareSceneSourceBundle(
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
@@ -380,8 +380,8 @@ namespace Durin::Editor::Level
 		}
 		// Source ingestion is an explicit authoring operation and remains even if
 		// the subsequent asset publication is rejected or fails.
-		Asset::Import::Standard::CommitSceneSourceBundle(Sources);
-		ImportRequest = Asset::Import::Standard::BeginSceneImportPlan({
+		Asset::Forge::CommitSceneSourceBundle(Sources);
+		ImportRequest = Asset::Forge::BeginSceneImportPlan({
 			.RootSource = Sources.RootSource,
 			.DestinationDirectory = OutputDirectory,
 			.MeshSettings = Coordinates.GetSettings()},
@@ -392,17 +392,17 @@ namespace Durin::Editor::Level
 	auto FSceneImportDialog::PollImport() -> bool
 	{
 		if (!ImportRequest) return false;
-		Asset::Import::Standard::FSceneImportPlanResult Planned;
-		const Asset::Import::EAsyncImportPlanStatus Status =
-			Asset::Import::Standard::PollSceneImportPlan(*ImportRequest, Planned);
-		if (Status == Asset::Import::EAsyncImportPlanStatus::Pending) return false;
+		Asset::Forge::FSceneImportPlanResult Planned;
+		const Asset::EAsyncImportPlanStatus Status =
+			Asset::Forge::PollSceneImportPlan(*ImportRequest, Planned);
+		if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
 		ImportRequest.reset();
 		if (!Planned)
 		{
 			SetError(Planned.Message);
 			return false;
 		}
-		const Asset::Import::Standard::FSceneImportExecutionResult Result = Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
+		const Asset::Forge::FSceneImportExecutionResult Result = Asset::Forge::ExecuteSceneImport(Planned.Plan);
 		if (!Result)
 		{
 			SetError(Result.Message);
@@ -410,7 +410,7 @@ namespace Durin::Editor::Level
 		}
 
 		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-		for (const Asset::Import::FImportOutputPreview& Asset
+		for (const Asset::FImportOutputPreview& Asset
 			: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 			Asset::UnloadPackage(Asset.AssetPath);
 		return true;
@@ -418,8 +418,8 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::CancelRequests() -> void
 	{
-		if (PreviewRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
-		if (ImportRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*ImportRequest);
+		if (PreviewRequest) Asset::Forge::CancelAndDrainSceneImportPlan(*PreviewRequest);
+		if (ImportRequest) Asset::Forge::CancelAndDrainSceneImportPlan(*ImportRequest);
 		PreviewRequest.reset();
 		ImportRequest.reset();
 	}

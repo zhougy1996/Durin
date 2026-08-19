@@ -139,7 +139,7 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 				checkf(Asset::Build::InitializeBuildHost(),
 					"AssetBuildCore authoring host is unavailable.");
-				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
+				FModuleManager::Get().LoadModuleChecked("AssetForge");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =
 					Editor::GetDefaultRenderedAssetThumbnailService();
 				::Durin::FLevelEditorModule& LevelEditorModule =

@@ -44,7 +44,7 @@ if(TARGET AssetCore)
 		AssetImportCore
 		GeometryBuild
 		TextureBuild
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
@@ -56,7 +56,7 @@ if(TARGET AssetImportCore)
 		Engine
 		GeometryBuild
 		TextureBuild
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
@@ -68,7 +68,7 @@ if(TARGET Engine)
 		AssetImportCore
 		GeometryBuild
 		TextureBuild
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 	)
 endif()
@@ -82,7 +82,7 @@ if(TARGET TextureBuild)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
 		AssetImportCore
 		GeometryBuild
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 	)
 endif()
@@ -95,7 +95,7 @@ if(TARGET GeometryBuild)
 	durin_assert_target_dependency_closure_excludes(GeometryBuild
 		AssetImportCore
 		TextureBuild
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
@@ -112,7 +112,7 @@ if(TARGET AssetBuildCore)
 		AssetImportCore
 		GeometryBuild
 		TextureBuild
-		StandardAssetImport
+		AssetForge
 		RHI
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -120,8 +120,8 @@ if(TARGET AssetBuildCore)
 	)
 endif()
 
-if(TARGET StandardAssetImport)
-	durin_assert_target_dependency_closure_includes(StandardAssetImport
+if(TARGET AssetForge)
+	durin_assert_target_dependency_closure_includes(AssetForge
 		AssetImportCore
 		GeometryBuild
 		TextureBuild
@@ -147,7 +147,7 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
 		# Concrete source translators and their SDKs.
-		StandardAssetImport
+		AssetForge
 		assimp::assimp
 	)
 endif()

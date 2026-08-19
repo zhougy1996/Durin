@@ -1,7 +1,7 @@
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		std::weak_ptr<void> InOwnerLifetime, std::string InProviderId, uint64 InIdentity)

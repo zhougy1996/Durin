@@ -12,11 +12,11 @@ values, and stb headers remain private to one Core implementation translation
 unit.
 
 Memory decode is authoritative. File overloads are thin convenience wrappers
-for non-transactional preview and test callers; StandardAssetImport captures an
+for non-transactional preview and test callers; AssetForge captures an
 immutable byte snapshot first and uses those same bytes for hashing, decoding,
 diagnostics, and build composition. Codec extension capability does not admit a
 source to an asset workflow. Texture2D, TextureCube, Scene, and Terrain each own
-an independent StandardAssetImport source-policy predicate.
+an independent AssetForge source-policy predicate.
 
 LDR output is top-left-origin RGBA8 with the source channel count and derived
 transparency fact. Radiance output is top-left-origin finite nonnegative linear

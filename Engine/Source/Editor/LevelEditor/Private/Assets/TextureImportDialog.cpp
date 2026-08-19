@@ -70,7 +70,7 @@ namespace Durin::Editor::Level
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
 		const bool bSupportedSource = bHasSource
-			&& Asset::Import::Standard::IsTexture2DSourceExtension(
+			&& Asset::Forge::IsTexture2DSourceExtension(
 				SourcePath.extension().generic_string());
 		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());
 
@@ -280,7 +280,7 @@ namespace Durin::Editor::Level
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = SourceDestinationBuffer.data();
 		Settings.Usage = Usage;
-		FTexture2DImportResult Result = Asset::Import::Standard::ImportTexture2DAsset(
+		FTexture2DImportResult Result = Asset::Forge::ImportTexture2DAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), Settings,
 			IsEngineAuthoringDestination(Destination.GetPath()));
 		if (!Result) { SetError(Result.Message); return false; }

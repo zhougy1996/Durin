@@ -7,7 +7,7 @@
 #include "Hash/XxHash.h"
 #include "Modules/ModularFeature.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset
 {
 	enum class EImportDiagnosticSeverity : uint8
 	{

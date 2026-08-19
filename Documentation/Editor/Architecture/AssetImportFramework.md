@@ -2,12 +2,12 @@
 
 Summary: Define format-neutral import admission, built-in importers, asset publication, and extension ownership.
 
-Modules: AssetImportCore, StandardAssetImport, AssetCore
+Modules: AssetImportCore, AssetForge, AssetCore
 
 Durin editor imports use one provider-neutral framework for source capture,
 planning, preview, candidate construction, validation, publication, diagnostics,
 and cancellation. `AssetImportCore` owns the generic contracts;
-`StandardAssetImport` supplies the built-in StaticMesh, texture, material, and
+`AssetForge` supplies the built-in StaticMesh, texture, material, and
 Scene providers, including the bounded glTF skeletal path. Runtime targets
 depend on neither module.
 
@@ -39,9 +39,9 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
 - Editor hosts query framework capabilities. A concrete asset class alone does
   not imply that import or reimport is available.
 
-`StandardAssetImport` is the default aggregate for built-in providers and owns
+`AssetForge` is the default aggregate for built-in providers and owns
 their Assimp and concrete source-translation policy. Asset-independent image
-decoding lives in Core; StandardAssetImport alone decides which technically
+decoding lives in Core; AssetForge alone decides which technically
 decodable inputs are admitted for Texture2D, TextureCube, Scene, and Terrain.
 Runtime Engine assets contain only runtime state and lightweight single-asset provenance.
 Its public Texture2D translation/submission contract intentionally exposes
@@ -49,12 +49,12 @@ Its public Texture2D translation/submission contract intentionally exposes
 public module dependency; geometry recipes are implementation-only and
 `GeometryBuild` is private.
 
-Public framework contracts supplied by `AssetImportCore` remain in
-`Durin::Asset::Import`. Built-in provider registration, direct authoring APIs,
-format admission, and typed translators supplied by StandardAssetImport live in
-`Durin::Asset::Import::Standard`. Implementation-only build composition and
-uncooked policies remain private to the physical module; no compatibility alias
-flattens standard APIs into the framework namespace.
+Public framework contracts supplied by `AssetImportCore` live directly in
+`Durin::Asset`. Built-in provider registration, direct authoring APIs,
+format admission, and typed translators supplied by AssetForge live in
+`Durin::Asset::Forge`. Implementation-only build composition and
+uncooked policies remain private to the physical module; neither former C++
+namespace is retained through a compatibility alias.
 
 ## Import service and registration
 
@@ -62,7 +62,7 @@ flattens standard APIs into the framework namespace.
 registers one `FImporterDescriptor` under its module-owned callback gate; the
 descriptor binds one provider identity and contract version to source
 recognition/planning plus any supported single-asset classes and import-record
-actions. StandardAssetImport registers exactly three descriptors: Scene,
+actions. AssetForge registers exactly three descriptors: Scene,
 Assimp geometry, and DurinImage. It does not coordinate separate provider,
 single-asset-handler, or record-handler registries.
 
@@ -106,7 +106,7 @@ management preconditions. Publication rejects a stale plan before changing any
 loaded identity or package.
 
 Direct authoring, source-reference changes, repair, and uncooked PostLoad use
-the same StandardAssetImport encoded-source snapshot contract. Texture2D,
+the same AssetForge encoded-source snapshot contract. Texture2D,
 TextureCube, and Terrain each have one typed translation authority. Provider
 candidate and uncooked-policy orchestration never decode image formats.
 `TextureCubePostLoadPolicy` and `TerrainHeightmapAuthoringPolicy` register
@@ -268,7 +268,7 @@ runtime packages and payloads into cooked ownership. Skeleton is package-only.
 Skeletal meshes and clips retain their hard Skeleton reference and structural
 compatibility identity.
 A runtime-only target loads
-cooked outputs without `AssetImportCore`, `StandardAssetImport`, Assimp,
+cooked outputs without `AssetImportCore`, `AssetForge`, Assimp,
 authoring source files, or DDC fallback. Core may contain the generic codec,
 but cooked loading never invokes source decoding or admits authoring policy.
 
