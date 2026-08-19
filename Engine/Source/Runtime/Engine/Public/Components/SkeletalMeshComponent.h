@@ -72,7 +72,6 @@ namespace Durin
 		auto PublishPoseDynamicData() -> void;
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
-		auto TrimTrailingNullOverrides() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DSkeletalMesh> SkeletalMesh;

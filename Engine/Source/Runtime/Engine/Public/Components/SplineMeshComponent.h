@@ -89,7 +89,6 @@ namespace Durin
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto PushDynamicDataToScene() -> void;
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
-		auto TrimTrailingNullOverrides() -> void;
 		auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		auto GetCollisionStateRevision() const -> uint64 override;
 		auto RebuildCollisionGeometryForPublishedState() -> void;

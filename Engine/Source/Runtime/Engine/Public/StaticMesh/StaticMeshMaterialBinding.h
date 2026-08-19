@@ -12,6 +12,4 @@ namespace Durin
 		std::span<const TObjectPtr<DMaterialInterface>> Overrides,
 		std::string_view ConsumerName,
 		std::string& OutError) -> bool;
-	ENGINE_API auto TrimTrailingNullStaticMeshMaterialOverrides(
-		std::vector<TObjectPtr<DMaterialInterface>>& Overrides) -> void;
 }

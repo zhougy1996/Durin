@@ -1,10 +1,10 @@
 #include "Components/SkeletalMeshComponent.h"
 
 #include "AssetLoad.h"
+#include "Components/ComponentMaterialOverride.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
 #include "Engine/SkeletalMeshSceneProxy.h"
-#include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -30,13 +30,11 @@ namespace Durin
 	auto DSkeletalMeshComponent::SetMaterial(
 		uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool
 	{
-		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(SlotIndex)) return false;
-		if (!InMaterial) return ResetMaterial(SlotIndex);
-		if (SlotIndex >= OverrideMaterials.size()) OverrideMaterials.resize(SlotIndex + 1);
-		if (OverrideMaterials[SlotIndex] == InMaterial) return true;
-		OverrideMaterials[SlotIndex] = InMaterial;
-		++MaterialComponentRevision;
-		PendingMaterialSlotIndex = SlotIndex;
+		const auto Result = ComponentMaterialOverride::Set(
+			OverrideMaterials, SlotIndex, SkeletalMesh && SkeletalMesh->GetMaterialSlot(SlotIndex),
+			InMaterial, MaterialComponentRevision, PendingMaterialSlotIndex);
+		if (Result == ComponentMaterialOverride::EMutationResult::InvalidSlot) return false;
+		if (Result == ComponentMaterialOverride::EMutationResult::Unchanged) return true;
 		MarkPackageDirty();
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
 		return true;
@@ -48,9 +46,7 @@ namespace Durin
 		const FSkeletalMeshMaterialSlotDefinition* Slot = SkeletalMesh
 			? SkeletalMesh->GetMaterialSlot(SlotIndex) : nullptr;
 		if (!Slot) return nullptr;
-		if (SlotIndex < OverrideMaterials.size() && OverrideMaterials[SlotIndex])
-			return OverrideMaterials[SlotIndex].Get();
-		return Slot->DefaultMaterial.Get();
+		return ComponentMaterialOverride::Resolve(OverrideMaterials, SlotIndex, Slot->DefaultMaterial.Get());
 	}
 
 	auto DSkeletalMeshComponent::SetMaterialByName(
@@ -73,12 +69,10 @@ namespace Durin
 
 	auto DSkeletalMeshComponent::ResetMaterial(uint32 SlotIndex) -> bool
 	{
-		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(SlotIndex)
-			|| SlotIndex >= OverrideMaterials.size() || !OverrideMaterials[SlotIndex]) return false;
-		OverrideMaterials[SlotIndex] = nullptr;
-		TrimTrailingNullOverrides();
-		++MaterialComponentRevision;
-		PendingMaterialSlotIndex = SlotIndex;
+		const auto Result = ComponentMaterialOverride::Set(
+			OverrideMaterials, SlotIndex, SkeletalMesh && SkeletalMesh->GetMaterialSlot(SlotIndex),
+			nullptr, MaterialComponentRevision, PendingMaterialSlotIndex);
+		if (Result != ComponentMaterialOverride::EMutationResult::Changed) return false;
 		MarkPackageDirty();
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
 		return true;
@@ -86,18 +80,11 @@ namespace Durin
 
 	auto DSkeletalMeshComponent::ClearMaterialOverrides() -> bool
 	{
-		if (OverrideMaterials.empty()) return false;
-		OverrideMaterials.clear();
-		++MaterialComponentRevision;
+		if (!ComponentMaterialOverride::Clear(
+			OverrideMaterials, MaterialComponentRevision, PendingMaterialSlotIndex)) return false;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 		return true;
-	}
-
-	auto DSkeletalMeshComponent::TrimTrailingNullOverrides() -> void
-	{
-		while (!OverrideMaterials.empty() && !OverrideMaterials.back())
-			OverrideMaterials.pop_back();
 	}
 
 	auto DSkeletalMeshComponent::ValidateProspectiveBinding(
@@ -256,7 +243,7 @@ namespace Durin
 			OutError = "Skeletal-mesh component material override count exceeds the supported limit.";
 			return false;
 		}
-		TrimTrailingNullOverrides();
+		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
 		if (!std::isfinite(PlayRate) || PlayRate < 0.0f)
 		{
 			OutError = "Skeletal-mesh component play rate must be finite and non-negative.";
@@ -424,9 +411,7 @@ namespace Durin
 		for (uint32 SlotIndex = 0; SlotIndex < SkeletalMesh->GetNumMaterialSlots(); ++SlotIndex)
 		{
 			DMaterialInterface* Material = GetMaterial(SlotIndex);
-			if (!Material) RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
-			Materials.push_back(Material ? Material->GetMaterialRenderProxy()
-				: GetDefaultMaterialRenderProxy());
+			Materials.push_back(ComponentMaterialOverride::ResolveRenderProxy(Material));
 		}
 		LastPublishedPoseRevision = Pose->Revision;
 		return std::make_unique<FSkeletalMeshSceneProxy>(
@@ -449,12 +434,9 @@ namespace Durin
 		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
 	{
 		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(PendingMaterialSlotIndex)) return false;
-		DMaterialInterface* Material = GetMaterial(PendingMaterialSlotIndex);
-		if (!Material) RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
-		OutUpdate.SlotIndex = PendingMaterialSlotIndex;
-		OutUpdate.MaterialProxy = Material ? Material->GetMaterialRenderProxy()
-			: GetDefaultMaterialRenderProxy();
-		OutUpdate.ComponentRevision = MaterialComponentRevision;
+		ComponentMaterialOverride::BuildRenderProxyBindingUpdate(
+			PendingMaterialSlotIndex, GetMaterial(PendingMaterialSlotIndex),
+			MaterialComponentRevision, OutUpdate);
 		return true;
 	}
 }

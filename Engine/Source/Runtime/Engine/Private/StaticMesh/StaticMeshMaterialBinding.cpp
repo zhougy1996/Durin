@@ -30,9 +30,4 @@ namespace Durin
 		return true;
 	}
 
-	auto TrimTrailingNullStaticMeshMaterialOverrides(
-		std::vector<TObjectPtr<DMaterialInterface>>& Overrides) -> void
-	{
-		while (!Overrides.empty() && !Overrides.back()) Overrides.pop_back();
-	}
 }

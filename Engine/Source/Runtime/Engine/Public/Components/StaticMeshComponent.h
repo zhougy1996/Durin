@@ -51,7 +51,6 @@ namespace Durin
 		ENGINE_API auto GetCollisionStateRevision() const -> uint64 override;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
-		auto TrimTrailingNullOverrides() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
