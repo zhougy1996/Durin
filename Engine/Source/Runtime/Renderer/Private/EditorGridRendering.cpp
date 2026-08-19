@@ -25,18 +25,6 @@ namespace Durin::EditorGridRendering
 			return true;
 		}
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
-		{
-			FMatrix4f Result(0.0f);
-			for (uint32 Column = 0; Column < 4; ++Column)
-			{
-				for (uint32 Row = 0; Row < 4; ++Row)
-				{
-					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
-				}
-			}
-			return Result;
-		}
 	}
 
 	auto BuildUniform(const FSceneView& View, FEditorGridUniform& OutUniform) -> bool
@@ -57,9 +45,9 @@ namespace Durin::EditorGridRendering
 		}
 
 		const FMatrix4f RelativeWorldToClip =
-			ToShaderMatrix(RelativeWorldToClipMatrix);
+			Math::TransposeToFloat(RelativeWorldToClipMatrix);
 		const FMatrix4f ClipToRelativeWorld =
-			ToShaderMatrix(ClipToRelativeWorldMatrix);
+			Math::TransposeToFloat(ClipToRelativeWorldMatrix);
 		if (!IsFinite(RelativeWorldToClip)
 			|| !IsFinite(ClipToRelativeWorld))
 		{

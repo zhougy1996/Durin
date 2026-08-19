@@ -1,5 +1,6 @@
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/SkeletalMeshRenderer.h"
+#include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ViewPreparationMath.h"
@@ -43,6 +44,10 @@ namespace Durin
 {
 	namespace
 	{
+		using RendererPrivate::GetMaterialSamplerKey;
+		using RendererPrivate::MakeShadowPipelineKey;
+		using RendererPrivate::MakeShadowRasterizerState;
+
 		class FStaticMeshVertexShader : public FShader
 		{
 		public:
@@ -278,41 +283,6 @@ namespace Durin
 			return Result;
 		}
 
-		auto GetMaterialSamplerKey(const FMaterialSamplerState& State) -> size_t
-		{
-			return static_cast<size_t>(State.MinFilter) + 6 * (static_cast<size_t>(State.MagFilter) + 2 * (static_cast<size_t>(State.AddressU) + 3 * static_cast<size_t>(State.AddressV)));
-		}
-
-		auto ToRHIAddress(EMaterialSamplerAddressMode Address)
-			-> ESamplerAddressMode
-		{
-			switch (Address)
-			{
-			case EMaterialSamplerAddressMode::MirroredRepeat:
-				return ESamplerAddressMode::MirroredRepeat;
-			case EMaterialSamplerAddressMode::ClampToEdge:
-				return ESamplerAddressMode::ClampToEdge;
-			case EMaterialSamplerAddressMode::Repeat:
-			default:
-				return ESamplerAddressMode::Repeat;
-			}
-		}
-
-		auto MakeMaterialSamplerDesc(const FMaterialSamplerState& State)
-			-> FRHISamplerDesc
-		{
-			FRHISamplerDesc Result;
-			const uint8 Min = static_cast<uint8>(State.MinFilter);
-			Result.MinFilter = (Min & 1u) != 0 ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
-			Result.MagFilter = State.MagFilter == EMaterialSamplerMagFilter::Linear ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
-			Result.MipmapMode = Min >= 4 ? ESamplerMipmapMode::Linear : ESamplerMipmapMode::Nearest;
-			Result.MaxLod = Min < 2 ? 0.0f : 1000.0f;
-			Result.AddressU = ToRHIAddress(State.AddressU);
-			Result.AddressV = ToRHIAddress(State.AddressV);
-			Result.AddressW = ESamplerAddressMode::Repeat;
-			return Result;
-		}
-
 		auto CreateMaterialSampler(
 			const FMaterialSamplerState& State,
 			std::string Context
@@ -320,7 +290,7 @@ namespace Durin
 		{
 			using FResult = TRenderResourceCreateResult<FSamplerRHIRef>;
 			FSamplerRHIRef Candidate =
-				RHICreateSampler(MakeMaterialSamplerDesc(State));
+				RHICreateSampler(RendererPrivate::MakeMaterialSamplerDesc(State));
 			if (Candidate != nullptr)
 			{
 				return FResult::Success(std::move(Candidate));
@@ -351,43 +321,6 @@ namespace Durin
 				static_cast<uint8>(Identity.ShadingModel),
 				std::bit_cast<uint32>(Identity.OpacityMaskThreshold)
 			);
-		}
-
-		auto MakeShadowRasterizerState(const FRHIRasterizerState& Source)
-			-> FRHIRasterizerState
-		{
-			FRHIRasterizerState Result = Source;
-			Result.PolygonMode = ERHIPolygonMode::Fill;
-			const bool bPreparedBias = Result.bEnableDepthBias;
-			Result.bEnableDepthBias = true;
-			if (!bPreparedBias)
-			{
-				Result.DepthBiasConstantFactor =
-					DirectionalShadowDepthBiasConstant;
-				Result.DepthBiasSlopeFactor =
-					DirectionalShadowDepthBiasSlope;
-				Result.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
-			}
-			return Result;
-		}
-
-		auto MakeShadowPipelineKey(
-			const FEffectiveStaticMeshPipelineKey& Source
-		)
-			-> FEffectiveStaticMeshPipelineKey
-		{
-			FEffectiveStaticMeshPipelineKey Result = Source;
-			Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
-			// Bias magnitudes are dynamic draw state and must not create a new
-			// renderer pipeline slot for every shadow-volume adjustment.
-			Result.Rasterizer.DepthBiasConstantFactor = 0.0f;
-			Result.Rasterizer.DepthBiasSlopeFactor = 0.0f;
-			Result.Rasterizer.DepthBiasClamp = 0.0f;
-			Result.Depth.bEnableTest = true;
-			Result.Depth.bEnableWrite = true;
-			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
-			Result.ColorBlend = {};
-			return Result;
 		}
 
 		auto GetIdentityText(
@@ -505,19 +438,6 @@ namespace Durin
 			const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
 			const std::array<uint32, 6> Geometry = Draw.Section != nullptr ? std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.LOD->IndexBuffer.GetIndices().size())} : std::array<uint32, 6>{};
 			return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex);
-		}
-
-		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
-		{
-			FMatrix4f Result(0.0f);
-			for (uint32 Column = 0; Column < 4; ++Column)
-			{
-				for (uint32 Row = 0; Row < 4; ++Row)
-				{
-					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
-				}
-			}
-			return Result;
 		}
 
 		auto MakeSkeletalMeshDrawSortKey(
@@ -2022,11 +1942,11 @@ namespace Durin
 		if (Pipeline == nullptr) return false;
 
 		FStaticMeshTransformUniform TransformUniform;
-		TransformUniform.LocalToClip = ToShaderMatrix(
+		TransformUniform.LocalToClip = Math::TransposeToFloat(
 			View.ViewProjectionMatrix * Primitive.LocalToWorld
 		);
-		TransformUniform.LocalToWorld = ToShaderMatrix(Primitive.LocalToWorld);
-		TransformUniform.NormalToWorld = ToShaderMatrix(
+		TransformUniform.LocalToWorld = Math::TransposeToFloat(Primitive.LocalToWorld);
+		TransformUniform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(Primitive.LocalToWorld))
 		);
 		TransformUniform.TransformParams.x = glm::determinant(
@@ -2104,12 +2024,12 @@ namespace Durin
 		const FMaterialRenderV3Binding& MaterialBinding = Item.MaterialBinding;
 		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
 		FStaticMeshTransformUniform TransformUniform;
-		TransformUniform.LocalToClip = ToShaderMatrix(
+		TransformUniform.LocalToClip = Math::TransposeToFloat(
 			View.ViewProjectionMatrix * LocalToWorld
 		);
 		TransformUniform.LocalToWorld =
-			ToShaderMatrix(LocalToWorld);
-		TransformUniform.NormalToWorld = ToShaderMatrix(
+			Math::TransposeToFloat(LocalToWorld);
+		TransformUniform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(LocalToWorld))
 		);
 		const float TransformDeterminant = glm::determinant(
@@ -2911,11 +2831,11 @@ namespace Durin
 		if (Pipeline == nullptr) return false;
 
 		FStaticMeshTransformUniform Transform;
-		Transform.LocalToClip = ToShaderMatrix(
+		Transform.LocalToClip = Math::TransposeToFloat(
 			View.ViewProjectionMatrix * Primitive.LocalToWorld
 		);
-		Transform.LocalToWorld = ToShaderMatrix(Primitive.LocalToWorld);
-		Transform.NormalToWorld = ToShaderMatrix(
+		Transform.LocalToWorld = Math::TransposeToFloat(Primitive.LocalToWorld);
+		Transform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(Primitive.LocalToWorld))
 		);
 		Transform.TransformParams.x = glm::determinant(
@@ -2975,9 +2895,9 @@ namespace Durin
 		const FMaterialRenderData& Material = Item.Material;
 		const FMaterialRenderV3Binding& Binding = Item.MaterialBinding;
 		FStaticMeshTransformUniform Transform;
-		Transform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * LocalToWorld);
-		Transform.LocalToWorld = ToShaderMatrix(LocalToWorld);
-		Transform.NormalToWorld = ToShaderMatrix(
+		Transform.LocalToClip = Math::TransposeToFloat(View.ViewProjectionMatrix * LocalToWorld);
+		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
+		Transform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(LocalToWorld))
 		);
 		Transform.TransformParams.x = glm::determinant(

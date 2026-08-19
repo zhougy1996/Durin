@@ -1,4 +1,5 @@
 #include "Renderers/TerrainRenderer.h"
+#include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/TerrainRenderPreparation.h"
 
 #include "Engine/TerrainSceneProxy.h"
@@ -34,6 +35,11 @@ namespace Durin
 {
 	namespace
 	{
+		using RendererPrivate::GetMaterialSamplerKey;
+		using RendererPrivate::MakeMaterialSamplerDesc;
+		using RendererPrivate::MakeShadowPipelineKey;
+		using RendererPrivate::MakeShadowRasterizerState;
+
 		constexpr size_t MaximumRetainedTerrainHeightRevisions = 64;
 		constexpr size_t MaximumRetainedTerrainTopologies = 256;
 		constexpr uint32 MaximumTerrainInstancesPerChunk = 256;
@@ -135,15 +141,6 @@ namespace Durin
 			FVector4f UVRotations1{0.0f};
 		};
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
-		{
-			FMatrix4f Result(0.0f);
-			for (uint32 Column = 0; Column < 4; ++Column)
-				for (uint32 Row = 0; Row < 4; ++Row)
-					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
-			return Result;
-		}
-
 		auto TransformBounds(const FBox& Bounds, const FMatrix& Transform) -> FBox
 		{
 			FBox Result;
@@ -196,67 +193,6 @@ namespace Durin
 			const double DeltaY = Location.y < Bounds.Min.y ? Bounds.Min.y - Location.y : Location.y > Bounds.Max.y ? Location.y - Bounds.Max.y :
 																													  0.0;
 			return std::hypot(DeltaX, DeltaY);
-		}
-
-		auto GetSamplerKey(const FMaterialSamplerState& State) -> size_t
-		{
-			return static_cast<size_t>(State.MinFilter) + 6 * (static_cast<size_t>(State.MagFilter) + 2 * (static_cast<size_t>(State.AddressU) + 3 * static_cast<size_t>(State.AddressV)));
-		}
-
-		auto ToAddress(EMaterialSamplerAddressMode Address) -> ESamplerAddressMode
-		{
-			if (Address == EMaterialSamplerAddressMode::MirroredRepeat) return ESamplerAddressMode::MirroredRepeat;
-			if (Address == EMaterialSamplerAddressMode::ClampToEdge) return ESamplerAddressMode::ClampToEdge;
-			return ESamplerAddressMode::Repeat;
-		}
-
-		auto MakeSampler(const FMaterialSamplerState& State) -> FRHISamplerDesc
-		{
-			FRHISamplerDesc Result;
-			const uint8 Min = static_cast<uint8>(State.MinFilter);
-			Result.MinFilter = (Min & 1u) ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
-			Result.MagFilter = State.MagFilter == EMaterialSamplerMagFilter::Linear ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
-			Result.MipmapMode = Min >= 4 ? ESamplerMipmapMode::Linear : ESamplerMipmapMode::Nearest;
-			Result.MaxLod = Min < 2 ? 0.0f : 1000.0f;
-			Result.AddressU = ToAddress(State.AddressU);
-			Result.AddressV = ToAddress(State.AddressV);
-			Result.AddressW = ESamplerAddressMode::Repeat;
-			return Result;
-		}
-
-		auto MakeShadowRasterizerState(const FRHIRasterizerState& Source)
-			-> FRHIRasterizerState
-		{
-			FRHIRasterizerState Result = Source;
-			Result.PolygonMode = ERHIPolygonMode::Fill;
-			const bool bPreparedBias = Result.bEnableDepthBias;
-			Result.bEnableDepthBias = true;
-			if (!bPreparedBias)
-			{
-				Result.DepthBiasConstantFactor =
-					DirectionalShadowDepthBiasConstant;
-				Result.DepthBiasSlopeFactor =
-					DirectionalShadowDepthBiasSlope;
-				Result.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
-			}
-			return Result;
-		}
-
-		auto MakeShadowPipelineKey(
-			const FEffectiveStaticMeshPipelineKey& Source
-		)
-			-> FEffectiveStaticMeshPipelineKey
-		{
-			FEffectiveStaticMeshPipelineKey Result = Source;
-			Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
-			Result.Rasterizer.DepthBiasConstantFactor = 0.0f;
-			Result.Rasterizer.DepthBiasSlopeFactor = 0.0f;
-			Result.Rasterizer.DepthBiasClamp = 0.0f;
-			Result.Depth.bEnableTest = true;
-			Result.Depth.bEnableWrite = true;
-			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
-			Result.ColorBlend = {};
-			return Result;
 		}
 
 		auto ResolveMaterialBinding(FPreparedTerrainDraw& Draw) -> bool
@@ -770,10 +706,10 @@ namespace Durin
 		}
 		for (const auto& Sampler : Draw.MaterialBinding.Samplers)
 		{
-			const size_t Key = GetSamplerKey(Sampler);
+			const size_t Key = GetMaterialSamplerKey(Sampler);
 			if (!State->Samplers.contains(Key))
 			{
-				auto Created = RHICreateSampler(MakeSampler(Sampler));
+				auto Created = RHICreateSampler(MakeMaterialSamplerDesc(Sampler));
 				if (!Created) return false;
 				State->Samplers.emplace(Key, std::move(Created));
 			}
@@ -988,9 +924,10 @@ namespace Durin
 		if (!InstanceRange.Buffer || InstanceRange.Size != Instances.size() * sizeof(FTerrainInstanceData))
 			return false;
 		FTransformUniform Transform;
-		Transform.LocalToClip = ToShaderMatrix(LocalToClip);
-		Transform.LocalToWorld = ToShaderMatrix(LocalToWorld);
-		Transform.NormalToWorld = ToShaderMatrix(Math::Transpose(Math::Inverse(LocalToWorld)));
+		Transform.LocalToClip = Math::TransposeToFloat(LocalToClip);
+		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
+		Transform.NormalToWorld = Math::TransposeToFloat(
+			Math::Transpose(Math::Inverse(LocalToWorld)));
 		Transform.TransformParams.x = glm::determinant(glm::mat3(LocalToWorld)) < 0.0 ? -1.0f : 1.0f;
 		const auto TransformBuffer = CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
 		FTerrainUniform Terrain;
@@ -1061,7 +998,8 @@ namespace Durin
 		PS.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
 		std::array<FRHISampler*, 8> Samplers{};
 		for (size_t Role = 0; Role < 8; ++Role)
-			Samplers[Role] = State->Samplers.at(GetSamplerKey(Binding.Samplers[Role]));
+			Samplers[Role] = State->Samplers.at(
+				GetMaterialSamplerKey(Binding.Samplers[Role]));
 		PS.BaseColorSampler = Samplers[0];
 		PS.NormalSampler = Samplers[1];
 		PS.MetallicSampler = Samplers[2];

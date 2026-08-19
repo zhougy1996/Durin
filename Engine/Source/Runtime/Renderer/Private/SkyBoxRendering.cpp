@@ -19,18 +19,6 @@ namespace Durin::SkyBoxRendering
 			return true;
 		}
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
-		{
-			FMatrix4f Result(0.0f);
-			for (uint32 Column = 0; Column < 4; ++Column)
-			{
-				for (uint32 Row = 0; Row < 4; ++Row)
-				{
-					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
-				}
-			}
-			return Result;
-		}
 	}
 
 	auto BuildUniform(const FSceneView& View, const FSkyBoxSceneData& SkyBox, FSkyBoxUniform& OutUniform) -> bool
@@ -43,7 +31,8 @@ namespace Durin::SkyBoxRendering
 		const FMatrix WorldToSky = Math::RotationMatrix(Math::Inverse(NormalizedRotation));
 		const FMatrix RemoveViewTranslation = Math::TranslationMatrix(-View.ViewLocation);
 		const FMatrix ClipToSkyDirection = WorldToSky * RemoveViewTranslation * ClipToWorld;
-		OutUniform.ClipToSkyDirection = ToShaderMatrix(ClipToSkyDirection);
+		OutUniform.ClipToSkyDirection =
+			Math::TransposeToFloat(ClipToSkyDirection);
 		if (!IsFinite(OutUniform.ClipToSkyDirection)) return false;
 
 		OutUniform.TintIntensity = FVector4f(SkyBox.Tint, std::max(0.0f, SkyBox.Intensity));

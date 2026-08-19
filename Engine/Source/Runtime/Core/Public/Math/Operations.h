@@ -309,6 +309,13 @@ namespace Durin::Math
 		return glm::transpose(Matrix);
 	}
 
+	// Transposes a double matrix while narrowing it to the float matrix boundary type.
+	[[nodiscard]] FORCEINLINE auto TransposeToFloat(const FMatrix& Matrix)
+		-> FMatrix4f
+	{
+		return FMatrix4f(glm::transpose(Matrix));
+	}
+
 	[[nodiscard]] FORCEINLINE auto TranslationMatrix(const FVector3& Translation) -> FMatrix
 	{
 		return glm::translate(FMatrix(1.0), Translation);

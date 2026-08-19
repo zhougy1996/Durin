@@ -36,6 +36,7 @@ namespace
 	static_assert(std::same_as<decltype(Durin::Math::DegreesToRadians(1.0f)), float>);
 	static_assert(std::same_as<decltype(Durin::Math::DegreesToRadians(1.0)), double>);
 	static_assert(std::same_as<decltype(Durin::Math::Inverse(Durin::FMatrix{})), Durin::FMatrix>);
+	static_assert(std::same_as<decltype(Durin::Math::TransposeToFloat(Durin::FMatrix{})), Durin::FMatrix4f>);
 }
 
 TEST(FMathFacadeTests, PreservesVectorPrecisionAndOrientation)
@@ -120,6 +121,28 @@ TEST(FMathFacadeTests, PreservesColumnMajorTransformOrder)
 	ASSERT_TRUE(Durin::Math::TryInverse(Matrix, Inverse));
 	ExpectIdentity(Matrix * Inverse);
 	ExpectIdentity(Durin::Math::Transpose(Durin::Math::Transpose(Matrix)) * Inverse);
+}
+
+TEST(FMathFacadeTests, TransposesWhileNarrowingMatrixPrecision)
+{
+	Durin::FMatrix Matrix(0.0);
+	for (Durin::uint32 Column = 0; Column < 4; ++Column)
+	{
+		for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		{
+			Matrix[Column][Row] = static_cast<double>(Column * 4 + Row) + 0.25;
+		}
+	}
+
+	const Durin::FMatrix4f Result = Durin::Math::TransposeToFloat(Matrix);
+	for (Durin::uint32 Column = 0; Column < 4; ++Column)
+	{
+		for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		{
+			EXPECT_FLOAT_EQ(Result[Column][Row],
+				static_cast<float>(Matrix[Row][Column]));
+		}
+	}
 }
 
 TEST(FMathFacadeTests, RejectsInvalidMatrixInverseWithoutMutatingOutput)

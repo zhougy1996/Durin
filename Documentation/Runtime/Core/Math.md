@@ -4,7 +4,7 @@ Summary: Define Durin math types, operation semantics, and the GLM integration b
 
 Modules: Core
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-20
 
 Durin owns math names and operation semantics in the Core module while GLM
 continues to provide the underlying value storage and inline implementation.
@@ -52,8 +52,9 @@ does not imply that replacement has occurred.
 - Quaternion operations: explicit degree/radian axis-angle and Euler
   constructors, Euler conversions, matrix conversion, inverse, vector
   rotation, and sign-independent rotation equivalence.
-- Double matrix operations: determinant, unchecked and checked inverse,
-  transpose, and translation, rotation, and scale matrix construction.
+- Matrix operations: double-precision determinant, unchecked and checked
+  inverse, transpose, transposed float conversion, and double-precision
+  translation, rotation, and scale matrix construction.
 
 Ordinary arithmetic operators and `.x/.y/.z/.w` access remain valid through
 the aliases. Scalar operations without Durin-specific semantics remain under
@@ -98,9 +99,9 @@ the explicit `(w, x, y, z) = (1, 0, 0, 0)` identity.
 
 Durin uses +X forward, +Y right, and +Z up. Matrices use column-vector
 multiplication and `[column][row]` indexing. `FTransform::ToMatrix` composes
-translation, rotation, and scale as `T * R * S`. CPU-to-shader conversion keeps
-any required precision conversion or transposition explicit at the renderer
-boundary.
+translation, rotation, and scale as `T * R * S`. `TransposeToFloat` combines
+double-to-float narrowing with transposition; renderer callers use it explicitly
+at the CPU-to-shader boundary.
 
 ## Direct GLM Boundary
 

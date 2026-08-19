@@ -56,19 +56,6 @@ namespace Durin
 			int32 VertexOffset = 0;
 		};
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
-		{
-			FMatrix4f Result(0.0f);
-			for (uint32 Column = 0; Column < 4; ++Column)
-			{
-				for (uint32 Row = 0; Row < 4; ++Row)
-				{
-					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
-				}
-			}
-			return Result;
-		}
-
 		auto BeginMesh(const std::vector<uint32>& Indices) -> FGizmoMeshRange
 		{
 			return {.FirstIndex = static_cast<uint32>(Indices.size())};
@@ -596,7 +583,7 @@ namespace Durin
 			CommandList.SetGraphicsPipelineState(*Pipeline);
 			const FGizmoMeshRange& Range = Base->MeshRanges[ShapeIndex];
 			FGizmoTransformUniform Uniform;
-			Uniform.LocalToClip = ToShaderMatrix(
+			Uniform.LocalToClip = Math::TransposeToFloat(
 				View.ViewProjectionMatrix * Primitive.LocalToWorld);
 			Uniform.Color = Primitive.Color;
 			if (DepthMode == EDepthMode::XRay)
