@@ -1,523 +1,10 @@
 #include "Renderers/StaticMeshRenderer.h"
-#include "Renderers/SkeletalMeshRenderer.h"
-#include "Renderers/MeshRenderingCommon.h"
-#include "Renderers/SkeletalMeshRenderPreparation.h"
-#include "Renderers/StaticMeshRenderPreparation.h"
-#include "Renderers/ViewPreparationMath.h"
-#include "Renderers/DirectionalShadowView.h"
-#include "Renderers/GBufferRenderer.h"
-
-#include "Renderers/RendererResourceDiagnostics.h"
-#include "RendererResourceSlotCache.h"
-#include "Resources/DefaultTextureResources.h"
-#include "Resources/EnvironmentLightingResources.h"
-#include "Resources/RendererResourceCoordinator.h"
-#include "Resources/RenderTargetLayouts.h"
-#include "Engine/SkeletalMeshSceneProxy.h"
-#include "Engine/SplineMeshSceneProxy.h"
-#include "Engine/StaticMeshSceneProxy.h"
-#include "IScene.h"
-#include "Math/Operations.h"
-#include "RHI.h"
-#include "RHICommandList.h"
-#include "RenderingThread.h"
-#include "Scene.h"
-#include "SceneView.h"
-#include "Shader/Shader.h"
-#include "Shader/ShaderCompilerCore.h"
-#include "StaticMesh/StaticMeshResources.h"
-
-#include <glm/mat3x3.hpp>
-#include <glm/matrix.hpp>
+#include "Renderers/MeshRendererExecution.h"
+#include "Renderers/MeshRendererShared.h"
 
 namespace Durin
 {
-	namespace
-	{
-		using RendererPrivate::GetMaterialSamplerKey;
-		using RendererPrivate::MakeShadowPipelineKey;
-		using RendererPrivate::MakeShadowRasterizerState;
-
-		class FStaticMeshVertexShader : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_SHADER(
-				FStaticMeshVertexShader,
-				FShader,
-				"/Engine/StaticMeshBasePass",
-				EShaderFrequency::Vertex,
-				"VertexMain"
-			);
-		};
-
-		class FSplineMeshVertexShader : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FSplineMeshVertexShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
-		};
-
-		class FStaticMeshFragmentShader : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(NormalTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(MetallicTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(RoughnessTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(AmbientOcclusionTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(NormalSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(MetallicSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(RoughnessSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(AmbientOcclusionSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(EmissiveSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacitySampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
-				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_SHADER(
-				FStaticMeshFragmentShader,
-				FShader,
-				"/Engine/StaticMeshBasePass",
-				EShaderFrequency::Fragment,
-				"FragmentMain"
-			);
-		};
-
-		class FStaticMeshOpaqueShadowFragmentShader : public FShader
-		{
-		public:
-			DURIN_DECLARE_SHADER(
-				FStaticMeshOpaqueShadowFragmentShader,
-				FShader,
-				"/Engine/StaticMeshBasePass",
-				EShaderFrequency::Fragment,
-				"OpaqueShadowFragmentMain"
-			);
-		};
-
-		class FStaticMeshShadowFragmentShader : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshShadowFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_SHADER(
-				FStaticMeshShadowFragmentShader,
-				FShader,
-				"/Engine/StaticMeshBasePass",
-				EShaderFrequency::Fragment,
-				"ShadowFragmentMain"
-			);
-		};
-
-		class FSkeletalMeshVertexShader : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FSkeletalMeshVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(SkinPalette);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_SHADER(
-				FSkeletalMeshVertexShader,
-				FShader,
-				"/Engine/StaticMeshBasePass",
-				EShaderFrequency::Vertex,
-				"VertexMain"
-			);
-		};
-
-		struct FStaticMeshTransformUniform
-		{
-			FMatrix4f LocalToClip{1.0f};
-			FMatrix4f LocalToWorld{1.0f};
-			FMatrix4f NormalToWorld{1.0f};
-			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
-		};
-
-		struct FSplineMeshUniform
-		{
-			FVector4f StartPosition{0.0f};
-			FVector4f StartTangent{0.0f};
-			FVector4f EndPosition{0.0f};
-			FVector4f EndTangent{0.0f};
-			FVector4f StartEndScale{1.0f};
-			FVector4f StartEndOffset{0.0f};
-			FVector4f RollUpAxis{0.0f};
-			FVector4f SourceRangePolicy{0.0f};
-		};
-
-		auto MakeSplineMeshUniform(const FSplineMeshParams& Params) -> FSplineMeshUniform
-		{
-			FSplineMeshUniform Result;
-			Result.StartPosition = FVector4f(FVector3f(Params.StartPosition), static_cast<float>(Params.StartRollRadians));
-			Result.StartTangent = FVector4f(FVector3f(Params.StartTangent), static_cast<float>(Params.EndRollRadians));
-			Result.EndPosition = FVector4f(FVector3f(Params.EndPosition), 0.0f);
-			Result.EndTangent = FVector4f(FVector3f(Params.EndTangent), 0.0f);
-			Result.StartEndScale = FVector4f(FVector2f(Params.StartScale), FVector2f(Params.EndScale));
-			Result.StartEndOffset = FVector4f(FVector2f(Params.StartOffset), FVector2f(Params.EndOffset));
-			Result.RollUpAxis = FVector4f(FVector3f(Params.SplineUpDirection), static_cast<float>(Params.ForwardAxis));
-			Result.SourceRangePolicy = FVector4f(static_cast<float>(Params.SourceForwardMin), static_cast<float>(Params.SourceForwardMax), Params.Interpolation == ESplineMeshInterpolation::SmoothStep ? 1.0f : 0.0f, 0.0f);
-			return Result;
-		}
-
-		struct FStaticMeshMaterialUniform
-		{
-			FVector4f BaseColor{1.0f};
-			FVector4f EmissiveMetallic{0.0f};
-			FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
-			FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
-			std::array<FVector4f, 8> UVTransforms{};
-			FVector4f UVChannels0{0.0f};
-			FVector4f UVChannels1{0.0f};
-			FVector4f UVRotations0{0.0f};
-			FVector4f UVRotations1{0.0f};
-		};
-
-		auto MakeStaticMeshMaterialUniform(
-			const FMaterialRenderV3Binding& Binding,
-			bool bLit
-		) -> FStaticMeshMaterialUniform
-		{
-			FStaticMeshMaterialUniform Result;
-			Result.BaseColor = Binding.BaseColor;
-			Result.EmissiveMetallic = FVector4f(
-				Binding.Emissive, Binding.Metallic
-			);
-			Result.NormalRoughness = FVector4f(
-				Binding.Normal, Binding.Roughness
-			);
-			Result.SurfaceParams = FVector4f(
-				Binding.AmbientOcclusion, Binding.OpacityMask,
-				bLit ? 1.0f : 0.0f, 0.0f
-			);
-			for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-			{
-				Result.UVTransforms[Role] = FVector4f(
-					Binding.UVScales[Role].x,
-					Binding.UVScales[Role].y,
-					Binding.UVOffsets[Role].x,
-					Binding.UVOffsets[Role].y
-				);
-			}
-			Result.UVChannels0 = FVector4f(
-				Binding.UVChannels[0], Binding.UVChannels[1],
-				Binding.UVChannels[2], Binding.UVChannels[3]
-			);
-			Result.UVChannels1 = FVector4f(
-				Binding.UVChannels[4], Binding.UVChannels[5],
-				Binding.UVChannels[6], Binding.UVChannels[7]
-			);
-			Result.UVRotations0 = FVector4f(
-				Binding.UVRotations[0], Binding.UVRotations[1],
-				Binding.UVRotations[2], Binding.UVRotations[3]
-			);
-			Result.UVRotations1 = FVector4f(
-				Binding.UVRotations[4], Binding.UVRotations[5],
-				Binding.UVRotations[6], Binding.UVRotations[7]
-			);
-			return Result;
-		}
-
-		auto MakeGBufferFragmentParameters(
-			const FMaterialRenderV3Binding& Binding,
-			FDefaultTextureResources& DefaultTextures,
-			const FRHIUniformBufferRange& Material,
-			const std::array<FRHISampler*, 8>& Samplers
-		)
-			-> FGBufferRenderer::FFragmentParameters
-		{
-			FGBufferRenderer::FFragmentParameters Result;
-			Result.Material = Material;
-			const std::array<EDefaultTexture, 8> Fallbacks{
-				EDefaultTexture::White,
-				EDefaultTexture::FlatNormal,
-				EDefaultTexture::White,
-				EDefaultTexture::White,
-				EDefaultTexture::White,
-				EDefaultTexture::Black,
-				EDefaultTexture::White,
-				EDefaultTexture::White
-			};
-			for (size_t Role = 0; Role < Result.Textures.size(); ++Role)
-			{
-				FRHITexture* Texture = Binding.Textures[Role] != nullptr ? Binding.Textures[Role]
-																			   ->GetReferencedTexture_RenderThread() :
-																		   nullptr;
-				Result.Textures[Role] = Texture != nullptr ? Texture : DefaultTextures.Get_RenderThread(Fallbacks[Role]);
-				Result.Samplers[Role] = Samplers[Role];
-			}
-			return Result;
-		}
-
-		auto CreateMaterialSampler(
-			const FMaterialSamplerState& State,
-			std::string Context
-		) -> TRenderResourceCreateResult<FSamplerRHIRef>
-		{
-			using FResult = TRenderResourceCreateResult<FSamplerRHIRef>;
-			FSamplerRHIRef Candidate =
-				RHICreateSampler(RendererPrivate::MakeMaterialSamplerDesc(State));
-			if (Candidate != nullptr)
-			{
-				return FResult::Success(std::move(Candidate));
-			}
-			return FResult::Failure(MakeRendererResourceCreateError(
-				ERenderResourceCreateErrorCategory::RHIResource,
-				std::move(Context),
-				std::format(
-					"min={},mag={},u={},v={}",
-					static_cast<uint8>(State.MinFilter),
-					static_cast<uint8>(State.MagFilter),
-					static_cast<uint8>(State.AddressU),
-					static_cast<uint8>(State.AddressV)),
-				"RHI sampler creation returned null.",
-				ERenderResourceGenerationDependency::Device
-					| ERenderResourceGenerationDependency::Manual));
-		}
-
-		auto GetIdentityText(
-			const FMaterialShaderMapIdentity& Identity
-		) -> std::string
-		{
-			return std::format(
-				"layout-version={},layout-id={},blend={},shading={},mask-bits={}",
-				Identity.RenderLayout.Version,
-				Identity.RenderLayout.Id.ToString(),
-				static_cast<uint8>(Identity.BlendMode),
-				static_cast<uint8>(Identity.ShadingModel),
-				std::bit_cast<uint32>(Identity.OpacityMaskThreshold)
-			);
-		}
-
-		auto GetIdentityText(
-			const FMaterialPipelineIdentity& Identity
-		) -> std::string
-		{
-			return std::format(
-				"{},two-sided={},depth-write={}",
-				GetIdentityText(Identity.ShaderMap),
-				Identity.bTwoSided,
-				static_cast<uint8>(Identity.DepthWritePolicy)
-			);
-		}
-
-		auto GetIdentityText(
-			const FEffectiveStaticMeshPipelineKey& Identity
-		) -> std::string
-		{
-			return std::format(
-				"{},vertex-domain={},polygon={},cull={},front={},depth-test={},depth-write={},depth-compare={},blend={},color-src={},color-dst={},color-op={},alpha-src={},alpha-dst={},alpha-op={},write-mask={}",
-				GetIdentityText(Identity.Material),
-				static_cast<uint8>(Identity.VertexDomain),
-				static_cast<uint8>(Identity.Rasterizer.PolygonMode),
-				static_cast<uint8>(Identity.Rasterizer.CullMode),
-				static_cast<uint8>(Identity.Rasterizer.FrontFace),
-				Identity.Depth.bEnableTest,
-				Identity.Depth.bEnableWrite,
-				static_cast<uint8>(Identity.Depth.CompareOp),
-				Identity.ColorBlend.bEnable,
-				static_cast<uint8>(Identity.ColorBlend.SrcColorFactor),
-				static_cast<uint8>(Identity.ColorBlend.DstColorFactor),
-				static_cast<uint8>(Identity.ColorBlend.ColorOp),
-				static_cast<uint8>(Identity.ColorBlend.SrcAlphaFactor),
-				static_cast<uint8>(Identity.ColorBlend.DstAlphaFactor),
-				static_cast<uint8>(Identity.ColorBlend.AlphaOp),
-				static_cast<uint8>(Identity.ColorBlend.ColorWriteMask)
-			);
-		}
-
-		auto MakeMeshDrawSortKey(
-			EStaticMeshBasePass Pass,
-			const FEffectiveStaticMeshPipelineKey& PipelineKey,
-			const FMaterialRenderRepresentation& Representation,
-			uint32 NumVertices,
-			const FVertexDeclarationElementList& Elements,
-			const std::array<uint32, 6>& Geometry,
-			uint64 PrimitiveId,
-			uint32 LODIndex,
-			uint32 SectionIndex
-		) -> FStaticMeshDrawSortKey
-		{
-			FStaticMeshDrawSortKey Result;
-			const FMaterialPipelineIdentity& Material = PipelineKey.Material;
-			const FMaterialShaderMapIdentity& Shader = Material.ShaderMap;
-			const FGuid& LayoutId = Shader.RenderLayout.Id;
-			Result.Pipeline = {
-				static_cast<uint32>(Pass), Shader.RenderLayout.Version,
-				LayoutId.A, LayoutId.B, LayoutId.C, LayoutId.D,
-				static_cast<uint32>(Shader.BlendMode),
-				static_cast<uint32>(Shader.ShadingModel),
-				std::bit_cast<uint32>(Shader.OpacityMaskThreshold),
-				Material.bTwoSided ? 1u : 0u,
-				static_cast<uint32>(Material.DepthWritePolicy),
-				static_cast<uint32>(PipelineKey.VertexDomain),
-				static_cast<uint32>(PipelineKey.Rasterizer.PolygonMode),
-				static_cast<uint32>(PipelineKey.Rasterizer.CullMode),
-				static_cast<uint32>(PipelineKey.Rasterizer.FrontFace),
-				PipelineKey.Depth.bEnableTest ? 1u : 0u,
-				PipelineKey.Depth.bEnableWrite ? 1u : 0u,
-				static_cast<uint32>(PipelineKey.Depth.CompareOp),
-				PipelineKey.ColorBlend.bEnable ? 1u : 0u,
-				static_cast<uint32>(PipelineKey.ColorBlend.SrcColorFactor),
-				static_cast<uint32>(PipelineKey.ColorBlend.DstColorFactor),
-				static_cast<uint32>(PipelineKey.ColorBlend.ColorOp),
-				static_cast<uint32>(PipelineKey.ColorBlend.SrcAlphaFactor),
-				static_cast<uint32>(PipelineKey.ColorBlend.DstAlphaFactor),
-				static_cast<uint32>(PipelineKey.ColorBlend.AlphaOp),
-				static_cast<uint32>(PipelineKey.ColorBlend.ColorWriteMask)
-			};
-			const std::span<const std::byte> UniformPayload =
-				Representation.GetUniformPayload();
-			Result.MaterialUniform.reserve(UniformPayload.size());
-			for (const std::byte Byte : UniformPayload)
-			{
-				Result.MaterialUniform.push_back(std::to_integer<uint8>(Byte));
-			}
-
-			if (NumVertices != 0)
-			{
-				Result.VertexFactory[0] = NumVertices;
-				for (size_t Index = 0; Index < Elements.size(); ++Index)
-				{
-					const FVertexElement& Element = Elements[Index];
-					const size_t Base = 1 + Index * 5;
-					Result.VertexFactory[Base] = Element.StreamIndex;
-					Result.VertexFactory[Base + 1] = Element.Offset;
-					Result.VertexFactory[Base + 2] =
-						static_cast<uint32>(Element.Type);
-					Result.VertexFactory[Base + 3] = Element.AttributeIndex;
-					Result.VertexFactory[Base + 4] = Element.Stride;
-				}
-			}
-			Result.Geometry = Geometry;
-			Result.PrimitiveId = PrimitiveId;
-			Result.SelectedLODIndex = LODIndex;
-			Result.SectionIndex = SectionIndex;
-			return Result;
-		}
-
-		auto MakeStaticMeshDrawSortKey(
-			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Draw
-		) -> FStaticMeshDrawSortKey
-		{
-			const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
-			const std::array<uint32, 6> Geometry = Draw.Section != nullptr ? std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.LOD->IndexBuffer.GetIndices().size())} : std::array<uint32, 6>{};
-			return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex);
-		}
-
-		auto MakeSkeletalMeshDrawSortKey(
-			const FPreparedSkeletalMeshPrimitive& Primitive,
-			const FPreparedSkeletalMeshDraw& Draw
-		) -> FStaticMeshDrawSortKey
-		{
-			const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
-			const std::array<uint32, 6> Geometry = Draw.Section != nullptr
-														   && Primitive.RenderData != nullptr ?
-													   std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.RenderData->IndexBuffer.GetIndices().size())} :
-													   std::array<uint32, 6>{};
-			return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, 0, Draw.SectionIndex);
-		}
-
-		enum class ESkeletalPaletteResolveResult : uint8
-		{
-			Uploaded,
-			Reused,
-			Rejected,
-		};
-
-		auto ResolveSkeletalPalette_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			FPreparedSkeletalPaletteTable& Table,
-			FPreparedSkeletalMeshPrimitive& Primitive
-		) -> ESkeletalPaletteResolveResult
-		{
-			constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
-			++Table.RequestedPalettes;
-			if (Primitive.Pose == nullptr)
-			{
-				++Table.RejectedPalettes;
-				return ESkeletalPaletteResolveResult::Rejected;
-			}
-
-			const FPrimitiveSceneId PrimitiveId = Primitive.PrimitiveId;
-			auto It = Table.PrimitiveToEntry.find(PrimitiveId);
-			if (It == Table.PrimitiveToEntry.end())
-			{
-				const uint32 EntryIndex = static_cast<uint32>(Table.Entries.size());
-				It = Table.PrimitiveToEntry.emplace(PrimitiveId, EntryIndex).first;
-				Table.Entries.push_back({.Pose = Primitive.Pose});
-			}
-			auto& Entry = Table.Entries[It->second];
-			if (Entry.Pose != Primitive.Pose)
-			{
-				++Table.RejectedPalettes;
-				return ESkeletalPaletteResolveResult::Rejected;
-			}
-			if (Entry.Range.Buffer != nullptr)
-			{
-				Primitive.PaletteRange = Entry.Range;
-				++Table.ReusedPalettes;
-				return ESkeletalPaletteResolveResult::Reused;
-			}
-			if (Entry.bUploadAttempted)
-			{
-				++Table.RejectedPalettes;
-				return ESkeletalPaletteResolveResult::Rejected;
-			}
-			Entry.bUploadAttempted = true;
-			const uint64 Bytes = Primitive.Pose->Matrices.size() * sizeof(FMatrix4f);
-			if (Bytes == 0 || Table.UploadedBytes + Bytes > PaletteBudget)
-			{
-				++Table.RejectedPalettes;
-				return ESkeletalPaletteResolveResult::Rejected;
-			}
-
-			Entry.Range = CommandList.AllocateDynamicStorageBuffer(
-				Primitive.Pose->Matrices.data(), static_cast<uint32>(Bytes)
-			);
-			if (Entry.Range.Buffer == nullptr || Entry.Range.Size != Bytes)
-			{
-				Entry.Range = {};
-				++Table.RejectedPalettes;
-				return ESkeletalPaletteResolveResult::Rejected;
-			}
-			const std::array Transition{FRHIBufferTransition{
-				Entry.Range.Buffer, Entry.Range.Offset, Entry.Range.Size,
-				ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead
-			}};
-			CommandList.TransitionBuffers(Transition);
-			Primitive.PaletteRange = Entry.Range;
-			Table.UploadedBytes += Bytes;
-			++Table.UploadedPalettes;
-			Table.UploadedMatrices += Primitive.Pose->Matrices.size();
-			return ESkeletalPaletteResolveResult::Uploaded;
-		}
-	} // namespace
+	using namespace RendererPrivate;
 
 	struct FStaticMeshRenderer::FState
 	{
@@ -578,49 +65,6 @@ namespace Durin
 				| ERenderResourceGenerationDependency::Device
 			};
 	};
-
-	struct FSkeletalMeshRenderer::FState
-	{
-		struct FBaseResources
-		{
-			std::unordered_map<size_t, TRenderResourceCreationSlot<FSamplerRHIRef>> MaterialSamplerCache;
-		};
-		struct FShaderMapPayload
-		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
-			TShaderRef<FStaticMeshOpaqueShadowFragmentShader>
-				OpaqueShadowFragmentShader;
-			TShaderRef<FStaticMeshShadowFragmentShader> ShadowFragmentShader;
-		};
-		struct FPipelinePayload
-		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
-			TShaderRef<FStaticMeshOpaqueShadowFragmentShader>
-				OpaqueShadowFragmentShader;
-			TShaderRef<FStaticMeshShadowFragmentShader> ShadowFragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
-		};
-		TRenderResourceCreationSlot<FBaseResources> BaseResources{
-			ERenderResourceGenerationDependency::Device
-		};
-		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderMapPayload>
-			ShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderMapPayload>
-			ShadowShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> Pipelines{
-			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device
-		};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> ShadowPipelines{
-			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device
-		};
-	};
-
 	auto PrepareStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
@@ -802,7 +246,7 @@ namespace Durin
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																													   EStaticMeshBasePass::Opaque;
+																																				   EStaticMeshBasePass::Opaque;
 				if (Mode == ERenderPreparationMode::ShadowDepth
 					&& Item.Pass == EStaticMeshBasePass::Translucent)
 					continue;
@@ -953,8 +397,10 @@ namespace Durin
 			}
 		);
 		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
-			std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - SortingStart).count());
+															std::chrono::nanoseconds>(
+															std::chrono::steady_clock::now() - SortingStart
+		)
+															.count());
 
 		auto CountStateFacts = [&Result](const auto& Bucket) -> size_t {
 			if (Bucket.empty())
@@ -1029,227 +475,6 @@ namespace Durin
 		return Result;
 	}
 
-	auto PrepareSkeletalMeshView_RenderThread(
-		const FRHICommandListImmediate& CommandList,
-		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
-		const FSceneView& View,
-		ERasterMode RasterMode,
-		FPreparedSkeletalPaletteTable& PaletteTable,
-		ERenderPreparationMode Mode
-	) -> FPreparedSkeletalMeshView
-	{
-		check(IsInRenderingThread());
-		checkf(!CommandList.IsInsideRenderPass(), "SkeletalMesh preparation must occur before the scene render pass.");
-		FPreparedSkeletalMeshView Result;
-		Result.Primitives.reserve(SceneInfos.size());
-		for (const FPrimitiveSceneInfo* SceneInfo : SceneInfos)
-		{
-			++Result.VisibleCandidates;
-			++Result.RequestedPaletteUploads;
-			if (SceneInfo == nullptr)
-			{
-				++Result.RejectedPrimitives;
-				continue;
-			}
-			check(SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SkeletalMesh);
-			const FSkeletalMeshSceneProxy& Proxy =
-				SceneInfo->GetSkeletalMeshProxy();
-			const FSkeletalMeshRenderData* RenderData = Proxy.GetRenderData();
-			std::shared_ptr<const FSkeletalPosePalette> Pose;
-			const FPrimitiveSceneId PrimitiveId = SceneInfo->GetId();
-			if (const auto It = PaletteTable.PrimitiveToEntry.find(PrimitiveId);
-				It != PaletteTable.PrimitiveToEntry.end())
-			{
-				Pose = PaletteTable.Entries[It->second].Pose;
-			}
-			else
-			{
-				Pose = Proxy.GetPose();
-				const uint32 EntryIndex = static_cast<uint32>(PaletteTable.Entries.size());
-				PaletteTable.PrimitiveToEntry.emplace(PrimitiveId, EntryIndex);
-				PaletteTable.Entries.push_back({.Pose = Pose});
-			}
-			const FMatrix& LocalToWorld = SceneInfo->GetTransform();
-			const bool bPoseComplete = Pose != nullptr && !Pose->Matrices.empty()
-									   && RenderData != nullptr
-									   && Pose->Matrices.size() == RenderData->PaletteBoneIndices.size()
-									   && std::ranges::all_of(Pose->Matrices, [](const FMatrix4f& Matrix) { return Math::IsFinite(Matrix); });
-			const uint64 PaletteBytes = Pose != nullptr ? Pose->Matrices.size() * sizeof(FMatrix4f) : 0;
-			const FRHICapabilities* Capabilities = GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
-			if (RenderData == nullptr || !RenderData->IsReadyForRendering()
-				|| !bPoseComplete || !Math::IsFinite(LocalToWorld)
-				|| Capabilities == nullptr
-				|| Capabilities->MinStorageBufferOffsetAlignment == 0
-				|| PaletteBytes == 0
-				|| PaletteBytes > Capabilities->MaxStorageBufferRange
-				|| PaletteBytes > MaximumSkeletalPosePaletteBytes)
-			{
-				++Result.RejectedPrimitives;
-				++Result.RejectedPalettes;
-				continue;
-			}
-			const double Determinant = glm::determinant(glm::mat3(LocalToWorld));
-			if (!std::isfinite(Determinant))
-			{
-				++Result.RejectedPrimitives;
-				continue;
-			}
-
-			const uint32 PrimitiveIndex = static_cast<uint32>(Result.Primitives.size());
-			Result.Primitives.push_back({.PrimitiveId = SceneInfo->GetId(), .RenderData = RenderData, .VertexFactory = &RenderData->VertexFactory, .Pose = Pose, .LocalToWorld = LocalToWorld});
-			const size_t FirstSectionCount = Result.GetNumSections();
-			const size_t FirstTriangleCount = Result.SelectedTriangles;
-			const auto& Indices = RenderData->IndexBuffer.GetIndices();
-			for (uint32 SectionIndex = 0;
-				 SectionIndex < RenderData->Sections.size(); ++SectionIndex)
-			{
-				const FSkeletalMeshRenderSection& Section =
-					RenderData->Sections[SectionIndex];
-				if (Section.IndexCount == 0
-					|| static_cast<uint64>(Section.FirstIndex) + Section.IndexCount
-						   > Indices.size()) continue;
-				FPreparedSkeletalMeshDraw Item;
-				Item.Material = Proxy.ResolveMaterialRenderData_RenderThread(
-					Section.MaterialSlotIndex
-				);
-				FMaterialRenderValidationDiagnostic BindingDiagnostic;
-				bool bBindingValid = TryGetMaterialRenderV3Binding(
-					Item.Material.Representation, Item.MaterialBinding,
-					BindingDiagnostic
-				);
-				if (!bBindingValid
-					&& Item.Material.Representation.GetLayout().Identity.Version == 2)
-				{
-					FMaterialRenderV2Binding Legacy;
-					bBindingValid = TryGetMaterialRenderV2Binding(
-						Item.Material.Representation, Legacy, BindingDiagnostic
-					);
-					if (bBindingValid)
-						static_cast<FMaterialRenderV2Binding&>(Item.MaterialBinding) =
-							std::move(Legacy);
-				}
-				if (!bBindingValid)
-				{
-					RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
-					Item.Material = GetErrorMaterialRenderData();
-					FMaterialRenderValidationDiagnostic ErrorDiagnostic;
-					if (!TryGetMaterialRenderV3Binding(Item.Material.Representation, Item.MaterialBinding, ErrorDiagnostic)) continue;
-				}
-				Item.PrimitiveIndex = PrimitiveIndex;
-				Item.SectionIndex = SectionIndex;
-				Item.Section = &Section;
-				Item.ShaderMapIdentity = Item.Material.PipelineIdentity.ShaderMap;
-				Item.PipelineKey.Material = Item.Material.PipelineIdentity;
-				Item.PipelineKey.VertexDomain = EVertexDeformationDomain::Skeletal;
-				Item.PipelineKey.Rasterizer.PolygonMode =
-					RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
-				Item.PipelineKey.Rasterizer.CullMode =
-					Item.Material.PipelineIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
-				Item.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
-				Item.PipelineKey.Depth.bEnableTest = true;
-				Item.PipelineKey.Depth.CompareOp =
-					View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
-				const EMaterialBlendMode BlendMode =
-					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
-				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																													   EStaticMeshBasePass::Opaque;
-				if (Mode == ERenderPreparationMode::ShadowDepth
-					&& Item.Pass == EStaticMeshBasePass::Translucent)
-					continue;
-				const auto DepthPolicy = Item.Material.PipelineIdentity.DepthWritePolicy;
-				Item.PipelineKey.Depth.bEnableWrite =
-					DepthPolicy == EMaterialDepthWritePolicy::Enabled
-					|| (DepthPolicy == EMaterialDepthWritePolicy::Automatic
-						&& Item.Pass != EStaticMeshBasePass::Translucent);
-				if (Item.Pass == EStaticMeshBasePass::Translucent)
-					Item.PipelineKey.ColorBlend = FRHIColorBlendState::StraightAlpha();
-				const FVector4 Center = LocalToWorld
-										* FVector4(Section.LocalBounds.GetCenter(), 1.0);
-				if (!Math::IsFinite(Center)) continue;
-				Item.SortCenter = FVector3(Center);
-				const FVector3 Offset = Item.SortCenter - View.ViewLocation;
-				Item.TranslucentDistanceSquared = glm::dot(Offset, Offset);
-				if (!std::isfinite(Item.TranslucentDistanceSquared)) continue;
-				Item.bCastsShadow = Item.Pass != EStaticMeshBasePass::Translucent;
-				Item.SortKey = MakeSkeletalMeshDrawSortKey(
-					Result.Primitives[PrimitiveIndex], Item
-				);
-				auto* Bucket = Item.Pass == EStaticMeshBasePass::Opaque ? &Result.Opaque : Item.Pass == EStaticMeshBasePass::Masked ? &Result.Masked :
-																																	  &Result.Translucent;
-				Bucket->push_back(std::move(Item));
-				Result.SelectedTriangles += Section.IndexCount / 3;
-				if (BlendMode == EMaterialBlendMode::Masked)
-				{
-					++Result.MaskedSections;
-					Result.MaskedTriangles += Section.IndexCount / 3;
-				}
-				else if (BlendMode == EMaterialBlendMode::Translucent)
-				{
-					++Result.TranslucentSections;
-					Result.TranslucentTriangles += Section.IndexCount / 3;
-				}
-				else
-				{
-					++Result.OpaqueSections;
-					Result.OpaqueTriangles += Section.IndexCount / 3;
-				}
-			}
-			const size_t PreparedSections = Result.GetNumSections() - FirstSectionCount;
-			if (PreparedSections == 0)
-			{
-				Result.Primitives.pop_back();
-				Result.SelectedTriangles = FirstTriangleCount;
-				++Result.RejectedPrimitives;
-				continue;
-			}
-			Result.SelectedSections += PreparedSections;
-		}
-		const auto SortingStart = std::chrono::steady_clock::now();
-		auto StateSort = [](const FPreparedSkeletalMeshDraw& A,
-							const FPreparedSkeletalMeshDraw& B) {
-			return A.SortKey < B.SortKey;
-		};
-		std::ranges::sort(Result.Opaque, StateSort);
-		std::ranges::sort(Result.Masked, StateSort);
-		std::ranges::sort(Result.Translucent, [](const FPreparedSkeletalMeshDraw& A, const FPreparedSkeletalMeshDraw& B) {
-			if (A.TranslucentDistanceSquared != B.TranslucentDistanceSquared)
-				return A.TranslucentDistanceSquared > B.TranslucentDistanceSquared;
-			return A.SortKey < B.SortKey;
-		});
-		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
-			std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - SortingStart).count());
-		auto CountStateFacts = [&Result](const auto& Bucket) -> size_t {
-			if (Bucket.empty()) return 0;
-			size_t Groups = 1;
-			for (size_t Index = 1; Index < Bucket.size(); ++Index)
-			{
-				const auto& Previous = Bucket[Index - 1].SortKey;
-				const auto& Current = Bucket[Index].SortKey;
-				const bool bPipeline = Previous.Pipeline != Current.Pipeline;
-				const bool bMaterial =
-					Previous.MaterialUniform != Current.MaterialUniform;
-				const bool bVertexFactory =
-					Previous.VertexFactory != Current.VertexFactory;
-				const bool bGeometry = Previous.Geometry != Current.Geometry
-									   || Previous.PrimitiveId != Current.PrimitiveId;
-				Result.PipelineTransitions += bPipeline ? 1u : 0u;
-				Result.MaterialTransitions += bMaterial ? 1u : 0u;
-				Result.VertexFactoryTransitions += bVertexFactory ? 1u : 0u;
-				Result.GeometryTransitions += bGeometry ? 1u : 0u;
-				Groups += bPipeline || bMaterial || bVertexFactory ? 1u : 0u;
-			}
-			return Groups;
-		};
-		Result.OpaqueStateGroups = CountStateFacts(Result.Opaque);
-		Result.MaskedStateGroups = CountStateFacts(Result.Masked);
-		CountStateFacts(Result.Translucent);
-		check(Result.VisibleCandidates == Result.Primitives.size() + Result.RejectedPrimitives);
-		check(Result.SelectedSections == Result.GetNumSections());
-		check(Result.SelectedTriangles == Result.OpaqueTriangles + Result.MaskedTriangles + Result.TranslucentTriangles);
-		return Result;
-	}
-
 	FStaticMeshRenderer::FStaticMeshRenderer(
 		FRendererResourceCoordinator& InCoordinator,
 		FDefaultTextureResources& InDefaultTextures,
@@ -1299,7 +524,8 @@ namespace Durin
 				Coordinator.GetGeneration_RenderThread(),
 				[SamplerState] {
 					return CreateMaterialSampler(
-						SamplerState, "StaticMeshMaterialSampler");
+						SamplerState, "StaticMeshMaterialSampler"
+					);
 				},
 				ReportRendererResourceCreateDiagnostic
 			);
@@ -1327,15 +553,14 @@ namespace Durin
 			PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
 			return false;
 		}
-		auto PrepareBucket = [this, &PreparedView, bPrepareLitOpaqueForward](
-								 auto& Bucket, bool bOpaqueOrMasked
-							 ) {
+		ForEachBasePassBucket(PreparedView, [this, &PreparedView, bPrepareLitOpaqueForward](auto& Bucket, EStaticMeshBasePass Pass) {
 			for (FPreparedStaticMeshDraw& Item : Bucket)
 			{
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Item);
 				const bool bNeedsForwardPipeline =
-					!bOpaqueOrMasked || bPrepareLitOpaqueForward
+					Pass == EStaticMeshBasePass::Translucent
+					|| bPrepareLitOpaqueForward
 					|| Item.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
 				Item.bResourcesReady = Primitive != nullptr
@@ -1343,20 +568,10 @@ namespace Durin
 				PreparedView.ResourcePreparationSuccessfulDraws +=
 					Item.bResourcesReady ? 1u : 0u;
 			}
-		};
-		PrepareBucket(PreparedView.Opaque, true);
-		PrepareBucket(PreparedView.Masked, true);
-		PrepareBucket(PreparedView.Translucent, false);
-		PreparedView.ResourcePreparationRejectedDraws =
-			PreparedView.ResourcePreparationAttemptedDraws
-			- PreparedView.ResourcePreparationSuccessfulDraws;
-		PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
-		const bool bResourceCountersConserved =
-			PreparedView.ResourcePreparationAttemptedDraws
-			== PreparedView.ResourcePreparationSuccessfulDraws
-				   + PreparedView.ResourcePreparationRejectedDraws;
-		check(bResourceCountersConserved);
-		return PreparedView.ResourcePreparationRejectedDraws == 0;
+		});
+		return FinalizeResourcePreparation(
+			PreparedView, EPreparedStaticMeshPhase::ResourcesPrepared
+		);
 	}
 
 	auto FStaticMeshRenderer::PrepareHybridRetainedResources_RenderThread(
@@ -1365,12 +580,10 @@ namespace Durin
 	{
 		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
 		bool bReady = true;
-		auto PrepareBucket = [this, &PreparedView, &bReady](
-								 const auto& Bucket, bool bAllMaterials
-							 ) {
+		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &bReady](const auto& Bucket, EStaticMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				if (!bAllMaterials
+				if (Pass != EStaticMeshBasePass::Translucent
 					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
@@ -1382,10 +595,7 @@ namespace Durin
 						 )
 						 && bReady;
 			}
-		};
-		PrepareBucket(PreparedView.Opaque, false);
-		PrepareBucket(PreparedView.Masked, false);
-		PrepareBucket(PreparedView.Translucent, true);
+		});
 		return bReady;
 	}
 
@@ -1406,9 +616,8 @@ namespace Durin
 			PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
 			return false;
 		}
-		for (auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (FPreparedStaticMeshDraw& Draw : *Bucket)
+		ForEachShadowBucket(PreparedView, [this, &PreparedView](auto& Bucket) {
+			for (FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
@@ -1417,12 +626,10 @@ namespace Durin
 				PreparedView.ResourcePreparationSuccessfulDraws +=
 					Draw.bResourcesReady ? 1u : 0u;
 			}
-		}
-		PreparedView.ResourcePreparationRejectedDraws =
-			PreparedView.ResourcePreparationAttemptedDraws
-			- PreparedView.ResourcePreparationSuccessfulDraws;
-		PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
-		return PreparedView.ResourcePreparationRejectedDraws == 0;
+		});
+		return FinalizeResourcePreparation(
+			PreparedView, EPreparedStaticMeshPhase::ResourcesPrepared
+		);
 	}
 
 	auto FStaticMeshRenderer::ExecuteShadow_RenderThread(
@@ -1434,9 +641,8 @@ namespace Durin
 	{
 		check(CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
-		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
+		ForEachShadowBucket(PreparedView, [this, &CommandList, &ShadowView, &FallbackLighting, &PreparedView](const auto& Bucket) {
+			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				++PreparedView.AttemptedDraws;
 				const FPreparedStaticMeshPrimitive* Primitive =
@@ -1450,9 +656,10 @@ namespace Durin
 				else
 					++PreparedView.RejectedDraws;
 			}
-		}
-		PreparedView.Phase = EPreparedStaticMeshPhase::Executed;
-		check(PreparedView.AttemptedDraws == PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
+		});
+		FinalizeExecution(
+			PreparedView, EPreparedStaticMeshPhase::Executed, false
+		);
 	}
 
 	auto FStaticMeshRenderer::EnsureSectionResources_RenderThread(
@@ -1753,7 +960,7 @@ namespace Durin
 			PreparedView.Phase = EPreparedStaticMeshPhase::Executed;
 			return;
 		}
-		auto DrawBucket = [&](const auto& Bucket, EStaticMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EStaticMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Item : Bucket)
 			{
 				++PreparedView.AttemptedDraws;
@@ -1792,17 +999,8 @@ namespace Durin
 					++PreparedView.RejectedDraws;
 				}
 			}
-		};
-		DrawBucket(PreparedView.Opaque, EStaticMeshBasePass::Opaque);
-		DrawBucket(PreparedView.Masked, EStaticMeshBasePass::Masked);
-		DrawBucket(PreparedView.Translucent, EStaticMeshBasePass::Translucent);
-		PreparedView.Phase = EPreparedStaticMeshPhase::Executed;
-		const bool bDrawCountersConserved = PreparedView.AttemptedDraws
-											== PreparedView.SuccessfulDraws + PreparedView.RejectedDraws;
-		const bool bAllPreparedDrawsAttempted =
-			PreparedView.AttemptedDraws == PreparedView.GetNumSections();
-		check(bDrawCountersConserved);
-		check(bAllPreparedDrawsAttempted);
+		});
+		FinalizeExecution(PreparedView, EPreparedStaticMeshPhase::Executed);
 	}
 
 	auto FStaticMeshRenderer::ExecutePreparedDraw_RenderThread(
@@ -1838,8 +1036,7 @@ namespace Durin
 		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
 			return;
-		const auto& Bucket = Pass == EStaticMeshBasePass::Opaque ? PreparedView.Opaque : Pass == EStaticMeshBasePass::Masked ? PreparedView.Masked :
-																															   PreparedView.Translucent;
+		const auto& Bucket = GetBasePassBucket(PreparedView, Pass);
 		for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting, RenderMode, Pass, Draw, PreparedView);
 	}
@@ -1849,9 +1046,7 @@ namespace Durin
 	) -> void
 	{
 		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
-		PreparedView.Phase = EPreparedStaticMeshPhase::Executed;
-		check(PreparedView.AttemptedDraws == PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
-		check(PreparedView.AttemptedDraws == PreparedView.GetNumSections());
+		FinalizeExecution(PreparedView, EPreparedStaticMeshPhase::Executed);
 	}
 
 	auto FStaticMeshRenderer::ExecuteGBuffer_RenderThread(
@@ -1873,9 +1068,8 @@ namespace Durin
 			++PreparedView.GBufferSkippedDraws;
 			RecordFamily(PreparedView, Draw, &FPreparedStaticMeshView::GBufferLocalSkippedDraws, &FPreparedStaticMeshView::GBufferSplineSkippedDraws);
 		}
-		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
+		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &RecordFamily](const auto& Bucket) {
+			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
@@ -1902,7 +1096,7 @@ namespace Durin
 					RecordFamily(PreparedView, Draw, &FPreparedStaticMeshView::GBufferLocalRejectedDraws, &FPreparedStaticMeshView::GBufferSplineRejectedDraws);
 				}
 			}
-		}
+		});
 		check(PreparedView.GBufferAttemptedDraws == PreparedView.GBufferSuccessfulDraws + PreparedView.GBufferRejectedDraws);
 		check(PreparedView.GBufferAttemptedDraws == PreparedView.GBufferLocalAttemptedDraws + PreparedView.GBufferSplineAttemptedDraws);
 	}
@@ -2225,807 +1419,6 @@ namespace Durin
 	auto FStaticMeshRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->BaseResources.Reset();
-		State->ShaderMaps.Reset();
-		State->ShadowShaderMaps.Reset();
-		State->Pipelines.Reset();
-		State->ShadowPipelines.Reset();
-	}
-
-	FSkeletalMeshRenderer::FSkeletalMeshRenderer(
-		FRendererResourceCoordinator& InCoordinator,
-		FDefaultTextureResources& InDefaultTextures,
-		FEnvironmentLightingResources& InEnvironmentLighting
-	)
-		: Coordinator(InCoordinator)
-		, DefaultTextures(InDefaultTextures)
-		, EnvironmentLighting(InEnvironmentLighting)
-		, State(std::make_unique<FState>())
-	{
-	}
-
-	FSkeletalMeshRenderer::~FSkeletalMeshRenderer() = default;
-
-	auto FSkeletalMeshRenderer::EnsureBaseResources_RenderThread() -> bool
-	{
-		using FResult = TRenderResourceCreateResult<FState::FBaseResources>;
-		return State->BaseResources.Resolve(
-				   Coordinator.GetGeneration_RenderThread(),
-				   []() -> FResult { return FResult::Success(FState::FBaseResources{}); },
-				   ReportRendererResourceCreateDiagnostic
-			   )
-			   != nullptr;
-	}
-
-	auto FSkeletalMeshRenderer::EnsureMaterialSamplers_RenderThread(
-		const FPreparedSkeletalMeshDraw& Item
-	) -> bool
-	{
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr)
-			return false;
-		for (const FMaterialSamplerState& SamplerState :
-			 Item.MaterialBinding.Samplers)
-		{
-			auto Entry = Base->MaterialSamplerCache.try_emplace(
-													   GetMaterialSamplerKey(SamplerState),
-													   ERenderResourceGenerationDependency::Device
-			)
-							 .first;
-			if (Entry->second.Resolve(
-					Coordinator.GetGeneration_RenderThread(),
-					[SamplerState] {
-						return CreateMaterialSampler(
-							SamplerState, "SkeletalMeshMaterialSampler");
-					},
-					ReportRendererResourceCreateDiagnostic
-				)
-				== nullptr)
-				return false;
-		}
-		return true;
-	}
-
-	auto FSkeletalMeshRenderer::EnsureSectionResources_RenderThread(
-		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Item,
-		bool bShadowDepth,
-		bool bHybridRetained
-	) -> bool
-	{
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr || Primitive.VertexFactory == nullptr) return false;
-		const FMaterialRenderData& Material = Item.Material;
-		using FShaderResult = TRenderResourceCreateResult<FState::FShaderMapPayload>;
-		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
-		auto& ShaderEntry = ShaderMapCache.FindOrAdd(
-			Material.PipelineIdentity.ShaderMap
-		);
-		FState::FShaderMapPayload* ShaderPayload = ShaderEntry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[this, &Material, bShadowDepth]() -> FShaderResult {
-				const FMaterialShaderMapIdentity& Identity =
-					Material.PipelineIdentity.ShaderMap;
-				FShaderCompileOptions Options;
-				Options.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				Options.Macros.emplace_back("DURIN_SKELETAL_MESH", "1");
-				Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Identity.BlendMode)));
-				Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Identity.ShadingModel)));
-				Options.Macros.emplace_back(
-					"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
-					std::to_string(std::bit_cast<uint32>(
-						Identity.OpacityMaskThreshold
-					))
-				);
-				if (bShadowDepth
-					&& Identity.BlendMode != EMaterialBlendMode::Masked)
-				{
-					Options.Macros.emplace_back(
-						"DURIN_OPAQUE_SHADOW_DEPTH", "1"
-					);
-				}
-				FShaderType& VertexType = FSkeletalMeshVertexShader::StaticType();
-				FShaderType& FragmentType = FStaticMeshFragmentShader::StaticType();
-				FShaderType& ShadowFragmentType =
-					FStaticMeshShadowFragmentShader::StaticType();
-				FShaderType& OpaqueShadowFragmentType =
-					FStaticMeshOpaqueShadowFragmentShader::StaticType();
-				std::vector<const FShaderType*> Types{&VertexType};
-				if (!bShadowDepth)
-					Types.push_back(&FragmentType);
-				else if (Identity.BlendMode == EMaterialBlendMode::Masked)
-					Types.push_back(&ShadowFragmentType);
-				else
-					Types.push_back(&OpaqueShadowFragmentType);
-				auto ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string Error;
-				if (!ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						std::move(Error),
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				auto* Vertex = static_cast<FSkeletalMeshVertexShader*>(
-					ShaderMap->GetShader(&VertexType)
-				);
-				auto* Fragment = !bShadowDepth ? static_cast<FStaticMeshFragmentShader*>(
-													 ShaderMap->GetShader(&FragmentType)
-												 ) :
-												 nullptr;
-				auto* ShadowFragment = bShadowDepth
-											   && Identity.BlendMode == EMaterialBlendMode::Masked ?
-										   static_cast<FStaticMeshShadowFragmentShader*>(
-											   ShaderMap->GetShader(&ShadowFragmentType)
-										   ) :
-										   nullptr;
-				auto* OpaqueShadowFragment =
-					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked ? static_cast<FStaticMeshOpaqueShadowFragmentShader*>(
-																						   ShaderMap->GetShader(&OpaqueShadowFragmentType)
-																					   ) :
-																					   nullptr;
-				if (Vertex == nullptr || (!bShadowDepth && Fragment == nullptr))
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled map did not contain both typed shaders.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				if (bShadowDepth && Identity.BlendMode == EMaterialBlendMode::Masked
-					&& ShadowFragment == nullptr)
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled masked shader map did not contain the shadow fragment shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				if (bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked
-					&& OpaqueShadowFragment == nullptr)
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled shader map did not contain the opaque shadow fragment shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				FState::FShaderMapPayload Candidate;
-				Candidate.ShaderMap = std::move(ShaderMap);
-				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-				if (Fragment != nullptr)
-					Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
-				if (ShadowFragment != nullptr)
-					Candidate.ShadowFragmentShader = {
-						ShadowFragment, Candidate.ShaderMap.get()
-					};
-				if (OpaqueShadowFragment != nullptr)
-					Candidate.OpaqueShadowFragmentShader = {
-						OpaqueShadowFragment, Candidate.ShaderMap.get()
-					};
-				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
-					|| (!bShadowDepth
-						&& Candidate.FragmentShader.GetRHIShader(false) == nullptr)
-					|| (bShadowDepth
-						&& Identity.BlendMode == EMaterialBlendMode::Masked
-						&& Candidate.ShadowFragmentShader.GetRHIShader(false) == nullptr)
-					|| (bShadowDepth
-						&& Identity.BlendMode != EMaterialBlendMode::Masked
-						&& Candidate.OpaqueShadowFragmentShader.GetRHIShader(false) == nullptr))
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"RHI shader creation returned null.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-					));
-				return FShaderResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic
-		);
-		if (ShaderPayload == nullptr) return false;
-
-		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
-			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey) : Item.PipelineKey;
-		EffectivePipelineKey.bHybridRetained =
-			!bShadowDepth && bHybridRetained;
-		auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
-		auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
-		FRenderResourceGeneration Generation =
-			Coordinator.GetGeneration_RenderThread();
-		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
-		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
-			Generation,
-			[&EffectivePipelineKey, &PipelineEntry, ShaderPayload,
-			 bShadowDepth,
-			 VertexFactory = Primitive.VertexFactory]() -> FPipelineResult {
-				FState::FPipelinePayload Candidate;
-				Candidate.ShaderMap = ShaderPayload->ShaderMap;
-				Candidate.VertexShader = ShaderPayload->VertexShader;
-				Candidate.FragmentShader = ShaderPayload->FragmentShader;
-				Candidate.ShadowFragmentShader =
-					ShaderPayload->ShadowFragmentShader;
-				Candidate.OpaqueShadowFragmentShader =
-					ShaderPayload->OpaqueShadowFragmentShader;
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout = bShadowDepth ? RenderTargetLayouts::MakeDirectionalShadowDepth() : (EffectivePipelineKey.bHybridRetained ? RenderTargetLayouts::MakeHybridRetainedForward() : RenderTargetLayouts::MakeSceneTargets());
-				Initializer.BoundShaders.VertexShader =
-					Candidate.VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader = bShadowDepth ? (EffectivePipelineKey.Material.ShaderMap.BlendMode
-																				  == EMaterialBlendMode::Masked ?
-																			  Candidate.ShadowFragmentShader.GetRHIShader() :
-																			  Candidate.OpaqueShadowFragmentShader.GetRHIShader()) :
-																		 Candidate.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = VertexFactory->GetDeclaration();
-				Initializer.RasterizerState = EffectivePipelineKey.Rasterizer;
-				Initializer.DepthStencilState = EffectivePipelineKey.Depth;
-				if (!bShadowDepth)
-				{
-					Initializer.ColorBlendStates[0] = EffectivePipelineKey.ColorBlend;
-					if (EffectivePipelineKey.Material.ShaderMap.BlendMode
-						== EMaterialBlendMode::Translucent)
-					{
-						Initializer.ColorBlendStates[1].ColorWriteMask =
-							ERHIColorWriteMask::None;
-					}
-				}
-				Initializer.PipelineLayout =
-					Candidate.ShaderMap->GetMergedPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
-					FName(std::format("SkeletalMeshPipeline_{}", PipelineEntry.Index)),
-					Initializer
-				);
-				if (Candidate.PipelineState == nullptr)
-					return FPipelineResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"SkeletalMeshPipeline", GetIdentityText(EffectivePipelineKey),
-						"Graphics pipeline creation returned null.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-					));
-				return FPipelineResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic
-		);
-		if (Pipeline == nullptr) return false;
-
-		return EnsureMaterialSamplers_RenderThread(Item);
-	}
-
-	auto FSkeletalMeshRenderer::PrepareResources_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FPreparedSkeletalPaletteTable& PaletteTable,
-		FPreparedSkeletalMeshView& PreparedView,
-		bool bPrepareLitOpaqueForward
-	) -> bool
-	{
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
-		EnsureBaseResources_RenderThread();
-		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
-		{
-			switch (ResolveSkeletalPalette_RenderThread(
-				CommandList, PaletteTable, Primitive
-			))
-			{
-			case ESkeletalPaletteResolveResult::Uploaded:
-				++PreparedView.UploadedPalettes;
-				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
-				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
-				break;
-			case ESkeletalPaletteResolveResult::Reused:
-				++PreparedView.ReusedPalettes;
-				break;
-			case ESkeletalPaletteResolveResult::Rejected:
-				++PreparedView.RejectedPalettes;
-				break;
-			}
-		}
-		auto PrepareBucket = [&](auto& Bucket, bool bOpaqueOrMasked) {
-			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
-			{
-				++PreparedView.ResourcePreparationAttemptedDraws;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				const bool bNeedsForwardPipeline =
-					!bOpaqueOrMasked || bPrepareLitOpaqueForward
-					|| Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
-						   != EMaterialShadingModel::Lit;
-				Draw.bResourcesReady = Primitive != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
-									   && (bNeedsForwardPipeline ? EnsureSectionResources_RenderThread(*Primitive, Draw) : EnsureMaterialSamplers_RenderThread(Draw));
-				if (Draw.bResourcesReady)
-					++PreparedView.ResourcePreparationSuccessfulDraws;
-			}
-		};
-		PrepareBucket(PreparedView.Opaque, true);
-		PrepareBucket(PreparedView.Masked, true);
-		PrepareBucket(PreparedView.Translucent, false);
-		PreparedView.ResourcePreparationRejectedDraws =
-			PreparedView.ResourcePreparationAttemptedDraws
-			- PreparedView.ResourcePreparationSuccessfulDraws;
-		PreparedView.Phase = EPreparedSkeletalMeshPhase::ResourcesPrepared;
-		check(PreparedView.RequestedPaletteUploads == PreparedView.UploadedPalettes + PreparedView.ReusedPalettes + PreparedView.RejectedPalettes);
-		check(PreparedView.UploadedPaletteBytes == PreparedView.UploadedPaletteMatrices * sizeof(FMatrix4f));
-		check(PreparedView.ResourcePreparationAttemptedDraws == PreparedView.ResourcePreparationSuccessfulDraws + PreparedView.ResourcePreparationRejectedDraws);
-		return PreparedView.ResourcePreparationRejectedDraws == 0;
-	}
-
-	auto FSkeletalMeshRenderer::PrepareHybridRetainedResources_RenderThread(
-		FPreparedSkeletalMeshView& PreparedView
-	) -> bool
-	{
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		bool bReady = true;
-		auto PrepareBucket = [this, &PreparedView, &bReady](
-								 const auto& Bucket, bool bAllMaterials
-							 ) {
-			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
-			{
-				if (!bAllMaterials
-					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
-						   == EMaterialShadingModel::Lit)
-					continue;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				bReady = Primitive != nullptr
-						 && EnsureSectionResources_RenderThread(
-							 *Primitive, Draw, false, true
-						 )
-						 && bReady;
-			}
-		};
-		PrepareBucket(PreparedView.Opaque, false);
-		PrepareBucket(PreparedView.Masked, false);
-		PrepareBucket(PreparedView.Translucent, true);
-		return bReady;
-	}
-
-	auto FSkeletalMeshRenderer::PrepareShadowResources_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FPreparedSkeletalPaletteTable& PaletteTable,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> bool
-	{
-		check(!CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
-		check(PreparedView.Translucent.empty());
-		EnsureBaseResources_RenderThread();
-		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
-		{
-			switch (ResolveSkeletalPalette_RenderThread(
-				CommandList, PaletteTable, Primitive
-			))
-			{
-			case ESkeletalPaletteResolveResult::Uploaded:
-				++PreparedView.UploadedPalettes;
-				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
-				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
-				break;
-			case ESkeletalPaletteResolveResult::Reused:
-				++PreparedView.ReusedPalettes;
-				break;
-			case ESkeletalPaletteResolveResult::Rejected:
-				++PreparedView.RejectedPalettes;
-				break;
-			}
-		}
-		for (auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (FPreparedSkeletalMeshDraw& Draw : *Bucket)
-			{
-				++PreparedView.ResourcePreparationAttemptedDraws;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				Draw.bResourcesReady = Primitive != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
-									   && EnsureSectionResources_RenderThread(*Primitive, Draw, true);
-				PreparedView.ResourcePreparationSuccessfulDraws +=
-					Draw.bResourcesReady ? 1u : 0u;
-			}
-		}
-		PreparedView.ResourcePreparationRejectedDraws =
-			PreparedView.ResourcePreparationAttemptedDraws
-			- PreparedView.ResourcePreparationSuccessfulDraws;
-		PreparedView.Phase = EPreparedSkeletalMeshPhase::ResourcesPrepared;
-		return PreparedView.ResourcePreparationRejectedDraws == 0;
-	}
-
-	auto FSkeletalMeshRenderer::ExecuteShadow_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FSceneView& ShadowView,
-		const FRHIUniformBufferRange& FallbackLighting,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> void
-	{
-		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (const FPreparedSkeletalMeshDraw& Draw : *Bucket)
-			{
-				++PreparedView.AttemptedDraws;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				if (Primitive != nullptr && Draw.bResourcesReady
-					&& DrawSection_RenderThread(
-						CommandList, ShadowView, FallbackLighting,
-						ERenderMode::Unlit, *Primitive, Draw, true
-					))
-					++PreparedView.SuccessfulDraws;
-				else
-					++PreparedView.RejectedDraws;
-			}
-		}
-		PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
-		check(PreparedView.AttemptedDraws == PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
-	}
-
-	auto FSkeletalMeshRenderer::Execute_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, FPreparedSkeletalMeshView& PreparedView
-	) -> void
-	{
-		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
-		{
-			PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
-			return;
-		}
-		auto DrawBucket = [&](const auto& Bucket, EStaticMeshBasePass Pass) {
-			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
-			{
-				++PreparedView.AttemptedDraws;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				const bool bComplete = Primitive != nullptr
-									   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
-									   && Primitive->RenderData != nullptr
-									   && Primitive->VertexFactory != nullptr
-									   && Primitive->Pose != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
-									   && Draw.Section != nullptr && Draw.Pass == Pass
-									   && Draw.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
-									   && Draw.ShaderMapIdentity
-											  == Draw.Material.PipelineIdentity.ShaderMap;
-				if (!bComplete || !Draw.bResourcesReady)
-				{
-					++PreparedView.RejectedDraws;
-					continue;
-				}
-				if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode, *Primitive, Draw))
-					++PreparedView.SuccessfulDraws;
-				else
-					++PreparedView.RejectedDraws;
-			}
-		};
-		DrawBucket(PreparedView.Opaque, EStaticMeshBasePass::Opaque);
-		DrawBucket(PreparedView.Masked, EStaticMeshBasePass::Masked);
-		DrawBucket(PreparedView.Translucent, EStaticMeshBasePass::Translucent);
-		PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
-		check(PreparedView.AttemptedDraws == PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
-		check(PreparedView.AttemptedDraws == PreparedView.GetNumSections());
-	}
-
-	auto FSkeletalMeshRenderer::ExecutePreparedDraw_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained
-	) -> void
-	{
-		++PreparedView.AttemptedDraws;
-		const FPreparedSkeletalMeshPrimitive* Primitive =
-			PreparedView.GetPrimitive(Draw);
-		const bool bComplete = Primitive != nullptr
-							   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
-							   && Primitive->RenderData != nullptr
-							   && Primitive->VertexFactory != nullptr && Primitive->Pose != nullptr
-							   && Primitive->PaletteRange.Buffer != nullptr
-							   && Draw.Section != nullptr && Draw.Pass == Pass
-							   && Draw.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
-							   && Draw.ShaderMapIdentity == Draw.Material.PipelineIdentity.ShaderMap;
-		if (!bComplete || !Draw.bResourcesReady)
-		{
-			++PreparedView.RejectedDraws;
-			return;
-		}
-		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode, *Primitive, Draw, false, bHybridRetained))
-			++PreparedView.SuccessfulDraws;
-		else
-			++PreparedView.RejectedDraws;
-	}
-
-	auto FSkeletalMeshRenderer::ExecutePass_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
-	) -> void
-	{
-		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
-			return;
-		const auto& Bucket = Pass == EStaticMeshBasePass::Opaque ? PreparedView.Opaque : Pass == EStaticMeshBasePass::Masked ? PreparedView.Masked :
-																															   PreparedView.Translucent;
-		for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
-			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting, RenderMode, Pass, Draw, PreparedView);
-	}
-
-	auto FSkeletalMeshRenderer::FinalizeExecution_RenderThread(
-		FPreparedSkeletalMeshView& PreparedView
-	) -> void
-	{
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
-		check(PreparedView.AttemptedDraws == PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
-		check(PreparedView.AttemptedDraws == PreparedView.GetNumSections());
-	}
-
-	auto FSkeletalMeshRenderer::ExecuteGBuffer_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FSceneView& View,
-		FGBufferRenderer& GBuffer,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> void
-	{
-		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		PreparedView.GBufferSkippedDraws += PreparedView.Translucent.size();
-		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
-		{
-			for (const FPreparedSkeletalMeshDraw& Draw : *Bucket)
-			{
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
-					!= EMaterialShadingModel::Lit)
-				{
-					++PreparedView.GBufferSkippedDraws;
-					continue;
-				}
-				++PreparedView.GBufferAttemptedDraws;
-				const FPreparedSkeletalMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				if (Primitive != nullptr && Draw.bResourcesReady
-					&& DrawGBufferSection_RenderThread(
-						CommandList, View, GBuffer, *Primitive, Draw
-					))
-				{
-					++PreparedView.GBufferSuccessfulDraws;
-				}
-				else
-				{
-					++PreparedView.GBufferRejectedDraws;
-				}
-			}
-		}
-		check(PreparedView.GBufferAttemptedDraws == PreparedView.GBufferSuccessfulDraws + PreparedView.GBufferRejectedDraws);
-	}
-
-	auto FSkeletalMeshRenderer::DrawGBufferSection_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FSceneView& View,
-		FGBufferRenderer& GBuffer,
-		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Item
-	) -> bool
-	{
-		if (Primitive.RenderData == nullptr || Primitive.VertexFactory == nullptr
-			|| Primitive.Pose == nullptr || Item.Section == nullptr)
-		{
-			return false;
-		}
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr) return false;
-		const FVertexDeclarationRHIRef VertexDeclaration(
-			Primitive.VertexFactory->GetDeclaration()
-		);
-		FGBufferRenderer::FPipeline* Pipeline =
-			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = EGBufferVertexDomain::Skeletal});
-		if (Pipeline == nullptr) return false;
-
-		FStaticMeshTransformUniform Transform;
-		Transform.LocalToClip = Math::TransposeToFloat(
-			View.ViewProjectionMatrix * Primitive.LocalToWorld
-		);
-		Transform.LocalToWorld = Math::TransposeToFloat(Primitive.LocalToWorld);
-		Transform.NormalToWorld = Math::TransposeToFloat(
-			Math::Transpose(Math::Inverse(Primitive.LocalToWorld))
-		);
-		Transform.TransformParams.x = glm::determinant(
-										  glm::mat3(FMatrix4f(Primitive.LocalToWorld))
-									  ) < 0.0f ?
-										  -1.0f :
-										  1.0f;
-		Transform.TransformParams.y = static_cast<float>(
-			Primitive.Pose->Matrices.size()
-		);
-		const FRHIUniformBufferRange TransformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
-		const FStaticMeshMaterialUniform MaterialUniform =
-			MakeStaticMeshMaterialUniform(Item.MaterialBinding, true);
-		const FRHIUniformBufferRange MaterialBuffer =
-			CommandList.AllocateDynamicUniformBuffer(
-				&MaterialUniform, sizeof(MaterialUniform)
-			);
-		std::array<FRHISampler*, 8> Samplers{};
-		for (size_t Role = 0; Role < Samplers.size(); ++Role)
-		{
-			const auto It = Base->MaterialSamplerCache.find(
-				GetMaterialSamplerKey(Item.MaterialBinding.Samplers[Role])
-			);
-			if (It == Base->MaterialSamplerCache.end()) return false;
-			FSamplerRHIRef* Sampler = It->second.GetPayload();
-			if (Sampler == nullptr) return false;
-			Samplers[Role] = Sampler->GetReference();
-		}
-		const FGBufferRenderer::FVertexParameters VertexParameters{
-			.Transform = TransformBuffer,
-			.SkinPalette = Primitive.PaletteRange
-		};
-		const FGBufferRenderer::FFragmentParameters FragmentParameters =
-			MakeGBufferFragmentParameters(Item.MaterialBinding, DefaultTextures, MaterialBuffer, Samplers);
-		if (!GBuffer.BindPipeline_RenderThread(
-				CommandList, *Pipeline, VertexParameters, FragmentParameters
-			))
-		{
-			return false;
-		}
-		Primitive.VertexFactory->BindStreams(CommandList);
-		CommandList.BindIndexBuffer(Primitive.RenderData->IndexBuffer.GetRHI(), 0);
-		CommandList.DrawIndexed(
-			Item.Section->IndexCount, Item.Section->FirstIndex, 0
-		);
-		return true;
-	}
-
-	auto FSkeletalMeshRenderer::DrawSection_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedSkeletalMeshPrimitive& Primitive, const FPreparedSkeletalMeshDraw& Item, bool bShadowDepth, bool bHybridRetained
-	) -> bool
-	{
-		const FSkeletalMeshRenderData& Data = *Primitive.RenderData;
-		const FSkeletalMeshRenderSection& Section = *Item.Section;
-		const FMatrix& LocalToWorld = Primitive.LocalToWorld;
-		const FMaterialRenderData& Material = Item.Material;
-		const FMaterialRenderV3Binding& Binding = Item.MaterialBinding;
-		FStaticMeshTransformUniform Transform;
-		Transform.LocalToClip = Math::TransposeToFloat(View.ViewProjectionMatrix * LocalToWorld);
-		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
-		Transform.NormalToWorld = Math::TransposeToFloat(
-			Math::Transpose(Math::Inverse(LocalToWorld))
-		);
-		Transform.TransformParams.x = glm::determinant(
-										  glm::mat3(FMatrix4f(LocalToWorld))
-									  ) < 0.0f ?
-										  -1.0f :
-										  1.0f;
-		Transform.TransformParams.y = static_cast<float>(
-			Primitive.Pose->Matrices.size()
-		);
-		const FRHIUniformBufferRange TransformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
-
-		Primitive.VertexFactory->BindStreams(CommandList);
-		CommandList.BindIndexBuffer(Data.IndexBuffer.GetRHI(), 0);
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
-			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey) : Item.PipelineKey;
-		EffectivePipelineKey.bHybridRetained =
-			!bShadowDepth && bHybridRetained;
-		auto* PipelineEntry = bShadowDepth ? State->ShadowPipelines.Find(EffectivePipelineKey) : State->Pipelines.Find(EffectivePipelineKey);
-		FState::FPipelinePayload* Pipeline = PipelineEntry != nullptr ? PipelineEntry->Slot.GetPayload() : nullptr;
-		if (Base == nullptr || Pipeline == nullptr) return false;
-		CommandList.SetGraphicsPipelineState(*Pipeline->PipelineState);
-		if (bShadowDepth)
-		{
-			const FRHIRasterizerState Rasterizer =
-				MakeShadowRasterizerState(Item.PipelineKey.Rasterizer);
-			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor, Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
-		}
-		FSkeletalMeshVertexShader::FParameters VertexParameters;
-		VertexParameters.Transform = TransformBuffer;
-		VertexParameters.SkinPalette = Primitive.PaletteRange;
-		SetShaderParameters(CommandList, Pipeline->VertexShader, VertexParameters);
-		if (bShadowDepth
-			&& Item.PipelineKey.Material.ShaderMap.BlendMode
-				   != EMaterialBlendMode::Masked)
-		{
-			CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-			return true;
-		}
-		FStaticMeshMaterialUniform MaterialUniform;
-		MaterialUniform.BaseColor = Binding.BaseColor;
-		MaterialUniform.EmissiveMetallic = FVector4f(
-			Binding.Emissive, Binding.Metallic
-		);
-		MaterialUniform.NormalRoughness = FVector4f(
-			Binding.Normal, Binding.Roughness
-		);
-		MaterialUniform.SurfaceParams = FVector4f(
-			Binding.AmbientOcclusion, Binding.OpacityMask,
-			RenderMode == ERenderMode::Lit
-					&& Material.PipelineIdentity.ShaderMap.ShadingModel
-						   == EMaterialShadingModel::Lit ?
-				1.0f :
-				0.0f,
-			0.0f
-		);
-		for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-			MaterialUniform.UVTransforms[Role] = FVector4f(
-				Binding.UVScales[Role].x, Binding.UVScales[Role].y,
-				Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y
-			);
-		MaterialUniform.UVChannels0 = FVector4f(Binding.UVChannels[0], Binding.UVChannels[1], Binding.UVChannels[2], Binding.UVChannels[3]);
-		MaterialUniform.UVChannels1 = FVector4f(Binding.UVChannels[4], Binding.UVChannels[5], Binding.UVChannels[6], Binding.UVChannels[7]);
-		MaterialUniform.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
-		MaterialUniform.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
-		const FRHIUniformBufferRange MaterialBuffer =
-			CommandList.AllocateDynamicUniformBuffer(
-				&MaterialUniform, sizeof(MaterialUniform)
-			);
-		FStaticMeshFragmentShader::FParameters FragmentParameters;
-		FragmentParameters.Lighting = Lighting;
-		FragmentParameters.Material = MaterialBuffer;
-		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) {
-			FRHITexture* Texture = Binding.Textures[Role] != nullptr ? Binding.Textures[Role]->GetReferencedTexture_RenderThread() : nullptr;
-			return Texture != nullptr ? Texture : DefaultTextures.Get_RenderThread(Fallback);
-		};
-		FragmentParameters.BaseColorTexture = ResolveTexture(0, EDefaultTexture::White);
-		FragmentParameters.NormalTexture = ResolveTexture(1, EDefaultTexture::FlatNormal);
-		FragmentParameters.MetallicTexture = ResolveTexture(2, EDefaultTexture::White);
-		FragmentParameters.RoughnessTexture = ResolveTexture(3, EDefaultTexture::White);
-		FragmentParameters.AmbientOcclusionTexture = ResolveTexture(4, EDefaultTexture::White);
-		FragmentParameters.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
-		FragmentParameters.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
-		FragmentParameters.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
-		std::array<FRHISampler*, 8> Samplers{};
-		for (size_t Role = 0; Role < Samplers.size(); ++Role)
-		{
-			const auto It = Base->MaterialSamplerCache.find(
-				GetMaterialSamplerKey(Binding.Samplers[Role])
-			);
-			if (It == Base->MaterialSamplerCache.end()) return false;
-			FSamplerRHIRef* Sampler = It->second.GetPayload();
-			if (Sampler == nullptr) return false;
-			Samplers[Role] = Sampler->GetReference();
-		}
-		FragmentParameters.BaseColorSampler = Samplers[0];
-		FragmentParameters.NormalSampler = Samplers[1];
-		FragmentParameters.MetallicSampler = Samplers[2];
-		FragmentParameters.RoughnessSampler = Samplers[3];
-		FragmentParameters.AmbientOcclusionSampler = Samplers[4];
-		FragmentParameters.EmissiveSampler = Samplers[5];
-		FragmentParameters.OpacitySampler = Samplers[6];
-		FragmentParameters.OpacityMaskSampler = Samplers[7];
-		if (bShadowDepth
-			&& Item.PipelineKey.Material.ShaderMap.BlendMode
-				   == EMaterialBlendMode::Masked)
-		{
-			FStaticMeshShadowFragmentShader::FParameters ShadowParameters;
-			ShadowParameters.Material = MaterialBuffer;
-			ShadowParameters.OpacityMaskTexture =
-				FragmentParameters.OpacityMaskTexture;
-			ShadowParameters.OpacityMaskSampler = Samplers[7];
-			SetShaderParameters(CommandList, Pipeline->ShadowFragmentShader, ShadowParameters);
-			CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-			return true;
-		}
-		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
-		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
-		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
-		FRHISampler* EnvironmentSampler = EnvironmentLighting.GetSampler_RenderThread();
-		const bool bEnvironment = Irradiance && Prefiltered && Brdf && EnvironmentSampler;
-		FragmentParameters.EnvironmentIrradiance = bEnvironment ? Irradiance : DefaultTextures.GetCube_RenderThread();
-		FragmentParameters.EnvironmentPrefiltered = bEnvironment ? Prefiltered : DefaultTextures.GetCube_RenderThread();
-		FragmentParameters.EnvironmentBrdfLut = bEnvironment ? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
-		FragmentParameters.EnvironmentSampler = bEnvironment ? EnvironmentSampler : Samplers[0];
-		FragmentParameters.DirectionalShadowTexture =
-			Item.DirectionalShadowTexture != nullptr ? Item.DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread();
-		FragmentParameters.DirectionalShadowSampler =
-			Item.DirectionalShadowSampler != nullptr ? Item.DirectionalShadowSampler : Samplers[0];
-		SetShaderParameters(CommandList, Pipeline->FragmentShader, FragmentParameters);
-		CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-		return true;
-	}
-
-	auto FSkeletalMeshRenderer::ReleaseResources_RenderThread() -> void
-	{
 		State->BaseResources.Reset();
 		State->ShaderMaps.Reset();
 		State->ShadowShaderMaps.Reset();
