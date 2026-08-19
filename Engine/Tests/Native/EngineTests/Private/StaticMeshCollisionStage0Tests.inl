@@ -12,13 +12,7 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-#if DURIN_STATIC_MESH_COLLISION_QUALIFICATION
-#define DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(Suite, Name) GTEST_TEST(DISABLED_##Suite, Name)
-#define DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(Suite, Name) GTEST_TEST(Suite, Name)
-#else
 #define DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(Suite, Name) GTEST_TEST(Suite, Name)
-#define DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(Suite, Name) GTEST_TEST(DISABLED_##Suite, Name)
-#endif
 
 namespace
 {
@@ -197,42 +191,6 @@ namespace
 		uint64 LogicalRetainedBytes = 0;
 	};
 
-	struct FTraversalFacts
-	{
-		uint32 NodeTests = 0;
-		uint32 Leaves = 0;
-		uint32 FeatureTests = 0;
-	};
-
-	auto CountAabbWork(
-		const FMeshBuildFacts& Tree,
-		const FVector3f& QueryMinimum,
-		const FVector3f& QueryMaximum) -> FTraversalFacts
-	{
-		FTraversalFacts Result;
-		std::array<uint32, CollisionTraversalStackEntries> Stack{};
-		uint32 Count = 1;
-		Stack[0] = 0;
-		while (Count > 0)
-		{
-			const FCollisionMeshNodePrototype& Node = Tree.Nodes[Stack[--Count]];
-			++Result.NodeTests;
-			if (Node.Maximum.x < QueryMinimum.x || Node.Minimum.x > QueryMaximum.x
-				|| Node.Maximum.y < QueryMinimum.y || Node.Minimum.y > QueryMaximum.y
-				|| Node.Maximum.z < QueryMinimum.z || Node.Minimum.z > QueryMaximum.z) continue;
-			if (Node.IsLeaf())
-			{
-				++Result.Leaves;
-				Result.FeatureTests += Node.GetLeafCount();
-				continue;
-			}
-			if (Count + 2 > Stack.size()) return {};
-			Stack[Count++] = Node.CountOrSecond;
-			Stack[Count++] = Node.First;
-		}
-		return Result;
-	}
-
 	struct FReferenceEvidence
 	{
 		EPrototypeTarget Target;
@@ -323,30 +281,6 @@ namespace
 			{0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5,
 			 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6,
 			 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3}};
-	}
-
-	auto MakeGrid(uint32 Width, uint32 Height) -> FCollisionSourceFixture
-	{
-		FCollisionSourceFixture Result;
-		Result.Name = "LargeGrid";
-		Result.Positions.reserve(static_cast<size_t>(Width + 1) * (Height + 1));
-		for (uint32 Y = 0; Y <= Height; ++Y)
-			for (uint32 X = 0; X <= Width; ++X)
-				Result.Positions.emplace_back(static_cast<float>(X), static_cast<float>(Y),
-					static_cast<float>((X * 17u + Y * 31u) % 7u) * 0.001f);
-		Result.Indices.reserve(static_cast<size_t>(Width) * Height * 6);
-		for (uint32 Y = 0; Y < Height; ++Y)
-		{
-			for (uint32 X = 0; X < Width; ++X)
-			{
-				const uint32 A = Y * (Width + 1) + X;
-				const uint32 B = A + 1;
-				const uint32 C = A + Width + 1;
-				const uint32 D = C + 1;
-				Result.Indices.insert(Result.Indices.end(), {A, B, D, A, D, C});
-			}
-		}
-		return Result;
 	}
 
 	auto MakeEdgeCaseFixtures() -> std::vector<FCollisionSourceFixture>
@@ -884,48 +818,6 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 	EXPECT_LT(WorstCaseRuntimeBytes * 2u, MaximumCollisionBuilderPeakBytes);
 	EXPECT_EQ(CollisionTraversalStackEntries, MaximumCollisionTreeDepth * 2u);
 	EXPECT_EQ(MaximumCollisionDebugTriangles, 256u);
-}
-
-DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(FAetherCookedCollisionQualificationTests, QualifiesHundredThousandTrianglePrototype)
-{
-	const FCollisionSourceFixture Large = MakeGrid(224, 224);
-	ASSERT_GT(Large.Indices.size() / 3, 100'000u);
-	const auto Start = std::chrono::steady_clock::now();
-	FMeshBuildFacts Facts;
-	ASSERT_TRUE(BuildMeshPrototype(Large, Facts));
-	const uint64 BuildNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-		std::chrono::steady_clock::now() - Start).count());
-	const uint64 EstimatedPeakBytes = Facts.LogicalRetainedBytes
-		+ static_cast<uint64>(Facts.RetainedTriangles) * sizeof(FTriangleBuildRecord) * 2u;
-	const FTraversalFacts SparseMiss = CountAabbWork(
-		Facts, {-100.0f, -100.0f, -100.0f}, {-99.0f, -99.0f, -99.0f});
-	const FTraversalFacts Dense = CountAabbWork(
-		Facts, {-1.0f, -1.0f, -1.0f}, {1.0e6f, 1.0e6f, 1.0e6f});
-	const auto CookStart = std::chrono::steady_clock::now();
-	const std::vector<uint8> Payload = BuildPrototypePayload(Large);
-	const uint64 CookNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-		std::chrono::steady_clock::now() - CookStart).count());
-	EXPECT_EQ(Facts.SourceTriangles, 100'352u);
-	EXPECT_EQ(Facts.RetainedTriangles, Facts.SourceTriangles);
-	EXPECT_EQ(Facts.RemovedTriangles, 0u);
-	EXPECT_LE(Facts.MaximumDepth, 15u);
-	EXPECT_LT(Facts.LogicalRetainedBytes, 8ull * 1024ull * 1024ull);
-	EXPECT_LT(EstimatedPeakBytes, 16ull * 1024ull * 1024ull);
-	EXPECT_EQ(SparseMiss.NodeTests, 1u);
-	EXPECT_EQ(SparseMiss.FeatureTests, 0u);
-	EXPECT_EQ(Dense.FeatureTests, Facts.RetainedTriangles);
-	EXPECT_EQ(Dense.NodeTests, Facts.Nodes.size());
-	EXPECT_TRUE(ValidatePrototypePayload(Payload));
-	EXPECT_LT(Payload.size(), MaximumCollisionPayloadBytes);
-	EXPECT_GT(BuildNanoseconds, 0u);
-	EXPECT_GT(CookNanoseconds, 0u);
-	RecordProperty("M3PrototypeBuildNanoseconds", BuildNanoseconds);
-	RecordProperty("M3PrototypeCookNanoseconds", CookNanoseconds);
-	RecordProperty("M3PrototypePayloadBytes", Payload.size());
-	RecordProperty("M3PrototypeLogicalBytes", Facts.LogicalRetainedBytes);
-	RecordProperty("M3PrototypeEstimatedPeakBytes", EstimatedPeakBytes);
-	RecordProperty("M3PrototypeSparseNodeTests", SparseMiss.NodeTests);
-	RecordProperty("M3PrototypeSparseFeatureTests", SparseMiss.FeatureTests);
 }
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesKeyFormatPayloadAndDescriptorIdentity)

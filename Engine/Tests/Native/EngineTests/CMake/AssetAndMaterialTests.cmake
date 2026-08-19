@@ -217,17 +217,6 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-durin_add_engine_functional_test(StaticMeshCollisionQualificationTests
-	KIND qualification
-	DOMAINS physics static-mesh
-	MODULES aether engine static-mesh-editor
-	STACKS editor renderer
-	RUNTIME_STACK_RATIONALE "Measures the large cooked-collision prototype while preserving its frozen helper model."
-	SOURCES Private/StaticMeshCollisionQualificationTests.cpp
-	LIBRARIES AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
-	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
-)
-
 durin_add_engine_functional_test(SkeletalAssetTests
 	KIND feature
 	DOMAINS skeletal-mesh

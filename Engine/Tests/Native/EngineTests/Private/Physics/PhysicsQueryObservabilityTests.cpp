@@ -8,15 +8,6 @@
 namespace
 {
 	constexpr Durin::uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
-	constexpr std::array<size_t, 4> FixtureBodyCounts{0, 32, 1'000, 10'000};
-
-	enum class EFixtureDistribution
-	{
-		Sparse,
-		SparseClosestHit,
-		Dense,
-		Filtered
-	};
 
 	struct FDeterministicGenerator
 	{
@@ -45,35 +36,17 @@ namespace
 
 	auto AddDeterministicBodies(
 		Durin::FPhysicsScene& Scene,
-		size_t BodyCount,
-		EFixtureDistribution Distribution,
-		Durin::uint64 Seed = FixtureSeed) -> std::vector<Durin::FPhysicsActorHandle>
+		size_t BodyCount) -> std::vector<Durin::FPhysicsActorHandle>
 	{
-		FDeterministicGenerator Generator{Seed};
+		FDeterministicGenerator Generator;
 		std::vector<Durin::FPhysicsActorHandle> Handles;
 		Handles.reserve(BodyCount);
 		for (size_t Index = 0; Index < BodyCount; ++Index)
 		{
-			Durin::FVector3 Center;
-			switch (Distribution)
-			{
-			case EFixtureDistribution::Sparse:
-			case EFixtureDistribution::SparseClosestHit:
-			case EFixtureDistribution::Filtered:
-				Center = {
-					100.0 + static_cast<double>(Index % 100) * 4.0,
-					-200.0 + static_cast<double>((Index / 100) % 100) * 4.0,
-					20.0 + static_cast<double>(Index / 10'000) * 4.0};
-				break;
-			case EFixtureDistribution::Dense:
-				Center = {
-					(Generator.NextUnit() - 0.5) * 0.4,
-					(Generator.NextUnit() - 0.5) * 0.4,
-					(Generator.NextUnit() - 0.5) * 0.4};
-				break;
-			}
-
-			if (Distribution == EFixtureDistribution::SparseClosestHit && Index == 0) Center = {0.0, 0.0, 0.0};
+			const Durin::FVector3 Center{
+				100.0 + static_cast<double>(Index % 100) * 4.0,
+				-200.0 + static_cast<double>((Index / 100) % 100) * 4.0,
+				20.0 + static_cast<double>(Index / 10'000) * 4.0};
 			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<Durin::uint64>(Index + 1));
 			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0, Durin::FVectorConstants::Up);
@@ -81,20 +54,6 @@ namespace
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5};
-			if (Distribution == EFixtureDistribution::Filtered)
-			{
-				switch (Index % 3)
-				{
-				case 0:
-					Desc.Filter.Responses[0] = Durin::EPhysicsQueryResponse::Ignore;
-					break;
-				case 1:
-					Desc.Filter.Responses[0] = Durin::EPhysicsQueryResponse::Overlap;
-					break;
-				default:
-					break;
-				}
-			}
 			Handles.push_back(Scene.AddBody(Desc));
 		}
 		return Handles;
@@ -180,91 +139,6 @@ namespace
 		EXPECT_GE(Counters.Fallbacks, Counters.CompareMismatches);
 	}
 
-	auto PrintStructuralBaseline(
-		std::string_view Fixture,
-		size_t BodyCount,
-		const Durin::FPhysicsSceneQueryDiagnostics& Diagnostics,
-		Durin::EPhysicsSceneQueryKind QueryKind) -> void
-	{
-		const Durin::FPhysicsSceneQueryCounters& Counters = GetQueryCounters(Diagnostics, QueryKind);
-		ExpectQueryCountersReconcile(Counters);
-		std::cout << "AetherStructuralBaseline"
-			<< ",fixture=" << Fixture
-			<< ",bodies=" << BodyCount
-			<< ",submitted=" << Counters.SubmittedQueries
-			<< ",body_visits=" << Counters.BodyVisits
-			<< ",candidates=" << Counters.Candidates
-			<< ",ignored=" << Counters.IgnoredBodies
-			<< ",filter_rejected=" << Counters.FilterRejectedBodies
-			<< ",pair_tests=" << Counters.NarrowPhasePairTests
-			<< ",distance_evaluations=" << Counters.GeometryDistanceEvaluations
-			<< ",search_iterations=" << Counters.GeometrySearchIterations
-			<< ",raw_hits=" << Counters.RawHits
-			<< ",returned=" << Counters.ReturnedResults
-			<< ",scratch_high_water=" << Counters.ScratchHighWater
-			<< ",capture_high_water=" << Counters.CaptureHighWater
-			<< ",node_tests=" << Counters.NodeTests
-			<< ",bound_tests=" << Counters.BoundTests
-			<< ",pruned_nodes=" << Counters.PrunedNodes
-			<< ",retained_spatial_bytes=" << Diagnostics.Mutations.RetainedSpatialBytes
-			<< ",spatial_fallbacks=" << Diagnostics.Mutations.SpatialFallbacks << '\n';
-	}
-
-	template <typename Function>
-	auto MeasureOperation(
-		std::string_view RecordName,
-		std::string_view Fixture,
-		size_t BodyCount,
-		Durin::uint32 Iterations,
-		Function&& Query) -> void
-	{
-		constexpr Durin::uint32 WarmupCount = 3;
-		constexpr Durin::uint32 SampleCount = 11;
-		Durin::uint64 Checksum = 0;
-		auto Run = [&]() {
-			for (Durin::uint32 Iteration = 0; Iteration < Iterations; ++Iteration)
-			{
-				Checksum += Query() ? 3u : 1u;
-			}
-		};
-		for (Durin::uint32 Warmup = 0; Warmup < WarmupCount; ++Warmup) Run();
-
-		std::vector<Durin::uint64> Samples;
-		Samples.reserve(SampleCount);
-		for (Durin::uint32 Sample = 0; Sample < SampleCount; ++Sample)
-		{
-			const auto Start = std::chrono::steady_clock::now();
-			Run();
-			const Durin::uint64 Elapsed = static_cast<Durin::uint64>(
-				std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - Start).count());
-			Samples.push_back(Elapsed / Iterations);
-		}
-		std::ranges::sort(Samples);
-		const Durin::uint64 Median = Samples[SampleCount / 2];
-		const Durin::uint64 P95 = Samples[SampleCount - 1];
-		std::cout << RecordName
-			<< ",fixture=" << Fixture
-			<< ",bodies=" << BodyCount
-			<< ",iterations=" << Iterations
-			<< ",warmups=" << WarmupCount
-			<< ",samples=" << SampleCount
-			<< ",median_ns_per_query=" << Median
-			<< ",p95_ns_per_query=" << P95
-			<< ",checksum=" << Checksum << '\n';
-		EXPECT_GT(Checksum, 0u);
-	}
-
-	template <typename Function>
-	auto MeasureQuery(
-		std::string_view Fixture,
-		size_t BodyCount,
-		Durin::uint32 Iterations,
-		Function&& Query) -> void
-	{
-		MeasureOperation(
-			"AetherPrePipelineBaseline", Fixture, BodyCount, Iterations, std::forward<Function>(Query));
-	}
 }
 
 TEST(FAetherQueryCharacterizationTests, LineTraceFreezesValidationClearingAndEveryResultField)
@@ -790,7 +664,7 @@ TEST(FAetherQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeBo
 	EXPECT_EQ(Mutations.UpdateCalls, Mutations.UpdateSuccesses + Mutations.UpdateRejected);
 	EXPECT_EQ(Mutations.RemoveCalls, Mutations.RemoveSuccesses + Mutations.RemoveRejected);
 
-	AddDeterministicBodies(Scene, 10'000, EFixtureDistribution::Sparse);
+	AddDeterministicBodies(Scene, 10'000);
 	ASSERT_TRUE(Scene.SetDetailedQueryDiagnosticsEnabled(true));
 	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
 	Snapshot = Scene.CaptureQueryDiagnostics();
@@ -1052,280 +926,4 @@ TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatch
 		}
 		Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 	}
-}
-
-TEST(DISABLED_FAetherQueryBaselineBenchmarks, RecordsPrePipelineFlatQueryBaseline)
-{
-	for (const size_t BodyCount : FixtureBodyCounts)
-	{
-		SCOPED_TRACE(std::format("seed={}, bodies={}", FixtureSeed, BodyCount));
-		Durin::FPhysicsScene SparseScene;
-		AddDeterministicBodies(SparseScene, BodyCount, EFixtureDistribution::Sparse);
-		Durin::FPhysicsScene HitScene;
-		AddDeterministicBodies(HitScene, BodyCount, EFixtureDistribution::SparseClosestHit);
-		Durin::FPhysicsScene DenseScene;
-		AddDeterministicBodies(DenseScene, BodyCount, EFixtureDistribution::Dense);
-
-		const Durin::uint32 TraceIterations = static_cast<Durin::uint32>(
-			std::clamp<size_t>(200'000 / std::max<size_t>(BodyCount, 1), 1, 10'000));
-		const Durin::uint32 GeometryIterations = static_cast<Durin::uint32>(
-			std::clamp<size_t>(1'000 / std::max<size_t>(BodyCount, 1), 1, 10'000));
-		Durin::FPhysicsQueryHit Hit;
-		MeasureQuery("line_sparse_miss", BodyCount, TraceIterations, [&] {
-			return SparseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureQuery("line_sparse_closest_hit", BodyCount, TraceIterations, [&] {
-			return HitScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-
-		const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.5, 1.0);
-		Durin::FTransform Transform;
-		Transform.Translation = {-10.0, 0.0, 0.0};
-		MeasureQuery("sweep_sparse_miss", BodyCount, GeometryIterations, [&] {
-			return SparseScene.SweepSingle(Capsule, Transform, {20.0, 0.0, 0.0}, {}, Hit);
-		});
-		Transform.Translation = {0.0, 0.0, 0.0};
-		MeasureQuery("sweep_dense_penetration", BodyCount, GeometryIterations, [&] {
-			return DenseScene.SweepSingle(Capsule, Transform, {1.0, 0.0, 0.0}, {}, Hit);
-		});
-		std::vector<Durin::FPhysicsQueryHit> Hits;
-		MeasureQuery("overlap_dense", BodyCount, GeometryIterations, [&] {
-			return DenseScene.OverlapMulti(Capsule, Transform, {}, Hits);
-		});
-	}
-}
-
-TEST(DISABLED_FAetherQueryDiagnosticsBenchmarks, RecordsDetailedOverheadAndConstantTimeObservation)
-{
-	for (const size_t BodyCount : FixtureBodyCounts)
-	{
-		SCOPED_TRACE(std::format("seed={}, bodies={}", FixtureSeed, BodyCount));
-		Durin::FPhysicsScene Scene;
-		AddDeterministicBodies(Scene, BodyCount, EFixtureDistribution::Sparse);
-		const Durin::uint32 QueryIterations = static_cast<Durin::uint32>(
-			std::clamp<size_t>(200'000 / std::max<size_t>(BodyCount, 1), 1, 10'000));
-		Durin::FPhysicsQueryHit Hit;
-		ASSERT_TRUE(Scene.SetDetailedQueryDiagnosticsEnabled(false));
-		ASSERT_TRUE(Scene.ResetQueryDiagnostics());
-		MeasureOperation("AetherDiagnosticsCost", "line_detailed_disabled", BodyCount, QueryIterations, [&] {
-			return Scene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-
-		ASSERT_TRUE(Scene.SetDetailedQueryDiagnosticsEnabled(true));
-		ASSERT_TRUE(Scene.ResetQueryDiagnostics());
-		MeasureOperation("AetherDiagnosticsCost", "line_detailed_enabled", BodyCount, QueryIterations, [&] {
-			return Scene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-
-		constexpr Durin::uint32 ObservationIterations = 10'000;
-		MeasureOperation("AetherDiagnosticsCost", "capture", BodyCount, ObservationIterations, [&] {
-			return Scene.CaptureQueryDiagnostics().Mutations.BodiesPresent == BodyCount;
-		});
-		MeasureOperation("AetherDiagnosticsCost", "reset", BodyCount, ObservationIterations, [&] {
-			return Scene.ResetQueryDiagnostics();
-		});
-	}
-}
-
-TEST(DISABLED_FAetherQueryQualificationBenchmarks, RecordsStageThreeStructureTimingMutationAndMemory)
-{
-	std::cout << "AetherRetainedMemory"
-		<< ",scene_bytes=" << Durin::FPhysicsSceneQueryTestAccess::GetSceneSize()
-		<< ",body_record_bytes=" << Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize()
-		<< ",diagnostics_bytes=" << Durin::FPhysicsSceneQueryTestAccess::GetDiagnosticsSize()
-		<< ",mismatch_bytes=" << Durin::FPhysicsSceneQueryTestAccess::GetMismatchSize()
-		<< ",mismatch_capacity=1\n";
-
-	for (const size_t BodyCount : FixtureBodyCounts)
-	{
-		SCOPED_TRACE(std::format("seed={}, bodies={}", FixtureSeed, BodyCount));
-		Durin::FPhysicsScene SparseScene;
-		const std::vector<Durin::FPhysicsActorHandle> SparseHandles = AddDeterministicBodies(
-			SparseScene, BodyCount, EFixtureDistribution::Sparse);
-		Durin::FPhysicsScene HitScene;
-		AddDeterministicBodies(HitScene, BodyCount, EFixtureDistribution::SparseClosestHit);
-		Durin::FPhysicsScene DenseScene;
-		AddDeterministicBodies(DenseScene, BodyCount, EFixtureDistribution::Dense);
-		Durin::FPhysicsScene FilteredScene;
-		AddDeterministicBodies(FilteredScene, BodyCount, EFixtureDistribution::Filtered);
-
-		Durin::FPhysicsQueryHit Hit;
-		ASSERT_TRUE(SparseScene.SetQueryExecutionPolicy(Durin::EPhysicsSceneQueryExecutionPolicy::Compare));
-		ASSERT_TRUE(SparseScene.ResetQueryDiagnostics());
-		SparseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		const Durin::FCollisionShape ParityCapsule = Durin::FCollisionShape::MakeCapsule(0.5, 1.0);
-		Durin::FTransform ParityTransform;
-		ParityTransform.Translation = {-10.0, 0.0, 0.0};
-		SparseScene.SweepSingle(ParityCapsule, ParityTransform, {20.0, 0.0, 0.0}, {}, Hit);
-		std::vector<Durin::FPhysicsQueryHit> ParityHits;
-		SparseScene.OverlapMulti(ParityCapsule, ParityTransform, {}, ParityHits);
-		const Durin::FPhysicsSceneQueryDiagnostics ParityDiagnostics = SparseScene.CaptureQueryDiagnostics();
-		Durin::uint64 ParityMismatches = 0;
-		for (const Durin::FPhysicsSceneQueryCounters& Counters : ParityDiagnostics.Queries)
-		{
-			ExpectQueryCountersReconcile(Counters);
-			ParityMismatches += Counters.CompareMismatches;
-		}
-		EXPECT_EQ(ParityMismatches, 0u);
-		std::cout << "AetherScaleParity,bodies=" << BodyCount
-			<< ",mismatches=" << ParityMismatches << '\n';
-		ASSERT_TRUE(SparseScene.SetQueryExecutionPolicy(Durin::EPhysicsSceneQueryExecutionPolicy::Production));
-		ASSERT_TRUE(SparseScene.ResetQueryDiagnostics());
-		SparseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		PrintStructuralBaseline(
-			"line_sparse_miss", BodyCount, SparseScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::LineTraceSingle);
-		ASSERT_TRUE(HitScene.ResetQueryDiagnostics());
-		HitScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		PrintStructuralBaseline(
-			"line_sparse_closest_hit", BodyCount, HitScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::LineTraceSingle);
-		ASSERT_TRUE(DenseScene.ResetQueryDiagnostics());
-		DenseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		PrintStructuralBaseline(
-			"line_dense_crossing", BodyCount, DenseScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::LineTraceSingle);
-		ASSERT_TRUE(FilteredScene.ResetQueryDiagnostics());
-		FilteredScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		PrintStructuralBaseline(
-			"line_filter_mix", BodyCount, FilteredScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::LineTraceSingle);
-
-		Durin::FPhysicsQueryFilter IgnoredFilter;
-		for (size_t Index = 0; Index < SparseHandles.size(); Index += 3)
-			IgnoredFilter.IgnoredActors.push_back(SparseHandles[Index]);
-		ASSERT_TRUE(SparseScene.ResetQueryDiagnostics());
-		SparseScene.LineTraceSingle(
-			{-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, IgnoredFilter, Hit);
-		PrintStructuralBaseline(
-			"line_ignored_thirds", BodyCount, SparseScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::LineTraceSingle);
-
-		const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.5, 1.0);
-		Durin::FTransform SweepTransform;
-		SweepTransform.Translation = {-10.0, 0.0, 0.0};
-		ASSERT_TRUE(SparseScene.ResetQueryDiagnostics());
-		SparseScene.SweepSingle(Capsule, SweepTransform, {20.0, 0.0, 0.0}, {}, Hit);
-		PrintStructuralBaseline(
-			"sweep_sparse_miss", BodyCount, SparseScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::SweepSingle);
-		Durin::FTransform OverlapTransform;
-		std::vector<Durin::FPhysicsQueryHit> Hits;
-		ASSERT_TRUE(DenseScene.ResetQueryDiagnostics());
-		DenseScene.OverlapMulti(Capsule, OverlapTransform, {}, Hits);
-		PrintStructuralBaseline(
-			"overlap_dense", BodyCount, DenseScene.CaptureQueryDiagnostics(),
-			Durin::EPhysicsSceneQueryKind::OverlapMulti);
-
-		const Durin::uint32 TraceIterations = static_cast<Durin::uint32>(
-			std::clamp<size_t>(200'000 / std::max<size_t>(BodyCount, 1), 1, 10'000));
-		const Durin::uint32 GeometryIterations = static_cast<Durin::uint32>(
-			std::clamp<size_t>(1'000 / std::max<size_t>(BodyCount, 1), 1, 10'000));
-		MeasureOperation("AetherStageThreeTiming", "line_sparse_miss", BodyCount, TraceIterations, [&] {
-			return SparseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "line_sparse_closest_hit", BodyCount, TraceIterations, [&] {
-			return HitScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "line_dense_crossing", BodyCount, TraceIterations, [&] {
-			return DenseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "line_filter_mix", BodyCount, TraceIterations, [&] {
-			return FilteredScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "line_ignored_thirds", BodyCount, TraceIterations, [&] {
-			return SparseScene.LineTraceSingle(
-				{-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, IgnoredFilter, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "sweep_sparse_miss", BodyCount, GeometryIterations, [&] {
-			return SparseScene.SweepSingle(Capsule, SweepTransform, {20.0, 0.0, 0.0}, {}, Hit);
-		});
-		MeasureOperation("AetherStageThreeTiming", "overlap_dense", BodyCount, GeometryIterations, [&] {
-			return DenseScene.OverlapMulti(Capsule, OverlapTransform, {}, Hits);
-		});
-
-		Durin::FPhysicsScene MutationScene;
-		std::vector<Durin::FPhysicsActorHandle> MutationHandles = AddDeterministicBodies(
-			MutationScene, BodyCount, EFixtureDistribution::Sparse);
-		ASSERT_TRUE(MutationScene.ResetQueryDiagnostics());
-		Durin::FPhysicsBodyDesc MutationDesc = MakeBoxBody({500.0, 0.0, 0.0}, 0xC0FFEE);
-		for (size_t Index = 0; Index < MutationHandles.size(); Index += 3)
-			EXPECT_TRUE(MutationScene.RemoveBody(MutationHandles[Index]));
-		for (size_t Index = 1; Index < MutationHandles.size(); Index += 3)
-			EXPECT_TRUE(MutationScene.UpdateBody(MutationHandles[Index], MutationDesc));
-		const size_t RemovedCount = (BodyCount + 2) / 3;
-		for (size_t Index = 0; Index < RemovedCount; ++Index)
-			EXPECT_TRUE(MutationScene.AddBody(MutationDesc).IsValid());
-		const Durin::FPhysicsSceneMutationCounters Mutations =
-			MutationScene.CaptureQueryDiagnostics().Mutations;
-		std::cout << "AetherMutationBaseline"
-			<< ",bodies=" << BodyCount
-			<< ",add_calls=" << Mutations.AddCalls
-			<< ",updates=" << Mutations.UpdateSuccesses
-			<< ",removes=" << Mutations.RemoveSuccesses
-			<< ",failed_lookups=" << Mutations.FailedLookups
-			<< ",bodies_present=" << Mutations.BodiesPresent << '\n';
-
-		if (BodyCount > 0)
-		{
-			Durin::FPhysicsScene MutationTimingScene;
-			std::vector<Durin::FPhysicsActorHandle> TimingHandles = AddDeterministicBodies(
-				MutationTimingScene, BodyCount, EFixtureDistribution::Sparse);
-			const Durin::uint32 MutationIterations = static_cast<Durin::uint32>(
-				std::clamp<size_t>(100'000 / BodyCount, 1, 10'000));
-			MeasureOperation("AetherStageThreeTiming", "update_last", BodyCount, MutationIterations, [&] {
-				return MutationTimingScene.UpdateBody(TimingHandles.back(), MutationDesc);
-			});
-			Durin::FPhysicsActorHandle CurrentLast = TimingHandles.back();
-			MeasureOperation("AetherStageThreeTiming", "remove_add_last", BodyCount, MutationIterations, [&] {
-				if (!MutationTimingScene.RemoveBody(CurrentLast)) return false;
-				CurrentLast = MutationTimingScene.AddBody(MutationDesc);
-				return CurrentLast.IsValid();
-			});
-		}
-	}
-}
-
-TEST(DISABLED_FAetherNarrowphaseBenchmarks, RecordsCapsuleBoxProductionSpeedup)
-{
-	constexpr Durin::uint32 SampleCount = 15;
-	constexpr Durin::uint32 IterationsPerSample = 200;
-	const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.4, 1.0);
-	const Durin::FCollisionShape Box = Durin::FCollisionShape::MakeBox({0.5, 3.0, 3.0});
-	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(Box);
-	Durin::FTransform CapsuleTransform;
-	CapsuleTransform.Translation = {-3.0, 0.0, 0.0};
-	std::array<Durin::uint64, SampleCount> ReferenceSamples{};
-	std::array<Durin::uint64, SampleCount> ProductionSamples{};
-	for (Durin::uint32 Sample = 0; Sample < SampleCount; ++Sample)
-	{
-		auto Measure = [&](bool bReference) {
-			const auto Start = std::chrono::steady_clock::now();
-			for (Durin::uint32 Iteration = 0; Iteration < IterationsPerSample; ++Iteration)
-			{
-				Durin::FPhysicsQueryHit Hit;
-				if (bReference)
-					EXPECT_FALSE(Durin::CollisionGeometry::SweepCapsuleBox(
-						Capsule, CapsuleTransform, Durin::FVector3(0.0), Box, Durin::FTransform(), Hit));
-				else
-					EXPECT_EQ(Durin::CollisionGeometry::Sweep(
-						Capsule, CapsuleTransform, Durin::FVector3(0.0), Geometry, Durin::FTransform(),
-						Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
-						Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
-			}
-			return static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - Start).count()) / IterationsPerSample;
-		};
-		ReferenceSamples[Sample] = Measure(true);
-		ProductionSamples[Sample] = Measure(false);
-	}
-	std::ranges::sort(ReferenceSamples);
-	std::ranges::sort(ProductionSamples);
-	const Durin::uint64 ReferenceMedian = ReferenceSamples[SampleCount / 2];
-	const Durin::uint64 ProductionMedian = ProductionSamples[SampleCount / 2];
-	std::cout << "AETHER_M2_CAPSULE_BOX reference_median_ns=" << ReferenceMedian
-		<< ",production_median_ns=" << ProductionMedian
-		<< ",speedup=" << static_cast<double>(ReferenceMedian) / std::max<Durin::uint64>(1, ProductionMedian)
-		<< '\n';
-	EXPECT_GT(ReferenceMedian, ProductionMedian * 4);
 }
