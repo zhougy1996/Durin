@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin::Editor::MainFrame
+namespace Durin::Editor::Host
 {
 	// Describes the game-thread-owned, forward-only editor host bootstrap.
 	enum class EBootstrapState : uint8
@@ -24,6 +24,7 @@ namespace Durin::Editor::MainFrame
 		Failed,
 	};
 
+	// Summarizes whether the host bootstrap should continue, exit, or fail.
 	enum class EBootstrapStepStatus : uint8
 	{
 		Pending,
@@ -31,6 +32,7 @@ namespace Durin::Editor::MainFrame
 		Failed,
 	};
 
+	// Carries the observable state of one editor-host bootstrap step.
 	struct FBootstrapProgress
 	{
 		EBootstrapState State = EBootstrapState::ConstructingShell;
@@ -97,27 +99,26 @@ namespace Durin::Editor::MainFrame
 		}
 		return false;
 	}
-
 }
 
 namespace Durin
 {
 	class MWindow;
 
-	// Defines the module boundary that hosts editor workspaces in the main frame.
-	class IMainFrameModule : public IModuleInterface
+	// Defines the host lifecycle required by the editor engine without naming its UI implementation.
+	class IEditorHost : public IModuleInterface
 	{
 	public:
-		virtual auto CreateDefaultFrame(
+		virtual auto CreateEditorHost(
 			std::shared_ptr<MWindow> StartupWindow) -> void = 0;
-		virtual auto DestroyDefaultFrame() -> void = 0;
-		virtual auto AdvanceDefaultBootstrap(bool bFirstPresentAvailable)
-			-> Editor::MainFrame::FBootstrapProgress = 0;
-		virtual auto GetDefaultBootstrapProgress() const
-			-> Editor::MainFrame::FBootstrapProgress = 0;
-		virtual auto GetDefaultBootstrapState() const
-			-> Editor::MainFrame::EBootstrapState = 0;
+		virtual auto DestroyEditorHost() -> void = 0;
+		virtual auto AdvanceBootstrap(bool bFirstPresentAvailable)
+			-> Editor::Host::FBootstrapProgress = 0;
+		virtual auto GetBootstrapProgress() const
+			-> Editor::Host::FBootstrapProgress = 0;
+		virtual auto GetBootstrapState() const
+			-> Editor::Host::EBootstrapState = 0;
 		virtual auto GetDefaultDocumentState() const
-			-> Editor::MainFrame::EDefaultDocumentState = 0;
+			-> Editor::Host::EDefaultDocumentState = 0;
 	};
 }

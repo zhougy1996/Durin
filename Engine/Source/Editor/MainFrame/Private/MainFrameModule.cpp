@@ -28,6 +28,8 @@
 
 namespace Durin::Editor::MainFrame
 {
+	using namespace Host;
+
 	struct FBootstrapContext
 	{
 		EBootstrapState State = EBootstrapState::ConstructingShell;
@@ -793,10 +795,10 @@ namespace Durin
 
 	auto FMainFrameModule::ShutdownModule() -> void
 	{
-		DestroyDefaultFrame();
+		DestroyEditorHost();
 	}
 
-	auto FMainFrameModule::CreateDefaultFrame(
+	auto FMainFrameModule::CreateEditorHost(
 		std::shared_ptr<MWindow> StartupWindow) -> void
 	{
 		check(BootstrapContext == nullptr);
@@ -905,13 +907,13 @@ namespace Durin
 			Context, EBootstrapState::WaitingForFirstPresent);
 	}
 
-	auto FMainFrameModule::DestroyDefaultFrame() -> void
+	auto FMainFrameModule::DestroyEditorHost() -> void
 	{
 		Asset::Build::ShutdownBuildHost();
 		BootstrapContext.reset();
 	}
 
-	auto FMainFrameModule::AdvanceDefaultBootstrap(
+	auto FMainFrameModule::AdvanceBootstrap(
 		bool bFirstPresentAvailable) -> FBootstrapProgress
 	{
 		if (!BootstrapContext)
@@ -979,7 +981,7 @@ namespace Durin
 		return MakeBootstrapProgress(Context);
 	}
 
-	auto FMainFrameModule::GetDefaultBootstrapProgress() const
+	auto FMainFrameModule::GetBootstrapProgress() const
 		-> FBootstrapProgress
 	{
 		return BootstrapContext
@@ -987,7 +989,7 @@ namespace Durin
 			: FBootstrapProgress{};
 	}
 
-	auto FMainFrameModule::GetDefaultBootstrapState() const
+	auto FMainFrameModule::GetBootstrapState() const
 		-> EBootstrapState
 	{
 		return BootstrapContext

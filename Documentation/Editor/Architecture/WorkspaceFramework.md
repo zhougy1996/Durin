@@ -20,13 +20,16 @@ identities are independent of these C++ namespaces.
 
 ## Host Ownership
 
-`MainFrame` owns the editor root window. Its ordinary C++ host contracts live in
-`Durin::Editor::MainFrame`; `FHostSettings` stores the native window size and
+`DurinEd` owns the implementation-neutral host lifecycle and bootstrap
+contracts under `Durin::Editor::Host`, exposed to `DEditorEngine` through
+`Durin::IEditorHost`. `MainFrame` depends on that contract and owns the editor
+root window plus its concrete implementation under
+`Durin::Editor::MainFrame`. `FHostSettings` stores the native window size and
 maximized state together with the global UI scale and color theme in the stable
 `EditorHostSettings.yaml` file. When that file does not exist, the host uses
 monitor-derived defaults and creates it when host display state is first
-persisted. The reflected `DEditorEngine` remains in `Durin` and talks to the
-host through `Durin::IMainFrameModule`.
+persisted. The reflected `DEditorEngine` remains in `Durin` and does not depend
+on `MainFrame` headers.
 
 `Editor::Level::FLevelEditorSessionSettings` persists only
 Level workspace state such as viewport cameras, gizmo preferences, Content
@@ -38,9 +41,10 @@ or migration coupling.
 `MainFrame` constructs and owns a lightweight native shell before loading
 concrete editor modules. Persisted maximized state is applied while the window
 is hidden and before native viewport creation. `DEditorEngine::Init()` then
-advances the game-thread bootstrap to completion through a narrow Launch-owned
-startup pump. Widget drawing observes state but never admits startup work, and
-ordinary `DEditorEngine::Tick()` performs no bootstrap transition.
+advances the `IEditorHost` game-thread bootstrap to completion through a narrow
+Launch-owned startup pump. Widget drawing observes state but never admits
+startup work, and ordinary `DEditorEngine::Tick()` performs no bootstrap
+transition.
 
 Project startup follows the forward-only sequence
 `ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace ->
@@ -74,7 +78,7 @@ opening with a stable phase index and progress bar. Because the underlying
 loads remain synchronous, it does not promise animation or fabricate
 intra-operation percentages while one phase blocks the game thread.
 
-Destroying the default frame removes the bootstrap context, so no later startup
+Destroying the editor host removes the bootstrap context, so no later startup
 callback can admit work. MainFrame then stops request admission and unwinds
 workspace integrations in the reverse order described below. Partially loaded
 default documents use the normal request-scoped package snapshot and release

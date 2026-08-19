@@ -1,10 +1,10 @@
 #include "gtest/gtest.h"
 
-#include "Editor/MainFrame/Public/Interfaces/MainFrame.h"
+#include "Editor/EditorHost.h"
 #include "Engine/Engine.h"
 #include "Runtime/Launch/Private/EngineFrame.h"
 
-namespace Durin::Editor::MainFrame
+namespace Durin::Editor::Host
 {
 	TEST(FEditorBootstrapStateTests, AllowsOnlyDocumentedForwardTransitions)
 	{

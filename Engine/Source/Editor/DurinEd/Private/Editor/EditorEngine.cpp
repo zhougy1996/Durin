@@ -12,7 +12,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
-#include "Interfaces/MainFrame.h"
+#include "Editor/EditorHost.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/Project.h"
 #include "Profiling/Profiling.h"
@@ -54,13 +54,13 @@ namespace Durin
 		EditorWorld = GetWorld();
 		EditorWorld->SetWorldType(EWorldType::Editor);
 
-		MainFrameModule =
-			&FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+		EditorHost =
+			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			MainFrameModule->CreateDefaultFrame(InitContext.StartupWindow);
+			EditorHost->CreateEditorHost(InitContext.StartupWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
@@ -75,11 +75,11 @@ namespace Durin
 			const bool bFirstPresentAvailable = InitContext.bHeadless
 				|| Profiling::GetStartupMilestoneMilliseconds(
 					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
-			const Editor::MainFrame::FBootstrapProgress Progress =
-				MainFrameModule->AdvanceDefaultBootstrap(
+			const Editor::Host::FBootstrapProgress Progress =
+				EditorHost->AdvanceBootstrap(
 					bFirstPresentAvailable);
-			if (Progress.Status == Editor::MainFrame::EBootstrapStepStatus::Ready) break;
-			if (Progress.Status == Editor::MainFrame::EBootstrapStepStatus::Failed)
+			if (Progress.Status == Editor::Host::EBootstrapStepStatus::Ready) break;
+			if (Progress.Status == Editor::Host::EBootstrapStepStatus::Failed)
 			{
 				// Keep the actionable failure visible for one final safe frame.
 				InitContext.PumpStartupFrame();
@@ -202,18 +202,18 @@ namespace Durin
 
 	auto DEditorEngine::PrepareForShutdown() -> void
 	{
-		if (MainFrameModule) MainFrameModule->DestroyDefaultFrame();
+		if (EditorHost) EditorHost->DestroyEditorHost();
 	}
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
-		if (MainFrameModule)
-			MainFrameModule->DestroyDefaultFrame();
+		if (EditorHost)
+			EditorHost->DestroyEditorHost();
 		TeardownPlaySession();
 		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
-		MainFrameModule = nullptr;
+		EditorHost = nullptr;
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();

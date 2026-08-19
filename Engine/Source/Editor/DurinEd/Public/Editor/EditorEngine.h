@@ -70,7 +70,7 @@ namespace Durin
 	class MWindow;
 	class FGenericWindow;
 	struct FEditorEngineTestAccess;
-	class IMainFrameModule;
+	class IEditorHost;
 
 	// Owns editor services and coordinates editor and play-world lifetimes.
 	DCLASS(NoClassDefaultObject)
@@ -162,7 +162,7 @@ namespace Durin
 		Editor::EMouseCaptureState MouseCaptureState = Editor::EMouseCaptureState::Released;
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
-		IMainFrameModule* MainFrameModule = nullptr;
+		IEditorHost* EditorHost = nullptr;
 
 		friend struct FEditorEngineTestAccess;
 	};
