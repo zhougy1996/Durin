@@ -73,7 +73,7 @@ namespace Durin
 			for (const TObjectPtr<AActor>& Actor : Previous->GetActors())
 			{
 				if (!Actor) continue;
-				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+				for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
 				{
 					if (Component && Component->IsRegistered()) Components.push_back(Component);
 				}
@@ -124,7 +124,7 @@ namespace Durin
 			for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
 			{
 				if (!Actor) continue;
-				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+				for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
 					if (Component && Component->IsRegistered()) RegisteredComponents.push_back(Component);
 			}
 		}

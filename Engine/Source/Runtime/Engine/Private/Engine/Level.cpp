@@ -111,7 +111,7 @@ namespace Durin
 		if (OwningWorld) OwningWorld->OnActorDestroyed(Actor);
 		Actor->RouteEndPlay();
 		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
-		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
+		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (!Component) continue;
@@ -190,7 +190,7 @@ namespace Durin
 	{
 		if (!Actor || !OwningWorld) return;
 		Actor->RegisterTickFunction(this);
-		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
+		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (Component
@@ -216,7 +216,7 @@ namespace Durin
 				OutError = "Level contains an actor outside its object graph.";
 				return false;
 			}
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component || Component->GetOuter() != Actor)
@@ -289,7 +289,7 @@ namespace Durin
 		{
 			AActor* Actor = ActorPtr.Get();
 			if (!Actor) continue;
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 			{
 				auto* Primitive = Cast<DPrimitiveComponent>(ComponentPtr.Get());
 				if (Primitive && Primitive->IsRegistered())

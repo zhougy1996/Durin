@@ -26,9 +26,9 @@ namespace
 		std::string_view ExpectedName) -> void
 	{
 		ASSERT_NE(Actor, nullptr);
-		ASSERT_EQ(Actor->GetOwnedComponents().size(), 1u);
+		ASSERT_EQ(Actor->GetComponents().size(), 1u);
 		EXPECT_TRUE(Actor->GetInstanceComponents().empty());
-		Durin::DActorComponent* Component = Actor->GetOwnedComponents().front().Get();
+		Durin::DActorComponent* Component = Actor->GetComponents().front().Get();
 		ASSERT_NE(Component, nullptr);
 		EXPECT_EQ(Component, Actor->GetRootComponent());
 		EXPECT_EQ(Component->GetClass()->GetName(), ExpectedClass);

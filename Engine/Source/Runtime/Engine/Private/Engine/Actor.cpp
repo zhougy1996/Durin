@@ -21,29 +21,45 @@ namespace Durin
 		InstanceComponents.clear();
 		RootComponent = nullptr;
 		OwnedComponents.clear();
+		RuntimeOwnedComponents.clear();
+	}
+
+	auto AActor::AddOwnedComponent(DActorComponent* Component) -> void
+	{
+		if (!Component || Component->GetOwner() != this || OwnsComponent(Component)) return;
+		RuntimeOwnedComponents.emplace_back(Component);
+		Component->SetOwnedByActor(true);
+	}
+
+	auto AActor::AddAuthoredComponent(DActorComponent* Component) -> void
+	{
+		if (!Component || std::ranges::any_of(OwnedComponents,
+			[Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return;
+		OwnedComponents.emplace_back(Component);
 	}
 
 	auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
 	{
 		auto It = std::find_if(
-			OwnedComponents.begin(),
-			OwnedComponents.end(),
+			RuntimeOwnedComponents.begin(),
+			RuntimeOwnedComponents.end(),
 			[Component](const TObjectPtr<DActorComponent>& Entry) {
 				return Entry.Get() == Component;
 			}
 		);
-		if (It != OwnedComponents.end())
-		{
-			if (*It) (*It)->SetOwnedByActor(false);
-			OwnedComponents.erase(It);
-		}
+		if (It != RuntimeOwnedComponents.end()) RuntimeOwnedComponents.erase(It);
+		auto AuthoredIt = std::find_if(OwnedComponents.begin(), OwnedComponents.end(),
+			[Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+		if (AuthoredIt != OwnedComponents.end()) OwnedComponents.erase(AuthoredIt);
+		RemoveInstanceComponent(Component);
 		auto GeneratedIt = std::find_if(GeneratedComponents.begin(), GeneratedComponents.end(),
 			[Component](const FGeneratedComponentRecord& Entry) { return Entry.Component.Get() == Component; });
 		if (GeneratedIt != GeneratedComponents.end())
 		{
-			if (GeneratedIt->Component) GeneratedIt->Component->SetOwnedByActor(false);
 			GeneratedComponents.erase(GeneratedIt);
 		}
+		if (Component) Component->SetOwnedByActor(false);
+		ValidateComponentOwnership();
 	}
 
 	auto AActor::RemoveInstanceComponent(DActorComponent* Component) -> void
@@ -87,10 +103,10 @@ namespace Durin
 		const FName UniqueName = MakeUniqueComponentName(RequestedName);
 		DActorComponent* Component = NewObject<DActorComponent>(ComponentClass, this, UniqueName);
 		if (!Component) return nullptr;
-		OwnedComponents.emplace_back(Component);
-		InstanceComponents.emplace_back(Component);
-		Component->SetOwnedByActor(true);
 		Component->SetCreationMethod(EComponentCreationMethod::Instance);
+		AddAuthoredComponent(Component);
+		AddOwnedComponent(Component);
+		InstanceComponents.emplace_back(Component);
 		Component->OnComponentCreated();
 		if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 		{
@@ -102,6 +118,7 @@ namespace Durin
 		{
 			Component->DispatchBeginPlay();
 		}
+		ValidateComponentOwnership();
 		MarkPackageDirty();
 		return Component;
 	}
@@ -109,7 +126,7 @@ namespace Durin
 	auto AActor::RenameComponent(DActorComponent* Component, FName RequestedName) -> bool
 	{
 		if (!Component || RequestedName.IsNone() || Component->GetCreationMethod() == EComponentCreationMethod::Generated
-			|| std::ranges::none_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return false;
+			|| !OwnsComponent(Component)) return false;
 		Component->Rename(MakeUniqueComponentName(RequestedName, Component));
 		MarkPackageDirty();
 		return true;
@@ -119,7 +136,7 @@ namespace Durin
 	{
 		const std::string BaseName = RequestedName.ToString();
 		FName UniqueName = RequestedName;
-		for (uint32 Suffix = 2; std::ranges::any_of(GetOwnedComponents(), [&](const TObjectPtr<DActorComponent>& Entry) {
+		for (uint32 Suffix = 2; std::ranges::any_of(RuntimeOwnedComponents, [&](const TObjectPtr<DActorComponent>& Entry) {
 				 return Entry && Entry.Get() != IgnoredComponent && Entry->GetFName() == UniqueName;
 			 }); ++Suffix)
 		{
@@ -143,16 +160,15 @@ namespace Durin
 
 	auto AActor::OwnsComponent(const DActorComponent* Component) const -> bool
 	{
-		return Component && std::ranges::any_of(GetOwnedComponents(), [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+		return Component && std::ranges::any_of(RuntimeOwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
 	}
 
-	auto AActor::GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>>
+	auto AActor::GetComponentsSnapshot() const -> std::vector<TObjectPtr<DActorComponent>>
 	{
-		std::vector<TObjectPtr<DActorComponent>> Result = OwnedComponents;
-		Result.reserve(Result.size() + GeneratedComponents.size());
-		for (const FGeneratedComponentRecord& Entry : GeneratedComponents) Result.push_back(Entry.Component);
-		return Result;
+		return RuntimeOwnedComponents;
 	}
+
+	auto AActor::GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>> { return GetComponentsSnapshot(); }
 
 	auto AActor::GetActorTransform() const -> FTransform
 	{
@@ -173,7 +189,7 @@ namespace Durin
 	{
 		if (bHidden == bInHidden) return;
 		bHidden = bInHidden;
-		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (Component
@@ -263,7 +279,7 @@ namespace Durin
 
 	auto AActor::BeginPlay() -> void
 	{
-		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (Component
@@ -286,7 +302,7 @@ namespace Durin
 
 	auto AActor::EndPlay() -> void
 	{
-		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetComponentsSnapshot();
 		for (auto It = Components.rbegin(); It != Components.rend(); ++It)
 		{
 			if (*It
@@ -342,17 +358,6 @@ namespace Durin
 		return bSucceeded;
 	}
 
-	auto AActor::AddReferencedObjects(FReferenceCollector& Collector) -> void
-	{
-		Super::AddReferencedObjects(Collector);
-		for (FGeneratedComponentRecord& Entry : GeneratedComponents)
-		{
-			DObject* Object = Entry.Component.Get();
-			Collector.AddReferencedObject(Object);
-			Entry.Component = Cast<DActorComponent>(Object);
-		}
-	}
-
 	auto AActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
@@ -362,6 +367,7 @@ namespace Durin
 	auto AActor::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		RebuildOwnedComponentsFromAuthored();
 		if (RequestNativeReconstruction()) return true;
 		OutError = NativeConstructionError.empty()
 			? "Actor native reconstruction failed after load or duplication."
@@ -388,5 +394,54 @@ namespace Durin
 
 	auto AActor::InitializeDefaults() -> void
 	{
+	}
+
+	auto AActor::RebuildOwnedComponentsFromAuthored() -> void
+	{
+		RuntimeOwnedComponents.clear();
+		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		{
+			if (!Component || Component->GetOwner() != this) continue;
+			AddOwnedComponent(Component.Get());
+		}
+		// A duplicated authored component may complete PostLoad before its Actor and
+		// synchronously request native reconstruction. Preserve those already-keyed
+		// derived components so the Actor's final reconstruction can reuse them.
+		for (const FGeneratedComponentRecord& Entry : GeneratedComponents)
+		{
+			if (!Entry.Component || Entry.Component->GetOwner() != this) continue;
+			AddOwnedComponent(Entry.Component.Get());
+		}
+		ValidateComponentOwnership();
+	}
+
+	auto AActor::ValidateComponentOwnership() const -> void
+	{
+#if DO_CHECK
+		std::unordered_set<const DActorComponent*> Seen;
+		for (const TObjectPtr<DActorComponent>& Component : RuntimeOwnedComponents)
+		{
+			check(Component && Component->GetOwner() == this && Component->IsOwnedByActor());
+			check(Seen.insert(Component.Get()).second);
+		}
+		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		{
+			check(Component && Seen.contains(Component.Get()));
+			check(Component->GetCreationMethod() != EComponentCreationMethod::Generated);
+		}
+		for (const TObjectPtr<DActorComponent>& Component : InstanceComponents)
+		{
+			check(Component && std::ranges::any_of(OwnedComponents,
+				[&](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component.Get(); }));
+			check(Component->GetCreationMethod() == EComponentCreationMethod::Instance);
+		}
+		for (const FGeneratedComponentRecord& Entry : GeneratedComponents)
+		{
+			check(Entry.Component && Seen.contains(Entry.Component.Get()));
+			check(Entry.Component->GetCreationMethod() == EComponentCreationMethod::Generated);
+			check(std::ranges::none_of(OwnedComponents,
+				[&](const TObjectPtr<DActorComponent>& Component) { return Component.Get() == Entry.Component.Get(); }));
+		}
+#endif
 	}
 } // namespace Durin

@@ -252,7 +252,7 @@ namespace Durin::Editor::Level
 			};
 			if (const std::shared_ptr<IActorEditorVisualizer> Visualizer = Registry.FindActorVisualizer(Actor->GetClass()))
 				Visualizer->DrawVisualization(Actor, ActorContext, Collector);
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component) continue;
@@ -378,7 +378,7 @@ namespace Durin::Editor::Level
 			const bool bPrimary = Actor == PrimarySelectedActor.Get();
 			const ImVec4& ThemeColor = MonaImGui::GetThemeColor(bPrimary ? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::SelectionSecondary);
 			const FVector4f Color{ThemeColor.x, ThemeColor.y, ThemeColor.z, ThemeColor.w};
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 			{
 				const auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
 				const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;

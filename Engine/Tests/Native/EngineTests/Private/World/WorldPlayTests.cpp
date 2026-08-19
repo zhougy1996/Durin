@@ -119,7 +119,7 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 	Durin::DWorld* EditorWorld = CreateWorld();
 	Durin::ACameraActor* EditorActor = EditorWorld->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(EditorActor, nullptr);
-	Durin::DActorComponent* OriginalOwnedComponent = EditorActor->GetOwnedComponents().front().Get();
+	Durin::DActorComponent* OriginalOwnedComponent = EditorActor->GetComponents().front().Get();
 
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
@@ -140,8 +140,8 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 	EditorActor->GetRootComponent()->UpdateComponentToWorld();
 	ExpectVectorNear(EditorActor->GetActorTransform().Translation, {4.0, 5.0, 6.0});
 	EXPECT_NEAR(EditorActor->GetCameraComponent()->GetFieldOfViewDegrees(), 92.0f, 1.e-6f);
-	ASSERT_EQ(EditorActor->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(EditorActor->GetOwnedComponents().front().Get(), OriginalOwnedComponent);
+	ASSERT_EQ(EditorActor->GetComponents().size(), 1u);
+	EXPECT_EQ(EditorActor->GetComponents().front().Get(), OriginalOwnedComponent);
 
 	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
 	Durin::MarkObjectHierarchyAsGarbage(PlayWorld);

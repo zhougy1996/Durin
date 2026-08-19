@@ -4,13 +4,20 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-20
 
-`DLevel` is the persistent scene asset. A packaged level is the main asset of a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays, and actors retain their components the same way; their Outer hierarchy separately provides structural containment and object paths.
+`DLevel` is the persistent scene asset. A packaged level is the main asset of a
+`.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
+Each Actor's transient reflected `RuntimeOwnedComponents` array is the ordered
+runtime authority for every live component. The legacy-named persistent
+`OwnedComponents` field and `InstanceComponents` provide package and
+duplication authority until an asset migration permits the internal names to
+be corrected. Their Outer hierarchy separately provides structural containment
+and object paths.
 
-Actors may additionally retain transient generated components through the
-native construction registry. Those components participate in live World and
-editor lifecycles but are excluded from the reflected package graph. See
+Actors index transient generated components by stable native-construction keys.
+Those components also participate in unified live ownership and World/editor
+lifecycles but are excluded from authored package and duplication state. See
 [Native Actor Construction](NativeConstruction.md).
 
 `DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Each active Level owns the non-owning registry for stable Actor and Component Tick functions; Level detachment clears that registry before the World endpoint is removed. Tick ownership, groups, mutation, and lifetime rules are defined by [Tick Scheduling](TickScheduling.md). Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
@@ -121,6 +128,11 @@ pass copies generation-checked `TObjectPtr` handles at entry and revalidates a
 candidate immediately before publication. The snapshot is a finite entry set:
 Spawn during traversal is not appended, and an object destroyed before its turn
 is skipped.
+
+Pure component reads use the Actor's allocation-free `GetComponents()` view.
+Only mutation-capable lifecycle and notification boundaries create an explicit
+`GetComponentsSnapshot()`; callers must not retain live-view iterators across
+virtual or externally supplied callbacks.
 
 Ordering is stable:
 

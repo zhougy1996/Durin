@@ -48,7 +48,7 @@ namespace Durin::Editor::Level
 		std::unordered_set<DActorComponent*> OwnedComponents;
 		std::vector<DActorComponent*> OwnedComponentOrder;
 		std::unordered_map<DSceneComponent*, std::vector<DSceneComponent*>> SceneChildren;
-		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 		{
 			if (DActorComponent* Component = ComponentPtr.Get(); Component && OwnedComponents.insert(Component).second)
 				OwnedComponentOrder.push_back(Component);

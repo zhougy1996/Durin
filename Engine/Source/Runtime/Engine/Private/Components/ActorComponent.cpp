@@ -60,7 +60,6 @@ namespace Durin
 
 		if (AActor* Owner = GetOwner())
 		{
-			Owner->RemoveInstanceComponent(this);
 			Owner->RemoveOwnedComponent(this);
 
 			if (Owner->GetRootComponent() == this)

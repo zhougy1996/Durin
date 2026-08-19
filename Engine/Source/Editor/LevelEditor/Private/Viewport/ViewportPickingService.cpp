@@ -762,7 +762,7 @@ namespace Durin::Editor::Level
 				{
 					AActor* Actor = ActorPtr.Get();
 					if (!Actor || Actor->IsHidden()) continue;
-					for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+					for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 					{
 						auto* Component = Cast<DPrimitiveComponent>(ComponentPtr.Get());
 						if (!Component || !Component->IsRegistered()) continue;

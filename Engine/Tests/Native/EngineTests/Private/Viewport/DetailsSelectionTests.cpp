@@ -19,11 +19,11 @@ TEST(FDetailsPanelTargetingTests, DefaultsToRootComponentAndPreservesRootlessAct
 	auto* LogicComponent = RootlessActor->AddInstanceComponent(Durin::DActorComponent::StaticClass(), "Logic");
 	ASSERT_NE(LogicComponent, nullptr);
 	ASSERT_EQ(RootlessActor->GetRootComponent(), nullptr);
-	const size_t RootlessComponentCount = RootlessActor->GetOwnedComponents().size();
+	const size_t RootlessComponentCount = RootlessActor->GetComponents().size();
 
 	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), nullptr);
 	EXPECT_EQ(RootlessActor->GetRootComponent(), nullptr);
-	EXPECT_EQ(RootlessActor->GetOwnedComponents().size(), RootlessComponentCount);
+	EXPECT_EQ(RootlessActor->GetComponents().size(), RootlessComponentCount);
 
 	auto* RootComponent = Durin::Cast<Durin::DSceneComponent>(
 		RootlessActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Root"));

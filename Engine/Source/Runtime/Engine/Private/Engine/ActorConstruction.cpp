@@ -68,7 +68,6 @@ namespace Durin
 		if (Candidate) DObjectForceRegistration(Candidate);
 		if (!Candidate) return Fail("Generated component allocation failed.");
 		Candidate->SetCreationMethod(EComponentCreationMethod::Generated);
-		Candidate->SetOwnedByActor(true);
 		Desired.push_back({Key, Candidate, true});
 		return Candidate;
 	}
@@ -107,15 +106,27 @@ namespace Durin
 			Next.push_back({Entry.Key, Entry.Component});
 		}
 
+		std::unordered_set<DActorComponent*> DesiredComponents;
+		DesiredComponents.reserve(Desired.size());
+		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
+
 		Actor.GeneratedComponents = Next;
+		Actor.RuntimeOwnedComponents = Actor.OwnedComponents;
+		for (const FDesiredEntry& Entry : Desired)
+		{
+			Actor.AddOwnedComponent(Entry.Component);
+		}
+		for (const AActor::FGeneratedComponentRecord& Entry : Previous)
+		{
+			if (Entry.Component && !DesiredComponents.contains(Entry.Component.Get()))
+				Entry.Component->SetOwnedByActor(false);
+		}
+		Actor.ValidateComponentOwnership();
 		auto* Level = Cast<DLevel>(Actor.GetOuter());
 		DWorld* World = Level ? Level->GetWorld() : nullptr;
 		const bool bActorIsInActiveWorld = World
 			&& World->GetCurrentLevel() == Level
 			&& Level->ContainsActor(&Actor);
-		std::unordered_set<DActorComponent*> DesiredComponents;
-		DesiredComponents.reserve(Desired.size());
-		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
 		for (const FDesiredEntry& Entry : Desired)
 		{
 			if (!Entry.bCandidate) continue;

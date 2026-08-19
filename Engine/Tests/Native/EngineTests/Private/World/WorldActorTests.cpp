@@ -14,6 +14,7 @@ namespace
 
 		std::vector<std::pair<Durin::FActorGeneratedComponentKey, Durin::DClass*>> Desired;
 		std::vector<Durin::DActorComponent*> Acquired;
+		std::vector<bool> OwnedDuringConstruction;
 		bool bAcquireFirstTwice = false;
 		bool bRequestAgain = false;
 		Durin::uint32 ConstructionCalls = 0;
@@ -24,8 +25,13 @@ namespace
 		{
 			++ConstructionCalls;
 			Acquired.clear();
+			OwnedDuringConstruction.clear();
 			for (const auto& [Key, Class] : Desired)
-				Acquired.push_back(Context.AcquireGeneratedComponent(Key, Class, "Generated"));
+			{
+				Durin::DActorComponent* Component = Context.AcquireGeneratedComponent(Key, Class, "Generated");
+				Acquired.push_back(Component);
+				OwnedDuringConstruction.push_back(OwnsComponent(Component));
+			}
 			if (bAcquireFirstTwice && !Desired.empty())
 				Context.AcquireGeneratedComponent(Desired.front().first, Desired.front().second, "Duplicate");
 			if (bRequestAgain)
@@ -93,7 +99,7 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	ASSERT_NE(Actor, nullptr);
 	ASSERT_EQ(Actor->GetAuthoredComponents().size(), 1u);
 	EXPECT_EQ(Actor->GetAuthoredComponents().front()->GetCreationMethod(),
-		Durin::EComponentCreationMethod::NativeDefault);
+		Durin::EComponentCreationMethod::Native);
 
 	const auto FirstKey = MakeGeneratedKey(1);
 	const auto SecondKey = MakeGeneratedKey(2);
@@ -105,18 +111,23 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	Durin::DActorComponent* Second = Actor->Acquired[1];
 	ASSERT_NE(First, nullptr);
 	ASSERT_NE(Second, nullptr);
+	EXPECT_EQ(Actor->OwnedDuringConstruction, (std::vector<bool>{false, false}));
 	EXPECT_EQ(First->GetCreationMethod(), Durin::EComponentCreationMethod::Generated);
 	EXPECT_TRUE(First->HasAnyObjectFlags(Durin::EObjectFlags::Transient));
 	EXPECT_EQ(First->GetOwner(), Actor);
 	EXPECT_TRUE(First->IsRegistered());
 	EXPECT_EQ(static_cast<Durin::DSceneComponent*>(First)->GetAttachParent(), Actor->GetRootComponent());
 	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 1u);
-	EXPECT_EQ(Actor->GetOwnedComponents().size(), 3u);
+	EXPECT_EQ(Actor->GetComponents().size(), 3u);
+	EXPECT_EQ(Actor->GetComponents()[0].Get(), Actor->GetRootComponent());
+	EXPECT_EQ(Actor->GetComponents()[1].Get(), First);
+	EXPECT_EQ(Actor->GetComponents()[2].Get(), Second);
 	EXPECT_FALSE(Actor->RenameComponent(First, "AuthoredName"));
 
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->Acquired[0], First);
 	EXPECT_EQ(Actor->Acquired[1], Second);
+	EXPECT_EQ(Actor->OwnedDuringConstruction, (std::vector<bool>{true, true}));
 	std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
 	std::string DuplicateError;
 	auto* Duplicate = static_cast<FNativeConstructionTestActor*>(Durin::DuplicateObjectGraph(
@@ -125,18 +136,18 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	EXPECT_FALSE(Duplicates.contains(First));
 	EXPECT_FALSE(Duplicates.contains(Second));
 	EXPECT_EQ(Duplicate->GetAuthoredComponents().size(), 1u);
-	EXPECT_EQ(Duplicate->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(Duplicate->GetComponents().size(), 1u);
 	Durin::MarkObjectHierarchyAsGarbage(Duplicate);
 
 	Actor->Desired.erase(Actor->Desired.begin() + 1);
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->Acquired.front(), First);
 	EXPECT_TRUE(Second->IsPendingKill());
-	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 
 	Actor->Desired.front().second = Durin::DPhysicsComponent::StaticClass();
 	EXPECT_FALSE(Actor->RequestNativeReconstruction());
-	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 	EXPECT_TRUE(Actor->OwnsComponent(First));
 	EXPECT_FALSE(First->IsPendingKill());
 	Actor->Desired.front().second = Durin::DSceneComponent::StaticClass();
@@ -145,7 +156,7 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	Actor->bAcquireFirstTwice = true;
 	EXPECT_FALSE(Actor->RequestNativeReconstruction());
 	Actor->bAcquireFirstTwice = false;
-	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 	EXPECT_TRUE(Actor->OwnsComponent(First));
 
 	Actor->Desired.resize(1);
@@ -173,7 +184,7 @@ TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredSt
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(Instance->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
 	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 2u);
-	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_EQ(Actor->GetComponents().size(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -358,13 +369,22 @@ TEST(FWorldTests, DistinguishesExactAndPolymorphicComponentQueries)
 	Durin::DCameraComponent* CameraComponent = Camera->GetCameraComponent();
 	ASSERT_NE(CameraComponent, nullptr);
 
-	EXPECT_EQ(Camera->FindComponentByStaticClass<Durin::DCameraComponent>(), CameraComponent);
-	EXPECT_EQ(Camera->FindComponentByStaticClass<Durin::DSceneComponent>(), nullptr);
+	EXPECT_EQ(Camera->FindComponentByExactClass<Durin::DCameraComponent>(), CameraComponent);
+	EXPECT_EQ(Camera->FindComponentByExactClass<Durin::DSceneComponent>(), nullptr);
 	EXPECT_EQ(Camera->FindComponentByClass<Durin::DSceneComponent>(), CameraComponent);
 
-	const std::vector<Durin::DActorComponent*> SceneComponents = Camera->FindComponentsByClass<Durin::DSceneComponent>();
+	const std::vector<Durin::DSceneComponent*> SceneComponents = Camera->FindComponentsByClass<Durin::DSceneComponent>();
 	ASSERT_EQ(SceneComponents.size(), 1);
 	EXPECT_EQ(SceneComponents.front(), CameraComponent);
+	std::vector<Durin::DSceneComponent*> Output = {nullptr};
+	const Durin::AActor* ConstCamera = Camera;
+	ConstCamera->GetComponents(Output);
+	ASSERT_EQ(Output.size(), 1u);
+	EXPECT_EQ(Output.front(), CameraComponent);
+	EXPECT_EQ(ConstCamera->FindComponentByClass<Durin::DSceneComponent>(), CameraComponent);
+	const size_t ComponentCount = Camera->GetComponents().size();
+	Camera->AddOwnedComponent(CameraComponent);
+	EXPECT_EQ(Camera->GetComponents().size(), ComponentCount);
 	EXPECT_EQ(CameraComponent->GetOwner<Durin::AActor>(), Camera);
 	EXPECT_EQ(CameraComponent->GetOwner<Durin::ACameraActor>(), Camera);
 
@@ -498,14 +518,14 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ASSERT_NE(LoadedParent, nullptr);
 	ASSERT_NE(LoadedChild, nullptr);
 	EXPECT_EQ(Loaded->GetPrimaryCameraActor(), LoadedParent);
-	EXPECT_EQ(LoadedParent->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(LoadedChild->GetOwnedComponents().size(), 2u);
+	EXPECT_EQ(LoadedParent->GetComponents().size(), 1u);
+	EXPECT_EQ(LoadedChild->GetComponents().size(), 2u);
 	ASSERT_EQ(LoadedChild->GetInstanceComponents().size(), 1u);
 	auto* LoadedExtraComponent = dynamic_cast<Durin::DSceneComponent*>(LoadedChild->GetInstanceComponents().front().Get());
 	ASSERT_NE(LoadedExtraComponent, nullptr);
 	EXPECT_EQ(LoadedExtraComponent->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
 	EXPECT_EQ(LoadedChild->GetRootComponent()->GetCreationMethod(),
-		Durin::EComponentCreationMethod::NativeDefault);
+		Durin::EComponentCreationMethod::Native);
 	EXPECT_EQ(LoadedExtraComponent->GetAttachParent(), LoadedChild->GetRootComponent());
 	ExpectVectorNear(LoadedParent->GetActorTransform().Translation, ParentTransform.Translation);
 	ExpectVectorNear(LoadedChild->GetRootComponent()->GetRelativeTransform().Translation, ChildRelative.Translation);
@@ -536,22 +556,22 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	Durin::DStaticMeshComponent* MeshComponent = Mesh->GetStaticMeshComponent();
 	Durin::DDirectionalLightComponent* LightComponent = Light->GetLightComponent();
 
-	ASSERT_EQ(Camera->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(Camera->GetOwnedComponents().front().Get(), CameraComponent);
+	ASSERT_EQ(Camera->GetComponents().size(), 1u);
+	EXPECT_EQ(Camera->GetComponents().front().Get(), CameraComponent);
 	EXPECT_EQ(Camera->FindComponentByClass<Durin::DCameraComponent>(), CameraComponent);
 	EXPECT_EQ(Camera->GetRootComponent(), CameraComponent);
 	EXPECT_EQ(CameraComponent->GetOwner(), Camera);
 	EXPECT_EQ(CameraComponent->GetOuter(), Camera);
 
-	ASSERT_EQ(Mesh->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(Mesh->GetOwnedComponents().front().Get(), MeshComponent);
+	ASSERT_EQ(Mesh->GetComponents().size(), 1u);
+	EXPECT_EQ(Mesh->GetComponents().front().Get(), MeshComponent);
 	EXPECT_EQ(Mesh->FindComponentByClass<Durin::DStaticMeshComponent>(), MeshComponent);
 	EXPECT_EQ(Mesh->GetRootComponent(), MeshComponent);
 	EXPECT_EQ(MeshComponent->GetOwner(), Mesh);
 	EXPECT_EQ(MeshComponent->GetOuter(), Mesh);
 
-	ASSERT_EQ(Light->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(Light->GetOwnedComponents().front().Get(), LightComponent);
+	ASSERT_EQ(Light->GetComponents().size(), 1u);
+	EXPECT_EQ(Light->GetComponents().front().Get(), LightComponent);
 	EXPECT_EQ(Light->FindComponentByClass<Durin::DDirectionalLightComponent>(), LightComponent);
 	EXPECT_EQ(Light->GetRootComponent(), LightComponent);
 	EXPECT_EQ(LightComponent->GetOwner(), Light);

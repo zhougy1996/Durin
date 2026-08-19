@@ -15,7 +15,7 @@ namespace Durin
 	DENUM()
 	enum class EComponentCreationMethod : uint8
 	{
-		NativeDefault,
+		Native,
 		Instance,
 		Generated
 	};
@@ -110,7 +110,7 @@ namespace Durin
 		AActor* OwnerActorPrivate;
 
 		DPROPERTY()
-		EComponentCreationMethod CreationMethod = EComponentCreationMethod::NativeDefault;
+		EComponentCreationMethod CreationMethod = EComponentCreationMethod::Native;
 
 		uint8 bRegistered : 1 = false;
 

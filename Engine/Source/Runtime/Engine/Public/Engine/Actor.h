@@ -38,8 +38,9 @@ namespace Durin
 
 		ENGINE_API ~AActor() override;
 
-		// Only for internal use, should be called by DActorComponent functions
-		auto RemoveOwnedComponent(DActorComponent* Component) -> void;
+		// Internal ownership hooks used by component creation and destruction paths.
+		ENGINE_API auto AddOwnedComponent(DActorComponent* Component) -> void;
+		ENGINE_API auto RemoveOwnedComponent(DActorComponent* Component) -> void;
 
 		// Only for internal use, should be called by DActorComponent functions
 		auto RemoveInstanceComponent(DActorComponent* Component) -> void;
@@ -67,7 +68,6 @@ namespace Durin
 		ENGINE_API virtual auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API virtual auto EndPlay() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
-		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		auto HasBegunPlay() const -> bool { return PlayState != EActorPlayState::NotBegun; }
@@ -78,20 +78,25 @@ namespace Durin
 		auto SetActorTickEnabled(bool bEnabled) -> void { PrimaryActorTick.SetTickFunctionEnable(bEnabled); }
 		auto GetPrimaryActorTick() -> FActorTickFunction& { return PrimaryActorTick; }
 		auto GetPrimaryActorTick() const -> const FActorTickFunction& { return PrimaryActorTick; }
-		// Returns persistent native-default and instance-authored components only.
-		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
-		// Returns a stable snapshot of every currently live authored and generated component.
+		// Returns every currently live component. Mutation invalidates iterators and references.
+		auto GetComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return RuntimeOwnedComponents; }
+		// Returns an explicit frozen entry set for mutation-capable callback boundaries.
+		ENGINE_API auto GetComponentsSnapshot() const -> std::vector<TObjectPtr<DActorComponent>>;
+		// Compatibility alias for the former allocating query; use GetComponentsSnapshot().
+		[[deprecated("Use GetComponents() or GetComponentsSnapshot().")]]
 		ENGINE_API auto GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>>;
+		// Returns persistent native and instance-authored components only.
+		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
 		ENGINE_API auto RequestNativeReconstruction() -> bool;
 		auto GetNativeConstructionGeneration() const -> uint64 { return NativeConstructionGeneration; }
 		auto GetNativeConstructionError() const -> const std::string& { return NativeConstructionError; }
 
 		template<typename T>
-		auto FindComponentByStaticClass() -> T*
+		auto FindComponentByExactClass() const -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : RuntimeOwnedComponents)
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component)
@@ -107,10 +112,17 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto FindComponentByClass() -> T*
+		[[deprecated("Use FindComponentByExactClass<T>().")]]
+		auto FindComponentByStaticClass() const -> T*
+		{
+			return FindComponentByExactClass<T>();
+		}
+
+		template<typename T>
+		auto FindComponentByClass() const -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : RuntimeOwnedComponents)
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component)
@@ -126,22 +138,22 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto FindComponentsByClass() -> std::vector<DActorComponent*>
+		auto GetComponents(std::vector<T*>& OutComponents) const -> void
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			std::vector<DActorComponent*> FoundComponents;
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
+			OutComponents.clear();
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : RuntimeOwnedComponents)
 			{
 				DActorComponent* Component = ComponentPtr.Get();
-				if (!Component)
-				{
-					continue;
-				}
-				if (auto* CastedComponent = Cast<T>(Component))
-				{
-					FoundComponents.push_back(CastedComponent);
-				}
+				if (auto* CastedComponent = Cast<T>(Component)) OutComponents.push_back(CastedComponent);
 			}
+		}
+
+		template<typename T>
+		auto FindComponentsByClass() const -> std::vector<T*>
+		{
+			std::vector<T*> FoundComponents;
+			GetComponents(FoundComponents);
 			return FoundComponents;
 		}
 
@@ -153,6 +165,9 @@ namespace Durin
 		};
 
 		auto InitializeDefaults() -> void;
+		ENGINE_API auto AddAuthoredComponent(DActorComponent* Component) -> void;
+		auto RebuildOwnedComponentsFromAuthored() -> void;
+		auto ValidateComponentOwnership() const -> void;
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
 		auto RegisterTickFunction(DLevel* Level) -> void;
 		auto UnregisterTickFunction() -> void;
@@ -172,9 +187,9 @@ namespace Durin
 				? EObjectConstructionPurpose::ClassDefaultSubobject
 				: GetConstructionPurpose();
 			T* Component = NewObject<T>(this, InComponentName, ComponentPurpose);
-			OwnedComponents.push_back(Component);
-			Component->SetOwnedByActor(true);
-			Component->SetCreationMethod(EComponentCreationMethod::NativeDefault);
+			Component->SetCreationMethod(EComponentCreationMethod::Native);
+			AddAuthoredComponent(Component);
+			AddOwnedComponent(Component);
 			return Component;
 		}
 
@@ -182,7 +197,13 @@ namespace Durin
 		DPROPERTY()
 		TObjectPtr<DSceneComponent> RootComponent;
 
-		// All components structurally owned by this actor, including default components.
+		// Every currently live component owned by this actor; never serialized.
+		// The Runtime prefix is temporary until reflected property redirects exist.
+		DPROPERTY(Transient)
+		std::vector<TObjectPtr<DActorComponent>> RuntimeOwnedComponents;
+
+		// Persistent native and per-instance authored component state. The legacy
+		// member name is retained so existing packages keep their serialized field.
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
 

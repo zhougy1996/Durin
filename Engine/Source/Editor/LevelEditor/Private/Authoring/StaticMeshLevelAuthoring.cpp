@@ -365,7 +365,7 @@ namespace Durin::Editor::Level
 		if (Actor.GetClass() != AStaticMeshActor::StaticClass()
 			|| Actor.GetStaticMeshComponent() == nullptr
 			|| Actor.GetRootComponent() != Actor.GetStaticMeshComponent()
-			|| Actor.GetOwnedComponents().size() != 1
+			|| Actor.GetComponents().size() != 1
 			|| !Actor.GetInstanceComponents().empty()
 			|| Actor.GetAttachParentActor() != nullptr
 			|| Actor.IsBeginningPlay()

@@ -37,7 +37,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
 		{
 			if (!Actor || Actor->IsPendingKill() || Actor->IsBeingDestroyed()) continue;
-			for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
 			{
 				auto* Terrain = Cast<DTerrainComponent>(Component.Get());
 				if (!Terrain || !Terrain->IsRegistered()

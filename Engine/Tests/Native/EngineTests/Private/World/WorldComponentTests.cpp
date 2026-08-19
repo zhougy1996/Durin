@@ -243,7 +243,7 @@ TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
 	EXPECT_EQ(ParentHandle.Get(), Parent);
 	EXPECT_FALSE(ParentHandle.IsValid());
 	EXPECT_FALSE(Actor->IsInstanceComponent(Parent));
-	EXPECT_TRUE(std::ranges::none_of(Actor->GetOwnedComponents(), [Parent](const Durin::TObjectPtr<Durin::DActorComponent>& Entry) { return Entry.Get() == Parent; }));
+	EXPECT_TRUE(std::ranges::none_of(Actor->GetComponents(), [Parent](const Durin::TObjectPtr<Durin::DActorComponent>& Entry) { return Entry.Get() == Parent; }));
 	EXPECT_EQ(Child->GetAttachParent(), nullptr);
 	ExpectVectorNear(Child->GetWorldLocation(), BeforeParentRemoval.Translation);
 	EXPECT_TRUE(std::ranges::none_of(Root->GetAttachChildren(), [Parent](const Durin::TObjectPtr<Durin::DSceneComponent>& Entry) { return Entry.Get() == Parent; }));

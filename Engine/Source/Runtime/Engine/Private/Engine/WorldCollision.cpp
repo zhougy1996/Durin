@@ -135,7 +135,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
 		{
 			if (!Actor) continue;
-			for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+			for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
 				if (auto* Terrain = Cast<DTerrainComponent>(Component.Get()); Terrain && Terrain->IsRegistered())
 					(void)Terrain->RequestPhysicsStateCreation(false);
 		}

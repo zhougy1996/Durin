@@ -26,7 +26,7 @@ namespace Durin::Editor::Level
 			{
 				AActor* Actor = ActorPtr.Get();
 				if (!Actor || Actor->IsHidden()) continue;
-				for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+				for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 				{
 					auto* Component = Cast<DSkyBoxComponent>(ComponentPtr.Get());
 					if (Component) Candidates.push_back({Component, Actor});
