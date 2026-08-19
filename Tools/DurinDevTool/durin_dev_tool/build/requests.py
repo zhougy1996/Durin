@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TypeAlias
 
 from .errors import BuildToolError
-from .models import Action, CreateKind, LinkType, ModuleKind, OutputMode, TestGranularity, TestMode
+from .models import Action, CreateKind, LinkType, ModuleKind, OutputMode, TestMode
 
 @dataclass(frozen=True)
 class RequestContext:
@@ -117,19 +117,7 @@ class NativeTestRequest(BaseRequest):
     test_mode: TestMode = TestMode.ROUTINE
     test_report_path: Path | None = None
     test_timeout_seconds: int = 300
-    test_schedule_random: bool = False
-    test_output_junit: Path | None = None
-    test_ctest_regex: str = ""
-    test_granularity_value: TestGranularity | None = None
     action: Action = Action.TEST
-
-    @property
-    def test_granularity(self) -> TestGranularity:
-        return self.test_granularity_value or TestGranularity.TARGET
-
-    @property
-    def test_granularity_explicit(self) -> bool:
-        return self.test_granularity_value is not None
 
     @property
     def requires_toolchain(self) -> bool:

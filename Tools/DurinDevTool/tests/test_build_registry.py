@@ -64,7 +64,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test CoreTests Core.* --timeout 45', 'test all --granularity case --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\.', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test CoreTests Core.* --timeout 45', 'test all --mode report --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -118,7 +118,6 @@ class TestBuildRegistry:
         )
         assert request.target == "@domain=viewport+world,kind=feature"
         assert request.test_mode.value == "stress"
-        assert request.test_schedule_random
 
         focused = handler.request_from_namespace(
             self.parse(["test", "CoreUtilityTests", "Suite.Case"])
@@ -164,7 +163,15 @@ class TestBuildRegistry:
                 self.registry.parse([*split_shell_command(command), '--output', 'full'])
 
     def test_removed_compatibility_inputs_are_rejected(self) -> None:
-        for command in ('open-runtime', 'test all --include-direct'):
+        for command in (
+            'open-runtime',
+            'test all --include-direct',
+            'test --target CoreUtilityTests',
+            'test all --granularity hybrid',
+            'test all --ctest-regex Core',
+            'test all --schedule-random',
+            'test all --output-junit Build/results.xml',
+        ):
             with pytest.raises(DevToolError):
                 self.registry.parse(split_shell_command(command))
 

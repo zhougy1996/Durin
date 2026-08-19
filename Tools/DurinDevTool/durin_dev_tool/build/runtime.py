@@ -15,7 +15,6 @@ from .config import (
     BuildProfile,
     BuildToolError,
     ConfigurePreset,
-    TestGranularity,
     TestMode,
     default_build_paths,
     preset_build_directory,
@@ -200,7 +199,6 @@ def _ctest_invocation(
     schedule_random: bool = False,
     shuffle_google_test: bool = False,
     gtest_filter: str = "",
-    ctest_regex: str = "",
 ) -> CTestInvocation:
     request = context.request
     paths = _context_paths(context)
@@ -218,8 +216,6 @@ def _ctest_invocation(
         command.extend(["--timeout", str(request.test_timeout_seconds)])
     if schedule_random:
         command.append("--schedule-random")
-    if ctest_regex:
-        command.extend(["-R", ctest_regex])
     if junit_path is not None:
         command.extend(["--output-junit", str(junit_path)])
     return CTestInvocation(
@@ -238,85 +234,58 @@ def _run_all_native_test_phase(
     output: BuildOutput,
     *,
     stage_name: str,
-    granularity: TestGranularity,
     junit_path: Path | None,
 ) -> None:
     request = context.request
     paths = _context_paths(context)
-    selected_label = {
-        TestGranularity.CASE: "native-test-case",
-        TestGranularity.TARGET: "native-test-target",
-        TestGranularity.HYBRID: "native-test-default",
-    }[granularity]
+    stress = request.test_mode is TestMode.STRESS
     invocation = _ctest_invocation(
         context,
         output,
         selection_arguments=[
             "-L",
-            selected_label,
+            "native-test-target",
             "-LE",
             "native-test-characterization|native-test-qualification",
         ],
         junit_path=junit_path,
-        schedule_random=request.test_schedule_random,
-        shuffle_google_test=(
-            request.test_schedule_random and granularity is not TestGranularity.CASE
-        ),
-        ctest_regex=request.test_ctest_regex,
+        schedule_random=stress,
+        shuffle_google_test=stress,
     )
     with output.stage(stage_name):
-        try:
-            run_command(
-                invocation.command,
-                environment=invocation.environment,
-                output=output,
-                recovery_required_on_interrupt=False,
-                interruption_message="Native test run was interrupted.",
-                colorize_test_output=True,
-                show_heartbeat=request.agent,
-                cwd=paths.root,
-                state_directory=paths.state_directory,
-            )
-        except BuildToolError as error:
-            failure_text = f"{error}\n{error.output_excerpt}"
-            if request.test_ctest_regex and "No tests were found" in failure_text:
-                raise BuildToolError(
-                    f'No case registrations matched --ctest-regex "{request.test_ctest_regex}".',
-                    command=error.command,
-                    exit_code=error.exit_code,
-                    recovery=(
-                        "Inspect registered names with ctest --show-only, then rerun "
-                        "test --target all --granularity case --ctest-regex <pattern>."
-                    ),
-                    output_excerpt=error.output_excerpt,
-                    log_path=error.log_path,
-                ) from error
-            raise
+        run_command(
+            invocation.command,
+            environment=invocation.environment,
+            output=output,
+            recovery_required_on_interrupt=False,
+            interruption_message="Native test run was interrupted.",
+            colorize_test_output=True,
+            show_heartbeat=request.agent,
+            cwd=paths.root,
+            state_directory=paths.state_directory,
+        )
 
 
 def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     request = context.request
-    granularity = request.test_granularity
-    junit_path = _resolved_junit_path(request.test_output_junit)
-    if request.test_mode is TestMode.REPORT and junit_path is None:
+    junit_path = None
+    if request.test_mode is TestMode.REPORT:
         junit_path = _resolved_junit_path(
-            Path("Build") / "NativeTestResults" / context.preset.name / "all.xml"
+            request.test_report_path
+            or Path("Build") / "NativeTestResults" / context.preset.name / "all.xml"
         )
     try:
         _run_all_native_test_phase(
             context,
             output,
-            stage_name=f"Test {granularity.value} native tests",
-            granularity=granularity,
+            stage_name="Test native targets",
             junit_path=junit_path,
         )
     except BuildToolError:
-        if granularity is not TestGranularity.CASE:
-            output.warning(
-                "Batched native-test failure. Diagnose a reported case without "
-                "launching the full case matrix: .\\DevTool.bat test "
-                "--target <failed-target> --filter <suite.case>"
-            )
+        output.warning(
+            "Batched native-test failure. Diagnose a reported case with: "
+            ".\\DevTool.bat test <failed-target> <suite.case>"
+        )
         raise
 
 

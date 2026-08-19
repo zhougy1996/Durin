@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from durin_dev_tool.build.models import Action, CreateKind, LinkType, ModuleKind, TestGranularity, TestMode
+from durin_dev_tool.build.models import Action, CreateKind, LinkType, ModuleKind, TestMode
 from durin_dev_tool.build.requests import (
     BuildRequest,
     ConfigureRequest,
@@ -36,10 +36,6 @@ class TestActionOptions:
     mode: TestMode = TestMode.ROUTINE
     report_path: Path | None = None
     timeout_seconds: int = 300
-    schedule_random: bool = False
-    output_junit: Path | None = None
-    ctest_regex: str = ""
-    granularity: TestGranularity | None = None
 
 
 @dataclass(frozen=True)
@@ -96,8 +92,7 @@ def command_request(
         value = options if isinstance(options, TestActionOptions) else TestActionOptions()
         return NativeTestRequest(
             context, output, value.target, value.filter, value.operation, value.query,
-            value.mode, value.report_path, value.timeout_seconds, value.schedule_random,
-            value.output_junit, value.ctest_regex, value.granularity,
+            value.mode, value.report_path, value.timeout_seconds,
         )
     if action is Action.RUN:
         value = options if isinstance(options, RunActionOptions) else RunActionOptions()

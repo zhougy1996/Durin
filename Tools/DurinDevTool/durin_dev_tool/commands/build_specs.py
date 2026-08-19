@@ -105,15 +105,10 @@ COMMAND_SPECS = (
         TOOL_ARGUMENTS + (
             argument("selection", nargs="?", default="", help="target, fast-all, @set selector, all, list [query], or explain <selection>"),
             argument("case_filter", nargs="?", default=""),
-            argument("--target", dest="compatibility_target", default="", help=argparse.SUPPRESS),
             argument("--filter", default="", help="GoogleTest filter for a single native test target"),
             argument("--mode", choices=("routine", "isolation", "stress", "report", "characterization", "qualification"), default="routine", help="execution scenario (default: routine)"),
             argument("--report", type=Path, default=None, help="JUnit path for report mode (default: preset result directory)"),
             argument("--timeout", type=int, choices=range(0, 86401), default=300, metavar="0..86400", help="test timeout in seconds; 0 disables it (default: 300)"),
-            argument("--schedule-random", action="store_true", help=argparse.SUPPRESS),
-            argument("--output-junit", type=Path, default=None, help=argparse.SUPPRESS),
-            argument("--ctest-regex", default="", help=argparse.SUPPRESS),
-            argument("--granularity", choices=("target", "case", "hybrid"), default=None, help=argparse.SUPPRESS),
         ),
         epilog=(
             "Common examples:\n"

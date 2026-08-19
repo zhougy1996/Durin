@@ -1,6 +1,6 @@
 # Native Test Execution
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-20
 
 This is the complete native-test selection, execution, diagnosis, and
 infrastructure specification. Agents selecting routine task validation should
@@ -109,35 +109,21 @@ whole scheduled matrix.
 
 `test all` builds the `DurinNativeTests` aggregate and then runs every
 ordinary target once through CTest. Characterization and qualification targets
-are neither built nor run by this aggregate. This `target` granularity is the
-default.
-Use `--granularity case` to run every discovered GoogleTest case in a separate
-process for isolation diagnosis and independence qualification. Do not run
-unfiltered `test all --granularity case`; diagnose an ordinary aggregate
-failure with `test <FailedTarget> <Suite.Case>`, or use a narrow
-case-name `--ctest-regex` when CTest-level isolation is required. After
-diagnosis, use default target granularity for the final full-suite validation
-unless the change specifically targets case isolation. `hybrid` is a
-compatibility spelling which selects the same registrations as `target`.
-Native-test executables and GoogleTest are excluded from CMake's
+are neither built nor run by this aggregate. Diagnose an ordinary aggregate
+failure with `test <FailedTarget> <Suite.Case>`, or isolate a bounded target set
+with a case filter and `--mode isolation`. Native-test executables and
+GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
 is executable-specific and therefore cannot be combined with `test all`.
-The compatibility options `--schedule-random` and `--output-junit <path>`
-retain their prior aggregate behavior. In target
-and hybrid modes the command also prints and forwards a GoogleTest shuffle seed
-so order failures can be reproduced with `GTEST_RANDOM_SEED`. Use
-`--ctest-regex <regex>` only with case granularity for an isolated rerun of a
-matching case registration. These options require `test all`. `--target`,
-`--granularity`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
-remain temporarily accepted, emit a deprecation warning, and are hidden from
-routine help. Existing repository automation may keep them while it moves to
-positional selections and named modes.
+Stress mode prints and forwards a GoogleTest shuffle seed so order failures can
+be reproduced with `GTEST_RANDOM_SEED`. Report mode writes the CTest JUnit
+result described above.
 
 Use a focused `test <Target> <GoogleTestFilter>` command for the
 fastest failing-case iteration. It launches one target process with the filter;
-aggregate granularity does not change focused execution.
+aggregate execution does not change focused execution.
 
 `native-test-characterization` is always excluded from the aggregate and runs
 only through its owning custom target. Such a dedicated target sets
@@ -146,7 +132,7 @@ routine whole-executable smoke, owns the required environment and scheduling.
 
 Do not record a current test or registration total in repository documentation.
 CTest discovery is the source of truth; use the command summary or
-`--output-junit` when a review needs an auditable count.
+`--mode report` when a review needs an auditable count.
 
 DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 

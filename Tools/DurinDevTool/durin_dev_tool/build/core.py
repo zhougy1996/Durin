@@ -18,7 +18,6 @@ from .config import (
     ConcreteRequest,
     ConfigurePreset,
     EnvironmentProvider,
-    TestGranularity,
     TestMode,
     default_build_paths,
     preset_build_directory,
@@ -135,38 +134,7 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
     ):
         raise BuildToolError(
             "--filter requires a single native test target and cannot be used with "
-            "--target all."
-        )
-    if (
-        request.action is Action.TEST
-        and request.test_operation == "run"
-        and request.target.casefold() != "all"
-        and (
-            request.test_ctest_regex
-            or request.test_granularity_explicit
-            or (
-                request.test_schedule_random
-                and request.test_mode is TestMode.ROUTINE
-            )
-            or (
-                request.test_output_junit is not None
-                and request.test_mode is TestMode.ROUTINE
-            )
-        )
-    ):
-        raise BuildToolError(
-            "--schedule-random, --output-junit, --ctest-regex, "
-            "and --granularity require --target all."
-        )
-    if (
-        request.action is Action.TEST
-        and request.target.casefold() == "all"
-        and request.test_ctest_regex
-        and request.test_granularity is not TestGranularity.CASE
-    ):
-        raise BuildToolError(
-            "--ctest-regex requires --granularity case because a case-name regex "
-            "is ambiguous for batched target processes."
+            "test all."
         )
     if request.action is Action.TEST and request.test_operation == "run":
         if request.test_mode is TestMode.ISOLATION:

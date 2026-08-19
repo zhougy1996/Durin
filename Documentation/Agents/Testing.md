@@ -52,9 +52,8 @@ useful and report application execution as not run. Do not leave the current
 sandbox, change machine authorization, relocate artifacts, or substitute the
 product application merely to make this optional lane pass.
 
-Use positional selections. `--target` is deprecated. Whole-target execution is
-the default and recommended granularity. Never run an unfiltered aggregate at
-case granularity; isolate an aggregate failure with its named target and case.
+Use positional selections. Whole-target execution is the default. Isolate an
+aggregate failure with its named target and case.
 
 Treat every test command as long-running and give the execution tool an
 explicit timeout of at least 10 minutes. A failed assertion, crash, or timeout

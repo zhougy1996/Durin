@@ -97,16 +97,16 @@ class TestCore:
             side_effect=build_config.BuildToolError('registry identity does not match'),
         ), pytest.raises(build_config.BuildToolError, match='identity does not match'):
             build_runtime.run_exact_native_test(context, output)
-    def test_all_native_tests_use_ctest_registration(self) -> None:
+    def test_all_native_tests_use_target_ctest_registration_and_report_mode(self) -> None:
         preset = self.make_preset()
         cmake = 'C:/Tools/CMake/bin/cmake.exe'
-        context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', timeout_seconds=60, schedule_random=True, output_junit=Path('Build/results.xml'), ctest_regex='^Core\\.', granularity=build_config.TestGranularity.CASE)), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
+        context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', mode=build_config.TestMode.REPORT, report_path=Path('Build/results.xml'), timeout_seconds=60)), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_all_native_tests(context, output)
         run.assert_called_once_with(
-            [str(Path(cmake).with_name('ctest.exe')), '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_config.default_build_paths().root / 'Build/results.xml')],
+            [str(Path(cmake).with_name('ctest.exe')), '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-target', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--output-junit', str(build_config.default_build_paths().root / 'Build/results.xml')],
             environment={'PATH': 'cached', 'GTEST_BRIEF': '1'},
             output=output,
             recovery_required_on_interrupt=False,
@@ -188,38 +188,8 @@ class TestCore:
         ]
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', filter='Core.*'))
-        with pytest.raises(build_config.BuildToolError, match='cannot be used with --target all'):
+        with pytest.raises(build_config.BuildToolError, match='cannot be used with test all'):
             build_core.validate_request(request, self.make_preset())
-    def test_single_native_test_rejects_ctest_only_options(self) -> None:
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests', ctest_regex='Core'))
-        with pytest.raises(build_config.BuildToolError, match='require --target all'):
-            build_core.validate_request(request, self.make_preset())
-    def test_single_native_test_rejects_explicit_granularity(self) -> None:
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests', granularity=build_config.TestGranularity.TARGET))
-        with pytest.raises(build_config.BuildToolError, match='--granularity require --target all'):
-            build_core.validate_request(request, self.make_preset())
-    def test_batched_granularity_rejects_ctest_regex(self) -> None:
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', ctest_regex='Core', granularity=build_config.TestGranularity.HYBRID))
-        with pytest.raises(build_config.BuildToolError, match='requires --granularity case'):
-            build_core.validate_request(request, self.make_preset())
-    @pytest.mark.parametrize(
-        ('granularity', 'label'),
-        (
-            (build_config.TestGranularity.CASE, 'native-test-case'),
-            (build_config.TestGranularity.TARGET, 'native-test-target'),
-            (build_config.TestGranularity.HYBRID, 'native-test-default'),
-        ),
-    )
-    def test_all_native_test_granularities_select_exact_labels(self, granularity: build_config.TestGranularity, label: str) -> None:
-        preset = self.make_preset()
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', granularity=granularity))
-        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_runtime, 'run_command') as run:
-            build_runtime.run_all_native_tests(context, output)
-        command = run.call_args.args[0]
-        assert command[command.index('-L') + 1] == label
-        assert command[command.index('-LE') + 1] == 'native-test-characterization|native-test-qualification'
     def test_qualification_mode_selects_only_qualification_registrations(self) -> None:
         preset = self.make_preset()
         request = request_fixtures.command_request(
@@ -255,7 +225,7 @@ class TestCore:
         ]
     def test_random_batched_mode_injects_and_reports_gtest_seed(self) -> None:
         preset = self.make_preset()
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', granularity=build_config.TestGranularity.TARGET, schedule_random=True))
+        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', mode=build_config.TestMode.STRESS))
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'PATH': 'cached'})
         stdout = io.StringIO()
         output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
@@ -271,27 +241,17 @@ class TestCore:
         assert 'GoogleTest shuffle seed: 41' in stdout.getvalue()
     def test_batched_failure_prints_focused_target_diagnostic(self) -> None:
         preset = self.make_preset()
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', granularity=build_config.TestGranularity.TARGET))
+        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all'))
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
         stdout = io.StringIO()
         output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command', side_effect=build_config.BuildToolError('failed')), pytest.raises(build_config.BuildToolError, match='failed'):
             build_runtime.run_all_native_tests(context, output)
         diagnostic = stdout.getvalue()
-        assert '--target <failed-target> --filter <suite.case>' in diagnostic
-        assert '--granularity case' not in diagnostic
-    def test_empty_case_regex_reports_actionable_rerun(self) -> None:
-        preset = self.make_preset()
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', ctest_regex='MissingCase', granularity=build_config.TestGranularity.CASE))
-        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        error = build_config.BuildToolError('ctest failed', output_excerpt='No tests were found!!!')
-        with mock.patch.object(build_runtime, 'run_command', side_effect=error), pytest.raises(build_config.BuildToolError, match='No case registrations matched') as raised:
-            build_runtime.run_all_native_tests(context, output)
-        assert '--granularity case --ctest-regex' in raised.value.recovery
+        assert 'test <failed-target> <suite.case>' in diagnostic
     def test_random_batched_mode_rejects_invalid_environment_seed(self) -> None:
         preset = self.make_preset()
-        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', granularity=build_config.TestGranularity.HYBRID, schedule_random=True))
+        request = request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='all', mode=build_config.TestMode.STRESS))
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'GTEST_RANDOM_SEED': 'invalid'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         with pytest.raises(build_config.BuildToolError, match='must be an integer'):

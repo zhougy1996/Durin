@@ -54,12 +54,6 @@ class OutputMode(str, Enum):
     FULL = "full"
 
 
-class TestGranularity(str, Enum):
-    TARGET = "target"
-    CASE = "case"
-    HYBRID = "hybrid"
-
-
 class TestMode(str, Enum):
     ROUTINE = "routine"
     ISOLATION = "isolation"

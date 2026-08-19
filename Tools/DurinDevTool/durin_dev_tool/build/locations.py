@@ -218,7 +218,7 @@ LOCATION_SPECS = (
         (),
         True,
         _tests,
-        "Build a native test target first with test --target <target>.",
+        "Build a native test target first with test <target>.",
     ),
     LocationSpec(
         "logs",

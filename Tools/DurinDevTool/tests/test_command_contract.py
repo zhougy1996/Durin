@@ -17,10 +17,7 @@ if str(PRODUCT_ROOT) not in sys.path:
 from durin_dev_tool import cli
 from durin_dev_tool.context import CommandIO, RepositoryContext
 from durin_dev_tool.bootstrap import manifests as bootstrap_manifests
-from durin_dev_tool.build.config import (
-    BuildToolError,
-    TestGranularity as NativeTestGranularity,
-)
+from durin_dev_tool.build.config import BuildToolError
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry, CommandSpec
 from durin_dev_tool.shell import split_shell_command
@@ -224,7 +221,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "6a36dd2f3471256f9435a8860acfdd8f4856a764619d2ee865fabd099a0802a6"
+            "0e555bc2092791b4018338ade2efb851e49949e09fe07be259b7981b3df17425"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"

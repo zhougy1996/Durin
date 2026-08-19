@@ -19,7 +19,6 @@ from .models import (
     LocalConfig,
     ModuleKind,
     OutputMode,
-    TestGranularity,
     TestMode,
 )
 
