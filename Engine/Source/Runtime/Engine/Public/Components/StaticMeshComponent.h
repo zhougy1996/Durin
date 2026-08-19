@@ -25,8 +25,8 @@ namespace Durin
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterial() const -> DMaterialInterface*;
-		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*;
+		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool override;
+		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
 		ENGINE_API auto SetMaterialByName(FName SlotName, DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterialByName(FName SlotName) const -> DMaterialInterface*;
 		ENGINE_API auto ResetMaterial(uint32 SlotIndex) -> bool;
@@ -34,7 +34,7 @@ namespace Durin
 		ENGINE_API auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		ENGINE_API auto HasMaterialOverride(uint32 SlotIndex) const -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
-		ENGINE_API auto GetNumMaterials() const -> uint32;
+		ENGINE_API auto GetNumMaterials() const -> uint32 override;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;

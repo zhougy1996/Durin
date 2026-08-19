@@ -197,6 +197,18 @@ namespace Durin
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
 	}
 
+	auto DTerrainComponent::SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool
+	{
+		if (SlotIndex != 0) return false;
+		SetMaterial(InMaterial);
+		return true;
+	}
+
+	auto DTerrainComponent::GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*
+	{
+		return SlotIndex == 0 ? GetMaterial() : nullptr;
+	}
+
 	auto DTerrainComponent::ValidateProperties(std::string& OutError) const -> bool
 	{
 		if (!IsValidTerrainProperties(SpacingX, SpacingY, HeightScale, HeightOffset))

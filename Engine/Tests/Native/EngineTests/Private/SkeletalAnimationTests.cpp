@@ -523,14 +523,15 @@ TEST(DSkeletalMeshComponentTests, ResolvesMaterialOverridesByIndexAndName)
 		nullptr, NextObjectName("SkeletalMaterial"));
 	std::string Error;
 	ASSERT_TRUE(Component->SetSkeletalMesh(Mesh, Error)) << Error;
-	EXPECT_EQ(Component->GetNumMaterials(), 1u);
-	EXPECT_TRUE(Component->SetMaterial(0, Material));
-	EXPECT_EQ(Component->GetMaterial(0), Material);
+	Durin::DMeshComponent* MeshComponent = Component;
+	EXPECT_EQ(MeshComponent->GetNumMaterials(), 1u);
+	EXPECT_TRUE(MeshComponent->SetMaterial(0, Material));
+	EXPECT_EQ(MeshComponent->GetMaterial(0), Material);
 	EXPECT_EQ(Component->GetMaterialByName(Durin::FName("Body")), Material);
 	EXPECT_TRUE(Component->SetMaterialByName(Durin::FName("Body"), Material));
 	EXPECT_FALSE(Component->SetMaterialByName(Durin::FName("Missing"), Material));
 	EXPECT_TRUE(Component->ResetMaterial(0));
-	EXPECT_EQ(Component->GetMaterial(0), nullptr);
+	EXPECT_EQ(MeshComponent->GetMaterial(0), nullptr);
 }
 
 TEST(DSkeletalMeshComponentTests, RejectsProspectiveChangesWithoutDestroyingPlayback)
@@ -642,6 +643,7 @@ TEST(DSkeletalMeshComponentTests, ReflectsFrozenPropertiesAndRejectsInvalidEditD
 	InitializeDObjectSystem();
 	Durin::DClass* Class = Durin::DSkeletalMeshComponent::StaticClass();
 	ASSERT_NE(Class, nullptr);
+	EXPECT_TRUE(Class->IsChildOf(Durin::DMeshComponent::StaticClass()));
 	EXPECT_TRUE(Class->IsChildOf(Durin::DPrimitiveComponent::StaticClass()));
 	for (const std::string_view Name : {
 		"SkeletalMesh", "AnimationClip", "bAutoPlay", "bLooping", "PlayRate"})

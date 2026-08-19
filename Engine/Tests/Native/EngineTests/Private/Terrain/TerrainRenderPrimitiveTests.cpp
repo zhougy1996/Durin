@@ -3,6 +3,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 #include "Engine/TerrainSceneProxy.h"
+#include "Materials/Material.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainLOD.h"
 #include "Terrain/TerrainTopology.h"
@@ -54,6 +55,20 @@ namespace
 		EXPECT_FALSE(Component->SetHeightRange(std::numeric_limits<double>::quiet_NaN(), 0.0));
 		EXPECT_TRUE(Component->SetSampleSpacing(2.0, 3.0));
 		EXPECT_TRUE(Component->SetHeightRange(-100.0, 25.0));
+	}
+
+	TEST(TerrainRenderPrimitive, ExposesSingleMaterialSlotThroughMeshContract)
+	{
+		auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "TerrainMaterialContract");
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TerrainMaterialContractValue");
+		Durin::DMeshComponent* MeshComponent = Component;
+		ASSERT_NE(Material, nullptr);
+		EXPECT_EQ(MeshComponent->GetNumMaterials(), 1u);
+		EXPECT_FALSE(MeshComponent->SetMaterial(1, Material));
+		EXPECT_TRUE(MeshComponent->SetMaterial(0, Material));
+		EXPECT_EQ(MeshComponent->GetMaterial(0), Material);
+		EXPECT_TRUE(MeshComponent->SetMaterial(0, nullptr));
+		EXPECT_EQ(MeshComponent->GetMaterial(0), nullptr);
 	}
 
 	TEST(TerrainRenderPrimitive, BuildsExactYMajorEdgePatchesAndBounds)

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Animation/SkeletalAnimation.h"
-#include "Components/PrimitiveComponent.h"
+#include "Components/MeshComponent.h"
 
 #include "SkeletalMeshComponent.gen.h"
 
@@ -9,7 +9,7 @@ namespace Durin
 {
 	// Owns one detached skeletal playback instance and publishes complete render proxies.
 	DCLASS()
-	class DSkeletalMeshComponent final : public DPrimitiveComponent
+	class DSkeletalMeshComponent final : public DMeshComponent
 	{
 		GENERATED_BODY()
 	public:
@@ -19,13 +19,13 @@ namespace Durin
 		ENGINE_API auto SetAnimationClip(DAnimationClip* InClip, std::string& OutError) -> bool;
 		auto GetSkeletalMesh() const -> DSkeletalMesh* { return SkeletalMesh.Get(); }
 		auto GetAnimationClip() const -> DAnimationClip* { return AnimationClip.Get(); }
-		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*;
+		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool override;
+		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
 		ENGINE_API auto SetMaterialByName(FName SlotName, DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterialByName(FName SlotName) const -> DMaterialInterface*;
 		ENGINE_API auto ResetMaterial(uint32 SlotIndex) -> bool;
 		ENGINE_API auto ClearMaterialOverrides() -> bool;
-		auto GetNumMaterials() const -> uint32
+		auto GetNumMaterials() const -> uint32 override
 		{
 			return SkeletalMesh ? SkeletalMesh->GetNumMaterialSlots() : 0;
 		}

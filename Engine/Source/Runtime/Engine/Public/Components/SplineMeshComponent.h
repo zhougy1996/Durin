@@ -66,12 +66,12 @@ namespace Durin
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto GetMaterial(uint32 SlotIndex = 0) const -> DMaterialInterface*;
+		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool override;
+		ENGINE_API auto GetMaterial(uint32 SlotIndex = 0) const -> DMaterialInterface* override;
 		ENGINE_API auto ResetMaterial(uint32 SlotIndex) -> bool;
 		ENGINE_API auto ClearMaterialOverrides() -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
-		ENGINE_API auto GetNumMaterials() const -> uint32;
+		ENGINE_API auto GetNumMaterials() const -> uint32 override;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;

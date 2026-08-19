@@ -97,6 +97,9 @@ namespace Durin
 		auto GetHeightOffset() const -> double { return HeightOffset; }
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> void;
 		auto GetMaterial() const -> DMaterialInterface* { return Material.Get(); }
+		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool override;
+		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
+		auto GetNumMaterials() const -> uint32 override { return 1; }
 		auto GetRenderStatus() const -> ETerrainRenderStatus { return RenderStatus; }
 		auto GetLastRenderDiagnostic() const -> const std::string& { return LastRenderDiagnostic; }
 		auto GetRenderDerivedDataBuildCount() const -> uint64 { return RenderDerivedDataBuildCount; }
