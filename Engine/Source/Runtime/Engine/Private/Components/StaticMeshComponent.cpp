@@ -240,7 +240,6 @@ namespace Durin
 		TrimTrailingNullOverrides();
 		++MaterialComponentRevision;
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
 	}
 
 	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
