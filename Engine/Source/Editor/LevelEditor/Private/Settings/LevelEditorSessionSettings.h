@@ -43,7 +43,9 @@ namespace Durin::Editor::Level
 		auto GetContentBrowserLastDirectory() const -> const std::string& { return ContentBrowserLastDirectory; }
 		auto SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowHiddenFiles, std::string LastDirectory) -> void;
 		auto GetDetailsPaneRatio() const -> float { return DetailsPaneRatio; }
+		auto IsDetailsPaneAutoSized() const -> bool { return bDetailsPaneAutoSized; }
 		auto SetDetailsPaneRatio(float Ratio) -> void;
+		auto SetDetailsPaneAutoSized(bool bAutoSized) -> void { bDetailsPaneAutoSized = bAutoSized; }
 
 	private:
 		friend class FEditorAssetMoveCoordinator;
@@ -65,5 +67,6 @@ namespace Durin::Editor::Level
 		bool bContentBrowserShowHiddenFiles = false;
 		std::string ContentBrowserLastDirectory;
 		float DetailsPaneRatio = DefaultDetailsPaneRatio;
+		bool bDetailsPaneAutoSized = true;
 	};
 } // namespace Durin::Editor::Level

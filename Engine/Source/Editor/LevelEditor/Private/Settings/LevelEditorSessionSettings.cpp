@@ -60,7 +60,9 @@ namespace Durin::Editor::Level
 		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(DefaultContentBrowserTreeRatio), static_cast<double>(MinimumContentBrowserTreeRatio), static_cast<double>(MaximumContentBrowserTreeRatio)));
 		bContentBrowserShowHiddenFiles = ContentBrowser.GetView("ShowHiddenFiles").GetBool(false);
 		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
-		DetailsPaneRatio = static_cast<float>(std::clamp(Root.GetView("Details").GetView("ComponentPaneRatio").GetDouble(DefaultDetailsPaneRatio), static_cast<double>(MinimumDetailsPaneRatio), static_cast<double>(MaximumDetailsPaneRatio)));
+		const FYamlNodeView Details = Root.GetView("Details");
+		DetailsPaneRatio = static_cast<float>(std::clamp(Details.GetView("ComponentPaneRatio").GetDouble(DefaultDetailsPaneRatio), static_cast<double>(MinimumDetailsPaneRatio), static_cast<double>(MaximumDetailsPaneRatio)));
+		bDetailsPaneAutoSized = Details.GetView("ComponentPaneAutoSized").GetBool(true);
 		return true;
 	}
 
@@ -136,6 +138,7 @@ namespace Durin::Editor::Level
 		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
 		FYamlNodeRef DetailsNode = Root.AddMap("Details");
 		DetailsNode.SetChildValue("ComponentPaneRatio", static_cast<double>(DetailsPaneRatio));
+		DetailsNode.SetChildValue("ComponentPaneAutoSized", bDetailsPaneAutoSized);
 
 		SaveLevelViewportStates(Root, ViewportStates);
 		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + SessionSettingsFileName))

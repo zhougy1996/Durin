@@ -519,7 +519,9 @@ namespace Durin::Editor
 
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
-		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+		if (Property->GetMetaData(FName("DefaultCollapsed")) != "true")
+			Flags |= ImGuiTreeNodeFlags_DefaultOpen;
 		if (EditableFields.empty()) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 		const bool bOpen = MonaImGui::CompactTreeNode("##Struct", Flags, "%s", Label.c_str());
 		MonaImGui::PropertyEdit::ShowLabelTooltip(TypeTooltip.c_str(), bReadOnly);

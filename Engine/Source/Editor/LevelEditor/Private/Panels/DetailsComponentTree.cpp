@@ -141,7 +141,12 @@ namespace Durin::Editor::Level
 			const std::string Status = bIsGenerated ? "Generated, Read-only"
 				: bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default")
 				: bIsInstance ? "Instance" : "Default";
-			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
+			const std::string TypeName = ClassDisplayName(Component->GetClass());
+			const bool bUsesDefaultName = Component->GetClass()
+				&& Component->GetName() == Component->GetClass()->GetDefaultObjectName();
+			const std::string Label = bUsesDefaultName
+				? std::format("{}  [{}]", TypeName, Status)
+				: std::format("{}  ({})  [{}]", Component->GetName(), TypeName, Status);
 			const bool bOpen = MonaImGui::CompactTreeNode("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Context.SelectComponent(Component);
 			if (ImGui::BeginPopupContextItem("ComponentContext"))

@@ -22,13 +22,36 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
+		auto DrawCenteredEmptyState(const char* Message) -> void
+		{
+			const ImVec2 Cursor = ImGui::GetCursorPos();
+			const ImVec2 Available = ImGui::GetContentRegionAvail();
+			const ImVec2 TextSize = ImGui::CalcTextSize(Message);
+			ImGui::SetCursorPos({
+				Cursor.x + FMath::Max((Available.x - TextSize.x) * 0.5f, 0.0f),
+				Cursor.y + FMath::Max((Available.y - TextSize.y) * 0.5f, 0.0f),
+			});
+			ImGui::TextDisabled("%s", Message);
+		}
+
+		auto ApplyPanelContentPadding() -> void
+		{
+			ImGui::SetCursorPos(ImGui::GetCursorPos() + ImGui::GetStyle().WindowPadding);
+		}
+
 		auto DrawObjectIdentity(const DObject* Object) -> void
 		{
 			if (!Object) return;
 
-			ImGui::TextUnformatted(Object->GetName().c_str());
-			ImGui::SameLine();
-			ImGui::TextDisabled("(%s)", Helpers::ClassDisplayName(Object->GetClass()).c_str());
+			const std::string TypeName = Helpers::ClassDisplayName(Object->GetClass());
+			const bool bUsesDefaultName = Object->GetClass()
+				&& Object->GetName() == Object->GetClass()->GetDefaultObjectName();
+			ImGui::TextUnformatted(bUsesDefaultName ? TypeName.c_str() : Object->GetName().c_str());
+			if (!bUsesDefaultName)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("(%s)", TypeName.c_str());
+			}
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
 			{
 				ImGui::SetTooltip("Full Type Name: %s", Object->GetClass()->GetQualifiedName().ToString().c_str());
@@ -49,7 +72,11 @@ namespace Durin::Editor::Level
 
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Details", "Details", GetOpenPtr()))
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+			Workspace::Type, "Details", "Details", GetOpenPtr());
+		ImGui::PopStyleVar();
+		if (!bPanelVisible)
 		{
 			if (!FinishActivePropertyEdit(&Context, true)) SetOpen(true);
 			ImGui::End();
@@ -61,6 +88,7 @@ namespace Durin::Editor::Level
 		{
 			if (!FinishActivePropertyEdit(&Context, true))
 			{
+				ApplyPanelContentPadding();
 				ImGui::TextDisabled("The active property preview must be restored before changing selection.");
 				ImGui::End();
 				return;
@@ -68,7 +96,7 @@ namespace Durin::Editor::Level
 			PropertyActor = nullptr;
 			Context.SelectComponent(nullptr);
 			ComponentTree.ResetRenameState();
-			ImGui::TextDisabled("Select an actor to inspect it.");
+			DrawCenteredEmptyState("Select an actor to view its details.");
 			ImGui::End();
 			return;
 		}
@@ -102,21 +130,44 @@ namespace Durin::Editor::Level
 		const float AvailableHeight = ImGui::GetContentRegionAvail().y;
 		const float UsableHeight = FMath::Max(AvailableHeight - SplitterThickness, 0.0f);
 		float ComponentHeight = UsableHeight * ComponentPaneRatio;
+		if (SessionSettings.IsDetailsPaneAutoSized())
+		{
+			const float ComponentRowCount = static_cast<float>(Actor->GetComponents().size() + 1);
+			const float PreferredHeight = ImGui::GetStyle().WindowPadding.y * 2.0f
+				+ ImGui::GetFrameHeightWithSpacing()
+				+ ComponentRowCount * ImGui::GetTextLineHeightWithSpacing();
+			const float MinimumHeight = FMath::Min(MonaImGui::ScaleUI(90.0f), UsableHeight);
+			const float MaximumHeight = FMath::Max(MinimumHeight, FMath::Min(
+				UsableHeight * 0.30f, UsableHeight - MonaImGui::ScaleUI(120.0f)));
+			ComponentHeight = std::clamp(PreferredHeight, MinimumHeight, MaximumHeight);
+			if (UsableHeight > 0.0f) ComponentPaneRatio = ComponentHeight / UsableHeight;
+		}
 		if (UsableHeight >= MonaImGui::ScaleUI(220.0f))
 		{
 			ComponentHeight = std::clamp(ComponentHeight, MonaImGui::ScaleUI(90.0f), UsableHeight - MonaImGui::ScaleUI(120.0f));
 		}
 
-		if (ImGui::BeginChild("DetailsComponents", ImVec2(0.0f, ComponentHeight), ImGuiChildFlags_Borders))
+		if (ImGui::BeginChild("DetailsComponents", ImVec2(0.0f, ComponentHeight),
+			ImGuiChildFlags_AlwaysUseWindowPadding))
 		{
 			ComponentTree.Draw(Context, Actor);
 		}
 		ImGui::EndChild();
 
 		if (MonaImGui::DrawSplitter("DetailsSplitter", MonaImGui::EUISplitterAxis::Y, ImGui::GetContentRegionAvail().x, UsableHeight, MonaImGui::ScaleUI(90.0f), MonaImGui::ScaleUI(120.0f), ComponentPaneRatio))
+		{
 			SessionSettings.SetDetailsPaneRatio(ComponentPaneRatio);
+			SessionSettings.SetDetailsPaneAutoSized(false);
+		}
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Drag to resize. Double-click to fit components.");
+			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				SessionSettings.SetDetailsPaneAutoSized(true);
+		}
 
-		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders,
+		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f),
+			ImGuiChildFlags_AlwaysUseWindowPadding,
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			DObject* InspectedObject = Context.GetSelectedComponent() ? static_cast<DObject*>(Context.GetSelectedComponent()) : static_cast<DObject*>(Actor);
