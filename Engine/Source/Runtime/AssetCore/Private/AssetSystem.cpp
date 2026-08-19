@@ -724,87 +724,61 @@ namespace Durin::Asset
 		constexpr uint64 MaximumReferenceDisplayRouteBytes = 4 * 1024;
 		constexpr uint64 MaximumReferenceRouteTokenBytes = 1024 * 1024;
 
-		auto ContainsAssetReferencePropertyImpl(
+		template<typename Predicate>
+		auto ContainsPropertyMatchingImpl(
 			const FProperty* Property,
+			const Predicate& Matches,
 			std::unordered_set<const DStruct*>& VisitingStructs) -> bool
 		{
 			if (!Property) return false;
+			if (Matches(Property)) return true;
 			switch (Property->GetKind())
 			{
-			case DurinCodeGen::EPropertyGenFlags::Object:
-			case DurinCodeGen::EPropertyGenFlags::SoftObject:
-				return true;
 			case DurinCodeGen::EPropertyGenFlags::Array:
-				return ContainsAssetReferencePropertyImpl(
-					static_cast<const FArrayProperty*>(Property)->GetInner(), VisitingStructs);
+				return ContainsPropertyMatchingImpl(
+					static_cast<const FArrayProperty*>(Property)->GetInner(), Matches, VisitingStructs);
 			case DurinCodeGen::EPropertyGenFlags::Map:
-				return ContainsAssetReferencePropertyImpl(
-					static_cast<const FMapProperty*>(Property)->GetKeyProp(), VisitingStructs)
-					|| ContainsAssetReferencePropertyImpl(
-						static_cast<const FMapProperty*>(Property)->GetValueProp(), VisitingStructs);
+				return ContainsPropertyMatchingImpl(
+					static_cast<const FMapProperty*>(Property)->GetKeyProp(), Matches, VisitingStructs)
+					|| ContainsPropertyMatchingImpl(
+						static_cast<const FMapProperty*>(Property)->GetValueProp(), Matches, VisitingStructs);
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
 				if (!Struct || !VisitingStructs.insert(Struct).second) return false;
-				bool bContainsReference = false;
+				bool bContainsMatch = false;
 				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!bContainsReference && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
-						bContainsReference = ContainsAssetReferencePropertyImpl(Field, VisitingStructs);
+					if (!bContainsMatch && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+						bContainsMatch = ContainsPropertyMatchingImpl(Field, Matches, VisitingStructs);
 				}, false);
 				VisitingStructs.erase(Struct);
-				return bContainsReference;
+				return bContainsMatch;
 			}
 			default:
 				return false;
 			}
+		}
+
+		template<typename Predicate>
+		auto ContainsPropertyMatching(const FProperty* Property, const Predicate& Matches) -> bool
+		{
+			std::unordered_set<const DStruct*> VisitingStructs;
+			return ContainsPropertyMatchingImpl(Property, Matches, VisitingStructs);
 		}
 
 		auto ContainsAssetReferenceProperty(const FProperty* Property) -> bool
 		{
-			std::unordered_set<const DStruct*> VisitingStructs;
-			return ContainsAssetReferencePropertyImpl(Property, VisitingStructs);
-		}
-
-		auto ContainsSoftObjectPropertyImpl(
-			const FProperty* Property,
-			std::unordered_set<const DStruct*>& VisitingStructs) -> bool
-		{
-			if (!Property) return false;
-			switch (Property->GetKind())
-			{
-			case DurinCodeGen::EPropertyGenFlags::SoftObject:
-				return true;
-			case DurinCodeGen::EPropertyGenFlags::Array:
-				return ContainsSoftObjectPropertyImpl(
-					static_cast<const FArrayProperty*>(Property)->GetInner(), VisitingStructs);
-			case DurinCodeGen::EPropertyGenFlags::Map:
-				return ContainsSoftObjectPropertyImpl(
-					static_cast<const FMapProperty*>(Property)->GetKeyProp(), VisitingStructs)
-					|| ContainsSoftObjectPropertyImpl(
-						static_cast<const FMapProperty*>(Property)->GetValueProp(), VisitingStructs);
-			case DurinCodeGen::EPropertyGenFlags::Struct:
-			{
-				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
-				if (!Struct || !VisitingStructs.insert(Struct).second) return false;
-				bool bContainsSoftObject = false;
-				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!bContainsSoftObject && Field
-						&& !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
-						bContainsSoftObject = ContainsSoftObjectPropertyImpl(
-							Field, VisitingStructs);
-				}, false);
-				VisitingStructs.erase(Struct);
-				return bContainsSoftObject;
-			}
-			default:
-				return false;
-			}
+			return ContainsPropertyMatching(Property, [](const FProperty* Candidate) {
+				return Candidate->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
+					|| Candidate->GetKind() == DurinCodeGen::EPropertyGenFlags::SoftObject;
+			});
 		}
 
 		auto ContainsSoftObjectProperty(const FProperty* Property) -> bool
 		{
-			std::unordered_set<const DStruct*> VisitingStructs;
-			return ContainsSoftObjectPropertyImpl(Property, VisitingStructs);
+			return ContainsPropertyMatching(Property, [](const FProperty* Candidate) {
+				return Candidate->GetKind() == DurinCodeGen::EPropertyGenFlags::SoftObject;
+			});
 		}
 
 		auto CompareReferenceRoute(
