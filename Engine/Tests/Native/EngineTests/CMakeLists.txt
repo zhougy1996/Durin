@@ -93,9 +93,6 @@ function(durin_add_engine_functional_test target_name)
 		${DURIN_ENGINE_TEST_SOURCES}
 		${DURIN_ENGINE_TEST_PRIVATE_SOURCES}
 	)
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
 	if(DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -134,26 +131,14 @@ function(durin_add_engine_functional_test target_name)
 		)
 	endif()
 	if(DURIN_ENGINE_TEST_TIMEOUT)
-		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_TIMEOUT "${DURIN_ENGINE_TEST_TIMEOUT}"
-		)
+		set(_durin_engine_test_timeout
+			TIMEOUT "${DURIN_ENGINE_TEST_TIMEOUT}")
 	endif()
 	set(_durin_engine_test_execution_host)
 	if(DURIN_ENGINE_TEST_EXECUTION_HOST)
 		set(_durin_engine_test_execution_host
 			EXECUTION_HOST "${DURIN_ENGINE_TEST_EXECUTION_HOST}")
 	endif()
-	durin_finalize_native_test(${target_name}
-		KIND ${DURIN_ENGINE_TEST_KIND}
-		${_durin_engine_test_execution_host}
-		DOMAINS ${DURIN_ENGINE_TEST_DOMAINS}
-		MODULES ${DURIN_ENGINE_TEST_MODULES}
-		BACKENDS ${DURIN_ENGINE_TEST_BACKENDS}
-		STACKS ${DURIN_ENGINE_TEST_STACKS}
-		PRIVATE_SOURCE_OWNER ${DURIN_ENGINE_TEST_PRIVATE_SOURCE_OWNER}
-		PRIVATE_SOURCE_RATIONALE
-			"${DURIN_ENGINE_TEST_PRIVATE_SOURCE_RATIONALE}"
-	)
 	if(DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS
 		OR DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES)
 		durin_test_register_runtime_only_dependencies(${target_name}
@@ -168,12 +153,23 @@ function(durin_add_engine_functional_test target_name)
 			"${_durin_data_directory}"
 		)
 	endforeach()
-	durin_discover_tests(${target_name})
+	durin_register_native_test(${target_name}
+		KIND ${DURIN_ENGINE_TEST_KIND}
+		${_durin_engine_test_execution_host}
+		DOMAINS ${DURIN_ENGINE_TEST_DOMAINS}
+		MODULES ${DURIN_ENGINE_TEST_MODULES}
+		BACKENDS ${DURIN_ENGINE_TEST_BACKENDS}
+		STACKS ${DURIN_ENGINE_TEST_STACKS}
+		${_durin_engine_test_timeout}
+		PRIVATE_SOURCE_OWNER ${DURIN_ENGINE_TEST_PRIVATE_SOURCE_OWNER}
+		PRIVATE_SOURCE_RATIONALE
+			"${DURIN_ENGINE_TEST_PRIVATE_SOURCE_RATIONALE}"
+	)
 endfunction()
 
 
-# Keep domain fragments in registry/discovery order. Each target remains declared
-# once, and discovery stays adjacent to its complete metadata and dependency setup.
+# Keep domain fragments in registration order. Each target remains declared once,
+# and registration stays after its complete metadata and dependency setup.
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/AssetAndMaterialTests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/TextureAndTerrainTests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/LaunchTests.cmake")

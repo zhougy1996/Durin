@@ -2,9 +2,6 @@ include(GoogleTest)
 
 function(durin_add_core_functional_test target_name)
 	add_durin_test(${target_name} ${ARGN})
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
 	target_link_libraries(${target_name} PRIVATE Core)
 	durin_test_deploy_directory_to_data(
 		${target_name}
@@ -14,12 +11,11 @@ function(durin_add_core_functional_test target_name)
 		${target_name}
 		"${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
 	)
-	durin_finalize_native_test(${target_name}
+	durin_register_native_test(${target_name}
 		KIND contract
 		DOMAINS core
 		MODULES core
 	)
-	durin_discover_tests(${target_name})
 endfunction()
 
 durin_add_core_functional_test(CoreUtilityTests
@@ -41,16 +37,12 @@ durin_add_core_functional_test(CoreUtilityTests
 )
 
 add_durin_test(ImageCodecTests Private/ImageDecoderTests.cpp)
-set_target_properties(ImageCodecTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
 target_link_libraries(ImageCodecTests PRIVATE Core)
-durin_finalize_native_test(ImageCodecTests
+durin_register_native_test(ImageCodecTests
 	KIND contract
 	DOMAINS image-codec
 	MODULES core
 )
-durin_discover_tests(ImageCodecTests)
 
 set(_durin_assertion_fixture_dir
 	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
@@ -108,16 +100,12 @@ durin_add_core_functional_test(CoreConcurrencyTests
 add_durin_test(CoreConcurrencyQualificationTests
 	Private/ThreadingQualificationTests.cpp
 )
-set_target_properties(CoreConcurrencyQualificationTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
 target_link_libraries(CoreConcurrencyQualificationTests PRIVATE Core)
-durin_finalize_native_test(CoreConcurrencyQualificationTests
+durin_register_native_test(CoreConcurrencyQualificationTests
 	KIND qualification
 	DOMAINS core
 	MODULES core
 )
-durin_discover_tests(CoreConcurrencyQualificationTests)
 
 if(WIN32 OR APPLE)
 	set(_durin_dynamic_unload_fixture_dir
@@ -156,16 +144,12 @@ if(WIN32 OR APPLE)
 			"The production module manager delay-loads the real unload fixture DLL by module name."
 		TARGETS DynamicUnloadFixture
 	)
-	set_target_properties(DynamicDllUnloadQualificationTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
-	durin_finalize_native_test(DynamicDllUnloadQualificationTests
+	durin_register_native_test(DynamicDllUnloadQualificationTests
 		KIND qualification
 		DOMAINS core
 		MODULES core
 		STACKS process
 	)
-	durin_discover_tests(DynamicDllUnloadQualificationTests)
 
 	add_durin_test(DynamicDllUnloadFailureQualificationTests
 		Private/DynamicDllUnloadFailureQualificationTests.cpp
@@ -180,16 +164,12 @@ if(WIN32 OR APPLE)
 			"The production module manager delay-loads the real failure-injection fixture DLL by module name."
 		TARGETS DynamicUnloadFixture
 	)
-	set_target_properties(DynamicDllUnloadFailureQualificationTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
-	durin_finalize_native_test(DynamicDllUnloadFailureQualificationTests
+	durin_register_native_test(DynamicDllUnloadFailureQualificationTests
 		KIND qualification
 		DOMAINS core
 		MODULES core
 		STACKS process
 	)
-	durin_discover_tests(DynamicDllUnloadFailureQualificationTests)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE

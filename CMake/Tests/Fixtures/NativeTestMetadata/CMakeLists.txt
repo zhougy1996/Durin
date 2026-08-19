@@ -14,8 +14,6 @@ endif()
 
 add_custom_target(ProbeTests SOURCES Empty.cpp)
 set_target_properties(ProbeTests PROPERTIES
-	DURIN_TEST_DIRECT_LIFECYCLE TRUE
-	DURIN_TEST_TIMEOUT 30
 	DURIN_TEST_ROOT_DIR "${CMAKE_SOURCE_DIR}/Generated/$<CONFIG>/ProbeTests"
 	DURIN_TEST_BIN_DIR "${CMAKE_SOURCE_DIR}/Generated/$<CONFIG>/ProbeTests/Bin"
 	DURIN_TEST_DATA_DIR "${CMAKE_SOURCE_DIR}/Generated/$<CONFIG>/ProbeTests/Data"
@@ -34,7 +32,7 @@ elseif(DURIN_METADATA_PROBE STREQUAL "duplicate")
 	set(_durin_metadata KIND feature DOMAINS world WORLD)
 elseif(DURIN_METADATA_PROBE STREQUAL "reserved-label")
 	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_LABELS domain-world)
-elseif(DURIN_METADATA_PROBE STREQUAL "characterization-direct")
+elseif(DURIN_METADATA_PROBE STREQUAL "characterization")
 	set(_durin_metadata KIND characterization DOMAINS process)
 elseif(DURIN_METADATA_PROBE STREQUAL "qualification")
 	set(_durin_metadata KIND qualification DOMAINS renderer)
@@ -63,7 +61,15 @@ elseif(DURIN_METADATA_PROBE STREQUAL "synthetic-platform-resolution")
 	endif()
 endif()
 
-durin_finalize_native_test(ProbeTests ${_durin_metadata})
+_durin_finalize_native_test(ProbeTests ${_durin_metadata})
+if(DURIN_METADATA_PROBE STREQUAL "characterization")
+	get_target_property(_durin_direct_lifecycle
+		ProbeTests DURIN_TEST_DIRECT_LIFECYCLE)
+	if(_durin_direct_lifecycle)
+		message(FATAL_ERROR
+			"Characterization metadata retained a direct lifecycle.")
+	endif()
+endif()
 if(DURIN_METADATA_PROBE STREQUAL "late-execution-host")
 	set_target_properties(ProbeTests PROPERTIES DURIN_TEST_EXECUTION_HOST application)
 	durin_validate_native_test_finalization(ProbeTests)

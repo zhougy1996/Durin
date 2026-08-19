@@ -8,10 +8,6 @@ add_durin_test(NativeTestIsolationCharacterizationTests
 	Private/NativeTestProcessIsolationCharacterizationTests.cpp
 )
 
-set_target_properties(NativeTestIsolationCharacterizationTests PROPERTIES
-	DURIN_TEST_DIRECT_LIFECYCLE FALSE
-)
-
 target_include_directories(NativeTestIsolationProbeTests PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../NativeTestSupport/Private"
 )
@@ -21,21 +17,17 @@ foreach(_durin_isolation_target IN ITEMS
 	NativeTestIsolationCharacterizationTests
 )
 	target_link_libraries(${_durin_isolation_target} PRIVATE Core)
-	set_target_properties(${_durin_isolation_target} PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
 	if(_durin_isolation_target STREQUAL "NativeTestIsolationCharacterizationTests")
-		durin_finalize_native_test(${_durin_isolation_target}
+		durin_register_native_test(${_durin_isolation_target}
 			KIND characterization
 			DOMAINS native-test-harness
 		)
 	else()
-		durin_finalize_native_test(${_durin_isolation_target}
+		durin_register_native_test(${_durin_isolation_target}
 			KIND infrastructure
 			DOMAINS native-test-harness
 		)
 	endif()
-	durin_discover_tests(${_durin_isolation_target})
 endforeach()
 
 get_target_property(

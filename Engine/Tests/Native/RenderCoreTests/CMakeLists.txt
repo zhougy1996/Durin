@@ -34,31 +34,27 @@ function(durin_add_render_functional_test target_name)
 			${target_name}
 			"${CMAKE_CURRENT_SOURCE_DIR}/Data"
 		)
-		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_TIMEOUT 600
-		)
+		set(_durin_timeout_arg TIMEOUT 600)
 	endif()
 
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
 	if(DURIN_RENDER_TEST_PRIVATE_SOURCES)
-		durin_finalize_native_test(${target_name}
+		durin_register_native_test(${target_name}
 			KIND ${DURIN_RENDER_TEST_KIND}
 			DOMAINS ${DURIN_RENDER_TEST_DOMAINS}
 			MODULES ${DURIN_RENDER_TEST_MODULES}
+			${_durin_timeout_arg}
 			PRIVATE_SOURCE_OWNER RenderCore
 			PRIVATE_SOURCE_RATIONALE
 				"${DURIN_RENDER_TEST_PRIVATE_SOURCE_RATIONALE}"
 		)
 	else()
-		durin_finalize_native_test(${target_name}
+		durin_register_native_test(${target_name}
 			KIND ${DURIN_RENDER_TEST_KIND}
 			DOMAINS ${DURIN_RENDER_TEST_DOMAINS}
 			MODULES ${DURIN_RENDER_TEST_MODULES}
+			${_durin_timeout_arg}
 		)
 	endif()
-	durin_discover_tests(${target_name})
 endfunction()
 
 durin_add_render_functional_test(RenderShaderContractTests

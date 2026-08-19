@@ -126,9 +126,9 @@ fastest failing-case iteration. It launches one target process with the filter;
 aggregate execution does not change focused execution.
 
 `native-test-characterization` is always excluded from the aggregate and runs
-only through its owning custom target. Such a dedicated target sets
-`DURIN_TEST_DIRECT_LIFECYCLE FALSE` because its custom runner, rather than a
-routine whole-executable smoke, owns the required environment and scheduling.
+only through its owning custom target. `KIND characterization` automatically
+suppresses the direct whole-executable lifecycle because its custom runner,
+rather than a routine smoke, owns the required environment and scheduling.
 
 Do not record a current test or registration total in repository documentation.
 CTest discovery is the source of truth; use the command summary or

@@ -3,14 +3,10 @@ include(GoogleTest)
 add_durin_test(NativeTestApplicationExecutionTests
 	Private/NativeTestApplicationExecutionTests.cpp
 )
-set_target_properties(NativeTestApplicationExecutionTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-durin_finalize_native_test(NativeTestApplicationExecutionTests
+durin_register_native_test(NativeTestApplicationExecutionTests
 	KIND infrastructure
 	EXECUTION_HOST application
 	DOMAINS launch
 	MODULES native-test-support
 	STACKS process
 )
-durin_discover_tests(NativeTestApplicationExecutionTests)

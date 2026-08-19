@@ -28,20 +28,15 @@ function(durin_add_asset_functional_test target_name)
 		)
 	endif()
 
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	)
 	if(DURIN_ASSET_TEST_TIMEOUT)
-		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}"
-		)
+		set(_durin_timeout_arg TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}")
 	endif()
-	durin_finalize_native_test(${target_name}
+	durin_register_native_test(${target_name}
 		KIND ${DURIN_ASSET_TEST_KIND}
 		DOMAINS ${DURIN_ASSET_TEST_DOMAINS}
 		MODULES ${DURIN_ASSET_TEST_MODULES}
+		${_durin_timeout_arg}
 	)
-	durin_discover_tests(${target_name})
 endfunction()
 
 durin_add_asset_functional_test(AssetPackageTests

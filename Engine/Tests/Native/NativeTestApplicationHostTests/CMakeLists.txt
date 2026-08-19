@@ -16,13 +16,9 @@ add_dependencies(NativeTestApplicationHostTests
 	DurinNativeTestApplicationController
 	DurinNativeTestApplicationHost
 	DurinNativeTestApplicationProbe)
-set_target_properties(NativeTestApplicationHostTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-durin_finalize_native_test(NativeTestApplicationHostTests
+durin_register_native_test(NativeTestApplicationHostTests
 	KIND infrastructure
 	DOMAINS launch
 	MODULES native-test-support
 	STACKS process
 )
-durin_discover_tests(NativeTestApplicationHostTests)

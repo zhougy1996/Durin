@@ -20,17 +20,15 @@ if(DURIN_WITH_EDITOR)
 		StandardAssetImport
 	)
 	set_target_properties(WorldTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Exercises DurinEd world editing integration."
 	)
-	durin_finalize_native_test(WorldTests
+	durin_register_native_test(WorldTests
 		KIND feature
 		DOMAINS world
 		MODULES engine durin-ed
 		STACKS editor
 	)
-	durin_discover_tests(WorldTests)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "WorldTests requires the DurinEd editor world lifecycle."
@@ -72,16 +70,14 @@ target_link_libraries(MonaViewportTests PRIVATE
 	Mona
 )
 set_target_properties(MonaViewportTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Exercises the Mona display-source consumer without Engine linkage."
 )
-durin_finalize_native_test(MonaViewportTests
+durin_register_native_test(MonaViewportTests
 	KIND contract
 	DOMAINS viewport
 	MODULES mona
 )
-durin_discover_tests(MonaViewportTests)
 
 add_durin_test(EngineViewportHeaderTests
 	Private/Viewport/EngineViewportHeaderTests.cpp
@@ -90,15 +86,11 @@ target_link_libraries(EngineViewportHeaderTests PRIVATE
 	Core
 	Engine
 )
-set_target_properties(EngineViewportHeaderTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-durin_finalize_native_test(EngineViewportHeaderTests
+durin_register_native_test(EngineViewportHeaderTests
 	KIND contract
 	DOMAINS viewport
 	MODULES engine
 )
-durin_discover_tests(EngineViewportHeaderTests)
 
 set(_durin_viewport_test_sources
 	Private/Viewport/ViewportFoundationTests.cpp
@@ -157,12 +149,10 @@ if(DURIN_WITH_EDITOR)
 		DurinEd
 	)
 	set_target_properties(ViewportTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Exercises DurinEd and Mona viewport interaction behavior."
-		DURIN_TEST_TIMEOUT 600
 	)
-	durin_finalize_native_test(ViewportTests
+	durin_register_native_test(ViewportTests
 		KIND feature
 		DOMAINS viewport
 		MODULES engine level-editor mona
@@ -170,8 +160,8 @@ if(DURIN_WITH_EDITOR)
 		PRIVATE_SOURCE_OWNER LevelEditor
 		PRIVATE_SOURCE_RATIONALE
 			"LevelEditor-owned viewport white-box coverage without exporting private DLL symbols."
+		TIMEOUT 600
 	)
-	durin_discover_tests(ViewportTests)
 
 	add_durin_test(ViewportQualificationTests
 		Private/Viewport/ViewportPickingQualificationTests.cpp
@@ -202,12 +192,10 @@ if(DURIN_WITH_EDITOR)
 		DurinEd
 	)
 	set_target_properties(ViewportQualificationTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Measures large-scale editor viewport picking behavior."
-		DURIN_TEST_TIMEOUT 900
 	)
-	durin_finalize_native_test(ViewportQualificationTests
+	durin_register_native_test(ViewportQualificationTests
 		KIND qualification
 		DOMAINS viewport
 		MODULES engine level-editor mona
@@ -215,8 +203,8 @@ if(DURIN_WITH_EDITOR)
 		PRIVATE_SOURCE_OWNER LevelEditor
 		PRIVATE_SOURCE_RATIONALE
 			"LevelEditor-owned viewport qualification uses the same private picking seams as routine coverage."
+		TIMEOUT 900
 	)
-	durin_discover_tests(ViewportQualificationTests)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "ViewportTests requires LevelEditor composition and DurinEd."

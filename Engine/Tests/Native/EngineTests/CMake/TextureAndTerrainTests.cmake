@@ -16,10 +16,8 @@ if(DURIN_WITH_EDITOR)
 		${_durin_texture_test_libraries})
 	target_link_libraries(TextureTests PRIVATE bc7enc_rdo::bc7enc_rdo)
 	set_target_properties(TextureTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Exercises editor texture import, build, cache, and render-resource contracts."
-		DURIN_TEST_TIMEOUT 600
 	)
 	durin_test_deploy_directory_to_data(
 		TextureTests
@@ -29,13 +27,13 @@ if(DURIN_WITH_EDITOR)
 		TextureTests
 		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	)
-	durin_finalize_native_test(TextureTests
+	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS texture
 		MODULES engine texture-build standard-asset-import
 		STACKS editor
+		TIMEOUT 600
 	)
-	durin_discover_tests(TextureTests)
 
 	add_durin_test(SceneImportTests
 		Private/Texture/SceneImportTests.cpp
@@ -46,22 +44,20 @@ if(DURIN_WITH_EDITOR)
 		${_durin_texture_test_libraries}
 		bc7enc_rdo::bc7enc_rdo)
 	set_target_properties(SceneImportTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 			"Exercises editor scene-import publication and rollback across runtime asset families."
-		DURIN_TEST_TIMEOUT 600
 	)
 	durin_test_deploy_directory_to_data(
 		SceneImportTests
 		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
 	)
-	durin_finalize_native_test(SceneImportTests
+	durin_register_native_test(SceneImportTests
 		KIND integration
 		DOMAINS asset-import
 		MODULES asset-import-core engine standard-asset-import
 		STACKS editor
+		TIMEOUT 600
 	)
-	durin_discover_tests(SceneImportTests)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Texture authoring and scene import require editor-only Build and StandardAssetImport services."

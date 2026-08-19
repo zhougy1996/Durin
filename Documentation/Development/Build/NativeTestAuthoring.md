@@ -1,6 +1,6 @@
 # Native Test Authoring
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-20
 
 This document defines native-test source ownership, target declarations,
 deployment, writable sandboxes, lifecycle isolation, and resource policy.
@@ -36,9 +36,9 @@ one build target per engine DLL or external runtime file, so every destination
 has one writer even when many native-test targets require it. Do not add
 target-owned `POST_BUILD` copies into the shared directory.
 
-`durin_discover_tests(...)` derives each test's deployable runtime closure from
-the final `LINK_LIBRARIES` and `INTERFACE_LINK_LIBRARIES` target graph before it
-registers GoogleTest discovery. Shared and module libraries contribute their
+`durin_register_native_test(...)` derives each test's deployable runtime closure
+from the final `LINK_LIBRARIES` and `INTERFACE_LINK_LIBRARIES` target graph before
+it registers GoogleTest discovery. Shared and module libraries contribute their
 binaries; static, object, and interface targets are traversed without a copy.
 Imported targets contribute files published through
 `DURIN_RUNTIME_DEPLOY_FILES`, so the target which introduces Assimp, Slang, or
@@ -116,29 +116,30 @@ target_link_libraries(PackageRoundTripTests PRIVATE
     AssetCore
 )
 
-set_target_properties(PackageRoundTripTests PROPERTIES
-    DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
-durin_finalize_native_test(PackageRoundTripTests
+durin_register_native_test(PackageRoundTripTests
     KIND feature
     DOMAINS asset-package
     MODULES asset-core
 )
-durin_discover_tests(PackageRoundTripTests)
 ```
 
-`durin_finalize_native_test(...)` is the structured declaration boundary. It
-must appear after sources, links, runtime policy, and execution properties are
-known and before `durin_discover_tests(...)`. `KIND` is exactly one of
+`durin_register_native_test(...)` is the single registration boundary. It must
+appear after sources, links, runtime-only dependencies, data deployment, and
+execution properties are known. It finalizes metadata, resolves policy, derives
+the runtime closure, and registers GoogleTest discovery. `KIND` is exactly one of
 `contract`, `feature`, `integration`, `characterization`, `infrastructure`, or
 `qualification`; `DOMAINS` contains at least one stable selection slice.
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
+Targets are case-parallel by default. Add `SERIAL` only when the target requires
+broad target serialization, together with a concrete
+`DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override the
+300-second default. Characterization kind automatically suppresses the direct
+whole-target lifecycle registration.
 
-`EXECUTION_HOST` on `durin_finalize_native_test(...)` declares the process
-lifecycle required by the target and is independent of kind, direct-lifecycle
-registration, labels, and locks. Omit it for the `direct` default; use
+`EXECUTION_HOST` on `durin_register_native_test(...)` declares the process
+lifecycle required by the target and is independent of serialization, labels,
+and locks. Omit it for the `direct` default; use
 `EXECUTION_HOST application` when a target initializes Cocoa, AppKit, a GLFW
 Cocoa window, a Metal layer, or native presentation. On macOS, CMake resolves
 `application` to the repository LaunchServices host and uses `TEST_LAUNCHER`
@@ -185,9 +186,9 @@ source/binary/preset/configuration identity belong to CMake. DurinDevTool
 rejects a missing, unsupported, or identity-mismatched registry and asks for a
 fresh configure rather than selecting from stale metadata.
 
-Complete every target link declaration before calling
-`durin_discover_tests(...)`. The discovery call is the runtime-closure
-finalization point as well as the test-policy registration point. Configuration
+Complete every target declaration before calling
+`durin_register_native_test(...)`. Registration is the runtime-closure
+finalization point as well as the test-policy and discovery point. Configuration
 fails when a target-bearing link expression cannot be resolved for the active
 preset, a referenced runtime target is missing, two external files claim the
 same destination name from different sources, or a manual deployment repeats
@@ -216,7 +217,7 @@ configuration capability.
 
 Use a runtime-only exception only for a plugin, delay-loaded module, or file
 which is selected without a CMake link edge. Declare the owner and rationale
-before discovery:
+before registration:
 
 ```cmake
 durin_test_register_runtime_only_dependencies(RendererIntegrationTests
@@ -235,7 +236,7 @@ primitives, not native-test authoring requirements.
 point, and provides `DURIN_TEST_DATA_DIR` for input lookup. Use
 `durin_test_deploy_directory_to_data(...)` or
 `durin_test_deploy_files_to_data(...)` for checked-in inputs. Always register
-through `durin_discover_tests(...)`; direct `gtest_discover_tests(...)`
+through `durin_register_native_test(...)`; direct `gtest_discover_tests(...)`
 boilerplate bypasses repository policy and is rejected.
 
 Every ordinary target receives one direct target-lifecycle registration and
@@ -252,10 +253,9 @@ the ordinary owning target, and run the qualification target explicitly. A
 physical-resource lock such as `durin-gpu` describes lifecycle ownership; it
 does not make a correctness target a performance test.
 
-Case-level parallel safety remains required for the explicit case diagnostic
-mode. If a target cannot use
-`DURIN_TEST_CASE_PARALLEL_SAFE TRUE`, set
-`DURIN_TEST_TARGET_LOCK_RATIONALE` to a concrete reviewed reason. Broad
+Case-level parallel safety is the default for explicit case diagnostic mode. If
+a target cannot run cases concurrently, add `SERIAL` to its registration and
+set `DURIN_TEST_TARGET_LOCK_RATIONALE` to a concrete reviewed reason. Broad
 `durin-test-target-*` locks without that rationale are rejected. Explicit
 shared resources must come from the central registry in
 `CMake/Project/ProjectTargets.cmake`:

@@ -11,7 +11,7 @@ from typing import Iterable
 from .config import BuildContext, BuildToolError, default_build_paths, preset_build_directory
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 REGISTRY_FILE_NAME = "DurinNativeTestRegistry.json"
 SELECTOR_DIMENSIONS = {
     "kind": "kind",
@@ -34,8 +34,6 @@ class NativeTestTarget:
     stacks: tuple[str, ...]
     execution_host: str
     resolved_execution_host: str
-    direct_lifecycle: bool
-    timeout_seconds: int
     resource_locks: tuple[str, ...]
     heavy_runtime: bool
     private_source_owner: str
@@ -148,8 +146,6 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
                 stacks=_string_list(record, "stacks", target=name),
                 execution_host=execution_host,
                 resolved_execution_host=resolved_execution_host,
-                direct_lifecycle=record.get("directLifecycle") is True,
-                timeout_seconds=int(record.get("timeoutSeconds", 0)),
                 resource_locks=_string_list(record, "resourceLocks", target=name),
                 heavy_runtime=record.get("heavyRuntime") is True,
                 private_source_owner=str(record.get("privateSourceOwner", "")),

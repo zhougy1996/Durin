@@ -455,7 +455,7 @@ function(durin_configure_macos_native_test_application_layout target_name)
 	)
 endfunction()
 
-function(durin_finalize_native_test target_name)
+function(_durin_finalize_native_test target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR
 			"Cannot finalize structured metadata for missing target ${target_name}.")
@@ -463,7 +463,7 @@ function(durin_finalize_native_test target_name)
 	get_target_property(_durin_discovered ${target_name} DURIN_TEST_DISCOVERED)
 	if(_durin_discovered)
 		message(FATAL_ERROR
-			"${target_name} structured metadata must be finalized before durin_discover_tests.")
+			"${target_name} structured metadata must be finalized before registration.")
 	endif()
 
 	set(one_value_args KIND EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
@@ -495,8 +495,9 @@ function(durin_finalize_native_test target_name)
 	durin_normalize_native_test_metadata_list(
 		_durin_stacks stacks ${DURIN_METADATA_STACKS})
 
-	get_target_property(_durin_direct_lifecycle ${target_name} DURIN_TEST_DIRECT_LIFECYCLE)
-	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
+	if(_durin_kind STREQUAL "characterization")
+		set(_durin_direct_lifecycle FALSE)
+	else()
 		set(_durin_direct_lifecycle TRUE)
 	endif()
 	get_property(_durin_execution_host_property_set TARGET ${target_name}
@@ -504,7 +505,7 @@ function(durin_finalize_native_test target_name)
 	if(_durin_execution_host_property_set)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_EXECUTION_HOST is finalized metadata; "
-			"declare EXECUTION_HOST in durin_finalize_native_test instead.")
+			"declare EXECUTION_HOST in durin_register_native_test instead.")
 	endif()
 	if(EXECUTION_HOST IN_LIST DURIN_METADATA_KEYWORDS_MISSING_VALUES)
 		message(FATAL_ERROR
@@ -540,10 +541,6 @@ function(durin_finalize_native_test target_name)
 	endif()
 	durin_assert_native_test_labels_not_reserved("${target_name}" ${_durin_labels})
 	if(_durin_kind STREQUAL "characterization")
-		if(_durin_direct_lifecycle)
-			message(FATAL_ERROR
-				"${target_name} KIND characterization requires DURIN_TEST_DIRECT_LIFECYCLE FALSE.")
-		endif()
 		list(APPEND _durin_labels native-test-characterization)
 	elseif(native-test-characterization IN_LIST _durin_labels)
 		message(FATAL_ERROR
@@ -629,6 +626,7 @@ function(durin_finalize_native_test target_name)
 		DURIN_TEST_EXECUTION_HOST "${_durin_execution_host}"
 		DURIN_TEST_RESOLVED_EXECUTION_HOST "${_durin_resolved_execution_host}"
 		DURIN_TEST_FINALIZED_EXECUTION_HOST "${_durin_execution_host}"
+		DURIN_TEST_DIRECT_LIFECYCLE "${_durin_direct_lifecycle}"
 	)
 endfunction()
 
@@ -640,8 +638,8 @@ function(durin_validate_native_test_finalization target_name)
 	get_target_property(_durin_kind ${target_name} DURIN_TEST_KIND)
 	if(_durin_kind MATCHES "-NOTFOUND$" OR NOT _durin_kind)
 		message(FATAL_ERROR
-			"Native-test target ${target_name} must call durin_finalize_native_test "
-			"with KIND and DOMAINS before durin_discover_tests.")
+			"Native-test target ${target_name} must call durin_register_native_test "
+			"with KIND and DOMAINS after completing its target declarations.")
 	endif()
 	get_target_property(_durin_execution_host ${target_name} DURIN_TEST_EXECUTION_HOST)
 	get_target_property(_durin_finalized_execution_host
@@ -649,7 +647,7 @@ function(durin_validate_native_test_finalization target_name)
 	if(NOT _durin_execution_host STREQUAL _durin_finalized_execution_host)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_EXECUTION_HOST changed after "
-			"durin_finalize_native_test; declare execution policy before finalization.")
+			"durin_register_native_test; declare execution policy at registration.")
 	endif()
 endfunction()
 
@@ -861,7 +859,13 @@ function(durin_validate_native_test_repository_policy native_test_root)
 			"(^|[^A-Za-z0-9_])gtest_discover_tests[ \t\r\n]*\\(")
 			message(FATAL_ERROR
 				"${_durin_cmake_file} registers GoogleTest cases directly. "
-				"Use durin_discover_tests so isolation and resource policy apply.")
+				"Use durin_register_native_test so isolation and resource policy apply.")
+		endif()
+		if(_durin_cmake_content MATCHES
+			"(^|[^A-Za-z0-9_])_?durin_(finalize_native_test|discover_(native_)?tests?)[ \t\r\n]*\\(")
+			message(FATAL_ERROR
+				"${_durin_cmake_file} calls a private or retired native-test "
+				"registration phase. Use durin_register_native_test.")
 		endif()
 		if(_durin_cmake_content MATCHES
 			"add_custom_command[ \\t\\r\\n]*\\([^)]*TARGET[^)]*POST_BUILD[^)]*(copy|copy_if_different)")
@@ -1018,12 +1022,12 @@ function(durin_generate_native_test_registry output_path)
 		get_target_property(_durin_discovered ${_durin_target} DURIN_TEST_DISCOVERED)
 		if(NOT _durin_discovered)
 			message(FATAL_ERROR
-				"Native-test target ${_durin_target} was not finalized with durin_discover_tests.")
+				"Native-test target ${_durin_target} was not registered with "
+				"durin_register_native_test.")
 		endif()
 		foreach(_durin_property
 			KIND DOMAINS MODULES BACKENDS STACKS
-			DIRECT_LIFECYCLE EXECUTION_HOST RESOLVED_EXECUTION_HOST
-			TIMEOUT DISCOVERY_RESOURCE_LOCKS
+			EXECUTION_HOST RESOLVED_EXECUTION_HOST DISCOVERY_RESOURCE_LOCKS
 			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
 				${_durin_target} DURIN_TEST_${_durin_property})
@@ -1034,11 +1038,6 @@ function(durin_generate_native_test_registry output_path)
 		foreach(_durin_list DOMAINS MODULES BACKENDS STACKS DISCOVERY_RESOURCE_LOCKS)
 			durin_json_string_array(_durin_${_durin_list}_json ${_durin_${_durin_list}})
 		endforeach()
-		if(_durin_DIRECT_LIFECYCLE)
-			set(_durin_direct_json true)
-		else()
-			set(_durin_direct_json false)
-		endif()
 		if(_durin_HEAVY_RUNTIME_RATIONALE)
 			set(_durin_heavy_json true)
 		else()
@@ -1058,7 +1057,6 @@ function(durin_generate_native_test_registry output_path)
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
 			"\"executionHost\":\"${_durin_execution_host_json}\","
 			"\"resolvedExecutionHost\":\"${_durin_resolved_execution_host_json}\","
-			"\"directLifecycle\":${_durin_direct_json},\"timeoutSeconds\":${_durin_TIMEOUT},"
 			"\"resourceLocks\":${_durin_DISCOVERY_RESOURCE_LOCKS_json},"
 			"\"heavyRuntime\":${_durin_heavy_json},"
 			"\"privateSourceOwner\":\"${_durin_private_source_owner_json}\","
@@ -1076,7 +1074,7 @@ function(durin_generate_native_test_registry output_path)
 	durin_json_escape(_durin_configuration_json "${CMAKE_BUILD_TYPE}")
 	string(CONCAT _durin_registry
 		"{\n"
-		"  \"schemaVersion\": 3,\n"
+		"  \"schemaVersion\": 4,\n"
 		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
 		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
 		"\"configuration\":\"${_durin_configuration_json}\"},\n"
@@ -1093,7 +1091,7 @@ function(durin_generate_native_test_registry output_path)
 		"Generated native-test registry (${_durin_target_count} targets): ${output_path}")
 endfunction()
 
-function(durin_discover_tests target_name)
+function(_durin_discover_native_test target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR "Cannot discover tests for missing target ${target_name}.")
 	endif()
@@ -1113,7 +1111,8 @@ function(durin_discover_tests target_name)
 	get_target_property(_durin_case_parallel_safe
 		${target_name} DURIN_TEST_CASE_PARALLEL_SAFE)
 	if(_durin_case_parallel_safe MATCHES "-NOTFOUND$")
-		set(_durin_case_parallel_safe FALSE)
+		message(FATAL_ERROR
+			"${target_name} registration did not resolve case parallel policy.")
 	elseif(NOT _durin_case_parallel_safe STREQUAL "TRUE"
 		AND NOT _durin_case_parallel_safe STREQUAL "FALSE")
 		message(FATAL_ERROR
@@ -1256,4 +1255,82 @@ function(durin_discover_tests target_name)
 			)
 		endif()
 	endif()
+endfunction()
+
+function(durin_register_native_test target_name)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR "Cannot register missing native-test target ${target_name}.")
+	endif()
+
+	set(options SERIAL)
+	set(one_value_args
+		KIND TIMEOUT EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
+	set(multi_value_args DOMAINS MODULES BACKENDS STACKS)
+	cmake_parse_arguments(
+		DURIN_REGISTER
+		"${options}"
+		"${one_value_args}"
+		"${multi_value_args}"
+		${ARGN}
+	)
+	if(DURIN_REGISTER_UNPARSED_ARGUMENTS)
+		message(FATAL_ERROR
+			"Unknown native-test registration arguments for ${target_name}: "
+			"${DURIN_REGISTER_UNPARSED_ARGUMENTS}")
+	endif()
+	if(NOT DURIN_REGISTER_KIND)
+		message(FATAL_ERROR "${target_name} native-test registration requires KIND.")
+	endif()
+	if(NOT DURIN_REGISTER_DOMAINS)
+		message(FATAL_ERROR "${target_name} native-test registration requires DOMAINS.")
+	endif()
+	if(TIMEOUT IN_LIST DURIN_REGISTER_KEYWORDS_MISSING_VALUES)
+		message(FATAL_ERROR "${target_name} TIMEOUT requires a positive integer.")
+	endif()
+	if(DEFINED DURIN_REGISTER_TIMEOUT)
+		set(_durin_timeout "${DURIN_REGISTER_TIMEOUT}")
+	else()
+		set(_durin_timeout 300)
+	endif()
+	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
+		message(FATAL_ERROR "${target_name} TIMEOUT must be a positive integer.")
+	endif()
+
+	foreach(_durin_owned_property IN ITEMS
+		DURIN_TEST_CASE_PARALLEL_SAFE DURIN_TEST_DIRECT_LIFECYCLE DURIN_TEST_TIMEOUT)
+		get_property(_durin_property_set TARGET ${target_name}
+			PROPERTY ${_durin_owned_property} SET)
+		if(_durin_property_set)
+			message(FATAL_ERROR
+				"${target_name} ${_durin_owned_property} is registration-owned; "
+				"use SERIAL, KIND, or TIMEOUT on durin_register_native_test.")
+		endif()
+	endforeach()
+
+	set(_durin_metadata_args
+		KIND "${DURIN_REGISTER_KIND}"
+		DOMAINS ${DURIN_REGISTER_DOMAINS}
+		MODULES ${DURIN_REGISTER_MODULES}
+		BACKENDS ${DURIN_REGISTER_BACKENDS}
+		STACKS ${DURIN_REGISTER_STACKS}
+	)
+	foreach(_durin_optional_arg IN ITEMS
+		EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
+		if(DEFINED DURIN_REGISTER_${_durin_optional_arg})
+			list(APPEND _durin_metadata_args
+				${_durin_optional_arg} "${DURIN_REGISTER_${_durin_optional_arg}}")
+		endif()
+	endforeach()
+
+	_durin_finalize_native_test(${target_name} ${_durin_metadata_args})
+	if(DURIN_REGISTER_SERIAL)
+		set(_durin_case_parallel_safe FALSE)
+	else()
+		set(_durin_case_parallel_safe TRUE)
+	endif()
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE "${_durin_case_parallel_safe}"
+		DURIN_TEST_TIMEOUT "${_durin_timeout}"
+	)
+	_durin_discover_native_test(${target_name})
 endfunction()

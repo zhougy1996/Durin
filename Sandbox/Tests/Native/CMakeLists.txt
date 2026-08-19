@@ -7,18 +7,14 @@ set(DURIN_PROJECT_TEST_OUTPUT_ROOT
 add_durin_test(SandboxGameplayTests
 	Private/SandboxGameplayTests.cpp
 )
-set_target_properties(SandboxGameplayTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
 target_link_libraries(SandboxGameplayTests PRIVATE
 	Core
 	CoreDObject
 	Engine
 	Sandbox
 )
-durin_finalize_native_test(SandboxGameplayTests
+durin_register_native_test(SandboxGameplayTests
 	KIND feature
 	DOMAINS gameplay
 	MODULES engine sandbox
 )
-durin_discover_tests(SandboxGameplayTests)
