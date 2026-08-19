@@ -72,7 +72,6 @@ namespace Durin
 			TShaderRef<FDeferredDirectionalVertexShader> VertexShader;
 			TShaderRef<FDeferredDirectionalFragmentShader> FragmentShader;
 			TShaderRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
-			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef ProductionPipelineState;
 			FSamplerRHIRef FallbackEnvironmentSampler;
@@ -163,13 +162,6 @@ namespace Durin
 					ProductionFragment, Candidate.ShaderMap.get()
 				};
 
-				FVertexDeclarationElementList Elements;
-				constexpr uint32 Stride =
-					sizeof(FFullscreenGeometryResources::FVertex);
-				Elements[0] = FVertexElement(0, offsetof(FFullscreenGeometryResources::FVertex, Position), EVertexElementType::Float2, 0, Stride);
-				Elements[1] = FVertexElement(0, offsetof(FFullscreenGeometryResources::FVertex, UV), EVertexElementType::Float2, 1, Stride);
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(Elements);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -186,14 +178,13 @@ namespace Durin
 					Candidate.FragmentShader.GetRHIShader(false);
 				FRHIShader* ProductionFragmentRHI =
 					Candidate.ProductionFragmentShader.GetRHIShader(false);
-				if (Candidate.VertexDeclaration == nullptr
-					|| VertexRHI == nullptr || FragmentRHI == nullptr
+				if (VertexRHI == nullptr || FragmentRHI == nullptr
 					|| ProductionFragmentRHI == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"DeferredDirectionalLighting", "shader",
-						"RHI shader or vertex declaration creation returned null.",
+						"RHI shader creation returned null.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual
@@ -204,7 +195,8 @@ namespace Durin
 					RenderTargetLayouts::MakeDeferredDirectionalOutput();
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration = Candidate.VertexDeclaration;
+				Initializer.VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();

@@ -9,7 +9,8 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
-	// Owns the fullscreen triangle shared by post process and editor grid.
+	// Owns the fullscreen triangle geometry and vertex layout shared by
+	// screen-space passes.
 	class RENDERER_API FFullscreenGeometryResources
 	{
 	public:
@@ -21,6 +22,8 @@ namespace Durin
 
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList) -> bool;
+		auto GetVertexDeclaration_RenderThread() const
+			-> const FVertexDeclarationRHIRef&;
 		auto GetVertexBuffer_RenderThread() const -> const FBufferRHIRef&;
 		auto GetIndexBuffer_RenderThread() const -> const FBufferRHIRef&;
 		auto RetryFailedResources_RenderThread() -> void;
@@ -29,6 +32,7 @@ namespace Durin
 	private:
 		struct FPayload
 		{
+			FVertexDeclarationRHIRef VertexDeclaration;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 		};

@@ -14,6 +14,14 @@ namespace Durin
 		return Slot.Resolve(
 			Generation,
 			[&CommandList]() -> FResult {
+				FVertexDeclarationElementList Elements;
+				constexpr uint32 Stride = sizeof(FVertex);
+				Elements[0] = FVertexElement(
+					0, offsetof(FVertex, Position),
+					EVertexElementType::Float2, 0, Stride);
+				Elements[1] = FVertexElement(
+					0, offsetof(FVertex, UV),
+					EVertexElementType::Float2, 1, Stride);
 				const std::array<FVertex, 3> Vertices = {
 					FVertex{FVector2f{-1.0f, -1.0f}, FVector2f{0.0f, 0.0f}},
 					FVertex{FVector2f{3.0f, -1.0f}, FVector2f{2.0f, 0.0f}},
@@ -21,6 +29,8 @@ namespace Durin
 				};
 				const std::array<uint32, 3> Indices = {0, 1, 2};
 				FPayload Candidate;
+				Candidate.VertexDeclaration =
+					GDynamicRHI->RHICreateVertexDeclaration(Elements);
 				FRHIBufferCreateDesc VertexDesc =
 					FRHIBufferCreateDesc::CreateVertex(
 						"RendererFullscreenVertexBuffer",
@@ -46,7 +56,8 @@ namespace Durin
 						sizeof(uint32) * Indices.size())};
 				Candidate.IndexBuffer =
 					GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-				if (Candidate.VertexBuffer == nullptr
+				if (Candidate.VertexDeclaration == nullptr
+					|| Candidate.VertexBuffer == nullptr
 					|| Candidate.IndexBuffer == nullptr)
 				{
 					return FResult::Failure({
@@ -54,7 +65,8 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 						.Context = "FullscreenGeometryResources",
 						.Identity = "shared-triangle",
-						.Message = "RHI buffer creation returned null.",
+						.Message =
+							"RHI declaration or buffer creation returned null.",
 						.RetryDependencies =
 							ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual,
@@ -77,6 +89,17 @@ namespace Durin
 					"Shared fullscreen geometry creation failed: {}",
 					Diagnostic.Error->Message);
 			}) != nullptr;
+	}
+
+	auto FFullscreenGeometryResources::GetVertexDeclaration_RenderThread() const
+		-> const FVertexDeclarationRHIRef&
+	{
+		check(IsInRenderingThread());
+		static const FVertexDeclarationRHIRef NullDeclaration;
+		const FPayload* Payload = Slot.GetPayload();
+		return Payload != nullptr
+			? Payload->VertexDeclaration
+			: NullDeclaration;
 	}
 
 	auto FFullscreenGeometryResources::GetVertexBuffer_RenderThread() const

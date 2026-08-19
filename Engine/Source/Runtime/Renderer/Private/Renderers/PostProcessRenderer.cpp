@@ -102,7 +102,6 @@ namespace Durin
 			TShaderRef<FPostProcessVertexShader> FXAAVertexShader;
 			TShaderRef<FCopySceneColorFragmentShader> CopyFragmentShader;
 			TShaderRef<FFXAAFragmentShader> FXAAFragmentShader;
-			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef CopyIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef FXAAIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
@@ -238,26 +237,6 @@ namespace Durin
 						FXAAFragmentShader,
 						Candidate.FXAAShaderMap.get());
 
-				FVertexDeclarationElementList VertexDeclElements;
-				constexpr uint32 VertexStride =
-					sizeof(FFullscreenGeometryResources::FVertex);
-				VertexDeclElements[0] = FVertexElement(
-					0,
-					offsetof(
-						FFullscreenGeometryResources::FVertex,
-						Position),
-					EVertexElementType::Float2,
-					0,
-					VertexStride);
-				VertexDeclElements[1] = FVertexElement(
-					0,
-					offsetof(FFullscreenGeometryResources::FVertex, UV),
-					EVertexElementType::Float2,
-					1,
-					VertexStride);
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(
-						VertexDeclElements);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(
 						CommandList))
 				{
@@ -281,8 +260,7 @@ namespace Durin
 					Candidate.FXAAVertexShader.GetRHIShader(false);
 				FRHIShader* FXAAFragmentRHI =
 					Candidate.FXAAFragmentShader.GetRHIShader(false);
-				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.SceneColorSampler == nullptr
+				if (Candidate.SceneColorSampler == nullptr
 					|| CopyVertexRHI == nullptr || CopyFragmentRHI == nullptr
 					|| FXAAVertexRHI == nullptr || FXAAFragmentRHI == nullptr)
 				{
@@ -291,13 +269,15 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"PostProcess",
 							"copy+fxaa",
-							"RHI shader, declaration, or sampler creation returned null.",
+							"RHI shader or sampler creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
+				const FVertexDeclarationRHIRef& VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				auto MakePipeline =
-					[&Candidate](
+					[&Candidate, &VertexDeclaration](
 						FName Name,
 						FRHIShader* VertexShader,
 						FRHIShader* FragmentShader,
@@ -307,7 +287,7 @@ namespace Durin
 							Name,
 							VertexShader,
 							FragmentShader,
-							Candidate.VertexDeclaration,
+							VertexDeclaration,
 							Layout,
 							RenderTargetLayout);
 					};

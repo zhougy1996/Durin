@@ -134,7 +134,6 @@ namespace Durin
 			TShaderRef<FGTAOFilterFragmentShader> FilterFragmentShader;
 			TShaderRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
 			TShaderRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
-			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef SelectorPipelineState;
 			FGraphicsPipelineStateRHIRef HalfPipelineState;
@@ -265,17 +264,6 @@ namespace Durin
 					HalfFilter, Candidate.FilterShaderMap.get()};
 				Candidate.ResolveFragmentShader = {
 					Resolve, Candidate.FilterShaderMap.get()};
-				FVertexDeclarationElementList Elements;
-				constexpr uint32 Stride =
-					sizeof(FFullscreenGeometryResources::FVertex);
-				Elements[0] = FVertexElement(0,
-					offsetof(FFullscreenGeometryResources::FVertex, Position),
-					EVertexElementType::Float2, 0, Stride);
-				Elements[1] = FVertexElement(0,
-					offsetof(FFullscreenGeometryResources::FVertex, UV),
-					EVertexElementType::Float2, 1, Stride);
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(Elements);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -300,8 +288,7 @@ namespace Durin
 					Candidate.HalfFilterFragmentShader.GetRHIShader(false);
 				FRHIShader* ResolveRHI =
 					Candidate.ResolveFragmentShader.GetRHIShader(false);
-				if (Candidate.VertexDeclaration == nullptr
-					|| RawVertexRHI == nullptr || FilterVertexRHI == nullptr
+				if (RawVertexRHI == nullptr || FilterVertexRHI == nullptr
 					|| FragmentRHI == nullptr || SelectorRHI == nullptr
 					|| HalfFragmentRHI == nullptr
 					|| FilterRHI == nullptr || HalfFilterRHI == nullptr
@@ -310,7 +297,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"GroundTruthAmbientOcclusion", "raw-shader",
-						"RHI shader or vertex declaration creation returned null.",
+						"RHI shader creation returned null.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -320,7 +307,8 @@ namespace Durin
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
 				Initializer.BoundShaders.VertexShader = RawVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration = Candidate.VertexDeclaration;
+				Initializer.VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.RawShaderMap->GetMergedPipelineLayout();

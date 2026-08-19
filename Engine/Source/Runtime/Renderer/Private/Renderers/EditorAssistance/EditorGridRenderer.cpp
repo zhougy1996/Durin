@@ -63,7 +63,6 @@ namespace Durin
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FEditorGridVertexShader> VertexShader;
 			TShaderRef<FEditorGridFragmentShader> FragmentShader;
-			FVertexDeclarationRHIRef VertexDeclaration;
 		};
 
 		struct FPipelineEntry
@@ -157,25 +156,15 @@ namespace Durin
 				Candidate.FragmentShader =
 					TShaderRef<FEditorGridFragmentShader>(
 						FragmentShader, Candidate.ShaderMap.get());
-				FVertexDeclarationElementList Elements;
-				Elements[0] = FVertexElement(
-					0,
-					offsetof(FFullscreenGeometryResources::FVertex, Position),
-					EVertexElementType::Float2,
-					0,
-					sizeof(FFullscreenGeometryResources::FVertex));
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(Elements);
 				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
-					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr
-					|| Candidate.VertexDeclaration == nullptr)
+					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"EditorGrid",
 							"base",
-							"RHI shader or vertex declaration creation returned null.",
+							"RHI shader creation returned null.",
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -206,7 +195,7 @@ namespace Durin
 			TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
 		auto* Pipeline = EntryIt->Slot.Resolve(
 			PipelineGeneration,
-			[Base, Key]() -> FPipelineResult {
+			[this, Base, Key]() -> FPipelineResult {
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeEditorAssistanceOutput(
@@ -215,7 +204,8 @@ namespace Durin
 					Base->VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader =
 					Base->FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = Base->VertexDeclaration;
+				Initializer.VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.ColorBlendStates[0] =
 					FRHIColorBlendState::StraightAlpha();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
