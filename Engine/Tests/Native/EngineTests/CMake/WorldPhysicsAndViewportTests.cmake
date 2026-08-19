@@ -62,6 +62,9 @@ durin_add_engine_functional_test(PhysicsQualificationTests
 add_durin_test(MonaViewportTests
 	Private/Viewport/ViewportDisplaySourceTests.cpp
 )
+target_include_directories(MonaViewportTests PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/Private
+)
 target_link_libraries(MonaViewportTests PRIVATE
 	Core
 	RHI

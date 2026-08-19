@@ -1,20 +1,10 @@
 #include "WorldTestSupport.h"
 
 #include "DObject/Package.h"
-#include "StandardAssetImportProviders.h"
-#include "StandardAssetAuthoringTestSupport.h"
+#include "StandardAssetImportProviderTestFixture.h"
 
 namespace
 {
-	class FScopedStandardAssetImportProviders
-	{
-	public:
-		~FScopedStandardAssetImportProviders()
-		{
-			Durin::Asset::Import::Standard::UnregisterStandardAssetImportProviders();
-		}
-	};
-
 	auto ExpectTransformNear(
 		const Durin::FTransform& Actual,
 		const Durin::FQuat& ExpectedRotation,
@@ -110,9 +100,8 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 	std::string ProviderError;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
-		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
-	FScopedStandardAssetImportProviders Providers;
+	Durin::Tests::FScopedStandardAssetImportProviders Providers;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";
 	Durin::Testing::RemoveTestWorkDirectory(Root);

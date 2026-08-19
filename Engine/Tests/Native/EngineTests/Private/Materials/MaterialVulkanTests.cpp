@@ -7,11 +7,13 @@
 #include "Modules/ModuleManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
+#include "MonaTestFixtures.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetImportProviderTestFixture.h"
 #include "StandardAssetAuthoringFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
@@ -47,53 +49,6 @@ namespace
 			std::clamp(DisplayEncoded, 0.0f, 1.0f) * 255.0f));
 	}
 
-	class FScopedStandardAssetImportProviders
-	{
-	public:
-		~FScopedStandardAssetImportProviders()
-		{
-			if (bRegistered) Durin::Asset::Import::Standard::UnregisterStandardAssetImportProviders();
-		}
-
-		auto Register(std::string& OutError) -> bool
-		{
-			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
-				OutError, GetEngineTestModuleCallbackGate());
-			return bRegistered;
-		}
-
-	private:
-		bool bRegistered = false;
-	};
-
-	class FThumbnailTestUIBackend final : public Durin::Mona::IMonaUIBackend
-	{
-	public:
-		auto Initialize() -> void override {}
-		auto Shutdown() -> void override { Registered.clear(); }
-		auto NewFrame() -> void override {}
-		auto Render() -> void override {}
-		auto RegisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
-		{
-			if (Texture) Registered.insert(Texture.GetReference());
-		}
-		auto UnregisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
-		{
-			if (Texture) Registered.erase(Texture.GetReference());
-		}
-		auto IsTextureRegistered(const Durin::FRHITexture* Texture) -> bool override
-		{
-			return Registered.contains(Texture);
-		}
-		auto DrawImage(const Durin::FRHITexture* Texture, const Durin::FVector2f&) -> bool override
-		{
-			return IsTextureRegistered(Texture);
-		}
-		auto NumRegistered() const -> size_t { return Registered.size(); }
-
-	private:
-		std::unordered_set<const Durin::FRHITexture*> Registered;
-	};
 }
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
@@ -109,7 +64,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	(void)StaticMeshAuthoring;
 	(void)Texture2DAuthoring;
 	(void)TextureCubeAuthoring;
-	FScopedStandardAssetImportProviders Providers;
+	Durin::Tests::FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
@@ -509,12 +464,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::Testing::GetTestWorkDirectory() / "StaticMeshRenderedCacheVulkan";
 		Durin::Testing::RemoveTestWorkDirectory(ThumbnailCacheRoot);
 		ASSERT_EQ(Durin::Mona::GActiveUIBackend, nullptr);
-		FThumbnailTestUIBackend ThumbnailUIBackend;
-		Durin::Mona::GActiveUIBackend = &ThumbnailUIBackend;
-		struct FThumbnailBackendGuard
-		{
-			~FThumbnailBackendGuard() { Durin::Mona::GActiveUIBackend = nullptr; }
-		} ThumbnailBackendGuard;
+		Durin::Tests::FThumbnailTestUIBackend ThumbnailUIBackend;
+		Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
 		auto PumpCacheToReady = [&](Durin::Editor::FRenderedAssetThumbnailCache& Cache) {
 			Durin::Editor::FAssetThumbnailView View;
 			for (Durin::uint32 Attempt = 0; Attempt < 16; ++Attempt)

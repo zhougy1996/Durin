@@ -133,6 +133,33 @@ namespace Durin::Testing
 			Marker << "completed\n";
 		}
 
+		auto CleanupSuccessfulRun(
+			const std::filesystem::path& WorkDirectory,
+			const bool bReportForcedFailure) -> void
+		{
+			MarkRunSuccessful(WorkDirectory);
+			const char* ForceCleanupFailure =
+				std::getenv("DURIN_TEST_FORCE_CLEANUP_FAILURE");
+			if (ForceCleanupFailure != nullptr
+				&& std::string_view(ForceCleanupFailure) == "1")
+			{
+				if (bReportForcedFailure)
+				{
+					std::cerr << "[ DURIN   ] Failed to clean test work directory "
+						<< WorkDirectory.string() << ": forced cleanup failure\n";
+				}
+				return;
+			}
+
+			std::error_code ErrorCode;
+			std::filesystem::remove_all(WorkDirectory, ErrorCode);
+			if (ErrorCode)
+			{
+				std::cerr << "[ DURIN   ] Failed to clean test work directory "
+					<< WorkDirectory.string() << ": " << ErrorCode.message() << '\n';
+			}
+		}
+
 		auto ConsumeFlag(int& ArgumentCount, char** Arguments, const std::string_view Flag) -> bool
 		{
 			bool Found = false;
@@ -173,24 +200,7 @@ namespace Durin::Testing
 					return;
 				}
 
-				MarkRunSuccessful(WorkDirectory);
-				const char* ForceCleanupFailure =
-					std::getenv("DURIN_TEST_FORCE_CLEANUP_FAILURE");
-				if (ForceCleanupFailure != nullptr
-					&& std::string_view(ForceCleanupFailure) == "1")
-				{
-					std::cerr << "[ DURIN   ] Failed to clean test work directory "
-						<< WorkDirectory.string() << ": forced cleanup failure\n";
-					return;
-				}
-
-				std::error_code ErrorCode;
-				std::filesystem::remove_all(WorkDirectory, ErrorCode);
-				if (ErrorCode)
-				{
-					std::cerr << "[ DURIN   ] Failed to clean test work directory "
-						<< WorkDirectory.string() << ": " << ErrorCode.message() << '\n';
-				}
+				CleanupSuccessfulRun(WorkDirectory, true);
 			}
 
 		private:
@@ -450,20 +460,7 @@ namespace Durin::Testing
 			&& !KeepWork
 			&& std::filesystem::exists(WorkDirectory))
 		{
-			MarkRunSuccessful(WorkDirectory);
-			const char* ForceCleanupFailure =
-				std::getenv("DURIN_TEST_FORCE_CLEANUP_FAILURE");
-			if (ForceCleanupFailure == nullptr
-				|| std::string_view(ForceCleanupFailure) != "1")
-			{
-				std::error_code ErrorCode;
-				std::filesystem::remove_all(WorkDirectory, ErrorCode);
-				if (ErrorCode)
-				{
-					std::cerr << "[ DURIN   ] Failed to clean test work directory "
-						<< WorkDirectory.string() << ": " << ErrorCode.message() << '\n';
-				}
-			}
+			CleanupSuccessfulRun(WorkDirectory, false);
 		}
 		return Result;
 	}

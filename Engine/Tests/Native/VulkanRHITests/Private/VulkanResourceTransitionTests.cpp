@@ -6,6 +6,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#include "InlineRHITestScope.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
 #include "VulkanRHIPrivate.h"
@@ -125,15 +126,7 @@ namespace Durin::VulkanRHI
 
 	TEST(FVulkanResourceTransitionTests, HardwareRecordsBufferAndDisjointTextureTransitions)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		struct FBarrierOverrideScope

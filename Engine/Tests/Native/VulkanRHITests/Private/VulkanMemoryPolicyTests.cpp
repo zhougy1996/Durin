@@ -14,6 +14,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanTransferArena.h"
+#include "InlineRHITestScope.h"
 #include "VulkanRHITestEnvironment.h"
 
 namespace Durin::VulkanRHI
@@ -142,16 +143,11 @@ namespace Durin::VulkanRHI
 
 	TEST(FVulkanMappedRangeTests, FlushAndInvalidateFailuresAreNotIgnored)
 	{
-		struct FInlineRHIScope
+		FInlineRHITestScope Scope;
+		struct FFailureResetScope
 		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				ResetVulkanCreateFailures();
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+			~FFailureResetScope() { ResetVulkanCreateFailures(); }
+		} FailureReset;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
@@ -170,15 +166,7 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanAllocationClassIntegrationTests,
 		SelectsExplicitPropertiesAndPreservesLiveStatisticsAcrossReset)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		GDynamicRHI->RHIResetMemoryStatistics();
@@ -266,15 +254,7 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanTransferArenaIntegrationTests,
 		ReusesBoundedPagesHandlesFragmentationOversizeAndExactWaits)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
 		ASSERT_NE(Device, nullptr);
@@ -398,15 +378,7 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanCompletionIntegrationTests,
 		SubmissionPublishesTokenAndRetirementWaitsForItsFence)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ResetVulkanMemoryBaselineStatistics();
@@ -446,15 +418,7 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanCompletionIntegrationTests,
 		EmptyIrregularFramesAdvanceBySubmissionRatherThanFrameAge)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		const std::array<uint64, 5> FrameNumbers{0, 17, 2, 101, 4};

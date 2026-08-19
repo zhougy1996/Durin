@@ -7,6 +7,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RHIResources.h"
+#include "InlineRHITestScope.h"
 #include "RenderingThread.h"
 #include "Shader/SlangShaderCompiler.h"
 #include "Shader/Shader.h"
@@ -264,22 +265,7 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		GTEST_SKIP() << "Offline texture compression is an editor-only capability.";
 #else
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope()
-			{
-				_putenv_s("DURIN_RHI_EXECUTION", "inline");
-			}
-
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI)
-				{
-					RHIExit();
-				}
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		VulkanRHI::FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
 		ASSERT_NE(GDynamicRHI, nullptr);
@@ -787,15 +773,7 @@ namespace Durin
 
 	TEST(FVulkanTextureSamplingTests, CreatesExactCountedBufferAndTextureViews)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		VulkanRHI::FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
 		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
@@ -836,15 +814,7 @@ namespace Durin
 
 	TEST(FVulkanTextureSamplingTests, ReusesAutomaticViewsWithoutRepeatedSynchronousCreation)
 	{
-		struct FInlineRHIScope
-		{
-			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
-			~FInlineRHIScope()
-			{
-				if (GDynamicRHI) RHIExit();
-				_putenv_s("DURIN_RHI_EXECUTION", "");
-			}
-		} Scope;
+		VulkanRHI::FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
 		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();

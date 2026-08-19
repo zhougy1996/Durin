@@ -3,14 +3,13 @@
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
-#include "MonaCoreGlobals.h"
-#include "MonaUIBackend.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
 #include "StandardAssetAuthoringTestSupport.h"
+#include "StandardAssetImportProviderTestFixture.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -27,57 +26,6 @@
 #include <cmath>
 #include <condition_variable>
 #include <limits>
-
-namespace
-{
-	class FScopedStandardAssetImportProviders
-	{
-	public:
-		~FScopedStandardAssetImportProviders()
-		{
-			if (bRegistered) Durin::Asset::Import::Standard::UnregisterStandardAssetImportProviders();
-		}
-
-		auto Register(std::string& OutError) -> bool
-		{
-			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
-				OutError, GetEngineTestModuleCallbackGate());
-			return bRegistered;
-		}
-
-	private:
-		bool bRegistered = false;
-	};
-
-	class FThumbnailTestUIBackend final : public Durin::Mona::IMonaUIBackend
-	{
-	public:
-		auto Initialize() -> void override {}
-		auto Shutdown() -> void override { Registered.clear(); }
-		auto NewFrame() -> void override {}
-		auto Render() -> void override {}
-		auto RegisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
-		{
-			if (Texture) Registered.insert(Texture.GetReference());
-		}
-		auto UnregisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
-		{
-			if (Texture) Registered.erase(Texture.GetReference());
-		}
-		auto IsTextureRegistered(const Durin::FRHITexture* Texture) -> bool override
-		{
-			return Registered.contains(Texture);
-		}
-		auto DrawImage(const Durin::FRHITexture* Texture, const Durin::FVector2f&) -> bool override
-		{
-			return IsTextureRegistered(Texture);
-		}
-		auto NumRegistered() const -> size_t { return Registered.size(); }
-
-	private:
-		std::unordered_set<const Durin::FRHITexture*> Registered;
-	};
-}
 
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
 {
@@ -577,7 +525,7 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
 	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-	FScopedStandardAssetImportProviders Providers;
+	Durin::Tests::FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
@@ -617,7 +565,7 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
 	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-	FScopedStandardAssetImportProviders Providers;
+	Durin::Tests::FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FMaterialPreviewHarness Harness;

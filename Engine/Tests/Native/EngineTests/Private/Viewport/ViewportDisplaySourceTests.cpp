@@ -2,6 +2,7 @@
 
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
+#include "MonaTestFixtures.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MViewport.h"
@@ -72,20 +73,6 @@ namespace
 		bool bDrawSucceeds = true;
 	};
 
-	class FActiveBackendScope
-	{
-	public:
-		explicit FActiveBackendScope(Durin::Mona::IMonaUIBackend* Backend)
-		{
-			check(Durin::Mona::GActiveUIBackend == nullptr);
-			Durin::Mona::GActiveUIBackend = Backend;
-		}
-
-		~FActiveBackendScope()
-		{
-			Durin::Mona::GActiveUIBackend = nullptr;
-		}
-	};
 }
 
 TEST(FViewportDisplaySourceTests, CoalescesWindowResizeRequestsUntilPrepared)
@@ -137,7 +124,7 @@ TEST(FViewportDisplaySourceTests, PublishesSizeBeforeReadingTextureAndDoesNotRet
 TEST(FViewportDisplaySourceTests, RegistersStableTextureOnceAndReplacesItExactly)
 {
 	FTestUIBackend Backend;
-	FActiveBackendScope BackendScope(&Backend);
+	Durin::Tests::FScopedActiveUIBackend BackendScope(Backend);
 	auto FirstSource = std::make_shared<FTestDisplaySource>();
 	FirstSource->Texture = new FTestTexture();
 	auto SecondSource = std::make_shared<FTestDisplaySource>();
@@ -179,7 +166,7 @@ TEST(FViewportDisplaySourceTests, RegistersStableTextureOnceAndReplacesItExactly
 TEST(FViewportDisplaySourceTests, HandlesExpirationDestructionAndUnavailableBackend)
 {
 	FTestUIBackend Backend;
-	FActiveBackendScope BackendScope(&Backend);
+	Durin::Tests::FScopedActiveUIBackend BackendScope(Backend);
 	auto Source = std::make_shared<FTestDisplaySource>();
 	Source->Texture = new FTestTexture();
 
