@@ -746,7 +746,8 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos
+		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos,
+		ERenderPreparationMode Mode
 	) -> FPreparedStaticMeshView
 	{
 		check(IsInRenderingThread());
@@ -921,7 +922,10 @@ namespace Durin
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																																				   EStaticMeshBasePass::Opaque;
+																													   EStaticMeshBasePass::Opaque;
+				if (Mode == ERenderPreparationMode::ShadowDepth
+					&& Item.Pass == EStaticMeshBasePass::Translucent)
+					continue;
 				const EMaterialDepthWritePolicy DepthPolicy =
 					Item.Material.PipelineIdentity.DepthWritePolicy;
 				Item.PipelineKey.Depth.bEnableWrite =
@@ -1028,6 +1032,7 @@ namespace Durin
 		}
 		Result.RejectedSplinePrimitives = Result.VisibleSplineCandidates
 										  - std::min(Result.VisibleSplineCandidates, Result.PreparedSplinePrimitives);
+		const auto SortingStart = std::chrono::steady_clock::now();
 		auto CountInputStateGroups = [](const auto& Bucket) -> size_t {
 			if (Bucket.empty())
 			{
@@ -1067,6 +1072,9 @@ namespace Durin
 				return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
 			}
 		);
+		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - SortingStart).count());
 
 		auto CountStateFacts = [&Result](const auto& Bucket) -> size_t {
 			if (Bucket.empty())
@@ -1146,7 +1154,8 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		FPreparedSkeletalPaletteTable& PaletteTable
+		FPreparedSkeletalPaletteTable& PaletteTable,
+		ERenderPreparationMode Mode
 	) -> FPreparedSkeletalMeshView
 	{
 		check(IsInRenderingThread());
@@ -1263,7 +1272,10 @@ namespace Durin
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																																				   EStaticMeshBasePass::Opaque;
+																													   EStaticMeshBasePass::Opaque;
+				if (Mode == ERenderPreparationMode::ShadowDepth
+					&& Item.Pass == EStaticMeshBasePass::Translucent)
+					continue;
 				const auto DepthPolicy = Item.Material.PipelineIdentity.DepthWritePolicy;
 				Item.PipelineKey.Depth.bEnableWrite =
 					DepthPolicy == EMaterialDepthWritePolicy::Enabled
@@ -1312,6 +1324,7 @@ namespace Durin
 			}
 			Result.SelectedSections += PreparedSections;
 		}
+		const auto SortingStart = std::chrono::steady_clock::now();
 		auto StateSort = [](const FPreparedSkeletalMeshDraw& A,
 							const FPreparedSkeletalMeshDraw& B) {
 			return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
@@ -1323,6 +1336,9 @@ namespace Durin
 				return A.TranslucentDistanceSquared > B.TranslucentDistanceSquared;
 			return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
 		});
+		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - SortingStart).count());
 		auto CountStateFacts = [&Result](const auto& Bucket) -> size_t {
 			if (Bucket.empty()) return 0;
 			size_t Groups = 1;

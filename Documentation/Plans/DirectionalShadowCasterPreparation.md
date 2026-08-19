@@ -9,6 +9,36 @@ Completed:
 
 ## Current Status
 
+Stage 1 implementation is present and focused contract validation passes. One
+`FDirectionalShadowCasterTable` now walks the authoritative primitive
+collection once, snapshots supported visible casters, classifies each snapshot
+against every enabled cascade, and materializes reserved family reference
+lists from a bounded mask. `RendererSceneContractTests` covers masks with zero,
+one, two, and all three memberships, disabled culling, and the existing
+off-camera-caster contract; all 19 cases pass on 2026-08-19.
+The existing `DirectionalShadowBaselineVulkanTests` qualification lane also
+passes on the local Vulkan host, together with
+`StaticMeshRenderPreparationVulkanTests` and `TerrainRenderPrimitiveTests`.
+This closes local correctness coverage for the table integration and direct
+shadow-depth translucent filtering, but not the target-host timing gate.
+
+Stage 0 instrumentation is partially present through the existing optional
+view-counter sink. It reports discovery/membership, Static/Spline, Skeletal,
+Terrain logical, nested sorting/batching, total logical, and separate resource
+preparation CPU durations, plus unique-family, classification, mask-popcount,
+scene-traversal, and temporary-capacity counters. The total logical duration
+includes cascade fitting, discovery, and the three family durations.
+Sorting/batching is a nested diagnostic and must not be added to that total.
+Resource preparation is
+subsequent and disjoint.
+
+The current validation host is an Intel Core i5-13400F with a GTX 1060 6GB
+(driver 560.94), not the RTX 3090 qualification host recorded by the shadow
+runtime contract. Reproducible workload baselines, exact median/p95 rollout
+gates, and frozen image/motion identities therefore remain open before Stage 0
+or the Stage 1 acceptance gate can pass. No optimized timing result has been
+accepted from this host.
+
 The selected three-cascade directional-shadow path is functionally qualified,
 but its CPU preparation scales by repeating two different layers of work. The
 receiver view first classifies the complete scene, then every cascade walks the
@@ -215,19 +245,19 @@ scenes with overlapping cascade casters.
 
 ### Stage 1: Build one frame-local caster table and cascade mask
 
-- [ ] Replace per-cascade calls that rescan `FScene` with one authoritative
+- [x] Replace per-cascade calls that rescan `FScene` with one authoritative
   table builder invoked after directional-shadow cascade fitting succeeds.
-- [ ] Evaluate null/hidden/kind eligibility once, classify each retained record
+- [x] Evaluate null/hidden/kind eligibility once, classify each retained record
   against every enabled cascade, and encode membership in a bounded mask whose
   width is checked against `DirectionalShadowCascadeCount`.
-- [ ] Materialize typed per-cascade spans or reference vectors from the table
+- [x] Materialize typed per-cascade spans or reference vectors from the table
   without copying records or re-reading scene state. Reserve from recorded
   family/membership counts to avoid repeated growth.
-- [ ] Preserve `bDisableCulling`, SingleMap, invalid-bounds fallback, boundary
+- [x] Preserve `bDisableCulling`, SingleMap, invalid-bounds fallback, boundary
   contact, off-camera caster, and per-cascade counter semantics. Add direct mask
   and distribution tests, including one primitive in zero, one, two, and all
   cascades.
-- [ ] Remove or narrow `PrepareDirectionalShadowCasterCandidates` only after all
+- [x] Remove or narrow `PrepareDirectionalShadowCasterCandidates` only after all
   callers and tests consume the shared-table contract; do not leave a second
   production scan path.
 
@@ -246,7 +276,7 @@ scenes with overlapping cascade casters.
 - [ ] Split Skeletal preparation into immutable geometry/material facts and
   view-local primitive/draw instances. Retain the existing submission-local
   palette table and its one-pose/one-range ownership.
-- [ ] Introduce an explicit shadow-depth preparation mode that admits only
+- [x] Introduce an explicit shadow-depth preparation mode that admits only
   Opaque and Masked sections and builds the correct shadow pipeline keys
   directly. Remove the post-preparation translucent erase/accounting repair.
 - [ ] Share material binding validation and stable state-key components between

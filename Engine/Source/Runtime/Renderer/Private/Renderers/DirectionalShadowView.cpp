@@ -515,54 +515,145 @@ namespace Durin
 		return Result;
 	}
 
-	auto PrepareDirectionalShadowCasterCandidates(
+	auto PrepareDirectionalShadowCasterTable(
 		const FScene& Scene,
-		const FPreparedDirectionalShadowCascade& Cascade,
-		bool bDisableCulling) -> FDirectionalShadowCasterCandidates
+		const FPreparedDirectionalShadowView& Shadow,
+		bool bDisableCulling) -> FDirectionalShadowCasterTable
 	{
-		FDirectionalShadowCasterCandidates Result;
+		static_assert(DirectionalShadowCascadeCount <= 8);
+		FDirectionalShadowCasterTable Result;
+		check(Shadow.CascadeCount <= DirectionalShadowCascadeCount);
+		if (Shadow.CascadeCount > DirectionalShadowCascadeCount) return Result;
+		Result.SceneTraversals = 1;
+		Result.Records.reserve(Scene.GetPrimitiveSceneInfos().size());
 		for (const FPrimitiveSceneInfo* Info : Scene.GetPrimitiveSceneInfos())
 		{
 			check(Info != nullptr);
 			if (Info == nullptr) continue;
-			++Result.Submitted;
+			++Result.UniqueSubmitted;
 			if (!Info->IsVisible())
 			{
-				++Result.Hidden;
+				++Result.UniqueHidden;
 				continue;
 			}
-			const EDirectionalShadowBoundsClassification Classification =
-				bDisableCulling
-					? EDirectionalShadowBoundsClassification::InsideOrIntersecting
-					: ClassifyDirectionalShadowCasterBounds(
-						Cascade, Info->GetWorldBounds());
-			if (Classification == EDirectionalShadowBoundsClassification::Outside)
-			{
-				++Result.Culled;
-				continue;
-			}
-			if (Classification
-				== EDirectionalShadowBoundsClassification::InvalidBoundsFallback)
-				++Result.InvalidBoundsFallbacks;
+			FDirectionalShadowCasterRecord Record;
+			Record.SceneInfo = Info;
 			switch (Info->GetKind())
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh:
-				Result.StaticMeshes.push_back(Info);
+				Record.Kind = EDirectionalShadowCasterKind::StaticMesh;
+				++Result.UniqueEligibleStaticMeshes;
 				break;
 			case EPrimitiveSceneProxyKind::SplineMesh:
-				Result.SplineMeshes.push_back(Info);
+				Record.Kind = EDirectionalShadowCasterKind::SplineMesh;
+				++Result.UniqueEligibleSplineMeshes;
 				break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh:
-				Result.SkeletalMeshes.push_back(Info);
+				Record.Kind = EDirectionalShadowCasterKind::SkeletalMesh;
+				++Result.UniqueEligibleSkeletalMeshes;
 				break;
 			case EPrimitiveSceneProxyKind::Terrain:
-				Result.Terrains.push_back(Info);
+				Record.Kind = EDirectionalShadowCasterKind::Terrain;
+				++Result.UniqueEligibleTerrains;
 				break;
 			}
+			for (uint32 CascadeIndex = 0;
+				 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
+			{
+				const auto& Cascade = Shadow.Cascades[CascadeIndex];
+				if (!Cascade.bEnabled) continue;
+				++Result.CascadeClassificationTests;
+				const EDirectionalShadowBoundsClassification Classification =
+					bDisableCulling
+						? EDirectionalShadowBoundsClassification::InsideOrIntersecting
+						: ClassifyDirectionalShadowCasterBounds(
+							Cascade, Info->GetWorldBounds());
+				if (Classification == EDirectionalShadowBoundsClassification::Outside)
+					continue;
+				const uint8 Bit = static_cast<uint8>(1u << CascadeIndex);
+				Record.CascadeMask |= Bit;
+				if (Classification
+					== EDirectionalShadowBoundsClassification::InvalidBoundsFallback)
+					Record.InvalidBoundsFallbackMask |= Bit;
+			}
+			Result.Records.push_back(Record);
 		}
-		check(Result.Submitted == Result.Hidden + Result.Culled
-			+ Result.StaticMeshes.size() + Result.SplineMeshes.size()
-			+ Result.SkeletalMeshes.size() + Result.Terrains.size());
+		size_t EnabledCascades = 0;
+		for (uint32 CascadeIndex = 0;
+			 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
+			EnabledCascades += Shadow.Cascades[CascadeIndex].bEnabled ? 1u : 0u;
+		check(Result.CascadeClassificationTests
+			== Result.Records.size() * EnabledCascades);
+		for (uint32 CascadeIndex = 0;
+			 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
+		{
+			auto& Candidates = Result.Cascades[CascadeIndex];
+			Candidates.Submitted = Result.UniqueSubmitted;
+			Candidates.Hidden = Result.UniqueHidden;
+			const uint8 Bit = static_cast<uint8>(1u << CascadeIndex);
+			std::array<size_t, 4> FamilyMemberships{};
+			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
+			{
+				if ((Record.CascadeMask & Bit) == 0) continue;
+				switch (Record.Kind)
+				{
+				case EDirectionalShadowCasterKind::StaticMesh:
+					++FamilyMemberships[0];
+					break;
+				case EDirectionalShadowCasterKind::SplineMesh:
+					++FamilyMemberships[1];
+					break;
+				case EDirectionalShadowCasterKind::SkeletalMesh:
+					++FamilyMemberships[2];
+					break;
+				case EDirectionalShadowCasterKind::Terrain:
+					++FamilyMemberships[3];
+					break;
+				}
+			}
+			Candidates.StaticMeshes.reserve(FamilyMemberships[0]);
+			Candidates.SplineMeshes.reserve(FamilyMemberships[1]);
+			Candidates.SkeletalMeshes.reserve(FamilyMemberships[2]);
+			Candidates.Terrains.reserve(FamilyMemberships[3]);
+			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
+			{
+				if ((Record.CascadeMask & Bit) == 0) continue;
+				++Result.MembershipPopcount;
+				if ((Record.InvalidBoundsFallbackMask & Bit) != 0)
+					++Candidates.InvalidBoundsFallbacks;
+				switch (Record.Kind)
+				{
+				case EDirectionalShadowCasterKind::StaticMesh:
+					Candidates.StaticMeshes.push_back(Record.SceneInfo);
+					break;
+				case EDirectionalShadowCasterKind::SplineMesh:
+					Candidates.SplineMeshes.push_back(Record.SceneInfo);
+					break;
+				case EDirectionalShadowCasterKind::SkeletalMesh:
+					Candidates.SkeletalMeshes.push_back(Record.SceneInfo);
+					break;
+				case EDirectionalShadowCasterKind::Terrain:
+					Candidates.Terrains.push_back(Record.SceneInfo);
+					break;
+				}
+			}
+			const size_t Memberships = Candidates.StaticMeshes.size()
+				+ Candidates.SplineMeshes.size()
+				+ Candidates.SkeletalMeshes.size() + Candidates.Terrains.size();
+			Candidates.Culled = Result.Records.size() - Memberships;
+			check(Candidates.Submitted == Candidates.Hidden + Candidates.Culled
+				+ Memberships);
+			Result.TemporaryBytes += Candidates.StaticMeshes.capacity()
+				* sizeof(const FPrimitiveSceneInfo*);
+			Result.TemporaryBytes += Candidates.SplineMeshes.capacity()
+				* sizeof(const FPrimitiveSceneInfo*);
+			Result.TemporaryBytes += Candidates.SkeletalMeshes.capacity()
+				* sizeof(const FPrimitiveSceneInfo*);
+			Result.TemporaryBytes += Candidates.Terrains.capacity()
+				* sizeof(const FPrimitiveSceneInfo*);
+		}
+		Result.TemporaryBytes += Result.Records.capacity()
+			* sizeof(FDirectionalShadowCasterRecord);
 		return Result;
 	}
 

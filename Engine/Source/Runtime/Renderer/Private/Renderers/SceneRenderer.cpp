@@ -626,6 +626,8 @@ namespace Durin
 				++PreparedView.Counters.ShadowSelectedLights;
 				const FPreparedDirectionalLight& Selected =
 					PreparedView.Lights.Directional.front();
+				const auto ShadowPreparationStart =
+					std::chrono::steady_clock::now();
 				if (TryPrepareDirectionalShadowView(
 						RenderView, Selected.Id, Selected.Data,
 						PreparedView.DirectionalShadow
@@ -655,6 +657,36 @@ namespace Durin
 						Filter.GuardTexels;
 					PreparedView.Counters.ShadowInvalidQualityFallbacks +=
 						Filter.bUsedInvalidQualityFallback ? 1u : 0u;
+					const auto DiscoveryStart = std::chrono::steady_clock::now();
+					PreparedView.DirectionalShadowCasters =
+						PrepareDirectionalShadowCasterTable(
+							*Scene, PreparedView.DirectionalShadow);
+					PreparedView.Counters.ShadowDiscoveryMembershipNanoseconds =
+						static_cast<uint64>(std::chrono::duration_cast<
+							std::chrono::nanoseconds>(
+								std::chrono::steady_clock::now() - DiscoveryStart)
+							.count());
+					const auto& CasterTable = PreparedView.DirectionalShadowCasters;
+					PreparedView.Counters.ShadowSceneTraversals =
+						CasterTable.SceneTraversals;
+					PreparedView.Counters.ShadowUniqueSubmittedCasters =
+						CasterTable.UniqueSubmitted;
+					PreparedView.Counters.ShadowUniqueHiddenCasters =
+						CasterTable.UniqueHidden;
+					PreparedView.Counters.ShadowUniqueEligibleStaticMeshCasters =
+						CasterTable.UniqueEligibleStaticMeshes;
+					PreparedView.Counters.ShadowUniqueEligibleSplineMeshCasters =
+						CasterTable.UniqueEligibleSplineMeshes;
+					PreparedView.Counters.ShadowUniqueEligibleSkeletalMeshCasters =
+						CasterTable.UniqueEligibleSkeletalMeshes;
+					PreparedView.Counters.ShadowUniqueEligibleTerrainCasters =
+						CasterTable.UniqueEligibleTerrains;
+					PreparedView.Counters.ShadowCascadeClassificationTests =
+						CasterTable.CascadeClassificationTests;
+					PreparedView.Counters.ShadowMembershipPopcount =
+						CasterTable.MembershipPopcount;
+					PreparedView.Counters.ShadowTemporaryBytes =
+						CasterTable.TemporaryBytes;
 					for (uint32 CascadeIndex = 0;
 						 CascadeIndex < PreparedView.DirectionalShadow.CascadeCount;
 						 ++CascadeIndex)
@@ -676,8 +708,8 @@ namespace Durin
 							Cascade.Bias.bUsedFallback ? 1u : 0u;
 						PreparedView.Counters.ShadowBiasClamps +=
 							Cascade.Bias.bTotalClamped ? 1u : 0u;
-						const FDirectionalShadowCasterCandidates Casters =
-							PrepareDirectionalShadowCasterCandidates(*Scene, Cascade);
+						const FDirectionalShadowCasterCandidates& Casters =
+							CasterTable.Cascades[CascadeIndex];
 						CascadeCounters.SubmittedCasters = Casters.Submitted;
 						CascadeCounters.HiddenCasters = Casters.Hidden;
 						CascadeCounters.CulledCasters = Casters.Culled;
@@ -693,17 +725,45 @@ namespace Durin
 						auto& SkeletalMeshes =
 							PreparedView.ShadowSkeletalMeshes[CascadeIndex];
 						auto& Terrains = PreparedView.ShadowTerrains[CascadeIndex];
+						const auto StaticSplineStart =
+							std::chrono::steady_clock::now();
 						StaticMeshes = PrepareStaticMeshView_RenderThread(
 							CommandList, Casters.StaticMeshes, Cascade.CasterView,
-							ERasterMode::Solid, Casters.SplineMeshes
+							ERasterMode::Solid, Casters.SplineMeshes,
+							ERenderPreparationMode::ShadowDepth
 						);
+						PreparedView.Counters.
+							ShadowStaticSplinePreparationNanoseconds +=
+							static_cast<uint64>(std::chrono::duration_cast<
+								std::chrono::nanoseconds>(
+									std::chrono::steady_clock::now()
+									- StaticSplineStart).count());
+						const auto SkeletalStart = std::chrono::steady_clock::now();
 						SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 							CommandList, Casters.SkeletalMeshes, Cascade.CasterView,
-							ERasterMode::Solid, PreparedView.SkeletalPalettes
+							ERasterMode::Solid, PreparedView.SkeletalPalettes,
+							ERenderPreparationMode::ShadowDepth
 						);
+						PreparedView.Counters.ShadowSkeletalPreparationNanoseconds +=
+							static_cast<uint64>(std::chrono::duration_cast<
+								std::chrono::nanoseconds>(
+									std::chrono::steady_clock::now() - SkeletalStart)
+								.count());
+						const auto TerrainStart = std::chrono::steady_clock::now();
 						Terrains = PrepareTerrainView_RenderThread(
-							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid
+							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid,
+							ERenderPreparationMode::ShadowDepth
 						);
+						PreparedView.Counters.
+							ShadowTerrainLogicalPreparationNanoseconds +=
+							static_cast<uint64>(std::chrono::duration_cast<
+								std::chrono::nanoseconds>(
+									std::chrono::steady_clock::now() - TerrainStart)
+								.count());
+						PreparedView.Counters.ShadowSortingBatchingNanoseconds +=
+							StaticMeshes.SortingNanoseconds
+							+ SkeletalMeshes.SortingNanoseconds
+							+ Terrains.BatchConstructionNanoseconds;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)
@@ -721,18 +781,6 @@ namespace Durin
 						ApplyRasterBias(StaticMeshes);
 						ApplyRasterBias(SkeletalMeshes);
 						ApplyRasterBias(Terrains);
-						// Translucent surfaces never enter the M6 shadow draw lists.
-						StaticMeshes.SelectedSections -= StaticMeshes.TranslucentSections;
-						StaticMeshes.SelectedTriangles -= StaticMeshes.TranslucentTriangles;
-						StaticMeshes.Translucent.clear();
-						StaticMeshes.TranslucentSections = 0;
-						StaticMeshes.TranslucentTriangles = 0;
-						SkeletalMeshes.SelectedSections -= SkeletalMeshes.TranslucentSections;
-						SkeletalMeshes.SelectedTriangles -= SkeletalMeshes.TranslucentTriangles;
-						SkeletalMeshes.Translucent.clear();
-						SkeletalMeshes.TranslucentSections = 0;
-						SkeletalMeshes.TranslucentTriangles = 0;
-						Terrains.Translucent.clear();
 						CascadeCounters.PreparedStaticMeshCasters =
 							StaticMeshes.PreparedLocalPrimitives;
 						CascadeCounters.PreparedSplineMeshCasters =
@@ -759,10 +807,20 @@ namespace Durin
 						PreparedView.Counters.ShadowPreparedTriangles +=
 							CascadeCounters.PreparedTriangles;
 					}
+					PreparedView.Counters.ShadowLogicalPreparationNanoseconds =
+						static_cast<uint64>(std::chrono::duration_cast<
+							std::chrono::nanoseconds>(
+								std::chrono::steady_clock::now()
+								- ShadowPreparationStart).count());
 				}
 				else if (Selected.Data.bCastShadows)
 				{
 					++PreparedView.Counters.ShadowInvalidReceiverViews;
+					PreparedView.Counters.ShadowLogicalPreparationNanoseconds =
+						static_cast<uint64>(std::chrono::duration_cast<
+							std::chrono::nanoseconds>(
+								std::chrono::steady_clock::now()
+								- ShadowPreparationStart).count());
 				}
 			}
 			PreparedView.StaticMeshes = PrepareStaticMeshView_RenderThread(

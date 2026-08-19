@@ -63,6 +63,19 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
+		const auto PreparationStart = std::chrono::steady_clock::now();
+		struct FPreparationTimingScope
+		{
+			std::chrono::steady_clock::time_point Start;
+			uint64& Nanoseconds;
+			~FPreparationTimingScope()
+			{
+				Nanoseconds = static_cast<uint64>(std::chrono::duration_cast<
+					std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - Start).count());
+			}
+		} PreparationTimingScope{
+			PreparationStart, View.Counters.ShadowResourcePreparationNanoseconds};
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),

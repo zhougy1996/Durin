@@ -427,17 +427,79 @@ TEST(FRendererSceneContractTests,
 	Durin::FPreparedDirectionalShadowView Shadow;
 	ASSERT_TRUE(Durin::TryPrepareDirectionalShadowView(
 		View, Durin::FLightSceneId(8), Light, Shadow));
-	const Durin::FDirectionalShadowCasterCandidates Casters =
-		Durin::PrepareDirectionalShadowCasterCandidates(
-			Scene, Shadow.Cascades[0]);
+	const Durin::FDirectionalShadowCasterTable Table =
+		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow);
+	const Durin::FDirectionalShadowCasterCandidates& Casters = Table.Cascades[0];
 	ASSERT_EQ(Casters.StaticMeshes.size(), 2u);
 	EXPECT_EQ(Casters.StaticMeshes[0]->GetId().Value, 1u);
 	EXPECT_EQ(Casters.StaticMeshes[1]->GetId().Value, 2u);
 	EXPECT_EQ(Casters.Culled, 1u);
-	const Durin::FDirectionalShadowCasterCandidates Comparison =
-		Durin::PrepareDirectionalShadowCasterCandidates(
-			Scene, Shadow.Cascades[0], true);
+	const Durin::FDirectionalShadowCasterTable ComparisonTable =
+		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow, true);
+	const Durin::FDirectionalShadowCasterCandidates& Comparison =
+		ComparisonTable.Cascades[0];
 	EXPECT_EQ(Comparison.StaticMeshes.size(), 3u);
+	EXPECT_EQ(Table.SceneTraversals, 1u);
+	EXPECT_EQ(Table.UniqueSubmitted, 3u);
+	EXPECT_EQ(Table.CascadeClassificationTests, 3u);
+	EXPECT_EQ(Table.MembershipPopcount, 2u);
+}
+
+TEST(FRendererSceneContractTests,
+	DirectionalShadowCasterTableBuildsZeroThroughAllCascadeMasksOnce)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	Durin::FStaticMeshRenderData RenderData;
+	RenderData.LocalBounds = Durin::FBox(
+		Durin::FVector3(-0.05), Durin::FVector3(0.05));
+	for (const auto [Id, X] : std::array{
+		std::pair<Durin::uint64, double>{1u, 0.0},
+		std::pair<Durin::uint64, double>{2u, 1.5},
+		std::pair<Durin::uint64, double>{3u, 2.5},
+		std::pair<Durin::uint64, double>{4u, 10.0}})
+	{
+		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
+			std::make_unique<Durin::FStaticMeshSceneProxy>(
+				&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
+			glm::translate(Durin::FMatrix(1.0), Durin::FVector3(X, 0.0, 0.0)));
+	}
+	Durin::FlushRenderingCommands();
+
+	Durin::FPreparedDirectionalShadowView Shadow;
+	Shadow.bEnabled = true;
+	Shadow.CascadeCount = Durin::DirectionalShadowCascadeCount;
+	for (Durin::uint32 CascadeIndex = 0;
+		 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
+	{
+		auto& Cascade = Shadow.Cascades[CascadeIndex];
+		Cascade.bEnabled = true;
+		Cascade.CasterVolume.Right = {1.0, 0.0, 0.0};
+		Cascade.CasterVolume.Up = {0.0, 1.0, 0.0};
+		Cascade.CasterVolume.Forward = {0.0, 0.0, 1.0};
+		const double Extent = static_cast<double>(CascadeIndex + 1);
+		Cascade.CasterVolume.Minimum = {-Extent, -Extent, -Extent};
+		Cascade.CasterVolume.Maximum = {Extent, Extent, Extent};
+	}
+	const Durin::FDirectionalShadowCasterTable Table =
+		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow);
+	ASSERT_EQ(Table.Records.size(), 4u);
+	std::array<Durin::uint8, 4> Masks{};
+	for (const Durin::FDirectionalShadowCasterRecord& Record : Table.Records)
+	{
+		ASSERT_NE(Record.SceneInfo, nullptr);
+		Masks[Record.SceneInfo->GetId().Value - 1] = Record.CascadeMask;
+	}
+	EXPECT_EQ(Masks[0], 0b111u);
+	EXPECT_EQ(Masks[1], 0b110u);
+	EXPECT_EQ(Masks[2], 0b100u);
+	EXPECT_EQ(Masks[3], 0u);
+	EXPECT_EQ(Table.SceneTraversals, 1u);
+	EXPECT_EQ(Table.CascadeClassificationTests, 12u);
+	EXPECT_EQ(Table.MembershipPopcount, 6u);
+	EXPECT_EQ(Table.Cascades[0].StaticMeshes.size(), 1u);
+	EXPECT_EQ(Table.Cascades[1].StaticMeshes.size(), 2u);
+	EXPECT_EQ(Table.Cascades[2].StaticMeshes.size(), 3u);
 }
 
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)

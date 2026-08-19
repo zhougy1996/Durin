@@ -22,6 +22,12 @@ namespace Durin
 		Translucent,
 	};
 
+	enum class ERenderPreparationMode : uint8
+	{
+		Full,
+		ShadowDepth,
+	};
+
 	enum class EVertexDeformationDomain : uint8
 	{
 		Local,
@@ -140,6 +146,7 @@ namespace Durin
 		size_t MaterialTransitions = 0;
 		size_t VertexFactoryTransitions = 0;
 		size_t GeometryTransitions = 0;
+		uint64 SortingNanoseconds = 0;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -177,6 +184,7 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos = {}
+		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos = {},
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full
 	) -> FPreparedStaticMeshView;
 } // namespace Durin

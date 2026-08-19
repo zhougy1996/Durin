@@ -308,10 +308,11 @@ namespace Durin
 		}
 	} // namespace
 
-	auto PrepareTerrainView_RenderThread(
+		auto PrepareTerrainView_RenderThread(
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
-		ERasterMode RasterMode
+		ERasterMode RasterMode,
+		ERenderPreparationMode Mode
 	) -> FPreparedTerrainView
 	{
 		check(IsInRenderingThread());
@@ -350,7 +351,10 @@ namespace Durin
 			const auto CommonBlend =
 				CommonDraw.Material.PipelineIdentity.ShaderMap.BlendMode;
 			CommonDraw.Pass = CommonBlend == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : CommonBlend == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																																						 EStaticMeshBasePass::Opaque;
+																														 EStaticMeshBasePass::Opaque;
+			if (Mode == ERenderPreparationMode::ShadowDepth
+				&& CommonDraw.Pass == EStaticMeshBasePass::Translucent)
+				continue;
 			const auto CommonDepth =
 				CommonDraw.Material.PipelineIdentity.DepthWritePolicy;
 			CommonDraw.PipelineKey.Depth.bEnableWrite =

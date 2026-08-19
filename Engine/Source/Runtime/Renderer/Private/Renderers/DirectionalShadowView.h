@@ -114,6 +114,42 @@ namespace Durin
 		size_t InvalidBoundsFallbacks = 0;
 	};
 
+	enum class EDirectionalShadowCasterKind : uint8
+	{
+		StaticMesh,
+		SplineMesh,
+		SkeletalMesh,
+		Terrain,
+	};
+
+	// Non-owning frame-local caster identity and membership snapshot.
+	struct FDirectionalShadowCasterRecord
+	{
+		const FPrimitiveSceneInfo* SceneInfo = nullptr;
+		EDirectionalShadowCasterKind Kind =
+			EDirectionalShadowCasterKind::StaticMesh;
+		uint8 CascadeMask = 0;
+		uint8 InvalidBoundsFallbackMask = 0;
+	};
+
+	// Owns one authoritative scene traversal and cascade-local reference lists.
+	struct FDirectionalShadowCasterTable
+	{
+		std::vector<FDirectionalShadowCasterRecord> Records;
+		std::array<FDirectionalShadowCasterCandidates,
+			DirectionalShadowCascadeCount> Cascades;
+		size_t SceneTraversals = 0;
+		size_t UniqueSubmitted = 0;
+		size_t UniqueHidden = 0;
+		size_t UniqueEligibleStaticMeshes = 0;
+		size_t UniqueEligibleSplineMeshes = 0;
+		size_t UniqueEligibleSkeletalMeshes = 0;
+		size_t UniqueEligibleTerrains = 0;
+		size_t CascadeClassificationTests = 0;
+		size_t MembershipPopcount = 0;
+		size_t TemporaryBytes = 0;
+	};
+
 	enum class EDirectionalShadowBoundsClassification : uint8
 	{
 		InsideOrIntersecting,
@@ -131,11 +167,12 @@ namespace Durin
 		const FPreparedDirectionalShadowCascade& Cascade,
 		const FBox& WorldBounds) -> EDirectionalShadowBoundsClassification;
 
-	// Starts from authoritative scene collections rather than camera visibility.
-	RENDERER_API auto PrepareDirectionalShadowCasterCandidates(
+	// Classifies authoritative scene primitives against every enabled cascade in
+	// one traversal. Returned references remain valid only for the scene snapshot.
+	RENDERER_API auto PrepareDirectionalShadowCasterTable(
 		const FScene& Scene,
-		const FPreparedDirectionalShadowCascade& Cascade,
-		bool bDisableCulling = false) -> FDirectionalShadowCasterCandidates;
+		const FPreparedDirectionalShadowView& Shadow,
+		bool bDisableCulling = false) -> FDirectionalShadowCasterTable;
 
 	RENDERER_API auto SelectDirectionalShadowCascade(
 		const FPreparedDirectionalShadowView& Shadow,

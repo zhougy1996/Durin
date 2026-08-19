@@ -115,5 +115,7 @@ namespace Durin
 
 	RENDERER_API auto PrepareTerrainView_RenderThread(
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
-		const FSceneView& View, ERasterMode RasterMode) -> FPreparedTerrainView;
+		const FSceneView& View, ERasterMode RasterMode,
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full)
+		-> FPreparedTerrainView;
 } // namespace Durin
