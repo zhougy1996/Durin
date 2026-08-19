@@ -53,6 +53,15 @@ namespace Durin::Asset
 		auto operator==(const FReflectionSerializedAlias&) const -> bool = default;
 	};
 
+	struct FReflectionSerializedPropertyAlias
+	{
+		std::string DeclaringType;
+		std::string StoredName;
+		std::string CurrentName;
+
+		auto operator==(const FReflectionSerializedPropertyAlias&) const -> bool = default;
+	};
+
 	// Value-only reflection snapshot. Capture on the game thread after type registration,
 	// then copy or share it freely with compatibility workers.
 	class FReflectionCompatibilityCatalog
@@ -68,10 +77,16 @@ namespace Durin::Asset
 		ASSETCORE_API auto FindSerializedAlias(std::string_view StoredIdentity) const
 			-> const FReflectionSerializedAlias*;
 		auto GetSerializedAliases() const -> std::span<const FReflectionSerializedAlias> { return SerializedAliases; }
+		ASSETCORE_API auto FindSerializedPropertyAlias(
+			std::string_view DeclaringType, std::string_view StoredName) const
+			-> const FReflectionSerializedPropertyAlias*;
+		auto GetSerializedPropertyAliases() const
+			-> std::span<const FReflectionSerializedPropertyAlias> { return SerializedPropertyAliases; }
 
 	private:
 		std::vector<FReflectionCompatibilityClass> Classes;
 		std::vector<FReflectionSerializedAlias> SerializedAliases;
+		std::vector<FReflectionSerializedPropertyAlias> SerializedPropertyAliases;
 	};
 
 	struct FAssetCompatibilityFinding

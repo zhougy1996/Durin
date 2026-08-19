@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-20
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -334,6 +334,15 @@ the publication and lifetime owner. Decode, class, dependency, Archive, ledger,
 PostLoad, or publication failure destroys the complete new graph, releases
 dependencies loaded by the failed attempt, and preserves the caller's previous
 handle and report.
+
+At this bytes-to-runtime boundary, registered type and owner-scoped property
+aliases are resolved before schema preflight. A recognized property alias keeps
+the stored type descriptor and payload but replaces the field identity with the
+current reflected name for value application and authored-intent restoration.
+Compatibility inspection reports the alias as canonicalization evidence, and a
+subsequent save emits only the current name. Aliases do not relax kind or type
+signature checks. A schema whose distinct stored names canonicalize to the same
+field is invalid and fails before object publication.
 
 `InspectPackage`, `ExtractReferences`, and `ProbeCompatibility` consume the
 same decoded logical model without constructing objects or invoking callbacks.

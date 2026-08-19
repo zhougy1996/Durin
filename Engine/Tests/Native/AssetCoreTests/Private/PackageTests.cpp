@@ -349,7 +349,13 @@ namespace
 
 		static auto StaticClass() -> Durin::DClass*
 		{
-			static const Durin::DurinCodeGen::FInt32PropertyParams ValueProp = {"Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value))};
+			static const char* const ValueLegacyNames[] = {"LegacyValue"};
+			static const Durin::DurinCodeGen::FInt32PropertyParams ValueProp =
+				Durin::DurinCodeGen::WithLegacyNames(
+					Durin::DurinCodeGen::FInt32PropertyParams{
+						"Value", Durin::EPropertyFlags::None, 1,
+						static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value))},
+					ValueLegacyNames, std::size(ValueLegacyNames));
 			static const Durin::DurinCodeGen::FStringPropertyParams LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Label))};
 			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DisplayName))};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, PersistentId))};
@@ -3222,6 +3228,109 @@ TEST(FPackageAssetTests, V4NoDeltaWriterAssociatesObjectPlansIndependentOfDiscov
 	ASSERT_GT(ReferenceOverride->Value.ReferenceId, 0u);
 	ASSERT_LE(ReferenceOverride->Value.ReferenceId, Decoded.Objects.size());
 	EXPECT_EQ(Decoded.Objects[ReferenceOverride->Value.ReferenceId - 1].ObjectName, "ZetaChild");
+}
+
+TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath LoadPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyPropertySource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyPropertyLoaded", LoadPath));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
+	Source->Value = 417;
+
+	DastV4::FAssetPackageWriteOptions Options;
+	Options.DeltaMode = Durin::EDefaultDeltaMode::NoDelta;
+	DastV4::FWriterDiagnostic WriterDiagnostic;
+	std::vector<Durin::uint8> CurrentBytes;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		Source->GetPackage(), CurrentBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
+
+	DastV4::FDecodedPackage LegacyPackage;
+	DastV4::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(DastV4::DecodePackage(CurrentBytes, LegacyPackage, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	auto Schema = std::ranges::find(
+		LegacyPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(Schema, LegacyPackage.Schemas.end());
+	auto ValueField = std::ranges::find(
+		Schema->Fields, std::string("Value"), &DastV4::FDecodedField::Name);
+	ASSERT_NE(ValueField, Schema->Fields.end());
+	ValueField->Name = "LegacyValue";
+
+	std::vector<Durin::uint8> LegacyBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	const FReflectionSerializedPropertyAlias* Alias =
+		Catalog.FindSerializedPropertyAlias("Tests::DPackageAssetForTest", "LegacyValue");
+	ASSERT_NE(Alias, nullptr);
+	EXPECT_EQ(Alias->CurrentName, "Value");
+
+	FAssetPackageCompatibilityRecord Compatibility;
+	ASSERT_TRUE(DastV4::ProbeCompatibility(
+		LegacyBytes, LoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
+	EXPECT_TRUE(std::ranges::any_of(Compatibility.CanonicalizationEvidence, [](const auto& Evidence) {
+		return Evidence.Kind == EAssetReflectedIdentityKind::Property
+			&& Evidence.StoredIdentity == "LegacyValue"
+			&& Evidence.CurrentIdentity == "Value";
+	}));
+
+	DastV4::FLoadedAssetPackage Loaded;
+	FAssetLoadReport LoadReport;
+	const FAssetResult Load = DastV4::LoadAssetPackage(
+		LegacyBytes, LoadPath, Loaded, &LoadReport, {}, {}, &ReaderDiagnostic);
+	ASSERT_TRUE(Load) << Load.Message << ": " << ReaderDiagnostic.Message;
+	ASSERT_NE(Loaded.GetPackage(), nullptr);
+	auto* LoadedAsset = static_cast<DPackageAssetForTest*>(Loaded.GetPackage()->GetAsset());
+	ASSERT_NE(LoadedAsset, nullptr);
+	EXPECT_EQ(LoadedAsset->Value, 417);
+	EXPECT_TRUE(Loaded.GetPackage()->IsCanonicalResaveRecommended());
+	EXPECT_TRUE(std::ranges::any_of(LoadReport.CanonicalizationEvidence, [](const auto& Evidence) {
+		return Evidence.Kind == EAssetReflectedIdentityKind::Property;
+	}));
+
+	std::vector<Durin::uint8> CanonicalBytes;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		Loaded.GetPackage(), CanonicalBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	DastV4::FDecodedPackage CanonicalPackage;
+	ASSERT_TRUE(DastV4::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	const auto CanonicalSchema = std::ranges::find(
+		CanonicalPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(CanonicalSchema, CanonicalPackage.Schemas.end());
+	EXPECT_NE(std::ranges::find(
+		CanonicalSchema->Fields, std::string("Value"), &DastV4::FDecodedField::Name),
+		CanonicalSchema->Fields.end());
+	EXPECT_EQ(std::ranges::find(
+		CanonicalSchema->Fields, std::string("LegacyValue"), &DastV4::FDecodedField::Name),
+		CanonicalSchema->Fields.end());
+
+	DastV4::FDecodedPackage CollisionPackage = LegacyPackage;
+	auto CollisionSchema = std::ranges::find(
+		CollisionPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(CollisionSchema, CollisionPackage.Schemas.end());
+	auto LabelField = std::ranges::find(
+		CollisionSchema->Fields, std::string("Label"), &DastV4::FDecodedField::Name);
+	ASSERT_NE(LabelField, CollisionSchema->Fields.end());
+	LabelField->Name = "Value";
+	std::vector<Durin::uint8> CollisionBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(CollisionPackage, CollisionBytes, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	FAssetPackageCompatibilityRecord CollisionCompatibility;
+	const FAssetResult CollisionProbe = DastV4::ProbeCompatibility(
+		CollisionBytes, LoadPath, Catalog, CollisionCompatibility, nullptr, {}, &ReaderDiagnostic);
+	EXPECT_EQ(CollisionProbe.Error, EAssetError::CorruptFile);
+	EXPECT_EQ(ReaderDiagnostic.Failure, DastV4::EReaderFailure::InvalidTable);
+	Loaded.Reset();
 }
 
 TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)

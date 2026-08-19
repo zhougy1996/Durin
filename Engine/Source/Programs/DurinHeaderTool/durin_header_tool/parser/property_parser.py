@@ -145,6 +145,7 @@ def _property_metadata_from_annotation(annotation: str) -> list[tuple[str, str]]
 def _apply_property_annotation(prop: ReflectedPropertyInfo | None, annotation: str) -> ReflectedPropertyInfo | None:
     if prop:
         prop.metadata = _property_metadata_from_annotation(annotation)
+        prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
     return prop
 
 

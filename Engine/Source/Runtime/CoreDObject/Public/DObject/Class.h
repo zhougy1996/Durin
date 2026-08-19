@@ -126,6 +126,10 @@ namespace Durin
 		COREDOBJECT_API auto ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper = true) const -> void;
 
 		COREDOBJECT_API auto FindPropertyByName(FName InName, bool bIncludeSuper = true) const -> FProperty*;
+		// Resolves a serialized field name through current names and owner-scoped legacy aliases.
+		COREDOBJECT_API auto FindPropertyBySerializedName(
+			FName InName, bool bIncludeSuper = true) const -> FProperty*;
+		COREDOBJECT_API auto ValidateSerializedPropertyNames() const -> void;
 	};
 
 	// Describes a reflected DObject class, its inheritance, constructor, and presentation names.
@@ -382,6 +386,16 @@ namespace Durin
 	};
 	COREDOBJECT_API auto CaptureSerializedReflectionAliases()
 		-> std::vector<FSerializedReflectionAlias>;
+	struct FSerializedPropertyAlias
+	{
+		std::string DeclaringType;
+		std::string StoredName;
+		std::string CurrentName;
+
+		auto operator==(const FSerializedPropertyAlias&) const -> bool = default;
+	};
+	COREDOBJECT_API auto CaptureSerializedPropertyAliases()
+		-> std::vector<FSerializedPropertyAlias>;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;

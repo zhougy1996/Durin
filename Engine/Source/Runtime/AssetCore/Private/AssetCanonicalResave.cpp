@@ -51,6 +51,7 @@ namespace Durin::Asset
 			case EAssetReflectedIdentityKind::Class: return "Class";
 			case EAssetReflectedIdentityKind::Struct: return "Struct";
 			case EAssetReflectedIdentityKind::Enum: return "Enum";
+			case EAssetReflectedIdentityKind::Property: return "Property";
 			}
 			return "Class";
 		}

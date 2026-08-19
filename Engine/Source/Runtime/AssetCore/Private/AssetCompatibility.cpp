@@ -363,6 +363,13 @@ namespace Durin::Asset
 			Result.SerializedAliases.push_back({Alias.StoredName, Alias.CurrentName, Kind});
 		}
 		std::ranges::sort(Result.SerializedAliases, {}, &FReflectionSerializedAlias::StoredIdentity);
+		for (const FSerializedPropertyAlias& Alias : CaptureSerializedPropertyAliases())
+			Result.SerializedPropertyAliases.push_back({
+				Alias.DeclaringType, Alias.StoredName, Alias.CurrentName});
+		std::ranges::sort(Result.SerializedPropertyAliases, [](const auto& Left, const auto& Right) {
+			return std::tie(Left.DeclaringType, Left.StoredName)
+				< std::tie(Right.DeclaringType, Right.StoredName);
+		});
 		for (DClass* Class : GetDerivedClasses(DObject::StaticClass(), true))
 		{
 			if (!Class || Class->GetQualifiedName().IsNone()) continue;
@@ -397,6 +404,19 @@ namespace Durin::Asset
 		const auto It = std::ranges::lower_bound(
 			SerializedAliases, StoredIdentity, {}, &FReflectionSerializedAlias::StoredIdentity);
 		return It != SerializedAliases.end() && It->StoredIdentity == StoredIdentity ? &*It : nullptr;
+	}
+
+	auto FReflectionCompatibilityCatalog::FindSerializedPropertyAlias(
+		std::string_view DeclaringType,
+		std::string_view StoredName) const -> const FReflectionSerializedPropertyAlias*
+	{
+		const auto Key = std::pair(DeclaringType, StoredName);
+		const auto It = std::ranges::lower_bound(
+			SerializedPropertyAliases, Key, {}, [](const auto& Alias) {
+				return std::pair(std::string_view(Alias.DeclaringType), std::string_view(Alias.StoredName));
+			});
+		return It != SerializedPropertyAliases.end()
+			&& It->DeclaringType == DeclaringType && It->StoredName == StoredName ? &*It : nullptr;
 	}
 
 	auto FReflectionCompatibilityCatalog::FindClass(std::string_view QualifiedName) const -> const FReflectionCompatibilityClass*
@@ -674,6 +694,7 @@ namespace Durin::Asset
 					case EAssetReflectedIdentityKind::Class: return "Class";
 					case EAssetReflectedIdentityKind::Struct: return "Struct";
 					case EAssetReflectedIdentityKind::Enum: return "Enum";
+					case EAssetReflectedIdentityKind::Property: return "Property";
 					}
 					return "Class";
 				};

@@ -35,6 +35,12 @@ namespace Durin
 		auto GetKind() const -> DurinCodeGen::EPropertyGenFlags { return Kind; }
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
 		auto IsObjectPtrWrapper() const -> bool { return bIsObjectPtrWrapper; }
+		auto GetLegacyNames() const -> std::span<const FName> { return LegacyNames; }
+		auto MatchesSerializedName(FName InName) const -> bool
+		{
+			return NamePrivate == InName || std::ranges::find(LegacyNames, InName) != LegacyNames.end();
+		}
+		COREDOBJECT_API auto SetLegacyNames(std::span<const char* const> InLegacyNames) -> void;
 		COREDOBJECT_API auto GetValueSize() const -> uint32;
 		COREDOBJECT_API auto GetValueAlignment() const -> uint32;
 		COREDOBJECT_API auto CanDefaultConstructValue() const -> bool;
@@ -111,6 +117,7 @@ namespace Durin
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		DClass* ReferencedClass = nullptr;
 		bool bIsObjectPtrWrapper = false;
+		std::vector<FName> LegacyNames;
 		uint32 ValueSize = 0;
 		uint32 ValueAlignment = 0;
 		void (*InitializeValueFunction)(void*) = nullptr;

@@ -180,6 +180,49 @@ namespace Durin
 		return FoundProperty;
 	}
 
+	auto DStructBase::FindPropertyBySerializedName(FName InName, bool bIncludeSuper) const -> FProperty*
+	{
+		if (FProperty* Current = FindPropertyByName(InName, bIncludeSuper)) return Current;
+		FProperty* FoundProperty = nullptr;
+		ForEachProperty(
+			[&](FProperty* Property)
+			{
+				if (!FoundProperty && Property->MatchesSerializedName(InName)) FoundProperty = Property;
+			},
+			bIncludeSuper
+		);
+		return FoundProperty;
+	}
+
+	auto DStructBase::ValidateSerializedPropertyNames() const -> void
+	{
+		std::unordered_set<FName> CurrentNames;
+		std::unordered_set<FName> LegacyNames;
+		ForEachProperty(
+			[&](FProperty* Property)
+			{
+				check(Property);
+				check(!Property->NamePrivate.IsNone());
+				check(CurrentNames.emplace(Property->NamePrivate).second
+					&& "Current property names must be unique within their declaring type.");
+			},
+			false
+		);
+		ForEachProperty(
+			[&](FProperty* Property)
+			{
+				for (FName LegacyName : Property->GetLegacyNames())
+				{
+					check(!CurrentNames.contains(LegacyName)
+						&& "Property legacy names must not collide with current names in their declaring type.");
+					check(LegacyNames.emplace(LegacyName).second
+						&& "Property legacy names must be unique within their declaring type.");
+				}
+			},
+			false
+		);
+	}
+
 	DStruct::~DStruct()
 	{
 		DestroyDefaultStorage(PendingDefaultValue);
@@ -836,6 +879,35 @@ namespace Durin
 		std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
 			return std::tie(Left.StoredName, Left.CurrentName, Left.Kind)
 				< std::tie(Right.StoredName, Right.CurrentName, Right.Kind);
+		});
+		return Result;
+	}
+
+	auto CaptureSerializedPropertyAliases() -> std::vector<FSerializedPropertyAlias>
+	{
+		const auto& Registry = GetQualifiedTypeRegistry();
+		std::vector<FSerializedPropertyAlias> Result;
+		auto Append = [&](const auto& Types)
+		{
+			for (const auto& [QualifiedName, Type] : Types)
+			{
+				if (!Type) continue;
+				Type->ForEachProperty(
+					[&](FProperty* Property)
+					{
+						for (FName LegacyName : Property->GetLegacyNames())
+							Result.push_back({QualifiedName.ToString(), LegacyName.ToString(),
+								Property->NamePrivate.ToString()});
+					},
+					false
+				);
+			}
+		};
+		Append(Registry.Classes);
+		Append(Registry.Structs);
+		std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
+			return std::tie(Left.DeclaringType, Left.StoredName, Left.CurrentName)
+				< std::tie(Right.DeclaringType, Right.StoredName, Right.CurrentName);
 		});
 		return Result;
 	}

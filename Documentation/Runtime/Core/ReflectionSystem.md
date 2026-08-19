@@ -597,6 +597,34 @@ STL contents from changing runtime property sizes.
 
 `DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 
+## Serialized Property Aliases
+
+A durable reflected field may declare read-only compatibility names when its C++
+member is renamed:
+
+```cpp
+DPROPERTY(LegacyNames = "OldExposure;ExposureValue")
+float ExposureEV = 0.0f;
+```
+
+DHT requires an explicitly quoted semicolon-separated list of unqualified C++
+identifiers. Within one declaring class or struct, an alias must differ from its
+property's current name and must not collide with any current property name or
+another property alias. Generated property descriptors carry the aliases as
+first-class compatibility data, and runtime registration repeats the collision
+checks for manually authored descriptors.
+
+`FindPropertyByName(...)` remains current-name-only. Serialized readers use
+`FindPropertyBySerializedName(...)`, scoped to the field's declaring class or
+struct, and canonicalize a recognized alias to the property's current name at
+the bytes-to-runtime boundary. Type signatures are still checked independently;
+an alias permits a rename only and does not make a type change compatible.
+Canonical saves, authored-override paths, compatibility catalogs, and reference
+routes use the current property name. If one stored schema contains both a
+current name and an alias that resolve to the same property, the schema is
+rejected as ambiguous rather than applying two values in record order. Moving a
+field between declaring types is not covered by property aliases.
+
 ## Container Properties
 
 DurinHeaderTool currently recognizes these standard library container spellings for `DPROPERTY()` fields:

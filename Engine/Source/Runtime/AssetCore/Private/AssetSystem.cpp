@@ -537,7 +537,7 @@ namespace Durin::Asset
 					if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
 						return Error(EAssetError::CorruptFile, "Invalid struct field record.");
 					if (DeclaringStruct != StructName) continue;
-					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
+					FProperty* Field = Struct->FindPropertyBySerializedName(FName(FieldName), false);
 					if (!Field)
 					{
 						DURIN_WARN("Skipping unknown struct field {}::{}", StructName, FieldName);
@@ -1119,7 +1119,7 @@ namespace Durin::Asset
 						return Error(EAssetError::CorruptFile,
 							std::format("SoftReferenceStructPayload: {} has a malformed field.", PropertyPath));
 					if (DeclaringStruct != StructName) continue;
-					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
+					FProperty* Field = Struct->FindPropertyBySerializedName(FName(FieldName), false);
 					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
 						|| !ContainsAssetReferenceProperty(Field)) continue;
 					if (static_cast<uint8>(Field->GetKind()) != Kind
@@ -1507,7 +1507,7 @@ namespace Durin::Asset
 					Writer.Write(Kind);
 					Writer.WriteString(Signature);
 					FProperty* Field = DeclaringStruct == StructName
-						? Struct->FindPropertyByName(FName(FieldName), false) : nullptr;
+						? Struct->FindPropertyBySerializedName(FName(FieldName), false) : nullptr;
 					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
 						|| !ContainsAssetReferenceProperty(Field))
 					{
@@ -2548,7 +2548,7 @@ namespace Durin::Asset
 				{
 					DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
 					FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
-						? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
+						? DeclaringClass->FindPropertyBySerializedName(FName(Field.Name), false)
 						: nullptr;
 					if (!Property)
 					{

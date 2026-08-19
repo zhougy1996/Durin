@@ -71,6 +71,31 @@ class TestReflectionAnnotation:
         ("source", "diagnostic"),
         [
             (
+                'DPROPERTY(LegacyNames = OldName) int Value;',
+                "LegacyNames requires a quoted semicolon-separated list",
+            ),
+            (
+                'DPROPERTY(LegacyNames = "Owner::OldName") int Value;',
+                "LegacyNames entries require unqualified C++ identifiers",
+            ),
+            (
+                'DPROPERTY(LegacyNames = "OldName;OldName") int Value;',
+                "duplicate LegacyNames entry 'OldName'",
+            ),
+            (
+                'DPROPERTY(LegacyNames = "OldName", LegacyNames = "OlderName") int Value;',
+                "duplicate LegacyNames metadata",
+            ),
+        ],
+    )
+    def test_invalid_property_legacy_names_have_deterministic_diagnostics(self, source, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            make_dht_parse_source(source)
+
+    @pytest.mark.parametrize(
+        ("source", "diagnostic"),
+        [
+            (
                 'DENUM(DisplayName = "First", DisplayName = "Second") enum E { A };',
                 "duplicate DisplayName metadata",
             ),

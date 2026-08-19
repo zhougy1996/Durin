@@ -122,6 +122,9 @@ namespace Fixture
         DPROPERTY(Edit, ReadOnly)
         float Value = 0.0f;
 
+        DPROPERTY(LegacyNames = "OldRenamedValue;OlderRenamedValue")
+        float RenamedValue = 0.0f;
+
         DPROPERTY(Edit, MetaData = "HideAlpha=true")
         Durin::FLinearColor Color{};
 

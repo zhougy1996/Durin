@@ -569,6 +569,21 @@ namespace Durin
 		ClassPrivate = StaticClass();
 	}
 
+	auto FProperty::SetLegacyNames(std::span<const char* const> InLegacyNames) -> void
+	{
+		LegacyNames.clear();
+		LegacyNames.reserve(InLegacyNames.size());
+		for (const char* LegacyName : InLegacyNames)
+		{
+			const FName Name(LegacyName ? LegacyName : "");
+			check(!Name.IsNone());
+			check(Name != NamePrivate && "A property legacy name must differ from its current name.");
+			check(std::ranges::find(LegacyNames, Name) == LegacyNames.end()
+				&& "Property legacy names must be unique.");
+			LegacyNames.push_back(Name);
+		}
+	}
+
 	auto FProperty::GetValueSize() const -> uint32
 	{
 		if (ValueSize != 0) return ValueSize;

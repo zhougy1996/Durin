@@ -265,6 +265,8 @@ namespace Durin
 			FConstValueAccessor ConstValueAccessor;
 			const FMetaDataPair* MetaData;
 			size_t NumMetaData;
+			const char* const* LegacyNames = nullptr;
+			size_t NumLegacyNames = 0;
 
 		protected:
 			constexpr FPropertyParamsBase(
@@ -292,6 +294,19 @@ namespace Durin
 			{
 			}
 		};
+
+		template<typename TParams>
+		constexpr auto WithLegacyNames(
+			TParams Params,
+			const char* const* LegacyNames,
+			size_t NumLegacyNames
+		) -> TParams
+		{
+			static_assert(std::is_base_of_v<FPropertyParamsBase, TParams>);
+			Params.LegacyNames = LegacyNames;
+			Params.NumLegacyNames = NumLegacyNames;
+			return Params;
+		}
 
 		template<typename TValue, EPropertyGenFlags Kind>
 		inline constexpr bool TIsPlainPropertyMapping = false;

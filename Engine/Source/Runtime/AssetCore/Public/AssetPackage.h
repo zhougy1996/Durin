@@ -69,7 +69,7 @@ namespace Durin::Asset
 	};
 
 	// Stable string names for these values are part of canonical-resave reports.
-	enum class EAssetReflectedIdentityKind : uint8 { Class, Struct, Enum };
+	enum class EAssetReflectedIdentityKind : uint8 { Class, Struct, Enum, Property };
 	enum class EAssetSerializedIdentityLocation : uint8
 	{
 		PackageHeader,

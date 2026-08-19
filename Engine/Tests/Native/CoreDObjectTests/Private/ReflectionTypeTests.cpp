@@ -923,10 +923,14 @@ namespace
 			static Durin::DClass* Class = [] {
 				static const Durin::DurinCodeGen::FInt32PropertyParams ValuesInner = {
 					"Values_Inner", Durin::EPropertyFlags::None, 1, 0};
-				static const Durin::DurinCodeGen::FArrayPropertyParams ValuesProperty = {
-					"Values", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Values)),
-					&ValuesInner, &GVectorPropertyHelper<Durin::int32>};
+				static const char* const ValuesLegacyNames[] = {"LegacyValues", "OlderValues"};
+				static const Durin::DurinCodeGen::FArrayPropertyParams ValuesProperty =
+					Durin::DurinCodeGen::WithLegacyNames(
+						Durin::DurinCodeGen::FArrayPropertyParams{
+							"Values", Durin::EPropertyFlags::None, 1,
+							static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Values)),
+							&ValuesInner, &GVectorPropertyHelper<Durin::int32>},
+						ValuesLegacyNames, std::size(ValuesLegacyNames));
 				static const Durin::DurinCodeGen::FStringPropertyParams LookupKey = {
 					"Lookup_Key", Durin::EPropertyFlags::None, 1, 0};
 				static const Durin::DurinCodeGen::FInt32PropertyParams LookupValue = {
@@ -2056,6 +2060,26 @@ namespace
 		EXPECT_EQ(Durin::DType::StaticClass()->GetSuperClass(), Durin::DObject::StaticClass());
 		EXPECT_EQ(Durin::DStructBase::StaticClass()->GetSuperClass(), Durin::DType::StaticClass());
 		EXPECT_EQ(Durin::DClass::StaticClass()->GetSuperClass(), Durin::DStructBase::StaticClass());
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyLegacyNamesAreOwnerScopedSerializedAliases)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DOverrideContainerOwnerForTest::StaticClass();
+		Durin::FProperty* Current = Class->FindPropertyByName("Values", false);
+		ASSERT_NE(Current, nullptr);
+		EXPECT_EQ(Class->FindPropertyByName("LegacyValues", false), nullptr);
+		EXPECT_EQ(Class->FindPropertyBySerializedName("Values", false), Current);
+		EXPECT_EQ(Class->FindPropertyBySerializedName("LegacyValues", false), Current);
+		EXPECT_EQ(Class->FindPropertyBySerializedName("OlderValues", false), Current);
+
+		const auto Aliases = Durin::CaptureSerializedPropertyAliases();
+		const auto Alias = std::ranges::find_if(Aliases, [](const auto& Candidate) {
+			return Candidate.DeclaringType == "DOverrideContainerOwnerForTest"
+				&& Candidate.StoredName == "LegacyValues";
+		});
+		ASSERT_NE(Alias, Aliases.end());
+		EXPECT_EQ(Alias->CurrentName, "Values");
 	}
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultObjectHasStableIdentityAndSurvivesGarbageCollection)

@@ -174,6 +174,11 @@ namespace Durin
 				checkf(false, "PropertyRegistration.MetadataMismatch owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 				return nullptr;
 			}
+			if ((PropertyParams->LegacyNames == nullptr) != (PropertyParams->NumLegacyNames == 0))
+			{
+				checkf(false, "PropertyRegistration.LegacyNamesMismatch owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+				return nullptr;
+			}
 
 			switch (PropertyParams->Kind)
 			{
@@ -445,6 +450,7 @@ namespace Durin
 				const DurinCodeGen::FMetaDataPair& Pair = PropertyParams->MetaData[Index];
 				if (Pair.Key && Pair.Key[0] != '\0') Property->SetMetaData(FName(Pair.Key), Pair.Value ? Pair.Value : "");
 			}
+			Property->SetLegacyNames(std::span(PropertyParams->LegacyNames, PropertyParams->NumLegacyNames));
 			return Property;
 		}
 	} // namespace
@@ -580,6 +586,7 @@ namespace Durin
 				LastProperty = Property;
 			}
 		}
+		Class->ValidateSerializedPropertyNames();
 		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Class);
 		return Class;
 	}
@@ -617,6 +624,7 @@ namespace Durin
 				LastProperty = Property;
 			}
 		}
+		Struct->ValidateSerializedPropertyNames();
 		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Struct);
 		if (!Private::IsDStructRegistrationBatchActive())
 		{

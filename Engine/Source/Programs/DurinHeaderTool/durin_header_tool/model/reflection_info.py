@@ -81,6 +81,7 @@ class ReflectedPropertyInfo:
     key: "ReflectedPropertyInfo | None" = None
     value: "ReflectedPropertyInfo | None" = None
     metadata: list[tuple[str, str]] = field(default_factory=list)
+    legacy_names: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -34,6 +34,7 @@ from durin_header_tool.cache.phase_state import ReflectionPhaseState, save_refle
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
+    ReflectedPropertyInfo,
     make_generated_enum_helper_name,
     make_generated_helper_name,
 )
@@ -44,6 +45,7 @@ from durin_header_tool.parser.reflection_parser import (
     _scan_generated_body_line,
     _validate_explicit_container_spelling,
     _validate_soft_object_spelling,
+    _validate_property_legacy_names,
     make_dht_parse_source,
     parse_reflection_header,
 )
@@ -67,6 +69,49 @@ from reflection_test_support import reflection_fixture
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionProperties:
+    def test_property_legacy_names_are_generated_as_first_class_descriptor_data(self):
+        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        assert (
+            f"const char* const {statics}::NewProp_RenamedValue_LegacyNames[] = "
+            '{ "OldRenamedValue", "OlderRenamedValue" };'
+        ) in self.generated_cpp
+        definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if f"{statics}::NewProp_RenamedValue =" in line
+        )
+        assert "Durin::DurinCodeGen::WithLegacyNames(" in definition
+        assert f"{statics}::NewProp_RenamedValue_LegacyNames, 2" in definition
+
+
+    @pytest.mark.parametrize(
+        ("properties", "diagnostic"),
+        [
+            (
+                [
+                    ReflectedPropertyInfo("Current", "float", "Float", legacy_names=["Current"])
+                ],
+                "LegacyNames must not contain the current property name",
+            ),
+            (
+                [
+                    ReflectedPropertyInfo("First", "float", "Float", legacy_names=["Second"]),
+                    ReflectedPropertyInfo("Second", "float", "Float"),
+                ],
+                "collides with a current property name",
+            ),
+            (
+                [
+                    ReflectedPropertyInfo("First", "float", "Float", legacy_names=["Old"]),
+                    ReflectedPropertyInfo("Second", "float", "Float", legacy_names=["Old"]),
+                ],
+                "share legacy name 'Old'",
+            ),
+        ],
+    )
+    def test_property_legacy_name_collisions_are_rejected(self, properties, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            _validate_property_legacy_names("Fixture::FOwner", properties)
+
     def test_ambiguous_source_property_symbols_are_not_selected_by_insertion_order(self):
         symbols = {
             "Beta::FData": ExportedSymbolInfo(
@@ -692,4 +737,3 @@ namespace Fixture
             qualified_name = f"Durin::{type_name}"
             assert qualified_name in symbols
             assert symbols[qualified_name].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{type_name}"
-

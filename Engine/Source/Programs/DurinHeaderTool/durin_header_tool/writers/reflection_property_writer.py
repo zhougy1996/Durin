@@ -52,6 +52,8 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
         decls.extend(_property_decls(prop.value))
     if prop.metadata:
         decls.append(_line(f"static const Durin::DurinCodeGen::FMetaDataPair NewProp_{prop.name}_MetaData[];", 1))
+    if prop.legacy_names:
+        decls.append(_line(f"static const char* const NewProp_{prop.name}_LegacyNames[];", 1))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     decls.append(_line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1))
     return decls
@@ -81,6 +83,10 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         content += f"const Durin::DurinCodeGen::FMetaDataPair {metadata_name}[] = {{ {entries} }};\n"
         metadata_ref = metadata_name
         metadata_count = str(len(prop.metadata))
+    if prop.legacy_names:
+        legacy_names_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_LegacyNames"
+        entries = ", ".join(_cpp_string_literal(name) for name in prop.legacy_names)
+        content += f"const char* const {legacy_names_name}[] = {{ {entries} }};\n"
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     property_flags = prop.flags
     if property_flags == "None":
@@ -93,11 +99,11 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             if referenced_symbol:
                 referenced_struct_helper = referenced_symbol.GeneratedHelperName
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {referenced_struct_helper}"
-            f"{metadata_arguments} }};\n"
+        initializer = (
+            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
+            f"{referenced_struct_helper}{metadata_arguments} }}"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
     inner = f"&{class_info.generated_statics_name}::NewProp_{prop.inner.name}" if prop.inner else "nullptr"
     key = f"&{class_info.generated_statics_name}::NewProp_{prop.key.name}" if prop.key else "nullptr"
@@ -109,19 +115,19 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     )
     if prop.kind == "Array":
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+        initializer = (
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {inner}, "
-            f"&Durin::ResolveArrayOps<{value_type}>{metadata_arguments} }};\n"
+            f"&Durin::ResolveArrayOps<{value_type}>{metadata_arguments} }}"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
     if prop.kind == "Map":
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+        initializer = (
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {key}, {value}, "
-            f"&Durin::ResolveMapOps<{value_type}>{metadata_arguments} }};\n"
+            f"&Durin::ResolveMapOps<{value_type}>{metadata_arguments} }}"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
     if prop.kind == "SoftObject":
         referenced_class_helper = "nullptr"
@@ -130,12 +136,12 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             if referenced_symbol:
                 referenced_class_helper = referenced_symbol.GeneratedHelperName
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+        initializer = (
             f"Durin::DurinCodeGen::{param_type}::Create<{value_type}>("
             f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_class_helper}{metadata_arguments});\n"
+            f"{referenced_class_helper}{metadata_arguments})"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
     metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
     if prop.kind == "Enum":
@@ -144,11 +150,11 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             referenced_symbol = symbols.get(prop.referenced_enum_type)
             if referenced_symbol:
                 referenced_enum_helper = referenced_symbol.GeneratedHelperName
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+        initializer = (
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_enum_helper}{metadata_arguments} }};\n"
+            f"{referenced_enum_helper}{metadata_arguments} }}"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
     if prop.kind == "Object":
         referenced_class_helper = "nullptr"
@@ -158,15 +164,33 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
                 referenced_class_helper = referenced_symbol.GeneratedHelperName
         target_type = _cpp_type_spelling(prop.referenced_type, symbols)
         factory = "ObjectPtr" if prop.is_object_ptr_wrapper else "Raw"
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+        initializer = (
             f"Durin::DurinCodeGen::{param_type}::{factory}<{target_type}>("
             f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_class_helper}{metadata_arguments});\n"
+            f"{referenced_class_helper}{metadata_arguments})"
         )
+        content += _property_assignment(class_info, prop, param_type, initializer)
         return content
-    content += (
-        f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-        f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}{metadata_arguments} }};\n"
-    )
+    initializer = f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}{metadata_arguments} }}"
+    content += _property_assignment(class_info, prop, param_type, initializer)
     return content
+
+
+def _property_assignment(
+    class_info: ReflectedClassInfo,
+    prop: ReflectedPropertyInfo,
+    param_type: str,
+    initializer: str,
+) -> str:
+    if prop.legacy_names:
+        if initializer.startswith("{"):
+            initializer = f"Durin::DurinCodeGen::{param_type}{initializer}"
+        legacy_names = f"{class_info.generated_statics_name}::NewProp_{prop.name}_LegacyNames"
+        initializer = (
+            f"Durin::DurinCodeGen::WithLegacyNames({initializer}, {legacy_names}, "
+            f"{len(prop.legacy_names)})"
+        )
+    return (
+        f"const Durin::DurinCodeGen::{param_type} "
+        f"{class_info.generated_statics_name}::NewProp_{prop.name} = {initializer};\n"
+    )

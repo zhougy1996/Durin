@@ -126,6 +126,32 @@ def _make_enum(
 
 
 
+def _validate_property_legacy_names(
+    owner_name: str, properties: list[ReflectedPropertyInfo]
+) -> None:
+    current_names = {prop.name for prop in properties}
+    legacy_owners: dict[str, str] = {}
+    for prop in properties:
+        for legacy_name in prop.legacy_names:
+            if legacy_name == prop.name:
+                raise ValueError(
+                    f"reflected type '{owner_name}' property '{prop.name}': "
+                    "LegacyNames must not contain the current property name"
+                )
+            if legacy_name in current_names:
+                raise ValueError(
+                    f"reflected type '{owner_name}' property '{prop.name}': legacy name "
+                    f"'{legacy_name}' collides with a current property name"
+                )
+            previous = legacy_owners.get(legacy_name)
+            if previous is not None:
+                raise ValueError(
+                    f"reflected type '{owner_name}' properties '{previous}' and "
+                    f"'{prop.name}' share legacy name '{legacy_name}'"
+                )
+            legacy_owners[legacy_name] = prop.name
+
+
 def parse_reflection_header(
     module_name: str,
     header: str,
@@ -206,6 +232,9 @@ def parse_reflection_header(
                     if prop.name not in existing_property_names:
                         reflected_struct.properties.append(prop)
                         existing_property_names.add(prop.name)
+                _validate_property_legacy_names(
+                    reflected_struct.qualified_name, reflected_struct.properties
+                )
                 structs.append(reflected_struct)
                 pending_dstruct_annotation = ""
                 continue
@@ -280,6 +309,9 @@ def parse_reflection_header(
                     if prop.name not in existing_property_names:
                         reflected_class.properties.append(prop)
                         existing_property_names.add(prop.name)
+                _validate_property_legacy_names(
+                    reflected_class.qualified_name, reflected_class.properties
+                )
                 classes.append(reflected_class)
                 pending_dclass_annotation = ""
                 continue

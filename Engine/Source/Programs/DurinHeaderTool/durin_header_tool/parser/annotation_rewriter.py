@@ -53,6 +53,36 @@ def _qualified_name_list(raw_value: str, key: str, location: str) -> list[str]:
     return names
 
 
+def _property_name_list(raw_value: str, key: str, location: str) -> list[str]:
+    match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value.strip())
+    if not match:
+        raise ValueError(f"{location}: {key} requires a quoted semicolon-separated list")
+    names: list[str] = []
+    for raw_entry in _unescape_string_literal(match.group(1)).split(";"):
+        name = raw_entry.strip()
+        if not re.fullmatch(r"[A-Za-z_]\w*", name):
+            raise ValueError(f"{location}: {key} entries require unqualified C++ identifiers")
+        if name in names:
+            raise ValueError(f"{location}: duplicate {key} entry '{name}'")
+        names.append(name)
+    return names
+
+
+def _validate_property_payload(payload: str, line: int, column: int) -> None:
+    location = f"DPROPERTY at line {line}, column {column}"
+    legacy_names_seen = False
+    for raw_entry in _macro_arguments(payload, location):
+        key, separator, raw_value = raw_entry.strip().partition("=")
+        if key.strip() != "LegacyNames":
+            continue
+        if not separator:
+            raise ValueError(f"{location}: LegacyNames requires = \"...\"")
+        if legacy_names_seen:
+            raise ValueError(f"{location}: duplicate LegacyNames metadata")
+        legacy_names_seen = True
+        _property_name_list(raw_value, "LegacyNames", location)
+
+
 def _display_name_from_payload(payload: str, macro_name: str, line: int, column: int) -> str:
     location = f"{macro_name} at line {line}, column {column}"
     if not payload.strip():
@@ -219,12 +249,11 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
         )
 
     source = _replace_macro_calls(source, "DENUM", replace_denum)
-    source = _replace_macro_calls(
-        source,
-        "DPROPERTY",
-        lambda payload, _line, _column:
-            f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))',
-    )
+    def replace_dproperty(payload: str, line: int, column: int) -> str:
+        _validate_property_payload(payload, line, column)
+        return f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))'
+
+    source = _replace_macro_calls(source, "DPROPERTY", replace_dproperty)
     source = _replace_macro_calls(
         source,
         "GENERATED_BODY",

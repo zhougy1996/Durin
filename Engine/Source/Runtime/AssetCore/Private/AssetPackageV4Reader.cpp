@@ -1298,14 +1298,31 @@ namespace Durin::Asset::DastV4
 			return true;
 		}
 
-		auto CanonicalizeSerializedClassName(std::string& Name) -> void
+		auto CanonicalizeSerializedClassName(
+			std::string& Name, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
 		{
+			if (Catalog)
+			{
+				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Name);
+				if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Class)
+					Name = Alias->CurrentIdentity;
+				return;
+			}
 			if (DClass* Class = FindClassBySerializedName(FName(Name)))
 				Name = Class->GetQualifiedName().ToString();
 		}
 
-		auto CanonicalizeSerializedSchemaName(std::string& Name) -> void
+		auto CanonicalizeSerializedSchemaName(
+			std::string& Name, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
 		{
+			if (Catalog)
+			{
+				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Name);
+				if (Alias && (Alias->Kind == EAssetReflectedIdentityKind::Class
+					|| Alias->Kind == EAssetReflectedIdentityKind::Struct))
+					Name = Alias->CurrentIdentity;
+				return;
+			}
 			if (DClass* Class = FindClassBySerializedName(FName(Name)))
 			{
 				Name = Class->GetQualifiedName().ToString();
@@ -1315,9 +1332,40 @@ namespace Durin::Asset::DastV4
 				Name = Struct->GetQualifiedName().ToString();
 		}
 
-		auto CanonicalizeSerializedTypeName(FDecodedType& Type) -> void
+		auto CanonicalizeSerializedPropertyName(
+			std::string_view DeclaringType,
+			std::string& Name,
+			const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
+		{
+			if (Catalog)
+			{
+				if (const FReflectionSerializedPropertyAlias* Alias =
+					Catalog->FindSerializedPropertyAlias(DeclaringType, Name))
+					Name = Alias->CurrentName;
+				return;
+			}
+			DStructBase* Owner = FindClassBySerializedName(FName(DeclaringType));
+			if (!Owner) Owner = FindStructBySerializedName(FName(DeclaringType));
+			if (Owner)
+				if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(Name), false))
+					Name = Property->NamePrivate.ToString();
+		}
+
+		auto CanonicalizeSerializedTypeName(
+			FDecodedType& Type, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
 		{
 			if (Type.QualifiedName.empty()) return;
+			if (Catalog)
+			{
+				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Type.QualifiedName);
+				const bool bKindMatches = Alias && (
+					(Type.Opcode == ETypeOpcode::Enum && Alias->Kind == EAssetReflectedIdentityKind::Enum)
+					|| (Type.Opcode == ETypeOpcode::Struct && Alias->Kind == EAssetReflectedIdentityKind::Struct)
+					|| ((Type.Opcode == ETypeOpcode::HardRef || Type.Opcode == ETypeOpcode::SoftRef)
+						&& Alias->Kind == EAssetReflectedIdentityKind::Class));
+				if (bKindMatches) Type.QualifiedName = Alias->CurrentIdentity;
+				return;
+			}
 			if (Type.Opcode == ETypeOpcode::Enum)
 			{
 				if (DEnum* Enum = FindEnumBySerializedName(FName(Type.QualifiedName)))
@@ -1404,6 +1452,40 @@ namespace Durin::Asset::DastV4
 				if (Result.size() == Before)
 					AddStruct(Stored, EAssetSerializedIdentityLocation::Schema,
 						std::format("schemas[{}].identity", Index));
+				std::string CurrentDeclaringType = Stored;
+				if (Catalog)
+				{
+					if (const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
+						Alias && (Alias->Kind == EAssetReflectedIdentityKind::Class
+							|| Alias->Kind == EAssetReflectedIdentityKind::Struct))
+						CurrentDeclaringType = Alias->CurrentIdentity;
+					for (size_t FieldIndex = 0; FieldIndex < Package.Schemas[Index].Fields.size(); ++FieldIndex)
+					{
+						const std::string& FieldName = Package.Schemas[Index].Fields[FieldIndex].Name;
+						if (const FReflectionSerializedPropertyAlias* Alias =
+							Catalog->FindSerializedPropertyAlias(CurrentDeclaringType, FieldName))
+							Result.push_back({PackagePath, FieldName, Alias->CurrentName,
+								EAssetReflectedIdentityKind::Property,
+								EAssetSerializedIdentityLocation::Schema,
+								std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
+					}
+				}
+				else
+				{
+					DStructBase* Owner = FindClassBySerializedName(FName(Stored));
+					if (!Owner) Owner = FindStructBySerializedName(FName(Stored));
+					if (Owner)
+						for (size_t FieldIndex = 0; FieldIndex < Package.Schemas[Index].Fields.size(); ++FieldIndex)
+						{
+							const std::string& FieldName = Package.Schemas[Index].Fields[FieldIndex].Name;
+							if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(FieldName), false);
+								Property && Property->NamePrivate.ToString() != FieldName)
+								Result.push_back({PackagePath, FieldName, Property->NamePrivate.ToString(),
+									EAssetReflectedIdentityKind::Property,
+									EAssetSerializedIdentityLocation::Schema,
+									std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
+						}
+				}
 			}
 			for (size_t Index = 0; Index < Package.Types.size(); ++Index)
 			{
@@ -1427,15 +1509,33 @@ namespace Durin::Asset::DastV4
 
 		// Converts recognized compatibility aliases at the bytes-to-runtime boundary.
 		// The raw DecodePackage/ReencodePackage contract remains byte-preserving.
-		auto CanonicalizeSerializedReflectionNames(FDecodedPackage& Package) -> void
+		auto CanonicalizeSerializedReflectionNames(
+			FDecodedPackage& Package,
+			std::string* OutError = nullptr,
+			const FReflectionCompatibilityCatalog* Catalog = nullptr) -> bool
 		{
-			CanonicalizeSerializedClassName(Package.Header.AssetClass);
+			CanonicalizeSerializedClassName(Package.Header.AssetClass, Catalog);
 			for (FDecodedObject& Object : Package.Objects)
-				CanonicalizeSerializedClassName(Object.ClassName);
+				CanonicalizeSerializedClassName(Object.ClassName, Catalog);
 			for (FDecodedSchema& Schema : Package.Schemas)
-				CanonicalizeSerializedSchemaName(Schema.QualifiedName);
+			{
+				CanonicalizeSerializedSchemaName(Schema.QualifiedName, Catalog);
+				std::unordered_set<std::string> CurrentFieldNames;
+				for (FDecodedField& Field : Schema.Fields)
+				{
+					CanonicalizeSerializedPropertyName(Schema.QualifiedName, Field.Name, Catalog);
+					if (!CurrentFieldNames.emplace(Field.Name).second)
+					{
+						if (OutError) *OutError = std::format(
+							"Serialized schema {} contains fields that canonicalize to duplicate name {}.",
+							Schema.QualifiedName, Field.Name);
+						return false;
+					}
+				}
+			}
 			for (FDecodedType& Type : Package.Types)
-				CanonicalizeSerializedTypeName(Type);
+				CanonicalizeSerializedTypeName(Type, Catalog);
+			return true;
 		}
 	}
 
@@ -1571,7 +1671,12 @@ namespace Durin::Asset::DastV4
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 			GatherCanonicalizationEvidence(Decoded, PackagePath);
-		CanonicalizeSerializedReflectionNames(Decoded);
+		std::string CanonicalizationError;
+		if (!CanonicalizeSerializedReflectionNames(Decoded, &CanonicalizationError))
+		{
+			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
+			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+		}
 		const FReflectionCompatibilityCatalog LiveCatalog =
 			FReflectionCompatibilityCatalog::Capture();
 		for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
@@ -1813,7 +1918,13 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
-		CanonicalizeSerializedReflectionNames(Package);
+		std::string CanonicalizationError;
+		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError))
+		{
+			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		}
 		FAssetPackageInspection Inspection;
 		if (!BuildInspection(Package, Bytes, Inspection, Diagnostic))
 		{
@@ -1841,7 +1952,13 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
-		CanonicalizeSerializedReflectionNames(Package);
+		std::string CanonicalizationError;
+		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError))
+		{
+			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		}
 		const FAssetPackageFingerprint Fingerprint{.FileSize = Bytes.size(),
 			.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
 		std::vector<FAssetReferenceEdge> References;
@@ -1893,7 +2010,13 @@ namespace Durin::Asset::DastV4
 		}
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 			GatherCanonicalizationEvidence(Package, PackagePath, &Catalog);
-		CanonicalizeSerializedReflectionNames(Package);
+		std::string CanonicalizationError;
+		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError, &Catalog))
+		{
+			if (OutDiagnostic)
+				Fail(*OutDiagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
+			return {EAssetError::CorruptFile, CanonicalizationError};
+		}
 		FAssetPackageCompatibilityRecord Record{
 			.PackagePath = PackagePath,
 			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
