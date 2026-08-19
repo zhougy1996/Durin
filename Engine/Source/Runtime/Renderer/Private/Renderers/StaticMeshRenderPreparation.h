@@ -67,7 +67,7 @@ namespace Durin
 		uint32 SelectedLODIndex = 0;
 		uint32 SectionIndex = 0;
 
-		auto operator==(const FStaticMeshDrawSortKey&) const -> bool = default;
+		auto operator<=>(const FStaticMeshDrawSortKey&) const = default;
 	};
 
 	enum class EPreparedStaticMeshPhase : uint8

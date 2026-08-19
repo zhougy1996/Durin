@@ -65,8 +65,7 @@ namespace Durin
 	{
 		View.TranslucentGeometry.clear();
 		View.TranslucentGeometry.reserve(View.StaticMeshes.Translucent.size()
-			+ View.SkeletalMeshes.Translucent.size());
-		View.TranslucentGeometry.reserve(View.TranslucentGeometry.capacity()
+			+ View.SkeletalMeshes.Translucent.size()
 			+ View.Terrains.Translucent.size());
 		for (uint32 Index = 0; Index < View.StaticMeshes.Translucent.size(); ++Index)
 		{
@@ -89,29 +88,12 @@ namespace Durin
 				EPreparedTranslucentGeometryFamily::Terrain, Index,
 				Draw.TranslucentDistanceSquared, Draw.SortKey});
 		}
-		auto CompareValue = [](const auto& A, const auto& B) {
-			if (std::ranges::lexicographical_compare(A, B)) return -1;
-			if (std::ranges::lexicographical_compare(B, A)) return 1;
-			return 0;
-		};
 		std::ranges::sort(View.TranslucentGeometry,
-			[&](const auto& A, const auto& B) {
+			[](const auto& A, const auto& B) {
 				if (A.DistanceSquared != B.DistanceSquared)
 					return A.DistanceSquared > B.DistanceSquared;
-				if (const int Value = CompareValue(
-					A.SortKey.Pipeline, B.SortKey.Pipeline)) return Value < 0;
-				if (const int Value = CompareValue(
-					A.SortKey.MaterialUniform, B.SortKey.MaterialUniform))
-					return Value < 0;
-				if (const int Value = CompareValue(
-					A.SortKey.VertexFactory, B.SortKey.VertexFactory))
-					return Value < 0;
-				if (const int Value = CompareValue(
-					A.SortKey.Geometry, B.SortKey.Geometry)) return Value < 0;
-				if (A.SortKey.PrimitiveId != B.SortKey.PrimitiveId)
-					return A.SortKey.PrimitiveId < B.SortKey.PrimitiveId;
-				if (A.SortKey.SectionIndex != B.SortKey.SectionIndex)
-					return A.SortKey.SectionIndex < B.SortKey.SectionIndex;
+				if (const auto Order = A.SortKey <=> B.SortKey; Order != 0)
+					return Order < 0;
 				return static_cast<uint8>(A.Family)
 					< static_cast<uint8>(B.Family);
 			});

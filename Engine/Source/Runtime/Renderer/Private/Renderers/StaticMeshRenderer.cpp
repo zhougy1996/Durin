@@ -507,62 +507,6 @@ namespace Durin
 			return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex);
 		}
 
-		template<typename T>
-		auto CompareArray(const T& A, const T& B) -> int
-		{
-			if (std::ranges::lexicographical_compare(A, B))
-			{
-				return -1;
-			}
-			if (std::ranges::lexicographical_compare(B, A))
-			{
-				return 1;
-			}
-			return 0;
-		}
-
-		auto CompareStaticMeshDrawSortKeys(
-			const FStaticMeshDrawSortKey& A,
-			const FStaticMeshDrawSortKey& B
-		) -> int
-		{
-			if (const int Pipeline = CompareArray(A.Pipeline, B.Pipeline);
-				Pipeline != 0)
-			{
-				return Pipeline;
-			}
-			if (const int Material =
-					CompareArray(A.MaterialUniform, B.MaterialUniform);
-				Material != 0)
-			{
-				return Material;
-			}
-			if (const int VertexFactory =
-					CompareArray(A.VertexFactory, B.VertexFactory);
-				VertexFactory != 0)
-			{
-				return VertexFactory;
-			}
-			if (const int Geometry = CompareArray(A.Geometry, B.Geometry);
-				Geometry != 0)
-			{
-				return Geometry;
-			}
-			if (A.PrimitiveId != B.PrimitiveId)
-			{
-				return A.PrimitiveId < B.PrimitiveId ? -1 : 1;
-			}
-			if (A.SelectedLODIndex != B.SelectedLODIndex)
-			{
-				return A.SelectedLODIndex < B.SelectedLODIndex ? -1 : 1;
-			}
-			if (A.SectionIndex != B.SectionIndex)
-			{
-				return A.SectionIndex < B.SectionIndex ? -1 : 1;
-			}
-			return 0;
-		}
-
 		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
 		{
 			FMatrix4f Result(0.0f);
@@ -1081,7 +1025,7 @@ namespace Durin
 		Result.MaskedInputStateGroups = CountInputStateGroups(Result.Masked);
 		auto StateSort = [](const FPreparedStaticMeshDraw& A,
 							const FPreparedStaticMeshDraw& B) {
-			return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
+			return A.SortKey < B.SortKey;
 		};
 		std::ranges::sort(Result.Opaque, StateSort);
 		std::ranges::sort(Result.Masked, StateSort);
@@ -1095,7 +1039,7 @@ namespace Durin
 					return A.TranslucentDistanceSquared
 						   > B.TranslucentDistanceSquared;
 				}
-				return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
+				return A.SortKey < B.SortKey;
 			}
 		);
 		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
@@ -1353,14 +1297,14 @@ namespace Durin
 		const auto SortingStart = std::chrono::steady_clock::now();
 		auto StateSort = [](const FPreparedSkeletalMeshDraw& A,
 							const FPreparedSkeletalMeshDraw& B) {
-			return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
+			return A.SortKey < B.SortKey;
 		};
 		std::ranges::sort(Result.Opaque, StateSort);
 		std::ranges::sort(Result.Masked, StateSort);
 		std::ranges::sort(Result.Translucent, [](const FPreparedSkeletalMeshDraw& A, const FPreparedSkeletalMeshDraw& B) {
 			if (A.TranslucentDistanceSquared != B.TranslucentDistanceSquared)
 				return A.TranslucentDistanceSquared > B.TranslucentDistanceSquared;
-			return CompareStaticMeshDrawSortKeys(A.SortKey, B.SortKey) < 0;
+			return A.SortKey < B.SortKey;
 		});
 		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
 			std::chrono::nanoseconds>(
