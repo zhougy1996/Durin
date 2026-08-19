@@ -3,9 +3,6 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/FileHelper.h"
 
-#include <atomic>
-#include <fstream>
-
 namespace Durin::Editor::Level
 {
 	namespace

@@ -2,8 +2,6 @@
 
 #include "Math/Operations.h"
 
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

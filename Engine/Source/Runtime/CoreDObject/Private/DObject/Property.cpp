@@ -5,8 +5,6 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 
-#include <bit>
-
 namespace Durin
 {
 	namespace

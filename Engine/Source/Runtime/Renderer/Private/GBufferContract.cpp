@@ -1,10 +1,5 @@
 #include "GBufferContract.h"
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <limits>
-
 namespace Durin::GBufferContract
 {
 	namespace

@@ -9,7 +9,6 @@
 #include <sys/event.h>
 #include <sys/wait.h>
 #include <system_error>
-#include <thread>
 #include <unistd.h>
 
 extern char** environ;

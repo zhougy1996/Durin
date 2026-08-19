@@ -2,10 +2,6 @@
 
 #include "Modules/ModuleOwnerState.h"
 
-#include <algorithm>
-#include <condition_variable>
-#include <mutex>
-
 namespace Durin
 {
 	namespace Detail

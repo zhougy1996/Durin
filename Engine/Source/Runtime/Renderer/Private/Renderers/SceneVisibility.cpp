@@ -5,9 +5,6 @@
 #include "Engine/FPrimitiveSceneProxy.h"
 #include "Scene.h"
 
-#include <atomic>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

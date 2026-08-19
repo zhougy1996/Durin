@@ -24,9 +24,6 @@
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 
-#include <cmath>
-#include <limits>
-
 namespace Durin
 {
 	namespace

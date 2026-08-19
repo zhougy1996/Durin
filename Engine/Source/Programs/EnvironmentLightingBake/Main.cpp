@@ -9,8 +9,6 @@
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
 
-#include <iostream>
-
 namespace
 {
 	constexpr std::string_view DefaultAssetPath = "/Engine/Renderer/DefaultStudioEnvironment";

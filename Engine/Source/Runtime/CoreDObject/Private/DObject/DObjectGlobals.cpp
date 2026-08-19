@@ -13,8 +13,6 @@
 #include "DObject/Package.h"
 #include "GCReferenceSchema.h"
 
-#include <limits>
-
 namespace Durin
 {
 	namespace

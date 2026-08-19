@@ -13,13 +13,6 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 
-#include <array>
-#include <atomic>
-#include <cmath>
-#include <cstddef>
-#include <string>
-#include <utility>
-
 namespace Durin
 {
 	namespace

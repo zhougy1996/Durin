@@ -1,11 +1,5 @@
 #include "Materials/MaterialRenderTypes.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstring>
-#include <format>
-#include <utility>
-
 namespace Durin
 {
 	namespace

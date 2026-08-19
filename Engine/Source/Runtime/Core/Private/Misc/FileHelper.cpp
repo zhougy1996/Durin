@@ -1,7 +1,5 @@
 #include "Misc/FileHelper.h"
 
-#include <atomic>
-
 #if defined(_WIN32)
 #include "Windows/WindowsPlatform.h"
 #else

@@ -13,7 +13,6 @@
 #include "Misc/Project.h"
 
 #include <csignal>
-#include <iostream>
 
 namespace
 {

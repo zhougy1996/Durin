@@ -5,8 +5,6 @@
 #include "RHIThread.h"
 #include "Threading/RunnableThread.h"
 
-#include <cmath>
-
 namespace Durin
 {
 	namespace

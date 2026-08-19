@@ -14,10 +14,6 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 
-#include <array>
-#include <cstddef>
-#include <string>
-
 namespace Durin
 {
 	namespace

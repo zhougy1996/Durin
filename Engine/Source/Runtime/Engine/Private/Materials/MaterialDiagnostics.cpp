@@ -1,7 +1,5 @@
 #include "Materials/MaterialRenderTypes.h"
 
-#include <atomic>
-
 namespace Durin
 {
 	namespace

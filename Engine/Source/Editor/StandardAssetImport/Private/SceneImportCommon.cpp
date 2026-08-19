@@ -2,8 +2,6 @@
 
 #include "AsyncImport.h"
 
-#include <fstream>
-
 namespace Durin::Asset::Import::Standard::Private
 {
 	auto AddDiagnostic(

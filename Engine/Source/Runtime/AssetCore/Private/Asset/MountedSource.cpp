@@ -3,8 +3,6 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-#include <fstream>
-
 namespace Durin::Asset
 {
 	namespace

@@ -12,11 +12,9 @@
 #include "spdlog/sinks/rotating_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
-#include <condition_variable>
 #include <cctype>
 #include <cstdio>
 #include <ctime>
-#include <deque>
 
 namespace Durin
 {

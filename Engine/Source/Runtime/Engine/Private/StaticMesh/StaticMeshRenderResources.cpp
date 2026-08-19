@@ -4,8 +4,6 @@
 #include "RenderingThread.h"
 #include "RHI.h"
 
-#include <cmath>
-
 namespace Durin
 {
 	auto PackStaticMeshTangentBasis(

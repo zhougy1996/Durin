@@ -25,8 +25,6 @@
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
-#include <cmath>
-
 namespace Durin::Editor::Texture
 {
 	using Asset::CommitMountedSourceReplacement;

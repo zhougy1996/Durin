@@ -2,8 +2,6 @@
 
 #include "Math/Operations.h"
 
-#include <limits>
-
 namespace Durin
 {
 	namespace

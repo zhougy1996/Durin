@@ -7,8 +7,6 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

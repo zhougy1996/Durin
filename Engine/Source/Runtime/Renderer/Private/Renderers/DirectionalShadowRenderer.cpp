@@ -15,8 +15,6 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 
-#include <atomic>
-
 namespace Durin
 {
 	namespace

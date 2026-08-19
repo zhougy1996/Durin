@@ -1,15 +1,5 @@
 #include "AssetPackageV4Writer.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-#include <functional>
-#include <limits>
-#include <map>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin::Asset::DastV4
 {
 	namespace

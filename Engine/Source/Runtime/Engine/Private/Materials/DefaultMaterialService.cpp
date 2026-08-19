@@ -6,8 +6,6 @@
 #include "Materials/Material.h"
 #include "Threading/RunnableThread.h"
 
-#include <array>
-
 namespace Durin
 {
 	namespace

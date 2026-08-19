@@ -8,8 +8,6 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
 
-#include <algorithm>
-
 namespace Durin::Editor::Level
 {
 	namespace

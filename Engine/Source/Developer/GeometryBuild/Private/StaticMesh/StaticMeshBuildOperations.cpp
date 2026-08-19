@@ -10,10 +10,6 @@
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-#include <cmath>
-#include <limits>
-#include <unordered_map>
-
 namespace Durin::Asset::Build
 {
 	namespace

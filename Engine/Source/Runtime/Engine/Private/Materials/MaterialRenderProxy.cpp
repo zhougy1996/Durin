@@ -5,9 +5,6 @@
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
-#include <cmath>
-#include <limits>
-
 namespace Durin
 {
 	namespace

@@ -1,8 +1,5 @@
 #include "Renderers/DisplayMapping.h"
 
-#include <algorithm>
-#include <cmath>
-
 namespace Durin::DisplayMapping
 {
 	auto CanonicalizeExposureEV(float ExposureEV) -> float

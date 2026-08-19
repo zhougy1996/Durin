@@ -1,14 +1,6 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialRenderTypes.h"
 
-#include <algorithm>
-#include <atomic>
-#include <cmath>
-#include <cstring>
-#include <format>
-#include <unordered_set>
-#include <utility>
-
 namespace Durin
 {
 	namespace

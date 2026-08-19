@@ -30,16 +30,6 @@
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
-#include <algorithm>
-#include <array>
-#include <bit>
-#include <cmath>
-#include <format>
-#include <numeric>
-#include <string>
-#include <unordered_map>
-#include <utility>
-
 namespace Durin
 {
 	namespace

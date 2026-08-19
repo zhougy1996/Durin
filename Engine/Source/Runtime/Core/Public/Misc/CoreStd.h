@@ -6,11 +6,14 @@
 #include <bit>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <concepts>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -24,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <numbers>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <ranges>

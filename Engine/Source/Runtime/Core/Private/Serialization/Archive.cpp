@@ -1,7 +1,5 @@
 #include "Serialization/Archive.h"
 
-#include <bit>
-
 namespace Durin
 {
 	namespace

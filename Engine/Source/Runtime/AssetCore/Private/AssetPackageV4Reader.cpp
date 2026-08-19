@@ -9,11 +9,6 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-#include <limits>
-
 namespace Durin::Asset::DastV4
 {
 	namespace

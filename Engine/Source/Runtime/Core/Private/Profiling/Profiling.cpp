@@ -1,11 +1,6 @@
 #include "Profiling/Profiling.h"
 #include "Logging/LogMacros.h"
 
-#include <atomic>
-#include <chrono>
-#include <deque>
-#include <mutex>
-
 namespace Durin::Profiling
 {
 	namespace

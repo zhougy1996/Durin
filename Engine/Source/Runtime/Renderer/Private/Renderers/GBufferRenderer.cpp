@@ -8,9 +8,6 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 
-#include <bit>
-#include <format>
-
 namespace Durin
 {
 	namespace

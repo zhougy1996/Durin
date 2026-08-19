@@ -2,9 +2,6 @@
 
 #include "Math/Operations.h"
 
-#include <algorithm>
-#include <cmath>
-
 namespace Durin
 {
 	namespace

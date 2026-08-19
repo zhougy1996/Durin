@@ -4,8 +4,6 @@
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
 
-#include <bit>
-
 namespace Durin
 {
 	class FGameThreadDeferredWorkQueue;

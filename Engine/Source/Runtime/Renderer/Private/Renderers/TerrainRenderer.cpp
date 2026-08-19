@@ -27,10 +27,6 @@
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
-#include <bit>
-#include <chrono>
-#include <unordered_map>
-
 namespace Durin
 {
 	namespace
