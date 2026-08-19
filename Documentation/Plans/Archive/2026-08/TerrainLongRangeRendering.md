@@ -4,7 +4,7 @@ Summary: Separate Terrain content visibility from the camera far plane, migrate 
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -33,7 +33,7 @@ final long-range result on 2026-08-18.
 The plan is complete. A named cooked-game motion capture and formal image-
 difference report are explicitly deferred because complete project discovery,
 Editor or DurinDevTool packaging commands, and installable-build orchestration
-are not yet connected, as recorded in [Asset Packages](../Runtime/Assets/AssetPackages.md).
+are not yet connected, as recorded in [Asset Packages](../../../Runtime/Assets/AssetPackages.md).
 That project-level Cook/Packaging work is not a Terrain rendering defect or a
 remaining gate for this plan. The runtime-facing settings, serialization,
 payload, projection, and rendering contracts remain implemented and covered by
@@ -387,13 +387,13 @@ and coordinate envelopes.
 
 ## Related Documentation
 
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Editor Grid](../Runtime/Rendering/EditorGrid.md)
-- [Terrain Patch LOD Plan](Archive/2026-08/TerrainPatchLOD.md)
-- [Terrain Draw Submission Scalability Plan](Archive/2026-08/TerrainDrawSubmissionScalability.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Editor Grid](../../../Runtime/Rendering/EditorGrid.md)
+- [Terrain Patch LOD Plan](TerrainPatchLOD.md)
+- [Terrain Draw Submission Scalability Plan](TerrainDrawSubmissionScalability.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

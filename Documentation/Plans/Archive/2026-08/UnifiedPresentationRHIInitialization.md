@@ -4,7 +4,7 @@ Summary: Replace the platform-split, setter-driven startup surface handoff with 
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -417,10 +417,10 @@ observable from types, state, diagnostics, and tests.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Test Execution](../Development/Build/NativeTests.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Test Execution](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

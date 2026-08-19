@@ -4,7 +4,7 @@ Summary: Keep published directory-cache entries stable during tree drawing so ca
 
 Last reviewed: 2026-08-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-19
 
 ## Current Status
@@ -250,8 +250,8 @@ copying `std::filesystem::path` values per node.
 | Documentation | Plan and changed-document validators | Active plan and Content Browser contract have valid structure and links |
 
 Build and test execution must follow
-[Agent Build and Run Workflow](../Agents/BuildAndRun.md) and
-[Agent Testing Workflow](../Agents/Testing.md).
+[Agent Build and Run Workflow](../../../Agents/BuildAndRun.md) and
+[Agent Testing Workflow](../../../Agents/Testing.md).
 
 ## Definition of Done
 
@@ -277,10 +277,10 @@ Build and test execution must follow
 
 ## Related Documentation
 
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

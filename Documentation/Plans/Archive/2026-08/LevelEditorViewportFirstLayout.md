@@ -4,7 +4,7 @@ Summary: Replace the Level Editor's panel-heavy default layout with a viewport-f
 
 Last reviewed: 2026-08-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-18
 
 ## Current Status
@@ -363,12 +363,12 @@ Validation evidence:
 
 ## Related Documentation
 
-- [Editor UI Style](../Editor/Design/UIStyle.md)
-- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Editor Console](../Editor/Guides/Console.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Editor UI Style](../../../Editor/Design/UIStyle.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Editor Console](../../../Editor/Guides/Console.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
