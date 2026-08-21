@@ -402,7 +402,7 @@ namespace Durin::Editor::Texture
 	{
 		UnregisterDisplayTexture();
 		FilteredTexture = nullptr;
-		if (!UploadedTexture || !Mona::GActiveUIBackend) return;
+		if (!UploadedTexture || !Mona::GetActiveUIBackend()) return;
 
 		if (SelectedChannel == ETexturePreviewChannel::RGBA)
 		{
@@ -430,13 +430,13 @@ namespace Durin::Editor::Texture
 			DisplayTexture = FilteredTexture ? FilteredTexture : UploadedTexture;
 		}
 
-		Mona::GActiveUIBackend->RegisterTexture(DisplayTexture);
+		Mona::GetActiveUIBackend()->RegisterTexture(DisplayTexture);
 	}
 
 	auto FTexturePreview::UnregisterDisplayTexture() -> void
 	{
-		if (DisplayTexture && Mona::GActiveUIBackend)
-			Mona::GActiveUIBackend->UnregisterTexture(DisplayTexture);
+		if (DisplayTexture && Mona::GetActiveUIBackend())
+			Mona::GetActiveUIBackend()->UnregisterTexture(DisplayTexture);
 		DisplayTexture = nullptr;
 	}
 

@@ -99,8 +99,8 @@ namespace Durin::Editor::Level
 
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
-			if (Entry.Texture && Mona::GActiveUIBackend)
-				Mona::GActiveUIBackend->UnregisterTexture(Entry.Texture);
+			if (Entry.Texture && Mona::GetActiveUIBackend())
+				Mona::GetActiveUIBackend()->UnregisterTexture(Entry.Texture);
 			Entry.Texture = nullptr;
 		}
 
@@ -130,13 +130,13 @@ namespace Durin::Editor::Level
 				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Uploading)
 					continue;
 				FEntry& Entry = It->second;
-				if (!Result.Texture || !Mona::GActiveUIBackend)
+				if (!Result.Texture || !Mona::GetActiveUIBackend())
 				{
 					Entry.State = ::Durin::Editor::EAssetThumbnailState::Failed;
 					Entry.Error = "Unable to create the preview texture.";
 					continue;
 				}
-				Mona::GActiveUIBackend->RegisterTexture(Result.Texture);
+				Mona::GetActiveUIBackend()->RegisterTexture(Result.Texture);
 				Entry.Texture = std::move(Result.Texture);
 				Entry.Width = Result.Width;
 				Entry.Height = Result.Height;

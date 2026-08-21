@@ -196,6 +196,17 @@ namespace Durin
 			Exit();
 			return false;
 		}
+#if DURIN_WITH_EDITOR
+		if (!FModuleManager::Get().LoadModule("MonaImGui")
+			|| Mona::GetActiveUIBackend() == nullptr)
+		{
+			DURIN_ERROR("Engine initialization stopped because the MonaImGui editor backend could not start.");
+			if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
+				FModuleManager::Get().UnloadModule("MonaImGui");
+			Exit();
+			return false;
+		}
+#endif
 
 		FEngineInitContext EngineInitContext;
 		EngineInitContext.StartupWindow = StartupWindow;
@@ -330,6 +341,19 @@ namespace Durin
 			SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
 			Diagnostics.BeginConsumerDetachment();
 		}
+
+#if DURIN_WITH_EDITOR
+		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
+		{
+			const auto BackendShutdown =
+				FModuleManager::Get().UnloadModule("MonaImGui");
+			if (!BackendShutdown.Succeeded())
+			{
+				DURIN_ERROR(STR("MonaImGui module shutdown failed: {}"),
+					BackendShutdown.Message);
+			}
+		}
+#endif
 
 		if (FModuleManager::Get().IsModuleLoaded("Mona"))
 		{

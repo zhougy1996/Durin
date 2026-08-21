@@ -30,10 +30,10 @@ direction.
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
 | `Renderer` | Renderer scene representation, view preparation, render passes, feature renderers, and frame execution | [source](../../Engine/Source/Runtime/Renderer) |
-| `MonaCore` | UI application, widgets, events, windows, layout, and renderer abstraction | [source](../../Engine/Source/Runtime/MonaCore) |
-| `Mona` | Higher-level Mona runtime and viewport widgets | [source](../../Engine/Source/Runtime/Mona) |
+| `MonaCore` | Reusable widget, event, UI-backend, and viewport display-source contracts with no application, native-window, or presentation lifetime | [source](../../Engine/Source/Runtime/MonaCore) |
+| `Mona` | Mona application lifetime, native windows, RHI-backed window presentation, frame facade, and higher-level viewport widgets | [source](../../Engine/Source/Runtime/Mona) |
 | `MonaImGui` | ImGui integration, backend rendering, property tables, widgets, icons, and third-party ImGui boundary | [source](../../Engine/Source/Runtime/MonaImGui) |
-| `Launch` | Runtime bootstrap, command-line launch, project selection, and application lifetime entrypoints | [source](../../Engine/Source/Runtime/Launch) |
+| `Launch` | Runtime bootstrap, command-line launch, project selection, application lifetime, and runtime-variant UI-backend composition | [source](../../Engine/Source/Runtime/Launch) |
 
 ## Editor Modules
 

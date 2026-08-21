@@ -62,7 +62,7 @@ namespace Durin
 
 	auto MViewport::SynchronizeRegisteredTexture(const FTextureRHIRef& DisplayTexture) -> void
 	{
-		Mona::IMonaUIBackend* ActiveBackend = Mona::GActiveUIBackend;
+		Mona::IMonaUIBackend* ActiveBackend = Mona::GetActiveUIBackend();
 		if (RegisteredTexture == DisplayTexture && RegisteredBackend == ActiveBackend) return;
 
 		ReleaseRegisteredTexture();
@@ -77,7 +77,7 @@ namespace Durin
 	auto MViewport::ReleaseRegisteredTexture() -> void
 	{
 		if (RegisteredTexture != nullptr && RegisteredBackend != nullptr
-			&& RegisteredBackend == Mona::GActiveUIBackend)
+			&& RegisteredBackend == Mona::GetActiveUIBackend())
 		{
 			RegisteredBackend->UnregisterTexture(RegisteredTexture);
 		}

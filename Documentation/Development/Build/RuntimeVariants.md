@@ -1,5 +1,9 @@
 # Runtime Variants
 
+Summary: Define how build presets select independent runtime module closures and outputs.
+
+Last reviewed: 2026-08-21
+
 This document explains runtime variants, how presets select them, which compile
 definitions they expose, and what must be updated when adding one.
 
@@ -71,6 +75,14 @@ Each `.dproject` file defines `BaseModules` plus optional per-runtime-variant
 
 DurinHeaderTool treats those entries as the root module set for the active
 runtime variant and resolves transitive dependencies from there.
+
+UI backends follow the same closure rule. `MonaCore` supplies reusable
+contracts, `Mona` supplies application/window/presentation services, and neither
+selects a concrete backend. Launch composes MonaImGui only in an editor build;
+the dependency remains optional so a DurinGame closure contains Mona and
+MonaCore but no MonaImGui module metadata or runtime binary. Adding a future
+game UI backend requires selecting that backend as its own module rather than
+adding MonaImGui to the generic Mona dependency graph.
 
 The `developer` module-creation kind is not a runtime variant. It defaults a
 new module to the `DurinEditor` root and `Source/Developer`, while the project

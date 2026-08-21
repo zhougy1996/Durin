@@ -680,8 +680,8 @@ namespace Durin::Editor::Texture
 					DrawTransparencyGrid(*ImGui::GetWindowDrawList(), ImageMin, ImageSize);
 				bool bDrewPreview = false;
 				ImGui::PushID("TexturePreviewImage");
-				if (Mona::GActiveUIBackend)
-					bDrewPreview = Mona::GActiveUIBackend->DrawImage(
+				if (Mona::GetActiveUIBackend())
+					bDrewPreview = Mona::GetActiveUIBackend()->DrawImage(
 						Preview.GetTexture(), FVector2f(ImageSize.x, ImageSize.y));
 				ImGui::PopID();
 				if (!bDrewPreview) ImGui::Dummy(ImageSize);

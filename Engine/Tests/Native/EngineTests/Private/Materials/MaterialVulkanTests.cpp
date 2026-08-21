@@ -463,7 +463,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		const std::filesystem::path ThumbnailCacheRoot =
 			Durin::Testing::GetTestWorkDirectory() / "StaticMeshRenderedCacheVulkan";
 		Durin::Testing::RemoveTestWorkDirectory(ThumbnailCacheRoot);
-		ASSERT_EQ(Durin::Mona::GActiveUIBackend, nullptr);
+		ASSERT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
 		Durin::Tests::FThumbnailTestUIBackend ThumbnailUIBackend;
 		Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
 		auto PumpCacheToReady = [&](Durin::Editor::FRenderedAssetThumbnailCache& Cache) {

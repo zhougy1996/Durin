@@ -120,8 +120,8 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiBackend::Get() -> FMonaImGuiBackend&
 	{
-		check(Mona::GActiveUIBackend);
-		return static_cast<FMonaImGuiBackend&>(*Mona::GActiveUIBackend);
+		check(Mona::GetActiveUIBackend());
+		return static_cast<FMonaImGuiBackend&>(*Mona::GetActiveUIBackend());
 	}
 
 	auto FMonaImGuiBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void

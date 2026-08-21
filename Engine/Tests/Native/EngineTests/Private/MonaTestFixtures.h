@@ -12,9 +12,9 @@ namespace Durin::Tests
 	{
 	public:
 		explicit FScopedActiveUIBackend(Mona::IMonaUIBackend& Backend)
-			: PreviousBackend(Mona::GActiveUIBackend)
+			: Backend(Backend)
 		{
-			Mona::GActiveUIBackend = &Backend;
+			require(Mona::RegisterUIBackend(Backend));
 		}
 
 		FScopedActiveUIBackend(const FScopedActiveUIBackend&) = delete;
@@ -22,11 +22,11 @@ namespace Durin::Tests
 
 		~FScopedActiveUIBackend()
 		{
-			Mona::GActiveUIBackend = PreviousBackend;
+			require(Mona::UnregisterUIBackend(Backend));
 		}
 
 	private:
-		Mona::IMonaUIBackend* PreviousBackend;
+		Mona::IMonaUIBackend& Backend;
 	};
 
 	class FThumbnailTestUIBackend final : public Mona::IMonaUIBackend

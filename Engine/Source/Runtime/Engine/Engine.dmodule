@@ -13,7 +13,8 @@
         "RHI"
     ],
     "PrivateDependencies": [
-        "ApplicationCore"
+        "ApplicationCore",
+        "Mona"
     ],
     "OptionalPrivateDependencies": [],
     "ReflectHeaders": [

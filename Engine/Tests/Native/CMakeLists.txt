@@ -34,6 +34,17 @@ set_tests_properties(Durin.PlatformSourceSelection PROPERTIES
 	TIMEOUT 30
 )
 
+add_test(
+	NAME Durin.MonaModuleBoundary
+	COMMAND ${CMAKE_COMMAND}
+		"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/MonaModuleBoundaryTests.cmake"
+)
+set_tests_properties(Durin.MonaModuleBoundary PROPERTIES
+	LABELS "build;infrastructure;module-boundary;native-test-default"
+	TIMEOUT 30
+)
+
 durin_validate_native_test_source_ownership("${CMAKE_CURRENT_LIST_DIR}")
 durin_validate_native_test_repository_policy("${CMAKE_CURRENT_LIST_DIR}")
 

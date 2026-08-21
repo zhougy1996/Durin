@@ -12,6 +12,7 @@ namespace Durin
 {
 	class FViewportClient;
 	class IScene;
+	class MWindow;
 
 	// Identifies the latest complete render result published for one scene viewport.
 	struct FSceneViewportStatisticsSnapshot

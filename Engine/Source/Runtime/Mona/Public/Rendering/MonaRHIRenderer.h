@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MonaCoreAPI.h"
+#include "MonaAPI.h"
 #include "RHIResources.h"
 #include "Rendering/MonaRenderer.h"
 
@@ -42,15 +42,15 @@ namespace Durin::Mona
 	class FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
-		MONACORE_API explicit FMonaRHIRenderer(
+		MONA_API explicit FMonaRHIRenderer(
 			bool bAdoptInitializationPresentationCandidate);
-		MONACORE_API ~FMonaRHIRenderer() override;
+		MONA_API ~FMonaRHIRenderer() override;
 
-		MONACORE_API auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
-		MONACORE_API auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
-		MONACORE_API auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
+		MONA_API auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
+		MONA_API auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
+		MONA_API auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
-		MONACORE_API auto PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport> override;
+		MONA_API auto PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport> override;
 
 		// Window keys are non-owning; this renderer owns every mapped viewport record.
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;

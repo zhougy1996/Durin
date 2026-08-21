@@ -3,11 +3,12 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
     "PublicDependencies": [
+        "Core",
+        "RHI",
+        "ApplicationCore",
         "MonaCore"
     ],
     "PrivateDependencies": [
-        "Core",
-        "RHI",
-        "ApplicationCore"
+        "RenderCore"
     ]
 }

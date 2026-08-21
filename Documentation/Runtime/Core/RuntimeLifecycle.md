@@ -2,9 +2,9 @@
 
 Summary: Define application startup, frame execution, project admission, and shutdown ownership.
 
-Modules: Launch, ApplicationCore, Engine
+Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-21
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -81,6 +81,14 @@ create their own surfaces. Headless startup instead uses the explicit headless
 context and creates no surface. Render-command admission opens immediately
 after `RHIInit()` and before Mona rendering, editor previews, or engine
 initialization can enqueue work.
+
+Mona rendering initialization is backend-neutral. In an editor runtime, Launch
+then loads MonaImGui and requires it to install the active backend before
+`GEngine` initialization can submit UI frames. A missing or failed editor
+backend aborts initialization through the ordinary partial-startup unwind. A
+game runtime selects no backend: Mona still owns application, window, input,
+resize, and RHI presentation, while its UI `NewFrame` and `Render` calls are
+explicit no-ops.
 
 Primary-window, platform-surface, and first-viewport ownership is defined by
 [Viewport Rendering](../Rendering/ViewportRendering.md). Vulkan instance,
@@ -170,6 +178,12 @@ argument boundary rather than compared as arbitrary strings by the loop. These
 components do not change
 `FEngineLoop::Exit()` ownership of explicit process shutdown ordering.
 
+MonaCore owns only reusable widget, event, backend, and display-source
+contracts. Mona owns the concrete application, native windows, window renderer,
+and higher-level viewport widgets. Engine exposes MonaCore display-source
+contracts publicly and links Mona privately for its concrete application and
+window integration; MonaCore and Mona never depend on Engine or MonaImGui.
+
 On Windows, an operating-system window move/resize loop may remain inside the
 outer GLFW event pump while dispatching native messages. ApplicationCore
 subclasses every GLFW window before later viewport hooks and uses one
@@ -214,8 +228,9 @@ This document owns only the module pass's placement in startup and process exit.
 
 ## Rendering And UI Integration
 
-RHI, VulkanRHI, RenderCore, Renderer, ApplicationCore, Mona, and MonaImGui
-participate in the startup and exit order defined here. Standalone runtime
+RHI, VulkanRHI, RenderCore, Renderer, ApplicationCore, Mona, and an optional UI
+backend participate in the startup and exit order defined here. Launch, rather
+than Mona, owns concrete backend selection. Standalone runtime
 window ownership belongs to `DGameEngine`; editor host and workspace ownership
 belongs to editor systems. Viewport composition is defined by
 [Viewport Rendering](../Rendering/ViewportRendering.md), and render/RHI command
@@ -224,15 +239,16 @@ recording, replay, flush, and completion are defined by
 
 ## Engine Exit Protocol
 
-`FEngineLoop::Exit()` is the single process-level ordering owner. Mona's module
-shutdown callback runs during consumer detachment to close its windows and UI
-backend, while the stopped module instance remains loaded until the ordinary
-post-object-drain module pass. The function expresses the shutdown order
-directly:
+`FEngineLoop::Exit()` is the single process-level ordering owner. Launch first
+unloads the selected UI backend, which unregisters its exact backend instance
+and releases backend state. Mona's module shutdown callback then closes its
+windows and renderer, while the stopped Mona module instance remains loaded
+until the ordinary post-object-drain module pass. The function expresses the
+shutdown order directly:
 
 | Step | Boundary |
 | --- | --- |
-| Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
+| Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
 | Stop CPU work | After CPU producers close domain admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |

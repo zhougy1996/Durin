@@ -94,8 +94,8 @@ namespace Durin::Editor::MainFrame
 			Impl->UploadState->bAcceptingResult = false;
 			Impl->UploadState->PendingTexture = nullptr;
 		}
-		if (Impl->Texture && Mona::GActiveUIBackend)
-			Mona::GActiveUIBackend->UnregisterTexture(Impl->Texture);
+		if (Impl->Texture && Mona::GetActiveUIBackend())
+			Mona::GetActiveUIBackend()->UnregisterTexture(Impl->Texture);
 	}
 
 	auto FEditorBrandTexture::Load(std::string& OutError) -> bool
@@ -150,9 +150,9 @@ namespace Durin::Editor::MainFrame
 			std::lock_guard Lock(Impl->UploadState->Mutex);
 			UploadedTexture = std::move(Impl->UploadState->PendingTexture);
 		}
-		if (UploadedTexture && Mona::GActiveUIBackend)
+		if (UploadedTexture && Mona::GetActiveUIBackend())
 		{
-			Mona::GActiveUIBackend->RegisterTexture(UploadedTexture);
+			Mona::GetActiveUIBackend()->RegisterTexture(UploadedTexture);
 			Impl->Texture = std::move(UploadedTexture);
 		}
 		return Impl->Texture.GetReference();

@@ -3,7 +3,6 @@
 #include "Application/MonaApplication.h"
 #include "MonaUIBackend.h"
 #include "MonaCoreGlobals.h"
-#include "Modules/ModuleManager.h"
 #include "RHI.h"
 
 namespace Durin
@@ -25,12 +24,6 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
-			{
-				const auto Result = FModuleManager::Get().UnloadModule("MonaImGui");
-				if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload MonaImGui during Mona shutdown: {}"), Result.Message);
-			}
-
 			Mona::FMonaApplication::Shutdown();
 			DURIN_DEBUG(STR("Mona shutdown."));
 		}
@@ -49,13 +42,6 @@ namespace Durin::Mona
 
 		FMonaApplication::Get().Initialize(
 			bAdoptInitializationPresentationCandidate);
-#if DURIN_WITH_EDITOR
-		if (!FModuleManager::Get().LoadModule("MonaImGui"))
-		{
-			FMonaApplication::Get().ShutdownRenderer();
-			return false;
-		}
-#endif
 		DURIN_DEBUG(STR("Mona rendering services initialized successfully."));
 		return true;
 	}
@@ -68,17 +54,17 @@ namespace Durin::Mona
 
 	auto NewFrame() -> void
 	{
-		if (GActiveUIBackend)
+		if (IMonaUIBackend* Backend = GetActiveUIBackend())
 		{
-			GActiveUIBackend->NewFrame();
+			Backend->NewFrame();
 		}
 	}
 
 	auto Render() -> void
 	{
-		if (GActiveUIBackend)
+		if (IMonaUIBackend* Backend = GetActiveUIBackend())
 		{
-			GActiveUIBackend->Render();
+			Backend->Render();
 		}
 	}
 

@@ -114,8 +114,8 @@ namespace Durin::Editor
 
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
-			if (Entry.Texture && Mona::GActiveUIBackend)
-				Mona::GActiveUIBackend->UnregisterTexture(Entry.Texture);
+			if (Entry.Texture && Mona::GetActiveUIBackend())
+				Mona::GetActiveUIBackend()->UnregisterTexture(Entry.Texture);
 			Entry.Texture = nullptr;
 		}
 
@@ -268,7 +268,7 @@ namespace Durin::Editor
 				if (Result.Cancellation.IsCancelled()
 					|| Provider.Generation != Result.ProviderGeneration)
 					continue;
-				if (Result.Texture == nullptr || !Mona::GActiveUIBackend)
+				if (Result.Texture == nullptr || !Mona::GetActiveUIBackend())
 				{
 					Entry.Diagnostic = Result.Error.empty()
 						? "The UI backend is unavailable for rendered-asset thumbnails."
@@ -278,7 +278,7 @@ namespace Durin::Editor
 					continue;
 				}
 				UnregisterTexture(Entry);
-				Mona::GActiveUIBackend->RegisterTexture(Result.Texture);
+				Mona::GetActiveUIBackend()->RegisterTexture(Result.Texture);
 				Entry.Texture = std::move(Result.Texture);
 				Entry.Width = Result.Width;
 				Entry.Height = Result.Height;

@@ -2,6 +2,11 @@
 
 #include "Input/InputCoreTypes.h"
 
+namespace Durin
+{
+	class FGenericWindow;
+}
+
 namespace Durin::Mona
 {
 	// Defines overridable Mona-level handling for normalized window and input events.

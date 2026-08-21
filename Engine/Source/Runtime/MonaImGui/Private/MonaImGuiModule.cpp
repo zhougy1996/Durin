@@ -9,18 +9,36 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
-			check(Mona::GActiveUIBackend == nullptr);
-			Mona::GActiveUIBackend = new MonaImGui::FMonaImGuiBackend();
-			Mona::GActiveUIBackend->Initialize();
+			Backend = std::make_unique<MonaImGui::FMonaImGuiBackend>();
+			Backend->Initialize();
+			if (!Mona::RegisterUIBackend(*Backend))
+			{
+				Backend->Shutdown();
+				Backend.reset();
+				throw std::runtime_error("Mona already has an active UI backend.");
+			}
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			check(Mona::GActiveUIBackend);
-			Mona::GActiveUIBackend->Shutdown();
-			delete Mona::GActiveUIBackend;
-			Mona::GActiveUIBackend = nullptr;
+			if (!Backend) return;
+			try
+			{
+				Backend->Shutdown();
+			}
+			catch (...)
+			{
+				Mona::UnregisterUIBackend(*Backend);
+				Backend.reset();
+				throw;
+			}
+			if (!Mona::UnregisterUIBackend(*Backend))
+				throw std::runtime_error("MonaImGui no longer owns the active UI backend.");
+			Backend.reset();
 		}
+
+	private:
+		std::unique_ptr<MonaImGui::FMonaImGuiBackend> Backend;
 	};
 
 	IMPLEMENT_MODULE(FMonaImGuiModule, MonaImGui)

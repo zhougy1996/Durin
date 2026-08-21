@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "MonaCoreGlobals.h"
+#include "MonaGlobals.h"
 #include "MonaUIBackend.h"
 #include "MonaTestFixtures.h"
 #include "Rendering/MonaRHIRenderer.h"
@@ -40,8 +41,8 @@ namespace
 	public:
 		auto Initialize() -> void override {}
 		auto Shutdown() -> void override {}
-		auto NewFrame() -> void override {}
-		auto Render() -> void override {}
+		auto NewFrame() -> void override { ++NewFrameCount; }
+		auto Render() -> void override { ++RenderCount; }
 
 		auto RegisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
 		{
@@ -71,8 +72,28 @@ namespace
 		std::vector<const Durin::FRHITexture*> Drawn;
 		Durin::FVector2f LastDrawSize = {};
 		bool bDrawSucceeds = true;
+		Durin::uint32 NewFrameCount = 0;
+		Durin::uint32 RenderCount = 0;
 	};
 
+}
+
+TEST(FViewportDisplaySourceTests, BackendAbsentFramesAreNoOpsAndInstalledFramesForwardOnce)
+{
+	ASSERT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
+	Durin::Mona::NewFrame();
+	Durin::Mona::Render();
+
+	FTestUIBackend Backend;
+	{
+		Durin::Tests::FScopedActiveUIBackend BackendScope(Backend);
+		Durin::Mona::NewFrame();
+		Durin::Mona::Render();
+	}
+
+	EXPECT_EQ(Backend.NewFrameCount, 1u);
+	EXPECT_EQ(Backend.RenderCount, 1u);
+	EXPECT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
 }
 
 TEST(FViewportDisplaySourceTests, CoalescesWindowResizeRequestsUntilPrepared)
@@ -186,10 +207,10 @@ TEST(FViewportDisplaySourceTests, HandlesExpirationDestructionAndUnavailableBack
 		Durin::MViewport Widget;
 		Widget.SetDisplaySource(ShutdownSource);
 		Widget.Draw();
-		Durin::Mona::GActiveUIBackend = nullptr;
+		ASSERT_TRUE(Durin::Mona::UnregisterUIBackend(Backend));
 		Widget.Draw();
 		EXPECT_EQ(Backend.Unregistered.size(), 1u);
-		Durin::Mona::GActiveUIBackend = &Backend;
+		ASSERT_TRUE(Durin::Mona::RegisterUIBackend(Backend));
 		Widget.Draw();
 		EXPECT_EQ(Backend.Registered.size(), 3u);
 	}

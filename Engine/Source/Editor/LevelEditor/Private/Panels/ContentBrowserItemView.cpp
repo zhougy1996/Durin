@@ -393,7 +393,7 @@ namespace Durin::Editor::Level::ContentBrowserItemView
 		const ImVec2& CursorAfterTile) -> bool
 	{
 		if (ResolveThumbnailPresentation(Thumbnail) != EThumbnailPresentation::Ready
-			|| !Mona::GActiveUIBackend)
+			|| !Mona::GetActiveUIBackend())
 			return false;
 
 		const float Scale = std::min(
@@ -410,7 +410,7 @@ namespace Durin::Editor::Level::ContentBrowserItemView
 		if (Thumbnail.bHasTransparency && Thumbnail.bShowTransparencyGrid)
 			DrawTransparencyGrid(*DrawList, ImagePosition, ImageSize);
 		ImGui::SetCursorScreenPos(ImagePosition);
-		const bool bDrewThumbnail = Mona::GActiveUIBackend->DrawImage(
+		const bool bDrewThumbnail = Mona::GetActiveUIBackend()->DrawImage(
 			Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
 		ImGui::SetCursorScreenPos(CursorAfterTile);
 		DrawList->PopClipRect();

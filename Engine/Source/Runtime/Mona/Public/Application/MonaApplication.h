@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MonaCoreAPI.h"
+#include "MonaAPI.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Application/MonaEventHandler.h"
@@ -20,71 +20,71 @@ namespace Durin::Mona
 	class FMonaApplication : public FGenericApplication, public FGenericApplicationMessageHandler
 	{
 	public:
-		MONACORE_API ~FMonaApplication() override;
+		MONA_API ~FMonaApplication() override;
 
-		MONACORE_API static auto Create() -> void;
+		MONA_API static auto Create() -> void;
 
-		MONACORE_API static auto Shutdown() -> void;
+		MONA_API static auto Shutdown() -> void;
 
-		MONACORE_API static auto Get() -> FMonaApplication&;
+		MONA_API static auto Get() -> FMonaApplication&;
 
-		MONACORE_API static auto IsInitialized() -> bool;
+		MONA_API static auto IsInitialized() -> bool;
 
-		MONACORE_API auto Tick() -> void override;
+		MONA_API auto Tick() -> void override;
 
 		// Samples platform input before gameplay consumes the current frame.
-		MONACORE_API auto PumpPlatformEvents() -> void;
+		MONA_API auto PumpPlatformEvents() -> void;
 
 		// Advances application time and widgets after gameplay has updated.
-		MONACORE_API auto TickUI() -> void;
+		MONA_API auto TickUI() -> void;
 
-		MONACORE_API auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
+		MONA_API auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
+		MONA_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto Initialize(
+		MONA_API auto Initialize(
 			bool bAdoptInitializationPresentationCandidate) -> void;
 
-		MONACORE_API auto InitializeRenderer(
+		MONA_API auto InitializeRenderer(
 			bool bAdoptInitializationPresentationCandidate) -> void;
-		MONACORE_API auto ShutdownRenderer() -> void;
+		MONA_API auto ShutdownRenderer() -> void;
 
-		MONACORE_API auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;
+		MONA_API auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;
 
-		MONACORE_API auto CloseAllWindowsImmediately() -> void;
+		MONA_API auto CloseAllWindowsImmediately() -> void;
 
-		MONACORE_API auto DestroyWindowsImmediately() -> void;
+		MONA_API auto DestroyWindowsImmediately() -> void;
 
-		MONACORE_API auto FlushPendingWindowDestroys() -> void;
+		MONA_API auto FlushPendingWindowDestroys() -> void;
 
-		MONACORE_API auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void override;
+		MONA_API auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void override;
 
-		MONACORE_API auto PollEvents() -> void;
+		MONA_API auto PollEvents() -> void;
 
-		MONACORE_API auto WaitForEvents(double TimeoutSeconds) const -> void;
+		MONA_API auto WaitForEvents(double TimeoutSeconds) const -> void;
 
-		MONACORE_API auto AreAllWindowsMinimized() const -> bool;
+		MONA_API auto AreAllWindowsMinimized() const -> bool;
 
-		MONACORE_API auto GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
+		MONA_API auto GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
-		MONACORE_API auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
+		MONA_API auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>;
+		MONA_API auto FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto FindMonaWindowByNativeWindowHandle(void* InNativeWindowHandle) const -> std::shared_ptr<MWindow>;
+		MONA_API auto FindMonaWindowByNativeWindowHandle(void* InNativeWindowHandle) const -> std::shared_ptr<MWindow>;
 
-		MONACORE_API auto GetRenderer() const -> FMonaRenderer*;
+		MONA_API auto GetRenderer() const -> FMonaRenderer*;
 
-		MONACORE_API auto DrawWindows() -> void;
+		MONA_API auto DrawWindows() -> void;
 
-		MONACORE_API auto ProcessDeferredEvents() -> void override;
+		MONA_API auto ProcessDeferredEvents() -> void override;
 
-		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
+		MONA_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
-		MONACORE_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
-		MONACORE_API auto SetGameEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
+		MONA_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
+		MONA_API auto SetGameEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
 
-		MONACORE_API auto GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>;
+		MONA_API auto GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>;
 
 		// Message handler functions
 		auto OnWindowFocus(const std::shared_ptr<FGenericWindow> &InPlatformWindow, bool bFocused) -> void override;

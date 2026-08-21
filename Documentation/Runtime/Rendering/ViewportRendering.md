@@ -362,9 +362,11 @@ The neutral port contains only the widget-facing operations needed by Mona:
 - `PrepareDisplay(const FVector2f&)`
 - `GetDisplayTexture()`
 
-MonaCore owns this contract. Engine and Mona both depend publicly on MonaCore,
-while neither module depends on the other. The port contains no World, Scene,
-viewport-client, editor, input, window, or concrete widget vocabulary.
+MonaCore owns this contract. Engine and Mona both depend publicly on MonaCore;
+Engine additionally depends privately on Mona for concrete application,
+window, and window-backed presentation integration, while Mona never depends on
+Engine. The port contains no World, Scene, viewport-client, editor, input,
+window, or concrete widget vocabulary.
 
 ## UI Texture Registration
 
@@ -460,7 +462,7 @@ are defined by [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md
 - Keep UI texture registration in `MViewport`; Engine must not call a UI backend.
 - Keep primary viewport semantics separate from auxiliary editor views; auxiliary clients must explicitly provide their view and do not fall back to the world's active camera.
 - Do not make Mona widgets depend on Engine types.
-- Do not add a direct Engine/Mona module dependency in either direction.
+- Keep Engine's concrete Mona integration private; never add a reverse Mona-to-Engine dependency.
 - Do not make `MViewport` own the scene viewport lifetime.
 - Window-backed game rendering should continue to present through the native RHI viewport.
 
@@ -470,7 +472,7 @@ rule are documented in
 
 ## Related Code
 
-- `Engine/Source/Runtime/MonaCore/Public/Widgets/MWindow.h`
+- `Engine/Source/Runtime/Mona/Public/Widgets/MWindow.h`
 - `Engine/Source/Runtime/MonaCore/Public/Rendering/ViewportDisplaySource.h`
 - `Engine/Source/Runtime/Mona/Public/Widgets/MViewport.h`
 - `Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h`

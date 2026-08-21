@@ -2,9 +2,6 @@
     "ModuleName": "MonaCore",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
-    "PrivateDependencies": [
-        "RenderCore"
-    ],
     "PublicDependencies": [
         "Core",
         "RHI",

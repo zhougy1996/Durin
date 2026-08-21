@@ -57,6 +57,18 @@ durin_add_engine_functional_test(PhysicsQualificationTests
 	LIBRARIES AetherCore Aether
 )
 
+add_durin_test(MonaCoreBoundaryTests
+	Private/Viewport/MonaCoreBoundaryTests.cpp
+)
+target_link_libraries(MonaCoreBoundaryTests PRIVATE
+	MonaCore
+)
+durin_register_native_test(MonaCoreBoundaryTests
+	KIND contract
+	DOMAINS viewport
+	MODULES mona-core
+)
+
 add_durin_test(MonaViewportTests
 	Private/Viewport/ViewportDisplaySourceTests.cpp
 )

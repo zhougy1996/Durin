@@ -6,5 +6,13 @@
 
 namespace Durin
 {
+	class MWindow;
 	class MViewport;
+}
+
+namespace Durin::Mona
+{
+	class FMonaApplication;
+	class FMonaRenderer;
+	class FMonaRHIRenderer;
 }
