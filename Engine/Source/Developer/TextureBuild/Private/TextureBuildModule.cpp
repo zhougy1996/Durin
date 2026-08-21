@@ -1,14 +1,42 @@
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureBuildService.h"
+#include "Texture/VolumeTextureBuildOperations.h"
+#include "Texture/VolumeTexturePostLoad.h"
 
 namespace Durin
 {
+	class FVolumeTextureAuthoringFeature final : public IVolumeTextureAuthoringFeature
+	{
+	public:
+		auto PostLoadUncooked(DVolumeTexture& Texture, std::string& OutError) -> bool override
+		{
+			const std::string Key = Asset::Build::MakeVolumeTextureDerivedDataKey(
+				Texture, OutError);
+			if (Key.empty()) return false;
+			std::unique_ptr<FVolumeTexturePlatformData> Cached;
+			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
+			std::string Message;
+			if (Asset::Build::LoadVolumeTextureDerivedData(
+				Key, Cached, Status, Message))
+				return Texture.PublishDerivedDataLoad(
+					std::move(Cached), Key, OutError);
+			Asset::Build::FVolumeTextureBuildProduct Product;
+			if (!Asset::Build::BuildVolumeTexture(Texture.GetSourceData(),
+				Texture.GetBuildSettings(), Product, OutError)) return false;
+			return Asset::Build::PublishVolumeTextureProduct(
+				Texture, std::move(Product), OutError);
+		}
+	};
+
 	class FTextureBuildModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule() -> void override
+			auto StartupModule() -> void override
 		{
+			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
+				IVolumeTextureAuthoringFeature>(VolumeTextureAuthoringFeature);
+			require(VolumeTextureRegistration.IsValid());
 			BuildHostCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
@@ -28,6 +56,8 @@ namespace Durin
 	private:
 		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
 		FAsyncOperationGroup BuildOperations;
+		FVolumeTextureAuthoringFeature VolumeTextureAuthoringFeature;
+		FModularFeatureRegistration VolumeTextureRegistration;
 
 		auto ShutdownModule() -> void override
 		{

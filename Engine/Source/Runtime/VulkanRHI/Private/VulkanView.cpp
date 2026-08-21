@@ -53,10 +53,12 @@ namespace Durin::VulkanRHI
 		TextureViewBackingGeneration = Texture->GetViewBackingGeneration();
 		vk::ImageViewCreateInfo CreateInfo;
 		CreateInfo.setImage(SourceImage)
-			.setViewType(InDesc.Dimension == ERHITextureViewDimension::TextureCube
+			.setViewType(InDesc.Dimension == ERHITextureViewDimension::Texture3D
+				? vk::ImageViewType::e3D
+				: (InDesc.Dimension == ERHITextureViewDimension::TextureCube
 				? vk::ImageViewType::eCube
 				: (InDesc.Dimension == ERHITextureViewDimension::Texture2DArray
-					? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D))
+					? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D)))
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))
 			.setSubresourceRange(vk::ImageSubresourceRange(
 				ToVulkanAspectFlags(InDesc.Range.Aspects),

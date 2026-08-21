@@ -884,12 +884,14 @@ namespace Durin
 			|| Usage == ERHITextureViewUsage::DepthStencilAttachment;
 		return {
 			.Usage = Usage,
-			.Dimension = !bAttachment && Texture.GetDimension() == ETextureDimension::TextureCube
+			.Dimension = !bAttachment && Texture.GetDimension() == ETextureDimension::Texture3D
+				? ERHITextureViewDimension::Texture3D
+				: (!bAttachment && Texture.GetDimension() == ETextureDimension::TextureCube
 				? ERHITextureViewDimension::TextureCube
 				: (!bAttachment
 						&& Texture.GetDimension() == ETextureDimension::Texture2DArray
 					? ERHITextureViewDimension::Texture2DArray
-					: ERHITextureViewDimension::Texture2D),
+					: ERHITextureViewDimension::Texture2D)),
 			.Format = Texture.GetFormat(),
 			.Range = {
 				.Aspects = GetTextureAspects(Texture.GetFormat()),
@@ -987,6 +989,13 @@ namespace Durin
 				|| Desc.Range.NumArrayLayers != TextureCubeFaceCount)
 				return Fail("Cube texture views require all six faces of a cube parent.");
 		}
+		else if (Desc.Dimension == ERHITextureViewDimension::Texture3D)
+		{
+			if (Texture->GetDimension() != ETextureDimension::Texture3D
+				|| Desc.Range.FirstArrayLayer != 0
+				|| Desc.Range.NumArrayLayers != 1)
+				return Fail("Texture3D views require the sole layer of a 3D parent.");
+		}
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture2D)
 		{
 			if ((Texture->GetDimension() != ETextureDimension::Texture2D
@@ -1015,9 +1024,11 @@ namespace Durin
 		case ERHITextureViewUsage::Storage:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::Storage))
 				return Fail("Storage texture view requires Storage usage.");
-			if (Texture->GetNumSamples() != 1 || Desc.Dimension != ERHITextureViewDimension::Texture2D
+			if (Texture->GetNumSamples() != 1
+				|| (Desc.Dimension != ERHITextureViewDimension::Texture2D
+					&& Desc.Dimension != ERHITextureViewDimension::Texture3D)
 				|| Desc.Range.Aspects != ERHITextureAspect::Color)
-				return Fail("Storage texture views require a single-sampled 2D color range.");
+				return Fail("Storage texture views require a single-sampled 2D or 3D color range.");
 			break;
 		case ERHITextureViewUsage::ColorAttachment:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
@@ -1078,19 +1089,31 @@ namespace Durin
 			if (NumLayers == 0 || FirstLayer > Texture.GetArraySize()
 				|| NumLayers > Texture.GetArraySize() - FirstLayer)
 				return Fail("Texture copy layer range exceeds the texture.");
-			if (Offset.X < 0 || Offset.Y < 0 || Offset.Z != 0)
-				return Fail("Texture copy offset is invalid for a 2D or cube texture.");
-			if (Extent.Width == 0 || Extent.Height == 0 || Extent.Depth != 1)
-				return Fail("Texture copy extent must be nonempty and two-dimensional.");
+			const bool bTexture3D = Texture.GetDimension() == ETextureDimension::Texture3D;
+			if (Offset.X < 0 || Offset.Y < 0 || Offset.Z < 0)
+				return Fail("Texture copy offsets must be nonnegative.");
+			if (Extent.Width == 0 || Extent.Height == 0 || Extent.Depth == 0)
+				return Fail("Texture copy extent must be nonempty.");
 			if (Texture.GetDimension() != ETextureDimension::Texture2D
-				&& Texture.GetDimension() != ETextureDimension::TextureCube)
+				&& Texture.GetDimension() != ETextureDimension::TextureCube
+				&& !bTexture3D)
 				return Fail("Texture copy dimension is unsupported.");
+			if (bTexture3D)
+			{
+				if (FirstLayer != 0 || NumLayers != 1)
+					return Fail("Texture3D copies use the sole mip subresource layer.");
+			}
+			else if (Offset.Z != 0 || Extent.Depth != 1)
+				return Fail("Texture2D and cube copies require Z zero and depth one.");
 			const uint32 MipWidth = std::max(1u, Texture.GetSizeX() >> Mip);
 			const uint32 MipHeight = std::max(1u, Texture.GetSizeY() >> Mip);
+			const uint32 MipDepth = std::max(1u, Texture.GetSizeZ() >> Mip);
 			const uint32 X = static_cast<uint32>(Offset.X);
 			const uint32 Y = static_cast<uint32>(Offset.Y);
+			const uint32 Z = static_cast<uint32>(Offset.Z);
 			if (X > MipWidth || Extent.Width > MipWidth - X
-				|| Y > MipHeight || Extent.Height > MipHeight - Y)
+				|| Y > MipHeight || Extent.Height > MipHeight - Y
+				|| Z > MipDepth || Extent.Depth > MipDepth - Z)
 				return Fail("Texture copy box exceeds the selected mip.");
 			const uint32 BlockSize = GetPixelFormatInfo(Texture.GetFormat()).BlockSize;
 			if (BlockSize == 0) return Fail("Texture copy format has no block layout.");
@@ -1128,9 +1151,11 @@ namespace Durin
 			if (BlockRows > std::numeric_limits<uint64>::max() / RowPitch)
 				return Fail("Buffer-texture image pitch overflows.");
 			const uint64 ImagePitch = BlockRows * RowPitch;
-			if (Region.TextureNumArrayLayers > std::numeric_limits<uint64>::max() / ImagePitch)
-				return Fail("Buffer-texture layer footprint overflows.");
-			OutSize = Region.TextureNumArrayLayers * ImagePitch;
+			const uint64 ImageCount = Texture.GetDimension() == ETextureDimension::Texture3D
+				? Region.TextureExtent.Depth : Region.TextureNumArrayLayers;
+			if (ImageCount > std::numeric_limits<uint64>::max() / ImagePitch)
+				return Fail("Buffer-texture image footprint overflows.");
+			OutSize = ImageCount * ImagePitch;
 			return OutSize != 0 || Fail("Buffer-texture footprint must be nonzero.");
 		}
 
@@ -1143,7 +1168,9 @@ namespace Durin
 				&& OffsetA.X < OffsetB.X + static_cast<int64>(ExtentB.Width)
 				&& OffsetB.X < OffsetA.X + static_cast<int64>(ExtentA.Width)
 				&& OffsetA.Y < OffsetB.Y + static_cast<int64>(ExtentB.Height)
-				&& OffsetB.Y < OffsetA.Y + static_cast<int64>(ExtentA.Height);
+				&& OffsetB.Y < OffsetA.Y + static_cast<int64>(ExtentA.Height)
+				&& OffsetA.Z < OffsetB.Z + static_cast<int64>(ExtentB.Depth)
+				&& OffsetB.Z < OffsetA.Z + static_cast<int64>(ExtentA.Depth);
 		}
 	}
 
@@ -1337,6 +1364,15 @@ namespace Durin
 			break;
 		case ETextureDimension::Texture3D:
 			if (CreateDesc.ArraySize != 1) return Fail("Texture3D array size must be one.");
+			if (CreateDesc.NumSamples != 1) return Fail("Texture3D must be single-sampled.");
+			if (EnumHasAnyFlags(CreateDesc.Flags,
+				ETextureCreateFlags::RenderTargetable
+				| ETextureCreateFlags::ResolveTargetable
+				| ETextureCreateFlags::DepthStencilTargetable
+				| ETextureCreateFlags::CPUReadback))
+				return Fail("Texture3D supports only sampled, storage, source-copy, and destination-copy usage.");
+			if (GetPixelFormatInfo(CreateDesc.Format).Kind == EPixelFormatKind::DepthStencil)
+				return Fail("Texture3D requires a color format.");
 			break;
 		case ETextureDimension::TextureCube:
 			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return Fail("TextureCube width and height must be equal.");
@@ -1434,6 +1470,66 @@ namespace Durin
 		const uint64 RequiredPitch = (SourceBlockX + RegionBlocksWide) * FormatInfo.BytesPerBlock;
 		if (RequiredPitch > SourcePitch) return Fail("Texture upload source pitch is too small for the requested source region.");
 
+		OutError.clear();
+		return true;
+	}
+
+	auto ValidateTexture3DUpdate(
+		const FRHITextureDesc& TextureDesc,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
+		std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](std::string Message) {
+			OutError = std::move(Message);
+			return false;
+		};
+		if (TextureDesc.Dimension != ETextureDimension::Texture3D)
+			return Fail("Texture3D upload requires a Texture3D resource.");
+		if (MipIndex >= TextureDesc.NumMips)
+			return Fail("Texture3D upload mip index is outside the texture mip range.");
+		if (UpdateRegion.SrcX < 0 || UpdateRegion.SrcY < 0 || UpdateRegion.SrcZ < 0)
+			return Fail("Texture3D upload source offsets must be nonnegative.");
+		if (UpdateRegion.Width == 0 || UpdateRegion.Height == 0 || UpdateRegion.Depth == 0)
+			return Fail("Texture3D upload region must be nonzero.");
+		const uint32 MipWidth = std::max(1u, static_cast<uint32>(TextureDesc.Extent.x) >> MipIndex);
+		const uint32 MipHeight = std::max(1u, static_cast<uint32>(TextureDesc.Extent.y) >> MipIndex);
+		const uint32 MipDepth = std::max(1u, static_cast<uint32>(TextureDesc.Depth) >> MipIndex);
+		if (static_cast<uint64>(UpdateRegion.DestX) + UpdateRegion.Width > MipWidth
+			|| static_cast<uint64>(UpdateRegion.DestY) + UpdateRegion.Height > MipHeight
+			|| static_cast<uint64>(UpdateRegion.DestZ) + UpdateRegion.Depth > MipDepth)
+			return Fail("Texture3D upload destination region exceeds the selected mip.");
+
+		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(TextureDesc.Format);
+		if (FormatInfo.BytesPerBlock == 0 || FormatInfo.BlockSize == 0)
+			return Fail("Texture3D upload requires a valid pixel format layout.");
+		const uint32 BlockSize = FormatInfo.BlockSize;
+		if ((UpdateRegion.DestX % BlockSize) != 0 || (UpdateRegion.DestY % BlockSize) != 0
+			|| (static_cast<uint32>(UpdateRegion.SrcX) % BlockSize) != 0
+			|| (static_cast<uint32>(UpdateRegion.SrcY) % BlockSize) != 0)
+			return Fail("Texture3D upload X/Y offsets must be block-aligned.");
+		if ((UpdateRegion.Width % BlockSize != 0 && UpdateRegion.DestX + UpdateRegion.Width != MipWidth)
+			|| (UpdateRegion.Height % BlockSize != 0 && UpdateRegion.DestY + UpdateRegion.Height != MipHeight))
+			return Fail("Texture3D upload X/Y dimensions must align to blocks unless reaching a mip edge.");
+		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
+		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / BlockSize;
+		const uint64 RegionBlocksWide = (static_cast<uint64>(UpdateRegion.Width) + BlockSize - 1) / BlockSize;
+		const uint64 RegionBlockRows = (static_cast<uint64>(UpdateRegion.Height) + BlockSize - 1) / BlockSize;
+		const uint64 RequiredRowPitch = (SourceBlockX + RegionBlocksWide) * FormatInfo.BytesPerBlock;
+		if (RequiredRowPitch > SourceRowPitch)
+			return Fail("Texture3D upload row pitch is too small for the source region.");
+		if (SourceBlockY > std::numeric_limits<uint64>::max() / SourceRowPitch)
+			return Fail("Texture3D upload source row offset overflows.");
+		const uint64 RequiredDepthPitch = (SourceBlockY + RegionBlockRows) * SourceRowPitch;
+		if (RequiredDepthPitch > SourceDepthPitch)
+			return Fail("Texture3D upload depth pitch is too small for the source region.");
+		const uint64 SourceZ = static_cast<uint32>(UpdateRegion.SrcZ);
+		if (SourceZ > std::numeric_limits<uint64>::max() / SourceDepthPitch
+			|| UpdateRegion.Depth - 1 > (std::numeric_limits<uint64>::max()
+				- SourceZ * SourceDepthPitch) / SourceDepthPitch)
+			return Fail("Texture3D upload source depth footprint overflows.");
 		OutError.clear();
 		return true;
 	}

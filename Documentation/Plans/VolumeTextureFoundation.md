@@ -4,22 +4,18 @@ Summary: Complete the backend-neutral 3D texture path and add a cookable `DVolum
 
 Last reviewed: 2026-08-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-21
 
 ## Current Status
 
-Planning is complete and implementation has not started. Durin already declares
-`ETextureDimension::Texture3D`, `ERHITextureDimensionFlags::Texture3D`,
-`FRHITextureCreateDesc::Create3D`, and depth in the generic texture descriptor.
-The declarations are not a usable capability: Vulkan does not advertise or
-create 3D images, `FRHITexture` does not retain depth, public uploads are 2D,
-and Engine has no volume-texture asset, payload, render resource, or build
-recipe.
-
-This plan selects one vertical slice from validated voxel data to a sampled GPU
-texture. It is independent of the persistent-view-state plan; volumetric clouds
-may consume both foundations later, but neither plan depends on cloud rendering.
+Implementation and qualification are complete. Public RHI and Vulkan support
+non-array sampled/storage/copy 3D textures, including recorded uploads and
+reflected shader bindings. Engine owns a package-backed, cookable
+`DVolumeTexture`; TextureBuild owns deterministic three-axis mip construction,
+TXPL/DDC production, and the uncooked post-load policy. The lasting contracts
+are published in [Volume textures](../Runtime/Assets/VolumeTextures.md) and
+[RHI capabilities and Vulkan startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md).
 
 ## Goal
 
@@ -161,19 +157,19 @@ resource-lifecycle contracts as existing texture assets.
 
 ### Stage 0: Freeze the 3D format, layout, and payload contracts
 
-- [ ] Inventory all texture-dimension switches, size/footprint helpers, view
+- [x] Inventory all texture-dimension switches, size/footprint helpers, view
   validators, state trackers, copy validators, shader reflection mappings,
   stable format tables, texture reference paths, and texture build recipes.
-- [ ] Freeze dimension-specific create rules and the exact behavior of depth,
+- [x] Freeze dimension-specific create rules and the exact behavior of depth,
   mips, array size, samples, allowed flags, views, transitions, and copies.
-- [ ] Freeze `FUpdateTextureRegion3D`, row/depth-pitch validation, recorded byte
+- [x] Freeze `FUpdateTextureRegion3D`, row/depth-pitch validation, recorded byte
   ownership, and uncompressed odd-extent fixtures.
-- [ ] Qualify the selected five asset formats for sampled 3D creation on the
+- [x] Qualify the selected five asset formats for sampled 3D creation on the
   target adapter and qualify storage access for at least `R8_UNORM` and
   `RGBA16_FLOAT`; record any portable format reduction before Stage 1.
-- [ ] Freeze source/build/platform structures, mip-filter math, limits, stable
+- [x] Freeze source/build/platform structures, mip-filter math, limits, stable
   payload IDs, producer version, DDC-key inputs, and corruption behavior.
-- [ ] Record exact module/file ownership and focused native-test targets before
+- [x] Record exact module/file ownership and focused native-test targets before
   production changes.
 
 #### Acceptance Gate
@@ -185,15 +181,15 @@ resource-lifecycle contracts as existing texture assets.
 
 ### Stage 1: Complete the public RHI and Vulkan 3D path
 
-- [ ] Retain resource depth, publish the 3D limit, and make descriptor/support
+- [x] Retain resource depth, publish the 3D limit, and make descriptor/support
   validation dimension-correct with checked footprint arithmetic.
-- [ ] Add recorded `UpdateTexture3D` commands and context/backend entry points
+- [x] Add recorded `UpdateTexture3D` commands and context/backend entry points
   with exact source-byte retention in inline and threaded execution.
-- [ ] Create Vulkan 3D images and views and repair copy, transition, state,
+- [x] Create Vulkan 3D images and views and repair copy, transition, state,
   allocation, upload, and readback paths for mip-based 3D subresources.
-- [ ] Complete reflected sampled/storage 3D shader bindings without
+- [x] Complete reflected sampled/storage 3D shader bindings without
   backend-specific renderer code.
-- [ ] Add focused RHI/Vulkan tests for valid and rejected descriptors, odd
+- [x] Add focused RHI/Vulkan tests for valid and rejected descriptors, odd
   extents, partial regions, multi-mip uploads, copy round trips, sampled output,
   storage writes, command retention, and device failure.
 
@@ -205,15 +201,15 @@ resource-lifecycle contracts as existing texture assets.
 
 ### Stage 2: Add the runtime `DVolumeTexture` asset and render resource
 
-- [ ] Add reflected asset/build settings and validated volume source, mip, and
+- [x] Add reflected asset/build settings and validated volume source, mip, and
   platform-data types with copy/move/serialization behavior.
-- [ ] Extend stable texture payload encoding/decoding with the volume dimension,
+- [x] Extend stable texture payload encoding/decoding with the volume dimension,
   formats, producer version, cooked GUID, hashes, limits, and diagnostics.
-- [ ] Add `DVolumeTexture` load, post-load, cook, duplication, replacement,
+- [x] Add `DVolumeTexture` load, post-load, cook, duplication, replacement,
   derived-key, last-known-good, and render-completion behavior.
-- [ ] Add `FVolumeTextureResource` creation, per-mip upload, texture-reference
+- [x] Add `FVolumeTextureResource` creation, per-mip upload, texture-reference
   publication, revision ordering, failure retention, and deferred cleanup.
-- [ ] Add asset/payload/resource tests for valid, empty, odd, corrupt,
+- [x] Add asset/payload/resource tests for valid, empty, odd, corrupt,
   unsupported, oversized, stale-revision, replacement, and shutdown cases.
 
 #### Acceptance Gate
@@ -224,16 +220,16 @@ resource-lifecycle contracts as existing texture assets.
 
 ### Stage 3: Add deterministic volume texture building
 
-- [ ] Register one `TextureBuild` volume recipe/function transaction using
+- [x] Register one `TextureBuild` volume recipe/function transaction using
   normalized voxel source and the frozen build settings.
-- [ ] Generate deterministic three-axis mip chains for the admitted formats,
+- [x] Generate deterministic three-axis mip chains for the admitted formats,
   including 1xN xM, odd extents, one-voxel depth, and full 1x1x1 termination.
-- [ ] Include source identity, dimensions, format, filter settings, builder
+- [x] Include source identity, dimensions, format, filter settings, builder
   version, platform/profile, and relevant policy in the DDC key.
-- [ ] Integrate cache hit/miss, rebuild, corrupt-entry rejection, cook lookup,
+- [x] Integrate cache hit/miss, rebuild, corrupt-entry rejection, cook lookup,
   and atomic Engine publication without introducing an Engine-to-TextureBuild
   public dependency.
-- [ ] Add golden mip, key sensitivity, DDC round-trip, and cook-without-source
+- [x] Add golden mip, key sensitivity, DDC round-trip, and cook-without-source
   tests.
 
 #### Acceptance Gate
@@ -244,15 +240,15 @@ resource-lifecycle contracts as existing texture assets.
 
 ### Stage 4: Qualify the end-to-end foundation and publish contracts
 
-- [ ] Run the focused RHI, Vulkan, shader, TextureBuild, Engine asset, package,
+- [x] Run the focused RHI, Vulkan, shader, TextureBuild, Engine asset, package,
   cook, and render-resource test matrix using the repository test workflow.
-- [ ] Render a deterministic 3D sampling fixture into a 2D target and compare
+- [x] Render a deterministic 3D sampling fixture into a 2D target and compare
   expected slices/interpolation for all admitted formats and both executors.
-- [ ] Exercise shader reload, asset replacement, failed rebuild/upload, device
+- [x] Exercise shader reload, asset replacement, failed rebuild/upload, device
   invalidation, retry, render-thread backlog, and shutdown.
-- [ ] Record logical payload bytes, backend allocation bytes, upload bytes, and
+- [x] Record logical payload bytes, backend allocation bytes, upload bytes, and
   bounded diagnostics for a representative multi-mip volume.
-- [ ] Publish lasting RHI capability and volume-texture asset contracts, then
+- [x] Publish lasting RHI capability and volume-texture asset contracts, then
   close this plan only when all gates have evidence.
 
 #### Acceptance Gate
@@ -260,6 +256,27 @@ resource-lifecycle contracts as existing texture assets.
 - The complete validation matrix passes on the qualification adapter; runtime
   sampling uses only public contracts; failure preserves the last-known-good or
   explicit null fallback; and lasting behavior is documented outside the plan.
+
+## Completion Evidence
+
+- `RHICommandListTests` covers validated 3D upload recording and exact caller-byte
+  retention; `RenderContractTests` covers descriptors, views, pitches, copies,
+  bounds, and footprints.
+- `VulkanRHIIntegrationTests` qualifies the published 3D limit and selected
+  formats on an NVIDIA GeForce GTX 1060 6GB, exercises odd/multi-slice upload,
+  copy/readback, and runs reflected `Texture3D` sampling plus `RWTexture3D`
+  writes through inline and threaded executors with validation enabled.
+- `TextureTests` covers all five portable builders, odd and degenerate axes,
+  golden tail mips, deterministic keys and DDC hits, TXPL round-trip and
+  corruption, authored package reload, transactional failed replacement,
+  cooking, and source-free cooked loading.
+- The shared revisioned `DTexture` resource lifecycle remains the owner of
+  replacement, backlog, failure retention, invalidation/retry, and shutdown;
+  `FVolumeTextureResource` supplies only the topology-specific create and
+  per-mip upload candidate.
+- The representative `1x1x2 RGBA8` shader fixture accounts for 8 logical and
+  upload bytes and asserts backend allocation is at least the logical size;
+  lasting diagnostic semantics are recorded in the volume-texture contract.
 
 ## Validation Matrix
 

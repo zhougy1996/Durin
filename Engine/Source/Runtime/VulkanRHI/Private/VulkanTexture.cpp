@@ -39,6 +39,7 @@ namespace Durin::VulkanRHI
 	{
 		check(CreateDesc.Dimension == ETextureDimension::Texture2D
 			|| CreateDesc.Dimension == ETextureDimension::Texture2DArray
+			|| CreateDesc.Dimension == ETextureDimension::Texture3D
 			|| CreateDesc.Dimension == ETextureDimension::TextureCube);
 		vk::ImageUsageFlags Usage{};
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::ShaderResource))
@@ -69,7 +70,8 @@ namespace Durin::VulkanRHI
 		}
 
 		vk::ImageCreateInfo Result;
-		Result.setImageType(vk::ImageType::e2D)
+		Result.setImageType(CreateDesc.Dimension == ETextureDimension::Texture3D
+				? vk::ImageType::e3D : vk::ImageType::e2D)
 			.setFormat(ToVulkan_PixelFormat(CreateDesc.Format))
 			.setExtent(ToVulkan_Extent3D(CreateDesc.GetSize()))
 			.setArrayLayers(CreateDesc.ArraySize)
@@ -272,23 +274,29 @@ namespace Durin::VulkanRHI
 		const bool bTexture2D = CreateDesc.Dimension == ETextureDimension::Texture2D;
 		const bool bTexture2DArray =
 			CreateDesc.Dimension == ETextureDimension::Texture2DArray;
+		const bool bTexture3D = CreateDesc.Dimension == ETextureDimension::Texture3D;
 		const bool bTextureCube = CreateDesc.Dimension == ETextureDimension::TextureCube;
-		if ((!bTexture2D && !bTexture2DArray && !bTextureCube)
+		if ((!bTexture2D && !bTexture2DArray && !bTexture3D && !bTextureCube)
 			|| (bTexture2D && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
 				ERHITextureDimensionFlags::Texture2D))
 			|| (bTexture2DArray && !EnumHasAnyFlags(
 				Capabilities->SupportedTextureDimensions,
 				ERHITextureDimensionFlags::Texture2DArray))
+			|| (bTexture3D && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
+				ERHITextureDimensionFlags::Texture3D))
 			|| (bTextureCube && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
 				ERHITextureDimensionFlags::TextureCube)))
 		{
 			return false;
 		}
-		const uint32 DimensionLimit = bTextureCube
-			? Capabilities->MaxTextureDimensionCube : Capabilities->MaxTextureDimension2D;
+		const uint32 DimensionLimit = bTexture3D
+			? Capabilities->MaxTextureDimension3D
+			: (bTextureCube ? Capabilities->MaxTextureDimensionCube
+				: Capabilities->MaxTextureDimension2D);
 		if (static_cast<uint32>(CreateDesc.Extent.x) > DimensionLimit
 			|| static_cast<uint32>(CreateDesc.Extent.y) > DimensionLimit
-			|| CreateDesc.ArraySize > Capabilities->MaxTextureArrayLayers)
+			|| (bTexture3D && CreateDesc.Depth > DimensionLimit)
+			|| (!bTexture3D && CreateDesc.ArraySize > Capabilities->MaxTextureArrayLayers))
 		{
 			return false;
 		}
@@ -313,7 +321,11 @@ namespace Durin::VulkanRHI
 			{
 				const uint32 Width = std::max(1u, static_cast<uint32>(CreateDesc.Extent.x) >> MipIndex);
 				const uint32 Height = std::max(1u, static_cast<uint32>(CreateDesc.Extent.y) >> MipIndex);
-				const uint64 MipSize = GetPixelFormatLayout(CreateDesc.Format, Width, Height).DataSize;
+				const uint32 Depth = bTexture3D
+					? std::max(1u, static_cast<uint32>(CreateDesc.Depth) >> MipIndex) : 1u;
+				const uint64 SliceSize = GetPixelFormatLayout(CreateDesc.Format, Width, Height).DataSize;
+				if (SliceSize > std::numeric_limits<uint64>::max() / Depth) return false;
+				const uint64 MipSize = SliceSize * Depth;
 				if (MipSize > std::numeric_limits<uint64>::max() - PayloadSize) return false;
 				PayloadSize += MipSize;
 			}
@@ -511,6 +523,96 @@ namespace Durin::VulkanRHI
 			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, 1}}};
 		Context.RHICopyBufferToTexture(StagingBuffer, VulkanTexture, CopyRegions);
 
+		const ERHIAccess FinalAccess = bStorage
+			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
+		const std::array PostCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, ERHIAccess::TransferWrite, FinalAccess}};
+		Context.RHITransitionTextures(PostCopyTransition);
+		Staging.Retire();
+	}
+
+	auto FVulkanDynamicRHI::UpdateTexture3D(
+		FVulkanCommandListContext& Context,
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
+		std::span<const uint8> SourceData) -> void
+	{
+		CheckVulkanRHIThread();
+		checkf(Texture != nullptr, "RHIUpdateTexture3D requires a texture.");
+		checkf(!SourceData.empty(), "RHIUpdateTexture3D requires source data.");
+		FRHITextureDesc TextureDesc;
+		TextureDesc.Dimension = Texture->GetDimension();
+		TextureDesc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+		TextureDesc.Depth = static_cast<uint16>(Texture->GetSizeZ());
+		TextureDesc.Format = Texture->GetFormat();
+		TextureDesc.ArraySize = Texture->GetArraySize();
+		TextureDesc.NumMips = Texture->GetNumMips();
+		TextureDesc.NumSamples = Texture->GetNumSamples();
+		std::string ValidationError;
+		checkf(ValidateTexture3DUpdate(TextureDesc, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch, ValidationError),
+			"Invalid RHI volume texture upload: {}", ValidationError);
+
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
+		const FPixelFormatLayout SliceLayout = GetPixelFormatLayout(
+			VulkanTexture->GetFormat(), UpdateRegion.Width, UpdateRegion.Height);
+		check(SliceLayout.RowPitch <= std::numeric_limits<uint32>::max());
+		check(SliceLayout.DataSize <= std::numeric_limits<uint32>::max());
+		check(UpdateRegion.Depth <= std::numeric_limits<uint32>::max() / SliceLayout.DataSize);
+		const uint32 PackedRowPitch = static_cast<uint32>(SliceLayout.RowPitch);
+		const uint32 PackedDepthPitch = static_cast<uint32>(SliceLayout.DataSize);
+		const uint32 DataSize = PackedDepthPitch * UpdateRegion.Depth;
+		check(SourceData.size() >= DataSize);
+		const uint64 Alignment = std::max<uint64>({16, FormatInfo.BytesPerBlock,
+			Device->GetGpuProperties().limits.nonCoherentAtomSize,
+			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
+		FVulkanTransferRange Staging = Context.AcquireTransferRange(
+			EVulkanAllocationClassCandidate::TransferUpload, DataSize, Alignment);
+		FVulkanBuffer* StagingBuffer = Staging.GetBuffer();
+		GVulkanMemoryBaselineTracker.RecordUpload(DataSize);
+		auto* Mapped = Staging.GetMappedPointer();
+		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / FormatInfo.BlockSize;
+		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / FormatInfo.BlockSize;
+		const uint8* SourceRegion = SourceData.data()
+			+ static_cast<uint64>(UpdateRegion.SrcZ) * SourceDepthPitch
+			+ SourceBlockY * SourceRowPitch
+			+ SourceBlockX * FormatInfo.BytesPerBlock;
+		for (uint64 Z = 0; Z < UpdateRegion.Depth; ++Z)
+			for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
+				std::memcpy(Mapped + Z * PackedDepthPitch + Row * PackedRowPitch,
+					SourceRegion + Z * SourceDepthPitch + Row * SourceRowPitch,
+					PackedRowPitch);
+		Staging.Flush();
+		StagingBuffer->GetStateTracker().Apply(
+			Staging.GetOffset(), DataSize, ERHIAccess::HostWrite);
+		const std::array StagingTransition{FRHIBufferTransition{
+			StagingBuffer, Staging.GetOffset(), DataSize,
+			ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
+		Context.RHITransitionBuffers(StagingTransition);
+
+		const FRHITextureSubresourceRange TransitionRange{
+			ERHITextureAspect::Color, MipIndex, 1, 0, 1};
+		const ERHIAccess PreviousAccess = VulkanTexture->GetStateTracker().Get(
+			ERHITextureAspect::Color, MipIndex, 0);
+		const std::array PreCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, PreviousAccess, ERHIAccess::TransferWrite}};
+		Context.RHITransitionTextures(PreCopyTransition);
+		const std::array CopyRegions{FRHIBufferTextureCopyRegion{
+			.BufferOffset = Staging.GetOffset(),
+			.TextureAspect = ERHITextureAspect::Color,
+			.TextureMip = MipIndex,
+			.TextureFirstArrayLayer = 0,
+			.TextureNumArrayLayers = 1,
+			.TextureOffset = {static_cast<int32>(UpdateRegion.DestX),
+				static_cast<int32>(UpdateRegion.DestY), static_cast<int32>(UpdateRegion.DestZ)},
+			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, UpdateRegion.Depth}}};
+		Context.RHICopyBufferToTexture(StagingBuffer, VulkanTexture, CopyRegions);
+		const bool bStorage = EnumHasAnyFlags(
+			VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
 		const ERHIAccess FinalAccess = bStorage
 			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
 		const std::array PostCopyTransition{FRHITextureTransition{

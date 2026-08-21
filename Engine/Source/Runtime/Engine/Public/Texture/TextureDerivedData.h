@@ -7,29 +7,35 @@
 namespace Durin
 {
 	struct FTextureCubePlatformData;
+	struct FVolumeTexturePlatformData;
 
 	inline constexpr uint32 TexturePayloadMagic = 0x4C505854; // TXPL
 	inline constexpr uint32 TexturePayloadSchemaVersion = 1;
 	inline constexpr uint32 Texture2DPayloadProducerVersion = 2;
 	inline constexpr uint32 TextureCubeBuilderVersion = 1;
 	inline constexpr uint32 TextureCubeProjectionVersion = 1;
+	inline constexpr uint32 VolumeTextureBuilderVersion = 1;
 	inline constexpr uint32 TextureDerivedDataKeySchemaVersion = 1;
 	inline constexpr uint32 TexturePayloadHeaderSize = 80;
 	inline constexpr uint32 TexturePayloadRecordSize = 40;
 	inline constexpr uint32 TexturePayloadAlignment = 16;
 	inline constexpr uint32 MaximumTexture2DDimension = 16'384;
 	inline constexpr uint32 MaximumTextureCubeDimension = 4'096;
+	inline constexpr uint32 MaximumVolumeTextureDimension = 2'048;
 	inline constexpr uint32 MaximumTextureMipCount = 32;
 	inline constexpr uint64 MaximumTexturePayloadBytes = 2ull * 1024ull * 1024ull * 1024ull;
 	inline const FGuid Texture2DPrimaryCookedPayloadId{
 		0x53aa6a89, 0xdc49401a, 0xb409adc4, 0x98ac4f8b};
 	inline const FGuid TextureCubePrimaryCookedPayloadId{
 		0xd52878ce, 0x8f5048c7, 0xa3c7ff84, 0x6e2c4c5a};
+	inline const FGuid VolumeTexturePrimaryCookedPayloadId{
+		0x672b164e, 0x4e194871, 0xa7b841df, 0xe3208b15};
 
 	enum class ETexturePayloadDimension : uint32
 	{
 		Texture2D = 1,
-		TextureCube = 2
+		TextureCube = 2,
+		Texture3D = 3
 	};
 
 	enum class ETextureStablePixelFormat : uint32
@@ -40,7 +46,26 @@ namespace Durin
 		BC3_UNORM_SRGB = 4,
 		BC5_UNORM = 5,
 		BC7_UNORM = 6,
-		BC7_UNORM_SRGB = 7
+		BC7_UNORM_SRGB = 7,
+		R8_UNORM = 8,
+		RG8_UNORM = 9,
+		RGBA8_UNORM = 10,
+		R16_FLOAT = 11,
+		RGBA16_FLOAT = 12
 	};
+
+	ENGINE_API auto BuildVolumeTextureSerializedValue(
+		const FVolumeTexturePlatformData& PlatformData,
+		Asset::ECookTargetPlatform TargetPlatform,
+		Asset::ECookTargetProfile TargetProfile,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool;
+	ENGINE_API auto ParseVolumeTextureSerializedValue(
+		std::span<const uint8> Bytes,
+		Asset::ECookTargetPlatform ExpectedPlatform,
+		Asset::ECookTargetProfile ExpectedProfile,
+		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData,
+		std::string& OutError,
+		EPayloadDecodeError& OutCode) -> bool;
 
 }

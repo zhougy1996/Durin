@@ -1127,6 +1127,81 @@ namespace Durin
 			std::vector<uint8> Data;
 		};
 
+		struct FUpdateTexture3DCommand
+		{
+			FUpdateTexture3DCommand(
+				FRHITexture* InTexture,
+				uint32 InMipIndex,
+				const FUpdateTextureRegion3D& InRegion,
+				uint32 InSourceRowPitch,
+				uint32 InSourceDepthPitch,
+				const uint8* InSourceData)
+				: Texture(InTexture), MipIndex(InMipIndex), Region(InRegion)
+			{
+				check(Texture && InSourceData);
+				FRHITextureDesc Desc;
+				Desc.Dimension = Texture->GetDimension();
+				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+				Desc.Depth = static_cast<uint16>(Texture->GetSizeZ());
+				Desc.Format = Texture->GetFormat();
+				Desc.ArraySize = Texture->GetArraySize();
+				Desc.NumMips = Texture->GetNumMips();
+				Desc.NumSamples = Texture->GetNumSamples();
+				std::string Error;
+				checkf(ValidateTexture3DUpdate(Desc, MipIndex, Region,
+					InSourceRowPitch, InSourceDepthPitch, Error),
+					"Invalid RHI volume texture upload: {}", Error);
+
+				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
+				const FPixelFormatLayout SliceLayout = GetPixelFormatLayout(
+					Texture->GetFormat(), Region.Width, Region.Height);
+				check(SliceLayout.RowPitch <= std::numeric_limits<uint32>::max());
+				check(SliceLayout.DataSize <= std::numeric_limits<uint32>::max());
+				check(Region.Depth <= std::numeric_limits<size_t>::max() / SliceLayout.DataSize);
+				SourceRowPitch = static_cast<uint32>(SliceLayout.RowPitch);
+				SourceDepthPitch = static_cast<uint32>(SliceLayout.DataSize);
+				Data.resize(static_cast<size_t>(SliceLayout.DataSize) * Region.Depth);
+				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX) / FormatInfo.BlockSize;
+				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY) / FormatInfo.BlockSize;
+				const uint8* SourceRegion = InSourceData
+					+ static_cast<uint64>(Region.SrcZ) * InSourceDepthPitch
+					+ SourceBlockY * InSourceRowPitch
+					+ SourceBlockX * FormatInfo.BytesPerBlock;
+				for (uint64 Z = 0; Z < Region.Depth; ++Z)
+				{
+					for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
+					{
+						std::memcpy(Data.data() + Z * SourceDepthPitch + Row * SourceRowPitch,
+							SourceRegion + Z * InSourceDepthPitch + Row * InSourceRowPitch,
+							SourceRowPitch);
+					}
+				}
+				Region.SrcX = 0;
+				Region.SrcY = 0;
+				Region.SrcZ = 0;
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("UpdateTexture3D")
+					.RHIUpdateTexture3D(Texture.GetReference(), MipIndex, Region,
+						SourceRowPitch, SourceDepthPitch, Data);
+			}
+
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return Data.capacity() * sizeof(Data.front());
+			}
+
+			TRefCountPtr<FRHITexture> Texture;
+			uint32 MipIndex = 0;
+			FUpdateTextureRegion3D Region;
+			uint32 SourceRowPitch = 0;
+			uint32 SourceDepthPitch = 0;
+			std::vector<uint8> Data;
+		};
+
 		struct FSetShaderParametersCommand
 		{
 			FSetShaderParametersCommand(
@@ -1811,6 +1886,18 @@ namespace Durin
 	{
 		RecordCommand<FUpdateTexture2DCommand>(
 			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
+	}
+
+	auto FRHICommandListBase::UpdateTexture3D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
+		const uint8* SourceData) -> void
+	{
+		RecordCommand<FUpdateTexture3DCommand>(Texture, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch, SourceData);
 	}
 
 	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void

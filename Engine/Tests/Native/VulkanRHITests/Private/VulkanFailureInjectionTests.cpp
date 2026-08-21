@@ -1068,10 +1068,9 @@ namespace Durin::VulkanRHI
 
 			const FRHICapabilities* Capabilities = GDynamicRHI->RHIGetCapabilities();
 			ASSERT_NE(Capabilities, nullptr);
-			FRHITextureCreateDesc Unsupported = FRHITextureCreateDesc::Create3D(
+			FRHITextureCreateDesc Unsupported = FRHITextureCreateDesc::CreateCubeArray(
 				"ExpectedUnsupportedConformanceTexture")
-				.SetExtent(4, 4).SetDepth(4)
-				.SetFormat(EPixelFormat::RGBA8_UNORM);
+				.SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM);
 			EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Unsupported));
 			EXPECT_FALSE(GDynamicRHI->RHICreateTexture(Commands, Unsupported));
 
@@ -1230,8 +1229,10 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Capabilities->SupportedTextureDimensions,
 			ERHITextureDimensionFlags::Texture2D
 				| ERHITextureDimensionFlags::Texture2DArray
+				| ERHITextureDimensionFlags::Texture3D
 				| ERHITextureDimensionFlags::TextureCube);
 		EXPECT_GE(Capabilities->MaxTextureDimension2D, 1u);
+		EXPECT_GE(Capabilities->MaxTextureDimension3D, 1u);
 		EXPECT_GE(Capabilities->MaxTextureDimensionCube, 1u);
 		EXPECT_GE(Capabilities->MaxTextureArrayLayers,
 			static_cast<uint32>(TextureCubeFaceCount));
@@ -1256,13 +1257,30 @@ namespace Durin::VulkanRHI
 				.SetExtent(4, 4).SetArraySize(3)
 				.SetFormat(EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::ShaderResource);
+		FRHITextureCreateDesc Texture3D = FRHITextureCreateDesc::Create3D(
+			"Supported3D").SetExtent(4, 4).SetDepth(4)
+			.SetFormat(EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource);
 		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2D));
 		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2DArray));
+		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D));
 		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(TextureCube));
+		for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RG8_UNORM,
+			EPixelFormat::RGBA8_UNORM, EPixelFormat::R16_FLOAT,
+			EPixelFormat::RGBA16_FLOAT})
+		{
+			Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::ShaderResource);
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
+				<< static_cast<uint32>(Format);
+		}
+		for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RGBA16_FLOAT})
+		{
+			Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::Storage);
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
+				<< static_cast<uint32>(Format);
+		}
 
 		const std::array DeferredDescriptions{
-			FRHITextureCreateDesc::Create3D("Deferred3D")
-				.SetDepth(4).SetFormat(EPixelFormat::RGBA8_UNORM),
 			FRHITextureCreateDesc::CreateCubeArray("DeferredCubeArray")
 				.SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM),
 		};
@@ -1285,12 +1303,17 @@ namespace Durin::VulkanRHI
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
 		FTextureRHIRef Created2DArray =
 			GDynamicRHI->RHICreateTexture(RHICmdList, Texture2DArray);
+		Texture3D.SetFormat(EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource);
+		FTextureRHIRef Created3D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture3D);
 		FTextureRHIRef CreatedCube = GDynamicRHI->RHICreateTexture(RHICmdList, TextureCube);
 		EXPECT_TRUE(Created2D);
 		EXPECT_TRUE(Created2DArray);
+		EXPECT_TRUE(Created3D);
 		EXPECT_TRUE(CreatedCube);
 		Created2D = nullptr;
 		Created2DArray = nullptr;
+		Created3D = nullptr;
 		CreatedCube = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 	}

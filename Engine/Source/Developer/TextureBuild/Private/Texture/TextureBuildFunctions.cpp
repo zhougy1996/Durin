@@ -5,6 +5,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureDerivedData.h"
+#include "Texture/VolumeTextureBuilder.h"
 
 namespace Durin::Asset::Build::Private
 {
@@ -12,6 +13,8 @@ namespace Durin::Asset::Build::Private
 		"Durin.TextureBuild.Texture2D", 1};
 	const FBuildFunctionIdentity TextureCubeFunctionIdentity{
 		"Durin.TextureBuild.TextureCube", 1};
+	const FBuildFunctionIdentity VolumeTextureFunctionIdentity{
+		"Durin.TextureBuild.VolumeTexture", 1};
 
 	namespace
 	{
@@ -292,6 +295,71 @@ namespace Durin::Asset::Build::Private
 				return EncodeTextureCubePlatformValue(PlatformData, OutValue, OutError);
 			}
 		};
+
+		class FVolumeTextureBuildFunction final : public IBuildFunction
+		{
+		public:
+			auto GetConfig() const -> FBuildFunctionConfig override
+			{
+				return {.CacheRoot = "VolumeTexture/Objects",
+					.ExpectedValueName = std::string(VolumeTextureValueName),
+					.MaximumValueBytes = MaximumTexturePayloadBytes,
+					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,
+					.CleanupDeleteLimit = TextureDerivedDataCleanupDeleteLimit};
+			}
+
+			auto Validate(const FBuildDefinition&, const FBuildValue& Value,
+				std::string& OutError) const -> bool override
+			{
+				FVolumeTexturePlatformData Data;
+				return DecodeVolumeTexturePlatformValue(Value, Data, OutError);
+			}
+
+			auto Build(const FBuildContext& Context, FBuildValue& OutValue,
+				std::string& OutError) const -> bool override
+			{
+				const FBuildValue* Input = Context.GetInput(VolumeTextureInputName);
+				if (!Input)
+				{
+					OutError = "Volume texture local input is missing.";
+					return false;
+				}
+				FBinaryReader Reader(Input->GetBytes());
+				FVolumeTextureSourceData Source;
+				FVolumeTextureBuildSettings Settings;
+				uint32 Format = 0, Filter = 0;
+				uint64 ByteCount = 0;
+				if (!Reader.ReadU32(Source.Width) || !Reader.ReadU32(Source.Height)
+					|| !Reader.ReadU32(Source.Depth) || !Reader.ReadU32(Format)
+					|| !Reader.ReadU32(Filter) || !Reader.ReadU64(ByteCount)
+					|| ByteCount != Reader.GetRemainingBytes()
+					|| !Reader.ReadBytes(Source.Voxels, ByteCount, Input->GetBytes().size())
+					|| !Reader.IsAtEnd())
+				{
+					OutError = "Volume texture local input is malformed.";
+					return false;
+				}
+				Source.Format = static_cast<EVolumeTextureFormat>(Format);
+				Settings.OutputFormat = static_cast<EVolumeTextureFormat>(Format);
+				Settings.MipFilter = static_cast<EVolumeTextureMipFilter>(Filter);
+				FVolumeTexturePlatformData PlatformData;
+				if (!VolumeTextureBuilder::BuildMipChain(
+					Source, Settings, PlatformData, OutError)) return false;
+				std::vector<uint8> Bytes;
+				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+				PlatformData.Serialize(Ar, {
+					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+					.TargetProfile = Asset::ECookTargetProfile::Game});
+				if (Ar.HasError())
+				{
+					OutError = Ar.GetFailure()->Message;
+					return false;
+				}
+				OutValue = FBuildValue::FromOwned(
+					std::string(VolumeTextureValueName), std::move(Bytes));
+				return true;
+			}
+		};
 	}
 
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
@@ -367,6 +435,43 @@ namespace Durin::Asset::Build::Private
 		return true;
 	}
 
+	auto EncodeVolumeTextureLocalInput(const FVolumeTextureSourceData& SourceData,
+		const FVolumeTextureBuildSettings& Settings) -> std::vector<uint8>
+	{
+		FBinaryWriter Writer;
+		Writer.WriteU32(SourceData.Width);
+		Writer.WriteU32(SourceData.Height);
+		Writer.WriteU32(SourceData.Depth);
+		Writer.WriteU32(static_cast<uint32>(Settings.OutputFormat));
+		Writer.WriteU32(static_cast<uint32>(Settings.MipFilter));
+		Writer.WriteU64(SourceData.Voxels.size());
+		Writer.WriteBytes(SourceData.Voxels);
+		return Writer.TakeBytes();
+	}
+
+	auto DecodeVolumeTexturePlatformValue(const FBuildValue& Value,
+		FVolumeTexturePlatformData& OutData, std::string& OutError) -> bool
+	{
+		if (Value.GetName() != VolumeTextureValueName)
+		{
+			OutError = "Volume texture build value name is incompatible.";
+			return false;
+		}
+		FVolumeTexturePlatformData Candidate;
+		FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
+		Candidate.Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !Candidate.IsValid())
+		{
+			OutError = Ar.GetFailure() ? Ar.GetFailure()->Message
+				: "Volume texture payload is invalid or has trailing bytes.";
+			return false;
+		}
+		OutData = std::move(Candidate);
+		OutError.clear();
+		return true;
+	}
+
 	auto CreateTexture2DBuildFunction() -> std::shared_ptr<IBuildFunction>
 	{
 		return std::make_shared<FTexture2DBuildFunction>();
@@ -375,5 +480,10 @@ namespace Durin::Asset::Build::Private
 	auto CreateTextureCubeBuildFunction() -> std::shared_ptr<IBuildFunction>
 	{
 		return std::make_shared<FTextureCubeBuildFunction>();
+	}
+
+	auto CreateVolumeTextureBuildFunction() -> std::shared_ptr<IBuildFunction>
+	{
+		return std::make_shared<FVolumeTextureBuildFunction>();
 	}
 }

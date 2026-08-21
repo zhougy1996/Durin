@@ -541,6 +541,31 @@ namespace Durin
 		}
 	};
 
+	// Names one source and destination voxel box for a three-dimensional upload.
+	struct FUpdateTextureRegion3D
+	{
+		uint32 DestX = 0;
+		uint32 DestY = 0;
+		uint32 DestZ = 0;
+		int32 SrcX = 0;
+		int32 SrcY = 0;
+		int32 SrcZ = 0;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		uint32 Depth = 0;
+
+		FUpdateTextureRegion3D() = default;
+		FUpdateTextureRegion3D(
+			uint32 InDestX, uint32 InDestY, uint32 InDestZ,
+			int32 InSrcX, int32 InSrcY, int32 InSrcZ,
+			uint32 InWidth, uint32 InHeight, uint32 InDepth)
+			: DestX(InDestX), DestY(InDestY), DestZ(InDestZ)
+			, SrcX(InSrcX), SrcY(InSrcY), SrcZ(InSrcZ)
+			, Width(InWidth), Height(InHeight), Depth(InDepth)
+		{
+		}
+	};
+
 	// Validates the backend-neutral constraints required before creating a texture.
 	RHI_API auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc, std::string& OutError) -> bool;
 
@@ -551,6 +576,16 @@ namespace Durin
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
+		std::string& OutError
+	) -> bool;
+
+	// Validates one volume-mip upload, including row/depth pitches and block geometry.
+	RHI_API auto ValidateTexture3DUpdate(
+		const FRHITextureDesc& TextureDesc,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
 		std::string& OutError
 	) -> bool;
 
@@ -584,6 +619,7 @@ namespace Durin
 			, Dimension(InDesc.Dimension)
 			, SizeX(static_cast<uint32>(InDesc.Extent.x))
 			, SizeY(static_cast<uint32>(InDesc.Extent.y))
+			, SizeZ(InDesc.Depth)
 			, PixelFormat(InDesc.Format)
 			, ArraySize(InDesc.ArraySize)
 			, NumMips(InDesc.NumMips)
@@ -595,6 +631,7 @@ namespace Durin
 		auto GetDimension() const -> ETextureDimension { return Dimension; }
 		auto GetSizeX() const -> uint32 { return SizeX; }
 		auto GetSizeY() const -> uint32 { return SizeY; }
+		auto GetSizeZ() const -> uint32 { return SizeZ; }
 		auto GetFormat() const -> EPixelFormat { return PixelFormat; }
 		auto GetArraySize() const -> uint16 { return ArraySize; }
 		auto GetNumMips() const -> uint8 { return NumMips; }
@@ -614,6 +651,7 @@ namespace Durin
 		ETextureDimension Dimension = ETextureDimension::Texture2D;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
+		uint32 SizeZ = 1;
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		uint16 ArraySize = 1;
 		uint8 NumMips = 1;
@@ -1620,6 +1658,7 @@ namespace Durin
 	{
 		Texture2D,
 		Texture2DArray,
+		Texture3D,
 		TextureCube
 	};
 

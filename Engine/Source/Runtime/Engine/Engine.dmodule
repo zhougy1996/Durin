@@ -66,6 +66,8 @@
         "Public/Texture/Texture.h",
         "Public/Texture/Texture2D.h",
         "Public/Texture/TextureCube.h",
+		"Public/Texture/VolumeTexture.h",
+		"Public/Texture/VolumeTexturePostLoad.h",
 		"Public/Terrain/TerrainHeightmap.h",
         "Public/EnvironmentLighting/EnvironmentLighting.h",
         "Public/Materials/MaterialTypes.h",

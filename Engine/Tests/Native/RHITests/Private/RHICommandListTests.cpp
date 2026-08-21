@@ -246,6 +246,14 @@ namespace Durin
 				Operations.emplace_back("UpdateTexture2D");
 				ObservedTextureData.assign(SourceData.begin(), SourceData.end());
 			}
+			auto RHIUpdateTexture3D(
+				FRHITexture*, uint32,
+				const FUpdateTextureRegion3D&, uint32, uint32,
+				std::span<const uint8> SourceData) -> void override
+			{
+				Operations.emplace_back("UpdateTexture3D");
+				ObservedTextureData.assign(SourceData.begin(), SourceData.end());
+			}
 			auto RHIReadTexture2D(
 				FRHITexture*, uint32, uint32,
 				std::vector<uint8>& OutData) -> bool override
@@ -1756,6 +1764,25 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedTextureData, (std::vector<uint8>{
 			1, 2, 3, 4, 5, 6, 7, 8,
 			9, 10, 11, 12, 13, 14, 15, 16}));
+	}
+
+	TEST(FRHICommandListTests, VolumeUploadsOwnPackedSourceBytesUntilReplay)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create3D("VolumeUpload")
+			.SetExtent(2, 2).SetDepth(2).SetFormat(EPixelFormat::R8_UNORM);
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
+		std::array<uint8, 24> Source{
+			90, 91, 1, 2, 92, 93, 3, 4, 94, 95, 96, 97,
+			80, 81, 5, 6, 82, 83, 7, 8, 84, 85, 86, 87};
+		const FUpdateTextureRegion3D Region(0, 0, 0, 2, 0, 0, 2, 2, 2);
+		Executor.GetImmediateCommandList().UpdateTexture3D(
+			Texture, 0, Region, 4, 12, Source.data());
+		std::fill(Source.begin(), Source.end(), 0);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedTextureData,
+			(std::vector<uint8>{1, 2, 3, 4, 5, 6, 7, 8}));
 	}
 
 	TEST(FRHICommandListTests, BufferLocksTransferOwnedBytesAtUnlock)

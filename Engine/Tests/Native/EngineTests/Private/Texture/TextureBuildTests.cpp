@@ -1,4 +1,224 @@
 #include "TextureTestSupport.h"
+#include "Misc/FileHelper.h"
+#include "Modules/ModuleManager.h"
+#include "Texture/TextureDerivedData.h"
+#include "Texture/VolumeTexture.h"
+#include "Texture/VolumeTextureBuildOperations.h"
+#include "Texture/VolumeTextureBuilder.h"
+
+TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
+{
+	Durin::FVolumeTextureSourceData Source;
+	Source.Width = 3;
+	Source.Height = 3;
+	Source.Depth = 3;
+	Source.Format = Durin::EVolumeTextureFormat::R8_UNORM;
+	Source.Voxels.resize(27);
+	std::iota(Source.Voxels.begin(), Source.Voxels.end(), Durin::uint8{0});
+	Durin::FVolumeTexturePlatformData First;
+	Durin::FVolumeTexturePlatformData Second;
+	std::string Error;
+	const Durin::FVolumeTextureBuildSettings Settings{};
+	ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
+		Source, Settings, First, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
+		Source, Settings, Second, Error)) << Error;
+	ASSERT_EQ(First.Mips.size(), 2u);
+	EXPECT_EQ(First.Mips[1].Width, 1u);
+	EXPECT_EQ(First.Mips[1].Height, 1u);
+	EXPECT_EQ(First.Mips[1].Depth, 1u);
+	EXPECT_EQ(First.Mips[1].Voxels, (std::vector<Durin::uint8>{7}));
+	EXPECT_EQ(First.Mips[0].Voxels, Second.Mips[0].Voxels);
+	EXPECT_EQ(First.Mips[1].Voxels, Second.Mips[1].Voxels);
+}
+
+TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
+{
+	Durin::FVolumeTextureSourceData Source{
+		.Voxels = {0, 32, 64, 96, 128, 160, 192, 255},
+		.Width = 2, .Height = 2, .Depth = 2,
+		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
+	Durin::FVolumeTexturePlatformData Platform;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
+		Source, {}, Platform, Error)) << Error;
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	std::unique_ptr<Durin::FVolumeTexturePlatformData> Decoded;
+	Durin::EPayloadDecodeError Code = Durin::EPayloadDecodeError::Corrupt;
+	ASSERT_TRUE(Durin::ParseVolumeTextureSerializedValue(Bytes,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code)) << Error;
+	ASSERT_NE(Decoded, nullptr);
+	EXPECT_EQ(Decoded->Mips.back().Voxels, Platform.Mips.back().Voxels);
+	Bytes.back() ^= 1;
+	EXPECT_FALSE(Durin::ParseVolumeTextureSerializedValue(Bytes,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code));
+	EXPECT_NE(Error.find("checksum"), std::string::npos);
+}
+
+TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
+{
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureBuildDdc");
+	Durin::FVolumeTextureSourceData Source{
+		.Voxels = {1, 2, 3, 4, 5, 6, 7, 8},
+		.Width = 2, .Height = 2, .Depth = 2,
+		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
+	Durin::Asset::Build::FVolumeTextureBuildProduct First;
+	Durin::Asset::Build::FVolumeTextureBuildProduct Second;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, First, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, Second, Error)) << Error;
+	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
+	EXPECT_TRUE(Second.bCacheHit);
+	Source.Voxels[0] = 9;
+	Durin::Asset::Build::FVolumeTextureBuildProduct Changed;
+	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, Changed, Error)) << Error;
+	EXPECT_NE(First.DerivedDataKey, Changed.DerivedDataKey);
+}
+
+TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureAssetDdc");
+	Durin::FVolumeTextureSourceData Source{
+		.Voxels = {1, 2, 3, 4, 5, 6, 7, 8},
+		.Width = 2, .Height = 2, .Depth = 2,
+		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
+	Durin::Asset::Build::FVolumeTextureBuildProduct Product;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, Product, Error)) << Error;
+	ASSERT_NE(Product.PlatformData, nullptr);
+	const Durin::FVolumeTexturePlatformData Expected = *Product.PlatformData;
+	const std::string ExpectedKey = Product.DerivedDataKey;
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/VolumePackage", AssetPath));
+	Durin::DVolumeTexture* Texture = nullptr;
+	const Durin::Asset::FAssetResult Created = Durin::Asset::CreateAsset(AssetPath, Texture);
+	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_NE(Texture, nullptr);
+	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
+		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData),
+		Product.DerivedDataKey, Error)) << Error;
+	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_FALSE(Texture->PublishBuiltData({}, {}, nullptr, "invalid", Error));
+	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels);
+	const Durin::Asset::FAssetResult Saved = Durin::Asset::SavePackage(Texture->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Texture = nullptr;
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Texture);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(Texture, nullptr);
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_EQ(Texture->GetDerivedDataKey(), ExpectedKey);
+	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels);
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureCook");
+	Durin::Testing::RemoveTestWorkDirectory(CookRoot);
+	Durin::Asset::FCookContext Cook(CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Texture->AddToCook(Cook, "/Game/CookedVolume", Error)) << Error;
+	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	std::vector<Durin::uint8> BulkBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BulkBytes,
+		(CookRoot / "Game/CookedVolume.dbulk").generic_string()));
+	Durin::Asset::FCookedBulkContainer Container;
+	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(BulkBytes,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
+	ASSERT_EQ(Container.Entries.size(), 1u);
+	EXPECT_EQ(Container.Entries.front().PayloadId,
+		Durin::VolumeTexturePrimaryCookedPayloadId);
+	Durin::FVolumeTexturePlatformData Decoded;
+	Durin::FCanonicalMemoryReader Reader(Container.Payloads.front(),
+		Durin::EArchivePurpose::CookedPayload);
+	Decoded.Serialize(Reader, {
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+	ASSERT_FALSE(Reader.HasError());
+	EXPECT_EQ(Decoded.Mips.front().Voxels, Expected.Mips.front().Voxels);
+	EXPECT_EQ(Decoded.Mips.back().Voxels, Expected.Mips.back().Voxels);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Texture = nullptr;
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	auto CookedConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		CookRoot, CookedConfiguration));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(CookedConfiguration)));
+	Durin::PathUtilities::RegisterMountPointForTests(
+		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::FAssetPath CookedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedVolume", CookedPath));
+	Durin::DVolumeTexture* CookedTexture = nullptr;
+	const Durin::Asset::FAssetResult CookedLoad =
+		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
+	ASSERT_TRUE(CookedLoad) << CookedLoad.Message;
+	ASSERT_NE(CookedTexture, nullptr);
+	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
+	EXPECT_FALSE(CookedTexture->GetSourceData().IsValid());
+	EXPECT_TRUE(CookedTexture->GetDerivedDataKey().empty());
+	EXPECT_EQ(CookedTexture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+}
+
+TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
+{
+	const std::array Formats{
+		Durin::EVolumeTextureFormat::R8_UNORM,
+		Durin::EVolumeTextureFormat::RG8_UNORM,
+		Durin::EVolumeTextureFormat::RGBA8_UNORM,
+		Durin::EVolumeTextureFormat::R16_FLOAT,
+		Durin::EVolumeTextureFormat::RGBA16_FLOAT};
+	const std::array<Durin::uint32, 5> BytesPerVoxel{1, 2, 4, 2, 8};
+	for (size_t Index = 0; Index < Formats.size(); ++Index)
+	{
+		Durin::FVolumeTextureSourceData Source;
+		Source.Width = 1;
+		Source.Height = 3;
+		Source.Depth = 5;
+		Source.Format = Formats[Index];
+		Source.Voxels.assign(15 * BytesPerVoxel[Index], 0);
+		Durin::FVolumeTextureBuildSettings Settings;
+		Settings.OutputFormat = Formats[Index];
+		Durin::FVolumeTexturePlatformData Platform;
+		std::string Error;
+		ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
+			Source, Settings, Platform, Error)) << Error;
+		ASSERT_EQ(Platform.Mips.size(), 3u);
+		const std::array<Durin::uint32, 3> MiddleExtent{
+			Platform.Mips[1].Width, Platform.Mips[1].Height, Platform.Mips[1].Depth};
+		const std::array<Durin::uint32, 3> TailExtent{
+			Platform.Mips[2].Width, Platform.Mips[2].Height, Platform.Mips[2].Depth};
+		EXPECT_EQ(MiddleExtent, (std::array<Durin::uint32, 3>{1, 1, 2}));
+		EXPECT_EQ(TailExtent, (std::array<Durin::uint32, 3>{1, 1, 1}));
+		EXPECT_TRUE(Platform.IsValid());
+	}
+}
 
 TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 {

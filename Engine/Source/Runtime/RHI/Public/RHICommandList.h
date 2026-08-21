@@ -111,6 +111,9 @@ namespace Durin
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void;
+		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
+			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
+			uint32 SourceDepthPitch, const uint8* SourceData) -> void;
 		RHI_API auto PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void;
 		RHI_API auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
 

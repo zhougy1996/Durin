@@ -14,8 +14,8 @@ initialization. Successful initialization publishes one immutable
 Reads require no RHI-thread round trip. The active public fields are:
 
 - `FeatureLevel`, which is `ES3_1` for the current portable graphics baseline;
-- `SupportedTextureDimensions`, currently exactly 2D and cube;
-- positive 2D/cube dimension and array-layer limits;
+- `SupportedTextureDimensions`, currently 2D, non-array 3D, and cube;
+- positive 2D/3D/cube dimension and array-layer limits;
 - conservative color and depth sample-count masks; and
 - positive `MinStorageBufferOffsetAlignment` and `MaxStorageBufferRange`
   limits for exact dynamic storage-range admission; and
@@ -49,11 +49,14 @@ returns false and `RHICreateTexture` logs one owned diagnostic and returns null
 before image allocation. Invalid programmer descriptions assert at the public
 boundary.
 
-The current native mapping implements 2D as `e2D/e2D` and cube as an `e2D`
-cube-compatible image with an `eCube` default view. 2D array, 3D, and cube array
-descriptions are structurally valid when their rules pass but remain deliberately
-unsupported until a later resource-view plan supplies their complete consumer
-and sampling contract.
+The current native mapping implements 2D as `e2D/e2D`, non-array 3D as
+`e3D/e3D`, and cube as an `e2D` cube-compatible image with an `eCube` default
+view. A 3D texture has one array layer and one sample; Z slices are texels within
+a mip rather than subresources. Sampled, storage, source-copy, and
+destination-copy usages are admitted through the exact support query. 3D
+render/depth attachments, resolves, multisampling, cube compatibility, and
+array semantics are rejected structurally. 2D arrays and cube arrays remain
+unsupported.
 
 ## Instance Negotiation
 
@@ -84,7 +87,7 @@ and debug-utils extension are independent optional diagnostics.
 
 Every physical device is evaluated locally before ranking. Hard requirements
 are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
-`shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers,
+`shaderDrawParameters`, nonzero 2D/3D/cube limits, at least six array layers,
 positive storage-buffer alignment/range and direct-dispatch group-count limits,
 and one queue family with queue
 zero, graphics and compute flags, and presentation support. In presentation

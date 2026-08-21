@@ -84,8 +84,10 @@ namespace Durin::VulkanRHI
 		CapabilityCandidate.SupportedTextureDimensions =
 			ERHITextureDimensionFlags::Texture2D
 			| ERHITextureDimensionFlags::Texture2DArray
+			| ERHITextureDimensionFlags::Texture3D
 			| ERHITextureDimensionFlags::TextureCube;
 		CapabilityCandidate.MaxTextureDimension2D = Limits.maxImageDimension2D;
+		CapabilityCandidate.MaxTextureDimension3D = Limits.maxImageDimension3D;
 		CapabilityCandidate.MaxTextureDimensionCube = Limits.maxImageDimensionCube;
 		CapabilityCandidate.MaxTextureArrayLayers = Limits.maxImageArrayLayers;
 		CapabilityCandidate.ColorSampleCounts = ToRHISampleCounts(

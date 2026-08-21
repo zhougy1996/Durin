@@ -40,7 +40,8 @@ callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
 GeometryBuild registers the StaticMesh render/collision, SkeletalMesh,
 AnimationClip, and TerrainHeightmap functions as one atomic module-owned
-transaction; TextureBuild does the same for Texture2D and TextureCube. Each
+transaction; TextureBuild does the same for Texture2D, TextureCube, and
+VolumeTexture. Each
 transaction rolls back registrations acquired by a failed attempt and resets
 the complete set in reverse order during owner retirement. Their DMSH,
 collision, TXPL, DSKM, DANM, and terrain keys, cache roots, value bytes, and

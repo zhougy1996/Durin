@@ -78,6 +78,9 @@ namespace Durin::VulkanRHI
 		auto RHIInitializeTexture(FRHITexture* Texture) -> void override;
 
 		auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void override;
+		auto RHIUpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
+			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
+			uint32 SourceDepthPitch, std::span<const uint8> SourceData) -> void override;
 
 		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool override;
 

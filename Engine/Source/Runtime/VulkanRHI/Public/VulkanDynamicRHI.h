@@ -113,6 +113,14 @@ namespace Durin::VulkanRHI
 			const FUpdateTextureRegion2D& UpdateRegion,
 			uint32 SourcePitch,
 			std::span<const uint8> SourceData) -> void;
+		auto UpdateTexture3D(
+			FVulkanCommandListContext& Context,
+			FRHITexture* Texture,
+			uint32 MipIndex,
+			const FUpdateTextureRegion3D& UpdateRegion,
+			uint32 SourceRowPitch,
+			uint32 SourceDepthPitch,
+			std::span<const uint8> SourceData) -> void;
 		auto ReadTexture2D(
 			FVulkanCommandListContext& Context,
 			FRHITexture* Texture,

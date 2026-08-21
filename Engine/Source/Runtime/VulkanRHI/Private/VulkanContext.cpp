@@ -680,6 +680,19 @@ namespace Durin::VulkanRHI
 			UpdateRegion, SourcePitch, SourceData);
 	}
 
+	auto FVulkanCommandListContext::RHIUpdateTexture3D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
+		std::span<const uint8> SourceData) -> void
+	{
+		CheckVulkanRHIThread();
+		RHI->UpdateTexture3D(*this, Texture, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch, SourceData);
+	}
+
 	auto FVulkanCommandListContext::RHIReadTexture2D(
 		FRHITexture* Texture,
 		uint32 MipIndex,

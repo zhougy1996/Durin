@@ -232,6 +232,19 @@ namespace Durin
 			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
 	}
 
+	auto FDynamicRHI::RHIUpdateTexture3D(
+		FRHICommandListBase& RHICmdList,
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		const FUpdateTextureRegion3D& UpdateRegion,
+		uint32 SourceRowPitch,
+		uint32 SourceDepthPitch,
+		const uint8* SourceData) -> void
+	{
+		RHICmdList.UpdateTexture3D(Texture, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch, SourceData);
+	}
+
 	auto FDynamicRHI::RHIReadTexture2D(
 		FRHICommandListImmediate& RHICmdList,
 		FRHITexture* Texture,

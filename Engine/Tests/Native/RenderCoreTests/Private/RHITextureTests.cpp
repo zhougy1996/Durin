@@ -133,6 +133,62 @@ namespace Durin
 		EXPECT_NE(Error.find("mip edge"), std::string::npos);
 	}
 
+	TEST(FRHITextureTests, ValidatesVolumeCreationViewsAndOddRegionPitches)
+	{
+		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create3D("Volume")
+			.SetExtent(7, 5).SetDepth(3).SetNumMips(3)
+			.SetFormat(EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource
+				| ETextureCreateFlags::Storage
+				| ETextureCreateFlags::SourceCopy
+				| ETextureCreateFlags::DestinationCopy);
+		std::string Error;
+		EXPECT_TRUE(ValidateTextureCreateDesc(Desc, Error)) << Error;
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
+		EXPECT_EQ(Texture->GetSizeZ(), 3u);
+		const FRHITextureViewDesc Sampled = MakeDefaultTextureViewDesc(
+			*Texture, ERHITextureViewUsage::Sampled);
+		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture3D);
+		EXPECT_TRUE(ValidateTextureViewDesc(Texture, Sampled, Error)) << Error;
+		FRHITextureViewDesc Storage = MakeDefaultTextureViewDesc(
+			*Texture, ERHITextureViewUsage::Storage);
+		EXPECT_TRUE(ValidateTextureViewDesc(Texture, Storage, Error)) << Error;
+
+		const FUpdateTextureRegion3D Region(1, 1, 0, 2, 1, 1, 3, 3, 2);
+		EXPECT_TRUE(ValidateTexture3DUpdate(Desc, 0, Region, 24, 96, Error)) << Error;
+		EXPECT_FALSE(ValidateTexture3DUpdate(Desc, 0, Region, 19, 96, Error));
+		EXPECT_NE(Error.find("row pitch"), std::string::npos);
+		EXPECT_FALSE(ValidateTexture3DUpdate(Desc, 0, Region, 24, 80, Error));
+		EXPECT_NE(Error.find("depth pitch"), std::string::npos);
+
+		Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
+		EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
+		EXPECT_NE(Error.find("only sampled"), std::string::npos);
+	}
+
+	TEST(FRHITextureTests, ValidatesVolumeCopyDepthAndFootprint)
+	{
+		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create3D("VolumeCopy")
+			.SetExtent(5, 3).SetDepth(3).SetNumMips(3)
+			.SetFormat(EPixelFormat::R8_UNORM)
+			.SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy);
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
+		const FRHIBufferTextureCopyRegion Region{
+			.BufferRowLength = 7, .BufferImageHeight = 4,
+			.TextureMip = 0, .TextureFirstArrayLayer = 0,
+			.TextureNumArrayLayers = 1, .TextureOffset = {1, 0, 1},
+			.TextureExtent = {3, 3, 2}};
+		uint64 Footprint = 0;
+		std::string Error;
+		EXPECT_TRUE(GetBufferTextureCopyFootprint(*Texture, Region, Footprint, Error)) << Error;
+		EXPECT_EQ(Footprint, 56u);
+		TRefCountPtr<FRHIBuffer> Buffer = MakeRefCount<FRHIBuffer>(
+			FRHIBufferCreateDesc::Create("VolumeBuffer", 56, 1,
+				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+		EXPECT_TRUE(ValidateBufferToTextureCopies(Buffer, Texture,
+			std::span<const FRHIBufferTextureCopyRegion>(&Region, 1), Error)) << Error;
+	}
+
 	TEST(FRHITextureTests, ResolvesDocumentedPrincipalAxesAndEdgeDirections)
 	{
 		const std::array Cases{

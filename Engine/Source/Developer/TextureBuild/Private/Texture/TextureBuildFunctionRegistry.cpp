@@ -9,13 +9,15 @@ namespace Durin::Asset::Build
 		std::mutex GTextureBuildFunctionMutex;
 		FBuildFunctionRegistration GTexture2DRegistration;
 		FBuildFunctionRegistration GTextureCubeRegistration;
+		FBuildFunctionRegistration GVolumeTextureRegistration;
 	}
 
 	auto EnsureTextureBuildFunctions(
 		std::string* OutError, FModuleOwnedCallbackGate Gate) -> bool
 	{
 		std::lock_guard Lock(GTextureBuildFunctionMutex);
-		if (GTexture2DRegistration.IsValid() && GTextureCubeRegistration.IsValid())
+		if (GTexture2DRegistration.IsValid() && GTextureCubeRegistration.IsValid()
+			&& GVolumeTextureRegistration.IsValid())
 			return true;
 
 		const bool bAcquiredTexture2D = !GTexture2DRegistration.IsValid();
@@ -27,13 +29,26 @@ namespace Durin::Asset::Build
 			if (!GTexture2DRegistration.IsValid()) return false;
 		}
 
-		if (!GTextureCubeRegistration.IsValid())
+		const bool bAcquiredTextureCube = !GTextureCubeRegistration.IsValid();
+		if (bAcquiredTextureCube)
 		{
 			GTextureCubeRegistration = RegisterBuildFunction(
 				Private::TextureCubeFunctionIdentity,
-				Private::CreateTextureCubeBuildFunction(), std::move(Gate), OutError);
+				Private::CreateTextureCubeBuildFunction(), Gate, OutError);
 			if (!GTextureCubeRegistration.IsValid())
 			{
+				if (bAcquiredTexture2D) GTexture2DRegistration.Reset();
+				return false;
+			}
+		}
+		if (!GVolumeTextureRegistration.IsValid())
+		{
+			GVolumeTextureRegistration = RegisterBuildFunction(
+				Private::VolumeTextureFunctionIdentity,
+				Private::CreateVolumeTextureBuildFunction(), std::move(Gate), OutError);
+			if (!GVolumeTextureRegistration.IsValid())
+			{
+				if (bAcquiredTextureCube) GTextureCubeRegistration.Reset();
 				if (bAcquiredTexture2D) GTexture2DRegistration.Reset();
 				return false;
 			}
@@ -51,6 +66,7 @@ namespace Durin::Asset::Build
 	auto ShutdownTextureBuildFunctions() -> void
 	{
 		std::lock_guard Lock(GTextureBuildFunctionMutex);
+		GVolumeTextureRegistration.Reset();
 		GTextureCubeRegistration.Reset();
 		GTexture2DRegistration.Reset();
 	}

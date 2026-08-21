@@ -1016,6 +1016,39 @@ namespace Durin
 				RHICmdList, CompressedDestination, 0, 0, CompressedActual)) << Mode;
 			EXPECT_EQ(CompressedActual,
 				(std::vector<uint8>(CompressedBytes.begin(), CompressedBytes.end()))) << Mode;
+
+			const FRHITextureCreateDesc VolumeDesc = FRHITextureCreateDesc::Create3D(
+				"VolumeCopySource").SetExtent(4, 4).SetDepth(3)
+				.SetFormat(EPixelFormat::R8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+			const FRHITextureCreateDesc SliceDesc = FRHITextureCreateDesc::Create2D(
+				"VolumeCopySlice", 4, 4, EPixelFormat::R8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback);
+			FTextureRHIRef Volume = GDynamicRHI->RHICreateTexture(RHICmdList, VolumeDesc);
+			FTextureRHIRef Slice = GDynamicRHI->RHICreateTexture(RHICmdList, SliceDesc);
+			ASSERT_TRUE(Volume && Slice) << Mode;
+			std::array<uint8, 48> VolumeBytes{};
+			for (uint32 Index = 0; Index < VolumeBytes.size(); ++Index)
+				VolumeBytes[Index] = static_cast<uint8>(Index + 1);
+			GDynamicRHI->RHIUpdateTexture3D(RHICmdList, Volume, 0,
+				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 4, 4, 3),
+				4, 16, VolumeBytes.data());
+			RHICmdList.TransitionTextures(std::array{
+				FRHITextureTransition{Volume, WholeColor,
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{Slice, WholeColor,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			RHICmdList.CopyTexture(Volume, Slice, std::array{FRHITextureCopyRegion{
+				.SourceOffset = {0, 0, 1}, .Extent = {4, 4, 1}}});
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				Slice, WholeColor, ERHIAccess::TransferWrite,
+				ERHIAccess::GraphicsShaderRead}});
+			std::vector<uint8> SliceActual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				RHICmdList, Slice, 0, 0, SliceActual)) << Mode;
+			EXPECT_EQ(SliceActual, (std::vector<uint8>(
+				VolumeBytes.begin() + 16, VolumeBytes.begin() + 32))) << Mode;
 			SourceTexture = nullptr;
 			MiddleTexture = nullptr;
 			FinalTexture = nullptr;
@@ -1025,6 +1058,8 @@ namespace Durin
 			DestinationCube = nullptr;
 			CompressedSource = nullptr;
 			CompressedDestination = nullptr;
+			Volume = nullptr;
+			Slice = nullptr;
 			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
 	}
@@ -1305,6 +1340,149 @@ namespace Durin
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			EXPECT_GE(Stats.ComputePipelines.FailedCandidates, 1u);
 #endif
+		}
+	}
+
+	TEST(FVulkanTextureSamplingTests,
+		PublicTexture3DSamplingAndStorageWritesInlineAndThreaded)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "VolumeTextureCompute.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
+		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		FPipelineLayoutDesc Layout;
+		std::string Error;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			std::span(&CompiledShader.Reflection, 1), Layout, Error)) << Error;
+		ASSERT_EQ(Layout.BindingLayouts.size(), 1u);
+		ASSERT_EQ(Layout.BindingLayouts[0].BindingLayouts.size(), 4u);
+		EXPECT_EQ(Layout.BindingLayouts[0].BindingLayouts[0].Type, ERHIBindingType::Texture);
+		EXPECT_EQ(Layout.BindingLayouts[0].BindingLayouts[2].Type, ERHIBindingType::StorageImage);
+
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value) { _putenv_s("DURIN_RHI_EXECUTION", Value); }
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
+				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
+				*CompiledShader.Code, CompiledShader.Hash);
+			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
+			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout = Layout;
+			FComputePipelineStateRHIRef Pipeline =
+				GDynamicRHI->RHICreateComputePipelineState("VolumeTextureCompute", Initializer);
+			ASSERT_TRUE(Shader && Pipeline);
+			const FRHIMemoryStatistics MemoryBefore =
+				GDynamicRHI->RHIGetMemoryStatistics();
+
+			const FRHITextureCreateDesc InputDesc = FRHITextureCreateDesc::Create3D(
+				"SampledVolume").SetExtent(1, 1).SetDepth(2)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			const FRHITextureCreateDesc StorageDesc = FRHITextureCreateDesc::Create3D(
+				"StorageVolume").SetExtent(2, 1).SetDepth(1)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::SourceCopy);
+			const FRHITextureCreateDesc OutputDesc = FRHITextureCreateDesc::Create2D(
+				"VolumeOutput", 2, 1, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::CPUReadback
+					| ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Input = GDynamicRHI->RHICreateTexture(Commands, InputDesc);
+			FTextureRHIRef Storage = GDynamicRHI->RHICreateTexture(Commands, StorageDesc);
+			FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(Commands, OutputDesc);
+			FTextureRHIRef StorageReadback = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("StorageVolumeReadback", 2, 1,
+					EPixelFormat::RGBA8_UNORM).SetFlags(
+						ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback
+						| ETextureCreateFlags::ShaderResource));
+			ASSERT_TRUE(Input && Storage && Output && StorageReadback);
+			const std::array<uint8, 8> Source{
+				255, 0, 0, 255, 0, 0, 255, 255};
+			EXPECT_GE(Input->GetBackendAllocationBytes(), Source.size());
+			GDynamicRHI->RHIUpdateTexture3D(Commands, Input, 0,
+				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 1, 1, 2),
+				4, 4, Source.data());
+			FTextureViewRHIRef InputView = GDynamicRHI->RHICreateTextureView(
+				Input, MakeDefaultTextureViewDesc(*Input, ERHITextureViewUsage::Sampled));
+			FTextureViewRHIRef StorageView = GDynamicRHI->RHICreateTextureView(
+				Storage, MakeDefaultTextureViewDesc(*Storage, ERHITextureViewUsage::Storage));
+			FTextureViewRHIRef OutputView = GDynamicRHI->RHICreateTextureView(
+				Output, MakeDefaultTextureViewDesc(*Output, ERHITextureViewUsage::Storage));
+			FSamplerRHIRef Sampler = GDynamicRHI->RHICreateSampler(FRHISamplerDesc{});
+			ASSERT_TRUE(InputView && StorageView && OutputView && Sampler);
+			const FRHITextureSubresourceRange Whole{
+				ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionTextures(std::array{
+				FRHITextureTransition{Input, Whole, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead},
+				FRHITextureTransition{Storage, Whole, ERHIAccess::Discard,
+					ERHIAccess::ComputeShaderReadWrite},
+				FRHITextureTransition{Output, Whole, ERHIAccess::Discard,
+					ERHIAccess::ComputeShaderReadWrite}});
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*Pipeline);
+			std::array Parameters{
+				FRHIShaderParameterResource{.Resource = InputView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::Texture},
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1, .Type = ERHIBindingType::Sampler},
+				FRHIShaderParameterResource{.Resource = StorageView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 2, .Type = ERHIBindingType::StorageImage},
+				FRHIShaderParameterResource{.Resource = OutputView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 3, .Type = ERHIBindingType::StorageImage}};
+			Commands.SetShaderParameters(Shader, Parameters);
+			Commands.Dispatch(2, 1, 1);
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionTextures(std::array{
+				FRHITextureTransition{Output, Whole, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::GraphicsShaderRead},
+				FRHITextureTransition{Storage, Whole, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::TransferRead},
+				FRHITextureTransition{StorageReadback, Whole, ERHIAccess::Discard,
+					ERHIAccess::TransferWrite}});
+			Commands.CopyTexture(Storage, StorageReadback,
+				std::array{FRHITextureCopyRegion{.Extent = {2, 1, 1}}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				StorageReadback, Whole, ERHIAccess::TransferWrite,
+				ERHIAccess::GraphicsShaderRead}});
+			std::vector<uint8> OutputBytes;
+			std::vector<uint8> StorageBytes;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, OutputBytes));
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, StorageReadback, 0, 0, StorageBytes));
+			EXPECT_EQ(OutputBytes, (std::vector<uint8>(Source.begin(), Source.end())));
+			EXPECT_EQ(StorageBytes, OutputBytes);
+			const FRHIMemoryStatistics MemoryAfter =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			EXPECT_GE(MemoryAfter.UploadBytes - MemoryBefore.UploadBytes, Source.size());
+			Input = nullptr;
+			Storage = nullptr;
+			Output = nullptr;
+			StorageReadback = nullptr;
+			InputView = nullptr;
+			StorageView = nullptr;
+			OutputView = nullptr;
+			Sampler = nullptr;
+			Pipeline = nullptr;
+			Shader = nullptr;
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
 	}
 
