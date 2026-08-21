@@ -1,6 +1,6 @@
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
@@ -17,7 +17,7 @@ namespace Durin::Asset::Build::Private
 			ETerrainHeightmapSourceFormat& OutFormat, uint32& OutProfile,
 			std::vector<uint16>& OutSamples, std::string& OutError) -> bool
 		{
-			DerivedDataCache::FReader Reader(Bytes);
+			FBinaryReader Reader(Bytes);
 			uint32 Format = 0, DecoderLength = 0;
 			if (!Reader.ReadU32(OutWidth)
 				|| !Reader.ReadU32(OutHeight)
@@ -158,7 +158,7 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTerrainHeightmapLocalInput(const FTerrainHeightmapBuildRequest& Request)
 		-> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteU32(Request.Width);
 		Writer.WriteU32(Request.Height);
 		Writer.WriteU32(Request.DecoderVersion);

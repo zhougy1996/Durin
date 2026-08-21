@@ -1,7 +1,7 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetPackageVersionPolicy.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
 
@@ -66,7 +66,7 @@ namespace Durin::Asset::Private
 		}
 		OutFingerprint = {
 			.FileSize = Bytes.size(),
-			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime),
 			.ContentHash = FXxHash128::HashBuffer(Bytes),
 			.ReaderVersion = Magic == DastPackageMagic ? Version : 0};
 		return {};
@@ -221,9 +221,7 @@ namespace Durin::Asset::Private
 			reinterpret_cast<const uint8*>(Text.data()), Text.size()};
 		for (const std::filesystem::path& Root : Journal.Roots)
 		{
-			std::string Ignored;
-			DerivedDataCache::WriteFileAtomically(
-				Root / "journal", Bytes, &Ignored);
+			FFileHelper::SaveArrayToFileAtomically(Bytes, Root / "journal");
 		}
 
 		std::string Locator = std::format(
@@ -238,9 +236,7 @@ namespace Durin::Asset::Private
 		{
 			const std::span LocatorBytes{
 				reinterpret_cast<const uint8*>(Locator.data()), Locator.size()};
-			std::string Ignored;
-			DerivedDataCache::WriteFileAtomically(
-				Journal.LocatorPath, LocatorBytes, &Ignored);
+			FFileHelper::SaveArrayToFileAtomically(LocatorBytes, Journal.LocatorPath);
 		}
 	}
 

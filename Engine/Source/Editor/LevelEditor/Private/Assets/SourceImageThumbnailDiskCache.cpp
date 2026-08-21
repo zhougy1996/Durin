@@ -2,7 +2,8 @@
 
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
+#include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
@@ -157,7 +158,7 @@ namespace Durin::Editor::Level
 
 		auto MakeKey(const FSourceCacheKeyData& Entry) -> std::string
 		{
-			DerivedDataCache::FWriter Writer;
+			FBinaryWriter Writer;
 			Writer.WriteString(Entry.SourceIdentity);
 			Writer.WriteU64(Entry.SourceSize);
 			Writer.WriteI64(Entry.SourceTimeTicks);
@@ -222,7 +223,7 @@ namespace Durin::Editor::Level
 		FSourceCacheKeyData Desired{
 			.SourceIdentity = NormalizeSourceIdentity(std::filesystem::path(PhysicalPath), Impl->Settings.SourceIdentityRoot),
 			.SourceSize = static_cast<uint64>(EffectiveFileSize),
-			.SourceTimeTicks = DerivedDataCache::FileTimeToStableTicks(EffectiveLastWriteTime),
+			.SourceTimeTicks = FileTime::ToStableTicks(EffectiveLastWriteTime),
 			.MaximumDimension = Impl->Settings.MaximumDimension,
 			.GeneratorVersion = Impl->Settings.GeneratorVersion,
 			.ColorSpacePolicy = Impl->Settings.ColorSpacePolicy,

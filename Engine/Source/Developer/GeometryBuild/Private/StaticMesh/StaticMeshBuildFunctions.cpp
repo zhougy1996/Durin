@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -24,7 +24,7 @@ namespace Durin::Asset::Build::Private
 			EBodySetupCollisionQueryPolicy& Policy,
 			std::string& OutError) -> bool
 		{
-			DerivedDataCache::FReader Reader(Bytes);
+			FBinaryReader Reader(Bytes);
 			uint32 ModeValue = 0, PolicyValue = 0;
 			uint64 Count = 0;
 			if (!Reader.ReadU32(ModeValue)
@@ -167,7 +167,7 @@ namespace Durin::Asset::Build::Private
 		std::span<const FVector3f> Positions,
 		std::span<const uint32> Indices) -> FXxHash128
 	{
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteU64(Positions.size());
 		for (const FVector3f& Position : Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
@@ -218,7 +218,7 @@ namespace Durin::Asset::Build::Private
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy) -> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteU32(static_cast<uint32>(Mode));
 		Writer.WriteU32(static_cast<uint32>(Policy));
 		Writer.WriteU64(Positions.size());

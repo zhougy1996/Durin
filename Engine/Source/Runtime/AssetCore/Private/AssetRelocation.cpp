@@ -8,7 +8,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
@@ -798,7 +798,7 @@ namespace Durin::Asset
 				return Compensate(Error(EAssetError::IoError,
 					"Could not read relocated package metadata."));
 			Data->second.LastWriteTimeTicks =
-				DerivedDataCache::FileTimeToStableTicks(
+				FileTime::ToStableTicks(
 					Data->second.LastWriteTime);
 		}
 		for (const FAssetRelocationMapping& Mapping : State.Mappings)
@@ -927,7 +927,7 @@ namespace Durin::Asset
 					"AssetMutationRecoveryRequired: restored package metadata is unavailable.");
 			}
 			Data->second.LastWriteTimeTicks =
-				DerivedDataCache::FileTimeToStableTicks(
+				FileTime::ToStableTicks(
 					Data->second.LastWriteTime);
 		}
 		for (const FAssetRelocationMapping& Mapping : State.Mappings)

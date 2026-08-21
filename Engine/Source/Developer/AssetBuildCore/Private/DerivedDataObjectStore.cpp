@@ -1,31 +1,13 @@
 #include "DerivedDataObjectStore.h"
 
-#include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
+#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset::Build
 {
 	namespace
 	{
-		auto IsRelativeChild(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
-		{
-			const std::filesystem::path Relative = Candidate.lexically_relative(Root);
-			if (Relative.empty() || Relative.is_absolute()) return false;
-			return *Relative.begin() != "..";
-		}
-
-		auto IsResolvedChild(
-			const std::filesystem::path& Root,
-			const std::filesystem::path& Candidate,
-			std::error_code& OutError) -> bool
-		{
-			const std::filesystem::path ResolvedRoot = std::filesystem::weakly_canonical(Root, OutError);
-			if (OutError) return false;
-			const std::filesystem::path ResolvedCandidate = std::filesystem::weakly_canonical(Candidate, OutError);
-			return !OutError && IsRelativeChild(ResolvedRoot, ResolvedCandidate);
-		}
-
 		auto IsValidRelativeRoot(const std::filesystem::path& Root) -> bool
 		{
 			if (Root.empty() || Root.is_absolute() || Root.has_root_path()) return false;
@@ -82,7 +64,7 @@ namespace Durin::Asset::Build
 		const std::filesystem::path Root = GetRoot();
 		const std::filesystem::path Candidate =
 			(Root / std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin")).lexically_normal();
-		if (!IsRelativeChild(Root, Candidate))
+		if (!PathUtilities::IsLexicalDescendantPath(Candidate, Root, true))
 		{
 			if (OutError) *OutError = "Derived-data object path escapes its configured root.";
 			return false;
@@ -107,16 +89,17 @@ namespace Durin::Asset::Build
 			return {EDerivedDataObjectReadStatus::Missing, "Derived-data object is missing."};
 		if (!std::filesystem::is_regular_file(Status))
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Derived-data object is not a regular file."};
-		if (!IsResolvedChild(GetRoot(), Path, ErrorCode))
+		std::filesystem::path ResolvedPath;
+		if (!PathUtilities::TryResolveContainedPath(Path, GetRoot(), ResolvedPath, ErrorCode))
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Derived-data object resolves outside its configured root."};
-		const uint64 FileSize = std::filesystem::file_size(Path, ErrorCode);
+		const uint64 FileSize = std::filesystem::file_size(ResolvedPath, ErrorCode);
 		if (ErrorCode)
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Failed to inspect derived-data object size."};
 		if (FileSize > MaximumObjectBytes)
 			return {EDerivedDataObjectReadStatus::TooLarge, "Derived-data object exceeds its configured size limit."};
 
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath.generic_string()))
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Failed to read derived-data object."};
 		OutBytes = std::move(Bytes);
 		return {EDerivedDataObjectReadStatus::Hit, {}};
@@ -135,6 +118,14 @@ namespace Durin::Asset::Build
 			return false;
 		}
 		std::error_code ErrorCode;
+		std::filesystem::path ResolvedPath;
+		if (!PathUtilities::TryResolveContainedPath(Path, GetRoot(), ResolvedPath, ErrorCode))
+		{
+			if (OutError) *OutError = ErrorCode
+				? std::format("Failed to resolve derived-data object path: {}", ErrorCode.message())
+				: "Derived-data object resolves outside its configured root.";
+			return false;
+		}
 		std::filesystem::create_directories(Path.parent_path(), ErrorCode);
 		if (ErrorCode)
 		{
@@ -142,14 +133,20 @@ namespace Durin::Asset::Build
 				"Failed to create derived-data object directory: {}", ErrorCode.message());
 			return false;
 		}
-		if (!IsResolvedChild(GetRoot(), Path, ErrorCode))
+		if (!PathUtilities::TryResolveContainedPath(Path, GetRoot(), ResolvedPath, ErrorCode))
 		{
 			if (OutError) *OutError = ErrorCode
 				? std::format("Failed to resolve derived-data object path: {}", ErrorCode.message())
 				: "Derived-data object resolves outside its configured root.";
 			return false;
 		}
-		return DerivedDataCache::WriteFileAtomically(Path, Bytes, OutError);
+		FFileHelper::FAtomicFileError FileError;
+		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, ResolvedPath, &FileError))
+		{
+			if (OutError) *OutError = FileError.ToString();
+			return false;
+		}
+		return true;
 	}
 
 	auto FDerivedDataObjectStore::CleanupToBudget(
@@ -196,8 +193,10 @@ namespace Durin::Asset::Build
 				&& Path.extension() == ".bin"
 				&& FileName == Key + ".bin"
 				&& IsValidKey(Key);
-			if (!bExpectedShape || !IsRelativeChild(Root, Path)
-				|| !IsResolvedChild(Root, Path, ErrorCode)) continue;
+			std::filesystem::path ResolvedPath;
+			if (!bExpectedShape
+				|| !PathUtilities::IsLexicalDescendantPath(Path, Root, true)
+				|| !PathUtilities::TryResolveContainedPath(Path, Root, ResolvedPath, ErrorCode)) continue;
 
 			const uint64 Size = std::filesystem::file_size(Path, ErrorCode);
 			if (ErrorCode) break;
@@ -227,13 +226,14 @@ namespace Durin::Asset::Build
 		for (const FCleanupCandidate& Candidate : Candidates)
 		{
 			if (Result.BytesAfter <= BudgetBytes || Result.DeletedObjects >= MaximumDeletes) break;
-			if (!IsRelativeChild(Root, Candidate.Path))
+			std::filesystem::path ResolvedPath;
+			if (!PathUtilities::TryResolveContainedPath(Candidate.Path, Root, ResolvedPath, ErrorCode))
 			{
 				Result.bBudgetSatisfied = false;
 				Result.Message = "Refused to delete a derived-data object outside its configured root.";
 				return Result;
 			}
-			if (!std::filesystem::remove(Candidate.Path, ErrorCode) || ErrorCode)
+			if (!std::filesystem::remove(ResolvedPath, ErrorCode) || ErrorCode)
 			{
 				Result.bBudgetSatisfied = false;
 				Result.Message = std::format("Failed to delete derived-data object: {}", ErrorCode.message());

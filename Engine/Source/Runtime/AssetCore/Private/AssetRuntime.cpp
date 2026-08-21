@@ -19,7 +19,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
-#include "Misc/DerivedDataCache.h"
+
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"

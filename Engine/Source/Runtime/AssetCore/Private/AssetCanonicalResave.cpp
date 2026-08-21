@@ -4,7 +4,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset
@@ -95,7 +95,7 @@ namespace Durin::Asset
 			std::error_code Error;
 			const auto Time = std::filesystem::last_write_time(PhysicalPath, Error);
 			return !Error && Fingerprint.FileSize == Bytes.size()
-				&& Fingerprint.LastWriteTimeTicks == DerivedDataCache::FileTimeToStableTicks(Time)
+				&& Fingerprint.LastWriteTimeTicks == FileTime::ToStableTicks(Time)
 				&& Fingerprint.ContentHash == FXxHash128::HashBuffer(Bytes);
 		}
 

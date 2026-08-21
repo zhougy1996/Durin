@@ -3,6 +3,7 @@
 #include "AssetCatalogStoreInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
+#include "Misc/LexicalPath.h"
 
 namespace Durin::Asset
 {
@@ -130,12 +131,6 @@ namespace Durin::Asset
 		auto ReadGuid(FReader& Reader, FGuid& Guid) -> bool
 		{
 			return Reader.Read(Guid.A) && Reader.Read(Guid.B) && Reader.Read(Guid.C) && Reader.Read(Guid.D);
-		}
-
-		auto IsLexicalChild(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
-		{
-			const std::filesystem::path Relative = Candidate.lexically_relative(Root);
-			return !Relative.empty() && !Relative.is_absolute() && *Relative.begin() != "..";
 		}
 
 		auto IsValidRelativeManifestPath(std::string_view Value) -> bool
@@ -553,7 +548,8 @@ namespace Durin::Asset
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		std::filesystem::path Candidate = (Root / std::filesystem::path(Relative)).lexically_normal();
 		Candidate += ".dasset";
-		if (!IsLexicalChild(Root, Candidate)) return Fail("Cooked package path escapes the cook root.", OutError);
+		if (!PathUtilities::IsLexicalDescendantPath(Candidate, Root, true))
+			return Fail("Cooked package path escapes the cook root.", OutError);
 		OutPackagePath = std::move(Candidate);
 		return true;
 	}
@@ -568,11 +564,12 @@ namespace Durin::Asset
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		const std::filesystem::path Normalized = PackagePath.lexically_normal();
 		if (Root.empty() || !Root.is_absolute() || PackagePath.extension() != ".dasset"
-			|| !IsLexicalChild(Root, Normalized))
+			|| !PathUtilities::IsLexicalDescendantPath(Normalized, Root, true))
 			return Fail("Cooked companion package path is invalid or outside the cook root.", OutError);
 		OutCompanionPath = Normalized;
 		OutCompanionPath.replace_extension(".dbulk");
-		if (!IsLexicalChild(Root, OutCompanionPath)) return Fail("Cooked companion path escapes the cook root.", OutError);
+		if (!PathUtilities::IsLexicalDescendantPath(OutCompanionPath, Root, true))
+			return Fail("Cooked companion path escapes the cook root.", OutError);
 		return true;
 	}
 
@@ -875,9 +872,12 @@ namespace Durin::Asset
 			{
 				if (CurrentPaths.contains(Entry.RelativePath) || !IsValidRelativeManifestPath(Entry.RelativePath)) continue;
 				const std::filesystem::path Stale = (CookRoot / Entry.RelativePath).lexically_normal();
-				if (!IsLexicalChild(CookRoot.lexically_normal(), Stale)) continue;
+				std::filesystem::path ResolvedStale;
+				std::error_code ResolveError;
+				if (!PathUtilities::TryResolveContainedPath(
+					Stale, CookRoot.lexically_normal(), ResolvedStale, ResolveError)) continue;
 				std::error_code ErrorCode;
-				std::filesystem::remove(Stale, ErrorCode);
+				std::filesystem::remove(ResolvedStale, ErrorCode);
 			}
 		}
 		if (OutError) OutError->clear();

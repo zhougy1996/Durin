@@ -11,7 +11,7 @@
 #include "ImportRecord.h"
 #include "ImportService.h"
 #include "ImportRecordIndex.h"
-#include "Misc/DerivedDataCache.h"
+
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MultiOutputImport.h"

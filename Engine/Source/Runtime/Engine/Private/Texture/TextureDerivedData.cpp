@@ -1,6 +1,6 @@
 #include "Texture/TextureDerivedData.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/EngineWire.h"
 #include "Texture/TextureCube.h"
@@ -128,7 +128,7 @@ namespace Durin
 		if (DataOffset > MaximumTexturePayloadBytes)
 			return Fail(OutError, "Texture payload exceeds its stored-size limit.");
 
-		DerivedDataCache::FWriter Body;
+		FBinaryWriter Body;
 		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
 		{
 			const FTexture2DMipData& Mip = PlatformData.Mips[MipIndex];
@@ -151,7 +151,7 @@ namespace Durin
 		}
 		const std::vector<uint8> BodyBytes = Body.TakeBytes();
 
-		DerivedDataCache::FWriter Result;
+		FBinaryWriter Result;
 		Result.WriteU32(TexturePayloadMagic);
 		Result.WriteU32(TexturePayloadSchemaVersion);
 		Result.WriteU32(Texture2DPayloadProducerVersion);
@@ -395,7 +395,7 @@ namespace Durin
 		if (DataOffset > MaximumTexturePayloadBytes)
 			return Fail(OutError, "Texture payload exceeds its stored-size limit.");
 
-		DerivedDataCache::FWriter Body;
+		FBinaryWriter Body;
 		uint32 RecordIndex = 0;
 		for (uint32 Slice = 0; Slice < TextureCubeFaceCount; ++Slice)
 		{
@@ -428,7 +428,7 @@ namespace Durin
 		}
 		const std::vector<uint8> BodyBytes = Body.TakeBytes();
 
-		DerivedDataCache::FWriter Result;
+		FBinaryWriter Result;
 		Result.WriteU32(TexturePayloadMagic);
 		Result.WriteU32(TexturePayloadSchemaVersion);
 		Result.WriteU32(TextureCubeBuilderVersion);

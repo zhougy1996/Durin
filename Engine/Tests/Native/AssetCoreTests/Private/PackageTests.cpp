@@ -13,7 +13,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
@@ -1050,7 +1050,7 @@ namespace
 			.PackagePath = PackagePath,
 			.PhysicalPath = PhysicalPath.generic_string(),
 			.ExpectedFileSize = std::filesystem::file_size(PhysicalPath, Error),
-			.ExpectedLastWriteTimeTicks = Durin::DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+			.ExpectedLastWriteTimeTicks = Durin::FileTime::ToStableTicks(LastWriteTime),
 			.ExpectedContentHash = Durin::FXxHash128::HashBuffer(Bytes)};
 	}
 

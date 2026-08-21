@@ -19,7 +19,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
@@ -911,7 +911,7 @@ namespace Durin::Asset
 				.Dependencies = Staged.File.Dependencies,
 				.FileSize = Staged.PublishedFileSize,
 				.LastWriteTime = Staged.PublishedLastWriteTime,
-				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
+				.LastWriteTimeTicks = FileTime::ToStableTicks(
 					Staged.PublishedLastWriteTime)});
 			if (auto Resident = Manager.ResidentPackages.find(Staged.Path);
 				Resident != Manager.ResidentPackages.end()
@@ -972,7 +972,7 @@ namespace Durin::Asset
 			.Dependencies = Header.Dependencies,
 			.FileSize = FileSize,
 			.LastWriteTime = LastWriteTime,
-			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
 		return {};
 	}
 
@@ -1195,7 +1195,7 @@ namespace Durin::Asset
 			.Dependencies = File.Dependencies,
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
-			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
 		if (auto Resident = ResidentPackages.find(Path);
 			Resident != ResidentPackages.end()
 			&& Resident->second.Package == Package)

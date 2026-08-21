@@ -3,7 +3,7 @@
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
-#include "Misc/DerivedDataCache.h"
+
 
 namespace Durin
 {

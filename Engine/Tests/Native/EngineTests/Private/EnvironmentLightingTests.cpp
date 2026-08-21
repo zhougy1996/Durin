@@ -1,7 +1,7 @@
 #include "EngineTestSupport.h"
 #include "AssetMutation.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -122,10 +122,11 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoringPayloadDirectlyWithoutDdc)
 	std::string Error;
 	Durin::FEnvironmentLightingData SourceData = MakeEnvironmentLightingFixture();
 	ASSERT_TRUE(SerializeEnvironmentLighting(SourceData, SourceBytes, Error)) << Error;
-	ASSERT_TRUE(Durin::DerivedDataCache::WriteFileAtomically(
-		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(AssetPath.ToString()),
+	Durin::FFileHelper::FAtomicFileError FileError;
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(
 		SourceBytes,
-		&Error)) << Error;
+		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(AssetPath.ToString()),
+		&FileError)) << FileError.ToString();
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
 	Durin::Asset::FCookContext Context(

@@ -1,6 +1,6 @@
 #include "EncodedSourceSnapshot.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
@@ -49,7 +49,7 @@ namespace Durin::Asset::Forge
 			.PhysicalPath = Source.PhysicalPath,
 			.Bytes = std::move(Bytes),
 			.FileSize = FileSize,
-			.LastWriteTime = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)};
+			.LastWriteTime = FileTime::ToStableTicks(LastWriteTime)};
 		OutSnapshot.ContentHash = FXxHash128::HashBuffer(OutSnapshot.GetBytes());
 		return true;
 	}

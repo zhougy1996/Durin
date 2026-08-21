@@ -82,7 +82,7 @@ add_dependencies(CoreUtilityTests
 	CoreAssertionHeaderModuleConsumer)
 
 durin_add_core_functional_test(CoreFileSystemTests
-	Private/DerivedDataCacheTests.cpp
+	Private/BinaryFormatTests.cpp
 	Private/FileHelperTests.cpp
 	Private/LexicalPathTests.cpp
 	Private/PathsTests.cpp

@@ -1,6 +1,6 @@
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/EngineWire.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -29,7 +29,7 @@ namespace Durin
 			return EngineWire::AlignUp(Value, TerrainHeightmapPayloadAlignment);
 		}
 
-		auto WriteU16(DerivedDataCache::FWriter& Writer, uint16 Value) -> void
+		auto WriteU16(FBinaryWriter& Writer, uint16 Value) -> void
 		{
 			Writer.WriteU8(static_cast<uint8>(Value));
 			Writer.WriteU8(static_cast<uint8>(Value >> 8));
@@ -63,7 +63,7 @@ namespace Durin
 			|| HierarchyBytes > MaximumTerrainHeightmapHierarchyBytes)
 			return Fail(OutError, "Terrain heightmap payload exceeds its frozen byte ceilings.");
 
-		DerivedDataCache::FWriter Body;
+		FBinaryWriter Body;
 		for (const FTerrainHeightmapLevel& Level : Payload.Levels)
 		{
 			Body.WriteU32(Level.Width);
@@ -84,7 +84,7 @@ namespace Durin
 		}
 		const std::vector<uint8> BodyBytes = Body.TakeBytes();
 
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteU32(TerrainHeightmapPayloadMagic);
 		Writer.WriteU32(TerrainHeightmapPayloadSchemaVersion);
 		Writer.WriteU32(TerrainHeightmapBuilderVersion);

@@ -2,14 +2,16 @@
 #include "AssetPackageValueCodec.h"
 #include "AssetPackageVersionPolicy.h"
 
-#include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::Private
 {
 	namespace
 	{
+		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
+		constexpr uint32 AssetRegistrySchemaVersion = 2;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 		constexpr uint64 MaximumReferencesPerPackage = 100000;
@@ -74,9 +76,9 @@ namespace Durin::Asset::Private
 			OutWarning = std::format("Failed to read asset registry cache {}.", Path.generic_string());
 			return false;
 		}
-		DerivedDataCache::FReader Reader(Bytes);
+		FBinaryReader Reader(Bytes);
 		uint32 MountCount = 0;
-		if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint)
+		if (!Reader.ReadAndValidateHeader(AssetRegistryMagic, AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint)
 			|| !Reader.ReadU32(MountCount) || MountCount > MaximumRegistryEntries)
 		{
 			OutWarning = "Ignoring incompatible or corrupt asset registry cache header.";
@@ -181,8 +183,8 @@ namespace Durin::Asset::Private
 		std::ranges::sort(Entries, [](const FRegistryCacheEntry& A, const FRegistryCacheEntry& B) {
 			return std::tie(A.MountRoot, A.RelativePath) < std::tie(B.MountRoot, B.RelativePath);
 		});
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint});
+		FBinaryWriter Writer;
+		Writer.WriteHeader({AssetRegistryMagic, AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint});
 		Writer.WriteU32(static_cast<uint32>(Mounts.size()));
 		for (const std::string& Mount : Mounts) Writer.WriteString(Mount);
 		Writer.WriteU64(Entries.size());
@@ -199,10 +201,10 @@ namespace Durin::Asset::Private
 			Writer.WriteU64(Entry.FileSize);
 			Writer.WriteI64(Entry.LastWriteTimeTicks);
 		}
-		std::string ErrorMessage;
-		if (!DerivedDataCache::WriteFileAtomically(RegistryCachePath(), Writer.GetBytes(), &ErrorMessage))
+		FFileHelper::FAtomicFileError FileError;
+		if (!FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), RegistryCachePath(), &FileError))
 		{
-			OutWarning = std::move(ErrorMessage);
+			OutWarning = FileError.ToString();
 			return false;
 		}
 		return true;
@@ -278,7 +280,7 @@ namespace Durin::Asset::Private
 			OutWarning = std::format("Failed to read asset-reference cache {}.", Path.generic_string());
 			return false;
 		}
-		DerivedDataCache::FReader Reader(Bytes);
+		FBinaryReader Reader(Bytes);
 		uint32 ExtractorSchema = 0;
 		uint64 SourceCount = 0;
 		if (!Reader.ReadAndValidateHeader(
@@ -420,7 +422,7 @@ namespace Durin::Asset::Private
 			return Left.GetView() < Right.GetView();
 		});
 
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageReaderPolicyFingerprint});
 		Writer.WriteU32(AssetReferenceExtractorSchemaVersion);
 		Writer.WriteU64(Sources.size());
@@ -466,11 +468,11 @@ namespace Durin::Asset::Private
 				Writer.WriteString(Reference->DisplayRoute);
 			}
 		}
-		std::string ErrorMessage;
-		if (!DerivedDataCache::WriteFileAtomically(
-			ReferenceCachePath(), Writer.GetBytes(), &ErrorMessage))
+		FFileHelper::FAtomicFileError FileError;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+			Writer.GetBytes(), ReferenceCachePath(), &FileError))
 		{
-			OutWarning = std::move(ErrorMessage);
+			OutWarning = FileError.ToString();
 			return false;
 		}
 		return true;

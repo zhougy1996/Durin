@@ -1,6 +1,6 @@
 #include "Texture/TextureBuildFunctions.h"
 
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
@@ -24,7 +24,7 @@ namespace Durin::Asset::Build::Private
 			FTextureSourceData& Source, FTexture2DBuildSettings& Settings,
 			bool& bSRGB, std::string& OutError) -> bool
 		{
-			DerivedDataCache::FReader Reader(Bytes);
+			FBinaryReader Reader(Bytes);
 			uint32 Usage = 0, Quality = 0, AlphaMode = 0, AlphaThreshold = 0;
 			uint64 PixelCount = 0;
 			uint8 SourceFormat = 0, HasTransparency = 0, SRGB = 0;
@@ -89,7 +89,7 @@ namespace Durin::Asset::Build::Private
 		auto DecodeTextureCubeLocalInput(std::span<const uint8> Bytes,
 			FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
 		{
-			DerivedDataCache::FReader Reader(Bytes);
+			FBinaryReader Reader(Bytes);
 			FTextureCubeSourceData Candidate;
 			for (FTextureSourceData& Face : Candidate.Faces)
 			{
@@ -297,7 +297,7 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
 		-> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteU32(Request.SourceData.Width);
 		Writer.WriteU32(Request.SourceData.Height);
 		Writer.WriteU8(Request.SourceData.SourceChannelCount);
@@ -330,7 +330,7 @@ namespace Durin::Asset::Build::Private
 	auto EncodeTextureCubeLocalInput(const FTextureCubeSourceData& SourceData)
 		-> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		for (const FTextureSourceData& Face : SourceData.Faces)
 		{
 			Writer.WriteU32(Face.Width);

@@ -6,7 +6,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
@@ -151,8 +151,8 @@ namespace Durin::Asset
 				OutError = std::format("Failed to recheck package '{}': {}", Path.generic_string(), Error.message());
 				return EAssetPackageSnapshotStatus::Failed;
 			}
-			const int64 InitialTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
-			const int64 FinalTicks = DerivedDataCache::FileTimeToStableTicks(FinalTime);
+			const int64 InitialTicks = FileTime::ToStableTicks(InitialTime);
+			const int64 FinalTicks = FileTime::ToStableTicks(FinalTime);
 			if (InitialSize != FinalSize || InitialTicks != FinalTicks)
 			{
 				OutError = std::format("Package '{}' changed while its fingerprint was captured.", Path.generic_string());
@@ -572,7 +572,7 @@ namespace Durin::Asset
 			Result.Record = std::move(Record);
 			return Result;
 		}
-		Record.Fingerprint.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
+		Record.Fingerprint.LastWriteTimeTicks = FileTime::ToStableTicks(InitialTime);
 		Record.Fingerprint.ContentHash = Input.ExpectedContentHash;
 		bool bUsedCodec = false;
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
@@ -624,7 +624,7 @@ namespace Durin::Asset
 		std::error_code FinalError;
 		const uintmax_t FinalSize = std::filesystem::file_size(Input.PhysicalPath, FinalError);
 		const auto FinalTime = std::filesystem::last_write_time(Input.PhysicalPath, FinalError);
-		const int64 FinalTicks = FinalError ? 0 : DerivedDataCache::FileTimeToStableTicks(FinalTime);
+		const int64 FinalTicks = FinalError ? 0 : FileTime::ToStableTicks(FinalTime);
 		if (FinalError || FinalSize != Input.ExpectedFileSize || FinalTicks != Input.ExpectedLastWriteTimeTicks
 			|| FinalSize != Record.Fingerprint.FileSize || FinalTicks != Record.Fingerprint.LastWriteTimeTicks)
 			Record.Freshness = EAssetCompatibilityFreshness::Stale;

@@ -3,7 +3,7 @@
 #include "AssetMutationRegistryInternal.h"
 
 #include "DObject/Class.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Profiling/Profiling.h"
@@ -153,7 +153,7 @@ namespace Durin::Asset
 					++LastScanStats.Failed;
 					continue;
 				}
-				const int64 LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+				const int64 LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime);
 				std::string AssetClassName;
 				EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 				FAssetPath RedirectDestination;

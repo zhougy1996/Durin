@@ -7,6 +7,13 @@
 
 namespace
 {
+	auto NormalizeDirectory(std::string_view Directory) -> std::filesystem::path
+	{
+		std::filesystem::path Path(Directory);
+		if (Path.filename().empty()) Path = Path.parent_path();
+		return Path.lexically_normal();
+	}
+
 	class FMountRegistryTests : public testing::Test
 	{
 	protected:
@@ -77,6 +84,30 @@ namespace
 
 		std::filesystem::path Root;
 	};
+}
+
+TEST(FPathsTests, ResolvesDerivedDataProjectFallbackAndTestOverrideRoots)
+{
+	Durin::FPaths::SetDerivedDataCacheDirForTests({});
+	ASSERT_TRUE(Durin::FPaths::SetProjectFile({}));
+	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()),
+		(std::filesystem::path(Durin::FPaths::EngineDir()) / "DerivedDataCache").lexically_normal());
+
+	const std::filesystem::path ProjectDir = Durin::Testing::GetTestWorkDirectory() / "CacheProject";
+	std::filesystem::create_directories(ProjectDir);
+	const std::filesystem::path ProjectFile = ProjectDir / "CacheProject.dproject";
+	{
+		std::ofstream Stream(ProjectFile);
+		Stream << R"({"ProjectName":"CacheProject"})";
+	}
+	ASSERT_TRUE(Durin::FPaths::SetProjectFile(ProjectFile.generic_string()));
+	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()),
+		(ProjectDir / "DerivedDataCache").lexically_normal());
+
+	const std::filesystem::path Override = Durin::Testing::GetTestWorkDirectory() / "IsolatedCache";
+	Durin::FPaths::SetDerivedDataCacheDirForTests(Override.generic_string());
+	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()), Override.lexically_normal());
+	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 
 TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)

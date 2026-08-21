@@ -1,13 +1,16 @@
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
-#include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
+#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Editor
 {
 	namespace
 	{
+		constexpr uint32 ThumbnailIndexMagic = 0x58444954; // TIDX
+		constexpr uint32 ThumbnailIndexSchemaVersion = 2;
 		constexpr uint32 MaximumIndexEntries = 1'000'000;
 
 		struct FObjectIndexEntry
@@ -28,22 +31,13 @@ namespace Durin::Editor
 				});
 		}
 
-		auto IsContainedBy(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
-		{
-			const std::filesystem::path Relative = Candidate.lexically_normal().lexically_relative(Root.lexically_normal());
-			if (Relative.empty() || Relative.is_absolute()) return false;
-			for (const auto& Part : Relative)
-				if (Part == "..") return false;
-			return true;
-		}
-
-		auto IsResolvedContainedBy(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
+		auto TryResolveContainedBy(const std::filesystem::path& Root,
+			const std::filesystem::path& Candidate,
+			std::filesystem::path& OutResolved) -> bool
 		{
 			std::error_code Error;
-			const std::filesystem::path ResolvedRoot = std::filesystem::weakly_canonical(Root, Error);
-			if (Error) return false;
-			const std::filesystem::path ResolvedCandidate = std::filesystem::weakly_canonical(Candidate, Error);
-			return !Error && IsContainedBy(ResolvedRoot, ResolvedCandidate);
+			return PathUtilities::TryResolveContainedPath(
+				Candidate, Root, OutResolved, Error);
 		}
 	} // namespace
 
@@ -61,9 +55,12 @@ namespace Durin::Editor
 			{
 				std::error_code Error;
 				const std::filesystem::path Path = ObjectPath(It->first);
-				const uintmax_t Size = std::filesystem::file_size(Path, Error);
+				std::filesystem::path ResolvedPath;
+				const bool bContained = TryResolveContainedBy(Settings.CacheRoot, Path, ResolvedPath);
+				const uintmax_t Size = bContained
+					? std::filesystem::file_size(ResolvedPath, Error) : 0;
 				if (Error || Size != It->second.EncodedBytes || Size > Settings.MaximumObjectBytes
-					|| !IsResolvedContainedBy(Settings.CacheRoot, Path))
+					|| !bContained)
 				{
 					It = Entries.erase(It);
 					++Stats.Regenerations;
@@ -97,10 +94,10 @@ namespace Durin::Editor
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)
 				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath().generic_string()))
 				return;
-			DerivedDataCache::FReader Reader(Bytes);
+			FBinaryReader Reader(Bytes);
 			uint32 Count = 0;
-			if (!Reader.ReadAndValidateHeader(DerivedDataCache::ThumbnailIndexMagic,
-					DerivedDataCache::ThumbnailIndexSchemaVersion, Settings.FormatVersion)
+			if (!Reader.ReadAndValidateHeader(ThumbnailIndexMagic,
+					ThumbnailIndexSchemaVersion, Settings.FormatVersion)
 				|| !Reader.ReadU32(Count) || Count > MaximumIndexEntries)
 				return;
 			std::unordered_map<std::string, FObjectIndexEntry> Loaded;
@@ -123,9 +120,9 @@ namespace Durin::Editor
 			Sorted.reserve(Entries.size());
 			for (const auto& [Key, Entry] : Entries) Sorted.push_back(Entry);
 			std::ranges::sort(Sorted, {}, &FObjectIndexEntry::Key);
-			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({DerivedDataCache::ThumbnailIndexMagic,
-				DerivedDataCache::ThumbnailIndexSchemaVersion, Settings.FormatVersion});
+			FBinaryWriter Writer;
+			Writer.WriteHeader({ThumbnailIndexMagic,
+				ThumbnailIndexSchemaVersion, Settings.FormatVersion});
 			Writer.WriteU32(static_cast<uint32>(Sorted.size()));
 			for (const FObjectIndexEntry& Entry : Sorted)
 			{
@@ -135,15 +132,16 @@ namespace Durin::Editor
 			}
 			std::error_code Error;
 			std::filesystem::create_directories(Settings.CacheRoot, Error);
-			if (!Error) DerivedDataCache::WriteFileAtomically(IndexPath(), Writer.GetBytes());
+			if (!Error) FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath());
 		}
 
 		auto RemoveObject(const FObjectIndexEntry& Entry) -> void
 		{
 			const std::filesystem::path Path = ObjectPath(Entry.Key);
-			if (!IsResolvedContainedBy(Settings.CacheRoot, Path)) return;
+			std::filesystem::path ResolvedPath;
+			if (!TryResolveContainedBy(Settings.CacheRoot, Path, ResolvedPath)) return;
 			std::error_code Error;
-			std::filesystem::remove(Path, Error);
+			std::filesystem::remove(ResolvedPath, Error);
 		}
 
 		auto MaintainBudget() -> void
@@ -183,11 +181,14 @@ namespace Durin::Editor
 			Entry = It->second;
 		}
 		const std::filesystem::path Path = Impl->ObjectPath(Key);
+		std::filesystem::path ResolvedPath;
+		const bool bContained = TryResolveContainedBy(Impl->Settings.CacheRoot, Path, ResolvedPath);
 		std::error_code Error;
-		const uintmax_t EncodedSize = std::filesystem::file_size(Path, Error);
+		const uintmax_t EncodedSize = bContained
+			? std::filesystem::file_size(ResolvedPath, Error) : 0;
 		if (!Error && EncodedSize == Entry.EncodedBytes && EncodedSize <= Impl->Settings.MaximumObjectBytes
-			&& IsResolvedContainedBy(Impl->Settings.CacheRoot, Path)
-			&& FFileHelper::LoadFileToArray(OutBytes, Path.generic_string())
+			&& bContained
+			&& FFileHelper::LoadFileToArray(OutBytes, ResolvedPath.generic_string())
 			&& OutBytes.size() == EncodedSize)
 		{
 			std::lock_guard Lock(Impl->Mutex);
@@ -215,10 +216,13 @@ namespace Durin::Editor
 	{
 		if (!IsSafeKey(Key) || Bytes.empty() || Bytes.size() > Impl->Settings.MaximumObjectBytes) return false;
 		const std::filesystem::path ObjectPath = Impl->ObjectPath(Key);
+		std::filesystem::path ResolvedObjectPath;
+		if (!TryResolveContainedBy(Impl->Settings.CacheRoot, ObjectPath, ResolvedObjectPath)) return false;
 		std::error_code Error;
 		std::filesystem::create_directories(ObjectPath.parent_path(), Error);
-		if (Error || !IsResolvedContainedBy(Impl->Settings.CacheRoot, ObjectPath)) return false;
-		if (!DerivedDataCache::WriteFileAtomically(ObjectPath, Bytes)) return false;
+		if (Error || !TryResolveContainedBy(
+			Impl->Settings.CacheRoot, ObjectPath, ResolvedObjectPath)) return false;
+		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
 		std::lock_guard Lock(Impl->Mutex);
 		Impl->Entries.insert_or_assign(std::string(Key), FObjectIndexEntry{
 			.Key = std::string(Key),

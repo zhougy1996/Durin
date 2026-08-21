@@ -58,5 +58,13 @@ namespace Durin
 			const std::filesystem::path& FilePath,
 			FAtomicFileError* OutError = nullptr
 		) -> bool;
+
+		inline auto SaveArrayToFileAtomically(
+			std::span<const uint8> Array,
+			const std::filesystem::path& FilePath,
+			FAtomicFileError* OutError = nullptr) -> bool
+		{
+			return SaveArrayToFileAtomically(std::as_bytes(Array), FilePath, OutError);
+		}
 	}
 }

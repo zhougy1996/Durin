@@ -61,4 +61,27 @@ namespace Durin::PathUtilities
 		if (!TryMakeLexicalRelativePath(Candidate, Parent, Relative) || Relative.empty()) return false;
 		return bRecursive || Relative.parent_path().empty();
 	}
+
+	auto TryResolveContainedPath(
+		const std::filesystem::path& Candidate,
+		const std::filesystem::path& Root,
+		std::filesystem::path& OutResolvedCandidate,
+		std::error_code& OutError) -> bool
+	{
+		OutResolvedCandidate.clear();
+		OutError.clear();
+		if (Candidate.empty() || Root.empty() || !Candidate.is_absolute() || !Root.is_absolute())
+		{
+			OutError = std::make_error_code(std::errc::invalid_argument);
+			return false;
+		}
+
+		const std::filesystem::path ResolvedRoot = std::filesystem::weakly_canonical(Root, OutError);
+		if (OutError) return false;
+		const std::filesystem::path ResolvedCandidate = std::filesystem::weakly_canonical(Candidate, OutError);
+		if (OutError) return false;
+		if (!IsLexicalDescendantPath(ResolvedCandidate, ResolvedRoot, true)) return false;
+		OutResolvedCandidate = ResolvedCandidate;
+		return true;
+	}
 }

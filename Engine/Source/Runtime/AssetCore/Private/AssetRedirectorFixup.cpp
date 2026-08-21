@@ -6,7 +6,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
 
@@ -951,7 +951,7 @@ namespace Durin::Asset
 			if (MetadataError)
 				return Compensate(Error(EAssetError::IoError,
 					"Could not inspect a published Fix Up package."));
-			Data.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
+			Data.LastWriteTimeTicks = FileTime::ToStableTicks(
 				Data.LastWriteTime);
 		}
 		Registry.Assets = State.PostAssets;

@@ -2,7 +2,7 @@
 
 #include "AssetLoad.h"
 #include "Hash/XxHash.h"
-#include "Misc/DerivedDataCache.h"
+#include "Serialization/BinaryFormat.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
@@ -106,7 +106,7 @@ namespace Durin
 			for (const std::vector<uint16>& Face : Mip) AppendHalfBytes(Body, Face);
 		AppendHalfBytes(Body, Data.BrdfLut);
 
-		DerivedDataCache::FWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteHeader({
 			.Magic = EnvironmentLightingPayloadMagic,
 			.SchemaVersion = EnvironmentLightingPayloadSchemaVersion,
@@ -130,7 +130,7 @@ namespace Durin
 	{
 		OutData.reset();
 		OutError.clear();
-		DerivedDataCache::FReader Reader(Bytes);
+		FBinaryReader Reader(Bytes);
 		uint32 PixelFormat = 0;
 		uint32 IrradianceDimension = 0;
 		uint32 PrefilterDimension = 0;
@@ -158,7 +158,7 @@ namespace Durin
 		}
 		if (Magic != EnvironmentLightingPayloadMagic
 			|| SchemaVersion != EnvironmentLightingPayloadSchemaVersion
-			|| SerializationMarker != DerivedDataCache::SerializationMarker
+			|| SerializationMarker != BinaryFormatMarker
 			|| PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float
 			|| IrradianceDimension != EnvironmentIrradianceDimension
 			|| PrefilterDimension != EnvironmentPrefilterDimension

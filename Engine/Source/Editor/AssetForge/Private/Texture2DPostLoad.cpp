@@ -2,7 +2,7 @@
 #include "Texture2DBuildAdapter.h"
 
 #include "Hash/XxHash.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DPostLoad.h"
@@ -109,7 +109,7 @@ namespace Durin::Asset::Forge
 						ETextureDerivedDataStatus::SourceUnavailable,
 						std::format("Failed to inspect texture source file: {}", Error.message()),
 						OutError);
-				CurrentLastWriteTime = DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+				CurrentLastWriteTime = FileTime::ToStableTicks(LastWriteTime);
 				if (bSourceContentMatches)
 				{
 					Texture.PublishSourceFingerprint(CurrentFileSize, CurrentLastWriteTime);

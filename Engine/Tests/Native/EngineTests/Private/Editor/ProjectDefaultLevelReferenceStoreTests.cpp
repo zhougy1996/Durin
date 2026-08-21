@@ -4,7 +4,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Level.h"
-#include "Misc/DerivedDataCache.h"
+
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "NativeTestSupport.h"

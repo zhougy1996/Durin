@@ -4,7 +4,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
-#include "Misc/DerivedDataCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
@@ -84,9 +84,10 @@ auto main(int ArgumentCount, char** Arguments) -> int
 
 	const std::filesystem::path PayloadPath =
 		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(DefaultAssetPath);
-	if (!Durin::DerivedDataCache::WriteFileAtomically(PayloadPath, PayloadBytes, &Error))
+	Durin::FFileHelper::FAtomicFileError FileError;
+	if (!Durin::FFileHelper::SaveArrayToFileAtomically(PayloadBytes, PayloadPath, &FileError))
 	{
-		std::cerr << "Failed to write environment-lighting payload: " << Error << '\n';
+		std::cerr << "Failed to write environment-lighting payload: " << FileError.ToString() << '\n';
 		return 1;
 	}
 	const Durin::Asset::FAssetResult SaveResult = Durin::Asset::SavePackage(Asset->GetPackage());
