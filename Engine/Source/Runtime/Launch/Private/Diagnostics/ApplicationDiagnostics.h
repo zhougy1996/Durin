@@ -5,6 +5,7 @@
 namespace Durin
 {
 	struct FTaskSchedulerLifecycleSmokeState;
+	struct FRendererContactRuntimeSmokeState;
 
 	// Owns opt-in diagnostic configuration and retained lifecycle-smoke state.
 	class FApplicationDiagnostics
@@ -26,7 +27,10 @@ namespace Durin
 
 		FLaunchDiagnosticsRequest Request;
 		std::shared_ptr<FTaskSchedulerLifecycleSmokeState> TaskSchedulerState;
+		std::shared_ptr<FRendererContactRuntimeSmokeState>
+			RendererContactRuntimeState;
 		bool bEditorPIELifecycleSmokeCompleted = false;
 		bool bNativeGameplayLifecycleSmokeCompleted = false;
+		bool bRendererContactRuntimeSmokeCompleted = false;
 	};
 }

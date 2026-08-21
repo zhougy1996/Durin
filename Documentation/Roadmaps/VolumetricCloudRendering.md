@@ -1,0 +1,349 @@
+# Volumetric Cloud Rendering Roadmap
+
+Summary: Deliver one production-qualified global volumetric-cloud layer through bounded spatial rendering, scene authoring, temporal reconstruction, lighting, and editor-workflow plans.
+
+Last reviewed: 2026-08-21
+
+Status: Active
+Completed:
+
+## Current Status
+
+The backend-neutral volume-texture and persistent-view-state foundations are
+complete. Public RHI and Vulkan can create, upload, sample, write, copy, and
+release 3D textures; `DVolumeTexture` supplies cookable package-backed volume
+assets; and Renderer owns transactional previous-view metadata with a private
+strongly typed history-extension point.
+
+[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) and the
+required [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap completed
+on 2026-08-21. Their lasting compute, synchronization, fallback, recovery, and
+diagnostic contracts now satisfy the remaining P1 dependency.
+
+[Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md)
+is now the active P1 plan. Stage 0 froze the flat-slab coordinate model,
+deterministic inputs, radiance/transmittance output, opaque/cloud/translucency
+order, compute/fragment/disabled routes, and spatial quality/performance gates.
+Implementation proceeds from its Stage 1 pure contracts and fixtures. Later
+child plans remain proposed until their entry gates are met.
+
+## Outcome
+
+Durin can render one authored global volumetric-cloud layer into lit scene
+views with deterministic depth-aware composition, stable low-resolution
+temporal reconstruction, directional-light scattering and cloud shadows,
+bounded quality and recovery policies, and an editor workflow for selecting
+assets, tuning properties, inspecting diagnostics, and validating output.
+
+The first production outcome favors one complete and measurable vertical slice
+over a general participating-media framework. It leaves a deliberate path to
+fog, local volumes, multiple cloud layers, and broader atmospheric integration
+without representing those features as already supported.
+
+## Scope
+
+- One active global height-bounded cloud layer per renderer scene, selected by
+  stable identity rather than component registration order.
+- Renderer-owned density evaluation, ray marching, lighting, intermediate
+  targets, composition, temporal history, fallback, and diagnostics.
+- `DVolumeTexture` inputs for base and detail density data plus an optional
+  two-dimensional weather/control texture through existing texture references.
+- Scene-depth-aware cloud integration between opaque scene lighting and sorted
+  scene translucency, before display mapping and editor assistance.
+- One directional-light source, bounded self-shadow/transmittance evaluation,
+  ambient contribution, and a later cloud-shadow receiver path.
+- Engine-owned actor/component authoring, immutable scene proxy publication,
+  serialization, duplication, world replacement, and render-state mutation.
+- Low-resolution rendering, temporal reconstruction, quality tiers, memory and
+  timing budgets, resource invalidation, shader reload, and explicit fallbacks.
+- Focused editor property, asset-selection, preview/debug, and diagnostic
+  workflows after the runtime contract is stable.
+
+## Non-Goals
+
+- A general volumetric fog, smoke, fire, particle, fluid-simulation, or
+  participating-media framework in the required roadmap.
+- Multiple interacting cloud layers, arbitrary local volume primitives, portal
+  volumes, or order-independent volumetric/translucent composition.
+- A material-system volume domain or generic volume material parameters.
+- Sparse, virtual, bricked, streamed, or runtime-compressed volume textures.
+- Asynchronous compute, indirect dispatch, or a render graph as prerequisites.
+- Coupled sky-atmosphere LUT generation, aerial perspective, sun-disc or moon
+  rendering, weather simulation, or physically complete multiple scattering.
+- A general VDB/DDS/KTX importer in the core rendering plans. An authoring plan
+  may select the smallest source adapter justified by the first production
+  assets without changing the runtime volume-texture contract.
+
+## Program Decisions and Invariants
+
+### Product boundary
+
+- The required outcome owns one global cloud layer. P1 Stage 0 selects and
+  freezes flat, spherical-shell, or another explicit height-domain geometry
+  from target scene scale, camera altitude, and precision evidence; later
+  plans consume that decision rather than supporting multiple models at once.
+- P1 also freezes qualification scenes, image tolerance, target adapter,
+  viewport sizes, and GPU/memory budgets before route timing is observed.
+- Every required plan preserves a complete disabled/no-cloud path. Missing or
+  invalid optional cloud data produces a documented fallback or no cloud; it
+  must not make an otherwise renderable view fail.
+
+### Ownership and dependency direction
+
+- RHI and VulkanRHI remain cloud-agnostic. Cloud policy, shaders, transient
+  targets, histories, and composition live in Renderer.
+- Engine owns reflected authored objects, stable scene data, scene proxies, and
+  texture references. Components never retain render targets, pipelines,
+  histories, raw RHI textures, or Vulkan handles.
+- `DVolumeTexture` and TextureBuild remain generic volume-data owners. Cloud
+  meanings such as erosion, coverage, weather, and wind do not enter their
+  payload or build contracts.
+- Editor modules consume Engine reflection and Renderer diagnostics. They do
+  not become a required runtime dependency or perform rendering ownership.
+
+### Frame and composition order
+
+- The selected scene order is sky/environment bootstrap, opaque and masked
+  lighting, volumetric-cloud render/composite, sorted scene translucency,
+  post-process/display mapping, then editor assistance and presentation.
+- Cloud ray length is clipped against reconstructed opaque depth. Transparent
+  surfaces render after clouds so they observe clouds as part of their scene
+  background rather than being overwritten by a late cloud composite.
+- P1 owns the minimum explicit split of the current combined retained-forward
+  scene phase needed to establish this ordering. It must preserve Lit/Unlit,
+  Solid/Wireframe, forward fallback, hybrid deferred, offscreen, and Present
+  behavior and must not introduce a generic pass framework without a second
+  concrete consumer.
+- Cloud outputs use an explicit scene-linear radiance plus transmittance
+  contract. Composition follows `Scene = CloudRadiance + Transmittance * Scene`
+  or an exactly documented algebraically equivalent representation.
+
+### Compute, history, and failure policy
+
+- The production spatial route uses public synchronous-compute contracts when
+  P1 evidence admits it. A reduced fragment or disabled route remains explicit
+  if target capabilities, resource creation, shader compilation, or dispatch
+  limits reject compute.
+- Dispatch never occurs inside a graphics render pass. Graphics/compute
+  handoffs use public RHI transitions and never depend on device-idle waits.
+- Temporal history is private, strongly typed state in `FSceneViewState`, keyed
+  by `FSceneViewStateId`. Scene, projection, viewport, output, depth convention,
+  camera-cut, inactivity, manual invalidation, and device invalidation follow
+  the existing discontinuity contract.
+- A failed view attempt aborts pending cloud history and retains the last
+  committed history. A successful view commits metadata and cloud history as
+  one outer-view transaction.
+- Every renderer resource publication is complete-or-null or last-known-good.
+  Reload and device recovery cannot expose partially rebuilt targets, pipelines,
+  texture bindings, or history.
+
+### Authoring and rollout
+
+- Renderer constants may drive deterministic P1 fixtures, but public authored
+  behavior begins only in P2 through an Engine scene contract and component.
+- The component publishes physical/authoring intent; quality tiers own sample
+  counts, target scale, temporal pattern, and platform policy. Serialized
+  content does not freeze implementation-specific dispatch dimensions.
+- General Details-panel reflection is sufficient for the initial P2 workflow.
+  Purpose-built asset previews, debug views, presets, and import/generation
+  adapters are deferred to P5 after runtime parameters and diagnostics stabilize.
+
+## Current Foundations and Gaps
+
+| Area | Existing foundation | Roadmap gap |
+| --- | --- | --- |
+| Volume data | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) provides `DVolumeTexture`, deterministic mips, package/cook/DDC behavior, Texture3D sampling/storage, and lifecycle recovery. | Assign cloud meanings to generic volume inputs and qualify real density sampling without leaking cloud policy into the asset. |
+| Compute | Public synchronous compute, explicit transitions, sampled/storage images, and graphics handoff are implemented; the first Renderer consumer is completing qualification. | Add a measured cloud workload, route/fallback policy, low-resolution outputs, and scene-color consumption. |
+| Temporal state | [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) provides identity, previous matrices, discontinuities, and transactional feature-history extension. | Add cloud-specific history resources, reprojection, rejection, reconstruction, and commit/abort behavior. |
+| Scene rendering | Renderer has sky bootstrap, GBuffer/deferred lighting, retained forward geometry, sorted translucency, post-process, editor assistance, and resource coordination. | Split opaque/cloud/translucent execution at the narrowest boundary and establish depth-aware cloud composition in every supported view route. |
+| Lighting | Directional-light scene proxies, deferred lighting, cascaded shadows, environment lighting, GTAO, and contact visibility exist. | Define cloud lighting inputs, self-transmittance, ambient approximation, and a bounded cloud-shadow path without changing light-component ownership. |
+| Authoring | Reflected scene components, stable proxy/scene-info patterns, texture assets, generic Details editing, Texture Editor infrastructure, and Content Browser selection exist. | Add a cloud actor/component, stable active selection, cloud asset workflow, previews/debug views, presets, and focused editor validation. |
+
+## Milestone Map
+
+```mermaid
+flowchart LR
+    VT["Volume Texture Foundation"] --> P1["P1: Spatial rendering and composition"]
+    VS["Persistent View State Foundation"] --> P3["P3: Temporal reconstruction"]
+    CI["Compute Renderer Integration"] --> P1
+    P1 --> P2["P2: Scene contract and component"]
+    P2 --> P3
+    P3 --> P4["P4: Lighting and cloud shadows"]
+    P4 --> P5["P5: Authoring and editor workflow"]
+    P5 --> P6["P6: Production qualification"]
+```
+
+| Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
+| --- | --- | --- | --- | --- |
+| P0: Generic foundations | Required; completed 2026-08-21 | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) and [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) | Existing texture, compute, renderer-scene, and view-lifetime contracts were audited. | Cooked sampled 3D data and transactional view identity/history extension pass focused, aggregate, and runtime qualification. |
+| P1: Spatial rendering and composition | Required; active 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | Met on 2026-08-21: P0 and Compute Renderer Integration are complete; Stage 0 froze the flat-slab model, spatial fixtures, output/composition, fallback, and qualification budgets. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
+| P2: Scene contract and component | Required | `VolumetricCloudSceneContract` | P1 freezes the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | One reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources. |
+| P3: Temporal reconstruction and quality | Required | `VolumetricCloudTemporalReconstruction` | P1 spatial reference images pass; P2 publishes immutable parameters; representative camera motion, cut, resize, and performance targets are frozen. | Low-resolution cloud rendering reconstructs stable full-view output, rejects invalid history, commits/aborts transactionally, exposes bounded quality tiers, and demonstrates measured benefit over the spatial reference. |
+| P4: Lighting and cloud shadows | Required | `VolumetricCloudLightingAndShadows` | P3 output and quality policy are stable; selected directional-light and receiver scenes define radiometric, visual, and performance targets. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
+| P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; first production asset sources identify the smallest import or generation adapter required. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
+| P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5 acceptance gates pass and their remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
+
+P0 is complete and P1 is the only active cloud child plan. P2-P6 are ordered
+proposed plans, not simultaneous active work.
+
+## Child Plan Boundaries
+
+### [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md)
+
+Owns the first-version coordinate model, deterministic density fixture, base
+and detail volume sampling, optional weather input, spatial ray march, initial
+single-directional-light approximation, depth clipping, cloud output formats,
+composition algebra, minimal opaque/cloud/translucency phase split, public-RHI
+transitions, resource ownership, explicit route/fallback, pixel baselines, and
+frozen spatial timing/memory evidence.
+
+It does not add reflected cloud components, temporal history, production cloud
+shadows, specialized editor UI, a general volumetric framework, or async
+compute. The minimal light approximation proves visible form only; P4 owns the
+production lighting response.
+
+### `VolumetricCloudSceneContract`
+
+Owns Engine-side cloud scene data, stable identity and selection, Proxy/SceneInfo
+lifetime, component/actor reflection, asset references, serialization,
+duplication, registration, mutation, visibility, world replacement, scene
+release, render-thread snapshots, and generic Details editing.
+
+It translates authored settings into the already-frozen P1 renderer input. It
+does not own GPU resources, introduce texture import policy, expose sample-count
+implementation details as content, or redesign SkyBox/light ownership.
+
+### `VolumetricCloudTemporalReconstruction`
+
+Owns low-resolution target sizing, sample pattern and jitter, cloud depth or
+other reprojection metadata, motion reconstruction, history rejection and
+clamping, spatial upsampling, typed `FSceneViewState` cloud history,
+transactional replacement, inactive/disabled policy, quality tiers, timing,
+memory, camera-motion image sequences, and temporal debug diagnostics.
+
+It does not add TAA for scene geometry, a generic history cache, dynamic
+resolution for the whole renderer, or async-compute scheduling.
+
+### `VolumetricCloudLightingAndShadows`
+
+Owns the selected directional-light snapshot consumed by clouds, phase and
+extinction conventions, self-shadow/transmittance sampling, ambient/sky
+approximation, cloud-shadow target and update policy, receiver integration,
+light/cloud mutation, fallback, diagnostic modes, and lighting/shadow image and
+performance evidence.
+
+It does not implement a sky-atmosphere system, multiple scattering, local-light
+volumetrics, new light-component ownership, or replace existing geometric
+directional shadows.
+
+### `VolumetricCloudAuthoringWorkflow`
+
+Owns the smallest justified volume/weather source adapter or procedural
+generation workflow, cloud asset-role presentation, component Details layout,
+quality presets, volume/cloud preview, renderer debug-view controls,
+performance/failure presentation, Content Browser integration, and persistent
+editor workflow validation.
+
+It must reuse `DVolumeTexture`, TextureBuild, reflected component properties,
+Renderer diagnostics, and existing preview infrastructure. It does not invent
+an editor-private runtime representation or make editor modules runtime
+dependencies.
+
+### `VolumetricCloudProductionQualification`
+
+Owns only cross-plan closure that cannot be attributed to one feature owner:
+the final runtime/cook/editor matrix, long-duration and multi-view behavior,
+combined invalidation and reload sequences, production budgets, compatibility
+evidence, lasting Runtime/Editor documentation, and roadmap completion. It may
+fix qualification defects but does not introduce a new cloud algorithm or
+authoring feature after the matrix is frozen.
+
+## Program Validation Matrix
+
+| Boundary | Required plans | Evidence |
+| --- | --- | --- |
+| Authored volume -> cloud density | P1, P2, P5 | Valid cooked and uncooked assets publish stable texture references; invalid, missing, replaced, and corrupt inputs follow explicit fallback without partial rendering state. |
+| Scene -> render thread | P2 | Add/update/remove, selection, visibility, duplication, world replacement, queued mutation, and shutdown expose only immutable snapshots and release every retained reference. |
+| Opaque depth/color -> cloud -> translucency | P1, P6 | Forward fallback, hybrid deferred, Lit/Unlit, Solid/Wireframe, fitted viewports, offscreen, Present, and editor assistance preserve the selected ordering and depth convention. |
+| Compute write -> cloud composite | P1 | Both command executors transition low-resolution outputs through public RHI, perform no hidden copy or global idle wait, and reproduce deterministic reference pixels. |
+| Current view -> temporal history | P3, P6 | Static and moving cameras, first use, cuts, resize, projection/depth changes, scene changes, inactive gaps, failed frames, duplicate use, manual/device invalidation, and release obey transactional history rules. |
+| Directional light -> cloud/receiver | P4 | Light rotation/intensity/color, cloud motion/density, self-shadow, ambient term, receiver shadow, disabled features, and unavailable resources produce bounded deterministic output. |
+| Resource lifecycle -> recovery | P1-P6 | Shader reload, texture replacement, failed rebuild, target/PSO creation failure, retry, device invalidation, render backlog, multi-view use, scene release, and shutdown retain last-known-good or explicit null fallbacks. |
+| Quality -> performance | P1, P3, P4, P6 | Predeclared adapter/extent/view fixtures report GPU time, dispatch/draw/sample structure, target/history bytes, cache ceilings, history acceptance, and final image quality for every shipped tier. |
+| Editor -> package/cook/runtime | P2, P5, P6 | Create/edit/save/reload/reopen, asset selection/mutation/deletion diagnostics, cook without authoring-only data, runtime load, previews, debug modes, and orderly editor shutdown pass. |
+
+Each child plan selects focused native and rendering tests using the root
+[testing workflow](../Agents/Testing.md) and validates runtime-visible changes
+through the root [build and run workflow](../Agents/BuildAndRun.md). P6 owns the
+final aggregate and full-build handoff, not a waiver for validation required by
+earlier plan gates.
+
+## Risks and Control Gates
+
+| Risk | Control gate |
+| --- | --- |
+| Component/UI design freezes parameters before the algorithm stabilizes. | P1 uses deterministic renderer-owned inputs; P2 begins only after P1 freezes the spatial parameter block and asset roles. |
+| Clouds composite after translucency and overwrite transparent geometry. | P1 must split the current retained-forward execution and validate opaque/cloud/translucency ordering in both forward and hybrid paths. |
+| A cloud feature leaks backend or cloud semantics into generic texture code. | RHI/Vulkan remain dimension-neutral and `DVolumeTexture` remains meaning-neutral; cloud shaders and policy stay in Renderer. |
+| Temporal work hides an incorrect spatial result. | P1 reference images pass at full spatial evaluation before P3 introduces jitter, accumulation, or reconstruction. |
+| History is keyed by target size or shared across views. | P3 stores typed history only in `FSceneViewState` and validates main, preview, fitted, resized, cut, released, and stateless views independently. |
+| Quality settings become serialized dispatch internals. | P2 exposes physical intent; P3 maps named tiers to implementation policy and diagnostics. |
+| Cloud lighting silently diverges from scene light selection. | P4 consumes the established prepared directional-light contract and validates deterministic active-light mutation and fallback. |
+| Cloud shadows expand into an atmosphere or lighting rewrite. | P4 freezes one receiver representation and budget; atmosphere LUTs, aerial perspective, local lights, and multiple scattering remain excluded. |
+| Editor work grows a general volume-content platform. | P5 selects only the adapter and previews required by named first-production assets; broader import formats remain deferred. |
+| Compute/Renderer work overlaps the active integration plan. | P1 cannot activate until Compute Renderer Integration completes and publishes its lasting contracts. |
+| Manual pass/resource management becomes materially unsafe as cloud phases grow. | Each plan records transitions and lifetime explicitly; a Render Graph plan activates only from concrete transition/aliasing defects or measured transient-memory pressure, not pass count alone. |
+
+## Completion Criteria
+
+The roadmap is complete when:
+
+- P1 through P6 are completed with their acceptance evidence and linked from
+  the milestone table.
+- One authored global cloud layer renders with the selected spatial, temporal,
+  lighting, shadow, quality, fallback, and editor contracts through public
+  runtime interfaces.
+- Forward/hybrid, offscreen/Present, main/auxiliary, both executors, supported
+  depth conventions, package/cook, reload/recovery, and shutdown gates pass.
+- Predeclared visual, GPU-time, memory, cache, and history-stability budgets are
+  met on the qualification adapter, or the shipped tier/fallback policy is
+  revised and recorded before closure.
+- Lasting asset, scene, rendering, temporal, quality, lighting, diagnostic, and
+  editor behavior is published under its owning `Documentation/Runtime/` or
+  `Documentation/Editor/` domain.
+- Fog, local volumes, multiple layers, atmosphere integration, broader import,
+  async compute, Render Graph, and other conditional extensions are explicitly
+  completed, transferred to separate roadmaps/plans, or deferred with their
+  absent entry evidence recorded.
+
+## Related Documentation
+
+- [Volume textures](../Runtime/Assets/VolumeTextures.md)
+- [Persistent view state](../Runtime/Rendering/PersistentViewState.md)
+- [Synchronous compute pipelines](../Runtime/Rendering/SynchronousComputePipelines.md)
+- [RHI resource transitions](../Runtime/Rendering/RHIResourceTransitions.md)
+- [Minimal GBuffer contract](../Runtime/Rendering/GBuffer.md)
+- [Deferred directional lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
+- [Implementation plan rules](../Plans/AGENTS.md)
+- [Build and run workflow](../Agents/BuildAndRun.md)
+- [Testing workflow](../Agents/Testing.md)
+
+## Related Code
+
+- `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
+- `Engine/Source/Runtime/Engine/Public/IScene.h`
+- `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/SkyBoxSceneProxy.h`
+- `Engine/Source/Runtime/RenderCore/Public/SceneView.h`
+- `Engine/Source/Runtime/RenderCore/Public/SceneViewState.h`
+- `Engine/Source/Runtime/Renderer/Public/Scene.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/PreparedSceneView.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneViewState.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneViewState.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.h`
+- `Engine/Shaders/Slang/`

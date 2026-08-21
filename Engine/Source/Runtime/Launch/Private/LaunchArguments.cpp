@@ -110,6 +110,7 @@ namespace Durin
 				else if (Argument == "--task-scheduler-lifecycle-smoke") Parsed.Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke = true;
 				else if (Argument == "--editor-pie-lifecycle-smoke") Parsed.Request.Diagnostics.bRunEditorPIELifecycleSmoke = true;
 				else if (Argument == "--native-gameplay-lifecycle-smoke") Parsed.Request.Diagnostics.bRunNativeGameplayLifecycleSmoke = true;
+				else if (Argument == "--renderer-contact-runtime-smoke") Parsed.Request.Diagnostics.bRunRendererContactRuntimeSmoke = true;
 				else if (Option == "--project" && Equals != std::string_view::npos)
 					Parsed.Request.Host.ProjectFile = std::string(Value);
 				else if (Argument == "--project")
@@ -157,7 +158,8 @@ namespace Durin
 			const bool bLifecycleSmoke =
 				Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke
 					|| Request.Diagnostics.bRunEditorPIELifecycleSmoke
-				|| Request.Diagnostics.bRunNativeGameplayLifecycleSmoke;
+				|| Request.Diagnostics.bRunNativeGameplayLifecycleSmoke
+				|| Request.Diagnostics.bRunRendererContactRuntimeSmoke;
 			if (Request.Automation.StartupCommand.Name
 				&& (Request.Automation.ExitAfterTicks || Request.Host.bOpenProjectBrowser || bLifecycleSmoke))
 				return Failure("--startup-command", "conflicts with tick-exit, project-browser, and lifecycle-smoke modes");

@@ -6,6 +6,7 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/ContactShadowRenderer.h"
+#include "Renderers/VolumetricCloudSpatialRenderer.h"
 
 #include <limits>
 
@@ -107,6 +108,239 @@ namespace Durin
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::FactorOne);
 		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::FragmentUnavailable);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudSpatialContractFreezesRouteAndBudget)
+	{
+		using FRenderer = FVolumetricCloudSpatialRenderer;
+		auto MakeEligible = [] {
+			return FRenderer::FRouteInputs{
+				.bRequested = true,
+				.bRequiredInputsValid = true,
+				.bComputePayloadReady = true,
+				.bComputeTargetReady = true,
+				.bFragmentPayloadReady = true,
+				.bFragmentTargetReady = true,
+				.Width = 1'921,
+				.Height = 1'081,
+				.MaxGroupCountX = 65'535,
+				.MaxGroupCountY = 65'535};
+		};
+		auto Inputs = MakeEligible();
+		auto Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Compute);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::Compute);
+		EXPECT_EQ(FRenderer::CalculateGroupCount(1'921), 241u);
+		EXPECT_EQ(FRenderer::CalculateGroupCount(
+			std::numeric_limits<uint32>::max()), 536'870'912u);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(1'920, 1'080),
+			16'588'800u);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(
+			std::numeric_limits<uint32>::max(),
+			std::numeric_limits<uint32>::max()),
+			std::numeric_limits<uint64>::max());
+		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytes,
+			64u * 1024u * 1024u);
+
+		Inputs.bComputePayloadReady = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::ComputePayloadUnavailable);
+
+		Inputs = MakeEligible();
+		Inputs.MaxGroupCountX = 240;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::ComputeExtentUnsupported);
+
+		Inputs.bFragmentTargetReady = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Disabled);
+		EXPECT_EQ(Decision.Reason,
+			FRenderer::ERouteReason::FragmentTargetUnavailable);
+
+		Inputs = MakeEligible();
+		Inputs.bRequiredInputsValid = false;
+		Decision = FRenderer::SelectRoute(Inputs);
+		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Disabled);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::InvalidInputs);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudHeightSlabCoversCameraRegimes)
+	{
+		using FRenderer = FVolumetricCloudSpatialRenderer;
+		auto Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0, 500.0),
+			.Direction = FVector3(0.0, 0.0, 1.0)});
+		ASSERT_TRUE(Interval.bIntersects);
+		EXPECT_DOUBLE_EQ(Interval.NearDistance, 1'000.0);
+		EXPECT_DOUBLE_EQ(Interval.FarDistance, 3'000.0);
+
+		Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0, 2'000.0),
+			.Direction = FVector3(1.0, 0.0, 0.0),
+			.MaximumDistance = 8'000.0});
+		ASSERT_TRUE(Interval.bIntersects);
+		EXPECT_DOUBLE_EQ(Interval.NearDistance, 0.0);
+		EXPECT_DOUBLE_EQ(Interval.FarDistance, 8'000.0);
+
+		Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0, 4'500.0),
+			.Direction = FVector3(0.0, 0.0, -2.0)});
+		ASSERT_TRUE(Interval.bIntersects);
+		EXPECT_DOUBLE_EQ(Interval.NearDistance, 500.0);
+		EXPECT_DOUBLE_EQ(Interval.FarDistance, 1'500.0);
+
+		Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0, 500.0),
+			.Direction = FVector3(1.0, 0.0, 0.0)});
+		EXPECT_FALSE(Interval.bIntersects);
+
+		Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0,
+				std::numeric_limits<double>::quiet_NaN()),
+			.Direction = FVector3(0.0, 0.0, 1.0)});
+		EXPECT_FALSE(Interval.bIntersects);
+
+		Interval = FRenderer::IntersectHeightSlab({
+			.Origin = FVector3(0.0, 0.0, 2'000.0),
+			.Direction = FVector3(0.0)});
+		EXPECT_FALSE(Interval.bIntersects);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudParametersBindingsAndCountersAreExplicit)
+	{
+		using FRenderer = FVolumetricCloudSpatialRenderer;
+		FRenderer::FParameters Parameters;
+		EXPECT_TRUE(Parameters.IsValid());
+		Parameters.PrimarySampleCount = FRenderer::MaximumPrimarySamples + 1;
+		EXPECT_FALSE(Parameters.IsValid());
+		Parameters.PrimarySampleCount = FRenderer::MaximumPrimarySamples;
+		Parameters.LightDirection = FVector3f(0.0f);
+		EXPECT_FALSE(Parameters.IsValid());
+
+		FRenderer::FTextureBindings Bindings;
+		EXPECT_FALSE(Bindings.HasRequiredInputs());
+		Bindings.BaseDensity = reinterpret_cast<FRHITexture*>(1);
+		Bindings.DetailDensity = reinterpret_cast<FRHITexture*>(2);
+		Bindings.SceneDepth = reinterpret_cast<FRHITexture*>(3);
+		Bindings.DensitySampler = reinterpret_cast<FRHISampler*>(4);
+		EXPECT_TRUE(Bindings.HasRequiredInputs());
+		EXPECT_EQ(Bindings.Weather, nullptr);
+
+		const FRenderer::FRouteInputs Inputs{
+			.bRequested = true,
+			.bRequiredInputsValid = true,
+			.bComputePayloadReady = true,
+			.bComputeTargetReady = true,
+			.bFragmentPayloadReady = true,
+			.bFragmentTargetReady = true,
+			.Width = 1'920,
+			.Height = 1'080,
+			.MaxGroupCountX = 65'535,
+			.MaxGroupCountY = 65'535};
+		const auto Decision = FRenderer::SelectRoute(Inputs);
+		const auto Counters = FRenderer::MakeExecutionCounters(
+			Inputs, Decision, 240, 32);
+		EXPECT_EQ(Counters.Route, FRenderer::ERoute::Compute);
+		EXPECT_EQ(Counters.GroupCountX, 240u);
+		EXPECT_EQ(Counters.GroupCountY, 135u);
+		EXPECT_EQ(Counters.PrimarySamples, 240u);
+		EXPECT_EQ(Counters.LightSamples, 32u);
+		EXPECT_EQ(Counters.TargetBytes, 16'588'800u);
+		EXPECT_EQ(Counters.Dispatches, 1u);
+		EXPECT_EQ(Counters.Draws, 0u);
+		EXPECT_EQ(Counters.Copies, 0u);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudReferenceIntegratesDeterministicDensityAndDepth)
+	{
+		using FRenderer = FVolumetricCloudSpatialRenderer;
+		auto MakeInput = [] {
+			FRenderer::FReferenceInput Input;
+			Input.Ray.Origin = FVector3(0.0, 0.0, 500.0);
+			Input.Ray.Direction = FVector3(0.0, 0.0, 1.0);
+			Input.Parameters.PrimarySampleCount = 8;
+			Input.Parameters.LightSampleCount = 2;
+			Input.Samplers.BaseDensity = [](const FVector3f&) { return 1.0f; };
+			Input.Samplers.DetailDensity = [](const FVector3f&) { return 0.0f; };
+			return Input;
+		};
+
+		auto Input = MakeInput();
+		const auto WithoutWeather = FRenderer::IntegrateReference(Input);
+		ASSERT_TRUE(WithoutWeather.bIntegrated);
+		EXPECT_GT(WithoutWeather.Radiance.x, 0.0f);
+		EXPECT_LT(WithoutWeather.Transmittance, 1.0f);
+		EXPECT_GT(WithoutWeather.PrimarySamples, 0u);
+		EXPECT_GT(WithoutWeather.LightSamples, 0u);
+
+		Input.Samplers.Weather = [](const FVector2f&) { return 1.0f; };
+		const auto WhiteWeather = FRenderer::IntegrateReference(Input);
+		EXPECT_FLOAT_EQ(WhiteWeather.Radiance.x, WithoutWeather.Radiance.x);
+		EXPECT_FLOAT_EQ(WhiteWeather.Radiance.y, WithoutWeather.Radiance.y);
+		EXPECT_FLOAT_EQ(WhiteWeather.Radiance.z, WithoutWeather.Radiance.z);
+		EXPECT_FLOAT_EQ(
+			WhiteWeather.Transmittance, WithoutWeather.Transmittance);
+
+		Input.Samplers.BaseDensity = [](const FVector3f&) { return 0.0f; };
+		const auto Empty = FRenderer::IntegrateReference(Input);
+		ASSERT_TRUE(Empty.bIntegrated);
+		EXPECT_EQ(Empty.Radiance, FVector3f(0.0f));
+		EXPECT_FLOAT_EQ(Empty.Transmittance, 1.0f);
+		EXPECT_EQ(Empty.LightSamples, 0u);
+
+		Input = MakeInput();
+		Input.OpaqueDistance = 500.0;
+		const auto OpaqueBeforeCloud = FRenderer::IntegrateReference(Input);
+		EXPECT_FALSE(OpaqueBeforeCloud.bIntegrated);
+		EXPECT_EQ(OpaqueBeforeCloud.Radiance, FVector3f(0.0f));
+		EXPECT_FLOAT_EQ(OpaqueBeforeCloud.Transmittance, 1.0f);
+
+		Input = MakeInput();
+		Input.OpaqueDistance = 1'500.0;
+		const auto OpaqueInsideCloud = FRenderer::IntegrateReference(Input);
+		ASSERT_TRUE(OpaqueInsideCloud.bIntegrated);
+		EXPECT_GT(OpaqueInsideCloud.Radiance.x, 0.0f);
+		EXPECT_GT(OpaqueInsideCloud.Transmittance,
+			WithoutWeather.Transmittance);
+
+		Input = MakeInput();
+		Input.bInsideFittedViewport = false;
+		EXPECT_FALSE(FRenderer::IntegrateReference(Input).bIntegrated);
+
+		Input = MakeInput();
+		Input.Ray.Origin = FVector3(0.0, 0.0, 2'000.0);
+		Input.Ray.Direction = FVector3(1.0, 0.0, 0.0);
+		EXPECT_TRUE(FRenderer::IntegrateReference(Input).bIntegrated);
+		Input.Ray.Origin = FVector3(0.0, 0.0, 4'500.0);
+		Input.Ray.Direction = FVector3(0.0, 0.0, -1.0);
+		EXPECT_TRUE(FRenderer::IntegrateReference(Input).bIntegrated);
+
+		Input = MakeInput();
+		Input.Samplers.BaseDensity = [](const FVector3f& Coordinate) {
+			return Coordinate.x + Coordinate.y + Coordinate.z > 1.25f
+				? 0.9f : 0.2f;
+		};
+		Input.Samplers.DetailDensity = [](const FVector3f& Coordinate) {
+			return Coordinate.x * 0.25f + Coordinate.z * 0.5f;
+		};
+		Input.Samplers.Weather = [](const FVector2f& Coordinate) {
+			return Coordinate.x > 0.5f ? 0.75f : 0.4f;
+		};
+		const auto StructuredA = FRenderer::IntegrateReference(Input);
+		const auto StructuredB = FRenderer::IntegrateReference(Input);
+		EXPECT_EQ(StructuredA.Radiance, StructuredB.Radiance);
+		EXPECT_FLOAT_EQ(
+			StructuredA.Transmittance, StructuredB.Transmittance);
+		EXPECT_EQ(StructuredA.PrimarySamples, StructuredB.PrimarySamples);
+		EXPECT_EQ(StructuredA.LightSamples, StructuredB.LightSamples);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, GBufferTargetsFreezeFormatsStatesAndByteBudget)

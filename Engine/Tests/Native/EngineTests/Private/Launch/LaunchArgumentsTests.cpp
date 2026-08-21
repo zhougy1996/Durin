@@ -46,6 +46,15 @@ TEST(FLaunchArgumentsTests, PreservesRepeatedStartupCommandArgumentOrder)
 		(std::vector<std::string>{"first", "", "third"}));
 }
 
+TEST(FLaunchArgumentsTests, ParsesRendererContactRuntimeSmoke)
+{
+	auto Result = Parse({"--renderer-contact-runtime-smoke",
+		"--exit-after-ticks=240"});
+	ASSERT_TRUE(Result);
+	EXPECT_TRUE(Result.Request->Diagnostics.bRunRendererContactRuntimeSmoke);
+	EXPECT_EQ(Result.Request->Automation.ExitAfterTicks, 240u);
+}
+
 TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 {
 	ExpectRejected({"--unknown"}, "--unknown");
@@ -74,6 +83,7 @@ TEST(FLaunchArgumentsTests, RejectsStartupCommandCompanionAndConflictErrors)
 	ExpectRejected({"--startup-command=Cook", "--exit-after-ticks=1"}, "--startup-command");
 	ExpectRejected({"--startup-command=Cook", "--project-browser"}, "--startup-command");
 	ExpectRejected({"--startup-command=Cook", "--task-scheduler-lifecycle-smoke"}, "--startup-command");
+	ExpectRejected({"--startup-command=Cook", "--renderer-contact-runtime-smoke"}, "--startup-command");
 }
 
 TEST(FLaunchArgumentsTests, ParsesTypedCrashPhasesAndRejectsInvalidCompanions)

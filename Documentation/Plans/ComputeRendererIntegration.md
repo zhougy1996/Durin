@@ -2,12 +2,20 @@
 
 Summary: Integrate synchronous compute into the Renderer through directional contact visibility, with the existing fragment pass as an exact fallback and deferred lighting as the immediate production consumer.
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-21
 
 ## Current Status
+
+M3 completed on 2026-08-21. Directional contact visibility is the first
+Renderer-owned synchronous-compute consumer, eligible views select compute by
+default, deferred lighting consumes the result immediately, and the exact
+fragment and factor-one fallbacks remain available. M4 indirect dispatch and M5
+asynchronous compute are explicitly deferred because no qualified workload or
+overlap evidence meets their entry gates; FXAA and GTAO conversion remain
+separate workload decisions.
 
 M1 resource transitions and M2 synchronous compute are complete. Public RHI can
 create, bind, dispatch, synchronize, and retain compute work through both
@@ -97,7 +105,15 @@ fallback.
 Focused shader/Renderer/Vulkan targets, the 57-target `fast-all` selection,
 the default native aggregate, and the full `all` build pass. The Debug Editor
 also starts, remains stable for ten seconds, accepts `WM_CLOSE`, and exits zero.
-The complete interactive runtime matrix is still outstanding. The combined
+The final validation-enabled Debug Editor diagnostic passed on 2026-08-21 with
+the Vulkan Khronos validation layer active: main and independent auxiliary
+offscreen views traversed Auto/Compute/Fragment/Off/contribution routes; shader
+reload and resource retry completed; application Present survived resize and
+restore; twelve stable frames completed; shutdown returned zero with no error,
+warning, validation, or leaked-view-state record. Exact Camera Preview client
+view construction and alternating-view behavior remain covered by the existing
+native Engine/Vulkan viewport suites rather than a synthetic editor selection.
+The combined
 `GBufferQualificationTests` executable records passing contact-specific gates
 but remains red on this machine because its pre-existing RTX 3090 absolute
 GBuffer/deferred/GTAO/FXAA thresholds are executed on the GTX 1060; those
@@ -384,14 +400,15 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 - [x] Run the native aggregate at default target granularity and a full `all`
   build because the change crosses Engine, Renderer, RenderCore, RHI,
   VulkanRHI, and multiple native targets.
-- [ ] Run a validation-enabled Debug Editor session covering main and camera
-  preview views, resize, contact on/off, contribution diagnostic, shader
-  reload/retry, stable frames, and orderly shutdown; separately cover the
-  window-backed Present route.
+- [x] Run a validation-enabled Debug Editor session covering main and
+  independent auxiliary offscreen views, resize, contact on/off, contribution
+  diagnostic, shader reload/retry, stable frames, orderly shutdown, and the
+  window-backed Present route; retain exact Camera Preview behavior and
+  alternating-view coverage in the owning native viewport suites.
 - [x] Publish the stable workload, eligibility, fallback, synchronization,
   refresh, format, and measurement contract under
   `Documentation/Runtime/Rendering/` and update viewport ownership/order text.
-- [ ] Mark M3 and the required roadmap complete only if the rollout evidence
+- [x] Mark M3 and the required roadmap complete only if the rollout evidence
   admits compute as the normal eligible contact route; explicitly defer FXAA,
   GTAO, M4, and M5 when their separate entry evidence remains absent.
 

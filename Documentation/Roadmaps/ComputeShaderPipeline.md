@@ -2,10 +2,10 @@
 
 Summary: Establish production-ready compute shader execution through a sequence of bounded synchronization, pipeline, integration, and optional asynchronous-compute plans.
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-21
 
 ## Current Status
 
@@ -16,9 +16,13 @@ table. Their lasting contracts are owned by
 [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md), and
 [Synchronous Compute Pipelines](../Runtime/Rendering/SynchronousComputePipelines.md).
 
-[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) is the
-active required M3 plan. Indirect dispatch and asynchronous compute remain
-conditional on a concrete workload and measured entry evidence.
+[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md)
+completed M3 on 2026-08-21. Its production directional-contact workload passed
+exact pixel, structural, timing, fallback, recovery, validation-enabled runtime,
+and clean-shutdown gates, so eligible contact visibility uses compute normally.
+The required M1-M3 roadmap is complete. M4 indirect dispatch and M5 asynchronous
+compute are deferred because no concrete GPU-driven argument workload or
+measured queue-overlap opportunity meets their entry gates.
 
 ## Outcome
 
@@ -150,13 +154,19 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | M1: Resource transitions | Required; completed | [GPUResourceTransitions](../Plans/Archive/2026-08/GPUResourceTransitions.md) and [lasting contract](../Runtime/Rendering/RHIResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Met on 2026-08-10: exact buffer/image transitions, inline/threaded replay, Vulkan mappings, implicit-path reconciliation, focused/native/full-build qualification, and runtime smoke passed without divergent state or new global idle waits. |
 | M2: Synchronous compute core | Required; completed 2026-08-12 | [Synchronous Compute Pipeline](../Plans/Archive/2026-08/SynchronousComputePipeline.md) | Met; activated on 2026-08-12 after confirming M1 compute-intent mappings, recorded replay/lifetime, the shared compute-capable immediate queue, reflected storage bindings, and the raw Vulkan dispatch proof. | Met on 2026-08-12: canonical complete-or-null PSOs, reflected binding/push constants, direct dispatch, buffer/image results, compute/graphics/copy handoffs, both executors, aggregate/full build, and runtime smoke passed. |
-| M3: Renderer integration | Required; active 2026-08-12 | [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) | Met on 2026-08-12; M2 vertical slice and public-RHI interop validation pass. Revised on 2026-08-18 after the deferred renderer qualified: the plan selects directional contact visibility, its existing fragment fallback, and a predeclared measurement gate. | Eligible contact visibility is written by compute and consumed immediately by deferred lighting without Vulkan escape hatches or a copy pass, survives resource refresh/lifetime scenarios, preserves mask/final-image contracts, passes runtime validation, and has evidence supporting normal eligible rollout. |
+| M3: Renderer integration | Required; completed 2026-08-21 | [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) | Met on 2026-08-12; M2 vertical slice and public-RHI interop validation pass. Revised on 2026-08-18 after the deferred renderer qualified: the plan selects directional contact visibility, its existing fragment fallback, and a predeclared measurement gate. | Met on 2026-08-21: compute is the normal eligible route; deferred lighting consumes it without a Vulkan escape hatch or copy; exact pixels, fallback, refresh, timing, main/auxiliary runtime, Present/resize, validation, and clean shutdown passed. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
 | M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 and the dedicated RHI thread plan are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |
 
 M1 through M3 define the required roadmap. M4 and M5 do not block roadmap
 completion when their entry evidence is absent; they must instead be explicitly
 marked deferred with the evidence reviewed.
+
+Final disposition: M4 is deferred because no selected consumer requires
+GPU-generated indirect arguments. M5 is deferred because the qualified contact
+workload runs on the shared immediate queue and no target trace demonstrates an
+overlap benefit exceeding cross-queue scheduling, synchronization, ownership,
+and lifetime costs.
 
 ## Child Plan Boundaries
 

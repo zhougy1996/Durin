@@ -381,6 +381,18 @@ requires a real active native window and must not be combined with
 `--hidden-window`; use a separate hidden `--exit-after-ticks` run for headless
 startup readiness. It is ignored by DurinGame.
 
+Run `--renderer-contact-runtime-smoke` with a visible Debug DurinEditor window
+when qualifying the directional-contact compute integration. The diagnostic
+drives the main and an independent auxiliary offscreen view through Auto,
+Compute, Fragment, disabled, and contribution-diagnostic routes, queues shader
+reload and renderer-resource retry, resizes and restores the application
+window, observes stable frames, and releases retained viewport/window
+references before normal shutdown. Pair it with a bounded
+`--exit-after-ticks=<positive-count>` and enable the backend validation layer
+for qualification runs. Camera Preview client behavior remains covered by its
+native viewport tests; this process diagnostic does not synthesize an editor
+selection to activate that UI-only preview.
+
 Append `--native-gameplay-lifecycle-smoke` to either runtime variant to qualify
 the generic native session inside a fully initialized process. The diagnostic
 temporarily activates an isolated World with one `APlayerStart`, starts the

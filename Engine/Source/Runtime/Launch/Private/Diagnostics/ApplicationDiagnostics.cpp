@@ -2,6 +2,7 @@
 
 #include "Diagnostics/EditorPIELifecycleSmoke.h"
 #include "Diagnostics/NativeGameplayLifecycleSmoke.h"
+#include "Diagnostics/RendererContactRuntimeSmoke.h"
 #include "Diagnostics/ProcessCrashContext.h"
 #include "Diagnostics/TaskSchedulerLifecycleSmoke.h"
 #include "ProcessCrashServices.h"
@@ -44,6 +45,8 @@ namespace Durin
 			FillCrashLogGap();
 			RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 		}
+		if (Request.bRunRendererContactRuntimeSmoke)
+			RendererContactRuntimeState = BeginRendererContactRuntimeSmoke();
 	}
 
 	auto FApplicationDiagnostics::Tick() -> void
@@ -59,6 +62,12 @@ namespace Durin
 			RunNativeGameplayLifecycleSmoke();
 			bNativeGameplayLifecycleSmokeCompleted = true;
 		}
+		if (Request.bRunRendererContactRuntimeSmoke
+			&& !bRendererContactRuntimeSmokeCompleted)
+		{
+			bRendererContactRuntimeSmokeCompleted =
+				TickRendererContactRuntimeSmoke(RendererContactRuntimeState);
+		}
 	}
 
 	auto FApplicationDiagnostics::BeginConsumerDetachment() -> void
@@ -71,6 +80,11 @@ namespace Durin
 		checkf(!Request.bRunNativeGameplayLifecycleSmoke
 			|| bNativeGameplayLifecycleSmokeCompleted,
 			"Native gameplay lifecycle smoke did not execute.");
+		checkf(!Request.bRunRendererContactRuntimeSmoke
+			|| bRendererContactRuntimeSmokeCompleted,
+			"Renderer contact runtime smoke did not complete its view matrix.");
+		if (RendererContactRuntimeState)
+			EndRendererContactRuntimeSmoke(RendererContactRuntimeState);
 		if (Request.bRunTaskSchedulerLifecycleSmoke)
 			TaskSchedulerState = BeginTaskSchedulerLifecycleSmoke();
 	}

@@ -213,6 +213,55 @@ namespace Durin
 		EXPECT_EQ(Bindings[2].Type, ERHIBindingType::StorageImage);
 	}
 
+	TEST(FShaderReflectionTests,
+		VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "VolumetricCloud.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/VolumetricCloud";
+		Options.EntryPoints = {"VertexMain", "CloudFragmentMain",
+			"CloudComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex,
+			EShaderFrequency::Fragment, EShaderFrequency::Compute};
+
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output =
+			Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
+		const FCompiledShader& Vertex = Output.CompiledShaders[0];
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FCompiledShader& Compute = Output.CompiledShaders[2];
+		EXPECT_TRUE(Vertex.Reflection.ResourceBindings.empty());
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
+		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
+
+		for (const FCompiledShader* Shader : {&Fragment, &Compute})
+		{
+			const EShaderStageFlags Stage = Shader == &Fragment
+				? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
+			ExpectBinding(*Shader, "BaseDensity", 0,
+				ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "DetailDensity", 1,
+				ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "WeatherTexture", 2,
+				ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "SceneDepth", 3,
+				ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "DensitySampler", 4,
+				ERHIBindingType::Sampler, Stage);
+			ExpectBinding(*Shader, "Params", 5,
+				ERHIBindingType::UniformBuffer, Stage);
+		}
+		ExpectBinding(Compute, "CloudOutput", 6,
+			ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
+		constexpr uint32 SpirvImageFormatRgba16f = 2;
+		EXPECT_TRUE(GetSpirvImageFormats(Compute).contains(
+			SpirvImageFormatRgba16f));
+	}
+
 	TEST(FShaderReflectionTests, FragmentDepthOutputCompilesWithoutPipelineBindings)
 	{
 		const std::filesystem::path ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "FragmentDepth.slang";

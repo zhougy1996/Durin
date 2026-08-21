@@ -48,6 +48,7 @@ namespace Durin
 		bool bRunTaskSchedulerLifecycleSmoke = false;
 		bool bRunEditorPIELifecycleSmoke = false;
 		bool bRunNativeGameplayLifecycleSmoke = false;
+		bool bRunRendererContactRuntimeSmoke = false;
 		std::optional<std::string> NativeCrashFixture;
 		std::optional<std::string> NativeCrashSavedRoot;
 		std::optional<ENativeCrashPhase> NativeCrashPhase;

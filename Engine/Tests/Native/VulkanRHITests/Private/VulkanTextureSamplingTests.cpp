@@ -1486,6 +1486,197 @@ namespace Durin
 		}
 	}
 
+	TEST(FVulkanTextureSamplingTests,
+		VolumetricCloudDeterministicInputsUploadAndSampleInlineAndThreaded)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "VolumetricCloudFixture.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
+		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		FPipelineLayoutDesc Layout;
+		std::string Error;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			std::span(&CompiledShader.Reflection, 1), Layout, Error)) << Error;
+
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value)
+				{
+					_putenv_s("DURIN_RHI_EXECUTION", Value);
+				}
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
+				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
+				*CompiledShader.Code, CompiledShader.Hash);
+			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
+			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout = Layout;
+			FComputePipelineStateRHIRef Pipeline =
+				GDynamicRHI->RHICreateComputePipelineState(
+					"VolumetricCloudFixture", Initializer);
+			ASSERT_TRUE(Shader && Pipeline);
+
+			auto MakeDeterministicBytes = [](uint32 Width, uint32 Height,
+				uint32 Depth, uint8 Seed) {
+				std::vector<uint8> Bytes(
+					static_cast<size_t>(Width) * Height * Depth);
+				for (uint32 Z = 0; Z < Depth; ++Z)
+					for (uint32 Y = 0; Y < Height; ++Y)
+						for (uint32 X = 0; X < Width; ++X)
+						{
+							Bytes[(static_cast<size_t>(Z) * Height + Y)
+								* Width + X] = static_cast<uint8>(
+								Seed + X * 3u + Y * 5u + Z * 7u);
+						}
+				return Bytes;
+			};
+			auto MakeVolume = [&](const char* Name, uint32 Size,
+				const std::vector<uint8>& Bytes) {
+				const FRHITextureCreateDesc Desc =
+					FRHITextureCreateDesc::Create3D(Name)
+						.SetExtent(Size, Size).SetDepth(Size)
+						.SetFormat(EPixelFormat::R8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource);
+				FTextureRHIRef Texture =
+					GDynamicRHI->RHICreateTexture(Commands, Desc);
+				if (Texture)
+				{
+					GDynamicRHI->RHIUpdateTexture3D(Commands, Texture, 0,
+						FUpdateTextureRegion3D(
+							0, 0, 0, 0, 0, 0, Size, Size, Size),
+						Size, Size * Size, Bytes.data());
+				}
+				return Texture;
+			};
+			const std::vector<uint8> BaseBytes =
+				MakeDeterministicBytes(64, 64, 64, 11);
+			const std::vector<uint8> DetailBytes =
+				MakeDeterministicBytes(32, 32, 32, 29);
+			const std::vector<uint8> WeatherBytes =
+				MakeDeterministicBytes(64, 64, 1, 47);
+			FTextureRHIRef Base = MakeVolume(
+				"CloudFixtureBase", 64, BaseBytes);
+			FTextureRHIRef Detail = MakeVolume(
+				"CloudFixtureDetail", 32, DetailBytes);
+			FTextureRHIRef Weather = GDynamicRHI->RHICreateTexture(
+				Commands, FRHITextureCreateDesc::Create2D(
+					"CloudFixtureWeather", 64, 64, EPixelFormat::R8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource));
+			FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
+				Commands, FRHITextureCreateDesc::Create2D(
+					"CloudFixtureOutput", 2, 1, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::Storage
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::CPUReadback));
+			ASSERT_TRUE(Base && Detail && Weather && Output);
+			GDynamicRHI->RHIUpdateTexture2D(Commands, Weather, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64,
+				WeatherBytes.data());
+
+			FTextureViewRHIRef BaseView = GDynamicRHI->RHICreateTextureView(
+				Base, MakeDefaultTextureViewDesc(
+					*Base, ERHITextureViewUsage::Sampled));
+			FTextureViewRHIRef DetailView = GDynamicRHI->RHICreateTextureView(
+				Detail, MakeDefaultTextureViewDesc(
+					*Detail, ERHITextureViewUsage::Sampled));
+			FTextureViewRHIRef WeatherView = GDynamicRHI->RHICreateTextureView(
+				Weather, MakeDefaultTextureViewDesc(
+					*Weather, ERHITextureViewUsage::Sampled));
+			FTextureViewRHIRef OutputView = GDynamicRHI->RHICreateTextureView(
+				Output, MakeDefaultTextureViewDesc(
+					*Output, ERHITextureViewUsage::Storage));
+			FSamplerRHIRef Sampler =
+				GDynamicRHI->RHICreateSampler(FRHISamplerDesc::PointClamp());
+			ASSERT_TRUE(BaseView && DetailView && WeatherView
+				&& OutputView && Sampler);
+
+			const FRHITextureSubresourceRange Whole{
+				ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionTextures(std::array{
+				FRHITextureTransition{Base, Whole,
+					ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead},
+				FRHITextureTransition{Detail, Whole,
+					ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead},
+				FRHITextureTransition{Weather, Whole,
+					ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead},
+				FRHITextureTransition{Output, Whole, ERHIAccess::Discard,
+					ERHIAccess::ComputeShaderReadWrite}});
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*Pipeline);
+			std::array Parameters{
+				FRHIShaderParameterResource{.Resource = BaseView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0,
+					.Type = ERHIBindingType::Texture},
+				FRHIShaderParameterResource{.Resource = DetailView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1,
+					.Type = ERHIBindingType::Texture},
+				FRHIShaderParameterResource{.Resource = WeatherView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 2,
+					.Type = ERHIBindingType::Texture},
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 3,
+					.Type = ERHIBindingType::Sampler},
+				FRHIShaderParameterResource{.Resource = OutputView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 4,
+					.Type = ERHIBindingType::StorageImage}};
+			Commands.SetShaderParameters(Shader, Parameters);
+			Commands.Dispatch(2, 1, 1);
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionTextures(std::array{
+				FRHITextureTransition{Base, Whole,
+					ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead},
+				FRHITextureTransition{Detail, Whole,
+					ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead},
+				FRHITextureTransition{Weather, Whole,
+					ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead},
+				FRHITextureTransition{Output, Whole,
+					ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::GraphicsShaderRead}});
+			std::vector<uint8> Actual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, Output, 0, 0, Actual));
+			EXPECT_EQ(Actual, (std::vector<uint8>{
+				123, 213, 255, 255, 91, 69, 95, 255}));
+
+			Base = nullptr;
+			Detail = nullptr;
+			Weather = nullptr;
+			Output = nullptr;
+			BaseView = nullptr;
+			DetailView = nullptr;
+			WeatherView = nullptr;
+			OutputView = nullptr;
+			Sampler = nullptr;
+			Pipeline = nullptr;
+			Shader = nullptr;
+			Commands.ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
+	}
+
 	TEST(FVulkanTextureSamplingTests, DualUseTextureBindsStorageThenSampledInlineAndThreaded)
 	{
 		FShaderCompileOptions Options;
