@@ -57,6 +57,13 @@ Completed:
 ## Related Code
 ```
 
+Create this scaffold directly from the repository root; use `--dry-run` when a
+preview is needed:
+
+```powershell
+.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
+```
+
 ## Writing Rules
 
 - Keep the one-line `Summary:` below the title useful after status changes.

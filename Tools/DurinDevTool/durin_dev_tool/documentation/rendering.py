@@ -208,6 +208,7 @@ def render_change_set(
     repository_root: Path,
     applied: bool,
     output_format: str,
+    preview_instruction: str = "Dry-run only; add --apply to perform the change.",
 ) -> str:
     def relative(path: Path | None) -> str | None:
         return (
@@ -252,5 +253,5 @@ def render_change_set(
     for deletion in change_set.deletions:
         lines.append(f"  {relative(deletion.path)} -> deleted")
     if not applied:
-        lines.append("Dry-run only; add --apply to perform the change.")
+        lines.append(preview_instruction)
     return "\n".join(lines)

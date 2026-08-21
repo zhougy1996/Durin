@@ -23,13 +23,34 @@ PLAN_ARCHIVE_ARGUMENTS = (
     argument("month", help="completion month in YYYY-MM form"),
     argument("--apply", action="store_true", help="apply the transaction; the default is a dry-run"),
 )
+PLAN_CREATE_ARGUMENTS = (
+    argument("plan_path", metavar="PATH"),
+    argument("--title", required=True, help="plan title without the 'Plan' suffix"),
+    argument("--summary", required=True, help="one-line primary scope"),
+    argument("--dry-run", action="store_true", help="preview without creating the plan"),
+    argument("--format", choices=("markdown", "terminal", "json"), default=None, dest="output_format"),
+)
 
 
 def lifecycle_command(name: str, summary: str, default_prefix: str) -> CommandSpec:
+    create_commands = (
+        (
+            CommandSpec(
+                "create",
+                "create an implementation plan, or preview with --dry-run",
+                HANDLER,
+                arguments=PLAN_CREATE_ARGUMENTS,
+                defaults=((f"{default_prefix}_action", "create"),),
+            ),
+        )
+        if name == "plan"
+        else ()
+    )
     return CommandSpec(
         name,
         summary,
         subcommands=(
+            *create_commands,
             CommandSpec(
                 "list",
                 f"list {'implementation plans' if name == 'plan' else 'engineering roadmaps'}",

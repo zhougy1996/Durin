@@ -335,7 +335,12 @@ class TestUnifiedCommand:
         return {key: value for key, value in vars(namespace).items() if key != '_command_spec'}
 
     def test_every_plan_command_has_one_direct_and_shell_request_model(self) -> None:
-        commands = (['doc', 'plan', 'list', '--query', 'Active', '--format', 'markdown'], ['doc', 'plan', 'validate', '--scope', 'active'], ['doc', 'plan', 'archive', '2026-07'])
+        commands = (
+            ['doc', 'plan', 'create', 'Documentation/Plans/New.md', '--title', 'New', '--summary', 'Create the new feature.'],
+            ['doc', 'plan', 'list', '--query', 'Active', '--format', 'markdown'],
+            ['doc', 'plan', 'validate', '--scope', 'active'],
+            ['doc', 'plan', 'archive', '2026-07'],
+        )
         for command in commands:
             direct = self._parse_values(command)
             shell = self._parse_values(command)
@@ -425,6 +430,66 @@ class TestUnifiedCommand:
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
         preview.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
+
+    def test_plan_create_applies_by_default_and_supports_dry_run(self) -> None:
+        plan = self.plans / 'NewFeature.md'
+        arguments = [
+            'doc',
+            'plan',
+            'create',
+            'Documentation/Plans/NewFeature.md',
+            '--title',
+            'New Feature',
+            '--summary',
+            'Deliver the new feature.',
+        ]
+
+        preview_output = io.StringIO()
+        assert cli.run(
+            [*arguments, '--dry-run'],
+            repository_root=self.repository,
+            stdout=preview_output,
+            stderr=io.StringIO(),
+        ) == 0
+        assert not plan.exists()
+        assert 'remove --dry-run to create the plan' in preview_output.getvalue()
+        assert cli.run(
+            arguments,
+            repository_root=self.repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+
+        content = plan.read_text(encoding='utf-8')
+        assert content.startswith(
+            '# New Feature Plan\n\nSummary: Deliver the new feature.\n'
+        )
+        assert 'Status: Active\nCompleted:\n' in content
+        assert '### Stage 0: Define the implementation boundary\n' in content
+        parsed, errors = parse_plan(plan)
+        assert errors == []
+        assert parsed is not None
+        assert parsed.title == 'New Feature'
+
+    def test_plan_create_rejects_non_active_layout_and_duplicate_title(self) -> None:
+        for path in (
+            'Documentation/Plans/Nested/New.md',
+            'Documentation/Plans/Archive/2026-08/New.md',
+        ):
+            with pytest.raises(DevToolError, match='direct child'):
+                cli.run(
+                    ['doc', 'plan', 'create', path, '--title', 'New', '--summary', 'New plan.'],
+                    repository_root=self.repository,
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+        with pytest.raises(DevToolError, match='title already exists'):
+            cli.run(
+                ['doc', 'plan', 'create', 'Documentation/Plans/Duplicate.md', '--title', 'active', '--summary', 'Duplicate plan.'],
+                repository_root=self.repository,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
 
     def test_archive_apply_is_explicit(self) -> None:
         spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--apply'])

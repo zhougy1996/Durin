@@ -62,6 +62,10 @@ COMMAND_CASES = (
     (("doc", "task", "list"), "doc task list"),
     (("doc", "task", "validate"), "doc task validate"),
     (("doc", "task", "remove"), "doc task remove Documentation/Tasks/Test.md"),
+    (
+        ("doc", "plan", "create"),
+        'doc plan create Documentation/Plans/Test.md --title Test --summary "Test plan."',
+    ),
     (("doc", "plan", "list"), "doc plan list"),
     (("doc", "plan", "validate"), "doc plan validate"),
     (("doc", "plan", "archive"), "doc plan archive 2026-08"),
@@ -115,6 +119,7 @@ EXPECTED_COMMAND_PATHS = {
     ("doc", "task", "validate"),
     ("doc", "task", "remove"),
     ("doc", "plan"),
+    ("doc", "plan", "create"),
     ("doc", "plan", "list"),
     ("doc", "plan", "validate"),
     ("doc", "plan", "archive"),
@@ -218,7 +223,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "0e555bc2092791b4018338ade2efb851e49949e09fe07be259b7981b3df17425"
+            "23303bd2a4ae7810e60f3c27b4424afb5ee7c7294282360abc589f52df78d55b"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"

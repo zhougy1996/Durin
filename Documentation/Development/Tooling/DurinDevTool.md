@@ -2,7 +2,7 @@
 
 Summary: Define the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-21
 
 ## Interactive Shell
 
@@ -87,12 +87,18 @@ Create and move operations preview by default and apply transactionally:
 ```powershell
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
+.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
+.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
 ```
 
 Apply verifies previewed fingerprints, writes atomically, repairs Markdown
 references for moves, validates the resulting tree, and rolls back on failure.
+`doc plan create` is the exception to the preview default: it creates a new
+direct child of `Documentation/Plans` immediately, scaffolds the standard
+active-plan structure, validates the result, and rolls back on failure. Pass
+`--dry-run` to preview it without writing.
 Task, plan, and roadmap lifecycle commands follow their nearest authoring rules.
 The concise Agent workflow is [Agent Documentation Workflow](../../Agents/Documentation.md).
 

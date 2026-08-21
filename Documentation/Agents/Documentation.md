@@ -43,12 +43,16 @@ evolution may remove them; active and completed documents remain strict.
 
 ## Apply Document Operations
 
-Create, move, task removal, and monthly archive commands preview by default.
-Review the preview, then repeat the same command with `--apply`:
+Ordinary document creation, move, task removal, and monthly archive commands
+preview by default. Review the preview, then repeat the same command with
+`--apply`. Plan creation applies immediately after validation; pass `--dry-run`
+when a preview is needed:
 
 ```powershell
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
+.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
+.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
 .\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
