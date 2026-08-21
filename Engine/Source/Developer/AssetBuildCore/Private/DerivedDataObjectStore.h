@@ -1,8 +1,6 @@
 #pragma once
 
-#include "AssetCoreAPI.h"
-
-namespace Durin::Asset
+namespace Durin::Asset::Build
 {
 	enum class EDerivedDataObjectReadStatus : uint8
 	{
@@ -35,16 +33,16 @@ namespace Durin::Asset
 	class FDerivedDataObjectStore
 	{
 	public:
-		ASSETCORE_API explicit FDerivedDataObjectStore(
+		explicit FDerivedDataObjectStore(
 			std::filesystem::path InRelativeRoot,
 			uint64 InMaximumObjectBytes,
 			uint32 InKeyLength = 32);
 
-		ASSETCORE_API auto GetRoot() const -> std::filesystem::path;
-		ASSETCORE_API auto GetObjectPath(std::string_view Key, std::filesystem::path& OutPath, std::string* OutError = nullptr) const -> bool;
-		ASSETCORE_API auto Read(std::string_view Key, std::vector<uint8>& OutBytes) const -> FDerivedDataObjectReadResult;
-		ASSETCORE_API auto Write(std::string_view Key, std::span<const uint8> Bytes, std::string* OutError = nullptr) const -> bool;
-		ASSETCORE_API auto CleanupToBudget(uint64 BudgetBytes, uint32 MaximumDeletes) const -> FDerivedDataObjectCleanupResult;
+		auto GetRoot() const -> std::filesystem::path;
+		auto GetObjectPath(std::string_view Key, std::filesystem::path& OutPath, std::string* OutError = nullptr) const -> bool;
+		auto Read(std::string_view Key, std::vector<uint8>& OutBytes) const -> FDerivedDataObjectReadResult;
+		auto Write(std::string_view Key, std::span<const uint8> Bytes, std::string* OutError = nullptr) const -> bool;
+		auto CleanupToBudget(uint64 BudgetBytes, uint32 MaximumDeletes) const -> FDerivedDataObjectCleanupResult;
 
 	private:
 		auto IsValidKey(std::string_view Key) const -> bool;

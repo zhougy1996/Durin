@@ -3,10 +3,16 @@ durin_add_engine_functional_test(AssetBuildCoreTests
 	KIND contract
 	DOMAINS derived-data
 	MODULES asset-build-core
+	PRIVATE_SOURCE_OWNER AssetBuildCore
+	PRIVATE_SOURCE_RATIONALE
+		"AssetBuildCore object-store white-box coverage keeps physical DDC storage private."
 	RUNTIME_STACK_RATIONALE
 		"Exercises the Developer-only derived-data cache and build-host contracts."
 	SOURCES
 		Private/AssetBuildCoreTests.cpp
+		Private/DerivedDataObjectStoreTests.cpp
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/AssetBuildCore/Private/DerivedDataObjectStore.cpp
 	LIBRARIES AssetBuildCore
 )
 

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "AssetSystemInternal.h"
+#define DURIN_ASSETCORE_INTERNAL 1
+#include "AssetMutation.h"
+#undef DURIN_ASSETCORE_INTERNAL
 #include "Misc/Paths.h"
 
 namespace Durin::Asset::Private

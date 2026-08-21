@@ -21,9 +21,9 @@ source-independent recipes and canonical build-key inputs;
 normalized values. `AssetBuildCore` provides family-neutral cache policy over
 the opaque store; its physical ObjectStore adapter is private implementation,
 and recipe modules reach cache query/store only through `FBuildSession`.
-`AssetCore` stores DDC values opaquely and owns
-package, descriptor, container, manifest, and atomic-publication formats
-without interpreting Engine payloads.
+`AssetBuildCore` stores DDC values opaquely through its private physical object
+store. `AssetCore` owns package, descriptor, container, manifest, and
+atomic-publication formats without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer

@@ -3,7 +3,6 @@
 #include "AssetMutation.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DerivedDataObjectStore.h"
 #include "EngineTestSupport.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
@@ -47,6 +46,13 @@ namespace
 
 	[[maybe_unused]] testing::Environment* GTerrainHeightmapTestEnvironment =
 		testing::AddGlobalTestEnvironment(new FTerrainHeightmapTestEnvironment);
+
+	auto GetTerrainCachePath(std::string_view Key) -> std::filesystem::path
+	{
+		return std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
+			/ "TerrainHeightmap" / "Objects" / std::string(Key.substr(0, 2))
+			/ (std::string(Key) + ".bin");
+	}
 
 	auto AppendBigU32(std::vector<Durin::uint8>& Bytes, Durin::uint32 Value) -> void
 	{
@@ -629,11 +635,8 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	EXPECT_EQ(Reloaded->GetPayload()->Samples,
 		std::vector<Durin::uint16>(Samples.begin(), Samples.end()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	Durin::Asset::FDerivedDataObjectStore Store(
-		"TerrainHeightmap/Objects", Durin::MaximumTerrainHeightmapPayloadBytes);
-	std::filesystem::path CachePath;
+	const std::filesystem::path CachePath = GetTerrainCachePath(Key);
 	std::string Error;
-	ASSERT_TRUE(Store.GetObjectPath(Key, CachePath, &Error)) << Error;
 	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));
@@ -690,10 +693,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-	Durin::Asset::FDerivedDataObjectStore Store(
-		"TerrainHeightmap/Objects", Durin::MaximumTerrainHeightmapPayloadBytes);
-	std::filesystem::path CachePath;
-	ASSERT_TRUE(Store.GetObjectPath(Key, CachePath, &Error)) << Error;
+	const std::filesystem::path CachePath = GetTerrainCachePath(Key);
 	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));

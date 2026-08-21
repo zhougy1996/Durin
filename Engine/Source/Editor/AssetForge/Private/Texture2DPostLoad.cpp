@@ -4,7 +4,6 @@
 #include "Hash/XxHash.h"
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
-#include "SourceFingerprintCache.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DPostLoad.h"
 #include "Texture/TextureBuildOperations.h"
@@ -61,10 +60,6 @@ namespace Durin::Asset::Forge
 					ETextureBuildStatus::DecodeFailure,
 					OutError);
 			const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
-			Asset::StoreSourceFingerprint(std::filesystem::path(PhysicalPath), {
-				.FileSize = SourceFileSize,
-				.LastWriteTimeTicks = SourceLastWriteTime,
-				.ContentHash = SourceHash.ToString()});
 			return Asset::Build::SubmitTexture2DBuild(Texture, {
 				.SourceData = std::move(SourceData),
 				.SourceContentHashLow = SourceHash.HashLow,
@@ -125,11 +120,6 @@ namespace Durin::Asset::Forge
 							.HashLow = PersistedSource.SourceContentHashLow,
 							.HashHigh = PersistedSource.SourceContentHashHigh}.ToString()
 						: Texture.GetSourceContentHash();
-					if (IsCanonicalTextureHash(PersistedHash))
-						Asset::StoreSourceFingerprint(PhysicalPath, {
-							.FileSize = CurrentFileSize,
-							.LastWriteTimeTicks = CurrentLastWriteTime,
-							.ContentHash = PersistedHash});
 				}
 			}
 

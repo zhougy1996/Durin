@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystemInternal.h"
+#include "AssetRuntimeStateInternal.h"
 
 namespace Durin::Asset
 {

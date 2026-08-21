@@ -4,7 +4,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Asset
+namespace Durin::Asset::Build
 {
 	namespace
 	{

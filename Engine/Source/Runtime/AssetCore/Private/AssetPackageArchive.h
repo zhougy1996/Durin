@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystemInternal.h"
+#include "AssetPackage.h"
 #include "DObject/Archive.h"
 
 namespace Durin::Asset::Private

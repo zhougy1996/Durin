@@ -36,11 +36,11 @@ namespace Durin::Asset::Build
 			std::string Diagnostic;
 		};
 
-		// Adapts one session's opaque values to the physical AssetCore object store.
+		// Adapts one session's opaque values to the physical derived-data object store.
 		class FBuildCacheClient
 		{
 		public:
-			explicit FBuildCacheClient(Asset::FDerivedDataObjectStore& InStore)
+			explicit FBuildCacheClient(FDerivedDataObjectStore& InStore)
 				: StoreTarget(&InStore)
 			{
 			}
@@ -51,11 +51,11 @@ namespace Durin::Asset::Build
 			{
 				if (!Policy.bQueryCache) return {};
 				std::vector<uint8> Bytes;
-				const Asset::FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
-				if (Read.Status == Asset::EDerivedDataObjectReadStatus::Hit)
+				const FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
+				if (Read.Status == EDerivedDataObjectReadStatus::Hit)
 					return {EBuildCacheQueryStatus::Hit,
 						FBuildValue::FromOwned(std::move(ValueName), std::move(Bytes)), {}};
-				if (Read.Status == Asset::EDerivedDataObjectReadStatus::Missing)
+				if (Read.Status == EDerivedDataObjectReadStatus::Missing)
 					return {EBuildCacheQueryStatus::Missing, {}, Read.Message};
 				return {EBuildCacheQueryStatus::StorageError, {}, Read.Message};
 			}
@@ -75,7 +75,7 @@ namespace Durin::Asset::Build
 			}
 
 		private:
-			Asset::FDerivedDataObjectStore* StoreTarget = nullptr;
+			FDerivedDataObjectStore* StoreTarget = nullptr;
 		};
 
 		auto IsCanonicalIdentityPart(std::string_view Value) -> bool
@@ -340,7 +340,7 @@ namespace Durin::Asset::Build
 		const FBuildFunctionConfig Config = Function->GetConfig();
 		if (Config.ExpectedValueName != Definition.GetExpectedValueName())
 			return Fail(EBuildFailurePhase::Request, "Build value contract does not match function configuration.");
-		Asset::FDerivedDataObjectStore Store(Config.CacheRoot, Config.MaximumValueBytes);
+		FDerivedDataObjectStore Store(Config.CacheRoot, Config.MaximumValueBytes);
 		FBuildCacheClient Cache(Store);
 		FBuildOutput Result;
 		auto FailResult = [&](EBuildFailurePhase Phase, std::string Message) -> FBuildOutput {

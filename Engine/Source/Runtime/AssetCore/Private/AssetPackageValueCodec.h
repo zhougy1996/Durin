@@ -1,6 +1,5 @@
 #pragma once
 
-#include "AssetSystemInternal.h"
 #include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
 

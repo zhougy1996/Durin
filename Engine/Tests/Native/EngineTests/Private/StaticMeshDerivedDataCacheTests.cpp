@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "AssetLoad.h"
-#include "DerivedDataObjectStore.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
@@ -66,12 +65,8 @@ namespace
 
 	auto GetObjectPath(const FStaticMeshCacheFixture& Fixture, std::string_view Key) -> std::filesystem::path
 	{
-		Durin::Asset::FDerivedDataObjectStore Store(
-			"StaticMesh/Objects", Durin::MaximumStaticMeshPayloadBytes);
-		std::filesystem::path Path;
-		std::string Error;
-		EXPECT_TRUE(Store.GetObjectPath(Key, Path, &Error)) << Error;
-		return Path;
+		return Fixture.CacheRoot / "StaticMesh" / "Objects"
+			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
 	auto WriteU32(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint32 Value) -> void

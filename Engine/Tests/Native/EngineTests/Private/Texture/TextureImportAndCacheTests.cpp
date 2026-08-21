@@ -1,5 +1,4 @@
 #include "TextureTestSupport.h"
-#include "SourceFingerprintCache.h"
 
 namespace
 {
@@ -295,13 +294,13 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWithoutDirtying)
+TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirtying)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		Durin::Testing::GetTestWorkDirectory() / "TextureSourceFingerprintCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureTimestampOnlySourceCache");
 	const std::filesystem::path Source =
-		Durin::Testing::GetTestWorkDirectory() / "TextureSourceFingerprint.png";
+		Durin::Testing::GetTestWorkDirectory() / "TextureTimestampOnlySource.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/Fingerprint");
@@ -325,17 +324,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWit
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
-	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
-		/ "SourceFingerprints" / "Index.bin"));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-
-	const std::string FingerprintCacheRoot = Durin::FPaths::DerivedDataCacheDir();
-	Durin::FPaths::SetDerivedDataCacheDirForTests(
-		(Durin::Testing::GetTestWorkDirectory() / "UnusedSourceFingerprintCache").generic_string());
-	std::string IgnoredHash;
-	EXPECT_FALSE(Durin::Asset::FindSourceFingerprint(StoredSource, 0, 0, IgnoredHash));
-	Durin::FPaths::SetDerivedDataCacheDirForTests(FingerprintCacheRoot);
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	ASSERT_NE(Loaded, nullptr);

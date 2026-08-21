@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystemInternal.h"
+#include "AssetCatalogStoreInternal.h"
 
 namespace Durin::Asset::Private
 {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCompatibility.h"
-#include "AssetSystemInternal.h"
+#include "AssetMutation.h"
 #include "DObject/DefaultDeltaPlan.h"
 
 namespace Durin::Asset::Private

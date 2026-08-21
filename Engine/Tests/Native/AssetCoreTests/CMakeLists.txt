@@ -66,13 +66,6 @@ durin_add_asset_functional_test(AssetCookTests
 	SOURCES Private/CookedAssetTests.cpp
 )
 
-durin_add_asset_functional_test(AssetDerivedDataTests
-	KIND feature
-	DOMAINS derived-data
-	MODULES asset-core
-	SOURCES Private/DerivedDataObjectStoreTests.cpp
-)
-
 durin_add_asset_functional_test(AssetMountedSourceTests
 	KIND contract
 	DOMAINS asset-workflow
