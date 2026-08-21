@@ -349,7 +349,19 @@ def _apply_property_annotation(
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
         prop.typed_metadata = _typed_metadata_from_annotation(prop, annotation, location)
         prop.deprecation = _deprecation_from_annotation(prop, annotation, location)
+        if _property_contains_kind(prop, "WeakObject") and "Durin::EPropertyFlags::Transient" not in prop.flags:
+            raise ValueError(
+                f"[DHT-WEAK007] {location}: weak object properties must be explicitly Transient"
+            )
     return prop
+
+
+def _property_contains_kind(prop: ReflectedPropertyInfo | None, kind: str) -> bool:
+    if not prop:
+        return False
+    return prop.kind == kind or any(
+        _property_contains_kind(child, kind) for child in (prop.inner, prop.key, prop.value)
+    )
 
 
 def _array_dim(field_cursor: clang.cindex.Cursor) -> int:
@@ -544,6 +556,7 @@ def _reflected_reference_spellings(type_spelling: str) -> tuple[str, ...]:
     for predicate, argument_getter in (
         (_is_tobject_ptr, _tobject_ptr_arg),
         (_is_tsoft_object_ptr, _tsoft_object_ptr_arg),
+        (_is_tweak_object_ptr, _tweak_object_ptr_arg),
     ):
         if predicate(normalized):
             argument = argument_getter(normalized)
@@ -653,6 +666,22 @@ def _tsoft_object_ptr_arg(type_spelling: str) -> str:
         "Durin::TSoftObjectPtr"
         if normalized.replace(" ", "").startswith("Durin::TSoftObjectPtr<")
         else "TSoftObjectPtr"
+    )
+    args = _source_template_args(normalized, template_name)
+    return args[0].strip() if len(args) == 1 else ""
+
+
+def _is_tweak_object_ptr(type_spelling: str) -> bool:
+    normalized = type_spelling.replace(" ", "").removeprefix("::")
+    return normalized.startswith("TWeakObjectPtr<") or normalized.startswith("Durin::TWeakObjectPtr<")
+
+
+def _tweak_object_ptr_arg(type_spelling: str) -> str:
+    normalized = type_spelling.strip().removeprefix("::")
+    template_name = (
+        "Durin::TWeakObjectPtr"
+        if normalized.replace(" ", "").startswith("Durin::TWeakObjectPtr<")
+        else "TWeakObjectPtr"
     )
     args = _source_template_args(normalized, template_name)
     return args[0].strip() if len(args) == 1 else ""
@@ -769,6 +798,106 @@ def _soft_object_alias_names(source: str) -> set[str]:
     return aliases
 
 
+def _contains_weak_object_spelling(type_spelling: str) -> bool:
+    compact = type_spelling.replace(" ", "")
+    return "TWeakObjectPtr" in compact or "FWeakObjectPtr" in compact
+
+
+def _validate_weak_object_spelling(
+    type_spelling: str,
+    property_name: str,
+    line_number: int,
+    exported_symbols: ExportedSymbols | None,
+    declaring_namespace: str = "",
+) -> None:
+    location = f"DPROPERTY '{property_name}' at line {line_number}"
+    source_compact = type_spelling.strip().replace(" ", "").removeprefix("::")
+    normalized = _normalize_type_spelling(type_spelling)
+    compact = normalized.replace(" ", "").removeprefix("::")
+    if "FWeakObjectPtr" in compact:
+        raise ValueError(
+            f"[DHT-WEAK001] {location}: raw FWeakObjectPtr is unsupported; "
+            "use TWeakObjectPtr<ReflectedObjectClass>"
+        )
+    if compact in ("TWeakObjectPtr", "Durin::TWeakObjectPtr"):
+        raise ValueError(
+            f"[DHT-WEAK001] {location}: TWeakObjectPtr requires exactly one reflected object class"
+        )
+    if "TWeakObjectPtr" in compact and (
+        source_compact.startswith("const") or source_compact.startswith("volatile")
+        or source_compact.endswith("*") or source_compact.endswith("&")
+        or source_compact.endswith("&&") or source_compact.endswith("const")
+        or source_compact.endswith("volatile")
+    ):
+        raise ValueError(
+            f"[DHT-WEAK003] {location}: weak object properties do not support "
+            "cv-qualifiers, pointers, or references"
+        )
+    if _is_tweak_object_ptr(type_spelling):
+        target = _tweak_object_ptr_arg(type_spelling)
+        if not target:
+            raise ValueError(
+                f"[DHT-WEAK001] {location}: TWeakObjectPtr requires exactly one reflected object class"
+            )
+        if re.search(r"\b(?:const|volatile)\b", target) or target.endswith("*") or target.endswith("&"):
+            raise ValueError(
+                f"[DHT-WEAK003] {location}: weak object target '{target}' must be an unqualified object class"
+            )
+        if exported_symbols and not _resolved_symbol_name(
+            (target,), exported_symbols, kinds=("class",),
+            declaring_namespace=declaring_namespace,
+        ):
+            resolved_non_object = _resolved_symbol_name(
+                (target,), exported_symbols, kinds=("struct", "enum"),
+                declaring_namespace=declaring_namespace,
+            )
+            code = "DHT-WEAK004" if resolved_non_object else "DHT-WEAK005"
+            reason = "is not an object class" if resolved_non_object else "could not be resolved"
+            raise ValueError(f"[{code}] {location}: weak object target '{target}' {reason}")
+        return
+    if _is_std_vector(normalized):
+        args = _source_template_args(normalized.removeprefix("::"), "std::vector")
+        if args:
+            _validate_weak_object_spelling(
+                args[0], property_name, line_number, exported_symbols, declaring_namespace
+            )
+        return
+    if _is_std_unordered_map(normalized):
+        args = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
+        if len(args) >= 2:
+            if _contains_weak_object_spelling(args[0]):
+                raise ValueError(
+                    f"[DHT-WEAK006] {location}: weak object references are unsupported as Map keys"
+                )
+            _validate_weak_object_spelling(
+                args[1], property_name, line_number, exported_symbols, declaring_namespace
+            )
+        return
+    if "TWeakObjectPtr" in compact:
+        raise ValueError(
+            f"[DHT-WEAK002] {location}: unsupported weak object declaration '{normalized}'; "
+            "spell TWeakObjectPtr<T> directly"
+        )
+
+
+def _weak_object_alias_names(source: str) -> set[str]:
+    aliases = {
+        match.group(1)
+        for match in re.finditer(
+            r"\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+            r"(?:::)?(?:Durin::)?TWeakObjectPtr\s*<[^;]+>;", source,
+        )
+    }
+    aliases.update(
+        match.group(1)
+        for match in re.finditer(
+            r"\btypedef\s+(?:::)?(?:Durin::)?TWeakObjectPtr\s*<[^;]+>\s+"
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*;", source,
+        )
+    )
+    return aliases
+
+
 def _resolved_symbol_name(
     spellings: tuple[str, ...],
     exported_symbols: ExportedSymbols | None,
@@ -831,6 +960,10 @@ def _cpp_type_spelling(
         arg = _tsoft_object_ptr_arg(type_spelling)
         if arg:
             return f"Durin::TSoftObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
+    if _is_tweak_object_ptr(type_spelling):
+        arg = _tweak_object_ptr_arg(type_spelling)
+        if arg:
+            return f"Durin::TWeakObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
     if resolved := _resolved_symbol_name(
         (type_spelling,),
         exported_symbols,
@@ -1094,6 +1227,28 @@ def _make_property_from_spelling(
                 element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
                 flags=flags,
             )
+    if allow_object and _is_tweak_object_ptr(type_spelling):
+        pointee = _tweak_object_ptr_arg(type_spelling)
+        if not pointee:
+            return None
+        referenced_type = (
+            pointee
+            if not exported_symbols
+            else _resolved_symbol_name(
+                (pointee,), exported_symbols, kinds=("class",),
+                declaring_namespace=declaring_namespace,
+            )
+        )
+        if referenced_type:
+            return ReflectedPropertyInfo(
+                name=name,
+                type_name=type_spelling,
+                kind="WeakObject",
+                referenced_type=referenced_type,
+                array_dim=array_dim,
+                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
+                flags=flags,
+            )
     return None
 
 
@@ -1226,7 +1381,20 @@ def _make_property(
                 f"{field_cursor.location.line}: aliases of TSoftObjectPtr<T> are unsupported; "
                 "spell the template directly"
             )
+        if any(
+            re.search(rf"\b{re.escape(alias)}\b", source_type)
+            for alias in _weak_object_alias_names(source)
+        ):
+            raise ValueError(
+                f"[DHT-WEAK002] DPROPERTY '{field_cursor.spelling}' at line "
+                f"{field_cursor.location.line}: aliases of TWeakObjectPtr<T> are unsupported; "
+                "spell the template directly"
+            )
         _validate_soft_object_spelling(
+            source_type, field_cursor.spelling, field_cursor.location.line,
+            exported_symbols, declaring_namespace
+        )
+        _validate_weak_object_spelling(
             source_type, field_cursor.spelling, field_cursor.location.line,
             exported_symbols, declaring_namespace
         )
@@ -1285,6 +1453,12 @@ def _make_property(
             raise ValueError(
                 f"[DHT-SOFT002] DPROPERTY '{field_cursor.spelling}' at line "
                 f"{field_cursor.location.line}: aliases of TSoftObjectPtr<T> are unsupported; "
+                "spell the template directly"
+            )
+        if prop.kind == "WeakObject" and source_type and not _is_tweak_object_ptr(source_type):
+            raise ValueError(
+                f"[DHT-WEAK002] DPROPERTY '{field_cursor.spelling}' at line "
+                f"{field_cursor.location.line}: aliases of TWeakObjectPtr<T> are unsupported; "
                 "spell the template directly"
             )
         return _apply_property_annotation(prop, annotation,

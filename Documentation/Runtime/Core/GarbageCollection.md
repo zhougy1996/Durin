@@ -129,7 +129,12 @@ The Outer index is used only to order independently selected candidates so child
 - `TSoftObjectPtr` retains a canonical package-main-asset path plus a weak loaded-object cache. It never keeps the target alive; after collection or package unload, the path remains while the cache stops resolving.
 - Worker threads may carry independent weak-handle copies but may only resolve or assign `DObject` references on the game thread.
 
-`TWeakObjectPtr` is not currently supported by DHT property generation, property serialization, or reflected containers. `TSoftObjectPtr` is a supported reflected property kind, but only its path identity is serialized or snapshotted; the weak cache is runtime-only.
+Reflected `TWeakObjectPtr<T>` is supported only as explicit `Transient` runtime
+state, including fixed arrays, Array values, Map values, and nested Structs.
+GC schema compilation deliberately ignores every such leaf, so neither direct
+nor container values retain a target. Property snapshots copy the generation
+handle without rooting its target. Weak Map keys are prohibited. `TSoftObjectPtr`
+serializes or snapshots only its path identity; its weak cache is runtime-only.
 
 ## Automatic Collection
 

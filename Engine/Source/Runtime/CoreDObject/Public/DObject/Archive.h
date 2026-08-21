@@ -23,7 +23,7 @@ namespace Durin
 	{
 		enum class EKind : uint8
 		{
-			Scalar, Enum, String, Name, Guid, Bytes, Object, SoftObject,
+			Scalar, Enum, String, Name, Guid, Bytes, Object, SoftObject, WeakObject,
 			Struct, Array, Map, FixedArray
 		};
 
@@ -46,6 +46,7 @@ namespace Durin
 		COREDOBJECT_API static auto Bytes() -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Object(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto SoftObject(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;
+		COREDOBJECT_API static auto WeakObject(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Struct(FName QualifiedType, uint32 NativeFieldVersion = 0) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Array(FArchiveLogicalTypeDescriptor Element) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Map(FArchiveLogicalTypeDescriptor Key, FArchiveLogicalTypeDescriptor Value) -> FArchiveLogicalTypeDescriptor;
@@ -129,6 +130,7 @@ namespace Durin
 
 		virtual COREDOBJECT_API auto SerializeObjectReference(DObject*& Value) -> void;
 		virtual COREDOBJECT_API auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void;
+		virtual COREDOBJECT_API auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void;
 
 	protected:
 		virtual COREDOBJECT_API auto OnEnterObject(DObject& Object) -> void;
@@ -217,6 +219,7 @@ namespace Durin
 		FArchive& Ar, FProperty& Property, const void* Container, uint32 ArrayIndex) -> void;
 	COREDOBJECT_API auto SerializeArchiveObjectReference(FArchive& Ar, DObject*& Value) -> void;
 	COREDOBJECT_API auto SerializeArchiveSoftObjectPath(FArchive& Ar, FSoftObjectPath& Value) -> void;
+	COREDOBJECT_API auto SerializeArchiveWeakObjectReference(FArchive& Ar, FWeakObjectPtr& Value) -> void;
 
 	class FPropertyValueSnapshot
 	{

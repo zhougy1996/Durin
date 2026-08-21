@@ -629,7 +629,7 @@ loading deliberately does not call this authoring validator and therefore does
 not clamp or repair historical data. `UIMin` and `UIMax` only configure editor
 presentation.
 
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the wrapper value and expected class without treating its weak cache as reflected state. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
+`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` and `FWeakObjectProperty::GetWeakObjectPtr(...)` expose their exact wrappers and expected classes. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
 
 DurinHeaderTool recognizes direct and fixed-array `TSoftObjectPtr<T>` fields and
 soft values nested through supported Array, Map-value, and reflected-struct
@@ -638,7 +638,11 @@ unresolved or non-object targets, soft Map keys, and unsupported qualifiers are
 rejected rather than emitted with incomplete metadata. `FSoftObjectProperty`
 is a distinct property kind: serialization and editor access use its canonical
 path identity, while GC deliberately excludes it from the strong-reference
-schema. `TWeakObjectPtr<T>` remains unsupported by DHT property generation.
+schema. DHT also recognizes typed `TWeakObjectPtr<T>` in direct, fixed-array,
+Array, Map-value, and reflected-Struct positions. The top-level property must
+be explicitly `Transient`, and weak Map keys are invalid. Generated weak
+properties retain exact wrapper lifecycle operations and the expected class;
+they are non-owning runtime state and never acquire a soft path identity.
 
 Generated leaf records do not emit element-size expressions. Plain aliases own
 their exact C++ value type, Enum records resolve their underlying type, and

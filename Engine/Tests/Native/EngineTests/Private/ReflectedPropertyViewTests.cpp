@@ -21,6 +21,7 @@ namespace
 	using FSoftObjectViewValue = Durin::TSoftObjectPtr<Durin::DObject>;
 	using FSoftObjectViewArray = std::vector<FSoftObjectViewValue>;
 	using FSoftObjectViewMap = std::unordered_map<std::string, FSoftObjectViewValue>;
+	using FWeakObjectViewValue = Durin::TWeakObjectPtr<Durin::DObject>;
 
 	template<typename T>
 	auto InitializePropertyViewValue(void* Memory) -> void
@@ -63,6 +64,16 @@ namespace
 	auto GetConstSoftObjectViewValue(const void* Value) -> const Durin::FSoftObjectPtr*
 	{
 		return Value ? &static_cast<const FSoftObjectViewValue*>(Value)->GetBase() : nullptr;
+	}
+
+	auto GetMutableWeakObjectViewValue(void* Value) -> Durin::FWeakObjectPtr*
+	{
+		return Value ? &static_cast<FWeakObjectViewValue*>(Value)->GetBase() : nullptr;
+	}
+
+	auto GetConstWeakObjectViewValue(const void* Value) -> const Durin::FWeakObjectPtr*
+	{
+		return Value ? &static_cast<const FWeakObjectViewValue*>(Value)->GetBase() : nullptr;
 	}
 
 	class DPropertyViewHostTestObject final : public Durin::DObject
@@ -476,6 +487,30 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(AliasPath), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, AssetPath}));
+}
+
+TEST(FReflectedPropertyViewTests, WeakObjectInspectionDistinguishesNullLiveAndExpired)
+{
+	Durin::FWeakObjectProperty Property(
+		Durin::FFieldVariant(), Durin::FName("Weak"), Durin::EObjectFlags::Transient,
+		Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::Transient, 1, 0,
+		sizeof(FWeakObjectViewValue), Durin::DObject::StaticClass(),
+		&GetMutableWeakObjectViewValue, &GetConstWeakObjectViewValue);
+	FWeakObjectViewValue Value;
+	auto State = Durin::Editor::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Null);
+
+	Durin::DObject* Target = Durin::NewObject<Durin::DObject>(nullptr, "WeakViewTarget");
+	Value = Target;
+	State = Durin::Editor::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Live);
+	EXPECT_EQ(State.Object, Target);
+	EXPECT_EQ(Durin::Editor::GetWeakObjectStateLabel(State.State), "Live");
+
+	Durin::MarkAsGarbage(Target);
+	State = Durin::Editor::InspectWeakObject(&Property, &Value);
+	EXPECT_EQ(State.State, Durin::Editor::EWeakObjectViewState::Expired);
+	EXPECT_EQ(State.Object, nullptr);
 }
 
 TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndMapValues)

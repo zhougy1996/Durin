@@ -163,13 +163,15 @@ write.
 ## Property Snapshots
 
 `FPropertyValueSnapshot` captures one reflected property value rather than a
-whole object. The codec supports primitive values, strings, object references,
-structs, arrays, and maps.
+whole object. The codec supports primitive values, strings, hard/soft/weak
+object references, structs, arrays, and maps.
 
-Snapshots recursively retain referenced `DObject` instances for as long as any
-snapshot copy exists. This keeps values reachable while an active session or
-committed transaction may restore them. Unsupported or type-mismatched capture
-and restore operations fail with an error.
+Snapshots recursively retain hard referenced `DObject` instances for as long
+as any snapshot copy exists. Weak properties instead copy their index/generation
+handle and never add the target to the rooted reference set. The generic weak
+Details row reports null, live, expired, or type-mismatched state and permits an
+explicit clear; it never offers a durable asset picker. Unsupported or
+type-mismatched capture and restore operations fail with an error.
 
 Nested container edits snapshot a stable object-owned ancestor, normally the
 top-level member. A vector resize or unordered-map rehash may invalidate a leaf

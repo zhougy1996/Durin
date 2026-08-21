@@ -30,6 +30,7 @@ PROPERTY_PARAM_BY_KIND = {
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
     "SoftObject": "FSoftObjectPropertyParams",
+    "WeakObject": "FWeakObjectPropertyParams",
     "Array": "FArrayPropertyParams",
     "Map": "FMapPropertyParams",
     "Struct": "FStructPropertyParams",

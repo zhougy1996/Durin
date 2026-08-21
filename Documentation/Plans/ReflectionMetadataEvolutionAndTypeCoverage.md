@@ -406,22 +406,22 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 4: Add weak object properties
 
-- [ ] Add DHT recognition and diagnostics for typed `TWeakObjectPtr<T>` direct,
+- [x] Add DHT recognition and diagnostics for typed `TWeakObjectPtr<T>` direct,
   fixed-array, Array, Map-value, and nested-struct forms; reject weak Map keys
   and disallowed persistence forms.
-- [ ] Add the generated parameter family, property kind/layout, exact wrapper
+- [x] Add the generated parameter family, property kind/layout, exact wrapper
   operations, `FWeakObjectProperty`, expected-class access, and runtime
   registration validation.
-- [ ] Integrate construction, copying, comparison, canonical map-value tokens,
+- [x] Integrate construction, copying, comparison, canonical map-value tokens,
   snapshots, drafts, property changes, default planning, and editor inspection
   without rooting targets.
-- [ ] Integrate process-local Archives and duplication so weak edges never
+- [x] Integrate process-local Archives and duplication so weak edges never
   enlarge discovery and remap only already-included targets; enforce the
   authored/cooked persistence policy selected in Stage 0.
-- [ ] Prove GC schema exclusion for direct and nested weak values, pending-kill
+- [x] Prove GC schema exclusion for direct and nested weak values, pending-kill
   invalidation, slot-generation reuse safety, module unload safety, and
   container behavior after target retirement.
-- [ ] Update garbage collection, reflection, serialization, asset-package, and
+- [x] Update garbage collection, reflection, serialization, asset-package, and
   property-editing contracts.
 
 #### Acceptance Gate

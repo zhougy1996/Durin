@@ -2,6 +2,7 @@
 
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Misc/Guid.h"
 
 namespace Durin
@@ -240,6 +241,31 @@ namespace Durin
 	private:
 		FMutableSoftValueAccessor MutableSoftValueAccessor = nullptr;
 		FConstSoftValueAccessor ConstSoftValueAccessor = nullptr;
+	};
+
+	// Describes a typed non-owning object reference. It is never a GC edge.
+	class FWeakObjectProperty : public FProperty
+	{
+		DECLARE_FIELD(FWeakObjectProperty, FProperty, EClassCastFlags::FWeakObjectProperty, COREDOBJECT_API)
+	public:
+		using FMutableWeakValueAccessor = DurinCodeGen::FWeakObjectPropertyParams::FMutableWeakValueAccessor;
+		using FConstWeakValueAccessor = DurinCodeGen::FWeakObjectPropertyParams::FConstWeakValueAccessor;
+
+		COREDOBJECT_API FWeakObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
+		COREDOBJECT_API FWeakObjectProperty(
+			FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags,
+			EPropertyFlags InPropertyFlags, uint16 InArrayDim, uint16 InOffset,
+			uint16 InElementSize, DClass* InExpectedClass,
+			FMutableWeakValueAccessor InMutableWeakValueAccessor,
+			FConstWeakValueAccessor InConstWeakValueAccessor);
+
+		auto GetExpectedClass() const -> DClass* { return GetReferencedClass(); }
+		COREDOBJECT_API auto GetWeakObjectPtr(void* Container, uint32 ArrayIndex = 0) const -> FWeakObjectPtr*;
+		COREDOBJECT_API auto GetWeakObjectPtr(const void* Container, uint32 ArrayIndex = 0) const -> const FWeakObjectPtr*;
+
+	private:
+		FMutableWeakValueAccessor MutableWeakValueAccessor = nullptr;
+		FConstWeakValueAccessor ConstWeakValueAccessor = nullptr;
 	};
 
 	// Describes inline reflected value-struct storage managed through DStruct operations.

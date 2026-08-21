@@ -58,6 +58,7 @@ from durin_header_tool.parser.property_parser import (
     _underlying_kind_from_type_spelling,
     _validate_explicit_container_spelling,
     _validate_soft_object_spelling,
+    _validate_weak_object_spelling,
 )
 from durin_header_tool.parser.clang_context import (
     PARSER_CONTEXT_VERSION,

@@ -1140,6 +1140,34 @@ namespace
 					1,
 					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue))
 				};
+				static const auto WeakReferencePropertyParams =
+					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
+						"WeakReference", Durin::EPropertyFlags::Transient, 1,
+						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReference)),
+						&Durin::DObject::StaticClass);
+				static const auto WeakExternalPropertyParams =
+					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
+						"WeakExternal", Durin::EPropertyFlags::Transient, 1,
+						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakExternal)),
+						&Durin::DObject::StaticClass);
+				static const auto WeakReferencesInnerPropertyParams =
+					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
+						"WeakReferences_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+				static const Durin::DurinCodeGen::FArrayPropertyParams WeakReferencesPropertyParams = {
+					"WeakReferences", Durin::EPropertyFlags::Transient, 1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReferences)),
+					&WeakReferencesInnerPropertyParams,
+					&GVectorPropertyHelper<Durin::TWeakObjectPtr<Durin::DObject>>};
+				static const Durin::DurinCodeGen::FStringPropertyParams WeakMapKeyPropertyParams = {
+					"WeakMap_Key", Durin::EPropertyFlags::None, 1, 0};
+				static const auto WeakMapValuePropertyParams =
+					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
+						"WeakMap_Value", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+				static const Durin::DurinCodeGen::FMapPropertyParams WeakMapPropertyParams = {
+					"WeakMap", Durin::EPropertyFlags::Transient, 1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakMap)),
+					&WeakMapKeyPropertyParams, &WeakMapValuePropertyParams,
+					&GMapPropertyHelper<std::string, Durin::TWeakObjectPtr<Durin::DObject>>};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 					&ValuePropertyParams,
 					&BoolPropertyParams,
@@ -1152,14 +1180,18 @@ namespace
 					&TagsPropertyParams,
 					&ModesPropertyParams,
 					&ScoreGroupsPropertyParams,
-					&TransientPropertyParams
+					&TransientPropertyParams,
+					&WeakReferencePropertyParams,
+					&WeakExternalPropertyParams,
+					&WeakReferencesPropertyParams,
+					&WeakMapPropertyParams
 				};
 				static const Durin::DurinCodeGen::FClassParams ClassParams = {
 					&DLifecycleReferenceOwnerForTest::StaticClassNoRegister,
 					"DLifecycleReferenceOwnerForTest",
 					"DLifecycleReferenceOwnerForTest",
 					PropertyParams,
-					12
+					16
 				};
 				Durin::DurinCodeGen::ConstructDClass(ClassParams);
 				bPropertiesConstructed = true;
@@ -1267,6 +1299,10 @@ namespace
 		std::vector<EReflectedEnumForTest> Modes;
 		std::vector<std::vector<Durin::int32>> ScoreGroups;
 		Durin::int32 TransientValue = 0;
+		Durin::TWeakObjectPtr<Durin::DObject> WeakReference;
+		Durin::TWeakObjectPtr<Durin::DObject> WeakExternal;
+		std::vector<Durin::TWeakObjectPtr<Durin::DObject>> WeakReferences;
+		std::unordered_map<std::string, Durin::TWeakObjectPtr<Durin::DObject>> WeakMap;
 		Durin::DObject* NativeReference = nullptr;
 		Durin::int32 NativeScalar = 0;
 		FNativeStruct NativeStruct;
@@ -1707,6 +1743,14 @@ namespace
 		std::unordered_map<std::string, Durin::TSoftObjectPtr<Durin::DObject>> Map;
 	};
 
+	struct FWeakObjectPropertyOwnerForTest
+	{
+		Durin::TWeakObjectPtr<Durin::DObject> Direct;
+		Durin::TWeakObjectPtr<Durin::DObject> Fixed[2];
+		std::vector<Durin::TWeakObjectPtr<Durin::DObject>> Array;
+		std::unordered_map<std::string, Durin::TWeakObjectPtr<Durin::DObject>> Map;
+	};
+
 	struct FUnavailableStructPropertyOwnerForTest
 	{
 		StructOpsTest::FDeletedDefault DeletedDefault;
@@ -1853,6 +1897,49 @@ namespace
 			Properties,
 			std::size(Properties)
 		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetWeakObjectPropertyOwnerNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = nullptr;
+		if (!Struct)
+		{
+			Struct = new Durin::DStruct(Durin::EC_StaticConstructor,
+				Durin::FName("FWeakObjectPropertyOwnerForTest"),
+				Durin::FName("FWeakObjectPropertyOwnerForTest"),
+				sizeof(FWeakObjectPropertyOwnerForTest), alignof(FWeakObjectPropertyOwnerForTest),
+				Durin::EObjectFlags::Transient);
+			Struct->Register(Durin::DStruct::StaticClass, "", "FWeakObjectPropertyOwnerForTest");
+		}
+		return Struct;
+	}
+
+	auto GetWeakObjectPropertyOwner() -> Durin::DStruct*
+	{
+		using FWeakPtr = Durin::TWeakObjectPtr<Durin::DObject>;
+		constexpr auto WeakFlags = Durin::EPropertyFlags::Transient;
+		static const auto Direct = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
+			"Direct", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Direct)), &Durin::DObject::StaticClass);
+		static const auto Fixed = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
+			"Fixed", WeakFlags, 2, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Fixed)), &Durin::DObject::StaticClass);
+		static const auto ArrayInner = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
+			"Array_Inner", WeakFlags, 1, 0, &Durin::DObject::StaticClass);
+		static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
+			"Array", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Array)),
+			&ArrayInner, &GVectorPropertyHelper<FWeakPtr>};
+		static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
+			"Map_Key", Durin::EPropertyFlags::None, 1, 0};
+		static const auto MapValue = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
+			"Map_Value", WeakFlags, 1, 0, &Durin::DObject::StaticClass);
+		static const Durin::DurinCodeGen::FMapPropertyParams Map = {
+			"Map", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Map)),
+			&MapKey, &MapValue, &GMapPropertyHelper<std::string, FWeakPtr>};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Direct, &Fixed, &Array, &Map};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetWeakObjectPropertyOwnerNoRegister, "Tests::FWeakObjectPropertyOwnerForTest",
+			"FWeakObjectPropertyOwnerForTest", sizeof(FWeakObjectPropertyOwnerForTest),
+			alignof(FWeakObjectPropertyOwnerForTest), Properties, std::size(Properties)};
 		return Durin::DurinCodeGen::ConstructDStruct(Params);
 	}
 
@@ -3558,6 +3645,11 @@ namespace
 		Owner->Label = "Serialized";
 		Owner->Reference = ReferencedObject;
 		Owner->ObjectPtrReference = ReferencedObject;
+		Owner->WeakReference = ReferencedObject;
+		Owner->WeakExternal = HiddenGCReference;
+		Owner->WeakReferences = {ReferencedObject, HiddenGCReference};
+		Owner->WeakMap.emplace("Internal", ReferencedObject);
+		Owner->WeakMap.emplace("External", HiddenGCReference);
 		Owner->RawReferences.push_back(RawVectorReferencedObject);
 		Owner->ObjectPtrReferences.push_back(ObjectPtrVectorReferencedObject);
 		Owner->Scores = {7, 11, 42};
@@ -3641,6 +3733,13 @@ namespace
 		EXPECT_EQ(LoadedOwner->Label, "Serialized");
 		EXPECT_EQ(LoadedOwner->Reference, nullptr);
 		EXPECT_EQ(LoadedOwner->ObjectPtrReference.Get()->GetName(), "SerializedReference");
+		EXPECT_EQ(LoadedOwner->WeakReference.Get(), LoadedOwner->ObjectPtrReference.Get());
+		EXPECT_EQ(LoadedOwner->WeakExternal.Get(), nullptr);
+		ASSERT_EQ(LoadedOwner->WeakReferences.size(), 2u);
+		EXPECT_EQ(LoadedOwner->WeakReferences[0].Get(), LoadedOwner->ObjectPtrReference.Get());
+		EXPECT_EQ(LoadedOwner->WeakReferences[1].Get(), nullptr);
+		EXPECT_EQ(LoadedOwner->WeakMap.at("Internal").Get(), LoadedOwner->ObjectPtrReference.Get());
+		EXPECT_EQ(LoadedOwner->WeakMap.at("External").Get(), nullptr);
 		ASSERT_EQ(LoadedOwner->RawReferences.size(), 1u);
 		EXPECT_EQ(LoadedOwner->RawReferences[0], nullptr);
 		ASSERT_EQ(LoadedOwner->ObjectPtrReferences.size(), 1u);
@@ -3720,6 +3819,12 @@ namespace
 			nullptr, Durin::FName("DuplicateArchiveNewOuter"));
 		Source->NativeScalar = 41;
 		Source->SerializedNativeReference = Inner;
+		Source->ObjectPtrReference = Inner;
+		Source->WeakReference = Inner;
+		Source->WeakExternal = External;
+		Source->WeakReferences = {Inner, External};
+		Source->WeakMap.emplace("Internal", Inner);
+		Source->WeakMap.emplace("External", External);
 		Inner->SerializedNativeReference = External;
 
 		std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
@@ -3733,6 +3838,13 @@ namespace
 		ASSERT_NE(DuplicateInner, nullptr);
 		EXPECT_EQ(Duplicate->NativeScalar, 41);
 		EXPECT_EQ(Duplicate->SerializedNativeReference, DuplicateInner);
+		EXPECT_EQ(Duplicate->WeakReference.Get(), DuplicateInner);
+		EXPECT_EQ(Duplicate->WeakExternal.Get(), nullptr);
+		ASSERT_EQ(Duplicate->WeakReferences.size(), 2u);
+		EXPECT_EQ(Duplicate->WeakReferences[0].Get(), DuplicateInner);
+		EXPECT_EQ(Duplicate->WeakReferences[1].Get(), nullptr);
+		EXPECT_EQ(Duplicate->WeakMap.at("Internal").Get(), DuplicateInner);
+		EXPECT_EQ(Duplicate->WeakMap.at("External").Get(), nullptr);
 		EXPECT_EQ(DuplicateInner->SerializedNativeReference, External);
 		EXPECT_EQ(Duplicate->PostLoadCallCount, 1);
 		EXPECT_EQ(DuplicateInner->PostLoadCallCount, 1);
@@ -4158,6 +4270,69 @@ namespace
 
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPropertySupportsTransientTypedContainersWithoutRootingTargets)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* OwnerStruct = GetWeakObjectPropertyOwner();
+		auto* Direct = static_cast<Durin::FWeakObjectProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
+		auto* Fixed = static_cast<Durin::FWeakObjectProperty*>(OwnerStruct->FindPropertyByName("Fixed", false));
+		auto* Array = static_cast<Durin::FArrayProperty*>(OwnerStruct->FindPropertyByName("Array", false));
+		auto* Map = static_cast<Durin::FMapProperty*>(OwnerStruct->FindPropertyByName("Map", false));
+		ASSERT_NE(Direct, nullptr);
+		ASSERT_NE(Fixed, nullptr);
+		ASSERT_NE(Array, nullptr);
+		ASSERT_NE(Map, nullptr);
+		EXPECT_EQ(Direct->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::WeakObject);
+		EXPECT_EQ(Direct->GetExpectedClass(), Durin::DObject::StaticClass());
+		EXPECT_TRUE(Direct->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+
+		Durin::DObject* Target = Durin::NewObject<Durin::DObject>(nullptr, "WeakPropertyTarget");
+		FWeakObjectPropertyOwnerForTest Owner;
+		Owner.Direct = Target;
+		Owner.Fixed[1] = Target;
+		Owner.Array.emplace_back(Target);
+		Owner.Map.emplace("Target", Target);
+		EXPECT_EQ(Direct->GetWeakObjectPtr(&Owner)->Get(), Target);
+		EXPECT_EQ(Fixed->GetWeakObjectPtr(&Owner, 1)->Get(), Target);
+		EXPECT_EQ(static_cast<Durin::FWeakObjectProperty*>(Array->GetInner())->GetExpectedClass(), Durin::DObject::StaticClass());
+		EXPECT_EQ(static_cast<Durin::FWeakObjectProperty*>(Map->GetValueProp())->GetExpectedClass(), Durin::DObject::StaticClass());
+
+		Durin::FPropertyValueSnapshot Snapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Direct, &Owner, 0, Snapshot));
+		EXPECT_TRUE(Snapshot.GetReferencedObjects().empty());
+		Owner.Direct.Reset();
+		ASSERT_TRUE(Durin::RestorePropertyValue(Direct, &Owner, 0, Snapshot));
+		EXPECT_EQ(Owner.Direct.Get(), Target);
+
+		Durin::MarkAsGarbage(Target);
+		Durin::CollectGarbage();
+		EXPECT_EQ(Owner.Direct.Get(), nullptr);
+		FWeakObjectPropertyOwnerForTest NullOwner;
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(Direct, &Owner, 0, &NullOwner, 0));
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPropertySchemaIgnoresDirectArrayAndMapTargets)
+	{
+		EnsureDObjectInitialized();
+		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, "WeakSchemaOwner");
+		Durin::DObject* Target = Durin::NewObject<Durin::DObject>(nullptr, "WeakSchemaTarget");
+		Owner->WeakReference = Target;
+		Owner->WeakReferences.emplace_back(Target);
+		Owner->WeakMap.emplace("Target", Target);
+		Durin::AddToRoot(Owner);
+
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Target));
+		EXPECT_EQ(Owner->WeakReference.Get(), nullptr);
+		ASSERT_EQ(Owner->WeakReferences.size(), 1u);
+		EXPECT_EQ(Owner->WeakReferences[0].Get(), nullptr);
+		ASSERT_EQ(Owner->WeakMap.size(), 1u);
+		EXPECT_EQ(Owner->WeakMap.at("Target").Get(), nullptr);
+
+		Durin::RemoveFromRoot(Owner);
 		Durin::CollectGarbage();
 	}
 
@@ -5579,6 +5754,30 @@ namespace
 				ConstructInvalidStructProperty(Params);
 			}()),
 			"GenericPropertyRegistration.InvalidDescriptor"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const auto Params = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
+					"PersistentWeak", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"WeakObjectPropertyRegistration.NonTransient"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				using FWeakPtr = Durin::TWeakObjectPtr<Durin::DObject>;
+				const auto Key = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
+					"WeakKey", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+				const Durin::DurinCodeGen::FInt32PropertyParams Value{
+					"Value", Durin::EPropertyFlags::None, 1, 0};
+				const Durin::DurinCodeGen::FMapPropertyParams Params = {
+					"WeakKeyMap", Durin::EPropertyFlags::Transient, 1, 0,
+					&Key, &Value, &GMapPropertyHelper<std::string, Durin::int32>};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"MapPropertyRegistration.WeakKeyUnsupported"
 		);
 	}
 #endif

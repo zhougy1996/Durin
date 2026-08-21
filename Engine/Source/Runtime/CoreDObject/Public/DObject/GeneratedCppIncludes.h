@@ -5,4 +5,5 @@
 #include "Class.h"
 #include "ObjectPtr.h"
 #include "SoftObjectPtr.h"
+#include "WeakObjectPtr.h"
 #include "DurinPropertyTypes.h"

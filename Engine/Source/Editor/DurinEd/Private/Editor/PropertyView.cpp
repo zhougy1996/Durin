@@ -54,6 +54,7 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::Enum: return "enum";
 			case DurinCodeGen::EPropertyGenFlags::Object: return "object";
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return "soft object";
+			case DurinCodeGen::EPropertyGenFlags::WeakObject: return "weak object";
 			case DurinCodeGen::EPropertyGenFlags::Struct: return "struct";
 			case DurinCodeGen::EPropertyGenFlags::Array: return "array";
 			case DurinCodeGen::EPropertyGenFlags::Map: return "map";
@@ -96,6 +97,8 @@ namespace Durin::Editor
 				return std::format("Object Reference ({})", ReflectedClassDisplayName(Property.GetReferencedClass()));
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 				return std::format("Soft Object Reference ({})", ReflectedClassDisplayName(Property.GetReferencedClass()));
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+				return std::format("Weak Object Reference ({})", ReflectedClassDisplayName(Property.GetReferencedClass()));
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const DStruct* Struct = static_cast<const FStructProperty&>(Property).GetStruct();
@@ -251,6 +254,29 @@ namespace Durin::Editor
 		case ESoftObjectViewState::TypeMismatch: return "Type mismatch";
 		default: return "Unknown";
 		}
+	}
+
+	auto InspectWeakObject(FWeakObjectProperty* Property, void* Container, uint32 ArrayIndex) -> FWeakObjectViewState
+	{
+		if (!Property) return {.State = EWeakObjectViewState::TypeMismatch};
+		FWeakObjectPtr* Reference = Property->GetWeakObjectPtr(Container, ArrayIndex);
+		if (!Reference) return {.State = EWeakObjectViewState::TypeMismatch};
+		DObject* Object = Reference->Get();
+		if (Object) return {.State = EWeakObjectViewState::Live, .Object = Object};
+		return {.State = IsObjectHandleNull(Reference->GetHandle())
+			? EWeakObjectViewState::Null : EWeakObjectViewState::Expired};
+	}
+
+	auto GetWeakObjectStateLabel(EWeakObjectViewState State) -> std::string_view
+	{
+		switch (State)
+		{
+		case EWeakObjectViewState::Null: return "Null";
+		case EWeakObjectViewState::Live: return "Live";
+		case EWeakObjectViewState::Expired: return "Expired";
+		case EWeakObjectViewState::TypeMismatch: return "Type mismatch";
+		}
+		return "Unknown";
 	}
 
 	auto InspectSoftObject(
@@ -856,6 +882,25 @@ namespace Durin::Editor
 						->GetSoftObjectPtr(DestinationContainer, DestinationArrayIndex);
 					if (Destination) Destination->SetPath(SelectedPath);
 				};
+			}
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::WeakObject)
+		{
+			auto* WeakProperty = static_cast<FWeakObjectProperty*>(Property);
+			const FWeakObjectViewState ViewState = InspectWeakObject(WeakProperty, Container, ArrayIndex);
+			const std::string ObjectName = ViewState.Object ? ViewState.Object->GetName() : std::string();
+			ImGui::TextUnformatted(ObjectName.empty() ? GetWeakObjectStateLabel(ViewState.State).data() : ObjectName.c_str());
+			if (!bReadOnly && ViewState.State != EWeakObjectViewState::Null)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Clear##WeakObject"))
+				{
+					CaptureResult(true, false);
+					Result.AssignValue = [](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
+						if (auto* Destination = static_cast<FWeakObjectProperty*>(DestinationProperty)
+							->GetWeakObjectPtr(DestinationContainer, DestinationArrayIndex)) Destination->Reset();
+					};
+				}
 			}
 		}
 		else

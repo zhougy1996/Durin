@@ -10,6 +10,7 @@ namespace Durin
 	class FMapProperty;
 	class FProperty;
 	class FSoftObjectProperty;
+	class FWeakObjectProperty;
 }
 
 namespace Durin::Editor
@@ -32,6 +33,14 @@ namespace Durin::Editor
 		FAssetPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
 		std::string Message;
+	};
+
+	enum class EWeakObjectViewState : uint8 { Null, Live, Expired, TypeMismatch };
+
+	struct FWeakObjectViewState
+	{
+		EWeakObjectViewState State = EWeakObjectViewState::Null;
+		DObject* Object = nullptr;
 	};
 
 	// Supplies transaction, error, and read-only policy to a property view.
@@ -187,4 +196,8 @@ namespace Durin::Editor
 		std::string* OutError = nullptr
 	) -> bool;
 	DURINED_API auto GetSoftObjectStateLabel(ESoftObjectViewState State) -> std::string_view;
+	DURINED_API auto InspectWeakObject(
+		FWeakObjectProperty* Property, void* Container, uint32 ArrayIndex = 0
+	) -> FWeakObjectViewState;
+	DURINED_API auto GetWeakObjectStateLabel(EWeakObjectViewState State) -> std::string_view;
 }

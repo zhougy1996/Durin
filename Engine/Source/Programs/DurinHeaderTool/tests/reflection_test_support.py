@@ -82,6 +82,7 @@ namespace Durin
     class DObject {};
     template<typename T> class TObjectPtr {};
     template<typename T> class TSoftObjectPtr {};
+    template<typename T> class TWeakObjectPtr {};
     using int32 = int;
     template<typename T> struct TDStructOpsTraitsBase {};
     template<typename T> struct TDStructOpsTraits {};
@@ -250,6 +251,14 @@ namespace Fixture
         std::unordered_map<float, FMoveOnly> MoveValues;
     };
 
+    DSTRUCT()
+    struct FWeakNested
+    {
+        GENERATED_BODY()
+        DPROPERTY(Transient)
+        Durin::TWeakObjectPtr<Durin::DObject> Target;
+    };
+
     DCLASS()
     class AContainerShapes : public Durin::DObject
     {
@@ -284,6 +293,21 @@ namespace Fixture
 
         DPROPERTY()
         std::unordered_map<std::string, std::vector<Durin::TSoftObjectPtr<Durin::DObject>>> SoftLists;
+
+	    DPROPERTY(Transient)
+	    Durin::TWeakObjectPtr<Durin::DObject> WeakReference;
+
+	    DPROPERTY(Transient)
+	    Durin::TWeakObjectPtr<Durin::DObject> WeakFixed[2];
+
+	    DPROPERTY(Transient)
+	    std::vector<Durin::TWeakObjectPtr<Durin::DObject>> WeakReferences;
+
+	    DPROPERTY(Transient)
+	    std::unordered_map<std::string, Durin::TWeakObjectPtr<Durin::DObject>> WeakValues;
+
+        DPROPERTY(Transient)
+        FWeakNested WeakNested;
     };
 
     DSTRUCT()

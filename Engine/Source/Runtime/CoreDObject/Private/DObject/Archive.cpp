@@ -16,6 +16,23 @@ namespace Durin
 		constexpr uint32 ObjectGraphVersion = 2;
 		constexpr uint64 MaximumSoftObjectPathBytes = 1024 * 1024;
 
+		auto ShouldSerializeTransientWeakProperty(const FArchive& Ar, const FProperty* Property) -> bool
+		{
+			if (!Property || (Ar.GetPurpose() != EArchivePurpose::ObjectGraph
+				&& Ar.GetPurpose() != EArchivePurpose::Duplicate)) return false;
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+				return true;
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				return ShouldSerializeTransientWeakProperty(Ar, static_cast<const FArrayProperty*>(Property)->GetInner());
+			case DurinCodeGen::EPropertyGenFlags::Map:
+				return ShouldSerializeTransientWeakProperty(Ar, static_cast<const FMapProperty*>(Property)->GetValueProp());
+			default:
+				return false;
+			}
+		}
+
 		auto MakeLogicalTypeDescriptor(FProperty* Property) -> FArchiveLogicalTypeDescriptor
 		{
 			if (!Property) return FArchiveLogicalTypeDescriptor::Bytes();
@@ -40,6 +57,9 @@ namespace Durin
 					? Property->GetReferencedClass()->GetQualifiedName() : FName());
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 				return FArchiveLogicalTypeDescriptor::SoftObject(Property->GetReferencedClass()
+					? Property->GetReferencedClass()->GetQualifiedName() : FName());
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+				return FArchiveLogicalTypeDescriptor::WeakObject(Property->GetReferencedClass()
 					? Property->GetReferencedClass()->GetQualifiedName() : FName());
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
@@ -288,6 +308,18 @@ namespace Durin
 				}
 				break;
 			}
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+			{
+				auto* WeakProperty = static_cast<FWeakObjectProperty*>(Property);
+				FWeakObjectPtr* Value = WeakProperty->GetWeakObjectPtr(Container, ArrayIndex);
+				if (!Value)
+				{
+					Ar.SetError("Weak object property has no typed value accessor.");
+					break;
+				}
+				SerializeArchiveWeakObjectReference(Ar, *Value);
+				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
@@ -312,7 +344,7 @@ namespace Durin
 					}
 					Struct->ForEachProperty([&](FProperty* Field) {
 						if (Ar.HasError() || !Field
-							|| Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
+							|| (Field->HasAnyPropertyFlags(EPropertyFlags::Transient) && !ShouldSerializeTransientWeakProperty(Ar, Field))
 							|| (Ar.IsSaving() && Field->IsDeprecated())) return;
 						auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(
 							Field, Struct->GetQualifiedName()));
@@ -614,6 +646,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
 				return true;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
@@ -742,6 +775,7 @@ namespace Durin
 			}
 
 			auto SerializeSoftObjectPath(FSoftObjectPath&) -> void override {}
+			auto SerializeWeakObjectReference(FWeakObjectPtr&) -> void override {}
 
 		private:
 			FObjectGraphContext& Context;
@@ -770,6 +804,12 @@ namespace Durin
 						"Object graph grew after discovery was frozen.");
 					return;
 				}
+				*this << Id;
+			}
+
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				uint64 Id = Context.FindId(Value.Get());
 				*this << Id;
 			}
 
@@ -815,6 +855,19 @@ namespace Durin
 				Object = Context.ResolveId(Id);
 			}
 
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				uint64 Id = 0;
+				*this << Id;
+				if (HasError()) return;
+				if (Id > Context.IdToObject.size())
+				{
+					Fail(EArchiveFailureCode::InvalidObjectReference, "Invalid weak object graph reference identifier.");
+					return;
+				}
+				Value.SetObject(Context.ResolveId(Id));
+			}
+
 		private:
 			FObjectGraphContext& Context;
 		};
@@ -834,6 +887,7 @@ namespace Durin
 	auto FArchiveLogicalTypeDescriptor::Bytes() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Bytes}; }
 	auto FArchiveLogicalTypeDescriptor::Object(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Object, .QualifiedType = Type}; }
 	auto FArchiveLogicalTypeDescriptor::SoftObject(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::SoftObject, .QualifiedType = Type}; }
+	auto FArchiveLogicalTypeDescriptor::WeakObject(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::WeakObject, .QualifiedType = Type}; }
 	auto FArchiveLogicalTypeDescriptor::Struct(FName Type, uint32 Version) -> FArchiveLogicalTypeDescriptor
 	{
 		return {.Kind = EKind::Struct, .QualifiedType = Type, .NativeFieldVersion = Version};
@@ -1055,6 +1109,13 @@ namespace Durin
 		}
 	}
 
+	auto FObjectArchive::SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void
+	{
+		DObject* Object = IsSaving() ? Value.Get() : nullptr;
+		SerializeObjectReference(Object);
+		if (IsLoading() && !HasError()) Value.SetObject(Object);
+	}
+
 	FObjectMemoryWriter::FObjectMemoryWriter(std::vector<uint8>& InBytes, EArchivePurpose Purpose)
 		: FObjectArchive({EArchiveDirection::Save, Purpose,
 			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
@@ -1170,6 +1231,11 @@ namespace Durin
 		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeSoftObjectPath(Value);
 	}
 
+	auto SerializeArchiveWeakObjectReference(FArchive& Ar, FWeakObjectPtr& Value) -> void
+	{
+		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeWeakObjectReference(Value);
+	}
+
 	FPropertyValueSnapshot::~FPropertyValueSnapshot()
 	{
 		ReleaseReferenceRoots();
@@ -1269,7 +1335,7 @@ namespace Durin
 			return false;
 		}
 
-		class FSnapshotWriter final : public FObjectMemoryWriter
+			class FSnapshotWriter final : public FObjectMemoryWriter
 		{
 		public:
 			FSnapshotWriter(std::vector<uint8>& InBytes, std::vector<DObject*>& InReferences)
@@ -1294,6 +1360,11 @@ namespace Durin
 					}
 				}
 				*this << Id;
+			}
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				FObjectHandle Handle = Value.GetHandle();
+				*this << Handle.Index << Handle.Generation;
 			}
 		private:
 			std::vector<DObject*>& References;
@@ -1354,7 +1425,7 @@ namespace Durin
 			return false;
 		}
 
-		class FSnapshotReader final : public FObjectMemoryReader
+			class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
 			FSnapshotReader(const std::vector<uint8>& InBytes, const std::vector<DObject*>& InReferences)
@@ -1373,6 +1444,12 @@ namespace Durin
 					return;
 				}
 				Object = Id == 0 ? nullptr : References[static_cast<size_t>(Id - 1)];
+			}
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				FObjectHandle Handle;
+				*this << Handle.Index << Handle.Generation;
+				if (!HasError()) Value.SetHandle(Handle);
 			}
 		private:
 			const std::vector<DObject*>& References;
@@ -1413,7 +1490,7 @@ namespace Durin
 		Object.GetClass()->ForEachProperty(
 			[&](FProperty* Property)
 			{
-				if (!Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
+				if (!Property || (Property->HasAnyPropertyFlags(EPropertyFlags::Transient) && !ShouldSerializeTransientWeakProperty(Ar, Property))
 					|| (Ar.IsSaving() && Property->IsDeprecated()))
 				{
 					return;
@@ -1704,7 +1781,7 @@ namespace Durin
 		}
 		std::vector<DObject*> ExternalReferences;
 
-		class FDuplicateWriter final : public FObjectMemoryWriter
+			class FDuplicateWriter final : public FObjectMemoryWriter
 		{
 		public:
 			FDuplicateWriter(std::vector<uint8>& Bytes,
@@ -1742,12 +1819,18 @@ namespace Durin
 				uint64 Id = static_cast<uint64>(std::distance(Externals.begin(), It)) + 1;
 				*this << Kind << Id;
 			}
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				const auto It = Ids.find(Value.Get());
+				uint64 Id = It == Ids.end() ? 0 : It->second;
+				*this << Id;
+			}
 		private:
 			const std::unordered_map<DObject*, uint64>& Ids;
 			std::vector<DObject*>& Externals;
 		};
 
-		class FDuplicateReader final : public FObjectMemoryReader
+			class FDuplicateReader final : public FObjectMemoryReader
 		{
 		public:
 			FDuplicateReader(const std::vector<uint8>& Bytes,
@@ -1786,6 +1869,18 @@ namespace Durin
 				}
 				Fail(EArchiveFailureCode::InvalidObjectReference,
 					"Duplicate stream contains an invalid reference token.");
+			}
+			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
+			{
+				uint64 Id = 0;
+				*this << Id;
+				if (HasError()) return;
+				if (Id > DuplicateObjects.size())
+				{
+					Fail(EArchiveFailureCode::InvalidObjectReference, "Duplicate stream contains an invalid weak reference token.");
+					return;
+				}
+				Value.SetObject(Id == 0 ? nullptr : DuplicateObjects[static_cast<size_t>(Id - 1)]);
 			}
 		private:
 			const std::vector<DObject*>& DuplicateObjects;

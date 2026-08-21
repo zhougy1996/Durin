@@ -12,6 +12,7 @@ namespace Durin
 	class DEnum;
 	class DStruct;
 	class FSoftObjectPtr;
+	class FWeakObjectPtr;
 	struct FGuid;
 	template<typename T>
 	class TObjectPtr;
@@ -210,7 +211,8 @@ namespace Durin
 			Struct,
 			Name,
 			Guid,
-			SoftObject
+			SoftObject,
+			WeakObject
 		};
 
 		enum class EPropertyParamLayout : uint8
@@ -223,7 +225,8 @@ namespace Durin
 			Struct,
 			Array,
 			Map,
-			SoftObject
+			SoftObject,
+			WeakObject
 		};
 
 		struct FPropertyParamsBase;
@@ -761,6 +764,84 @@ namespace Durin
 				, ValueOps(InValueOps)
 				, MutableSoftValueAccessor(InMutableSoftValueAccessor)
 				, ConstSoftValueAccessor(InConstSoftValueAccessor)
+			{
+			}
+		};
+
+		struct FWeakObjectPropertyParams final : public FPropertyParamsBase
+		{
+			using FExpectedClassResolver = DClass* (*)();
+			using FMutableWeakValueAccessor = FWeakObjectPtr* (*)(void* Value);
+			using FConstWeakValueAccessor = const FWeakObjectPtr* (*)(const void* Value);
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
+			template<typename TValue>
+			static constexpr auto Create(
+				const char* InNameUTF8, EPropertyFlags InFlags, uint16 InArrayDim,
+				uint16 InOffset, FExpectedClassResolver InExpectedClassResolver,
+				const FMetaDataPair* InMetaData = nullptr, size_t InNumMetaData = 0)
+				-> FWeakObjectPropertyParams
+			{
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FWeakObjectPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, InOffset, InExpectedClassResolver,
+					MakePropertyValueOps<TValue>(), &AccessMutableWeakValue<TValue>,
+					&AccessConstWeakValue<TValue>, nullptr, nullptr, InMetaData, InNumMetaData);
+			}
+
+			template<typename TValue>
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8, EPropertyFlags InFlags, uint16 InArrayDim,
+				FExpectedClassResolver InExpectedClassResolver,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr, size_t InNumMetaData = 0)
+				-> FWeakObjectPropertyParams
+			{
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FWeakObjectPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, 0, InExpectedClassResolver,
+					MakePropertyValueOps<TValue>(), &AccessMutableWeakValue<TValue>,
+					&AccessConstWeakValue<TValue>, InMutableValueAccessor,
+					InConstValueAccessor, InMetaData, InNumMetaData);
+			}
+
+			FExpectedClassResolver ExpectedClassResolver = nullptr;
+			FPropertyValueOps ValueOps;
+			FMutableWeakValueAccessor MutableWeakValueAccessor = nullptr;
+			FConstWeakValueAccessor ConstWeakValueAccessor = nullptr;
+
+		private:
+			template<typename TValue>
+			static auto AccessMutableWeakValue(void* Value) -> FWeakObjectPtr*
+			{
+				return Value ? &static_cast<TValue*>(Value)->GetBase() : nullptr;
+			}
+
+			template<typename TValue>
+			static auto AccessConstWeakValue(const void* Value) -> const FWeakObjectPtr*
+			{
+				return Value ? &static_cast<const TValue*>(Value)->GetBase() : nullptr;
+			}
+
+			constexpr FWeakObjectPropertyParams(
+				const char* InNameUTF8, EPropertyFlags InFlags, uint16 InArrayDim,
+				uint16 InOffset, FExpectedClassResolver InExpectedClassResolver,
+				FPropertyValueOps InValueOps,
+				FMutableWeakValueAccessor InMutableWeakValueAccessor,
+				FConstWeakValueAccessor InConstWeakValueAccessor,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData, size_t InNumMetaData)
+				: FPropertyParamsBase(
+					InNameUTF8, InFlags, InArrayDim, InOffset,
+					EPropertyGenFlags::WeakObject, EPropertyParamLayout::WeakObject,
+					InMutableValueAccessor, InConstValueAccessor, InMetaData, InNumMetaData)
+				, ExpectedClassResolver(InExpectedClassResolver)
+				, ValueOps(InValueOps)
+				, MutableWeakValueAccessor(InMutableWeakValueAccessor)
+				, ConstWeakValueAccessor(InConstWeakValueAccessor)
 			{
 			}
 		};

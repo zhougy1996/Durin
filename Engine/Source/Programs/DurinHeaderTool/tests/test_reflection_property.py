@@ -45,6 +45,7 @@ from durin_header_tool.parser.reflection_parser import (
     _scan_generated_body_line,
     _validate_explicit_container_spelling,
     _validate_soft_object_spelling,
+    _validate_weak_object_spelling,
     _validate_property_legacy_names,
     make_dht_parse_source,
     parse_reflection_header,
@@ -677,6 +678,52 @@ class TestReflectionProperties:
             assert "DestroyPropertyValue" not in line
             assert "nullptr" not in line
             assert "EPropertyGenFlags::Object" not in line
+
+
+    def test_weak_objects_require_transient_and_emit_typed_metadata(self):
+        shape_info = next(info for info in self.header_info.classes if info.short_name == "AContainerShapes")
+        properties = {prop.name: prop for prop in shape_info.properties}
+        assert properties["WeakReference"].kind == "WeakObject"
+        assert properties["WeakReference"].referenced_type == "Durin::DObject"
+        assert properties["WeakFixed"].array_dim == 2
+        assert properties["WeakReferences"].inner.kind == "WeakObject"
+        assert properties["WeakValues"].value.kind == "WeakObject"
+        nested_info = next(info for info in self.header_info.structs if info.short_name == "FWeakNested")
+        assert nested_info.properties[0].name == "Target"
+        assert nested_info.properties[0].kind == "WeakObject"
+        assert properties["WeakNested"].kind == "Struct"
+        direct_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_WeakReference =" in line
+        )
+        assert "FWeakObjectPropertyParams::Create<" in direct_definition
+        assert "Durin::EPropertyFlags::Transient" in direct_definition
+        assert "Z_Construct_DClass_Durin_DObject" in direct_definition
+
+
+    @pytest.mark.parametrize(
+        ("spelling", "diagnostic"),
+        [
+            ("Durin::FWeakObjectPtr", "[DHT-WEAK001] DPROPERTY 'Value' at line 23: raw FWeakObjectPtr is unsupported; use TWeakObjectPtr<ReflectedObjectClass>"),
+            ("Durin::TWeakObjectPtr", "[DHT-WEAK001] DPROPERTY 'Value' at line 23: TWeakObjectPtr requires exactly one reflected object class"),
+            ("const Durin::TWeakObjectPtr<Durin::DObject>", "[DHT-WEAK003] DPROPERTY 'Value' at line 23: weak object properties do not support cv-qualifiers, pointers, or references"),
+            ("Durin::TWeakObjectPtr<Fixture::FTrivialOps>", "[DHT-WEAK004] DPROPERTY 'Value' at line 23: weak object target 'Fixture::FTrivialOps' is not an object class"),
+            ("Durin::TWeakObjectPtr<Fixture::DMissing>", "[DHT-WEAK005] DPROPERTY 'Value' at line 23: weak object target 'Fixture::DMissing' could not be resolved"),
+            ("std::unordered_map<Durin::TWeakObjectPtr<Durin::DObject>, float>", "[DHT-WEAK006] DPROPERTY 'Value' at line 23: weak object references are unsupported as Map keys"),
+        ],
+    )
+    def test_unsupported_weak_object_forms_have_stable_diagnostics(self, spelling, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            _validate_weak_object_spelling(spelling, "Value", 23, self.symbols)
+
+
+    def test_non_transient_weak_property_is_rejected(self):
+        prop = ReflectedPropertyInfo(
+            name="Value", type_name="Durin::TWeakObjectPtr<Durin::DObject>",
+            kind="WeakObject", referenced_type="Durin::DObject",
+        )
+        with pytest.raises(ValueError, match="DHT-WEAK007"):
+            property_parser._apply_property_annotation(prop, "DPROPERTY()", "DPROPERTY 'Value'")
 
 
     @pytest.mark.parametrize(

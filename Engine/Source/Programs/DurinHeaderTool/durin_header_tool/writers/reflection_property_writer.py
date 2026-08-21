@@ -31,6 +31,7 @@ PROPERTY_PARAM_BY_KIND = {
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
     "SoftObject": "FSoftObjectPropertyParams",
+    "WeakObject": "FWeakObjectPropertyParams",
     "Array": "FArrayPropertyParams",
     "Map": "FMapPropertyParams",
     "Struct": "FStructPropertyParams",
@@ -174,7 +175,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         )
         content += _property_assignment(class_info, prop, param_type, initializer)
         return content
-    if prop.kind == "SoftObject":
+    if prop.kind in ("SoftObject", "WeakObject"):
         referenced_class_helper = "nullptr"
         if prop.referenced_type:
             referenced_symbol = symbols.get(prop.referenced_type)

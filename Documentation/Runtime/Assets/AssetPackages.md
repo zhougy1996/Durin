@@ -85,7 +85,7 @@ from whether a path happens to be available:
 | Type | Use when | Persistence and lifetime |
 | --- | --- | --- |
 | Reflected `TObjectPtr<T>` | The owner requires the target object/package to be loaded and retained. | Serializes as a hard package dependency, resolves redirectors before eager loading, participates in GC, blocks final target-package unload, and blocks target deletion from outside the deletion set. |
-| `TWeakObjectPtr<T>` | Code needs a non-owning handle to an object that is already loaded, such as editor selection or a transient cache. | Stores no durable asset identity, is not a reflected property kind, does not retain the target, and becomes invalid when the object is retired. |
+| Reflected `TWeakObjectPtr<T>` | Code needs a non-owning handle to an object that is already loaded, such as editor selection or a transient cache. | Must be `Transient`; stores no durable asset identity, is omitted from authored/cooked packages, does not retain the target, and becomes invalid when the object is retired. Weak Map values are supported; weak Map keys are not. |
 | Reflected `TSoftObjectPtr<T>` | Authored data needs a typed package-main-asset identity without eager loading or retention. | Serializes only the authored path, has a non-owning loaded-object cache, contributes no hard dependency or unload blocker, follows relocation aliases without rewriting its identity, and may remain dangling after deletion. |
 | `FAssetPath` or a path string | A service, document, import/source record, thumbnail key, or external setting needs identity but is not itself a reflected object reference. | The owning subsystem defines validation, persistence, move, and load behavior explicitly. Do not load an object merely to recover its path. |
 

@@ -146,8 +146,10 @@ references remain the separate responsibility of `CollectReferences`.
 Object-graph v2 saving first runs a Discovery Archive over the same virtual
 `DObject::Serialize` entries used for emission. Scope includes the root,
 structural Outer descendants and required Outer chains, plus serialized hard
-references; raw references, soft references, and GC-only hidden references do
-not enlarge it. The discovered objects and ids are frozen before writing, and
+references; raw references, soft references, weak references, and GC-only hidden
+references do not enlarge it. A transient reflected weak handle is emitted only
+when its target already has a frozen graph id; otherwise it is encoded as null.
+The discovered objects and ids are frozen before writing, and
 late objects, fields, types, references, or versions fail without publishing
 bytes. Emission retains deterministic root/Outer ordering.
 
@@ -159,9 +161,11 @@ long-lived content uses the independently versioned, field-tagged `.dasset`
 contract documented in [Asset Packages](../Assets/AssetPackages.md).
 
 `DuplicateObjectGraph(...)` uses purpose-specific save and load Archives over
-the same virtual entry. References inside the duplicated Outer tree remap to
-their duplicate, external references remain shared, and constructor-created
-inners may be reused. Any failure retires the incomplete duplicate graph.
+the same virtual entry. Hard references inside the duplicated Outer tree remap
+to their duplicate, external hard references remain shared, and constructor-created
+inners may be reused. Weak references remap only when their targets are already
+duplicated for structural or hard-reference reasons; a weak-only external target
+becomes null. Any failure retires the incomplete duplicate graph.
 Property snapshots and editable copies operate on selected values rather than
 pretending to serialize a complete object; snapshots root their captured hard
 references and remain process-local and unversioned.

@@ -24,6 +24,7 @@ namespace Durin
 
 		auto Reset() -> void { Handle = nullptr; }
 		auto GetHandle() const -> FObjectHandle { return Handle; }
+		auto SetHandle(FObjectHandle InHandle) -> void { Handle = InHandle; }
 
 		auto operator=(std::nullptr_t) -> FWeakObjectPtr&
 		{
@@ -56,6 +57,8 @@ namespace Durin
 		auto IsValid() const -> bool { return WeakPtr.IsValid(); }
 		auto Reset() -> void { WeakPtr.Reset(); }
 		auto GetHandle() const -> FObjectHandle { return WeakPtr.GetHandle(); }
+		auto GetBase() -> FWeakObjectPtr& { return WeakPtr; }
+		auto GetBase() const -> const FWeakObjectPtr& { return WeakPtr; }
 
 		auto operator=(std::nullptr_t) -> TWeakObjectPtr&
 		{

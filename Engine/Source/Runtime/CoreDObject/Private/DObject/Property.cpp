@@ -382,6 +382,17 @@ namespace Durin
 					if (!Left || !Right) return SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
 					return *Left == *Right ? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+				{
+					const auto* WeakProperty = static_cast<const FWeakObjectProperty*>(Property);
+					const FWeakObjectPtr* Left = WeakProperty->GetWeakObjectPtr(LeftContainer, LeftArrayIndex);
+					const FWeakObjectPtr* Right = WeakProperty->GetWeakObjectPtr(RightContainer, RightArrayIndex);
+					if (!Left || !Right) return SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
+					const DObject* LeftObject = Left->Get();
+					const DObject* RightObject = Right->Get();
+					return (LeftObject == RightObject || (Context.DefaultGraph && Context.DefaultGraph->AreReferencesEquivalent(LeftObject, RightObject)))
+						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
+				}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 				{
 					const auto* StructProperty = static_cast<const FStructProperty*>(Property);
@@ -556,6 +567,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
 				return true;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 				{
@@ -645,6 +657,7 @@ namespace Durin
 	IMPLEMENT_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FSoftObjectProperty, FProperty, EClassCastFlags::FSoftObjectProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FWeakObjectProperty, FProperty, EClassCastFlags::FWeakObjectProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FMapProperty, FProperty, EClassCastFlags::FMapProperty, COREDOBJECT_API)
@@ -1384,6 +1397,36 @@ namespace Durin
 	auto FSoftObjectProperty::GetSoftObjectPtr(const void* Container, uint32 ArrayIndex) const -> const FSoftObjectPtr*
 	{
 		return Container && ConstSoftValueAccessor ? ConstSoftValueAccessor(GetValuePtr(Container, ArrayIndex)) : nullptr;
+	}
+
+	FWeakObjectProperty::FWeakObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FWeakObjectProperty::FWeakObjectProperty(
+		FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags, uint16 InArrayDim, uint16 InOffset,
+		uint16 InElementSize, DClass* InExpectedClass,
+		FMutableWeakValueAccessor InMutableWeakValueAccessor,
+		FConstWeakValueAccessor InConstWeakValueAccessor)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset,
+			InElementSize, DurinCodeGen::EPropertyGenFlags::WeakObject, InExpectedClass)
+		, MutableWeakValueAccessor(InMutableWeakValueAccessor)
+		, ConstWeakValueAccessor(InConstWeakValueAccessor)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	auto FWeakObjectProperty::GetWeakObjectPtr(void* Container, uint32 ArrayIndex) const -> FWeakObjectPtr*
+	{
+		return Container && MutableWeakValueAccessor ? MutableWeakValueAccessor(GetValuePtr(Container, ArrayIndex)) : nullptr;
+	}
+
+	auto FWeakObjectProperty::GetWeakObjectPtr(const void* Container, uint32 ArrayIndex) const -> const FWeakObjectPtr*
+	{
+		return Container && ConstWeakValueAccessor ? ConstWeakValueAccessor(GetValuePtr(Container, ArrayIndex)) : nullptr;
 	}
 
 	FStructProperty::FStructProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

@@ -52,6 +52,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Map: return DurinCodeGen::EPropertyParamLayout::Map;
 			case DurinCodeGen::EPropertyGenFlags::Struct: return DurinCodeGen::EPropertyParamLayout::Struct;
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return DurinCodeGen::EPropertyParamLayout::SoftObject;
+			case DurinCodeGen::EPropertyGenFlags::WeakObject: return DurinCodeGen::EPropertyParamLayout::WeakObject;
 			case DurinCodeGen::EPropertyGenFlags::None: return DurinCodeGen::EPropertyParamLayout::Generic;
 			default: return DurinCodeGen::EPropertyParamLayout::Invalid;
 			}
@@ -66,6 +67,17 @@ namespace Durin
 				   && Ops.DestroyValue
 				   && Ops.CopyConstructValue
 				   && Ops.CopyAssignValue;
+		}
+
+		auto HasTransientPropertyContext(const FFieldVariant& Owner, EPropertyFlags Flags) -> bool
+		{
+			if (EnumHasAnyFlags(Flags, EPropertyFlags::Transient)) return true;
+			for (FField* Field = Owner.ToField(); Field; Field = Field->Owner.ToField())
+			{
+				// Generated property descriptors only nest fields beneath container properties.
+				if (static_cast<FProperty*>(Field)->HasAnyPropertyFlags(EPropertyFlags::Transient)) return true;
+			}
+			return false;
 		}
 
 		auto SetValueOps(FProperty* Property, const DurinCodeGen::FPropertyValueOps& Ops) -> void
@@ -432,6 +444,32 @@ namespace Durin
 					SetValueOps(Property, SoftParams->ValueOps);
 					break;
 				}
+			case DurinCodeGen::EPropertyGenFlags::WeakObject:
+				{
+					const auto* WeakParams = static_cast<const DurinCodeGen::FWeakObjectPropertyParams*>(PropertyParams);
+					const std::string OwnerName = GetGeneratedPropertyOwnerName(Owner);
+					const char* PropertyName = PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>";
+					DClass* ExpectedClass = WeakParams->ExpectedClassResolver ? WeakParams->ExpectedClassResolver() : nullptr;
+					if (!HasTransientPropertyContext(Owner, PropertyParams->Flags))
+					{
+						checkf(false, "WeakObjectPropertyRegistration.NonTransient owner '{}' property '{}'.", OwnerName, PropertyName);
+						return nullptr;
+					}
+					if (!ExpectedClass || !WeakParams->MutableWeakValueAccessor || !WeakParams->ConstWeakValueAccessor
+						|| !IsValidValueOps(WeakParams->ValueOps)
+						|| WeakParams->ValueOps.ValueSize > std::numeric_limits<uint16>::max())
+					{
+						checkf(false, "WeakObjectPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
+						return nullptr;
+					}
+					Property = new FWeakObjectProperty(
+						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
+						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
+						static_cast<uint16>(WeakParams->ValueOps.ValueSize), ExpectedClass,
+						WeakParams->MutableWeakValueAccessor, WeakParams->ConstWeakValueAccessor);
+					SetValueOps(Property, WeakParams->ValueOps);
+					break;
+				}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 				{
 					const auto* StructParams = static_cast<const DurinCodeGen::FStructPropertyParams*>(PropertyParams);
@@ -509,6 +547,11 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Map:
 				{
 					const auto* MapParams = static_cast<const DurinCodeGen::FMapPropertyParams*>(PropertyParams);
+					if (MapParams->KeyParams && MapParams->KeyParams->Kind == DurinCodeGen::EPropertyGenFlags::WeakObject)
+					{
+						checkf(false, "MapPropertyRegistration.WeakKeyUnsupported owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+						return nullptr;
+					}
 					const FMapOps* Ops = MapParams->OpsResolver ? MapParams->OpsResolver() : nullptr;
 					if (!IsValidMapOps(Ops) || !MapParams->KeyParams || !MapParams->ValueParams || Ops->ContainerSize > std::numeric_limits<uint16>::max())
 					{
@@ -527,7 +570,13 @@ namespace Durin
 						nullptr,
 						Ops
 					);
-					static_cast<FMapProperty*>(Property)->SetKeyProp(ConstructGeneratedProperty(FFieldVariant(Property), MapParams->KeyParams));
+					FProperty* KeyProperty = ConstructGeneratedProperty(FFieldVariant(Property), MapParams->KeyParams);
+					if (KeyProperty && KeyProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::WeakObject)
+					{
+						checkf(false, "MapPropertyRegistration.WeakKeyUnsupported owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+						return nullptr;
+					}
+					static_cast<FMapProperty*>(Property)->SetKeyProp(KeyProperty);
 					static_cast<FMapProperty*>(Property)->SetValueProp(ConstructGeneratedProperty(FFieldVariant(Property), MapParams->ValueParams));
 					break;
 				}
