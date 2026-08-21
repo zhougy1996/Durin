@@ -280,6 +280,25 @@ namespace Durin
 			}
 		}
 
+		auto ValidateDeprecationRegistration(const FProperty* Property,
+			const FPropertyDeprecationParams* Deprecation) -> bool
+		{
+			if (!Deprecation)
+				return !Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated);
+			if (!Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated)
+				|| Property->HasAnyPropertyFlags(EPropertyFlags::Edit | EPropertyFlags::Transient)
+				|| !Deprecation->CustomVersionGuid.IsValid()
+				|| Deprecation->DeprecatedBefore <= 0
+				|| Deprecation->LatestVersion < Deprecation->DeprecatedBefore
+				|| !Deprecation->HistoricalName || Deprecation->HistoricalName[0] == '\0'
+				|| !Deprecation->MigrationTargets || Deprecation->NumMigrationTargets == 0) return false;
+			const std::string Name = Property->NamePrivate.ToString();
+			if (!Name.ends_with("_DEPRECATED")) return false;
+			for (size_t Index = 0; Index < Deprecation->NumMigrationTargets; ++Index)
+				if (!Deprecation->MigrationTargets[Index] || Deprecation->MigrationTargets[Index][0] == '\0') return false;
+			return true;
+		}
+
 		auto ConstructGeneratedProperty(
 			const FFieldVariant& Owner,
 			const DurinCodeGen::FPropertyParamsBase* PropertyParams
@@ -577,8 +596,16 @@ namespace Durin
 				delete Property;
 				return nullptr;
 			}
+			if (!ValidateDeprecationRegistration(Property, PropertyParams->Deprecation))
+			{
+				checkf(false, "PropertyRegistration.InvalidDeprecation owner '{}' property '{}'.",
+					GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+				delete Property;
+				return nullptr;
+			}
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
 			Property->SetTypedMetadata(PropertyParams->TypedMetadata);
+			Property->SetDeprecation(PropertyParams->Deprecation);
 			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array)
 			{
 				const FArrayOps& Ops = static_cast<FArrayProperty*>(Property)->GetOps();

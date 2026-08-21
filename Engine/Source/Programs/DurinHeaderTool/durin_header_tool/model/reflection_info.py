@@ -86,6 +86,14 @@ class ReflectedPropertyMetadataInfo:
 
 
 @dataclass
+class ReflectedPropertyDeprecationInfo:
+    custom_version_type: str
+    deprecated_before: str
+    historical_name: str
+    migrates_to: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ReflectedPropertyInfo:
     name: str
     type_name: str
@@ -102,6 +110,7 @@ class ReflectedPropertyInfo:
     value: "ReflectedPropertyInfo | None" = None
     metadata: list[tuple[str, str]] = field(default_factory=list)
     typed_metadata: ReflectedPropertyMetadataInfo | None = None
+    deprecation: ReflectedPropertyDeprecationInfo | None = None
     legacy_names: list[str] = field(default_factory=list)
 
 

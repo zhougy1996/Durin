@@ -54,6 +54,9 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
         decls.append(_line(f"static const Durin::DurinCodeGen::FMetaDataPair NewProp_{prop.name}_MetaData[];", 1))
     if prop.typed_metadata:
         decls.append(_line(f"static const Durin::FPropertyMetadataParams NewProp_{prop.name}_TypedMetaData;", 1))
+    if prop.deprecation:
+        decls.append(_line(f"static const char* const NewProp_{prop.name}_MigrationTargets[];", 1))
+        decls.append(_line(f"static const Durin::FPropertyDeprecationParams NewProp_{prop.name}_Deprecation;", 1))
     if prop.legacy_names:
         decls.append(_line(f"static const char* const NewProp_{prop.name}_LegacyNames[];", 1))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
@@ -100,6 +103,20 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             f"{string_or_null(typed.category)}, Durin::EPropertyUnit::{typed.units or 'None'}, "
             f"{number(typed.step)}, {precision}, {number(typed.clamp_min)}, "
             f"{number(typed.clamp_max)}, {number(typed.ui_min)}, {number(typed.ui_max)} }};\n"
+        )
+    if prop.deprecation:
+        deprecation = prop.deprecation
+        targets_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_MigrationTargets"
+        targets = ", ".join(_cpp_string_literal(target) for target in deprecation.migrates_to)
+        content += f"const char* const {targets_name}[] = {{ {targets} }};\n"
+        deprecation_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_Deprecation"
+        content += (
+            f"const Durin::FPropertyDeprecationParams {deprecation_name} = {{ "
+            f"{deprecation.custom_version_type}::Guid, "
+            f"static_cast<Durin::int32>({deprecation.deprecated_before}), "
+            f"static_cast<Durin::int32>({deprecation.custom_version_type}::LatestVersion), "
+            f"{_cpp_string_literal(deprecation.historical_name)}, {targets_name}, "
+            f"{len(deprecation.migrates_to)} }};\n"
         )
     metadata_ref = "nullptr"
     metadata_count = "0"
@@ -223,6 +240,11 @@ def _property_assignment(
             initializer = f"Durin::DurinCodeGen::{param_type}{initializer}"
         typed_metadata = f"{class_info.generated_statics_name}::NewProp_{prop.name}_TypedMetaData"
         initializer = f"Durin::DurinCodeGen::WithTypedMetadata({initializer}, &{typed_metadata})"
+    if prop.deprecation:
+        if initializer.startswith("{"):
+            initializer = f"Durin::DurinCodeGen::{param_type}{initializer}"
+        deprecation = f"{class_info.generated_statics_name}::NewProp_{prop.name}_Deprecation"
+        initializer = f"Durin::DurinCodeGen::WithDeprecation({initializer}, &{deprecation})"
     return (
         f"const Durin::DurinCodeGen::{param_type} "
         f"{class_info.generated_statics_name}::NewProp_{prop.name} = {initializer};\n"

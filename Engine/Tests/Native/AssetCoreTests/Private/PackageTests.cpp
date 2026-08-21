@@ -40,6 +40,27 @@ namespace AssetStructTest
 	{
 		Durin::int32 Value = 0;
 	};
+
+	struct FStructMigrationVersion
+	{
+		inline static constexpr Durin::FGuid Guid{
+			0x51aa15c4, 0x14df423f, 0x81dc1a82, 0x638fc15e};
+		enum Type : Durin::int32
+		{
+			BeforeCustomVersionWasAdded = -1,
+			Changed = 1,
+			LatestVersion = Changed,
+		};
+	};
+
+	struct FMigratingValue
+	{
+		float Value = 0.0f;
+		Durin::int32 Value_DEPRECATED = 0;
+	};
+
+	inline Durin::uint64 MigrationPostDeserializeCount = 0;
+	inline bool RejectMigrationPostDeserialize = false;
 } // namespace AssetStructTest
 
 namespace Durin
@@ -77,6 +98,28 @@ namespace Durin
 		: TDStructOpsTraitsBase<AssetStructTest::FCodecTarget>
 	{
 		static constexpr bool bHasCompleteAuthoredFields = false;
+	};
+
+	template<>
+	struct TDStructOpsTraits<AssetStructTest::FMigratingValue>
+		: TDStructOpsTraitsBase<AssetStructTest::FMigratingValue>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto PostDeserialize(AssetStructTest::FMigratingValue& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			++AssetStructTest::MigrationPostDeserializeCount;
+			if (AssetStructTest::RejectMigrationPostDeserialize)
+				return Context.Fail("Injected migrating struct rejection.");
+			const FArchiveCustomVersion* Version = Context.VersionContext
+				? Context.VersionContext->FindCustom(AssetStructTest::FStructMigrationVersion::Guid)
+				: nullptr;
+			if ((!Version ? AssetStructTest::FStructMigrationVersion::BeforeCustomVersionWasAdded
+				: Version->Version) < AssetStructTest::FStructMigrationVersion::Changed)
+				Value.Value = static_cast<float>(Value.Value_DEPRECATED) * 10.0f;
+			return true;
+		}
 	};
 } // namespace Durin
 
@@ -389,6 +432,183 @@ namespace
 		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
+	};
+
+	struct FSchemaMigrationVersion
+	{
+		inline static constexpr Durin::FGuid Guid{
+			0x78d61a4e, 0x29554b39, 0x93bbf092, 0x9c8eb965};
+		enum Type : Durin::int32
+		{
+			BeforeCustomVersionWasAdded = -1,
+			Initial = 0,
+			Changed = 1,
+			LatestVersion = Changed,
+		};
+	};
+
+	bool GRejectSchemaMigrationPostLoad = false;
+
+	auto GetMigratingValueStructNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FMigratingValue"),
+			Durin::FName("FMigratingValue"), sizeof(AssetStructTest::FMigratingValue),
+			alignof(AssetStructTest::FMigratingValue), Durin::EObjectFlags::Transient);
+		return Struct;
+	}
+
+	auto GetMigratingValueStruct() -> Durin::DStruct*
+	{
+		using namespace Durin;
+		using namespace Durin::DurinCodeGen;
+		static const char* const Targets[] = {"Value"};
+		static const FPropertyDeprecationParams Deprecation{
+			AssetStructTest::FStructMigrationVersion::Guid,
+			AssetStructTest::FStructMigrationVersion::Changed,
+			AssetStructTest::FStructMigrationVersion::LatestVersion,
+			"Value", Targets, std::size(Targets)};
+		static const FFloatPropertyParams ValueProp{
+			"Value", EPropertyFlags::None, 1,
+			static_cast<uint16>(offsetof(AssetStructTest::FMigratingValue, Value))};
+		static const FInt32PropertyParams DeprecatedProp = WithDeprecation(
+			FInt32PropertyParams{"Value_DEPRECATED", EPropertyFlags::Deprecated, 1,
+				static_cast<uint16>(offsetof(AssetStructTest::FMigratingValue, Value_DEPRECATED))},
+			&Deprecation);
+		static const FPropertyParamsBase* Properties[] = {&ValueProp, &DeprecatedProp};
+		static const FStructParams Params{
+			&GetMigratingValueStructNoRegister, "Tests::FMigratingValue", "FMigratingValue",
+			sizeof(AssetStructTest::FMigratingValue), alignof(AssetStructTest::FMigratingValue),
+			Properties, std::size(Properties),
+			&GetDStructOps<AssetStructTest::FMigratingValue>()};
+		return ConstructDStruct(Params);
+	}
+
+	class DSchemaMigrationAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DSchemaMigrationAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DSchemaMigrationAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DSchemaMigrationAssetForTest",
+					sizeof(DSchemaMigrationAssetForTest), alignof(DSchemaMigrationAssetForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DSchemaMigrationAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DSchemaMigrationAssetForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const char* const ATargets[] = {"A", "B"};
+			static const char* const LeftTargets[] = {"Merged"};
+			static const char* const RightTargets[] = {"Merged"};
+			static const char* const DistanceTargets[] = {"Distance"};
+			static const FPropertyDeprecationParams ADeprecation{
+				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
+				FSchemaMigrationVersion::LatestVersion, "A", ATargets, std::size(ATargets)};
+			static const FPropertyDeprecationParams LeftDeprecation{
+				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
+				FSchemaMigrationVersion::LatestVersion, "Left", LeftTargets, std::size(LeftTargets)};
+			static const FPropertyDeprecationParams RightDeprecation{
+				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
+				FSchemaMigrationVersion::LatestVersion, "Right", RightTargets, std::size(RightTargets)};
+			static const FPropertyDeprecationParams DistanceDeprecation{
+				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
+				FSchemaMigrationVersion::LatestVersion, "Distance", DistanceTargets,
+				std::size(DistanceTargets)};
+			static const FFloatPropertyParams AProp{
+				"A", EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, A))};
+			static const FFloatPropertyParams BProp{
+				"B", EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, B))};
+			static const FInt32PropertyParams MergedProp{
+				"Merged", EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Merged))};
+			static const FFloatPropertyParams DistanceProp{
+				"Distance", EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Distance))};
+			static const FInt32PropertyParams AnchorProp{
+				"Anchor", EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Anchor))};
+			static const FStructPropertyParams StructDataProp{
+				"StructData", EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, StructData)),
+				&GetMigratingValueStruct};
+			static const FInt32PropertyParams ADeprecatedProp = WithDeprecation(
+				FInt32PropertyParams{"A_DEPRECATED", EPropertyFlags::Deprecated, 1,
+					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, A_DEPRECATED))},
+				&ADeprecation);
+			static const FInt32PropertyParams LeftDeprecatedProp = WithDeprecation(
+				FInt32PropertyParams{"Left_DEPRECATED", EPropertyFlags::Deprecated, 1,
+					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Left_DEPRECATED))},
+				&LeftDeprecation);
+			static const FInt32PropertyParams RightDeprecatedProp = WithDeprecation(
+				FInt32PropertyParams{"Right_DEPRECATED", EPropertyFlags::Deprecated, 1,
+					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Right_DEPRECATED))},
+				&RightDeprecation);
+			static const FFloatPropertyParams DistanceDeprecatedProp = WithDeprecation(
+				FFloatPropertyParams{"Distance_DEPRECATED", EPropertyFlags::Deprecated, 1,
+					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Distance_DEPRECATED))},
+				&DistanceDeprecation);
+			static const FPropertyParamsBase* Properties[] = {
+				&AProp, &BProp, &MergedProp, &DistanceProp, &AnchorProp, &StructDataProp, &ADeprecatedProp,
+				&LeftDeprecatedProp, &RightDeprecatedProp, &DistanceDeprecatedProp};
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DSchemaMigrationAssetForTest",
+				"DSchemaMigrationAssetForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+
+		auto PostLoad(std::string& OutError) -> bool override
+		{
+			if (GRejectSchemaMigrationPostLoad)
+			{
+				OutError = "Injected schema migration rejection.";
+				return false;
+			}
+			if (GetLoadedCustomVersion(FSchemaMigrationVersion::Guid).value_or(
+				FSchemaMigrationVersion::BeforeCustomVersionWasAdded)
+				< FSchemaMigrationVersion::Changed)
+			{
+				A = static_cast<float>(A_DEPRECATED) * 0.5f;
+				B = static_cast<float>(A_DEPRECATED) * 2.0f;
+				Merged = Left_DEPRECATED + Right_DEPRECATED;
+				Distance = Distance_DEPRECATED * 100.0f;
+			}
+			return DObject::PostLoad(OutError);
+		}
+
+		float A = 0.0f;
+		float B = 0.0f;
+		Durin::int32 Merged = 0;
+		float Distance = 0.0f;
+		Durin::int32 Anchor = 0;
+		AssetStructTest::FMigratingValue StructData;
+		Durin::int32 A_DEPRECATED = 0;
+		Durin::int32 Left_DEPRECATED = 0;
+		Durin::int32 Right_DEPRECATED = 0;
+		float Distance_DEPRECATED = 0.0f;
 	};
 
 	std::vector<Durin::EArchivePurpose> GAuthoredArchivePurposes;
@@ -862,6 +1082,7 @@ namespace
 			(void)DCodecSourceAsset::StaticClass();
 			(void)DCodecTargetAsset::StaticClass();
 			(void)DMathStructAssetForTest::StaticClass();
+			(void)DSchemaMigrationAssetForTest::StaticClass();
 			return true;
 		}();
 		(void)Initialized;
@@ -3381,6 +3602,236 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	EXPECT_EQ(CollisionProbe.Error, EAssetError::CorruptFile);
 	EXPECT_EQ(ReaderDiagnostic.Failure, DastV4::EReaderFailure::InvalidTable);
 	Loaded.Reset();
+}
+
+TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredIntent)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::Asset;
+	FAssetPath SourcePath;
+	FAssetPath LegacyLoadPath;
+	FAssetPath CurrentLoadPath;
+	FAssetPath FailedLoadPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationSource", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationLegacy", LegacyLoadPath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationCurrent", CurrentLoadPath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationFailed", FailedLoadPath));
+	DSchemaMigrationAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreateAsset(SourcePath, Source));
+	Source->A = 21.0f;
+	Source->B = 22.0f;
+	Source->Merged = 23;
+	Source->Distance = 24.0f;
+	Source->Anchor = 25;
+	Source->StructData.Value = 26.0f;
+
+	DastV4::FAssetPackageWriteOptions Options;
+	Options.DeltaMode = EDefaultDeltaMode::NoDelta;
+	DastV4::FWriterDiagnostic WriterDiagnostic;
+	std::vector<uint8> CurrentBytes;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		Source->GetPackage(), CurrentBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	DastV4::FDecodedPackage CurrentPackage;
+	DastV4::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(DastV4::DecodePackage(CurrentBytes, CurrentPackage, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	const auto CurrentVersion = std::ranges::find(
+		CurrentPackage.CustomVersions, FSchemaMigrationVersion::Guid,
+		&DastV4::FCustomVersion::Guid);
+	ASSERT_NE(CurrentVersion, CurrentPackage.CustomVersions.end());
+	EXPECT_EQ(CurrentVersion->Value, FSchemaMigrationVersion::LatestVersion);
+
+	auto Schema = std::ranges::find(
+		CurrentPackage.Schemas, std::string("Tests::DSchemaMigrationAssetForTest"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(Schema, CurrentPackage.Schemas.end());
+	const auto FindField = [&](std::string_view Name) {
+		return std::ranges::find(Schema->Fields, std::string(Name), &DastV4::FDecodedField::Name);
+	};
+	auto AField = FindField("A");
+	auto BField = FindField("B");
+	auto MergedField = FindField("Merged");
+	auto DistanceField = FindField("Distance");
+	auto AnchorField = FindField("Anchor");
+	auto StructDataField = FindField("StructData");
+	ASSERT_NE(AField, Schema->Fields.end());
+	ASSERT_NE(BField, Schema->Fields.end());
+	ASSERT_NE(MergedField, Schema->Fields.end());
+	ASSERT_NE(DistanceField, Schema->Fields.end());
+	ASSERT_NE(AnchorField, Schema->Fields.end());
+	ASSERT_NE(StructDataField, Schema->Fields.end());
+	const uint64 SchemaId = static_cast<uint64>(std::distance(CurrentPackage.Schemas.begin(), Schema)) + 1;
+	const uint64 AFieldId = static_cast<uint64>(std::distance(Schema->Fields.begin(), AField)) + 1;
+	const uint64 BFieldId = static_cast<uint64>(std::distance(Schema->Fields.begin(), BField)) + 1;
+	const uint64 MergedFieldId = static_cast<uint64>(std::distance(Schema->Fields.begin(), MergedField)) + 1;
+	const uint64 DistanceFieldId = static_cast<uint64>(std::distance(Schema->Fields.begin(), DistanceField)) + 1;
+	const uint64 StructDataFieldId = static_cast<uint64>(
+		std::distance(Schema->Fields.begin(), StructDataField)) + 1;
+	const uint64 Int32TypeId = AnchorField->TypeId;
+	const auto FindOverride = [&](DastV4::FDecodedPackage& Package, uint64 FieldId) {
+		return std::ranges::find_if(Package.ObjectValues.front().Overrides,
+			[&](const DastV4::FDecodedOverride& Override) {
+				return Override.SchemaId == SchemaId && Override.FieldId == FieldId;
+			});
+	};
+
+	DastV4::FDecodedPackage LegacyPackage = CurrentPackage;
+	LegacyPackage.CustomVersions.clear();
+	auto LegacySchema = LegacyPackage.Schemas.begin() + static_cast<ptrdiff_t>(SchemaId - 1);
+	LegacySchema->Fields[AFieldId - 1].TypeId = Int32TypeId;
+	LegacySchema->Fields[BFieldId - 1].Name = "Left";
+	LegacySchema->Fields[BFieldId - 1].TypeId = Int32TypeId;
+	LegacySchema->Fields[MergedFieldId - 1].Name = "Right";
+	auto LegacyStructSchema = std::ranges::find(
+		LegacyPackage.Schemas, std::string("Tests::FMigratingValue"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(LegacyStructSchema, LegacyPackage.Schemas.end());
+	auto LegacyStructValueField = std::ranges::find(
+		LegacyStructSchema->Fields, std::string("Value"), &DastV4::FDecodedField::Name);
+	ASSERT_NE(LegacyStructValueField, LegacyStructSchema->Fields.end());
+	LegacyStructValueField->TypeId = Int32TypeId;
+	auto AOverride = FindOverride(LegacyPackage, AFieldId);
+	auto LeftOverride = FindOverride(LegacyPackage, BFieldId);
+	auto RightOverride = FindOverride(LegacyPackage, MergedFieldId);
+	auto DistanceOverride = FindOverride(LegacyPackage, DistanceFieldId);
+	auto StructDataOverride = FindOverride(LegacyPackage, StructDataFieldId);
+	ASSERT_NE(AOverride, LegacyPackage.ObjectValues.front().Overrides.end());
+	ASSERT_NE(LeftOverride, LegacyPackage.ObjectValues.front().Overrides.end());
+	ASSERT_NE(RightOverride, LegacyPackage.ObjectValues.front().Overrides.end());
+	ASSERT_NE(DistanceOverride, LegacyPackage.ObjectValues.front().Overrides.end());
+	ASSERT_NE(StructDataOverride, LegacyPackage.ObjectValues.front().Overrides.end());
+	ASSERT_EQ(StructDataOverride->Value.Elements.size(), 1u);
+	AOverride->Value.Signed = 10;
+	AOverride->Provenance = 1;
+	LeftOverride->Value.Signed = 3;
+	LeftOverride->Provenance = 0;
+	RightOverride->Value.Signed = 4;
+	RightOverride->Provenance = 1;
+	DistanceOverride->Value.FloatingBits = std::bit_cast<uint32>(1.5f);
+	StructDataOverride->Value.Elements.front().Signed = 8;
+
+	std::vector<uint8> LegacyBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	FAssetPackageCompatibilityRecord Compatibility;
+	ASSERT_TRUE(DastV4::ProbeCompatibility(
+		LegacyBytes, LegacyLoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
+	EXPECT_EQ(Compatibility.DeprecatedRouteEvidence.size(), 5u);
+	EXPECT_EQ(std::ranges::count(Compatibility.Findings,
+		EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
+		&FAssetCompatibilityFinding::Code), 5);
+	DastV4::FLoadedAssetPackage Loaded;
+	FAssetLoadReport LoadReport;
+	const FAssetResult Load = DastV4::LoadAssetPackage(
+		LegacyBytes, LegacyLoadPath, Loaded, &LoadReport, {}, {}, &ReaderDiagnostic);
+	ASSERT_TRUE(Load) << Load.Message << ": " << ReaderDiagnostic.Message;
+	auto* Migrated = static_cast<DSchemaMigrationAssetForTest*>(Loaded.GetPackage()->GetAsset());
+	ASSERT_NE(Migrated, nullptr);
+	EXPECT_TRUE(Loaded.GetPackage()->IsCanonicalResaveRecommended());
+	EXPECT_EQ(LoadReport.DeprecatedRouteEvidence.size(), 5u);
+	EXPECT_FLOAT_EQ(Migrated->A, 5.0f);
+	EXPECT_FLOAT_EQ(Migrated->B, 20.0f);
+	EXPECT_EQ(Migrated->Merged, 7);
+	EXPECT_FLOAT_EQ(Migrated->Distance, 150.0f);
+	EXPECT_FLOAT_EQ(Migrated->StructData.Value, 80.0f);
+	EXPECT_EQ(Migrated->StructData.Value_DEPRECATED, 8);
+	EXPECT_GT(AssetStructTest::MigrationPostDeserializeCount, 0u);
+	const auto Ledger = Migrated->GetAuthoredOverrideEntries();
+	const auto FindLedger = [&](FName FieldName) {
+		return std::ranges::find_if(Ledger, [&](const FAuthoredOverrideEntry& Entry) {
+			return Entry.Path.size() == 1 && Entry.Path.front().FieldName == FieldName;
+		});
+	};
+	ASSERT_NE(FindLedger(FName("A")), Ledger.end());
+	ASSERT_NE(FindLedger(FName("B")), Ledger.end());
+	ASSERT_NE(FindLedger(FName("Merged")), Ledger.end());
+	ASSERT_NE(FindLedger(FName("Distance")), Ledger.end());
+	EXPECT_EQ(FindLedger(FName("A"))->Provenance, EAuthoredOverrideProvenance::Forced);
+	EXPECT_EQ(FindLedger(FName("B"))->Provenance, EAuthoredOverrideProvenance::Forced);
+	EXPECT_EQ(FindLedger(FName("Merged"))->Provenance, EAuthoredOverrideProvenance::Forced);
+	EXPECT_EQ(FindLedger(FName("Distance"))->Provenance,
+		EAuthoredOverrideProvenance::Forced);
+
+	std::vector<uint8> CanonicalBytes;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		Loaded.GetPackage(), CanonicalBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	DastV4::FDecodedPackage CanonicalPackage;
+	ASSERT_TRUE(DastV4::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	const auto CanonicalSchema = std::ranges::find(
+		CanonicalPackage.Schemas, std::string("Tests::DSchemaMigrationAssetForTest"),
+		&DastV4::FDecodedSchema::QualifiedName);
+	ASSERT_NE(CanonicalSchema, CanonicalPackage.Schemas.end());
+	for (std::string_view OldName : {"A_DEPRECATED", "Left", "Left_DEPRECATED", "Right",
+		"Right_DEPRECATED", "Distance_DEPRECATED"})
+		EXPECT_EQ(std::ranges::find(CanonicalSchema->Fields, std::string(OldName),
+			&DastV4::FDecodedField::Name), CanonicalSchema->Fields.end());
+
+	DastV4::FLoadedAssetPackage CurrentLoaded;
+	ASSERT_TRUE(DastV4::LoadAssetPackage(
+		CurrentBytes, CurrentLoadPath, CurrentLoaded, nullptr, {}, {}, &ReaderDiagnostic));
+	auto* Current = static_cast<DSchemaMigrationAssetForTest*>(CurrentLoaded.GetPackage()->GetAsset());
+	ASSERT_NE(Current, nullptr);
+	EXPECT_FLOAT_EQ(Current->A, 21.0f);
+	EXPECT_FLOAT_EQ(Current->B, 22.0f);
+	EXPECT_EQ(Current->Merged, 23);
+	EXPECT_FLOAT_EQ(Current->Distance, 24.0f);
+	EXPECT_FLOAT_EQ(Current->StructData.Value, 26.0f);
+
+	GRejectSchemaMigrationPostLoad = true;
+	DastV4::FLoadedAssetPackage Rejected;
+	const FAssetResult RejectedResult = DastV4::LoadAssetPackage(
+		LegacyBytes, FailedLoadPath, Rejected, nullptr, {}, {}, &ReaderDiagnostic);
+	GRejectSchemaMigrationPostLoad = false;
+	EXPECT_FALSE(RejectedResult);
+	EXPECT_EQ(FindResidentPackage(FailedLoadPath), nullptr);
+	FAssetPath StructFailedPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationStructFailed", StructFailedPath));
+	AssetStructTest::RejectMigrationPostDeserialize = true;
+	DastV4::FLoadedAssetPackage StructRejected;
+	const FAssetResult StructRejectedResult = DastV4::LoadAssetPackage(
+		LegacyBytes, StructFailedPath, StructRejected, nullptr, {}, {}, &ReaderDiagnostic);
+	AssetStructTest::RejectMigrationPostDeserialize = false;
+	EXPECT_FALSE(StructRejectedResult);
+	EXPECT_EQ(FindResidentPackage(StructFailedPath), nullptr);
+
+	DastV4::FDecodedPackage NewerPackage = CurrentPackage;
+	auto NewerVersion = std::ranges::find(
+		NewerPackage.CustomVersions, FSchemaMigrationVersion::Guid,
+		&DastV4::FCustomVersion::Guid);
+	ASSERT_NE(NewerVersion, NewerPackage.CustomVersions.end());
+	NewerVersion->Value = FSchemaMigrationVersion::LatestVersion + 1;
+	std::vector<uint8> NewerBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(NewerPackage, NewerBytes, &ReaderDiagnostic));
+	FAssetPath NewerPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationNewer", NewerPath));
+	DastV4::FLoadedAssetPackage NewerLoaded;
+	EXPECT_FALSE(DastV4::LoadAssetPackage(
+		NewerBytes, NewerPath, NewerLoaded, nullptr, {}, {}, &ReaderDiagnostic));
+	EXPECT_EQ(FindResidentPackage(NewerPath), nullptr);
+
+	DastV4::FDecodedPackage IncompatiblePackage = LegacyPackage;
+	DastV4::FDecodedType IncompatibleType = IncompatiblePackage.Types[Int32TypeId - 1];
+	IncompatibleType.Opcode = DastV4::ETypeOpcode::I64;
+	IncompatiblePackage.Types.push_back(std::move(IncompatibleType));
+	IncompatiblePackage.Schemas[SchemaId - 1].Fields[AFieldId - 1].TypeId =
+		IncompatiblePackage.Types.size();
+	std::vector<uint8> IncompatibleBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(
+		IncompatiblePackage, IncompatibleBytes, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	FAssetPath IncompatiblePath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationIncompatible", IncompatiblePath));
+	DastV4::FLoadedAssetPackage IncompatibleLoaded;
+	EXPECT_FALSE(DastV4::LoadAssetPackage(
+		IncompatibleBytes, IncompatiblePath, IncompatibleLoaded, nullptr, {}, {}, &ReaderDiagnostic));
+	EXPECT_EQ(FindResidentPackage(IncompatiblePath), nullptr);
+
+	Loaded.Reset();
+	CurrentLoaded.Reset();
 }
 
 TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)

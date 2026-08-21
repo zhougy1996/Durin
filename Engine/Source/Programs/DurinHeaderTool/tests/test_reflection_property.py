@@ -306,6 +306,33 @@ class TestReflectionProperties:
         assert prop.typed_metadata is not None
         assert prop.typed_metadata.step == "8"
 
+    def test_deprecated_property_route_is_explicit_and_generated(self):
+        actor = next(info for info in self.header_info.classes if info.short_name == "ASampleActor")
+        prop = next(item for item in actor.properties if item.name == "Value_DEPRECATED")
+        assert prop.flags == "Durin::EPropertyFlags::Deprecated"
+        assert prop.deprecation is not None
+        assert prop.deprecation.custom_version_type == "FFixtureVersion"
+        assert prop.deprecation.deprecated_before == "FFixtureVersion::FloatValue"
+        assert prop.deprecation.historical_name == "Value"
+        assert prop.deprecation.migrates_to == ["Value"]
+        assert "FFixtureVersion::Guid" in self.generated_cpp
+        assert "FFixtureVersion::LatestVersion" in self.generated_cpp
+        assert 'WithDeprecation(Durin::DurinCodeGen::FInt32PropertyParams' in self.generated_cpp
+
+    @pytest.mark.parametrize(
+        ("name", "annotation", "diagnostic"),
+        [
+            ("Old", 'DPROPERTY, Deprecated, CustomVersion = FVersion, DeprecatedBefore = FVersion::V1, MigratesTo = "Value"', "must end in _DEPRECATED"),
+            ("Old_DEPRECATED", 'DPROPERTY, CustomVersion = FVersion', "require the Deprecated specifier"),
+            ("Old_DEPRECATED", 'DPROPERTY, Deprecated, CustomVersion = FVersion, DeprecatedBefore = FVersion::V1', "Deprecated requires MigratesTo"),
+            ("Old_DEPRECATED", 'DPROPERTY, Deprecated, Edit, CustomVersion = FVersion, DeprecatedBefore = FVersion::V1, MigratesTo = "Value"', "cannot be combined with Edit or Transient"),
+        ],
+    )
+    def test_invalid_deprecated_routes_have_stable_diagnostics(self, name, annotation, diagnostic):
+        prop = ReflectedPropertyInfo(name, "int32", "Int32", flags=property_parser._property_flags_from_annotation(annotation))
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            property_parser._apply_property_annotation(prop, annotation, f"DPROPERTY '{name}' at line 12")
+
 
     def test_fname_property_is_generated(self):
         assert "Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier" in self.generated_cpp

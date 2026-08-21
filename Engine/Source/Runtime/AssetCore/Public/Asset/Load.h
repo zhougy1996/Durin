@@ -88,6 +88,21 @@ namespace Durin::Asset
 		auto operator==(const FAssetCanonicalizationEvidence&) const -> bool = default;
 	};
 
+	struct FAssetDeprecatedRouteEvidence
+	{
+		FAssetPath PackagePath;
+		std::string ObjectPath;
+		std::string DeclaringType;
+		std::string StoredFieldName;
+		std::string DeprecatedPropertyName;
+		std::vector<std::string> MigrationTargets;
+		FGuid CustomVersionGuid;
+		int32 SourceVersion = -1;
+		int32 DeprecatedBefore = 0;
+
+		auto operator==(const FAssetDeprecatedRouteEvidence&) const -> bool = default;
+	};
+
 	struct FAssetLoadReport
 	{
 		FAssetPath RequestedPath;
@@ -101,6 +116,7 @@ namespace Durin::Asset
 		uint64 PackageFileReadCount = 0;
 		std::vector<FAssetLoadMutation> Mutations;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
+		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
 
 		ASSETCORE_API auto HasNonUpgradeMutations() const -> bool;
 	};

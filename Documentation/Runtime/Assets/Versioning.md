@@ -29,11 +29,23 @@ authored-package Archives report the actual source format, currently DAST v4.
 Ordinary and bundle saves report and emit v4. Property snapshots are
 process-local and unversioned. Struct
 `PostDeserialize` receives the Archive purpose and source format version instead
-of deriving compatibility from the engine release number.
+of deriving compatibility from the engine release number. During authored
+loading it also receives the complete source custom-version context, allowing a
+detached reflected struct to perform the same bounded conversion as an
+object's pre-publication `PostLoad`.
 
 DAST v4 owns the package-local custom-version table, canonical GUID ordering,
 discovery freeze, reader bounds, unknown-version rejection, and exact retained
 closure/payload semantics.
+
+Reflected schema evolution uses these existing GUID-keyed records directly.
+An explicitly annotated `_DEPRECATED` route owns one stable domain GUID, an
+exclusive `DeprecatedBefore` bound, and its domain's `LatestVersion`. Current
+saves discover and emit `LatestVersion` automatically. Missing tags resolve to
+the domain's `BeforeCustomVersionWasAdded` value (`-1` by convention); they do
+not resolve to the current version. A source value above the runtime domain's
+`LatestVersion` fails before object publication. Engine release version changes
+are neither required nor consulted.
 
 Version registration is part of serializer discovery/emission parity. A format
 or custom version first observed during emission is a late-discovery failure;
@@ -63,8 +75,9 @@ Changing package bytes or versions invalidates the corresponding projection;
 full validation bypasses cheap timestamp/size reuse. Ordinary load decodes the
 selected current-format package once and validates its serialized classes and
 fields against one captured reflection catalog before constructing any object
-skeleton. Unknown classes, fields, or signatures fail the complete load rather
-than producing a partially compatible resident package. Canonical byte
+skeleton. Unknown classes, fields, or signatures fail the complete load unless
+an exact declaring-type/name/signature/custom-version `_DEPRECATED` route
+claims the field. Canonical byte
 comparison belongs to the construct-free audit path, not ordinary load.
 
 ## Early-Development Asset Compatibility

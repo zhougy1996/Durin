@@ -85,6 +85,7 @@ namespace Durin
 		Edit = 1 << 0,
 		Transient = 1 << 1,
 		ReadOnly = 1 << 2,
+		Deprecated = 1 << 3,
 	};
 
 	enum class EObjectInternalFlags

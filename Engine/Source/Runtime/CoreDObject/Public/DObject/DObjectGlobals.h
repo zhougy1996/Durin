@@ -129,6 +129,17 @@ namespace Durin
 		FPropertyMetadataNumber UIMax;
 	};
 
+	// Declares one version-gated historical field route owned by a stable custom-version domain.
+	struct FPropertyDeprecationParams
+	{
+		FGuid CustomVersionGuid;
+		int32 DeprecatedBefore = 0;
+		int32 LatestVersion = 0;
+		const char* HistoricalName = nullptr;
+		const char* const* MigrationTargets = nullptr;
+		size_t NumMigrationTargets = 0;
+	};
+
 	COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 	COREDOBJECT_API auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*;
 	COREDOBJECT_API auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool;
@@ -323,6 +334,7 @@ namespace Durin
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
 			const FPropertyMetadataParams* TypedMetadata = nullptr;
+			const FPropertyDeprecationParams* Deprecation = nullptr;
 
 		protected:
 			constexpr FPropertyParamsBase(
@@ -356,6 +368,14 @@ namespace Durin
 		{
 			static_assert(std::is_base_of_v<FPropertyParamsBase, TParams>);
 			Params.TypedMetadata = Metadata;
+			return Params;
+		}
+
+		template<typename TParams>
+		constexpr auto WithDeprecation(TParams Params, const FPropertyDeprecationParams* Deprecation) -> TParams
+		{
+			static_assert(std::is_base_of_v<FPropertyParamsBase, TParams>);
+			Params.Deprecation = Deprecation;
 			return Params;
 		}
 

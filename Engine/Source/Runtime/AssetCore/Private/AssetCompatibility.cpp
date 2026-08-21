@@ -355,6 +355,42 @@ namespace Durin::Asset
 	auto FReflectionCompatibilityCatalog::Capture() -> FReflectionCompatibilityCatalog
 	{
 		FReflectionCompatibilityCatalog Result;
+		std::unordered_set<const FProperty*> CapturedRouteProperties;
+		std::function<void(FProperty*, std::string)> CaptureRoutes;
+		CaptureRoutes = [&](FProperty* Property, std::string DeclaringType) {
+			if (!Property || DeclaringType.empty() || !CapturedRouteProperties.insert(Property).second) return;
+			if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+			{
+				FReflectionDeprecatedPropertyRoute Route{
+					.DeclaringType = DeclaringType,
+					.DeprecatedPropertyName = Property->NamePrivate.ToString(),
+					.StoredName = Deprecation->HistoricalName.ToString(),
+					.Kind = Property->GetKind(),
+					.TypeSignature = SerializedTypeSignature(Property),
+					.CustomVersionGuid = Deprecation->CustomVersionGuid,
+					.DeprecatedBefore = Deprecation->DeprecatedBefore,
+					.LatestVersion = Deprecation->LatestVersion};
+				for (FName Target : Deprecation->MigrationTargets)
+					Route.MigrationTargets.push_back(Target.ToString());
+				Result.DeprecatedPropertyRoutes.push_back(std::move(Route));
+			}
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				if (DStruct* Struct = StructProperty->GetStruct())
+					Struct->ForEachProperty([&](FProperty* Nested) {
+						CaptureRoutes(Nested, Struct->GetQualifiedName().ToString());
+					}, false);
+			}
+			else if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+				CaptureRoutes(static_cast<FArrayProperty*>(Property)->GetInner(), DeclaringType);
+			else if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
+			{
+				auto* MapProperty = static_cast<FMapProperty*>(Property);
+				CaptureRoutes(MapProperty->GetKeyProp(), DeclaringType);
+				CaptureRoutes(MapProperty->GetValueProp(), DeclaringType);
+			}
+		};
 		for (const FSerializedReflectionAlias& Alias : CaptureSerializedReflectionAliases())
 		{
 			EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
@@ -381,6 +417,8 @@ namespace Durin::Asset
 			for (DClass* Declaring = Class; Declaring; Declaring = Declaring->GetSuperClass())
 			{
 				Declaring->ForEachProperty([&](FProperty* Property) {
+					CaptureRoutes(Property, Declaring->GetQualifiedName().ToString());
+					if (Property->GetDeprecation()) return;
 					Entry.Fields.push_back({
 						.DeclaringType = Declaring->GetQualifiedName().ToString(),
 						.Name = Property->NamePrivate.ToString(),
@@ -395,7 +433,32 @@ namespace Durin::Asset
 			Result.Classes.push_back(std::move(Entry));
 		}
 		std::ranges::sort(Result.Classes, {}, &FReflectionCompatibilityClass::QualifiedName);
+		std::ranges::sort(Result.DeprecatedPropertyRoutes, [](const auto& Left, const auto& Right) {
+			return std::tie(Left.DeclaringType, Left.StoredName, Left.TypeSignature)
+				< std::tie(Right.DeclaringType, Right.StoredName, Right.TypeSignature);
+		});
 		return Result;
+	}
+
+	auto FReflectionCompatibilityCatalog::FindDeprecatedPropertyRoute(
+		std::string_view DeclaringType, std::string_view StoredName,
+		DurinCodeGen::EPropertyGenFlags Kind, std::string_view TypeSignature,
+		std::span<const std::pair<FGuid, int32>> CustomVersions) const
+		-> const FReflectionDeprecatedPropertyRoute*
+	{
+		const FReflectionDeprecatedPropertyRoute* Match = nullptr;
+		for (const FReflectionDeprecatedPropertyRoute& Route : DeprecatedPropertyRoutes)
+		{
+			if (Route.DeclaringType != DeclaringType || Route.StoredName != StoredName
+				|| Route.Kind != Kind || Route.TypeSignature != TypeSignature) continue;
+			const auto Version = std::ranges::find_if(CustomVersions,
+				[&](const auto& Pair) { return Pair.first == Route.CustomVersionGuid; });
+			const int32 SourceVersion = Version == CustomVersions.end() ? -1 : Version->second;
+			if (SourceVersion >= Route.DeprecatedBefore) continue;
+			if (Match) return nullptr;
+			Match = &Route;
+		}
+		return Match;
 	}
 
 	auto FReflectionCompatibilityCatalog::FindSerializedAlias(std::string_view StoredIdentity) const
@@ -648,6 +711,7 @@ namespace Durin::Asset
 		{
 		case EAssetCompatibilityFindingCode::UnknownField: return "UnknownField";
 		case EAssetCompatibilityFindingCode::IncompatibleFieldSignature: return "IncompatibleFieldSignature";
+		case EAssetCompatibilityFindingCode::DeprecatedRouteUsed: return "DeprecatedRouteUsed";
 		case EAssetCompatibilityFindingCode::UnavailableClass: return "UnavailableClass";
 		case EAssetCompatibilityFindingCode::UnsupportedPackageFormat: return "UnsupportedPackageFormat";
 		case EAssetCompatibilityFindingCode::InvalidObjectGraph: return "InvalidObjectGraph";
@@ -711,6 +775,24 @@ namespace Durin::Asset
 				Json += std::format("{{\"storedIdentity\":\"{}\",\"currentIdentity\":\"{}\",\"kind\":\"{}\",\"location\":\"{}\",\"logicalPath\":\"{}\"}}",
 					JsonEscape(Evidence.StoredIdentity), JsonEscape(Evidence.CurrentIdentity),
 					KindName(Evidence.Kind), LocationName(Evidence.Location), JsonEscape(Evidence.LogicalPath));
+			}
+			Json += "],\"deprecatedRouteEvidence\":[";
+			for (size_t EvidenceIndex = 0; EvidenceIndex < Record.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
+			{
+				if (EvidenceIndex != 0) Json += ',';
+				const FAssetDeprecatedRouteEvidence& Evidence = Record.DeprecatedRouteEvidence[EvidenceIndex];
+				Json += std::format(
+					"{{\"objectPath\":\"{}\",\"declaringType\":\"{}\",\"storedFieldName\":\"{}\",\"deprecatedPropertyName\":\"{}\",\"customVersionGuid\":\"{}\",\"sourceVersion\":{},\"deprecatedBefore\":{},\"migrationTargets\":[",
+					JsonEscape(Evidence.ObjectPath), JsonEscape(Evidence.DeclaringType),
+					JsonEscape(Evidence.StoredFieldName), JsonEscape(Evidence.DeprecatedPropertyName),
+					Evidence.CustomVersionGuid.ToString(), Evidence.SourceVersion,
+					Evidence.DeprecatedBefore);
+				for (size_t TargetIndex = 0; TargetIndex < Evidence.MigrationTargets.size(); ++TargetIndex)
+				{
+					if (TargetIndex != 0) Json += ',';
+					Json += std::format("\"{}\"", JsonEscape(Evidence.MigrationTargets[TargetIndex]));
+				}
+				Json += "]}";
 			}
 			Json += "]}";
 		}

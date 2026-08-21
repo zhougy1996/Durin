@@ -12,6 +12,7 @@
 namespace Durin
 {
 	class FArchive;
+	struct FArchiveVersionContext;
 	class FReferenceCollector;
 
 	inline constexpr uint32 DStructOpsVersion = 1;
@@ -43,6 +44,7 @@ namespace Durin
 	{
 		EDStructDeserializeSource Source = EDStructDeserializeSource::RuntimeArchive;
 		uint32 SourceVersion = 0;
+		const FArchiveVersionContext* VersionContext = nullptr;
 		std::string* Error = nullptr;
 
 		auto Fail(std::string_view Message) const -> bool

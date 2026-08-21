@@ -5,6 +5,7 @@
 #include "Asset/Testing.h"
 
 #include "DObject/Class.h"
+#include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
@@ -1155,11 +1156,25 @@ namespace Durin::Asset::DastV4
 			}
 		}
 
+		auto FindDecodedDeprecatedRoute(const FDecodedPackage& Package,
+			const FDecodedSchema& Schema, const FDecodedField& Field,
+			const FDecodedType& Type) -> FProperty*;
+
 		auto RestoreNestedLedger(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package, FAuthoredOverridePath& Path,
 			std::vector<FAuthoredOverrideEntry>& Entries,
 			FReaderDiagnostic& Diagnostic) -> bool
 		{
+			auto AddEntry = [&](FAuthoredOverrideEntry Entry) {
+				const auto Existing = std::ranges::find_if(Entries,
+					[&](const FAuthoredOverrideEntry& Candidate) {
+						return CompareAuthoredOverridePaths(Candidate.Path, Entry.Path)
+							== std::strong_ordering::equal;
+					});
+				if (Existing == Entries.end()) Entries.push_back(std::move(Entry));
+				else if (Entry.Provenance == EAuthoredOverrideProvenance::Forced)
+					Existing->Provenance = EAuthoredOverrideProvenance::Forced;
+			};
 			if (Type.Opcode == ETypeOpcode::Struct)
 			{
 				uint64 SchemaId = 0; const FDecodedSchema* Schema = FindSchema(Package, Type.QualifiedName, SchemaId);
@@ -1171,10 +1186,21 @@ namespace Durin::Asset::DastV4
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FDecodedField::Name);
 					if (It == Schema->Fields.end()) return Fail(Diagnostic, EReaderFailure::InvalidValue, "Struct ledger field is missing.");
 					const FDecodedType* ChildType = TypeAt(Package, It->TypeId); if (!ChildType) return false;
-					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
 					const auto Provenance = Value.Provenances[Index] == EDefaultDeltaProvenance::Forced
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
-					Entries.push_back({Path, Provenance});
+					if (FProperty* Route = FindDecodedDeprecatedRoute(Package, *Schema, *It, *ChildType))
+					{
+						for (FName Target : Route->GetDeprecation()->MigrationTargets)
+						{
+							Path.push_back(FAuthoredOverridePathToken::Field(
+								FName(Schema->QualifiedName), Target));
+							AddEntry({Path, Provenance});
+							Path.pop_back();
+						}
+						continue;
+					}
+					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
+					AddEntry({Path, Provenance});
 					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path, Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -1533,6 +1559,94 @@ namespace Durin::Asset::DastV4
 				CanonicalizeSerializedTypeName(Type, Catalog);
 			return true;
 		}
+
+		auto DecodedCustomVersion(const FDecodedPackage& Package,
+			const FGuid& Guid) -> int32
+		{
+			const auto It = std::ranges::find(Package.CustomVersions, Guid, &FCustomVersion::Guid);
+			return It == Package.CustomVersions.end() ? -1 : static_cast<int32>(It->Value);
+		}
+
+		auto FindDecodedDeprecatedRoute(const FDecodedPackage& Package,
+			const FDecodedSchema& Schema, const FDecodedField& Field,
+			const FDecodedType& Type) -> FProperty*
+		{
+			DStructBase* Owner = FindClassByQualifiedName(FName(Schema.QualifiedName));
+			if (!Owner) Owner = FindStructByQualifiedName(FName(Schema.QualifiedName));
+			if (!Owner) return nullptr;
+			const DurinCodeGen::EPropertyGenFlags Kind = TypeKind(Type, Package);
+			const std::string Signature = TypeSignature(Type, Package);
+			FProperty* Match = nullptr;
+			bool bAmbiguous = false;
+			Owner->ForEachProperty([&](FProperty* Property) {
+				if (bAmbiguous || !Property) return;
+				const FPropertyDeprecation* Deprecation = Property->GetDeprecation();
+				if (!Deprecation || Deprecation->HistoricalName.ToString() != Field.Name
+					|| DecodedCustomVersion(Package, Deprecation->CustomVersionGuid)
+						>= Deprecation->DeprecatedBefore
+					|| Property->GetKind() != Kind
+					|| Private::GetSerializedTypeSignature(Property) != Signature) return;
+				if (Match) bAmbiguous = true;
+				else Match = Property;
+			}, false);
+			return bAmbiguous ? nullptr : Match;
+		}
+
+		auto GatherNestedDeprecatedRouteEvidence(const FDecodedType& Type, const FValue& Value,
+			const FDecodedPackage& Package, const FReflectionCompatibilityCatalog& Catalog,
+			std::span<const std::pair<FGuid, int32>> Versions, const FAssetPath& PackagePath,
+			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
+		{
+			if (Type.Opcode == ETypeOpcode::Struct)
+			{
+				uint64 SchemaId = 0;
+				const FDecodedSchema* Schema = FindSchema(Package, Type.QualifiedName, SchemaId);
+				if (!Schema || Value.FieldNames.size() != Value.Elements.size()) return;
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					const auto Field = std::ranges::find(
+						Schema->Fields, Value.FieldNames[Index], &FDecodedField::Name);
+					if (Field == Schema->Fields.end()) continue;
+					const FDecodedType* ChildType = TypeAt(Package, Field->TypeId);
+					if (!ChildType) continue;
+					const auto Kind = TypeKind(*ChildType, Package);
+					const std::string Signature = TypeSignature(*ChildType, Package);
+					const FReflectionDeprecatedPropertyRoute* Route =
+						Catalog.FindDeprecatedPropertyRoute(Schema->QualifiedName, Field->Name,
+							Kind, Signature, Versions);
+					if (Route)
+					{
+						const auto Version = std::ranges::find_if(Versions,
+							[&](const auto& Pair) { return Pair.first == Route->CustomVersionGuid; });
+						Out.push_back({
+							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
+							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Name,
+							.DeprecatedPropertyName = Route->DeprecatedPropertyName,
+							.MigrationTargets = Route->MigrationTargets,
+							.CustomVersionGuid = Route->CustomVersionGuid,
+							.SourceVersion = Version == Versions.end() ? -1 : Version->second,
+							.DeprecatedBefore = Route->DeprecatedBefore});
+					}
+					else GatherNestedDeprecatedRouteEvidence(*ChildType, Value.Elements[Index],
+						Package, Catalog, Versions, PackagePath, ObjectPath, Out);
+				}
+			}
+			else if ((Type.Opcode == ETypeOpcode::FixedArray || Type.Opcode == ETypeOpcode::Array)
+				&& Type.ChildTypeIds.size() == 1)
+			{
+				if (const FDecodedType* Child = TypeAt(Package, Type.ChildTypeIds[0]))
+					for (const FValue& Element : Value.Elements)
+						GatherNestedDeprecatedRouteEvidence(*Child, Element, Package, Catalog,
+							Versions, PackagePath, ObjectPath, Out);
+			}
+			else if (Type.Opcode == ETypeOpcode::Map && Type.ChildTypeIds.size() == 2)
+			{
+				if (const FDecodedType* Child = TypeAt(Package, Type.ChildTypeIds[1]))
+					for (size_t Index = 1; Index < Value.Elements.size(); Index += 2)
+						GatherNestedDeprecatedRouteEvidence(*Child, Value.Elements[Index], Package,
+							Catalog, Versions, PackagePath, ObjectPath, Out);
+			}
+		}
 	}
 
 	auto ReadHeader(std::span<const uint8> Bytes, FValidatedHeader& OutHeader,
@@ -1698,9 +1812,12 @@ namespace Durin::Asset::DastV4
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
 				const FReflectionCompatibilityField* Expected =
 					LiveCatalog.FindField(*Class, Schema->QualifiedName, Field.Name);
-				const bool bCompatible = Override.Provenance != 2 && Type && Expected
+				const bool bCurrentCompatible = Override.Provenance != 2 && Type && Expected
 					&& Expected->Kind == TypeKind(*Type, Decoded)
 					&& Expected->TypeSignature == TypeSignature(*Type, Decoded);
+				const bool bDeprecatedCompatible = Override.Provenance != 2 && Type
+					&& FindDecodedDeprecatedRoute(Decoded, *Schema, Field, *Type);
+				const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible;
 				if (!bCompatible)
 				{
 					Fail(Diagnostic, EReaderFailure::ArchiveFailure,
@@ -1811,11 +1928,27 @@ namespace Durin::Asset::DastV4
 		}
 
 		std::vector<FArchiveCustomVersion> CustomVersions;
+		std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 		for (const FCustomVersion& Version : Decoded.CustomVersions)
+		{
 			CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
+			LoadedCustomVersions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
+		}
+		for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
 		FAssetLoadReport Report = OutReport ? *OutReport : FAssetLoadReport{};
 		Report.PackagePath = PackagePath;
 		Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
+		for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
+			for (const FDecodedOverride& Override : Decoded.ObjectValues[ObjectIndex].Overrides)
+			{
+				const FDecodedSchema* Schema = SchemaAt(Decoded, Override.SchemaId);
+				if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size()) continue;
+				const FDecodedField& Field = Schema->Fields[Override.FieldId - 1];
+				if (const FDecodedType* Type = TypeAt(Decoded, Field.TypeId))
+					GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Decoded,
+						LiveCatalog, LoadedCustomVersions, PackagePath,
+						Decoded.Objects[ObjectIndex].Path, Report.DeprecatedRouteEvidence);
+			}
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 		{
 			if (ShouldFail(Options, ELiveLoadPhase::ApplyValues, ObjectIndex))
@@ -1848,6 +1981,20 @@ namespace Durin::Asset::DastV4
 				return Finish(Result);
 			}
 			std::vector<FAuthoredOverrideEntry> LedgerEntries;
+			auto AddLedgerEntry = [&](FAuthoredOverrideEntry Entry) {
+				const auto Existing = std::ranges::find_if(LedgerEntries,
+					[&](const FAuthoredOverrideEntry& Candidate) {
+						return CompareAuthoredOverridePaths(Candidate.Path, Entry.Path)
+							== std::strong_ordering::equal;
+					});
+				if (Existing == LedgerEntries.end())
+				{
+					LedgerEntries.push_back(std::move(Entry));
+					return;
+				}
+				if (Entry.Provenance == EAuthoredOverrideProvenance::Forced)
+					Existing->Provenance = EAuthoredOverrideProvenance::Forced;
+			};
 			for (const FDecodedOverride* Override : KnownOverrides)
 			{
 				const FDecodedSchema* Schema = SchemaAt(Decoded, Override->SchemaId);
@@ -1857,11 +2004,35 @@ namespace Durin::Asset::DastV4
 					Fail(Diagnostic, EReaderFailure::ArchiveFailure, "Injected ledger restoration failure."); Rollback();
 					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
-				FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(Field.Name))};
 				const auto Provenance = Override->Provenance == 1 ? EAuthoredOverrideProvenance::Forced
 					: EAuthoredOverrideProvenance::LoadedExplicit;
-				LedgerEntries.push_back({Path, Provenance});
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
+				FProperty* DeprecatedRoute = Type
+					? FindDecodedDeprecatedRoute(Decoded, *Schema, Field, *Type) : nullptr;
+				if (DeprecatedRoute)
+				{
+					const FPropertyDeprecation* Deprecation = DeprecatedRoute->GetDeprecation();
+					FAssetDeprecatedRouteEvidence Evidence{
+						.PackagePath = PackagePath,
+						.ObjectPath = Decoded.Objects[ObjectIndex].Path,
+						.DeclaringType = Schema->QualifiedName,
+						.StoredFieldName = Field.Name,
+						.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString(),
+						.CustomVersionGuid = Deprecation->CustomVersionGuid,
+						.SourceVersion = DecodedCustomVersion(Decoded, Deprecation->CustomVersionGuid),
+						.DeprecatedBefore = Deprecation->DeprecatedBefore};
+					for (FName Target : Deprecation->MigrationTargets)
+					{
+						AddLedgerEntry({FAuthoredOverridePath{FAuthoredOverridePathToken::Field(
+							FName(Schema->QualifiedName), Target)}, Provenance});
+						Evidence.MigrationTargets.push_back(Target.ToString());
+					}
+					Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
+					continue;
+				}
+				FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
+					FName(Schema->QualifiedName), FName(Field.Name))};
+				AddLedgerEntry({Path, Provenance});
 				if (!RestoreNestedLedger(*Type, Override->Value, Decoded, Path, LedgerEntries, Diagnostic))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
@@ -1892,6 +2063,7 @@ namespace Durin::Asset::DastV4
 					Error.empty() ? "Object PostLoad failed." : Error, 0, Decoded.Objects[Index].Path); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
+			Objects[Index]->ClearLoadedCustomVersions();
 		}
 		if (ShouldFail(Options, ELiveLoadPhase::Publish, 0))
 		{
@@ -1900,7 +2072,8 @@ namespace Durin::Asset::DastV4
 		}
 		AddToRoot(Package);
 		OutPackage = FLoadedAssetPackage(Package);
-		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty());
+		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()
+			|| !Report.DeprecatedRouteEvidence.empty());
 		if (OutReport) *OutReport = std::move(Report);
 		Diagnostic.Reset(); return Finish({});
 	}
@@ -2027,6 +2200,10 @@ namespace Durin::Asset::DastV4
 		{
 			FAssetPath Path; if (FAssetPath::TryCreate(Dependency, Path)) Record.Dependencies.push_back(std::move(Path));
 		}
+		std::vector<std::pair<FGuid, int32>> CompatibilityVersions;
+		for (const FCustomVersion& CustomVersion : Package.CustomVersions)
+			CompatibilityVersions.emplace_back(
+				CustomVersion.Guid, static_cast<int32>(CustomVersion.Value));
 		for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
 		{
 			const FDecodedObject& Object = Package.Objects[ObjectIndex];
@@ -2049,6 +2226,50 @@ namespace Durin::Asset::DastV4
 					? DurinCodeGen::EPropertyGenFlags::None : TypeKind(*Type, Package);
 				const std::string StoredSignature = Override.Provenance == 2 || !Type
 					? "DASTv4:RetainedClosure" : TypeSignature(*Type, Package);
+				const size_t NestedEvidenceBegin = Record.DeprecatedRouteEvidence.size();
+				if (Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
+					Catalog, CompatibilityVersions, PackagePath, Object.Path,
+					Record.DeprecatedRouteEvidence);
+				for (size_t EvidenceIndex = NestedEvidenceBegin;
+					EvidenceIndex < Record.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
+				{
+					const auto& Evidence = Record.DeprecatedRouteEvidence[EvidenceIndex];
+					Record.Findings.push_back({
+						.Code = EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
+						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
+						.DeclaringType = Evidence.DeclaringType,
+						.FieldName = Evidence.StoredFieldName,
+						.Diagnostic = "Nested serialized field is consumed by a versioned deprecated route."});
+				}
+				const FReflectionDeprecatedPropertyRoute* DeprecatedRoute =
+					Override.Provenance == 2 ? nullptr : Catalog.FindDeprecatedPropertyRoute(
+						Schema->QualifiedName, Field.Name, StoredKind, StoredSignature,
+						CompatibilityVersions);
+				if (DeprecatedRoute)
+				{
+					const auto Version = std::ranges::find_if(CompatibilityVersions,
+						[&](const auto& Pair) { return Pair.first == DeprecatedRoute->CustomVersionGuid; });
+					const int32 SourceVersion = Version == CompatibilityVersions.end()
+						? -1 : Version->second;
+					Record.Findings.push_back({
+						.Code = EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
+						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
+						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
+						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
+						.ExpectedKind = DeprecatedRoute->Kind,
+						.ExpectedTypeSignature = DeprecatedRoute->TypeSignature,
+						.PayloadSize = Override.PayloadSize, .PayloadOffset = Override.PayloadOffset,
+						.Diagnostic = "Serialized field is consumed by a versioned deprecated route."});
+					Record.DeprecatedRouteEvidence.push_back({
+						.PackagePath = PackagePath, .ObjectPath = Object.Path,
+						.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field.Name,
+						.DeprecatedPropertyName = DeprecatedRoute->DeprecatedPropertyName,
+						.MigrationTargets = DeprecatedRoute->MigrationTargets,
+						.CustomVersionGuid = DeprecatedRoute->CustomVersionGuid,
+						.SourceVersion = SourceVersion,
+						.DeprecatedBefore = DeprecatedRoute->DeprecatedBefore});
+					continue;
+				}
 				const FReflectionCompatibilityField* Expected = Catalog.FindField(*Class, Schema->QualifiedName, Field.Name);
 				if (!Expected)
 				{

@@ -364,6 +364,24 @@ subsequent save emits only the current name. Aliases do not relax kind or type
 signature checks. A schema whose distinct stored names canonicalize to the same
 field is invalid and fails before object publication.
 
+Versioned `_DEPRECATED` fields are the bounded exception for an intentional
+signature or semantic change. Preflight resolves them before current-name
+matching by declaring type, historical stored name, exact logical signature,
+and the package's GUID-keyed Custom Version. Missing tags use `-1`; a route's
+upper bound is exclusive. Consumed data loads only into the deprecated member,
+then class `PostLoad` or detached-struct `PostDeserialize` converts it before
+publication. Current saves automatically emit the route domain's latest value
+and omit all deprecated members from schemas and deltas.
+
+The route's `MigratesTo` list projects loaded-explicit or forced provenance to
+current authored paths. Splits project to every target; merges keep forced over
+explicit over absent. Compatibility records expose `DeprecatedRouteUsed`
+findings and structured route evidence without marking an otherwise supported
+package incompatible. That evidence makes the package eligible for canonical
+resave, and successful verification requires both alias and deprecated-route
+evidence to be empty afterward. Unclaimed unknown fields retain their existing
+opaque behavior.
+
 `InspectPackage`, `ExtractReferences`, and `ProbeCompatibility` consume the
 same decoded logical model without constructing objects or invoking callbacks.
 Known values project to existing field/reference semantics, including intrinsic

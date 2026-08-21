@@ -17,6 +17,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedEnumValueInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
+    ReflectedPropertyDeprecationInfo,
     ReflectedPropertyMetadataInfo,
     ReflectedStructInfo,
     make_generated_enum_helper_name,
@@ -64,6 +65,7 @@ _PROPERTY_FLAG_BY_SPECIFIER = {
     "Edit": "Edit",
     "Transient": "Transient",
     "ReadOnly": "ReadOnly",
+    "Deprecated": "Deprecated",
 }
 
 _TYPED_METADATA_KEYS = {
@@ -289,6 +291,56 @@ def _typed_metadata_from_annotation(
     return result
 
 
+def _deprecation_from_annotation(
+    prop: ReflectedPropertyInfo, annotation: str, location: str
+) -> ReflectedPropertyDeprecationInfo | None:
+    entries = _annotation_entries(annotation)
+    b_deprecated = any(entry.strip() == "Deprecated" for entry in entries)
+    values: dict[str, str] = {}
+    for raw_entry in entries:
+        key, separator, raw_value = raw_entry.strip().partition("=")
+        key = key.strip()
+        if key not in {"CustomVersion", "DeprecatedBefore", "DeprecatedName", "MigratesTo"}:
+            continue
+        if key in values:
+            raise ValueError(f"[DHT-DEPR001] {location}: duplicate deprecation key '{key}'")
+        if not separator:
+            raise ValueError(f"[DHT-DEPR001] {location}: {key} requires a value")
+        values[key] = raw_value.strip()
+    if not b_deprecated:
+        if values:
+            raise ValueError(f"[DHT-DEPR002] {location}: deprecation keys require the Deprecated specifier")
+        return None
+    if not prop.name.endswith("_DEPRECATED"):
+        raise ValueError(f"[DHT-DEPR003] {location}: Deprecated property names must end in _DEPRECATED")
+    if "Durin::EPropertyFlags::Edit" in prop.flags or "Durin::EPropertyFlags::Transient" in prop.flags:
+        raise ValueError(f"[DHT-DEPR004] {location}: Deprecated cannot be combined with Edit or Transient")
+    missing = [key for key in ("CustomVersion", "DeprecatedBefore", "MigratesTo") if key not in values]
+    if missing:
+        raise ValueError(f"[DHT-DEPR005] {location}: Deprecated requires {', '.join(missing)}")
+    custom_version_type = values["CustomVersion"]
+    deprecated_before = values["DeprecatedBefore"]
+    expression = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
+    if not re.fullmatch(expression, custom_version_type):
+        raise ValueError(f"[DHT-DEPR006] {location}: CustomVersion requires a qualified C++ type")
+    if not re.fullmatch(expression, deprecated_before):
+        raise ValueError(f"[DHT-DEPR006] {location}: DeprecatedBefore requires a qualified C++ constant")
+    historical_name = prop.name.removesuffix("_DEPRECATED")
+    if "DeprecatedName" in values:
+        historical_name = _quoted_annotation_value(values["DeprecatedName"], "DeprecatedName", location)
+        if not re.fullmatch(r"[A-Za-z_]\w*", historical_name):
+            raise ValueError(f"[DHT-DEPR007] {location}: DeprecatedName requires an unqualified C++ identifier")
+    targets = _quoted_annotation_value(values["MigratesTo"], "MigratesTo", location).split(";")
+    targets = [target.strip() for target in targets]
+    if not targets or any(not re.fullmatch(r"[A-Za-z_]\w*", target) for target in targets):
+        raise ValueError(f"[DHT-DEPR008] {location}: MigratesTo requires quoted unqualified property names")
+    if len(set(targets)) != len(targets):
+        raise ValueError(f"[DHT-DEPR008] {location}: MigratesTo contains duplicate targets")
+    return ReflectedPropertyDeprecationInfo(
+        custom_version_type, deprecated_before, historical_name, targets
+    )
+
+
 def _apply_property_annotation(
     prop: ReflectedPropertyInfo | None, annotation: str, location: str = "DPROPERTY"
 ) -> ReflectedPropertyInfo | None:
@@ -296,6 +348,7 @@ def _apply_property_annotation(
         prop.metadata = _property_metadata_from_annotation(annotation)
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
         prop.typed_metadata = _typed_metadata_from_annotation(prop, annotation, location)
+        prop.deprecation = _deprecation_from_annotation(prop, annotation, location)
     return prop
 
 

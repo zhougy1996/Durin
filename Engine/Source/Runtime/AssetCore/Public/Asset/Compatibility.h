@@ -6,13 +6,14 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 2;
+	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 3;
 
 	// Stable names are serialized by report schemas; enum ordinals are never persisted.
 	enum class EAssetCompatibilityFindingCode : uint8
 	{
 		UnknownField,
 		IncompatibleFieldSignature,
+		DeprecatedRouteUsed,
 		UnavailableClass,
 		UnsupportedPackageFormat,
 		InvalidObjectGraph,
@@ -63,6 +64,21 @@ namespace Durin::Asset
 		auto operator==(const FReflectionSerializedPropertyAlias&) const -> bool = default;
 	};
 
+	struct FReflectionDeprecatedPropertyRoute
+	{
+		std::string DeclaringType;
+		std::string DeprecatedPropertyName;
+		std::string StoredName;
+		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
+		std::string TypeSignature;
+		FGuid CustomVersionGuid;
+		int32 DeprecatedBefore = 0;
+		int32 LatestVersion = 0;
+		std::vector<std::string> MigrationTargets;
+
+		auto operator==(const FReflectionDeprecatedPropertyRoute&) const -> bool = default;
+	};
+
 	// Value-only reflection snapshot. Capture on the game thread after type registration,
 	// then copy or share it freely with compatibility workers.
 	class FReflectionCompatibilityCatalog
@@ -83,11 +99,19 @@ namespace Durin::Asset
 			-> const FReflectionSerializedPropertyAlias*;
 		auto GetSerializedPropertyAliases() const
 			-> std::span<const FReflectionSerializedPropertyAlias> { return SerializedPropertyAliases; }
+		ASSETCORE_API auto FindDeprecatedPropertyRoute(
+			std::string_view DeclaringType, std::string_view StoredName,
+			DurinCodeGen::EPropertyGenFlags Kind, std::string_view TypeSignature,
+			std::span<const std::pair<FGuid, int32>> CustomVersions) const
+			-> const FReflectionDeprecatedPropertyRoute*;
+		auto GetDeprecatedPropertyRoutes() const
+			-> std::span<const FReflectionDeprecatedPropertyRoute> { return DeprecatedPropertyRoutes; }
 
 	private:
 		std::vector<FReflectionCompatibilityClass> Classes;
 		std::vector<FReflectionSerializedAlias> SerializedAliases;
 		std::vector<FReflectionSerializedPropertyAlias> SerializedPropertyAliases;
+		std::vector<FReflectionDeprecatedPropertyRoute> DeprecatedPropertyRoutes;
 	};
 
 	struct FAssetCompatibilityFinding
@@ -122,6 +146,7 @@ namespace Durin::Asset
 		EAssetCompatibilityFreshness Freshness = EAssetCompatibilityFreshness::Current;
 		std::vector<FAssetCompatibilityFinding> Findings;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
+		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
 
 		auto operator==(const FAssetPackageCompatibilityRecord&) const -> bool = default;
 	};

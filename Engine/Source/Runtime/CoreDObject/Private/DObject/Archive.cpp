@@ -312,7 +312,8 @@ namespace Durin
 					}
 					Struct->ForEachProperty([&](FProperty* Field) {
 						if (Ar.HasError() || !Field
-							|| Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+							|| Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
+							|| (Ar.IsSaving() && Field->IsDeprecated())) return;
 						auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(
 							Field, Struct->GetQualifiedName()));
 						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.HasError(); ++Index)
@@ -367,6 +368,7 @@ namespace Durin
 							? EDStructDeserializeSource::AuthoredAsset
 							: EDStructDeserializeSource::RuntimeArchive,
 						.SourceVersion = DastVersion ? DastVersion->Version : 0,
+						.VersionContext = &Ar.GetVersionContext(),
 						.Error = &PostDeserializeError};
 					if (!Struct->GetOps().PostDeserialize(Storage.GetValue(), Context))
 					{
@@ -1411,7 +1413,8 @@ namespace Durin
 		Object.GetClass()->ForEachProperty(
 			[&](FProperty* Property)
 			{
-				if (!Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient))
+				if (!Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
+					|| (Ar.IsSaving() && Property->IsDeprecated()))
 				{
 					return;
 				}

@@ -49,17 +49,8 @@ namespace Durin::Asset::Private
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
 		{
 			if (Descriptor.DeclaringType.IsNone() || Descriptor.Name.IsNone()) return nullptr;
-			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
-			{
-				auto* Struct = Cast<DStruct>(Object);
-				if (!Struct || Struct->GetQualifiedName() != Descriptor.DeclaringType) continue;
-				FProperty* Result = nullptr;
-				Struct->ForEachProperty([&](FProperty* Property) {
-					if (Property && Property->NamePrivate == Descriptor.Name) Result = Property;
-				}, false);
-				return Result;
-			}
-			return nullptr;
+			DStruct* Struct = FindStructByQualifiedName(Descriptor.DeclaringType);
+			return Struct ? Struct->FindPropertyByName(Descriptor.Name, false) : nullptr;
 		}
 
 		auto FindObjectProperty(DObject* Object, FName Name) -> FProperty*
@@ -70,6 +61,83 @@ namespace Durin::Asset::Private
 				if (!Result && Property && Property->NamePrivate == Name) Result = Property;
 			}, true);
 			return Result;
+		}
+
+		auto FindDeclaringStruct(FName QualifiedName) -> DStructBase*
+		{
+			if (DClass* Class = FindClassByQualifiedName(QualifiedName)) return Class;
+			return FindStructByQualifiedName(QualifiedName);
+		}
+
+		auto ReflectedStructIdentity(const DStructBase* Struct) -> std::string
+		{
+			if (const auto* Class = Cast<DClass>(Struct)) return Class->GetQualifiedName().ToString();
+			if (const auto* ValueStruct = Cast<DStruct>(Struct)) return ValueStruct->GetQualifiedName().ToString();
+			return "<unknown>";
+		}
+
+		auto SourceCustomVersion(const FArchiveVersionContext& Context,
+			const FPropertyDeprecation& Deprecation) -> int32
+		{
+			const FArchiveCustomVersion* Version = Context.FindCustom(Deprecation.CustomVersionGuid);
+			return Version ? Version->Version : -1;
+		}
+
+		auto FindDeprecatedRoute(
+			DStructBase* Owner,
+			std::string_view StoredName,
+			DurinCodeGen::EPropertyGenFlags StoredKind,
+			std::string_view StoredSignature,
+			const FArchiveVersionContext& Versions
+		) -> FProperty*
+		{
+			if (!Owner) return nullptr;
+			FProperty* Match = nullptr;
+			bool bAmbiguous = false;
+			Owner->ForEachProperty([&](FProperty* Property) {
+				if (bAmbiguous) return;
+				const FPropertyDeprecation* Deprecation = Property ? Property->GetDeprecation() : nullptr;
+				if (!Deprecation || Deprecation->HistoricalName.ToString() != StoredName
+					|| SourceCustomVersion(Versions, *Deprecation) >= Deprecation->DeprecatedBefore
+					|| Property->GetKind() != StoredKind
+					|| GetSerializedTypeSignature(Property) != StoredSignature) return;
+				if (Match)
+				{
+					bAmbiguous = true;
+					return;
+				}
+				Match = Property;
+			}, false);
+			return bAmbiguous ? nullptr : Match;
+		}
+
+		auto ValidateDeprecationVersions(DStructBase* Root,
+			const FArchiveVersionContext& Versions, std::string& OutError) -> bool
+		{
+			std::unordered_set<const DStructBase*> Visited;
+			std::function<bool(DStructBase*)> Visit = [&](DStructBase* Struct) {
+				if (!Struct || !Visited.emplace(Struct).second) return true;
+				bool bValid = true;
+				Struct->ForEachProperty([&](FProperty* Property) {
+					if (!bValid || !Property) return;
+					if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+					{
+						if (const FArchiveCustomVersion* Version = Versions.FindCustom(Deprecation->CustomVersionGuid);
+							Version && Version->Version > Deprecation->LatestVersion)
+						{
+							OutError = std::format(
+								"UnsupportedCustomVersion: {} exceeds the latest supported version {} for {}::{}.",
+								Version->Version, Deprecation->LatestVersion,
+								ReflectedStructIdentity(Struct), Property->NamePrivate.ToString());
+							bValid = false;
+						}
+					}
+					if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+						bValid = Visit(static_cast<FStructProperty*>(Property)->GetStruct());
+				}, true);
+				return bValid;
+			};
+			return Visit(Root);
 		}
 
 		auto EqualType(const FArchiveLogicalTypeDescriptor& A,
@@ -309,14 +377,26 @@ namespace Durin::Asset::Private
 					? GetSerializedTypeSignature(Property)
 					: GetNativeTypeSignature(Descriptor.LogicalType);
 				const std::string DeclaringType = Descriptor.DeclaringType.ToString();
-				const std::string Name = Descriptor.Name.ToString();
+				const FPropertyDeprecation* Deprecation = Property ? Property->GetDeprecation() : nullptr;
+				const std::string Name = Deprecation
+					? Deprecation->HistoricalName.ToString() : Descriptor.Name.ToString();
+				DStructBase* DeclaringStruct = FindDeclaringStruct(Descriptor.DeclaringType);
 				bool bFoundIdentity = false;
+				bool bReservedForDeprecatedRoute = false;
 				for (size_t Index = 0; Index < Candidates.size(); ++Index)
 				{
 					const auto& Candidate = Candidates[Index];
 					if (CandidateConsumed[Index]
 						|| Candidate.DeclaringClass != DeclaringType || Candidate.Name != Name) continue;
 					bFoundIdentity = true;
+					if (!Deprecation && FindDeprecatedRoute(DeclaringStruct, Candidate.Name,
+						Candidate.Kind, Candidate.TypeSignature, GetVersionContext()))
+					{
+						bReservedForDeprecatedRoute = true;
+						continue;
+					}
+					if (Deprecation
+						&& SourceCustomVersion(GetVersionContext(), *Deprecation) >= Deprecation->DeprecatedBefore) continue;
 					if (Candidate.Kind != ExpectedKind
 						|| Candidate.TypeSignature != ExpectedSignature) continue;
 					CandidateConsumed[Index] = 1;
@@ -326,7 +406,7 @@ namespace Durin::Asset::Private
 					Stack.push_back(std::move(Scope));
 					return;
 				}
-				if (!bTopLevel && bFoundIdentity)
+				if (!bTopLevel && bFoundIdentity && !bReservedForDeprecatedRoute)
 				{
 					FailLoad(EAssetError::TypeMismatch, EArchiveFailureCode::InvalidData,
 						std::format("Serialized struct field {}::{} is incompatible with the current schema.",
@@ -1072,6 +1152,43 @@ namespace Durin::Asset::Private
 			return Offset == Node.Raw.size() || Invalid();
 		}
 
+		auto GatherDeprecationCustomVersions(std::span<DObject* const> Objects,
+			DastV4::FPackageInput& Input, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		{
+			std::unordered_map<FGuid, int32> Versions;
+			std::unordered_set<const DStructBase*> Visited;
+			std::function<bool(DStructBase*)> Visit = [&](DStructBase* Struct) {
+				if (!Struct || !Visited.emplace(Struct).second) return true;
+				bool bValid = true;
+				Struct->ForEachProperty([&](FProperty* Property) {
+					if (!bValid || !Property) return;
+					if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+					{
+						auto [It, bInserted] = Versions.emplace(
+							Deprecation->CustomVersionGuid, Deprecation->LatestVersion);
+						if (!bInserted && It->second != Deprecation->LatestVersion)
+						{
+							Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
+								ReflectedStructIdentity(Struct),
+								"One custom-version GUID declares inconsistent latest versions."};
+							bValid = false;
+						}
+					}
+					if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+						bValid = Visit(static_cast<FStructProperty*>(Property)->GetStruct());
+				}, true);
+				return bValid;
+			};
+			for (DObject* Object : Objects)
+				if (!Object || !Visit(Object->GetClass())) return false;
+			for (const auto& [Guid, Version] : Versions)
+			{
+				const uint32 Value = static_cast<uint32>(Version);
+				Input.CustomVersions.push_back({Guid, Value, Value, Value, true, true});
+			}
+			return true;
+		}
+
 		auto BuildV4Input(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
 			DastV4::FPackageInput& Out, DastV4::FWriterDiagnostic& Diagnostic) -> bool
@@ -1081,6 +1198,7 @@ namespace Durin::Asset::Private
 			Input.EntryKind = Summary.EntryKind;
 			Input.RedirectDestination = Summary.RedirectDestination.GetView();
 			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
+			if (!GatherDeprecationCustomVersions(Objects, Input, Diagnostic)) return false;
 			std::vector<std::string> Paths(Captured.Objects.size());
 			for (const auto& Object : Captured.Objects)
 			{
@@ -1153,6 +1271,12 @@ namespace Durin::Asset::Private
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions) -> FAssetResult
 	{
+		FArchiveVersionContext VersionContext{
+			{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
+			std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())};
+		std::string VersionError;
+		if (!ValidateDeprecationVersions(Object.GetClass(), VersionContext, VersionError))
+			return {EAssetError::UnsupportedVersion, std::move(VersionError)};
 		FAuthoredLoadArchive Archive(Object, Fields, Objects, SourceVersion, CustomVersions);
 		{
 			auto Scope = Archive.EnterObject(Object);

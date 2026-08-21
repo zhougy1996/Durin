@@ -4,7 +4,7 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 AssetCanonicalResaveReportSchemaVersion = 1;
+	inline constexpr uint32 AssetCanonicalResaveReportSchemaVersion = 2;
 	inline constexpr size_t MaximumCanonicalResaveBatchPackages = 32;
 
 	enum class EAssetCanonicalResavePackageStatus : uint8
@@ -30,6 +30,7 @@ namespace Durin::Asset
 		bool bDirty = false;
 		bool bPlainResaveRequested = false;
 		std::vector<FAssetCanonicalizationEvidence> Evidence;
+		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
 		std::vector<std::string> Diagnostics;
 	};
 

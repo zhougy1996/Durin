@@ -70,17 +70,19 @@ def _property_name_list(raw_value: str, key: str, location: str) -> list[str]:
 
 def _validate_property_payload(payload: str, line: int, column: int) -> None:
     location = f"DPROPERTY at line {line}, column {column}"
-    legacy_names_seen = False
+    seen_keys: set[str] = set()
     for raw_entry in _macro_arguments(payload, location):
         key, separator, raw_value = raw_entry.strip().partition("=")
-        if key.strip() != "LegacyNames":
+        key = key.strip()
+        if key not in {"LegacyNames", "CustomVersion", "DeprecatedBefore", "DeprecatedName", "MigratesTo"}:
             continue
         if not separator:
-            raise ValueError(f"{location}: LegacyNames requires = \"...\"")
-        if legacy_names_seen:
-            raise ValueError(f"{location}: duplicate LegacyNames metadata")
-        legacy_names_seen = True
-        _property_name_list(raw_value, "LegacyNames", location)
+            raise ValueError(f"{location}: {key} requires a value")
+        if key in seen_keys:
+            raise ValueError(f"{location}: duplicate {key} metadata")
+        seen_keys.add(key)
+        if key in {"LegacyNames", "MigratesTo"}:
+            _property_name_list(raw_value, key, location)
 
 
 def _display_name_from_payload(payload: str, macro_name: str, line: int, column: int) -> str:

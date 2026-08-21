@@ -100,6 +100,12 @@ namespace Fixture
     using Durin::int32;
     using FFloatVector = std::vector<float>;
 
+    struct FFixtureVersion
+    {
+        inline static constexpr Durin::FGuid Guid{};
+        enum Type { Initial = 0, FloatValue = 1, LatestVersion = FloatValue };
+    };
+
     DENUM(DisplayName = "Fixture Mode", LegacyNames = "Legacy::EFixtureMode")
     enum class EFixtureMode : int
     {
@@ -122,6 +128,9 @@ namespace Fixture
 
         DPROPERTY(Edit, ReadOnly, DisplayName = "Scalar Value", ToolTip = "Authored scalar", Category = "Numbers", Units = "Percent", Step = "1", Precision = 3, ClampMin = "-100", ClampMax = "100", UIMin = "-50", UIMax = "50")
         float Value = 0.0f;
+
+        DPROPERTY(Deprecated, CustomVersion = FFixtureVersion, DeprecatedBefore = FFixtureVersion::FloatValue, MigratesTo = "Value")
+        int32 Value_DEPRECATED = 0;
 
         DPROPERTY(LegacyNames = "OldRenamedValue;OlderRenamedValue")
         float RenamedValue = 0.0f;

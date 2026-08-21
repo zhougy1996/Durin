@@ -7,6 +7,22 @@
 
 namespace Durin
 {
+	auto FProperty::SetDeprecation(const FPropertyDeprecationParams* InDeprecation) -> void
+	{
+		Deprecation.reset();
+		if (!InDeprecation) return;
+		FPropertyDeprecation Value{
+			.CustomVersionGuid = InDeprecation->CustomVersionGuid,
+			.DeprecatedBefore = InDeprecation->DeprecatedBefore,
+			.LatestVersion = InDeprecation->LatestVersion,
+			.HistoricalName = FName(InDeprecation->HistoricalName),
+		};
+		Value.MigrationTargets.reserve(InDeprecation->NumMigrationTargets);
+		for (size_t Index = 0; Index < InDeprecation->NumMigrationTargets; ++Index)
+			Value.MigrationTargets.emplace_back(InDeprecation->MigrationTargets[Index]);
+		Deprecation = std::move(Value);
+	}
+
 	auto FProperty::SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void
 	{
 		TypedMetadata = {};

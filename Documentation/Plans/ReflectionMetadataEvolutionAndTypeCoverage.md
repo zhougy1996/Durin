@@ -2,14 +2,14 @@
 
 Summary: Add typed property metadata, versioned reflected-schema migration, weak object properties, and explicit precision math intrinsics across generation, runtime reflection, serialization, and editor workflows.
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-22
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete; Stage 3 is next. Durin already has generated
+Stages 0 through 3 are complete; Stage 4 is next. Durin already has generated
 property trees,
 untyped string metadata, property and type `LegacyNames`, immutable class and
 struct defaults, authored override tracking, field-tagged DAST v4 packages,
@@ -60,6 +60,16 @@ Validation receipts are DHT `179 passed`, `CoreObjectTests` `76 passed`,
 `CorePropertyChangeTests` `2 passed`, `CorePropertyValueSnapshotTests`
 `16 passed`, `EditorPropertyTests` `29 passed`, `AssetPackageTests` `96 passed`,
 and changed-document validation over three files.
+
+Stage 3 added explicit generated and runtime deprecation descriptors, stable
+GUID-keyed version bounds, automatic current-version emission, load-only class
+and detached-struct routing, transactional `PostLoad`/`PostDeserialize`
+conversion, and split/merge authored-intent projection. Compatibility and
+canonical-resave reports now carry structured deprecated-route evidence.
+Fixtures cover reused names, numeric type and unit conversion, scalar splits,
+two-source merges, missing/current/future versions, incompatible signatures,
+class and struct rejection, and canonical resave. Validation receipts are DHT
+`184 passed`, `CoreObjectTests` `76 passed`, and `AssetPackageTests` `97 passed`.
 
 ## Goal
 
@@ -363,27 +373,27 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 3: Add custom-versioned `_DEPRECATED` field migration
 
-- [ ] Add DHT/model/generated/runtime descriptors for explicitly annotated
+- [x] Add DHT/model/generated/runtime descriptors for explicitly annotated
   `DPROPERTY(Deprecated, ...)` load-only fields and version routes, including
   required suffix validation, derived/explicit historical names, domain GUID
   resolution, and exclusive version bounds; suffix-only fields stay ordinary.
-- [ ] Ensure saves declare and emit the current domain Custom Version, while a
+- [x] Ensure saves declare and emit the current domain Custom Version, while a
   missing load tag resolves to `BeforeCustomVersionWasAdded` and newer unknown
   versions fail according to the existing package version policy.
-- [ ] Route historical fields by declaring type, stored name, logical type
+- [x] Route historical fields by declaring type, stored name, logical type
   signature, and custom-version range before current-name matching; reject
   duplicate, overlapping, ambiguous, and incompatible routes.
-- [ ] Exclude deprecated fields from Details, current saves, default deltas,
+- [x] Exclude deprecated fields from Details, current saves, default deltas,
   current authored ledgers, and canonical schema output while allowing bounded
   detached struct loading and pre-publication class conversion.
-- [ ] Claim consumed historical fields, preserve unclaimed unknown values, and
+- [x] Claim consumed historical fields, preserve unclaimed unknown values, and
   transactionally remap explicit/forced authored intent to declared one-to-one,
   split, or merge current paths.
-- [ ] Add class and struct fixtures for name reuse, numeric type change,
+- [x] Add class and struct fixtures for name reuse, numeric type change,
   unit-only conversion, scalar-to-vector split, two-field merge, missing custom
   version, current version, overlapping routes, incompatible signature,
   conversion failure, and canonical resave.
-- [ ] Extend compatibility audit and canonical-resave reporting with deprecated
+- [x] Extend compatibility audit and canonical-resave reporting with deprecated
   route usage, remaining debt, and safe field/route retirement criteria.
 
 #### Acceptance Gate

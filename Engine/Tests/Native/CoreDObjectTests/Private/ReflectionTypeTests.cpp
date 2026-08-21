@@ -5405,6 +5405,44 @@ namespace
 		EXPECT_DEATH(
 			([] {
 				EnsureDObjectInitialized();
+				static constexpr Durin::FGuid Guid{1, 2, 3, 4};
+				static const char* const Targets[] = {"Current"};
+				static const Durin::FPropertyDeprecationParams Deprecation{
+					Guid, 1, 1, "Historical", Targets, std::size(Targets)};
+				auto Params = Durin::DurinCodeGen::WithDeprecation(
+					Durin::DurinCodeGen::FInt32PropertyParams{
+						"Historical", Durin::EPropertyFlags::Deprecated, 1, 0},
+					&Deprecation);
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"PropertyRegistration.InvalidDeprecation"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				static const char* const Targets[] = {"Current"};
+				static const Durin::FPropertyDeprecationParams Deprecation{
+					{}, 1, 1, "Historical", Targets, std::size(Targets)};
+				auto Params = Durin::DurinCodeGen::WithDeprecation(
+					Durin::DurinCodeGen::FInt32PropertyParams{
+						"Historical_DEPRECATED", Durin::EPropertyFlags::Deprecated, 1, 0},
+					&Deprecation);
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"PropertyRegistration.InvalidDeprecation"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				Durin::DurinCodeGen::FInt32PropertyParams Params{
+					"Historical_DEPRECATED", Durin::EPropertyFlags::Deprecated, 1, 0};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"PropertyRegistration.InvalidDeprecation"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
 				constexpr Durin::FPropertyMetadataParams Metadata{
 					.Step = Durin::FPropertyMetadataNumber::FromUnsigned(1)
 				};

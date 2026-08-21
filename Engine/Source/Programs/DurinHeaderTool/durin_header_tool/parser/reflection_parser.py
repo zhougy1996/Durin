@@ -152,6 +152,30 @@ def _validate_property_legacy_names(
             legacy_owners[legacy_name] = prop.name
 
 
+def _validate_property_deprecations(owner_name: str, properties: list[ReflectedPropertyInfo]) -> None:
+    current = {prop.name: prop for prop in properties}
+    routes: set[str] = set()
+    for prop in properties:
+        route = prop.deprecation
+        if not route:
+            continue
+        if route.historical_name in routes:
+            raise ValueError(
+                f"reflected type '{owner_name}' has duplicate deprecated route '{route.historical_name}'"
+            )
+        routes.add(route.historical_name)
+        for target in route.migrates_to:
+            target_prop = current.get(target)
+            if not target_prop:
+                raise ValueError(
+                    f"reflected type '{owner_name}' deprecated property '{prop.name}' targets missing property '{target}'"
+                )
+            if target_prop.deprecation:
+                raise ValueError(
+                    f"reflected type '{owner_name}' deprecated property '{prop.name}' targets deprecated property '{target}'"
+                )
+
+
 def parse_reflection_header(
     module_name: str,
     header: str,
@@ -235,6 +259,9 @@ def parse_reflection_header(
                 _validate_property_legacy_names(
                     reflected_struct.qualified_name, reflected_struct.properties
                 )
+                _validate_property_deprecations(
+                    reflected_struct.qualified_name, reflected_struct.properties
+                )
                 structs.append(reflected_struct)
                 pending_dstruct_annotation = ""
                 continue
@@ -310,6 +337,9 @@ def parse_reflection_header(
                         reflected_class.properties.append(prop)
                         existing_property_names.add(prop.name)
                 _validate_property_legacy_names(
+                    reflected_class.qualified_name, reflected_class.properties
+                )
+                _validate_property_deprecations(
                     reflected_class.qualified_name, reflected_class.properties
                 )
                 classes.append(reflected_class)

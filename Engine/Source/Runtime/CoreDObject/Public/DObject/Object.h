@@ -5,6 +5,7 @@
 #include "DObject/AuthoredOverrideLedger.h"
 #include "DObject/PropertyChange.h"
 #include "DObjectGlobals.h"
+#include "Misc/Guid.h"
 
 namespace Durin
 {
@@ -124,6 +125,11 @@ namespace Durin
 
 		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
 
+		// Exposes source-package versions only while authored PostLoad migration runs.
+		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;
+		COREDOBJECT_API auto SetLoadedCustomVersions(std::span<const std::pair<FGuid, int32>> Versions) -> void;
+		COREDOBJECT_API auto ClearLoadedCustomVersions() -> void;
+
 		// Validates or normalizes detached reflected storage before a live write.
 		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool;
 
@@ -187,6 +193,7 @@ namespace Durin
 		uint32 RootReferenceCount = 0;
 
 		std::shared_ptr<const FAuthoredOverrideLedger> AuthoredOverrideLedger;
+		std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 
 	public:
 		auto SetInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags |= InFlags; }

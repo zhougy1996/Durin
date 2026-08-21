@@ -267,6 +267,23 @@ namespace Durin
 		return true;
 	}
 
+	auto DObject::GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>
+	{
+		const auto It = std::ranges::find(LoadedCustomVersions, Key,
+			[](const auto& Entry) { return Entry.first; });
+		return It == LoadedCustomVersions.end() ? std::nullopt : std::optional<int32>(It->second);
+	}
+
+	auto DObject::SetLoadedCustomVersions(std::span<const std::pair<FGuid, int32>> Versions) -> void
+	{
+		LoadedCustomVersions.assign(Versions.begin(), Versions.end());
+	}
+
+	auto DObject::ClearLoadedCustomVersions() -> void
+	{
+		LoadedCustomVersions.clear();
+	}
+
 	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
 	{
 		(void)Proposal;

@@ -118,6 +118,20 @@ namespace Durin::Asset
 						JsonEscape(Evidence.StoredIdentity), JsonEscape(Evidence.CurrentIdentity),
 						KindName(Evidence.Kind), LocationName(Evidence.Location), JsonEscape(Evidence.LogicalPath));
 				}
+				Json += "],\"deprecatedRouteEvidence\":[";
+				for (size_t EvidenceIndex = 0;
+					EvidenceIndex < Package.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
+				{
+					if (EvidenceIndex) Json += ',';
+					const auto& Evidence = Package.DeprecatedRouteEvidence[EvidenceIndex];
+					Json += std::format(
+						"{{\"objectPath\":\"{}\",\"declaringType\":\"{}\",\"storedFieldName\":\"{}\",\"deprecatedPropertyName\":\"{}\",\"customVersionGuid\":\"{}\",\"sourceVersion\":{},\"deprecatedBefore\":{}}}",
+						JsonEscape(Evidence.ObjectPath), JsonEscape(Evidence.DeclaringType),
+						JsonEscape(Evidence.StoredFieldName),
+						JsonEscape(Evidence.DeprecatedPropertyName),
+						Evidence.CustomVersionGuid.ToString(), Evidence.SourceVersion,
+						Evidence.DeprecatedBefore);
+				}
 				Json += "],\"diagnostics\":[";
 				for (size_t DiagnosticIndex = 0; DiagnosticIndex < Package.Diagnostics.size(); ++DiagnosticIndex)
 				{
@@ -162,6 +176,7 @@ namespace Durin::Asset
 			Package.bPlainResaveRequested = Selection.bAllowPlainResave
 				&& std::ranges::find(Selection.Packages, Record->PackagePath) != Selection.Packages.end();
 			Package.Evidence = Record->CanonicalizationEvidence;
+			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready
 				|| Record->Compatibility != EAssetPackageCompatibility::Compatible)
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
@@ -178,7 +193,8 @@ namespace Durin::Asset
 			if (Package.bDirty)
 				Package.Diagnostics.push_back("DirtyConflict: loaded package has authored changes.");
 			if (!Package.Diagnostics.empty()) Package.Status = EAssetCanonicalResavePackageStatus::Blocked;
-			else if (Package.Evidence.empty() && !Package.bPlainResaveRequested)
+			else if (Package.Evidence.empty() && Package.DeprecatedRouteEvidence.empty()
+				&& !Package.bPlainResaveRequested)
 				Package.Status = EAssetCanonicalResavePackageStatus::Skipped;
 			else Package.Status = EAssetCanonicalResavePackageStatus::Ready;
 		}
@@ -331,7 +347,8 @@ namespace Durin::Asset
 			if (bInjectedVerificationFailure || !Verify
 				|| Verification.FormatVersion != LatestAssetPackageWriterVersion
 				|| Verification.Compatibility != EAssetPackageCompatibility::Compatible
-				|| !Verification.CanonicalizationEvidence.empty())
+				|| !Verification.CanonicalizationEvidence.empty()
+				|| !Verification.DeprecatedRouteEvidence.empty())
 			{
 				FFileHelper::FAtomicFileError RestoreError;
 				const bool bRestored = FFileHelper::SaveArrayToFileAtomically(

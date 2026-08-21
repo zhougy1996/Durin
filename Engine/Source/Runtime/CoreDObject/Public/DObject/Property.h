@@ -21,6 +21,15 @@ namespace Durin
 		FPropertyMetadataNumber UIMax;
 	};
 
+	struct FPropertyDeprecation
+	{
+		FGuid CustomVersionGuid;
+		int32 DeprecatedBefore = 0;
+		int32 LatestVersion = 0;
+		FName HistoricalName;
+		std::vector<FName> MigrationTargets;
+	};
+
 	class FDefaultObjectGraphMap;
 	class FStructProperty;
 	// Describes one reflected field's storage, flags, referenced type, and value lifecycle.
@@ -53,6 +62,9 @@ namespace Durin
 		auto GetLegacyNames() const -> std::span<const FName> { return LegacyNames; }
 		auto GetTypedMetadata() const -> const FPropertyMetadata& { return TypedMetadata; }
 		COREDOBJECT_API auto SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void;
+		auto IsDeprecated() const -> bool { return Deprecation.has_value(); }
+		auto GetDeprecation() const -> const FPropertyDeprecation* { return Deprecation ? &*Deprecation : nullptr; }
+		COREDOBJECT_API auto SetDeprecation(const FPropertyDeprecationParams* InDeprecation) -> void;
 		auto MatchesSerializedName(FName InName) const -> bool
 		{
 			return NamePrivate == InName || std::ranges::find(LegacyNames, InName) != LegacyNames.end();
@@ -136,6 +148,7 @@ namespace Durin
 		bool bIsObjectPtrWrapper = false;
 		std::vector<FName> LegacyNames;
 		FPropertyMetadata TypedMetadata;
+		std::optional<FPropertyDeprecation> Deprecation;
 		uint32 ValueSize = 0;
 		uint32 ValueAlignment = 0;
 		void (*InitializeValueFunction)(void*) = nullptr;
