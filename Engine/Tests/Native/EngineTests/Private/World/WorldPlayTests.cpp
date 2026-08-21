@@ -366,6 +366,16 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	ASSERT_NE(NearClip, nullptr);
 	ASSERT_NE(AspectRatioMode, nullptr);
 	ASSERT_NE(CustomAspectRatio, nullptr);
+	const Durin::FPropertyMetadata& FieldOfViewMetadata = FieldOfView->GetTypedMetadata();
+	EXPECT_EQ(FieldOfViewMetadata.Category, "Projection");
+	EXPECT_EQ(FieldOfViewMetadata.Units, Durin::EPropertyUnit::Degrees);
+	EXPECT_EQ(FieldOfViewMetadata.Precision, 1);
+	EXPECT_EQ(FieldOfViewMetadata.Step.Kind, Durin::EPropertyMetadataNumericKind::Float);
+	EXPECT_FLOAT_EQ(FieldOfViewMetadata.Step.Float, 0.1f);
+	EXPECT_FLOAT_EQ(FieldOfViewMetadata.ClampMin.Float, 1.0f);
+	EXPECT_FLOAT_EQ(FieldOfViewMetadata.ClampMax.Float, 179.0f);
+	EXPECT_FLOAT_EQ(FieldOfViewMetadata.UIMin.Float, 20.0f);
+	EXPECT_FLOAT_EQ(FieldOfViewMetadata.UIMax.Float, 120.0f);
 
 	auto GetSettings = [&] {
 		return Projection->ContainerPtrToValuePtr<Durin::FCameraProjectionSettings>(Camera);

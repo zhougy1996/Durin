@@ -958,6 +958,11 @@ namespace
 	class DLifecycleReferenceOwnerForTest : public Durin::DObject
 	{
 	public:
+		struct FWeakNested
+		{
+			Durin::TWeakObjectPtr<Durin::DObject> Reference;
+		};
+
 		struct FNativeStruct
 		{
 			Durin::int32 Value = 0;
@@ -972,6 +977,33 @@ namespace
 		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
 		{
 			new (X.GetObj()) DLifecycleReferenceOwnerForTest(X);
+		}
+
+		static auto WeakNestedStructNoRegister() -> Durin::DStruct*
+		{
+			static Durin::DStruct* Struct = nullptr;
+			if (!Struct)
+			{
+				Struct = new Durin::DStruct(Durin::EC_StaticConstructor,
+					Durin::FName("FWeakNested"), Durin::FName("FWeakNested"),
+					sizeof(FWeakNested), alignof(FWeakNested), Durin::EObjectFlags::Transient);
+				Struct->Register(Durin::DStruct::StaticClass, "", "FWeakNested");
+			}
+			return Struct;
+		}
+
+		static auto WeakNestedStruct() -> Durin::DStruct*
+		{
+			static const auto Reference = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<
+				Durin::TWeakObjectPtr<Durin::DObject>>(
+				"Reference", Durin::EPropertyFlags::Transient, 1,
+				static_cast<Durin::uint16>(offsetof(FWeakNested, Reference)), &Durin::DObject::StaticClass);
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Reference};
+			static const Durin::DurinCodeGen::FStructParams Params = {
+				&WeakNestedStructNoRegister, "Tests::FWeakNested", "FWeakNested",
+				sizeof(FWeakNested), alignof(FWeakNested), Properties, std::size(Properties),
+				&Durin::GetDStructOps<FWeakNested>()};
+			return Durin::DurinCodeGen::ConstructDStruct(Params);
 		}
 
 		static auto StaticClassNoRegister() -> Durin::DClass*
@@ -1168,6 +1200,16 @@ namespace
 					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakMap)),
 					&WeakMapKeyPropertyParams, &WeakMapValuePropertyParams,
 					&GMapPropertyHelper<std::string, Durin::TWeakObjectPtr<Durin::DObject>>};
+				static const Durin::DurinCodeGen::FStructPropertyParams WeakNestedPropertyParams = {
+					"WeakNested", Durin::EPropertyFlags::Transient, 1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNested)),
+					&WeakNestedStruct};
+				static const Durin::DurinCodeGen::FStructPropertyParams WeakNestedArrayInnerPropertyParams = {
+					"WeakNestedArray_Inner", Durin::EPropertyFlags::None, 1, 0, &WeakNestedStruct};
+				static const Durin::DurinCodeGen::FArrayPropertyParams WeakNestedArrayPropertyParams = {
+					"WeakNestedArray", Durin::EPropertyFlags::Transient, 1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNestedArray)),
+					&WeakNestedArrayInnerPropertyParams, &GVectorPropertyHelper<FWeakNested>};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 					&ValuePropertyParams,
 					&BoolPropertyParams,
@@ -1184,14 +1226,16 @@ namespace
 					&WeakReferencePropertyParams,
 					&WeakExternalPropertyParams,
 					&WeakReferencesPropertyParams,
-					&WeakMapPropertyParams
+					&WeakMapPropertyParams,
+					&WeakNestedPropertyParams,
+					&WeakNestedArrayPropertyParams
 				};
 				static const Durin::DurinCodeGen::FClassParams ClassParams = {
 					&DLifecycleReferenceOwnerForTest::StaticClassNoRegister,
 					"DLifecycleReferenceOwnerForTest",
 					"DLifecycleReferenceOwnerForTest",
 					PropertyParams,
-					16
+					18
 				};
 				Durin::DurinCodeGen::ConstructDClass(ClassParams);
 				bPropertiesConstructed = true;
@@ -1303,6 +1347,8 @@ namespace
 		Durin::TWeakObjectPtr<Durin::DObject> WeakExternal;
 		std::vector<Durin::TWeakObjectPtr<Durin::DObject>> WeakReferences;
 		std::unordered_map<std::string, Durin::TWeakObjectPtr<Durin::DObject>> WeakMap;
+		FWeakNested WeakNested;
+		std::vector<FWeakNested> WeakNestedArray;
 		Durin::DObject* NativeReference = nullptr;
 		Durin::int32 NativeScalar = 0;
 		FNativeStruct NativeStruct;
@@ -3825,6 +3871,8 @@ namespace
 		Source->WeakReferences = {Inner, External};
 		Source->WeakMap.emplace("Internal", Inner);
 		Source->WeakMap.emplace("External", External);
+		Source->WeakNested.Reference = Inner;
+		Source->WeakNestedArray = {{Inner}, {External}};
 		Inner->SerializedNativeReference = External;
 
 		std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
@@ -3845,6 +3893,10 @@ namespace
 		EXPECT_EQ(Duplicate->WeakReferences[1].Get(), nullptr);
 		EXPECT_EQ(Duplicate->WeakMap.at("Internal").Get(), DuplicateInner);
 		EXPECT_EQ(Duplicate->WeakMap.at("External").Get(), nullptr);
+		EXPECT_EQ(Duplicate->WeakNested.Reference.Get(), DuplicateInner);
+		ASSERT_EQ(Duplicate->WeakNestedArray.size(), 2u);
+		EXPECT_EQ(Duplicate->WeakNestedArray[0].Reference.Get(), DuplicateInner);
+		EXPECT_EQ(Duplicate->WeakNestedArray[1].Reference.Get(), nullptr);
 		EXPECT_EQ(DuplicateInner->SerializedNativeReference, External);
 		EXPECT_EQ(Duplicate->PostLoadCallCount, 1);
 		EXPECT_EQ(DuplicateInner->PostLoadCallCount, 1);
@@ -5240,7 +5292,16 @@ namespace
 			EXPECT_EQ(Column->GetStruct(), FloatVector4Struct);
 			EXPECT_TRUE(Column->HasValueAccessors());
 			EXPECT_EQ(Column->GetValuePtr(&Matrix), &Matrix[ColumnIndex]);
+			EXPECT_EQ(Column->GetTypedMetadata().Category, "Matrix");
 		}
+		auto* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		ASSERT_NE(TransformStruct, nullptr);
+		auto* Rotation = TransformStruct->FindPropertyByName("Rotation", false);
+		auto* Translation = TransformStruct->FindPropertyByName("Translation", false);
+		ASSERT_NE(Rotation, nullptr);
+		ASSERT_NE(Translation, nullptr);
+		EXPECT_EQ(Rotation->GetTypedMetadata().Category, "Transform");
+		EXPECT_EQ(Translation->GetTypedMetadata().Category, "Transform");
 
 		const auto* DefaultQuat = static_cast<const Durin::FQuatf*>(FloatQuatStruct->GetDefaultValue());
 		const auto* DefaultMatrix = static_cast<const Durin::FMatrix4f*>(FloatMatrixStruct->GetDefaultValue());

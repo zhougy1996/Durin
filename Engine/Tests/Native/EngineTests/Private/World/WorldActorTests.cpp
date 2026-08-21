@@ -579,3 +579,27 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
+
+#if DURIN_WITH_EDITOR
+TEST(FWorldTests, EditorPickingMutationPublishesNestedTransientWeakReflection)
+{
+	auto* Mutation = Durin::FEditorPickingPrimitiveMutation::StaticStruct();
+	auto* Batch = Durin::FEditorPickingPrimitiveMutationBatch::StaticStruct();
+	ASSERT_NE(Mutation, nullptr);
+	ASSERT_NE(Batch, nullptr);
+	for (const char* Name : {"Actor", "Component"})
+	{
+		auto* Property = Mutation->FindPropertyByName(Name, false);
+		ASSERT_NE(Property, nullptr);
+		EXPECT_EQ(Property->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::WeakObject);
+		EXPECT_TRUE(Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+	}
+	auto* Mutations = static_cast<Durin::FArrayProperty*>(
+		Batch->FindPropertyByName("Mutations", false));
+	ASSERT_NE(Mutations, nullptr);
+	EXPECT_TRUE(Mutations->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+	auto* Inner = static_cast<Durin::FStructProperty*>(Mutations->GetInner());
+	ASSERT_NE(Inner, nullptr);
+	EXPECT_EQ(Inner->GetStruct(), Mutation);
+}
+#endif

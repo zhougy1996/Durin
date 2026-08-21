@@ -25,7 +25,7 @@ from .runtime_program import (
 )
 
 POLICY_EXIT_CODE = 3
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CURRENT_ASSET_FORMAT_VERSION = 4
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -63,7 +63,7 @@ def _read_report(output: str) -> dict[str, Any]:
             output,
             label="Asset audit report",
             source="from DurinAssetTool",
-            schema_path=SCHEMA_DIRECTORY / "asset-audit-v2.schema.json",
+            schema_path=SCHEMA_DIRECTORY / "asset-audit-v3.schema.json",
         )
     except JsonContractError as exc:
         raise DevToolError(str(exc)) from exc

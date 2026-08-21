@@ -27,9 +27,13 @@ namespace Durin
 	};
 
 	// Describes one game-thread primitive mutation without retaining reflected objects.
+	DSTRUCT()
 	struct FEditorPickingPrimitiveMutation
 	{
+		GENERATED_BODY()
+		DPROPERTY(Transient)
 		TWeakObjectPtr<AActor> Actor;
+		DPROPERTY(Transient)
 		TWeakObjectPtr<DPrimitiveComponent> Component;
 		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
 		uint64 RegistrationGeneration = 0;
@@ -40,10 +44,13 @@ namespace Durin
 	};
 
 	// Carries either one ordered mutation or one complete initial/recovery snapshot.
+	DSTRUCT()
 	struct FEditorPickingPrimitiveMutationBatch
 	{
+		GENERATED_BODY()
 		uint64 Revision = 0;
 		bool bCompleteSnapshot = false;
+		DPROPERTY(Transient)
 		std::vector<FEditorPickingPrimitiveMutation> Mutations;
 	};
 #endif

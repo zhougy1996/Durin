@@ -4,12 +4,12 @@ Summary: Add typed property metadata, versioned reflected-schema migration, weak
 
 Last reviewed: 2026-08-22
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-22
 
 ## Current Status
 
-Stages 0 through 3 are complete; Stage 4 is next. Durin already has generated
+All five implementation stages are complete. Durin now has generated
 property trees,
 untyped string metadata, property and type `LegacyNames`, immutable class and
 struct defaults, authored override tracking, field-tagged DAST v4 packages,
@@ -70,6 +70,25 @@ Fixtures cover reused names, numeric type and unit conversion, scalar splits,
 two-source merges, missing/current/future versions, incompatible signatures,
 class and struct rejection, and canonical resave. Validation receipts are DHT
 `184 passed`, `CoreObjectTests` `76 passed`, and `AssetPackageTests` `97 passed`.
+
+Stage 4 added typed transient weak-object properties across direct, fixed-array,
+Array, Map-value, and nested-struct forms. GC, snapshots, duplication,
+process-local Archives, and Details inspection preserve non-owning semantics;
+weak Map keys and durable weak persistence fail closed. Validation receipts are
+DHT `192 passed`, `CoreObjectTests` `78 passed`, property snapshots `16 passed`,
+`EditorPropertyTests` `30 passed`, and `AssetPackageTests` `97 passed`.
+
+Stage 5 adopted typed metadata on production camera, collision-shape,
+quaternion, transform, and matrix fields; added a checked-in legacy DAST v4
+migration fixture and a production nested transient weak mutation type; and
+aligned the asset-audit consumer with report Schema v3. The final qualification
+passed DHT `192`, `CoreObjectTests` `78`, property snapshots `16`, property
+changes `2`, `EditorPropertyTests` `30`, `AssetPackageTests` `97`, and
+`WorldTests` `106`, plus `fast-all`, full `all` build, complete native `all`,
+29-package compatibility audit, DAST v4 baseline, changed-document validation,
+and a no-op repeat `all` build for generated-output determinism. No compatibility
+shim met its evidence-based retirement gate, so existing aliases and deprecated
+routes remain intentionally available.
 
 ## Goal
 
@@ -433,16 +452,16 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 5: Integrate, qualify, and close compatibility debt
 
-- [ ] Adopt typed metadata in representative numeric, vector, quaternion, and
+- [x] Adopt typed metadata in representative numeric, vector, quaternion, and
   matrix authored fields without broad unrelated annotation churn.
-- [ ] Add one repository-owned asset fixture that exercises a real schema
+- [x] Add one repository-owned asset fixture that exercises a real schema
   migration and one transient runtime type that exercises nested weak values.
-- [ ] Run focused DHT, CoreDObject, AssetCore, and editor suites, then
+- [x] Run focused DHT, CoreDObject, AssetCore, and editor suites, then
   `fast-all`, a full `all` build, and the complete native test gate because the
   property schema and serialization substrate are shared across modules.
-- [ ] Run changed documentation validation, compatibility audit, canonical
+- [x] Run changed documentation validation, compatibility audit, canonical
   resave checks, and generated-output determinism checks.
-- [ ] Publish final contracts, record any intentionally deferred metadata keys
+- [x] Publish final contracts, record any intentionally deferred metadata keys
   or math types, and remove superseded compatibility shims only when their
   retirement gates pass.
 

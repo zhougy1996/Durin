@@ -25,7 +25,8 @@ namespace Durin
 		GENERATED_BODY()
 
 		// Vertical field of view in degrees.
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection", Units = "Degrees", Step = "0.1", Precision = 1,
+			ClampMin = "1", ClampMax = "179", UIMin = "20", UIMax = "120")
 		float FieldOfViewDegrees = 60.0f;
 
 		DPROPERTY(Edit)

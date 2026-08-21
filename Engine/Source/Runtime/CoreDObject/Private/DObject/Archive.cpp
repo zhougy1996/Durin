@@ -20,17 +20,32 @@ namespace Durin
 		{
 			if (!Property || (Ar.GetPurpose() != EArchivePurpose::ObjectGraph
 				&& Ar.GetPurpose() != EArchivePurpose::Duplicate)) return false;
-			switch (Property->GetKind())
-			{
-			case DurinCodeGen::EPropertyGenFlags::WeakObject:
-				return true;
-			case DurinCodeGen::EPropertyGenFlags::Array:
-				return ShouldSerializeTransientWeakProperty(Ar, static_cast<const FArrayProperty*>(Property)->GetInner());
-			case DurinCodeGen::EPropertyGenFlags::Map:
-				return ShouldSerializeTransientWeakProperty(Ar, static_cast<const FMapProperty*>(Property)->GetValueProp());
-			default:
-				return false;
-			}
+			std::unordered_set<const DStruct*> VisitedStructs;
+			std::function<bool(const FProperty*)> ContainsWeak = [&](const FProperty* Candidate) {
+				if (!Candidate) return false;
+				switch (Candidate->GetKind())
+				{
+				case DurinCodeGen::EPropertyGenFlags::WeakObject:
+					return true;
+				case DurinCodeGen::EPropertyGenFlags::Struct:
+				{
+					const DStruct* Struct = static_cast<const FStructProperty*>(Candidate)->GetStruct();
+					if (!Struct || !VisitedStructs.emplace(Struct).second) return false;
+					bool bContainsWeak = false;
+					Struct->ForEachProperty([&](FProperty* Field) {
+						if (!bContainsWeak) bContainsWeak = ContainsWeak(Field);
+					}, false);
+					return bContainsWeak;
+				}
+				case DurinCodeGen::EPropertyGenFlags::Array:
+					return ContainsWeak(static_cast<const FArrayProperty*>(Candidate)->GetInner());
+				case DurinCodeGen::EPropertyGenFlags::Map:
+					return ContainsWeak(static_cast<const FMapProperty*>(Candidate)->GetValueProp());
+				default:
+					return false;
+				}
+			};
+			return ContainsWeak(Property);
 		}
 
 		auto MakeLogicalTypeDescriptor(FProperty* Property) -> FArchiveLogicalTypeDescriptor

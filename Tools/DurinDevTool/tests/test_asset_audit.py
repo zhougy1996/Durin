@@ -53,11 +53,12 @@ def package(
         "lastWriteTimeTicks": 20,
         "findings": findings,
         "canonicalizationEvidence": [],
+        "deprecatedRouteEvidence": [],
     }
 
 
 def report(*packages: dict[str, object]) -> str:
-    return json.dumps({"schemaVersion": 2, "packages": list(packages)})
+    return json.dumps({"schemaVersion": 3, "packages": list(packages)})
 
 
 def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: str = "json") -> tuple[int, str, str]:
@@ -183,36 +184,44 @@ def test_json_schema_names_and_order_are_preserved(tmp_path: Path) -> None:
     )
     assert result == 0
     parsed = json.loads(output)
-    assert parsed["schemaVersion"] == 2
+    assert parsed["schemaVersion"] == 3
     assert [item["packagePath"] for item in parsed["packages"]] == ["/Engine/A", "/Game/B"]
     assert parsed["packages"][1]["findings"][0]["code"] == "UnknownField"
 
 
 def test_checked_in_schema_freezes_public_enum_names() -> None:
     schema = json.loads(
-        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v2.schema.json").read_text(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v3.schema.json").read_text(
             encoding="utf-8"
         )
     )
     package_properties = schema["$defs"]["package"]["properties"]
     finding_properties = schema["$defs"]["finding"]["properties"]
     assert schema["properties"]["schemaVersion"]["const"] == asset.SCHEMA_VERSION
+    native_contract = (
+        REPOSITORY_ROOT / "Engine/Source/Runtime/AssetCore/Public/Asset/Compatibility.h"
+    ).read_text(encoding="utf-8")
+    assert f"AssetCompatibilityReportSchemaVersion = {asset.SCHEMA_VERSION};" in native_contract
     assert set(package_properties["inspection"]["enum"]) == {"NotChecked", "Ready", "Failed"}
     assert set(package_properties["compatibility"]["enum"]) == {"Compatible", "Incompatible", "Unsupported"}
     assert set(package_properties["freshness"]["enum"]) == {"Current", "Stale"}
     assert set(finding_properties["code"]["enum"]) == {
-        "UnknownField", "IncompatibleFieldSignature", "UnavailableClass",
+        "UnknownField", "IncompatibleFieldSignature", "DeprecatedRouteUsed", "UnavailableClass",
         "UnsupportedPackageFormat", "InvalidObjectGraph", "CorruptPackage", "IoFailure",
     }
+    assert set(schema["$defs"]["canonicalizationEvidence"]["properties"]["kind"]["enum"]) == {
+        "Class", "Struct", "Enum", "Property",
+    }
+    assert schema["$defs"]["deprecatedRouteEvidence"]["properties"]["sourceVersion"]["minimum"] == -1
 
 
 def test_checked_in_report_fixtures_match_their_schemas() -> None:
     audit_schema = json.loads(
-        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v2.schema.json").read_text(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v3.schema.json").read_text(
             encoding="utf-8"
         )
     )
-    validate(json.loads((FIXTURE_ROOT / "asset-audit-v2.json").read_text(encoding="utf-8")), audit_schema)
+    validate(json.loads((FIXTURE_ROOT / "asset-audit-v3.json").read_text(encoding="utf-8")), audit_schema)
 
 
 @pytest.mark.parametrize(

@@ -583,7 +583,7 @@ namespace Durin::Asset::DastV4
 				FCustomVersion Version; uint64 Value = 0;
 				if (!Schemas.Fixed(Version.Guid.A, Diagnostic) || !Schemas.Fixed(Version.Guid.B, Diagnostic)
 					|| !Schemas.Fixed(Version.Guid.C, Diagnostic) || !Schemas.Fixed(Version.Guid.D, Diagnostic)
-					|| !Schemas.VarUInt(Value, Diagnostic) || Value > std::numeric_limits<uint32>::max())
+					|| !Schemas.VarUInt(Value, Diagnostic) || Value > std::numeric_limits<int32>::max())
 					return Fail(Diagnostic, EReaderFailure::InvalidTable, "Custom-version entry is invalid.", Schemas.Position());
 				Version.Value = static_cast<uint32>(Value); Package.CustomVersions.push_back(Version);
 			}

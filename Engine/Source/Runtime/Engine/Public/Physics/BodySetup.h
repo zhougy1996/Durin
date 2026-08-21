@@ -94,7 +94,7 @@ namespace Durin
 		EBodySetupShapeType ShapeType = EBodySetupShapeType::None;
 
 		// Box uses XYZ half extents; Sphere uses X radius; Capsule uses X radius and Z half height.
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Shape", ToolTip = "Shape dimensions in local space", Units = "Meters")
 		FVector3 Dimensions{0.0};
 
 		DPROPERTY(Edit)

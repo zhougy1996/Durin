@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "asset-audit-v3.schema.json",
+  "title": "Durin asset compatibility audit report v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "packages"],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "packages": { "type": "array", "items": { "$ref": "#/$defs/package" } }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packagePath", "physicalPath", "formatVersion", "inspection", "compatibility", "freshness", "fileSize", "lastWriteTimeTicks", "findings", "canonicalizationEvidence", "deprecatedRouteEvidence"],
+      "properties": {
+        "packagePath": { "type": "string", "minLength": 1 },
+        "physicalPath": { "type": "string" },
+        "formatVersion": { "type": "integer", "minimum": 0 },
+        "inspection": { "enum": ["NotChecked", "Ready", "Failed"] },
+        "compatibility": { "enum": ["Compatible", "Incompatible", "Unsupported"] },
+        "freshness": { "enum": ["Current", "Stale"] },
+        "fileSize": { "type": "integer", "minimum": 0 },
+        "lastWriteTimeTicks": { "type": "integer" },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "canonicalizationEvidence": { "type": "array", "items": { "$ref": "#/$defs/canonicalizationEvidence" } },
+        "deprecatedRouteEvidence": { "type": "array", "items": { "$ref": "#/$defs/deprecatedRouteEvidence" } }
+      }
+    },
+    "canonicalizationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storedIdentity", "currentIdentity", "kind", "location", "logicalPath"],
+      "properties": {
+        "storedIdentity": { "type": "string", "minLength": 1 },
+        "currentIdentity": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["Class", "Struct", "Enum", "Property"] },
+        "location": { "enum": ["PackageHeader", "ObjectRecord", "Schema", "TypeDescriptor"] },
+        "logicalPath": { "type": "string" }
+      }
+    },
+    "deprecatedRouteEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objectPath", "declaringType", "storedFieldName", "deprecatedPropertyName", "customVersionGuid", "sourceVersion", "deprecatedBefore", "migrationTargets"],
+      "properties": {
+        "objectPath": { "type": "string" },
+        "declaringType": { "type": "string", "minLength": 1 },
+        "storedFieldName": { "type": "string", "minLength": 1 },
+        "deprecatedPropertyName": { "type": "string", "minLength": 1 },
+        "customVersionGuid": { "type": "string", "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$" },
+        "sourceVersion": { "type": "integer", "minimum": -1 },
+        "deprecatedBefore": { "type": "integer", "minimum": 0 },
+        "migrationTargets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "objectPath", "classIdentity", "declaringType", "fieldName", "storedKind", "storedTypeSignature", "expectedKind", "expectedTypeSignature", "payloadSize", "payloadOffset", "diagnostic"],
+      "properties": {
+        "code": { "enum": ["UnknownField", "IncompatibleFieldSignature", "DeprecatedRouteUsed", "UnavailableClass", "UnsupportedPackageFormat", "InvalidObjectGraph", "CorruptPackage", "IoFailure"] },
+        "objectPath": { "type": "string" },
+        "classIdentity": { "type": "string" },
+        "declaringType": { "type": "string" },
+        "fieldName": { "type": "string" },
+        "storedKind": { "type": "string" },
+        "storedTypeSignature": { "type": "string" },
+        "expectedKind": { "type": "string" },
+        "expectedTypeSignature": { "type": "string" },
+        "payloadSize": { "type": "integer", "minimum": 0 },
+        "payloadOffset": { "type": "integer", "minimum": 0 },
+        "diagnostic": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 3,
+  "packages": [
+    {
+      "packagePath": "/Engine/Materials/DefaultMaterial",
+      "physicalPath": "C:/Durin/Engine/Content/Materials/DefaultMaterial.dasset",
+      "formatVersion": 4,
+      "inspection": "Ready",
+      "compatibility": "Compatible",
+      "freshness": "Current",
+      "fileSize": 82636,
+      "lastWriteTimeTicks": 20,
+      "findings": [
+        {
+          "code": "DeprecatedRouteUsed",
+          "objectPath": "/Engine/Materials/DefaultMaterial.DefaultMaterial",
+          "classIdentity": "Durin::DMaterial",
+          "declaringType": "Durin::DMaterial",
+          "fieldName": "Roughness",
+          "storedKind": "Float",
+          "storedTypeSignature": "Float32",
+          "expectedKind": "Float",
+          "expectedTypeSignature": "Float32",
+          "payloadSize": 4,
+          "payloadOffset": 128,
+          "diagnostic": "Historical field routed through Roughness_DEPRECATED."
+        }
+      ],
+      "canonicalizationEvidence": [],
+      "deprecatedRouteEvidence": [
+        {
+          "objectPath": "/Engine/Materials/DefaultMaterial.DefaultMaterial",
+          "declaringType": "Durin::DMaterial",
+          "storedFieldName": "Roughness",
+          "deprecatedPropertyName": "Roughness_DEPRECATED",
+          "customVersionGuid": "12345678-90ab-cdef-1234-567890abcdef",
+          "sourceVersion": -1,
+          "deprecatedBefore": 1,
+          "migrationTargets": ["SurfaceRoughness"]
+        }
+      ]
+    }
+  ]
+}

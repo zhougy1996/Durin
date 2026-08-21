@@ -119,6 +119,10 @@ TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
 	EXPECT_NE(Durin::DPrimitiveComponent::StaticClass()->FindPropertyByName("BodyInstance"), nullptr);
 	EXPECT_NE(Durin::DCapsuleComponent::StaticClass()->FindPropertyByName("CapsuleRadius"), nullptr);
 	EXPECT_NE(Durin::DCapsuleComponent::StaticClass()->FindPropertyByName("CapsuleHalfHeight"), nullptr);
+	Durin::FProperty* Dimensions = Durin::DBodySetup::StaticClass()->FindPropertyByName("Dimensions");
+	ASSERT_NE(Dimensions, nullptr);
+	EXPECT_EQ(Dimensions->GetTypedMetadata().Category, "Shape");
+	EXPECT_EQ(Dimensions->GetTypedMetadata().Units, Durin::EPropertyUnit::Meters);
 }
 
 TEST(FAetherGeometryTests, RaycastsRotatedPositiveScaleBoxes)

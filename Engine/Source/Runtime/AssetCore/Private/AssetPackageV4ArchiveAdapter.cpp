@@ -76,6 +76,40 @@ namespace Durin::Asset::Private
 			return "<unknown>";
 		}
 
+		template<typename FVisitor>
+		auto VisitReflectedPropertySchema(DStructBase* Root,
+			std::unordered_set<const DStructBase*>& Visited, FVisitor& Visitor) -> bool
+		{
+			if (!Root || !Visited.emplace(Root).second) return true;
+			bool bValid = true;
+			std::function<void(FProperty*)> VisitProperty = [&](FProperty* Property) {
+				if (!bValid || !Property) return;
+				bValid = Visitor(Root, Property);
+				if (!bValid) return;
+				switch (Property->GetKind())
+				{
+				case DurinCodeGen::EPropertyGenFlags::Struct:
+					bValid = VisitReflectedPropertySchema(
+						static_cast<FStructProperty*>(Property)->GetStruct(), Visited, Visitor);
+					break;
+				case DurinCodeGen::EPropertyGenFlags::Array:
+					VisitProperty(static_cast<FArrayProperty*>(Property)->GetInner());
+					break;
+				case DurinCodeGen::EPropertyGenFlags::Map:
+				{
+					auto* Map = static_cast<FMapProperty*>(Property);
+					VisitProperty(Map->GetKeyProp());
+					VisitProperty(Map->GetValueProp());
+					break;
+				}
+				default:
+					break;
+				}
+			};
+			Root->ForEachProperty(VisitProperty, true);
+			return bValid;
+		}
+
 		auto SourceCustomVersion(const FArchiveVersionContext& Context,
 			const FPropertyDeprecation& Deprecation) -> int32
 		{
@@ -115,29 +149,22 @@ namespace Durin::Asset::Private
 			const FArchiveVersionContext& Versions, std::string& OutError) -> bool
 		{
 			std::unordered_set<const DStructBase*> Visited;
-			std::function<bool(DStructBase*)> Visit = [&](DStructBase* Struct) {
-				if (!Struct || !Visited.emplace(Struct).second) return true;
-				bool bValid = true;
-				Struct->ForEachProperty([&](FProperty* Property) {
-					if (!bValid || !Property) return;
-					if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+			auto Validate = [&](DStructBase* Struct, FProperty* Property) {
+				if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+				{
+					if (const FArchiveCustomVersion* Version = Versions.FindCustom(Deprecation->CustomVersionGuid);
+						Version && Version->Version > Deprecation->LatestVersion)
 					{
-						if (const FArchiveCustomVersion* Version = Versions.FindCustom(Deprecation->CustomVersionGuid);
-							Version && Version->Version > Deprecation->LatestVersion)
-						{
-							OutError = std::format(
-								"UnsupportedCustomVersion: {} exceeds the latest supported version {} for {}::{}.",
-								Version->Version, Deprecation->LatestVersion,
-								ReflectedStructIdentity(Struct), Property->NamePrivate.ToString());
-							bValid = false;
-						}
+						OutError = std::format(
+							"UnsupportedCustomVersion: {} exceeds the latest supported version {} for {}::{}.",
+							Version->Version, Deprecation->LatestVersion,
+							ReflectedStructIdentity(Struct), Property->NamePrivate.ToString());
+						return false;
 					}
-					if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
-						bValid = Visit(static_cast<FStructProperty*>(Property)->GetStruct());
-				}, true);
-				return bValid;
+				}
+				return true;
 			};
-			return Visit(Root);
+			return VisitReflectedPropertySchema(Root, Visited, Validate);
 		}
 
 		auto EqualType(const FArchiveLogicalTypeDescriptor& A,
@@ -1157,30 +1184,23 @@ namespace Durin::Asset::Private
 		{
 			std::unordered_map<FGuid, int32> Versions;
 			std::unordered_set<const DStructBase*> Visited;
-			std::function<bool(DStructBase*)> Visit = [&](DStructBase* Struct) {
-				if (!Struct || !Visited.emplace(Struct).second) return true;
-				bool bValid = true;
-				Struct->ForEachProperty([&](FProperty* Property) {
-					if (!bValid || !Property) return;
-					if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+			auto Gather = [&](DStructBase* Struct, FProperty* Property) {
+				if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
+				{
+					auto [It, bInserted] = Versions.emplace(
+						Deprecation->CustomVersionGuid, Deprecation->LatestVersion);
+					if (!bInserted && It->second != Deprecation->LatestVersion)
 					{
-						auto [It, bInserted] = Versions.emplace(
-							Deprecation->CustomVersionGuid, Deprecation->LatestVersion);
-						if (!bInserted && It->second != Deprecation->LatestVersion)
-						{
-							Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
-								ReflectedStructIdentity(Struct),
-								"One custom-version GUID declares inconsistent latest versions."};
-							bValid = false;
-						}
+						Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
+							ReflectedStructIdentity(Struct),
+							"One custom-version GUID declares inconsistent latest versions."};
+						return false;
 					}
-					if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
-						bValid = Visit(static_cast<FStructProperty*>(Property)->GetStruct());
-				}, true);
-				return bValid;
+				}
+				return true;
 			};
 			for (DObject* Object : Objects)
-				if (!Object || !Visit(Object->GetClass())) return false;
+				if (!Object || !VisitReflectedPropertySchema(Object->GetClass(), Visited, Gather)) return false;
 			for (const auto& [Guid, Version] : Versions)
 			{
 				const uint32 Value = static_cast<uint32>(Version);

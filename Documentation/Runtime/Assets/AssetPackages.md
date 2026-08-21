@@ -382,6 +382,14 @@ resave, and successful verification requires both alias and deprecated-route
 evidence to be empty afterward. Unclaimed unknown fields retain their existing
 opaque behavior.
 
+The machine-readable compatibility report is Schema v3. Each package record
+always carries `canonicalizationEvidence` and `deprecatedRouteEvidence` arrays;
+the latter records the object path, declaring type, historical and deprecated
+field names, Custom Version GUID and bounds, and migration targets. DevTool
+validates this exact contract with `asset-audit-v3.schema.json` before applying
+audit or baseline policy. The prior v2 schema remains checked in as the frozen
+shape that predates deprecated-route evidence.
+
 `InspectPackage`, `ExtractReferences`, and `ProbeCompatibility` consume the
 same decoded logical model without constructing objects or invoking callbacks.
 Known values project to existing field/reference semantics, including intrinsic

@@ -252,6 +252,10 @@ namespace
 	auto GIntVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::int32>>(); }
 	auto GGuidVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FGuid>>(); }
 	auto GVector3VectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FVector3>>(); }
+	auto GMigratingValueVectorHelper() -> const Durin::FArrayOps*
+	{
+		return Durin::ResolveArrayOps<std::vector<AssetStructTest::FMigratingValue>>();
+	}
 
 	using FScoreMap = std::unordered_map<std::string, Durin::int32>;
 	auto MapNum(const void* Container) -> Durin::uint64 { return static_cast<const FScoreMap*>(Container)->size(); }
@@ -609,6 +613,59 @@ namespace
 		Durin::int32 Left_DEPRECATED = 0;
 		Durin::int32 Right_DEPRECATED = 0;
 		float Distance_DEPRECATED = 0.0f;
+	};
+
+	class DContainerMigrationAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DContainerMigrationAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DContainerMigrationAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DContainerMigrationAssetForTest",
+					sizeof(DContainerMigrationAssetForTest), alignof(DContainerMigrationAssetForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DContainerMigrationAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DContainerMigrationAssetForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const FStructPropertyParams ValuesInner{
+				"Values_Inner", EPropertyFlags::None, 1, 0, &GetMigratingValueStruct};
+			static const FArrayPropertyParams ValuesProperty{
+				"Values", EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(DContainerMigrationAssetForTest, Values)),
+				&ValuesInner, &GMigratingValueVectorHelper};
+			static const FPropertyParamsBase* Properties[] = {&ValuesProperty};
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DContainerMigrationAssetForTest",
+				"DContainerMigrationAssetForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+
+		std::vector<AssetStructTest::FMigratingValue> Values;
 	};
 
 	std::vector<Durin::EArchivePurpose> GAuthoredArchivePurposes;
@@ -1292,6 +1349,20 @@ namespace
 		if (Character >= 'a' && Character <= 'f') return static_cast<Durin::uint8>(Character - 'a' + 10);
 		ADD_FAILURE() << "Invalid hexadecimal fixture digit.";
 		return 0;
+	}
+
+	auto ReadCompatibilityFixtureBytes(std::string_view Name) -> std::vector<Durin::uint8>
+	{
+		std::ifstream Stream(std::filesystem::path(DURIN_TEST_DATA_DIR) / std::format("{}.dasset.hex", Name));
+		EXPECT_TRUE(Stream.is_open());
+		std::string Hex;
+		Stream >> Hex;
+		EXPECT_FALSE(Hex.empty());
+		EXPECT_EQ(Hex.size() % 2, 0u);
+		std::vector<Durin::uint8> Bytes(Hex.size() / 2);
+		for (size_t Index = 0; Index < Bytes.size(); ++Index)
+			Bytes[Index] = static_cast<Durin::uint8>((HexDigit(Hex[Index * 2]) << 4) | HexDigit(Hex[Index * 2 + 1]));
+		return Bytes;
 	}
 
 	auto WriteCompatibilityFixture(std::string_view Name, const std::filesystem::path& Destination) -> void
@@ -3604,6 +3675,45 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	Loaded.Reset();
 }
 
+TEST(FPackageAssetTests, V4ContainerNestedDeprecatedRoutesEmitAndValidateCustomVersions)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::Asset;
+	FAssetPath SourcePath;
+	FAssetPath FuturePath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/ContainerMigrationSource", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/ContainerMigrationFuture", FuturePath));
+	DContainerMigrationAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreateAsset(SourcePath, Source));
+	Source->Values.push_back({.Value = 12.0f});
+
+	DastV4::FAssetPackageWriteOptions Options;
+	Options.DeltaMode = EDefaultDeltaMode::NoDelta;
+	DastV4::FWriterDiagnostic WriterDiagnostic;
+	std::vector<uint8> Bytes;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		Source->GetPackage(), Bytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	DastV4::FDecodedPackage Decoded;
+	DastV4::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(DastV4::DecodePackage(Bytes, Decoded, {}, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	auto Version = std::ranges::find(
+		Decoded.CustomVersions, AssetStructTest::FStructMigrationVersion::Guid,
+		&DastV4::FCustomVersion::Guid);
+	ASSERT_NE(Version, Decoded.CustomVersions.end());
+	EXPECT_EQ(Version->Value, AssetStructTest::FStructMigrationVersion::LatestVersion);
+
+	Version->Value = AssetStructTest::FStructMigrationVersion::LatestVersion + 1;
+	std::vector<uint8> FutureBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(Decoded, FutureBytes, &ReaderDiagnostic))
+		<< ReaderDiagnostic.Message;
+	DastV4::FLoadedAssetPackage Loaded;
+	EXPECT_FALSE(DastV4::LoadAssetPackage(
+		FutureBytes, FuturePath, Loaded, nullptr, {}, {}, &ReaderDiagnostic));
+	EXPECT_EQ(FindResidentPackage(FuturePath), nullptr);
+}
+
 TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredIntent)
 {
 	InitializeAssetTests();
@@ -3714,6 +3824,9 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	std::vector<uint8> LegacyBytes;
 	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
+	const std::vector<uint8> FixtureLegacyBytes = ReadCompatibilityFixtureBytes("schema_migration_legacy");
+	ASSERT_EQ(LegacyBytes, FixtureLegacyBytes);
+	LegacyBytes = FixtureLegacyBytes;
 	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
 	FAssetPackageCompatibilityRecord Compatibility;
 	ASSERT_TRUE(DastV4::ProbeCompatibility(
@@ -3813,6 +3926,19 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	EXPECT_FALSE(DastV4::LoadAssetPackage(
 		NewerBytes, NewerPath, NewerLoaded, nullptr, {}, {}, &ReaderDiagnostic));
 	EXPECT_EQ(FindResidentPackage(NewerPath), nullptr);
+
+	DastV4::FDecodedPackage OverflowPackage = CurrentPackage;
+	auto OverflowVersion = std::ranges::find(
+		OverflowPackage.CustomVersions, FSchemaMigrationVersion::Guid,
+		&DastV4::FCustomVersion::Guid);
+	ASSERT_NE(OverflowVersion, OverflowPackage.CustomVersions.end());
+	OverflowVersion->Value = static_cast<uint32>(std::numeric_limits<int32>::max()) + 1u;
+	std::vector<uint8> OverflowBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(OverflowPackage, OverflowBytes, &ReaderDiagnostic));
+	DastV4::FDecodedPackage RejectedOverflowPackage;
+	EXPECT_FALSE(DastV4::DecodePackage(
+		OverflowBytes, RejectedOverflowPackage, {}, &ReaderDiagnostic));
+	EXPECT_EQ(ReaderDiagnostic.Failure, DastV4::EReaderFailure::InvalidTable);
 
 	DastV4::FDecodedPackage IncompatiblePackage = LegacyPackage;
 	DastV4::FDecodedType IncompatibleType = IncompatiblePackage.Types[Int32TypeId - 1];
