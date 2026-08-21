@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-The plan is ready for Stage 0. Durin already has generated property trees,
+Stage 0 is complete and Stage 1 implementation is under validation. Durin already has generated property trees,
 untyped string metadata, property and type `LegacyNames`, immutable class and
 struct defaults, authored override tracking, field-tagged DAST v4 packages,
 custom-version transport, transactional reflected-value loading, hard and soft
@@ -24,12 +24,21 @@ incomplete at the reflection boundary: float vectors are supported, while the
 explicit `FVector*d` spellings, a float quaternion, and the float 4x4 matrix do
 not have a complete authored-property path.
 
-Implementation has not started. Stage 0 must freeze the two compatibility
-decisions that affect persistent identity: whether explicit `FVector*d`
-spellings canonicalize to the existing `FVector*` identities, and whether
-schema migration selects its source version through a persisted per-type
-version or an existing schema/custom-version identity. No later stage may
-silently choose either policy in generated code.
+The metadata inventory found three first-party runtime consumers. `DisplayName`
+is selected for the typed vocabulary; `HideAlpha` and `DefaultCollapsed` remain
+validated extension keys owned by their specialized widgets. Test-only `Role`
+remains an unrestricted extension key, while raw `Category` remains readable
+for compatibility and new first-party declarations use the typed specifier.
+
+Two compatibility decisions are frozen.
+Explicit `FVector*d` spellings canonicalize to the existing `FVector*`
+persistent identities. Reflected field migration reuses DAST v4 custom versions
+and version-gated `_DEPRECATED` fields rather than adding per-type schema
+versions or a second general migration registry. Deprecated semantics require
+an explicit `DPROPERTY(Deprecated, ...)` annotation and then require the
+`_DEPRECATED` member suffix; the suffix alone has no behavior. Migration
+directly reuses the existing GUID-keyed `FArchiveCustomVersion` and DAST v4
+`FCustomVersion` records; it adds no name-to-GUID registry.
 
 ## Goal
 
@@ -51,12 +60,13 @@ distinction between hard, weak, and soft object ownership.
 - DHT parsing, type applicability checks, duplicate detection, canonical
   generated records, runtime typed access, and generic Details-panel
   consumption for the selected metadata vocabulary.
-- A reflected-schema migration substrate for class and struct fields that can
-  rename, remove, add, split, merge, and transform detached logical values
-  before they are committed to live objects.
-- Deterministic migration selection, chaining, diagnostics, bounds, rollback,
-  unknown-field interaction, canonical resave behavior, compatibility audit,
-  and fixtures representing at least two historical schemas.
+- Custom-version-directed loading of historical fields into reflected C++
+  members whose identifiers end in `_DEPRECATED`, followed by bounded
+  `PostDeserialize` or `PostLoad` conversion into current fields.
+- Deterministic historical-name/type/version matching, diagnostics, rollback,
+  retained-unknown interaction, authored-intent remapping, canonical resave
+  behavior, compatibility audit, and fixtures representing at least two
+  historical schemas.
 - `TWeakObjectPtr<T>` as a generated reflected leaf kind for direct fields,
   fixed arrays, Array elements, Map values, and nested reflected structs.
 - Weak-reference behavior for property snapshots, editable copies,
@@ -99,6 +109,21 @@ distinction between hard, weak, and soft object ownership.
 
 ### Typed metadata
 
+- Selected metadata is authored directly as `DisplayName="..."`,
+  `ToolTip="..."`, `Category="..."`, `Units="..."`, `Step="..."`,
+  `Precision=<integer>`, `ClampMin="..."`, `ClampMax="..."`,
+  `UIMin="..."`, and `UIMax="..."`. A selected key may not also appear in
+  `MetaData`; unrelated extension keys remain in its semicolon-delimited view.
+- Presentation strings apply to editable direct and fixed-array fields.
+  Numeric keys apply to scalar integer/float fields and editable components of
+  float/double vectors and quaternions. They are rejected on bool, string,
+  enum, reference, container, matrix, and opaque struct fields and never flow
+  from a container or containing struct into nested values.
+- `Units` accepts `Unitless`, `Percent`, `Degrees`, `Radians`, `Seconds`,
+  `Milliseconds`, `Meters`, `Centimeters`, `Millimeters`, or `Kilometers`.
+  `Step` is finite, positive, and exactly representable by the target kind.
+  `Precision` is 0..9 for float components and 0..17 for double components.
+
 - DHT owns spelling, parsing, applicability, and cross-key validation. Invalid
   numbers, unknown units, duplicate keys, impossible ranges, or metadata on an
   unsupported property kind are generation errors, not runtime strings that an
@@ -123,35 +148,68 @@ distinction between hard, weak, and soft object ownership.
 
 ### Schema evolution
 
+- The frozen route spelling is `DPROPERTY(Deprecated, CustomVersion =
+  <DomainType>, DeprecatedBefore = <DomainType>::<Version>, MigratesTo =
+  "CurrentA;CurrentB")`; `DeprecatedName = "OldName"` optionally overrides
+  suffix stripping. `<DomainType>` exposes `static constexpr FGuid Guid` and
+  `static constexpr int32 LatestVersion`. Generated C++ references those
+  expressions directly, so the existing GUID custom-version identity remains
+  authoritative and no parallel registry is introduced.
+
 - `LegacyNames` remains the zero-code path for identity-preserving renames.
-  Migration is selected only when aliases and exact logical compatibility
-  cannot produce the current schema.
-- Migration operates on bounded detached logical values and retained unknown
-  fields before live-object assignment. A failed, ambiguous, incomplete, or
-  over-budget migration publishes no object mutation and preserves the prior
-  package or in-memory destination.
-- Every migration step has an explicit source identity, destination identity,
-  deterministic order, and diagnostic name. Chains advance monotonically and
-  cycles, gaps, duplicate registrations, and multiple matching paths fail
-  closed.
-- Migration callbacks cannot inspect arbitrary live worlds, load assets,
-  create objects, depend on registration order, or retain pointers into Archive
-  storage. Reference transformations use logical hard/soft tokens supplied by
-  the migration context.
-- Successful load records the current canonical field names, logical types,
-  schema/version identity, and authored override paths. A subsequent save emits
-  only the current schema while preserving still-unknown values that were not
-  claimed by the migration.
-- Existing package custom versions and schema descriptors are reused where
-  they can provide an unambiguous source identity. Stage 0 chooses the smallest
-  persisted extension that can distinguish every supported historical schema;
-  it must not add both a per-type version and a schema fingerprint without a
-  demonstrated need.
-- Removal of a migration step follows the same authored-content baseline,
-  canonical-resave, and compatibility-policy gates as removal of a legacy
-  reflection alias.
+  `_DEPRECATED` is selected only when an old field must remain readable while
+  its historical name is reused, its logical type or units change, or one or
+  more current fields require explicit conversion.
+- `DPROPERTY(Deprecated, ...)` is the only source of deprecated-field semantics;
+  the `_DEPRECATED` suffix alone never changes reflection, loading, saving, or
+  editor behavior. Once explicitly annotated `Deprecated`, the C++ member must
+  end in `_DEPRECATED` or DHT rejects it. A normally reflected field whose name
+  happens to end in that suffix remains ordinary when the annotation is absent.
+- Deprecated fields are load-only compatibility state. They do not appear in
+  Details, current saves, default-delta output, or newly authored override
+  paths. Their historical serialized name defaults to the member name with the
+  `_DEPRECATED` suffix removed; an explicit old name is allowed only for a
+  genuine earlier spelling.
+- Every deprecated route is gated by one stable custom-version GUID and an
+  exclusive upper version bound. Matching uses declaring type, stored field
+  name, stored logical type signature, and stored custom version. A missing
+  custom-version tag means `BeforeCustomVersionWasAdded`, never `Latest`.
+- Custom versions are owned by stable feature or asset domains, not the engine
+  product/build version and not individual fields. Version enum values only
+  increase, are never reordered or reused, and are emitted automatically on a
+  current save when the owning reflected schema declares that domain.
+- Historical routing runs before ordinary exact-current-name matching, but
+  only when its version range and old type signature match. This permits old
+  `A` to load into `A_DEPRECATED` while current `A` remains the canonical field.
+  Duplicate, overlapping, ambiguous, or type-incompatible routes fail closed.
+- Struct conversion runs through bounded `PostDeserialize` on detached storage.
+  Class conversion runs before package publication through `PostLoad` or an
+  equivalently transactional reflected migration hook. A failure publishes no
+  package graph and no partial canonical resave.
+- A successful conversion claims the historical field so it is not retained as
+  unknown data. Unclaimed unknown fields retain their existing behavior. Save
+  emits only current field names/types and the current custom-version value.
+- Migration declares which current authored paths inherit explicit/forced
+  intent from each consumed historical path. One-to-one, split, and merge
+  mappings are validated before ledger publication; ambiguous or incomplete
+  intent mappings fail closed rather than silently changing default-delta
+  behavior.
+- `MigratesTo` names current, non-deprecated properties on the same reflected
+  type. A split propagates historical provenance to every target. A merge
+  combines contributing provenance with `Forced` above `Explicit` above
+  absent. Missing targets and incomplete or ambiguous mappings fail before
+  ledger publication.
+- Removal of a `_DEPRECATED` field or route follows the same authored-content
+  baseline, canonical-resave, and compatibility-policy gates as removal of a
+  legacy reflection alias.
 
 ### Weak references
+
+- DHT accepts `TWeakObjectPtr<T>` only with `Transient`. Discovery ignores weak
+  edges; duplication remaps a live target only when it is already mapped by
+  structural or hard reachability, otherwise it writes null. Retired handles
+  compare as null. Weak Map keys are rejected; direct, fixed-array, Array,
+  Map-value, and nested-struct values share these rules.
 
 - `FWeakObjectProperty` stores typed `TWeakObjectPtr<T>` operations and an
   expected reflected class. It never reinterprets wrapper memory as another
@@ -179,10 +237,9 @@ distinction between hard, weak, and soft object ownership.
 
 - Existing `FVector2`, `FVector3`, `FVector4`, `FQuat`, and `FMatrix` meanings
   and serialized identities do not change.
-- Explicit `FVector*d` spellings use double components and must be accepted by
-  DHT. Stage 0 decides whether they resolve to the existing canonical vector
-  descriptors or distinct alias descriptors; the choice must avoid accidental
-  schema churn for existing fields and must be covered by round-trip fixtures.
+- Explicit `FVector*d` spellings use double components, are accepted by DHT,
+  and resolve to the existing canonical `FVector*` descriptors and persistent
+  identities. Changing only the source spelling never creates schema churn.
 - `FQuatf` is a distinct float quaternion descriptor with the established
   `(w, x, y, z)` field order. `FMatrix4f` exposes four `FVector4f` columns in
   column-major order with stable names. Editor presentation may be specialized,
@@ -207,26 +264,32 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 0: Freeze syntax, identity, and persistence contracts
 
-- [ ] Inventory every current metadata key and consumer; classify each as a
+- [x] Inventory every current metadata key and consumer; classify each as a
   selected typed key, retained extension key, deprecated key, or invalid key.
-- [ ] Freeze DPROPERTY syntax and exact applicability rules for display name,
+- [x] Freeze DPROPERTY syntax and exact applicability rules for display name,
   tooltip, category, units, step, precision, hard bounds, and UI bounds.
-- [ ] Decide canonical versus alias descriptors for explicit `FVector*d`
-  spellings and record save/load consequences with old/new schema examples.
-- [ ] Select the schema migration source identity using current DAST v4 schema
-  records and custom versions; specify wire changes only if existing identities
-  cannot disambiguate historical schemas.
-- [ ] Freeze weak-reference behavior by Archive purpose, including DHT's
+- [x] Canonicalize explicit `FVector*d` spellings to existing `FVector*`
+  descriptors and persistent identities.
+- [x] Reuse DAST v4 custom versions plus version-gated `_DEPRECATED` reflected
+  fields; do not add per-type schema versions or a general migration registry.
+- [x] Require explicit `DPROPERTY(Deprecated, ...)` annotation plus the
+  `_DEPRECATED` suffix; suffix-only reflected fields remain ordinary.
+- [x] Freeze deprecated route-version syntax, domain-version registration,
+  automatic current-version emission, and missing-version behavior.
+- [x] Freeze one-to-one, split, and merge authored-intent remapping from
+  consumed historical paths to current paths.
+- [x] Freeze weak-reference behavior by Archive purpose, including DHT's
   persistability rule, expired-handle comparison, and duplication remapping.
-- [ ] Add fixture-only contract tests that fail for every selected unsupported
-  case before production implementation begins.
+- [x] Assign every selected unsupported case to positive and negative fixtures
+  in its owning implementation stage; committed expected-failure tests are not
+  used as a stage gate.
 
 
 #### Acceptance Gate
 
-- The four contracts above have no unresolved identity or persistence decision;
-  baseline tests demonstrate current failures without changing production
-  behavior; the plan and owning runtime documents agree.
+- The contracts above have no unresolved syntax or persistence decision; each
+  implementation stage owns positive and negative fixtures for its selected
+  cases, and the plan and owning runtime documents agree.
 
 ### Stage 1: Complete precision-specific math intrinsics
 
@@ -273,33 +336,38 @@ distinction between hard, weak, and soft object ownership.
   honor presentation and hard constraints without silent package-load clamping;
   existing untyped extension metadata remains readable.
 
-### Stage 3: Add transactional reflected-schema migration
+### Stage 3: Add custom-versioned `_DEPRECATED` field migration
 
-- [ ] Add generated/runtime schema identity and migration registration selected
-  in Stage 0, with deterministic lookup, duplicate rejection, monotonic chains,
-  cycle/gap detection, and module-lifetime ownership.
-- [ ] Define a bounded detached logical migration value API that can inspect,
-  claim, rename, remove, add, split, merge, and replace fields without exposing
-  live object pointers or Archive storage.
-- [ ] Run alias resolution and exact logical compatibility first, selected
-  migrations second, post-deserialize repair third, and live assignment only
-  after the complete candidate succeeds.
-- [ ] Reconcile retained unknown fields and authored override paths: claimed old
-  fields disappear, unclaimed unknowns remain, transformed paths target current
-  schema, and ambiguous intent fails closed.
-- [ ] Add class and struct fixtures for rename-only, numeric type change,
-  scalar-to-vector split, two-field merge, removal with retained unknown data,
-  chained migration, malformed input, missing step, duplicate path, and
-  callback failure.
-- [ ] Extend compatibility audit and canonical-resave reporting with migration
-  usage, remaining debt, and safe retirement criteria.
+- [ ] Add DHT/model/generated/runtime descriptors for explicitly annotated
+  `DPROPERTY(Deprecated, ...)` load-only fields and version routes, including
+  required suffix validation, derived/explicit historical names, domain GUID
+  resolution, and exclusive version bounds; suffix-only fields stay ordinary.
+- [ ] Ensure saves declare and emit the current domain Custom Version, while a
+  missing load tag resolves to `BeforeCustomVersionWasAdded` and newer unknown
+  versions fail according to the existing package version policy.
+- [ ] Route historical fields by declaring type, stored name, logical type
+  signature, and custom-version range before current-name matching; reject
+  duplicate, overlapping, ambiguous, and incompatible routes.
+- [ ] Exclude deprecated fields from Details, current saves, default deltas,
+  current authored ledgers, and canonical schema output while allowing bounded
+  detached struct loading and pre-publication class conversion.
+- [ ] Claim consumed historical fields, preserve unclaimed unknown values, and
+  transactionally remap explicit/forced authored intent to declared one-to-one,
+  split, or merge current paths.
+- [ ] Add class and struct fixtures for name reuse, numeric type change,
+  unit-only conversion, scalar-to-vector split, two-field merge, missing custom
+  version, current version, overlapping routes, incompatible signature,
+  conversion failure, and canonical resave.
+- [ ] Extend compatibility audit and canonical-resave reporting with deprecated
+  route usage, remaining debt, and safe field/route retirement criteria.
 
 #### Acceptance Gate
 
-- Every supported historical fixture loads transactionally into the current
-  schema and canonical-resaves without old claimed fields; every malformed,
-  ambiguous, unavailable, or failed migration leaves the destination and
-  published asset state unchanged with a stable logical diagnostic.
+- Every supported historical fixture loads through the selected
+  `_DEPRECATED` route, converts transactionally, remaps authored intent, and
+  canonical-resaves without old claimed fields; malformed, ambiguous,
+  unavailable, or failed routes leave published asset state unchanged with a
+  stable logical diagnostic.
 
 ### Stage 4: Add weak object properties
 
@@ -358,7 +426,7 @@ distinction between hard, weak, and soft object ownership.
 | DHT syntax and generation | DurinHeaderTool Python suite | Positive direct/container forms, source-located negative diagnostics, deterministic generated output |
 | Runtime property metadata and math | `CoreObjectTests`, `CorePropertyValueSnapshotTests` | Exact kinds/sizes/identities, struct operations, defaults, snapshots, comparisons, no raw-layout persistence |
 | Property transactions and editor | `CorePropertyChangeTests`, `EditorPropertyTests` | Bounds, units/presentation, multi-edit, undo/redo, reset, arrays/maps/nested structs, authored intent |
-| Schema migration and packages | `AssetPackageTests` plus compatibility/canonical-resave audit | Old fixtures, chains, rollback, unknown fields, override paths, malformed and missing migration diagnostics |
+| Schema migration and packages | `AssetPackageTests` plus compatibility/canonical-resave audit | Custom-version ranges, `_DEPRECATED` name reuse, rollback, unknown fields, override paths, canonical resave, malformed and ambiguous route diagnostics |
 | Weak references and GC | `CoreObjectTests`, `CorePropertyValueSnapshotTests`, bounded reflection-domain tests | No reachability edge, invalidation, slot reuse, copy/duplicate/remap rules, nested containers, unload safety |
 | Integration | `fast-all`, full `all` build, complete native `all` test gate | No generated, serialization, editor, module, or runtime regression |
 | Documentation | `.\DevTool.bat doc validate --scope changed` | Reflection, serialization, GC, asset-package, math, and editor contracts agree |
@@ -372,9 +440,10 @@ distinction between hard, weak, and soft object ownership.
   assets.
 - First-party typed metadata no longer depends on ad hoc string parsing in
   editor consumers, and invalid metadata fails during generation.
-- At least two historical schema generations demonstrate deterministic chained
-  migration, canonical resave, unknown-field handling, authored-intent
-  reconciliation, and transactional rollback.
+- At least two historical Custom Version generations demonstrate deterministic
+  `_DEPRECATED` routing, name reuse, split/merge conversion, canonical resave,
+  unknown-field handling, authored-intent reconciliation, and transactional
+  rollback.
 - Weak properties work through the selected direct/container paths, never root
   targets, never acquire soft identity, and cannot be used as Map keys.
 - Compatibility audits expose remaining aliases and migrations as explicit
@@ -386,8 +455,8 @@ distinction between hard, weak, and soft object ownership.
 
 - Cross-property edit conditions and conditional visibility.
 - User-defined metadata schemas for plugins or project modules.
-- Automated migration code generation from a reviewed declarative transform
-  language; this plan starts with an explicit bounded runtime API.
+- A general detached logical-tree migration registry or declarative transform
+  language beyond Custom Version, `_DEPRECATED`, and post-load conversion.
 - Weak references with a separately authored fallback soft path.
 - Reflected float/double 2x2 and 3x3 matrices, integer vectors, and additional
   precision-specific transform types.
