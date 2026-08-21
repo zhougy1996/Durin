@@ -1,3 +1,4 @@
+#include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationTransactionInternal.h"
 #include "AssetPackageCodec.h"
@@ -125,7 +126,7 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostReferenceFingerprints;
 	};
 
-	auto FAssetRuntimeState::PrepareAssetRelocationState(
+	auto FAssetMutationCoordinator::PrepareAssetRelocationState(
 		std::span<const FAssetRelocationMapping> Mappings,
 		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult
 	{
@@ -504,7 +505,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::PrepareAssetRelocationTransaction(
+	auto FAssetMutationCoordinator::PrepareAssetRelocationTransaction(
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetMutationSummary& OutSummary,
 		FAssetMutationTransaction& OutTransaction) -> FAssetResult
@@ -529,10 +530,10 @@ namespace Durin::Asset
 		auto TransactionState = std::make_shared<FAssetMutationTransaction::FState>();
 		TransactionState->Summary = OutSummary;
 		TransactionState->CommitOperation = [Relocation] {
-			return FAssetRuntimeState::Get().ApplyAssetRelocation(Relocation);
+			return FAssetRuntimeState::Get().GetMutationCoordinator().ApplyAssetRelocation(Relocation);
 		};
 		TransactionState->UndoOperation = [Relocation] {
-			return FAssetRuntimeState::Get().RestoreAssetRelocation(Relocation);
+			return FAssetRuntimeState::Get().GetMutationCoordinator().RestoreAssetRelocation(Relocation);
 		};
 		TransactionState->RedoOperation = TransactionState->CommitOperation;
 		TransactionState->IsRecoveryRequired = [Relocation] {
@@ -547,7 +548,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RevalidateAssetRelocation(
+	auto FAssetMutationCoordinator::RevalidateAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -639,7 +640,7 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRuntimeState::ApplyAssetRelocation(
+	auto FAssetMutationCoordinator::ApplyAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -843,7 +844,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RestoreAssetRelocation(
+	auto FAssetMutationCoordinator::RestoreAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();

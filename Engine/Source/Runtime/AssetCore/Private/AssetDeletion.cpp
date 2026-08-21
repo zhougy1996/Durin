@@ -1,3 +1,4 @@
+#include "AssetRuntimeStateInternal.h"
 #include "AssetDeletionInternal.h"
 
 #include "DObject/DObjectGlobals.h"
@@ -41,7 +42,7 @@ namespace Durin::Asset
 			: EAssetMutationTransactionState::Empty;
 	}
 
-	auto FAssetRuntimeState::AnalyzeAssetDeletion(
+	auto FAssetMutationCoordinator::AnalyzeAssetDeletion(
 		const FAssetPath& Path,
 		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
 	{
@@ -92,13 +93,15 @@ namespace Durin::Asset
 			return Error(EAssetError::StaleData,
 				"The asset deletion transaction has no physical transition.");
 
-		FAssetRuntimeState& Runtime = FAssetRuntimeState::Get();
+		FAssetMutationCoordinator& Mutations =
+			FAssetRuntimeState::Get().GetMutationCoordinator();
 		std::vector<FAssetDeletionBatchBlocker> Blockers;
-		FAssetResult Result = Runtime.ValidateAssetDeletionTransaction(*this, Blockers);
+		FAssetResult Result =
+			Mutations.ValidateAssetDeletionTransaction(*this, Blockers);
 		if (!Result) return Result;
 		if (!Blockers.empty())
 			return Error(EAssetError::InUse, Blockers.front().Details);
-		Result = Runtime.UnloadAssetDeletionTransaction(*this);
+		Result = Mutations.UnloadAssetDeletionTransaction(*this);
 		if (!Result) return Result;
 		Result = Transition.Stage();
 		if (!Result)
@@ -107,7 +110,7 @@ namespace Durin::Asset
 				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
 			return Result;
 		}
-		Result = Runtime.RemoveAssetDeletionRegistryProjection(*this);
+		Result = Mutations.RemoveAssetDeletionRegistryProjection(*this);
 		if (!Result)
 		{
 			const FAssetResult Restore = Transition.Restore();
@@ -140,7 +143,7 @@ namespace Durin::Asset
 				State->TransactionState = EAssetMutationTransactionState::RecoveryRequired;
 			return Result;
 		}
-		Result = FAssetRuntimeState::Get().RestoreAssetDeletionRegistryProjection(*this);
+		Result = FAssetRuntimeState::Get().GetMutationCoordinator().RestoreAssetDeletionRegistryProjection(*this);
 		if (!Result)
 		{
 			const FAssetResult Restage = Transition.Stage();
@@ -169,7 +172,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FAssetRuntimeState::PrepareAssetDeletionTransaction(
+	auto FAssetMutationCoordinator::PrepareAssetDeletionTransaction(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionTransaction& OutTransaction,
@@ -499,7 +502,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::ValidateAssetDeletionTransaction(
+	auto FAssetMutationCoordinator::ValidateAssetDeletionTransaction(
 		const FAssetDeletionTransaction& Transaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
@@ -539,7 +542,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::UnloadAssetDeletionTransaction(
+	auto FAssetMutationCoordinator::UnloadAssetDeletionTransaction(
 		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
 		const auto& Token = *Transaction.State;
@@ -568,7 +571,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RemoveAssetDeletionRegistryProjection(
+	auto FAssetMutationCoordinator::RemoveAssetDeletionRegistryProjection(
 		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
 		const auto& Token = *Transaction.State;
@@ -598,7 +601,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::RestoreAssetDeletionRegistryProjection(
+	auto FAssetMutationCoordinator::RestoreAssetDeletionRegistryProjection(
 		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
 		const auto& Token = *Transaction.State;
@@ -621,7 +624,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::DeleteAssetForTesting(const FAssetPath& Path)
+	auto FAssetMutationCoordinator::DeleteAssetForTesting(const FAssetPath& Path)
 		-> FAssetResult
 	{
 		if (RuntimeConfiguration.IsCooked())

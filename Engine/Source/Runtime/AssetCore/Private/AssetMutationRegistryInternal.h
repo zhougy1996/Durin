@@ -1,6 +1,8 @@
 #pragma once
 
-#include "AssetMutationTransactionInternal.h"
+#define DURIN_ASSETCORE_INTERNAL 1
+#include "AssetMutation.h"
+#undef DURIN_ASSETCORE_INTERNAL
 
 namespace Durin::Asset::Private
 {

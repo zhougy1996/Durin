@@ -1,3 +1,4 @@
+#include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetMutationTransactionInternal.h"
@@ -195,7 +196,7 @@ namespace Durin::Asset
 		return DeletableRedirectors;
 	}
 
-	auto FAssetRuntimeState::PrepareRedirectorFixupState(
+	auto FAssetMutationCoordinator::PrepareRedirectorFixupState(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult
@@ -604,7 +605,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::PrepareRedirectorFixupTransaction(
+	auto FAssetMutationCoordinator::PrepareRedirectorFixupTransaction(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
@@ -631,7 +632,7 @@ namespace Durin::Asset
 			Fixup->ExpectedRegistryRevision,
 			Fixup->Redirectors);
 		TransactionState->CommitOperation = [Fixup] {
-			return FAssetRuntimeState::Get().CommitRedirectorFixup(Fixup);
+			return FAssetRuntimeState::Get().GetMutationCoordinator().CommitRedirectorFixup(Fixup);
 		};
 		TransactionState->IsRecoveryRequired = [Fixup] {
 			return Fixup->Journal.State == EAssetMutationState::RecoveryRequired;
@@ -664,7 +665,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::ValidateRedirectorFixupCommit(
+	auto FAssetMutationCoordinator::ValidateRedirectorFixupCommit(
 		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -759,7 +760,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::CommitRedirectorFixup(
+	auto FAssetMutationCoordinator::CommitRedirectorFixup(
 		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();

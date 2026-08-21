@@ -156,9 +156,18 @@ namespace Durin::Asset
 		return Instance;
 	}
 
-	FAssetRuntimeState::FAssetRuntimeState() = default;
+	FAssetRuntimeState::FAssetRuntimeState()
+		: Loader(Catalog, Residency, RuntimeConfiguration, bAcceptingRequests)
+		, Mutations(
+			Catalog,
+			Residency,
+			Loader,
+			RuntimeConfiguration,
+			bAcceptingRequests)
+	{
+	}
 
-	auto FAssetRuntimeState::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
+	auto FAssetLoadService::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
 		if (!bAcceptingRequests)
@@ -198,7 +207,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::CreateRedirector(
+	auto FAssetLoadService::CreateRedirector(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
@@ -252,7 +261,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::LoadAsset(
+	auto FAssetLoadService::LoadAsset(
 		const FAssetPath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -260,7 +269,7 @@ namespace Durin::Asset
 		return LoadAsset(Path, nullptr, OutAsset, OutReport);
 	}
 
-	auto FAssetRuntimeState::LoadAsset(
+	auto FAssetLoadService::LoadAsset(
 		const FAssetPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
@@ -323,7 +332,7 @@ namespace Durin::Asset
 			*Resolution.FinalAssetData, ExpectedClass, OutAsset, OutReport));
 	}
 
-	auto FAssetRuntimeState::LoadAssetFromCatalog(
+	auto FAssetLoadService::LoadAssetFromCatalog(
 		const FAssetData& Data,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
@@ -333,7 +342,7 @@ namespace Durin::Asset
 			Data.PackagePath, Data.PhysicalPath, ExpectedClass, OutAsset, OutReport);
 	}
 
-	auto FAssetRuntimeState::LoadAssetFromPhysicalPath(
+	auto FAssetLoadService::LoadAssetFromPhysicalPath(
 		const FAssetPath& Path,
 		std::string_view PhysicalPath,
 		const DClass* ExpectedClass,
@@ -405,7 +414,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FAssetRuntimeState::LoadPackageInternal(
+	auto FAssetLoadService::LoadPackageInternal(
 		const FAssetPath& Path,
 		std::string_view PhysicalPath,
 		DPackage*& OutPackage,
@@ -466,13 +475,13 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRuntimeState::FindResidentPackage(const FAssetPath& Path) const -> DPackage*
+	auto FAssetLoadService::FindResidentPackage(const FAssetPath& Path) const -> DPackage*
 	{
 		auto It = ResidentPackages.find(Path);
 		return It == ResidentPackages.end() ? nullptr : It->second.Package;
 	}
 
-	auto FAssetRuntimeState::GetResidentPackagePublicationState(
+	auto FAssetLoadService::GetResidentPackagePublicationState(
 		const FAssetPath& Path) const
 		-> std::optional<EAssetPackagePublicationState>
 	{
@@ -482,7 +491,7 @@ namespace Durin::Asset
 			: std::optional{It->second.PublicationState};
 	}
 
-	auto FAssetRuntimeState::IsPackageReferenced(const DPackage* Package) const -> bool
+	auto FAssetLoadService::IsPackageReferenced(const DPackage* Package) const -> bool
 	{
 		if (!Package) return false;
 		FAssetPath Path;
@@ -501,7 +510,7 @@ namespace Durin::Asset
 		return false;
 	}
 
-	auto FAssetRuntimeState::UnloadPackage(
+	auto FAssetLoadService::UnloadPackage(
 		const FAssetPath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
@@ -525,7 +534,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRuntimeState::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
+	auto FAssetLoadService::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
 	{
 		FAssetPackageLoadSnapshot Snapshot;
 		Snapshot.ResidentPackages.reserve(ResidentPackages.size());
@@ -536,7 +545,7 @@ namespace Durin::Asset
 		return Snapshot;
 	}
 
-	auto FAssetRuntimeState::ReleasePackagesLoadedSince(
+	auto FAssetLoadService::ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
 	{
 		if (LoadDepth != 0 || !LoadingPackages.empty())
@@ -588,17 +597,15 @@ namespace Durin::Asset
 	auto FAssetRuntimeState::Shutdown() -> void
 	{
 		StopAcceptingRequests();
-		Registry.FlushPersistentSnapshot();
+		Catalog.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
-		Packages.reserve(ResidentPackages.size());
-		for (const auto& [Path, Package] : ResidentPackages)
+		Packages.reserve(Residency.size());
+		for (const auto& [Path, Package] : Residency)
 		{
 			if (Package) Packages.push_back(Package);
 		}
-		ResidentPackages.clear();
-		LoadingPackages.clear();
-		TransactionPackages.clear();
-		LoadDepth = 0;
+		Residency.clear();
+		Loader.Reset();
 		for (DPackage* Package : Packages)
 		{
 			RemoveFromRoot(Package);
@@ -615,9 +622,8 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse,
 				"Asset runtime configuration cannot be replaced while AssetCore is initialized.");
 		}
-		check(ResidentPackages.empty());
-		check(LoadingPackages.empty());
-		check(TransactionPackages.empty());
+		check(Residency.empty());
+		check(Loader.IsIdle());
 		RuntimeConfiguration = std::move(Configuration);
 		bAcceptingRequests = true;
 		return {};
@@ -630,7 +636,7 @@ namespace Durin::Asset
 		DURIN_DEBUG("Asset manager stopped accepting new requests.");
 	}
 
-	auto FAssetRuntimeState::ResolveSoftObjectInternal(
+	auto FAssetLoadService::ResolveSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
@@ -734,7 +740,7 @@ namespace Durin::Asset
 			.bRedirected = !Resolution.RedirectChain.empty()};
 	}
 
-	auto FAssetRuntimeState::LoadSoftObjectInternal(
+	auto FAssetLoadService::LoadSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
@@ -743,7 +749,7 @@ namespace Durin::Asset
 	{
 		CheckSoftObjectThread();
 		OutObject = nullptr;
-		FSoftObjectResolveResult Resolved = ResolveSoftObjectInternal(
+		FSoftObjectResolveResult Resolved = ResolveSoftObject(
 			Reference, ExpectedClass, NullPolicy);
 		if (!Resolved) return Resolved.Result;
 		if (Resolved.State == ESoftObjectResolveState::Null) return {};

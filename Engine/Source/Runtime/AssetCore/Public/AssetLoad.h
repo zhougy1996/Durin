@@ -82,7 +82,7 @@ namespace Durin::Asset
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetCatalogStore;
-		friend class FAssetRuntimeState;
+		friend class FAssetMutationCoordinator;
 	#endif
 	};
 

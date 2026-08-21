@@ -8,7 +8,7 @@ namespace Durin
 	class DClass;
 	namespace Asset
 	{
-		class FAssetRuntimeState;
+		class FAssetLoadService;
 	}
 
 	// Stores the persistent identity of one package main asset without loading it.
@@ -127,7 +127,7 @@ namespace Durin
 		FAssetPath ResolvedPackagePath;
 		FWeakObjectPtr WeakObject;
 
-		friend class Asset::FAssetRuntimeState;
+		friend class Asset::FAssetLoadService;
 	};
 
 	// Provides typed access without exposing the wrapper's physical layout as reflection ABI.

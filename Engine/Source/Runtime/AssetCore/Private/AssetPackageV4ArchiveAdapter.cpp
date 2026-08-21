@@ -200,7 +200,7 @@ namespace Durin::Asset::Private
 							"Invalid external object reference.");
 						return;
 					}
-					FAssetResult Result = FAssetRuntimeState::Get().LoadAsset(Path, Value);
+					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, Value);
 					if (!Result)
 					{
 						FailLoad(EAssetError::MissingDependency,

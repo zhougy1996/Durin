@@ -150,7 +150,7 @@ namespace Durin::Asset
 				Plan.Status = EAssetCanonicalResavePlanStatus::Cancelled;
 				break;
 			}
-			DPackage* Loaded = FAssetRuntimeState::Get().FindResidentPackage(Record->PackagePath);
+			DPackage* Loaded = FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(Record->PackagePath);
 			FAssetCanonicalResavePackagePlan& Package = Plan.Packages.emplace_back();
 			Package.PackagePath = Record->PackagePath;
 			Package.PhysicalPath = Record->PhysicalPath;
@@ -252,7 +252,7 @@ namespace Durin::Asset
 			}
 
 			const FAssetPackageLoadSnapshot Snapshot = CapturePackageLoadSnapshot();
-			DPackage* Package = FAssetRuntimeState::Get().FindResidentPackage(PackagePlan.PackagePath);
+			DPackage* Package = FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(PackagePlan.PackagePath);
 			const bool bWasLoaded = Package != nullptr;
 			FAssetLoadReport LoadReport;
 			if (!Package)

@@ -299,7 +299,7 @@ namespace Durin::Asset
 					std::string PathString;
 					FAssetPath Path;
 					if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path)) return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-					FAssetResult Result = FAssetRuntimeState::Get().LoadAsset(Path, Value);
+					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, Value);
 					if (!Result) return Error(EAssetError::MissingDependency, Result.Message);
 				}
 				else if (ReferenceKind != 0) return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
@@ -550,7 +550,7 @@ namespace Durin::Asset
 				FAssetPath Path;
 				if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path))
 					return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-				return FAssetRuntimeState::Get().LoadAsset(Path, OutObject);
+				return FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, OutObject);
 			}
 			return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 		}
@@ -707,6 +707,14 @@ namespace Durin::Asset
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
 	{
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.SavePackagesAtomically(Packages, Options);
+	}
+
+	auto FAssetMutationCoordinator::SavePackagesAtomically(
+		std::span<DPackage* const> Packages,
+		const FAssetBundleSaveOptions& Options) -> FAssetResult
+	{
 		struct FStagedPackage
 		{
 			DPackage* Package = nullptr;
@@ -724,8 +732,7 @@ namespace Durin::Asset
 
 		if (Packages.empty())
 			return Error(EAssetError::InvalidPackageType, "An asset bundle must contain at least one package.");
-		FAssetRuntimeState& Manager = FAssetRuntimeState::Get();
-		if (Manager.RuntimeConfiguration.IsCooked())
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit bundle saves.");
 		if (Options.RootPackage
 			&& std::ranges::find(Packages, Options.RootPackage) == Packages.end())
@@ -743,7 +750,7 @@ namespace Durin::Asset
 			if (!Paths.insert(Path).second)
 				return Error(EAssetError::AlreadyExists, std::format(
 					"The asset bundle contains duplicate package {}.", Path.ToString()));
-			FAssetResult Result = ValidateOrdinarySaveVersion(Manager.GetRegistry(), Path);
+			FAssetResult Result = ValidateOrdinarySaveVersion(Registry, Path);
 			if (!Result) return Result;
 			FStagedPackage& Staged = StagedPackages.emplace_back();
 			Staged.Package = Package;
@@ -901,7 +908,7 @@ namespace Durin::Asset
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
-			Manager.GetRegistry().AddOrUpdate(FAssetData{
+			Registry.AddOrUpdate(FAssetData{
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
 				.AssetClassName = Staged.File.AssetClassName,
@@ -913,8 +920,8 @@ namespace Durin::Asset
 				.LastWriteTime = Staged.PublishedLastWriteTime,
 				.LastWriteTimeTicks = FileTime::ToStableTicks(
 					Staged.PublishedLastWriteTime)});
-			if (auto Resident = Manager.ResidentPackages.find(Staged.Path);
-				Resident != Manager.ResidentPackages.end()
+			if (auto Resident = ResidentPackages.find(Staged.Path);
+				Resident != ResidentPackages.end()
 				&& Resident->second.Package == Staged.Package)
 				Resident->second.PublicationState =
 					EAssetPackagePublicationState::Published;
@@ -927,10 +934,10 @@ namespace Durin::Asset
 
 	auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().AdmitAssetPackageToCatalog(Path);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().AdmitAssetPackageToCatalog(Path);
 	}
 
-	auto FAssetRuntimeState::AdmitAssetPackageToCatalog(
+	auto FAssetMutationCoordinator::AdmitAssetPackageToCatalog(
 		const FAssetPath& Path) -> FAssetResult
 	{
 		if (!Path.IsValid())
@@ -1157,7 +1164,7 @@ namespace Durin::Asset
 
 	}
 
-	auto FAssetRuntimeState::SavePackage(
+	auto FAssetMutationCoordinator::SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions&) -> FAssetResult
 	{

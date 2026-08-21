@@ -9,7 +9,8 @@ namespace Durin::Asset
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().LoadAsset(Path, OutAsset, OutReport);
+		return FAssetRuntimeState::Get().GetLoadService().LoadAsset(
+			Path, OutAsset, OutReport);
 	}
 
 	auto LoadAsset(
@@ -18,7 +19,7 @@ namespace Durin::Asset
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().LoadAsset(
+		return FAssetRuntimeState::Get().GetLoadService().LoadAsset(
 			Path, ExpectedClass, OutAsset, OutReport);
 	}
 
@@ -28,7 +29,8 @@ namespace Durin::Asset
 		size_t Size,
 		DObject*& OutAsset) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().CreateAsset(Path, Class, Size, OutAsset);
+		return FAssetRuntimeState::Get().GetLoadService().CreateAsset(
+			Path, Class, Size, OutAsset);
 	}
 
 	auto CreateAssetRedirectorForTesting(
@@ -36,7 +38,7 @@ namespace Durin::Asset
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().CreateRedirector(
+		return FAssetRuntimeState::Get().GetLoadService().CreateRedirector(
 			RedirectorPath, DestinationPath, OutRedirector);
 	}
 
@@ -45,7 +47,7 @@ namespace Durin::Asset
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
 	{
-		return FAssetRuntimeState::Get().ResolveSoftObjectInternal(
+		return FAssetRuntimeState::Get().GetLoadService().ResolveSoftObject(
 			Reference, ExpectedClass, NullPolicy);
 	}
 
@@ -56,7 +58,7 @@ namespace Durin::Asset
 		ESoftObjectNullPolicy NullPolicy,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().LoadSoftObjectInternal(
+		return FAssetRuntimeState::Get().GetLoadService().LoadSoftObject(
 			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
 	}
 
@@ -64,7 +66,8 @@ namespace Durin::Asset
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().SavePackage(Package, Options);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(
+			Package, Options);
 	}
 
 	auto PrepareAssetRelocationTransaction(
@@ -72,7 +75,8 @@ namespace Durin::Asset
 		FAssetMutationSummary& OutSummary,
 		FAssetMutationTransaction& OutTransaction) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().PrepareAssetRelocationTransaction(
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.PrepareAssetRelocationTransaction(
 			Mappings, OutSummary, OutTransaction);
 	}
 
@@ -82,7 +86,8 @@ namespace Durin::Asset
 		FAssetRedirectorFixupSummary& OutSummary,
 		FAssetMutationTransaction& OutTransaction) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().PrepareRedirectorFixupTransaction(
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.PrepareRedirectorFixupTransaction(
 			Redirectors, Mode, OutSummary, OutTransaction);
 	}
 
@@ -90,7 +95,8 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().AnalyzeAssetDeletion(Path, OutAnalysis);
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.AnalyzeAssetDeletion(Path, OutAnalysis);
 	}
 
 	auto PrepareAssetDeletionTransaction(
@@ -99,31 +105,34 @@ namespace Durin::Asset
 		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().PrepareAssetDeletionTransaction(
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.PrepareAssetDeletionTransaction(
 			Paths, PhysicalRoots, OutTransaction, OutBlockers);
 	}
 
 	auto DeleteAssetForTesting(const FAssetPath& Path) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().DeleteAssetForTesting(Path);
+		return FAssetRuntimeState::Get().GetMutationCoordinator()
+			.DeleteAssetForTesting(Path);
 	}
 
 	auto FindResidentPackage(const FAssetPath& Path) -> DPackage*
 	{
-		return FAssetRuntimeState::Get().FindResidentPackage(Path);
+		return FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(Path);
 	}
 
 	auto GetResidentPackagePublicationState(const FAssetPath& Path)
 		-> std::optional<EAssetPackagePublicationState>
 	{
-		return FAssetRuntimeState::Get().GetResidentPackagePublicationState(Path);
+		return FAssetRuntimeState::Get().GetLoadService()
+			.GetResidentPackagePublicationState(Path);
 	}
 
 	auto UnloadPackage(
 		const FAssetPath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().UnloadPackage(Path, Policy);
+		return FAssetRuntimeState::Get().GetLoadService().UnloadPackage(Path, Policy);
 	}
 
 	auto UnloadPackage(
@@ -136,21 +145,23 @@ namespace Durin::Asset
 			return {EAssetError::InvalidPackageType,
 				"The package to unload is invalid."};
 		FAssetRuntimeState& State = FAssetRuntimeState::Get();
-		if (State.FindResidentPackage(Path) != Package)
+		if (State.GetLoadService().FindResidentPackage(Path) != Package)
 			return {EAssetError::NotFound,
 				"The package is not the resident package at its path."};
-		return State.UnloadPackage(Path, Policy);
+		return State.GetLoadService().UnloadPackage(Path, Policy);
 	}
 
 	auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot
 	{
-		return FAssetRuntimeState::Get().CapturePackageLoadSnapshot();
+		return FAssetRuntimeState::Get().GetLoadService()
+			.CapturePackageLoadSnapshot();
 	}
 
 	auto ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().ReleasePackagesLoadedSince(Snapshot);
+		return FAssetRuntimeState::Get().GetLoadService()
+			.ReleasePackagesLoadedSince(Snapshot);
 	}
 
 	auto ShutdownAssetManager() -> void

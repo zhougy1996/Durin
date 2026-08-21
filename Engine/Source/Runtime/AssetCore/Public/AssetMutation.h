@@ -119,7 +119,7 @@ namespace Durin::Asset
 		std::vector<FAssetPath> DeletableRedirectors;
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
-		friend class FAssetRuntimeState;
+		friend class FAssetMutationCoordinator;
 	#endif
 	};
 
@@ -254,7 +254,7 @@ namespace Durin::Asset
 		std::shared_ptr<FState> State;
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
-		friend class FAssetRuntimeState;
+		friend class FAssetMutationCoordinator;
 	#endif
 	};
 
@@ -365,7 +365,7 @@ namespace Durin::Asset
 		std::shared_ptr<FState> State;
 
 	#if defined(DURIN_ASSETCORE_INTERNAL)
-		friend class FAssetRuntimeState;
+		friend class FAssetMutationCoordinator;
 	#endif
 	};
 

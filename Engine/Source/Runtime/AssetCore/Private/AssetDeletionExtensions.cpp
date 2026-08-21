@@ -1,3 +1,4 @@
+#include "AssetCatalogStoreInternal.h"
 #include "AssetDeletionInternal.h"
 
 #include "DObject/Class.h"

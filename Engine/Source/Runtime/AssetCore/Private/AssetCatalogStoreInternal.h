@@ -10,6 +10,8 @@ namespace Durin::Asset
 {
 	struct FAssetRelocationState;
 	struct FAssetRedirectorFixupState;
+	class FAssetLoadService;
+	class FAssetMutationCoordinator;
 
 	class FAssetCatalogStore
 	{
@@ -59,12 +61,9 @@ namespace Durin::Asset
 		// Monotonically changes when the visible registry contents change.
 		uint64 Revision = 1;
 
-		friend class FAssetRuntimeState;
-		friend ASSETCORE_API auto SavePackagesAtomically(
-			std::span<DPackage* const>,
-			const FAssetBundleSaveOptions&) -> FAssetResult;
+		friend class FAssetLoadService;
+		friend class FAssetMutationCoordinator;
 	};
 
 	ASSETCORE_API auto GetAssetCatalogStore() -> FAssetCatalogStore&;
 }
-

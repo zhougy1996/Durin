@@ -15,8 +15,7 @@ namespace Durin::Asset::Private
 	};
 
 	// Rebuilds only the reference-index slice affected by published mutation
-	// participants. The serialization traversal remains owned by AssetSystem
-	// until the Stage 2 reference-projection split.
+	// participants. AssetReference.cpp owns serialization traversal.
 	auto RebuildReferenceProjectionForPublishedEntries(
 		std::span<const FAssetMutationJournalEntry> Entries,
 		const std::unordered_map<FAssetPath, FAssetData>& Assets,
