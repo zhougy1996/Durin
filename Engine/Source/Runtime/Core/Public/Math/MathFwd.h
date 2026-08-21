@@ -9,6 +9,8 @@ namespace Durin
 	using FReal = double;
 	using FMatrix4f = glm::mat4x4;
 	using FMatrix = glm::dmat4x4;
+	using FQuatf = glm::quat;
+	using FQuatd = glm::dquat;
 	using FQuat = glm::dquat;
 
 	struct FTransform;

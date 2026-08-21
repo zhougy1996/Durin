@@ -340,8 +340,17 @@ namespace Durin
 						Struct->GetQualifiedName().ToString()));
 					break;
 				}
+				std::optional<FStructProperty> DetachedProperty;
+				const FProperty* StorageProperty = Property;
+				if (Property->HasValueAccessors())
+				{
+					DetachedProperty.emplace(
+						FFieldVariant(), Property->NamePrivate, EObjectFlags::Transient,
+						EPropertyFlags::Transient, 1, 0, Struct);
+					StorageProperty = &*DetachedProperty;
+				}
 				FReflectedValueStorage Storage;
-				if (!Storage.DefaultConstruct(Property, 0, &OperationError))
+				if (!Storage.DefaultConstruct(StorageProperty, 0, &OperationError))
 				{
 					Ar.SetError(OperationError);
 					break;

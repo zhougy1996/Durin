@@ -357,8 +357,17 @@ namespace Durin::Asset
 							"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
 							Struct->GetQualifiedName().ToString()));
 				std::string StorageError;
+				std::optional<FStructProperty> DetachedProperty;
+				const FProperty* StorageProperty = Property;
+				if (Property->HasValueAccessors())
+				{
+					DetachedProperty.emplace(
+						FFieldVariant(), Property->NamePrivate, EObjectFlags::Transient,
+						EPropertyFlags::Transient, 1, 0, Struct);
+					StorageProperty = &*DetachedProperty;
+				}
 				FReflectedValueStorage Storage;
-				if (!Storage.DefaultConstruct(Property, 0, &StorageError))
+				if (!Storage.DefaultConstruct(StorageProperty, 0, &StorageError))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				std::string StructName;
 				uint64 FieldCount = 0;

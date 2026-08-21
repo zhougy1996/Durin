@@ -26,6 +26,24 @@ namespace Durin
 	};
 
 	template<>
+	struct TDStructOpsTraits<FQuatf> : TDStructOpsTraitsBase<FQuatf>
+	{
+		static auto DefaultConstruct(void* Destination) -> void
+		{
+			std::construct_at(static_cast<FQuatf*>(Destination), 1.0f, 0.0f, 0.0f, 0.0f);
+		}
+	};
+
+	template<>
+	struct TDStructOpsTraits<FMatrix4f> : TDStructOpsTraitsBase<FMatrix4f>
+	{
+		static auto DefaultConstruct(void* Destination) -> void
+		{
+			std::construct_at(static_cast<FMatrix4f*>(Destination), 1.0f);
+		}
+	};
+
+	template<>
 	struct TDStructOpsTraits<FLinearColor> : TDStructOpsTraitsBase<FLinearColor>
 	{
 		static auto DefaultConstruct(void* Destination) -> void
@@ -46,6 +64,18 @@ namespace Durin
 		auto ConstMember(const void* Container, uint32 ArrayIndex) -> const void*
 		{
 			return &(static_cast<const T*>(Container)[ArrayIndex].*Member);
+		}
+
+		template<typename T, size_t Index>
+		auto MutableIndex(void* Container, uint32 ArrayIndex) -> void*
+		{
+			return &static_cast<T*>(Container)[ArrayIndex][Index];
+		}
+
+		template<typename T, size_t Index>
+		auto ConstIndex(const void* Container, uint32 ArrayIndex) -> const void*
+		{
+			return &static_cast<const T*>(Container)[ArrayIndex][Index];
 		}
 
 		auto MakeStruct(std::string_view QualifiedName, std::string_view ShortName, uint32 Size, uint32 Alignment) -> DStruct*
@@ -148,6 +178,34 @@ namespace Durin
 		return DurinCodeGen::ConstructDStruct(Params);
 	}
 
+	auto Z_Construct_DStruct_Durin_FQuatf() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FQuatf", "FQuatf", sizeof(FQuatf), alignof(FQuatf));
+		static const DurinCodeGen::FFloatPropertyParams W = DurinCodeGen::FFloatPropertyParams::WithAccessors("w", EPropertyFlags::None, 1, &MutableMember<FQuatf, &FQuatf::w>, &ConstMember<FQuatf, &FQuatf::w>);
+		static const DurinCodeGen::FFloatPropertyParams X = DurinCodeGen::FFloatPropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FQuatf, &FQuatf::x>, &ConstMember<FQuatf, &FQuatf::x>);
+		static const DurinCodeGen::FFloatPropertyParams Y = DurinCodeGen::FFloatPropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FQuatf, &FQuatf::y>, &ConstMember<FQuatf, &FQuatf::y>);
+		static const DurinCodeGen::FFloatPropertyParams Z = DurinCodeGen::FFloatPropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FQuatf, &FQuatf::z>, &ConstMember<FQuatf, &FQuatf::z>);
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&W, &X, &Y, &Z};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FQuatf", "FQuatf", sizeof(FQuatf), alignof(FQuatf), Properties, std::size(Properties), &GetDStructOps<FQuatf>()};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto Z_Construct_DStruct_Durin_FMatrix4f() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FMatrix4f", "FMatrix4f", sizeof(FMatrix4f), alignof(FMatrix4f));
+		static const DurinCodeGen::FStructPropertyParams Column0 = DurinCodeGen::FStructPropertyParams::WithAccessors("Column0", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 0>, &ConstIndex<FMatrix4f, 0>);
+		static const DurinCodeGen::FStructPropertyParams Column1 = DurinCodeGen::FStructPropertyParams::WithAccessors("Column1", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 1>, &ConstIndex<FMatrix4f, 1>);
+		static const DurinCodeGen::FStructPropertyParams Column2 = DurinCodeGen::FStructPropertyParams::WithAccessors("Column2", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 2>, &ConstIndex<FMatrix4f, 2>);
+		static const DurinCodeGen::FStructPropertyParams Column3 = DurinCodeGen::FStructPropertyParams::WithAccessors("Column3", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 3>, &ConstIndex<FMatrix4f, 3>);
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Column0, &Column1, &Column2, &Column3};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FMatrix4f", "FMatrix4f", sizeof(FMatrix4f), alignof(FMatrix4f), Properties, std::size(Properties), &GetDStructOps<FMatrix4f>()};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
 	auto Z_Construct_DStruct_Durin_FTransform() -> DStruct*
 	{
 		static DStruct* Singleton = nullptr;
@@ -209,6 +267,16 @@ COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector4() -> Durin::DStruct*
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FQuat() -> Durin::DStruct*
 {
 	return Durin::Z_Construct_DStruct_Durin_FQuat();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FQuatf() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FQuatf();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FMatrix4f() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FMatrix4f();
 }
 
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FTransform() -> Durin::DStruct*

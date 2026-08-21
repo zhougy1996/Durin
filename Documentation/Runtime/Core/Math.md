@@ -29,15 +29,25 @@ than naming GLM types directly.
 ## Value Types and ABI
 
 `FReal` is `double`. `FVector2`, `FVector3`, `FVector4`, `FQuat`, and `FMatrix`
-use double-precision GLM storage. The `f`, `d`, and `i` vector aliases preserve
-their named scalar precision, and `FMatrix4f` aliases the existing float 4x4
-GLM matrix used by import and shader-layout boundaries.
+use double-precision GLM storage. `FQuatd` is an explicit spelling of the same
+double quaternion while `FQuatf` is the distinct float quaternion. The `f`,
+`d`, and `i` vector aliases preserve their named scalar precision, and
+`FMatrix4f` aliases the existing float 4x4 GLM matrix used by import and
+shader-layout boundaries.
 
 These are aliases, not engine-owned storage types. Existing constructors,
 operators, component members, column indexing, size, alignment, reflection
 identity, and serialized representation therefore retain their current GLM
 behavior. Replacing that storage or ABI requires a separate plan; the facade
 does not imply that replacement has occurred.
+
+At the reflection boundary, explicit `FVector2d`, `FVector3d`, and `FVector4d`
+source spellings resolve to the established `FVector2`, `FVector3`, and
+`FVector4` descriptors. `FQuatd` similarly resolves to `FQuat`. `FQuatf` owns
+a separate `(w, x, y, z)` float-component schema. `FMatrix4f` owns a
+column-major schema named `Column0` through `Column3`, each an `FVector4f`.
+Their reflected defaults are the identity quaternion and identity matrix, and
+serialization walks those fields rather than copying ABI padding or raw bytes.
 
 ## Operation Surface
 

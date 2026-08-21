@@ -739,7 +739,41 @@ namespace Fixture
         ):
             symbols = load_available_symbols("Fixture")
 
-        for type_name in ("FVector2f", "FVector3f", "FVector4f", "FVector2", "FVector3", "FVector4"):
+        for type_name in (
+            "FVector2f", "FVector3f", "FVector4f",
+            "FVector2", "FVector3", "FVector4",
+            "FVector2d", "FVector3d", "FVector4d",
+            "FQuatf", "FQuatd", "FQuat", "FMatrix4f",
+        ):
             qualified_name = f"Durin::{type_name}"
             assert qualified_name in symbols
-            assert symbols[qualified_name].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{type_name}"
+        expected_helpers = {
+            "FVector2d": "FVector2", "FVector3d": "FVector3", "FVector4d": "FVector4",
+            "FQuatd": "FQuat",
+        }
+        for type_name in (
+            "FVector2f", "FVector3f", "FVector4f",
+            "FVector2", "FVector3", "FVector4",
+            "FVector2d", "FVector3d", "FVector4d",
+            "FQuatf", "FQuatd", "FQuat", "FMatrix4f",
+        ):
+            helper_type = expected_helpers.get(type_name, type_name)
+            assert symbols[f"Durin::{type_name}"].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{helper_type}"
+
+        for source_type, helper_type in expected_helpers.items():
+            prop = _make_property_from_spelling("Value", f"Durin::{source_type}", symbols)
+            assert prop is not None
+            assert prop.kind == "Struct"
+            assert symbols[prop.referenced_struct_type].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{helper_type}"
+
+        for source_type in ("FVector3d", "FQuatf", "FMatrix4f"):
+            qualified_name = f"Durin::{source_type}"
+            direct = _make_property_from_spelling("Direct", qualified_name, symbols, array_dim=3)
+            array = _make_property_from_spelling("Values", f"std::vector<{qualified_name}>", symbols)
+            value_map = _make_property_from_spelling(
+                "Named", f"std::unordered_map<std::string, {qualified_name}>", symbols)
+            assert direct is not None and direct.kind == "Struct" and direct.array_dim == 3
+            assert array is not None and array.kind == "Array" and array.inner is not None
+            assert array.inner.kind == "Struct"
+            assert value_map is not None and value_map.kind == "Map" and value_map.value is not None
+            assert value_map.value.kind == "Struct"

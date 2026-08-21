@@ -9,7 +9,8 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete and Stage 1 implementation is under validation. Durin already has generated property trees,
+Stages 0 and 1 are complete; Stage 2 is next. Durin already has generated
+property trees,
 untyped string metadata, property and type `LegacyNames`, immutable class and
 struct defaults, authored override tracking, field-tagged DAST v4 packages,
 custom-version transport, transactional reflected-value loading, hard and soft
@@ -39,6 +40,14 @@ an explicit `DPROPERTY(Deprecated, ...)` annotation and then require the
 `_DEPRECATED` member suffix; the suffix alone has no behavior. Migration
 directly reuses the existing GUID-keyed `FArchiveCustomVersion` and DAST v4
 `FCustomVersion` records; it adds no name-to-GUID registry.
+
+Stage 1 added the `FQuatf`/`FQuatd` aliases, canonical DHT mappings for explicit
+double vector and quaternion spellings, and distinct `FQuatf` and `FMatrix4f`
+intrinsics. The matrix schema is four accessor-backed `FVector4f` columns, and
+transactional struct loading now detaches accessor-backed nested fields before
+commit. DHT property tests, `CoreObjectTests`, and focused DAST v4 round-trip
+coverage pass; the complete `AssetPackageTests` target is the final stage
+validation receipt.
 
 ## Goal
 
@@ -293,15 +302,15 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 1: Complete precision-specific math intrinsics
 
-- [ ] Add the selected `FQuatf`/optional `FQuatd` aliases at the Core math
+- [x] Add the selected `FQuatf`/optional `FQuatd` aliases at the Core math
   boundary without changing existing aliases or ABI.
-- [ ] Teach DHT to resolve explicit `FVector2d/3d/4d`, `FQuatf`, and
+- [x] Teach DHT to resolve explicit `FVector2d/3d/4d`, `FQuatf`, and
   `FMatrix4f` source spellings according to the Stage 0 identity policy.
-- [ ] Register intrinsic descriptors, float component properties, deterministic
+- [x] Register intrinsic descriptors, float component properties, deterministic
   defaults, matrix column accessors, and complete reflected struct operations.
-- [ ] Cover direct/fixed-array/container declarations, snapshots, default
+- [x] Cover direct/fixed-array/container declarations, snapshots, default
   comparison, Archive and DAST v4 round trips, and generic Details editing.
-- [ ] Update the math and reflection contracts with canonical identity and
+- [x] Update the math and reflection contracts with canonical identity and
   component/column ordering.
 
 #### Acceptance Gate

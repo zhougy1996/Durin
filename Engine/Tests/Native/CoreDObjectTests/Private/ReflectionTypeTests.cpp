@@ -5032,6 +5032,49 @@ namespace
 		EXPECT_EQ(Z->GetValuePtr(&Source), &Source.z);
 	}
 
+	TEST(FCoreDObjectReflectionTests, PrecisionSpecificQuaternionAndMatrixStructsExposeCanonicalSchemas)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4f();
+		Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_Durin_FQuatf();
+		Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_Durin_FMatrix4f();
+		ASSERT_NE(FloatVector4Struct, nullptr);
+		ASSERT_NE(FloatQuatStruct, nullptr);
+		ASSERT_NE(FloatMatrixStruct, nullptr);
+		EXPECT_EQ(FloatQuatStruct->GetQualifiedName().ToString(), "Durin::FQuatf");
+		EXPECT_EQ(FloatMatrixStruct->GetQualifiedName().ToString(), "Durin::FMatrix4f");
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FQuatf"), FloatQuatStruct);
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FMatrix4f"), FloatMatrixStruct);
+
+		for (const char* Component : {"w", "x", "y", "z"})
+		{
+			Durin::FProperty* Field = FloatQuatStruct->FindPropertyByName(Component, false);
+			ASSERT_NE(Field, nullptr);
+			EXPECT_EQ(Field->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Float);
+			EXPECT_EQ(Field->GetElementSize(), sizeof(float));
+			EXPECT_TRUE(Field->HasValueAccessors());
+		}
+
+		Durin::FMatrix4f Matrix(1.0f);
+		for (Durin::uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
+		{
+			const std::string ColumnName = "Column" + std::to_string(ColumnIndex);
+			auto* Column = static_cast<Durin::FStructProperty*>(
+				FloatMatrixStruct->FindPropertyByName(ColumnName.c_str(), false));
+			ASSERT_NE(Column, nullptr);
+			EXPECT_EQ(Column->GetStruct(), FloatVector4Struct);
+			EXPECT_TRUE(Column->HasValueAccessors());
+			EXPECT_EQ(Column->GetValuePtr(&Matrix), &Matrix[ColumnIndex]);
+		}
+
+		const auto* DefaultQuat = static_cast<const Durin::FQuatf*>(FloatQuatStruct->GetDefaultValue());
+		const auto* DefaultMatrix = static_cast<const Durin::FMatrix4f*>(FloatMatrixStruct->GetDefaultValue());
+		ASSERT_NE(DefaultQuat, nullptr);
+		ASSERT_NE(DefaultMatrix, nullptr);
+		EXPECT_EQ(*DefaultQuat, Durin::FQuatf(1.0f, 0.0f, 0.0f, 0.0f));
+		EXPECT_EQ(*DefaultMatrix, Durin::FMatrix4f(1.0f));
+	}
+
 	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)
 	{
 		auto MakeOps = [](Durin::FDStructOps::FDefaultConstruct Construct) {

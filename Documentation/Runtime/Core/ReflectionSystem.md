@@ -43,7 +43,7 @@ The system does not currently implement editable class defaults, hot reload,
 function reflection, general archetype chains, schema migrations, weak
 references, incremental/concurrent GC, or complete metadata specifier parsing.
 
-`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so `FVector2f`, `FVector3f`, `FVector4f`, their default double-precision vector counterparts, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
+`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so float vectors, their default double-precision counterparts, `FQuatf`, `FQuat`, `FMatrix4f`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values. Explicit `FVector*d` and `FQuatd` source spellings use the existing default-double descriptors rather than creating persistent aliases.
 
 ## Parsing Scope And Generated-File Naming
 
@@ -404,6 +404,12 @@ records keep offset `0`. Optional metadata is the final pointer/count pair.
 Neither form supplies value construction, destruction, copying, size, or
 alignment. The intrinsic struct's own `FStructParams` and `FDStructOps` remain
 the authority for those facts.
+
+Transactional struct loading also supports an accessor-backed struct field.
+It constructs a temporary offset-zero property using the same `DStruct`, loads
+and repairs that detached value, then copy-assigns through the original field's
+accessor. This keeps matrix-column loading atomic without pretending that a GLM
+column has a portable byte offset.
 
 `DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated
 `DEnum` singletons. `DEnum` stores qualified name, short name, display name,

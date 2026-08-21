@@ -786,6 +786,16 @@ namespace
 				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)),
 				&Durin::Z_Construct_DStruct_Durin_FTransform
 			};
+			static const Durin::DurinCodeGen::FStructPropertyParams FloatQuatProp = {
+				"FloatQuat", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, FloatQuat)),
+				&Durin::Z_Construct_DStruct_Durin_FQuatf
+			};
+			static const Durin::DurinCodeGen::FStructPropertyParams FloatMatrixProp = {
+				"FloatMatrix", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, FloatMatrix)),
+				&Durin::Z_Construct_DStruct_Durin_FMatrix4f
+			};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
 				"Vectors_Inner", Durin::EPropertyFlags::None, 1, 0,
 				&Durin::Z_Construct_DStruct_Durin_FVector3
@@ -808,7 +818,8 @@ namespace
 				&VectorMapKey, &VectorMapValue, &GVectorMapHelper
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
-				&VectorProp, &TransformProp, &VectorsProp, &VectorMapProp
+				&VectorProp, &TransformProp, &FloatQuatProp, &FloatMatrixProp,
+				&VectorsProp, &VectorMapProp
 			};
 			static const Durin::DurinCodeGen::FClassParams Params = {
 				&StaticClassNoRegister, "Tests::DMathStructAssetForTest",
@@ -820,6 +831,8 @@ namespace
 
 		Durin::FVector3 Vector{0.0};
 		Durin::FTransform Transform;
+		Durin::FQuatf FloatQuat{1.0f, 0.0f, 0.0f, 0.0f};
+		Durin::FMatrix4f FloatMatrix{1.0f};
 		std::vector<Durin::FVector3> Vectors;
 		FVectorMap VectorMap;
 	};
@@ -3020,25 +3033,37 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	Durin::DClass* Class = DMathStructAssetForTest::StaticClass();
 	Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
 	Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+	Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_Durin_FQuatf();
+	Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_Durin_FMatrix4f();
 	ASSERT_NE(Class, nullptr);
 	ASSERT_NE(VectorStruct, nullptr);
 	ASSERT_NE(TransformStruct, nullptr);
+	ASSERT_NE(FloatQuatStruct, nullptr);
+	ASSERT_NE(FloatMatrixStruct, nullptr);
 	auto* Vector = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("Vector", false));
 	auto* Transform = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("Transform", false));
+	auto* FloatQuat = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("FloatQuat", false));
+	auto* FloatMatrix = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("FloatMatrix", false));
 	auto* Vectors = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("Vectors", false));
 	auto* VectorMap = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("VectorMap", false));
 	ASSERT_NE(Vector, nullptr);
 	ASSERT_NE(Transform, nullptr);
+	ASSERT_NE(FloatQuat, nullptr);
+	ASSERT_NE(FloatMatrix, nullptr);
 	ASSERT_NE(Vectors, nullptr);
 	ASSERT_NE(VectorMap, nullptr);
 	ASSERT_EQ(Class->ChildProperties, Vector);
 	EXPECT_EQ(Vector->Next, Transform);
-	EXPECT_EQ(Transform->Next, Vectors);
+	EXPECT_EQ(Transform->Next, FloatQuat);
+	EXPECT_EQ(FloatQuat->Next, FloatMatrix);
+	EXPECT_EQ(FloatMatrix->Next, Vectors);
 	EXPECT_EQ(Vectors->Next, VectorMap);
 	EXPECT_EQ(VectorMap->Next, nullptr);
 
 	EXPECT_EQ(Vector->GetStruct(), VectorStruct);
 	EXPECT_EQ(Transform->GetStruct(), TransformStruct);
+	EXPECT_EQ(FloatQuat->GetStruct(), FloatQuatStruct);
+	EXPECT_EQ(FloatMatrix->GetStruct(), FloatMatrixStruct);
 	EXPECT_EQ(Vector->GetPropertyFlags(), Durin::EPropertyFlags::None);
 	EXPECT_EQ(Transform->GetPropertyFlags(), Durin::EPropertyFlags::None);
 	EXPECT_EQ(Vector->GetArrayDim(), 1);
@@ -3069,6 +3094,34 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_EQ(VectorMapValue->GetArrayDim(), 1);
 	EXPECT_TRUE(VectorStruct->HasCompleteAuthoredFields());
 	EXPECT_TRUE(TransformStruct->HasCompleteAuthoredFields());
+	EXPECT_TRUE(FloatQuatStruct->HasCompleteAuthoredFields());
+	EXPECT_TRUE(FloatMatrixStruct->HasCompleteAuthoredFields());
+}
+
+TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughDastV4)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/PrecisionMath", Path));
+	DMathStructAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->FloatQuat = Durin::FQuatf(0.5f, 0.25f, -0.5f, 0.75f);
+	Asset->FloatMatrix = Durin::FMatrix4f(0.0f);
+	Asset->FloatMatrix[0] = Durin::FVector4f(1.0f, 2.0f, 3.0f, 4.0f);
+	Asset->FloatMatrix[1] = Durin::FVector4f(5.0f, 6.0f, 7.0f, 8.0f);
+	Asset->FloatMatrix[2] = Durin::FVector4f(9.0f, 10.0f, 11.0f, 12.0f);
+	Asset->FloatMatrix[3] = Durin::FVector4f(13.0f, 14.0f, 15.0f, 16.0f);
+	const Durin::FMatrix4f ExpectedMatrix = Asset->FloatMatrix;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	DMathStructAssetForTest* Loaded = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->FloatQuat, Durin::FQuatf(0.5f, 0.25f, -0.5f, 0.75f));
+	EXPECT_EQ(Loaded->FloatMatrix, ExpectedMatrix);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)

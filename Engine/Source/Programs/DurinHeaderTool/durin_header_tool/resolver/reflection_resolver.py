@@ -36,20 +36,26 @@ class SymbolResolution:
 
 
 def _add_builtin_symbols(symbols: ExportedSymbols) -> None:
-    for qualified_name, short_name in (
-        ("Durin::FVector2f", "FVector2f"),
-        ("Durin::FVector3f", "FVector3f"),
-        ("Durin::FVector4f", "FVector4f"),
-        ("Durin::FVector2", "FVector2"),
-        ("Durin::FVector3", "FVector3"),
-        ("Durin::FVector4", "FVector4"),
-        ("Durin::FQuat", "FQuat"),
-        ("Durin::FTransform", "FTransform"),
-        ("Durin::FLinearColor", "FLinearColor"),
+    for qualified_name, short_name, helper_type in (
+        ("Durin::FVector2f", "FVector2f", "FVector2f"),
+        ("Durin::FVector3f", "FVector3f", "FVector3f"),
+        ("Durin::FVector4f", "FVector4f", "FVector4f"),
+        ("Durin::FVector2", "FVector2", "FVector2"),
+        ("Durin::FVector3", "FVector3", "FVector3"),
+        ("Durin::FVector4", "FVector4", "FVector4"),
+        ("Durin::FVector2d", "FVector2d", "FVector2"),
+        ("Durin::FVector3d", "FVector3d", "FVector3"),
+        ("Durin::FVector4d", "FVector4d", "FVector4"),
+        ("Durin::FQuatf", "FQuatf", "FQuatf"),
+        ("Durin::FQuatd", "FQuatd", "FQuat"),
+        ("Durin::FQuat", "FQuat", "FQuat"),
+        ("Durin::FMatrix4f", "FMatrix4f", "FMatrix4f"),
+        ("Durin::FTransform", "FTransform", "FTransform"),
+        ("Durin::FLinearColor", "FLinearColor", "FLinearColor"),
     ):
         symbols.setdefault(qualified_name, ExportedSymbolInfo(
             Kind="struct", ShortName=short_name, Namespace="Durin", QualifiedName=qualified_name,
-            GeneratedHelperName=f"Z_Construct_DStruct_{qualified_name.replace('::', '_')}",
+            GeneratedHelperName=f"Z_Construct_DStruct_Durin_{helper_type}",
             Header="DObject/MathStructs.h", API="COREDOBJECT_API"
         ))
 
