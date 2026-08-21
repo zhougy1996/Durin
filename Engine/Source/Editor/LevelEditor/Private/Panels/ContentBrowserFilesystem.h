@@ -37,7 +37,7 @@ namespace Durin::Editor::Level::ContentBrowserFilesystem
 		return Result;
 	}
 
-	inline auto NormalizeAbsolute(std::string_view Path) -> std::string
+	inline auto NormalizePath(std::string_view Path) -> std::string
 	{
 		if (Path.empty()) return {};
 		const std::filesystem::path Input(Path);

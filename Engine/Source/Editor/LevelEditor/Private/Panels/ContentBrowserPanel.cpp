@@ -575,7 +575,7 @@ namespace Durin::Editor::Level
 		std::string_view PhysicalDirectory) -> const FContentBrowserItem*
 	{
 		const std::string NormalizedDirectory =
-			ContentBrowserFilesystem::NormalizeAbsolute(PhysicalDirectory);
+			ContentBrowserFilesystem::NormalizePath(PhysicalDirectory);
 		const std::filesystem::path Parent =
 			std::filesystem::path(NormalizedDirectory).parent_path();
 		if (!NavigateToPhysical(Parent.generic_string()))

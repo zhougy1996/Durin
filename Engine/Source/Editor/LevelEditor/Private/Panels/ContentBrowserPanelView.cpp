@@ -32,19 +32,8 @@ namespace Durin::Editor::Level
 	namespace
 	{
 		using Helpers::DrawToolbarIconButton;
-
-		auto NormalizePath(std::string_view Path) -> std::string
-		{
-			return ContentBrowserFilesystem::NormalizeAbsolute(Path);
-		}
-
-		auto ClassLeaf(std::string_view QualifiedName) -> std::string
-		{
-			const size_t Separator = QualifiedName.rfind("::");
-			std::string Name = Separator == std::string_view::npos ? std::string(QualifiedName) : std::string(QualifiedName.substr(Separator + 2));
-			if (Name.starts_with('D') && Name.size() > 1) Name.erase(Name.begin());
-			return Name;
-		}
+		using ContentBrowserFilesystem::NormalizePath;
+		using ContentBrowserItemView::ClassLeaf;
 
 		auto MakeRenderedThumbnailFingerprint(const FContentBrowserItem& Item)
 			-> std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint>

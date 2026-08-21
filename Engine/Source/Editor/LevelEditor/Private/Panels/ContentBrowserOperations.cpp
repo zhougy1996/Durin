@@ -20,11 +20,7 @@ namespace Durin::Editor::Level
 	{
 		constexpr uint64 FnvOffset = 14695981039346656037ull;
 		constexpr uint64 FnvPrime = 1099511628211ull;
-
-		auto NormalizePath(std::string_view Path) -> std::string
-		{
-			return ContentBrowserFilesystem::NormalizeAbsolute(Path);
-		}
+		using ContentBrowserFilesystem::NormalizePath;
 
 		auto Failure(Asset::EAssetError Error, std::string Message)
 			-> FContentBrowserOperationResult
