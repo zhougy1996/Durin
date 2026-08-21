@@ -361,6 +361,12 @@ class TestReflectionProperties:
             assert "alignof(" not in definition
             assert "EPropertyGenFlags::Struct" not in definition
 
+        float_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "::NewProp_CompactTangent =" in line
+        )
+        assert float_definition.endswith("Z_Construct_DStruct_Durin_FVector3f };")
+
 
     def test_all_struct_property_forms_use_concise_typed_registration(self):
         statics = "Z_Construct_DStruct_Fixture_FStructPropertyShapes_Statics"
@@ -724,7 +730,7 @@ namespace Fixture
         assert "&Durin::ResolveMapOps<" in self.generated_cpp
 
 
-    def test_default_double_vector_intrinsics_are_available(self):
+    def test_default_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"
         with (
             mock.patch.object(utils, "get_module_export_file_path", return_value=missing_export),
@@ -733,7 +739,7 @@ namespace Fixture
         ):
             symbols = load_available_symbols("Fixture")
 
-        for type_name in ("FVector2", "FVector3", "FVector4"):
+        for type_name in ("FVector2f", "FVector3f", "FVector4f", "FVector2", "FVector3", "FVector4"):
             qualified_name = f"Durin::{type_name}"
             assert qualified_name in symbols
             assert symbols[qualified_name].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{type_name}"

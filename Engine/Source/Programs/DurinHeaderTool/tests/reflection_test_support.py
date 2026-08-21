@@ -74,6 +74,7 @@ def build_reflection_fixture(cls, temp_root):
 
 namespace Durin
 {
+    struct FVector3f {};
     struct FVector3 {};
     struct FLinearColor {};
     class FName {};
@@ -175,6 +176,9 @@ namespace Fixture
 
         DPROPERTY()
         Durin::FVector3 Tangent{};
+
+        DPROPERTY()
+        Durin::FVector3f CompactTangent{};
     };
 
     DSTRUCT()
@@ -354,6 +358,10 @@ struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
                 "Durin::FVector3": ExportedSymbolInfo(
                     Kind="struct", ShortName="FVector3", Namespace="Durin", QualifiedName="Durin::FVector3",
                     GeneratedHelperName="Z_Construct_DStruct_Durin_FVector3", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                ),
+                "Durin::FVector3f": ExportedSymbolInfo(
+                    Kind="struct", ShortName="FVector3f", Namespace="Durin", QualifiedName="Durin::FVector3f",
+                    GeneratedHelperName="Z_Construct_DStruct_Durin_FVector3f", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
                 ),
                 "Durin::FLinearColor": ExportedSymbolInfo(
                     Kind="struct", ShortName="FLinearColor", Namespace="Durin", QualifiedName="Durin::FLinearColor",

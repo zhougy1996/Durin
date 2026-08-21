@@ -37,6 +37,9 @@ class SymbolResolution:
 
 def _add_builtin_symbols(symbols: ExportedSymbols) -> None:
     for qualified_name, short_name in (
+        ("Durin::FVector2f", "FVector2f"),
+        ("Durin::FVector3f", "FVector3f"),
+        ("Durin::FVector4f", "FVector4f"),
         ("Durin::FVector2", "FVector2"),
         ("Durin::FVector3", "FVector3"),
         ("Durin::FVector4", "FVector4"),

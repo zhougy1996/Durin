@@ -8,6 +8,15 @@
 namespace Durin
 {
 	template<>
+	struct TDStructOpsTraits<FVector3f> : TDStructOpsTraitsBase<FVector3f>
+	{
+		static auto DefaultConstruct(void* Destination) -> void
+		{
+			std::construct_at(static_cast<FVector3f*>(Destination), 0.0f);
+		}
+	};
+
+	template<>
 	struct TDStructOpsTraits<FVector3> : TDStructOpsTraitsBase<FVector3>
 	{
 		static auto DefaultConstruct(void* Destination) -> void
@@ -46,6 +55,45 @@ namespace Durin
 			return Struct;
 		}
 	} // namespace
+
+	auto Z_Construct_DStruct_Durin_FVector2f() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FVector2f", "FVector2f", sizeof(FVector2f), alignof(FVector2f));
+		static const DurinCodeGen::FFloatPropertyParams X = DurinCodeGen::FFloatPropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector2f, &FVector2f::x>, &ConstMember<FVector2f, &FVector2f::x>);
+		static const DurinCodeGen::FFloatPropertyParams Y = DurinCodeGen::FFloatPropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector2f, &FVector2f::y>, &ConstMember<FVector2f, &FVector2f::y>);
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector2f", "FVector2f", sizeof(FVector2f), alignof(FVector2f), Properties, std::size(Properties), &GetDStructOps<FVector2f>()};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto Z_Construct_DStruct_Durin_FVector3f() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FVector3f", "FVector3f", sizeof(FVector3f), alignof(FVector3f));
+		static const DurinCodeGen::FFloatPropertyParams X = DurinCodeGen::FFloatPropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector3f, &FVector3f::x>, &ConstMember<FVector3f, &FVector3f::x>);
+		static const DurinCodeGen::FFloatPropertyParams Y = DurinCodeGen::FFloatPropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector3f, &FVector3f::y>, &ConstMember<FVector3f, &FVector3f::y>);
+		static const DurinCodeGen::FFloatPropertyParams Z = DurinCodeGen::FFloatPropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FVector3f, &FVector3f::z>, &ConstMember<FVector3f, &FVector3f::z>);
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector3f", "FVector3f", sizeof(FVector3f), alignof(FVector3f), Properties, std::size(Properties), &GetDStructOps<FVector3f>()};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto Z_Construct_DStruct_Durin_FVector4f() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FVector4f", "FVector4f", sizeof(FVector4f), alignof(FVector4f));
+		static const DurinCodeGen::FFloatPropertyParams X = DurinCodeGen::FFloatPropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector4f, &FVector4f::x>, &ConstMember<FVector4f, &FVector4f::x>);
+		static const DurinCodeGen::FFloatPropertyParams Y = DurinCodeGen::FFloatPropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector4f, &FVector4f::y>, &ConstMember<FVector4f, &FVector4f::y>);
+		static const DurinCodeGen::FFloatPropertyParams Z = DurinCodeGen::FFloatPropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FVector4f, &FVector4f::z>, &ConstMember<FVector4f, &FVector4f::z>);
+		static const DurinCodeGen::FFloatPropertyParams W = DurinCodeGen::FFloatPropertyParams::WithAccessors("w", EPropertyFlags::None, 1, &MutableMember<FVector4f, &FVector4f::w>, &ConstMember<FVector4f, &FVector4f::w>);
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z, &W};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector4f", "FVector4f", sizeof(FVector4f), alignof(FVector4f), Properties, std::size(Properties), &GetDStructOps<FVector4f>()};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
 
 	auto Z_Construct_DStruct_Durin_FVector2() -> DStruct*
 	{
@@ -127,6 +175,21 @@ namespace Durin
 		return DurinCodeGen::ConstructDStruct(Params);
 	}
 } // namespace Durin
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector2f() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FVector2f();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector3f() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FVector3f();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector4f() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FVector4f();
+}
 
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector2() -> Durin::DStruct*
 {

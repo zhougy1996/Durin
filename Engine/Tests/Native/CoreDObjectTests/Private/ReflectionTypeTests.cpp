@@ -4873,29 +4873,42 @@ namespace
 	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadataAndOperations)
 	{
 		EnsureDObjectInitialized();
+		Durin::DStruct* FloatVector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2f();
+		Durin::DStruct* FloatVectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3f();
+		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4f();
 		Durin::DStruct* Vector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2();
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
 		Durin::DStruct* Vector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4();
 		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_Durin_FQuat();
 		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
 		Durin::DStruct* ColorStruct = Durin::Z_Construct_DStruct_Durin_FLinearColor();
+		ASSERT_NE(FloatVector2Struct, nullptr);
+		ASSERT_NE(FloatVectorStruct, nullptr);
+		ASSERT_NE(FloatVector4Struct, nullptr);
 		ASSERT_NE(Vector2Struct, nullptr);
 		ASSERT_NE(VectorStruct, nullptr);
 		ASSERT_NE(Vector4Struct, nullptr);
 		ASSERT_NE(QuatStruct, nullptr);
 		ASSERT_NE(TransformStruct, nullptr);
 		ASSERT_NE(ColorStruct, nullptr);
+		EXPECT_EQ(FloatVector2Struct->GetQualifiedName().ToString(), "Durin::FVector2f");
+		EXPECT_EQ(FloatVectorStruct->GetQualifiedName().ToString(), "Durin::FVector3f");
+		EXPECT_EQ(FloatVector4Struct->GetQualifiedName().ToString(), "Durin::FVector4f");
 		EXPECT_EQ(Vector2Struct->GetQualifiedName().ToString(), "Durin::FVector2");
 		EXPECT_EQ(VectorStruct->GetQualifiedName().ToString(), "Durin::FVector3");
 		EXPECT_EQ(Vector4Struct->GetQualifiedName().ToString(), "Durin::FVector4");
 		EXPECT_EQ(QuatStruct->GetQualifiedName().ToString(), "Durin::FQuat");
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector2f"), FloatVector2Struct);
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector3f"), FloatVectorStruct);
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector4f"), FloatVector4Struct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector2"), Vector2Struct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector3"), VectorStruct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector4"), Vector4Struct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName(Durin::FName("Durin::FTransform")), TransformStruct);
 		EXPECT_EQ(ColorStruct->GetQualifiedName().ToString(), "Durin::FLinearColor");
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FLinearColor"), ColorStruct);
-		for (Durin::DStruct* Struct : {Vector2Struct, VectorStruct, Vector4Struct, QuatStruct, TransformStruct, ColorStruct})
+		for (Durin::DStruct* Struct : {FloatVector2Struct, FloatVectorStruct, FloatVector4Struct,
+				 Vector2Struct, VectorStruct, Vector4Struct, QuatStruct, TransformStruct, ColorStruct})
 		{
 			EXPECT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Ready);
 			EXPECT_EQ(Struct->GetDefaultReason(), Durin::EDStructDefaultReason::None);
@@ -4914,6 +4927,23 @@ namespace
 		}
 		EXPECT_EQ(VectorStruct->PropertiesSize, sizeof(Durin::FVector3));
 		EXPECT_EQ(VectorStruct->MinAlignment, alignof(Durin::FVector3));
+		EXPECT_EQ(FloatVectorStruct->PropertiesSize, sizeof(Durin::FVector3f));
+		EXPECT_EQ(FloatVectorStruct->MinAlignment, alignof(Durin::FVector3f));
+		for (const auto& [Struct, Components] : std::array{
+				 std::pair{FloatVector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
+				 std::pair{FloatVectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
+				 std::pair{FloatVector4Struct, std::array<const char*, 4>{"x", "y", "z", "w"}}
+			 })
+		{
+			for (const char* Component : Components)
+			{
+				if (!Component) continue;
+				Durin::FProperty* Field = Struct->FindPropertyByName(Component, false);
+				ASSERT_NE(Field, nullptr);
+				EXPECT_EQ(Field->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Float);
+				EXPECT_EQ(Field->GetElementSize(), sizeof(float));
+			}
+		}
 		for (const auto& [Struct, Components] : std::array{
 				 std::pair{Vector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
 				 std::pair{VectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},

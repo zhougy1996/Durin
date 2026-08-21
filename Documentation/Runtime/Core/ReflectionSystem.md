@@ -43,7 +43,7 @@ The system does not currently implement editable class defaults, hot reload,
 function reflection, general archetype chains, schema migrations, weak
 references, incremental/concurrent GC, or complete metadata specifier parsing.
 
-`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
+`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so `FVector2f`, `FVector3f`, `FVector4f`, their default double-precision vector counterparts, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
 
 ## Parsing Scope And Generated-File Naming
 
