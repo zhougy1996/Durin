@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "AssetBuild/BuildHost.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

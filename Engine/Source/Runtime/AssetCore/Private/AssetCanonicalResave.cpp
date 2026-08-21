@@ -1,6 +1,6 @@
-#include "AssetCanonicalResave.h"
+#include "Asset/CanonicalResave.h"
 
-#include "AssetPackageV4Reader.h"
+#include "Asset/PackageV4Reader.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"

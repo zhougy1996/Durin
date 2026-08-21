@@ -2,8 +2,8 @@
 
 #include "StaticMeshTestAccess.h"
 
-#include "AssetLoad.h"
-#include "AssetPackageV4Reader.h"
+#include "AssetTools.h"
+#include "Asset/PackageV4Reader.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"

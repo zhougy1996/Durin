@@ -1,6 +1,6 @@
 #include "Asset/AssetCompatibilityAudit.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 
 namespace Durin::Editor
 {

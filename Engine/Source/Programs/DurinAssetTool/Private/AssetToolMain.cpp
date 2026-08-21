@@ -1,5 +1,4 @@
-#include "AssetCompatibility.h"
-#include "AssetCanonicalResave.h"
+#include "AssetTools.h"
 #include "ImportRecord.h"
 
 #include "CoreGlobals.h"

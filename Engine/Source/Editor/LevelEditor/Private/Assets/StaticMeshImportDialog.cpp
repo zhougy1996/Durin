@@ -1,7 +1,7 @@
 #include "Assets/StaticMeshImportDialog.h"
 
 #include "Assets/AssetDestinationValidation.h"
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"

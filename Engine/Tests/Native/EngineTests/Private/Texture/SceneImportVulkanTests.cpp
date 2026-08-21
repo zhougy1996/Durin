@@ -1,4 +1,4 @@
-#include "AssetTestSupport.h"
+#include "Asset/Testing.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"

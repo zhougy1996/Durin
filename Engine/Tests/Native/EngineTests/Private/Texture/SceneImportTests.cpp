@@ -1,7 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Animation/AnimationClip.h"
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "ImportRecord.h"
 #include "ImportService.h"
 #include "Materials/MaterialInstance.h"

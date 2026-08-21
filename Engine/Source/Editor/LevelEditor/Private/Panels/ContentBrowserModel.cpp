@@ -2,7 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"

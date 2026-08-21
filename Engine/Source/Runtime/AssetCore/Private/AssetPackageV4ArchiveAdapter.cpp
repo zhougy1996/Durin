@@ -1,10 +1,10 @@
 #include "AssetPackageArchive.h"
 #include "AssetRuntimeStateInternal.h"
-#include "AssetPackageVersionPolicy.h"
-#include "AssetPackageV4Writer.h"
+#include "Asset/PackageVersionPolicy.h"
+#include "Asset/PackageV4Writer.h"
 #include "AssetPackageValueCodec.h"
 
-#include "AssetRedirector.h"
+#include "Asset/Redirector.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

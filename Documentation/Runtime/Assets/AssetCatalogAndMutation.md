@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, immutable catalog and reference proje
 
 Modules: AssetCore, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-21
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -36,11 +36,13 @@ prior/resulting revisions, counters, warnings, and errors in one value. Explicit
 Content Browser refresh reconciles every registered auto-scan mount; its folder
 scope affects only presentation.
 
-Public headers remain split by responsibility: `AssetPackage.h` owns package
-format and inspection values, `AssetCatalog.h` owns discovery values,
-`AssetLoad.h` owns runtime resolution and residency, `AssetMutation.h` owns
-authoring transactions, and `AssetTestSupport.h` owns deterministic failure
-seams. There is no public mutable catalog manager.
+Public headers remain split by responsibility: `Asset/Catalog.h` owns discovery
+values, `Asset/References.h` owns the immutable reference projection,
+`Asset/Load.h` owns runtime resolution and residency, `Asset/Mutation.h` owns
+authoring transactions, and `Asset/Testing.h` owns deterministic failure seams.
+The supported aggregate entry points are defined by
+[Asset Packages](AssetPackages.md#public-capability-boundary). There is no
+public mutable catalog manager.
 
 ## Reference Projection
 

@@ -1,6 +1,6 @@
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/FilesystemMigration.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 
 namespace Durin
 {

@@ -3,11 +3,9 @@
 
 #include "AssetImportCore.h"
 #include "ImportService.h"
-#include "AssetCanonicalResave.h"
-#include "AssetCompatibility.h"
+#include "AssetTools.h"
 #include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "AssetMutation.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"

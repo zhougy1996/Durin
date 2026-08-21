@@ -1,8 +1,8 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "AssetPackageVersionPolicy.h"
-#include "AssetPackage.h"
+#include "Asset/PackageVersionPolicy.h"
+#include "Asset/Package.h"
 #include "DObject/DefaultDeltaPlan.h"
 
 #include <memory>

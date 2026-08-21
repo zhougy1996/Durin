@@ -1,6 +1,6 @@
 #include "ImportRecordIndex.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/DObjectGlobals.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"

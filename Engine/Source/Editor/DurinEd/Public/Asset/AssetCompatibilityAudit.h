@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DurinEdAPI.h"
-#include "AssetCompatibility.h"
+#include "AssetTools.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor

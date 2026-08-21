@@ -2,7 +2,7 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/AssetPicker.h"

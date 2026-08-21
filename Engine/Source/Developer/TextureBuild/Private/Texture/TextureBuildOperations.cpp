@@ -1,7 +1,7 @@
 #include "Texture/TextureBuildOperations.h"
 
 #include "AssetBuild/BuildSession.h"
-#include "Asset/SourcePath.h"
+#include "AssetAuthoring.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2DDerivedData.h"

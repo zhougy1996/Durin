@@ -5,7 +5,7 @@
 #include "MultiOutputImport.h"
 #include "ImportService.h"
 #include "SceneImport.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"

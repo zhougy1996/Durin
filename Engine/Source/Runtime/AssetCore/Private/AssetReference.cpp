@@ -1,7 +1,7 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageValueCodec.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageVersionPolicy.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

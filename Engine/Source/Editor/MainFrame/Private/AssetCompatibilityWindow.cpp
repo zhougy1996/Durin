@@ -1,7 +1,6 @@
 #include "AssetCompatibilityWindow.h"
 
-#include "AssetCanonicalResave.h"
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 

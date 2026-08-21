@@ -2,7 +2,7 @@
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 
 namespace Durin::Asset
 {

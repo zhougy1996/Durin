@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMesh.h"
 
-#include "AssetLoad.h"
+#include "AssetCook.h"
 #include "DObject/Property.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"

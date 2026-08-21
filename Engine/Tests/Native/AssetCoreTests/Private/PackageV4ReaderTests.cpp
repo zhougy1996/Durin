@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "AssetPackageV4Reader.h"
-#include "AssetTestSupport.h"
-#include "AssetRedirector.h"
+#include "Asset/PackageV4Reader.h"
+#include "Asset/Testing.h"
+#include "AssetTools.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "Misc/Paths.h"

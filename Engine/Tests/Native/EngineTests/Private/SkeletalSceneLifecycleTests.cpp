@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

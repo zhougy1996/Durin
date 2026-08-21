@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetTestSupport.h"
+#include "Asset/Testing.h"
 
 namespace Durin::Asset::Private
 {

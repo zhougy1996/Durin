@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetImportCoreAPI.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "ImportRecord.h"
 
 namespace Durin::Asset

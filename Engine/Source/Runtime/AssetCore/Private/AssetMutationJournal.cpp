@@ -1,5 +1,5 @@
 #include "AssetMutationJournalInternal.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageVersionPolicy.h"
 
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"

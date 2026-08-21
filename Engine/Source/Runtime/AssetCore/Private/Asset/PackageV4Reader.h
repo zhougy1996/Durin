@@ -1,8 +1,8 @@
 #pragma once
 
-#include "AssetCompatibility.h"
-#include "AssetMutation.h"
-#include "AssetPackageV4Writer.h"
+#include "Asset/Compatibility.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageV4Writer.h"
 
 #include <array>
 #include <utility>

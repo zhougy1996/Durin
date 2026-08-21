@@ -1,10 +1,9 @@
 #include "Source/MountedSourceRelocation.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Asset/MountedSource.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
 #include "Terrain/TerrainHeightmap.h"

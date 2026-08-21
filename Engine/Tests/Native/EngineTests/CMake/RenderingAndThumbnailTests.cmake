@@ -68,6 +68,7 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialAssetThumbnailTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForge MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

@@ -3,7 +3,7 @@
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
 #include "ImportService.h"
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"

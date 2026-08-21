@@ -1,6 +1,5 @@
 #pragma once
 
-#include "CookedAsset.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 #include "PayloadDecodeResult.h"

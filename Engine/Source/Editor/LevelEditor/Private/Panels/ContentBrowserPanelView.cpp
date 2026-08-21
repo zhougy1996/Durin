@@ -7,7 +7,7 @@
 #include "MultiOutputImport.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Editor/WorkspaceUI.h"

@@ -1,6 +1,6 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
-#include "AssetLoad.h"
+#include "AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"
 #include "DynamicRHI.h"

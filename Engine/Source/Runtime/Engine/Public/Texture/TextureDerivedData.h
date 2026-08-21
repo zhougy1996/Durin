@@ -1,6 +1,5 @@
 #pragma once
 
-#include "CookedAsset.h"
 #include "EngineAPI.h"
 #include "PayloadDecodeResult.h"
 #include "Texture/Texture2D.h"

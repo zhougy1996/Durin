@@ -1,6 +1,5 @@
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "TextureCubeSourceTranslation.h"
-#include "CookedAsset.h"
 #include "DObject/Property.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"

@@ -1,6 +1,6 @@
 #include "Engine/GameEngine.h"
 
-#include "AssetLoad.h"
+#include "Asset.h"
 #include "CoreGlobals.h"
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"

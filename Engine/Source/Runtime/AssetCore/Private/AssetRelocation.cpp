@@ -2,7 +2,7 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationTransactionInternal.h"
 #include "AssetPackageCodec.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageVersionPolicy.h"
 #include "AssetRelocationExtensionsInternal.h"
 
 #include "CoreGlobals.h"

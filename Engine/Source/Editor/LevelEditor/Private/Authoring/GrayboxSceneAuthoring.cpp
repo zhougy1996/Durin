@@ -3,7 +3,7 @@
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
 #include "Actors/StaticMeshActor.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"

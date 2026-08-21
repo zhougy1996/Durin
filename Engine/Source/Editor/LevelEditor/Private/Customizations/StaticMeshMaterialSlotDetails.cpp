@@ -1,6 +1,6 @@
 #include "StaticMeshMaterialSlotDetails.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

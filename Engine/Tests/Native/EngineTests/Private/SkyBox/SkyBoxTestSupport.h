@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Actors/SkyBoxActor.h"
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkyBoxComponent.h"
 #include "CoreGlobals.h"

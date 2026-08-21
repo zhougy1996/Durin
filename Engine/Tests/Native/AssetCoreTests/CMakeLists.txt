@@ -53,6 +53,9 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageV4WriterTests.cpp
 		Private/PackageV4ReaderTests.cpp
 )
+target_include_directories(AssetPackageTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+)
 durin_test_deploy_directory_to_data(
 	AssetPackageTests
 	"${CMAKE_CURRENT_SOURCE_DIR}/Data/Compatibility"
@@ -64,6 +67,9 @@ durin_add_asset_functional_test(AssetCookTests
 	MODULES asset-core
 	TIMEOUT 600
 	SOURCES Private/CookedAssetTests.cpp
+)
+target_include_directories(AssetCookTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 )
 
 durin_add_asset_functional_test(AssetMountedSourceTests
@@ -89,6 +95,9 @@ if(DURIN_WITH_EDITOR)
 		MODULES asset-core asset-import-core
 		LIBRARIES AssetImportCore
 		SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
+	)
+	target_include_directories(AssetImportCoreTests PRIVATE
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 	)
 else()
 	durin_exclude_native_test_sources(

@@ -4,9 +4,29 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-20
+Last reviewed: 2026-08-21
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
+
+## Public Capability Boundary
+
+AssetCore exposes capability-named entry points rather than one complete public
+surface. `Asset.h` is the ordinary runtime entry point for catalog lookup,
+redirect resolution, package residency, asset loading, and cooked-payload
+reading. `AssetAuthoring.h` adds package creation and persistence, mounted-source
+mutation, relocation, deletion, and redirector fix-up. `AssetCook.h` adds Cook
+reachability, cooked-container construction, package serialization for Cook, and
+manifest publication. `AssetTools.h` adds offline inspection, compatibility, and
+canonical-resave workflows.
+
+Public Engine asset headers include narrow leaves such as
+`Asset/CookedAsset.h`, `Asset/Cook.h`, and `Asset/SourcePath.h` when their type
+layout or method signatures require those declarations. They do not include an
+umbrella solely to obtain one value type. `Asset/Package.h` remains a
+compatibility aggregate for direct legacy users; new code selects
+`PackageTypes.h`, `PackageInspection.h`, or `PackageAuthoring.h` by capability.
+The V4 reader, writer, archive adapter, and version policy remain AssetCore
+implementation details.
 
 ## Paths And Mounts
 

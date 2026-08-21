@@ -2,7 +2,7 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"

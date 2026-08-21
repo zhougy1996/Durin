@@ -1,7 +1,6 @@
 #include "Editor/PropertyView.h"
 
-#include "AssetRedirector.h"
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

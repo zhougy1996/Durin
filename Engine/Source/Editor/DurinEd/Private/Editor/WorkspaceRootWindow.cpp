@@ -1,6 +1,6 @@
 #include "Editor/WorkspaceRootWindow.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "AssetPackageV4Writer.h"
-#include "AssetPackageV4Reader.h"
+#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageV4Reader.h"
 #include "PackageV4ReferenceModel.h"
 
 #include <algorithm>

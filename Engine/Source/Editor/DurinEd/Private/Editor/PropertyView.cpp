@@ -1,7 +1,7 @@
 #include "Editor/PropertyView.h"
 #include "Editor/PropertyValueDraft.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

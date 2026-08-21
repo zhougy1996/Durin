@@ -9,7 +9,7 @@
 #include "Actors/Pawn.h"
 #include "Actors/PlayerController.h"
 #include "Actors/PlayerStart.h"
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Actors/StaticMeshActor.h"
 #include "Actors/SkeletalMeshActor.h"
 #include "Components/ActorComponent.h"

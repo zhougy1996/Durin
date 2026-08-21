@@ -1,8 +1,8 @@
-#include "AssetPackageV4Reader.h"
+#include "Asset/PackageV4Reader.h"
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
-#include "AssetTestSupport.h"
+#include "Asset/Testing.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

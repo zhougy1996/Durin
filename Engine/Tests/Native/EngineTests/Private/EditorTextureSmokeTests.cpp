@@ -3,8 +3,8 @@
 #include "EngineTestSupport.h"
 
 #include "Actors/StaticMeshActor.h"
-#include "AssetPackageVersionPolicy.h"
-#include "AssetMutation.h"
+#include "Asset/PackageVersionPolicy.h"
+#include "AssetTools.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/StaticMeshSceneProxy.h"

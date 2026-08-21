@@ -5,11 +5,10 @@
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
-#include "Asset/MountedSource.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 

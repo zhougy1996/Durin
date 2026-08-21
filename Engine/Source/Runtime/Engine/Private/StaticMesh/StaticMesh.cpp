@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMesh.h"
 
-#include "AssetLoad.h"
+#include "Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -12,7 +12,6 @@
 #include "Misc/Paths.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
-#include "Asset/MountedSource.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"

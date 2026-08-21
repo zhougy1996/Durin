@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "AssetResult.h"
+#include "Asset/Result.h"
 #include "DObject/AssetPath.h"
 
 namespace Durin

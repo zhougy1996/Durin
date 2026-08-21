@@ -7,8 +7,8 @@
 		"CoreDObject"
     ],
     "ReflectHeaders": [
-        "Public/CookedAsset.h",
-        "Public/AssetRedirector.h",
+        "Public/Asset/CookedAsset.h",
+        "Public/Asset/Redirector.h",
         "Public/Asset/SourcePath.h"
     ]
 }

@@ -1,6 +1,6 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Math/Operations.h"
 #include "Texture/TextureCube.h"
 

@@ -1,8 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "CookedAsset.h"
-#include "AssetPackageV4Writer.h"
-#include "AssetMutation.h"
+#include "AssetTools.h"
+#include "Asset/PackageV4Writer.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Object.h"

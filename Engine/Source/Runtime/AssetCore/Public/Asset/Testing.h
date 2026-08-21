@@ -1,6 +1,7 @@
 #pragma once
 
-#include "AssetMutation.h"
+#include "Asset/Mutation.h"
+#include "Asset/Redirector.h"
 
 namespace Durin::Asset
 {
@@ -8,11 +9,12 @@ namespace Durin::Asset
 	{
 		ASSETCORE_API auto ResetAssetPackageReencodeCountForTesting() -> void;
 		ASSETCORE_API auto GetAssetPackageReencodeCountForTesting() -> uint64;
-	}
+	} // namespace DastV4
 	ASSETCORE_API auto CreateAssetRedirectorForTesting(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,
-		DAssetRedirector*& OutRedirector) -> FAssetResult;
+		DAssetRedirector*& OutRedirector
+	) -> FAssetResult;
 	ASSETCORE_API auto DeleteAssetForTesting(const FAssetPath& Path)
 		-> FAssetResult;
 	enum class EAssetRedirectorFixupFailurePoint : uint8
@@ -32,7 +34,8 @@ namespace Durin::Asset
 
 	ASSETCORE_API auto SetAssetRedirectorFixupFailurePointForTesting(
 		EAssetRedirectorFixupFailurePoint Point,
-		uint32 Occurrence = 1) -> void;
+		uint32 Occurrence = 1
+	) -> void;
 
 	enum class EAssetRelocationFailurePoint : uint8
 	{
@@ -50,8 +53,9 @@ namespace Durin::Asset
 
 	ASSETCORE_API auto SetAssetRelocationFailurePointForTesting(
 		EAssetRelocationFailurePoint Point,
-		uint32 Occurrence = 1) -> void;
+		uint32 Occurrence = 1
+	) -> void;
 	ASSETCORE_API auto FlushAssetCatalogSnapshotForTesting() -> void;
 	ASSETCORE_API auto IsAssetCatalogSnapshotDirtyForTesting() -> bool;
 	ASSETCORE_API auto GetAssetCatalogCacheWarningForTesting() -> std::string;
-}
+} // namespace Durin::Asset

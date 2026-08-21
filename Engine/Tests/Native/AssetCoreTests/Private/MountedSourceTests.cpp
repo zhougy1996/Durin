@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Asset/MountedSource.h"
+#include "AssetTools.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 

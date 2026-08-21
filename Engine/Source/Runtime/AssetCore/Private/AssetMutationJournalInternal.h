@@ -1,7 +1,7 @@
 #pragma once
 
 #define DURIN_ASSETCORE_INTERNAL 1
-#include "AssetMutation.h"
+#include "Asset/Mutation.h"
 #undef DURIN_ASSETCORE_INTERNAL
 #include "Misc/Paths.h"
 

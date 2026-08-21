@@ -1,6 +1,6 @@
 #include "Thumbnail/AssetThumbnailProvider.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Thumbnail/RenderedAssetThumbnailExtension.h"
 
 namespace Durin::Editor

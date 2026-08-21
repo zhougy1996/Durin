@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "Asset/MountedSource.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"

@@ -1,4 +1,4 @@
-#include "AssetRedirector.h"
+#include "Asset/Redirector.h"
 
 namespace Durin::Asset
 {

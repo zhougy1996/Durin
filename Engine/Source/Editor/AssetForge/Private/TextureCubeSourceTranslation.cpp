@@ -1,7 +1,6 @@
 #include "TextureCubeSourceTranslation.h"
 
-#include "Asset/MountedSource.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"

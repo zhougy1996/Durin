@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "CookedAsset.h"
+#include "Asset/CookedAsset.h"
 #include "DObject/CoreDObject.h"
 #include "Physics/PhysicsTypes.h"
 

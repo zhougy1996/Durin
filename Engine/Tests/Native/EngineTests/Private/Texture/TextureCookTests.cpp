@@ -1,6 +1,5 @@
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Components/StaticMeshComponent.h"
-#include "CookedAsset.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"

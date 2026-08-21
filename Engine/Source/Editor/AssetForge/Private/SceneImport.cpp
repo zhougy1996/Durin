@@ -3,7 +3,7 @@
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
 #include "ImportService.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"

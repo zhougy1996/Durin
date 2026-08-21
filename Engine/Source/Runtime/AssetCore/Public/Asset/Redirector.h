@@ -3,7 +3,7 @@
 #include "AssetCoreAPI.h"
 #include "DObject/CoreDObject.h"
 
-#include "AssetRedirector.gen.h"
+#include "Redirector.gen.h"
 
 namespace Durin::Asset
 {

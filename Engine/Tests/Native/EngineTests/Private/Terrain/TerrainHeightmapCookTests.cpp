@@ -1,5 +1,4 @@
-#include "AssetLoad.h"
-#include "CookedAsset.h"
+#include "AssetTools.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"

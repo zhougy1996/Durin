@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "AssetResult.h"
+#include "Asset/Result.h"
 #include "DObject/CoreDObject.h"
 
 #include "CookedAsset.gen.h"
@@ -98,7 +98,8 @@ namespace Durin::Asset
 		// Leaves OutConfiguration unchanged when the cook root is not absolute and normalized.
 		ASSETCORE_API static auto Cooked(
 			std::filesystem::path CookRoot,
-			FAssetRuntimeConfiguration& OutConfiguration) -> FAssetResult;
+			FAssetRuntimeConfiguration& OutConfiguration
+		) -> FAssetResult;
 
 		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
 		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }
@@ -130,17 +131,6 @@ namespace Durin::Asset
 		std::filesystem::path CookRoot;
 	};
 
-	// Supplies one uncompressed logical payload to deterministic DBLK construction.
-	struct FCookedBulkPayload
-	{
-		FGuid PayloadId;
-		uint32 Flags = 1;
-		uint32 PayloadSchemaVersion = 0;
-		ECookedPayloadCompression Compression = ECookedPayloadCompression::None;
-		uint32 Alignment = 16;
-		std::vector<uint8> Bytes;
-	};
-
 	// Owns validated DBLK entries and their uncompressed payload bytes.
 	struct FCookedBulkContainer
 	{
@@ -164,15 +154,6 @@ namespace Durin::Asset
 		auto operator=(const FCookedPackagePayload&) -> FCookedPackagePayload& = delete;
 		auto operator=(FCookedPackagePayload&&) -> FCookedPackagePayload& = delete;
 	};
-
-	ASSETCORE_API auto EncodeCookedBulk(
-		std::span<const FCookedBulkPayload> Payloads,
-		ECookTargetPlatform TargetPlatform,
-		ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::vector<FCookedPayloadDescriptor>* OutDescriptors = nullptr,
-		std::string* OutError = nullptr
-	) -> bool;
 
 	ASSETCORE_API auto DecodeCookedBulk(
 		std::span<const uint8> Bytes,
@@ -223,87 +204,4 @@ namespace Durin::Asset
 		std::string* OutError = nullptr
 	) -> bool;
 
-	enum class ECookManifestEntryKind : uint8
-	{
-		CookedPackage = 1,
-		CookedBulk = 2
-	};
-
-	struct FCookManifestEntry
-	{
-		ECookManifestEntryKind Kind = ECookManifestEntryKind::CookedPackage;
-		uint8 Flags = 1;
-		std::string RelativePath;
-		uint64 FileSize = 0;
-		uint64 HashLow = 0;
-		uint64 HashHigh = 0;
-
-		auto operator==(const FCookManifestEntry&) const -> bool = default;
-	};
-
-	struct FCookManifest
-	{
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::vector<FCookManifestEntry> Entries;
-	};
-
-	ASSETCORE_API auto EncodeCookManifest(
-		const FCookManifest& Manifest,
-		std::vector<uint8>& OutBytes,
-		std::string* OutError = nullptr
-	) -> bool;
-
-	ASSETCORE_API auto DecodeCookManifest(
-		std::span<const uint8> Bytes,
-		FCookManifest& OutManifest,
-		std::string* OutError = nullptr
-	) -> bool;
-
-	// Publishes sorted cooked packages, companions, and the manifest as one manifest-bounded transaction.
-	class FCookContext
-	{
-	public:
-		using FPackageByteBuilder = std::function<bool(
-			std::span<const FCookedPayloadDescriptor>,
-			std::vector<uint8>&,
-			std::string*)>;
-
-		ASSETCORE_API FCookContext(
-			std::filesystem::path InCookRoot,
-			ECookTargetPlatform InTargetPlatform,
-			ECookTargetProfile InTargetProfile);
-
-		ASSETCORE_API auto AddPackage(
-			std::string VirtualPackagePath,
-			std::vector<uint8> PackageBytes,
-			std::vector<FCookedBulkPayload> Payloads,
-			std::string* OutError = nullptr
-		) -> bool;
-
-		// Encodes payloads first so asset-specific code can serialize the exact logical descriptors.
-		ASSETCORE_API auto AddPackage(
-			std::string VirtualPackagePath,
-			std::vector<FCookedBulkPayload> Payloads,
-			FPackageByteBuilder BuildPackageBytes,
-			std::string* OutError = nullptr
-		) -> bool;
-
-		ASSETCORE_API auto Publish(std::string* OutError = nullptr) -> bool;
-		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
-		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
-
-	private:
-		struct FPendingPackage
-		{
-			std::string VirtualPath;
-			std::vector<uint8> PackageBytes;
-			std::vector<uint8> BulkBytes;
-		};
-
-		std::filesystem::path CookRoot;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::vector<FPendingPackage> Packages;
-	};
-}
+} // namespace Durin::Asset

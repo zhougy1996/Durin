@@ -9,7 +9,7 @@
 
 #include "Profiling/Profiling.h"
 
-#include "AssetLoad.h"
+#include "Asset.h"
 #include "Console/ConsoleCommand.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "IScene.h"

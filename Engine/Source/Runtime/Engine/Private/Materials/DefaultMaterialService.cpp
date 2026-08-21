@@ -1,6 +1,6 @@
 #include "Materials/DefaultMaterialService.h"
 
-#include "AssetLoad.h"
+#include "Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"

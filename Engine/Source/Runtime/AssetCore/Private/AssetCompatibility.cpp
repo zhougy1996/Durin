@@ -1,7 +1,7 @@
-#include "AssetCompatibility.h"
-#include "AssetPackageV4Reader.h"
+#include "Asset/Compatibility.h"
+#include "Asset/PackageV4Reader.h"
 #include "AssetPackageCodec.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageVersionPolicy.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

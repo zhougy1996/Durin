@@ -1,5 +1,5 @@
 #include "MaterialTestSupport.h"
-#include "CookedAsset.h"
+#include "AssetTools.h"
 #include "Materials/MaterialTypes.h"
 #include "NativeTestSupport.h"
 

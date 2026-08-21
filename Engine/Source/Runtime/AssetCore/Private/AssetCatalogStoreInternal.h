@@ -1,9 +1,9 @@
 #pragma once
 
 #define DURIN_ASSETCORE_INTERNAL 1
-#include "AssetRedirector.h"
-#include "AssetMutation.h"
-#include "AssetTestSupport.h"
+#include "Asset/Redirector.h"
+#include "Asset/Mutation.h"
+#include "Asset/Testing.h"
 #undef DURIN_ASSETCORE_INTERNAL
 
 namespace Durin::Asset

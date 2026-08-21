@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CookedAsset.h"
+#include "Asset/Cook.h"
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Math/Vector.h"

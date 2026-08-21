@@ -1,12 +1,10 @@
 #include "Texture/Texture2D.h"
 
-#include "AssetCore.h"
-#include "AssetLoad.h"
+#include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Asset/MountedSource.h"
 #include "Serialization/Archive.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"

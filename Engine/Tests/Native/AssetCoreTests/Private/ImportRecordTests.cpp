@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "AssetImportCore.h"
-#include "AssetCanonicalResave.h"
-#include "AssetCompatibility.h"
-#include "AssetPackageV4Reader.h"
-#include "AssetMutation.h"
-#include "AssetTestSupport.h"
+#include "AssetTools.h"
+#include "Asset/PackageV4Reader.h"
+#include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "ImportRecord.h"

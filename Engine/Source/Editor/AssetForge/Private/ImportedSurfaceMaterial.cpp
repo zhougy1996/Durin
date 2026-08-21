@@ -1,6 +1,6 @@
 #include "SceneImport.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Materials/Material.h"
 
 namespace Durin::Asset::Forge

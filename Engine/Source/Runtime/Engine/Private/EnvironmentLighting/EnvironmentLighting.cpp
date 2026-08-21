@@ -1,6 +1,6 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 
-#include "AssetLoad.h"
+#include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
 #include "Misc/FileHelper.h"

@@ -2,7 +2,7 @@
 
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"

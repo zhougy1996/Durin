@@ -1,7 +1,6 @@
 #include "Texture/TextureCube.h"
 
-#include "AssetCore.h"
-#include "AssetLoad.h"
+#include "AssetCook.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DynamicRHI.h"

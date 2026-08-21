@@ -1,6 +1,8 @@
 #pragma once
 
-#include "AssetLoad.h"
+#include "Asset/Load.h"
+#include "Asset/PackageAuthoring.h"
+#include "Asset/References.h"
 
 namespace Durin::Asset
 {
@@ -74,17 +76,20 @@ namespace Durin::Asset
 		virtual auto PrepareRewrite(
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,
-			FAssetReferenceStoreRewriteContribution& OutContribution)
+			FAssetReferenceStoreRewriteContribution& OutContribution
+		)
 			-> FAssetResult = 0;
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
 	ASSETCORE_API auto RegisterAssetReferenceStore(
 		IAssetReferenceStore* Store,
-		FModuleOwnedCallbackGate OwnerGate = {})
+		FModuleOwnedCallbackGate OwnerGate = {}
+	)
 		-> FAssetReferenceStoreHandle;
 	ASSETCORE_API auto UnregisterAssetReferenceStore(
-		FAssetReferenceStoreHandle Handle) -> void;
+		FAssetReferenceStoreHandle Handle
+	) -> void;
 
 	enum class EAssetRedirectorFixupMode : uint8
 	{
@@ -118,9 +123,9 @@ namespace Durin::Asset
 		std::vector<FAssetReferenceStoreOccurrence> StoreOccurrences;
 		std::vector<FAssetPath> DeletableRedirectors;
 
-	#if defined(DURIN_ASSETCORE_INTERNAL)
+#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetMutationCoordinator;
-	#endif
+#endif
 	};
 
 	// Describes one requested real-asset relocation in an atomic batch.
@@ -156,7 +161,8 @@ namespace Durin::Asset
 		FAssetMutationSummary(
 			EAssetMutationOperationKind InOperationKind,
 			uint64 InRegistryRevision,
-			std::vector<FAssetPath> InScope)
+			std::vector<FAssetPath> InScope
+		)
 			: OperationKind(InOperationKind)
 			, RegistryRevision(InRegistryRevision)
 			, Scope(std::move(InScope))
@@ -207,15 +213,18 @@ namespace Durin::Asset
 		DObject*,
 		const FAssetPath&,
 		const FAssetPath&,
-		FAssetOwnedPayloadRelocation&)>;
+		FAssetOwnedPayloadRelocation&
+	)>;
 	using FAssetOwnedPayloadRelocatorHandle = uint64;
 	ASSETCORE_API auto RegisterAssetOwnedPayloadRelocator(
 		DClass* Class,
 		FAssetOwnedPayloadRelocator Relocator,
-		FModuleOwnedCallbackGate OwnerGate = {})
+		FModuleOwnedCallbackGate OwnerGate = {}
+	)
 		-> FAssetOwnedPayloadRelocatorHandle;
 	ASSETCORE_API auto UnregisterAssetOwnedPayloadRelocator(
-		FAssetOwnedPayloadRelocatorHandle Handle) -> void;
+		FAssetOwnedPayloadRelocatorHandle Handle
+	) -> void;
 
 	// Receives committed relocation direction changes for transient editor and
 	// cache state owned outside AssetCore, including Undo and Redo direction.
@@ -225,16 +234,19 @@ namespace Durin::Asset
 	public:
 		virtual ~IAssetMoveObserver() = default;
 		virtual auto OnAssetsRelocated(
-			std::span<const FAssetRelocationMapping> Mappings) -> void = 0;
+			std::span<const FAssetRelocationMapping> Mappings
+		) -> void = 0;
 	};
 
 	using FAssetMoveObserverHandle = uint64;
 	ASSETCORE_API auto RegisterAssetMoveObserver(
 		IAssetMoveObserver* Observer,
-		FModuleOwnedCallbackGate OwnerGate = {})
+		FModuleOwnedCallbackGate OwnerGate = {}
+	)
 		-> FAssetMoveObserverHandle;
 	ASSETCORE_API auto UnregisterAssetMoveObserver(
-		FAssetMoveObserverHandle Handle) -> void;
+		FAssetMoveObserverHandle Handle
+	) -> void;
 
 	// Executes one prepared mutation without exposing revalidation, journal, or
 	// compensation phases to its caller.
@@ -253,9 +265,9 @@ namespace Durin::Asset
 		struct FState;
 		std::shared_ptr<FState> State;
 
-	#if defined(DURIN_ASSETCORE_INTERNAL)
+#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetMutationCoordinator;
-	#endif
+#endif
 	};
 
 	// Failure seams are deterministic and one-shot so transaction-boundary tests
@@ -364,9 +376,9 @@ namespace Durin::Asset
 		struct FState;
 		std::shared_ptr<FState> State;
 
-	#if defined(DURIN_ASSETCORE_INTERNAL)
+#if defined(DURIN_ASSETCORE_INTERNAL)
 		friend class FAssetMutationCoordinator;
-	#endif
+#endif
 	};
 
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
@@ -377,9 +389,11 @@ namespace Durin::Asset
 	ASSETCORE_API auto RegisterAssetDeleteContributor(
 		DClass* Class,
 		FAssetDeleteContributor Contributor,
-		FModuleOwnedCallbackGate OwnerGate = {}) -> FAssetDeleteContributorHandle;
+		FModuleOwnedCallbackGate OwnerGate = {}
+	) -> FAssetDeleteContributorHandle;
 	ASSETCORE_API auto UnregisterAssetDeleteContributor(
-		FAssetDeleteContributorHandle Handle) -> void;
+		FAssetDeleteContributorHandle Handle
+	) -> void;
 
 	enum class EAssetCompanionOwnershipState : uint8
 	{
@@ -399,41 +413,48 @@ namespace Durin::Asset
 	// loading packages or inferring ownership from filenames.
 	ASSETCORE_API auto QueryAssetCompanionOwnership(
 		const std::filesystem::path& PhysicalPath,
-		FAssetCompanionOwnership& OutOwnership) -> FAssetResult;
+		FAssetCompanionOwnership& OutOwnership
+	) -> FAssetResult;
 
 	// Owns the discovered asset index and its persistent snapshot state.
 	ASSETCORE_API auto CreateAsset(
 		const FAssetPath& Path,
 		DClass* Class,
 		size_t Size,
-		DObject*& OutAsset) -> FAssetResult;
+		DObject*& OutAsset
+	) -> FAssetResult;
 	template<typename T>
 	auto CreateAsset(const FAssetPath& Path, T*& OutAsset) -> FAssetResult
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;
 		FAssetResult Result = CreateAsset(
-			Path, T::StaticClass(), sizeof(T), Object);
+			Path, T::StaticClass(), sizeof(T), Object
+		);
 		OutAsset = Result ? Cast<T>(Object) : nullptr;
 		return Result;
 	}
 
 	ASSETCORE_API auto SavePackage(
 		DPackage* Package,
-		const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
+		const FAssetPackageSaveOptions& Options = {}
+	) -> FAssetResult;
 	ASSETCORE_API auto PrepareAssetRelocationTransaction(
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetMutationSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+		FAssetMutationTransaction& OutTransaction
+	) -> FAssetResult;
 	ASSETCORE_API auto PrepareRedirectorFixupTransaction(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+		FAssetMutationTransaction& OutTransaction
+	) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 	ASSETCORE_API auto PrepareAssetDeletionTransaction(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionTransaction& OutTransaction,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-}
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers
+	) -> FAssetResult;
+} // namespace Durin::Asset

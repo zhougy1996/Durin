@@ -1,7 +1,7 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Engine/Level.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

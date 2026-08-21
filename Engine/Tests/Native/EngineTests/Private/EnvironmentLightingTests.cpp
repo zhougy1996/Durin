@@ -1,5 +1,5 @@
 #include "EngineTestSupport.h"
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Misc/FileHelper.h"
 #include "Misc/FileHelper.h"

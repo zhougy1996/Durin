@@ -5,7 +5,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"

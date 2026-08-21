@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"

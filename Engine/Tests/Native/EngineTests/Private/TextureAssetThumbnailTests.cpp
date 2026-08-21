@@ -6,7 +6,7 @@
 
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
 #include "ThirdParty/ImGui/imgui.h"

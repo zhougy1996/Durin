@@ -1,7 +1,7 @@
 #pragma once
 
-#include "AssetMutation.h"
-#include "AssetTestSupport.h"
+#include "AssetTools.h"
+#include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"

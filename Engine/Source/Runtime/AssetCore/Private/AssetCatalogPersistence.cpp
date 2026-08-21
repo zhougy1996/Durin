@@ -1,6 +1,6 @@
 #include "AssetCatalogPersistenceInternal.h"
 #include "AssetPackageValueCodec.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageVersionPolicy.h"
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"

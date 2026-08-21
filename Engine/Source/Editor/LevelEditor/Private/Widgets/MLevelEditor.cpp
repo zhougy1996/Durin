@@ -1,6 +1,6 @@
 #include "Widgets/MLevelEditor.h"
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 #include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Notification.h"

@@ -2,7 +2,7 @@
 
 #include "AssetImportCore.h"
 #include "ImportService.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Dialogs/FileDialog.h"
@@ -17,7 +17,6 @@
 #include "MonaUIBackend.h"
 #include "PixelFormat.h"
 #include "Source/MountedSourceRelocation.h"
-#include "Asset/MountedSource.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/Texture2DRenderResource.h"

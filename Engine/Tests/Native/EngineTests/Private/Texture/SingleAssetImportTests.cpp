@@ -2,7 +2,7 @@
 #include "ImportService.h"
 #include "ImportedScene.h"
 #include "TextureCubeSourceTranslation.h"
-#include "AssetLoad.h"
+#include "AssetTools.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"

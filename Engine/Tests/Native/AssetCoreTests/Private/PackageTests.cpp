@@ -1,13 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "Asset/SourcePath.h"
-#include "AssetCompatibility.h"
-#include "AssetPackageVersionPolicy.h"
-#include "AssetPackageV4Reader.h"
-#include "AssetPackageV4Writer.h"
-#include "AssetRedirector.h"
-#include "AssetTestSupport.h"
-#include "CookedAsset.h"
+#include "AssetTools.h"
+#include "Asset/PackageVersionPolicy.h"
+#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageV4Writer.h"
+#include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"

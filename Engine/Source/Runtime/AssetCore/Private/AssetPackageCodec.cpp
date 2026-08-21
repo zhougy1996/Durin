@@ -1,8 +1,8 @@
 #include "AssetPackageCodec.h"
 
-#include "AssetPackageV4Reader.h"
-#include "AssetPackageV4Writer.h"
-#include "AssetPackageVersionPolicy.h"
+#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageVersionPolicy.h"
 
 namespace Durin::Asset::Private
 {

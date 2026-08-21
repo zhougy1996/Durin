@@ -1,6 +1,6 @@
 #include "CoreMinimal.h"
 
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"

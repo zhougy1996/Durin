@@ -1,4 +1,4 @@
-#include "CookedAsset.h"
+#include "Asset/Cook.h"
 
 #include "AssetCatalogStoreInternal.h"
 #include "Hash/XxHash.h"

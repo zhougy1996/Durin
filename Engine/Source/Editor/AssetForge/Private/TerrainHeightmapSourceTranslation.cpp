@@ -2,9 +2,8 @@
 
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "AssetMutation.h"
+#include "AssetAuthoring.h"
 #include "Misc/Paths.h"
-#include "Asset/MountedSource.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "TerrainHeightmapBuildAdapter.h"

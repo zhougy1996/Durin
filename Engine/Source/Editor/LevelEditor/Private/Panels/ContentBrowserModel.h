@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetLoad.h"
+#include "AssetAuthoring.h"
 
 #include <filesystem>
 #include <unordered_map>

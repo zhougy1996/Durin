@@ -1,7 +1,7 @@
 #pragma once
 #include "TextureCubeSourceTranslation.h"
 
-#include "AssetMutation.h"
+#include "AssetTools.h"
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
