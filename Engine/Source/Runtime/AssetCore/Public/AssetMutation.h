@@ -192,8 +192,10 @@ namespace Durin::Asset
 		std::vector<FAssetPath> FailedPaths;
 	};
 
-	// Restricts a class contribution to files and reversible live state owned
-	// exclusively by the moving asset.
+	// Cross-module extension point for asset classes that exclusively own
+	// sidecar files or reversible live state. AssetCore intentionally provides
+	// no built-in registration: the module defining such an asset class owns its
+	// relocation policy without creating a reverse module dependency.
 	struct FAssetOwnedPayloadRelocation
 	{
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
@@ -216,7 +218,8 @@ namespace Durin::Asset
 		FAssetOwnedPayloadRelocatorHandle Handle) -> void;
 
 	// Receives committed relocation direction changes for transient editor and
-	// cache state. Observers cannot reject or roll back authored publication.
+	// cache state owned outside AssetCore, including Undo and Redo direction.
+	// Observers cannot reject or roll back authored publication.
 	class IAssetMoveObserver
 	{
 	public:
@@ -368,6 +371,9 @@ namespace Durin::Asset
 
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
 	using FAssetDeleteContributorHandle = uint64;
+	// Cross-module extension point only for class-owned deletion companions or
+	// reversible external state. Shared source inputs are not deletion companions
+	// and must not install no-op contributors.
 	ASSETCORE_API auto RegisterAssetDeleteContributor(
 		DClass* Class,
 		FAssetDeleteContributor Contributor,

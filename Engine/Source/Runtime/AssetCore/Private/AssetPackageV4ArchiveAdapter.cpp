@@ -1,5 +1,5 @@
 #include "AssetPackageArchive.h"
-#include "AssetSystemInternal.h"
+#include "AssetRuntimeStateInternal.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetPackageV4Writer.h"
 #include "AssetPackageValueCodec.h"

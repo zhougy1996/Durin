@@ -1,7 +1,7 @@
 #include "AssetCanonicalResave.h"
 
 #include "AssetPackageV4Reader.h"
-#include "AssetSystemInternal.h"
+#include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/DerivedDataCache.h"

@@ -1,6 +1,6 @@
 #include "CookedAsset.h"
 
-#include "AssetSystemInternal.h"
+#include "AssetCatalogStoreInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 
