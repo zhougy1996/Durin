@@ -54,12 +54,16 @@ def run(
         ), file=stdout)
         return 1 if any(item.severity is DiagnosticSeverity.ERROR for item in catalog.diagnostics) else 0
     change_set = workspace.prepare_task_remove(task=DocumentRef.parse(namespace.task_path))
-    if namespace.apply:
+    if namespace.apply and namespace.dry_run:
+        raise DevToolError("--apply and --dry-run cannot be combined")
+    applied = not namespace.dry_run
+    if applied:
         workspace.apply(change_set)
     print(render_change_set(
         change_set,
         repository_root=repository_root.resolve(),
-        applied=namespace.apply,
+        applied=applied,
         output_format=output_format(namespace, interactive=interactive),
+        preview_instruction="Dry-run only; remove --dry-run to remove the task.",
     ), file=stdout)
     return 0

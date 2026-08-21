@@ -25,7 +25,12 @@ from .model import (
     DocumentKind,
     DocumentRef,
 )
-from .lifecycle import LifecycleConfig, LifecycleWorkspace
+from .lifecycle import (
+    PLAN_LIFECYCLE,
+    ROADMAP_LIFECYCLE,
+    LifecycleConfig,
+    LifecycleWorkspace,
+)
 from .tasks import TaskCatalog, load_task_catalog
 
 
@@ -229,6 +234,19 @@ class DocumentWorkspace:
                 raise DevToolError(
                     "document validation failed after applying changes:\n- "
                     + details
+                )
+            lifecycle_errors = [
+                f"{config.document_label}: {error}"
+                for config in (PLAN_LIFECYCLE, ROADMAP_LIFECYCLE)
+                for error in LifecycleWorkspace(
+                    self.repository_root,
+                    config,
+                ).catalog().errors
+            ]
+            if lifecycle_errors:
+                raise DevToolError(
+                    "lifecycle validation failed after applying changes:\n- "
+                    + "\n- ".join(lifecycle_errors)
                 )
 
         apply_change_set(change_set, validator=validate_after_change)

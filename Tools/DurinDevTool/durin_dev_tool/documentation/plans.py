@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -330,6 +331,157 @@ def filter_plans(plans: Sequence[Plan], query: str | None) -> list[Plan]:
         for plan in plans
         if needle in plan.title.casefold() or needle in plan.path.name.casefold()
     ]
+
+
+def _section_lines(lines: Sequence[str], heading: str) -> list[str]:
+    try:
+        start = lines.index(heading)
+    except ValueError:
+        return []
+    end = next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if lines[index].startswith("## ")
+        ),
+        len(lines),
+    )
+    return list(lines[start:end])
+
+
+def _heading_block(lines: Sequence[str], start: int) -> list[str]:
+    level = len(lines[start]) - len(lines[start].lstrip("#"))
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        match = re.match(r"^(?P<marks>#{1,6}) ", lines[index])
+        if match is not None and len(match.group("marks")) <= level:
+            end = index
+            break
+    return list(lines[start:end])
+
+
+def render_plan_context(
+    plan: Plan,
+    *,
+    repository_root: Path,
+    output_format: str,
+) -> str:
+    """Render the minimum standard context needed to continue one plan."""
+    lines = plan.path.read_text(encoding="utf-8").splitlines()
+    current_status = _section_lines(lines, CURRENT_STATUS_SECTION)
+    related_code = _section_lines(lines, "## Related Code")
+    header_end = lines.index(CURRENT_STATUS_SECTION) if current_status else len(lines)
+    header = list(lines[:header_end])
+
+    stage_pattern = re.compile(r"^### Stage (?P<number>\d+): (?P<title>.+)$")
+    task_pattern = re.compile(r"^\s*- \[(?P<state>[ xX])\] ")
+    stage_starts = [
+        index
+        for index, line in enumerate(lines)
+        if stage_pattern.fullmatch(line) is not None
+    ]
+    stages: list[dict[str, object]] = []
+    for offset, start in enumerate(stage_starts):
+        next_stage = stage_starts[offset + 1] if offset + 1 < len(stage_starts) else len(lines)
+        next_section = next(
+            (
+                index
+                for index in range(start + 1, next_stage)
+                if lines[index].startswith("## ")
+            ),
+            next_stage,
+        )
+        block = list(lines[start:next_section])
+        match = stage_pattern.fullmatch(lines[start])
+        assert match is not None
+        task_states = [
+            task.group("state")
+            for line in block
+            if (task := task_pattern.match(line)) is not None
+        ]
+        completed = sum(state.casefold() == "x" for state in task_states)
+        stages.append(
+            {
+                "number": int(match.group("number")),
+                "title": match.group("title"),
+                "start": start,
+                "content": "\n".join(block).strip(),
+                "tasks": len(task_states),
+                "completedTasks": completed,
+                "openTasks": len(task_states) - completed,
+            }
+        )
+
+    selected = next(
+        (stage for stage in stages if int(stage["openTasks"]) > 0),
+        stages[-1] if stages else None,
+    )
+    previous_handoff: list[str] = []
+    if selected is not None:
+        selected_start = int(selected["start"])
+        handoff_starts = [
+            index
+            for index, line in enumerate(lines[:selected_start])
+            if re.match(r"^#{3,6} .*handoff", line, flags=re.IGNORECASE)
+        ]
+        if handoff_starts:
+            previous_handoff = _heading_block(lines, handoff_starts[-1])
+
+    relative_path = plan.path.relative_to(repository_root).as_posix()
+    if output_format == "json":
+        return json.dumps(
+            {
+                "schemaVersion": 1,
+                "operation": "plan-context",
+                "path": relative_path,
+                "title": plan.title,
+                "summary": plan.summary,
+                "status": plan.status.value,
+                "completed": plan.completed.isoformat() if plan.completed else None,
+                "currentStatus": "\n".join(current_status[1:]).strip(),
+                "stages": [
+                    {
+                        key: value
+                        for key, value in stage.items()
+                        if key not in {"start", "content"}
+                    }
+                    for stage in stages
+                ],
+                "selectedStage": (
+                    {
+                        key: value
+                        for key, value in selected.items()
+                        if key != "start"
+                    }
+                    if selected is not None
+                    else None
+                ),
+                "previousHandoff": "\n".join(previous_handoff).strip() or None,
+                "relatedCode": "\n".join(related_code[1:]).strip(),
+            },
+            indent=2,
+        )
+
+    output = ["\n".join(header).strip(), "\n".join(current_status).strip()]
+    if stages:
+        progress = ["## Stage Progress"]
+        for stage in stages:
+            progress.append(
+                f"- Stage {stage['number']}: {stage['title']} - "
+                f"{stage['completedTasks']}/{stage['tasks']} tasks complete; "
+                f"{stage['openTasks']} open"
+            )
+        output.append("\n".join(progress))
+    if selected is not None:
+        output.append("## Selected Current Stage\n\n" + str(selected["content"]))
+    if previous_handoff:
+        output.append(
+            "## Previous Handoff Context\n\n"
+            + "\n".join(previous_handoff).strip()
+        )
+    if related_code:
+        output.append("\n".join(related_code).strip())
+    return "\n\n".join(section for section in output if section)
 
 
 def _markdown_cell(value: str) -> str:

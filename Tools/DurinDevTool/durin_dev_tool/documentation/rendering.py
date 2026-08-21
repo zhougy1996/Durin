@@ -223,6 +223,18 @@ def render_change_set(
                 "schemaVersion": 1,
                 "operation": change_set.operation,
                 "applied": applied,
+                **(
+                    {
+                        "validation": {
+                            "scope": "all",
+                            "includeArchive": True,
+                            "lifecycles": ["plan", "roadmap"],
+                            "status": "passed",
+                        }
+                    }
+                    if applied
+                    else {}
+                ),
                 "changes": [
                     {
                         "source": relative(change.source),
@@ -252,6 +264,10 @@ def render_change_set(
         )
     for deletion in change_set.deletions:
         lines.append(f"  {relative(deletion.path)} -> deleted")
-    if not applied:
+    if applied:
+        lines.append(
+            "Validated all documentation, including archives, plans, and roadmaps."
+        )
+    else:
         lines.append(preview_instruction)
     return "\n".join(lines)

@@ -67,7 +67,9 @@ Completed:
   met. Completed roadmaps remain in place temporarily but disappear from the
   default active-roadmap listing.
 - Run `.\DevTool.bat doc roadmap validate --scope all` when a roadmap is
-  added, renamed, completed, archived, or removed.
+  added, renamed, completed, archived, or removed. A successful DurinDevTool
+  document mutation already reports this validation receipt; do not rerun it
+  unless the roadmap changes afterward.
 
 ## Archive Workflow
 
@@ -76,10 +78,10 @@ completed roadmaps by completion month:
 
 1. Inspect the pending queue with
    `.\DevTool.bat doc roadmap list --scope completed`.
-2. Preview the batch with
-   `.\DevTool.bat doc roadmap archive YYYY-MM`.
-3. Apply it with
-   `.\DevTool.bat doc roadmap archive YYYY-MM --apply`.
+2. Archive the batch with `.\DevTool.bat doc roadmap archive YYYY-MM`; use
+   `--dry-run` only when a preview is needed.
+3. The command applies the transaction immediately. The former `--apply`
+   spelling remains accepted for compatibility but is unnecessary.
 
 The tool moves matching roadmaps to `Archive/YYYY-MM/`, changes their status to
 `Archived`, repairs direct Markdown links and repository-relative paths, and

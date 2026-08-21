@@ -21,7 +21,8 @@ PLAN_LIST_ARGUMENTS = (
 PLAN_VALIDATE_ARGUMENTS = (argument("--scope", choices=PLAN_SCOPES, default="all"),)
 PLAN_ARCHIVE_ARGUMENTS = (
     argument("month", help="completion month in YYYY-MM form"),
-    argument("--apply", action="store_true", help="apply the transaction; the default is a dry-run"),
+    argument("--dry-run", action="store_true", help="preview without applying the archive"),
+    argument("--apply", action="store_true", help="compatibility flag; archives apply by default"),
 )
 PLAN_CREATE_ARGUMENTS = (
     argument("plan_path", metavar="PATH"),
@@ -57,6 +58,23 @@ def lifecycle_command(name: str, summary: str, default_prefix: str) -> CommandSp
                 HANDLER,
                 arguments=PLAN_LIST_ARGUMENTS,
                 defaults=((f"{default_prefix}_action", "list"),),
+            ),
+            *(
+                (
+                    CommandSpec(
+                        "context",
+                        "show compact implementation context for one plan",
+                        HANDLER,
+                        arguments=(
+                            argument("plan_query", metavar="QUERY"),
+                            argument("--scope", choices=PLAN_SCOPES, default="active"),
+                            argument("--format", choices=("markdown", "json"), default="markdown", dest="output_format"),
+                        ),
+                        defaults=((f"{default_prefix}_action", "context"),),
+                    ),
+                )
+                if name == "plan"
+                else ()
             ),
             CommandSpec(
                 "validate",
@@ -110,17 +128,26 @@ COMMAND_SPEC = CommandSpec(
             defaults=(("document_action", "validate"),),
         ),
         CommandSpec(
-            "create", "preview or create a documentation file", HANDLER,
+            "create", "create a documentation file, or preview with --dry-run", HANDLER,
             arguments=(
                 argument("document_kind", choices=CREATABLE_DOCUMENT_KINDS, metavar="KIND"),
                 argument("document_path", metavar="PATH"), argument("--title", required=True),
-                argument("--summary", default=""), argument("--apply", action="store_true"), DOCUMENT_OUTPUT,
+                argument("--summary", default=""),
+                argument("--dry-run", action="store_true"),
+                argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
+                DOCUMENT_OUTPUT,
             ),
             defaults=(("document_action", "create"),),
         ),
         CommandSpec(
-            "move", "preview or move a document and repair references", HANDLER,
-            arguments=(argument("source_path", metavar="SOURCE"), argument("destination_path", metavar="DESTINATION"), argument("--apply", action="store_true"), DOCUMENT_OUTPUT),
+            "move", "move a document and repair references, or preview with --dry-run", HANDLER,
+            arguments=(
+                argument("source_path", metavar="SOURCE"),
+                argument("destination_path", metavar="DESTINATION"),
+                argument("--dry-run", action="store_true"),
+                argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
+                DOCUMENT_OUTPUT,
+            ),
             defaults=(("document_action", "move"),),
         ),
         CommandSpec(
@@ -128,7 +155,18 @@ COMMAND_SPEC = CommandSpec(
             subcommands=(
                 CommandSpec("list", "list open engineering tasks", HANDLER, arguments=(argument("--query", dest="task_query", help="filter by title, outcome, or filename"), DOCUMENT_OUTPUT), defaults=(("task_action", "list"),)),
                 CommandSpec("validate", "validate open engineering tasks", HANDLER, arguments=(DOCUMENT_OUTPUT,), defaults=(("task_action", "validate"),)),
-                CommandSpec("remove", "preview or remove an open engineering task", HANDLER, arguments=(argument("task_path", metavar="PATH"), argument("--apply", action="store_true"), DOCUMENT_OUTPUT), defaults=(("task_action", "remove"),)),
+                CommandSpec(
+                    "remove",
+                    "remove an open engineering task, or preview with --dry-run",
+                    HANDLER,
+                    arguments=(
+                        argument("task_path", metavar="PATH"),
+                        argument("--dry-run", action="store_true"),
+                        argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
+                        DOCUMENT_OUTPUT,
+                    ),
+                    defaults=(("task_action", "remove"),),
+                ),
             ),
             default_subcommand="list",
         ),

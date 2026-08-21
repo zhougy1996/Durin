@@ -11,12 +11,13 @@ These instructions apply under `Documentation/Plans/`.
   `.\DevTool.bat doc plan list --scope archive --query
   "<title-or-filename>"`, then open only the selected result. Do not scan,
   bulk-read, or sample unrelated plans; use the standard below.
-- For stage continuation, do not begin with a whole-file read. Locate
-  `Current Status`, stage, acceptance-gate, handoff, and `Related Code` headings
-  first; read the header, current status, current stage, immediately preceding
-  handoff, and related-code list. Expand to a named decision or earlier stage
-  only when the current stage references it or the code conflicts with the
-  recorded handoff.
+- For stage continuation, do not begin with a whole-file read or manually
+  locate `Current Status`, stage, acceptance-gate, handoff, and `Related Code`
+  headings. Run `.\DevTool.bat doc plan context "<title-or-filename>"` to
+  receive the header, current status, stage progress, first stage with open
+  tasks, immediately preceding handoff, and related-code list in one compact
+  result. Expand to a named decision or earlier stage only when that context
+  references it or the code conflicts with the recorded handoff.
 - Humans run `.\DevTool.bat` without arguments for an interactive
   shell whose `list` command defaults to readable terminal output with automatic
   ANSI color. Direct agent routing, generated Markdown, and piped output use the
@@ -91,8 +92,9 @@ preview is needed:
   than leaving the plan as a competing specification.
 - Run `.\DevTool.bat doc plan validate --scope all`
   when a plan is added, renamed, completed, archived, or removed; CI must run
-  the same validation. Legacy plans need not be retrofitted to the current
-  structure.
+  the same validation. A successful DurinDevTool document mutation already
+  reports this validation receipt; do not rerun it unless the plan changes
+  afterward. Legacy plans need not be retrofitted to the current structure.
 
 ## Archive Workflow
 
@@ -108,10 +110,11 @@ acceptance gate is satisfied:
 
 Periodically batch completed plans by completion month:
 
-1. Preview the batch with
-   `.\DevTool.bat doc plan archive YYYY-MM`.
-2. Apply it with
-   `.\DevTool.bat doc plan archive YYYY-MM --apply`.
+1. Archive the batch with
+   `.\DevTool.bat doc plan archive YYYY-MM`; use `--dry-run` only when a preview
+   is needed.
+2. The command applies the transaction immediately. The former `--apply`
+   spelling remains accepted for compatibility but is unnecessary.
    The tool moves matching plans to `Archive/YYYY-MM/`, changes their status
    to `Archived`, and repairs direct Markdown links and repository-relative
    plan paths, then runs the all-plan validator.

@@ -338,6 +338,7 @@ class TestUnifiedCommand:
         commands = (
             ['doc', 'plan', 'create', 'Documentation/Plans/New.md', '--title', 'New', '--summary', 'Create the new feature.'],
             ['doc', 'plan', 'list', '--query', 'Active', '--format', 'markdown'],
+            ['doc', 'plan', 'context', 'Active'],
             ['doc', 'plan', 'validate', '--scope', 'active'],
             ['doc', 'plan', 'archive', '2026-07'],
         )
@@ -423,13 +424,20 @@ class TestUnifiedCommand:
             with pytest.raises(DevToolError, match='archive listings require'):
                 cli.run(['doc', 'plan', 'list', '--scope', scope], repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
 
-    def test_archive_defaults_to_preview(self) -> None:
-        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07'])
+    def test_archive_applies_by_default_and_supports_dry_run(self) -> None:
+        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--dry-run'])
         with mock.patch.object(lifecycle_adapter, 'preview_lifecycle_archive') as preview:
             preview.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
         preview.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
+
+        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07'])
+        with mock.patch.object(lifecycle_adapter, 'apply_lifecycle_archive') as apply:
+            apply.return_value = mock.Mock(month='2026-07', moves=())
+            result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
+        assert result == 0
+        apply.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
 
     def test_plan_create_applies_by_default_and_supports_dry_run(self) -> None:
         plan = self.plans / 'NewFeature.md'
@@ -491,13 +499,56 @@ class TestUnifiedCommand:
                 stderr=io.StringIO(),
             )
 
-    def test_archive_apply_is_explicit(self) -> None:
+    def test_archive_accepts_legacy_apply_and_rejects_conflicting_modes(self) -> None:
         spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--apply'])
         with mock.patch.object(lifecycle_adapter, 'apply_lifecycle_archive') as apply:
             apply.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
         apply.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
+        with pytest.raises(DevToolError, match='cannot be combined'):
+            cli.run(
+                ['doc', 'plan', 'archive', '2026-07', '--apply', '--dry-run'],
+                repository_root=self.repository,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+    def test_plan_context_returns_status_stage_handoff_and_related_code(self) -> None:
+        (self.plans / 'Active.md').write_text(
+            PLAN_TEMPLATE.format(
+                title='Active',
+                summary='Active plan.',
+                status='Active',
+                completed='',
+            )
+            + '\nImplementation is in progress.\n\n'
+            + '## Implementation Stages\n\n'
+            + '### Stage 0: Establish the boundary\n\n'
+            + '- [x] Complete discovery.\n\n'
+            + '#### Acceptance Gate\n\n- Discovery passes.\n\n'
+            + '#### Stage 0 Handoff\n\nUse the selected boundary.\n\n'
+            + '### Stage 1: Implement the change\n\n'
+            + '- [ ] Finish implementation.\n\n'
+            + '#### Acceptance Gate\n\n- Implementation passes.\n\n'
+            + '## Related Code\n\n- `Source/Feature.cpp`\n',
+            encoding='utf-8',
+        )
+        output = io.StringIO()
+        assert cli.run(
+            ['doc', 'plan', 'context', 'Active'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 0
+        rendered = output.getvalue()
+        assert '## Current Status' in rendered
+        assert 'Stage 1: Implement the change - 0/1 tasks complete; 1 open' in rendered
+        assert '## Selected Current Stage' in rendered
+        assert 'Finish implementation.' in rendered
+        assert '## Previous Handoff Context' in rendered
+        assert 'Use the selected boundary.' in rendered
+        assert '## Related Code' in rendered
 
     def test_archive_listing_groups_plans_by_month(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         temporary = tmp_path_factory.mktemp('case')
@@ -542,7 +593,7 @@ class TestTaskCommands:
         assert '"summary": "Make the tool behavior explicit."' in rendered
         assert 'Required change' not in rendered
 
-    def test_remove_defaults_to_preview_and_apply_deletes_only_the_task(
+    def test_remove_applies_by_default_and_supports_dry_run(
         self,
     ) -> None:
         arguments = [
@@ -552,14 +603,14 @@ class TestTaskCommands:
             'Documentation/Tasks/Tool.md',
         ]
         assert cli.run(
-            arguments,
+            [*arguments, '--dry-run'],
             repository_root=self.repository,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
         ) == 0
         assert self.task.exists()
         assert cli.run(
-            [*arguments, '--apply'],
+            arguments,
             repository_root=self.repository,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
@@ -800,7 +851,7 @@ class TestOrdinaryDocumentation:
         assert '"code": "doc.link.missing"' in output.getvalue()
         assert '"severity": "warning"' in output.getvalue()
 
-    def test_create_is_preview_only_until_apply(self) -> None:
+    def test_create_applies_by_default_and_supports_dry_run(self) -> None:
         path = self.documentation / 'Runtime' / 'Created.md'
         arguments = [
             'doc',
@@ -813,20 +864,25 @@ class TestOrdinaryDocumentation:
             'Created summary.',
         ]
         assert cli.run(
-            arguments,
+            [*arguments, '--dry-run'],
             repository_root=self.repository,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
         ) == 0
         assert not path.exists()
+        output = io.StringIO()
         assert cli.run(
-            [*arguments, '--apply'],
+            arguments,
             repository_root=self.repository,
-            stdout=io.StringIO(),
+            stdout=output,
             stderr=io.StringIO(),
         ) == 0
         assert path.read_text(encoding='utf-8') == (
             '# Created\n\nCreated summary.\n'
+        )
+        assert (
+            'Validated all documentation, including archives, plans, and roadmaps.'
+            in output.getvalue()
         )
 
     def test_move_repairs_links_and_is_fingerprint_checked(self) -> None:
@@ -854,6 +910,26 @@ class TestOrdinaryDocumentation:
         moved.write_text('# User edit\n', encoding='utf-8')
         with pytest.raises(DevToolError, match='modified after preview'):
             self.workspace.apply(second)
+
+    def test_move_command_applies_by_default_and_reports_validation(self) -> None:
+        output = io.StringIO()
+        assert cli.run(
+            [
+                'doc',
+                'move',
+                'Documentation/Runtime/Topic.md',
+                'Documentation/Runtime/Nested/Topic.md',
+            ],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 0
+        assert not self.topic.exists()
+        assert (self.documentation / 'Runtime' / 'Nested' / 'Topic.md').exists()
+        assert (
+            'Validated all documentation, including archives, plans, and roadmaps.'
+            in output.getvalue()
+        )
 
     def test_move_rolls_back_all_files_when_a_write_fails(self) -> None:
         change_set = self.workspace.prepare_move(

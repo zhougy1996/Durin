@@ -46,7 +46,7 @@ not open the other rows or scan an entire directory.
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
-| Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` for the compact Markdown index, then open only the matching plan |
+| Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` to select work, then `.\DevTool.bat doc plan context "<title-or-filename>"` for compact execution context |
 | Cross-plan engineering roadmap | Run `.\DevTool.bat doc roadmap list`, then open only the matching roadmap |
 | Completed roadmaps awaiting monthly archive | Run `.\DevTool.bat doc roadmap list --scope completed` |
 | Named historical roadmap or required provenance | Run `.\DevTool.bat doc roadmap list --scope archive --query "<title-or-filename>"`, then open only the selected archived roadmap |

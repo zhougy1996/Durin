@@ -75,6 +75,7 @@ explicit:
 .\DevTool.bat doc list --under Documentation\Runtime
 .\DevTool.bat doc find "asset package" --kind contract
 .\DevTool.bat doc refs Documentation\Runtime\Assets\AssetPackages.md
+.\DevTool.bat doc plan context ComputeRendererIntegration
 .\DevTool.bat doc validate --scope changed
 ```
 
@@ -82,23 +83,28 @@ explicit:
 schema-versioned JSON output. Validation checks mechanical repository rules;
 it does not replace ownership review against `Documentation/AGENTS.md`.
 
-Create and move operations preview by default and apply transactionally:
+Documentation mutations apply and validate transactionally by default; pass
+`--dry-run` to preview without writing:
 
 ```powershell
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
+.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --dry-run
 .\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
 .\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
+.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --dry-run
 ```
 
-Apply verifies previewed fingerprints, writes atomically, repairs Markdown
-references for moves, validates the resulting tree, and rolls back on failure.
-`doc plan create` is the exception to the preview default: it creates a new
-direct child of `Documentation/Plans` immediately, scaffolds the standard
-active-plan structure, validates the result, and rolls back on failure. Pass
-`--dry-run` to preview it without writing.
+Each mutation verifies current fingerprints, writes atomically, repairs
+Markdown references where required, validates repository documentation plus
+plan and roadmap lifecycle metadata, and rolls back on failure. Its success
+output is the validation receipt; do not immediately repeat an equivalent
+validator. The former `--apply` spelling remains accepted for compatibility.
+
+`doc plan context <query>` resolves exactly one plan and emits its metadata,
+current status, per-stage task counts, the first stage with open tasks, the
+immediately preceding handoff when present, and Related Code. Use `--scope` for
+completed or archived plans and `--format json` for structured consumption.
 Task, plan, and roadmap lifecycle commands follow their nearest authoring rules.
 The concise Agent workflow is [Agent Documentation Workflow](../../Agents/Documentation.md).
 

@@ -11,6 +11,7 @@ from .adapter_common import output_format
 from .archive import ArchivePreview, apply_lifecycle_archive, preview_lifecycle_archive
 from .lifecycle import LifecycleConfig
 from .model import DocumentRef
+from .plans import render_plan_context
 from .rendering import render_change_set
 from .service import DocumentWorkspace
 
@@ -45,7 +46,7 @@ def _print_archive(
     print(
         f"Archive applied and all {label}s validated."
         if applied
-        else "Dry-run only; add --apply to perform the archive.",
+        else "Dry-run only; remove --dry-run to perform the archive.",
         file=stdout,
     )
 
@@ -105,6 +106,30 @@ def run(
             color=namespace.color,
         ), file=stdout)
         return 0
+    if action == "context":
+        errors = workspace.catalog().errors_for(namespace.scope)
+        if errors:
+            _errors(errors, stderr)
+            return 1
+        matches = workspace.select(namespace.scope, namespace.plan_query)
+        if not matches:
+            raise DevToolError(
+                f"no {namespace.scope} plans match query {namespace.plan_query!r}"
+            )
+        if len(matches) != 1:
+            choices = ", ".join(plan.title for plan in matches)
+            raise DevToolError(
+                f"plan query {namespace.plan_query!r} is ambiguous: {choices}"
+            )
+        print(
+            render_plan_context(
+                matches[0],
+                repository_root=repository_root,
+                output_format=namespace.output_format,
+            ),
+            file=stdout,
+        )
+        return 0
     if action == "validate":
         catalog = workspace.catalog()
         errors = catalog.errors_for(namespace.scope)
@@ -121,15 +146,18 @@ def run(
         else:
             print(f"Validated {len(documents)} {namespace.scope} {config.document_label}s.", file=stdout)
         return 0
+    if namespace.apply and namespace.dry_run:
+        raise DevToolError("--apply and --dry-run cannot be combined")
+    applied = not namespace.dry_run
     preview = (
         apply_lifecycle_archive(workspace.directory, namespace.month, config)
-        if namespace.apply
+        if applied
         else preview_lifecycle_archive(workspace.directory, namespace.month, config)
     )
     _print_archive(
         preview,
         repository_root=repository_root,
-        applied=namespace.apply,
+        applied=applied,
         stdout=stdout,
         label=config.document_label,
     )

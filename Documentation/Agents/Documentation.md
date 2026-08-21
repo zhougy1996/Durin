@@ -12,6 +12,7 @@ Use DurinDevTool from the repository root and open only the closest result:
 .\DevTool.bat doc find "<task terms>" --limit 5
 .\DevTool.bat doc task list
 .\DevTool.bat doc plan list
+.\DevTool.bat doc plan context "<title-or-filename>"
 .\DevTool.bat doc roadmap list
 .\DevTool.bat doc plan list --scope completed
 .\DevTool.bat doc roadmap list --scope completed
@@ -40,27 +41,30 @@ when plan or roadmap metadata changes:
 Archive-inclusive validation is an explicit historical audit. Missing local
 targets in archived plans and roadmaps are warnings because later repository
 evolution may remove them; active and completed documents remain strict.
+Successful mutating documentation commands report the validation they already
+completed transactionally. Do not immediately rerun an equivalent validator;
+validate again only after a later edit or when an explicit audit is required.
 
 ## Apply Document Operations
 
-Ordinary document creation, move, task removal, and monthly archive commands
-preview by default. Review the preview, then repeat the same command with
-`--apply`. Plan creation applies immediately after validation; pass `--dry-run`
-when a preview is needed:
+Document creation, move, task removal, plan creation, and monthly archive
+commands apply immediately and validate transactionally. Pass `--dry-run` only
+when a preview is needed. The former `--apply` spelling remains accepted for
+compatibility but is unnecessary:
 
 ```powershell
 .\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
+.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --dry-run
 .\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
 .\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
+.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --dry-run
 .\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
-.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md --apply
+.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md --dry-run
 .\DevTool.bat doc plan archive YYYY-MM
-.\DevTool.bat doc plan archive YYYY-MM --apply
+.\DevTool.bat doc plan archive YYYY-MM --dry-run
 .\DevTool.bat doc roadmap archive YYYY-MM
-.\DevTool.bat doc roadmap archive YYYY-MM --apply
+.\DevTool.bat doc roadmap archive YYYY-MM --dry-run
 ```
 
 Archive transactions repair direct references, reject newly introduced
