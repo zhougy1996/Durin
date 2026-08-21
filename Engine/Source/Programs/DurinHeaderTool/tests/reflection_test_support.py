@@ -120,7 +120,7 @@ namespace Fixture
     {
         GENERATED_BODY()
 
-        DPROPERTY(Edit, ReadOnly)
+        DPROPERTY(Edit, ReadOnly, DisplayName = "Scalar Value", ToolTip = "Authored scalar", Category = "Numbers", Units = "Percent", Step = "1", Precision = 3, ClampMin = "-100", ClampMax = "100", UIMin = "-50", UIMax = "50")
         float Value = 0.0f;
 
         DPROPERTY(LegacyNames = "OldRenamedValue;OlderRenamedValue")

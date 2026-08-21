@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete; Stage 2 is next. Durin already has generated
+Stages 0 through 2 are complete; Stage 3 is next. Durin already has generated
 property trees,
 untyped string metadata, property and type `LegacyNames`, immutable class and
 struct defaults, authored override tracking, field-tagged DAST v4 packages,
@@ -48,6 +48,18 @@ transactional struct loading now detaches accessor-backed nested fields before
 commit. DHT property tests, `CoreObjectTests`, and focused DAST v4 round-trip
 coverage pass; the complete `AssetPackageTests` target is the final stage
 validation receipt.
+
+Stage 2 added source-located typed metadata parsing and canonical generated
+records, runtime-owned exact numeric channels with defensive registration
+validation, and generic Details presentation plus detached hard-bound
+validation before transaction creation. Presentation strings remain valid on
+non-edit reflected fields because existing declarations already use that
+contract; numeric metadata requires `Edit`. Decimal float metadata rounds once
+to its declared precision, while overflow and nonzero underflow are rejected.
+Validation receipts are DHT `179 passed`, `CoreObjectTests` `76 passed`,
+`CorePropertyChangeTests` `2 passed`, `CorePropertyValueSnapshotTests`
+`16 passed`, `EditorPropertyTests` `29 passed`, `AssetPackageTests` `96 passed`,
+and changed-document validation over three files.
 
 ## Goal
 
@@ -123,14 +135,18 @@ distinction between hard, weak, and soft object ownership.
   `Precision=<integer>`, `ClampMin="..."`, `ClampMax="..."`,
   `UIMin="..."`, and `UIMax="..."`. A selected key may not also appear in
   `MetaData`; unrelated extension keys remain in its semicolon-delimited view.
-- Presentation strings apply to editable direct and fixed-array fields.
+- Presentation strings apply to reflected direct and fixed-array fields;
+  numeric presentation and constraint keys additionally require `Edit`.
   Numeric keys apply to scalar integer/float fields and editable components of
   float/double vectors and quaternions. They are rejected on bool, string,
   enum, reference, container, matrix, and opaque struct fields and never flow
   from a container or containing struct into nested values.
 - `Units` accepts `Unitless`, `Percent`, `Degrees`, `Radians`, `Seconds`,
   `Milliseconds`, `Meters`, `Centimeters`, `Millimeters`, or `Kilometers`.
-  `Step` is finite, positive, and exactly representable by the target kind.
+  `Step` is finite, positive, and representable without overflow by the target
+  kind. Decimal float spellings are rounded once into their declared
+  float/double channel, so useful values such as `0.1` are not rejected merely
+  because their binary expansion is repeating.
   `Precision` is 0..9 for float components and 0..17 for double components.
 
 - DHT owns spelling, parsing, applicability, and cross-key validation. Invalid
@@ -322,20 +338,20 @@ distinction between hard, weak, and soft object ownership.
 
 ### Stage 2: Publish typed property metadata
 
-- [ ] Add typed DHT model fields and canonical generated parameter records for
+- [x] Add typed DHT model fields and canonical generated parameter records for
   the selected metadata vocabulary while preserving required extension
   metadata compatibility.
-- [ ] Reject malformed, duplicate, inapplicable, non-finite, out-of-order, or
+- [x] Reject malformed, duplicate, inapplicable, non-finite, out-of-order, or
   non-representable metadata with source-located diagnostics.
-- [ ] Publish immutable runtime typed metadata and exact numeric conversion and
+- [x] Publish immutable runtime typed metadata and exact numeric conversion and
   validation helpers without using `double` as a universal channel.
-- [ ] Integrate generic Details widgets, labels, tooltips, categories, units,
+- [x] Integrate generic Details widgets, labels, tooltips, categories, units,
   steps, precision, UI ranges, and hard authoring validation through property
   edit sessions and transactions.
-- [ ] Ensure multi-object editing, fixed arrays, containers, nested structs,
+- [x] Ensure multi-object editing, fixed arrays, containers, nested structs,
   reset-to-default, undo/redo, and authored override intent retain their
   existing atomicity.
-- [ ] Migrate first-party raw-key consumers covered by the vocabulary and keep
+- [x] Migrate first-party raw-key consumers covered by the vocabulary and keep
   a bounded compatibility path for unrelated extension metadata.
 
 #### Acceptance Gate

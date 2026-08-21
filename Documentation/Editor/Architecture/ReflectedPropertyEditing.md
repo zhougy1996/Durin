@@ -104,6 +104,26 @@ path segment for notification and transaction identity. Math structs such as
 vectors, quaternions, transforms, and linear colors keep their compact inline
 widgets instead of expanding into member rows.
 
+## Typed Metadata Presentation and Bounds
+
+The generic property view reads `FProperty::GetTypedMetadata()` for first-party
+presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
+shown together with the reflected type, and `Category` groups visible fields
+with a stable category-first ordering. Numeric rows use `Step` as drag speed,
+`Precision` as their decimal format, `UIMin`/`UIMax` as presentation bounds,
+and render the selected unit beside the value. Fixed-array elements retain
+their index in the display label. Raw `DisplayName`, `ToolTip`, and `Category`
+remain a compatibility view, but new code does not parse numeric behavior from
+raw strings.
+
+Hard `ClampMin`/`ClampMax` checks run against the complete detached draft root
+immediately after the proposed leaf mutation. Scalar limits use the property's
+native signed, unsigned, float, or double representation; intrinsic vector and
+quaternion limits validate every component. A violation reports an error before
+snapshot capture starts an edit session, so it changes neither live storage nor
+Undo/Redo history. Package deserialization is not an authoring operation and
+does not silently clamp an older stored value.
+
 ## Object Notification Contract
 
 `DObject::PreEditChangeProperty(FPropertyEditProposal&, std::string&)` is the

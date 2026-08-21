@@ -1,7 +1,10 @@
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+import math
 from pathlib import Path
 import re
+import struct
 from typing import TypeAlias
 
 import clang.cindex
@@ -14,6 +17,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedEnumValueInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
+    ReflectedPropertyMetadataInfo,
     ReflectedStructInfo,
     make_generated_enum_helper_name,
     make_generated_helper_name,
@@ -60,6 +64,22 @@ _PROPERTY_FLAG_BY_SPECIFIER = {
     "Edit": "Edit",
     "Transient": "Transient",
     "ReadOnly": "ReadOnly",
+}
+
+_TYPED_METADATA_KEYS = {
+    "DisplayName", "ToolTip", "Category", "Units", "Step", "Precision",
+    "ClampMin", "ClampMax", "UIMin", "UIMax",
+}
+_NUMERIC_METADATA_KEYS = {"Units", "Step", "Precision", "ClampMin", "ClampMax", "UIMin", "UIMax"}
+_VALID_UNITS = {
+    "Unitless", "Percent", "Degrees", "Radians", "Seconds", "Milliseconds",
+    "Meters", "Centimeters", "Millimeters", "Kilometers",
+}
+_INTEGER_RANGES = {
+    "Int8": (-(1 << 7), (1 << 7) - 1), "Int16": (-(1 << 15), (1 << 15) - 1),
+    "Int32": (-(1 << 31), (1 << 31) - 1), "Int64": (-(1 << 63), (1 << 63) - 1),
+    "UInt8": (0, (1 << 8) - 1), "UInt16": (0, (1 << 16) - 1),
+    "UInt32": (0, (1 << 32) - 1), "UInt64": (0, (1 << 64) - 1),
 }
 
 def _normalize_type_spelling(type_spelling: str) -> str:
@@ -142,10 +162,140 @@ def _property_metadata_from_annotation(annotation: str) -> list[tuple[str, str]]
     return metadata
 
 
-def _apply_property_annotation(prop: ReflectedPropertyInfo | None, annotation: str) -> ReflectedPropertyInfo | None:
+def _quoted_annotation_value(raw_value: str, key: str, location: str) -> str:
+    match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value.strip())
+    if not match:
+        raise ValueError(f"[DHT-META001] {location}: {key} requires a quoted string value")
+    return _unescape_string_literal(match.group(1))
+
+
+def _metadata_decimal(value: str, key: str, location: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise ValueError(f"[DHT-META002] {location}: {key} has invalid numeric value '{value}'") from error
+    if not parsed.is_finite():
+        raise ValueError(f"[DHT-META003] {location}: {key} must be finite")
+    return parsed
+
+
+def _numeric_metadata_kind(prop: ReflectedPropertyInfo) -> str:
+    if prop.kind in _INTEGER_RANGES:
+        return "Signed" if prop.kind.startswith("Int") else "Unsigned"
+    if prop.kind in ("Float", "Double"):
+        return prop.kind
+    struct_name = prop.referenced_struct_type.rsplit("::", 1)[-1]
+    if struct_name in {"FVector2f", "FVector3f", "FVector4f", "FQuatf"}:
+        return "Float"
+    if struct_name in {
+        "FVector2", "FVector3", "FVector4", "FVector2d", "FVector3d", "FVector4d",
+        "FQuat", "FQuatd",
+    }:
+        return "Double"
+    return ""
+
+
+def _typed_metadata_from_annotation(
+    prop: ReflectedPropertyInfo, annotation: str, location: str
+) -> ReflectedPropertyMetadataInfo | None:
+    values: dict[str, str] = {}
+    for raw_entry in _annotation_entries(annotation):
+        key, separator, raw_value = raw_entry.strip().partition("=")
+        key = key.strip()
+        if key not in _TYPED_METADATA_KEYS:
+            continue
+        if key in values:
+            raise ValueError(f"[DHT-META004] {location}: duplicate metadata key '{key}'")
+        if not separator:
+            raise ValueError(f"[DHT-META001] {location}: {key} requires a value")
+        values[key] = raw_value.strip()
+    if not values:
+        return None
+    extension_keys = {key for key, _ in prop.metadata}
+    duplicate_extensions = sorted(extension_keys & _TYPED_METADATA_KEYS)
+    if duplicate_extensions:
+        raise ValueError(
+            f"[DHT-META004] {location}: selected metadata key '{duplicate_extensions[0]}' "
+            "cannot also be declared through MetaData"
+        )
+
+    result = ReflectedPropertyMetadataInfo()
+    for key, attribute in (("DisplayName", "display_name"), ("ToolTip", "tooltip"), ("Category", "category")):
+        if key in values:
+            value = _quoted_annotation_value(values[key], key, location)
+            if not value:
+                raise ValueError(f"[DHT-META006] {location}: {key} may not be empty")
+            setattr(result, attribute, value)
+
+    numeric_keys = set(values) & _NUMERIC_METADATA_KEYS
+    if numeric_keys and "Durin::EPropertyFlags::Edit" not in prop.flags:
+        raise ValueError(f"[DHT-META005] {location}: numeric metadata requires the Edit property flag")
+    numeric_kind = _numeric_metadata_kind(prop)
+    if numeric_keys and not numeric_kind:
+        raise ValueError(
+            f"[DHT-META005] {location}: numeric metadata is not applicable to {prop.kind} property '{prop.name}'"
+        )
+    result.numeric_kind = numeric_kind
+    if "Units" in values:
+        result.units = _quoted_annotation_value(values["Units"], "Units", location)
+        if result.units not in _VALID_UNITS:
+            raise ValueError(f"[DHT-META007] {location}: unknown Units value '{result.units}'")
+    if "Precision" in values:
+        if not re.fullmatch(r"[0-9]+", values["Precision"]):
+            raise ValueError(f"[DHT-META008] {location}: Precision requires a nonnegative integer")
+        result.precision = int(values["Precision"])
+        limit = 9 if numeric_kind == "Float" else 17 if numeric_kind == "Double" else -1
+        if result.precision > limit:
+            raise ValueError(f"[DHT-META008] {location}: Precision exceeds the {numeric_kind} limit of {limit}")
+
+    parsed: dict[str, Decimal] = {}
+    for key, attribute in (("Step", "step"), ("ClampMin", "clamp_min"), ("ClampMax", "clamp_max"),
+                           ("UIMin", "ui_min"), ("UIMax", "ui_max")):
+        if key not in values:
+            continue
+        literal = _quoted_annotation_value(values[key], key, location)
+        decimal_value = _metadata_decimal(literal, key, location)
+        if numeric_kind in ("Signed", "Unsigned"):
+            if decimal_value != decimal_value.to_integral_value():
+                raise ValueError(f"[DHT-META009] {location}: {key} is not an integer")
+            low, high = _INTEGER_RANGES[prop.kind]
+            if decimal_value < low or decimal_value > high:
+                raise ValueError(f"[DHT-META010] {location}: {key} is outside the {prop.kind} range")
+            literal = str(int(decimal_value))
+        elif numeric_kind == "Float":
+            try:
+                target_value = struct.unpack("f", struct.pack("f", float(decimal_value)))[0]
+            except (OverflowError, struct.error):
+                target_value = math.inf
+            if not math.isfinite(target_value) or (decimal_value != 0 and target_value == 0):
+                raise ValueError(f"[DHT-META010] {location}: {key} is outside the float range")
+        elif numeric_kind == "Double":
+            target_value = float(decimal_value)
+            if not math.isfinite(target_value) or (decimal_value != 0 and target_value == 0):
+                raise ValueError(f"[DHT-META010] {location}: {key} is outside the double range")
+        if key == "Step" and decimal_value <= 0:
+            raise ValueError(f"[DHT-META011] {location}: Step must be positive")
+        parsed[key] = decimal_value
+        setattr(result, attribute, literal)
+
+    if "ClampMin" in parsed and "ClampMax" in parsed and parsed["ClampMin"] > parsed["ClampMax"]:
+        raise ValueError(f"[DHT-META012] {location}: ClampMin exceeds ClampMax")
+    if "UIMin" in parsed and "UIMax" in parsed and parsed["UIMin"] > parsed["UIMax"]:
+        raise ValueError(f"[DHT-META012] {location}: UIMin exceeds UIMax")
+    if "UIMin" in parsed and "ClampMin" in parsed and parsed["UIMin"] < parsed["ClampMin"]:
+        raise ValueError(f"[DHT-META012] {location}: UIMin is below ClampMin")
+    if "UIMax" in parsed and "ClampMax" in parsed and parsed["UIMax"] > parsed["ClampMax"]:
+        raise ValueError(f"[DHT-META012] {location}: UIMax exceeds ClampMax")
+    return result
+
+
+def _apply_property_annotation(
+    prop: ReflectedPropertyInfo | None, annotation: str, location: str = "DPROPERTY"
+) -> ReflectedPropertyInfo | None:
     if prop:
         prop.metadata = _property_metadata_from_annotation(annotation)
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
+        prop.typed_metadata = _typed_metadata_from_annotation(prop, annotation, location)
     return prop
 
 
@@ -219,6 +369,7 @@ def _make_property_from_source_decl(
     annotation: str,
     exported_symbols: ExportedSymbols | None,
     declaring_namespace: str = "",
+    line_number: int = 0,
 ) -> ReflectedPropertyInfo | None:
     line = source_line.rstrip(";").strip()
     match = re.match(r"(.+?)\s+(\w+)(?:\s*\[(\d+)\])?(?:\s*(?:=.*|\{.*\}))?$", line)
@@ -234,7 +385,7 @@ def _make_property_from_source_decl(
         declaring_namespace=declaring_namespace,
         flags=_property_flags_from_annotation(annotation),
         array_dim=array_dim,
-    ), annotation)
+    ), annotation, f"DPROPERTY '{name}' at line {line_number}" if line_number else f"DPROPERTY '{name}'")
 
 
 def _scan_source_properties_for_class(
@@ -299,7 +450,7 @@ def _scan_source_properties_for_class(
                 continue
             if scanner.find_next_code_position(";", line_start, line_end) is not None:
                 prop = _make_property_from_source_decl(
-                    stripped, pending_annotation, exported_symbols, declaring_namespace
+                    stripped, pending_annotation, exported_symbols, declaring_namespace, line_number
                 )
                 if prop:
                     properties.append(prop)
@@ -1042,7 +1193,8 @@ def _make_property(
             array_dim=_array_dim(field_cursor), declaring_namespace=declaring_namespace,
         )
         _require_ast_source_agreement(field_cursor, source_prop, ast_prop)
-        return _apply_property_annotation(source_prop, annotation)
+        return _apply_property_annotation(source_prop, annotation,
+            f"DPROPERTY '{field_cursor.spelling}' at line {field_cursor.location.line}")
 
     source_prop = None
     if source_type:
@@ -1063,7 +1215,8 @@ def _make_property(
             _require_ast_source_agreement(field_cursor, source_prop, ast_prop)
             # Non-fundamental layout belongs to the target compiler, not the
             # synthetic libclang context. Keep it as a C++ sizeof expression.
-            return _apply_property_annotation(source_prop, annotation)
+            return _apply_property_annotation(source_prop, annotation,
+                f"DPROPERTY '{field_cursor.spelling}' at line {field_cursor.location.line}")
 
     prop = _make_property_from_type(
         field_cursor.spelling,
@@ -1081,7 +1234,8 @@ def _make_property(
                 f"{field_cursor.location.line}: aliases of TSoftObjectPtr<T> are unsupported; "
                 "spell the template directly"
             )
-        return _apply_property_annotation(prop, annotation)
+        return _apply_property_annotation(prop, annotation,
+            f"DPROPERTY '{field_cursor.spelling}' at line {field_cursor.location.line}")
 
     if source_type:
         return _apply_property_annotation(_make_property_from_spelling(
@@ -1091,5 +1245,5 @@ def _make_property(
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
             declaring_namespace=declaring_namespace,
-        ), annotation)
+        ), annotation, f"DPROPERTY '{field_cursor.spelling}' at line {field_cursor.location.line}")
     return None

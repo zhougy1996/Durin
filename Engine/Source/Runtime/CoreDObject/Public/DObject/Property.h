@@ -6,6 +6,21 @@
 
 namespace Durin
 {
+	// Runtime-owned immutable view of selected first-party property metadata.
+	struct FPropertyMetadata
+	{
+		std::string DisplayName;
+		std::string ToolTip;
+		std::string Category;
+		EPropertyUnit Units = EPropertyUnit::None;
+		FPropertyMetadataNumber Step;
+		int8 Precision = -1;
+		FPropertyMetadataNumber ClampMin;
+		FPropertyMetadataNumber ClampMax;
+		FPropertyMetadataNumber UIMin;
+		FPropertyMetadataNumber UIMax;
+	};
+
 	class FDefaultObjectGraphMap;
 	class FStructProperty;
 	// Describes one reflected field's storage, flags, referenced type, and value lifecycle.
@@ -36,6 +51,8 @@ namespace Durin
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
 		auto IsObjectPtrWrapper() const -> bool { return bIsObjectPtrWrapper; }
 		auto GetLegacyNames() const -> std::span<const FName> { return LegacyNames; }
+		auto GetTypedMetadata() const -> const FPropertyMetadata& { return TypedMetadata; }
+		COREDOBJECT_API auto SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void;
 		auto MatchesSerializedName(FName InName) const -> bool
 		{
 			return NamePrivate == InName || std::ranges::find(LegacyNames, InName) != LegacyNames.end();
@@ -118,6 +135,7 @@ namespace Durin
 		DClass* ReferencedClass = nullptr;
 		bool bIsObjectPtrWrapper = false;
 		std::vector<FName> LegacyNames;
+		FPropertyMetadata TypedMetadata;
 		uint32 ValueSize = 0;
 		uint32 ValueAlignment = 0;
 		void (*InitializeValueFunction)(void*) = nullptr;
@@ -165,6 +183,14 @@ namespace Durin
 		size_t Alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
 		bool bLive = false;
 	};
+
+	// Validates an editor-authored value against hard typed metadata without modifying it.
+	COREDOBJECT_API auto ValidatePropertyAuthoringValue(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex = 0,
+		std::string* OutError = nullptr
+	) -> bool;
 
 	// Distinguishes an authored value difference from unavailable comparison semantics.
 	enum class EPropertyIdentityResult : uint8

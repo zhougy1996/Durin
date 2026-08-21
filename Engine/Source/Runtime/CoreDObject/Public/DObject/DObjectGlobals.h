@@ -74,6 +74,61 @@ namespace Durin
 
 	COREDOBJECT_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
 
+	// Identifies the exact scalar channel used by numeric property metadata.
+	enum class EPropertyMetadataNumericKind : uint8
+	{
+		None,
+		Signed,
+		Unsigned,
+		Float,
+		Double,
+	};
+
+	enum class EPropertyUnit : uint8
+	{
+		None,
+		Unitless,
+		Percent,
+		Degrees,
+		Radians,
+		Seconds,
+		Milliseconds,
+		Meters,
+		Centimeters,
+		Millimeters,
+		Kilometers,
+	};
+
+	// Stores one metadata number without narrowing 64-bit integers through double.
+	struct FPropertyMetadataNumber
+	{
+		EPropertyMetadataNumericKind Kind = EPropertyMetadataNumericKind::None;
+		int64 Signed = 0;
+		uint64 Unsigned = 0;
+		float Float = 0.0f;
+		double Double = 0.0;
+
+		static constexpr auto FromSigned(int64 Value) -> FPropertyMetadataNumber { return {.Kind = EPropertyMetadataNumericKind::Signed, .Signed = Value}; }
+		static constexpr auto FromUnsigned(uint64 Value) -> FPropertyMetadataNumber { return {.Kind = EPropertyMetadataNumericKind::Unsigned, .Unsigned = Value}; }
+		static constexpr auto FromFloat(float Value) -> FPropertyMetadataNumber { return {.Kind = EPropertyMetadataNumericKind::Float, .Float = Value}; }
+		static constexpr auto FromDouble(double Value) -> FPropertyMetadataNumber { return {.Kind = EPropertyMetadataNumericKind::Double, .Double = Value}; }
+	};
+
+	// Generated immutable first-party metadata copied into an FProperty at registration.
+	struct FPropertyMetadataParams
+	{
+		const char* DisplayName = nullptr;
+		const char* ToolTip = nullptr;
+		const char* Category = nullptr;
+		EPropertyUnit Units = EPropertyUnit::None;
+		FPropertyMetadataNumber Step;
+		int8 Precision = -1;
+		FPropertyMetadataNumber ClampMin;
+		FPropertyMetadataNumber ClampMax;
+		FPropertyMetadataNumber UIMin;
+		FPropertyMetadataNumber UIMax;
+	};
+
 	COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 	COREDOBJECT_API auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*;
 	COREDOBJECT_API auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool;
@@ -267,6 +322,7 @@ namespace Durin
 			size_t NumMetaData;
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
+			const FPropertyMetadataParams* TypedMetadata = nullptr;
 
 		protected:
 			constexpr FPropertyParamsBase(
@@ -294,6 +350,14 @@ namespace Durin
 			{
 			}
 		};
+
+		template<typename TParams>
+		constexpr auto WithTypedMetadata(TParams Params, const FPropertyMetadataParams* Metadata) -> TParams
+		{
+			static_assert(std::is_base_of_v<FPropertyParamsBase, TParams>);
+			Params.TypedMetadata = Metadata;
+			return Params;
+		}
 
 		template<typename TParams>
 		constexpr auto WithLegacyNames(

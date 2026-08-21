@@ -7,6 +7,111 @@
 
 namespace Durin
 {
+	auto FProperty::SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void
+	{
+		TypedMetadata = {};
+		if (!InMetadata) return;
+		TypedMetadata.DisplayName = InMetadata->DisplayName ? InMetadata->DisplayName : "";
+		TypedMetadata.ToolTip = InMetadata->ToolTip ? InMetadata->ToolTip : "";
+		TypedMetadata.Category = InMetadata->Category ? InMetadata->Category : "";
+		TypedMetadata.Units = InMetadata->Units;
+		TypedMetadata.Step = InMetadata->Step;
+		TypedMetadata.Precision = InMetadata->Precision;
+		TypedMetadata.ClampMin = InMetadata->ClampMin;
+		TypedMetadata.ClampMax = InMetadata->ClampMax;
+		TypedMetadata.UIMin = InMetadata->UIMin;
+		TypedMetadata.UIMax = InMetadata->UIMax;
+		if (!TypedMetadata.DisplayName.empty()) SetMetaData(FName("DisplayName"), TypedMetadata.DisplayName);
+		if (!TypedMetadata.ToolTip.empty()) SetMetaData(FName("ToolTip"), TypedMetadata.ToolTip);
+		if (!TypedMetadata.Category.empty()) SetMetaData(FName("Category"), TypedMetadata.Category);
+	}
+
+	namespace
+	{
+		template<typename T>
+		auto MetadataNumberAs(const FPropertyMetadataNumber& Number) -> T
+		{
+			if constexpr (std::is_signed_v<T> && std::is_integral_v<T>) return static_cast<T>(Number.Signed);
+			if constexpr (std::is_unsigned_v<T>) return static_cast<T>(Number.Unsigned);
+			if constexpr (std::is_same_v<T, float>) return Number.Float;
+			return static_cast<T>(Number.Double);
+		}
+
+		template<typename T>
+		auto ValidateScalarMetadata(const FPropertyMetadata& Metadata, const void* Value, std::string* OutError) -> bool
+		{
+			const T Current = *static_cast<const T*>(Value);
+			if constexpr (std::is_floating_point_v<T>)
+			{
+				if ((Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
+					|| Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None) && !std::isfinite(Current))
+				{
+					if (OutError) *OutError = "The proposed value is non-finite and violates its authoring bounds.";
+					return false;
+				}
+			}
+			if (Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
+				&& Current < MetadataNumberAs<T>(Metadata.ClampMin))
+			{
+				if (OutError) *OutError = "The proposed value is below ClampMin.";
+				return false;
+			}
+			if (Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None
+				&& Current > MetadataNumberAs<T>(Metadata.ClampMax))
+			{
+				if (OutError) *OutError = "The proposed value exceeds ClampMax.";
+				return false;
+			}
+			return true;
+		}
+
+		auto ValidateMetadataValue(const FProperty* Property, const FPropertyMetadata& Metadata,
+			const void* Value, std::string* OutError) -> bool
+		{
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Int8: return ValidateScalarMetadata<int8>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Int16: return ValidateScalarMetadata<int16>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Int32: return ValidateScalarMetadata<int32>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Int64: return ValidateScalarMetadata<int64>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::UInt8: return ValidateScalarMetadata<uint8>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::UInt16: return ValidateScalarMetadata<uint16>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::UInt32: return ValidateScalarMetadata<uint32>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::UInt64: return ValidateScalarMetadata<uint64>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Float: return ValidateScalarMetadata<float>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Double: return ValidateScalarMetadata<double>(Metadata, Value, OutError);
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<const FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct) return false;
+				bool bValid = true;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (!bValid || !Field) return;
+					bValid = ValidateMetadataValue(Field, Metadata, Field->GetValuePtr(Value), OutError);
+				}, false);
+				return bValid;
+			}
+			default: return true;
+			}
+		}
+	}
+
+	auto ValidatePropertyAuthoringValue(const FProperty* Property, const void* Container,
+		uint32 ArrayIndex, std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+		{
+			if (OutError) *OutError = "The reflected property value is unavailable.";
+			return false;
+		}
+		const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
+		if (Metadata.ClampMin.Kind == EPropertyMetadataNumericKind::None
+			&& Metadata.ClampMax.Kind == EPropertyMetadataNumericKind::None) return true;
+		return ValidateMetadataValue(Property, Metadata, Property->GetValuePtr(Container, ArrayIndex), OutError);
+	}
+
 	namespace
 	{
 		template<typename T>

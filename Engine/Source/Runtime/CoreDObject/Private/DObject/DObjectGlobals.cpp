@@ -9,6 +9,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/GarbageCollectionScheduler.h"
+#include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "GCReferenceSchema.h"
@@ -138,6 +139,143 @@ namespace Durin
 			case DurinCodeGen::EEnumUnderlyingType::UInt16: return UnderlyingSize == sizeof(uint16);
 			case DurinCodeGen::EEnumUnderlyingType::UInt32: return UnderlyingSize == sizeof(uint32);
 			case DurinCodeGen::EEnumUnderlyingType::UInt64: return UnderlyingSize == sizeof(uint64);
+			default: return false;
+			}
+		}
+
+		auto ExpectedMetadataNumericKind(const FProperty* Property) -> EPropertyMetadataNumericKind
+		{
+			if (!Property) return EPropertyMetadataNumericKind::None;
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Int8:
+			case DurinCodeGen::EPropertyGenFlags::Int16:
+			case DurinCodeGen::EPropertyGenFlags::Int32:
+			case DurinCodeGen::EPropertyGenFlags::Int64: return EPropertyMetadataNumericKind::Signed;
+			case DurinCodeGen::EPropertyGenFlags::UInt8:
+			case DurinCodeGen::EPropertyGenFlags::UInt16:
+			case DurinCodeGen::EPropertyGenFlags::UInt32:
+			case DurinCodeGen::EPropertyGenFlags::UInt64: return EPropertyMetadataNumericKind::Unsigned;
+			case DurinCodeGen::EPropertyGenFlags::Float: return EPropertyMetadataNumericKind::Float;
+			case DurinCodeGen::EPropertyGenFlags::Double: return EPropertyMetadataNumericKind::Double;
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				const DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+				if (Struct == Z_Construct_DStruct_Durin_FVector2f()
+					|| Struct == Z_Construct_DStruct_Durin_FVector3f()
+					|| Struct == Z_Construct_DStruct_Durin_FVector4f()
+					|| Struct == Z_Construct_DStruct_Durin_FQuatf()) return EPropertyMetadataNumericKind::Float;
+				if (Struct == Z_Construct_DStruct_Durin_FVector2()
+					|| Struct == Z_Construct_DStruct_Durin_FVector3()
+					|| Struct == Z_Construct_DStruct_Durin_FVector4()
+					|| Struct == Z_Construct_DStruct_Durin_FQuat()) return EPropertyMetadataNumericKind::Double;
+				return EPropertyMetadataNumericKind::None;
+			}
+			default: return EPropertyMetadataNumericKind::None;
+			}
+		}
+
+		template<typename T>
+		auto MetadataNumbersFitIntegralProperty(const FPropertyMetadataParams& Metadata) -> bool
+		{
+			for (const FPropertyMetadataNumber* Number : {&Metadata.Step, &Metadata.ClampMin,
+				&Metadata.ClampMax, &Metadata.UIMin, &Metadata.UIMax})
+			{
+				if (Number->Kind == EPropertyMetadataNumericKind::None) continue;
+				if constexpr (std::is_signed_v<T>)
+				{
+					if (Number->Signed < std::numeric_limits<T>::min()
+						|| Number->Signed > std::numeric_limits<T>::max()) return false;
+				}
+				else if (Number->Unsigned > std::numeric_limits<T>::max()) return false;
+			}
+			return true;
+		}
+
+		auto MetadataNumbersFitProperty(const FProperty* Property,
+			const FPropertyMetadataParams& Metadata) -> bool
+		{
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Int8: return MetadataNumbersFitIntegralProperty<int8>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::Int16: return MetadataNumbersFitIntegralProperty<int16>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::Int32: return MetadataNumbersFitIntegralProperty<int32>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::Int64: return MetadataNumbersFitIntegralProperty<int64>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::UInt8: return MetadataNumbersFitIntegralProperty<uint8>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::UInt16: return MetadataNumbersFitIntegralProperty<uint16>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::UInt32: return MetadataNumbersFitIntegralProperty<uint32>(Metadata);
+			case DurinCodeGen::EPropertyGenFlags::UInt64: return MetadataNumbersFitIntegralProperty<uint64>(Metadata);
+			default: return true;
+			}
+		}
+
+		template<typename T>
+		auto MetadataNumberValue(const FPropertyMetadataNumber& Number) -> T
+		{
+			if constexpr (std::is_same_v<T, int64>) return Number.Signed;
+			if constexpr (std::is_same_v<T, uint64>) return Number.Unsigned;
+			if constexpr (std::is_same_v<T, float>) return Number.Float;
+			return Number.Double;
+		}
+
+		template<typename T>
+		auto ValidateMetadataNumbers(const FPropertyMetadataParams& Metadata) -> bool
+		{
+			auto Present = [](const FPropertyMetadataNumber& Number) {
+				return Number.Kind != EPropertyMetadataNumericKind::None;
+			};
+			auto Finite = [](T Value) {
+				if constexpr (std::is_floating_point_v<T>) return std::isfinite(Value);
+				return true;
+			};
+			if (Present(Metadata.Step)
+				&& (!Finite(MetadataNumberValue<T>(Metadata.Step)) || MetadataNumberValue<T>(Metadata.Step) <= T{})) return false;
+			for (const FPropertyMetadataNumber* Number : {&Metadata.ClampMin, &Metadata.ClampMax, &Metadata.UIMin, &Metadata.UIMax})
+				if (Present(*Number) && !Finite(MetadataNumberValue<T>(*Number))) return false;
+			if (Present(Metadata.ClampMin) && Present(Metadata.ClampMax)
+				&& MetadataNumberValue<T>(Metadata.ClampMin) > MetadataNumberValue<T>(Metadata.ClampMax)) return false;
+			if (Present(Metadata.UIMin) && Present(Metadata.UIMax)
+				&& MetadataNumberValue<T>(Metadata.UIMin) > MetadataNumberValue<T>(Metadata.UIMax)) return false;
+			if (Present(Metadata.ClampMin) && Present(Metadata.UIMin)
+				&& MetadataNumberValue<T>(Metadata.UIMin) < MetadataNumberValue<T>(Metadata.ClampMin)) return false;
+			if (Present(Metadata.ClampMax) && Present(Metadata.UIMax)
+				&& MetadataNumberValue<T>(Metadata.UIMax) > MetadataNumberValue<T>(Metadata.ClampMax)) return false;
+			return true;
+		}
+
+		auto ValidateTypedMetadataRegistration(const FProperty* Property,
+			const FPropertyMetadataParams* Metadata) -> bool
+		{
+			if (!Metadata) return true;
+			if ((Metadata->DisplayName && Metadata->DisplayName[0] == '\0')
+				|| (Metadata->ToolTip && Metadata->ToolTip[0] == '\0')
+				|| (Metadata->Category && Metadata->Category[0] == '\0')) return false;
+			if (Metadata->Units > EPropertyUnit::Kilometers || Metadata->Precision < -1) return false;
+
+			const EPropertyMetadataNumericKind Expected = ExpectedMetadataNumericKind(Property);
+			const bool bHasNumericMetadata = Metadata->Units != EPropertyUnit::None
+				|| Metadata->Precision >= 0 || Metadata->Step.Kind != EPropertyMetadataNumericKind::None
+				|| Metadata->ClampMin.Kind != EPropertyMetadataNumericKind::None
+				|| Metadata->ClampMax.Kind != EPropertyMetadataNumericKind::None
+				|| Metadata->UIMin.Kind != EPropertyMetadataNumericKind::None
+				|| Metadata->UIMax.Kind != EPropertyMetadataNumericKind::None;
+			if (!bHasNumericMetadata) return true;
+			if (Expected == EPropertyMetadataNumericKind::None
+				|| !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return false;
+			for (const FPropertyMetadataNumber* Number : {&Metadata->Step, &Metadata->ClampMin,
+				&Metadata->ClampMax, &Metadata->UIMin, &Metadata->UIMax})
+				if (Number->Kind != EPropertyMetadataNumericKind::None && Number->Kind != Expected) return false;
+			if (!MetadataNumbersFitProperty(Property, *Metadata)) return false;
+			if ((Expected == EPropertyMetadataNumericKind::Signed || Expected == EPropertyMetadataNumericKind::Unsigned)
+				&& Metadata->Precision >= 0) return false;
+			if (Expected == EPropertyMetadataNumericKind::Float && Metadata->Precision > 9) return false;
+			if (Expected == EPropertyMetadataNumericKind::Double && Metadata->Precision > 17) return false;
+			switch (Expected)
+			{
+			case EPropertyMetadataNumericKind::Signed: return ValidateMetadataNumbers<int64>(*Metadata);
+			case EPropertyMetadataNumericKind::Unsigned: return ValidateMetadataNumbers<uint64>(*Metadata);
+			case EPropertyMetadataNumericKind::Float: return ValidateMetadataNumbers<float>(*Metadata);
+			case EPropertyMetadataNumericKind::Double: return ValidateMetadataNumbers<double>(*Metadata);
 			default: return false;
 			}
 		}
@@ -432,7 +570,15 @@ namespace Durin
 				return nullptr;
 			}
 
+			if (!ValidateTypedMetadataRegistration(Property, PropertyParams->TypedMetadata))
+			{
+				checkf(false, "PropertyRegistration.InvalidTypedMetadata owner '{}' property '{}'.",
+					GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+				delete Property;
+				return nullptr;
+			}
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
+			Property->SetTypedMetadata(PropertyParams->TypedMetadata);
 			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array)
 			{
 				const FArrayOps& Ops = static_cast<FArrayProperty*>(Property)->GetOps();

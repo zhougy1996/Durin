@@ -52,6 +52,8 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
         decls.extend(_property_decls(prop.value))
     if prop.metadata:
         decls.append(_line(f"static const Durin::DurinCodeGen::FMetaDataPair NewProp_{prop.name}_MetaData[];", 1))
+    if prop.typed_metadata:
+        decls.append(_line(f"static const Durin::FPropertyMetadataParams NewProp_{prop.name}_TypedMetaData;", 1))
     if prop.legacy_names:
         decls.append(_line(f"static const char* const NewProp_{prop.name}_LegacyNames[];", 1))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
@@ -73,6 +75,32 @@ def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropert
 
 def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols, nested: bool) -> str:
     content = ""
+    if prop.typed_metadata:
+        metadata_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_TypedMetaData"
+        typed = prop.typed_metadata
+        def string_or_null(value: str) -> str:
+            return _cpp_string_literal(value) if value else "nullptr"
+        def number(value: str) -> str:
+            if not value:
+                return "{}"
+            if typed.numeric_kind == "Signed":
+                literal = "(-9223372036854775807LL - 1)" if value == "-9223372036854775808" else f"{value}LL"
+                return f"Durin::FPropertyMetadataNumber::FromSigned({literal})"
+            if typed.numeric_kind == "Unsigned":
+                return f"Durin::FPropertyMetadataNumber::FromUnsigned({value}ULL)"
+            if typed.numeric_kind == "Float":
+                literal = value if any(marker in value.lower() for marker in (".", "e")) else f"{value}.0"
+                return f"Durin::FPropertyMetadataNumber::FromFloat({literal}f)"
+            literal = value if any(marker in value.lower() for marker in (".", "e")) else f"{value}.0"
+            return f"Durin::FPropertyMetadataNumber::FromDouble({literal})"
+        precision = str(typed.precision) if typed.precision is not None else "-1"
+        content += (
+            f"const Durin::FPropertyMetadataParams {metadata_name} = {{ "
+            f"{string_or_null(typed.display_name)}, {string_or_null(typed.tooltip)}, "
+            f"{string_or_null(typed.category)}, Durin::EPropertyUnit::{typed.units or 'None'}, "
+            f"{number(typed.step)}, {precision}, {number(typed.clamp_min)}, "
+            f"{number(typed.clamp_max)}, {number(typed.ui_min)}, {number(typed.ui_max)} }};\n"
+        )
     metadata_ref = "nullptr"
     metadata_count = "0"
     if prop.metadata:
@@ -190,6 +218,11 @@ def _property_assignment(
             f"Durin::DurinCodeGen::WithLegacyNames({initializer}, {legacy_names}, "
             f"{len(prop.legacy_names)})"
         )
+    if prop.typed_metadata:
+        if initializer.startswith("{"):
+            initializer = f"Durin::DurinCodeGen::{param_type}{initializer}"
+        typed_metadata = f"{class_info.generated_statics_name}::NewProp_{prop.name}_TypedMetaData"
+        initializer = f"Durin::DurinCodeGen::WithTypedMetadata({initializer}, &{typed_metadata})"
     return (
         f"const Durin::DurinCodeGen::{param_type} "
         f"{class_info.generated_statics_name}::NewProp_{prop.name} = {initializer};\n"

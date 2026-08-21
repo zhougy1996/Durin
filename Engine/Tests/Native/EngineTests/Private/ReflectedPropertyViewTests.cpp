@@ -117,6 +117,17 @@ namespace
 			Property->SetValueLifecycle(sizeof(Durin::int32), alignof(Durin::int32),
 				[](void* Memory) { std::construct_at(static_cast<Durin::int32*>(Memory)); },
 				[](void* Memory) { std::destroy_at(static_cast<Durin::int32*>(Memory)); });
+			const Durin::FPropertyMetadataParams Metadata{
+				.DisplayName = "Bounded Value",
+				.ToolTip = "A value with authoring bounds.",
+				.Category = "Numbers",
+				.Step = Durin::FPropertyMetadataNumber::FromSigned(1),
+				.ClampMin = Durin::FPropertyMetadataNumber::FromSigned(0),
+				.ClampMax = Durin::FPropertyMetadataNumber::FromSigned(10),
+				.UIMin = Durin::FPropertyMetadataNumber::FromSigned(2),
+				.UIMax = Durin::FPropertyMetadataNumber::FromSigned(8),
+			};
+			Property->SetTypedMetadata(&Metadata);
 
 			const auto SoftValuesOffset = static_cast<Durin::uint16>(
 				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftValues)
@@ -526,4 +537,27 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), Fourth);
+}
+
+TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
+{
+	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
+	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("BoundedEdit"));
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView View;
+	std::string Error;
+	const Durin::Editor::FPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&](std::string Message) { Error = std::move(Message); },
+	};
+
+	EXPECT_FALSE(View.SubmitPropertyValueEdit(
+		Context,
+		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
+		[](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			*Property->ContainerPtrToValuePtr<Durin::int32>(Container, ArrayIndex) = 11;
+		}, false));
+	EXPECT_EQ(Object.Value, 5);
+	EXPECT_NE(Error.find("ClampMax"), std::string::npos);
+	EXPECT_FALSE(Transactions.Undo());
 }

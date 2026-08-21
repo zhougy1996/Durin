@@ -125,7 +125,26 @@ namespace Durin::Editor
 
 		auto ReflectedPropertyTypeTooltip(const FProperty& Property) -> std::string
 		{
-			return std::format("Type: {}", ReflectedPropertyTypeName(Property));
+			const FPropertyMetadata& Metadata = Property.GetTypedMetadata();
+			const std::string Type = std::format("Type: {}", ReflectedPropertyTypeName(Property));
+			return Metadata.ToolTip.empty() ? Type : std::format("{}\n{}", Metadata.ToolTip, Type);
+		}
+
+		auto PropertyUnitLabel(EPropertyUnit Unit) -> std::string_view
+		{
+			switch (Unit)
+			{
+			case EPropertyUnit::Percent: return "%";
+			case EPropertyUnit::Degrees: return "deg";
+			case EPropertyUnit::Radians: return "rad";
+			case EPropertyUnit::Seconds: return "s";
+			case EPropertyUnit::Milliseconds: return "ms";
+			case EPropertyUnit::Meters: return "m";
+			case EPropertyUnit::Centimeters: return "cm";
+			case EPropertyUnit::Millimeters: return "mm";
+			case EPropertyUnit::Kilometers: return "km";
+			default: return {};
+			}
 		}
 
 		auto HasInlineStructWidget(const DStruct* Struct) -> bool
@@ -182,6 +201,8 @@ namespace Durin::Editor
 			FResolvedPropertyValue DraftValue;
 			if (!Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex, OutError)) return false;
 			WriteProposed(DraftValue, &Draft);
+			if (!ValidatePropertyAuthoringValue(
+				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex(), OutError)) return false;
 			const bool bCaptured = Draft.Capture(OutSnapshot, OutError);
 			return bCaptured;
 		}
@@ -361,8 +382,20 @@ namespace Durin::Editor
 
 		const bool bOwnsPropertyTable = Options.bCreatePropertyTable;
 		if (bOwnsPropertyTable && !MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId)) return Result;
+		std::stable_sort(VisibleProperties.begin(), VisibleProperties.end(), [](const auto& Left, const auto& Right) {
+			return Left.Property->GetTypedMetadata().Category < Right.Property->GetTypedMetadata().Category;
+		});
+		std::string CurrentCategory;
 		for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{
+			const std::string& Category = VisibleProperty.Property->GetTypedMetadata().Category;
+			if (!Category.empty() && Category != CurrentCategory)
+			{
+				CurrentCategory = Category;
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextDisabled("%s", Category.c_str());
+			}
 			Result.bChanged |= EditProperty(Context, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
 		}
 		if (bOwnsPropertyTable) MonaImGui::PropertyEdit::EndTable();
@@ -587,13 +620,53 @@ namespace Durin::Editor
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
 			std::array<uint8, sizeof(uint64)> Value{};
+			std::array<uint8, sizeof(uint64)> MinimumStorage{};
+			std::array<uint8, sizeof(uint64)> MaximumStorage{};
 			check(Property->GetElementSize() <= Value.size());
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
-			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(),
-				Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
+			float Speed = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f;
+			if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Signed) Speed = static_cast<float>(Metadata.Step.Signed);
+			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Unsigned) Speed = static_cast<float>(Metadata.Step.Unsigned);
+			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Float) Speed = Metadata.Step.Float;
+			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Double) Speed = static_cast<float>(Metadata.Step.Double);
+			auto StoreLimit = [&](const FPropertyMetadataNumber& Number, auto& Storage) -> const void* {
+				if (Number.Kind == EPropertyMetadataNumericKind::None) return nullptr;
+				auto Store = [&](auto TypedValue) -> const void* {
+					std::memcpy(Storage.data(), &TypedValue, sizeof(TypedValue));
+					return Storage.data();
+				};
+				switch (Kind)
+				{
+				case DurinCodeGen::EPropertyGenFlags::Int8: return Store(static_cast<int8>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int16: return Store(static_cast<int16>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int32: return Store(static_cast<int32>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int64: return Store(Number.Signed);
+				case DurinCodeGen::EPropertyGenFlags::UInt8: return Store(static_cast<uint8>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt16: return Store(static_cast<uint16>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt32: return Store(static_cast<uint32>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt64: return Store(Number.Unsigned);
+				case DurinCodeGen::EPropertyGenFlags::Float: return Store(Number.Float);
+				case DurinCodeGen::EPropertyGenFlags::Double: return Store(Number.Double);
+				default: return nullptr;
+				}
+			};
+			const void* Minimum = StoreLimit(Metadata.UIMin, MinimumStorage);
+			const void* Maximum = StoreLimit(Metadata.UIMax, MaximumStorage);
+			std::string Format;
+			if (Metadata.Precision >= 0 && (Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double))
+				Format = std::format("%.{}f", Metadata.Precision);
+			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Speed, Minimum, Maximum,
+				Format.empty() ? nullptr : Format.c_str());
 			const MonaImGui::PropertyEdit::FWidgetState State{
 				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 			};
+			const std::string_view Unit = PropertyUnitLabel(Metadata.Units);
+			if (!Unit.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%.*s", static_cast<int>(Unit.size()), Unit.data());
+			}
 			CaptureResult(bChanged, true, State);
 			if (bChanged)
 			{
@@ -1306,11 +1379,12 @@ namespace Durin::Editor
 
 	auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
 	{
+		const FPropertyMetadata& Metadata = Property.GetTypedMetadata();
 		static const FName DisplayNameMetaDataKey("DisplayName");
 		std::string Label = MakePropertyDisplayName(
 			Property.NamePrivate.ToString(),
 			Property.GetKind(),
-			Property.GetMetaData(DisplayNameMetaDataKey)
+			Metadata.DisplayName.empty() ? Property.GetMetaData(DisplayNameMetaDataKey) : Metadata.DisplayName
 		);
 		if (Property.GetArrayDim() > 1) Label = std::format("{}[{}]", Label, ArrayIndex);
 		return Label;

@@ -5075,6 +5075,45 @@ namespace
 		EXPECT_EQ(*DefaultMatrix, Durin::FMatrix4f(1.0f));
 	}
 
+	TEST(FCoreDObjectReflectionTests, TypedMetadataPreservesExactNumericChannelsAndValidatesAuthoringBounds)
+	{
+		Durin::FNumericProperty UnsignedProperty(
+			Durin::FFieldVariant(), Durin::FName("Unsigned"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::Edit, 1, 0, sizeof(Durin::uint64),
+			Durin::DurinCodeGen::EPropertyGenFlags::UInt64, nullptr);
+		const Durin::FPropertyMetadataParams UnsignedMetadata{
+			"Counter", "Exact unsigned value", "Numbers", Durin::EPropertyUnit::Unitless,
+			Durin::FPropertyMetadataNumber::FromUnsigned(1), -1,
+			Durin::FPropertyMetadataNumber::FromUnsigned(9'007'199'254'740'993ULL),
+			Durin::FPropertyMetadataNumber::FromUnsigned(std::numeric_limits<Durin::uint64>::max())};
+		UnsignedProperty.SetTypedMetadata(&UnsignedMetadata);
+		EXPECT_EQ(UnsignedProperty.GetTypedMetadata().ClampMin.Unsigned, 9'007'199'254'740'993ULL);
+		EXPECT_EQ(UnsignedProperty.GetTypedMetadata().ClampMax.Unsigned,
+			std::numeric_limits<Durin::uint64>::max());
+		EXPECT_EQ(UnsignedProperty.GetMetaData(Durin::FName("DisplayName")), "Counter");
+
+		std::string Error;
+		Durin::uint64 Value = 9'007'199'254'740'993ULL;
+		EXPECT_TRUE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
+		Value = 9'007'199'254'740'992ULL;
+		EXPECT_FALSE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
+		EXPECT_EQ(Error, "The proposed value is below ClampMin.");
+
+		Durin::FNumericProperty FloatProperty(
+			Durin::FFieldVariant(), Durin::FName("Float"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::Edit, 1, 0, sizeof(float),
+			Durin::DurinCodeGen::EPropertyGenFlags::Float, nullptr);
+		const Durin::FPropertyMetadataParams FloatMetadata{
+			nullptr, nullptr, nullptr, Durin::EPropertyUnit::None, {}, 3,
+			Durin::FPropertyMetadataNumber::FromFloat(-1.0f),
+			Durin::FPropertyMetadataNumber::FromFloat(1.0f)};
+		FloatProperty.SetTypedMetadata(&FloatMetadata);
+		float FloatValue = std::numeric_limits<float>::quiet_NaN();
+		EXPECT_FALSE(Durin::ValidatePropertyAuthoringValue(&FloatProperty, &FloatValue, 0, &Error));
+		FloatValue = 1.0f;
+		EXPECT_TRUE(Durin::ValidatePropertyAuthoringValue(&FloatProperty, &FloatValue, 0, &Error));
+	}
+
 	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)
 	{
 		auto MakeOps = [](Durin::FDStructOps::FDefaultConstruct Construct) {
@@ -5363,6 +5402,20 @@ namespace
 #if DO_CHECK
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidMetadata)
 	{
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				constexpr Durin::FPropertyMetadataParams Metadata{
+					.Step = Durin::FPropertyMetadataNumber::FromUnsigned(1)
+				};
+				auto Params = Durin::DurinCodeGen::WithTypedMetadata(
+					Durin::DurinCodeGen::FInt32PropertyParams{
+						"WrongNumericChannel", Durin::EPropertyFlags::Edit, 1, 0
+					}, &Metadata);
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"PropertyRegistration.InvalidTypedMetadata"
+		);
 		EXPECT_DEATH(
 			([] {
 				EnsureDObjectInitialized();

@@ -226,7 +226,7 @@ class TestReflectionProperties:
 
     def test_property_flags_metadata_and_typed_struct_registration_are_generated(self):
         assert (
-            'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,'
+            '"Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,'
             in self.generated_cpp
         )
         assert 'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };' in self.generated_cpp
@@ -246,6 +246,65 @@ class TestReflectionProperties:
         assert "InitializePropertyValue" not in color_definition
         assert "DestroyPropertyValue" not in color_definition
         assert "nullptr" not in color_definition
+
+
+    def test_typed_property_metadata_is_parsed_and_generated_exactly(self):
+        actor = next(info for info in self.header_info.classes if info.short_name == "ASampleActor")
+        prop = next(item for item in actor.properties if item.name == "Value")
+        metadata = prop.typed_metadata
+        assert metadata is not None
+        assert (metadata.display_name, metadata.tooltip, metadata.category) == (
+            "Scalar Value", "Authored scalar", "Numbers"
+        )
+        assert (metadata.units, metadata.numeric_kind, metadata.precision) == ("Percent", "Float", 3)
+        assert (metadata.step, metadata.clamp_min, metadata.clamp_max, metadata.ui_min, metadata.ui_max) == (
+            "1", "-100", "100", "-50", "50"
+        )
+        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        assert f"const Durin::FPropertyMetadataParams {statics}::NewProp_Value_TypedMetaData" in self.generated_cpp
+        assert "FPropertyMetadataNumber::FromFloat(-100.0f)" in self.generated_cpp
+        assert "WithTypedMetadata(Durin::DurinCodeGen::FFloatPropertyParams" in self.generated_cpp
+
+
+    @pytest.mark.parametrize(
+        ("annotation", "diagnostic"),
+        [
+            ('DPROPERTY, Step = "1"', "numeric metadata requires the Edit property flag"),
+            ('DPROPERTY, Edit, Step = "nan"', "Step must be finite"),
+            ('DPROPERTY, Edit, Step = "0"', "Step must be positive"),
+            ('DPROPERTY, Edit, ClampMin = "2", ClampMax = "1"', "ClampMin exceeds ClampMax"),
+            ('DPROPERTY, Edit, Units = "Pixels"', "unknown Units value 'Pixels'"),
+            ('DPROPERTY, Edit, Precision = 10', "Precision exceeds the Float limit of 9"),
+            ('DPROPERTY, Edit, Step = "1e-1000"', "Step is outside the float range"),
+            ('DPROPERTY, Edit, DisplayName = "A", DisplayName = "B"', "duplicate metadata key 'DisplayName'"),
+            ('DPROPERTY, Edit, DisplayName = "A", MetaData = "DisplayName=B"', "cannot also be declared through MetaData"),
+        ],
+    )
+    def test_invalid_typed_metadata_has_stable_diagnostics(self, annotation, diagnostic):
+        prop = ReflectedPropertyInfo("Value", "float", "Float", flags="Durin::EPropertyFlags::Edit")
+        if annotation == 'DPROPERTY, Step = "1"':
+            prop.flags = "None"
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            property_parser._apply_property_annotation(prop, annotation, "DPROPERTY 'Value' at line 7")
+
+
+    def test_integer_metadata_preserves_full_uint64_range(self):
+        prop = ReflectedPropertyInfo("Value", "uint64", "UInt64", flags="Durin::EPropertyFlags::Edit")
+        property_parser._apply_property_annotation(
+            prop,
+            'DPROPERTY, Edit, ClampMin = "0", ClampMax = "18446744073709551615"',
+            "DPROPERTY 'Value' at line 9",
+        )
+        assert prop.typed_metadata is not None
+        assert prop.typed_metadata.clamp_max == "18446744073709551615"
+
+    def test_integer_metadata_canonicalizes_leading_zeroes(self):
+        prop = ReflectedPropertyInfo("Value", "uint64", "UInt64", flags="Durin::EPropertyFlags::Edit")
+        property_parser._apply_property_annotation(
+            prop, 'DPROPERTY, Edit, Step = "0008"', "DPROPERTY 'Value' at line 10"
+        )
+        assert prop.typed_metadata is not None
+        assert prop.typed_metadata.step == "8"
 
 
     def test_fname_property_is_generated(self):
@@ -323,7 +382,14 @@ class TestReflectionProperties:
                 line for line in self.generated_cpp.splitlines()
                 if f"{statics}::NewProp_{name} =" in line
             )
-            assert definition.endswith(suffix)
+            if name == "Value":
+                assert "WithTypedMetadata(" in definition
+                assert (
+                    '"Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly, 1, '
+                    'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value))'
+                ) in definition
+            else:
+                assert definition.endswith(suffix)
             definitions[name] = definition
         label = next(
             line for line in self.generated_cpp.splitlines()

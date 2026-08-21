@@ -66,6 +66,26 @@ class ReflectedEnumInfo:
 
 
 @dataclass
+class ReflectedPropertyMetadataInfo:
+    display_name: str = ""
+    tooltip: str = ""
+    category: str = ""
+    units: str = ""
+    step: str = ""
+    precision: int | None = None
+    clamp_min: str = ""
+    clamp_max: str = ""
+    ui_min: str = ""
+    ui_max: str = ""
+    numeric_kind: str = ""
+
+    def is_empty(self) -> bool:
+        return not any((self.display_name, self.tooltip, self.category, self.units,
+                        self.step, self.precision is not None, self.clamp_min,
+                        self.clamp_max, self.ui_min, self.ui_max))
+
+
+@dataclass
 class ReflectedPropertyInfo:
     name: str
     type_name: str
@@ -81,6 +101,7 @@ class ReflectedPropertyInfo:
     key: "ReflectedPropertyInfo | None" = None
     value: "ReflectedPropertyInfo | None" = None
     metadata: list[tuple[str, str]] = field(default_factory=list)
+    typed_metadata: ReflectedPropertyMetadataInfo | None = None
     legacy_names: list[str] = field(default_factory=list)
 
 

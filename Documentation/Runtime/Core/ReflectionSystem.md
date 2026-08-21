@@ -582,6 +582,53 @@ Supported property node types are:
 - `FMapProperty`
 - `FStructProperty`
 
+### Typed authoring metadata
+
+First-party property presentation and numeric authoring constraints are written
+as ordinary `DPROPERTY` specifiers:
+
+```cpp
+DPROPERTY(Edit, DisplayName = "Exposure", ToolTip = "Camera exposure bias.",
+    Category = "Camera", Units = "Unitless", Step = "0.1", Precision = 2,
+    ClampMin = "-10", ClampMax = "10", UIMin = "-5", UIMax = "5")
+float Exposure = 0.0f;
+```
+
+`DisplayName`, `ToolTip`, and `Category` accept non-empty quoted strings on a
+reflected direct or fixed-array field. `Units`, `Step`, `Precision`,
+`ClampMin`, `ClampMax`, `UIMin`, and `UIMax` require `Edit` and apply to scalar
+integer/float properties and the components of the intrinsic float/double
+vectors and quaternions. They do not apply to bool, string, enum, object,
+container, matrix, or arbitrary struct properties. Numeric metadata on a
+containing property never implicitly flows into Array/Map elements or nested
+struct fields.
+
+`Units` accepts `Unitless`, `Percent`, `Degrees`, `Radians`, `Seconds`,
+`Milliseconds`, `Meters`, `Centimeters`, `Millimeters`, or `Kilometers`.
+`Step` must be positive and finite. `Precision` is limited to 0..9 for float
+values and 0..17 for double values. UI bounds must be ordered and remain inside
+hard bounds when both are present. A decimal float spelling is converted once
+to its declared float or double channel; integer spellings must be integral and
+fit the exact declared width. Consequently full-range `uint64` metadata never
+passes through `double`.
+
+DHT rejects duplicate selected keys, malformed or non-finite numbers, invalid
+units, inapplicable keys, and inconsistent ranges with a source-located
+`DHT-META` diagnostic. A selected typed key may not also be supplied through
+`MetaData`; unrelated extension metadata remains supported. Generated
+`FPropertyMetadataParams` records keep signed, unsigned, float, and double
+numbers in distinct channels. Registration validates hand-authored records and
+copies them into immutable `FPropertyMetadata`. The three presentation strings
+are also mirrored into raw metadata lookup for compatibility, while first-party
+consumers use `GetTypedMetadata()`.
+
+`ClampMin` and `ClampMax` constrain new editor-authored proposals through
+`ValidatePropertyAuthoringValue()`. Validation happens on detached draft
+storage before an edit session or transaction mutates the object. Package
+loading deliberately does not call this authoring validator and therefore does
+not clamp or repair historical data. `UIMin` and `UIMax` only configure editor
+presentation.
+
 `FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the wrapper value and expected class without treating its weak cache as reflected state. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
 
 DurinHeaderTool recognizes direct and fixed-array `TSoftObjectPtr<T>` fields and
