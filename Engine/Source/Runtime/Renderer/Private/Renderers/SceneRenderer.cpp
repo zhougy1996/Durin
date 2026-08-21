@@ -6,6 +6,7 @@
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/SceneViewState.h"
 
 #include "Profiling/Profiling.h"
 
@@ -24,6 +25,46 @@ namespace Durin
 {
 	namespace
 	{
+		auto ReportRejectedViewState(
+			std::string_view Reason,
+			FSceneViewStateId Id) -> void
+		{
+			static uint32 DiagnosticCount = 0;
+			if (DiagnosticCount >= 16)
+				return;
+			++DiagnosticCount;
+			DURIN_WARN(
+				"Renderer rejected {} view-state identity {}.",
+				Reason, FSceneViewStateIdAccess::GetValue(Id));
+		}
+
+		class FViewStateSubmissionScope final
+		{
+		public:
+			explicit FViewStateSubmissionScope(FSceneViewState* InState)
+				: State(InState)
+			{
+			}
+
+			~FViewStateSubmissionScope()
+			{
+				if (State != nullptr)
+					State->Abort();
+			}
+
+			auto Commit() -> void
+			{
+				if (State != nullptr)
+				{
+					State->Commit();
+					State = nullptr;
+				}
+			}
+
+		private:
+			FSceneViewState* State = nullptr;
+		};
+
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
@@ -515,6 +556,40 @@ namespace Durin
 		FullscreenGeometry.ReleaseResources_RenderThread();
 	}
 
+	auto FSceneRenderer::AddViewState_RenderThread(FSceneViewStateId Id) -> bool
+	{
+		return ViewStates.Add(Id);
+	}
+
+	auto FSceneRenderer::RemoveViewState_RenderThread(FSceneViewStateId Id) -> bool
+	{
+		return ViewStates.Remove(Id);
+	}
+
+	auto FSceneRenderer::InvalidateViewState_RenderThread(
+		FSceneViewStateId Id) -> bool
+	{
+		return ViewStates.Invalidate(
+			Id, ESceneViewDiscontinuity::ManualInvalidation);
+	}
+
+	auto FSceneRenderer::InvalidateAllViewStates_RenderThread() -> void
+	{
+		ViewStates.InvalidateAll(
+			ESceneViewDiscontinuity::ManualInvalidation);
+	}
+
+	auto FSceneRenderer::ReleaseViewStates_RenderThread() -> size_t
+	{
+		return ViewStates.ReleaseAll();
+	}
+
+	auto FSceneRenderer::GetViewStateCount_RenderThread() const -> size_t
+	{
+		check(IsInRenderingThread());
+		return ViewStates.Num();
+	}
+
 	auto FSceneRenderer::FitViewToOutput(
 		const FSceneView& View,
 		uint32 Width,
@@ -568,6 +643,9 @@ namespace Durin
 	) -> void
 	{
 		check(IsInRenderingThread());
+		if (Cause == ERendererResourceInvalidationCause::Device)
+			ViewStates.InvalidateAll(
+				ESceneViewDiscontinuity::DeviceInvalidation);
 		Coordinator.Apply_RenderThread(
 			Cause,
 			{
@@ -1588,6 +1666,8 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
+		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+			++RenderSubmissionSerial;
 		FPreparedSceneView PreparedView;
 		FViewCounterSnapshotScope CounterSnapshotScope(
 			PreparedView.Counters, OutStatistics
@@ -1626,6 +1706,46 @@ namespace Durin
 		FRHITexture* SceneColor = SceneTargets->Color;
 
 		FSceneView RenderView = FitViewToOutput(View, Width, Height);
+		FSceneViewState* ViewState = ViewStates.Find(RenderView.ViewStateId);
+		if (ViewState != nullptr && ViewState->IsSubmissionActive())
+		{
+			PreparedView.TemporalContext.Current =
+				BuildSceneViewTemporalMetadata(
+					RenderView, Scene, Width, Height);
+			PreparedView.TemporalContext.SubmissionSerial =
+				RenderSubmissionSerial;
+			PreparedView.TemporalContext.Discontinuities =
+				ESceneViewDiscontinuity::DuplicateSubmission;
+			ReportRejectedViewState(
+				"an interleaved submission for",
+				RenderView.ViewStateId);
+			ViewState = nullptr;
+		}
+		FViewStateSubmissionScope ViewStateSubmission(ViewState);
+		if (ViewState != nullptr)
+		{
+			PreparedView.TemporalContext = ViewState->Begin(
+				BuildSceneViewTemporalMetadata(
+					RenderView, Scene, Width, Height),
+				RenderSubmissionSerial, RenderView.bDiscardHistory);
+		}
+		else if (PreparedView.TemporalContext.Discontinuities
+			!= ESceneViewDiscontinuity::DuplicateSubmission)
+		{
+			PreparedView.TemporalContext.Current =
+				BuildSceneViewTemporalMetadata(
+					RenderView, Scene, Width, Height);
+			PreparedView.TemporalContext.SubmissionSerial =
+				RenderSubmissionSerial;
+			PreparedView.TemporalContext.Discontinuities =
+				ESceneViewDiscontinuity::MissingState;
+			if (RenderView.ViewStateId.IsValid())
+			{
+				ReportRejectedViewState(
+					"a missing, released, or foreign",
+					RenderView.ViewStateId);
+			}
+		}
 		const ERenderViewResult PreparationResult = PrepareView_RenderThread(
 			CommandList, Scene, RenderView, Options, PreparedView
 		);
@@ -1789,11 +1909,14 @@ namespace Durin
 		);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 
-		return RenderPostProcess_RenderThread(
+		const ERenderViewResult Result = RenderPostProcess_RenderThread(
 			CommandList, PreparedView, View, OutputTarget, bPresentOutput,
 			Options, SceneTargets, GBufferTargets, SceneColor,
 			GroundTruthAmbientOcclusionDebugOutput
 		);
+		if (Result == ERenderViewResult::Success)
+			ViewStateSubmission.Commit();
+		return Result;
 	}
 
 	auto FSceneRenderer::RenderScene_RenderThread(

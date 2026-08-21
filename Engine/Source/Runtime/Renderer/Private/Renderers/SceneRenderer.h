@@ -12,6 +12,7 @@
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/TerrainRenderer.h"
+#include "Renderers/SceneViewState.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -44,6 +45,12 @@ namespace Durin
 			FRHICommandListImmediate& CommandList
 		) -> void;
 		auto ReleaseResources_RenderThread() -> void;
+		auto AddViewState_RenderThread(FSceneViewStateId Id) -> bool;
+		auto RemoveViewState_RenderThread(FSceneViewStateId Id) -> bool;
+		auto InvalidateViewState_RenderThread(FSceneViewStateId Id) -> bool;
+		auto InvalidateAllViewStates_RenderThread() -> void;
+		auto ReleaseViewStates_RenderThread() -> size_t;
+		auto GetViewStateCount_RenderThread() const -> size_t;
 		RENDERER_API static auto FitViewToOutput(
 			const FSceneView& View,
 			uint32 Width,
@@ -171,5 +178,7 @@ namespace Durin
 		FPostProcessRenderer PostProcessRenderer;
 		FContactShadowVisibilityRenderer ContactShadowRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
+		FSceneViewStateRegistry ViewStates;
+		uint64 RenderSubmissionSerial = 0;
 	};
 } // namespace Durin

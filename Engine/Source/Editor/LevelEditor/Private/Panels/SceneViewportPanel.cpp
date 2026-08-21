@@ -137,6 +137,7 @@ namespace Durin::Editor::Level
 					Location[Index] = static_cast<FReal>(Value);
 				}
 				ViewportClient->SetCameraLocation(Location);
+				if (SceneViewport) SceneViewport->RequestHistoryReset();
 			}
 			const FVector3& Location = ViewportClient->GetCameraTransform().GetLocation();
 			return FConsoleCommandResult::Success(std::format("Editor camera position: {:.3f} {:.3f} {:.3f}", Location.x, Location.y, Location.z));
@@ -157,6 +158,7 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
+		if (SceneViewport) SceneViewport->RequestHistoryReset();
 	}
 
 	auto FSceneViewportPanel::FinalizeViewportFrame(FLevelEditorContext& Context) -> void
@@ -165,6 +167,8 @@ namespace Durin::Editor::Level
 		uint32 Width = 0;
 		uint32 Height = 0;
 		if (!FLevelEditorViewportClient::ResolveViewportExtent(ViewportWidget->GetDesiredSize(), Width, Height)) return;
+		if (ViewportClient->GetCurrentLevel() != Context.Level && SceneViewport)
+			SceneViewport->RequestHistoryReset();
 		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
 		ViewportClient->PrepareSceneView(Context.Level, Width, Height);
 	}
@@ -208,6 +212,8 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::FocusActor(const AActor* Actor) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->FocusActor(Actor);
+		if (Actor != nullptr && SceneViewport)
+			SceneViewport->RequestHistoryReset();
 	}
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
@@ -500,7 +506,13 @@ namespace Durin::Editor::Level
 				Camera = SelectedActor->FindComponentByClass<DCameraComponent>();
 			}
 		}
-		if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(Camera);
+		if (CameraPreviewViewportClient != nullptr)
+		{
+			if (CameraPreviewViewportClient->GetCamera() != Camera
+				&& CameraPreviewSceneViewport)
+				CameraPreviewSceneViewport->RequestHistoryReset();
+			CameraPreviewViewportClient->SetCamera(Camera);
+		}
 	}
 
 	auto FSceneViewportPanel::DrawCameraPreview(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
@@ -588,6 +600,9 @@ namespace Durin::Editor::Level
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
 		::Durin::Editor::FTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
+		if (Input.bFocusSelection && !Input.bWantTextInput
+			&& Context.GetPrimarySelectedActor() != nullptr && SceneViewport)
+			SceneViewport->RequestHistoryReset();
 		uint32 ViewWidth = 0;
 		uint32 ViewHeight = 0;
 		FSceneView SceneView;

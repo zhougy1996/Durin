@@ -16,6 +16,9 @@ namespace Durin
 		RENDERER_API auto StartupModule() -> void override;
 		RENDERER_API auto ShutdownModule() -> void override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;
+		RENDERER_API auto CreateViewState() -> FSceneViewStateOwner override;
+		RENDERER_API auto InvalidateViewState(FSceneViewStateId Id) -> void override;
+		RENDERER_API auto InvalidateAllViewStates() -> void override;
 		RENDERER_API auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			IScene* Scene,
@@ -26,6 +29,8 @@ namespace Durin
 			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult override;
 
 	private:
+		static auto ReleaseViewState(FSceneViewStateId Id) -> void;
+
 		FModuleOwnedCallbackRegistration ConsoleCallbacks;
 		std::unique_ptr<FSceneRenderer> SceneRenderer;
 	};

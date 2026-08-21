@@ -5,6 +5,7 @@
 #include "RHICommandList.h"
 #include "RHIThread.h"
 #include "RenderResource.h"
+#include "SceneViewState.h"
 #include "RenderingThread.h"
 #include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
@@ -496,4 +497,20 @@ namespace Durin
 			"");
 	}
 #endif
+}
+
+static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
+static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
+static_assert(std::is_nothrow_move_constructible_v<Durin::FSceneViewStateOwner>);
+static_assert(std::is_nothrow_move_assignable_v<Durin::FSceneViewStateOwner>);
+
+TEST(FSceneViewStatePublicContractTests, DefaultIdentityAndOwnerAreStateless)
+{
+	const Durin::FSceneViewStateId Id;
+	Durin::FSceneViewStateOwner Owner;
+	EXPECT_FALSE(Id.IsValid());
+	EXPECT_FALSE(static_cast<bool>(Id));
+	EXPECT_FALSE(static_cast<bool>(Owner));
+	EXPECT_EQ(Owner.GetId(), Id);
+	Owner.Reset();
 }

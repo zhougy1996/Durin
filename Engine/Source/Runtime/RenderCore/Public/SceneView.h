@@ -2,6 +2,7 @@
 
 #include "Math/DurinMath.h"
 #include "RHIResources.h"
+#include "SceneViewState.h"
 
 namespace Durin
 {
@@ -302,6 +303,10 @@ namespace Durin
 	// Captures the matrices, viewport policy, and editor overlays required to render one view.
 	struct FSceneView
 	{
+		// Invalid keeps this submission fully stateless.
+		FSceneViewStateId ViewStateId;
+		// Explicitly rejects continuity for this submission without guessing from motion.
+		bool bDiscardHistory = false;
 		FMatrix ViewMatrix{1.0};
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};

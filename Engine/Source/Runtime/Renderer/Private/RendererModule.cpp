@@ -9,10 +9,49 @@
 #include "RenderingThread.h"
 #include "Scene.h"
 
+#include <mutex>
+
 namespace Durin
 {
 	namespace
 	{
+		struct FViewStateRoute
+		{
+			FRendererModule* Module = nullptr;
+			FSceneRenderer* Renderer = nullptr;
+		};
+
+		std::atomic<uint64> GNextViewStateId = 1;
+		std::mutex GViewStateRouteMutex;
+		std::map<uint64, FViewStateRoute> GViewStateRoutes;
+
+		auto AllocateViewStateId() -> uint64
+		{
+			uint64 Current = GNextViewStateId.load(std::memory_order_relaxed);
+			while (Current != std::numeric_limits<uint64>::max())
+			{
+				if (GNextViewStateId.compare_exchange_weak(
+						Current, Current + 1,
+						std::memory_order_relaxed,
+						std::memory_order_relaxed))
+					return Current;
+			}
+			return 0;
+		}
+
+		auto ReportRejectedViewStateOperation(
+			std::string_view Operation,
+			FSceneViewStateId Id) -> void
+		{
+			static uint32 DiagnosticCount = 0;
+			if (DiagnosticCount >= 16)
+				return;
+			++DiagnosticCount;
+			DURIN_WARN(
+				"Renderer ignored {} for stale view-state identity {}.",
+				Operation, FSceneViewStateIdAccess::GetValue(Id));
+		}
+
 		auto DestroyScene(IScene* Scene) -> void
 		{
 			check(Scene != nullptr);
@@ -71,11 +110,24 @@ namespace Durin
 		}
 		SceneRenderer->Stop();
 		FSceneRenderer* Renderer = SceneRenderer.get();
+		size_t LeakedViewStateCount = 0;
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)(
-			[Renderer](FRHICommandListImmediate&) {
+			[Renderer, &LeakedViewStateCount](FRHICommandListImmediate&) {
+				LeakedViewStateCount = Renderer->ReleaseViewStates_RenderThread();
 				Renderer->ReleaseResources_RenderThread();
 			});
 		FlushRenderingCommands();
+		{
+			std::scoped_lock Lock(GViewStateRouteMutex);
+			std::erase_if(GViewStateRoutes,
+				[this](const auto& Entry) {
+					return Entry.second.Module == this;
+				});
+		}
+		if (LeakedViewStateCount != 0)
+			DURIN_WARN(
+				"Renderer shutdown released {} leaked persistent view state(s).",
+				LeakedViewStateCount);
 		SetActiveDefaultTextureResources(nullptr);
 		SetActiveRendererResourceCoordinator(nullptr);
 		SceneRenderer.reset();
@@ -85,6 +137,77 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		return FScenePtr(new FScene(), FSceneDeleter(&DestroyScene));
+	}
+
+	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner
+	{
+		check(IsInGameThread());
+		if (SceneRenderer == nullptr)
+			return {};
+		const uint64 Value = AllocateViewStateId();
+		if (Value == 0)
+		{
+			DURIN_ERROR("Persistent view-state identity space is exhausted.");
+			return {};
+		}
+		const FSceneViewStateId Id(Value);
+		FSceneRenderer* Renderer = SceneRenderer.get();
+		{
+			std::scoped_lock Lock(GViewStateRouteMutex);
+			const bool bInserted = GViewStateRoutes.emplace(
+				Value, FViewStateRoute{this, Renderer}).second;
+			check(bInserted);
+			if (!bInserted)
+				return {};
+		}
+		ENQUEUE_RENDER_COMMAND(CreateSceneViewState)(
+			[Renderer, Id](FRHICommandListImmediate&) {
+				const bool bAdded = Renderer->AddViewState_RenderThread(Id);
+				checkf(bAdded, "Renderer view-state IDs must be unique.");
+			});
+		return FSceneViewStateOwner(Id, &FRendererModule::ReleaseViewState);
+	}
+
+	auto FRendererModule::ReleaseViewState(FSceneViewStateId Id) -> void
+	{
+		FSceneRenderer* Renderer = nullptr;
+		{
+			std::scoped_lock Lock(GViewStateRouteMutex);
+			const auto Iterator = GViewStateRoutes.find(
+				FSceneViewStateIdAccess::GetValue(Id));
+			if (Iterator == GViewStateRoutes.end())
+				return;
+			Renderer = Iterator->second.Renderer;
+			GViewStateRoutes.erase(Iterator);
+		}
+		ENQUEUE_RENDER_COMMAND(RemoveSceneViewState)(
+			[Renderer, Id](FRHICommandListImmediate&) {
+				if (!Renderer->RemoveViewState_RenderThread(Id))
+					ReportRejectedViewStateOperation("removal", Id);
+			});
+	}
+
+	auto FRendererModule::InvalidateViewState(FSceneViewStateId Id) -> void
+	{
+		if (SceneRenderer == nullptr || !Id.IsValid())
+			return;
+		FSceneRenderer* Renderer = SceneRenderer.get();
+		ENQUEUE_RENDER_COMMAND(InvalidateSceneViewState)(
+			[Renderer, Id](FRHICommandListImmediate&) {
+				if (!Renderer->InvalidateViewState_RenderThread(Id))
+					ReportRejectedViewStateOperation("invalidation", Id);
+			});
+	}
+
+	auto FRendererModule::InvalidateAllViewStates() -> void
+	{
+		if (SceneRenderer == nullptr)
+			return;
+		FSceneRenderer* Renderer = SceneRenderer.get();
+		ENQUEUE_RENDER_COMMAND(InvalidateAllSceneViewStates)(
+			[Renderer](FRHICommandListImmediate&) {
+				Renderer->InvalidateAllViewStates_RenderThread();
+			});
 	}
 
 	auto FRendererModule::RenderView(

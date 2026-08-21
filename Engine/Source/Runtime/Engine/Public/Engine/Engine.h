@@ -116,6 +116,8 @@ namespace Durin
 		TObjectPtr<DWorld> MainWorld;
 		FGameInputState GameInputState;
 		std::weak_ptr<FGenericWindow> GameInputWindow;
+		mutable const DCameraComponent* LastCameraViewSource = nullptr;
+		mutable bool bHasCameraViewSource = false;
 
 		friend class FEngineInputEventHandler;
 		friend struct FEngineInputTestAccess;

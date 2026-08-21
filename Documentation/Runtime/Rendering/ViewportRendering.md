@@ -16,6 +16,10 @@ The viewport stack intentionally mirrors the broad Unreal Engine split between a
 - `DEngine::MainSceneViewport` owns the active scene viewport lifetime.
 - `DEngine::RedrawViewports()` drives rendering for the active scene viewport.
 
+Each logical scene viewport also owns an optional renderer view-state token.
+Identity, transactional previous metadata, cuts, and shutdown ordering are
+defined by [Persistent view state](PersistentViewState.md).
+
 `MWindow` does not own or expose a scene viewport. Offscreen widgets observe a
 neutral `IViewportDisplaySource`; native windows are connected directly to an
 Engine scene viewport by the runtime or editor composition owner.

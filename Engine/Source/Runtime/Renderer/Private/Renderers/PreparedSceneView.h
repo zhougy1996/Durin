@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/SceneViewState.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
@@ -38,6 +39,7 @@ namespace Durin
 	struct FPreparedSceneView
 	{
 		FSceneView View;
+		FSceneViewTemporalContext TemporalContext;
 		FPreparedLightView Lights;
 		FPreparedDirectionalShadowView DirectionalShadow;
 		FDirectionalShadowCasterTable DirectionalShadowCasters;

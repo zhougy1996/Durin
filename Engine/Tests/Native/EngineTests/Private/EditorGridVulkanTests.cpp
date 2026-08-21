@@ -1352,6 +1352,9 @@ namespace Durin
 		FRendererModule Renderer;
 		FModuleTestHarness RendererLifecycle("HDRDisplayMappingPresentTest");
 		RendererLifecycle.Start(Renderer);
+		FSceneViewStateOwner ViewStateOwner = Renderer.CreateViewState();
+		ASSERT_TRUE(ViewStateOwner);
+		const FSceneViewStateId ViewStateId = ViewStateOwner.GetId();
 
 		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({
 			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
@@ -1360,7 +1363,7 @@ namespace Durin
 			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
 			.PresentModePolicy = EViewportPresentModePolicy::MainWindow});
 		ASSERT_NE(Viewport, nullptr);
-		auto RenderPresent = [&Renderer, &Viewport](
+		auto RenderPresent = [&Renderer, &Viewport, ViewStateId](
 								 uint32 Width,
 								 uint32 Height,
 								 float ExposureEV,
@@ -1375,7 +1378,7 @@ namespace Durin
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[&Renderer, Viewport, Width, Height, ExposureEV,
 				 bEnableFXAA, bEnableContactShadows,
-				 bEditorAssistance, bGBufferDebug, Result](
+				 bEditorAssistance, bGBufferDebug, ViewStateId, Result](
 					FRHICommandListImmediate& CommandList
 				) {
 					++GRenderFrameCounterRenderThread;
@@ -1385,6 +1388,7 @@ namespace Durin
 						GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 					ASSERT_NE(BackBuffer, nullptr);
 					FSceneView View = bEditorAssistance ? MakeGridView({1.0, 1.0, -0.5}) : FSceneView{};
+					View.ViewStateId = ViewStateId;
 					View.ViewportWidth = Width;
 					View.ViewportHeight = Height;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
@@ -1429,6 +1433,8 @@ namespace Durin
 		SetViewRenderCounterSink(nullptr);
 
 		Viewport = nullptr;
+		ViewStateOwner.Reset();
+		FlushRenderingCommands();
 		RendererLifecycle.Shutdown();
 		FlushRenderingCommands();
 		ShutdownRenderingThread();

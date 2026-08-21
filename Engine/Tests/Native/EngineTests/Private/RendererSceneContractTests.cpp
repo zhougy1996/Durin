@@ -6,9 +6,11 @@
 #include "Client/SceneViewport.h"
 #include "HAL/PlatformLTS.h"
 #include "NativeTestSupport.h"
+#include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/ForwardLighting.h"
+#include "Renderers/SceneViewState.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "RendererModule.h"
 #include "Scene.h"
@@ -22,8 +24,52 @@
 #include <atomic>
 #include <thread>
 
+static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
+static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
+static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
+static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
+
 namespace
 {
+	std::vector<Durin::FSceneViewStateId>* GReleasedViewStateIds = nullptr;
+
+	auto ObserveReleasedViewState(Durin::FSceneViewStateId Id) -> void
+	{
+		if (GReleasedViewStateIds != nullptr)
+			GReleasedViewStateIds->push_back(Id);
+	}
+
+	class FTestViewStateRenderer final : public Durin::IRendererModule
+	{
+	public:
+		auto StartupModule() -> void override {}
+		auto ShutdownModule() -> void override {}
+		auto CreateScene() -> Durin::FScenePtr override { return {}; }
+		auto CreateViewState() -> Durin::FSceneViewStateOwner override
+		{
+			++CreateCount;
+			return Durin::FSceneViewStateOwnerTestAccess::Make(
+				Durin::FSceneViewStateIdAccess::Make(NextId++),
+				ObserveReleasedViewState);
+		}
+		auto InvalidateViewState(Durin::FSceneViewStateId) -> void override {}
+		auto InvalidateAllViewStates() -> void override {}
+		auto RenderView(
+			Durin::FRHICommandListImmediate&,
+			Durin::IScene*,
+			const Durin::FSceneView&,
+			Durin::FRHITexture*,
+			bool,
+			const Durin::FSceneViewRenderOptions&,
+			Durin::FSceneViewStatistics*) -> Durin::ERenderViewResult override
+		{
+			return Durin::ERenderViewResult::RendererResourcesUnavailable;
+		}
+
+		Durin::uint64 NextId = 1000;
+		Durin::uint32 CreateCount = 0;
+	};
+
 	std::vector<Durin::FViewRenderCounters>* GObservedViewCounterSnapshots = nullptr;
 
 	auto ObserveViewCounterSnapshot(
@@ -156,6 +202,270 @@ TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCo
 	EXPECT_TRUE(Destroyed->load(std::memory_order_acquire));
 	EXPECT_TRUE(
 		DestroyedOnRenderingThread->load(std::memory_order_acquire));
+}
+
+TEST(FRendererSceneContractTests, ViewStateIdentityIsOpaqueUniqueAndMoveOwned)
+{
+	std::vector<Durin::FSceneViewStateId> Released;
+	GReleasedViewStateIds = &Released;
+	const Durin::FSceneViewStateId FirstId =
+		Durin::FSceneViewStateIdAccess::Make(1);
+	const Durin::FSceneViewStateId SecondId =
+		Durin::FSceneViewStateIdAccess::Make(2);
+	Durin::FSceneViewStateOwner First =
+		Durin::FSceneViewStateOwnerTestAccess::Make(
+			FirstId, ObserveReleasedViewState);
+	Durin::FSceneViewStateOwner Second =
+		Durin::FSceneViewStateOwnerTestAccess::Make(
+			SecondId, ObserveReleasedViewState);
+	ASSERT_TRUE(First);
+	ASSERT_TRUE(Second);
+	EXPECT_NE(First.GetId(), Second.GetId());
+	Durin::FSceneViewStateOwner Moved = std::move(First);
+	EXPECT_FALSE(First);
+	EXPECT_EQ(Moved.GetId(), FirstId);
+	Moved.Reset();
+	Second.Reset();
+	GReleasedViewStateIds = nullptr;
+	ASSERT_EQ(Released.size(), 2u);
+	EXPECT_EQ(Released[0], FirstId);
+	EXPECT_EQ(Released[1], SecondId);
+}
+
+TEST(FRendererSceneContractTests,
+	ViewStateIdsSurviveRendererRestartWithoutReuseAndLeakedOwnersBecomeInert)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FSceneViewStateOwner LeakedOwner;
+	Durin::FSceneViewStateId FirstId;
+	{
+		Durin::FRendererModule FirstRenderer;
+		Durin::FModuleTestHarness FirstLifecycle("ViewStateRestartFirst");
+		FirstLifecycle.Start(FirstRenderer);
+		LeakedOwner = FirstRenderer.CreateViewState();
+		ASSERT_TRUE(LeakedOwner);
+		FirstId = LeakedOwner.GetId();
+		Durin::FlushRenderingCommands();
+		FirstLifecycle.Shutdown();
+	}
+	// The shutdown audit removed the private route, so late public release is safe.
+	LeakedOwner.Reset();
+	Durin::FlushRenderingCommands();
+
+	Durin::FRendererModule SecondRenderer;
+	Durin::FModuleTestHarness SecondLifecycle("ViewStateRestartSecond");
+	SecondLifecycle.Start(SecondRenderer);
+	Durin::FSceneViewStateOwner SecondOwner =
+		SecondRenderer.CreateViewState();
+	ASSERT_TRUE(SecondOwner);
+	EXPECT_NE(SecondOwner.GetId(), FirstId);
+	SecondOwner.Reset();
+	Durin::FlushRenderingCommands();
+	SecondLifecycle.Shutdown();
+}
+
+TEST(FRendererSceneContractTests,
+	ViewStateTransactionsPreserveLastSuccessfulFittedMetadata)
+{
+	FRenderingThreadScope RenderingThread;
+	auto Result = std::make_shared<std::vector<Durin::FSceneViewTemporalContext>>();
+	auto ProbeRevisions = std::make_shared<std::vector<Durin::uint64>>();
+	struct FExerciseViewStateTransactionsCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ExerciseViewStateTransactions";
+		}
+	};
+	Durin::EnqueueRenderCommand<FExerciseViewStateTransactionsCommand>(
+		[Result, ProbeRevisions](Durin::FRHICommandListImmediate&) {
+			Durin::FSceneViewStateRegistry Registry;
+			const Durin::FSceneViewStateId FirstId =
+				Durin::FSceneViewStateIdAccess::Make(101);
+			const Durin::FSceneViewStateId SecondId =
+				Durin::FSceneViewStateIdAccess::Make(102);
+			EXPECT_TRUE(Registry.Add(FirstId));
+			EXPECT_FALSE(Registry.Add(FirstId));
+			EXPECT_TRUE(Registry.Add(SecondId));
+			Durin::FSceneViewState* State = Registry.Find(FirstId);
+			ASSERT_NE(State, nullptr);
+
+			Durin::FSceneView View;
+			View.ViewportWidth = 640;
+			View.ViewportHeight = 360;
+			Durin::FSceneViewTemporalMetadata First =
+				Durin::BuildSceneViewTemporalMetadata(
+					View, nullptr, 640, 360);
+			Result->push_back(State->Begin(First, 1, false));
+			State->GetHistoryProbe().PendingRevision = 11;
+			State->Commit();
+			ProbeRevisions->push_back(
+				State->GetHistoryProbe().CommittedRevision);
+
+			Durin::FSceneViewTemporalMetadata Moved = First;
+			Moved.ViewLocation = {5.0, 6.0, 7.0};
+			Result->push_back(State->Begin(Moved, 2, false));
+			State->GetHistoryProbe().PendingRevision = 22;
+			State->Abort();
+			ProbeRevisions->push_back(
+				State->GetHistoryProbe().CommittedRevision);
+
+			Result->push_back(State->Begin(Moved, 3, false));
+			State->GetHistoryProbe().PendingRevision = 33;
+			State->Commit();
+			ProbeRevisions->push_back(
+				State->GetHistoryProbe().CommittedRevision);
+
+			(void)State->Begin(Moved, 4, false);
+			State->Commit();
+			ProbeRevisions->push_back(
+				State->GetHistoryProbe().CommittedRevision);
+
+			Durin::FSceneViewTemporalMetadata ProjectionChanged = Moved;
+			ProjectionChanged.ProjectionMatrix[0][0] = 2.0;
+			Result->push_back(State->Begin(ProjectionChanged, 5, false));
+			State->Abort();
+
+			State->Invalidate(
+				Durin::ESceneViewDiscontinuity::ManualInvalidation);
+			Result->push_back(State->Begin(Moved, 6, false));
+			State->Abort();
+
+			Result->push_back(State->Begin(Moved, 200, true));
+			State->Abort();
+
+			EXPECT_TRUE(Registry.Remove(SecondId));
+			EXPECT_FALSE(Registry.Remove(SecondId));
+			EXPECT_EQ(Registry.ReleaseAll(), 1u);
+		});
+	Durin::FlushRenderingCommands();
+
+	ASSERT_EQ(Result->size(), 6u);
+	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+		(*Result)[0].Discontinuities,
+		Durin::ESceneViewDiscontinuity::FirstUse));
+	EXPECT_FALSE((*Result)[0].bHistoryValid);
+	EXPECT_TRUE((*Result)[1].bHistoryValid);
+	EXPECT_EQ((*Result)[1].SuccessfulSequence, 1u);
+	EXPECT_EQ((*Result)[1].PreviousSubmissionSerial, 1u);
+	EXPECT_EQ((*Result)[1].Previous.ViewLocation, Durin::FVector3(0.0));
+	EXPECT_TRUE((*Result)[2].bHistoryValid);
+	EXPECT_EQ((*Result)[2].PreviousSubmissionSerial, 1u);
+	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+		(*Result)[3].Discontinuities,
+		Durin::ESceneViewDiscontinuity::ProjectionChange));
+	EXPECT_FALSE((*Result)[3].bHistoryValid);
+	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+		(*Result)[4].Discontinuities,
+		Durin::ESceneViewDiscontinuity::ManualInvalidation));
+	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+		(*Result)[5].Discontinuities,
+		Durin::ESceneViewDiscontinuity::ExplicitCameraCut));
+	EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+		(*Result)[5].Discontinuities,
+		Durin::ESceneViewDiscontinuity::InactiveGapExpiry));
+	ASSERT_EQ(ProbeRevisions->size(), 4u);
+	EXPECT_EQ((*ProbeRevisions)[0], 11u);
+	EXPECT_EQ((*ProbeRevisions)[1], 11u);
+	EXPECT_EQ((*ProbeRevisions)[2], 33u);
+	EXPECT_EQ((*ProbeRevisions)[3], 33u);
+}
+
+TEST(FRendererSceneContractTests,
+	SceneViewportsOwnIsolatedOptInStateAndConsumeCutsOnce)
+{
+	std::vector<Durin::FSceneViewStateId> Released;
+	GReleasedViewStateIds = &Released;
+	FTestViewStateRenderer Renderer;
+	{
+		auto Main = Durin::FSceneViewport::CreateOffscreen(nullptr);
+		auto Auxiliary = Durin::FSceneViewport::CreateOffscreen(nullptr);
+		Main->InitializeViewState(&Renderer);
+		Main->InitializeViewState(&Renderer);
+		Auxiliary->InitializeViewState(&Renderer);
+		EXPECT_EQ(Renderer.CreateCount, 2u);
+		EXPECT_TRUE(Main->GetViewStateId().IsValid());
+		EXPECT_TRUE(Auxiliary->GetViewStateId().IsValid());
+		EXPECT_NE(Main->GetViewStateId(), Auxiliary->GetViewStateId());
+		EXPECT_TRUE(Main->ConsumeHistoryReset());
+		EXPECT_FALSE(Main->ConsumeHistoryReset());
+		Main->RequestHistoryReset();
+		EXPECT_TRUE(Main->ConsumeHistoryReset());
+		EXPECT_TRUE(Auxiliary->ConsumeHistoryReset());
+	}
+	GReleasedViewStateIds = nullptr;
+	EXPECT_EQ(Released.size(), 2u);
+}
+
+TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
+{
+	FRenderingThreadScope RenderingThread;
+	auto Contexts = std::make_shared<
+		std::vector<Durin::FSceneViewTemporalContext>>();
+	struct FExerciseViewStateDiscontinuitiesCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ExerciseViewStateDiscontinuities";
+		}
+	};
+	Durin::EnqueueRenderCommand<FExerciseViewStateDiscontinuitiesCommand>(
+		[Contexts](Durin::FRHICommandListImmediate&) {
+			Durin::FSceneViewState State;
+			Durin::FSceneView View;
+			View.ViewportWidth = 320;
+			View.ViewportHeight = 180;
+			const Durin::FSceneViewTemporalMetadata Baseline =
+				Durin::BuildSceneViewTemporalMetadata(
+					View, nullptr, 320, 180);
+			(void)State.Begin(Baseline, 1, false);
+			State.Commit();
+
+			auto ObserveAbort = [&](Durin::FSceneViewTemporalMetadata Candidate,
+				Durin::uint64 Serial) {
+				Contexts->push_back(State.Begin(Candidate, Serial, false));
+				State.Abort();
+			};
+
+			Durin::FSceneViewTemporalMetadata Candidate = Baseline;
+			Candidate.Scene = reinterpret_cast<const Durin::FScene*>(1);
+			ObserveAbort(Candidate, 2);
+			Candidate = Baseline;
+			Candidate.OutputWidth = 640;
+			ObserveAbort(Candidate, 3);
+			Candidate = Baseline;
+			Candidate.ViewportX = 1;
+			ObserveAbort(Candidate, 4);
+			Candidate = Baseline;
+			Candidate.DepthConvention =
+				Durin::ESceneDepthConvention::ReversedZ;
+			ObserveAbort(Candidate, 5);
+			State.Invalidate(
+				Durin::ESceneViewDiscontinuity::DeviceInvalidation);
+			ObserveAbort(Baseline, 6);
+			// Abort must not consume a hard invalidation.
+			ObserveAbort(Baseline, 7);
+			// Non-monotonic serial input is treated as an expired gap, never wrapped.
+			ObserveAbort(Baseline, 0);
+		});
+	Durin::FlushRenderingCommands();
+
+	ASSERT_EQ(Contexts->size(), 7u);
+	const std::array Causes{
+		Durin::ESceneViewDiscontinuity::SceneChange,
+		Durin::ESceneViewDiscontinuity::OutputExtentChange,
+		Durin::ESceneViewDiscontinuity::ViewportRectChange,
+		Durin::ESceneViewDiscontinuity::DepthConventionChange,
+		Durin::ESceneViewDiscontinuity::DeviceInvalidation,
+		Durin::ESceneViewDiscontinuity::DeviceInvalidation,
+		Durin::ESceneViewDiscontinuity::InactiveGapExpiry,
+	};
+	for (size_t Index = 0; Index < Causes.size(); ++Index)
+	{
+		EXPECT_TRUE(Durin::HasAnyViewDiscontinuity(
+			(*Contexts)[Index].Discontinuities, Causes[Index]));
+		EXPECT_FALSE((*Contexts)[Index].bHistoryValid);
+	}
 }
 
 TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)

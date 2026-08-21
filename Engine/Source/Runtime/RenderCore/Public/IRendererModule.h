@@ -24,6 +24,10 @@ namespace Durin
 	{
 	public:
 		virtual auto CreateScene() -> FScenePtr = 0;
+		// Creates an opt-in persistent stream; registry mutation is render-thread ordered.
+		virtual auto CreateViewState() -> FSceneViewStateOwner = 0;
+		virtual auto InvalidateViewState(FSceneViewStateId Id) -> void = 0;
+		virtual auto InvalidateAllViewStates() -> void = 0;
 		virtual auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			IScene* Scene,

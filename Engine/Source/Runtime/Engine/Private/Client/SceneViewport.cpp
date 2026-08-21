@@ -5,6 +5,7 @@
 #include "Widgets/MWindow.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "IRendererModule.h"
 
 namespace Durin
 {
@@ -34,6 +35,30 @@ namespace Durin
 		, OutputPolicy(EOutputPolicy::Offscreen)
 		, RenderScene(InRenderScene)
 	{
+	}
+
+	auto FSceneViewport::InitializeViewState(
+		IRendererModule* RendererModule) -> void
+	{
+		if (!ViewStateOwner && RendererModule != nullptr)
+			ViewStateOwner = RendererModule->CreateViewState();
+	}
+
+	auto FSceneViewport::ReleaseViewState() -> void
+	{
+		ViewStateOwner.Reset();
+	}
+
+	auto FSceneViewport::RequestHistoryReset() const -> void
+	{
+		bHistoryResetRequested = true;
+	}
+
+	auto FSceneViewport::ConsumeHistoryReset() const -> bool
+	{
+		const bool bRequested = bHistoryResetRequested;
+		bHistoryResetRequested = false;
+		return bRequested;
 	}
 
 	auto FSceneViewport::PrepareDisplay(const FVector2f& DesiredSize) -> void

@@ -1,6 +1,8 @@
 #include "SkyBoxTestSupport.h"
+#include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/SceneViewState.h"
 #include "TextureCubeSourceTranslation.h"
 
 namespace
@@ -52,6 +54,28 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	});
 	Durin::FModuleTestHarness RendererLifecycle("SkyBoxRendererTest");
 	RendererLifecycle.Start(Renderer);
+	Durin::FSceneViewStateOwner ViewStateOwner = Renderer.CreateViewState();
+	ASSERT_TRUE(ViewStateOwner);
+	const Durin::FSceneViewStateId ViewStateId = ViewStateOwner.GetId();
+	Durin::FSceneViewStateOwner StaleViewStateOwner = Renderer.CreateViewState();
+	ASSERT_TRUE(StaleViewStateOwner);
+	const Durin::FSceneViewStateId StaleViewStateId =
+		StaleViewStateOwner.GetId();
+	StaleViewStateOwner.Reset();
+	auto BackloggedViewport = Durin::FSceneViewport::CreateOffscreen(nullptr);
+	BackloggedViewport->InitializeViewState(&Renderer);
+	std::weak_ptr<Durin::FSceneViewport> BackloggedViewportWeak =
+		BackloggedViewport;
+	struct FRetainBackloggedSceneViewport
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "RetainBackloggedSceneViewport";
+		}
+	};
+	Durin::EnqueueRenderCommand<FRetainBackloggedSceneViewport>(
+		[BackloggedViewport](Durin::FRHICommandListImmediate&) {});
+	BackloggedViewport.reset();
 
 	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
@@ -115,6 +139,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	});
 	Durin::FlushRenderingCommands();
+	EXPECT_TRUE(BackloggedViewportWeak.expired());
 
 	auto ObservedCubeTarget =
 		std::make_shared<std::atomic<Durin::FRHITexture*>>(nullptr);
@@ -185,6 +210,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::array<std::vector<Durin::uint8>, 2> LongitudeSeam;
 		std::array<std::vector<Durin::uint8>, 2> FaceBoundary;
 		std::vector<Durin::uint8> Translated;
+		std::vector<Durin::uint8> StatefulNoConsumer;
+		std::vector<Durin::uint8> StaleStateNoConsumer;
+		std::vector<Durin::uint8> StatefulLitNoConsumer;
+		std::vector<Durin::uint8> StatefulLetterboxedNoConsumer;
 		std::vector<Durin::uint8> ComponentRotated;
 		std::vector<Durin::uint8> ExplicitOverride;
 		std::vector<Durin::uint8> Letterboxed;
@@ -199,6 +228,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::FSceneViewStatistics FirstViewStatistics;
 		Durin::FSceneViewStatistics InvalidViewStatistics;
 		bool bCapturedFirstViewStatistics = false;
+		bool bTypedHistoryCandidateCommitted = false;
+		bool bTypedHistoryAbortRetainedCommitted = false;
+		bool bTypedHistoryResetReleased = false;
 	};
 	auto Result = std::make_shared<FValidationResult>();
 
@@ -207,7 +239,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
 	};
 	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
-		[&Renderer, &Scene, CubeReference, PlatformData,
+		[&Renderer, &Scene, CubeReference, PlatformData, ViewStateId,
+			StaleViewStateId,
 		 HdrCubeReference, HdrPlatformData, Result, OcclusionProxy](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -281,6 +314,24 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->Error = "Failed to create the validation output target.";
 				return;
 			}
+			Durin::FSceneViewHistoryProbe HistoryProbe;
+			HistoryProbe.PendingRevision = 1;
+			HistoryProbe.PendingTexture = Color;
+			HistoryProbe.Commit();
+			Result->bTypedHistoryCandidateCommitted =
+				HistoryProbe.CommittedRevision == 1
+				&& HistoryProbe.CommittedTexture == Color;
+			HistoryProbe.PendingRevision = 2;
+			HistoryProbe.PendingTexture = Color;
+			HistoryProbe.Abort();
+			Result->bTypedHistoryAbortRetainedCommitted =
+				HistoryProbe.CommittedRevision == 1
+				&& HistoryProbe.CommittedTexture == Color
+				&& HistoryProbe.PendingTexture == nullptr;
+			HistoryProbe.Reset();
+			Result->bTypedHistoryResetReleased =
+				HistoryProbe.CommittedRevision == 0
+				&& HistoryProbe.CommittedTexture == nullptr;
 
 			auto RenderWithOptions = [&](const Durin::FSceneView& View,
 										 std::vector<Durin::uint8>& OutPixels,
@@ -329,6 +380,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			{
 				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->PrincipalAxes[FaceIndex])) return;
 			}
+			Durin::FSceneView StatefulView =
+				MakePrincipalAxisView(Directions[0], {}, 17, 17);
+			StatefulView.ViewStateId = ViewStateId;
+			if (!Render(StatefulView, Result->StatefulNoConsumer)) return;
+			Durin::FSceneView StaleStateView =
+				MakePrincipalAxisView(Directions[0], {}, 17, 17);
+			StaleStateView.ViewStateId = StaleViewStateId;
+			if (!Render(StaleStateView, Result->StaleStateNoConsumer)) return;
 			constexpr double EdgeOffset = 0.02;
 			if (!Render(MakePrincipalAxisView({-1.0, EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[0])) return;
 			if (!Render(MakePrincipalAxisView({-1.0, -EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[1])) return;
@@ -388,12 +447,21 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 			LetterboxView.AspectRatioConstraint = 0.5f;
 			if (!Render(LetterboxView, Result->Letterboxed)) return;
+			LetterboxView.ViewStateId = ViewStateId;
+			if (!Render(
+					LetterboxView,
+					Result->StatefulLetterboxedNoConsumer)) return;
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			PublishSkyBox(Scene, RotatedSky);
 			const Durin::FSceneView HybridSkyView =
 				MakePrincipalAxisView(Directions[4], {}, 17, 17);
 			if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
+			Durin::FSceneView StatefulHybridSkyView = HybridSkyView;
+			StatefulHybridSkyView.ViewStateId = ViewStateId;
+			if (!RenderWithOptions(
+					StatefulHybridSkyView, Result->StatefulLitNoConsumer,
+					{}, Durin::ERenderMode::Lit)) return;
 			Durin::FSceneViewRenderOptions HybridSkyOptions;
 			Durin::SetViewRenderCounterSink(CaptureHybridSkyCounters);
 			const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit);
@@ -411,6 +479,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		}
 	);
 	Durin::FlushRenderingCommands();
+	ViewStateOwner.Reset();
+	Durin::FlushRenderingCommands();
 
 	EXPECT_TRUE(Result->bSucceeded) << Result->Error;
 	if (Result->bSucceeded)
@@ -424,11 +494,20 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::ERenderViewResult::RequiredEnvironmentUnavailable
 		);
 		EXPECT_TRUE(Result->bCapturedFirstViewStatistics);
+		EXPECT_TRUE(Result->bTypedHistoryCandidateCommitted);
+		EXPECT_TRUE(Result->bTypedHistoryAbortRetainedCommitted);
+		EXPECT_TRUE(Result->bTypedHistoryResetReleased);
 		EXPECT_EQ(Result->FirstViewStatistics.Visibility.VisiblePrimitives, 0u);
 		EXPECT_EQ(Result->FirstViewStatistics.Summary.Triangles, 0u);
 		EXPECT_GT(Result->FirstViewStatistics.Summary.DrawCalls, 0u);
 		EXPECT_EQ(Result->InvalidViewStatistics, Durin::FSceneViewStatistics{});
 		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
+		EXPECT_EQ(Result->StatefulNoConsumer, Result->PrincipalAxes[0]);
+		EXPECT_EQ(Result->StaleStateNoConsumer, Result->PrincipalAxes[0]);
+		EXPECT_EQ(Result->StatefulLitNoConsumer, Result->ForwardLitSky);
+		EXPECT_EQ(
+			Result->StatefulLetterboxedNoConsumer,
+			Result->Letterboxed);
 		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);
 		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredEnabledViews, 1u);
 		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredUnavailableViews, 0u);

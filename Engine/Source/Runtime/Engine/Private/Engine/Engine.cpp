@@ -151,6 +151,11 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RendererInitialization");
 			RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 			MainScene = RendererModule->CreateScene();
+			if (MainSceneViewport)
+				MainSceneViewport->InitializeViewState(RendererModule);
+			for (const std::shared_ptr<FSceneViewport>& Viewport : AuxiliarySceneViewports)
+				if (Viewport)
+					Viewport->InitializeViewState(RendererModule);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
 		SetWorld(NewObject<DWorld>(this, "MainWorld"));
@@ -201,6 +206,11 @@ namespace Durin
 
 	auto DEngine::PrepareForShutdown() -> void
 	{
+		if (MainSceneViewport)
+			MainSceneViewport->ReleaseViewState();
+		for (const std::shared_ptr<FSceneViewport>& Viewport : AuxiliarySceneViewports)
+			if (Viewport)
+				Viewport->ReleaseViewState();
 	}
 
 	auto DEngine::RedrawViewports() -> void
@@ -301,6 +311,8 @@ namespace Durin
 		MainSceneViewport = std::move(InSceneViewport);
 		if (MainSceneViewport)
 		{
+			MainSceneViewport->InitializeViewState(RendererModule);
+			MainSceneViewport->RequestHistoryReset();
 			MainSceneViewport->UpdateRHIViewport();
 		}
 	}
@@ -308,6 +320,7 @@ namespace Durin
 	auto DEngine::RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void
 	{
 		if (InSceneViewport == nullptr || InSceneViewport->IsWindowBacked()) return;
+		InSceneViewport->InitializeViewState(RendererModule);
 		if (std::ranges::find(AuxiliarySceneViewports, InSceneViewport) == AuxiliarySceneViewports.end())
 		{
 			AuxiliarySceneViewports.push_back(InSceneViewport);
@@ -324,6 +337,13 @@ namespace Durin
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
 	{
 		if (MainWorld.Get() == InWorld) return;
+		LastCameraViewSource = nullptr;
+		bHasCameraViewSource = false;
+		if (MainSceneViewport)
+			MainSceneViewport->RequestHistoryReset();
+		for (const std::shared_ptr<FSceneViewport>& Viewport : AuxiliarySceneViewports)
+			if (Viewport)
+				Viewport->RequestHistoryReset();
 		if (MainWorld) MainWorld->SetRenderScene(nullptr);
 		MainWorld = InWorld;
 		if (MainWorld) MainWorld->SetRenderScene(MainScene.get());
@@ -384,8 +404,18 @@ namespace Durin
 	auto DEngine::BuildSceneView(const FSceneViewport* SceneViewport, uint32 Width, uint32 Height, bool bAllowCameraFallback, FSceneView& OutView) const -> bool
 	{
 		OutView = {};
+		if (SceneViewport != nullptr)
+			OutView.ViewStateId = SceneViewport->GetViewStateId();
 		OutView.ViewportWidth = Width;
 		OutView.ViewportHeight = Height;
+		auto FinalizePersistentState = [&] {
+			if (SceneViewport != nullptr)
+			{
+				OutView.ViewStateId = SceneViewport->GetViewStateId();
+				OutView.bDiscardHistory =
+					SceneViewport->ConsumeHistoryReset();
+			}
+		};
 		if (SceneViewport != nullptr)
 		{
 			if (const FViewportClient* ViewportClient = SceneViewport->GetViewportClient())
@@ -394,6 +424,7 @@ namespace Durin
 				if (ViewportClient->CalcSceneView(Width, Height, OutView))
 				{
 					OutView.Settings = ViewSettings;
+					FinalizePersistentState();
 					return true;
 				}
 				OutView.Settings = ViewSettings;
@@ -404,6 +435,14 @@ namespace Durin
 		{
 			if (const DCameraComponent* CameraComponent = GetActiveCameraComponent())
 			{
+				if (!bHasCameraViewSource
+					|| LastCameraViewSource != CameraComponent)
+				{
+					if (SceneViewport != nullptr)
+						SceneViewport->RequestHistoryReset();
+					LastCameraViewSource = CameraComponent;
+					bHasCameraViewSource = true;
+				}
 				const float AspectRatio = ApplyCameraAspectRatio(*CameraComponent, Width, Height, OutView);
 				OutView.ViewMatrix = CameraComponent->GetViewMatrix();
 				OutView.ProjectionMatrix = CameraComponent->GetProjectionMatrix(AspectRatio);
@@ -415,11 +454,21 @@ namespace Durin
 				const FViewDistanceSettings& ViewDistance =
 					CameraComponent->GetViewDistance();
 				SceneViewProjection::ClampViewDistances(OutView.FarClipDistance, ViewDistance.FadeStart, ViewDistance.RenderDistance, OutView.ViewFadeStart, OutView.ViewRenderDistance);
+				FinalizePersistentState();
 				return true;
 			}
 		}
 		// The primary viewport historically renders a default identity view when no
 		// camera exists; auxiliary viewports instead stay dormant without a client view.
+		if (bAllowCameraFallback && bHasCameraViewSource
+			&& LastCameraViewSource != nullptr)
+		{
+			if (SceneViewport != nullptr)
+				SceneViewport->RequestHistoryReset();
+			LastCameraViewSource = nullptr;
+		}
+		if (bAllowCameraFallback)
+			FinalizePersistentState();
 		return bAllowCameraFallback;
 	}
 

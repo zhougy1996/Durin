@@ -3,6 +3,7 @@
 #include "Client/Viewport.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "ViewRenderStatistics.h"
+#include "SceneViewState.h"
 
 #include "MonaCoreFwd.h"
 
@@ -11,6 +12,7 @@
 namespace Durin
 {
 	class FViewportClient;
+	class IRendererModule;
 	class IScene;
 	class MWindow;
 
@@ -38,6 +40,17 @@ namespace Durin
 			IScene* InRenderScene = nullptr) -> std::shared_ptr<FSceneViewport>;
 
 		~FSceneViewport() override = default;
+
+		// Attaches this logical viewport to the active renderer when available.
+		ENGINE_API auto InitializeViewState(IRendererModule* RendererModule) -> void;
+		ENGINE_API auto ReleaseViewState() -> void;
+		auto GetViewStateId() const -> FSceneViewStateId
+		{
+			return ViewStateOwner.GetId();
+		}
+		// Camera possession, teleports, cuts, and scene lifecycle owners call this explicitly.
+		ENGINE_API auto RequestHistoryReset() const -> void;
+		ENGINE_API auto ConsumeHistoryReset() const -> bool;
 
 		ENGINE_API auto PrepareDisplay(const FVector2f& DesiredSize) -> void override;
 		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
@@ -73,6 +86,8 @@ namespace Durin
 		FVector2f OffscreenExtent = {640.0f, 360.0f};
 		FTextureRHIRef RenderTargetRHI;
 		IScene* RenderScene = nullptr;
+		FSceneViewStateOwner ViewStateOwner;
+		mutable bool bHistoryResetRequested = true;
 		mutable std::mutex StatisticsMutex;
 		FSceneViewportStatisticsSnapshot StatisticsSnapshot;
 	};

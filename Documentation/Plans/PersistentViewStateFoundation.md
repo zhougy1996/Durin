@@ -4,20 +4,31 @@ Summary: Add renderer-owned persistent view identity and transactional previous-
 
 Last reviewed: 2026-08-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-21
 
 ## Current Status
 
-Planning is complete and implementation has not started. `FSceneView` is
-currently a per-submission value containing only current matrices, viewport,
-settings, and overlays. `IRendererModule::RenderView` has no stable view
-identity, `FSceneRenderer` is shared across all views, and no renderer object
-owns previous successful view data or feature-specific history across calls.
+Implementation and validation are complete. RenderCore now exposes opaque,
+process-unique `FSceneViewStateId` and move-only `FSceneViewStateOwner` types;
+Renderer owns the render-thread registry, immutable prepared temporal context,
+transactional previous metadata, discontinuity policy, typed history probe,
+device/manual invalidation, stale-ID diagnostics, and shutdown audit.
 
-This plan establishes lifetime, thread, invalidation, and commit semantics only.
-It is independent of the volume-texture plan. A later cloud or temporal-AA plan
-may add a strongly typed private history block to the concrete view state.
+Main and auxiliary `FSceneViewport`s own isolated state tokens, attach IDs to
+Engine-built views, retain viewport lifetime through queued submissions, and
+propagate initialization, world/level, camera-source, preview-source, focus,
+teleport, and caller-requested cuts. Direct render callers remain stateless.
+
+Validation passed on 2026-08-21: `RenderContractTests` (40 tests),
+`RendererSceneContractTests` (24), `ViewportTests` (104),
+`SkyBoxVulkanIntegrationTests` (1), `EditorGridVulkanTests` (7),
+`RendererResourceReloadVulkanTests` (1), the complete `fast-all` selection of
+54 native targets, and a full `all` build. Stateful/no-consumer output matched
+stateless output byte-for-byte in forward, deferred, and constrained offscreen
+paths; window-backed persistent rendering passed resize and present coverage.
+The lasting contract is published in
+[Persistent view state](../Runtime/Rendering/PersistentViewState.md).
 
 ## Goal
 
@@ -165,19 +176,19 @@ fully stateless fallback.
 
 ### Stage 0: Freeze identity, lifetime, and temporal semantics
 
-- [ ] Inventory every `FSceneView` producer and direct `RenderView` caller,
+- [x] Inventory every `FSceneView` producer and direct `RenderView` caller,
   including main/auxiliary viewports, thumbnails, picking, preview scenes, and
   qualification fixtures; classify each as persistent or stateless by default.
-- [ ] Freeze `FSceneViewStateId`, owner creation/release, queued lifetime,
+- [x] Freeze `FSceneViewStateId`, owner creation/release, queued lifetime,
   renderer-registry ownership, module shutdown order, and stale/foreign-ID
   behavior.
-- [ ] Freeze the temporal context fields, final-fitted matrix convention,
+- [x] Freeze the temporal context fields, final-fitted matrix convention,
   submission serial, begin/commit/abort sequence, and the exact success point.
-- [ ] Freeze discontinuity flags, hard-reset table, inactive threshold,
+- [x] Freeze discontinuity flags, hard-reset table, inactive threshold,
   projection/extent policy, manual/device invalidation, and diagnostics.
-- [ ] Define the private strongly typed feature-substate extension pattern and
+- [x] Define the private strongly typed feature-substate extension pattern and
   explicitly reject a public generic history cache.
-- [ ] Record unchanged stateless output references and focused native-test
+- [x] Record unchanged stateless output references and focused native-test
   targets before modifying production code.
 
 #### Acceptance Gate
@@ -189,16 +200,16 @@ fully stateless fallback.
 
 ### Stage 1: Add opaque ownership and renderer-private state storage
 
-- [ ] Add RenderCore ID/owner types and `IRendererModule` create/release support
+- [x] Add RenderCore ID/owner types and `IRendererModule` create/release support
   with move-only ownership and an invalid sentinel.
-- [ ] Add the Renderer-private registry and state object with process-unique ID
+- [x] Add the Renderer-private registry and state object with process-unique ID
   allocation, render-thread assertions, lookup, queued removal, live-count
   diagnostics, and module-shutdown auditing.
-- [ ] Add optional state ID and explicit discard-history input to `FSceneView`
+- [x] Add optional state ID and explicit discard-history input to `FSceneView`
   while preserving aggregate/default construction and safe command capture.
-- [ ] Reject duplicate, stale, foreign, released, and invalid use
+- [x] Reject duplicate, stale, foreign, released, and invalid use
   deterministically without creating implicit state or changing current output.
-- [ ] Add focused identity, move, release-order, queued-use, isolation,
+- [x] Add focused identity, move, release-order, queued-use, isolation,
   stale-ID, and shutdown tests.
 
 #### Acceptance Gate
@@ -209,16 +220,16 @@ fully stateless fallback.
 
 ### Stage 2: Implement transactional previous-view state
 
-- [ ] Add the monotonic render-submission serial and immutable temporal-context
+- [x] Add the monotonic render-submission serial and immutable temporal-context
   preparation after final view fitting.
-- [ ] Store the frozen previous-view metadata and successful-state sequence in
+- [x] Store the frozen previous-view metadata and successful-state sequence in
   the private state, with explicit begin, commit, abort, and pending-candidate
   cleanup.
-- [ ] Detect and report the frozen discontinuity causes and apply hard-reset,
+- [x] Detect and report the frozen discontinuity causes and apply hard-reset,
   expiry, manual-invalidation, and device-generation policies.
-- [ ] Ensure only the outer successful `RenderView` commits; shadow/internal
+- [x] Ensure only the outer successful `RenderView` commits; shadow/internal
   views, failed early exits, failed feature passes, and aborted commands do not.
-- [ ] Add tests for first/continuous frames, cuts, scene/depth/projection/extent
+- [x] Add tests for first/continuous frames, cuts, scene/depth/projection/extent
   changes, inactive gaps, failure then recovery, manual/device invalidation,
   and serial wrap/overflow policy.
 
@@ -230,18 +241,18 @@ fully stateless fallback.
 
 ### Stage 3: Integrate persistent scene viewports
 
-- [ ] Give each main and auxiliary `FSceneViewport` one owner created through
+- [x] Give each main and auxiliary `FSceneViewport` one owner created through
   the active Renderer module and release it before renderer shutdown.
-- [ ] Attach the viewport's ID to Engine-built views before enqueue; keep the
+- [x] Attach the viewport's ID to Engine-built views before enqueue; keep the
   viewport retained until rendering completes and preserve stateless fallback
   when owner creation is unavailable.
-- [ ] Propagate explicit camera cuts from viewport/camera lifecycle events such
+- [x] Propagate explicit camera cuts from viewport/camera lifecycle events such
   as initialization, level/scene replacement, teleport/focus operations that
   discard continuity, and caller-requested reset.
-- [ ] Keep thumbnails, picking, preview scenes, and direct qualification calls
+- [x] Keep thumbnails, picking, preview scenes, and direct qualification calls
   stateless by default; add explicit opt-in only where the Stage 0 inventory
   justifies persistence.
-- [ ] Add main/auxiliary isolation, resize, scene replacement, viewport
+- [x] Add main/auxiliary isolation, resize, scene replacement, viewport
   destruction with backlog, renderer restart, and multi-viewport tests.
 
 #### Acceptance Gate
@@ -253,17 +264,17 @@ fully stateless fallback.
 
 ### Stage 4: Qualify extension and lifecycle behavior
 
-- [ ] Add a Renderer-private test-only strongly typed history probe that owns
+- [x] Add a Renderer-private test-only strongly typed history probe that owns
   CPU metadata and an RHI texture candidate, then prove begin/commit/abort,
   last-known-good retention, reset, device release, and destruction ordering.
-- [ ] Run focused RenderCore, Renderer, Engine viewport, rendering-thread,
+- [x] Run focused RenderCore, Renderer, Engine viewport, rendering-thread,
   resource-recovery, and runtime tests using repository workflows.
-- [ ] Compare stateless and stateful-with-no-consumer output across forward,
+- [x] Compare stateless and stateful-with-no-consumer output across forward,
   deferred, constrained, offscreen, and window-backed paths.
-- [ ] Exercise render backlog, repeated failed frames, inactivity expiry,
+- [x] Exercise render backlog, repeated failed frames, inactivity expiry,
   manual invalidation, device invalidation/retry, module shutdown, and leaked
   owner diagnostics.
-- [ ] Publish lasting view-state ownership and temporal-context contracts, then
+- [x] Publish lasting view-state ownership and temporal-context contracts, then
   close this plan only when every gate has evidence.
 
 #### Acceptance Gate
