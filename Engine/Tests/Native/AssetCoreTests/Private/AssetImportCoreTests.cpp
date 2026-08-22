@@ -71,7 +71,8 @@ namespace
 		{
 			OutSettings.SchemaId = "Tests.Graph.Settings";
 			OutSettings.SchemaVersion = 1;
-			OutSettings.Bytes = {0x47, 0x52, 0x41, 0x50, 0x48};
+			OutSettings.Bytes = {std::byte{0x47}, std::byte{0x52}, std::byte{0x41},
+				std::byte{0x50}, std::byte{0x48}};
 			return true;
 		}
 
@@ -107,8 +108,7 @@ namespace
 					}
 					else if (Kind == "embedded")
 					{
-						const std::span Bytes(
-							reinterpret_cast<const Durin::uint8*>(Value.data()), Value.size());
+					const auto Bytes = std::as_bytes(std::span{Value});
 						if (!Sink.AddEmbedded(Source.StableIdentity, Identity, "Embedded", Bytes))
 							return false;
 					}
@@ -183,7 +183,7 @@ namespace
 		{
 			OutSettings.SchemaId = "Tests.Blocking.Settings";
 			OutSettings.SchemaVersion = 1;
-			OutSettings.Bytes = {1};
+			OutSettings.Bytes = {std::byte{1}};
 			return true;
 		}
 		auto DiscoverDependencies(

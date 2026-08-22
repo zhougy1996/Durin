@@ -11,6 +11,12 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::Asset::Build;
+	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	{
+		std::vector<std::byte> Result;
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
+	}
 
 	auto GetBuildHostTestGate() -> FModuleOwnedCallbackGate
 	{
@@ -57,7 +63,7 @@ namespace
 			std::string& Error) const -> bool override
 		{
 			const bool bValid = Value.GetName() == "PolicyOutput"
-				&& std::ranges::equal(Value.GetBytes(), std::array<uint8, 1>{7});
+				&& std::ranges::equal(Value.GetBytes(), Bytes({7}));
 			if (!bValid) Error = "Policy output is invalid.";
 			return bValid;
 		}
@@ -66,7 +72,7 @@ namespace
 			std::string&) const -> bool override
 		{
 			++BuildCount;
-			Value = FBuildValue::FromOwned("PolicyOutput", {7});
+			Value = FBuildValue::FromOwned("PolicyOutput", Bytes({7}));
 			return true;
 		}
 	};
@@ -78,7 +84,7 @@ namespace
 		FBuildDefinitionBuilder Builder(
 			{"Durin.Tests.PolicyFunction", 1}, "PolicyOutput");
 		Builder.SetKey(FBuildKey::FromString(std::string(32, KeyCharacter)))
-			.AddInput(FBuildValue::FromOwned("PolicyInput", {1}));
+			.AddInput(FBuildValue::FromOwned("PolicyInput", Bytes({1})));
 		requiref(Builder.Build(Definition, &Error), "{}", Error);
 		return Definition;
 	}
@@ -101,7 +107,7 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 			std::string& Error) const -> bool override
 		{
 			const bool bValid = Value.GetName() == "SampleOutput"
-				&& std::ranges::equal(Value.GetBytes(), std::array<uint8, 3>{4, 5, 6});
+				&& std::ranges::equal(Value.GetBytes(), Bytes({4, 5, 6}));
 			if (!bValid) Error = "Sample output is invalid.";
 			return bValid;
 		}
@@ -110,7 +116,7 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		{
 			++BuildCount;
 			if (!Context.GetInput("SampleInput")) { Error = "Input missing."; return false; }
-			Value = FBuildValue::FromOwned("SampleOutput", {4, 5, 6});
+			Value = FBuildValue::FromOwned("SampleOutput", Bytes({4, 5, 6}));
 			return true;
 		}
 	};
@@ -121,12 +127,12 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	EXPECT_FALSE(RegisterBuildFunction(
 		{"Durin.Tests.SampleFunction", 1}, Function, GetBuildHostTestGate(), &Error).IsValid());
-	const std::vector<uint8> KeyInput{1, 2, 3};
+	const std::vector<std::byte> KeyInput = Bytes({1, 2, 3});
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Builder({"Durin.Tests.SampleFunction", 1}, "SampleOutput");
 	Builder.SetKey(FBuildKey::FromString(FXxHash128::HashBuffer(KeyInput).ToString()), KeyInput)
 		.AddTargetFact("Platform", "Test")
-		.AddInput(FBuildValue::FromOwned("SampleInput", {9}));
+		.AddInput(FBuildValue::FromOwned("SampleInput", Bytes({9})));
 	ASSERT_TRUE(Builder.Build(Definition, &Error)) << Error;
 	const FBuildOutput Cold = FBuildSession().Build(Definition,
 		{.bRequireStoreSuccess = true});
@@ -172,11 +178,11 @@ TEST(FAssetBuildCoreTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Duplicate({"Durin.Tests.Definition", 1}, "Output");
 	Duplicate.SetKey(FBuildKey::FromString(std::string(32, 'a')))
-		.AddInput(FBuildValue::FromOwned("Input", {1}))
-		.AddInput(FBuildValue::FromOwned("Input", {2}));
+		.AddInput(FBuildValue::FromOwned("Input", Bytes({1})))
+		.AddInput(FBuildValue::FromOwned("Input", Bytes({2})));
 	EXPECT_FALSE(Duplicate.Build(Definition, &Error));
 	FBuildDefinitionBuilder Mismatch({"Durin.Tests.Definition", 1}, "Output");
-	Mismatch.SetKey(FBuildKey::FromString(std::string(32, 'a')), std::array<uint8, 1>{7});
+	Mismatch.SetKey(FBuildKey::FromString(std::string(32, 'a')), Bytes({7}));
 	EXPECT_FALSE(Mismatch.Build(Definition, &Error));
 }
 

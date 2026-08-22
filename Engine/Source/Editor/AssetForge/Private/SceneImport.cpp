@@ -110,15 +110,15 @@ namespace Durin::Asset::Forge
 		}
 
 		template<typename T>
-		auto AppendValue(std::vector<uint8>& Bytes, const T& Value) -> void
+		auto AppendValue(std::vector<std::byte>& Bytes, const T& Value) -> void
 		{
 			static_assert(std::is_trivially_copyable_v<T>);
-			const auto* Begin = reinterpret_cast<const uint8*>(&Value);
-			Bytes.insert(Bytes.end(), Begin, Begin + sizeof(T));
+			const std::span<const std::byte> ValueBytes = std::as_bytes(std::span{&Value, 1});
+			Bytes.insert(Bytes.end(), ValueBytes.begin(), ValueBytes.end());
 		}
 
 		template<typename T>
-		auto ReadValue(std::span<const uint8> Bytes, size_t& Offset, T& OutValue) -> bool
+		auto ReadValue(std::span<const std::byte> Bytes, size_t& Offset, T& OutValue) -> bool
 		{
 			static_assert(std::is_trivially_copyable_v<T>);
 			if (Offset > Bytes.size() || sizeof(T) > Bytes.size() - Offset) return false;
@@ -127,11 +127,12 @@ namespace Durin::Asset::Forge
 			return true;
 		}
 
-		auto AppendString(std::vector<uint8>& Bytes, std::string_view Value) -> bool
+		auto AppendString(std::vector<std::byte>& Bytes, std::string_view Value) -> bool
 		{
 			if (Value.size() > std::numeric_limits<uint32>::max()) return false;
 			AppendValue(Bytes, static_cast<uint32>(Value.size()));
-			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+			const std::span<const std::byte> ValueBytes = std::as_bytes(std::span{Value});
+			Bytes.insert(Bytes.end(), ValueBytes.begin(), ValueBytes.end());
 			return true;
 		}
 
@@ -169,7 +170,7 @@ namespace Durin::Asset::Forge
 			std::string& OutError) -> bool
 		{
 			constexpr uint32 Magic = 0x53504353;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			AppendValue(Bytes, Magic);
 			AppendValue(Bytes, static_cast<uint32>(1));
 			AppendValue(Bytes, static_cast<uint32>(Data.Scene.Skeletons.size()));
@@ -211,9 +212,8 @@ namespace Durin::Asset::Forge
 				OutError = "Scene destination directory path is too large.";
 				return false;
 			}
-			std::vector<uint8> Bytes;
-			AppendValue(Bytes, static_cast<uint32>(Path.size()));
-			Bytes.insert(Bytes.end(), Path.begin(), Path.end());
+			std::vector<std::byte> Bytes;
+			AppendString(Bytes, Path);
 			AppendValue(Bytes, Settings.ForwardAxis);
 			AppendValue(Bytes, Settings.RightAxis);
 			AppendValue(Bytes, Settings.UpAxis);
@@ -237,7 +237,7 @@ namespace Durin::Asset::Forge
 			}
 			size_t Offset = 0;
 			uint32 PathSize = 0;
-			if (!ReadValue(std::span<const uint8>(Payload.Bytes), Offset, PathSize)
+			if (!ReadValue(std::span<const std::byte>(Payload.Bytes), Offset, PathSize)
 				|| Offset > Payload.Bytes.size()
 				|| PathSize > Payload.Bytes.size() - Offset)
 			{
@@ -248,11 +248,11 @@ namespace Durin::Asset::Forge
 				reinterpret_cast<const char*>(Payload.Bytes.data() + Offset), PathSize);
 			Offset += PathSize;
 			if (!FAssetPath::TryCreate(Path, OutSettings.DestinationDirectory, &OutError)
-				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+				|| !ReadValue(std::span<const std::byte>(Payload.Bytes), Offset,
 					OutSettings.MeshSettings.ForwardAxis)
-				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+				|| !ReadValue(std::span<const std::byte>(Payload.Bytes), Offset,
 					OutSettings.MeshSettings.RightAxis)
-				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+				|| !ReadValue(std::span<const std::byte>(Payload.Bytes), Offset,
 					OutSettings.MeshSettings.UpAxis)
 				|| Offset != Payload.Bytes.size()
 				|| !OutSettings.MeshSettings.IsValid(&OutError))
@@ -399,7 +399,7 @@ namespace Durin::Asset::Forge
 
 		template<typename FVisitor>
 		auto VisitGltfUris(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FVisitor&& Visitor) -> bool
 		{
 			const std::string Text(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
@@ -426,7 +426,7 @@ namespace Durin::Asset::Forge
 		}
 
 		auto DiscoverGltfUris(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FDependencyRequestSink& Sink) -> bool
 		{
 			return VisitGltfUris(Bytes,
@@ -1025,7 +1025,7 @@ namespace Durin::Asset::Forge
 			const FSourceSnapshot& Snapshot,
 			const FImportedSceneData& Scene,
 			const FImportedImage& Image,
-			std::span<const uint8>& OutBytes,
+			std::span<const std::byte>& OutBytes,
 			FSourcePath& OutSource) -> bool
 		{
 			if (!Image.EmbeddedEncodedBytes.empty())
@@ -1067,7 +1067,7 @@ namespace Durin::Asset::Forge
 			const FSourcePath& RootSource,
 			const FImportedImage& Image,
 			std::string_view TextureIdentity,
-			std::span<const uint8> Bytes) -> std::string
+			std::span<const std::byte> Bytes) -> std::string
 		{
 			const std::filesystem::path RootPath(RootSource.Path);
 			const std::string FileName = std::format(
@@ -1081,11 +1081,11 @@ namespace Durin::Asset::Forge
 		}
 
 		auto BuildDerivedTextureBytes(
-			std::span<const uint8> EncodedBytes,
+			std::span<const std::byte> EncodedBytes,
 			ESceneTextureDerivation Derivation,
 			float Scale,
 			const FVector3f& ColorScale,
-			std::vector<uint8>& OutBytes,
+			std::vector<std::byte>& OutBytes,
 			std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
@@ -1096,12 +1096,12 @@ namespace Durin::Asset::Forge
 				OutError = "Derived Scene texture exceeds the TGA dimension limit.";
 				return false;
 			}
-			std::vector<uint8> Pixels(Image.Pixels.size());
+			std::vector<std::byte> Pixels(Image.Pixels.size());
 			for (size_t Offset = 0; Offset < Image.Pixels.size(); Offset += 4)
 			{
-				uint8 Red = Image.Pixels[Offset + 0];
-				uint8 Green = Image.Pixels[Offset + 1];
-				uint8 Blue = Image.Pixels[Offset + 2];
+				uint8 Red = std::to_integer<uint8>(Image.Pixels[Offset + 0]);
+				uint8 Green = std::to_integer<uint8>(Image.Pixels[Offset + 1]);
+				uint8 Blue = std::to_integer<uint8>(Image.Pixels[Offset + 2]);
 				if (Derivation == ESceneTextureDerivation::Red
 					|| Derivation == ESceneTextureDerivation::Green
 					|| Derivation == ESceneTextureDerivation::Blue
@@ -1110,7 +1110,7 @@ namespace Durin::Asset::Forge
 					const size_t Channel = Derivation == ESceneTextureDerivation::Red ? 0
 						: Derivation == ESceneTextureDerivation::Green ? 1
 						: Derivation == ESceneTextureDerivation::Blue ? 2 : 3;
-					Red = Green = Blue = Image.Pixels[Offset + Channel];
+					Red = Green = Blue = std::to_integer<uint8>(Image.Pixels[Offset + Channel]);
 				}
 				else if (Derivation == ESceneTextureDerivation::ScaledNormal)
 				{
@@ -1142,19 +1142,19 @@ namespace Durin::Asset::Forge
 					Green = ScaleSrgb(Green, ColorScale.y);
 					Blue = ScaleSrgb(Blue, ColorScale.z);
 				}
-				Pixels[Offset + 0] = Blue;
-				Pixels[Offset + 1] = Green;
-				Pixels[Offset + 2] = Red;
-				Pixels[Offset + 3] = 255;
+				Pixels[Offset + 0] = static_cast<std::byte>(Blue);
+				Pixels[Offset + 1] = static_cast<std::byte>(Green);
+				Pixels[Offset + 2] = static_cast<std::byte>(Red);
+				Pixels[Offset + 3] = std::byte{255};
 			}
-			OutBytes.assign(18, 0);
-			OutBytes[2] = 2;
-			OutBytes[12] = static_cast<uint8>(Image.Width & 0xff);
-			OutBytes[13] = static_cast<uint8>((Image.Width >> 8) & 0xff);
-			OutBytes[14] = static_cast<uint8>(Image.Height & 0xff);
-			OutBytes[15] = static_cast<uint8>((Image.Height >> 8) & 0xff);
-			OutBytes[16] = 32;
-			OutBytes[17] = 0x28;
+			OutBytes.assign(18, std::byte{0});
+			OutBytes[2] = std::byte{2};
+			OutBytes[12] = static_cast<std::byte>(Image.Width & 0xff);
+			OutBytes[13] = static_cast<std::byte>((Image.Width >> 8) & 0xff);
+			OutBytes[14] = static_cast<std::byte>(Image.Height & 0xff);
+			OutBytes[15] = static_cast<std::byte>((Image.Height >> 8) & 0xff);
+			OutBytes[16] = std::byte{32};
+			OutBytes[17] = std::byte{0x28};
 			OutBytes.insert(OutBytes.end(), Pixels.begin(), Pixels.end());
 			OutError.clear();
 			return true;
@@ -1163,7 +1163,7 @@ namespace Durin::Asset::Forge
 		auto MakeDerivedImageSourcePath(
 			const FSourcePath& RootSource,
 			std::string_view TextureIdentity,
-			std::span<const uint8> Bytes) -> std::string
+			std::span<const std::byte> Bytes) -> std::string
 		{
 			const std::filesystem::path RootPath(RootSource.Path);
 			return (RootPath.parent_path()
@@ -1291,7 +1291,7 @@ namespace Durin::Asset::Forge
 			InputRoot.extension().generic_string());
 		if (Extension != ".gltf") return true;
 
-		std::vector<uint8> RootBytes;
+		std::vector<std::byte> RootBytes;
 		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot)
 			|| RootBytes.size() > MaxImportedSceneSourceBytes)
 		{
@@ -1732,14 +1732,14 @@ namespace Durin::Asset::Forge
 			const FImportedImage& Image = Data->Scene.Images[Descriptor->SourceIndex];
 			if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding))
 				return FailPrepared("Scene surface image encoding is unsupported.");
-			std::span<const uint8> Bytes;
+			std::span<const std::byte> Bytes;
 			FSourcePath Source;
 			if (!FindSnapshotImageBytes(Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot(),
 				Data->Scene, Image, Bytes, Source))
 			{
 				return FailPrepared("Scene image snapshot mapping is invalid.");
 			}
-			std::vector<uint8> DerivedBytes;
+			std::vector<std::byte> DerivedBytes;
 			if (Descriptor->TextureDerivation != ESceneTextureDerivation::None)
 			{
 				if (!BuildDerivedTextureBytes(Bytes, Descriptor->TextureDerivation,

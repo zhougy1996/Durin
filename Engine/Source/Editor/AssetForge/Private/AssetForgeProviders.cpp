@@ -134,7 +134,7 @@ namespace Durin::Asset::Forge
 			std::string& OutHash,
 			std::string& OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Path))
 			{
 				OutError = std::format(
@@ -146,14 +146,14 @@ namespace Durin::Asset::Forge
 		}
 
 		template<typename T>
-		auto AppendValue(std::vector<uint8>& Bytes, const T& Value) -> void
+		auto AppendValue(std::vector<std::byte>& Bytes, const T& Value) -> void
 		{
 			static_assert(std::is_trivially_copyable_v<T>);
-			const auto* Begin = reinterpret_cast<const uint8*>(&Value);
-			Bytes.insert(Bytes.end(), Begin, Begin + sizeof(T));
+			const std::span<const std::byte> ValueBytes = std::as_bytes(std::span{&Value, 1});
+			Bytes.insert(Bytes.end(), ValueBytes.begin(), ValueBytes.end());
 		}
 
-		auto MakePayload(std::string SchemaId, uint32 Version, std::vector<uint8> Bytes)
+		auto MakePayload(std::string SchemaId, uint32 Version, std::vector<std::byte> Bytes)
 			-> FImportPayload
 		{
 			FImportPayload Payload{
@@ -167,7 +167,7 @@ namespace Durin::Asset::Forge
 
 		auto MakeStaticMeshSettings(const FStaticMeshImportSettings& Settings) -> FImportPayload
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			AppendValue(Bytes, Settings.ForwardAxis);
 			AppendValue(Bytes, Settings.RightAxis);
 			AppendValue(Bytes, Settings.UpAxis);
@@ -265,7 +265,7 @@ namespace Durin::Asset::Forge
 			const bool bSourceAvailable = SourceDiagnostic.IsAvailable();
 			if (bSourceAvailable)
 			{
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				if (!FFileHelper::LoadFileToArray(Bytes, SourceDiagnostic.ResolvedPath))
 				{
 					OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
@@ -338,7 +338,7 @@ namespace Durin::Asset::Forge
 
 		auto MakeTexture2DSettings(const DTexture2D& Texture) -> FImportPayload
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			AppendValue(Bytes, Texture.GetUsage());
 			AppendValue(Bytes, Texture.GetCompressionQuality());
 			AppendValue(Bytes, Texture.GetAlphaMipMode());
@@ -351,7 +351,7 @@ namespace Durin::Asset::Forge
 
 		auto MakeTextureCubeSettings(const DTextureCube& Texture) -> FImportPayload
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			AppendValue(Bytes, Texture.GetSourceLayout());
 			AppendValue(Bytes, Texture.GetPanoramaFaceDimension());
 			AppendValue(Bytes, Texture.GetPanoramaExposureEV());
@@ -905,7 +905,7 @@ namespace Durin::Asset::Forge
 					std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 					std::array<FSourcePath, TextureCubeFaceCount> Paths;
 					std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Snapshots;
-					std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
+					std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 					for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 					{
 						const FSourceSnapshotEntry* Entry = Plan.GetSnapshot().FindSource(

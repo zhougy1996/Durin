@@ -18,7 +18,7 @@ namespace Durin::Editor::Level
 		struct FCapturedProjectDefaultLevel
 		{
 			std::filesystem::path SettingsFile;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			std::string Fingerprint;
 			FAssetPath Path;
 			bool bFileExists = false;
@@ -33,15 +33,14 @@ namespace Durin::Editor::Level
 		auto MakeFingerprint(
 			const std::filesystem::path& SettingsFile,
 			bool bFileExists,
-			std::span<const uint8> Bytes) -> std::string
+			std::span<const std::byte> Bytes) -> std::string
 		{
 			std::string Source = std::format(
 				"{}\n{}\n{}\n", ProviderId,
 				SettingsFile.lexically_normal().generic_string(), bFileExists);
 			Source.append(
 				reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
-			return FXxHash128::HashBuffer(std::span{
-				reinterpret_cast<const uint8*>(Source.data()), Source.size()})
+			return FXxHash128::HashBuffer(std::as_bytes(std::span{Source}))
 				.ToString();
 		}
 
@@ -102,7 +101,7 @@ namespace Durin::Editor::Level
 
 		auto SaveSettingsBytes(
 			const std::filesystem::path& SettingsFile,
-			std::span<const uint8> Bytes) -> Asset::FAssetResult
+			std::span<const std::byte> Bytes) -> Asset::FAssetResult
 		{
 			FFileHelper::FAtomicFileError PublicationError;
 			if (Bytes.empty() || !FFileHelper::SaveArrayToFileAtomically(
@@ -184,7 +183,7 @@ namespace Durin::Editor::Level
 				Asset::EAssetError::ReadOnlyMode,
 				"Project settings are read-only and cannot be fixed up.");
 
-		std::vector<uint8> UpdatedBytes;
+		std::vector<std::byte> UpdatedBytes;
 		const FProjectGameSettingsResult UpdateResult =
 			FProjectGameSettingsStore(PreState.SettingsFile).BuildDefaultLevelUpdate(
 				Rewrites.front().DestinationPath.ToString(), UpdatedBytes);
@@ -192,9 +191,9 @@ namespace Durin::Editor::Level
 			return StoreError(
 				Asset::EAssetError::CorruptFile,
 				UpdateResult.Message);
-		auto PostBytes = std::make_shared<std::vector<uint8>>(
+		auto PostBytes = std::make_shared<std::vector<std::byte>>(
 			std::move(UpdatedBytes));
-		auto PreBytes = std::make_shared<std::vector<uint8>>(
+		auto PreBytes = std::make_shared<std::vector<std::byte>>(
 			std::move(PreState.Bytes));
 		const FAssetPath PrePath = PreState.Path;
 		const FAssetPath PostPath = Rewrites.front().DestinationPath;

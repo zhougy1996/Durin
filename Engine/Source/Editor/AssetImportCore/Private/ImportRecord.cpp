@@ -31,7 +31,7 @@ namespace Durin::Asset
 				OutError = std::format("Import-record {} payload is invalid or exceeds its byte limit.", Label);
 				return false;
 			}
-			const FXxHash128 Hash = FXxHash128::HashBuffer(std::span<const uint8>(Payload.Bytes));
+			const FXxHash128 Hash = FXxHash128::HashBuffer(std::span<const std::byte>(Payload.Bytes));
 			if (Hash.HashLow != Payload.ContentHashLow || Hash.HashHigh != Payload.ContentHashHigh)
 			{
 				OutError = std::format("Import-record {} payload hash does not match its bytes.", Label);
@@ -353,7 +353,7 @@ namespace Durin::Asset
 	auto MakeImportRecordPayload(
 		std::string SchemaId,
 		uint32 SchemaVersion,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint64 MaximumBytes,
 		FImportRecordPayload& OutPayload,
 		std::string& OutError) -> bool
@@ -367,7 +367,7 @@ namespace Durin::Asset
 		OutPayload = {
 			.SchemaId = std::move(SchemaId),
 			.SchemaVersion = SchemaVersion,
-			.Bytes = std::vector<uint8>(Bytes.begin(), Bytes.end()),
+			.Bytes = std::vector<std::byte>(Bytes.begin(), Bytes.end()),
 			.ContentHashLow = Hash.HashLow,
 			.ContentHashHigh = Hash.HashHigh};
 		OutError.clear();

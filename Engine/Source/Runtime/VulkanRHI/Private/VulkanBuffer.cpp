@@ -85,13 +85,13 @@ namespace Durin::VulkanRHI
 	auto FVulkanBuffer::Write(
 		FVulkanCommandListContext& Context,
 		uint32 Offset,
-		std::span<const uint8> Data) -> void
+		std::span<const std::byte> Data) -> void
 	{
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
-			std::memcpy(static_cast<uint8*>(MappedData) + Offset, Data.data(), Data.size());
+			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());
 			FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
 			StateTracker.Apply(Offset, Data.size(), ERHIAccess::HostWrite);
 			const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
@@ -312,7 +312,7 @@ namespace Durin::VulkanRHI
 		check(AllocationOffset + Size <= Chunk->Buffer->GetSize());
 		void* MappedPointer = Chunk->Buffer->GetMappedPointer();
 		check(MappedPointer);
-		std::memcpy(static_cast<uint8*>(MappedPointer) + AllocationOffset, Data, Size);
+		std::memcpy(static_cast<std::byte*>(MappedPointer) + AllocationOffset, Data, Size);
 		Chunk->Buffer->FlushMappedMemory(AllocationOffset, Size);
 		Chunk->Offset = AllocationOffset + AllocationSize;
 		Chunk->bUsed = true;
@@ -432,7 +432,7 @@ namespace Durin::VulkanRHI
 			if (!bFound) return false;
 		}
 		const uint32 Offset = AlignUp(Chunk->Offset, Alignment);
-		std::memcpy(static_cast<uint8*>(Chunk->Buffer->GetMappedPointer()) + Offset, Data, Size);
+		std::memcpy(static_cast<std::byte*>(Chunk->Buffer->GetMappedPointer()) + Offset, Data, Size);
 		Chunk->Buffer->FlushMappedMemory(Offset, Size);
 		Chunk->Buffer->GetStateTracker().Apply(
 			Offset, Size, ERHIAccess::HostWrite);

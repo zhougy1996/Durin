@@ -83,13 +83,13 @@ namespace Durin::Asset::Build
 
 	GEOMETRYBUILD_API auto BuildSkeletalMeshDerivedDataKeyBytes(
 		const FSkeletalMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	GEOMETRYBUILD_API auto BuildSkeletalMeshDerivedDataKey(
 		const FSkeletalMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 	GEOMETRYBUILD_API auto BuildAnimationClipDerivedDataKeyBytes(
 		const FAnimationClipBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	GEOMETRYBUILD_API auto BuildAnimationClipDerivedDataKey(
 		const FAnimationClipBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

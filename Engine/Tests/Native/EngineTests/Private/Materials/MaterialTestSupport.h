@@ -52,7 +52,7 @@ namespace
 	}
 
 	auto RewriteSerializedFieldAsLegacyMap(
-		std::vector<Durin::uint8>& Bytes,
+		std::vector<std::byte>& Bytes,
 		std::string_view CurrentName,
 		std::string_view LegacyName
 	) -> bool
@@ -108,7 +108,7 @@ namespace
 			&& Durin::Asset::DastV4::ReencodePackage(Package, Bytes);
 	}
 
-	auto ContainsSerializedField(std::span<const Durin::uint8> Bytes, std::string_view Name) -> bool
+	auto ContainsSerializedField(std::span<const std::byte> Bytes, std::string_view Name) -> bool
 	{
 		Durin::Asset::DastV4::FDecodedPackage Package;
 		if (!Durin::Asset::DastV4::DecodePackage(Bytes, Package)) return false;

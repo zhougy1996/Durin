@@ -76,9 +76,9 @@ namespace Durin::Asset::Build
 
 	auto BuildTextureCubeDerivedDataKeyBytes(
 		const FTextureCubeBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>
+		std::string& OutError) -> std::vector<std::byte>
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTextureCubeBuildKeyInput&>(Input).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -90,7 +90,7 @@ namespace Durin::Asset::Build
 		const FTextureCubeBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<uint8> Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
+		const std::vector<std::byte> Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 }

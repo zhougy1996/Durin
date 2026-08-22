@@ -84,8 +84,7 @@ namespace Durin
 						"Raw logical capture is valid only for an authored Bytes field.");
 					return;
 				}
-				const auto* Data = reinterpret_cast<const uint8*>(Bytes.data());
-				Node->ByteValue.insert(Node->ByteValue.end(), Data, Data + Bytes.size());
+				Node->ByteValue.insert(Node->ByteValue.end(), Bytes.begin(), Bytes.end());
 				Node->bHasAtomicValue = true;
 			}
 
@@ -105,8 +104,8 @@ namespace Durin
 					return;
 				}
 				const auto Append = [&Node](const auto& Part) {
-					const auto* Begin = reinterpret_cast<const uint8*>(&Part);
-					Node->ByteValue.insert(Node->ByteValue.end(), Begin, Begin + sizeof(Part));
+					const auto Bytes = std::as_bytes(std::span{&Part, 1});
+					Node->ByteValue.insert(Node->ByteValue.end(), Bytes.begin(), Bytes.end());
 				};
 				Append(Value.FormatId);
 				Append(Value.FormatVersion);
@@ -204,7 +203,7 @@ namespace Durin
 				PushContainerElement(Index, true);
 			}
 
-			auto OnCanonicalMapKey(uint64 Index, std::span<const uint8> Token) -> void override
+			auto OnCanonicalMapKey(uint64 Index, std::span<const std::byte> Token) -> void override
 			{
 				FDefaultDeltaNode* Node = CurrentNode();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::Map)
@@ -308,7 +307,7 @@ namespace Durin
 			std::vector<FDefaultDeltaNode*> NodeStack;
 			std::unordered_map<FDefaultDeltaNode*, FCaptureState> CaptureStates;
 			std::unordered_map<FDefaultDeltaNode*,
-				std::unordered_map<uint64, std::vector<uint8>>> MapKeyTokens;
+				std::unordered_map<uint64, std::vector<std::byte>>> MapKeyTokens;
 
 			auto CurrentNode() -> FDefaultDeltaNode*
 			{

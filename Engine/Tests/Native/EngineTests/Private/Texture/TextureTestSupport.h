@@ -92,7 +92,7 @@ namespace
 		}
 	}
 
-	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<Durin::uint8>& Block)
+	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<std::byte>& Block)
 		-> std::array<Durin::uint8, 4>
 	{
 		std::array<Durin::uint8, 64> Pixels{};
@@ -128,9 +128,9 @@ namespace
 			EXPECT_NEAR(Actual[Channel], Expected[Channel], Tolerance) << "channel " << Channel;
 	}
 
-	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> std::vector<Durin::uint8>
+	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> std::vector<std::byte>
 	{
-		std::vector<Durin::uint8> Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
+		std::vector<std::byte> Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
 		const Durin::uint32 BlocksWide = (Mip.Width + 3) / 4;
 		const Durin::uint32 BlocksHigh = (Mip.Height + 3) / 4;
 		for (Durin::uint32 BlockY = 0; BlockY < BlocksHigh; ++BlockY)
@@ -138,7 +138,7 @@ namespace
 			for (Durin::uint32 BlockX = 0; BlockX < BlocksWide; ++BlockX)
 			{
 				std::array<Durin::uint8, 64> BlockPixels{};
-				const Durin::uint8* Block = Mip.Pixels.data()
+				const Durin::uint8* Block = reinterpret_cast<const Durin::uint8*>(Mip.Pixels.data())
 					+ static_cast<size_t>(BlockY) * Mip.RowPitch + BlockX * 16;
 				EXPECT_TRUE(rgbcx::unpack_bc3(Block, BlockPixels.data()));
 				for (Durin::uint32 Y = 0; Y < 4 && BlockY * 4 + Y < Mip.Height; ++Y)
@@ -156,11 +156,11 @@ namespace
 		return Result;
 	}
 
-	auto CalculateDecodedCoverage(const std::vector<Durin::uint8>& Pixels, Durin::uint8 Threshold) -> double
+	auto CalculateDecodedCoverage(const std::vector<std::byte>& Pixels, Durin::uint8 Threshold) -> double
 	{
 		size_t CoveredPixelCount = 0;
 		for (size_t Offset = 3; Offset < Pixels.size(); Offset += 4)
-			if (Pixels[Offset] >= Threshold) ++CoveredPixelCount;
+			if (std::to_integer<Durin::uint8>(Pixels[Offset]) >= Threshold) ++CoveredPixelCount;
 		return static_cast<double>(CoveredPixelCount) / (Pixels.size() / 4);
 	}
 

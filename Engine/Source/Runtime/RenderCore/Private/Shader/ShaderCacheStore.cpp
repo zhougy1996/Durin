@@ -411,7 +411,7 @@ namespace Durin
 				return false;
 			}
 
-			std::vector<uint8> ShaderBytes;
+			std::vector<std::byte> ShaderBytes;
 			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePaths[EntryPointIndex]))
 			{
 				return false;

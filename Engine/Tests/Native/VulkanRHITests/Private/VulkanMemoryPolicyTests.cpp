@@ -300,7 +300,7 @@ namespace Durin::VulkanRHI
 		GDynamicRHI->RHIResetMemoryStatistics();
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		constexpr uint32 PageSize = 8 * 1024 * 1024;
-		std::vector<uint8> Bytes(PageSize, 0x5a);
+		std::vector<std::byte> Bytes(PageSize, std::byte{0x5a});
 		std::vector<FBufferRHIRef> Destinations;
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
@@ -315,7 +315,7 @@ namespace Durin::VulkanRHI
 			FRHIBufferCreateDesc::Create("ArenaOversizeDestination", PageSize + 256,
 				4, EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
 		ASSERT_TRUE(OversizeDestination);
-		Bytes.resize(PageSize + 256, 0x7c);
+		Bytes.resize(PageSize + 256, std::byte{0x7c});
 		Commands.WriteBuffer(OversizeDestination.GetReference(), Bytes.data(),
 			static_cast<uint32>(Bytes.size()), 0);
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
@@ -357,14 +357,17 @@ namespace Durin::VulkanRHI
 		for (uint32 Index = 0; Index < Expected.size(); ++Index)
 			Expected[Index] = static_cast<uint8>(Index + 17);
 		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
-			FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, Expected.data());
+			FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
+			std::as_bytes(std::span{Expected}));
 		for (uint32 ReadIndex = 0; ReadIndex < 3; ++ReadIndex)
 		{
-			std::vector<uint8> Actual;
+			std::vector<std::byte> Actual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, Texture, 0, 0, Actual));
-			EXPECT_EQ(Actual,
-				(std::vector<uint8>(Expected.begin(), Expected.end())));
+			const std::span<const std::byte> ExpectedBytes =
+				std::as_bytes(std::span{Expected});
+			EXPECT_EQ(Actual, (std::vector<std::byte>(
+				ExpectedBytes.begin(), ExpectedBytes.end())));
 		}
 		const FRHIMemoryStatistics ReadbackStatistics =
 			GDynamicRHI->RHIGetMemoryStatistics();

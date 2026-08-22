@@ -10,15 +10,15 @@ namespace Durin::Asset::Build
 	{
 	public:
 		ASSETBUILDCORE_API static auto FromOwned(
-			std::string Name, std::vector<uint8> Bytes) -> FBuildValue;
+			std::string Name, std::vector<std::byte> Bytes) -> FBuildValue;
 
 		auto GetName() const -> std::string_view { return Name; }
 		// Reserved for content-addressed storage, request deduplication, and remote
 		// execution protocols. Local execution does not currently consume the digest.
 		auto GetContentIdentity() const -> const FXxHash128& { return ContentIdentity; }
-		auto GetBytes() const -> std::span<const uint8>
+		auto GetBytes() const -> std::span<const std::byte>
 		{
-			return Bytes ? std::span<const uint8>(*Bytes) : std::span<const uint8>();
+			return Bytes ? std::span<const std::byte>(*Bytes) : std::span<const std::byte>();
 		}
 		auto GetSize() const -> uint64 { return Bytes ? Bytes->size() : 0; }
 		auto IsValid() const -> bool { return !Name.empty() && Bytes != nullptr; }
@@ -26,7 +26,7 @@ namespace Durin::Asset::Build
 	private:
 		std::string Name;
 		FXxHash128 ContentIdentity;
-		std::shared_ptr<const std::vector<uint8>> Bytes;
+		std::shared_ptr<const std::vector<std::byte>> Bytes;
 	};
 
 	class FBuildKey

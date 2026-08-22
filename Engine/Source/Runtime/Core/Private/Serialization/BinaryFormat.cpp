@@ -51,12 +51,6 @@ namespace Durin
 		SerializeBoundedString(Archive, Owned, std::numeric_limits<uint64>::max());
 	}
 
-	auto FBinaryWriter::WriteBytes(std::span<const uint8> Value) -> void
-	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
-		Archive.WriteBytes(std::as_bytes(Value));
-	}
-
 	auto FBinaryWriter::WriteBytes(std::span<const std::byte> Value) -> void
 	{
 		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
@@ -79,17 +73,6 @@ namespace Durin
 
 	auto FBinaryReader::ReadU16(uint16& Value) -> bool { Archive << Value; return !Archive.HasError(); }
 
-	auto FBinaryReader::ReadBytes(std::vector<uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
-	{
-		if (ByteCount > MaximumBytes || ByteCount > GetRemainingBytes()
-			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size())) return false;
-		std::vector<uint8> Loaded(static_cast<size_t>(ByteCount));
-		if (ByteCount != 0) Archive.ReadBytes(std::as_writable_bytes(std::span<uint8>(Loaded)));
-		if (Archive.HasError()) return false;
-		Value = std::move(Loaded);
-		return true;
-	}
-
 	auto FBinaryReader::ReadBytes(std::vector<std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		if (ByteCount > MaximumBytes || ByteCount > GetRemainingBytes()
@@ -102,7 +85,7 @@ namespace Durin
 	}
 
 	auto FBinaryReader::ReadRegion(
-		std::span<const uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+		std::span<const std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		Value = {};
 		if (ByteCount > MaximumBytes) return false;

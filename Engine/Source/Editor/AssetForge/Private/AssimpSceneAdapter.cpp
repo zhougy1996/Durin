@@ -29,8 +29,8 @@ namespace Durin::Asset::Forge::Private
 		}
 
 		FImportedImage Imported;
-		std::span<const uint8> EncodedBytes;
-		std::vector<uint8> OwnedBytes;
+		std::span<const std::byte> EncodedBytes;
+		std::vector<std::byte> OwnedBytes;
 		std::string EncodingHint;
 		if (const aiTexture* Embedded = Scene.GetEmbeddedTexture(TexturePath.c_str()))
 		{
@@ -45,8 +45,8 @@ namespace Durin::Asset::Forge::Private
 					TexturePath, "Embedded image exceeds the per-image byte limit.");
 			}
 			OwnedBytes.assign(
-				reinterpret_cast<const uint8*>(Embedded->pcData),
-				reinterpret_cast<const uint8*>(Embedded->pcData) + Embedded->mWidth);
+				reinterpret_cast<const std::byte*>(Embedded->pcData),
+				reinterpret_cast<const std::byte*>(Embedded->pcData) + Embedded->mWidth);
 			EncodedBytes = OwnedBytes;
 			EmbeddedByteCount += OwnedBytes.size();
 			if (EmbeddedByteCount > MaxImportedEmbeddedImageBytes)

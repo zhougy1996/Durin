@@ -34,7 +34,7 @@ namespace Durin
 					0,
 					Region,
 					4,
-					Color.data());
+					std::as_bytes(std::span(Color)));
 			}
 			return Texture;
 		}
@@ -66,7 +66,7 @@ namespace Durin
 						ArraySlice,
 						Region,
 						4,
-						Color.data());
+						std::as_bytes(std::span(Color)));
 				}
 			}
 			return Texture;
@@ -112,7 +112,7 @@ namespace Durin
 					0,
 					Region,
 					sizeof(Color),
-					reinterpret_cast<const uint8*>(Color.data()));
+					std::as_bytes(std::span(Color)));
 			}
 			return Texture;
 		}

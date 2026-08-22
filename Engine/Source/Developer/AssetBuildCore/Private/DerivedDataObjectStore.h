@@ -40,8 +40,8 @@ namespace Durin::Asset::Build
 
 		auto GetRoot() const -> std::filesystem::path;
 		auto GetObjectPath(std::string_view Key, std::filesystem::path& OutPath, std::string* OutError = nullptr) const -> bool;
-		auto Read(std::string_view Key, std::vector<uint8>& OutBytes) const -> FDerivedDataObjectReadResult;
-		auto Write(std::string_view Key, std::span<const uint8> Bytes, std::string* OutError = nullptr) const -> bool;
+		auto Read(std::string_view Key, std::vector<std::byte>& OutBytes) const -> FDerivedDataObjectReadResult;
+		auto Write(std::string_view Key, std::span<const std::byte> Bytes, std::string* OutError = nullptr) const -> bool;
 		auto CleanupToBudget(uint64 BudgetBytes, uint32 MaximumDeletes) const -> FDerivedDataObjectCleanupResult;
 
 	private:

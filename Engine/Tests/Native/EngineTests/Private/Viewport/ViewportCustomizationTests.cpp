@@ -102,7 +102,7 @@ TEST(FTerrainHeightmapThumbnailTests, GeneratesFixedCanonicalOrientationAndMarke
 	const std::array<Durin::uint16, 6> Samples{0, 10'000, 65'535, 20'000, 30'000, 40'000};
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 2, Samples, Payload, Error)) << Error;
-	std::vector<Durin::uint8> Pixels;
+	std::vector<std::byte> Pixels;
 	ASSERT_TRUE(Durin::Editor::Level::GenerateTerrainHeightmapThumbnailPixels(
 		*Payload, Pixels, Error)) << Error;
 	EXPECT_EQ(Pixels.size(), 256u * 256u * 4u);
@@ -110,10 +110,10 @@ TEST(FTerrainHeightmapThumbnailTests, GeneratesFixedCanonicalOrientationAndMarke
 	{
 		return Pixels[(static_cast<size_t>(Y) * 256 + X) * 4 + Channel];
 	};
-	EXPECT_EQ(Pixel(0, 43, 0), 255u);
-	EXPECT_EQ(Pixel(0, 43, 3), 255u);
-	EXPECT_EQ(Pixel(0, 171, 3), 255u);
-	EXPECT_EQ(Pixel(43, 43, 0), 0u);
+	EXPECT_EQ(Pixel(0, 43, 0), std::byte{255});
+	EXPECT_EQ(Pixel(0, 43, 3), std::byte{255});
+	EXPECT_EQ(Pixel(0, 171, 3), std::byte{255});
+	EXPECT_EQ(Pixel(43, 43, 0), std::byte{0});
 	EXPECT_GT(Pixel(220, 43, 0), Pixel(43, 43, 0));
 	EXPECT_GT(Pixel(255, 212, 0), Pixel(43, 43, 0));
 }

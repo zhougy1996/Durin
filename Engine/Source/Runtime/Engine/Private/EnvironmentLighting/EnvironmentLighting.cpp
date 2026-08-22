@@ -28,7 +28,7 @@ namespace Durin
 			return Count;
 		}
 
-		auto AppendHalfBytes(std::vector<uint8>& Bytes, const std::vector<uint16>& Values) -> void
+		auto AppendHalfBytes(std::vector<std::byte>& Bytes, const std::vector<uint16>& Values) -> void
 		{
 			const size_t Offset = Bytes.size();
 			Bytes.resize(Offset + Values.size() * sizeof(uint16));
@@ -36,7 +36,7 @@ namespace Durin
 		}
 
 		auto ReadHalfValues(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			size_t& Offset,
 			size_t Count,
 			std::vector<uint16>& OutValues) -> bool
@@ -51,7 +51,7 @@ namespace Durin
 
 		auto LoadAuthoringPayload(
 			std::string_view VirtualPackagePath,
-			std::vector<uint8>& OutBytes,
+			std::vector<std::byte>& OutBytes,
 			std::string& OutError) -> bool
 		{
 			const std::filesystem::path PayloadPath =
@@ -86,7 +86,7 @@ namespace Durin
 
 	static auto BuildEnvironmentLightingSerializedValue(
 		const FEnvironmentLightingData& Data,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -94,7 +94,7 @@ namespace Durin
 		if (!Data.IsValid())
 			return Fail("Environment-lighting data is incomplete or malformed.", &OutError);
 
-		std::vector<uint8> Body;
+		std::vector<std::byte> Body;
 		Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
 		for (const std::vector<uint16>& Face : Data.Irradiance) AppendHalfBytes(Body, Face);
 		for (const auto& Mip : Data.Prefiltered)
@@ -119,7 +119,7 @@ namespace Durin
 	}
 
 	static auto ParseEnvironmentLightingSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FEnvironmentLightingData& OutData) -> FPayloadDecodeResult
 	{
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
@@ -174,7 +174,7 @@ namespace Durin
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Environment-lighting payload size is invalid.");
-		std::vector<uint8> Body;
+		std::vector<std::byte> Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
@@ -221,10 +221,10 @@ namespace Durin
 			{ExpectedElementCount() * sizeof(uint16) + 64,
 				"Environment-lighting payload"},
 			[](const FEnvironmentLightingData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildEnvironmentLightingSerializedValue(Value, Bytes, Error);
 			},
-			[](std::span<const uint8> Bytes, FEnvironmentLightingData& Candidate) {
+			[](std::span<const std::byte> Bytes, FEnvironmentLightingData& Candidate) {
 				return ParseEnvironmentLightingSerializedValue(Bytes, Candidate);
 			});
 	}
@@ -247,7 +247,7 @@ namespace Durin
 
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPayload.PayloadId != EnvironmentLightingPrimaryCookedPayloadId
@@ -304,7 +304,7 @@ namespace Durin
 			return Fail("Environment lighting supports only the Win64 game cook target.", &OutError);
 		}
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		if (!LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		FEnvironmentLightingData Validated;
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
@@ -322,7 +322,7 @@ namespace Durin
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
 			[this](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes,
+				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != EnvironmentLightingPrimaryCookedPayloadId)

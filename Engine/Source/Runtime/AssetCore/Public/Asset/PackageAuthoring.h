@@ -12,8 +12,8 @@ namespace Durin::Asset
 	};
 
 	ASSETCORE_API auto CanonicalizeAssetPackageForCook(
-		std::span<const uint8> Bytes,
-		std::vector<uint8>& OutBytes
+		std::span<const std::byte> Bytes,
+		std::vector<std::byte>& OutBytes
 	) -> FAssetResult;
 
 	struct FAssetPackageSerializationOptions
@@ -39,7 +39,7 @@ namespace Durin::Asset
 
 	ASSETCORE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}
 	) -> FAssetResult;
 	ASSETCORE_API auto SavePackagesAtomically(

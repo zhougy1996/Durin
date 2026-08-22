@@ -464,8 +464,10 @@ namespace Durin
 					Candidate.WhiteWeather = GDynamicRHI != nullptr ? GDynamicRHI->RHICreateTexture(CommandList, Desc) : nullptr;
 					if (Candidate.WhiteWeather)
 					{
-						const uint8 White = 255;
-						GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.WhiteWeather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1, &White);
+						const std::byte White{255};
+						GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.WhiteWeather,
+							0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
+							std::span{&White, 1});
 					}
 					if (!Candidate.WhiteWeather)
 						return FFallbackResult::Failure(MakeFailure(

@@ -318,7 +318,7 @@ namespace Durin
 	}
 
 	FCanonicalMemoryWriter::FCanonicalMemoryWriter(
-		std::vector<uint8>& InBytes, EArchivePurpose Purpose, FArchiveState Context,
+		std::vector<std::byte>& InBytes, EArchivePurpose Purpose, FArchiveState Context,
 		FArchiveVersionContext Versions)
 		: FArchive(MakeMemoryState(EArchiveDirection::Save, Purpose, std::move(Context)),
 			std::move(Versions)), Bytes(InBytes)
@@ -329,12 +329,11 @@ namespace Durin
 	{
 		if (HasError()) return;
 		if (Data.empty()) return;
-		const auto* Source = reinterpret_cast<const uint8*>(Data.data());
-		Bytes.insert(Bytes.end(), Source, Source + Data.size());
+		Bytes.insert(Bytes.end(), Data.begin(), Data.end());
 	}
 
 	FCanonicalMemoryReader::FCanonicalMemoryReader(
-		std::span<const uint8> InBytes, EArchivePurpose Purpose, FArchiveState Context,
+		std::span<const std::byte> InBytes, EArchivePurpose Purpose, FArchiveState Context,
 		FArchiveVersionContext Versions)
 		: FArchive(MakeMemoryState(EArchiveDirection::Load, Purpose, std::move(Context)),
 			std::move(Versions)), Bytes(InBytes)
@@ -354,7 +353,7 @@ namespace Durin
 	}
 
 	auto FCanonicalMemoryReader::ReadRegion(
-		uint64 Size, std::span<const uint8>& OutRegion) -> bool
+		uint64 Size, std::span<const std::byte>& OutRegion) -> bool
 	{
 		OutRegion = {};
 		if (HasError()) return false;
@@ -401,12 +400,12 @@ namespace Durin
 		Count += static_cast<uint64>(Bytes.size());
 	}
 
-	auto SerializeByteBuffer(FArchive& Ar, std::vector<uint8>& Value, uint64 MaximumBytes) -> void
+	auto SerializeByteBuffer(FArchive& Ar, std::vector<std::byte>& Value, uint64 MaximumBytes) -> void
 	{
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
 		if (Ar.HasError()) return;
-		if (Size > MaximumBytes || Size > static_cast<uint64>(std::vector<uint8>().max_size()))
+		if (Size > MaximumBytes || Size > static_cast<uint64>(std::vector<std::byte>().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Byte buffer exceeds its serialization limit.");
 			return;
@@ -418,13 +417,13 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::TruncatedPayload, "Byte buffer is truncated.");
 				return;
 			}
-			std::vector<uint8> Loaded(static_cast<size_t>(Size));
-			if (Size != 0) Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Loaded)));
+			std::vector<std::byte> Loaded(static_cast<size_t>(Size));
+			if (Size != 0) Ar.ReadBytes(Loaded);
 			if (!Ar.HasError()) Value = std::move(Loaded);
 		}
 		else if (Size != 0)
 		{
-			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Value)));
+			Ar.WriteBytes(Value);
 		}
 	}
 

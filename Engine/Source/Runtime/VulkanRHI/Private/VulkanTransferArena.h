@@ -40,7 +40,7 @@ namespace Durin::VulkanRHI
 		auto GetOffset() const -> uint64 { return Offset; }
 		auto GetSize() const -> uint64 { return Size; }
 		auto GetToken() const -> FVulkanCompletionToken { return Token; }
-		auto GetMappedPointer() const -> uint8*;
+		auto GetMappedPointer() const -> std::byte*;
 		auto Flush() const -> void;
 		auto Invalidate() const -> void;
 		auto Retire() -> void;

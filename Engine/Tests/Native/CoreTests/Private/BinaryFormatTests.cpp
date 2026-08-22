@@ -32,12 +32,12 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 		Writer.WriteString("/Game/Textures/Test");
 		Writer.WriteU64(42);
 		Writer.WriteI64(-123456789);
-		Writer.WriteBytes(std::array<Durin::uint8, 3>{7, 8, 9});
+		Writer.WriteBytes(std::array<std::byte, 3>{std::byte{7}, std::byte{8}, std::byte{9}});
 		return Writer.TakeBytes();
 	};
 
-	const std::vector<Durin::uint8> First = MakeBytes();
-	const std::vector<Durin::uint8> Second = MakeBytes();
+	const std::vector<std::byte> First = MakeBytes();
+	const std::vector<std::byte> Second = MakeBytes();
 	EXPECT_EQ(First, Second);
 
 	Durin::FBinaryReader Reader(First);
@@ -45,7 +45,7 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 	std::string Path;
 	Durin::uint64 Size = 0;
 	Durin::int64 Ticks = 0;
-	std::vector<Durin::uint8> Payload;
+	std::vector<std::byte> Payload;
 	EXPECT_TRUE(Reader.ReadString(Path));
 	EXPECT_TRUE(Reader.ReadU64(Size));
 	EXPECT_TRUE(Reader.ReadI64(Ticks));
@@ -54,7 +54,7 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 	EXPECT_EQ(Path, "/Game/Textures/Test");
 	EXPECT_EQ(Size, 42);
 	EXPECT_EQ(Ticks, -123456789);
-	EXPECT_EQ(Payload, (std::vector<Durin::uint8>{7, 8, 9}));
+	EXPECT_EQ(Payload, (std::vector<std::byte>{std::byte{7}, std::byte{8}, std::byte{9}}));
 
 	Durin::FBinaryReader WrongVersion(First);
 	EXPECT_FALSE(WrongVersion.ReadAndValidateHeader(Magic, 4, 2));
@@ -86,30 +86,26 @@ TEST(FBinaryFormatTests, SerializedDataRoundTripsBeyondMaxPath)
 	Durin::FBinaryWriter Writer;
 	Writer.WriteHeader({0x48434143, 7, 3});
 	Writer.WriteString("/Game/LongPath/Texture");
-	Writer.WriteBytes(std::array<Durin::uint8, 4>{3, 1, 4, 1});
-	const std::vector<Durin::uint8> Expected = Writer.TakeBytes();
+	Writer.WriteBytes(std::array<std::byte, 4>{
+		std::byte{3}, std::byte{1}, std::byte{4}, std::byte{1}});
+	const std::vector<std::byte> Expected = Writer.TakeBytes();
 
 	Durin::FFileHelper::FAtomicFileError FileError;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Expected, Path, &FileError))
 		<< FileError.ToString();
 
-	std::vector<Durin::uint8> Stored;
-	{
-		std::ifstream Stream(Path, std::ios::binary);
-		ASSERT_TRUE(Stream.is_open());
-		Stored.assign(
-			std::istreambuf_iterator<char>(Stream),
-			std::istreambuf_iterator<char>());
-	}
+	std::vector<std::byte> Stored;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Stored, Path));
 	Durin::FBinaryReader Reader(Stored);
 	std::string Identity;
-	std::vector<Durin::uint8> Payload;
+	std::vector<std::byte> Payload;
 	ASSERT_TRUE(Reader.ReadAndValidateHeader(0x48434143, 7, 3));
 	ASSERT_TRUE(Reader.ReadString(Identity));
 	ASSERT_TRUE(Reader.ReadBytes(Payload, 4, 4));
 	EXPECT_TRUE(Reader.IsAtEnd());
 	EXPECT_EQ(Identity, "/Game/LongPath/Texture");
-	EXPECT_EQ(Payload, (std::vector<Durin::uint8>{3, 1, 4, 1}));
+	EXPECT_EQ(Payload, (std::vector<std::byte>{
+		std::byte{3}, std::byte{1}, std::byte{4}, std::byte{1}}));
 
 	std::error_code CleanupError;
 	Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
@@ -122,10 +118,10 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 	Writer.WriteU16(0x1234);
 	Writer.WriteI32(-2);
 	Writer.WriteFloat(-0.0f);
-	EXPECT_EQ(Writer.GetBytes(), (std::vector<Durin::uint8>{
-		0x34, 0x12,
-		0xfe, 0xff, 0xff, 0xff,
-		0x00, 0x00, 0x00, 0x80}));
+	EXPECT_EQ(Writer.GetBytes(), (std::vector<std::byte>{
+		std::byte{0x34}, std::byte{0x12},
+		std::byte{0xfe}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+		std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x80}}));
 
 	Durin::FBinaryReader Reader(Writer.GetBytes());
 	Durin::uint16 Unsigned16 = 0;
@@ -146,10 +142,10 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 	EXPECT_EQ(RandomAccess, 0xfffffffeu);
 
 	Durin::FBinaryReader Regions(Writer.GetBytes());
-	std::span<const Durin::uint8> Region;
+	std::span<const std::byte> Region;
 	ASSERT_TRUE(Regions.ReadRegion(Region, 2, 2));
 	EXPECT_TRUE(std::ranges::equal(
-		Region, std::span<const Durin::uint8>(Writer.GetBytes()).first(2)));
+		Region, std::span<const std::byte>(Writer.GetBytes()).first(2)));
 	EXPECT_FALSE(Regions.ReadRegion(Region, 3, 2));
 	EXPECT_TRUE(Region.empty());
 	EXPECT_EQ(Regions.GetRemainingBytes(), Writer.GetBytes().size() - 2);

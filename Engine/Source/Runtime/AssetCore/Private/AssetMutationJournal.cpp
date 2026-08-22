@@ -28,7 +28,7 @@ namespace Durin::Asset::Private
 			std::error_code ErrorCode;
 			if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
 				continue;
-			std::vector<uint8> OwnerBytes;
+			std::vector<std::byte> OwnerBytes;
 			if (!FFileHelper::LoadFileToArray(
 					OwnerBytes, (Root / "owner"))
 				|| std::string_view(
@@ -48,7 +48,7 @@ namespace Durin::Asset::Private
 
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 	{
 		std::error_code ErrorCode;
@@ -89,7 +89,7 @@ namespace Durin::Asset::Private
 
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
@@ -100,7 +100,7 @@ namespace Durin::Asset::Private
 
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		std::span<const uint8> Bytes) -> FAssetResult
+		std::span<const std::byte> Bytes) -> FAssetResult
 	{
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
@@ -116,7 +116,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FAssetResult Result = LoadRelocationBytes(Path, Bytes);
 		if (!Result) return Result;
 		return MakePackageFingerprint(
@@ -217,8 +217,7 @@ namespace Durin::Asset::Private
 				Index, Entry.bCompleted,
 				Index, Entry.bCompensated);
 		}
-		const std::span Bytes{
-			reinterpret_cast<const uint8*>(Text.data()), Text.size()};
+		const auto Bytes = std::as_bytes(std::span(Text));
 		for (const std::filesystem::path& Root : Journal.Roots)
 		{
 			FFileHelper::SaveArrayToFileAtomically(Bytes, Root / "journal");
@@ -234,8 +233,7 @@ namespace Durin::Asset::Private
 			Journal.LocatorPath.parent_path(), DirectoryError);
 		if (!DirectoryError)
 		{
-			const std::span LocatorBytes{
-				reinterpret_cast<const uint8*>(Locator.data()), Locator.size()};
+			const auto LocatorBytes = std::as_bytes(std::span(Locator));
 			FFileHelper::SaveArrayToFileAtomically(LocatorBytes, Journal.LocatorPath);
 		}
 	}
@@ -260,7 +258,7 @@ namespace Durin::Asset::Private
 					RemoveError.message()));
 			return {};
 		}
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FAssetResult Result = LoadRelocationBytes(Staged, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;

@@ -29,7 +29,7 @@ namespace Durin::Asset::Private
 			uint64 Index = 0;
 			FArchiveFieldDescriptor Field;
 			FProperty* ReflectedProperty = nullptr;
-			std::vector<uint8> Raw;
+			std::vector<std::byte> Raw;
 			std::vector<FCapturedNode> Children;
 		};
 
@@ -749,8 +749,7 @@ namespace Durin::Asset::Private
 					Field.Payload.resize(static_cast<size_t>(PayloadSize));
 					if (PayloadSize != 0)
 					{
-						auto Bytes = std::as_writable_bytes(std::span<uint8>(Field.Payload));
-						SerializeRawBytes(Bytes);
+						SerializeRawBytes(Field.Payload);
 						if (HasError()) return false;
 					}
 					State.Fields.push_back(std::move(Field));
@@ -810,8 +809,8 @@ namespace Durin::Asset::Private
 					return;
 				}
 				if (!bCapturePayload) return;
-				const auto* Data = reinterpret_cast<const uint8*>(Bytes.data());
-				NodeStack.back()->Raw.insert(NodeStack.back()->Raw.end(), Data, Data + Bytes.size());
+				NodeStack.back()->Raw.insert(
+					NodeStack.back()->Raw.end(), Bytes.begin(), Bytes.end());
 			}
 
 			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
@@ -1013,15 +1012,18 @@ namespace Durin::Asset::Private
 						"Authored values require an active named field.");
 					return;
 				}
-				const auto* Data = reinterpret_cast<const uint8*>(&Value);
-				NodeStack.back()->Raw.insert(NodeStack.back()->Raw.end(), Data, Data + sizeof(T));
+				const auto Bytes = std::as_bytes(std::span{&Value, 1});
+				NodeStack.back()->Raw.insert(
+					NodeStack.back()->Raw.end(), Bytes.begin(), Bytes.end());
 			}
 
 			auto AppendString(std::string_view Value) -> void
 			{
 				Append(uint64(Value.size()));
 				if (!bCapturePayload || SuppressedDepth != 0 || NodeStack.empty() || !NodeStack.back()) return;
-				NodeStack.back()->Raw.insert(NodeStack.back()->Raw.end(), Value.begin(), Value.end());
+				const auto Bytes = std::as_bytes(std::span(Value));
+				NodeStack.back()->Raw.insert(
+					NodeStack.back()->Raw.end(), Bytes.begin(), Bytes.end());
 			}
 
 			auto PushPath(ENodeKind Kind, uint64 Index) -> void
@@ -1121,7 +1123,7 @@ namespace Durin::Asset::Private
 				return Payload->Descriptor.PayloadId;
 			});
 			if (Sorted.empty()) return {};
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::BulkData);
 			uint64 Count = Sorted.size();
 			Writer << Count;
@@ -1243,13 +1245,13 @@ namespace Durin::Asset::Private
 		}
 
 		template<typename T>
-		auto ReadCaptured(std::span<const uint8> Bytes, size_t& Offset, T& Out) -> bool
+		auto ReadCaptured(std::span<const std::byte> Bytes, size_t& Offset, T& Out) -> bool
 		{
 			if (sizeof(T) > Bytes.size() - Offset) return false;
 			std::memcpy(&Out, Bytes.data() + Offset, sizeof(T)); Offset += sizeof(T); return true;
 		}
 
-		auto ReadCapturedString(std::span<const uint8> Bytes, size_t& Offset, std::string& Out) -> bool
+		auto ReadCapturedString(std::span<const std::byte> Bytes, size_t& Offset, std::string& Out) -> bool
 		{
 			uint64 Size = 0;
 			if (!ReadCaptured(Bytes, Offset, Size) || Size > Bytes.size() - Offset) return false;
@@ -1516,7 +1518,7 @@ namespace Durin::Asset::DastV4
 	auto WriteRedirectorPackage(
 		const FAssetPath& SourcePath,
 		const FAssetPath& DestinationPath,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		constexpr std::string_view RedirectorClass = "Durin::Asset::DAssetRedirector";
 		auto DestinationType = MakeType(ETypeOpcode::HardRef, "Durin::DObject");
@@ -1539,7 +1541,7 @@ namespace Durin::Asset::DastV4
 		return {};
 	}
 
-	auto WriteAssetPackage(DPackage* Package, std::vector<uint8>& OutBytes,
+	auto WriteAssetPackage(DPackage* Package, std::vector<std::byte>& OutBytes,
 		const FAssetPackageWriteOptions& Options, FWriterDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FWriterDiagnostic Diagnostic;
@@ -1674,7 +1676,7 @@ namespace Durin::Asset::DastV4
 		FPackageInput Input;
 		if (!Private::BuildV4Input(Captured, Summary, Objects, DeltaPlan, Input, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!WritePackage(Input, Bytes, &Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		OutBytes = std::move(Bytes);

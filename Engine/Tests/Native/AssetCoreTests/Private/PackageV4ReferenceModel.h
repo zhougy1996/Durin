@@ -115,7 +115,7 @@ namespace Durin::Testing::DastV4
 	struct FFrozenType
 	{
 		FTypePtr Descriptor;
-		std::vector<uint8> StructuralKey;
+		std::vector<std::byte> StructuralKey;
 	};
 
 	struct FFrozenTables
@@ -152,10 +152,10 @@ namespace Durin::Testing::DastV4
 		std::string& OutError) -> bool;
 	auto EncodeTableSections(
 		const FFrozenTables& Tables,
-		std::array<std::vector<uint8>, 4>& OutSections,
+		std::array<std::vector<std::byte>, 4>& OutSections,
 		std::string& OutError) -> bool;
 	auto DecodeTableSections(
-		const std::array<std::vector<uint8>, 4>& Sections,
+		const std::array<std::vector<std::byte>, 4>& Sections,
 		FFrozenTables& OutTables,
 		std::string& OutError) -> bool;
 
@@ -167,7 +167,7 @@ namespace Durin::Testing::DastV4
 		double Number = 0;
 		std::string Text;
 		FGuidValue Guid;
-		std::vector<uint8> ByteData;
+		std::vector<std::byte> ByteData;
 		std::vector<double> Components;
 		std::vector<FValue> Elements;
 		std::vector<uint64> FieldIds;
@@ -182,11 +182,11 @@ namespace Durin::Testing::DastV4
 		const FTypeDescriptor& Type,
 		const FValue& Value,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto DecodeValue(
 		const FTypeDescriptor& Type,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FFrozenTables& Tables,
 		FValue& OutValue,
 		std::string& OutError) -> bool;
@@ -204,7 +204,7 @@ namespace Durin::Testing::DastV4
 	auto EncodeOverrideBlock(
 		std::span<const FOverrideCandidate> Candidates,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 
 	struct FObjectValueInput
@@ -216,10 +216,10 @@ namespace Durin::Testing::DastV4
 	auto EncodeValueSection(
 		std::span<const FObjectValueInput> Objects,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateValueSection(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FFrozenTables& Tables,
 		std::string& OutError) -> bool;
 
@@ -227,19 +227,19 @@ namespace Durin::Testing::DastV4
 		const FFrozenTables& Tables,
 		uint64 RootSchemaId,
 		uint64 RootFieldId,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateRetainedClosure(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string& OutError) -> bool;
 	auto EncodeUnknownValueBody(
-		std::span<const uint8> Closure,
-		std::span<const uint8> Payload,
-		std::vector<uint8>& OutBytes,
+		std::span<const std::byte> Closure,
+		std::span<const std::byte> Payload,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateUnknownValueBody(
-		std::span<const uint8> Bytes,
-		std::vector<uint8>& OutClosure,
-		std::vector<uint8>& OutPayload,
+		std::span<const std::byte> Bytes,
+		std::vector<std::byte>& OutClosure,
+		std::vector<std::byte>& OutPayload,
 		std::string& OutError) -> bool;
 }

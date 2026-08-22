@@ -11,7 +11,7 @@ namespace Durin::Asset::Build::Private
 
 	namespace
 	{
-		auto DecodeTerrainHeightmapLocalInput(std::span<const uint8> Bytes,
+		auto DecodeTerrainHeightmapLocalInput(std::span<const std::byte> Bytes,
 			uint32& OutWidth, uint32& OutHeight,
 			std::string& OutDecoderId, uint32& OutDecoderVersion,
 			ETerrainHeightmapSourceFormat& OutFormat, uint32& OutProfile,
@@ -31,13 +31,14 @@ namespace Durin::Asset::Build::Private
 				OutError = "Terrain heightmap local build input is malformed.";
 				return false;
 			}
-			std::vector<uint8> DecoderBytes;
+			std::vector<std::byte> DecoderBytes;
 			if (!Reader.ReadBytes(DecoderBytes, DecoderLength, Bytes.size()))
 			{
 				OutError = "Terrain heightmap local build input is malformed.";
 				return false;
 			}
-			OutDecoderId.assign(DecoderBytes.begin(), DecoderBytes.end());
+			OutDecoderId.assign(
+				reinterpret_cast<const char*>(DecoderBytes.data()), DecoderBytes.size());
 			OutFormat = static_cast<ETerrainHeightmapSourceFormat>(Format);
 			const uint64 SampleCount = static_cast<uint64>(OutWidth) * OutHeight;
 			if (SampleCount > Reader.GetRemainingBytes() / 2
@@ -59,7 +60,7 @@ namespace Durin::Asset::Build::Private
 		auto EncodeTerrainHeightmapPayload(const FTerrainHeightmapPayload& Payload,
 			FBuildValue& OutValue, std::string& OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTerrainHeightmapPayload&>(Payload).Serialize(
 				Ar, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
@@ -156,7 +157,7 @@ namespace Durin::Asset::Build::Private
 	}
 
 	auto EncodeTerrainHeightmapLocalInput(const FTerrainHeightmapBuildRequest& Request)
-		-> std::vector<uint8>
+		-> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(Request.Width);
@@ -165,8 +166,7 @@ namespace Durin::Asset::Build::Private
 		Writer.WriteU32(static_cast<uint32>(Request.SourceFormat));
 		Writer.WriteU32(Request.SourceProfileVersion);
 		Writer.WriteU32(static_cast<uint32>(Request.DecoderId.size()));
-		Writer.WriteBytes(std::span<const uint8>(
-			reinterpret_cast<const uint8*>(Request.DecoderId.data()), Request.DecoderId.size()));
+		Writer.WriteBytes(std::as_bytes(std::span(Request.DecoderId)));
 		for (uint16 Sample : Request.Samples)
 		{
 			Writer.WriteU8(static_cast<uint8>(Sample));

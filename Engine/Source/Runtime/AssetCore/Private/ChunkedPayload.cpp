@@ -59,7 +59,7 @@ namespace Durin::Asset
 		std::array<uint32, 8> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
-		std::vector<uint8>& OutBytes) -> FChunkedPayloadResult
+		std::vector<std::byte>& OutBytes) -> FChunkedPayloadResult
 	{
 		if (!IsFormatValid(Format) || Chunks.size() < Format.RequiredChunkCount
 			|| Chunks.size() > Format.MaximumChunkCount)
@@ -124,7 +124,7 @@ namespace Durin::Asset
 	}
 
 	auto DecodeChunkedPayload(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FChunkedPayloadFormat& Format,
 		FDecodedChunkedPayload& OutPayload) -> FChunkedPayloadResult
 	{
@@ -155,7 +155,7 @@ namespace Durin::Asset
 			ChunkCount, ChunkedPayloadEntrySize, StoredSize, TableBytes)
 			|| !BulkContainer::TryAdd(TableOffset, TableBytes, StoredSize, TableEnd))
 			return Fail(EChunkedPayloadFailure::TableOutOfRange);
-		std::span<const uint8> Table;
+		std::span<const std::byte> Table;
 		if (!BulkContainer::TryProjectRange(Bytes, TableOffset, TableBytes, Table))
 			return Fail(EChunkedPayloadFailure::TableOutOfRange);
 
@@ -247,7 +247,7 @@ namespace Durin::Asset
 		Candidate.Chunks.reserve(Records.size());
 		for (const FChunkRecord& Chunk : Records)
 		{
-			std::span<const uint8> ChunkBytes;
+			std::span<const std::byte> ChunkBytes;
 			if (!BulkContainer::TryProjectRange(Bytes, Chunk.Offset, Chunk.StoredSize, ChunkBytes))
 				return Fail(EChunkedPayloadFailure::InvalidChunkLayout);
 			Candidate.Chunks.push_back({Chunk.Type, Chunk.Flags, ChunkBytes, Chunk.DecodedSize});

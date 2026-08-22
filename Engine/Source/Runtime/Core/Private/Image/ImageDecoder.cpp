@@ -14,6 +14,11 @@ namespace Durin::Image
 		constexpr size_t MaximumRadianceHeaderBytes = 64 * 1024;
 		constexpr size_t MaximumRadianceHeaderLineBytes = 4096;
 
+		auto ToUint8(std::byte Value) -> uint8
+		{
+			return std::to_integer<uint8>(Value);
+		}
+
 		auto LowercaseExtension(std::string_view Extension) -> std::string
 		{
 			std::string Result(Extension);
@@ -21,28 +26,28 @@ namespace Durin::Image
 			return Result;
 		}
 
-		auto ReadPngU32(std::span<const uint8> Bytes, size_t Offset, uint32& OutValue) -> bool
+		auto ReadPngU32(std::span<const std::byte> Bytes, size_t Offset, uint32& OutValue) -> bool
 		{
 			if (Offset > Bytes.size() || Bytes.size() - Offset < 4) return false;
-			OutValue = static_cast<uint32>(Bytes[Offset]) << 24
-				| static_cast<uint32>(Bytes[Offset + 1]) << 16
-				| static_cast<uint32>(Bytes[Offset + 2]) << 8
-				| static_cast<uint32>(Bytes[Offset + 3]);
+			OutValue = static_cast<uint32>(ToUint8(Bytes[Offset])) << 24
+				| static_cast<uint32>(ToUint8(Bytes[Offset + 1])) << 16
+				| static_cast<uint32>(ToUint8(Bytes[Offset + 2])) << 8
+				| static_cast<uint32>(ToUint8(Bytes[Offset + 3]));
 			return true;
 		}
 
-		auto ReadRadianceLine(std::span<const uint8> Bytes, size_t& Offset, std::string_view& OutLine) -> bool
+		auto ReadRadianceLine(std::span<const std::byte> Bytes, size_t& Offset, std::string_view& OutLine) -> bool
 		{
 			if (Offset >= Bytes.size()) return false;
 			const size_t Begin = Offset;
-			while (Offset < Bytes.size() && Bytes[Offset] != '\n')
+			while (Offset < Bytes.size() && Bytes[Offset] != static_cast<std::byte>('\n'))
 			{
 				if (Offset - Begin >= MaximumRadianceHeaderLineBytes) return false;
 				++Offset;
 			}
 			if (Offset >= Bytes.size()) return false;
 			size_t End = Offset++;
-			if (End > Begin && Bytes[End - 1] == '\r') --End;
+			if (End > Begin && Bytes[End - 1] == static_cast<std::byte>('\r')) --End;
 			OutLine = std::string_view(reinterpret_cast<const char*>(Bytes.data() + Begin), End - Begin);
 			return true;
 		}
@@ -68,7 +73,7 @@ namespace Durin::Image
 			return true;
 		}
 
-		auto DecodeRadianceNewScanline(std::span<const uint8> Bytes, size_t& Offset, uint32 Width,
+		auto DecodeRadianceNewScanline(std::span<const std::byte> Bytes, size_t& Offset, uint32 Width,
 			std::vector<std::array<uint8, 4>>& OutScanline, std::string& OutError) -> bool
 		{
 			for (uint32 Channel = 0; Channel < 4; ++Channel)
@@ -81,7 +86,7 @@ namespace Durin::Image
 						OutError = "Radiance HDR scanline payload is truncated.";
 						return false;
 					}
-					const uint8 Packet = Bytes[Offset++];
+					const uint8 Packet = ToUint8(Bytes[Offset++]);
 					if (Packet == 0)
 					{
 						OutError = "Radiance HDR scanline contains a zero-length packet.";
@@ -100,7 +105,7 @@ namespace Durin::Image
 							OutError = "Radiance HDR scanline run payload is truncated.";
 							return false;
 						}
-						const uint8 Value = Bytes[Offset++];
+						const uint8 Value = ToUint8(Bytes[Offset++]);
 						for (uint32 Index = 0; Index < Count; ++Index) OutScanline[X++][Channel] = Value;
 					}
 					else
@@ -116,14 +121,14 @@ namespace Durin::Image
 							OutError = "Radiance HDR scanline literal payload is truncated.";
 							return false;
 						}
-						for (uint32 Index = 0; Index < Count; ++Index) OutScanline[X++][Channel] = Bytes[Offset++];
+						for (uint32 Index = 0; Index < Count; ++Index) OutScanline[X++][Channel] = ToUint8(Bytes[Offset++]);
 					}
 				}
 			}
 			return true;
 		}
 
-		auto DecodeRadianceOldScanline(std::span<const uint8> Bytes, size_t& Offset, uint32 Width,
+		auto DecodeRadianceOldScanline(std::span<const std::byte> Bytes, size_t& Offset, uint32 Width,
 			const std::array<uint8, 4>& FirstToken, std::vector<std::array<uint8, 4>>& OutScanline,
 			std::string& OutError) -> bool
 		{
@@ -161,7 +166,8 @@ namespace Durin::Image
 					OutError = "Radiance HDR old scanline payload is truncated.";
 					return false;
 				}
-				std::copy_n(Bytes.data() + Offset, 4, Token.begin());
+				for (size_t Index = 0; Index < Token.size(); ++Index)
+					Token[Index] = ToUint8(Bytes[Offset + Index]);
 				Offset += 4;
 			}
 			return true;
@@ -197,7 +203,7 @@ namespace Durin::Image
 		return LowercaseExtension(Extension) == ".hdr";
 	}
 
-	auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError, const FImageDecodeLimits& Limits) -> bool
+	auto DecodeImageFromMemory(std::span<const std::byte> EncodedBytes, FDecodedImage& OutImage, std::string& OutError, const FImageDecodeLimits& Limits) -> bool
 	{
 		OutImage = {};
 		OutError.clear();
@@ -216,7 +222,8 @@ namespace Durin::Image
 		int Height = 0;
 		int Channels = 0;
 		const int EncodedSize = static_cast<int>(EncodedBytes.size());
-		if (stbi_info_from_memory(EncodedBytes.data(), EncodedSize, &Width, &Height, &Channels) == 0 || Width <= 0 || Height <= 0 || Channels <= 0)
+		const auto* StbiBytes = reinterpret_cast<const stbi_uc*>(EncodedBytes.data());
+		if (stbi_info_from_memory(StbiBytes, EncodedSize, &Width, &Height, &Channels) == 0 || Width <= 0 || Height <= 0 || Channels <= 0)
 		{
 			OutError = "The image is unsupported or corrupt.";
 			return false;
@@ -229,7 +236,7 @@ namespace Durin::Image
 			return false;
 		}
 
-		stbi_uc* Decoded = stbi_load_from_memory(EncodedBytes.data(), EncodedSize, &Width, &Height, &Channels, STBI_rgb_alpha);
+		stbi_uc* Decoded = stbi_load_from_memory(StbiBytes, EncodedSize, &Width, &Height, &Channels, STBI_rgb_alpha);
 		if (!Decoded)
 		{
 			OutError = "The image is unsupported or corrupt.";
@@ -240,12 +247,13 @@ namespace Durin::Image
 		OutImage.Height = static_cast<uint32>(Height);
 		OutImage.SourceChannelCount = static_cast<uint8>(Channels);
 		const size_t DecodedSize = static_cast<size_t>(PixelCount * OutputChannelCount);
-		OutImage.Pixels.assign(Decoded, Decoded + DecodedSize);
+		const auto* DecodedBytes = reinterpret_cast<const std::byte*>(Decoded);
+		OutImage.Pixels.assign(DecodedBytes, DecodedBytes + DecodedSize);
 		stbi_image_free(Decoded);
 
 		for (size_t AlphaIndex = 3; AlphaIndex < OutImage.Pixels.size(); AlphaIndex += OutputChannelCount)
 		{
-			if (OutImage.Pixels[AlphaIndex] != 255)
+			if (OutImage.Pixels[AlphaIndex] != static_cast<std::byte>(255))
 			{
 				OutImage.bHasTransparency = true;
 				break;
@@ -272,7 +280,7 @@ namespace Durin::Image
 			return false;
 		}
 
-		std::vector<uint8> EncodedBytes;
+		std::vector<std::byte> EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the image file.";
@@ -282,14 +290,16 @@ namespace Durin::Image
 	}
 
 	auto DecodeGrayscale16PngFromMemory(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits) -> bool
 	{
 		OutImage = {};
 		OutError.clear();
-		constexpr std::array<uint8, 8> Signature{137, 80, 78, 71, 13, 10, 26, 10};
+		constexpr std::array<std::byte, 8> Signature{
+			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
+			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		if (EncodedBytes.size() > Limits.MaximumEncodedBytes
 			|| EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
 		{
@@ -306,19 +316,19 @@ namespace Durin::Image
 		uint32 Width = 0;
 		uint32 Height = 0;
 		if (!ReadPngU32(EncodedBytes, 8, IhdrSize) || IhdrSize != 13
-			|| !std::equal(EncodedBytes.begin() + 12, EncodedBytes.begin() + 16, "IHDR")
+			|| std::memcmp(EncodedBytes.data() + 12, "IHDR", 4) != 0
 			|| !ReadPngU32(EncodedBytes, 16, Width)
 			|| !ReadPngU32(EncodedBytes, 20, Height))
 		{
 			OutError = "The grayscale16 PNG IHDR is missing or invalid.";
 			return false;
 		}
-		if (EncodedBytes[24] != 16 || EncodedBytes[25] != 0)
+		if (EncodedBytes[24] != std::byte{16} || EncodedBytes[25] != std::byte{0})
 		{
 			OutError = "Grayscale16 decoding requires PNG color type 0 with exactly 16 bits per sample.";
 			return false;
 		}
-		if (EncodedBytes[26] != 0 || EncodedBytes[27] != 0 || EncodedBytes[28] != 0)
+		if (EncodedBytes[26] != std::byte{0} || EncodedBytes[27] != std::byte{0} || EncodedBytes[28] != std::byte{0})
 		{
 			OutError = "Grayscale16 decoding requires standard PNG compression/filtering and non-interlaced rows.";
 			return false;
@@ -335,7 +345,7 @@ namespace Durin::Image
 		int DecodedHeight = 0;
 		int Channels = 0;
 		stbi_us* Decoded = stbi_load_16_from_memory(
-			EncodedBytes.data(), static_cast<int>(EncodedBytes.size()),
+			reinterpret_cast<const stbi_uc*>(EncodedBytes.data()), static_cast<int>(EncodedBytes.size()),
 			&DecodedWidth, &DecodedHeight, &Channels, 0);
 		if (!Decoded || DecodedWidth != static_cast<int>(Width)
 			|| DecodedHeight != static_cast<int>(Height) || Channels != 1)
@@ -368,7 +378,7 @@ namespace Durin::Image
 			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
 			return false;
 		}
-		std::vector<uint8> EncodedBytes;
+		std::vector<std::byte> EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the grayscale16 PNG file.";
@@ -377,7 +387,7 @@ namespace Durin::Image
 		return DecodeGrayscale16PngFromMemory(EncodedBytes, OutImage, OutError, Limits);
 	}
 
-	auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,
+	auto DecodeRadianceHDRFromMemory(std::span<const std::byte> EncodedBytes, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits) -> bool
 	{
 		OutImage = {};
@@ -456,7 +466,8 @@ namespace Durin::Image
 				return false;
 			}
 			std::array<uint8, 4> Header;
-			std::copy_n(EncodedBytes.data() + Offset, 4, Header.begin());
+			for (size_t Index = 0; Index < Header.size(); ++Index)
+				Header[Index] = ToUint8(EncodedBytes[Offset + Index]);
 			Offset += 4;
 
 			const bool bNewEncoding = Width >= 8 && Width <= 32767
@@ -513,7 +524,7 @@ namespace Durin::Image
 			OutError = "The Radiance HDR file is empty or too large.";
 			return false;
 		}
-		std::vector<uint8> EncodedBytes;
+		std::vector<std::byte> EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the Radiance HDR file.";

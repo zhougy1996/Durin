@@ -22,7 +22,7 @@ namespace Durin::Editor::Level
 
 	auto GenerateTerrainHeightmapThumbnailPixels(
 		const FTerrainHeightmapPayload& Payload,
-		std::vector<uint8>& OutPixels,
+		std::vector<std::byte>& OutPixels,
 		std::string& OutError) -> bool
 	{
 		OutPixels.clear();
@@ -33,15 +33,15 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		constexpr uint32 Size = TerrainHeightmapThumbnailDimension;
-		OutPixels.assign(static_cast<size_t>(Size) * Size * 4, 255);
+		OutPixels.assign(static_cast<size_t>(Size) * Size * 4, std::byte{255});
 		const double Scale = std::min(static_cast<double>(Size) / Payload.Width,
 			static_cast<double>(Size) / Payload.Height);
 		const uint32 DrawWidth = std::max(1u, static_cast<uint32>(std::floor(Payload.Width * Scale)));
 		const uint32 DrawHeight = std::max(1u, static_cast<uint32>(std::floor(Payload.Height * Scale)));
 		const uint32 OffsetX = (Size - DrawWidth) / 2;
 		const uint32 OffsetY = (Size - DrawHeight) / 2;
-		std::ranges::fill(OutPixels, 24);
-		for (size_t Index = 3; Index < OutPixels.size(); Index += 4) OutPixels[Index] = 255;
+		std::ranges::fill(OutPixels, std::byte{24});
+		for (size_t Index = 3; Index < OutPixels.size(); Index += 4) OutPixels[Index] = std::byte{255};
 		const uint32 Range = static_cast<uint32>(Payload.Maximum) - Payload.Minimum;
 		for (uint32 Y = 0; Y < DrawHeight; ++Y)
 			for (uint32 X = 0; X < DrawWidth; ++X)
@@ -54,10 +54,10 @@ namespace Durin::Editor::Level
 				const uint8 Gray = Range == 0 ? 127 : static_cast<uint8>(
 					(static_cast<uint32>(Sample - Payload.Minimum) * 255u) / Range);
 				const size_t Pixel = (static_cast<size_t>(OffsetY + Y) * Size + OffsetX + X) * 4;
-				OutPixels[Pixel] = Gray;
-				OutPixels[Pixel + 1] = Gray;
-				OutPixels[Pixel + 2] = Gray;
-				OutPixels[Pixel + 3] = 255;
+				OutPixels[Pixel] = static_cast<std::byte>(Gray);
+				OutPixels[Pixel + 1] = static_cast<std::byte>(Gray);
+				OutPixels[Pixel + 2] = static_cast<std::byte>(Gray);
+				OutPixels[Pixel + 3] = std::byte{255};
 			}
 		// A fixed white L marks the canonical top-left without changing sample orientation.
 		for (uint32 I = 0; I < std::min(16u, std::min(DrawWidth, DrawHeight)); ++I)
@@ -66,7 +66,7 @@ namespace Durin::Editor::Level
 				std::pair{OffsetX + I, OffsetY}, std::pair{OffsetX, OffsetY + I}})
 			{
 				const size_t Pixel = (static_cast<size_t>(Y) * Size + X) * 4;
-				OutPixels[Pixel] = OutPixels[Pixel + 1] = OutPixels[Pixel + 2] = 255;
+				OutPixels[Pixel] = OutPixels[Pixel + 1] = OutPixels[Pixel + 2] = std::byte{255};
 			}
 		}
 		return true;

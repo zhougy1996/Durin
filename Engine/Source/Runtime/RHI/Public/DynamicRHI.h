@@ -285,18 +285,18 @@ namespace Durin
 			-> FRHIStorageBufferRange;
 		RHI_API auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void;
-		RHI_API auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void;
+		RHI_API auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const std::byte> SourceData) -> void;
 		RHI_API auto RHIUpdateTexture3D(FRHICommandListBase& RHICmdList,
 			FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
-			uint32 SourceDepthPitch, const uint8* SourceData) -> void;
+			uint32 SourceDepthPitch, std::span<const std::byte> SourceData) -> void;
 		// Synchronizes submitted work and returns one tightly packed subresource.
 		RHI_API virtual auto RHIReadTexture2D(
 			FRHICommandListImmediate& RHICmdList,
 			FRHITexture* Texture,
 			uint32 MipIndex,
 			uint32 ArraySlice,
-			std::vector<uint8>& OutData
+			std::vector<std::byte>& OutData
 		) -> bool;
 
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;

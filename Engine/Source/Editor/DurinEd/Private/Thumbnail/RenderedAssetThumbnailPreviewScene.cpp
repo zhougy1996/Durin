@@ -150,7 +150,7 @@ namespace Durin::Editor
 			std::mutex Mutex;
 			ERenderedAssetThumbnailCaptureState State =
 				ERenderedAssetThumbnailCaptureState::Idle;
-			std::vector<uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			std::string Error;
 			uint64 Generation = 0;
 		};
@@ -381,7 +381,7 @@ namespace Durin::Editor
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
 				FRHICommandListImmediate& CommandList
 			) {
-				std::vector<uint8> Pixels;
+				std::vector<std::byte> Pixels;
 				std::string Error;
 				if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
 				{
@@ -411,7 +411,7 @@ namespace Durin::Editor
 	}
 
 	auto FRenderedAssetThumbnailPreviewScenePool::PollCapture(
-		std::vector<uint8>& OutPixels,
+		std::vector<std::byte>& OutPixels,
 		std::string& OutError
 	) -> ERenderedAssetThumbnailCaptureState
 	{

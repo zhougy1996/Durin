@@ -37,7 +37,7 @@ namespace Durin::Editor
 		struct FPackageSnapshot
 		{
 			Asset::FAssetData Data;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			DObject* Asset = nullptr;
 			bool bWasLoaded = false;
 			bool bUpdated = false;
@@ -45,7 +45,7 @@ namespace Durin::Editor
 
 		auto SaveBytesAtomically(
 			const std::filesystem::path& Path,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			std::string& OutError) -> bool
 		{
 			FFileHelper::FAtomicFileError Error;

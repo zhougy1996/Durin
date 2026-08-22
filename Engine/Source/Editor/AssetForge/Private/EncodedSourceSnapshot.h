@@ -11,14 +11,14 @@ namespace Durin::Asset::Forge
 	{
 		FSourcePath SourcePath;
 		std::filesystem::path PhysicalPath;
-		std::shared_ptr<const std::vector<uint8>> Bytes;
+		std::shared_ptr<const std::vector<std::byte>> Bytes;
 		FXxHash128 ContentHash{};
 		uint64 FileSize = 0;
 		int64 LastWriteTime = 0;
 
-		auto GetBytes() const -> std::span<const uint8>
+		auto GetBytes() const -> std::span<const std::byte>
 		{
-			return Bytes ? std::span<const uint8>(*Bytes) : std::span<const uint8>{};
+			return Bytes ? std::span<const std::byte>(*Bytes) : std::span<const std::byte>{};
 		}
 	};
 

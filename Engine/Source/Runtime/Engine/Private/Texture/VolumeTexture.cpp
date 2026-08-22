@@ -143,9 +143,7 @@ namespace Durin
 			return FailCooked(OutError);
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
 		const std::span<const std::byte> ResidentBytes = Loaded.GetResidentBytes();
-		FCanonicalMemoryReader Ar(
-			{reinterpret_cast<const uint8*>(ResidentBytes.data()), ResidentBytes.size()},
-			EArchivePurpose::CookedPayload);
+		FCanonicalMemoryReader Ar(ResidentBytes, EArchivePurpose::CookedPayload);
 		Candidate->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
 		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);
@@ -173,7 +171,7 @@ namespace Durin
 			OutError = "Volume texture cook requires validated built platform data.";
 			return false;
 		}
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
 		PlatformData->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
@@ -189,7 +187,7 @@ namespace Durin
 		return Context.AddPackage(std::string(VirtualPackagePath), {std::move(Bulk)},
 			[this, bRetainDiagnosticSourceData](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes, std::string* Error) {
+				std::vector<std::byte>& OutPackageBytes, std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != VolumeTexturePrimaryCookedPayloadId)
 				{

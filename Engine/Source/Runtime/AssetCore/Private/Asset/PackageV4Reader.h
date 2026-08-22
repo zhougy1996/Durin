@@ -127,8 +127,8 @@ namespace Durin::Asset::DastV4
 		uint64 FieldId = 0;
 		uint8 Provenance = 0;
 		FValue Value;
-		std::vector<uint8> DescriptorClosure;
-		std::vector<uint8> RetainedPayload;
+		std::vector<std::byte> DescriptorClosure;
+		std::vector<std::byte> RetainedPayload;
 		uint64 PayloadOffset = 0;
 		uint64 PayloadSize = 0;
 	};
@@ -154,7 +154,7 @@ namespace Durin::Asset::DastV4
 	// zero means the supplied span is the complete package. OutHeader is replaced
 	// only after the complete header is valid.
 	ASSETCORE_API auto ReadHeader(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FValidatedHeader& OutHeader,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr,
@@ -163,14 +163,14 @@ namespace Durin::Asset::DastV4
 	// Reconstructs the complete immutable logical package. Canonical validation
 	// includes byte-for-byte re-emission through the production v4 writer.
 	ASSETCORE_API auto DecodePackage(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FDecodedPackage& OutPackage,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	ASSETCORE_API auto ReencodePackage(
 		const FDecodedPackage& Package,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	enum class ELiveLoadPhase : uint8
@@ -215,7 +215,7 @@ namespace Durin::Asset::DastV4
 		DPackage* Package = nullptr;
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
 		friend ASSETCORE_API auto LoadAssetPackage(
-			std::span<const uint8>, const FAssetPath&, FLoadedAssetPackage&,
+			std::span<const std::byte>, const FAssetPath&, FLoadedAssetPackage&,
 			FAssetLoadReport*, const FLiveLoadOptions&, const FReaderLimits&,
 			FReaderDiagnostic*) -> FAssetResult;
 	};
@@ -224,7 +224,7 @@ namespace Durin::Asset::DastV4
 	// rooted graph and is replaced only after dependencies, values, ledgers, and
 	// PostLoad all succeed. It does not publish registry or ordinary-load policy.
 	ASSETCORE_API auto LoadAssetPackage(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FAssetPath& PackagePath,
 		FLoadedAssetPackage& OutPackage,
 		FAssetLoadReport* OutReport = nullptr,
@@ -234,31 +234,31 @@ namespace Durin::Asset::DastV4
 
 	// Construct-free projection used by compatibility and reference tooling.
 	ASSETCORE_API auto InspectPackage(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FAssetPackageInspection& OutInspection,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
 	ASSETCORE_API auto ExtractReferences(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FAssetPath& SourcePackage,
 		std::vector<FAssetReferenceEdge>& OutReferences,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
 	ASSETCORE_API auto RewriteReferences(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
+		std::vector<std::byte>& OutBytes) -> FAssetResult;
 
 	ASSETCORE_API auto RelocatePackage(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FAssetPath& DestinationPath,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
+		std::vector<std::byte>& OutBytes) -> FAssetResult;
 
 	ASSETCORE_API auto ProbeCompatibility(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FAssetPath& PackagePath,
 		const FReflectionCompatibilityCatalog& Catalog,
 		FAssetPackageCompatibilityRecord& OutRecord,

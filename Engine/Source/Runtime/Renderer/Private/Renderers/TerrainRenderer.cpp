@@ -314,7 +314,7 @@ namespace Durin
 				Draw.SortKey.SectionIndex = static_cast<uint32>(Result.VisiblePatches);
 				const auto Bytes = Draw.Material.Representation.GetUniformPayload();
 				for (std::byte Byte : Bytes)
-					Draw.SortKey.MaterialUniform.push_back(std::to_integer<uint8>(Byte));
+					Draw.SortKey.MaterialUniform.push_back(Byte);
 				++Result.VisiblePatches;
 				Result.Triangles += Draw.TriangleCount;
 				++Result.StitchMaskHistogram[Draw.StitchMask];
@@ -423,7 +423,9 @@ namespace Durin
 											 .SetFlags(ETextureCreateFlags::ShaderResource);
 			FState::FHeight Candidate{Payload, GDynamicRHI->RHICreateTexture(CommandList, Desc)};
 			if (!Candidate.Texture) return false;
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.Texture, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, Payload->Width, Payload->Height), Payload->Width * sizeof(uint16), reinterpret_cast<const uint8*>(Payload->Samples.data()));
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.Texture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, Payload->Width, Payload->Height),
+				Payload->Width * sizeof(uint16), std::as_bytes(std::span(Payload->Samples)));
 			View.HeightUploadBytes += Payload->GetSampleBytes();
 			++View.HeightUploads;
 			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;

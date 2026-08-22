@@ -84,13 +84,13 @@ namespace Durin::Asset
 			});
 		}
 
-		auto LoadBytes(std::string_view Path, std::vector<uint8>& OutBytes) -> bool
+		auto LoadBytes(std::string_view Path, std::vector<std::byte>& OutBytes) -> bool
 		{
 			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
 
 		auto FingerprintMatches(const FAssetPackageFingerprint& Fingerprint,
-			std::span<const uint8> Bytes, std::string_view PhysicalPath) -> bool
+			std::span<const std::byte> Bytes, std::string_view PhysicalPath) -> bool
 		{
 			std::error_code Error;
 			const auto Time = std::filesystem::last_write_time(PhysicalPath, Error);
@@ -255,7 +255,7 @@ namespace Durin::Asset
 				Result.Diagnostic = "Injected canonical-resave revalidation failure.";
 				return Result;
 			}
-			std::vector<uint8> BeforeBytes;
+			std::vector<std::byte> BeforeBytes;
 			if (!LoadBytes(PackagePlan.PhysicalPath, BeforeBytes)
 				|| !FingerprintMatches(PackagePlan.Fingerprint, BeforeBytes, PackagePlan.PhysicalPath))
 			{
@@ -337,7 +337,7 @@ namespace Durin::Asset
 				return Result;
 			}
 
-			std::vector<uint8> AfterBytes;
+			std::vector<std::byte> AfterBytes;
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);

@@ -60,7 +60,7 @@ namespace Durin::Asset::Forge::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		std::error_code ErrorCode;
@@ -114,7 +114,7 @@ namespace Durin::Asset::Forge::Private
 		EImportedDependencyRole Role,
 		std::string StableIdentity,
 		std::string SourcePath,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint32* OutIndex) -> bool
 	{
 		if (Scene.Dependencies.size() >= MaxImportedDependencies) return false;
@@ -244,7 +244,7 @@ namespace Durin::Asset::Forge::Private
 
 	auto ValidateImageBytes(
 		EImportedImageEncoding Encoding,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string& OutError) -> bool
 	{
 		if (Bytes.size() > MaxImportedImageEncodedBytes)
@@ -259,27 +259,28 @@ namespace Durin::Asset::Forge::Private
 		case EImportedImageEncoding::Png:
 			if (Bytes.size() < 24 ||
 				!std::equal(Bytes.begin(), Bytes.begin() + 8,
-					std::array<uint8, 8>{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}.begin()))
+					std::array<std::byte, 8>{std::byte{0x89}, std::byte{'P'}, std::byte{'N'}, std::byte{'G'},
+						std::byte{0x0d}, std::byte{0x0a}, std::byte{0x1a}, std::byte{0x0a}}.begin()))
 			{
 				OutError = "Declared PNG image does not have a valid PNG signature.";
 				return false;
 			}
-			Width = (static_cast<uint32>(Bytes[16]) << 24) | (static_cast<uint32>(Bytes[17]) << 16)
-				| (static_cast<uint32>(Bytes[18]) << 8) | Bytes[19];
-			Height = (static_cast<uint32>(Bytes[20]) << 24) | (static_cast<uint32>(Bytes[21]) << 16)
-				| (static_cast<uint32>(Bytes[22]) << 8) | Bytes[23];
+			Width = (std::to_integer<uint32>(Bytes[16]) << 24) | (std::to_integer<uint32>(Bytes[17]) << 16)
+				| (std::to_integer<uint32>(Bytes[18]) << 8) | std::to_integer<uint32>(Bytes[19]);
+			Height = (std::to_integer<uint32>(Bytes[20]) << 24) | (std::to_integer<uint32>(Bytes[21]) << 16)
+				| (std::to_integer<uint32>(Bytes[22]) << 8) | std::to_integer<uint32>(Bytes[23]);
 			break;
 		case EImportedImageEncoding::Bmp:
-			if (Bytes.size() < 26 || Bytes[0] != 'B' || Bytes[1] != 'M')
+			if (Bytes.size() < 26 || Bytes[0] != std::byte{'B'} || Bytes[1] != std::byte{'M'})
 			{
 				OutError = "Declared BMP image does not have a valid BMP signature.";
 				return false;
 			}
-			Width = static_cast<uint32>(Bytes[18]) | (static_cast<uint32>(Bytes[19]) << 8)
-				| (static_cast<uint32>(Bytes[20]) << 16) | (static_cast<uint32>(Bytes[21]) << 24);
+			Width = std::to_integer<uint32>(Bytes[18]) | (std::to_integer<uint32>(Bytes[19]) << 8)
+				| (std::to_integer<uint32>(Bytes[20]) << 16) | (std::to_integer<uint32>(Bytes[21]) << 24);
 			{
-				const uint32 RawHeight = static_cast<uint32>(Bytes[22]) | (static_cast<uint32>(Bytes[23]) << 8)
-				| (static_cast<uint32>(Bytes[24]) << 16) | (static_cast<uint32>(Bytes[25]) << 24);
+				const uint32 RawHeight = std::to_integer<uint32>(Bytes[22]) | (std::to_integer<uint32>(Bytes[23]) << 8)
+				| (std::to_integer<uint32>(Bytes[24]) << 16) | (std::to_integer<uint32>(Bytes[25]) << 24);
 				const int32 SignedHeight = static_cast<int32>(RawHeight);
 				if (SignedHeight == std::numeric_limits<int32>::min())
 				{
@@ -290,26 +291,26 @@ namespace Durin::Asset::Forge::Private
 			}
 			break;
 		case EImportedImageEncoding::Jpeg:
-			if (Bytes.size() < 4 || Bytes[0] != 0xff || Bytes[1] != 0xd8)
+			if (Bytes.size() < 4 || Bytes[0] != std::byte{0xff} || Bytes[1] != std::byte{0xd8})
 			{
 				OutError = "Declared JPEG image does not have a valid JPEG signature.";
 				return false;
 			}
 			for (size_t Offset = 2; Offset + 3 < Bytes.size();)
 			{
-				if (Bytes[Offset] != 0xff)
+				if (Bytes[Offset] != std::byte{0xff})
 				{
 					++Offset;
 					continue;
 				}
-				while (Offset < Bytes.size() && Bytes[Offset] == 0xff) ++Offset;
+				while (Offset < Bytes.size() && Bytes[Offset] == std::byte{0xff}) ++Offset;
 				if (Offset >= Bytes.size()) break;
-				const uint8 Marker = Bytes[Offset++];
+				const uint8 Marker = std::to_integer<uint8>(Bytes[Offset++]);
 				if (Marker == 0xd8 || Marker == 0xd9 || Marker == 0x01 ||
 					(Marker >= 0xd0 && Marker <= 0xd7)) continue;
 				if (Offset + 2 > Bytes.size()) break;
 				const uint16 SegmentLength =
-					(static_cast<uint16>(Bytes[Offset]) << 8) | Bytes[Offset + 1];
+					(std::to_integer<uint16>(Bytes[Offset]) << 8) | std::to_integer<uint16>(Bytes[Offset + 1]);
 				if (SegmentLength < 2 || SegmentLength > Bytes.size() - Offset)
 				{
 					OutError = "JPEG image contains an invalid segment range.";
@@ -327,8 +328,8 @@ namespace Durin::Asset::Forge::Private
 						OutError = "JPEG start-of-frame segment is truncated.";
 						return false;
 					}
-					Height = (static_cast<uint16>(Bytes[Offset + 3]) << 8) | Bytes[Offset + 4];
-					Width = (static_cast<uint16>(Bytes[Offset + 5]) << 8) | Bytes[Offset + 6];
+					Height = (std::to_integer<uint16>(Bytes[Offset + 3]) << 8) | std::to_integer<uint16>(Bytes[Offset + 4]);
+					Width = (std::to_integer<uint16>(Bytes[Offset + 5]) << 8) | std::to_integer<uint16>(Bytes[Offset + 6]);
 					break;
 				}
 				Offset += SegmentLength;

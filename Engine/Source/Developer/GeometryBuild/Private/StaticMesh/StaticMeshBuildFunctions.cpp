@@ -18,7 +18,7 @@ namespace Durin::Asset::Build::Private
 			8ull * 1024ull * 1024ull * 1024ull;
 		constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 
-		auto DecodeStaticMeshCollisionInput(std::span<const uint8> Bytes,
+		auto DecodeStaticMeshCollisionInput(std::span<const std::byte> Bytes,
 			std::vector<FVector3>& Positions, std::vector<uint32>& Indices,
 			EBodySetupCollisionSourceMode& Mode,
 			EBodySetupCollisionQueryPolicy& Policy,
@@ -90,7 +90,7 @@ namespace Durin::Asset::Build::Private
 					return false;
 				}
 				Value = FBuildValue::FromOwned(std::string(StaticMeshValueName),
-					std::vector<uint8>(Input->GetBytes().begin(), Input->GetBytes().end()));
+					std::vector<std::byte>(Input->GetBytes().begin(), Input->GetBytes().end()));
 				return true;
 			}
 		};
@@ -149,7 +149,7 @@ namespace Durin::Asset::Build::Private
 				FStaticMeshCollisionPayloadData Payload;
 				if (!MakeStaticMeshCollisionPayloadData(Geometry, Policy, Payload, Error))
 					return false;
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
 				if (Ar.HasError())
@@ -183,7 +183,7 @@ namespace Durin::Asset::Build::Private
 	{
 		FStaticMeshPayloadData Payload;
 		if (!MakeStaticMeshPayloadData(RenderData, Payload, OutError)) return false;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
 		if (Ar.HasError())
@@ -216,7 +216,7 @@ namespace Durin::Asset::Build::Private
 		std::span<const FVector3f> Positions,
 		std::span<const uint32> Indices,
 		EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy) -> std::vector<uint8>
+		EBodySetupCollisionQueryPolicy Policy) -> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(static_cast<uint32>(Mode));

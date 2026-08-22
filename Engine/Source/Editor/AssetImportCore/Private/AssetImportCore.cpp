@@ -210,14 +210,14 @@ namespace Durin::Asset
 			OutError = "Import payload schema identity or version is invalid.";
 			return false;
 		}
-		ContentHash = FXxHash128::HashBuffer(std::span<const uint8>(Bytes));
+		ContentHash = FXxHash128::HashBuffer(std::span<const std::byte>(Bytes));
 		OutError.clear();
 		return true;
 	}
 
-	auto FSourceSnapshotEntry::GetBytes() const -> std::span<const uint8>
+	auto FSourceSnapshotEntry::GetBytes() const -> std::span<const std::byte>
 	{
-		return Bytes ? std::span<const uint8>(*Bytes) : std::span<const uint8>{};
+		return Bytes ? std::span<const std::byte>(*Bytes) : std::span<const std::byte>{};
 	}
 
 	auto FSourceSnapshot::FindSource(std::string_view StableIdentity) const -> const FSourceSnapshotEntry*
@@ -261,7 +261,7 @@ namespace Durin::Asset
 		std::string_view DeclaringIdentity,
 		std::string_view StableIdentity,
 		std::string_view Role,
-		std::span<const uint8> Bytes) -> bool
+		std::span<const std::byte> Bytes) -> bool
 	{
 		if (!IsStableIdentifier(DeclaringIdentity) || !IsStableIdentifier(StableIdentity)
 			|| Role.empty() || Bytes.empty())
@@ -284,7 +284,7 @@ namespace Durin::Asset
 			.DeclaringIdentity = std::string(DeclaringIdentity),
 			.StableIdentity = std::string(StableIdentity),
 			.Role = std::string(Role),
-			.EmbeddedBytes = std::vector<uint8>(Bytes.begin(), Bytes.end())});
+			.EmbeddedBytes = std::vector<std::byte>(Bytes.begin(), Bytes.end())});
 		return true;
 	}
 
@@ -452,7 +452,7 @@ namespace Durin::Asset
 		FSourceCaptureLimits Limits;
 		std::vector<FSourceSnapshotEntry> Sources;
 		std::unordered_map<std::string, size_t> SourceByIdentity;
-		std::unordered_map<std::string, std::shared_ptr<const std::vector<uint8>>> PhysicalBytes;
+		std::unordered_map<std::string, std::shared_ptr<const std::vector<std::byte>>> PhysicalBytes;
 		std::unordered_set<std::string> ProcessedRequests;
 		uint64 AggregateBytes = 0;
 		uint64 EmbeddedBytes = 0;
@@ -473,7 +473,7 @@ namespace Durin::Asset
 		}
 
 		auto HashBytes(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			std::string_view StableIdentity,
 			std::vector<FImportDiagnostic>& Diagnostics,
 			FXxHash128& OutHash) const -> bool
@@ -494,7 +494,7 @@ namespace Durin::Asset
 			std::string StableIdentity,
 			std::string Role,
 			FSourcePath SourcePath,
-			std::span<const uint8> InputBytes,
+			std::span<const std::byte> InputBytes,
 			std::string DeclaringIdentity,
 			uint32 Depth,
 			bool bEmbedded,
@@ -524,7 +524,7 @@ namespace Durin::Asset
 				}
 				return true;
 			}
-			auto MutableBytes = std::make_shared<std::vector<uint8>>(InputBytes.size());
+			auto MutableBytes = std::make_shared<std::vector<std::byte>>(InputBytes.size());
 			for (size_t Offset = 0; Offset < InputBytes.size();
 				Offset += CancellationChunkBytes)
 			{
@@ -533,7 +533,7 @@ namespace Durin::Asset
 					CancellationChunkBytes, InputBytes.size() - Offset);
 				std::memcpy(MutableBytes->data() + Offset, InputBytes.data() + Offset, Count);
 			}
-			std::shared_ptr<const std::vector<uint8>> Bytes = std::move(MutableBytes);
+			std::shared_ptr<const std::vector<std::byte>> Bytes = std::move(MutableBytes);
 			FXxHash128 ContentHash;
 			if (!HashBytes(*Bytes, StableIdentity, Diagnostics, ContentHash)) return false;
 			FSourceSnapshotEntry Entry{
@@ -584,7 +584,7 @@ namespace Durin::Asset
 			}
 			SourcePath.Path = Resolved.NormalizedVirtualPath;
 			const std::string PhysicalIdentity = StablePhysicalIdentity(Resolved.PhysicalPath);
-			std::shared_ptr<const std::vector<uint8>> Bytes;
+			std::shared_ptr<const std::vector<std::byte>> Bytes;
 			if (const auto Existing = PhysicalBytes.find(PhysicalIdentity);
 				Existing != PhysicalBytes.end())
 			{
@@ -610,7 +610,7 @@ namespace Durin::Asset
 						StableIdentity, Error.message());
 					return false;
 				}
-				auto MutableBytes = std::make_shared<std::vector<uint8>>(
+				auto MutableBytes = std::make_shared<std::vector<std::byte>>(
 					static_cast<size_t>(FileSize));
 				std::ifstream Stream(Resolved.PhysicalPath, std::ios::binary);
 				bool bRead = Stream.is_open();
@@ -716,7 +716,7 @@ namespace Durin::Asset
 
 	auto FSourceSnapshotBuilder::CaptureRootBytes(
 		const FSourcePath& RootSource,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::vector<FImportDiagnostic>& OutDiagnostics) -> bool
 	{
 		if (Impl->bRootCaptured || Impl->bFrozen || RootSource.IsEmpty())
@@ -756,7 +756,7 @@ namespace Durin::Asset
 		std::string_view StableIdentity,
 		std::string_view Role,
 		const FSourcePath& Source,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		bool bEmbedded,
 		std::vector<FImportDiagnostic>& OutDiagnostics) -> bool
 	{
@@ -821,7 +821,7 @@ namespace Durin::Asset
 				}
 				const std::string RequestKey = std::format("{}|{}|{}|{}|{}|{}", Request.DeclaringIdentity,
 					Request.StableIdentity, Request.Role, Request.RelativePath, Request.bOptional,
-					FXxHash128::HashBuffer(std::span<const uint8>(Request.EmbeddedBytes)).ToString());
+					FXxHash128::HashBuffer(std::span<const std::byte>(Request.EmbeddedBytes)).ToString());
 				if (!Impl->ProcessedRequests.insert(RequestKey).second) continue;
 
 				if (Request.IsEmbedded())
@@ -851,12 +851,12 @@ namespace Durin::Asset
 						}
 						continue;
 					}
-					auto Bytes = std::make_shared<const std::vector<uint8>>(std::move(Request.EmbeddedBytes));
+					auto Bytes = std::make_shared<const std::vector<std::byte>>(std::move(Request.EmbeddedBytes));
 					FSourceSnapshotEntry Entry{
 						.StableIdentity = std::move(Request.StableIdentity),
 						.Role = std::move(Request.Role),
 						.DeclaringIdentity = Request.DeclaringIdentity,
-						.ContentHash = FXxHash128::HashBuffer(std::span<const uint8>(*Bytes)),
+						.ContentHash = FXxHash128::HashBuffer(std::span<const std::byte>(*Bytes)),
 						.ByteCount = Bytes->size(),
 						.Depth = Depth,
 						.bEmbedded = true};
@@ -969,7 +969,7 @@ namespace Durin::Asset
 		}
 		if (!IsStableIdentifier(Settings.SchemaId) || Settings.SchemaVersion == 0
 			|| Settings.ContentHash
-				!= FXxHash128::HashBuffer(std::span<const uint8>(Settings.Bytes)))
+				!= FXxHash128::HashBuffer(std::span<const std::byte>(Settings.Bytes)))
 		{
 			Result.Message = "Import planning requires finalized normalized settings.";
 			AddDiagnostic(Result.Diagnostics, EImportDiagnosticSeverity::Error,
@@ -1644,7 +1644,7 @@ namespace Durin::Asset
 
 		DPackage* Package = Plan.Asset->GetPackage();
 		const bool bPackageWasDirty = Package->IsDirty();
-		std::vector<uint8> BeforePublicationBytes;
+		std::vector<std::byte> BeforePublicationBytes;
 		std::vector<Asset::FAuthoredBulkPayload> BeforePublicationBulkPayloads;
 		const Asset::FAssetResult BeforeSerialization =
 			Asset::SerializeAssetPackageBytes(Package, BeforePublicationBytes,
@@ -1668,7 +1668,7 @@ namespace Durin::Asset
 				Options.Progress, EImportPhase::Restore, "root", Plan.AssetPath.GetView());
 			Exchange->Reverse();
 			if (!bPackageWasDirty) Package->ClearDirty();
-			std::vector<uint8> RestoredBytes;
+			std::vector<std::byte> RestoredBytes;
 			std::vector<Asset::FAuthoredBulkPayload> RestoredBulkPayloads;
 			const Asset::FAssetResult RestoredSerialization =
 				Asset::SerializeAssetPackageBytes(Package, RestoredBytes,

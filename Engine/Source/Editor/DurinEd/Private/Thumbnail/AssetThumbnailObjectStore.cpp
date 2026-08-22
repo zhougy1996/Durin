@@ -89,7 +89,7 @@ namespace Durin::Editor
 
 		auto LoadIndex() -> void
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			std::error_code Error;
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)
 				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath()))
@@ -168,7 +168,7 @@ namespace Durin::Editor
 
 	FAssetThumbnailObjectStore::~FAssetThumbnailObjectStore() = default;
 
-	auto FAssetThumbnailObjectStore::Load(std::string_view Key, std::vector<uint8>& OutBytes)
+	auto FAssetThumbnailObjectStore::Load(std::string_view Key, std::vector<std::byte>& OutBytes)
 		-> EAssetThumbnailObjectLoadResult
 	{
 		OutBytes.clear();
@@ -212,7 +212,7 @@ namespace Durin::Editor
 		return EAssetThumbnailObjectLoadResult::Invalid;
 	}
 
-	auto FAssetThumbnailObjectStore::Store(std::string_view Key, std::span<const uint8> Bytes) -> bool
+	auto FAssetThumbnailObjectStore::Store(std::string_view Key, std::span<const std::byte> Bytes) -> bool
 	{
 		if (!IsSafeKey(Key) || Bytes.empty() || Bytes.size() > Impl->Settings.MaximumObjectBytes) return false;
 		const std::filesystem::path ObjectPath = Impl->ObjectPath(Key);

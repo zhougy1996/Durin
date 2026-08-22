@@ -22,15 +22,16 @@ namespace
 			Mip.Width = Dimension;
 			Mip.Height = Dimension;
 			Mip.RowPitch = static_cast<Durin::uint32>(Layout.RowPitch);
-			Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize), static_cast<Durin::uint8>(Dimension));
+			Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize),
+				static_cast<std::byte>(Dimension));
 		}
 		return Result;
 	}
 
-	auto WriteU32(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint32 Value) -> void
 	{
 		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
-			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
 	auto MakeCubePlatformData() -> Durin::FTextureCubePlatformData
@@ -41,14 +42,14 @@ namespace
 		{
 			Result.Faces[FaceIndex] = MakePlatformData(Result.PixelFormat);
 			for (Durin::FTexture2DMipData& Mip : Result.Faces[FaceIndex].Mips)
-				std::ranges::fill(Mip.Pixels, static_cast<Durin::uint8>(FaceIndex + 1));
+				std::ranges::fill(Mip.Pixels, static_cast<std::byte>(FaceIndex + 1));
 		}
 		return Result;
 	}
 
 	auto StorePlatformDataValue(
 		const Durin::FTexturePlatformData& PlatformData,
-		std::vector<Durin::uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -62,7 +63,7 @@ namespace
 	}
 
 	auto LoadPlatformDataValue(
-		std::span<const Durin::uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::unique_ptr<Durin::FTexturePlatformData>& OutPlatformData)
 		-> Durin::FPayloadDecodeResult
 	{
@@ -162,8 +163,8 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 	{
 		const Durin::EPixelFormat Format = Formats[FormatIndex];
 		const Durin::FTexturePlatformData Expected = MakePlatformData(Format);
-		std::vector<Durin::uint8> First;
-		std::vector<Durin::uint8> Second;
+		std::vector<std::byte> First;
+		std::vector<std::byte> Second;
 		std::string Error;
 		ASSERT_TRUE(StorePlatformDataValue(Expected, First, Error)) << Error;
 		ASSERT_TRUE(StorePlatformDataValue(Expected, Second, Error)) << Error;
@@ -185,7 +186,7 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 {
 	Durin::FTexturePlatformData Expected = MakePlatformData();
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Expected.Serialize(Writer, {
@@ -207,7 +208,7 @@ TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 {
 	const Durin::FTexturePlatformData Expected = MakePlatformData();
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	std::string Error;
 	ASSERT_TRUE(StorePlatformDataValue(Expected, Bytes, Error)) << Error;
 	auto Existing = std::make_unique<Durin::FTexturePlatformData>(Expected);
@@ -221,7 +222,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;
-	Corrupt.back() ^= 0xff;
+	Corrupt.back() ^= std::byte{0xff};
 	DecodeResult = LoadPlatformDataValue(Corrupt, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
@@ -309,8 +310,8 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterministically)
 {
 	const Durin::FTextureCubePlatformData Expected = MakeCubePlatformData();
-	std::vector<Durin::uint8> First;
-	std::vector<Durin::uint8> Second;
+	std::vector<std::byte> First;
+	std::vector<std::byte> Second;
 	const Durin::FTexturePlatformSerializationContext Context{
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};

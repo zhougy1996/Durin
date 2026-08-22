@@ -24,7 +24,7 @@ namespace Durin::Asset::Build
 
 	GEOMETRYBUILD_API auto BuildTerrainHeightmapDerivedDataKeyBytes(
 		const FTerrainHeightmapBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	GEOMETRYBUILD_API auto BuildTerrainHeightmapDerivedDataKey(
 		const FTerrainHeightmapBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

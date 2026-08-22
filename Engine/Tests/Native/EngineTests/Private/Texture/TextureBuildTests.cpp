@@ -31,7 +31,7 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
 	EXPECT_EQ(First.Mips[1].Depth, 1u);
-	EXPECT_EQ(First.Mips[1].Voxels, (std::vector<Durin::uint8>{7}));
+	EXPECT_EQ(First.Mips[1].Voxels, (std::vector<std::byte>{std::byte{7}}));
 	EXPECT_EQ(First.Mips[0].Voxels, Second.Mips[0].Voxels);
 	EXPECT_EQ(First.Mips[1].Voxels, Second.Mips[1].Voxels);
 }
@@ -56,7 +56,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
 		Source, {}, Platform, Error)) << Error;
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
@@ -68,7 +68,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
 	auto DifferentProducer = Bytes;
 	for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
-		DifferentProducer[8 + Byte] = static_cast<Durin::uint8>(
+		DifferentProducer[8 + Byte] = static_cast<std::byte>(
 			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
 	Result = Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
 		Durin::Asset::ECookTargetPlatform::Win64,
@@ -77,7 +77,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	const size_t MipCountBeforeFailure = Decoded.Mips.size();
 	const Durin::FVolumeTextureMipData LastMipBeforeFailure = Decoded.Mips.back();
 	const Durin::EPixelFormat FormatBeforeFailure = Decoded.PixelFormat;
-	Bytes.back() ^= 1;
+	Bytes.back() ^= std::byte{1};
 	Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Decoded);
@@ -174,7 +174,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 		Durin::Asset::ECookTargetProfile::Game);
 	ASSERT_TRUE(Texture->AddToCook(Cook, "/Game/CookedVolume", Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
-	std::vector<Durin::uint8> BulkBytes;
+	std::vector<std::byte> BulkBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BulkBytes,
 		(CookRoot / "Game/CookedVolume.dbulk")));
 	Durin::Asset::FCookedBulkContainer Container;
@@ -291,11 +291,11 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_FALSE(MissingLoad);
 	EXPECT_EQ(Texture, nullptr);
 	std::filesystem::rename(HeldCompanion, AuthoredBulkFiles.front());
-	std::vector<Durin::uint8> CompanionBytes;
+	std::vector<std::byte> CompanionBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		CompanionBytes, AuthoredBulkFiles.front()));
-	std::vector<Durin::uint8> CorruptCompanion = CompanionBytes;
-	CorruptCompanion.back() ^= 1;
+	std::vector<std::byte> CorruptCompanion = CompanionBytes;
+	CorruptCompanion.back() ^= std::byte{1};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CorruptCompanion)),
 		AuthoredBulkFiles.front().generic_string()));
@@ -360,13 +360,16 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 		Durin::Testing::GetTestWorkDirectory() / "NormalizedTexture2DBuildDdc");
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
+	const std::span<const std::byte> TransparentPngData =
+		std::as_bytes(std::span{TransparentPngBytes});
 	ASSERT_TRUE(Durin::Asset::Forge::TranslateTexture2DSource(
-		TransparentPngBytes, SourceData, Error)) << Error;
+		TransparentPngData, SourceData, Error)) << Error;
 	ASSERT_TRUE(SourceData.IsValid());
 	EXPECT_EQ(SourceData.Width, 2u);
 	EXPECT_EQ(SourceData.Height, 1u);
 
-	const Durin::FXxHash128 SourceHash = Durin::FXxHash128::HashBuffer(TransparentPngBytes);
+	const Durin::FXxHash128 SourceHash =
+		Durin::FXxHash128::HashBuffer(TransparentPngData);
 	Durin::Asset::Build::FTexture2DBuildProduct Product;
 	ASSERT_TRUE(Durin::Asset::Build::BuildTexture2D({
 		.SourceData = std::move(SourceData),
@@ -396,10 +399,12 @@ TEST(FTexture2DTests, BuildOwnedAuthoringServicePublishesLatestNormalizedProduct
 
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
+	const std::span<const std::byte> TransparentPngData =
+		std::as_bytes(std::span{TransparentPngBytes});
 	ASSERT_TRUE(Durin::Asset::Forge::TranslateTexture2DSource(
-		TransparentPngBytes, SourceData, Error)) << Error;
+		TransparentPngData, SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
-		Durin::FXxHash128::HashBuffer(TransparentPngBytes);
+		Durin::FXxHash128::HashBuffer(TransparentPngData);
 	ASSERT_TRUE(Durin::Asset::Build::SubmitTexture2DBuild(*Imported.Asset, {
 		.SourceData = std::move(SourceData),
 		.SourceContentHashLow = SourceHash.HashLow,
@@ -571,10 +576,11 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 				const Durin::uint32 X = BlockX * 2 + Pixel % 2;
 				const Durin::uint32 Y = BlockY * 2 + Pixel / 2;
 				const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
-				Source.Pixels[Offset] = static_cast<Durin::uint8>(X * 24);
-				Source.Pixels[Offset + 1] = static_cast<Durin::uint8>(Y * 24);
-				Source.Pixels[Offset + 2] = 64;
-				Source.Pixels[Offset + 3] = Pixel < OpaqueCount ? 255 : 0;
+				Source.Pixels[Offset] = static_cast<std::byte>(X * 24);
+				Source.Pixels[Offset + 1] = static_cast<std::byte>(Y * 24);
+				Source.Pixels[Offset + 2] = std::byte{64};
+				Source.Pixels[Offset + 3] = Pixel < OpaqueCount
+					? std::byte{255} : std::byte{0};
 			}
 		}
 	}
@@ -591,8 +597,8 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 	ASSERT_GE(Average.Mips.size(), 2u);
 	ASSERT_EQ(Preserved.Mips.size(), Average.Mips.size());
 
-	const std::vector<Durin::uint8> AveragePixels = DecodeBC3Mip(Average.Mips[1]);
-	const std::vector<Durin::uint8> PreservedPixels = DecodeBC3Mip(Preserved.Mips[1]);
+	const std::vector<std::byte> AveragePixels = DecodeBC3Mip(Average.Mips[1]);
+	const std::vector<std::byte> PreservedPixels = DecodeBC3Mip(Preserved.Mips[1]);
 	const double SourceCoverage = 20.0 / 64.0;
 	const double AverageError = std::abs(CalculateDecodedCoverage(AveragePixels, 128) - SourceCoverage);
 	const double PreservedError = std::abs(CalculateDecodedCoverage(PreservedPixels, 128) - SourceCoverage);
@@ -647,7 +653,7 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 	Source.Pixels.resize(
 		static_cast<size_t>(Source.Width) * Source.Height
 		* Durin::Asset::Build::TextureBuilder::ChannelCount,
-		127);
+		std::byte{127});
 	Durin::uint32 CheckpointCount = 0;
 	const Durin::Asset::Build::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [&] { return ++CheckpointCount == 20; }};
@@ -695,7 +701,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 0, 0, 128});
 
-	const std::vector<Durin::uint8> LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
+	const std::vector<std::byte> LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::Forge::SetTexture2DSRGB(*Loaded, true, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Loaded, 10.0))

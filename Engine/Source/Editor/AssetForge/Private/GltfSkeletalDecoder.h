@@ -8,6 +8,6 @@ namespace Durin::Asset::Forge::Private
 {
 	auto ImportGltfSkeletalData(
 		FJsonNodeView Root,
-		const std::vector<std::vector<uint8>>& Buffers,
+		const std::vector<std::vector<std::byte>>& Buffers,
 		FSceneDecodeResult& Result) -> bool;
 }

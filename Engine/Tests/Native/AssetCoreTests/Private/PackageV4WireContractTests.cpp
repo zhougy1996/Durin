@@ -11,9 +11,12 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Testing::DastV4;
 
-	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<uint8>
+	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
-		return Values;
+		std::vector<std::byte> Result;
+		Result.reserve(Values.size());
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
 	}
 
 	auto MakeSummary() -> FPublicSummary
@@ -27,7 +30,7 @@ namespace
 		};
 	}
 
-	auto MakeRawEnvelope(std::span<const uint8> Summary) -> std::vector<uint8>
+	auto MakeRawEnvelope(std::span<const std::byte> Summary) -> std::vector<std::byte>
 	{
 		FWireWriter Writer;
 		Writer.WriteU32(Magic);
@@ -45,14 +48,14 @@ namespace
 		return Writer.TakeBytes();
 	}
 
-	auto StoreU32(std::vector<uint8>& Data, uint64 Offset, uint32 Value) -> void
+	auto StoreU32(std::vector<std::byte>& Data, uint64 Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Data.size());
 		for (uint32 Index = 0; Index < 4; ++Index)
-			Data[Offset + Index] = uint8(Value >> (Index * 8));
+			Data[Offset + Index] = static_cast<std::byte>(Value >> (Index * 8));
 	}
 
-	auto ExpectHeaderFailure(std::span<const uint8> Data, std::string_view Message = {}) -> void
+	auto ExpectHeaderFailure(std::span<const std::byte> Data, std::string_view Message = {}) -> void
 	{
 		FValidatedHeader Header;
 		std::string Error;
@@ -80,7 +83,7 @@ TEST(FPackageV4WireContractTests, WritesEveryPrimitiveAsExactGoldenBytes)
 	ASSERT_TRUE(Writer.WriteString("", Error)) << Error;
 	ASSERT_TRUE(Writer.WriteString("A\xe2\x82\xac", Error)) << Error;
 
-	const std::vector<uint8> Golden = Bytes({
+	const std::vector<std::byte> Golden = Bytes({
 		0x7f, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x89,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x00, 0x00, 0x80, 0x3f,
@@ -128,7 +131,7 @@ TEST(FPackageV4WireContractTests, WritesEveryPrimitiveAsExactGoldenBytes)
 
 TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedBytes)
 {
-	for (const std::vector<uint8>& Invalid : {
+	for (const std::vector<std::byte>& Invalid : {
 		Bytes({0x80, 0x00}),
 		Bytes({0x81, 0x00}),
 		Bytes({0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}),
@@ -142,7 +145,7 @@ TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedByt
 		EXPECT_FALSE(Error.empty());
 	}
 
-	for (const std::vector<uint8>& Invalid : {
+	for (const std::vector<std::byte>& Invalid : {
 		Bytes({0x01, 0x00}),
 		Bytes({0x02, 0xc0, 0x80}),
 		Bytes({0x03, 0xed, 0xa0, 0x80}),
@@ -158,7 +161,7 @@ TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedByt
 		EXPECT_FALSE(Error.empty());
 	}
 
-	const std::vector<uint8> WithTrailingByte = Bytes({0x00, 0xff});
+	const std::vector<std::byte> WithTrailingByte = Bytes({0x00, 0xff});
 	FWireReader Reader(WithTrailingByte);
 	uint8 Value = 0;
 	std::string Error;
@@ -168,7 +171,7 @@ TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedByt
 
 TEST(FPackageV4WireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
 {
-	const std::array<std::pair<int64, std::vector<uint8>>, 5> Cases = {{
+	const std::array<std::pair<int64, std::vector<std::byte>>, 5> Cases = {{
 		{std::numeric_limits<int64>::min(), Bytes({
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01})},
 		{-1, Bytes({0x01})},
@@ -193,12 +196,12 @@ TEST(FPackageV4WireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
 
 TEST(FPackageV4WireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
 {
-	std::array<std::vector<uint8>, SectionCount> Sections;
-	std::vector<uint8> Encoded;
+	std::array<std::vector<std::byte>, SectionCount> Sections;
+	std::vector<std::byte> Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 
-	const std::vector<uint8> Golden = Bytes({
+	const std::vector<std::byte> Golden = Bytes({
 		0x44, 0x41, 0x53, 0x54, 0x04, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
@@ -230,11 +233,11 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAndRoundTripsDeterminis
 		.Dependencies = {"/Engine/A", "/Game/B"},
 		.ObjectCount = 3,
 	};
-	const std::array<std::vector<uint8>, SectionCount> Sections = {
+	const std::array<std::vector<std::byte>, SectionCount> Sections = {
 		Bytes({0xaa}), Bytes({0xbb, 0xcc}), Bytes({}), Bytes({0xdd}), Bytes({0xee, 0xff, 0x11}),
 	};
-	std::vector<uint8> First;
-	std::vector<uint8> Second;
+	std::vector<std::byte> First;
+	std::vector<std::byte> Second;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(Summary, Sections, First, Error)) << Error;
 	ASSERT_TRUE(EncodeEnvelope(Summary, Sections, Second, Error)) << Error;
@@ -243,7 +246,7 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAndRoundTripsDeterminis
 	FValidatedHeader Header;
 	ASSERT_TRUE(DecodeHeader(First, Header, Error)) << Error;
 	EXPECT_EQ(Header.Summary, Summary);
-	std::vector<uint8> Reencoded;
+	std::vector<std::byte> Reencoded;
 	ASSERT_TRUE(EncodeEnvelope(Header.Summary, Sections, Reencoded, Error)) << Error;
 	EXPECT_EQ(Reencoded, First);
 
@@ -260,13 +263,13 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAndRoundTripsDeterminis
 
 TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 {
-	const std::array<std::vector<uint8>, SectionCount> Sections = {
+	const std::array<std::vector<std::byte>, SectionCount> Sections = {
 		Bytes({0xaa}), Bytes({0xbb, 0xcc}), Bytes({}), Bytes({0xdd}), Bytes({0xee, 0xff, 0x11}),
 	};
-	std::vector<uint8> Encoded;
+	std::vector<std::byte> Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
-	const std::vector<uint8> Golden = Bytes({
+	const std::vector<std::byte> Golden = Bytes({
 		0x44, 0x41, 0x53, 0x54, 0x04, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
@@ -282,10 +285,10 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 
 TEST(FPackageV4WireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBodies)
 {
-	std::array<std::vector<uint8>, SectionCount> Sections = {
+	std::array<std::vector<std::byte>, SectionCount> Sections = {
 		Bytes({0xff, 0xff}), Bytes({0x80}), Bytes({0x00, 0xff}), Bytes({0xfe}), Bytes({0x80, 0x00}),
 	};
-	std::vector<uint8> Encoded;
+	std::vector<std::byte> Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 	FValidatedHeader Header;
@@ -294,26 +297,26 @@ TEST(FPackageV4WireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBod
 
 TEST(FPackageV4WireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 {
-	std::array<std::vector<uint8>, SectionCount> Sections;
-	std::vector<uint8> Valid;
+	std::array<std::vector<std::byte>, SectionCount> Sections;
+	std::vector<std::byte> Valid;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Valid, Error)) << Error;
 	const uint64 Directory = 19;
 
-	std::vector<uint8> Mutated = Valid;
+	std::vector<std::byte> Mutated = Valid;
 	Mutated.pop_back();
 	ExpectHeaderFailure(Mutated, "truncation");
 
 	Mutated = Valid;
-	Mutated[0] = 0;
+	Mutated[0] = std::byte{0};
 	ExpectHeaderFailure(Mutated, "magic");
 
 	Mutated = Valid;
-	Mutated[4] = 3;
+	Mutated[4] = std::byte{3};
 	ExpectHeaderFailure(Mutated, "version");
 
 	Mutated = Valid;
-	Mutated[12] = 4;
+	Mutated[12] = std::byte{4};
 	ExpectHeaderFailure(Mutated, "five sections");
 
 	Mutated = MakeRawEnvelope(Bytes({0x81, 0x00, 0x00, 0x00, 0x00, 0x01}));
@@ -332,19 +335,19 @@ TEST(FPackageV4WireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 	ExpectHeaderFailure(Mutated, "unconsumed");
 
 	Mutated = Valid;
-	Mutated[Directory] = 0;
+	Mutated[Directory] = std::byte{0};
 	ExpectHeaderFailure(Mutated, "unknown");
 
 	Mutated = Valid;
-	Mutated[Directory] = 6;
+	Mutated[Directory] = std::byte{6};
 	ExpectHeaderFailure(Mutated, "unknown required");
 
 	Mutated = Valid;
-	Mutated[Directory + 9] = 1;
+	Mutated[Directory + 9] = std::byte{1};
 	ExpectHeaderFailure(Mutated, "duplicate");
 
 	Mutated = Valid;
-	Mutated[Directory] = 2;
+	Mutated[Directory] = std::byte{2};
 	ExpectHeaderFailure(Mutated, "out-of-order");
 
 	Mutated = Valid;
@@ -360,14 +363,14 @@ TEST(FPackageV4WireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 	ExpectHeaderFailure(Mutated, "overflow");
 
 	Mutated = Valid;
-	Mutated.push_back(0xee);
+	Mutated.push_back(std::byte{0xee});
 	ExpectHeaderFailure(Mutated, "trailing");
 }
 
 TEST(FPackageV4WireContractTests, RejectsNoncanonicalSummaryModelsBeforePublication)
 {
-	std::array<std::vector<uint8>, SectionCount> Sections;
-	std::vector<uint8> Encoded = {0xaa};
+	std::array<std::vector<std::byte>, SectionCount> Sections;
+	std::vector<std::byte> Encoded = Bytes({0xaa});
 	std::string Error;
 
 	FPublicSummary Summary = MakeSummary();

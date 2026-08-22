@@ -61,7 +61,7 @@ namespace Durin::Asset::DastV4
 		class FWireReader
 		{
 		public:
-			explicit FWireReader(std::span<const uint8> InBytes, uint64 InBaseOffset = 0)
+			explicit FWireReader(std::span<const std::byte> InBytes, uint64 InBaseOffset = 0)
 				: Bytes(InBytes), BaseOffset(InBaseOffset) {}
 
 			auto Position() const -> uint64 { return BaseOffset + Offset; }
@@ -72,7 +72,7 @@ namespace Durin::Asset::DastV4
 			{
 				if (Offset == Bytes.size()) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
 					"Unexpected end of input.", Position());
-				Out = Bytes[Offset++]; return true;
+				Out = std::to_integer<uint8>(Bytes[Offset++]); return true;
 			}
 
 			template<typename T>
@@ -83,7 +83,7 @@ namespace Durin::Asset::DastV4
 					"Truncated fixed-width value.", Position());
 				Out = 0;
 				for (uint64 Index = 0; Index < sizeof(T); ++Index)
-					Out |= T(Bytes[Offset++]) << (Index * 8);
+					Out |= T(std::to_integer<uint8>(Bytes[Offset++])) << (Index * 8);
 				return true;
 			}
 
@@ -120,7 +120,7 @@ namespace Durin::Asset::DastV4
 				return true;
 			}
 
-			auto BytesSpan(uint64 Count, std::span<const uint8>& Out,
+			auto BytesSpan(uint64 Count, std::span<const std::byte>& Out,
 				FReaderDiagnostic& Diagnostic) -> bool
 			{
 				if (Count > Remaining()) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
@@ -129,7 +129,7 @@ namespace Durin::Asset::DastV4
 				Offset += static_cast<size_t>(Count); return true;
 			}
 
-			auto Record(std::span<const uint8>& Out, FReaderDiagnostic& Diagnostic,
+			auto Record(std::span<const std::byte>& Out, FReaderDiagnostic& Diagnostic,
 				uint64* OutOffset = nullptr) -> bool
 			{
 				uint64 Length = 0;
@@ -143,7 +143,7 @@ namespace Durin::Asset::DastV4
 			{
 				const uint64 Start = Position();
 				uint64 Length = 0;
-				std::span<const uint8> Data;
+				std::span<const std::byte> Data;
 				if (!VarUInt(Length, Diagnostic)) return false;
 				if (Length > Limits.StringBytes)
 					return Fail(Diagnostic, EReaderFailure::LimitExceeded,
@@ -163,7 +163,7 @@ namespace Durin::Asset::DastV4
 			}
 
 		private:
-			std::span<const uint8> Bytes;
+			std::span<const std::byte> Bytes;
 			uint64 BaseOffset = 0;
 			size_t Offset = 0;
 		};
@@ -184,7 +184,7 @@ namespace Durin::Asset::DastV4
 			return true;
 		}
 
-		auto DecodeHeaderInner(std::span<const uint8> Bytes, uint64 PackageSize,
+		auto DecodeHeaderInner(std::span<const std::byte> Bytes, uint64 PackageSize,
 			FValidatedHeader& Out, const FReaderLimits& Limits,
 			FReaderDiagnostic& Diagnostic) -> bool
 		{
@@ -207,7 +207,7 @@ namespace Durin::Asset::DastV4
 			if (SectionCount != RequiredSectionCount)
 				return Fail(Diagnostic, EReaderFailure::InvalidDirectory,
 					"DAST v4 requires exactly five sections.", 12);
-			std::span<const uint8> SummaryBytes;
+			std::span<const std::byte> SummaryBytes;
 			if (!Reader.BytesSpan(SummaryLength, SummaryBytes, Diagnostic)) return false;
 			FWireReader Summary(SummaryBytes, 13);
 			FValidatedHeader Result;
@@ -417,7 +417,7 @@ namespace Durin::Asset::DastV4
 				uint64 Previous = 0;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
-					uint64 FieldId = 0; uint8 Provenance = 0; std::span<const uint8> Encoded; uint64 Offset = 0;
+					uint64 FieldId = 0; uint8 Provenance = 0; std::span<const std::byte> Encoded; uint64 Offset = 0;
 					if (!Reader.VarUInt(FieldId, Diagnostic) || FieldId <= Previous || FieldId > Schema->Fields.size()
 						|| !Reader.U8(Provenance, Diagnostic) || Provenance > 1 || !Reader.Record(Encoded, Diagnostic, &Offset))
 						return Fail(Diagnostic, EReaderFailure::InvalidValue, "Struct field record is invalid.", Reader.Position(), std::move(Path));
@@ -492,7 +492,7 @@ namespace Durin::Asset::DastV4
 				break;
 			case ETypeOpcode::Bytes: case ETypeOpcode::BulkData:
 			{
-				uint64 Count = 0; std::span<const uint8> Data;
+				uint64 Count = 0; std::span<const std::byte> Data;
 				if (!Reader.VarUInt(Count, Diagnostic) || Count > Limits.ByteValueBytes || !Reader.BytesSpan(Count, Data, Diagnostic))
 					return Fail(Diagnostic, EReaderFailure::InvalidValue, "Byte value is invalid.", Reader.Position(), std::move(Path));
 				Value.Bytes.assign(Data.begin(), Data.end()); break;
@@ -501,7 +501,7 @@ namespace Durin::Asset::DastV4
 			OutValue = std::move(Value); return true;
 		}
 
-		auto DecodeTablesAndValues(std::span<const uint8> Bytes, FDecodedPackage& Package,
+		auto DecodeTablesAndValues(std::span<const std::byte> Bytes, FDecodedPackage& Package,
 			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic) -> bool
 		{
 			auto Section = [&](size_t Index) {
@@ -530,7 +530,7 @@ namespace Durin::Asset::DastV4
 			Package.Types.reserve(static_cast<size_t>(TypeCount));
 			for (uint64 Index = 0; Index < TypeCount; ++Index)
 			{
-				std::span<const uint8> RecordBytes; uint64 Offset = 0;
+				std::span<const std::byte> RecordBytes; uint64 Offset = 0;
 				if (!Types.Record(RecordBytes, Diagnostic, &Offset)) return false;
 				FWireReader Record(RecordBytes, Offset); uint8 Opcode = 0;
 				if (!Record.U8(Opcode, Diagnostic) || Opcode < 1 || Opcode > 0x18)
@@ -593,7 +593,7 @@ namespace Durin::Asset::DastV4
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded, "Schema count exceeds the configured bound.", Schemas.Position());
 			for (uint64 Index = 0; Index < SchemaCount; ++Index)
 			{
-				std::span<const uint8> RecordBytes; uint64 Offset = 0;
+				std::span<const std::byte> RecordBytes; uint64 Offset = 0;
 				if (!Schemas.Record(RecordBytes, Diagnostic, &Offset)) return false;
 				FWireReader Record(RecordBytes, Offset); uint64 NameId = 0, FieldCount = 0;
 				if (!Record.VarUInt(NameId, Diagnostic) || NameId == 0 || NameId > Package.Names.size()
@@ -619,7 +619,7 @@ namespace Durin::Asset::DastV4
 				return Fail(Diagnostic, EReaderFailure::InvalidTopology, "Object table count differs from the public summary.", Objects.Position());
 			for (uint64 Index = 0; Index < ObjectCount; ++Index)
 			{
-				std::span<const uint8> RecordBytes; uint64 Offset = 0;
+				std::span<const std::byte> RecordBytes; uint64 Offset = 0;
 				if (!Objects.Record(RecordBytes, Diagnostic, &Offset)) return false;
 				FWireReader Record(RecordBytes, Offset); uint64 OuterId = 0, ClassId = 0, ObjectNameId = 0;
 				if (!Record.VarUInt(OuterId, Diagnostic) || !Record.VarUInt(ClassId, Diagnostic)
@@ -642,7 +642,7 @@ namespace Durin::Asset::DastV4
 				return Fail(Diagnostic, EReaderFailure::InvalidValue, "Value-section object count is invalid.", Values.Position());
 			for (uint64 ObjectIndex = 0; ObjectIndex < ValueObjectCount; ++ObjectIndex)
 			{
-				std::span<const uint8> BlockBytes; uint64 BlockOffset = 0;
+				std::span<const std::byte> BlockBytes; uint64 BlockOffset = 0;
 				if (!Values.Record(BlockBytes, Diagnostic, &BlockOffset)) return false;
 				FWireReader Block(BlockBytes, BlockOffset); uint64 OverrideCount = 0;
 				if (!Block.VarUInt(OverrideCount, Diagnostic) || OverrideCount > Limits.TableEntries)
@@ -650,7 +650,7 @@ namespace Durin::Asset::DastV4
 				FDecodedObjectValues ObjectValues; uint64 PreviousSchema = 0, PreviousField = 0;
 				for (uint64 Index = 0; Index < OverrideCount; ++Index)
 				{
-					FDecodedOverride Override; std::span<const uint8> Payload;
+					FDecodedOverride Override; std::span<const std::byte> Payload;
 					if (!Block.VarUInt(Override.SchemaId, Diagnostic) || !Block.VarUInt(Override.FieldId, Diagnostic)
 						|| !Block.U8(Override.Provenance, Diagnostic) || Override.Provenance > 2
 						|| !Block.Record(Payload, Diagnostic, &Override.PayloadOffset))
@@ -663,7 +663,7 @@ namespace Durin::Asset::DastV4
 					Override.PayloadSize = Payload.size();
 					if (Override.Provenance == 2)
 					{
-						FWireReader Unknown(Payload, Override.PayloadOffset); std::span<const uint8> Closure, Retained;
+						FWireReader Unknown(Payload, Override.PayloadOffset); std::span<const std::byte> Closure, Retained;
 						if (!Unknown.Record(Closure, Diagnostic) || !Unknown.Record(Retained, Diagnostic)
 							|| !Unknown.RequireEnd(Diagnostic, EReaderFailure::InvalidRetainedClosure, "Unknown value body has trailing bytes.")) return false;
 						Override.DescriptorClosure.assign(Closure.begin(), Closure.end());
@@ -849,7 +849,7 @@ namespace Durin::Asset::DastV4
 
 		auto WriteProjectedField(Private::FByteWriter& Writer, std::string_view Owner,
 			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
-			std::string Signature, std::vector<uint8> Payload) -> void
+			std::string Signature, std::vector<std::byte> Payload) -> void
 		{
 			Writer.WriteString(Owner); Writer.WriteString(Name); Writer.Write(uint8(Kind));
 			Writer.WriteString(Signature); Writer.Write(uint64(Payload.size())); Writer.WriteBytes(Payload);
@@ -985,7 +985,7 @@ namespace Durin::Asset::DastV4
 			return Fail(Diagnostic, EReaderFailure::InvalidValue, "Unsupported inspection value.", 0, std::move(Path));
 		}
 
-		auto BuildInspection(const FDecodedPackage& Package, std::span<const uint8> Bytes,
+		auto BuildInspection(const FDecodedPackage& Package, std::span<const std::byte> Bytes,
 			FAssetPackageInspection& Out, FReaderDiagnostic& Diagnostic) -> bool
 		{
 			FAssetPackageInspection Inspection;
@@ -1058,14 +1058,14 @@ namespace Durin::Asset::DastV4
 		}
 
 		template<std::unsigned_integral T>
-		auto AppendBigEndian(std::vector<uint8>& Token, T Value) -> void
+		auto AppendBigEndian(std::vector<std::byte>& Token, T Value) -> void
 		{
 			for (size_t Index = sizeof(T); Index > 0; --Index)
-				Token.push_back(static_cast<uint8>(Value >> ((Index - 1) * 8)));
+				Token.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
 		}
 
 		template<std::integral T>
-		auto AppendSortable(std::vector<uint8>& Token, T Value) -> void
+		auto AppendSortable(std::vector<std::byte>& Token, T Value) -> void
 		{
 			using U = std::make_unsigned_t<T>;
 			U Bits = std::bit_cast<U>(Value);
@@ -1074,7 +1074,7 @@ namespace Durin::Asset::DastV4
 		}
 
 		template<std::floating_point T>
-		auto AppendSortableFloat(std::vector<uint8>& Token, T Value) -> void
+		auto AppendSortableFloat(std::vector<std::byte>& Token, T Value) -> void
 		{
 			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
 			U Bits = std::bit_cast<U>(Value); constexpr U Sign = U(1) << (sizeof(U) * 8 - 1);
@@ -1083,9 +1083,9 @@ namespace Durin::Asset::DastV4
 		}
 
 		auto BuildIntrinsicLedgerToken(uint64 Layout, std::span<const uint64> Components,
-			std::vector<uint8>& Out, FReaderDiagnostic& Diagnostic) -> bool
+			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
 		{
-			Out.push_back(static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::Struct));
+			Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Struct));
 			if (Layout == 5)
 			{
 				if (Components.size() != 10) return false;
@@ -1104,12 +1104,12 @@ namespace Durin::Asset::DastV4
 				AppendBigEndian(Out, Index); AppendBigEndian(Out, uint32(0));
 				if (Layout == 6)
 				{
-					Out.push_back(static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::Float));
+					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Float));
 					AppendSortableFloat(Out, std::bit_cast<float>(uint32(Components[Index])));
 				}
 				else
 				{
-					Out.push_back(static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::Double));
+					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Double));
 					AppendSortableFloat(Out, std::bit_cast<double>(Components[Index]));
 				}
 			}
@@ -1117,12 +1117,12 @@ namespace Durin::Asset::DastV4
 		}
 
 		auto BuildLedgerMapKeyToken(const FDecodedType& Type, const FValue& Value,
-			std::vector<uint8>& Out, FReaderDiagnostic& Diagnostic) -> bool
+			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
 		{
-			Out.push_back(static_cast<uint8>(TypeKind(Type, FDecodedPackage{})));
+			Out.push_back(static_cast<std::byte>(TypeKind(Type, FDecodedPackage{})));
 			switch (Type.Opcode)
 			{
-			case ETypeOpcode::Bool: Out.back() = static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::Bool); Out.push_back(Value.Bool ? 1 : 0); return true;
+			case ETypeOpcode::Bool: Out.back() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Bool); Out.push_back(Value.Bool ? std::byte{1} : std::byte{0}); return true;
 			case ETypeOpcode::I8: AppendSortable(Out, int8(Value.Signed)); return true;
 			case ETypeOpcode::I16: AppendSortable(Out, int16(Value.Signed)); return true;
 			case ETypeOpcode::I32: AppendSortable(Out, int32(Value.Signed)); return true;
@@ -1132,9 +1132,11 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::U32: AppendSortable(Out, uint32(Value.Unsigned)); return true;
 			case ETypeOpcode::U64: AppendSortable(Out, Value.Unsigned); return true;
 			case ETypeOpcode::String:
-				AppendBigEndian(Out, uint64(Value.Text.size())); Out.insert(Out.end(), Value.Text.begin(), Value.Text.end()); return true;
+				AppendBigEndian(Out, uint64(Value.Text.size())); {
+					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); } return true;
 			case ETypeOpcode::Name:
-				AppendBigEndian(Out, uint64(Value.Text.size())); Out.insert(Out.end(), Value.Text.begin(), Value.Text.end());
+				AppendBigEndian(Out, uint64(Value.Text.size())); {
+					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); }
 				AppendBigEndian(Out, uint32(0)); return true;
 			case ETypeOpcode::Guid:
 				AppendBigEndian(Out, Value.Guid.A); AppendBigEndian(Out, Value.Guid.B);
@@ -1142,7 +1144,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::Enum:
 			{
 				const auto Storage = static_cast<ETypeOpcode>(Type.Parameter);
-				Out.front() = static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::Enum);
+				Out.front() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Enum);
 				if (Storage == ETypeOpcode::I8) AppendSortable(Out, int8(Value.Signed));
 				else if (Storage == ETypeOpcode::I16) AppendSortable(Out, int16(Value.Signed));
 				else if (Storage == ETypeOpcode::I32) AppendSortable(Out, int32(Value.Signed));
@@ -1247,7 +1249,7 @@ namespace Durin::Asset::DastV4
 				if (!KeyType || !ValueType || Value.Elements.size() % 2 != 0) return false;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					std::vector<uint8> Token;
+					std::vector<std::byte> Token;
 					if (!BuildLedgerMapKeyToken(*KeyType, Value.Elements[Index], Token, Diagnostic)) return false;
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path,
@@ -1332,7 +1334,7 @@ namespace Durin::Asset::DastV4
 				if (!Key || !Mapped) return false;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					std::vector<uint8> Token;
+					std::vector<std::byte> Token;
 					if (!BuildLedgerMapKeyToken(*Key, Value.Elements[Index], Token, Diagnostic)) return false;
 					Route.push_back({.Kind = EAssetReferenceRouteKind::MapValue, .MapKeyToken = std::move(Token)});
 					if (!ExtractValueReferences(*Mapped, Value.Elements[Index + 1], Package, SourcePackage,
@@ -1672,7 +1674,7 @@ namespace Durin::Asset::DastV4
 		}
 	}
 
-	auto ReadHeader(std::span<const uint8> Bytes, FValidatedHeader& OutHeader,
+	auto ReadHeader(std::span<const std::byte> Bytes, FValidatedHeader& OutHeader,
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic,
 		uint64 PackageSize) -> bool
 	{
@@ -1688,7 +1690,7 @@ namespace Durin::Asset::DastV4
 		return Success;
 	}
 
-	auto ReencodePackage(const FDecodedPackage& Package, std::vector<uint8>& OutBytes,
+	auto ReencodePackage(const FDecodedPackage& Package, std::vector<std::byte>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		++GReencodeCountForTesting;
@@ -1697,7 +1699,7 @@ namespace Durin::Asset::DastV4
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
-		std::vector<uint8> Bytes; FWriterDiagnostic WriterDiagnostic;
+		std::vector<std::byte> Bytes; FWriterDiagnostic WriterDiagnostic;
 		if (!WritePackage(Input, Bytes, &WriterDiagnostic))
 		{
 			Diagnostic = {TranslateWriterFailure(WriterDiagnostic.Failure), WriterDiagnostic.LogicalPath,
@@ -1709,7 +1711,7 @@ namespace Durin::Asset::DastV4
 		return true;
 	}
 
-	auto DecodePackageStructure(std::span<const uint8> Bytes, FDecodedPackage& OutPackage,
+	auto DecodePackageStructure(std::span<const std::byte> Bytes, FDecodedPackage& OutPackage,
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Result;
@@ -1724,7 +1726,7 @@ namespace Durin::Asset::DastV4
 		return true;
 	}
 
-	auto DecodePackage(std::span<const uint8> Bytes, FDecodedPackage& OutPackage,
+	auto DecodePackage(std::span<const std::byte> Bytes, FDecodedPackage& OutPackage,
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		FReaderDiagnostic Diagnostic;
@@ -1733,7 +1735,7 @@ namespace Durin::Asset::DastV4
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
-		std::vector<uint8> Canonical;
+		std::vector<std::byte> Canonical;
 		if (!ReencodePackage(Result, Canonical, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
@@ -1780,7 +1782,7 @@ namespace Durin::Asset::DastV4
 		CollectGarbage();
 	}
 
-	auto LoadAssetPackage(std::span<const uint8> Bytes, const FAssetPath& PackagePath,
+	auto LoadAssetPackage(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
 		FLoadedAssetPackage& OutPackage, FAssetLoadReport* OutReport,
 		const FLiveLoadOptions& Options, const FReaderLimits& Limits,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
@@ -2094,7 +2096,7 @@ namespace Durin::Asset::DastV4
 		Diagnostic.Reset(); return Finish({});
 	}
 
-	auto InspectPackage(std::span<const uint8> Bytes, FAssetPackageInspection& OutInspection,
+	auto InspectPackage(std::span<const std::byte> Bytes, FAssetPackageInspection& OutInspection,
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
@@ -2121,7 +2123,7 @@ namespace Durin::Asset::DastV4
 		return {};
 	}
 
-	auto ExtractReferences(std::span<const uint8> Bytes, const FAssetPath& SourcePackage,
+	auto ExtractReferences(std::span<const std::byte> Bytes, const FAssetPath& SourcePackage,
 		std::vector<FAssetReferenceEdge>& OutReferences, const FReaderLimits& Limits,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
@@ -2182,7 +2184,7 @@ namespace Durin::Asset::DastV4
 		return {};
 	}
 
-	auto ProbeCompatibility(std::span<const uint8> Bytes, const FAssetPath& PackagePath,
+	auto ProbeCompatibility(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
 		const FReflectionCompatibilityCatalog& Catalog, FAssetPackageCompatibilityRecord& OutRecord,
 		FAssetCompatibilityProbeStats* OutStats, const FReaderLimits& Limits,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
@@ -2326,10 +2328,10 @@ namespace Durin::Asset::DastV4
 	}
 
 	auto RewriteReferences(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		auto FindDestination = [&](const FAssetPath& Source) -> const FAssetPath* {
 			const auto It = std::ranges::find(
@@ -2449,9 +2451,9 @@ namespace Durin::Asset::DastV4
 	}
 
 	auto RelocatePackage(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FAssetPath& DestinationPath,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		FDecodedPackage Package;
 		FReaderDiagnostic Diagnostic;

@@ -39,8 +39,8 @@ namespace Durin::Editor
 		FAssetThumbnailObjectStore(const FAssetThumbnailObjectStore&) = delete;
 		FAssetThumbnailObjectStore& operator=(const FAssetThumbnailObjectStore&) = delete;
 
-		auto Load(std::string_view Key, std::vector<uint8>& OutBytes) -> EAssetThumbnailObjectLoadResult;
-		auto Store(std::string_view Key, std::span<const uint8> Bytes) -> bool;
+		auto Load(std::string_view Key, std::vector<std::byte>& OutBytes) -> EAssetThumbnailObjectLoadResult;
+		auto Store(std::string_view Key, std::span<const std::byte> Bytes) -> bool;
 		auto Invalidate(std::string_view Key) -> void;
 		auto GetStats() const -> FAssetThumbnailObjectStoreStats;
 

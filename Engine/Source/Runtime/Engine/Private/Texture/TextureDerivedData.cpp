@@ -88,7 +88,7 @@ namespace Durin
 		const FTexturePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -112,7 +112,7 @@ namespace Durin
 					.Width = Mip.Width,
 					.Height = Mip.Height,
 					.RowPitch = Mip.RowPitch},
-				.Data = std::span<const uint8>(Mip.Pixels)});
+				.Data = std::span<const std::byte>(Mip.Pixels)});
 		}
 		return TexturePayloadContainer::Build({
 			.ProducerVersion = Texture2DPayloadProducerVersion,
@@ -126,7 +126,7 @@ namespace Durin
 	}
 
 	auto ParseTexture2DSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult
@@ -184,7 +184,7 @@ namespace Durin
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
-			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteMipChain(Candidate))
@@ -203,11 +203,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Texture platform data"},
 			[&](const FTexturePlatformData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildTexture2DSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FTexturePlatformData& Candidate) {
+			[&](std::span<const std::byte> Bytes, FTexturePlatformData& Candidate) {
 				return ParseTexture2DSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});
@@ -217,7 +217,7 @@ namespace Durin
 		const FTextureCubePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -245,7 +245,7 @@ namespace Durin
 						.Width = Mip.Width,
 						.Height = Mip.Height,
 						.RowPitch = Mip.RowPitch},
-					.Data = std::span<const uint8>(Mip.Pixels)});
+					.Data = std::span<const std::byte>(Mip.Pixels)});
 			}
 		}
 		return TexturePayloadContainer::Build({
@@ -259,7 +259,7 @@ namespace Durin
 	}
 
 	auto ParseTextureCubeSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FTextureCubePlatformData& OutPlatformData) -> FPayloadDecodeResult
@@ -336,7 +336,7 @@ namespace Durin
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
-			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteCubeMipChain(Candidate))
@@ -355,11 +355,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "TextureCube platform data"},
 			[&](const FTextureCubePlatformData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildTextureCubeSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FTextureCubePlatformData& Candidate) {
+			[&](std::span<const std::byte> Bytes, FTextureCubePlatformData& Candidate) {
 				return ParseTextureCubeSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});

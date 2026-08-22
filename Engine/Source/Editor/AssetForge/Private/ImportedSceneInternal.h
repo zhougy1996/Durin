@@ -22,7 +22,7 @@ namespace Durin::Asset::Forge::Private
 	{
 		const std::filesystem::path& RootPath;
 		std::string_view RootSourcePath;
-		std::span<const uint8> RootBytes;
+		std::span<const std::byte> RootBytes;
 		const FMeshImportOptions& Options;
 		FSceneDecodeResult& Result;
 	};
@@ -46,14 +46,14 @@ namespace Durin::Asset::Forge::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto AppendDependency(
 		FImportedSceneData& Scene,
 		EImportedDependencyRole Role,
 		std::string StableIdentity,
 		std::string SourcePath,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint32* OutIndex = nullptr) -> bool;
 	auto MakeDependencySourcePath(
 		std::string_view RootSourcePath,
@@ -74,7 +74,7 @@ namespace Durin::Asset::Forge::Private
 		EImportedImageEncoding& OutEncoding) -> bool;
 	auto ValidateImageBytes(
 		EImportedImageEncoding Encoding,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string& OutError) -> bool;
 	auto MakeUniqueName(
 		std::string Name,
@@ -85,7 +85,7 @@ namespace Durin::Asset::Forge::Private
 		const FImportedSceneContext& Context,
 		bool bGlb,
 		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
-		std::vector<uint8>& OutAssimpProjection) -> bool;
+		std::vector<std::byte>& OutAssimpProjection) -> bool;
 	auto ImportAssimpFormat(
 		const aiScene& Scene,
 		const FImportedSceneContext& Context) -> bool;

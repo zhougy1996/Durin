@@ -13,76 +13,82 @@ using namespace Durin::Asset::Forge;
 
 namespace
 {
-	void AppendBigEndian32(std::vector<uint8>& Bytes, uint32 Value)
+	void AppendBigEndian32(std::vector<std::byte>& Bytes, uint32 Value)
 	{
 		for (int Shift : {24, 16, 8, 0})
-			Bytes.push_back(static_cast<uint8>(Value >> Shift));
+			Bytes.push_back(static_cast<std::byte>(Value >> Shift));
 	}
 
-	uint32 PngCrc32(std::span<const uint8> Bytes)
+	uint32 PngCrc32(std::span<const std::byte> Bytes)
 	{
 		uint32 Crc = 0xffffffffu;
-		for (uint8 Byte : Bytes)
+		for (std::byte Byte : Bytes)
 		{
-			Crc ^= Byte;
+			Crc ^= std::to_integer<uint8>(Byte);
 			for (int Bit = 0; Bit < 8; ++Bit)
 				Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
 		}
 		return ~Crc;
 	}
 
-	void AppendPngChunk(std::vector<uint8>& Bytes, std::string_view Type,
-		std::span<const uint8> Payload)
+	void AppendPngChunk(std::vector<std::byte>& Bytes, std::string_view Type,
+		std::span<const std::byte> Payload)
 	{
 		AppendBigEndian32(Bytes, static_cast<uint32>(Payload.size()));
 		const size_t CrcStart = Bytes.size();
-		Bytes.insert(Bytes.end(), Type.begin(), Type.end());
+		const std::span<const std::byte> TypeBytes =
+			std::as_bytes(std::span{Type.data(), Type.size()});
+		Bytes.insert(Bytes.end(), TypeBytes.begin(), TypeBytes.end());
 		Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
 		AppendBigEndian32(Bytes, PngCrc32(std::span(Bytes).subspan(CrcStart)));
 	}
 
-	std::vector<uint8> MakeHorizontal128CubedAtlasPng()
+	std::vector<std::byte> MakeHorizontal128CubedAtlasPng()
 	{
 		constexpr uint32 Width = 16384;
 		constexpr uint32 Height = 128;
-		std::vector<uint8> Scanlines;
+		std::vector<std::byte> Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
-			Scanlines.push_back(0);
+			Scanlines.push_back(std::byte{0});
 			for (uint32 X = 0; X < Width; ++X)
 			{
-				Scanlines.push_back(static_cast<uint8>(X / 128));
-				Scanlines.insert(Scanlines.end(), {0, 0, 255});
+				Scanlines.push_back(static_cast<std::byte>(X / 128));
+				Scanlines.insert(Scanlines.end(), {
+					std::byte{0}, std::byte{0}, std::byte{255}});
 			}
 		}
 
-		std::vector<uint8> Deflate{0x78, 0x01};
+		std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
 			const uint16 BlockSize = static_cast<uint16>(
 				std::min<size_t>(65535, Scanlines.size() - Offset));
-			Deflate.push_back(Offset + BlockSize == Scanlines.size() ? 1 : 0);
-			Deflate.push_back(static_cast<uint8>(BlockSize));
-			Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+			Deflate.push_back(Offset + BlockSize == Scanlines.size()
+				? std::byte{1} : std::byte{0});
+			Deflate.push_back(static_cast<std::byte>(BlockSize));
+			Deflate.push_back(static_cast<std::byte>(BlockSize >> 8));
 			const uint16 Complement = static_cast<uint16>(~BlockSize);
-			Deflate.push_back(static_cast<uint8>(Complement));
-			Deflate.push_back(static_cast<uint8>(Complement >> 8));
+			Deflate.push_back(static_cast<std::byte>(Complement));
+			Deflate.push_back(static_cast<std::byte>(Complement >> 8));
 			Deflate.insert(Deflate.end(), Scanlines.begin() + Offset,
 				Scanlines.begin() + Offset + BlockSize);
 			Offset += BlockSize;
 		}
 		uint32 AdlerA = 1;
 		uint32 AdlerB = 0;
-		for (uint8 Byte : Scanlines)
+		for (std::byte Byte : Scanlines)
 		{
-			AdlerA = (AdlerA + Byte) % 65521;
+			AdlerA = (AdlerA + std::to_integer<uint8>(Byte)) % 65521;
 			AdlerB = (AdlerB + AdlerA) % 65521;
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		std::vector<uint8> Png{137, 80, 78, 71, 13, 10, 26, 10};
+		std::vector<std::byte> Png{
+			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
+			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
 		Header[0] = static_cast<uint8>(Width >> 24);
 		Header[1] = static_cast<uint8>(Width >> 16);
@@ -94,52 +100,57 @@ namespace
 		Header[7] = static_cast<uint8>(Height);
 		Header[8] = 8;
 		Header[9] = 6;
-		AppendPngChunk(Png, "IHDR", Header);
+		AppendPngChunk(Png, "IHDR", std::as_bytes(std::span{Header}));
 		AppendPngChunk(Png, "IDAT", Deflate);
 		AppendPngChunk(Png, "IEND", {});
 		return Png;
 	}
 
-	std::vector<uint8> MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
+	std::vector<std::byte> MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
 	{
-		std::vector<uint8> Scanlines;
+		std::vector<std::byte> Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
-			Scanlines.push_back(0);
+			Scanlines.push_back(std::byte{0});
 			for (uint32 X = 0; X < Width; ++X)
 			{
 				const uint8 Value = static_cast<uint8>((X + Y) & 0xff);
-				Scanlines.insert(Scanlines.end(), {Value, Value, Value, 255});
+				const std::array Pixel{Value, Value, Value, uint8{255}};
+				const auto PixelBytes = std::as_bytes(std::span{Pixel});
+				Scanlines.insert(Scanlines.end(), PixelBytes.begin(), PixelBytes.end());
 			}
 		}
 
-		std::vector<uint8> Deflate{0x78, 0x01};
+		std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
 			const uint16 BlockSize = static_cast<uint16>(
 				std::min<size_t>(65535, Scanlines.size() - Offset));
-			Deflate.push_back(Offset + BlockSize == Scanlines.size() ? 1 : 0);
-			Deflate.push_back(static_cast<uint8>(BlockSize));
-			Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+			Deflate.push_back(Offset + BlockSize == Scanlines.size()
+				? std::byte{1} : std::byte{0});
+			Deflate.push_back(static_cast<std::byte>(BlockSize));
+			Deflate.push_back(static_cast<std::byte>(BlockSize >> 8));
 			const uint16 Complement = static_cast<uint16>(~BlockSize);
-			Deflate.push_back(static_cast<uint8>(Complement));
-			Deflate.push_back(static_cast<uint8>(Complement >> 8));
+			Deflate.push_back(static_cast<std::byte>(Complement));
+			Deflate.push_back(static_cast<std::byte>(Complement >> 8));
 			Deflate.insert(Deflate.end(), Scanlines.begin() + Offset,
 				Scanlines.begin() + Offset + BlockSize);
 			Offset += BlockSize;
 		}
 		uint32 AdlerA = 1;
 		uint32 AdlerB = 0;
-		for (uint8 Byte : Scanlines)
+		for (std::byte Byte : Scanlines)
 		{
-			AdlerA = (AdlerA + Byte) % 65521;
+			AdlerA = (AdlerA + std::to_integer<uint8>(Byte)) % 65521;
 			AdlerB = (AdlerB + AdlerA) % 65521;
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		std::vector<uint8> Png{137, 80, 78, 71, 13, 10, 26, 10};
+		std::vector<std::byte> Png{
+			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
+			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
 		Header[0] = static_cast<uint8>(Width >> 24);
 		Header[1] = static_cast<uint8>(Width >> 16);
@@ -151,7 +162,7 @@ namespace
 		Header[7] = static_cast<uint8>(Height);
 		Header[8] = 8;
 		Header[9] = 6;
-		AppendPngChunk(Png, "IHDR", Header);
+		AppendPngChunk(Png, "IHDR", std::as_bytes(std::span{Header}));
 		AppendPngChunk(Png, "IDAT", Deflate);
 		AppendPngChunk(Png, "IEND", {});
 		return Png;
@@ -164,7 +175,7 @@ TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngCo
 		Testing::GetTestWorkDirectory() / "VolumeTextureInspection";
 	std::filesystem::create_directories(Directory);
 	const std::filesystem::path AtlasPath = Directory / "Atlas.png";
-	const std::vector<uint8> Png = MakeGrayscaleRgbaPng(512, 512);
+	const std::vector<std::byte> Png = MakeGrayscaleRgbaPng(512, 512);
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());
@@ -214,10 +225,12 @@ TEST(FVolumeTextureSourceImportTests, ValidatesDirectPngAtlasSettings)
 
 TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 {
+	const std::span<const std::byte> TransparentPngData =
+		std::as_bytes(std::span{TransparentPngBytes});
 	const FVolumeTextureCapturedSource Atlas{
 		.SourcePath = {.Path = "/Test/Noise.png"},
-		.ContentHash = FXxHash128::HashBuffer(TransparentPngBytes),
-		.Bytes = TransparentPngBytes};
+		.ContentHash = FXxHash128::HashBuffer(TransparentPngData),
+		.Bytes = TransparentPngData};
 	FVolumeTextureImportSettings Settings{
 		.Channels = EVolumeTextureSourceChannels::Red,
 		.SliceWidth = 1, .SliceHeight = 1, .Depth = 2, .TilesX = 2, .TilesY = 1};
@@ -247,10 +260,12 @@ TEST(FVolumeTextureSourceImportTests, RejectsCorruptAndMismatchedAtlas)
 	FVolumeTextureSourceData Source;
 	std::string Error;
 	const std::array<uint8, 4> Corrupt = {1, 2, 3, 4};
-	EXPECT_FALSE(TranslateVolumeTextureAtlasSource({.Bytes = Corrupt}, Settings, Source, Error));
+	EXPECT_FALSE(TranslateVolumeTextureAtlasSource(
+		{.Bytes = std::as_bytes(std::span{Corrupt})}, Settings, Source, Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(TranslateVolumeTextureAtlasSource(
-		{.Bytes = TransparentPngBytes}, Settings, Source, Error));
+		{.Bytes = std::as_bytes(std::span{TransparentPngBytes})},
+		Settings, Source, Error));
 	EXPECT_NE(Error.find("expected 1x2"), std::string::npos);
 }
 
@@ -372,7 +387,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		Testing::GetTestWorkDirectory() / "TextureImports/Content/ProductionVolume";
 	std::filesystem::create_directories(SourceDirectory);
 	const std::filesystem::path AtlasPath = SourceDirectory / "Noise128.png";
-	const std::vector<uint8> Png = MakeHorizontal128CubedAtlasPng();
+	const std::vector<std::byte> Png = MakeHorizontal128CubedAtlasPng();
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());

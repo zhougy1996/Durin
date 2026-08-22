@@ -652,7 +652,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIWriteBuffer(
 		FRHIBuffer* Buffer,
 		uint32 Offset,
-		std::span<const uint8> Data) -> void
+		std::span<const std::byte> Data) -> void
 	{
 		CheckVulkanRHIThread();
 		check(Buffer);
@@ -672,7 +672,7 @@ namespace Durin::VulkanRHI
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		std::span<const uint8> SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		RHI->UpdateTexture2D(
@@ -686,7 +686,7 @@ namespace Durin::VulkanRHI
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		std::span<const uint8> SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		RHI->UpdateTexture3D(*this, Texture, MipIndex, UpdateRegion,
@@ -697,7 +697,7 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<uint8>& OutData) -> bool
+		std::vector<std::byte>& OutData) -> bool
 	{
 		CheckVulkanRHIThread();
 		return RHI->ReadTexture2D(

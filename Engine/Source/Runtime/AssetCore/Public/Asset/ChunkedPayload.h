@@ -71,7 +71,7 @@ namespace Durin::Asset
 	{
 		uint32 Type = 0;
 		uint32 Flags = 0;
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 DecodedSize = 0;
 	};
 
@@ -79,7 +79,7 @@ namespace Durin::Asset
 	{
 		uint32 Type = 0;
 		uint32 Flags = 0;
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 DecodedSize = 0;
 	};
 
@@ -87,7 +87,7 @@ namespace Durin::Asset
 	{
 		std::array<uint32, 8> HeaderWords{};
 		std::vector<FChunkedPayloadView> Chunks;
-		std::vector<std::span<const uint8>> RequiredChunks;
+		std::vector<std::span<const std::byte>> RequiredChunks;
 	};
 
 	struct FChunkedPayloadResult
@@ -104,11 +104,11 @@ namespace Durin::Asset
 		std::array<uint32, 8> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
-		std::vector<uint8>& OutBytes) -> FChunkedPayloadResult;
+		std::vector<std::byte>& OutBytes) -> FChunkedPayloadResult;
 
 	// Validates and projects an envelope without interpreting chunk contents.
 	ASSETCORE_API auto DecodeChunkedPayload(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FChunkedPayloadFormat& Format,
 		FDecodedChunkedPayload& OutPayload) -> FChunkedPayloadResult;
 

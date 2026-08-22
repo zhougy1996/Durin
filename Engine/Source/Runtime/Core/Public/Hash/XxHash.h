@@ -18,11 +18,6 @@ namespace Durin
 			return HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
 		}
 
-		[[nodiscard]] FORCEINLINE static auto HashBuffer(std::span<const uint8> Bytes) -> FXxHash64
-		{
-			return HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
 		[[nodiscard]] FORCEINLINE static auto HashBuffer(std::string_view Value) -> FXxHash64
 		{
 			return HashBuffer(Value.empty() ? nullptr : Value.data(), static_cast<uint64>(Value.size()));
@@ -64,11 +59,6 @@ namespace Durin
 		CORE_API auto Update(const void* Data, uint64 Size) -> void;
 
 		FORCEINLINE auto Update(std::span<const std::byte> Bytes) -> void
-		{
-			Update(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
-		FORCEINLINE auto Update(std::span<const uint8> Bytes) -> void
 		{
 			Update(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
 		}
@@ -115,11 +105,6 @@ namespace Durin
 			return HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
 		}
 
-		[[nodiscard]] FORCEINLINE static auto HashBuffer(std::span<const uint8> Bytes) -> FXxHash128
-		{
-			return HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
 		[[nodiscard]] FORCEINLINE static auto HashBuffer(std::string_view Value) -> FXxHash128
 		{
 			return HashBuffer(Value.empty() ? nullptr : Value.data(), static_cast<uint64>(Value.size()));
@@ -160,11 +145,6 @@ namespace Durin
 		CORE_API auto Update(const void* Data, uint64 Size) -> void;
 
 		FORCEINLINE auto Update(std::span<const std::byte> Bytes) -> void
-		{
-			Update(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
-		FORCEINLINE auto Update(std::span<const uint8> Bytes) -> void
 		{
 			Update(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
 		}

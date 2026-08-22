@@ -59,9 +59,10 @@ namespace
 		EXPECT_FALSE(Durin::StringUtils::IsHex("0123456789abcdef", 32));
 		EXPECT_FALSE(Durin::StringUtils::IsHex("0123456789abcdef0123456789abcdeg", 32));
 
-		const std::array<Durin::uint8, 4> Bytes = {0x00, 0x12, 0xab, 0xff};
-		EXPECT_EQ(Durin::StringUtils::BytesToHex(std::span<const Durin::uint8>(Bytes)), "0012abff");
-		std::array<Durin::uint8, 4> ParsedBytes = {};
+		const std::array<std::byte, 4> Bytes = {
+			std::byte{0x00}, std::byte{0x12}, std::byte{0xab}, std::byte{0xff}};
+		EXPECT_EQ(Durin::StringUtils::BytesToHex(Bytes), "0012abff");
+		std::array<std::byte, 4> ParsedBytes = {};
 		ASSERT_TRUE(Durin::StringUtils::IsHex("0012ABff", 8));
 		Durin::StringUtils::HexToBytes("0012ABff", ParsedBytes);
 		EXPECT_EQ(ParsedBytes, Bytes);

@@ -9,9 +9,9 @@ namespace Durin::Editor::Level
 		// Thumbnail requests run concurrently, so bound the full-resolution intermediate rather than relying on the much larger import limit.
 		constexpr Image::FImageDecodeLimits ThumbnailDecodeLimits{32ull * 1024ull * 1024ull, 16ull * 1024ull * 1024ull};
 
-		auto ResizeBilinear(const uint8* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> std::vector<uint8>
+		auto ResizeBilinear(const std::byte* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> std::vector<std::byte>
 		{
-			std::vector<uint8> Result(static_cast<size_t>(DestinationWidth) * DestinationHeight * 4);
+			std::vector<std::byte> Result(static_cast<size_t>(DestinationWidth) * DestinationHeight * 4);
 			for (uint32 Y = 0; Y < DestinationHeight; ++Y)
 			{
 				const float SourceY = (static_cast<float>(Y) + 0.5f) * static_cast<float>(SourceHeight) / static_cast<float>(DestinationHeight) - 0.5f;
@@ -27,12 +27,12 @@ namespace Durin::Editor::Level
 					for (uint32 Channel = 0; Channel < 4; ++Channel)
 					{
 						const float Top = std::lerp(
-							static_cast<float>(Source[(static_cast<size_t>(Y0) * SourceWidth + X0) * 4 + Channel]),
-							static_cast<float>(Source[(static_cast<size_t>(Y0) * SourceWidth + X1) * 4 + Channel]), XWeight);
+							static_cast<float>(std::to_integer<uint8>(Source[(static_cast<size_t>(Y0) * SourceWidth + X0) * 4 + Channel])),
+							static_cast<float>(std::to_integer<uint8>(Source[(static_cast<size_t>(Y0) * SourceWidth + X1) * 4 + Channel])), XWeight);
 						const float Bottom = std::lerp(
-							static_cast<float>(Source[(static_cast<size_t>(Y1) * SourceWidth + X0) * 4 + Channel]),
-							static_cast<float>(Source[(static_cast<size_t>(Y1) * SourceWidth + X1) * 4 + Channel]), XWeight);
-						Result[(static_cast<size_t>(Y) * DestinationWidth + X) * 4 + Channel] = static_cast<uint8>(std::clamp(std::lround(std::lerp(Top, Bottom, YWeight)), 0l, 255l));
+							static_cast<float>(std::to_integer<uint8>(Source[(static_cast<size_t>(Y1) * SourceWidth + X0) * 4 + Channel])),
+							static_cast<float>(std::to_integer<uint8>(Source[(static_cast<size_t>(Y1) * SourceWidth + X1) * 4 + Channel])), XWeight);
+						Result[(static_cast<size_t>(Y) * DestinationWidth + X) * 4 + Channel] = static_cast<std::byte>(std::clamp(std::lround(std::lerp(Top, Bottom, YWeight)), 0l, 255l));
 					}
 				}
 			}
@@ -71,7 +71,7 @@ namespace Durin::Editor::Level
 
 		for (size_t AlphaIndex = 3; AlphaIndex < OutThumbnail.Pixels.size(); AlphaIndex += 4)
 		{
-			if (OutThumbnail.Pixels[AlphaIndex] != 255)
+			if (OutThumbnail.Pixels[AlphaIndex] != std::byte{255})
 			{
 				OutThumbnail.bHasTransparency = true;
 				break;

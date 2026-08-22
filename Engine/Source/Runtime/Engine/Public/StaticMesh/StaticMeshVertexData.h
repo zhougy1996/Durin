@@ -27,7 +27,7 @@ namespace Durin
 
 		virtual auto Num() -> uint32 const = 0;
 
-		virtual auto GetDataPointer() -> uint8* = 0;
+		virtual auto GetDataPointer() -> std::byte* = 0;
 
 		virtual auto GetResourceSize() -> size_t const = 0;
 
@@ -88,9 +88,9 @@ namespace Durin
 			return static_cast<uint32>(Data_.size());
 		}
 
-		virtual auto GetDataPointer() -> uint8* override
+		virtual auto GetDataPointer() -> std::byte* override
 		{
-			return reinterpret_cast<uint8*>(Data_.data());
+			return reinterpret_cast<std::byte*>(Data_.data());
 		}
 
 		virtual auto GetResourceSize() -> size_t const override

@@ -150,7 +150,7 @@ namespace Durin::Asset
 
 		auto CollectDescriptors(
 			DurinCodeGen::EPropertyGenFlags Kind,
-			std::span<const uint8> Payload,
+			std::span<const std::byte> Payload,
 			std::vector<FAuthoredBulkDataDescriptor>& Out,
 			uint32 Depth,
 			std::string* OutError) -> bool
@@ -196,7 +196,7 @@ namespace Durin::Asset
 				Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
 				if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
 					return Fail("Inspected authored struct field is truncated.", OutError);
-				std::vector<uint8> FieldPayload(static_cast<size_t>(PayloadSize));
+				std::vector<std::byte> FieldPayload(static_cast<size_t>(PayloadSize));
 				if (PayloadSize != 0)
 					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
 				if (Reader.HasError() || !CollectDescriptors(
@@ -208,7 +208,7 @@ namespace Durin::Asset
 			return true;
 		}
 
-		auto Parse(std::span<const uint8> Bytes, FXxHash128 ExpectedContainerHash,
+		auto Parse(std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
 			std::vector<FEntry>& OutEntries, uint64& OutDataOffset,
 			std::string* OutError) -> bool
 		{
@@ -266,7 +266,7 @@ namespace Durin::Asset
 
 			for (const FEntry& Entry : OutEntries)
 			{
-				std::span<const uint8> Payload;
+				std::span<const std::byte> Payload;
 				if (!BulkContainer::TryProjectRange(
 					Bytes, Entry.Offset, Entry.Descriptor.StoredByteCount, Payload))
 					return Fail("Authored bulk payload ranges overlap, contain gaps, or exceed the file.", OutError);
@@ -295,7 +295,7 @@ namespace Durin::Asset
 
 	auto BuildAuthoredBulkCompanion(
 		std::span<const FAuthoredBulkPayload> Payloads, FXxHash128 ContainerHash,
-		std::vector<uint8>& OutBytes, std::string* OutError) -> bool
+		std::vector<std::byte>& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (Payloads.empty() || Payloads.size() > MaximumEntries || ContainerHash.IsZero())
@@ -368,7 +368,7 @@ namespace Durin::Asset
 			if (!Writer.Write(Bytes))
 				return Fail("Authored bulk companion encoding failed.", OutError);
 		}
-		std::vector<uint8> Candidate;
+		std::vector<std::byte> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
 			return Fail("Authored bulk companion encoding failed.", OutError);
 		if (!ValidateAuthoredBulkCompanion(Candidate, ContainerHash, OutError)) return false;
@@ -377,7 +377,7 @@ namespace Durin::Asset
 	}
 
 	auto ValidateAuthoredBulkCompanion(
-		std::span<const uint8> Bytes, FXxHash128 ExpectedContainerHash,
+		std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
 		std::string* OutError) -> bool
 	{
 		std::vector<FEntry> Entries;
@@ -391,7 +391,7 @@ namespace Durin::Asset
 		FSharedByteBuffer& OutBuffer, std::string* OutError) -> bool
 	{
 		OutBuffer = {};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, CompanionPath))
 			return Fail("Authored bulk companion is missing or unreadable.", OutError);
 		std::vector<FEntry> Entries;

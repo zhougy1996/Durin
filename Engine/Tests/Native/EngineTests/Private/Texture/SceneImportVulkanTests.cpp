@@ -641,7 +641,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			bool bForceLOD0 = false,
 			Durin::Editor::ERenderedAssetThumbnailCaptureState ExpectedState =
 				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) {
-			std::vector<Durin::uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
 				Mesh, Material, Durin::FTransform(), Error)) << Error;
@@ -654,21 +654,21 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			return Pixels;
 		};
 
-		const std::vector<Durin::uint8> ImportedPixels =
+		const std::vector<std::byte> ImportedPixels =
 			Capture(ReloadedMesh, ReloadedMaterial);
-		const std::vector<Durin::uint8> TextureOnlyPixels =
+		const std::vector<std::byte> TextureOnlyPixels =
 			Capture(ReloadedMesh, TextureOnly);
-		const std::vector<Durin::uint8> FactorOnlyPixels =
+		const std::vector<std::byte> FactorOnlyPixels =
 			Capture(ReloadedMesh, FactorOnly);
-		const std::vector<Durin::uint8> AutomaticLODPixels =
+		const std::vector<std::byte> AutomaticLODPixels =
 			Capture(LODContractMesh, ReloadedMaterial);
-		const std::vector<Durin::uint8> ForcedLOD0Pixels =
+		const std::vector<std::byte> ForcedLOD0Pixels =
 			Capture(LODContractMesh, ReloadedMaterial, true);
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
 		const size_t Center = (32u * 64u + 32u) * 4u;
-		EXPECT_GT(ImportedPixels[Center + 3], 0u);
+		EXPECT_GT(std::to_integer<Durin::uint8>(ImportedPixels[Center + 3]), 0u);
 		EXPECT_GT(ImportedPixels[Center + 2], ImportedPixels[Center]);
 		EXPECT_GT(ImportedPixels[Center], ImportedPixels[Center + 1]);
 		EXPECT_NE(ImportedPixels, TextureOnlyPixels);
@@ -689,7 +689,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			"a1dbc786ec12b9cf870c07b0d5ea55b8");
 		Durin::VulkanRHI::ArmVulkanCreateFailure(
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
-		const std::vector<Durin::uint8> FailedResourcePixels =
+		const std::vector<std::byte> FailedResourcePixels =
 			Capture(ReloadedMesh, FailedResourceMaterial, false,
 				Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedResourcePixels.empty());

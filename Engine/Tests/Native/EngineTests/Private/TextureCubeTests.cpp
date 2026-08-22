@@ -467,7 +467,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 
 	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
-	const std::vector<Durin::uint8> ValidPixels = Texture->GetSourceData()->Faces[0].Pixels;
+	const std::vector<std::byte> ValidPixels = Texture->GetSourceData()->Faces[0].Pixels;
 	const std::filesystem::path Corrupt = Root / "CorruptReplacement.hdr";
 	{
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
@@ -558,10 +558,10 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Import.Asset->AddToCook(Second, "/Game/CookedCube", Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
-	std::vector<Durin::uint8> FirstPackage;
-	std::vector<Durin::uint8> SecondPackage;
-	std::vector<Durin::uint8> FirstBulk;
-	std::vector<Durin::uint8> SecondBulk;
+	std::vector<std::byte> FirstPackage;
+	std::vector<std::byte> SecondPackage;
+	std::vector<std::byte> FirstBulk;
+	std::vector<std::byte> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (FirstRoot / "Game/CookedCube.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(

@@ -30,7 +30,7 @@ namespace Durin::Asset::Build
 		ASSETBUILDCORE_API FBuildDefinitionBuilder(
 			FBuildFunctionIdentity Function, std::string ExpectedValueName);
 		ASSETBUILDCORE_API auto SetKey(
-			FBuildKey Key, std::span<const uint8> CanonicalKeyInput = {})
+			FBuildKey Key, std::span<const std::byte> CanonicalKeyInput = {})
 			-> FBuildDefinitionBuilder&;
 		ASSETBUILDCORE_API auto AddInput(FBuildValue Value) -> FBuildDefinitionBuilder&;
 		ASSETBUILDCORE_API auto AddTargetFact(std::string Name, std::string Value)
@@ -39,7 +39,7 @@ namespace Durin::Asset::Build
 			FBuildDefinition& OutDefinition, std::string* OutError = nullptr) const -> bool;
 	private:
 		FBuildDefinition Definition;
-		std::vector<uint8> KeyInput;
+		std::vector<std::byte> KeyInput;
 		std::string Error;
 	};
 

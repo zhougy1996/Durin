@@ -38,7 +38,7 @@ namespace Durin
 						FUpdateTextureRegion2D(
 							0, 0, 0, 0, MipDimension, MipDimension),
 						MipDimension * 8,
-						reinterpret_cast<const uint8*>(Pixels.data()));
+						std::as_bytes(std::span(Pixels)));
 				}
 			}
 			return Texture;
@@ -92,7 +92,7 @@ namespace Durin
 							EnvironmentBrdfLutDimension,
 							EnvironmentBrdfLutDimension),
 						EnvironmentBrdfLutDimension * 8,
-						reinterpret_cast<const uint8*>(Data->BrdfLut.data()));
+						std::as_bytes(std::span(Data->BrdfLut)));
 				}
 				Candidate.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				if (Candidate.Irradiance == nullptr || Candidate.Prefiltered == nullptr

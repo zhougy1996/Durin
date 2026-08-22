@@ -66,7 +66,7 @@ namespace Durin::Asset::Build
 			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
-		const std::vector<uint8> KeyBytes = BuildTexture2DDerivedDataKeyBytes(KeyInput);
+		const std::vector<std::byte> KeyBytes = BuildTexture2DDerivedDataKeyBytes(KeyInput);
 		const std::string Key = BuildTexture2DDerivedDataKey(KeyInput);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder DefinitionBuilder(

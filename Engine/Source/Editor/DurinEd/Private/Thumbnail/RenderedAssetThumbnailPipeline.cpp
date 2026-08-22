@@ -4,20 +4,20 @@ namespace Durin::Editor
 {
 	namespace
 	{
-		auto AppendBigEndian(std::vector<uint8>& Bytes, uint32 Value) -> void
+		auto AppendBigEndian(std::vector<std::byte>& Bytes, uint32 Value) -> void
 		{
-			Bytes.push_back(static_cast<uint8>(Value >> 24));
-			Bytes.push_back(static_cast<uint8>(Value >> 16));
-			Bytes.push_back(static_cast<uint8>(Value >> 8));
-			Bytes.push_back(static_cast<uint8>(Value));
+			Bytes.push_back(static_cast<std::byte>(Value >> 24));
+			Bytes.push_back(static_cast<std::byte>(Value >> 16));
+			Bytes.push_back(static_cast<std::byte>(Value >> 8));
+			Bytes.push_back(static_cast<std::byte>(Value));
 		}
 
-		auto Crc32(std::span<const uint8> Bytes) -> uint32
+		auto Crc32(std::span<const std::byte> Bytes) -> uint32
 		{
 			uint32 Crc = 0xffffffffu;
-			for (const uint8 Byte : Bytes)
+			for (const std::byte Byte : Bytes)
 			{
-				Crc ^= Byte;
+				Crc ^= std::to_integer<uint8>(Byte);
 				for (uint32 Bit = 0; Bit < 8; ++Bit)
 					Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
 			}
@@ -25,50 +25,51 @@ namespace Durin::Editor
 		}
 
 		auto WritePngChunk(
-			std::vector<uint8>& Bytes,
+			std::vector<std::byte>& Bytes,
 			std::string_view Type,
-			std::span<const uint8> Payload) -> void
+			std::span<const std::byte> Payload) -> void
 		{
 			AppendBigEndian(Bytes, static_cast<uint32>(Payload.size()));
 			const size_t CrcStart = Bytes.size();
-			Bytes.insert(Bytes.end(), Type.begin(), Type.end());
+			const auto TypeBytes = std::as_bytes(std::span(Type));
+			Bytes.insert(Bytes.end(), TypeBytes.begin(), TypeBytes.end());
 			Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
 			AppendBigEndian(Bytes, Crc32(std::span(Bytes).subspan(CrcStart)));
 		}
 
 		auto EncodeRgbaPng(
-			std::span<const uint8> Pixels,
+			std::span<const std::byte> Pixels,
 			uint32 Width,
 			uint32 Height,
-			std::vector<uint8>& OutBytes) -> bool
+			std::vector<std::byte>& OutBytes) -> bool
 		{
 			const uint64 ExpectedBytes = static_cast<uint64>(Width) * Height * 4;
 			if (Width == 0 || Height == 0 || Pixels.size() != ExpectedBytes) return false;
 
-			std::vector<uint8> Scanlines;
+			std::vector<std::byte> Scanlines;
 			Scanlines.reserve(static_cast<size_t>(ExpectedBytes) + Height);
 			const size_t RowBytes = static_cast<size_t>(Width) * 4;
 			for (uint32 Y = 0; Y < Height; ++Y)
 			{
-				Scanlines.push_back(0);
+				Scanlines.push_back(std::byte{0});
 				Scanlines.insert(
 					Scanlines.end(),
 					Pixels.begin() + static_cast<ptrdiff_t>(Y * RowBytes),
 					Pixels.begin() + static_cast<ptrdiff_t>((Y + 1) * RowBytes));
 			}
 
-			std::vector<uint8> Deflate{0x78, 0x01};
+			std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
 			for (size_t Offset = 0; Offset < Scanlines.size();)
 			{
 				const uint16 BlockSize =
 					static_cast<uint16>(std::min<size_t>(65'535, Scanlines.size() - Offset));
 				const bool bFinal = Offset + BlockSize == Scanlines.size();
-				Deflate.push_back(bFinal ? 1 : 0);
-				Deflate.push_back(static_cast<uint8>(BlockSize));
-				Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+				Deflate.push_back(bFinal ? std::byte{1} : std::byte{0});
+				Deflate.push_back(static_cast<std::byte>(BlockSize));
+				Deflate.push_back(static_cast<std::byte>(BlockSize >> 8));
 				const uint16 Inverse = static_cast<uint16>(~BlockSize);
-				Deflate.push_back(static_cast<uint8>(Inverse));
-				Deflate.push_back(static_cast<uint8>(Inverse >> 8));
+				Deflate.push_back(static_cast<std::byte>(Inverse));
+				Deflate.push_back(static_cast<std::byte>(Inverse >> 8));
 				Deflate.insert(
 					Deflate.end(),
 					Scanlines.begin() + static_cast<ptrdiff_t>(Offset),
@@ -77,18 +78,20 @@ namespace Durin::Editor
 			}
 			uint32 S1 = 1;
 			uint32 S2 = 0;
-			for (const uint8 Byte : Scanlines)
+			for (const std::byte Byte : Scanlines)
 			{
-				S1 = (S1 + Byte) % 65'521;
+				S1 = (S1 + std::to_integer<uint8>(Byte)) % 65'521;
 				S2 = (S2 + S1) % 65'521;
 			}
 			AppendBigEndian(Deflate, (S2 << 16) | S1);
 
-			OutBytes = {137, 80, 78, 71, 13, 10, 26, 10};
-			std::vector<uint8> Header;
+			OutBytes = {std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
+				std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
+			std::vector<std::byte> Header;
 			AppendBigEndian(Header, Width);
 			AppendBigEndian(Header, Height);
-			Header.insert(Header.end(), {8, 6, 0, 0, 0});
+			Header.insert(Header.end(), {
+				std::byte{8}, std::byte{6}, std::byte{0}, std::byte{0}, std::byte{0}});
 			WritePngChunk(OutBytes, "IHDR", Header);
 			WritePngChunk(OutBytes, "IDAT", Deflate);
 			WritePngChunk(OutBytes, "IEND", {});
@@ -287,7 +290,7 @@ namespace Durin::Editor
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		std::string_view Error
 	) -> bool
 	{
@@ -317,7 +320,7 @@ namespace Durin::Editor
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
-		std::span<const uint8> Pixels,
+		std::span<const std::byte> Pixels,
 		uint32 Width,
 		uint32 Height,
 		std::string_view Error,
@@ -325,7 +328,7 @@ namespace Durin::Editor
 	{
 		if (!Error.empty())
 			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
-		std::vector<uint8> EncodedBytes;
+		std::vector<std::byte> EncodedBytes;
 		if (!EncodeRgbaPng(Pixels, Width, Height, EncodedBytes))
 			return CompleteEncoding(
 				Job,
@@ -347,7 +350,7 @@ namespace Durin::Editor
 	auto FRenderedAssetThumbnailPipeline::CompleteGeneratedPixels(
 		FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
-		std::span<const uint8> Pixels,
+		std::span<const std::byte> Pixels,
 		uint32 Width,
 		uint32 Height,
 		std::string_view Error) -> bool

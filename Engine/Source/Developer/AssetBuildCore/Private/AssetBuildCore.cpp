@@ -50,7 +50,7 @@ namespace Durin::Asset::Build
 				const FBuildCachePolicy& Policy) const -> FBuildCacheQueryResult
 			{
 				if (!Policy.bQueryCache) return {};
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				const FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
 				if (Read.Status == EDerivedDataObjectReadStatus::Hit)
 					return {EBuildCacheQueryStatus::Hit,
@@ -142,13 +142,13 @@ namespace Durin::Asset::Build
 		}
 	}
 
-	auto FBuildValue::FromOwned(std::string InName, std::vector<uint8> InBytes)
+	auto FBuildValue::FromOwned(std::string InName, std::vector<std::byte> InBytes)
 		-> FBuildValue
 	{
 		FBuildValue Result;
 		Result.Name = std::move(InName);
 		Result.ContentIdentity = FXxHash128::HashBuffer(InBytes);
-		Result.Bytes = std::make_shared<const std::vector<uint8>>(std::move(InBytes));
+		Result.Bytes = std::make_shared<const std::vector<std::byte>>(std::move(InBytes));
 		return Result;
 	}
 
@@ -197,7 +197,7 @@ namespace Durin::Asset::Build
 	}
 
 	auto FBuildDefinitionBuilder::SetKey(
-		FBuildKey InKey, std::span<const uint8> CanonicalKeyInput)
+		FBuildKey InKey, std::span<const std::byte> CanonicalKeyInput)
 		-> FBuildDefinitionBuilder&
 	{
 		Definition.Key = std::move(InKey);

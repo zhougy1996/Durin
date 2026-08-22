@@ -128,7 +128,7 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
 		for (Durin::uint32 Y = 0; Y < Mip.Height; ++Y)
 			for (Durin::uint32 X = 0; X < Mip.Width; ++X)
 				Mip.Voxels[Z * Mip.DepthPitch + Y * Mip.RowPitch + X] =
-					static_cast<Durin::uint8>(X + Y * 10 + Z * 100);
+					static_cast<std::byte>(X + Y * 10 + Z * 100);
 
 	using namespace Durin::Editor::Texture;
 	const auto XY = ExtractVolumeTexturePreviewSlice(
@@ -136,20 +136,20 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
 	ASSERT_TRUE(XY.IsValid());
 	EXPECT_EQ(XY.Width, 3u);
 	EXPECT_EQ(XY.Height, 2u);
-	EXPECT_EQ(XY.Pixels[0], 100u);
-	EXPECT_EQ(XY.Pixels[(1 * XY.Width + 2) * 4], 112u);
+	EXPECT_EQ(XY.Pixels[0], std::byte{100});
+	EXPECT_EQ(XY.Pixels[(1 * XY.Width + 2) * 4], std::byte{112});
 	const auto XZ = ExtractVolumeTexturePreviewSlice(
 		Mip, Durin::EPixelFormat::R8_UNORM, EVolumeTexturePreviewAxis::XZ, 1);
 	ASSERT_TRUE(XZ.IsValid());
 	EXPECT_EQ(XZ.Width, 3u);
 	EXPECT_EQ(XZ.Height, 2u);
-	EXPECT_EQ(XZ.Pixels[(1 * XZ.Width + 2) * 4], 112u);
+	EXPECT_EQ(XZ.Pixels[(1 * XZ.Width + 2) * 4], std::byte{112});
 	const auto YZ = ExtractVolumeTexturePreviewSlice(
 		Mip, Durin::EPixelFormat::R8_UNORM, EVolumeTexturePreviewAxis::YZ, 2);
 	ASSERT_TRUE(YZ.IsValid());
 	EXPECT_EQ(YZ.Width, 2u);
 	EXPECT_EQ(YZ.Height, 2u);
-	EXPECT_EQ(YZ.Pixels[(1 * YZ.Width + 1) * 4], 112u);
+	EXPECT_EQ(YZ.Pixels[(1 * YZ.Width + 1) * 4], std::byte{112});
 }
 
 TEST(FTextureAssetThumbnailTests, VolumePreviewPreservesRGBAAndClampsSlice)
@@ -160,7 +160,8 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewPreservesRGBAAndClampsSlice)
 	Mip.Depth = 1;
 	Mip.RowPitch = 8;
 	Mip.DepthPitch = 8;
-	Mip.Voxels = {1, 2, 3, 4, 10, 20, 30, 40};
+	Mip.Voxels = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+		std::byte{10}, std::byte{20}, std::byte{30}, std::byte{40}};
 	const auto Slice = Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
 		Mip, Durin::EPixelFormat::RGBA8_UNORM,
 		Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 99);

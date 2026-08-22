@@ -55,26 +55,26 @@ namespace
 		}
 	}
 
-	auto WriteU32(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Bytes.size());
 		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
-			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto WriteU64(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint64 Value) -> void
+	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint64 Value) -> void
 	{
 		ASSERT_LE(Offset + 8, Bytes.size());
 		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
-			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto ContainsText(std::span<const Durin::uint8> Bytes, std::string_view Text) -> bool
+	auto ContainsText(std::span<const std::byte> Bytes, std::string_view Text) -> bool
 	{
-		return std::search(
-			Bytes.begin(), Bytes.end(),
-			reinterpret_cast<const Durin::uint8*>(Text.data()),
-			reinterpret_cast<const Durin::uint8*>(Text.data() + Text.size())) != Bytes.end();
+		const std::span<const std::byte> TextBytes =
+			std::as_bytes(std::span{Text.data(), Text.size()});
+		return std::search(Bytes.begin(), Bytes.end(),
+			TextBytes.begin(), TextBytes.end()) != Bytes.end();
 	}
 
 	auto SaveVariantPackage(
@@ -88,7 +88,7 @@ namespace
 			DescriptorProperty->GetValuePtr(&Texture));
 		const Durin::Asset::FCookedPayloadDescriptor SavedDescriptor = *StoredDescriptor;
 		*StoredDescriptor = Descriptor;
-		std::vector<Durin::uint8> PackageBytes;
+		std::vector<std::byte> PackageBytes;
 		const Durin::Asset::FAssetResult Result =
 			Durin::Asset::SerializeAssetPackageBytes(Texture.GetPackage(), PackageBytes);
 		*StoredDescriptor = SavedDescriptor;
@@ -157,10 +157,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Import.Asset->AddToCook(Second, "/Game/CookedTexture", Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
-	std::vector<Durin::uint8> FirstPackage;
-	std::vector<Durin::uint8> SecondPackage;
-	std::vector<Durin::uint8> FirstBulk;
-	std::vector<Durin::uint8> SecondBulk;
+	std::vector<std::byte> FirstPackage;
+	std::vector<std::byte> SecondPackage;
+	std::vector<std::byte> FirstBulk;
+	std::vector<std::byte> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (CookRoot / "Game/CookedTexture.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -200,7 +200,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path WrongProfileRoot =
 		std::filesystem::absolute(Root / "CookWrongProfile");
-	std::vector<Durin::uint8> WrongProfileBulk = FirstBulk;
+	std::vector<std::byte> WrongProfileBulk = FirstBulk;
 	WriteU32(
 		WrongProfileBulk,
 		12,
@@ -215,13 +215,13 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path UnsupportedFormatRoot =
 		std::filesystem::absolute(Root / "CookUnsupportedFormat");
-	std::vector<Durin::uint8> UnsupportedFormatPayload = DecodedBulk.Payloads.front();
+	std::vector<std::byte> UnsupportedFormatPayload = DecodedBulk.Payloads.front();
 	WriteU32(UnsupportedFormatPayload, 24, std::numeric_limits<Durin::uint32>::max());
 	WriteU64(
 		UnsupportedFormatPayload,
 		64,
 		Durin::FXxHash64::HashBuffer(
-			std::span<const Durin::uint8>(UnsupportedFormatPayload)
+			std::span<const std::byte>(UnsupportedFormatPayload)
 				.subspan(Durin::TexturePayloadHeaderSize)).HashValue);
 	std::vector<Durin::Asset::FCookedBulkPayload> UnsupportedPayloads;
 	UnsupportedPayloads.push_back({
@@ -231,7 +231,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		.Compression = Durin::Asset::ECookedPayloadCompression::None,
 		.Alignment = Durin::TexturePayloadAlignment,
 		.Bytes = std::move(UnsupportedFormatPayload)});
-	std::vector<Durin::uint8> UnsupportedFormatBulk;
+	std::vector<std::byte> UnsupportedFormatBulk;
 	std::vector<Durin::Asset::FCookedPayloadDescriptor> UnsupportedDescriptors;
 	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
 		UnsupportedPayloads,
@@ -251,8 +251,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path CorruptRoot =
 		std::filesystem::absolute(Root / "CookCorrupt");
-	std::vector<Durin::uint8> CorruptBulk = FirstBulk;
-	CorruptBulk.back() ^= 0x80u;
+	std::vector<std::byte> CorruptBulk = FirstBulk;
+	CorruptBulk.back() ^= std::byte{0x80};
 	std::filesystem::create_directories(CorruptRoot / "Game");
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstPackage)),
@@ -344,7 +344,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	{
 		bool bSucceeded = true;
 		std::string Error;
-		std::vector<Durin::uint8> SamplePixels;
+		std::vector<std::byte> SamplePixels;
 	};
 	auto UploadResult = std::make_shared<FTextureCookUploadResult>();
 	struct FValidateCookedTextureUpload
@@ -409,9 +409,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	{
 		ASSERT_EQ(UploadResult->SamplePixels.size(), 17u * 17u * 4u);
 		const size_t Center = (8u * 17u + 8u) * 4u;
-		EXPECT_GT(UploadResult->SamplePixels[Center], 180u);
-		EXPECT_GT(UploadResult->SamplePixels[Center + 1], 180u);
-		EXPECT_GT(UploadResult->SamplePixels[Center + 2], 180u);
+		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center]), 180u);
+		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center + 1]), 180u);
+		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center + 2]), 180u);
 	}
 
 	SceneOwner.reset();

@@ -38,14 +38,14 @@ namespace Durin::Asset::Forge
 			uint8 Value = 0;
 			switch (Channels)
 			{
-			case EVolumeTextureSourceChannels::Red: Value = Image.Pixels[Pixel]; break;
-			case EVolumeTextureSourceChannels::Green: Value = Image.Pixels[Pixel + 1]; break;
-			case EVolumeTextureSourceChannels::Blue: Value = Image.Pixels[Pixel + 2]; break;
-			case EVolumeTextureSourceChannels::Alpha: Value = Image.Pixels[Pixel + 3]; break;
+			case EVolumeTextureSourceChannels::Red: Value = std::to_integer<uint8>(Image.Pixels[Pixel]); break;
+			case EVolumeTextureSourceChannels::Green: Value = std::to_integer<uint8>(Image.Pixels[Pixel + 1]); break;
+			case EVolumeTextureSourceChannels::Blue: Value = std::to_integer<uint8>(Image.Pixels[Pixel + 2]); break;
+			case EVolumeTextureSourceChannels::Alpha: Value = std::to_integer<uint8>(Image.Pixels[Pixel + 3]); break;
 			case EVolumeTextureSourceChannels::Luminance:
-				Value = static_cast<uint8>((54u * Image.Pixels[Pixel]
-					+ 183u * Image.Pixels[Pixel + 1]
-					+ 19u * Image.Pixels[Pixel + 2] + 128u) >> 8u);
+				Value = static_cast<uint8>((54u * std::to_integer<uint8>(Image.Pixels[Pixel])
+					+ 183u * std::to_integer<uint8>(Image.Pixels[Pixel + 1])
+					+ 19u * std::to_integer<uint8>(Image.Pixels[Pixel + 2]) + 128u) >> 8u);
 				break;
 			case EVolumeTextureSourceChannels::RGBA: break;
 			}
@@ -93,10 +93,10 @@ namespace Durin::Asset::Forge
 			{
 				const size_t PixelIndex = SampleCount == PixelCount
 					? Sample : Sample * PixelCount / SampleCount;
-				const uint8* Pixel = Image.Pixels.data() + PixelIndex * 4;
+				const std::byte* Pixel = Image.Pixels.data() + PixelIndex * 4;
 				bRgbEqual &= Pixel[0] == Pixel[1] && Pixel[1] == Pixel[2];
-				bRgbWhite &= Pixel[0] == 255 && Pixel[1] == 255 && Pixel[2] == 255;
-				bAlphaVaries |= Pixel[3] != 255;
+				bRgbWhite &= Pixel[0] == std::byte{255} && Pixel[1] == std::byte{255} && Pixel[2] == std::byte{255};
+				bAlphaVaries |= Pixel[3] != std::byte{255};
 			}
 			if (Image.SourceChannelCount == 4 && bAlphaVaries && bRgbWhite)
 				return EVolumeTextureSourceChannels::Alpha;
@@ -151,7 +151,7 @@ namespace Durin::Asset::Forge
 		}
 
 		auto ReadCaptured(const Asset::FMountedSourceFile& Source,
-			std::vector<uint8>& OutBytes, FVolumeTextureCapturedSource& Out,
+			std::vector<std::byte>& OutBytes, FVolumeTextureCapturedSource& Out,
 			std::string& OutError) -> bool
 		{
 			if (!FFileHelper::LoadFileToArray(OutBytes, Source.PhysicalPath))
@@ -255,7 +255,9 @@ namespace Durin::Asset::Forge
 	{
 		OutSourceData = {};
 		if (!Settings.IsValid(&OutError)) return false;
-		constexpr std::array<uint8, 8> PngSignature = {137, 80, 78, 71, 13, 10, 26, 10};
+		constexpr std::array<std::byte, 8> PngSignature = {
+			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
+			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		if (Source.Bytes.size() < PngSignature.size()
 			|| !std::ranges::equal(PngSignature, Source.Bytes.first(PngSignature.size())))
 		{
@@ -363,7 +365,7 @@ namespace Durin::Asset::Forge
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
 			SourceDestination, MountedSource, Error, MutationContext))
 			return {false, std::move(Error), nullptr};
-		std::vector<uint8> CapturedBytes;
+		std::vector<std::byte> CapturedBytes;
 		FVolumeTextureCapturedSource CapturedSource;
 		if (!ReadCaptured(MountedSource, CapturedBytes, CapturedSource, Error))
 			return {false, std::move(Error), nullptr};
@@ -396,7 +398,7 @@ namespace Durin::Asset::Forge
 		Asset::FMountedSourceFile MountedSource;
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
 			SourcePath, MountedSource, OutError)) return false;
-		std::vector<uint8> SourceBytes;
+		std::vector<std::byte> SourceBytes;
 		FVolumeTextureCapturedSource CapturedSource;
 		if (!ReadCaptured(MountedSource, SourceBytes, CapturedSource, OutError)) return false;
 		return BuildVolumeTextureCandidate(Texture, CapturedSource,

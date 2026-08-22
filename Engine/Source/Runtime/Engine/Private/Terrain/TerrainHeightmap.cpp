@@ -431,7 +431,7 @@ namespace Durin
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
 			return FailCooked(OutError);
-		const std::span<const uint8> Bytes = LoadedPayload.Payload;
+		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		auto MutableCandidate = std::make_shared<FTerrainHeightmapPayload>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
 		MutableCandidate->Serialize(PayloadAr, Asset::ECookTargetPlatform::Win64,
@@ -463,7 +463,7 @@ namespace Durin
 				"Terrain heightmap '{}' is not ready for a Win64 game cook.", GetObjectPath());
 			return false;
 		}
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
 			CookAr, Context.GetTargetPlatform(), Context.GetTargetProfile());
@@ -483,7 +483,7 @@ namespace Durin
 			std::string(VirtualPackagePath), {std::move(Bulk)},
 			[this, bRetainDiagnosticSourceMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes,
+				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != TerrainHeightmapPrimaryCookedPayloadId)

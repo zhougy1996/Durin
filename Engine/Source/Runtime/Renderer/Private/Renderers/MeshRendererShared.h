@@ -204,7 +204,7 @@ namespace Durin::RendererPrivate
 		Result.MaterialUniform.reserve(UniformPayload.size());
 		for (const std::byte Byte : UniformPayload)
 		{
-			Result.MaterialUniform.push_back(std::to_integer<uint8>(Byte));
+			Result.MaterialUniform.push_back(Byte);
 		}
 
 		if (NumVertices != 0)

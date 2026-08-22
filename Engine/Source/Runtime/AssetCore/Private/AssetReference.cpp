@@ -153,10 +153,11 @@ namespace Durin::Asset
 		return CompareReferenceRoute(Left.Route, Right.Route) < 0;
 	}
 
-	auto AppendMapTokenDisplay(std::string& Path, std::span<const uint8> Token) -> void
+	auto AppendMapTokenDisplay(std::string& Path, std::span<const std::byte> Token) -> void
 	{
 		Path.append("[key:");
-		for (const uint8 Byte : Token) Path.append(std::format("{:02x}", static_cast<uint32>(Byte)));
+		for (const std::byte Byte : Token)
+			Path.append(std::format("{:02x}", std::to_integer<uint32>(Byte)));
 		Path.push_back(']');
 	}
 
@@ -181,7 +182,7 @@ namespace Durin::Asset
 
 	auto ExtractReferencePropertyValues(
 		FProperty* Property,
-		std::span<const uint8> Payload,
+		std::span<const std::byte> Payload,
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
@@ -378,7 +379,7 @@ namespace Durin::Asset
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
 					return KeyResult;
 				}
-				std::vector<uint8> KeyToken;
+				std::vector<std::byte> KeyToken;
 				if (!BuildCanonicalMapKeyToken(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
 					return Error(EAssetError::TypeMismatch, std::move(StorageError));
@@ -418,7 +419,7 @@ namespace Durin::Asset
 				std::string Signature;
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
-				std::span<const uint8> FieldPayload;
+				std::span<const std::byte> FieldPayload;
 				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
 					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
@@ -639,9 +640,9 @@ namespace Durin::Asset
 
 	auto RewriteSerializedReferenceProperty(
 		FProperty* Property,
-		std::span<const uint8> Payload,
+		std::span<const std::byte> Payload,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
-		std::vector<uint8>& OutPayload,
+		std::vector<std::byte>& OutPayload,
 		uint64& RewriteCount,
 		uint32 ContainerDepth = 0) -> FAssetResult
 	{
@@ -807,7 +808,7 @@ namespace Durin::Asset
 				std::string Signature;
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
-				std::span<const uint8> FieldPayload;
+				std::span<const std::byte> FieldPayload;
 				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
 					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
@@ -833,7 +834,7 @@ namespace Durin::Asset
 					|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 					return Error(EAssetError::TypeMismatch,
 						"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
-				std::vector<uint8> RewrittenPayload;
+				std::vector<std::byte> RewrittenPayload;
 				FAssetResult Result = RewriteSerializedReferenceProperty(
 					Field, FieldPayload, Mappings, RewrittenPayload,
 					RewriteCount, ContainerDepth);
@@ -850,10 +851,10 @@ namespace Durin::Asset
 	}
 
 	auto RewritePackageReferences(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -865,7 +866,7 @@ namespace Durin::Asset
 	}
 
 	auto ReadPackageMetadata(
-		std::span<const uint8> Bytes, FPackageFile& OutFile) -> FAssetResult
+		std::span<const std::byte> Bytes, FPackageFile& OutFile) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -889,17 +890,17 @@ namespace Durin::Asset
 	namespace Private
 	{
 		auto RewritePackageReferencesForMutation(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
-			std::vector<uint8>& OutBytes) -> FAssetResult
+			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			return RewritePackageReferences(
 				Bytes, Mappings, ExpectedRewriteCount, OutBytes);
 		}
 
 		auto ReadMutationPackageMetadata(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FMutationPackageMetadata& OutMetadata) -> FAssetResult
 		{
 			FPackageFile File;

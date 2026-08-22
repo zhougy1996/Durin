@@ -84,7 +84,7 @@ namespace
 			});
 	}
 
-	auto ThumbnailPngBytes() -> std::span<const Durin::uint8>
+	auto ThumbnailPngBytes() -> std::span<const std::byte>
 	{
 		static constexpr Durin::uint8 Bytes[] = {
 			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
@@ -92,7 +92,7 @@ namespace
 			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
 			159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
-		return Bytes;
+		return std::as_bytes(std::span{Bytes});
 	}
 
 	auto MakeCacheRoot(std::string_view Name) -> std::filesystem::path
@@ -398,7 +398,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Editor::FAssetThumbnailObjectStore Store({
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
-		ASSERT_TRUE(Store.Store(CacheKey, Corrupt));
+		ASSERT_TRUE(Store.Store(CacheKey, std::as_bytes(std::span{Corrupt})));
 	}
 	{
 		Durin::Editor::FRenderedAssetThumbnailCache Cache({}, {
@@ -420,7 +420,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 			Durin::Editor::FAssetThumbnailObjectStore Store({
 				.CacheRoot = CacheRoot,
 				.ObjectExtension = ".png"});
-			std::vector<Durin::uint8> Encoded;
+			std::vector<std::byte> Encoded;
 			EXPECT_EQ(
 				Store.Load(CacheKey, Encoded),
 				Durin::Editor::EAssetThumbnailObjectLoadResult::Miss);

@@ -24,7 +24,7 @@ namespace
 {
 	Durin::FViewRenderCounters GCounters;
 	std::vector<Durin::FViewRenderCounters> GCounterSnapshots;
-	std::array<std::vector<Durin::uint8>*, 4> GGBufferPixels{};
+	std::array<std::vector<std::byte>*, 4> GGBufferPixels{};
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GCounters = Counters;
@@ -146,10 +146,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 
-	auto Readback = std::make_shared<std::vector<Durin::uint8>>();
+	auto Readback = std::make_shared<std::vector<std::byte>>();
 	auto QualificationReadback =
-		std::make_shared<std::vector<Durin::uint8>>();
-	std::array<std::vector<Durin::uint8>, 4> TerrainGBufferPixels;
+		std::make_shared<std::vector<std::byte>>();
+	std::array<std::vector<std::byte>, 4> TerrainGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &TerrainGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -191,7 +191,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	Durin::SetGBufferCaptureSink(nullptr);
 	GGBufferPixels.fill(nullptr);
 	EXPECT_EQ(Readback->size(), 65u * 65u * 4u);
-	EXPECT_TRUE(std::ranges::any_of(*Readback, [](Durin::uint8 Value) { return Value != 0; }));
+	EXPECT_TRUE(std::ranges::any_of(*Readback,
+		[](std::byte Value) { return Value != std::byte{0}; }));
 	EXPECT_EQ(*QualificationReadback, *Readback);
 	ASSERT_EQ(GCounterSnapshots.size(), 3u);
 	EXPECT_EQ(GCounterSnapshots[1].GBufferEnabledViews, 1u);
@@ -211,20 +212,25 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	size_t ValidTerrainGBufferPixels = 0;
 	for (size_t Offset = 0; Offset < TerrainGBufferPixels[2].size(); Offset += 4)
 	{
-		if (TerrainGBufferPixels[2][Offset + 3] == 0u) continue;
+		if (TerrainGBufferPixels[2][Offset + 3] == std::byte{0}) continue;
 		++ValidTerrainGBufferPixels;
 		EXPECT_EQ(TerrainGBufferPixels[2][Offset + 3],
-			Durin::GBufferContract::StandardLitFlag);
-		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset]) / 255.0f,
+			static_cast<std::byte>(Durin::GBufferContract::StandardLitFlag));
+		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+			TerrainGBufferPixels[0][Offset])) / 255.0f,
 			0.8f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset + 1]) / 255.0f,
+		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+			TerrainGBufferPixels[0][Offset + 1])) / 255.0f,
 			0.2f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset + 2]) / 255.0f,
+		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+			TerrainGBufferPixels[0][Offset + 2])) / 255.0f,
 			0.1f, Durin::GBufferContract::MaximumUNorm8Error);
 		const Durin::FVector3f ShadingNormal =
 			Durin::GBufferContract::DecodeOctahedralNormal({
-				static_cast<float>(TerrainGBufferPixels[1][Offset]) / 255.0f,
-				static_cast<float>(TerrainGBufferPixels[1][Offset + 1]) / 255.0f});
+				static_cast<float>(std::to_integer<Durin::uint8>(
+					TerrainGBufferPixels[1][Offset])) / 255.0f,
+				static_cast<float>(std::to_integer<Durin::uint8>(
+					TerrainGBufferPixels[1][Offset + 1])) / 255.0f});
 		EXPECT_NEAR(Durin::Math::Length(ShadingNormal), 1.0, 1.0e-5);
 	}
 	EXPECT_GT(ValidTerrainGBufferPixels, 0u);
@@ -343,7 +349,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			Patch.LocalBounds, Material, 1),
 		Durin::Math::TranslationMatrix(LargeWorldOrigin));
 	Durin::FlushRenderingCommands();
-	auto LargeCoordinateReadback = std::make_shared<std::vector<Durin::uint8>>();
+	auto LargeCoordinateReadback = std::make_shared<std::vector<std::byte>>();
 	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
 		[&Renderer, &Scene, LargeCoordinateReadback, LargeWorldOrigin](
 			Durin::FRHICommandListImmediate& CommandList) {

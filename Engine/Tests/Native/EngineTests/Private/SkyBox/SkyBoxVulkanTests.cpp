@@ -205,21 +205,21 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		bool bSucceeded = true;
 		std::string Error;
-		std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount> PrincipalAxes;
-		std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount> HdrPrincipalAxes;
-		std::array<std::vector<Durin::uint8>, 2> LongitudeSeam;
-		std::array<std::vector<Durin::uint8>, 2> FaceBoundary;
-		std::vector<Durin::uint8> Translated;
-		std::vector<Durin::uint8> StatefulNoConsumer;
-		std::vector<Durin::uint8> StaleStateNoConsumer;
-		std::vector<Durin::uint8> StatefulLitNoConsumer;
-		std::vector<Durin::uint8> StatefulLetterboxedNoConsumer;
-		std::vector<Durin::uint8> ComponentRotated;
-		std::vector<Durin::uint8> ExplicitOverride;
-		std::vector<Durin::uint8> Letterboxed;
-		std::vector<Durin::uint8> Occluded;
-		std::vector<Durin::uint8> ForwardLitSky;
-		std::vector<Durin::uint8> HybridLitSky;
+		std::array<std::vector<std::byte>, Durin::TextureCubeFaceCount> PrincipalAxes;
+		std::array<std::vector<std::byte>, Durin::TextureCubeFaceCount> HdrPrincipalAxes;
+		std::array<std::vector<std::byte>, 2> LongitudeSeam;
+		std::array<std::vector<std::byte>, 2> FaceBoundary;
+		std::vector<std::byte> Translated;
+		std::vector<std::byte> StatefulNoConsumer;
+		std::vector<std::byte> StaleStateNoConsumer;
+		std::vector<std::byte> StatefulLitNoConsumer;
+		std::vector<std::byte> StatefulLetterboxedNoConsumer;
+		std::vector<std::byte> ComponentRotated;
+		std::vector<std::byte> ExplicitOverride;
+		std::vector<std::byte> Letterboxed;
+		std::vector<std::byte> Occluded;
+		std::vector<std::byte> ForwardLitSky;
+		std::vector<std::byte> HybridLitSky;
 		Durin::FViewRenderCounters HybridSkyCounters;
 		Durin::ERenderViewResult InvalidOutputResult =
 			Durin::ERenderViewResult::Success;
@@ -262,7 +262,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			{
 				for (Durin::uint32 MipIndex = 0; MipIndex < PlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
 				{
-					std::vector<Durin::uint8> MipPixels;
+					std::vector<std::byte> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
 							CommandList, CubeTexture, MipIndex, FaceIndex, MipPixels
 						)
@@ -288,7 +288,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			{
 				for (Durin::uint32 MipIndex = 0; MipIndex < HdrPlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
 				{
-					std::vector<Durin::uint8> MipPixels;
+					std::vector<std::byte> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
 							CommandList, HdrCubeTexture, MipIndex, FaceIndex, MipPixels
 						)
@@ -334,7 +334,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				&& HistoryProbe.CommittedTexture == nullptr;
 
 			auto RenderWithOptions = [&](const Durin::FSceneView& View,
-										 std::vector<Durin::uint8>& OutPixels,
+										 std::vector<std::byte>& OutPixels,
 										 const Durin::FSceneViewRenderOptions& Options,
 										 Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit) {
 				Durin::FSceneView RenderView = View;
@@ -364,7 +364,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return true;
 			};
 			auto Render = [&](const Durin::FSceneView& View,
-							  std::vector<Durin::uint8>& OutPixels) {
+							  std::vector<std::byte>& OutPixels) {
 				return RenderWithOptions(View, OutPixels, {});
 			};
 

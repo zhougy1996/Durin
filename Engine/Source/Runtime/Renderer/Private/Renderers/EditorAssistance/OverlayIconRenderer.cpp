@@ -468,7 +468,7 @@ namespace Durin
 						0,
 						Region,
 						FOverlayIconAtlasLayout::RowPitchBytes,
-						Pixels.data());
+						std::as_bytes(std::span(Pixels)));
 				}
 				Candidate.AtlasSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());

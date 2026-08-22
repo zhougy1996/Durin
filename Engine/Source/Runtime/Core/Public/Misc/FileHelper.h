@@ -34,8 +34,6 @@ namespace Durin
 
 		CORE_API bool FileExists(std::string_view FileName);
 
-		CORE_API bool LoadFileToArray(std::vector<uint8>& Result, const std::filesystem::path& FilePath);
-
 		CORE_API bool LoadFileToArray(std::vector<std::byte>& Result, const std::filesystem::path& FilePath);
 
 		CORE_API bool LoadFileToArray(std::vector<uint32>& Result, const std::filesystem::path& FilePath);
@@ -61,12 +59,5 @@ namespace Durin
 			FAtomicFileError* OutError = nullptr
 		) -> bool;
 
-		inline auto SaveArrayToFileAtomically(
-			std::span<const uint8> Array,
-			const std::filesystem::path& FilePath,
-			FAtomicFileError* OutError = nullptr) -> bool
-		{
-			return SaveArrayToFileAtomically(std::as_bytes(Array), FilePath, OutError);
-		}
 	}
 }

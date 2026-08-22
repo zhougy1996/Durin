@@ -161,9 +161,8 @@ namespace Durin::Asset
 						const FImportRecordReferenceDescriptor& Right) {
 						return Left.StableId < Right.StableId;
 					});
-			OutSnapshot.Fingerprint = FXxHash128::HashBuffer(std::span{
-				reinterpret_cast<const uint8*>(FingerprintSource.data()),
-				FingerprintSource.size()}).ToString();
+			OutSnapshot.Fingerprint = FXxHash128::HashBuffer(
+				std::as_bytes(std::span(FingerprintSource))).ToString();
 			return {};
 		}
 	}
@@ -187,14 +186,14 @@ namespace Durin::Asset
 		std::string& OutFingerprint,
 		std::string& OutError) -> bool
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(Package, Bytes);
 		if (!Result)
 		{
 			OutError = Result.Message;
 			return false;
 		}
-		OutFingerprint = FXxHash128::HashBuffer(std::span<const uint8>(Bytes)).ToString();
+		OutFingerprint = FXxHash128::HashBuffer(std::span<const std::byte>(Bytes)).ToString();
 		OutError.clear();
 		return true;
 	}
@@ -206,13 +205,13 @@ namespace Durin::Asset
 	{
 		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
 		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!Data || !FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
 		{
 			OutError = std::format("Authored package {} is unavailable.", Path.ToString());
 			return false;
 		}
-		OutFingerprint = FXxHash128::HashBuffer(std::span<const uint8>(Bytes)).ToString();
+		OutFingerprint = FXxHash128::HashBuffer(std::span<const std::byte>(Bytes)).ToString();
 		OutError.clear();
 		return true;
 	}
@@ -534,7 +533,7 @@ namespace Durin::Asset
 				return ImportStoreError(
 					Asset::EAssetError::StaleData,
 					"An import record was removed during Fix Up analysis.");
-			std::vector<uint8> PreBytes;
+			std::vector<std::byte> PreBytes;
 			if (!FFileHelper::LoadFileToArray(PreBytes, Data->PhysicalPath))
 				return ImportStoreError(
 					Asset::EAssetError::IoError,
@@ -545,7 +544,7 @@ namespace Durin::Asset
 				return ImportStoreError(
 					Asset::EAssetError::InvalidObjectGraph, std::move(StateError));
 			RecordRewrite.PostState = Record->GetState();
-			std::vector<uint8> PostBytes;
+			std::vector<std::byte> PostBytes;
 			Result = Asset::SerializeAssetPackageBytes(
 				Record->GetPackage(), PostBytes);
 			std::string RestoreError;

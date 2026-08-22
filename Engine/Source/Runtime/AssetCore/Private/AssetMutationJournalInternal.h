@@ -62,16 +62,16 @@ namespace Durin::Asset::Private
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
+		std::vector<std::byte>& OutBytes) -> FAssetResult;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		std::span<const uint8> Bytes) -> FAssetResult;
+		std::span<const std::byte> Bytes) -> FAssetResult;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,

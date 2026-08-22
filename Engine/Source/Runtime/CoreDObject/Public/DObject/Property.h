@@ -84,13 +84,13 @@ namespace Durin
 		auto GetValuePtr(void* Container, uint32 ArrayIndex = 0) const -> void*
 		{
 			if (MutableValueAccessor) return MutableValueAccessor(Container, ArrayIndex);
-			return static_cast<uint8*>(Container) + Offset + ElementSize * ArrayIndex;
+			return static_cast<std::byte*>(Container) + Offset + ElementSize * ArrayIndex;
 		}
 
 		auto GetValuePtr(const void* Container, uint32 ArrayIndex = 0) const -> const void*
 		{
 			if (ConstValueAccessor) return ConstValueAccessor(Container, ArrayIndex);
-			return static_cast<const uint8*>(Container) + Offset + ElementSize * ArrayIndex;
+			return static_cast<const std::byte*>(Container) + Offset + ElementSize * ArrayIndex;
 		}
 
 		auto SetValueAccessors(

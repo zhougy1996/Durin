@@ -41,10 +41,10 @@ namespace
 	auto EncodeCollisionPayload(
 		const FStaticMeshCollisionPayloadData& Payload,
 		EStaticMeshTargetPlatform Platform,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
-		std::vector<uint8> Candidate;
+		std::vector<std::byte> Candidate;
 		FCanonicalMemoryWriter Ar(Candidate, EArchivePurpose::DerivedDataPayload);
 		const_cast<FStaticMeshCollisionPayloadData&>(Payload).Serialize(Ar, Platform);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -54,7 +54,7 @@ namespace
 	}
 
 	auto DecodeCollisionPayload(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		EStaticMeshTargetPlatform Platform,
 		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
@@ -488,25 +488,25 @@ namespace
 	}
 
 	template <typename T>
-	auto AppendLittleEndian(std::vector<uint8>& Bytes, T Value) -> void
+	auto AppendLittleEndian(std::vector<std::byte>& Bytes, T Value) -> void
 	{
 		using U = std::make_unsigned_t<T>;
 		const U Bits = static_cast<U>(Value);
 		for (size_t Byte = 0; Byte < sizeof(T); ++Byte)
-			Bytes.push_back(static_cast<uint8>(Bits >> (Byte * 8)));
+			Bytes.push_back(static_cast<std::byte>(Bits >> (Byte * 8)));
 	}
 
 	template <typename T>
-	auto WriteLittleEndian(std::vector<uint8>& Bytes, size_t Offset, T Value) -> void
+	auto WriteLittleEndian(std::vector<std::byte>& Bytes, size_t Offset, T Value) -> void
 	{
 		using U = std::make_unsigned_t<T>;
 		const U Bits = static_cast<U>(Value);
 		for (size_t Byte = 0; Byte < sizeof(T); ++Byte)
-			Bytes[Offset + Byte] = static_cast<uint8>(Bits >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Bits >> (Byte * 8));
 	}
 
 	template <typename T>
-	auto ReadLittleEndian(std::span<const uint8> Bytes, size_t Offset) -> T
+	auto ReadLittleEndian(std::span<const std::byte> Bytes, size_t Offset) -> T
 	{
 		using U = std::make_unsigned_t<T>;
 		U Bits = 0;
@@ -515,10 +515,12 @@ namespace
 		return static_cast<T>(Bits);
 	}
 
-	auto AppendString(std::vector<uint8>& Bytes, std::string_view Value) -> void
+	auto AppendString(std::vector<std::byte>& Bytes, std::string_view Value) -> void
 	{
 		AppendLittleEndian<uint64>(Bytes, Value.size());
-		Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+		const std::span<const std::byte> ValueBytes =
+			std::as_bytes(std::span{Value.data(), Value.size()});
+		Bytes.insert(Bytes.end(), ValueBytes.begin(), ValueBytes.end());
 	}
 
 	auto BuildCollisionKeyBytes(
@@ -530,9 +532,9 @@ namespace
 		std::string_view Importer,
 		uint32 ImporterVersion,
 		std::array<uint8, 3> ImportAxes,
-		uint32 TargetPlatform) -> std::vector<uint8>
+		uint32 TargetPlatform) -> std::vector<std::byte>
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		AppendLittleEndian<uint32>(Bytes, CollisionKeySchemaVersion);
 		AppendLittleEndian<uint64>(Bytes, SourceHash.HashLow);
 		AppendLittleEndian<uint64>(Bytes, SourceHash.HashHigh);
@@ -550,7 +552,7 @@ namespace
 		return Bytes;
 	}
 
-	auto BuildPrototypePayload(const FCollisionSourceFixture& Fixture) -> std::vector<uint8>
+	auto BuildPrototypePayload(const FCollisionSourceFixture& Fixture) -> std::vector<std::byte>
 	{
 		FMeshBuildFacts Facts;
 		if (!BuildMeshPrototype(Fixture, Facts)) return {};
@@ -558,7 +560,7 @@ namespace
 		{
 			uint32 Type;
 			uint64 Count;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 		std::array<FChunk, 4> Chunks{{
 			{1, Fixture.Positions.size(), {}},
@@ -584,8 +586,8 @@ namespace
 			AppendLittleEndian<uint32>(Chunks[3].Data, Node.CountOrSecond);
 		}
 
-		std::vector<uint8> Bytes(CollisionPayloadHeaderSize
-			+ Chunks.size() * CollisionPayloadChunkEntrySize, 0);
+		std::vector<std::byte> Bytes(CollisionPayloadHeaderSize
+			+ Chunks.size() * CollisionPayloadChunkEntrySize, std::byte{0});
 		WriteLittleEndian<uint32>(Bytes, 0, CollisionPayloadMagic);
 		WriteLittleEndian<uint32>(Bytes, 4, CollisionPayloadSchemaVersion);
 		WriteLittleEndian<uint32>(Bytes, 8, CollisionBuilderVersion);
@@ -597,7 +599,7 @@ namespace
 		{
 			const size_t Aligned = (Bytes.size() + CollisionPayloadAlignment - 1)
 				& ~(static_cast<size_t>(CollisionPayloadAlignment) - 1);
-			Bytes.resize(Aligned, 0);
+			Bytes.resize(Aligned, std::byte{0});
 			const size_t Entry = CollisionPayloadHeaderSize
 				+ ChunkIndex * CollisionPayloadChunkEntrySize;
 			WriteLittleEndian<uint32>(Bytes, Entry, Chunks[ChunkIndex].Type);
@@ -610,11 +612,11 @@ namespace
 		WriteLittleEndian<uint64>(Bytes, 32, Bytes.size());
 		WriteLittleEndian<uint64>(Bytes, 40, Facts.LogicalRetainedBytes);
 		WriteLittleEndian<uint64>(Bytes, 48,
-			FXxHash64::HashBuffer(std::span<const uint8>(Bytes).subspan(64)).HashValue);
+			FXxHash64::HashBuffer(std::span<const std::byte>(Bytes).subspan(64)).HashValue);
 		return Bytes;
 	}
 
-	auto ValidatePrototypePayload(std::span<const uint8> Bytes) -> bool
+	auto ValidatePrototypePayload(std::span<const std::byte> Bytes) -> bool
 	{
 		if (Bytes.size() < CollisionPayloadHeaderSize
 			|| ReadLittleEndian<uint32>(Bytes, 0) != CollisionPayloadMagic
@@ -831,10 +833,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 		return BuildCollisionKeyBytes(InSource, InGeometry, Mode, Policy, WeldBits,
 			Importer, ImporterVersion, Axes, Platform);
 	};
-	const std::vector<uint8> First = BuildKey(Source, Geometry,
+	const std::vector<std::byte> First = BuildKey(Source, Geometry,
 		ECollisionSourceMode::TriangleMeshFromLOD0, ECollisionQueryPolicy::SimpleAndComplex,
 		std::bit_cast<uint32>(1.0e-5f), "Assimp", 602, {5, 0, 2}, 1);
-	const std::vector<uint8> Second = BuildKey(Source, Geometry,
+	const std::vector<std::byte> Second = BuildKey(Source, Geometry,
 		ECollisionSourceMode::TriangleMeshFromLOD0, ECollisionQueryPolicy::SimpleAndComplex,
 		std::bit_cast<uint32>(1.0e-5f), "Assimp", 602, {5, 0, 2}, 1);
 	EXPECT_EQ(First, Second);
@@ -873,14 +875,14 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 		ECollisionQueryPolicy::SimpleAndComplex, std::bit_cast<uint32>(1.0e-5f),
 		"Assimp", 602, {5, 0, 2}, 2));
 
-	const std::vector<uint8> Payload = BuildPrototypePayload(MakeTetrahedron());
+	const std::vector<std::byte> Payload = BuildPrototypePayload(MakeTetrahedron());
 	ASSERT_FALSE(Payload.empty());
 	EXPECT_TRUE(ValidatePrototypePayload(Payload));
 	EXPECT_EQ(Payload.size(), 336u);
 	EXPECT_EQ(FXxHash128::HashBuffer(Payload).ToString(), "e18caaa3799e0c65edea7a0af09edbf1");
 	auto ExpectCorrupt = [&](size_t Offset) {
-		std::vector<uint8> Corrupt = Payload;
-		Corrupt[Offset] ^= 0x40;
+		std::vector<std::byte> Corrupt = Payload;
+		Corrupt[Offset] ^= std::byte{0x40};
 		EXPECT_FALSE(ValidatePrototypePayload(Corrupt));
 	};
 	ExpectCorrupt(0); // magic
@@ -971,7 +973,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 	std::string Error;
-	const std::vector<uint8> KeyBytes =
+	const std::vector<std::byte> KeyBytes =
 		Asset::Build::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 75u);
@@ -988,8 +990,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 	FStaticMeshCollisionPayloadData Payload;
 	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload, Error)) << Error;
-	std::vector<uint8> First;
-	std::vector<uint8> Second;
+	std::vector<std::byte> First;
+	std::vector<std::byte> Second;
 	ASSERT_TRUE(EncodeCollisionPayload(
 		Payload, EStaticMeshTargetPlatform::Win64, First, Error)) << Error;
 	ASSERT_TRUE(EncodeCollisionPayload(
@@ -1004,8 +1006,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 	ASSERT_TRUE(MakeStaticMeshCollisionGeometry(Decoded, RoundTrip, Error)) << Error;
 	EXPECT_EQ(RoundTrip.GetTriangleCount(), Geometry.GetTriangleCount());
 	EXPECT_EQ(RoundTrip.GetNodeCount(), Geometry.GetNodeCount());
-	std::vector<uint8> Corrupt = First;
-	Corrupt.back() ^= 0x80;
+	std::vector<std::byte> Corrupt = First;
+	Corrupt.back() ^= std::byte{0x80};
 	FStaticMeshCollisionPayloadData Preserved = Decoded;
 	EXPECT_FALSE(DecodeCollisionPayload(
 		Corrupt, EStaticMeshTargetPlatform::Win64, Preserved));

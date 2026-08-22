@@ -32,19 +32,19 @@ namespace
 			.AllowTrailingZeroPadding = true};
 	}
 
-	auto WriteU32(std::vector<uint8>& Bytes, size_t Offset, uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		for (size_t Index = 0; Index < 4; ++Index)
-			Bytes[Offset + Index] = static_cast<uint8>(Value >> (Index * 8));
+			Bytes[Offset + Index] = static_cast<std::byte>(Value >> (Index * 8));
 	}
 
-	auto WriteU64(std::vector<uint8>& Bytes, size_t Offset, uint64 Value) -> void
+	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		for (size_t Index = 0; Index < 8; ++Index)
-			Bytes[Offset + Index] = static_cast<uint8>(Value >> (Index * 8));
+			Bytes[Offset + Index] = static_cast<std::byte>(Value >> (Index * 8));
 	}
 
-	auto RefreshChunkedPayloadHash(std::vector<uint8>& Bytes) -> void
+	auto RefreshChunkedPayloadHash(std::vector<std::byte>& Bytes) -> void
 	{
 		WriteU64(Bytes, 56, FXxHash64::HashBuffer(std::span(Bytes).subspan(64)).HashValue);
 	}
@@ -80,11 +80,12 @@ TEST(FBulkContainerCodecTests, IsLittleEndianBoundedAndLatchesFirstFailure)
 	EXPECT_FALSE(Writer.Write(uint8{1}));
 	EXPECT_EQ(Writer.GetFailure().Category, EFailure::LimitExceeded);
 	EXPECT_EQ(Writer.GetFailure().Offset, 7u);
-	std::vector<uint8> Published{9, 9};
+	std::vector<std::byte> Published{std::byte{9}, std::byte{9}};
 	EXPECT_FALSE(Writer.TryTake(Published));
-	EXPECT_EQ(Published, (std::vector<uint8>{9, 9}));
+	EXPECT_EQ(Published, (std::vector<std::byte>{std::byte{9}, std::byte{9}}));
 
-	const std::array<uint8, 7> Bytes{0x34, 0x12, 0xef, 0xcd, 0xab, 0x89, 0};
+	const std::array<std::byte, 7> Bytes{std::byte{0x34}, std::byte{0x12},
+		std::byte{0xef}, std::byte{0xcd}, std::byte{0xab}, std::byte{0x89}, std::byte{0}};
 	FBoundedReader Reader(Bytes, Bytes.size());
 	uint16 First = 0;
 	uint32 Second = 0;
@@ -106,14 +107,15 @@ TEST(FBulkContainerCodecTests, PublishesOnlyDetachedSuccessfulOutput)
 	FBoundedWriter Writer(16);
 	ASSERT_TRUE(Writer.Write(uint32{0x04030201}));
 	ASSERT_TRUE(Writer.PadTo(8));
-	std::vector<uint8> Published{9};
+	std::vector<std::byte> Published{std::byte{9}};
 	ASSERT_TRUE(Writer.TryTake(Published));
-	EXPECT_EQ(Published, (std::vector<uint8>{1, 2, 3, 4, 0, 0, 0, 0}));
+	EXPECT_EQ(Published, (std::vector<std::byte>{std::byte{1}, std::byte{2},
+		std::byte{3}, std::byte{4}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}}));
 }
 
 TEST(FBulkContainerCodecTests, TruncatedGuidDoesNotAdvanceOrMutateDestination)
 {
-	const std::array<uint8, 15> Bytes{};
+	const std::array<std::byte, 15> Bytes{};
 	FBoundedReader Reader(Bytes, Bytes.size());
 	FGuid Guid{1, 2, 3, 4};
 	EXPECT_FALSE(Reader.ReadGuid(Guid));
@@ -151,11 +153,11 @@ TEST(FBulkContainerLayoutTests, BuildsMixedAlignmentAndValidatesCanonicalPadding
 	EXPECT_EQ(Ranges[0].Offset, 32u);
 	EXPECT_EQ(Ranges[1].Offset, 64u);
 	EXPECT_EQ(FileSize, 69u);
-	std::vector<uint8> Bytes(static_cast<size_t>(FileSize), 0);
-	Bytes[32] = 1;
-	Bytes[64] = 2;
+	std::vector<std::byte> Bytes(static_cast<size_t>(FileSize), std::byte{0});
+	Bytes[32] = std::byte{1};
+	Bytes[64] = std::byte{2};
 	EXPECT_TRUE(ValidateLayout(Bytes, 24, 32, Ranges, Policy));
-	Bytes[40] = 1;
+	Bytes[40] = std::byte{1};
 	FFailure Failure;
 	EXPECT_FALSE(ValidateLayout(Bytes, 24, 32, Ranges, Policy, &Failure));
 	EXPECT_EQ(Failure.Category, EFailure::NonzeroPadding);
@@ -176,12 +178,12 @@ TEST(FBulkContainerLayoutTests, RejectsOverflowOverlapTrailingBytesAndUnsafeProj
 	EXPECT_TRUE(Ranges.empty());
 	EXPECT_EQ(FileSize, 99u);
 
-	std::vector<uint8> Bytes(48, 0);
+	std::vector<std::byte> Bytes(48, std::byte{0});
 	const std::array Overlap{FPayloadRange{32, 8, 16}, FPayloadRange{32, 8, 16}};
 	EXPECT_FALSE(ValidateLayout(Bytes, 32, 32, Overlap, Policy));
 	const std::array One{FPayloadRange{32, 8, 16}};
 	EXPECT_FALSE(ValidateLayout(Bytes, 32, 32, One, Policy));
-	std::span<const uint8> Projected = Bytes;
+	std::span<const std::byte> Projected = Bytes;
 	EXPECT_FALSE(TryProjectRange(Bytes, std::numeric_limits<uint64>::max(), 2, Projected));
 	EXPECT_EQ(Projected.size(), Bytes.size());
 }
@@ -201,8 +203,8 @@ TEST(FBulkContainerLayoutTests, ReportsLimitAndTrailingPaddingFailuresPrecisely)
 	EXPECT_FALSE(TryBuildLayout(0, Oversized, Policy, Ranges, FileSize, &Failure));
 	EXPECT_EQ(Failure.Category, EFailure::LimitExceeded);
 
-	std::vector<uint8> Bytes(5, 0);
-	Bytes.back() = 1;
+	std::vector<std::byte> Bytes(5, std::byte{0});
+	Bytes.back() = std::byte{1};
 	const std::array Payload{FPayloadRange{0, 4, 1}};
 	EXPECT_FALSE(ValidateLayout(Bytes, 0, 0, Payload, Policy, &Failure));
 	EXPECT_EQ(Failure.Category, EFailure::TrailingNonzeroPadding);
@@ -211,14 +213,14 @@ TEST(FBulkContainerLayoutTests, ReportsLimitAndTrailingPaddingFailuresPrecisely)
 TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterministically)
 {
 	using namespace Durin::Asset;
-	const std::array<uint8, 3> First{1, 2, 3};
-	const std::array<uint8, 3> Second{4, 5, 6};
-	const std::array<uint8, 2> Optional{7, 8};
+	const std::array<std::byte, 3> First{std::byte{1}, std::byte{2}, std::byte{3}};
+	const std::array<std::byte, 3> Second{std::byte{4}, std::byte{5}, std::byte{6}};
+	const std::array<std::byte, 2> Optional{std::byte{7}, std::byte{8}};
 	const std::array Chunks{
 		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, First, First.size()},
 		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Second, Second.size()},
 		FChunkedPayloadInput{99, 0, Optional, Optional.size()}};
-	std::vector<uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(EncodeChunkedPayload(
 		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Bytes));
@@ -236,34 +238,34 @@ TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterm
 TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCompatibility)
 {
 	using namespace Durin::Asset;
-	const std::array<uint8, 3> First{1, 2, 3};
-	const std::array<uint8, 3> Second{4, 5, 6};
+	const std::array<std::byte, 3> First{std::byte{1}, std::byte{2}, std::byte{3}};
+	const std::array<std::byte, 3> Second{std::byte{4}, std::byte{5}, std::byte{6}};
 	const std::array Chunks{
 		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, First, First.size()},
 		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Second, Second.size()}};
-	std::vector<uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(EncodeChunkedPayload(
 		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Bytes));
 
 	FDecodedChunkedPayload Sentinel;
 	Sentinel.HeaderWords[0] = 77;
-	std::vector<uint8> NonzeroPadding = Bytes;
-	NonzeroPadding[131] = 1;
+	std::vector<std::byte> NonzeroPadding = Bytes;
+	NonzeroPadding[131] = std::byte{1};
 	RefreshChunkedPayloadHash(NonzeroPadding);
 	const FChunkedPayloadResult PaddingResult = DecodeChunkedPayload(
 		NonzeroPadding, MakeChunkedPayloadFormat(), Sentinel);
 	EXPECT_EQ(PaddingResult.Failure, EChunkedPayloadFailure::NonzeroPadding);
 	EXPECT_EQ(Sentinel.HeaderWords[0], 77u);
 
-	std::vector<uint8> Duplicate = Bytes;
+	std::vector<std::byte> Duplicate = Bytes;
 	WriteU32(Duplicate, 64 + ChunkedPayloadEntrySize, 1);
 	RefreshChunkedPayloadHash(Duplicate);
 	const FChunkedPayloadResult DuplicateResult = DecodeChunkedPayload(
 		Duplicate, MakeChunkedPayloadFormat(), Sentinel);
 	EXPECT_EQ(DuplicateResult.Failure, EChunkedPayloadFailure::MissingRequiredChunk);
 
-	std::vector<uint8> Compressed = Bytes;
+	std::vector<std::byte> Compressed = Bytes;
 	WriteU32(Compressed, 16, 1);
 	WriteU32(Compressed, 68, ChunkedPayloadRequiredFlag | (1u << 8));
 	WriteU64(Compressed, 40, 195);
@@ -278,19 +280,19 @@ TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCom
 TEST(FChunkedPayloadCodecTests, DoesNotPublishFailedEncodeOrDecodeCandidates)
 {
 	using namespace Durin::Asset;
-	const std::array<uint8, 900> Oversized{};
+	const std::array<std::byte, 900> Oversized{};
 	const std::array Chunks{
 		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()},
 		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()}};
-	std::vector<uint8> Published{9, 9};
+	std::vector<std::byte> Published{std::byte{9}, std::byte{9}};
 	EXPECT_FALSE(EncodeChunkedPayload(
 		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Published));
-	EXPECT_EQ(Published, (std::vector<uint8>{9, 9}));
+	EXPECT_EQ(Published, (std::vector<std::byte>{std::byte{9}, std::byte{9}}));
 
 	FDecodedChunkedPayload Decoded;
 	Decoded.HeaderWords[0] = 88;
-	const std::array<uint8, 3> Truncated{};
+	const std::array<std::byte, 3> Truncated{};
 	EXPECT_EQ(DecodeChunkedPayload(Truncated, MakeChunkedPayloadFormat(), Decoded).Failure,
 		EChunkedPayloadFailure::TruncatedHeader);
 	EXPECT_EQ(Decoded.HeaderWords[0], 88u);

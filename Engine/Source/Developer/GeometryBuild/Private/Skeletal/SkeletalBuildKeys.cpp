@@ -62,9 +62,9 @@ namespace Durin::Asset::Build
 		}
 
 		template<typename T>
-		auto MakeKeyBytes(const T& Input, std::string& OutError) -> std::vector<uint8>
+		auto MakeKeyBytes(const T& Input, std::string& OutError) -> std::vector<std::byte>
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
 			if (Ar.HasError())
@@ -91,7 +91,7 @@ namespace Durin::Asset::Build
 
 	auto BuildSkeletalMeshDerivedDataKeyBytes(
 		const FSkeletalMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>
+		std::string& OutError) -> std::vector<std::byte>
 	{
 		return MakeKeyBytes(Input, OutError);
 	}
@@ -100,13 +100,13 @@ namespace Durin::Asset::Build
 		const FSkeletalMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<uint8> Bytes = MakeKeyBytes(Input, OutError);
+		const std::vector<std::byte> Bytes = MakeKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 
 	auto BuildAnimationClipDerivedDataKeyBytes(
 		const FAnimationClipBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>
+		std::string& OutError) -> std::vector<std::byte>
 	{
 		return MakeKeyBytes(Input, OutError);
 	}
@@ -115,7 +115,7 @@ namespace Durin::Asset::Build
 		const FAnimationClipBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<uint8> Bytes = MakeKeyBytes(Input, OutError);
+		const std::vector<std::byte> Bytes = MakeKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 }

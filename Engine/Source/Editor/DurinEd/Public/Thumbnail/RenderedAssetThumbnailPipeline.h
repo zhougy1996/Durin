@@ -33,7 +33,7 @@ namespace Durin::Editor
 	{
 		std::optional<FRenderedAssetThumbnailJob> ColdJob;
 		std::optional<FAssetThumbnailScheduledJob> WarmJob;
-		std::vector<uint8> EncodedBytes;
+		std::vector<std::byte> EncodedBytes;
 	};
 
 	// Coordinates bounded rendered-thumbnail transitions and persistent publication across owning threads.
@@ -82,14 +82,14 @@ namespace Durin::Editor
 			const FRenderedAssetThumbnailJob& Job,
 			uint64 AssetRevision,
 			uint64 ResourceRevision,
-			std::span<const uint8> EncodedBytes,
+			std::span<const std::byte> EncodedBytes,
 			std::string_view Error = {}) -> bool;
 		// Encodes tightly packed RGBA8 pixels as the fixed PNG output before atomic publication.
 		DURINED_API auto CompletePixels(
 			const FRenderedAssetThumbnailJob& Job,
 			uint64 AssetRevision,
 			uint64 ResourceRevision,
-			std::span<const uint8> Pixels,
+			std::span<const std::byte> Pixels,
 			uint32 Width,
 			uint32 Height,
 			std::string_view Error = {},
@@ -98,7 +98,7 @@ namespace Durin::Editor
 		DURINED_API auto CompleteGeneratedPixels(
 			FRenderedAssetThumbnailJob& Job,
 			uint64 AssetRevision,
-			std::span<const uint8> Pixels,
+			std::span<const std::byte> Pixels,
 			uint32 Width,
 			uint32 Height,
 			std::string_view Error = {}) -> bool;

@@ -18,7 +18,7 @@ namespace Durin::TexturePayloadContainer
 	auto Build(
 		const FDescriptor& Descriptor,
 		std::span<const FBuildRecord> Records,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -71,12 +71,12 @@ namespace Durin::TexturePayloadContainer
 		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
 		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
 		{
-			Body.WriteBytes(std::vector<uint8>(
-				static_cast<size_t>(DataOffsets[RecordIndex] - CurrentOffset), 0));
+			Body.WriteBytes(std::vector<std::byte>(
+				static_cast<size_t>(DataOffsets[RecordIndex] - CurrentOffset), std::byte{0}));
 			Body.WriteBytes(Records[RecordIndex].Data);
 			CurrentOffset = DataOffsets[RecordIndex] + Records[RecordIndex].Data.size();
 		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
+		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Result;
 		Result.WriteU32(TexturePayloadMagic);
@@ -101,7 +101,7 @@ namespace Durin::TexturePayloadContainer
 	}
 
 	auto Parse(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FDecodedContainer& OutContainer) -> FPayloadDecodeResult
@@ -188,7 +188,7 @@ namespace Durin::TexturePayloadContainer
 				return Reject(EPayloadDecodeError::Corrupt,
 					"Texture payload record range is misaligned, overlapping, or outside the object.");
 			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < Record.DataOffset; ++PaddingOffset)
-				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
+				if (Bytes[static_cast<size_t>(PaddingOffset)] != std::byte{0})
 					return Reject(EPayloadDecodeError::Corrupt,
 						"Texture payload contains non-zero alignment padding.");
 			PreviousEnd = Record.DataOffset + Record.ByteCount;

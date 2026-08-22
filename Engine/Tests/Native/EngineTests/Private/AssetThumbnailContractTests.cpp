@@ -104,7 +104,8 @@ namespace Durin
 				if (bGeneratesPixels)
 				{
 					auto Pixels = std::make_shared<Editor::FAssetThumbnailGeneratedPixels>();
-					Pixels->Pixels = {32, 32, 32, 255};
+					Pixels->Pixels = {
+						std::byte{32}, std::byte{32}, std::byte{32}, std::byte{255}};
 					Pixels->Width = 1;
 					Pixels->Height = 1;
 					Pixels->AssetRevision = 1;
@@ -613,7 +614,8 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, ObjectStorePersistsAndRejectsUnsafeKeys)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("Persistence");
-		const std::vector<uint8> Payload = {1, 2, 3, 4, 5};
+		const std::vector<std::byte> Payload = {
+			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}, std::byte{5}};
 		{
 			Editor::FAssetThumbnailObjectStore Store({
 				.CacheRoot = Root,
@@ -624,7 +626,7 @@ namespace Durin
 		Editor::FAssetThumbnailObjectStore WarmStore({
 			.CacheRoot = Root,
 			.ObjectExtension = ".bin"});
-		std::vector<uint8> Loaded;
+		std::vector<std::byte> Loaded;
 		EXPECT_EQ(WarmStore.Load("material-key-01", Loaded), Editor::EAssetThumbnailObjectLoadResult::Hit);
 		EXPECT_EQ(Loaded, Payload);
 		EXPECT_EQ(WarmStore.GetStats().CacheHits, 1u);
@@ -634,7 +636,7 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, ObjectStoreCleansMissingObjectsAndHonorsDiskBudget)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("Cleanup");
-		const std::vector<uint8> Payload(80, 7);
+		const std::vector<std::byte> Payload(80, std::byte{7});
 		{
 			Editor::FAssetThumbnailObjectStore Store({
 				.CacheRoot = Root,
@@ -643,7 +645,7 @@ namespace Durin
 			ASSERT_TRUE(Store.Store("object-key-01", Payload));
 			ASSERT_TRUE(Store.Store("object-key-02", Payload));
 			EXPECT_EQ(Store.GetStats().Evictions, 1u);
-			std::vector<uint8> Loaded;
+			std::vector<std::byte> Loaded;
 			EXPECT_EQ(Store.Load("object-key-01", Loaded), Editor::EAssetThumbnailObjectLoadResult::Miss);
 			EXPECT_EQ(Store.Load("object-key-02", Loaded), Editor::EAssetThumbnailObjectLoadResult::Hit);
 		}
@@ -906,7 +908,7 @@ namespace Durin
 			*ColdJob,
 			Update.AssetRevision,
 			Update.ResourceRevision,
-			Encoded));
+			std::as_bytes(std::span{Encoded})));
 		ColdJob->ScheduledJob.GenerationRequest.ReleaseRenderedSession();
 		EXPECT_EQ(State->PreviewResets, 1u);
 
@@ -916,7 +918,9 @@ namespace Durin
 		Editor::FRenderedAssetThumbnailStartResult Warm = Pipeline.StartNextDetailed();
 		EXPECT_FALSE(Warm.ColdJob);
 		ASSERT_TRUE(Warm.WarmJob);
-		EXPECT_EQ(Warm.EncodedBytes, std::vector<uint8>(Encoded.begin(), Encoded.end()));
+		const auto EncodedBytes = std::as_bytes(std::span{Encoded});
+		EXPECT_EQ(Warm.EncodedBytes, std::vector<std::byte>(
+			EncodedBytes.begin(), EncodedBytes.end()));
 		EXPECT_EQ(State->Captures, 2u);
 		EXPECT_EQ(State->Sessions, 1u);
 		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
@@ -1247,7 +1251,8 @@ namespace Durin
 			ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
 			ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
 			ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
-			const std::vector<uint8> Encoded = {1, 2, 3, 4};
+			const std::vector<std::byte> Encoded = {
+				std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
 			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, 10, 20, Encoded));
 			EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, Editor::EAssetThumbnailState::Ready);
 			const Editor::FRenderedAssetThumbnailPipelineStats Stats = Pipeline.GetStats();
@@ -1289,18 +1294,21 @@ namespace Durin
 		const std::array<uint8, 8> Pixels = {
 			255, 0, 0, 255,
 			0, 255, 0, 128};
-		ASSERT_TRUE(Pipeline.CompletePixels(*Job, 10, 20, Pixels, 2, 1));
+		ASSERT_TRUE(Pipeline.CompletePixels(
+			*Job, 10, 20, std::as_bytes(std::span{Pixels}), 2, 1));
 
 		Editor::FAssetThumbnailObjectStore Store({
 			.CacheRoot = Root,
 			.ObjectExtension = ".png"});
-		std::vector<uint8> Encoded;
+		std::vector<std::byte> Encoded;
 		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EAssetThumbnailObjectLoadResult::Hit);
 		Image::FDecodedImage Decoded;
 		ASSERT_TRUE(Image::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
-		EXPECT_EQ(Decoded.Pixels, std::vector<uint8>(Pixels.begin(), Pixels.end()));
+		const auto ExpectedPixels = std::as_bytes(std::span{Pixels});
+		EXPECT_EQ(Decoded.Pixels, std::vector<std::byte>(
+			ExpectedPixels.begin(), ExpectedPixels.end()));
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesAfterEncodingBeforePublication)
@@ -1333,7 +1341,7 @@ namespace Durin
 			*Job,
 			10,
 			20,
-			Pixels,
+			std::as_bytes(std::span{Pixels}),
 			1,
 			1,
 			{},
@@ -1341,7 +1349,7 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, Editor::EAssetThumbnailState::Failed);
 
 		Editor::FAssetThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
-		std::vector<uint8> Encoded;
+		std::vector<std::byte> Encoded;
 		EXPECT_EQ(Store.Load(CacheKey, Encoded), Editor::EAssetThumbnailObjectLoadResult::Miss);
 	}
 
@@ -1366,7 +1374,8 @@ namespace Durin
 		auto Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		const std::array<uint8, 4> Pixels{32, 32, 32, 255};
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(*Job, 7, Pixels, 1, 1));
+		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
+			*Job, 7, std::as_bytes(std::span{Pixels}), 1, 1));
 		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State,
 			Editor::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);

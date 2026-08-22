@@ -18,10 +18,10 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 			const FTextureSourceData& Source = Cube.Faces[static_cast<size_t>(Face)];
 			const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
 			return {
-				Source.Pixels[Offset],
-				Source.Pixels[Offset + 1],
-				Source.Pixels[Offset + 2],
-				Source.Pixels[Offset + 3],
+				std::to_integer<uint8>(Source.Pixels[Offset]),
+				std::to_integer<uint8>(Source.Pixels[Offset + 1]),
+				std::to_integer<uint8>(Source.Pixels[Offset + 2]),
+				std::to_integer<uint8>(Source.Pixels[Offset + 3]),
 			};
 		}
 	} // namespace
@@ -56,7 +56,8 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;
-		Panorama.Pixels = {0, 0, 0, 255, 255, 255, 255, 255};
+		Panorama.Pixels = {std::byte{0}, std::byte{0}, std::byte{0}, std::byte{255},
+			std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
@@ -141,7 +142,8 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;
-		Panorama.Pixels = {0, 0, 0, 0, 255, 255, 255, 255};
+		Panorama.Pixels = {std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+			std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;

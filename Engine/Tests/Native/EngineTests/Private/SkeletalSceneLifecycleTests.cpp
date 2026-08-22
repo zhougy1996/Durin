@@ -46,7 +46,7 @@ namespace
 		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 
-	using FCookTree = std::vector<std::pair<std::string, std::vector<Durin::uint8>>>;
+	using FCookTree = std::vector<std::pair<std::string, std::vector<std::byte>>>;
 
 	auto ReadCookTree(const std::filesystem::path& Root, FCookTree& Out) -> bool
 	{
@@ -54,7 +54,7 @@ namespace
 			std::filesystem::recursive_directory_iterator(Root))
 		{
 			if (!Entry.is_regular_file()) continue;
-			std::vector<Durin::uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			if (!Durin::FFileHelper::LoadFileToArray(
 				Bytes, Entry.path())) return false;
 			Out.emplace_back(
@@ -72,7 +72,7 @@ namespace
 		Durin::DObject& Object,
 		std::string& OutError) -> bool
 	{
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		const Durin::Asset::FAssetResult Serialized =
 			Durin::Asset::SerializeAssetPackageBytes(Object.GetPackage(), Bytes);
 		if (!Serialized)

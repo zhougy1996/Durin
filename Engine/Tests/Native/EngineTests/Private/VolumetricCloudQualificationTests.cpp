@@ -67,7 +67,7 @@ namespace Durin
 		struct FRouteProfile
 		{
 			std::vector<FGPUTimingQueryRHIRef> Queries;
-			std::vector<uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			FVolumetricCloudRenderer::FExecutionCounters Counters;
 			FTimingSummary Timing;
 		};
@@ -218,9 +218,9 @@ namespace Durin
 			return std::bit_cast<float>(FloatBits);
 		}
 
-		auto MakeDeterministicBytes(uint32 Width, uint32 Height, uint32 Depth, uint8 Seed) -> std::vector<uint8>
+		auto MakeDeterministicBytes(uint32 Width, uint32 Height, uint32 Depth, uint8 Seed) -> std::vector<std::byte>
 		{
-			std::vector<uint8> Bytes(
+			std::vector<std::byte> Bytes(
 				static_cast<size_t>(Width) * Height * Depth
 			);
 			for (uint32 Z = 0; Z < Depth; ++Z)
@@ -304,7 +304,7 @@ namespace Durin
 				FRHICommandListImmediate& CommandList
 			) {
 				auto MakeVolume = [&CommandList](const char* Name, uint32 Size, uint8 Seed) {
-					const std::vector<uint8> Bytes =
+					const std::vector<std::byte> Bytes =
 						MakeDeterministicBytes(Size, Size, Size, Seed);
 					FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(
 						CommandList, FRHITextureCreateDesc::Create3D(Name)
@@ -322,7 +322,7 @@ namespace Durin
 
 				FTextureRHIRef Base = MakeVolume("CloudQualificationBase", 64, 11);
 				FTextureRHIRef Detail = MakeVolume("CloudQualificationDetail", 32, 29);
-				const std::vector<uint8> WeatherBytes =
+				const std::vector<std::byte> WeatherBytes =
 					MakeDeterministicBytes(64, 64, 1, 47);
 				FTextureRHIRef Weather = GDynamicRHI->RHICreateTexture(
 					CommandList, FRHITextureCreateDesc::Create2D(
@@ -554,7 +554,7 @@ namespace Durin
 								 )
 									 .SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource)
 				);
-				std::vector<std::vector<uint8>> ReferenceFrames;
+				std::vector<std::vector<std::byte>> ReferenceFrames;
 				ReferenceFrames.reserve(6);
 				if (QualificationDepth)
 				{
@@ -774,7 +774,7 @@ namespace Durin
 							++Profile.HistoryAccepted;
 						else
 							++Profile.HistoryRejected;
-						std::vector<uint8> Pixels;
+						std::vector<std::byte> Pixels;
 						if (Composite)
 							GDynamicRHI->RHIReadTexture2D(
 								CommandList, Composite, 0, 0, Pixels

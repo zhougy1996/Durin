@@ -74,8 +74,8 @@ namespace Durin
 		uint64 FloatingBits = 0;
 		std::string TextValue;
 		FGuid GuidValue;
-		std::vector<uint8> ByteValue;
-		std::vector<uint8> CanonicalMapKeyToken;
+		std::vector<std::byte> ByteValue;
+		std::vector<std::byte> CanonicalMapKeyToken;
 		DObject* ObjectValue = nullptr;
 		bool bHasAtomicValue = false;
 		// Capture-only source used for authoritative identity; cleared from published plans.

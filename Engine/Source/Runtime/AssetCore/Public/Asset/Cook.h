@@ -11,14 +11,14 @@ namespace Durin::Asset
 		uint32 PayloadSchemaVersion = 0;
 		ECookedPayloadCompression Compression = ECookedPayloadCompression::None;
 		uint32 Alignment = 16;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 	};
 
 	ASSETCORE_API auto EncodeCookedBulk(
 		std::span<const FCookedBulkPayload> Payloads,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::vector<FCookedPayloadDescriptor>* OutDescriptors = nullptr,
 		std::string* OutError = nullptr
 	) -> bool;
@@ -50,11 +50,11 @@ namespace Durin::Asset
 
 	ASSETCORE_API auto EncodeCookManifest(
 		const FCookManifest& Manifest,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string* OutError = nullptr
 	) -> bool;
 	ASSETCORE_API auto DecodeCookManifest(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FCookManifest& OutManifest,
 		std::string* OutError = nullptr
 	) -> bool;
@@ -64,7 +64,7 @@ namespace Durin::Asset
 	public:
 		using FPackageByteBuilder = std::function<bool(
 			std::span<const FCookedPayloadDescriptor>,
-			std::vector<uint8>&,
+			std::vector<std::byte>&,
 			std::string*
 		)>;
 
@@ -75,7 +75,7 @@ namespace Durin::Asset
 		);
 		ASSETCORE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			std::vector<uint8> PackageBytes,
+			std::vector<std::byte> PackageBytes,
 			std::vector<FCookedBulkPayload> Payloads,
 			std::string* OutError = nullptr
 		) -> bool;
@@ -93,8 +93,8 @@ namespace Durin::Asset
 		struct FPendingPackage
 		{
 			std::string VirtualPath;
-			std::vector<uint8> PackageBytes;
-			std::vector<uint8> BulkBytes;
+			std::vector<std::byte> PackageBytes;
+			std::vector<std::byte> BulkBytes;
 		};
 
 		std::filesystem::path CookRoot;

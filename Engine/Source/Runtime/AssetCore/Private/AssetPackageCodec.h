@@ -15,31 +15,31 @@ namespace Durin::Asset::Private
 		bool bCanWrite = false;
 		bool bCanMutate = false;
 
-		auto (*ReadHeader)(std::span<const uint8>, uint64, FAssetPackageHeader&)
+		auto (*ReadHeader)(std::span<const std::byte>, uint64, FAssetPackageHeader&)
 			-> FAssetResult = nullptr;
-		auto (*Validate)(std::span<const uint8>) -> FAssetResult = nullptr;
-		auto (*Inspect)(std::span<const uint8>, FAssetPackageInspection&) -> FAssetResult = nullptr;
+		auto (*Validate)(std::span<const std::byte>) -> FAssetResult = nullptr;
+		auto (*Inspect)(std::span<const std::byte>, FAssetPackageInspection&) -> FAssetResult = nullptr;
 		auto (*ExtractReferences)(
-			std::span<const uint8>, const FAssetPath&, std::vector<FAssetReferenceEdge>&)
+			std::span<const std::byte>, const FAssetPath&, std::vector<FAssetReferenceEdge>&)
 			-> FAssetResult = nullptr;
 		auto (*ProbeCompatibility)(
-			std::span<const uint8>, const FAssetPath&,
+			std::span<const std::byte>, const FAssetPath&,
 			const FReflectionCompatibilityCatalog&, FAssetPackageCompatibilityRecord&,
 			FAssetCompatibilityProbeStats*) -> FAssetResult = nullptr;
 		auto (*Load)(
-			std::span<const uint8>, const FAssetPath&, DPackage*&, FAssetLoadReport*,
+			std::span<const std::byte>, const FAssetPath&, DPackage*&, FAssetLoadReport*,
 			const std::function<FAssetResult(DPackage*)>&,
 			const std::function<void(DPackage*)>&) -> FAssetResult = nullptr;
-		auto (*Write)(DPackage*, std::vector<uint8>&, EDefaultDeltaMode,
+		auto (*Write)(DPackage*, std::vector<std::byte>&, EDefaultDeltaMode,
 			const FAssetPackageSerializationOptions&) -> FAssetResult = nullptr;
 		auto (*RewriteReferences)(
-			std::span<const uint8>, std::span<const FAssetRedirectorFixupMapping>,
-			uint64, std::vector<uint8>&) -> FAssetResult = nullptr;
+			std::span<const std::byte>, std::span<const FAssetRedirectorFixupMapping>,
+			uint64, std::vector<std::byte>&) -> FAssetResult = nullptr;
 		auto (*Relocate)(
-			std::span<const uint8>, const FAssetPath&, std::vector<uint8>&)
+			std::span<const std::byte>, const FAssetPath&, std::vector<std::byte>&)
 			-> FAssetResult = nullptr;
 		auto (*WriteRedirector)(
-			const FAssetPath&, const FAssetPath&, std::vector<uint8>&)
+			const FAssetPath&, const FAssetPath&, std::vector<std::byte>&)
 			-> FAssetResult = nullptr;
 	};
 
@@ -49,11 +49,11 @@ namespace Durin::Asset::Private
 	};
 
 	auto ReadAssetPackagePreamble(
-		std::span<const uint8> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult;
+		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult;
 	auto FindAssetPackageReader(uint32 FormatVersion) -> const FAssetPackageCodec*;
 	auto FindAssetPackageWriter(uint32 FormatVersion) -> const FAssetPackageCodec*;
 	auto ResolveAssetPackageReader(
-		std::span<const uint8> Bytes, const FAssetPackageCodec*& OutCodec,
+		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		FAssetPackagePreamble* OutPreamble = nullptr) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 }

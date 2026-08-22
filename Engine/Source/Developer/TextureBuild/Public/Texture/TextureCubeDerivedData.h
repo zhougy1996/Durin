@@ -31,7 +31,7 @@ namespace Durin::Asset::Build
 
 	TEXTUREBUILD_API auto BuildTextureCubeDerivedDataKeyBytes(
 		const FTextureCubeBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	TEXTUREBUILD_API auto BuildTextureCubeDerivedDataKey(
 		const FTextureCubeBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

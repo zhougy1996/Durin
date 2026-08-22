@@ -122,7 +122,7 @@ namespace Durin::Asset::Forge
 			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 			std::array<FSourcePath, TextureCubeFaceCount> Paths;
 			std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Snapshots;
-			std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
+			std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
 				if (!CaptureEncodedSource(Sources[Index], Snapshots[Index], OutError))
@@ -189,7 +189,7 @@ namespace Durin::Asset::Forge
 	}
 
 	auto TranslateTextureCubePanoramaSource(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		std::string_view ExtensionHint,
 		FTextureCubePanoramaSourceData& OutSource,
 		std::string& OutError) -> bool
@@ -217,7 +217,7 @@ namespace Durin::Asset::Forge
 	}
 
 	auto TranslateTextureCubeFaceSources(
-		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+		const std::array<std::span<const std::byte>, TextureCubeFaceCount>& EncodedFaces,
 		FTextureCubeSourceData& OutSource,
 		std::string& OutError) -> bool
 	{
@@ -241,8 +241,8 @@ namespace Durin::Asset::Forge
 	{
 		FTextureCubeSourceData SourceData;
 		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
-		std::array<std::vector<uint8>, TextureCubeFaceCount> Bytes;
-		std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
+		std::array<std::vector<std::byte>, TextureCubeFaceCount> Bytes;
+		std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
@@ -271,7 +271,7 @@ namespace Durin::Asset::Forge
 		if (!IsTextureCubePanoramaSourceExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string()))
 			return {false, "Panorama source format is unsupported."};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PanoramaFile))
 			return {false, "Panorama source is unavailable."};
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);

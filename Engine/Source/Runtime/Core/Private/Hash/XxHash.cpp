@@ -8,22 +8,22 @@ namespace Durin
 {
 	namespace
 	{
-		auto BytesToUint64(std::span<const uint8, 8> Bytes) -> uint64
+		auto BytesToUint64(std::span<const std::byte, 8> Bytes) -> uint64
 		{
 			uint64 Value = 0;
-			for (const uint8 Byte : Bytes)
+			for (const std::byte Byte : Bytes)
 			{
-				Value = (Value << 8) | Byte;
+				Value = (Value << 8) | std::to_integer<uint8>(Byte);
 			}
 			return Value;
 		}
 
-		auto Uint64ToBytes(const uint64 Value, std::span<uint8, 8> OutBytes) -> void
+		auto Uint64ToBytes(const uint64 Value, std::span<std::byte, 8> OutBytes) -> void
 		{
 			for (size_t Index = 0; Index < OutBytes.size(); ++Index)
 			{
 				const int Shift = static_cast<int>((OutBytes.size() - 1 - Index) * 8);
-				OutBytes[Index] = static_cast<uint8>((Value >> Shift) & 0xff);
+				OutBytes[Index] = static_cast<std::byte>((Value >> Shift) & 0xff);
 			}
 		}
 	}
@@ -37,14 +37,14 @@ namespace Durin
 
 	auto FXxHash64::ToString() const -> std::string
 	{
-		uint8 Bytes[8] = {};
+		std::byte Bytes[8] = {};
 		Uint64ToBytes(HashValue, Bytes);
 		return StringUtils::BytesToHex(Bytes);
 	}
 
 	auto FXxHash64::FromString(std::string_view Value) -> FXxHash64
 	{
-		uint8 Bytes[8] = {};
+		std::byte Bytes[8] = {};
 		StringUtils::HexToBytes(Value, Bytes);
 		return {BytesToUint64(Bytes)};
 	}
@@ -78,17 +78,17 @@ namespace Durin
 
 	auto FXxHash128::ToString() const -> std::string
 	{
-		uint8 Bytes[16] = {};
-		Uint64ToBytes(HashHigh, std::span<uint8, 8>(Bytes, 8));
-		Uint64ToBytes(HashLow, std::span<uint8, 8>(Bytes + 8, 8));
+		std::byte Bytes[16] = {};
+		Uint64ToBytes(HashHigh, std::span<std::byte, 8>(Bytes, 8));
+		Uint64ToBytes(HashLow, std::span<std::byte, 8>(Bytes + 8, 8));
 		return StringUtils::BytesToHex(Bytes);
 	}
 
 	auto FXxHash128::FromString(std::string_view Value) -> FXxHash128
 	{
-		uint8 Bytes[16] = {};
+		std::byte Bytes[16] = {};
 		StringUtils::HexToBytes(Value, Bytes);
-		return {BytesToUint64(std::span<const uint8, 8>(Bytes + 8, 8)), BytesToUint64(std::span<const uint8, 8>(Bytes, 8))};
+		return {BytesToUint64(std::span<const std::byte, 8>(Bytes + 8, 8)), BytesToUint64(std::span<const std::byte, 8>(Bytes, 8))};
 	}
 
 	auto FXxHash128Builder::Reset() -> void

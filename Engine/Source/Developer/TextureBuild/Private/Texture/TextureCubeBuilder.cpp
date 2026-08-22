@@ -215,14 +215,16 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 						double Value = 0.0;
 						for (uint32 Tap = 0; Tap < 4; ++Tap)
 						{
-							const uint8 Encoded = Panorama.Pixels[Sample.PixelIndices[Tap] * LDRChannelCount + Channel];
+							const uint8 Encoded = std::to_integer<uint8>(
+								Panorama.Pixels[Sample.PixelIndices[Tap] * LDRChannelCount + Channel]);
 							Value += Sample.Weights[Tap] * (Channel < 3
 								? DecodeSRGB(Encoded)
 								: static_cast<double>(Encoded) / 255.0);
 						}
-						Face.Pixels[Destination + Channel] = Channel < 3 ? EncodeSRGB(Value) : EncodeUNorm(Value);
+						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
+							Channel < 3 ? EncodeSRGB(Value) : EncodeUNorm(Value));
 					}
-					Face.bHasTransparency |= Face.Pixels[Destination + 3] != 255;
+					Face.bHasTransparency |= Face.Pixels[Destination + 3] != static_cast<std::byte>(255);
 				}
 			}
 		}
@@ -273,9 +275,10 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 							OutError = "HDR panorama exposure produced a nonfinite channel.";
 							return false;
 						}
-						Face.Pixels[Destination + Channel] = EncodeSRGB(FilmicToneMap(Exposed));
+						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
+							EncodeSRGB(FilmicToneMap(Exposed)));
 					}
-					Face.Pixels[Destination + 3] = 255;
+					Face.Pixels[Destination + 3] = static_cast<std::byte>(255);
 				}
 			}
 		}

@@ -12,21 +12,21 @@ namespace Durin::Asset::Private
 
 	struct FByteWriter
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 
 		template<typename T> auto Write(const T& Value) -> void
 		{
-			const auto* Data = reinterpret_cast<const uint8*>(&Value);
-			Bytes.insert(Bytes.end(), Data, Data + sizeof(T));
+			const auto Data = std::as_bytes(std::span{&Value, 1});
+			Bytes.insert(Bytes.end(), Data.begin(), Data.end());
 		}
 
 		auto WriteBytes(const void* Data, size_t Size) -> void
 		{
-			const auto* Source = static_cast<const uint8*>(Data);
+			const auto* Source = static_cast<const std::byte*>(Data);
 			Bytes.insert(Bytes.end(), Source, Source + Size);
 		}
 
-		auto WriteBytes(std::span<const uint8> Value) -> void
+		auto WriteBytes(std::span<const std::byte> Value) -> void
 		{
 			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 		}
@@ -40,7 +40,7 @@ namespace Durin::Asset::Private
 
 	struct FByteReader
 	{
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		size_t Offset = 0;
 
 		template<typename T> auto Read(T& Value) -> bool
@@ -70,7 +70,7 @@ namespace Durin::Asset::Private
 			return true;
 		}
 
-		auto ReadSpan(size_t Size, std::span<const uint8>& Out) -> bool
+		auto ReadSpan(size_t Size, std::span<const std::byte>& Out) -> bool
 		{
 			if (Offset > Bytes.size() || Size > Bytes.size() - Offset) return false;
 			Out = Bytes.subspan(Offset, Size);

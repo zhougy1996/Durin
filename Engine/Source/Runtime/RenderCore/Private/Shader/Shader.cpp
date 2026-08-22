@@ -584,7 +584,7 @@ namespace Durin
 		std::vector<FRHIShaderParameterResource> ResourceParameters;
 		ResourceParameters.reserve(ResolvedCount);
 
-		const auto* ParameterBytes = reinterpret_cast<const uint8*>(ParameterData);
+		const auto* ParameterBytes = reinterpret_cast<const std::byte*>(ParameterData);
 		for (size_t BindingIndex = 0; BindingIndex < ParameterBindings.size(); ++BindingIndex)
 		{
 			const FShaderParameterBinding& Binding = ParameterBindings[BindingIndex];
@@ -606,7 +606,7 @@ namespace Durin
 				ResourceParameter.BindingIndex = Binding.BindingIndex;
 				ResourceParameter.ArrayElement = ArrayElement;
 				ResourceParameter.Type = Binding.Type;
-				const uint8* ElementBytes = ParameterBytes + Binding.Offset
+				const std::byte* ElementBytes = ParameterBytes + Binding.Offset
 					+ static_cast<size_t>(ArrayElement) * ElementSize;
 				if (Binding.Type == ERHIBindingType::UniformBuffer
 					|| Binding.Type == ERHIBindingType::UniformBufferDynamic)

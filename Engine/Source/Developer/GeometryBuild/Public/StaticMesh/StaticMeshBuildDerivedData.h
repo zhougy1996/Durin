@@ -37,13 +37,13 @@ namespace Durin::Asset::Build
 
 	GEOMETRYBUILD_API auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	GEOMETRYBUILD_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 	GEOMETRYBUILD_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>;
+		std::string& OutError) -> std::vector<std::byte>;
 	GEOMETRYBUILD_API auto BuildStaticMeshCollisionDerivedDataKey(
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

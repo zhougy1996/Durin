@@ -34,7 +34,7 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 		VULKANRHI_API auto InvalidateMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 
-		auto Write(FVulkanCommandListContext& Context, uint32 Offset, std::span<const uint8> Data) -> void;
+		auto Write(FVulkanCommandListContext& Context, uint32 Offset, std::span<const std::byte> Data) -> void;
 
 		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return StateTracker; }

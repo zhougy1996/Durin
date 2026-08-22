@@ -15,15 +15,15 @@ namespace Durin::Testing::DastV4
 		}
 
 		template<typename T>
-		auto WriteLittleEndian(std::vector<uint8>& Bytes, T Value) -> void
+		auto WriteLittleEndian(std::vector<std::byte>& Bytes, T Value) -> void
 		{
 			for (uint32 Index = 0; Index < sizeof(T); ++Index)
-				Bytes.push_back(uint8(Value >> (Index * 8)));
+				Bytes.push_back(static_cast<std::byte>(Value >> (Index * 8)));
 		}
 
 		template<typename T>
 		auto ReadLittleEndian(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			uint64& Offset,
 			T& OutValue,
 			std::string& OutError) -> bool
@@ -32,7 +32,7 @@ namespace Durin::Testing::DastV4
 				return Fail(OutError, "truncated fixed-width value");
 			T Value = 0;
 			for (uint32 Index = 0; Index < sizeof(T); ++Index)
-				Value |= T(Bytes[Offset++]) << (Index * 8);
+				Value |= std::to_integer<T>(Bytes[Offset++]) << (Index * 8);
 			OutValue = Value;
 			return true;
 		}
@@ -118,7 +118,7 @@ namespace Durin::Testing::DastV4
 		return true;
 	}
 
-	auto FWireWriter::WriteU8(uint8 Value) -> void { Data.push_back(Value); }
+	auto FWireWriter::WriteU8(uint8 Value) -> void { Data.push_back(static_cast<std::byte>(Value)); }
 	auto FWireWriter::WriteU16(uint16 Value) -> void { WriteLittleEndian(Data, Value); }
 	auto FWireWriter::WriteU32(uint32 Value) -> void { WriteLittleEndian(Data, Value); }
 	auto FWireWriter::WriteU64(uint64 Value) -> void { WriteLittleEndian(Data, Value); }
@@ -133,7 +133,7 @@ namespace Durin::Testing::DastV4
 			Value >>= 7;
 			if (Value != 0)
 				Byte |= 0x80;
-			Data.push_back(Byte);
+			Data.push_back(static_cast<std::byte>(Byte));
 		} while (Value != 0);
 	}
 
@@ -152,11 +152,11 @@ namespace Durin::Testing::DastV4
 		if (!IsValidUtf8(Value))
 			return Fail(OutError, "invalid UTF-8");
 		WriteVarUInt(Value.size());
-		WriteBytes(std::span(reinterpret_cast<const uint8*>(Value.data()), Value.size()));
+		WriteBytes(std::as_bytes(std::span{Value}));
 		return true;
 	}
 
-	auto FWireWriter::WriteBytes(std::span<const uint8> Value) -> void
+	auto FWireWriter::WriteBytes(std::span<const std::byte> Value) -> void
 	{
 		Data.insert(Data.end(), Value.begin(), Value.end());
 	}
@@ -165,7 +165,7 @@ namespace Durin::Testing::DastV4
 	{
 		if (Remaining() == 0)
 			return Fail(OutError, "truncated byte");
-		OutValue = Bytes[Offset++];
+		OutValue = std::to_integer<uint8>(Bytes[Offset++]);
 		return true;
 	}
 
@@ -245,7 +245,7 @@ namespace Durin::Testing::DastV4
 			return false;
 		if (Length > MaximumStringBytes)
 			return Fail(OutError, "string exceeds bound");
-		std::span<const uint8> Value;
+		std::span<const std::byte> Value;
 		if (!ReadBytes(Length, Value, OutError))
 			return false;
 		std::string Result(reinterpret_cast<const char*>(Value.data()), Value.size());
@@ -257,7 +257,7 @@ namespace Durin::Testing::DastV4
 
 	auto FWireReader::ReadBytes(
 		uint64 Count,
-		std::span<const uint8>& OutValue,
+		std::span<const std::byte>& OutValue,
 		std::string& OutError) -> bool
 	{
 		if (Count > Remaining())
@@ -274,7 +274,7 @@ namespace Durin::Testing::DastV4
 
 	auto EncodePublicSummary(
 		const FPublicSummary& Summary,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateSummary(Summary, OutError))
@@ -298,15 +298,15 @@ namespace Durin::Testing::DastV4
 
 	auto EncodeEnvelope(
 		const FPublicSummary& Summary,
-		const std::array<std::vector<uint8>, SectionCount>& Sections,
-		std::vector<uint8>& OutBytes,
+		const std::array<std::vector<std::byte>, SectionCount>& Sections,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
-		std::vector<uint8> SummaryBytes;
+		std::vector<std::byte> SummaryBytes;
 		if (!EncodePublicSummary(Summary, SummaryBytes, OutError))
 			return false;
 		uint64 Total = 13 + SummaryBytes.size() + SectionCount * 9;
-		for (const std::vector<uint8>& Section : Sections)
+		for (const std::vector<std::byte>& Section : Sections)
 		{
 			if (Section.size() > std::numeric_limits<uint32>::max() - Total)
 				return Fail(OutError, "section extent overflows uint32");
@@ -329,14 +329,14 @@ namespace Durin::Testing::DastV4
 			Writer.WriteU32(uint32(Sections[Index].size()));
 			Offset += uint32(Sections[Index].size());
 		}
-		for (const std::vector<uint8>& Section : Sections)
+		for (const std::vector<std::byte>& Section : Sections)
 			Writer.WriteBytes(Section);
 		OutBytes = Writer.TakeBytes();
 		return true;
 	}
 
 	auto DecodeHeader(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FValidatedHeader& OutHeader,
 		std::string& OutError) -> bool
 	{
@@ -358,7 +358,7 @@ namespace Durin::Testing::DastV4
 			return Fail(OutError, "public summary exceeds bound");
 		if (ReadSectionCount != SectionCount)
 			return Fail(OutError, "v4 requires exactly five sections");
-		std::span<const uint8> SummaryBytes;
+		std::span<const std::byte> SummaryBytes;
 		if (!Reader.ReadBytes(SummaryLength, SummaryBytes, OutError))
 			return false;
 

@@ -211,7 +211,7 @@ namespace Durin::Asset
 					if (Mode == EAssetRegistryScanMode::FullValidation)
 					{
 						FAssetPackageInspection Inspection;
-						std::vector<uint8> Bytes;
+						std::vector<std::byte> Bytes;
 						++ReferenceIndex.Stats.PayloadReadAttempts;
 						if (!FFileHelper::LoadFileToArray(Bytes, It->path()))
 							RedirectResult = Error(EAssetError::IoError, std::format(
@@ -311,7 +311,7 @@ namespace Durin::Asset
 				Inspection = std::move(PreparedIt->second);
 			else
 			{
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				++ReferenceIndex.Stats.PayloadReadAttempts;
 				if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
 					InspectionResult = Error(EAssetError::IoError, std::format(

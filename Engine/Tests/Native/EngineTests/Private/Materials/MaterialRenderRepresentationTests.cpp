@@ -185,7 +185,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
-	std::vector<Durin::uint8> PackageBytes;
+	std::vector<std::byte> PackageBytes;
 	Result = Durin::Asset::SerializeAssetPackageBytes(
 		Source->GetPackage(), PackageBytes);
 	ASSERT_TRUE(Result) << Result.Message;

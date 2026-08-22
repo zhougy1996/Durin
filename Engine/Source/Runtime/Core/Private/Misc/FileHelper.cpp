@@ -264,11 +264,6 @@ namespace Durin
 			return true;
 		};
 
-		bool LoadFileToArray(std::vector<uint8>& Result, const std::filesystem::path& FilePath)
-		{
-			return LoadFileToArrayInternal(Result, FilePath);
-		}
-
 		bool LoadFileToArray(std::vector<std::byte>& Result, const std::filesystem::path& FilePath)
 		{
 			return LoadFileToArrayInternal(Result, FilePath);

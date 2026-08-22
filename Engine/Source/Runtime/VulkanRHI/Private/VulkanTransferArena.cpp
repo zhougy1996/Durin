@@ -57,10 +57,10 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanTransferRange::GetMappedPointer() const -> uint8*
+	auto FVulkanTransferRange::GetMappedPointer() const -> std::byte*
 	{
 		check(Buffer);
-		return static_cast<uint8*>(Buffer->GetMappedPointer()) + Offset;
+		return static_cast<std::byte*>(Buffer->GetMappedPointer()) + Offset;
 	}
 
 	auto FVulkanTransferRange::Flush() const -> void

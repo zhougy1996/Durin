@@ -41,7 +41,7 @@ namespace Durin::Asset
 		uint32 SchemaVersion = 0;
 
 		DPROPERTY()
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 
 		DPROPERTY()
 		uint64 ContentHashLow = 0;
@@ -262,7 +262,7 @@ namespace Durin::Asset
 	ASSETIMPORTCORE_API auto MakeImportRecordPayload(
 		std::string SchemaId,
 		uint32 SchemaVersion,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint64 MaximumBytes,
 		FImportRecordPayload& OutPayload,
 		std::string& OutError) -> bool;

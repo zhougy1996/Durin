@@ -96,7 +96,7 @@ namespace Durin
 			FXxHash128& OutHash,
 			std::string& OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Path))
 			{
 				OutError = std::format("Failed to read texture source file: {}", Path.generic_string());
@@ -275,7 +275,7 @@ namespace Durin
 		{
 			return FailCooked(OutError);
 		}
-		const std::span<const uint8> Bytes = LoadedPayload.Payload;
+		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 
 		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
@@ -327,7 +327,7 @@ namespace Durin
 			return false;
 		}
 
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		PlatformData->Serialize(CookAr, {
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -352,7 +352,7 @@ namespace Durin
 			{std::move(BulkPayload)},
 			[this, bRetainDiagnosticSourceMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes,
+				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != Texture2DPrimaryCookedPayloadId)

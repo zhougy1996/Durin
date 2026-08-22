@@ -23,7 +23,7 @@ namespace Durin::Asset::Build
 			std::string& OutError) -> bool
 		{
 			if (!EnsureTextureBuildFunctions(&OutError)) return false;
-			const std::vector<uint8> KeyBytes =
+			const std::vector<std::byte> KeyBytes =
 				BuildTextureCubeDerivedDataKeyBytes(KeyInput, OutError);
 			OutKey = KeyBytes.empty()
 				? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();

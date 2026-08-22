@@ -42,7 +42,7 @@ namespace Durin
 	// Carries provider-generated canonical RGBA8 pixels through the shared cache pipeline.
 	struct FAssetThumbnailGeneratedPixels
 	{
-		std::vector<uint8> Pixels;
+		std::vector<std::byte> Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint64 AssetRevision = 0;

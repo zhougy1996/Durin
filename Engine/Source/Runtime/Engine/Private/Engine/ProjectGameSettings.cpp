@@ -85,7 +85,7 @@ namespace Durin
 
 	auto FProjectGameSettingsStore::BuildDefaultLevelUpdate(
 		std::string_view DefaultLevel,
-		std::vector<uint8>& OutBytes) const -> FProjectGameSettingsResult
+		std::vector<std::byte>& OutBytes) const -> FProjectGameSettingsResult
 	{
 		OutBytes.clear();
 		FYamlDocument Document;
@@ -126,15 +126,14 @@ namespace Durin
 		Game.SetChildValue("DefaultLevel", DefaultLevel);
 		const std::string Serialized = Document.ToString();
 		if (Serialized.empty()) return Failure(EProjectGameSettingsError::IoError, "Project game settings serialized to empty bytes.");
-		OutBytes.assign(
-			reinterpret_cast<const uint8*>(Serialized.data()),
-			reinterpret_cast<const uint8*>(Serialized.data()) + Serialized.size());
+		const auto SerializedBytes = std::as_bytes(std::span(Serialized));
+		OutBytes.assign(SerializedBytes.begin(), SerializedBytes.end());
 		return {};
 	}
 
 	auto FProjectGameSettingsStore::SaveDefaultLevel(std::string_view DefaultLevel) const -> FProjectGameSettingsResult
 	{
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FProjectGameSettingsResult Result = BuildDefaultLevelUpdate(DefaultLevel, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;

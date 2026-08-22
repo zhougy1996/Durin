@@ -26,7 +26,7 @@ namespace Durin::Asset
 		FAssetPackageHeader& OutHeader
 	) -> FAssetResult;
 	ASSETCORE_API auto ValidateAssetPackageBytes(
-		std::span<const uint8> Bytes
+		std::span<const std::byte> Bytes
 	) -> FAssetResult;
 
 	enum class EAssetPackageObjectReferenceKind : uint8
@@ -49,7 +49,7 @@ namespace Durin::Asset
 		std::string Name;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
-		std::vector<uint8> Payload;
+		std::vector<std::byte> Payload;
 		uint32 SourceFormatVersion = 0;
 
 		ASSETCORE_API auto TryReadString(std::string& OutValue) const -> bool;

@@ -46,7 +46,7 @@ namespace
 		const Durin::FSkeletalMeshPayloadData& Payload,
 		const Durin::DSkeleton& Skeleton,
 		Durin::uint32 MaterialSlotCount,
-		std::vector<Durin::uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -64,7 +64,7 @@ namespace
 	auto SerializeClipPayload(
 		const Durin::FAnimationClipPayloadData& Payload,
 		const Durin::DSkeleton& Skeleton,
-		std::vector<Durin::uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -80,7 +80,7 @@ namespace
 
 	template<typename T>
 	auto DeserializePayload(
-		std::span<const Durin::uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const Durin::FSkeletalPayloadSerializationContext& Context,
 		T& OutPayload) -> bool
 	{
@@ -318,50 +318,48 @@ namespace
 		return Root;
 	}
 
-	auto ReadWireU64(const std::vector<Durin::uint8>& Bytes, size_t Offset) -> Durin::uint64
+	auto ReadWireU64(const std::vector<std::byte>& Bytes, size_t Offset) -> Durin::uint64
 	{
 		Durin::uint64 Value = 0;
 		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
-			Value |= static_cast<Durin::uint64>(Bytes[Offset + Byte]) << (Byte * 8);
+			Value |= std::to_integer<Durin::uint64>(Bytes[Offset + Byte]) << (Byte * 8);
 		return Value;
 	}
 
 	auto WriteWireU32(
-		std::vector<Durin::uint8>& Bytes,
+		std::vector<std::byte>& Bytes,
 		size_t Offset,
 		Durin::uint32 Value) -> void
 	{
 		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
-			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
 	auto WriteWireU64(
-		std::vector<Durin::uint8>& Bytes,
+		std::vector<std::byte>& Bytes,
 		size_t Offset,
 		Durin::uint64 Value) -> void
 	{
 		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
-			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto RefreshSkeletalPayloadHash(std::vector<Durin::uint8>& Bytes) -> void
+	auto RefreshSkeletalPayloadHash(std::vector<std::byte>& Bytes) -> void
 	{
 		const Durin::uint64 Hash = Durin::FXxHash64::HashBuffer(
-			std::span<const Durin::uint8>(Bytes).subspan(
+			std::span<const std::byte>(Bytes).subspan(
 				Durin::SkeletalPayloadHeaderSize)).HashValue;
 		WriteWireU64(Bytes, 56, Hash);
 	}
 
 	auto ContainsText(
-		std::span<const Durin::uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string_view Text) -> bool
 	{
-		return std::search(
-			Bytes.begin(), Bytes.end(),
-			Text.begin(), Text.end(),
-			[](Durin::uint8 Byte, char Character) {
-				return Byte == static_cast<Durin::uint8>(Character);
-			}) != Bytes.end();
+		const std::span<const std::byte> TextBytes =
+			std::as_bytes(std::span{Text.data(), Text.size()});
+		return std::search(Bytes.begin(), Bytes.end(),
+			TextBytes.begin(), TextBytes.end()) != Bytes.end();
 	}
 
 	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
@@ -657,10 +655,10 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 		MakeMeshPayload();
 	const std::shared_ptr<const Durin::FAnimationClipPayloadData> ClipPayload =
 		MakeClipPayload();
-	std::vector<Durin::uint8> MeshBytes;
-	std::vector<Durin::uint8> RepeatedMeshBytes;
-	std::vector<Durin::uint8> ClipBytes;
-	std::vector<Durin::uint8> RepeatedClipBytes;
+	std::vector<std::byte> MeshBytes;
+	std::vector<std::byte> RepeatedMeshBytes;
+	std::vector<std::byte> ClipBytes;
+	std::vector<std::byte> RepeatedClipBytes;
 	std::string Error;
 	ASSERT_TRUE(SerializeMeshPayload(*MeshPayload, *Skeleton, 1, MeshBytes, Error)) << Error;
 	ASSERT_TRUE(SerializeMeshPayload(*MeshPayload, *Skeleton, 1, RepeatedMeshBytes, Error)) << Error;
@@ -674,10 +672,14 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 		"7da58a36cd32f38a3dcb1daa910994f7");
 	ASSERT_GE(MeshBytes.size(), Durin::SkeletalPayloadHeaderSize);
 	ASSERT_GE(ClipBytes.size(), Durin::SkeletalPayloadHeaderSize);
-	EXPECT_EQ(MeshBytes[0], 'D'); EXPECT_EQ(MeshBytes[1], 'S');
-	EXPECT_EQ(MeshBytes[2], 'K'); EXPECT_EQ(MeshBytes[3], 'M');
-	EXPECT_EQ(ClipBytes[0], 'D'); EXPECT_EQ(ClipBytes[1], 'A');
-	EXPECT_EQ(ClipBytes[2], 'N'); EXPECT_EQ(ClipBytes[3], 'M');
+	EXPECT_EQ(MeshBytes[0], static_cast<std::byte>('D'));
+	EXPECT_EQ(MeshBytes[1], static_cast<std::byte>('S'));
+	EXPECT_EQ(MeshBytes[2], static_cast<std::byte>('K'));
+	EXPECT_EQ(MeshBytes[3], static_cast<std::byte>('M'));
+	EXPECT_EQ(ClipBytes[0], static_cast<std::byte>('D'));
+	EXPECT_EQ(ClipBytes[1], static_cast<std::byte>('A'));
+	EXPECT_EQ(ClipBytes[2], static_cast<std::byte>('N'));
+	EXPECT_EQ(ClipBytes[3], static_cast<std::byte>('M'));
 
 	Durin::FSkeletalMeshPayloadData DecodedMesh;
 	Durin::FAnimationClipPayloadData DecodedClip;
@@ -739,14 +741,14 @@ TEST(FSkeletalAssetTests, PayloadDecodersRejectMalformedContainersTransactionall
 	InitializeDObjectSystem();
 	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "MalformedCodecSkeleton");
 	InitializeSkeleton(*Skeleton);
-	std::vector<Durin::uint8> MeshBytes;
-	std::vector<Durin::uint8> ClipBytes;
+	std::vector<std::byte> MeshBytes;
+	std::vector<std::byte> ClipBytes;
 	std::string Error;
 	ASSERT_TRUE(SerializeMeshPayload(*MakeMeshPayload(), *Skeleton, 1, MeshBytes, Error)) << Error;
 	ASSERT_TRUE(SerializeClipPayload(*MakeClipPayload(), *Skeleton, ClipBytes, Error)) << Error;
 	const Durin::FSkeletalMeshPayloadData MeshSentinel = *MakeMeshPayload();
 	const Durin::FAnimationClipPayloadData ClipSentinel = *MakeClipPayload();
-	auto ExpectMeshFailure = [&](std::vector<Durin::uint8> Corrupt) {
+	auto ExpectMeshFailure = [&](std::vector<std::byte> Corrupt) {
 		Durin::FSkeletalMeshPayloadData Output = MeshSentinel;
 		EXPECT_FALSE(DeserializePayload(Corrupt, {
 			.SkeletonBoneCount = Skeleton->GetBoneCount(),
@@ -755,7 +757,7 @@ TEST(FSkeletalAssetTests, PayloadDecodersRejectMalformedContainersTransactionall
 			.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game}, Output));
 		EXPECT_EQ(Output, MeshSentinel);
 	};
-	auto ExpectClipFailure = [&](std::vector<Durin::uint8> Corrupt) {
+	auto ExpectClipFailure = [&](std::vector<std::byte> Corrupt) {
 		Durin::FAnimationClipPayloadData Output = ClipSentinel;
 		EXPECT_FALSE(DeserializePayload(Corrupt, {
 			.SkeletonBoneCount = Skeleton->GetBoneCount(),
@@ -765,7 +767,7 @@ TEST(FSkeletalAssetTests, PayloadDecodersRejectMalformedContainersTransactionall
 	};
 
 	auto WrongMagic = MeshBytes;
-	WrongMagic[0] ^= 0xff;
+	WrongMagic[0] ^= std::byte{0xff};
 	ExpectMeshFailure(std::move(WrongMagic));
 	auto WrongProfile = MeshBytes;
 	WriteWireU32(WrongProfile, 16, 99);
@@ -886,10 +888,10 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 
 	const std::filesystem::path MeshObject = CacheRoot / "SkeletalMesh/Objects"
 		/ MeshKey.substr(0, 2) / (MeshKey + ".bin");
-	std::vector<Durin::uint8> CorruptBytes;
+	std::vector<std::byte> CorruptBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CorruptBytes, MeshObject));
 	ASSERT_FALSE(CorruptBytes.empty());
-	CorruptBytes.back() ^= 0x80;
+	CorruptBytes.back() ^= std::byte{0x80};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CorruptBytes)), MeshObject));
 	Mesh = nullptr;
@@ -1144,8 +1146,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		std::filesystem::path("Game/Clip.dbulk"),
 		std::filesystem::path("CookManifest.bin")})
 	{
-		std::vector<Durin::uint8> FirstBytes;
-		std::vector<Durin::uint8> SecondBytes;
+		std::vector<std::byte> FirstBytes;
+		std::vector<std::byte> SecondBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 			FirstBytes, (FirstCookRoot / Relative)));
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -1158,8 +1160,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 			EXPECT_FALSE(ContainsText(FirstBytes, "cook-clip"));
 		}
 	}
-	std::vector<Durin::uint8> MeshBulk;
-	std::vector<Durin::uint8> ClipBulk;
+	std::vector<std::byte> MeshBulk;
+	std::vector<std::byte> ClipBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		MeshBulk, (FirstCookRoot / "Game/Mesh.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -1209,7 +1211,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
-	MeshBulk.back() ^= 0x80;
+	MeshBulk.back() ^= std::byte{0x80};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(MeshBulk)), FirstCookRoot / "Game/Mesh.dbulk"));
 	RestartAssetManager(FirstCookRoot);

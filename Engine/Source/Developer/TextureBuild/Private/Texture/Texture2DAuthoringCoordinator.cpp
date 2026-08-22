@@ -331,7 +331,7 @@ namespace Durin::Asset::Build
 			std::string Error) -> void
 		{
 			FTexture2DQueuedBuildResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
-			std::vector<uint8>().swap(Job->Request.SourceData.Pixels);
+			std::vector<std::byte>().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 		}
 
@@ -346,7 +346,7 @@ namespace Durin::Asset::Build
 				--RunningCount;
 				InFlightEstimatedBytes -= std::min(InFlightEstimatedBytes, Job->EstimatedBytes);
 			}
-			std::vector<uint8>().swap(Job->Request.SourceData.Pixels);
+			std::vector<std::byte>().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 			Admit();
 		}

@@ -516,7 +516,7 @@ namespace Durin
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
 			return FailCooked(OutError);
-		const std::span<const uint8> Bytes = LoadedPayload.Payload;
+		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		FSkeletalMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
 		Candidate.Serialize(Ar, {
@@ -551,7 +551,7 @@ namespace Durin
 				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;
 		if (!PayloadData) return Fail("SkeletalMesh has no CPU payload to cook.", &OutError);
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
 		const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Ar, {
 			.SkeletonBoneCount = Skeleton->GetBoneCount(),
@@ -570,7 +570,7 @@ namespace Durin
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
 			[this, bRetainDiagnosticEditorMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes,
+				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != SkeletalMeshPrimaryCookedPayloadId)

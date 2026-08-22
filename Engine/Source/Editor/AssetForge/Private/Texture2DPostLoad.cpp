@@ -44,7 +44,7 @@ namespace Durin::Asset::Forge
 			bool bMetadataChanged,
 			std::string& OutError) -> bool
 		{
-			std::vector<uint8> EncodedBytes;
+			std::vector<std::byte> EncodedBytes;
 			if (!FFileHelper::LoadFileToArray(EncodedBytes, PhysicalPath))
 			{
 				OutError = std::format("Failed to read texture source file: {}", PhysicalPath);

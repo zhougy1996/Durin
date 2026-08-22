@@ -51,7 +51,7 @@ namespace Durin
 			const FUpdateTextureRegion3D Region(0, 0, 0, 0, 0, 0,
 				Mip.Width, Mip.Height, Mip.Depth);
 			GDynamicRHI->RHIUpdateTexture3D(CommandList, NewTexture, MipIndex,
-				Region, Mip.RowPitch, Mip.DepthPitch, Mip.Voxels.data());
+				Region, Mip.RowPitch, Mip.DepthPitch, Mip.Voxels);
 		}
 		if (Revision != Completion->GetRequestedRevision()) return;
 		SetTextureRHI_RenderThread(std::move(NewTexture));

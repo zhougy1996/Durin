@@ -63,7 +63,7 @@ namespace Durin
 		struct FChunkBytes
 		{
 			uint32 Type = 0;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 		};
 
 		auto GetSkeletalChunkedPayloadFormat(
@@ -99,17 +99,16 @@ namespace Durin
 		{
 			check(Value.size() <= std::numeric_limits<uint32>::max());
 			Writer.WriteU32(static_cast<uint32>(Value.size()));
-			Writer.WriteBytes(std::span<const uint8>(
-				reinterpret_cast<const uint8*>(Value.data()), Value.size()));
+			Writer.WriteBytes(std::as_bytes(std::span(Value)));
 		}
 
 		auto ReadPayloadString(FReader& Reader, std::string& Value, uint64 MaximumBytes) -> bool
 		{
 			uint32 Count = 0;
-			std::span<const uint8> Bytes;
+			std::span<const std::byte> Bytes;
 			if (!Reader.ReadU32(Count) || Count == 0
 				|| !Reader.ReadRegion(Bytes, Count, MaximumBytes)) return false;
-			if (std::ranges::find(Bytes, uint8{0}) != Bytes.end()) return false;
+			if (std::ranges::find(Bytes, std::byte{0}) != Bytes.end()) return false;
 			Value.assign(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
 			return true;
 		}
@@ -176,7 +175,7 @@ namespace Durin
 			ESkeletalPayloadTargetProfile TargetProfile,
 			std::span<const FChunkBytes> ChunkBytes,
 			uint64 MaximumBytes,
-			std::vector<uint8>& OutBytes,
+			std::vector<std::byte>& OutBytes,
 			std::string& OutError) -> bool
 		{
 			if (TargetPlatform != ESkeletalPayloadTargetPlatform::Win64
@@ -206,14 +205,14 @@ namespace Durin
 		}
 
 		auto ParseContainer(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			uint32 ExpectedMagic,
 			uint32 ExpectedSchema,
 			ESkeletalPayloadTargetPlatform ExpectedPlatform,
 			ESkeletalPayloadTargetProfile ExpectedProfile,
 			uint32 RequiredChunkCount,
 			uint64 MaximumBytes,
-			std::vector<std::span<const uint8>>& OutRequiredChunks,
+			std::vector<std::span<const std::byte>>& OutRequiredChunks,
 			std::string& OutError,
 			EPayloadDecodeError& OutCode) -> bool
 		{
@@ -264,7 +263,7 @@ namespace Durin
 	auto BuildSkeletalMeshSerializedValue(
 		const FSkeletalMeshPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateSkeletalMeshPayload(
@@ -366,11 +365,11 @@ namespace Durin
 	}
 
 	auto ParseSkeletalMeshSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FSkeletalPayloadSerializationContext& Context,
 		FSkeletalMeshPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
-		std::vector<std::span<const uint8>> Chunks;
+		std::vector<std::span<const std::byte>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
 		if (!ParseContainer(Bytes, SkeletalMeshPayloadMagic,
@@ -548,7 +547,7 @@ namespace Durin
 	auto BuildAnimationClipSerializedValue(
 		const FAnimationClipPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateAnimationClipPayload(
@@ -608,11 +607,11 @@ namespace Durin
 	}
 
 	auto ParseAnimationClipSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FSkeletalPayloadSerializationContext& Context,
 		FAnimationClipPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
-		std::vector<std::span<const uint8>> Chunks;
+		std::vector<std::span<const std::byte>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
 		if (!ParseContainer(Bytes, AnimationClipPayloadMagic,
@@ -721,10 +720,10 @@ namespace Durin
 			*this,
 			{MaximumSkeletalMeshPayloadBytes, "SkeletalMesh payload"},
 			[&](const FSkeletalMeshPayloadData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildSkeletalMeshSerializedValue(Value, Context, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FSkeletalMeshPayloadData& Candidate) {
+			[&](std::span<const std::byte> Bytes, FSkeletalMeshPayloadData& Candidate) {
 				return ParseSkeletalMeshSerializedValue(Bytes, Context, Candidate);
 			});
 	}
@@ -738,10 +737,10 @@ namespace Durin
 			*this,
 			{MaximumAnimationClipPayloadBytes, "AnimationClip payload"},
 			[&](const FAnimationClipPayloadData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildAnimationClipSerializedValue(Value, Context, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FAnimationClipPayloadData& Candidate) {
+			[&](std::span<const std::byte> Bytes, FAnimationClipPayloadData& Candidate) {
 				return ParseAnimationClipSerializedValue(Bytes, Context, Candidate);
 			});
 	}

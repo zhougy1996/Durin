@@ -13,7 +13,7 @@ namespace Durin::Asset::Private
 		std::string Name;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
-		std::vector<uint8> Payload;
+		std::vector<std::byte> Payload;
 	};
 
 	struct FAuthoredPackageSummary

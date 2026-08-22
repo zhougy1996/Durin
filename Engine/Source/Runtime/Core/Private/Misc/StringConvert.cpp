@@ -171,12 +171,13 @@ namespace Durin::StringUtils
 		return true;
 	}
 
-	auto BytesToHex(std::span<const uint8> Bytes) -> std::string
+	auto BytesToHex(std::span<const std::byte> Bytes) -> std::string
 	{
 		std::string Result;
 		Result.reserve(Bytes.size() * 2);
-		for (const uint8 Byte : Bytes)
+		for (const std::byte ByteValue : Bytes)
 		{
+			const uint8 Byte = std::to_integer<uint8>(ByteValue);
 			Result.push_back(GHexDigits[(Byte >> 4) & 0xf]);
 			Result.push_back(GHexDigits[Byte & 0xf]);
 		}
@@ -206,7 +207,7 @@ namespace Durin::StringUtils
 		return Result.empty() ? std::string(Fallback) : Result;
 	}
 
-	auto HexToBytes(std::string_view Hex, std::span<uint8> OutBytes) -> void
+	auto HexToBytes(std::string_view Hex, std::span<std::byte> OutBytes) -> void
 	{
 		check(Hex.size() == OutBytes.size() * 2);
 
@@ -214,7 +215,7 @@ namespace Durin::StringUtils
 		{
 			const uint8 HighNibble = HexCharToNibbleUnchecked(Hex[Index * 2]);
 			const uint8 LowNibble = HexCharToNibbleUnchecked(Hex[Index * 2 + 1]);
-			OutBytes[Index] = static_cast<uint8>((HighNibble << 4) | LowNibble);
+			OutBytes[Index] = static_cast<std::byte>((HighNibble << 4) | LowNibble);
 		}
 	}
 } // namespace Durin::StringUtils

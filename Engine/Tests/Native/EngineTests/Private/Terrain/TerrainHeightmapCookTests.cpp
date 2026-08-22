@@ -27,15 +27,15 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		"/Game/", ContentRoot.generic_string() + "/");
 	const std::string PreviousDdc = Durin::FPaths::DerivedDataCacheDir();
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "DDC").generic_string());
-	std::vector<Durin::uint8> Raw;
+	std::vector<std::byte> Raw;
 	// RAW requires a square sample plane; use a 3x3 asymmetric Gaea/Unity profile.
 	const std::array<Durin::uint16, 9> RawSamples{
 		0, 17, 257, 4097, 32'768, 65'535, 111, 222, 333};
 	Raw.clear();
 	for (Durin::uint16 Sample : RawSamples)
 	{
-		Raw.push_back(static_cast<Durin::uint8>(Sample));
-		Raw.push_back(static_cast<Durin::uint8>(Sample >> 8));
+		Raw.push_back(static_cast<std::byte>(Sample));
+		Raw.push_back(static_cast<std::byte>(Sample >> 8));
 	}
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Raw)), Source));
 	const auto Imported = Durin::Asset::Forge::ImportTerrainHeightmapAsset(

@@ -23,7 +23,7 @@ namespace Durin::Asset::Build::Private
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
-		auto DecodeTexture2DLocalInput(std::span<const uint8> Bytes,
+		auto DecodeTexture2DLocalInput(std::span<const std::byte> Bytes,
 			FTextureSourceData& Source, FTexture2DBuildSettings& Settings,
 			bool& bSRGB, std::string& OutError) -> bool
 		{
@@ -89,7 +89,7 @@ namespace Durin::Asset::Build::Private
 			return true;
 		}
 
-		auto DecodeTextureCubeLocalInput(std::span<const uint8> Bytes,
+		auto DecodeTextureCubeLocalInput(std::span<const std::byte> Bytes,
 			FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
 		{
 			FBinaryReader Reader(Bytes);
@@ -155,7 +155,7 @@ namespace Durin::Asset::Build::Private
 		auto EncodeTextureCubePlatformValue(const FTextureCubePlatformData& PlatformData,
 			FBuildValue& OutValue, std::string& OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTextureCubePlatformData&>(PlatformData).Serialize(Ar, {
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -212,7 +212,7 @@ namespace Durin::Asset::Build::Private
 					OutError = "Texture2D build was cancelled.";
 					return false;
 				}
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
 					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -351,7 +351,7 @@ namespace Durin::Asset::Build::Private
 				FVolumeTexturePlatformData PlatformData;
 				if (!VolumeTextureBuilder::BuildMipChain(
 					Source, Settings, PlatformData, OutError)) return false;
-				std::vector<uint8> Bytes;
+				std::vector<std::byte> Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
 					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -369,7 +369,7 @@ namespace Durin::Asset::Build::Private
 	}
 
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
-		-> std::vector<uint8>
+		-> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(Request.SourceData.Width);
@@ -402,7 +402,7 @@ namespace Durin::Asset::Build::Private
 	}
 
 	auto EncodeTextureCubeLocalInput(const FTextureCubeSourceData& SourceData)
-		-> std::vector<uint8>
+		-> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
 		for (const FTextureSourceData& Face : SourceData.Faces)
@@ -442,7 +442,7 @@ namespace Durin::Asset::Build::Private
 	}
 
 	auto EncodeVolumeTextureLocalInput(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings) -> std::vector<uint8>
+		const FVolumeTextureBuildSettings& Settings) -> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(SourceData.Width);

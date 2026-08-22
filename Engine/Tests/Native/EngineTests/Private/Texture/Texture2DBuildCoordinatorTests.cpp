@@ -9,6 +9,11 @@
 
 namespace
 {
+	auto TransparentPngData() -> std::span<const std::byte>
+	{
+		return std::as_bytes(std::span{TransparentPngBytes});
+	}
+
 	auto IsTerminal(Durin::Asset::Build::ETexture2DBuildPhase Phase) -> bool
 	{
 		return Phase == Durin::Asset::Build::ETexture2DBuildPhase::UploadPending
@@ -17,7 +22,7 @@ namespace
 	}
 
 	auto MakeCoordinatorRequest(
-		std::span<const Durin::uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string Identity,
 		Durin::Asset::Build::ETexture2DBuildPriority Priority =
 			Durin::Asset::Build::ETexture2DBuildPriority::Background)
@@ -84,7 +89,7 @@ TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyHostService)
 	ASSERT_NE(Coordinator, nullptr);
 	bool bCompleted = false;
 	const Durin::uint64 RequestId = Coordinator->Submit(
-		MakeCoordinatorRequest(TransparentPngBytes, "/BuildHost/Restarted"),
+		MakeCoordinatorRequest(TransparentPngData(), "/BuildHost/Restarted"),
 		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			EXPECT_EQ(
 				Result.Phase,
@@ -104,9 +109,9 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::Forge::TranslateTexture2DSource(
-		TransparentPngBytes, SourceData, Error)) << Error;
+		TransparentPngData(), SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
-		Durin::FXxHash128::HashBuffer(TransparentPngBytes);
+		Durin::FXxHash128::HashBuffer(TransparentPngData());
 	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
@@ -147,7 +152,7 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorEquivalent.png";
 	WriteTextureFixture(Source);
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::FTextureSourceData BaselineSource;
@@ -218,7 +223,7 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorScheduling.png";
 	WriteTextureFixture(Source);
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({
@@ -297,7 +302,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorCancellation.png";
 	WriteTextureFixture(Source);
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
@@ -363,7 +368,7 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 	{
 		ASSERT_NE(Coordinator->Submit(
 			MakeCoordinatorRequest(
-				TransparentPngBytes, std::format("/Coordinator/FrameBudget{}", Index)),
+				TransparentPngData(), std::format("/Coordinator/FrameBudget{}", Index)),
 			[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) {
 				EXPECT_TRUE(Durin::IsInGameThread());
 				++CompletionCount;
@@ -389,7 +394,7 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 	{
 		RequestIds.push_back(Coordinator.Submit(
 			MakeCoordinatorRequest(
-				TransparentPngBytes, std::format("/Coordinator/ExplicitWait{}", Index)),
+				TransparentPngData(), std::format("/Coordinator/ExplicitWait{}", Index)),
 			[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) { ++CompletionCount; }));
 		ASSERT_NE(RequestIds.back(), 0u);
 	}

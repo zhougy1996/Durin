@@ -18,12 +18,12 @@ namespace Durin::Asset::Forge
 		std::string_view Extension) -> bool;
 
 	ASSETFORGE_API auto TranslateTextureCubePanoramaSource(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		std::string_view ExtensionHint,
 		FTextureCubePanoramaSourceData& OutSource,
 		std::string& OutError) -> bool;
 	ASSETFORGE_API auto TranslateTextureCubeFaceSources(
-		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+		const std::array<std::span<const std::byte>, TextureCubeFaceCount>& EncodedFaces,
 		FTextureCubeSourceData& OutSource,
 		std::string& OutError) -> bool;
 

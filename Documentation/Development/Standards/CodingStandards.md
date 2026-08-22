@@ -7,6 +7,25 @@ These conventions apply to repository-owned C++ source. Generated code and third
 `CoreStd.h` supplies common STL headers. Add another standard-library header
 only when the translation unit requires it.
 
+## Byte Data
+
+Use `std::byte` for repository-owned untyped byte storage and views, including
+serialized payloads, file contents, hashes, encoded images, derived data,
+shader code, and GPU transfer data. Prefer `std::vector<std::byte>` for owned
+storage and `std::span<const std::byte>` or `std::span<std::byte>` for borrowed
+views.
+
+Use `std::as_bytes` or `std::as_writable_bytes` to view typed storage as bytes.
+Use `std::to_integer` when byte contents must participate in arithmetic, and
+construct individual byte values explicitly with `std::byte{...}` or
+`static_cast<std::byte>(...)`. Pointer reinterpretation is reserved for C and
+third-party interfaces that cannot express `std::byte`.
+
+Keep `uint8` for values with integer semantics, such as color channels, enum
+storage, flags, state markers, masks, and compact numeric fields. A buffer is
+not numeric merely because an external format describes its octets with
+integer values.
+
 ## Comments
 
 Comments explain intent, contracts, invariants, ownership, or non-obvious tradeoffs. Do not translate the declaration or implementation into prose, narrate control flow, or add comments only to satisfy a coverage target. Prefer a concise comment immediately before the declaration it describes, and keep the comment accurate when the design changes.

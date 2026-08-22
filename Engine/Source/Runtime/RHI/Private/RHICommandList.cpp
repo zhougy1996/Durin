@@ -980,7 +980,7 @@ namespace Durin
 
 			EShaderStageFlags StageFlags;
 			uint32 Offset;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		struct FWriteBufferCommand
@@ -1014,7 +1014,7 @@ namespace Durin
 
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		struct FInitializeTextureCommand
@@ -1061,13 +1061,13 @@ namespace Durin
 				uint32 InArraySlice,
 				const FUpdateTextureRegion2D& InRegion,
 				uint32 InSourcePitch,
-				const uint8* InSourceData)
+				std::span<const std::byte> InSourceData)
 				: Texture(InTexture)
 				, MipIndex(InMipIndex)
 				, ArraySlice(InArraySlice)
 				, Region(InRegion)
 			{
-				check(Texture && InSourceData);
+				check(Texture && !InSourceData.empty());
 				FRHITextureDesc Desc;
 				Desc.Dimension = Texture->GetDimension();
 				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
@@ -1091,9 +1091,15 @@ namespace Durin
 					/ FormatInfo.BlockSize;
 				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY)
 					/ FormatInfo.BlockSize;
-				const uint8* SourceRegion = InSourceData
-					+ SourceBlockY * InSourcePitch
+				const uint64 SourceOffset = SourceBlockY * InSourcePitch
 					+ SourceBlockX * FormatInfo.BytesPerBlock;
+				const uint64 RequiredSourceBytes = SourceOffset
+					+ (Layout.BlocksHigh - 1) * InSourcePitch + Layout.RowPitch;
+				checkf(RequiredSourceBytes <= InSourceData.size(),
+					"Invalid RHI texture upload: source data contains {} bytes, but the source region requires {} bytes.",
+					InSourceData.size(), RequiredSourceBytes);
+				const std::byte* SourceRegion = InSourceData.data()
+					+ SourceOffset;
 				for (uint64 Row = 0; Row < Layout.BlocksHigh; ++Row)
 				{
 					std::memcpy(
@@ -1124,7 +1130,7 @@ namespace Durin
 			uint32 ArraySlice;
 			FUpdateTextureRegion2D Region;
 			uint32 SourcePitch = 0;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		struct FUpdateTexture3DCommand
@@ -1135,10 +1141,10 @@ namespace Durin
 				const FUpdateTextureRegion3D& InRegion,
 				uint32 InSourceRowPitch,
 				uint32 InSourceDepthPitch,
-				const uint8* InSourceData)
+				std::span<const std::byte> InSourceData)
 				: Texture(InTexture), MipIndex(InMipIndex), Region(InRegion)
 			{
-				check(Texture && InSourceData);
+				check(Texture && !InSourceData.empty());
 				FRHITextureDesc Desc;
 				Desc.Dimension = Texture->GetDimension();
 				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
@@ -1163,10 +1169,18 @@ namespace Durin
 				Data.resize(static_cast<size_t>(SliceLayout.DataSize) * Region.Depth);
 				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX) / FormatInfo.BlockSize;
 				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY) / FormatInfo.BlockSize;
-				const uint8* SourceRegion = InSourceData
-					+ static_cast<uint64>(Region.SrcZ) * InSourceDepthPitch
-					+ SourceBlockY * InSourceRowPitch
+				const uint64 SourceOffset = static_cast<uint64>(Region.SrcZ)
+					* InSourceDepthPitch + SourceBlockY * InSourceRowPitch
 					+ SourceBlockX * FormatInfo.BytesPerBlock;
+				const uint64 RequiredSourceBytes = SourceOffset
+					+ (static_cast<uint64>(Region.Depth) - 1) * InSourceDepthPitch
+					+ (SliceLayout.BlocksHigh - 1) * InSourceRowPitch
+					+ SliceLayout.RowPitch;
+				checkf(RequiredSourceBytes <= InSourceData.size(),
+					"Invalid RHI volume texture upload: source data contains {} bytes, but the source region requires {} bytes.",
+					InSourceData.size(), RequiredSourceBytes);
+				const std::byte* SourceRegion = InSourceData.data()
+					+ SourceOffset;
 				for (uint64 Z = 0; Z < Region.Depth; ++Z)
 				{
 					for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
@@ -1199,7 +1213,7 @@ namespace Durin
 			FUpdateTextureRegion3D Region;
 			uint32 SourceRowPitch = 0;
 			uint32 SourceDepthPitch = 0;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		struct FSetShaderParametersCommand
@@ -1394,7 +1408,7 @@ namespace Durin
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		std::unordered_map<FRHIBuffer*, std::unique_ptr<FPendingLock>> PendingLocks;
@@ -1882,7 +1896,7 @@ namespace Durin
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		const uint8* SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		RecordCommand<FUpdateTexture2DCommand>(
 			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
@@ -1894,7 +1908,7 @@ namespace Durin
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		const uint8* SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		RecordCommand<FUpdateTexture3DCommand>(Texture, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch, SourceData);
@@ -2059,7 +2073,7 @@ namespace Durin
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<uint8>& OutData) -> bool
+		std::vector<std::byte>& OutData) -> bool
 	{
 		bool bSucceeded = false;
 		Executor->ExecuteSynchronousContextOperation(true,

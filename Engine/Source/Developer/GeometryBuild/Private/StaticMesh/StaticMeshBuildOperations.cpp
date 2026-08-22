@@ -556,13 +556,13 @@ namespace Durin::Asset::Build
 			Product.FailureStage = EStaticMeshAuthoringFailureStage::DerivedDataWrite;
 			return false;
 		}
-		const std::vector<uint8> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
+		const std::vector<std::byte> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionIdentity, std::string(Private::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddInput(FBuildValue::FromOwned(std::string(Private::StaticMeshInputName),
-				std::vector<uint8>(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
+				std::vector<std::byte>(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
 		if (!Builder.Build(Definition, &OutError))
 		{
 			Product.FailureStage = EStaticMeshAuthoringFailureStage::Key;
@@ -733,7 +733,7 @@ namespace Durin::Asset::Build
 			BuildStaticMeshCollisionDerivedDataKey(KeyInput, OutError);
 		if (OutProduct.DerivedDataKey.empty()) return false;
 
-		const std::vector<uint8> KeyBytes =
+		const std::vector<std::byte> KeyBytes =
 			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(

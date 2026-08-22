@@ -253,14 +253,15 @@ namespace Durin
 			return true;
 		}
 
-		auto HexToken(std::span<const uint8> Token) -> std::string
+		auto HexToken(std::span<const std::byte> Token) -> std::string
 		{
 			static constexpr char Digits[] = "0123456789abcdef";
 			std::string Result;
 			Result.reserve(Token.size() * 2 + 2);
 			Result.push_back('{');
-			for (uint8 Byte : Token)
+			for (std::byte ByteValue : Token)
 			{
+				const uint8 Byte = std::to_integer<uint8>(ByteValue);
 				Result.push_back(Digits[Byte >> 4]);
 				Result.push_back(Digits[Byte & 0x0f]);
 			}
@@ -272,7 +273,7 @@ namespace Durin
 		{
 			const void* Key = nullptr;
 			const void* Value = nullptr;
-			std::vector<uint8> KeyToken;
+			std::vector<std::byte> KeyToken;
 		};
 
 		struct FIdentityMapCollectContext
@@ -1741,14 +1742,14 @@ namespace Durin
 	namespace
 	{
 		template<std::unsigned_integral T>
-		auto AppendBigEndian(std::vector<uint8>& Token, T Value) -> void
+		auto AppendBigEndian(std::vector<std::byte>& Token, T Value) -> void
 		{
 			for (size_t Index = sizeof(T); Index > 0; --Index)
-				Token.push_back(static_cast<uint8>(Value >> ((Index - 1) * 8)));
+				Token.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
 		}
 
 		template<std::integral T>
-		auto AppendSortableInteger(std::vector<uint8>& Token, const void* Value) -> void
+		auto AppendSortableInteger(std::vector<std::byte>& Token, const void* Value) -> void
 		{
 			using U = std::make_unsigned_t<T>;
 			U Bits = 0;
@@ -1758,7 +1759,7 @@ namespace Durin
 		}
 
 		template<std::floating_point T>
-		auto AppendSortableFloat(std::vector<uint8>& Token, const void* Value) -> void
+		auto AppendSortableFloat(std::vector<std::byte>& Token, const void* Value) -> void
 		{
 			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
 			U Bits = 0;
@@ -1780,7 +1781,7 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		std::vector<uint8>& OutToken,
+		std::vector<std::byte>& OutToken,
 		std::string* OutError
 	) -> bool
 	{
@@ -1788,11 +1789,12 @@ namespace Durin
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
 			return FailCanonicalToken("CanonicalMapKeyInvalidInput: property, value, or array index is invalid.", OutError);
 
-		OutToken.push_back(static_cast<uint8>(Property->GetKind()));
+		OutToken.push_back(static_cast<std::byte>(Property->GetKind()));
 		const void* Value = Property->GetValuePtr(Container, ArrayIndex);
 		switch (Property->GetKind())
 		{
-		case DurinCodeGen::EPropertyGenFlags::Bool: OutToken.push_back(*static_cast<const bool*>(Value) ? 1 : 0); return true;
+		case DurinCodeGen::EPropertyGenFlags::Bool: OutToken.push_back(
+			*static_cast<const bool*>(Value) ? std::byte{1} : std::byte{0}); return true;
 		case DurinCodeGen::EPropertyGenFlags::Int8: AppendSortableInteger<int8>(OutToken, Value); return true;
 		case DurinCodeGen::EPropertyGenFlags::Int16: AppendSortableInteger<int16>(OutToken, Value); return true;
 		case DurinCodeGen::EPropertyGenFlags::Int32: AppendSortableInteger<int32>(OutToken, Value); return true;
@@ -1859,7 +1861,8 @@ namespace Durin
 			{
 				const auto& Text = *static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex);
 				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-				OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+				const auto Bytes = std::as_bytes(std::span(Text));
+				OutToken.insert(OutToken.end(), Bytes.begin(), Bytes.end());
 				return true;
 			}
 		case DurinCodeGen::EPropertyGenFlags::Name:
@@ -1867,7 +1870,8 @@ namespace Durin
 				const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
 				const std::string Text = Name.GetComparisonNameEntry()->GetPlainNameString();
 				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-				OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+				const auto Bytes = std::as_bytes(std::span(Text));
+				OutToken.insert(OutToken.end(), Bytes.begin(), Bytes.end());
 				AppendBigEndian(OutToken, Name.GetNumber());
 				return true;
 			}
@@ -1881,8 +1885,8 @@ namespace Durin
 				return true;
 			}
 		case DurinCodeGen::EPropertyGenFlags::Byte:
-			OutToken.push_back(std::to_integer<uint8>(
-				*static_cast<const std::byte*>(Property->GetValuePtr(Container, ArrayIndex))));
+			OutToken.push_back(
+				*static_cast<const std::byte*>(Property->GetValuePtr(Container, ArrayIndex)));
 			return true;
 		case DurinCodeGen::EPropertyGenFlags::Struct:
 			{

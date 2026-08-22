@@ -13,7 +13,7 @@ namespace Durin::Asset::Forge
 	{
 		FSourcePath SourcePath;
 		FXxHash128 ContentHash{};
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 	};
 
 	struct FVolumeTextureImportSettings

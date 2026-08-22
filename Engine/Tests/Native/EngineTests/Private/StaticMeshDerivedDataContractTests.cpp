@@ -24,12 +24,13 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 {
 	const Durin::Asset::Build::FStaticMeshBuildKeyInput Input = MakeKeyInput();
 	std::string Error;
-	const std::vector<Durin::uint8> First =
+	const std::vector<std::byte> First =
 		Durin::Asset::Build::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	const std::vector<Durin::uint8> Second =
+	const std::vector<std::byte> Second =
 		Durin::Asset::Build::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
-	const std::vector<Durin::uint8> Expected{
+	const std::vector<std::byte> Expected = [] {
+		const Durin::uint8 Values[]{
 		0x01, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
@@ -40,6 +41,9 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		0x03, 0x00, 0x00, 0x00,
 		0x04, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00};
+		const std::span<const std::byte> Bytes = std::as_bytes(std::span{Values});
+		return std::vector<std::byte>(Bytes.begin(), Bytes.end());
+	}();
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);

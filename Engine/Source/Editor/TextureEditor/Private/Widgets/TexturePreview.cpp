@@ -335,17 +335,19 @@ namespace Durin::Editor::Texture
 		Release();
 	}
 
-	auto FTexturePreview::UploadPixels(EPixelFormat Format, uint32 Width, uint32 Height, uint32 RowPitch, const uint8* Pixels) -> void
+	auto FTexturePreview::UploadPixels(EPixelFormat Format, uint32 Width, uint32 Height, uint32 RowPitch,
+		std::span<const std::byte> Pixels) -> void
 	{
 		Release();
 
-		if (!GDynamicRHI || !Pixels || Width == 0 || Height == 0) return;
+		if (!GDynamicRHI || Pixels.empty() || Width == 0 || Height == 0) return;
 
 		// Capture a snapshot of the pixel data for the render command.
 		const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Width, Height);
-		if (Layout.DataSize == 0 || Layout.DataSize > std::numeric_limits<size_t>::max()) return;
+		if (Layout.DataSize == 0 || Layout.DataSize > Pixels.size()) return;
 		const size_t PixelCount = static_cast<size_t>(Layout.DataSize);
-		auto PixelSnapshot = std::make_shared<std::vector<uint8>>(Pixels, Pixels + PixelCount);
+		auto PixelSnapshot = std::make_shared<std::vector<std::byte>>(
+			Pixels.begin(), Pixels.begin() + static_cast<ptrdiff_t>(PixelCount));
 
 		FTextureRHIRef NewTexture;
 		ENQUEUE_RENDER_COMMAND(UploadTexturePreview)([&NewTexture, Format, Width, Height, RowPitch, PixelSnapshot](FRHICommandListImmediate& CommandList) {
@@ -355,7 +357,7 @@ namespace Durin::Editor::Texture
 			if (NewTexture)
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, 0, 0, Region, RowPitch, PixelSnapshot->data());
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, 0, 0, Region, RowPitch, *PixelSnapshot);
 			}
 		});
 		FlushRenderingCommands();
@@ -377,7 +379,7 @@ namespace Durin::Editor::Texture
 		if (!Platform.IsValid() || MipIndex >= Platform.Mips.size()) return;
 		SelectedChannel = Channel;
 		const FTexture2DMipData& Mip = Platform.Mips[MipIndex];
-		UploadPixels(Platform.PixelFormat, Mip.Width, Mip.Height, Mip.RowPitch, Mip.Pixels.data());
+		UploadPixels(Platform.PixelFormat, Mip.Width, Mip.Height, Mip.RowPitch, Mip.Pixels);
 	}
 
 	auto FTexturePreview::UploadSource(
@@ -388,17 +390,16 @@ namespace Durin::Editor::Texture
 		if (!Source.IsValid()) return;
 		SelectedChannel = Channel;
 		// Source data is always RGBA8; preview it without color-space conversion.
-		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.Width, Source.Height, Source.Width * 4, Source.Pixels.data());
+		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.Width, Source.Height, Source.Width * 4, Source.Pixels);
 	}
 
 	auto FTexturePreview::UploadRGBA8(uint32 Width, uint32 Height,
-		std::span<const uint8> Pixels, ETexturePreviewChannel Channel) -> void
+		std::span<const std::byte> Pixels, ETexturePreviewChannel Channel) -> void
 	{
 		if (Width == 0 || Height == 0
 			|| Pixels.size() != static_cast<uint64>(Width) * Height * 4) return;
 		SelectedChannel = Channel;
-		UploadPixels(EPixelFormat::RGBA8_UNORM, Width, Height, Width * 4,
-			Pixels.data());
+		UploadPixels(EPixelFormat::RGBA8_UNORM, Width, Height, Width * 4, Pixels);
 	}
 
 	auto FTexturePreview::SetChannel(ETexturePreviewChannel Channel) -> void

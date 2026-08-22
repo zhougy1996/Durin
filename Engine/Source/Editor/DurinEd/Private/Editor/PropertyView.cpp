@@ -242,11 +242,11 @@ namespace Durin::Editor
 			return bCaptured;
 		}
 
-		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> std::vector<uint8>
+		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> std::vector<std::byte>
 		{
 			FPropertyValueSnapshot Snapshot;
 			if (!CapturePropertyValue(KeyProperty, Key, 0, Snapshot)) return {};
-			std::vector<uint8> Result = Snapshot.GetBytes();
+			std::vector<std::byte> Result = Snapshot.GetBytes();
 			// Snapshot object tokens are local indices. Pointer identities keep distinct
 			// object keys from collapsing to the same synchronous event path.
 			for (DObject* Reference : Snapshot.GetReferencedObjects())
@@ -695,9 +695,9 @@ namespace Durin::Editor
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			std::array<uint8, sizeof(uint64)> Value{};
-			std::array<uint8, sizeof(uint64)> MinimumStorage{};
-			std::array<uint8, sizeof(uint64)> MaximumStorage{};
+			std::array<std::byte, sizeof(uint64)> Value{};
+			std::array<std::byte, sizeof(uint64)> MinimumStorage{};
+			std::array<std::byte, sizeof(uint64)> MaximumStorage{};
 			check(Property->GetElementSize() <= Value.size());
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
 			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
@@ -1302,7 +1302,7 @@ namespace Durin::Editor
 					ImGui::PopID();
 					continue;
 				}
-				const std::vector<uint8> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
+				const std::vector<std::byte> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
 
 				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);

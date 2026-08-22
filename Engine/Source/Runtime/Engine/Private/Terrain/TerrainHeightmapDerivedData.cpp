@@ -25,7 +25,7 @@ namespace Durin
 		const FTerrainHeightmapPayload& Payload,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -63,17 +63,17 @@ namespace Durin
 			Body.WriteU32(Level.SampleRegionSize);
 			Body.WriteU32(0);
 		}
-		Body.WriteBytes(std::vector<uint8>(
-			static_cast<size_t>(SampleOffset - TerrainHeightmapPayloadHeaderSize - LevelBytes), 0));
+		Body.WriteBytes(std::vector<std::byte>(
+			static_cast<size_t>(SampleOffset - TerrainHeightmapPayloadHeaderSize - LevelBytes), std::byte{0}));
 		for (uint16 Sample : Payload.Samples) Body.WriteU16(Sample);
-		Body.WriteBytes(std::vector<uint8>(
-			static_cast<size_t>(HierarchyOffset - SampleOffset - SampleBytes), 0));
+		Body.WriteBytes(std::vector<std::byte>(
+			static_cast<size_t>(HierarchyOffset - SampleOffset - SampleBytes), std::byte{0}));
 		for (const FTerrainHeightmapMinMaxNode& Node : Payload.Nodes)
 		{
 			Body.WriteU16(Node.Minimum);
 			Body.WriteU16(Node.Maximum);
 		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
+		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Writer;
 		Writer.WriteU32(TerrainHeightmapPayloadMagic);
@@ -101,7 +101,7 @@ namespace Durin
 	}
 
 	auto ParseTerrainHeightmapSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FTerrainHeightmapPayload& OutPayload) -> FPayloadDecodeResult
@@ -218,11 +218,11 @@ namespace Durin
 			*this,
 			{MaximumTerrainHeightmapPayloadBytes, "Terrain heightmap payload"},
 			[&](const FTerrainHeightmapPayload& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildTerrainHeightmapSerializedValue(
 					Value, TargetPlatform, TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FTerrainHeightmapPayload& Candidate) {
+			[&](std::span<const std::byte> Bytes, FTerrainHeightmapPayload& Candidate) {
 				return ParseTerrainHeightmapSerializedValue(
 					Bytes, TargetPlatform, TargetProfile, Candidate);
 			});

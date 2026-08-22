@@ -11,9 +11,12 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Testing::DastV4;
 
-	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<uint8>
+	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
-		return Values;
+		std::vector<std::byte> Result;
+		Result.reserve(Values.size());
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
 	}
 
 	auto Scalar(ETypeOpcode Opcode) -> FTypePtr
@@ -78,9 +81,9 @@ namespace
 		return Input;
 	}
 
-	auto Encode(const FTypePtr& Type, const FValue& Value, const FFrozenTables& Tables) -> std::vector<uint8>
+	auto Encode(const FTypePtr& Type, const FValue& Value, const FFrozenTables& Tables) -> std::vector<std::byte>
 	{
-		std::vector<uint8> Encoded;
+		std::vector<std::byte> Encoded;
 		std::string Error;
 		EXPECT_TRUE(EncodeValue(*Type, Value, Tables, Encoded, Error)) << Error;
 		return Encoded;
@@ -88,7 +91,7 @@ namespace
 
 	auto ExpectDecodeFailure(
 		const FTypePtr& Type,
-		std::span<const uint8> BytesValue,
+		std::span<const std::byte> BytesValue,
 		const FFrozenTables& Tables,
 		std::string_view Category) -> void
 	{
@@ -106,7 +109,7 @@ TEST(FPackageV4ReferenceModelTests, MinimalCanonicalTablesHaveExactGoldenBytes)
 	Input.Types = {Bool};
 	Input.Schemas = {{"A", {{"Field", Bool, 0}}}};
 	const FFrozenTables Tables = Freeze(Input);
-	std::array<std::vector<uint8>, 4> Sections;
+	std::array<std::vector<std::byte>, 4> Sections;
 	std::string Error;
 	ASSERT_TRUE(EncodeTableSections(Tables, Sections, Error)) << Error;
 	EXPECT_EQ(Sections[0], Bytes({0x02, 0x01, 0x41, 0x05, 0x46, 0x69, 0x65, 0x6c, 0x64}));
@@ -116,7 +119,7 @@ TEST(FPackageV4ReferenceModelTests, MinimalCanonicalTablesHaveExactGoldenBytes)
 
 	FFrozenTables Decoded;
 	ASSERT_TRUE(DecodeTableSections(Sections, Decoded, Error)) << Error;
-	std::array<std::vector<uint8>, 4> Reencoded;
+	std::array<std::vector<std::byte>, 4> Reencoded;
 	ASSERT_TRUE(EncodeTableSections(Decoded, Reencoded, Error)) << Error;
 	EXPECT_EQ(Reencoded, Sections);
 }
@@ -140,8 +143,8 @@ TEST(FPackageV4ReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
 	EXPECT_EQ(A.Schemas.size(), 2);
 	EXPECT_EQ(A.CustomVersions.size(), 2);
 	EXPECT_EQ(A.Objects.size(), 2);
-	std::array<std::vector<uint8>, 4> ASections;
-	std::array<std::vector<uint8>, 4> BSections;
+	std::array<std::vector<std::byte>, 4> ASections;
+	std::array<std::vector<std::byte>, 4> BSections;
 	std::string Error;
 	ASSERT_TRUE(EncodeTableSections(A, ASections, Error)) << Error;
 	ASSERT_TRUE(EncodeTableSections(B, BSections, Error)) << Error;
@@ -154,7 +157,7 @@ TEST(FPackageV4ReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
 
 	FFrozenTables Decoded;
 	ASSERT_TRUE(DecodeTableSections(ASections, Decoded, Error)) << Error;
-	std::array<std::vector<uint8>, 4> RoundTrip;
+	std::array<std::vector<std::byte>, 4> RoundTrip;
 	ASSERT_TRUE(EncodeTableSections(Decoded, RoundTrip, Error)) << Error;
 	EXPECT_EQ(RoundTrip, ASections);
 
@@ -168,7 +171,7 @@ TEST(FPackageV4ReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
 TEST(FPackageV4ReferenceModelTests, ScalarsEnumsNamesGuidAndNaNsUseCanonicalPayloads)
 {
 	const FFrozenTables Tables = Freeze(MakeComprehensiveInput());
-	struct FCase { FTypePtr Type; FValue Value; std::vector<uint8> Golden; };
+	struct FCase { FTypePtr Type; FValue Value; std::vector<std::byte> Golden; };
 	FValue True; True.Bool = true;
 	FValue MinusOne; MinusOne.Signed = -1;
 	FValue U255; U255.Unsigned = 255;
@@ -203,13 +206,13 @@ TEST(FPackageV4ReferenceModelTests, ScalarsEnumsNamesGuidAndNaNsUseCanonicalPayl
 	for (const FCase& Case : Cases)
 	{
 		SCOPED_TRACE(uint8(Case.Type->Opcode));
-		const std::vector<uint8> Encoded = Encode(Case.Type, Case.Value, Tables);
+		const std::vector<std::byte> Encoded = Encode(Case.Type, Case.Value, Tables);
 		EXPECT_EQ(Encoded, Case.Golden);
 		FValue Decoded;
 		std::string Error;
 		EXPECT_TRUE(DecodeValue(*Case.Type, Encoded, Tables, Decoded, Error)) << Error;
 	}
-	const std::vector<uint8> EncodedName = Encode(Scalar(ETypeOpcode::Name), Name, Tables);
+	const std::vector<std::byte> EncodedName = Encode(Scalar(ETypeOpcode::Name), Name, Tables);
 	FValue DecodedName;
 	std::string Error;
 	ASSERT_TRUE(DecodeValue(*Scalar(ETypeOpcode::Name), EncodedName, Tables, DecodedName, Error)) << Error;
@@ -228,7 +231,7 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 		const uint64 Count = Layout == 1 ? 2 : Layout == 2 ? 3 : Layout == 5 ? 10 : 4;
 		for (uint64 Index = 0; Index < Count; ++Index)
 			Value.Components.push_back(double(Index) + 0.25);
-		const std::vector<uint8> Encoded = Encode(Type, Value, Tables);
+		const std::vector<std::byte> Encoded = Encode(Type, Value, Tables);
 		EXPECT_EQ(Encoded.size(), Count * (Layout == 6 ? 4 : 8));
 		FValue Decoded;
 		ASSERT_TRUE(DecodeValue(*Type, Encoded, Tables, Decoded, Error)) << Error;
@@ -250,7 +253,7 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 	const FTypePtr Nested = MakeType(ETypeOpcode::Array, "", 0, {Array});
 	FValue NestedValue;
 	NestedValue.Elements = {ArrayValue, FValue{.Elements = {FValue{.Signed = 5}}}};
-	const std::vector<uint8> NestedBytes = Encode(Nested, NestedValue, Tables);
+	const std::vector<std::byte> NestedBytes = Encode(Nested, NestedValue, Tables);
 	FValue DecodedNested;
 	ASSERT_TRUE(DecodeValue(*Nested, NestedBytes, Tables, DecodedNested, Error)) << Error;
 	EXPECT_EQ(DecodedNested, NestedValue);
@@ -266,7 +269,7 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 		FValue{.Text = "A"}, FValue{.Signed = 1},
 		FValue{.Text = "B"}, FValue{.Signed = 2},
 	};
-	const std::vector<uint8> MapGolden = Bytes({0x02, 0x01, 0x41, 0x02, 0x01, 0x42, 0x04});
+	const std::vector<std::byte> MapGolden = Bytes({0x02, 0x01, 0x41, 0x02, 0x01, 0x42, 0x04});
 	EXPECT_EQ(Encode(Map, MapForward, Tables), MapGolden);
 	EXPECT_EQ(Encode(Map, MapReverse, Tables), MapGolden);
 	FValue DecodedMap;
@@ -274,7 +277,7 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 	EXPECT_EQ(DecodedMap, MapReverse);
 	FValue DuplicateMap = MapForward;
 	DuplicateMap.Elements[2].Text = "B";
-	std::vector<uint8> Rejected = {0xee};
+	std::vector<std::byte> Rejected = Bytes({0xee});
 	EXPECT_FALSE(EncodeValue(*Map, DuplicateMap, Tables, Rejected, Error));
 	EXPECT_EQ(Rejected, Bytes({0xee}));
 	EXPECT_NE(Error.find("duplicate"), std::string::npos);
@@ -292,20 +295,20 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 		Bytes({0x01, 0x01}));
 	EXPECT_EQ(Encode(HardRef, FValue{.ReferenceTag = 2, .ReferenceId = 1}, Tables),
 		Bytes({0x02, 0x01}));
-	std::vector<uint8> InvalidReference = {0xee};
+	std::vector<std::byte> InvalidReference = Bytes({0xee});
 	EXPECT_FALSE(EncodeValue(*HardRef, FValue{.ReferenceTag = 2, .ReferenceId = 3},
 		Tables, InvalidReference, Error));
 	EXPECT_EQ(InvalidReference, Bytes({0xee}));
 	ExpectDecodeFailure(HardRef, Bytes({0x02, 0x03}), Tables, "out of range");
 	const FTypePtr SoftRef = MakeType(ETypeOpcode::SoftRef, "DObject");
 	FValue SoftValue{.Text = "/Game/Soft", .ReferenceTag = 1};
-	const std::vector<uint8> SoftBytes = Encode(SoftRef, SoftValue, Tables);
+	const std::vector<std::byte> SoftBytes = Encode(SoftRef, SoftValue, Tables);
 	FValue DecodedSoft;
 	ASSERT_TRUE(DecodeValue(*SoftRef, SoftBytes, Tables, DecodedSoft, Error)) << Error;
 	EXPECT_EQ(DecodedSoft.Text, SoftValue.Text);
 
 	FValue ByteValue;
-	ByteValue.ByteData = {0xaa, 0xbb, 0xcc};
+	ByteValue.ByteData = Bytes({0xaa, 0xbb, 0xcc});
 	EXPECT_EQ(Encode(Scalar(ETypeOpcode::Bytes), ByteValue, Tables),
 		Bytes({0x03, 0xaa, 0xbb, 0xcc}));
 }
@@ -319,7 +322,7 @@ TEST(FPackageV4ReferenceModelTests, DefaultsExplicitAndForcedOverridesPreserveIn
 		.Value = FValue{.Signed = 0},
 		.DefaultValue = FValue{.Signed = 0},
 	};
-	std::vector<uint8> Encoded;
+	std::vector<std::byte> Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeOverrideBlock(std::span(&Candidate, 1), Tables, Encoded, Error)) << Error;
 	EXPECT_EQ(Encoded, Bytes({0x00}));
@@ -362,7 +365,7 @@ TEST(FPackageV4ReferenceModelTests, DefaultsExplicitAndForcedOverridesPreserveIn
 			.SchemaName = "Example::Owner",
 			.FieldName = "Opaque",
 		};
-		Encoded = {0xee};
+		Encoded = Bytes({0xee});
 		EXPECT_FALSE(EncodeOverrideBlock(std::span(&Opaque, 1), UnsupportedTables, Encoded, Error));
 		EXPECT_EQ(Encoded, Bytes({0xee}));
 		EXPECT_NE(Error.find(CustomSerializer ? "custom serializer" : "operations"), std::string::npos);
@@ -386,8 +389,8 @@ TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAn
 		{"Root/Child", {}},
 		{"Root", {Changed}},
 	};
-	std::vector<uint8> A;
-	std::vector<uint8> B;
+	std::vector<std::byte> A;
+	std::vector<std::byte> B;
 	std::string Error;
 	ASSERT_TRUE(EncodeValueSection(Forward, Tables, A, Error)) << Error;
 	ASSERT_TRUE(EncodeValueSection(Reverse, Tables, B, Error)) << Error;
@@ -399,7 +402,7 @@ TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAn
 		0x01, 0x00,
 	}));
 
-	std::vector<uint8> Unchanged = {0xee};
+	std::vector<std::byte> Unchanged = Bytes({0xee});
 	EXPECT_FALSE(EncodeValueSection(std::span(Forward).first(1), Tables, Unchanged, Error));
 	EXPECT_EQ(Unchanged, Bytes({0xee}));
 	const std::vector<FObjectValueInput> Duplicate = {Forward[0], Forward[0]};
@@ -411,9 +414,9 @@ TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAn
 	MiniInput.Types = {I32};
 	MiniInput.Schemas = {{"Unknown::Owner", {{"Mystery", I32, 0}}}};
 	const FFrozenTables MiniTables = Freeze(MiniInput);
-	std::vector<uint8> Closure;
+	std::vector<std::byte> Closure;
 	ASSERT_TRUE(EncodeRetainedClosure(MiniTables, 1, 1, Closure, Error)) << Error;
-	std::vector<uint8> UnknownBody;
+	std::vector<std::byte> UnknownBody;
 	ASSERT_TRUE(EncodeUnknownValueBody(Closure, Bytes({0xca, 0xfe}), UnknownBody, Error)) << Error;
 	FWireWriter Block;
 	Block.WriteVarUInt(1);
@@ -429,8 +432,8 @@ TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAn
 	UnknownSection.WriteVarUInt(1);
 	UnknownSection.WriteU8(0);
 	EXPECT_TRUE(ValidateValueSection(UnknownSection.Bytes(), Tables, Error)) << Error;
-	std::vector<uint8> WithTrailing = UnknownSection.Bytes();
-	WithTrailing.push_back(0xff);
+	std::vector<std::byte> WithTrailing = UnknownSection.Bytes();
+	WithTrailing.push_back(std::byte{0xff});
 	EXPECT_FALSE(ValidateValueSection(WithTrailing, Tables, Error));
 	EXPECT_NE(Error.find("unconsumed"), std::string::npos);
 }
@@ -442,20 +445,20 @@ TEST(FPackageV4ReferenceModelTests, UnknownPayloadAndDescriptorClosureRemainByte
 	MiniInput.Types = {I32};
 	MiniInput.Schemas = {{"Unknown::Owner", {{"Mystery", I32, 0}}}};
 	const FFrozenTables MiniTables = Freeze(MiniInput);
-	std::vector<uint8> Closure;
+	std::vector<std::byte> Closure;
 	std::string Error;
 	ASSERT_TRUE(EncodeRetainedClosure(MiniTables, 1, 1, Closure, Error)) << Error;
 	EXPECT_TRUE(ValidateRetainedClosure(Closure, Error)) << Error;
 
-	const std::vector<uint8> Payload = Bytes({0x80, 0x00, 0xde, 0xad, 0xbe, 0xef});
-	std::vector<uint8> Body;
+	const std::vector<std::byte> Payload = Bytes({0x80, 0x00, 0xde, 0xad, 0xbe, 0xef});
+	std::vector<std::byte> Body;
 	ASSERT_TRUE(EncodeUnknownValueBody(Closure, Payload, Body, Error)) << Error;
-	std::vector<uint8> DecodedClosure;
-	std::vector<uint8> DecodedPayload;
+	std::vector<std::byte> DecodedClosure;
+	std::vector<std::byte> DecodedPayload;
 	ASSERT_TRUE(ValidateUnknownValueBody(Body, DecodedClosure, DecodedPayload, Error)) << Error;
 	EXPECT_EQ(DecodedClosure, Closure);
 	EXPECT_EQ(DecodedPayload, Payload);
-	std::vector<uint8> Reencoded;
+	std::vector<std::byte> Reencoded;
 	ASSERT_TRUE(EncodeUnknownValueBody(DecodedClosure, DecodedPayload, Reencoded, Error)) << Error;
 	EXPECT_EQ(Reencoded, Body);
 
@@ -465,16 +468,16 @@ TEST(FPackageV4ReferenceModelTests, UnknownPayloadAndDescriptorClosureRemainByte
 	const FFrozenTables KnownA = Freeze(Forward);
 	const FFrozenTables KnownB = Freeze(Reverse);
 	EXPECT_EQ(KnownA.Names, KnownB.Names);
-	std::vector<uint8> BodyAfterKnownReorder;
+	std::vector<std::byte> BodyAfterKnownReorder;
 	ASSERT_TRUE(EncodeUnknownValueBody(Closure, Payload, BodyAfterKnownReorder, Error)) << Error;
 	EXPECT_EQ(BodyAfterKnownReorder, Body);
 
-	std::vector<uint8> InvalidClosure = Closure;
-	InvalidClosure.back() = 2;
+	std::vector<std::byte> InvalidClosure = Closure;
+	InvalidClosure.back() = std::byte{2};
 	EXPECT_FALSE(ValidateRetainedClosure(InvalidClosure, Error));
 	EXPECT_NE(Error.find("field id"), std::string::npos);
 	InvalidClosure = Closure;
-	InvalidClosure.push_back(0xff);
+	InvalidClosure.push_back(std::byte{0xff});
 	EXPECT_FALSE(ValidateRetainedClosure(InvalidClosure, Error));
 	EXPECT_NE(Error.find("unconsumed"), std::string::npos);
 }
@@ -489,12 +492,12 @@ TEST(FPackageV4ReferenceModelTests, CustomVersionsSortRetainAndFailClosed)
 	const FFrozenTables Tables = Freeze(Input);
 	ASSERT_EQ(Tables.CustomVersions.size(), 2);
 	EXPECT_EQ(Tables.CustomVersions[0].Guid, (FGuidValue{1, 2, 3, 4}));
-	std::array<std::vector<uint8>, 4> Sections;
+	std::array<std::vector<std::byte>, 4> Sections;
 	std::string Error;
 	ASSERT_TRUE(EncodeTableSections(Tables, Sections, Error)) << Error;
 	FFrozenTables Decoded;
 	ASSERT_TRUE(DecodeTableSections(Sections, Decoded, Error)) << Error;
-	std::array<std::vector<uint8>, 4> Reencoded;
+	std::array<std::vector<std::byte>, 4> Reencoded;
 	ASSERT_TRUE(EncodeTableSections(Decoded, Reencoded, Error)) << Error;
 	EXPECT_EQ(Reencoded, Sections);
 
@@ -523,7 +526,7 @@ TEST(FPackageV4ReferenceModelTests, CustomVersionsSortRetainAndFailClosed)
 		Excess.CustomVersions.push_back({{Index, 0, 0, 0}, 0});
 	ExpectFreezeFailure(Excess, "count exceeds");
 
-	std::array<std::vector<uint8>, 4> OutOfRange = {
+	std::array<std::vector<std::byte>, 4> OutOfRange = {
 		Bytes({0x00}), Bytes({0x00}),
 		Bytes({0x01,
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -541,11 +544,11 @@ TEST(FPackageV4ReferenceModelTests, MalformedTablesValuesCyclesAndDepthFailByCat
 	Minimal.Types = {Bool};
 	Minimal.Schemas = {{"A", {{"Field", Bool, 0}}}};
 	const FFrozenTables Tables = Freeze(Minimal);
-	std::array<std::vector<uint8>, 4> Sections;
+	std::array<std::vector<std::byte>, 4> Sections;
 	std::string Error;
 	FFrozenTables Unchanged;
 	ASSERT_TRUE(EncodeTableSections(Tables, Sections, Error)) << Error;
-	auto ExpectTableFailure = [&](std::array<std::vector<uint8>, 4> Invalid, std::string_view Category)
+	auto ExpectTableFailure = [&](std::array<std::vector<std::byte>, 4> Invalid, std::string_view Category)
 	{
 		FFrozenTables Result;
 		Result.Names = {"sentinel"};
@@ -561,21 +564,21 @@ TEST(FPackageV4ReferenceModelTests, MalformedTablesValuesCyclesAndDepthFailByCat
 	Invalid[1] = Bytes({0x01, 0x01, 0x18});
 	ExpectTableFailure(Invalid, "opcode");
 	Invalid = Sections;
-	Invalid[2].back() = 1;
+	Invalid[2].back() = std::byte{1};
 	ExpectTableFailure(Invalid, "flags");
 	Invalid = Sections;
-	Invalid[2][Invalid[2].size() - 2] = 2;
+	Invalid[2][Invalid[2].size() - 2] = std::byte{2};
 	ExpectTableFailure(Invalid, "out of range");
 	Invalid = Sections;
-	Invalid[0].push_back(0xff);
+	Invalid[0].push_back(std::byte{0xff});
 	ExpectTableFailure(Invalid, "unconsumed");
 
 	FTableInput ObjectInput;
 	ObjectInput.Objects = {{"Root", "", "C", "Root"}};
 	const FFrozenTables ObjectTables = Freeze(ObjectInput);
-	std::array<std::vector<uint8>, 4> ObjectSections;
+	std::array<std::vector<std::byte>, 4> ObjectSections;
 	ASSERT_TRUE(EncodeTableSections(ObjectTables, ObjectSections, Error)) << Error;
-	ObjectSections[3][2] = 1;
+	ObjectSections[3][2] = std::byte{1};
 	ExpectTableFailure(ObjectSections, "outer");
 	FTableInput DuplicateObjects;
 	DuplicateObjects.Objects = {
@@ -620,7 +623,7 @@ TEST(FPackageV4ReferenceModelTests, MalformedTablesValuesCyclesAndDepthFailByCat
 		Deep = MakeType(ETypeOpcode::Array, "", 0, {Deep});
 		DeepValue = FValue{.Elements = {DeepValue}};
 	}
-	std::vector<uint8> Output = {0xee};
+	std::vector<std::byte> Output = Bytes({0xee});
 	EXPECT_FALSE(EncodeValue(*Deep, DeepValue, Comprehensive, Output, Error));
 	EXPECT_EQ(Output, Bytes({0xee}));
 	EXPECT_NE(Error.find("depth"), std::string::npos);

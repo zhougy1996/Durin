@@ -122,7 +122,7 @@ namespace Durin
 		COREDOBJECT_API auto EnterMapKey(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto EnterMapValue(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto NotifyCanonicalMapKey(
-			uint64 Index, std::span<const uint8> Token) -> void;
+			uint64 Index, std::span<const std::byte> Token) -> void;
 		COREDOBJECT_API auto MarkBaseReflectedFieldsSerialized() -> void;
 		COREDOBJECT_API auto NotifyReflectedPropertyValue(
 			FProperty& Property,
@@ -143,7 +143,7 @@ namespace Durin
 		virtual COREDOBJECT_API auto OnEnterMapKey(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnEnterMapValue(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnCanonicalMapKey(
-			uint64 Index, std::span<const uint8> Token) -> void;
+			uint64 Index, std::span<const std::byte> Token) -> void;
 		virtual COREDOBJECT_API auto OnLeavePath() -> void;
 		virtual COREDOBJECT_API auto OnReflectedPropertyValue(
 			FProperty& Property,
@@ -174,12 +174,12 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectMemoryWriter(
-			std::vector<uint8>& InBytes,
+			std::vector<std::byte>& InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
 		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 	private:
-		std::vector<uint8>& Bytes;
+		std::vector<std::byte>& Bytes;
 	};
 
 	// Object-aware canonical memory reader used by graph and reflection adapters.
@@ -187,7 +187,7 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectMemoryReader(
-			std::span<const uint8> InBytes,
+			std::span<const std::byte> InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
 		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
 		auto GetRemainingPayloadBytes() const -> uint64 override
@@ -196,7 +196,7 @@ namespace Durin
 		}
 		auto Tell() const -> uint64 override { return Offset; }
 	private:
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 Offset = 0;
 	};
 
@@ -214,7 +214,7 @@ namespace Durin
 	COREDOBJECT_API auto EnterArchiveMapKey(FArchive& Ar, uint64 Index) -> FArchivePathScope;
 	COREDOBJECT_API auto EnterArchiveMapValue(FArchive& Ar, uint64 Index) -> FArchivePathScope;
 	COREDOBJECT_API auto NotifyArchiveCanonicalMapKey(
-		FArchive& Ar, uint64 Index, std::span<const uint8> Token) -> void;
+		FArchive& Ar, uint64 Index, std::span<const std::byte> Token) -> void;
 	COREDOBJECT_API auto MarkArchiveBaseReflectedFieldsSerialized(FArchive& Ar) -> void;
 	COREDOBJECT_API auto NotifyArchiveReflectedPropertyValue(
 		FArchive& Ar, FProperty& Property, const void* Container, uint32 ArrayIndex) -> void;
@@ -233,12 +233,12 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&;
 		auto IsValid() const -> bool { return Property != nullptr; }
 		auto GetProperty() const -> const FProperty* { return Property; }
-		auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
+		auto GetBytes() const -> const std::vector<std::byte>& { return Bytes; }
 		auto GetReferencedObjects() const -> const std::vector<DObject*>& { return ReferencedObjects; }
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshot& Other) const -> bool;
 	private:
 		const FProperty* Property = nullptr;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		std::vector<DObject*> ReferencedObjects;
 		auto AddReferenceRoots() -> void;
 		auto ReleaseReferenceRoots() -> void;
@@ -250,8 +250,8 @@ namespace Durin
 	COREDOBJECT_API auto RestorePropertyValue(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshot& Snapshot, std::string* OutError = nullptr) -> bool;
 	COREDOBJECT_API auto SerializeReflectedPropertyValue(FArchive& Ar, FProperty& Property, void* Container, uint32 ArrayIndex = 0, bool bIncludeRawObjectReferences = false) -> void;
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
-	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes) -> bool;
-	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*;
+	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<std::byte>& OutBytes) -> bool;
+	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<std::byte>& Bytes) -> DObject*;
 	COREDOBJECT_API auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName = FName(), std::string* OutError = nullptr, std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> DObject*;
 	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
 }

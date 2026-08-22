@@ -21,7 +21,7 @@ namespace Durin::Asset::Build
 		}
 
 		auto MakeDefinition(std::string_view Key,
-			std::span<const uint8> KeyBytes,
+			std::span<const std::byte> KeyBytes,
 			const FVolumeTextureSourceData* Source,
 			const FVolumeTextureBuildSettings* Settings,
 			FBuildDefinition& OutDefinition, std::string& OutError) -> bool
@@ -51,7 +51,7 @@ namespace Durin::Asset::Build
 		}
 		if (!EnsureTextureBuildFunctions(&OutError)) return false;
 		const FVolumeTextureBuildKeyInput KeyInput = MakeKeyInput(SourceData, Settings);
-		const std::vector<uint8> KeyBytes = BuildVolumeTextureDerivedDataKeyBytes(
+		const std::vector<std::byte> KeyBytes = BuildVolumeTextureDerivedDataKeyBytes(
 			KeyInput, OutError);
 		const std::string Key = KeyBytes.empty()
 			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();

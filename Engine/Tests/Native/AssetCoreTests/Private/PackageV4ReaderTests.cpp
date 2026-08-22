@@ -16,8 +16,15 @@ namespace
 	namespace Production = Durin::Asset::DastV4;
 	namespace Reference = Durin::Testing::DastV4;
 	using Durin::uint8;
+	auto MakeBytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	{
+		std::vector<std::byte> Result;
+		Result.reserve(Values.size());
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
+	}
 
-	auto BuildPackage(bool bRetainedUnknown = false) -> std::vector<uint8>
+	auto BuildPackage(bool bRetainedUnknown = false) -> std::vector<std::byte>
 	{
 		auto I32 = Production::MakeType(Production::ETypeOpcode::I32);
 		auto String = Production::MakeType(Production::ETypeOpcode::String);
@@ -45,14 +52,14 @@ namespace
 			Reference::FFrozenTables Tables;
 			std::string Error;
 			EXPECT_TRUE(Reference::FreezeTables(ClosureInput, Tables, Error)) << Error;
-			std::vector<uint8> Closure;
+			std::vector<std::byte> Closure;
 			EXPECT_TRUE(Reference::EncodeRetainedClosure(Tables, 1, 1, Closure, Error)) << Error;
 			Input.ObjectValues.front().KnownOverrides.clear();
 			Input.ObjectValues.front().RetainedUnknownOverrides.push_back({
 				.SchemaName = "Example::Asset", .FieldName = "Count",
-				.DescriptorClosure = std::move(Closure), .Payload = {0xde, 0xad, 0xbe, 0xef}});
+				.DescriptorClosure = std::move(Closure), .Payload = MakeBytes({0xde, 0xad, 0xbe, 0xef})});
 		}
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Production::FWriterDiagnostic Diagnostic;
 		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 		return Bytes;
@@ -73,7 +80,7 @@ namespace
 		return Path;
 	}
 
-	auto BuildLivePackage(bool bRetainedUnknown = false) -> std::vector<uint8>
+	auto BuildLivePackage(bool bRetainedUnknown = false) -> std::vector<std::byte>
 	{
 		const std::string ClassName = Durin::Asset::DAssetRedirector::StaticClass()
 			->GetQualifiedName().ToString();
@@ -93,20 +100,20 @@ namespace
 			Reference::FTableInput ClosureInput;
 			auto I32 = Reference::MakeType(Reference::ETypeOpcode::I32);
 			ClosureInput.Types = {I32}; ClosureInput.Schemas = {{ClassName, {{"DestinationObject", I32, 0}}}};
-			Reference::FFrozenTables Tables; std::string Error; std::vector<uint8> Closure;
+			Reference::FFrozenTables Tables; std::string Error; std::vector<std::byte> Closure;
 			EXPECT_TRUE(Reference::FreezeTables(ClosureInput, Tables, Error)) << Error;
 			EXPECT_TRUE(Reference::EncodeRetainedClosure(Tables, 1, 1, Closure, Error)) << Error;
 			Input.ObjectValues.front().KnownOverrides.clear();
 			Input.ObjectValues.front().RetainedUnknownOverrides.push_back({ClassName,
-				"DestinationObject", std::move(Closure), {0xca, 0xfe}});
+				"DestinationObject", std::move(Closure), MakeBytes({0xca, 0xfe})});
 		}
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Production::FWriterDiagnostic Diagnostic;
 		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 		return Bytes;
 	}
 
-	auto BuildReferencePackage() -> std::vector<uint8>
+	auto BuildReferencePackage() -> std::vector<std::byte>
 	{
 		const std::string ClassName = Durin::Asset::DAssetRedirector::StaticClass()
 			->GetQualifiedName().ToString();
@@ -125,7 +132,7 @@ namespace
 				{.SchemaName = ClassName, .FieldName = "Soft", .Value = Production::FValue{.Text = "/V4Reader/Soft", .ReferenceTag = 1}},
 			}}, {"Root/Child", {}}},
 		};
-		std::vector<uint8> Bytes; Production::FWriterDiagnostic Diagnostic;
+		std::vector<std::byte> Bytes; Production::FWriterDiagnostic Diagnostic;
 		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 		return Bytes;
 	}
@@ -133,7 +140,7 @@ namespace
 
 TEST(FPackageV4ReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublishingOnFailure)
 {
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FValidatedHeader Header{.AssetClass = "sentinel"};
 	Production::FReaderDiagnostic Diagnostic;
 	ASSERT_TRUE(Production::ReadHeader(Bytes, Header, {}, &Diagnostic)) << Diagnostic.Message;
@@ -143,9 +150,9 @@ TEST(FPackageV4ReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublish
 	EXPECT_LT(Header.BytesRead, Bytes.size());
 	EXPECT_EQ(Header.BytesRead, Header.Sections.front().Offset);
 
-	std::vector<uint8> Malformed = Bytes;
+	std::vector<std::byte> Malformed = Bytes;
 	Malformed[Header.BytesRead - Production::RequiredSectionCount * 9] =
-		uint8(Production::ESectionKind::Value);
+		static_cast<std::byte>(Production::ESectionKind::Value);
 	const Production::FValidatedHeader Before = Header;
 	EXPECT_FALSE(Production::ReadHeader(Malformed, Header, {}, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EReaderFailure::InvalidDirectory);
@@ -154,7 +161,7 @@ TEST(FPackageV4ReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublish
 
 TEST(FPackageV4ReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
 {
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
 	Production::FReaderDiagnostic Diagnostic;
 	Production::ResetAssetPackageReencodeCountForTesting();
@@ -165,14 +172,14 @@ TEST(FPackageV4ReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
 	ASSERT_EQ(Package.Schemas.size(), 1);
 	ASSERT_EQ(Package.ObjectValues.size(), 1);
 	ASSERT_EQ(Package.ObjectValues.front().Overrides.size(), 2);
-	std::vector<uint8> Reencoded = {0xaa};
+	std::vector<std::byte> Reencoded = MakeBytes({0xaa});
 	ASSERT_TRUE(Production::ReencodePackage(Package, Reencoded, &Diagnostic)) << Diagnostic.Message;
 	EXPECT_EQ(Reencoded, Bytes);
 }
 
 TEST(FPackageV4ReaderTests, RetainedClosureAndPayloadRemainExact)
 {
-	const std::vector<uint8> Bytes = BuildPackage(true);
+	const std::vector<std::byte> Bytes = BuildPackage(true);
 	Production::FDecodedPackage Package;
 	Production::FReaderDiagnostic Diagnostic;
 	ASSERT_TRUE(Production::DecodePackage(Bytes, Package, {}, &Diagnostic)) << Diagnostic.Message;
@@ -180,15 +187,15 @@ TEST(FPackageV4ReaderTests, RetainedClosureAndPayloadRemainExact)
 	const auto& Override = Package.ObjectValues.front().Overrides.front();
 	EXPECT_EQ(Override.Provenance, 2);
 	EXPECT_FALSE(Override.DescriptorClosure.empty());
-	EXPECT_EQ(Override.RetainedPayload, (std::vector<uint8>{0xde, 0xad, 0xbe, 0xef}));
-	std::vector<uint8> Reencoded;
+	EXPECT_EQ(Override.RetainedPayload, MakeBytes({0xde, 0xad, 0xbe, 0xef}));
+	std::vector<std::byte> Reencoded;
 	ASSERT_TRUE(Production::ReencodePackage(Package, Reencoded, &Diagnostic)) << Diagnostic.Message;
 	EXPECT_EQ(Reencoded, Bytes);
 }
 
 TEST(FPackageV4ReaderTests, MalformedPrimitiveExtentAndLimitFailuresAreAtomic)
 {
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
 	Package.Header.AssetClass = "sentinel";
 	Production::FReaderDiagnostic Diagnostic;
@@ -208,7 +215,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedField
 {
 	Durin::Asset::FAssetPackageInspection Inspection;
 	Production::FReaderDiagnostic Diagnostic;
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	ASSERT_TRUE(Production::InspectPackage(Bytes, Inspection, {}, &Diagnostic)) << Diagnostic.Message;
 	EXPECT_EQ(Inspection.Header.FormatVersion, 4);
 	ASSERT_EQ(Inspection.Objects.size(), 1);
@@ -222,14 +229,14 @@ TEST(FPackageV4ReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedField
 	ASSERT_EQ(Inspection.Objects.front().Fields.size(), 1);
 	const auto& Retained = Inspection.Objects.front().Fields.front();
 	EXPECT_EQ(Retained.TypeSignature, "DASTv4:RetainedClosure");
-	const std::vector<uint8> Expected = {0xde, 0xad, 0xbe, 0xef};
+	const std::vector<std::byte> Expected = MakeBytes({0xde, 0xad, 0xbe, 0xef});
 	EXPECT_NE(std::search(Retained.Payload.begin(), Retained.Payload.end(),
 		Expected.begin(), Expected.end()), Retained.Payload.end());
 }
 
 TEST(FPackageV4ReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAndBoundedCost)
 {
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	Durin::Asset::FAssetPackageCompatibilityRecord Record;
 	Durin::Asset::FAssetCompatibilityProbeStats Stats;
 	Production::FReaderDiagnostic Diagnostic;
@@ -250,7 +257,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAnd
 TEST(FPackageV4ReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBackFailure)
 {
 	const Durin::FAssetPath Path = InitializeLiveReaderTest();
-	const std::vector<uint8> Bytes = BuildLivePackage();
+	const std::vector<std::byte> Bytes = BuildLivePackage();
 	Production::FLoadedAssetPackage Loaded;
 	Durin::Asset::FAssetLoadReport Report;
 	Production::FReaderDiagnostic Diagnostic;
@@ -341,7 +348,7 @@ TEST(FPackageV4ReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
 
 TEST(FPackageV4ReaderTests, OrdinaryValidationUsesTheProductionV4Reader)
 {
-	const std::vector<uint8> Bytes = BuildPackage();
+	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
 	ASSERT_TRUE(Production::DecodePackage(Bytes, Package));
 	const Durin::Asset::FAssetResult Ordinary = Durin::Asset::ValidateAssetPackageBytes(Bytes);

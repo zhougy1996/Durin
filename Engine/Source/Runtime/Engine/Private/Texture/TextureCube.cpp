@@ -333,7 +333,7 @@ namespace Durin
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
 			return FailCooked(OutError);
-		const std::span<const uint8> Bytes = LoadedPayload.Payload;
+		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		auto CandidatePlatformData = std::make_unique<FTextureCubePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
 		CandidatePlatformData->Serialize(PayloadAr, {
@@ -368,7 +368,7 @@ namespace Durin
 				"TextureCube '{}' supports only the Win64 game cook target.", GetObjectPath());
 			return false;
 		}
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		if (!PlatformData && !PostLoad(OutError))
 		{
 			OutError = std::format("Failed to cook TextureCube '{}': {}", GetObjectPath(), OutError);
@@ -402,7 +402,7 @@ namespace Durin
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
 			[this, bRetainDiagnosticSourceMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes, std::string* Error) {
+				std::vector<std::byte>& OutPackageBytes, std::string* Error) {
 				if (Descriptors.size() != 1
 					|| Descriptors.front().PayloadId != TextureCubePrimaryCookedPayloadId)
 				{

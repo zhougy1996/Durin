@@ -451,7 +451,7 @@ namespace Durin::VulkanRHI
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		std::span<const uint8> SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
@@ -538,7 +538,7 @@ namespace Durin::VulkanRHI
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		std::span<const uint8> SourceData) -> void
+		std::span<const std::byte> SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture3D requires a texture.");
@@ -577,7 +577,7 @@ namespace Durin::VulkanRHI
 		auto* Mapped = Staging.GetMappedPointer();
 		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / FormatInfo.BlockSize;
 		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / FormatInfo.BlockSize;
-		const uint8* SourceRegion = SourceData.data()
+		const std::byte* SourceRegion = SourceData.data()
 			+ static_cast<uint64>(UpdateRegion.SrcZ) * SourceDepthPitch
 			+ SourceBlockY * SourceRowPitch
 			+ SourceBlockX * FormatInfo.BytesPerBlock;
@@ -626,7 +626,7 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<uint8>& OutData
+		std::vector<std::byte>& OutData
 	) -> bool
 	{
 		CheckVulkanRHIThread();
@@ -714,7 +714,8 @@ namespace Durin::VulkanRHI
 			DURIN_ERROR("Failed to read Vulkan texture: readback allocation is not mapped.");
 			return false;
 		}
-		OutData.assign(MappedData, MappedData + Layout.DataSize);
+		const auto* MappedBytes = reinterpret_cast<const std::byte*>(MappedData);
+		OutData.assign(MappedBytes, MappedBytes + Layout.DataSize);
 		Readback.Retire();
 		Device->GetReadbackArena().ReclaimCompleted();
 		return true;

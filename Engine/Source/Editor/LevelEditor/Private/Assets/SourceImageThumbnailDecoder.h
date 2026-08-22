@@ -7,7 +7,7 @@ namespace Durin::Editor::Level
 	// Carries decoded RGBA thumbnail pixels and their dimensions.
 	struct FDecodedSourceImageThumbnail
 	{
-		std::vector<uint8> Pixels;
+		std::vector<std::byte> Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bHasTransparency = false;

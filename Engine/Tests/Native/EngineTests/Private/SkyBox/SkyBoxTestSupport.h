@@ -166,10 +166,10 @@ namespace
 		const Durin::FTextureSourceData& Source = Cube.GetSourceData()->Faces[static_cast<size_t>(Face)];
 		const size_t PixelOffset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
 		return {
-			Source.Pixels[PixelOffset],
-			Source.Pixels[PixelOffset + 1],
-			Source.Pixels[PixelOffset + 2],
-			Source.Pixels[PixelOffset + 3]
+			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset]),
+			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 1]),
+			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 2]),
+			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 3])
 		};
 	}
 
@@ -197,7 +197,7 @@ namespace
 	}
 
 	auto ExpectRgbNear(
-		const std::vector<Durin::uint8>& Pixels,
+		const std::vector<std::byte>& Pixels,
 		Durin::uint32 Width,
 		Durin::uint32 X,
 		Durin::uint32 Y,
@@ -214,8 +214,8 @@ namespace
 	}
 
 	auto ExpectRgbMatch(
-		const std::vector<Durin::uint8>& Actual,
-		const std::vector<Durin::uint8>& Expected,
+		const std::vector<std::byte>& Actual,
+		const std::vector<std::byte>& Expected,
 		Durin::uint32 Width,
 		Durin::uint32 X,
 		Durin::uint32 Y,
@@ -232,8 +232,8 @@ namespace
 	}
 
 	auto FindClosestCenterRgb(
-		const std::vector<Durin::uint8>& Actual,
-		const std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount>& Candidates,
+		const std::vector<std::byte>& Actual,
+		const std::array<std::vector<std::byte>, Durin::TextureCubeFaceCount>& Candidates,
 		Durin::uint32 Width
 	) -> size_t
 	{

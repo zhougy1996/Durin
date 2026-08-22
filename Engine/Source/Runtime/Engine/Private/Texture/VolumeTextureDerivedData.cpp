@@ -55,7 +55,7 @@ namespace Durin
 		const FVolumeTexturePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -80,7 +80,7 @@ namespace Durin
 					.Height = Mip.Height,
 					.RowPitch = Mip.RowPitch,
 					.LayerPitch = Mip.DepthPitch},
-				.Data = std::span<const uint8>(Mip.Voxels)});
+				.Data = std::span<const std::byte>(Mip.Voxels)});
 		}
 		return TexturePayloadContainer::Build({
 			.ProducerVersion = VolumeTextureBuilderVersion,
@@ -94,7 +94,7 @@ namespace Durin
 	}
 
 	auto ParseVolumeTextureSerializedValue(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FVolumeTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult
@@ -155,7 +155,7 @@ namespace Durin
 			Mip.Depth = Record.Coordinate;
 			Mip.RowPitch = Record.RowPitch;
 			Mip.DepthPitch = Record.LayerPitch;
-			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Voxels.assign(Data.begin(), Data.end());
 		}
 		if (!Candidate.IsValid())
@@ -173,11 +173,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Volume texture platform data"},
 			[&](const FVolumeTexturePlatformData& Value,
-				std::vector<uint8>& Bytes, std::string& Error) {
+				std::vector<std::byte>& Bytes, std::string& Error) {
 				return BuildVolumeTextureSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes, FVolumeTexturePlatformData& Candidate) {
+			[&](std::span<const std::byte> Bytes, FVolumeTexturePlatformData& Candidate) {
 				return ParseVolumeTextureSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});

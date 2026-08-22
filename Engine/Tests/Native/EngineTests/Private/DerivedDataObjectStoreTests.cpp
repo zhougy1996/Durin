@@ -11,6 +11,12 @@ namespace
 	{
 		return std::string(32, Fill);
 	}
+	auto Bytes(std::initializer_list<Durin::uint8> Values) -> std::vector<std::byte>
+	{
+		std::vector<std::byte> Result;
+		for (Durin::uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
+	}
 }
 
 TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
@@ -20,13 +26,13 @@ TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::Build::FDerivedDataObjectStore Store("Test/Objects", 1024);
 	const std::string Key = MakeKey('a');
-	const std::vector<Durin::uint8> First{1, 2, 3};
-	const std::vector<Durin::uint8> Second{4, 5};
+	const std::vector<std::byte> First = Bytes({1, 2, 3});
+	const std::vector<std::byte> Second = Bytes({4, 5});
 	std::string Error;
 	ASSERT_TRUE(Store.Write(Key, First, &Error)) << Error;
 	ASSERT_TRUE(Store.Write(Key, Second, &Error)) << Error;
 
-	std::vector<Durin::uint8> Loaded{9};
+	std::vector<std::byte> Loaded = Bytes({9});
 	const auto Read = Store.Read(Key, Loaded);
 	EXPECT_EQ(Read.Status, Durin::Asset::Build::EDerivedDataObjectReadStatus::Hit);
 	EXPECT_EQ(Loaded, Second);
@@ -40,13 +46,13 @@ TEST(FDerivedDataObjectStoreTests, RejectsInvalidKeysAndOversizedObjectsTransact
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::Build::FDerivedDataObjectStore Store("Test/Objects", 3);
-	const std::vector<Durin::uint8> Bytes{1, 2, 3, 4};
+	const std::vector<std::byte> BytesValue = Bytes({1, 2, 3, 4});
 	std::string Error;
-	EXPECT_FALSE(Store.Write("../escape", Bytes, &Error));
-	EXPECT_FALSE(Store.Write(MakeKey('b'), Bytes, &Error));
-	std::vector<Durin::uint8> Sentinel{7};
+	EXPECT_FALSE(Store.Write("../escape", BytesValue, &Error));
+	EXPECT_FALSE(Store.Write(MakeKey('b'), BytesValue, &Error));
+	std::vector<std::byte> Sentinel = Bytes({7});
 	EXPECT_EQ(Store.Read("../escape", Sentinel).Status, Durin::Asset::Build::EDerivedDataObjectReadStatus::InvalidKey);
-	EXPECT_EQ(Sentinel, std::vector<Durin::uint8>{7});
+	EXPECT_EQ(Sentinel, Bytes({7}));
 	EXPECT_FALSE(std::filesystem::exists(CacheRoot / "escape.bin"));
 }
 
@@ -56,7 +62,7 @@ TEST(FDerivedDataObjectStoreTests, CleanupIsBoundedAndOnlyDeletesCanonicalObject
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::Build::FDerivedDataObjectStore Store("Test/Objects", 1024);
-	const std::vector<Durin::uint8> Bytes(10, 1);
+	const std::vector<std::byte> Bytes(10, std::byte{1});
 	std::string Error;
 	const std::string OldKey = MakeKey('1');
 	const std::string NewKey = MakeKey('2');

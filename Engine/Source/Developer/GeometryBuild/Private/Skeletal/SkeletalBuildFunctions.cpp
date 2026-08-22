@@ -18,7 +18,7 @@ namespace Durin::Asset::Build::Private
 		template<typename T>
 		auto EncodePayload(T& Payload,
 			const FSkeletalPayloadSerializationContext& Context,
-			std::vector<uint8>& OutBytes,
+			std::vector<std::byte>& OutBytes,
 			std::string& OutError) -> bool
 		{
 			OutBytes.clear();
@@ -146,7 +146,7 @@ namespace Durin::Asset::Build::Private
 					return false;
 				}
 				OutValue = FBuildValue::FromOwned(std::string(SkeletalValueName),
-					std::vector<uint8>(Input->GetBytes().begin(), Input->GetBytes().end()));
+					std::vector<std::byte>(Input->GetBytes().begin(), Input->GetBytes().end()));
 				return true;
 			}
 
@@ -160,7 +160,7 @@ namespace Durin::Asset::Build::Private
 	auto EncodeSkeletalMeshPayload(
 		FSkeletalMeshPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		return EncodePayload(Payload, Context, OutBytes, OutError);
@@ -169,7 +169,7 @@ namespace Durin::Asset::Build::Private
 	auto EncodeAnimationClipPayload(
 		FAnimationClipPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		return EncodePayload(Payload, Context, OutBytes, OutError);

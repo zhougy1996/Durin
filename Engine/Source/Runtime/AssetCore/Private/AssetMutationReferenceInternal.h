@@ -23,12 +23,12 @@ namespace Durin::Asset::Private
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints)
 		-> FAssetResult;
 	auto RewritePackageReferencesForMutation(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
+		std::vector<std::byte>& OutBytes) -> FAssetResult;
 	auto ReadMutationPackageMetadata(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FMutationPackageMetadata& OutMetadata) -> FAssetResult;
 	auto ValidateMutationPackageMetadata(
 		const FMutationPackageMetadata& Metadata,
@@ -36,7 +36,7 @@ namespace Durin::Asset::Private
 		const FAssetPath* SourcePath = nullptr) -> FAssetResult;
 	auto InspectAssetPackageBytesForCatalog(
 		std::string_view PhysicalPath,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FAssetPackageInspection& OutInspection) -> FAssetResult;
 	auto CollectLoadedPackageSoftReferencesForMutation(
 		DPackage* Package,

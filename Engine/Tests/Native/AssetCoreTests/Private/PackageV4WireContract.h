@@ -40,19 +40,19 @@ namespace Durin::Testing::DastV4
 		auto WriteVarUInt(uint64 Value) -> void;
 		auto WriteVarInt(int64 Value) -> void;
 		auto WriteString(std::string_view Value, std::string& OutError) -> bool;
-		auto WriteBytes(std::span<const uint8> Value) -> void;
+		auto WriteBytes(std::span<const std::byte> Value) -> void;
 
-		auto Bytes() const -> const std::vector<uint8>& { return Data; }
-		auto TakeBytes() -> std::vector<uint8> { return std::move(Data); }
+		auto Bytes() const -> const std::vector<std::byte>& { return Data; }
+		auto TakeBytes() -> std::vector<std::byte> { return std::move(Data); }
 
 	private:
-		std::vector<uint8> Data;
+		std::vector<std::byte> Data;
 	};
 
 	class FWireReader
 	{
 	public:
-		explicit FWireReader(std::span<const uint8> InBytes) : Bytes(InBytes) {}
+		explicit FWireReader(std::span<const std::byte> InBytes) : Bytes(InBytes) {}
 
 		auto ReadU8(uint8& OutValue, std::string& OutError) -> bool;
 		auto ReadU16(uint16& OutValue, std::string& OutError) -> bool;
@@ -63,14 +63,14 @@ namespace Durin::Testing::DastV4
 		auto ReadVarUInt(uint64& OutValue, std::string& OutError) -> bool;
 		auto ReadVarInt(int64& OutValue, std::string& OutError) -> bool;
 		auto ReadString(std::string& OutValue, std::string& OutError) -> bool;
-		auto ReadBytes(uint64 Count, std::span<const uint8>& OutValue, std::string& OutError) -> bool;
+		auto ReadBytes(uint64 Count, std::span<const std::byte>& OutValue, std::string& OutError) -> bool;
 		auto RequireEnd(std::string& OutError) const -> bool;
 
 		auto Remaining() const -> uint64 { return Bytes.size() - Offset; }
 		auto Position() const -> uint64 { return Offset; }
 
 	private:
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 Offset = 0;
 	};
 
@@ -105,15 +105,15 @@ namespace Durin::Testing::DastV4
 	auto IsValidUtf8(std::string_view Value) -> bool;
 	auto EncodePublicSummary(
 		const FPublicSummary& Summary,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto EncodeEnvelope(
 		const FPublicSummary& Summary,
-		const std::array<std::vector<uint8>, SectionCount>& Sections,
-		std::vector<uint8>& OutBytes,
+		const std::array<std::vector<std::byte>, SectionCount>& Sections,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool;
 	auto DecodeHeader(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FValidatedHeader& OutHeader,
 		std::string& OutError) -> bool;
 }

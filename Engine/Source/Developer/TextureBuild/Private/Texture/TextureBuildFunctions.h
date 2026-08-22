@@ -18,15 +18,15 @@ namespace Durin::Asset::Build::Private
 	inline constexpr std::string_view VolumeTextureValueName = "VolumeTexturePayload";
 
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
-		-> std::vector<uint8>;
+		-> std::vector<std::byte>;
 	auto DecodeTexture2DPlatformValue(const FBuildValue& Value,
 		FTexturePlatformData& OutData, std::string& OutError) -> bool;
 	auto EncodeTextureCubeLocalInput(const FTextureCubeSourceData& SourceData)
-		-> std::vector<uint8>;
+		-> std::vector<std::byte>;
 	auto DecodeTextureCubePlatformValue(const FBuildValue& Value,
 		FTextureCubePlatformData& OutData, std::string& OutError) -> bool;
 	auto EncodeVolumeTextureLocalInput(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings) -> std::vector<uint8>;
+		const FVolumeTextureBuildSettings& Settings) -> std::vector<std::byte>;
 	auto DecodeVolumeTexturePlatformValue(const FBuildValue& Value,
 		FVolumeTexturePlatformData& OutData, std::string& OutError) -> bool;
 

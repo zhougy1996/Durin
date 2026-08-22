@@ -41,7 +41,7 @@ namespace Durin::Asset::Forge
 
 			FTextureCubeSourceData SourceData;
 			std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Snapshots;
-			std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
+			std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 			std::array<FSourcePath, TextureCubeFaceCount> Paths;
 			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)

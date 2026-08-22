@@ -10,7 +10,7 @@ namespace
 		const Durin::FProperty* Property = nullptr;
 		Durin::EPropertyPathSelector Selector = Durin::EPropertyPathSelector::None;
 		Durin::uint64 Index = 0;
-		std::vector<Durin::uint8> MapKeyData;
+		std::vector<std::byte> MapKeyData;
 	};
 
 	class DPropertyChangeObserver final : public Durin::DObject
@@ -32,7 +32,7 @@ namespace
 					Segment.Property,
 					Segment.Selector,
 					Segment.Index,
-					std::vector<Durin::uint8>(Segment.MapKeyData.begin(), Segment.MapKeyData.end())
+					std::vector<std::byte>(Segment.MapKeyData.begin(), Segment.MapKeyData.end())
 				});
 			}
 		}
@@ -93,7 +93,8 @@ TEST(FPropertyChangeEventTests, PreservesNestedContainerSelectors)
 	const FPropertyToken MapProperty;
 	const FPropertyToken ArrayProperty;
 	const FPropertyToken LeafProperty;
-	const std::array<Durin::uint8, 4> MapKeyData{0x03, 0x00, 0x00, 0x00};
+	const std::array<std::byte, 4> MapKeyData{
+		std::byte{0x03}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
 	const std::array Path{
 		Durin::FPropertyPathSegment{MapProperty.Get(), Durin::EPropertyPathSelector::MapKey, 0, MapKeyData},
 		Durin::FPropertyPathSegment{ArrayProperty.Get(), Durin::EPropertyPathSelector::ArrayIndex, 4},
@@ -117,7 +118,7 @@ TEST(FPropertyChangeEventTests, PreservesNestedContainerSelectors)
 	EXPECT_EQ(Observer.Origin, Durin::EPropertyChangeOrigin::Redo);
 	ASSERT_EQ(Observer.Path.size(), 3u);
 	EXPECT_EQ(Observer.Path[0].Selector, Durin::EPropertyPathSelector::MapKey);
-	EXPECT_EQ(Observer.Path[0].MapKeyData, std::vector<Durin::uint8>(MapKeyData.begin(), MapKeyData.end()));
+	EXPECT_EQ(Observer.Path[0].MapKeyData, std::vector<std::byte>(MapKeyData.begin(), MapKeyData.end()));
 	EXPECT_EQ(Observer.Path[1].Selector, Durin::EPropertyPathSelector::ArrayIndex);
 	EXPECT_EQ(Observer.Path[1].Index, 4u);
 	EXPECT_EQ(Observer.Path[2].Property, LeafProperty.Get());

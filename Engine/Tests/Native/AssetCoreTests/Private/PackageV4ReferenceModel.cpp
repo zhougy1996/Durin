@@ -26,7 +26,7 @@ namespace Durin::Testing::DastV4
 				[](char A, char B) { return uint8(A) < uint8(B); });
 		}
 
-		auto ByteLess(std::span<const uint8> Left, std::span<const uint8> Right) -> bool
+		auto ByteLess(std::span<const std::byte> Left, std::span<const std::byte> Right) -> bool
 		{
 			return std::lexicographical_compare(Left.begin(), Left.end(), Right.begin(), Right.end());
 		}
@@ -179,7 +179,7 @@ namespace Durin::Testing::DastV4
 			return Valid;
 		}
 
-		auto StructuralKey(const FTypeDescriptor& Type, std::vector<uint8>& OutKey, std::string& OutError) -> bool
+		auto StructuralKey(const FTypeDescriptor& Type, std::vector<std::byte>& OutKey, std::string& OutError) -> bool
 		{
 			FWireWriter Writer;
 			std::unordered_set<const FTypeDescriptor*> Visiting;
@@ -197,13 +197,13 @@ namespace Durin::Testing::DastV4
 			return true;
 		}
 
-		auto WriteRecord(FWireWriter& Writer, std::span<const uint8> Record) -> void
+		auto WriteRecord(FWireWriter& Writer, std::span<const std::byte> Record) -> void
 		{
 			Writer.WriteVarUInt(Record.size());
 			Writer.WriteBytes(Record);
 		}
 
-		auto ReadRecord(FWireReader& Reader, std::span<const uint8>& OutRecord, std::string& OutError) -> bool
+		auto ReadRecord(FWireReader& Reader, std::span<const std::byte>& OutRecord, std::string& OutError) -> bool
 		{
 			uint64 Length = 0;
 			return Reader.ReadVarUInt(Length, OutError) && Reader.ReadBytes(Length, OutRecord, OutError);
@@ -248,7 +248,7 @@ namespace Durin::Testing::DastV4
 
 	auto FFrozenTables::TypeId(const FTypeDescriptor& Type) const -> uint64
 	{
-		std::vector<uint8> Key;
+		std::vector<std::byte> Key;
 		std::string Error;
 		if (!StructuralKey(Type, Key, Error))
 			return 0;
@@ -311,7 +311,7 @@ namespace Durin::Testing::DastV4
 		{
 			if (!Type)
 				return Fail(OutError, "null type descriptor");
-			std::vector<uint8> Key;
+			std::vector<std::byte> Key;
 			if (!StructuralKey(*Type, Key, OutError))
 				return false;
 			if (WalkedTypes.insert(Type.get()).second)
@@ -351,8 +351,8 @@ namespace Durin::Testing::DastV4
 				{
 					if (Left.Name != Right.Name)
 						return ByteLess(Left.Name, Right.Name);
-					std::vector<uint8> LeftKey;
-					std::vector<uint8> RightKey;
+					std::vector<std::byte> LeftKey;
+					std::vector<std::byte> RightKey;
 					std::string Ignored;
 					StructuralKey(*Left.Type, LeftKey, Ignored);
 					StructuralKey(*Right.Type, RightKey, Ignored);
@@ -373,7 +373,7 @@ namespace Durin::Testing::DastV4
 
 		for (const FTypePtr& Type : DiscoveredTypes)
 		{
-			std::vector<uint8> Key;
+			std::vector<std::byte> Key;
 			if (!StructuralKey(*Type, Key, OutError))
 				return false;
 			const auto It = std::find_if(Result.Types.begin(), Result.Types.end(),
@@ -464,10 +464,10 @@ namespace Durin::Testing::DastV4
 
 	auto EncodeTableSections(
 		const FFrozenTables& Tables,
-		std::array<std::vector<uint8>, 4>& OutSections,
+		std::array<std::vector<std::byte>, 4>& OutSections,
 		std::string& OutError) -> bool
 	{
-		std::array<std::vector<uint8>, 4> Result;
+		std::array<std::vector<std::byte>, 4> Result;
 		FWireWriter Names;
 		Names.WriteVarUInt(Tables.Names.size());
 		for (const std::string& Name : Tables.Names)
@@ -558,7 +558,7 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto DecodeTableSections(
-		const std::array<std::vector<uint8>, 4>& Sections,
+		const std::array<std::vector<std::byte>, 4>& Sections,
 		FFrozenTables& OutTables,
 		std::string& OutError) -> bool
 	{
@@ -596,7 +596,7 @@ namespace Durin::Testing::DastV4
 		RawTypes.reserve(TypeCount);
 		for (uint64 Index = 0; Index < TypeCount; ++Index)
 		{
-			std::span<const uint8> RecordBytes;
+			std::span<const std::byte> RecordBytes;
 			if (!ReadRecord(TypeReader, RecordBytes, OutError))
 				return false;
 			FWireReader Record(RecordBytes);
@@ -709,7 +709,7 @@ namespace Durin::Testing::DastV4
 			return SchemaCount > MaximumTableEntries ? Fail(OutError, "schema count exceeds bound") : false;
 		for (uint64 Index = 0; Index < SchemaCount; ++Index)
 		{
-			std::span<const uint8> RecordBytes;
+			std::span<const std::byte> RecordBytes;
 			if (!ReadRecord(SchemaReader, RecordBytes, OutError))
 				return false;
 			FWireReader Record(RecordBytes);
@@ -743,7 +743,7 @@ namespace Durin::Testing::DastV4
 			return ObjectCount > MaximumObjects ? Fail(OutError, "object count exceeds bound") : false;
 		for (uint64 Index = 0; Index < ObjectCount; ++Index)
 		{
-			std::span<const uint8> RecordBytes;
+			std::span<const std::byte> RecordBytes;
 			if (!ReadRecord(ObjectReader, RecordBytes, OutError))
 				return false;
 			FWireReader Record(RecordBytes);
@@ -772,7 +772,7 @@ namespace Durin::Testing::DastV4
 		FFrozenTables Result;
 		if (!FreezeTables(Input, Result, OutError))
 			return false;
-		std::array<std::vector<uint8>, 4> Canonical;
+		std::array<std::vector<std::byte>, 4> Canonical;
 		if (!EncodeTableSections(Result, Canonical, OutError))
 			return false;
 		if (Canonical != Sections)
@@ -931,7 +931,7 @@ namespace Durin::Testing::DastV4
 					if (!EncodeValueInner(*Tables.Schemas[SchemaId - 1].Fields[FieldId - 1].Type,
 						Value.Elements[Index], Tables, EncodedWriter, Depth + 1, OutError))
 						return false;
-					const std::vector<uint8> Encoded = EncodedWriter.TakeBytes();
+					const std::vector<std::byte> Encoded = EncodedWriter.TakeBytes();
 					Writer.WriteVarUInt(FieldId);
 					Writer.WriteU8(Value.Provenances[Index]);
 					WriteRecord(Writer, Encoded);
@@ -958,7 +958,7 @@ namespace Durin::Testing::DastV4
 			{
 				if (Value.Elements.size() % 2 != 0 || Value.Elements.size() / 2 > MaximumContainerElements)
 					return Fail(OutError, "map entry count is invalid");
-				struct FEntry { std::vector<uint8> Key; std::vector<uint8> Value; };
+				struct FEntry { std::vector<std::byte> Key; std::vector<std::byte> Value; };
 				std::vector<FEntry> Entries;
 				for (uint64 Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
@@ -1155,7 +1155,7 @@ namespace Durin::Testing::DastV4
 				{
 					uint64 FieldId = 0;
 					uint8 Provenance = 0;
-					std::span<const uint8> Encoded;
+					std::span<const std::byte> Encoded;
 					if (!Reader.ReadVarUInt(FieldId, OutError) || FieldId <= Previous
 						|| FieldId > Tables.Schemas[SchemaId - 1].Fields.size()
 						|| !Reader.ReadU8(Provenance, OutError) || Provenance > 1
@@ -1202,14 +1202,14 @@ namespace Durin::Testing::DastV4
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count, OutError) || Count > MaximumContainerElements)
 					return Count > MaximumContainerElements ? Fail(OutError, "map count exceeds bound") : false;
-				std::vector<uint8> PreviousKey;
+				std::vector<std::byte> PreviousKey;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					FValue Key;
 					FValue MapValue;
 					if (!DecodeValueInner(*Type.Children[0], Reader, Tables, Key, Depth + 1, OutError))
 						return false;
-					std::vector<uint8> EncodedKey;
+					std::vector<std::byte> EncodedKey;
 					if (!EncodeValue(*Type.Children[0], Key, Tables, EncodedKey, OutError))
 						return false;
 					if (!PreviousKey.empty() && !ByteLess(PreviousKey, EncodedKey))
@@ -1246,7 +1246,7 @@ namespace Durin::Testing::DastV4
 			case ETypeOpcode::Bytes:
 			{
 				uint64 Count = 0;
-				std::span<const uint8> Data;
+				std::span<const std::byte> Data;
 				if (!Reader.ReadVarUInt(Count, OutError) || Count > MaximumContainerElements
 					|| !Reader.ReadBytes(Count, Data, OutError))
 					return Fail(OutError, "byte value is invalid or exceeds bound");
@@ -1263,10 +1263,10 @@ namespace Durin::Testing::DastV4
 		const FTypeDescriptor& Type,
 		const FValue& Value,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
-		std::vector<uint8> Key;
+		std::vector<std::byte> Key;
 		if (!StructuralKey(Type, Key, OutError))
 			return false;
 		FWireWriter Writer;
@@ -1278,12 +1278,12 @@ namespace Durin::Testing::DastV4
 
 	auto DecodeValue(
 		const FTypeDescriptor& Type,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FFrozenTables& Tables,
 		FValue& OutValue,
 		std::string& OutError) -> bool
 	{
-		std::vector<uint8> Key;
+		std::vector<std::byte> Key;
 		if (!StructuralKey(Type, Key, OutError))
 			return false;
 		FWireReader Reader(Bytes);
@@ -1298,7 +1298,7 @@ namespace Durin::Testing::DastV4
 	auto EncodeOverrideBlock(
 		std::span<const FOverrideCandidate> Candidates,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		struct FOverride
@@ -1306,7 +1306,7 @@ namespace Durin::Testing::DastV4
 			uint64 SchemaId = 0;
 			uint64 FieldId = 0;
 			uint8 Provenance = 0;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 		};
 		std::vector<FOverride> Overrides;
 		for (const FOverrideCandidate& Candidate : Candidates)
@@ -1362,7 +1362,7 @@ namespace Durin::Testing::DastV4
 	auto EncodeValueSection(
 		std::span<const FObjectValueInput> Objects,
 		const FFrozenTables& Tables,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (Objects.size() != Tables.Objects.size())
@@ -1383,7 +1383,7 @@ namespace Durin::Testing::DastV4
 		{
 			if (!Object)
 				return Fail(OutError, "value section object is missing");
-			std::vector<uint8> Block;
+			std::vector<std::byte> Block;
 			if (!EncodeOverrideBlock(Object->Overrides, Tables, Block, OutError))
 				return false;
 			WriteRecord(Writer, Block);
@@ -1393,7 +1393,7 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto ValidateValueSection(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		const FFrozenTables& Tables,
 		std::string& OutError) -> bool
 	{
@@ -1403,7 +1403,7 @@ namespace Durin::Testing::DastV4
 			return Fail(OutError, "value section object count mismatch");
 		for (uint64 ObjectIndex = 0; ObjectIndex < ObjectCount; ++ObjectIndex)
 		{
-			std::span<const uint8> BlockBytes;
+			std::span<const std::byte> BlockBytes;
 			if (!ReadRecord(Reader, BlockBytes, OutError))
 				return false;
 			FWireReader Block(BlockBytes);
@@ -1417,7 +1417,7 @@ namespace Durin::Testing::DastV4
 				uint64 SchemaId = 0;
 				uint64 FieldId = 0;
 				uint8 Provenance = 0;
-				std::span<const uint8> ValueBytes;
+				std::span<const std::byte> ValueBytes;
 				if (!Block.ReadVarUInt(SchemaId, OutError)
 					|| !Block.ReadVarUInt(FieldId, OutError)
 					|| (SchemaId < PreviousSchema
@@ -1430,8 +1430,8 @@ namespace Durin::Testing::DastV4
 					return false;
 				if (Provenance == 2)
 				{
-					std::vector<uint8> Closure;
-					std::vector<uint8> Payload;
+					std::vector<std::byte> Closure;
+					std::vector<std::byte> Payload;
 					if (!ValidateUnknownValueBody(ValueBytes, Closure, Payload, OutError))
 						return false;
 				}
@@ -1454,7 +1454,7 @@ namespace Durin::Testing::DastV4
 		const FFrozenTables& Tables,
 		uint64 RootSchemaId,
 		uint64 RootFieldId,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!Tables.CustomVersions.empty() || !Tables.Objects.empty())
@@ -1462,7 +1462,7 @@ namespace Durin::Testing::DastV4
 		const FTypeDescriptor* RootType = nullptr;
 		if (!FindFieldType(Tables, RootSchemaId, RootFieldId, RootType, OutError))
 			return false;
-		std::array<std::vector<uint8>, 4> Sections;
+		std::array<std::vector<std::byte>, 4> Sections;
 		if (!EncodeTableSections(Tables, Sections, OutError))
 			return false;
 		FWireWriter Writer;
@@ -1475,19 +1475,19 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto ValidateRetainedClosure(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string& OutError) -> bool
 	{
 		FWireReader Reader(Bytes);
-		std::array<std::vector<uint8>, 4> Sections;
+		std::array<std::vector<std::byte>, 4> Sections;
 		for (uint64 Index = 0; Index < 3; ++Index)
 		{
-			std::span<const uint8> Section;
+			std::span<const std::byte> Section;
 			if (!ReadRecord(Reader, Section, OutError))
 				return false;
 			Sections[Index].assign(Section.begin(), Section.end());
 		}
-		Sections[3] = {0};
+		Sections[3] = {std::byte{0}};
 		uint64 RootSchemaId = 0;
 		uint64 RootFieldId = 0;
 		if (!Reader.ReadVarUInt(RootSchemaId, OutError)
@@ -1502,9 +1502,9 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto EncodeUnknownValueBody(
-		std::span<const uint8> Closure,
-		std::span<const uint8> Payload,
-		std::vector<uint8>& OutBytes,
+		std::span<const std::byte> Closure,
+		std::span<const std::byte> Payload,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateRetainedClosure(Closure, OutError))
@@ -1517,19 +1517,19 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto ValidateUnknownValueBody(
-		std::span<const uint8> Bytes,
-		std::vector<uint8>& OutClosure,
-		std::vector<uint8>& OutPayload,
+		std::span<const std::byte> Bytes,
+		std::vector<std::byte>& OutClosure,
+		std::vector<std::byte>& OutPayload,
 		std::string& OutError) -> bool
 	{
 		FWireReader Reader(Bytes);
-		std::span<const uint8> Closure;
-		std::span<const uint8> Payload;
+		std::span<const std::byte> Closure;
+		std::span<const std::byte> Payload;
 		if (!ReadRecord(Reader, Closure, OutError) || !ValidateRetainedClosure(Closure, OutError)
 			|| !ReadRecord(Reader, Payload, OutError) || !Reader.RequireEnd(OutError))
 			return false;
-		std::vector<uint8> ClosureCopy(Closure.begin(), Closure.end());
-		std::vector<uint8> PayloadCopy(Payload.begin(), Payload.end());
+		std::vector<std::byte> ClosureCopy(Closure.begin(), Closure.end());
+		std::vector<std::byte> PayloadCopy(Payload.begin(), Payload.end());
 		OutClosure = std::move(ClosureCopy);
 		OutPayload = std::move(PayloadCopy);
 		return true;

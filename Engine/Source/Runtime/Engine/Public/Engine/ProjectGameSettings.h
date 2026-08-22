@@ -50,7 +50,7 @@ namespace Durin
 		ENGINE_API auto Load(FProjectGameSettings& OutSettings) const -> FProjectGameSettingsResult;
 		ENGINE_API auto BuildDefaultLevelUpdate(
 			std::string_view DefaultLevel,
-			std::vector<uint8>& OutBytes) const -> FProjectGameSettingsResult;
+			std::vector<std::byte>& OutBytes) const -> FProjectGameSettingsResult;
 		ENGINE_API auto SaveDefaultLevel(std::string_view DefaultLevel) const -> FProjectGameSettingsResult;
 
 		auto GetSettingsFile() const -> const std::filesystem::path& { return SettingsFile; }

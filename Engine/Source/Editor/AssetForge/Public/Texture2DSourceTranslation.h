@@ -10,7 +10,7 @@ namespace Durin::Asset::Forge
 		std::string_view Extension) -> bool;
 	// Translates one concrete encoded image into Engine's normalized RGBA8 source value.
 	ASSETFORGE_API auto TranslateTexture2DSource(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
 

@@ -24,7 +24,7 @@ namespace Durin::Asset::Build
 		template<typename T>
 		auto ExecuteSkeletalSession(const FBuildFunctionIdentity& Identity,
 			std::string_view InputName, std::string_view Key,
-			std::span<const uint8> KeyBytes, std::span<const uint8> LocalBytes,
+			std::span<const std::byte> KeyBytes, std::span<const std::byte> LocalBytes,
 			const FSkeletalPayloadSerializationContext& Context,
 			std::string_view SkeletonIdentity, bool bRequireStore,
 			FBuildOutput& OutOutput, T& OutPayload, std::string& OutError) -> bool
@@ -41,7 +41,7 @@ namespace Durin::Asset::Build
 			{
 				Builder.AddTargetFact("PayloadFingerprint", FXxHash128::HashBuffer(LocalBytes).ToString())
 					.AddInput(FBuildValue::FromOwned(std::string(InputName),
-						std::vector<uint8>(LocalBytes.begin(), LocalBytes.end())));
+						std::vector<std::byte>(LocalBytes.begin(), LocalBytes.end())));
 			}
 			if (!Builder.Build(Definition, &OutError)) return false;
 			OutOutput = FBuildSession().Build(Definition, {.bQueryCache = true,
@@ -70,14 +70,14 @@ namespace Durin::Asset::Build
 			.MaterialSlotCount = Request.MaterialSlotCount,
 			.TargetPlatform = Request.KeyInput.TargetPlatform,
 			.TargetProfile = Request.KeyInput.TargetProfile};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FSkeletalMeshPayloadData& Payload =
 			const_cast<FSkeletalMeshPayloadData&>(*Request.Payload);
 		if (!Private::EncodeSkeletalMeshPayload(Payload, Context, Bytes, OutError)) return false;
 		Request.KeyInput.PayloadInputFingerprint = FXxHash128::HashBuffer(Bytes);
 		const std::string Key = BuildSkeletalMeshDerivedDataKey(Request.KeyInput, OutError);
 		if (Key.empty()) return false;
-		const std::vector<uint8> KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
+		const std::vector<std::byte> KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FSkeletalMeshPayloadData SelectedPayload;
 		if (!ExecuteSkeletalSession(Private::SkeletalMeshFunctionIdentity, Private::SkeletalMeshInputName,
@@ -114,14 +114,14 @@ namespace Durin::Asset::Build
 			.SkeletonBoneCount = Request.SkeletonBoneCount,
 			.TargetPlatform = Request.KeyInput.TargetPlatform,
 			.TargetProfile = Request.KeyInput.TargetProfile};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FAnimationClipPayloadData& Payload =
 			const_cast<FAnimationClipPayloadData&>(*Request.Payload);
 		if (!Private::EncodeAnimationClipPayload(Payload, Context, Bytes, OutError)) return false;
 		Request.KeyInput.PayloadInputFingerprint = FXxHash128::HashBuffer(Bytes);
 		const std::string Key = BuildAnimationClipDerivedDataKey(Request.KeyInput, OutError);
 		if (Key.empty()) return false;
-		const std::vector<uint8> KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
+		const std::vector<std::byte> KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FAnimationClipPayloadData SelectedPayload;
 		if (!ExecuteSkeletalSession(Private::AnimationClipFunctionIdentity, Private::AnimationClipInputName,

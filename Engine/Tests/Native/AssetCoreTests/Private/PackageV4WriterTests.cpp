@@ -14,8 +14,15 @@ namespace
 	using Durin::uint64;
 	namespace Production = Durin::Asset::DastV4;
 	namespace Reference = Durin::Testing::DastV4;
+	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	{
+		std::vector<std::byte> Result;
+		Result.reserve(Values.size());
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		return Result;
+	}
 
-	auto BuildReferencePackage(bool Reverse) -> std::vector<uint8>
+	auto BuildReferencePackage(bool Reverse) -> std::vector<std::byte>
 	{
 		auto I32 = Reference::MakeType(Reference::ETypeOpcode::I32);
 		auto String = Reference::MakeType(Reference::ETypeOpcode::String);
@@ -44,16 +51,16 @@ namespace
 			{.SchemaName = "Example::Asset", .FieldName = "Count", .Value = Reference::FValue{.Signed = -7}, .LoadedExplicit = true},
 			{.SchemaName = "Example::Asset", .FieldName = "Lookup", .Value = std::move(MapValue), .LoadedExplicit = true},
 		}}};
-		std::array<std::vector<uint8>, 4> TableSections;
-		std::vector<uint8> ValueSection;
+		std::array<std::vector<std::byte>, 4> TableSections;
+		std::vector<std::byte> ValueSection;
 		EXPECT_TRUE(Reference::EncodeTableSections(Tables, TableSections, Error)) << Error;
 		EXPECT_TRUE(Reference::EncodeValueSection(Values, Tables, ValueSection, Error)) << Error;
 		Reference::FPublicSummary Summary{
 			.AssetClass = "Example::Asset", .EntryKind = 0,
 			.Dependencies = {"/Game/Dependency"}, .ObjectCount = 1};
-		std::array<std::vector<uint8>, Reference::SectionCount> Sections{
+		std::array<std::vector<std::byte>, Reference::SectionCount> Sections{
 			TableSections[0], TableSections[1], TableSections[2], TableSections[3], ValueSection};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		EXPECT_TRUE(Reference::EncodeEnvelope(Summary, Sections, Bytes, Error)) << Error;
 		return Bytes;
 	}
@@ -92,7 +99,7 @@ namespace
 
 	auto EncodeReferenceValuePackage(const Reference::FTypePtr& Type,
 		const Reference::FValue& Value,
-		std::vector<Reference::FSchemaDescriptor> ExtraSchemas = {}) -> std::vector<uint8>
+		std::vector<Reference::FSchemaDescriptor> ExtraSchemas = {}) -> std::vector<std::byte>
 	{
 		Reference::FTableInput Input;
 		Input.PublicDependencyCount = 1;
@@ -104,24 +111,24 @@ namespace
 		Reference::FFrozenTables Tables;
 		std::string Error;
 		EXPECT_TRUE(Reference::FreezeTables(Input, Tables, Error)) << Error;
-		std::array<std::vector<uint8>, 4> TableSections;
-		std::vector<uint8> ValueSection;
+		std::array<std::vector<std::byte>, 4> TableSections;
+		std::vector<std::byte> ValueSection;
 		EXPECT_TRUE(Reference::EncodeTableSections(Tables, TableSections, Error)) << Error;
 		std::vector<Reference::FObjectValueInput> Values = {
 			{"Root", {{.SchemaName = "Example::Owner", .FieldName = "Field", .Value = Value, .LoadedExplicit = true}}},
 			{"Root/Child", {}}};
 		EXPECT_TRUE(Reference::EncodeValueSection(Values, Tables, ValueSection, Error)) << Error;
 		Reference::FPublicSummary Summary{.AssetClass = "Example::Owner", .Dependencies = {"/Game/Dep"}, .ObjectCount = 2};
-		std::array<std::vector<uint8>, Reference::SectionCount> Sections{
+		std::array<std::vector<std::byte>, Reference::SectionCount> Sections{
 			TableSections[0], TableSections[1], TableSections[2], TableSections[3], ValueSection};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		EXPECT_TRUE(Reference::EncodeEnvelope(Summary, Sections, Bytes, Error)) << Error;
 		return Bytes;
 	}
 
 	auto EncodeProductionValuePackage(const Production::FTypePtr& Type,
 		const Production::FValue& Value,
-		std::vector<Production::FSchemaDescriptor> ExtraSchemas = {}) -> std::vector<uint8>
+		std::vector<Production::FSchemaDescriptor> ExtraSchemas = {}) -> std::vector<std::byte>
 	{
 		Production::FPackageInput Input;
 		Input.AssetClass = "Example::Owner";
@@ -134,7 +141,7 @@ namespace
 		Input.ObjectValues = {
 			{"Root", {{.SchemaName = "Example::Owner", .FieldName = "Field", .Value = Value}}},
 			{"Root/Child", {}}};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Production::FWriterDiagnostic Diagnostic;
 		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 		return Bytes;
@@ -143,10 +150,10 @@ namespace
 
 TEST(FPackageV4WriterTests, ProductionBytesMatchIndependentReferenceAndDiscoveryOrder)
 {
-	const std::vector<uint8> Expected = BuildReferencePackage(false);
+	const std::vector<std::byte> Expected = BuildReferencePackage(false);
 	EXPECT_EQ(Expected, BuildReferencePackage(true));
-	std::vector<uint8> Forward;
-	std::vector<uint8> Reverse;
+	std::vector<std::byte> Forward;
+	std::vector<std::byte> Reverse;
 	Production::FWriterDiagnostic Diagnostic;
 	ASSERT_TRUE(Production::WritePackage(BuildProductionInput(false), Forward, &Diagnostic))
 		<< Diagnostic.Message;
@@ -160,11 +167,11 @@ TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
 {
 	auto Input = BuildProductionInput(false);
 	Input.Schemas.front().Fields.push_back(Input.Schemas.front().Fields.front());
-	std::vector<uint8> Destination = {0xde, 0xad};
+	std::vector<std::byte> Destination = Bytes({0xde, 0xad});
 	Production::FWriterDiagnostic Diagnostic;
 	EXPECT_FALSE(Production::WritePackage(Input, Destination, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::DuplicateInput);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 
 	Input = BuildProductionInput(false);
 	auto Cycle = Production::MakeType(Production::ETypeOpcode::Array);
@@ -172,16 +179,16 @@ TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
 	Input.Types.push_back(Cycle);
 	EXPECT_FALSE(Production::WritePackage(Input, Destination, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::DescriptorCycle);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 
 	Input = BuildProductionInput(false);
 	Input.Dependencies.resize(Production::MaximumDependencies + 1, "/Game/Dependency");
 	EXPECT_FALSE(Production::WritePackage(Input, Destination, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::LimitExceeded);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 	EXPECT_FALSE(Production::WriteAssetPackage(nullptr, Destination, {}, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::InvalidTopology);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 	auto Name = Production::MakeType(Production::ETypeOpcode::Name);
 	Production::FPackageInput Late{
 		.AssetClass = "Example::Asset", .Types = {Name},
@@ -191,7 +198,7 @@ TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
 			.Value = Production::FValue{.Text = "Undiscovered"}}}}}};
 	EXPECT_FALSE(Production::WritePackage(Late, Destination, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::MissingDiscovery);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 	auto Opaque = Production::MakeType(Production::ETypeOpcode::Struct, "Example::Opaque");
 	Opaque->bHasDeterministicStructOperations = false;
 	Production::FPackageInput Unsupported{
@@ -201,7 +208,7 @@ TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
 		.ObjectValues = {{"Root", {{.SchemaName = "Example::Asset", .FieldName = "Opaque"}}}}};
 	EXPECT_FALSE(Production::WritePackage(Unsupported, Destination, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::UnsupportedType);
-	EXPECT_EQ(Destination, (std::vector<uint8>{0xde, 0xad}));
+	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 }
 
 TEST(FPackageV4WriterTests, RetainedUnknownClosureAndPayloadAreExactAndValidated)
@@ -213,23 +220,23 @@ TEST(FPackageV4WriterTests, RetainedUnknownClosureAndPayloadAreExactAndValidated
 	Reference::FFrozenTables ClosureTables;
 	std::string Error;
 	ASSERT_TRUE(Reference::FreezeTables(ClosureInput, ClosureTables, Error)) << Error;
-	std::vector<uint8> Closure;
+	std::vector<std::byte> Closure;
 	ASSERT_TRUE(Reference::EncodeRetainedClosure(ClosureTables, 1, 1, Closure, Error)) << Error;
-	const std::vector<uint8> Payload = {0x80, 0x00, 0xde, 0xad, 0xbe, 0xef};
+	const std::vector<std::byte> Payload = Bytes({0x80, 0x00, 0xde, 0xad, 0xbe, 0xef});
 
 	auto Input = BuildProductionInput(false);
 	Input.ObjectValues.front().KnownOverrides.clear();
 	Input.ObjectValues.front().RetainedUnknownOverrides.push_back({
 		.SchemaName = "Example::Asset", .FieldName = "Count",
 		.DescriptorClosure = Closure, .Payload = Payload});
-	std::vector<uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Production::FWriterDiagnostic Diagnostic;
 	ASSERT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 	EXPECT_NE(std::search(Bytes.begin(), Bytes.end(), Closure.begin(), Closure.end()), Bytes.end());
 	EXPECT_NE(std::search(Bytes.begin(), Bytes.end(), Payload.begin(), Payload.end()), Bytes.end());
 
-	Input.ObjectValues.front().RetainedUnknownOverrides.front().DescriptorClosure.back() = 2;
-	const std::vector<uint8> Before = Bytes;
+	Input.ObjectValues.front().RetainedUnknownOverrides.front().DescriptorClosure.back() = std::byte{2};
+	const std::vector<std::byte> Before = Bytes;
 	EXPECT_FALSE(Production::WritePackage(Input, Bytes, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Production::EWriterFailure::InvalidRetainedClosure);
 	EXPECT_EQ(Bytes, Before);
@@ -242,7 +249,7 @@ TEST(FPackageV4WriterTests, EverySupportedValueOpcodeMatchesIndependentReference
 		std::vector<Reference::FSchemaDescriptor> ReferenceSchemas = {},
 		std::vector<Production::FSchemaDescriptor> ProductionSchemas = {})
 	{
-		const std::vector<uint8> ProductionBytes = EncodeProductionValuePackage(
+		const std::vector<std::byte> ProductionBytes = EncodeProductionValuePackage(
 			ProductionType, ProductionValue, std::move(ProductionSchemas));
 		EXPECT_EQ(ProductionBytes,
 			EncodeReferenceValuePackage(ReferenceType, ReferenceValue, std::move(ReferenceSchemas)));
@@ -250,7 +257,7 @@ TEST(FPackageV4WriterTests, EverySupportedValueOpcodeMatchesIndependentReference
 		Production::FReaderDiagnostic ReaderDiagnostic;
 		ASSERT_TRUE(Production::DecodePackage(ProductionBytes, Decoded, {}, &ReaderDiagnostic))
 			<< ReaderDiagnostic.Message;
-		std::vector<uint8> RoundTrip;
+		std::vector<std::byte> RoundTrip;
 		ASSERT_TRUE(Production::ReencodePackage(Decoded, RoundTrip, &ReaderDiagnostic))
 			<< ReaderDiagnostic.Message;
 		EXPECT_EQ(RoundTrip, ProductionBytes);
@@ -309,6 +316,7 @@ TEST(FPackageV4WriterTests, EverySupportedValueOpcodeMatchesIndependentReference
 		Production::MakeType(PO::HardRef, "DObject"), Production::FValue{.ReferenceTag = 2, .ReferenceId = 1});
 	Expect(Reference::MakeType(RO::SoftRef, "DObject"), Reference::FValue{.Text = "/Game/Soft", .ReferenceTag = 1},
 		Production::MakeType(PO::SoftRef, "DObject"), Production::FValue{.Text = "/Game/Soft", .ReferenceTag = 1});
-	Reference::FValue RBytes; RBytes.ByteData = {1, 2, 3}; Production::FValue PBytes; PBytes.Bytes = {1, 2, 3};
+	Reference::FValue RBytes; RBytes.ByteData = Bytes({1, 2, 3});
+	Production::FValue PBytes; PBytes.Bytes = Bytes({1, 2, 3});
 	Expect(Reference::MakeType(RO::Bytes), RBytes, Production::MakeType(PO::Bytes), PBytes);
 }

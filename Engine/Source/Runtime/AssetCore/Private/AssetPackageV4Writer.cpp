@@ -20,7 +20,7 @@ namespace Durin::Asset::DastV4
 				[](char A, char B) { return uint8(A) < uint8(B); });
 		}
 
-		auto ByteLess(std::span<const uint8> Left, std::span<const uint8> Right) -> bool
+		auto ByteLess(std::span<const std::byte> Left, std::span<const std::byte> Right) -> bool
 		{
 			return std::lexicographical_compare(Left.begin(), Left.end(), Right.begin(), Right.end());
 		}
@@ -56,7 +56,7 @@ namespace Durin::Asset::DastV4
 		class FWireWriter
 		{
 		public:
-			auto U8(uint8 Value) -> void { Data.push_back(Value); }
+			auto U8(uint8 Value) -> void { Data.push_back(static_cast<std::byte>(Value)); }
 			auto U16(uint16 Value) -> void { Fixed(Value); }
 			auto U32(uint32 Value) -> void { Fixed(Value); }
 			auto U64(uint64 Value) -> void { Fixed(Value); }
@@ -67,7 +67,7 @@ namespace Durin::Asset::DastV4
 					uint8 Byte = uint8(Value & 0x7f);
 					Value >>= 7;
 					if (Value != 0) Byte |= 0x80;
-					Data.push_back(Byte);
+					Data.push_back(static_cast<std::byte>(Byte));
 				} while (Value != 0);
 			}
 			auto VarInt(int64 Value) -> void
@@ -77,32 +77,33 @@ namespace Durin::Asset::DastV4
 			auto String(std::string_view Value) -> void
 			{
 				VarUInt(Value.size());
-				Data.insert(Data.end(), Value.begin(), Value.end());
+				const auto Bytes = std::as_bytes(std::span(Value));
+				Data.insert(Data.end(), Bytes.begin(), Bytes.end());
 			}
-			auto Bytes(std::span<const uint8> Value) -> void
+			auto Bytes(std::span<const std::byte> Value) -> void
 			{
 				Data.insert(Data.end(), Value.begin(), Value.end());
 			}
-			auto Record(std::span<const uint8> Value) -> void { VarUInt(Value.size()); Bytes(Value); }
-			auto View() const -> std::span<const uint8> { return Data; }
-			auto Take() -> std::vector<uint8> { return std::move(Data); }
+			auto Record(std::span<const std::byte> Value) -> void { VarUInt(Value.size()); Bytes(Value); }
+			auto View() const -> std::span<const std::byte> { return Data; }
+			auto Take() -> std::vector<std::byte> { return std::move(Data); }
 		private:
 			template<typename T> auto Fixed(T Value) -> void
 			{
 				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Data.push_back(uint8(uint64(Value) >> (Index * 8)));
+					Data.push_back(static_cast<std::byte>(uint64(Value) >> (Index * 8)));
 			}
-			std::vector<uint8> Data;
+			std::vector<std::byte> Data;
 		};
 
 		class FWireReader
 		{
 		public:
-			explicit FWireReader(std::span<const uint8> In) : Data(In) {}
+			explicit FWireReader(std::span<const std::byte> In) : Data(In) {}
 			auto U8(uint8& Out) -> bool
 			{
 				if (Offset == Data.size()) return false;
-				Out = Data[Offset++]; return true;
+				Out = std::to_integer<uint8>(Data[Offset++]); return true;
 			}
 			auto VarUInt(uint64& Out) -> bool
 			{
@@ -116,29 +117,29 @@ namespace Durin::Asset::DastV4
 				}
 				return false;
 			}
-			auto Bytes(uint64 Count, std::span<const uint8>& Out) -> bool
+			auto Bytes(uint64 Count, std::span<const std::byte>& Out) -> bool
 			{
 				if (Count > Data.size() - Offset) return false;
 				Out = Data.subspan(Offset, size_t(Count)); Offset += size_t(Count); return true;
 			}
-			auto Record(std::span<const uint8>& Out) -> bool
+			auto Record(std::span<const std::byte>& Out) -> bool
 			{
 				uint64 Size = 0; return VarUInt(Size) && Bytes(Size, Out);
 			}
 			auto String(std::string& Out) -> bool
 			{
-				uint64 Size = 0; std::span<const uint8> Encoded;
+				uint64 Size = 0; std::span<const std::byte> Encoded;
 				if (!VarUInt(Size) || Size > MaximumStringBytes || !Bytes(Size, Encoded)) return false;
 				Out.assign(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 				return IsValidUtf8(Out);
 			}
 			auto End() const -> bool { return Offset == Data.size(); }
 		private:
-			std::span<const uint8> Data;
+			std::span<const std::byte> Data;
 			size_t Offset = 0;
 		};
 
-		struct FFrozenType { FTypePtr Descriptor; std::vector<uint8> Key; };
+		struct FFrozenType { FTypePtr Descriptor; std::vector<std::byte> Key; };
 		struct FFrozenTables
 		{
 			std::vector<std::string> Names;
@@ -261,7 +262,7 @@ namespace Durin::Asset::DastV4
 			return true;
 		}
 
-		auto StructuralKey(const FTypeDescriptor& Type, std::vector<uint8>& Out,
+		auto StructuralKey(const FTypeDescriptor& Type, std::vector<std::byte>& Out,
 			FWriterDiagnostic& Diagnostic) -> bool
 		{
 			FWireWriter Writer;
@@ -273,7 +274,7 @@ namespace Durin::Asset::DastV4
 		auto FFrozenTables::TypeId(const FTypeDescriptor& Type) const -> uint64
 		{
 			FWriterDiagnostic Ignored;
-			std::vector<uint8> Key;
+			std::vector<std::byte> Key;
 			if (!StructuralKey(Type, Key, Ignored)) return 0;
 			const auto It = std::ranges::find(Types, Key, &FFrozenType::Key);
 			return It == Types.end() ? 0 : uint64(std::distance(Types.begin(), It) + 1);
@@ -296,7 +297,7 @@ namespace Durin::Asset::DastV4
 			std::unordered_set<const FTypeDescriptor*> Walked;
 			std::function<bool(const FTypePtr&)> DiscoverType = [&](const FTypePtr& Type) -> bool {
 				if (!Type) return Fail(Diagnostic, EWriterFailure::InvalidInput, "A type descriptor is null.");
-				std::vector<uint8> Key;
+				std::vector<std::byte> Key;
 				if (!StructuralKey(*Type, Key, Diagnostic)) return false;
 				if (Walked.insert(Type.get()).second)
 				{
@@ -324,7 +325,7 @@ namespace Durin::Asset::DastV4
 				}
 				std::ranges::sort(Schema.Fields, [&](const auto& A, const auto& B) {
 					if (A.Name != B.Name) return ByteLess(A.Name, B.Name);
-					FWriterDiagnostic Ignored; std::vector<uint8> AK, BK;
+					FWriterDiagnostic Ignored; std::vector<std::byte> AK, BK;
 					StructuralKey(*A.Type, AK, Ignored); StructuralKey(*B.Type, BK, Ignored);
 					return AK != BK ? ByteLess(AK, BK) : A.AuthoredFlags < B.AuthoredFlags;
 				});
@@ -339,7 +340,7 @@ namespace Durin::Asset::DastV4
 
 			for (const auto& Type : DiscoveredTypes)
 			{
-				std::vector<uint8> Key;
+				std::vector<std::byte> Key;
 				if (!StructuralKey(*Type, Key, Diagnostic)) return false;
 				if (std::ranges::find(Result.Types, Key, &FFrozenType::Key) == Result.Types.end())
 					Result.Types.push_back({Type, std::move(Key)});
@@ -406,7 +407,7 @@ namespace Durin::Asset::DastV4
 			Out = std::move(Result); return true;
 		}
 
-		auto EncodeTables(const FFrozenTables& Tables, std::array<std::vector<uint8>, 4>& Out) -> void
+		auto EncodeTables(const FFrozenTables& Tables, std::array<std::vector<std::byte>, 4>& Out) -> void
 		{
 			FWireWriter Names;
 			Names.VarUInt(Tables.Names.size()); for (const auto& Name : Tables.Names) Names.String(Name);
@@ -538,7 +539,7 @@ namespace Durin::Asset::DastV4
 				if (Schema == 0) return Fail(Diagnostic, EWriterFailure::MissingDiscovery, "A Struct schema was not discovered.", std::string(Path));
 				if (Value.FieldNames.size() != Value.Elements.size() || Value.Provenances.size() != Value.Elements.size())
 					return Fail(Diagnostic, EWriterFailure::InvalidValue, "Struct field arrays have mismatched lengths.", std::string(Path));
-				struct FEncoded { uint64 Id; EDefaultDeltaProvenance Provenance; std::vector<uint8> Bytes; };
+				struct FEncoded { uint64 Id; EDefaultDeltaProvenance Provenance; std::vector<std::byte> Bytes; };
 				std::vector<FEncoded> Fields;
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -571,7 +572,7 @@ namespace Durin::Asset::DastV4
 			{
 				if (Value.Elements.size() % 2 != 0 || Value.Elements.size() / 2 > MaximumContainerElements)
 					return Fail(Diagnostic, EWriterFailure::InvalidValue, "Map element count is invalid.", std::string(Path));
-				struct FEntry { std::vector<uint8> Key; std::vector<uint8> Value; };
+				struct FEntry { std::vector<std::byte> Key; std::vector<std::byte> Value; };
 				std::vector<FEntry> Entries;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
@@ -603,10 +604,10 @@ namespace Durin::Asset::DastV4
 			return Fail(Diagnostic, EWriterFailure::UnsupportedType, "A value opcode is unsupported.", std::string(Path));
 		}
 
-		auto ValidateRetainedClosure(std::span<const uint8> Closure) -> bool
+		auto ValidateRetainedClosure(std::span<const std::byte> Closure) -> bool
 		{
 			FWireReader Reader(Closure);
-			std::array<std::span<const uint8>, 3> Sections;
+			std::array<std::span<const std::byte>, 3> Sections;
 			for (auto& Section : Sections) if (!Reader.Record(Section) || Section.empty()) return false;
 			uint64 RootSchema = 0, RootField = 0;
 			if (!Reader.VarUInt(RootSchema) || !Reader.VarUInt(RootField) || !Reader.End()
@@ -638,7 +639,7 @@ namespace Durin::Asset::DastV4
 			if (!TypeReader.VarUInt(TypeCount) || TypeCount > MaximumTableEntries) return false;
 			for (uint64 Index = 0; Index < TypeCount; ++Index)
 			{
-				std::span<const uint8> RecordBytes;
+				std::span<const std::byte> RecordBytes;
 				if (!TypeReader.Record(RecordBytes)) return false;
 				FWireReader Record(RecordBytes); uint8 RawOpcode = 0;
 				if (!Record.U8(RawOpcode) || RawOpcode < uint8(ETypeOpcode::Bool)
@@ -669,7 +670,7 @@ namespace Durin::Asset::DastV4
 				Types.push_back(std::move(Type));
 			}
 			if (!TypeReader.End()) return false;
-			std::vector<std::vector<uint8>> TypeKeys(Types.size());
+			std::vector<std::vector<std::byte>> TypeKeys(Types.size());
 			std::vector<uint8> State(Types.size());
 			std::function<bool(uint64)> BuildKey = [&](uint64 Id) {
 				const size_t Index = size_t(Id - 1);
@@ -700,7 +701,7 @@ namespace Durin::Asset::DastV4
 			uint64 PreviousSchemaName = 0;
 			for (uint64 SchemaIndex = 1; SchemaIndex <= SchemaCount; ++SchemaIndex)
 			{
-				std::span<const uint8> RecordBytes; if (!SchemaReader.Record(RecordBytes)) return false;
+				std::span<const std::byte> RecordBytes; if (!SchemaReader.Record(RecordBytes)) return false;
 				FWireReader Record(RecordBytes); uint64 SchemaName = 0, FieldCount = 0;
 				if (!Record.VarUInt(SchemaName) || SchemaName == 0 || SchemaName > Names.size()
 					|| SchemaName <= PreviousSchemaName || !Record.VarUInt(FieldCount)
@@ -720,7 +721,7 @@ namespace Durin::Asset::DastV4
 		}
 
 		auto EncodeValues(const FPackageInput& Input, const FFrozenTables& Tables,
-			std::vector<uint8>& Out, FWriterDiagnostic& Diagnostic) -> bool
+			std::vector<std::byte>& Out, FWriterDiagnostic& Diagnostic) -> bool
 		{
 			if (Input.ObjectValues.size() != Tables.Objects.size())
 				return Fail(Diagnostic, EWriterFailure::ManifestMismatch, "Value-section object count differs from the frozen object table.");
@@ -736,7 +737,7 @@ namespace Durin::Asset::DastV4
 			for (const auto* Object : ById)
 			{
 				if (!Object) return Fail(Diagnostic, EWriterFailure::ManifestMismatch, "A frozen object has no value block.");
-				struct FOverride { uint64 Schema; uint64 Field; uint8 Provenance; std::vector<uint8> Bytes; };
+				struct FOverride { uint64 Schema; uint64 Field; uint8 Provenance; std::vector<std::byte> Bytes; };
 				std::vector<FOverride> Overrides;
 				for (const auto& Known : Object->KnownOverrides)
 				{
@@ -776,7 +777,7 @@ namespace Durin::Asset::DastV4
 			.Parameter = Parameter, .Children = std::move(Children)});
 	}
 
-	auto WritePackage(const FPackageInput& Input, std::vector<uint8>& OutBytes,
+	auto WritePackage(const FPackageInput& Input, std::vector<std::byte>& OutBytes,
 		FWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		FWriterDiagnostic Diagnostic;
@@ -800,11 +801,11 @@ namespace Durin::Asset::DastV4
 
 		FFrozenTables Tables;
 		if (!FreezeTables(Input, Tables, Diagnostic)) return Finish(false);
-		std::array<std::vector<uint8>, 4> TableSections;
+		std::array<std::vector<std::byte>, 4> TableSections;
 		EncodeTables(Tables, TableSections);
-		std::vector<uint8> Values;
+		std::vector<std::byte> Values;
 		if (!EncodeValues(Input, Tables, Values, Diagnostic)) return Finish(false);
-		std::array<std::vector<uint8>, SectionCount> Sections{
+		std::array<std::vector<std::byte>, SectionCount> Sections{
 			TableSections[0], TableSections[1], TableSections[2], TableSections[3], std::move(Values)};
 
 		FWireWriter Summary; Summary.String(Input.AssetClass); Summary.U8(uint8(Input.EntryKind));
@@ -828,7 +829,7 @@ namespace Durin::Asset::DastV4
 			Result.U8(Index + 1); Result.U32(Offset); Result.U32(uint32(Sections[Index].size())); Offset += uint32(Sections[Index].size());
 		}
 		for (const auto& Section : Sections) Result.Bytes(Section);
-		std::vector<uint8> Complete = Result.Take();
+		std::vector<std::byte> Complete = Result.Take();
 		if (Complete.size() != Total) return Finish(Fail(Diagnostic, EWriterFailure::ManifestMismatch, "Final package extent differs from the frozen manifest."));
 		OutBytes = std::move(Complete);
 		Diagnostic.Reset(); return Finish(true);

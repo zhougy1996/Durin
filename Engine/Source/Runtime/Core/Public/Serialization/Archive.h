@@ -251,7 +251,7 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCanonicalMemoryWriter(
-			std::vector<uint8>& Bytes,
+			std::vector<std::byte>& Bytes,
 			EArchivePurpose Purpose = EArchivePurpose::DerivedDataPayload,
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
@@ -259,7 +259,7 @@ namespace Durin
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 
 	private:
-		std::vector<uint8>& Bytes;
+		std::vector<std::byte>& Bytes;
 	};
 
 	// Loads persistent canonical bytes from a non-owning bounded span.
@@ -267,12 +267,12 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCanonicalMemoryReader(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			EArchivePurpose Purpose = EArchivePurpose::DerivedDataPayload,
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
 		CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
-		CORE_API auto ReadRegion(uint64 Size, std::span<const uint8>& OutRegion) -> bool;
+		CORE_API auto ReadRegion(uint64 Size, std::span<const std::byte>& OutRegion) -> bool;
 		auto Tell() const -> uint64 override { return Offset; }
 		auto GetRemainingPayloadBytes() const -> uint64 override
 		{
@@ -280,7 +280,7 @@ namespace Durin
 		}
 
 	private:
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 Offset = 0;
 	};
 
@@ -310,7 +310,7 @@ namespace Durin
 		uint64 Count = 0;
 	};
 
-	CORE_API auto SerializeByteBuffer(FArchive& Ar, std::vector<uint8>& Value, uint64 MaximumBytes) -> void;
+	CORE_API auto SerializeByteBuffer(FArchive& Ar, std::vector<std::byte>& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeBoundedString(FArchive& Ar, std::string& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeAlignment(FArchive& Ar, uint64 Alignment) -> void;
 	CORE_API auto RequireArchiveEnd(FArchive& Ar) -> bool;

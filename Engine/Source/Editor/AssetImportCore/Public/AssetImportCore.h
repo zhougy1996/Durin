@@ -124,7 +124,7 @@ namespace Durin::Asset
 	{
 		std::string SchemaId;
 		uint32 SchemaVersion = 0;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FXxHash128 ContentHash{};
 
 		ASSETIMPORTCORE_API auto Finalize(std::string& OutError) -> bool;
@@ -153,11 +153,11 @@ namespace Durin::Asset
 		uint32 Depth = 0;
 		bool bEmbedded = false;
 
-		ASSETIMPORTCORE_API auto GetBytes() const -> std::span<const uint8>;
+		ASSETIMPORTCORE_API auto GetBytes() const -> std::span<const std::byte>;
 
 		// Shared immutable storage permits several logical identities to reference
 		// one physical capture without reopening or duplicating its bytes.
-		std::shared_ptr<const std::vector<uint8>> Bytes;
+		std::shared_ptr<const std::vector<std::byte>> Bytes;
 	};
 
 	class ASSETIMPORTCORE_API FSourceSnapshot
@@ -180,7 +180,7 @@ namespace Durin::Asset
 		std::string StableIdentity;
 		std::string Role;
 		std::string RelativePath;
-		std::vector<uint8> EmbeddedBytes;
+		std::vector<std::byte> EmbeddedBytes;
 		bool bOptional = false;
 
 		auto IsEmbedded() const -> bool { return !EmbeddedBytes.empty(); }
@@ -199,7 +199,7 @@ namespace Durin::Asset
 			std::string_view DeclaringIdentity,
 			std::string_view StableIdentity,
 			std::string_view Role,
-			std::span<const uint8> Bytes) -> bool;
+			std::span<const std::byte> Bytes) -> bool;
 
 	private:
 		explicit FDependencyRequestSink(
@@ -229,7 +229,7 @@ namespace Durin::Asset
 		FSourcePath RootSource;
 		std::string Extension;
 		uint64 ByteCount = 0;
-		std::span<const uint8> Prefix;
+		std::span<const std::byte> Prefix;
 	};
 
 	enum class EImportOutputPolicy : uint8
@@ -405,7 +405,7 @@ namespace Durin::Asset
 		// external authoring file during provider planning.
 		auto CaptureRootBytes(
 			const FSourcePath& RootSource,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			std::vector<FImportDiagnostic>& OutDiagnostics) -> bool;
 		auto CaptureDeclaredSource(
 			std::string_view StableIdentity,
@@ -416,7 +416,7 @@ namespace Durin::Asset
 			std::string_view StableIdentity,
 			std::string_view Role,
 			const FSourcePath& Source,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			bool bEmbedded,
 			std::vector<FImportDiagnostic>& OutDiagnostics) -> bool;
 		auto DiscoverDependencies(

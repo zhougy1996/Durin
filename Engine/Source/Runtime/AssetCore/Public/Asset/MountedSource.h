@@ -41,7 +41,7 @@ namespace Durin::Asset
 	// is used for container-embedded authoring inputs that need an independently
 	// reloadable source identity.
 	ASSETCORE_API auto PrepareMountedSourceBytes(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string_view ReferencingAssetPath,
 		std::string_view DestinationSourcePath,
 		FMountedSourceFile& OutSource,

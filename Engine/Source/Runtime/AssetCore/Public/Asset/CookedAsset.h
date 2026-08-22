@@ -138,7 +138,7 @@ namespace Durin::Asset
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		std::vector<FCookedPayloadDescriptor> Entries;
-		std::vector<std::vector<uint8>> Payloads;
+		std::vector<std::vector<std::byte>> Payloads;
 	};
 
 	// Keeps the decoded DBLK container alive for the lifetime of one selected
@@ -147,7 +147,7 @@ namespace Durin::Asset
 	struct FCookedPackagePayload
 	{
 		FCookedBulkContainer Container;
-		std::span<const uint8> Payload;
+		std::span<const std::byte> Payload;
 
 		FCookedPackagePayload() = default;
 		FCookedPackagePayload(const FCookedPackagePayload&) = delete;
@@ -157,7 +157,7 @@ namespace Durin::Asset
 	};
 
 	ASSETCORE_API auto DecodeCookedBulk(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FCookedBulkContainer& OutContainer,
@@ -175,7 +175,7 @@ namespace Durin::Asset
 	ASSETCORE_API auto ResolveCookedPayload(
 		const FCookedBulkContainer& Container,
 		const FCookedPayloadDescriptor& Descriptor,
-		std::span<const uint8>& OutPayload,
+		std::span<const std::byte>& OutPayload,
 		std::string* OutError = nullptr
 	) -> bool;
 

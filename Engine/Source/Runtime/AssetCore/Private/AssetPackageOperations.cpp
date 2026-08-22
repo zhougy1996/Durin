@@ -58,7 +58,7 @@ namespace Durin::Asset
 	{
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
 		auto AssetPathResolutionError(
@@ -406,7 +406,7 @@ namespace Durin::Asset
 					std::string DeclaringStruct, FieldName, Signature;
 					uint8 Kind = 0;
 					uint64 PayloadSize = 0;
-					std::span<const uint8> Payload;
+					std::span<const std::byte> Payload;
 					if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
 						return Error(EAssetError::CorruptFile, "Invalid struct field record.");
 					if (DeclaringStruct != StructName) continue;
@@ -605,7 +605,7 @@ namespace Durin::Asset
 
 		auto BuildPackageBytes(
 			DPackage* Package,
-			std::vector<uint8>& OutBytes,
+			std::vector<std::byte>& OutBytes,
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
@@ -669,7 +669,7 @@ namespace Durin::Asset
 
 		auto InspectAssetPackageBytesForCatalog(
 			std::string_view PhysicalPath,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
 			return InspectAssetPackageBytes(
@@ -707,7 +707,7 @@ namespace Durin::Asset
 				"Asset package exceeds the supported byte bound.");
 		const uint64 ReadSize = std::min(
 			Reader.FileSize, DastV4::MaximumHeaderBytes);
-		std::vector<uint8> Bytes(static_cast<size_t>(ReadSize));
+		std::vector<std::byte> Bytes(static_cast<size_t>(ReadSize));
 		if (ReadSize != 0)
 		{
 			Reader.Stream.read(
@@ -725,7 +725,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult
+	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -735,7 +735,7 @@ namespace Durin::Asset
 
 	auto SerializeAssetPackageBytes(
 		DPackage* Package,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
@@ -758,7 +758,7 @@ namespace Durin::Asset
 			DPackage* Package = nullptr;
 			FAssetPath Path;
 			FPackageFile File;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			std::filesystem::path Destination;
 			std::filesystem::path Staged;
 			std::filesystem::path Backup;
@@ -871,7 +871,7 @@ namespace Durin::Asset
 			{
 				const FXxHash128 ContainerHash =
 					Staged.File.BulkPayloads.front().Descriptor.ContainerHash;
-				std::vector<uint8> CompanionBytes;
+				std::vector<std::byte> CompanionBytes;
 				std::string CompanionError;
 				if (ContainerHash.IsZero()
 					|| std::ranges::any_of(Staged.File.BulkPayloads,
@@ -1023,7 +1023,7 @@ namespace Durin::Asset
 		FAssetPackageHeader Header;
 		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header); !Result)
 			return Result;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
 				"The asset package could not be read for admission validation.");
@@ -1155,7 +1155,7 @@ namespace Durin::Asset
 	{
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
 			OutInspection = {};
@@ -1176,7 +1176,7 @@ namespace Durin::Asset
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
 		return InspectAssetPackageBytes(PhysicalPath, Bytes, OutInspection);
@@ -1184,8 +1184,8 @@ namespace Durin::Asset
 
 
 	auto CanonicalizeAssetPackageForCook(
-		std::span<const uint8> Bytes,
-		std::vector<uint8>& OutBytes) -> FAssetResult
+		std::span<const std::byte> Bytes,
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		const Private::FAssetPackageCodec* Codec = nullptr;
@@ -1276,7 +1276,7 @@ namespace Durin::Asset
 		if (!VersionResult) return VersionResult;
 		const std::filesystem::path Destination(GetPhysicalPath(Path));
 		FPackageFile File;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FAssetResult SerializationResult = BuildPackageBytes(Package, Bytes, &File);
 		if (!SerializationResult) return SerializationResult;
 		FFileHelper::FAtomicFileError PublicationError;
@@ -1290,7 +1290,7 @@ namespace Durin::Asset
 				}))
 				return Error(EAssetError::CorruptFile,
 					"Serialized authored bulk payloads disagree on container identity.");
-			std::vector<uint8> CompanionBytes;
+			std::vector<std::byte> CompanionBytes;
 			std::string CompanionError;
 			if (!BuildAuthoredBulkCompanion(
 					File.BulkPayloads, ContainerHash, CompanionBytes, &CompanionError)

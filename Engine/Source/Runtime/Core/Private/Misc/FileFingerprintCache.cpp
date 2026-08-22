@@ -61,7 +61,7 @@ namespace Durin
 			}
 		}
 
-		std::vector<uint8> FileBytes;
+		std::vector<std::byte> FileBytes;
 		if (!FFileHelper::LoadFileToArray(FileBytes, NormalizedPath))
 		{
 			OutErrorMessage = std::format("Failed to read file: {}", NormalizedPath);
@@ -71,7 +71,7 @@ namespace Durin
 		FEntry NewEntry;
 		NewEntry.LastWriteTime = LastWriteTime;
 		NewEntry.FileSize = FileSize;
-		NewEntry.ContentHash = FXxHash64::HashBuffer(std::span<const uint8>(FileBytes));
+		NewEntry.ContentHash = FXxHash64::HashBuffer(std::span<const std::byte>(FileBytes));
 
 		{
 			std::lock_guard Lock(Mutex);

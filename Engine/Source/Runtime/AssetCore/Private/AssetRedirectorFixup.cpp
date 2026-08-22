@@ -295,8 +295,8 @@ namespace Durin::Asset
 		auto AddJournalEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FAssetPath& RegistryPath,
 			ERelocationPublicationRole Role,
-			std::optional<std::vector<uint8>> PreBytes,
-			std::optional<std::vector<uint8>> PostBytes,
+			std::optional<std::vector<std::byte>> PreBytes,
+			std::optional<std::vector<std::byte>> PostBytes,
 			size_t& OutIndex) -> FAssetResult {
 			const std::filesystem::path Normalized = NormalizePhysicalPath(PhysicalPath);
 			if (!FilePaths.insert(Normalized.generic_string()).second)
@@ -347,8 +347,7 @@ namespace Durin::Asset
 					"durin-asset-mutation\n{}\n", State->Journal.OperationId);
 				FAssetResult MarkerResult = SaveRelocationBytes(
 					Root / "owner",
-					std::span{reinterpret_cast<const uint8*>(Marker.data()),
-						Marker.size()});
+					std::as_bytes(std::span(Marker)));
 				if (!MarkerResult) return MarkerResult;
 				State->Journal.Roots.push_back(Root);
 			}
@@ -385,7 +384,7 @@ namespace Durin::Asset
 			if (Loaded && Loaded->IsDirty())
 				return Error(EAssetError::InUse,
 					"A dirty loaded package blocks redirector Fix Up.");
-			std::vector<uint8> PreBytes;
+			std::vector<std::byte> PreBytes;
 			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
 			if (!Result) return Result;
 			const auto Fingerprint = Registry.ReferenceIndex.SourceFingerprints.find(SourcePath);
@@ -398,7 +397,7 @@ namespace Durin::Asset
 			if (CurrentFingerprint != Fingerprint->second)
 				return Error(EAssetError::StaleData,
 					"A package referencer changed after reference indexing.");
-			std::vector<uint8> PostBytes;
+			std::vector<std::byte> PostBytes;
 			Result = RewritePackageReferencesForMutation(
 				PreBytes, State->Mappings, ExpectedCount, PostBytes);
 			if (!Result) return Result;
@@ -528,7 +527,7 @@ namespace Durin::Asset
 					if (Loaded && Loaded->IsDirty())
 						return Error(EAssetError::InUse,
 							"A dirty external-reference package blocks redirector Fix Up.");
-					std::vector<uint8> CurrentBytes;
+					std::vector<std::byte> CurrentBytes;
 					Result = LoadRelocationBytes(Data->PhysicalPath, CurrentBytes);
 					if (!Result) return Result;
 					if (CurrentBytes != PackageRewrite.PreBytes)
@@ -586,7 +585,7 @@ namespace Durin::Asset
 			for (const FAssetPath& Alias : State->Redirectors)
 			{
 				const FAssetData& Data = State->ExpectedAssets.at(Alias);
-				std::vector<uint8> PreBytes;
+				std::vector<std::byte> PreBytes;
 				FAssetResult Result = LoadRelocationBytes(Data.PhysicalPath, PreBytes);
 				if (!Result) return Result;
 				size_t Ignored = 0;
@@ -749,7 +748,7 @@ namespace Durin::Asset
 					"A Fix Up file participant changed after analysis.");
 			if (Entry.bPostExists)
 			{
-				std::vector<uint8> StagedBytes;
+				std::vector<std::byte> StagedBytes;
 				Result = LoadRelocationBytes(Entry.StagedPostPath, StagedBytes);
 				if (!Result || FXxHash128::HashBuffer(StagedBytes)
 						!= Entry.StagedPostHash)

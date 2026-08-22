@@ -44,7 +44,7 @@ namespace Durin::Asset
 
 		auto FileEqualsBytes(
 			const std::filesystem::path& File,
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			std::string& OutError) -> bool
 		{
 			std::error_code Error;
@@ -60,7 +60,7 @@ namespace Durin::Asset
 				return false;
 			}
 			constexpr size_t BufferSize = 64 * 1024;
-			std::array<uint8, BufferSize> Buffer{};
+			std::array<std::byte, BufferSize> Buffer{};
 			size_t Offset = 0;
 			while (Offset < Bytes.size())
 			{
@@ -216,7 +216,7 @@ namespace Durin::Asset
 	}
 
 	auto PrepareMountedSourceBytes(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string_view ReferencingAssetPath,
 		std::string_view DestinationSourcePath,
 		FMountedSourceFile& OutSource,
@@ -277,8 +277,7 @@ namespace Durin::Asset
 		}
 		FFileHelper::FAtomicFileError SaveError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
-			std::span{
-				reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
+			Bytes,
 			Destination.PhysicalPath,
 			&SaveError))
 		{

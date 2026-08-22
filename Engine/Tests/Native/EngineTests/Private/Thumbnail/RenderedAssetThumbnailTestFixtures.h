@@ -209,7 +209,7 @@ namespace Durin::Tests
 			return Pool.SetView(View, OutError) && Pool.BeginCapture(OutError);
 		}
 
-		auto PollCapture(std::vector<uint8>& OutPixels, std::string& OutError)
+		auto PollCapture(std::vector<std::byte>& OutPixels, std::string& OutError)
 			-> Editor::ERenderedAssetThumbnailCaptureState
 		{
 			return Pool.PollCapture(OutPixels, OutError);

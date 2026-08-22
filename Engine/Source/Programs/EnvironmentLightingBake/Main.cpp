@@ -55,7 +55,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 	std::cout << "Generating default studio environment...\n";
 	Durin::FEnvironmentLightingData Data =
 		Durin::BuildDefaultStudioEnvironmentData();
-	std::vector<Durin::uint8> PayloadBytes;
+	std::vector<std::byte> PayloadBytes;
 	Durin::FCanonicalMemoryWriter PayloadAr(
 		PayloadBytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Data.Serialize(PayloadAr);

@@ -76,7 +76,7 @@ namespace Durin::Asset::Build
 
 	auto FDerivedDataObjectStore::Read(
 		std::string_view Key,
-		std::vector<uint8>& OutBytes) const -> FDerivedDataObjectReadResult
+		std::vector<std::byte>& OutBytes) const -> FDerivedDataObjectReadResult
 	{
 		std::filesystem::path Path;
 		std::string Error;
@@ -98,7 +98,7 @@ namespace Durin::Asset::Build
 		if (FileSize > MaximumObjectBytes)
 			return {EDerivedDataObjectReadStatus::TooLarge, "Derived-data object exceeds its configured size limit."};
 
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath))
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Failed to read derived-data object."};
 		OutBytes = std::move(Bytes);
@@ -107,7 +107,7 @@ namespace Durin::Asset::Build
 
 	auto FDerivedDataObjectStore::Write(
 		std::string_view Key,
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		std::string* OutError) const -> bool
 	{
 		std::filesystem::path Path;

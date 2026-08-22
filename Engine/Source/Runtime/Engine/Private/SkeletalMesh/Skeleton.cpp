@@ -131,7 +131,7 @@ namespace Durin
 		}
 
 		FBinaryWriter Writer;
-		Writer.WriteBytes(std::span<const uint8>(reinterpret_cast<const uint8*>("DSKC"), 4));
+		Writer.WriteBytes(std::as_bytes(std::span(std::string_view("DSKC"))));
 		Writer.WriteU32(SkeletonCompatibilityEncodingVersion);
 		Writer.WriteU32(static_cast<uint32>(InBones.size()));
 		for (const FSkeletonBone& Bone : InBones)
@@ -139,8 +139,7 @@ namespace Durin
 			const std::string Name = Bone.Name.ToString();
 			Writer.WriteI32(Bone.ParentIndex);
 			Writer.WriteU32(static_cast<uint32>(Name.size()));
-			Writer.WriteBytes(std::span<const uint8>(
-				reinterpret_cast<const uint8*>(Name.data()), Name.size()));
+			Writer.WriteBytes(std::as_bytes(std::span(Name)));
 			const FMatrix4f Matrix = Bone.ReferenceTransform.ToMatrix4f();
 			for (uint32 Row = 0; Row < 4; ++Row)
 				for (uint32 Column = 0; Column < 4; ++Column)
@@ -203,7 +202,7 @@ namespace Durin
 			return Fail(std::format(
 				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!GetPackage() || !Validate(OutError)) return false;
-		std::vector<uint8> PackageBytes;
+		std::vector<std::byte> PackageBytes;
 		const Asset::FAssetResult Serialized =
 			Asset::SerializeAssetPackageBytes(GetPackage(), PackageBytes);
 		if (!Serialized) return Fail(Serialized.Message, &OutError);

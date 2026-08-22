@@ -50,7 +50,7 @@ namespace Durin::Asset
 			ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 			ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 			std::vector<FCookedPayloadDescriptor> Entries;
-			std::vector<std::span<const uint8>> Payloads;
+			std::vector<std::span<const std::byte>> Payloads;
 		};
 
 		struct FManifestHeader
@@ -302,7 +302,7 @@ namespace Durin::Asset
 		}
 
 		auto ParseCookedBulk(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			ECookTargetPlatform ExpectedPlatform,
 			ECookTargetProfile ExpectedProfile,
 			FParsedCookedBulk& OutParsed,
@@ -333,7 +333,7 @@ namespace Durin::Asset
 					BulkHeaderSize, TableBytes, MaximumBulkBytes, DirectoryEnd)
 				|| DirectoryEnd > Bytes.size())
 				return Fail("DBLK table is truncated.", OutError);
-			std::span<const uint8> Table;
+			std::span<const std::byte> Table;
 			if (!BulkContainer::TryProjectRange(Bytes, BulkHeaderSize, TableBytes, Table))
 				return Fail("DBLK table is truncated.", OutError);
 			if (FXxHash64::HashBuffer(Table).HashValue != Header.TableHash)
@@ -409,7 +409,7 @@ namespace Durin::Asset
 			Parsed.Payloads.reserve(Parsed.Entries.size());
 			for (const FCookedPayloadDescriptor& Entry : Parsed.Entries)
 			{
-				std::span<const uint8> Stored;
+				std::span<const std::byte> Stored;
 				if (!BulkContainer::TryProjectRange(
 					Bytes, Entry.Offset, Entry.StoredSize, Stored))
 					return Fail("DBLK payload range is invalid.", OutError);
@@ -472,8 +472,8 @@ namespace Durin::Asset
 
 		auto WriteValidatedTemporary(
 			const std::filesystem::path& Destination,
-			std::span<const uint8> Bytes,
-			const std::function<bool(std::span<const uint8>, std::string*)>& Validate,
+			std::span<const std::byte> Bytes,
+			const std::function<bool(std::span<const std::byte>, std::string*)>& Validate,
 			std::filesystem::path& OutTemporary,
 			std::string* OutError) -> bool
 		{
@@ -485,7 +485,7 @@ namespace Durin::Asset
 			if (!FFileHelper::SaveArrayToFileAtomically(
 				std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()}, OutTemporary, &FileError))
 				return Fail(FileError.ToString(), OutError);
-			std::vector<uint8> Reloaded;
+			std::vector<std::byte> Reloaded;
 			std::string ValidationError;
 			if (!FFileHelper::LoadFileToArray(Reloaded, OutTemporary)
 				|| !Validate(Reloaded, &ValidationError))
@@ -501,7 +501,7 @@ namespace Durin::Asset
 			const std::filesystem::path& Destination,
 			std::string* OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Temporary))
 				return Fail("Failed to reopen validated temporary cook output for publication.", OutError);
 			FFileHelper::FAtomicFileError FileError;
@@ -542,7 +542,7 @@ namespace Durin::Asset
 		std::span<const FCookedBulkPayload> Payloads,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::vector<FCookedPayloadDescriptor>* OutDescriptors,
 		std::string* OutError) -> bool
 	{
@@ -643,7 +643,7 @@ namespace Durin::Asset
 			if (!Writer.PadTo(Descriptors[Index].Offset)) return Fail("DBLK payload layout overflowed.", OutError);
 			if (!Writer.Write(Sorted[Index]->Bytes)) return Fail("DBLK encoding failed.", OutError);
 		}
-		std::vector<uint8> Candidate;
+		std::vector<std::byte> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
 			return Fail("DBLK encoding failed.", OutError);
 		FParsedCookedBulk Validation;
@@ -656,7 +656,7 @@ namespace Durin::Asset
 	}
 
 	auto DecodeCookedBulk(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FCookedBulkContainer& OutContainer,
@@ -666,9 +666,9 @@ namespace Durin::Asset
 		FParsedCookedBulk Parsed;
 		if (!ParseCookedBulk(
 			Bytes, ExpectedPlatform, ExpectedProfile, Parsed, OutError)) return false;
-		std::vector<std::vector<uint8>> Payloads;
+		std::vector<std::vector<std::byte>> Payloads;
 		Payloads.reserve(Parsed.Payloads.size());
-		for (std::span<const uint8> Stored : Parsed.Payloads)
+		for (std::span<const std::byte> Stored : Parsed.Payloads)
 			Payloads.emplace_back(Stored.begin(), Stored.end());
 		OutContainer.TargetPlatform = Parsed.TargetPlatform;
 		OutContainer.TargetProfile = Parsed.TargetProfile;
@@ -681,7 +681,7 @@ namespace Durin::Asset
 	auto ResolveCookedPayload(
 		const FCookedBulkContainer& Container,
 		const FCookedPayloadDescriptor& Descriptor,
-		std::span<const uint8>& OutPayload,
+		std::span<const std::byte>& OutPayload,
 		std::string* OutError) -> bool
 	{
 		OutPayload = {};
@@ -722,7 +722,7 @@ namespace Durin::Asset
 		{
 			return false;
 		}
-		std::span<const uint8> CandidatePayload;
+		std::span<const std::byte> CandidatePayload;
 		if (!ResolveCookedPayload(Candidate, Descriptor, CandidatePayload, OutError))
 			return false;
 
@@ -786,7 +786,7 @@ namespace Durin::Asset
 		const uint64 FileSize = std::filesystem::file_size(Path, ErrorCode);
 		if (ErrorCode || FileSize > MaximumBulkBytes || FileSize > std::numeric_limits<size_t>::max())
 			return Fail("Cooked bulk companion size is invalid.", OutError);
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, Path))
 			return Fail("Failed to read cooked bulk companion.", OutError);
 		return DecodeCookedBulk(Bytes, ExpectedPlatform, ExpectedProfile, OutContainer, OutError);
@@ -838,7 +838,7 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto EncodeCookManifest(const FCookManifest& Manifest, std::vector<uint8>& OutBytes, std::string* OutError) -> bool
+	auto EncodeCookManifest(const FCookManifest& Manifest, std::vector<std::byte>& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (!IsValidTarget(Manifest.TargetPlatform, Manifest.TargetProfile))
@@ -867,7 +867,7 @@ namespace Durin::Asset
 		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
 		const uint64 RecordBytes = Records.Tell();
 		uint64 FileSize = 0;
-		std::vector<uint8> Candidate;
+		std::vector<std::byte> Candidate;
 		if (!BulkContainer::TryAdd(
 			ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize))
 			return Fail("Cook manifest encoding failed.", OutError);
@@ -890,7 +890,7 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto DecodeCookManifest(std::span<const uint8> Bytes, FCookManifest& OutManifest, std::string* OutError) -> bool
+	auto DecodeCookManifest(std::span<const std::byte> Bytes, FCookManifest& OutManifest, std::string* OutError) -> bool
 	{
 		OutManifest = {};
 		if (Bytes.size() < ManifestHeaderSize) return Fail("Cook manifest is truncated.", OutError);
@@ -908,7 +908,7 @@ namespace Durin::Asset
 			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform),
 				static_cast<ECookTargetProfile>(Header.Profile)))
 			return Fail("Cook manifest header is invalid.", OutError);
-		const std::span<const uint8> Records = Bytes.subspan(ManifestHeaderSize);
+		const std::span<const std::byte> Records = Bytes.subspan(ManifestHeaderSize);
 		if (FXxHash64::HashBuffer(Records).HashValue != Header.RecordHash)
 			return Fail("Cook manifest record checksum is invalid.", OutError);
 		BulkContainer::FBoundedReader RecordReader(Records, MaximumManifestRecordBytes);
@@ -922,7 +922,7 @@ namespace Durin::Asset
 				|| RecordHeader.Reserved != 0 || RecordHeader.PathBytes == 0
 				|| RecordHeader.PathBytes > 1024)
 				return Fail("Cook manifest record is invalid.", OutError);
-			std::span<const uint8> Path;
+			std::span<const std::byte> Path;
 			if (!RecordReader.ReadBytes(RecordHeader.PathBytes, Path))
 				return Fail("Cook manifest path is truncated.", OutError);
 			Entry.Kind = static_cast<ECookManifestEntryKind>(RecordHeader.Kind);
@@ -957,7 +957,7 @@ namespace Durin::Asset
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		std::vector<uint8> PackageBytes,
+		std::vector<std::byte> PackageBytes,
 		std::vector<FCookedBulkPayload> Payloads,
 		std::string* OutError) -> bool
 	{
@@ -967,7 +967,7 @@ namespace Durin::Asset
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
-		std::vector<uint8> BulkBytes;
+		std::vector<std::byte> BulkBytes;
 		if (!Payloads.empty()
 			&& !EncodeCookedBulk(
 				Payloads, TargetPlatform, TargetProfile,
@@ -990,13 +990,13 @@ namespace Durin::Asset
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
 
-		std::vector<uint8> BulkBytes;
+		std::vector<std::byte> BulkBytes;
 		std::vector<FCookedPayloadDescriptor> Descriptors;
 		if (!Payloads.empty()
 			&& !EncodeCookedBulk(
 				Payloads, TargetPlatform, TargetProfile,
 				BulkBytes, &Descriptors, OutError)) return false;
-		std::vector<uint8> PackageBytes;
+		std::vector<std::byte> PackageBytes;
 		if (!BuildPackageBytes(Descriptors, PackageBytes, OutError)) return false;
 		if (PackageBytes.empty()) return Fail("Cook package-byte builder returned an empty package.", OutError);
 		const FAssetResult Validation = ValidateAssetPackageBytes(PackageBytes);
@@ -1014,7 +1014,7 @@ namespace Durin::Asset
 		{
 			if (!CanonicalizeCookVirtualPath(Package.VirtualPath, OutError))
 				return false;
-			std::vector<uint8> CanonicalBytes;
+			std::vector<std::byte> CanonicalBytes;
 			const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
 				Package.PackageBytes, CanonicalBytes);
 			if (!CanonicalResult)
@@ -1034,7 +1034,7 @@ namespace Durin::Asset
 			ECookManifestEntryKind Kind;
 			std::filesystem::path Destination;
 			std::filesystem::path Temporary;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 		};
 		std::vector<FOutput> BulkOutputs;
 		std::vector<FOutput> PackageOutputs;
@@ -1063,7 +1063,7 @@ namespace Durin::Asset
 
 		for (FOutput& Output : BulkOutputs)
 		{
-			auto Validate = [&](std::span<const uint8> Bytes, std::string* Error) {
+			auto Validate = [&](std::span<const std::byte> Bytes, std::string* Error) {
 				FCookedBulkContainer Container;
 				return DecodeCookedBulk(Bytes, TargetPlatform, TargetProfile, Container, Error);
 			};
@@ -1076,7 +1076,7 @@ namespace Durin::Asset
 		}
 		for (FOutput& Output : PackageOutputs)
 		{
-			auto Validate = [&](std::span<const uint8> Bytes, std::string* Error) {
+			auto Validate = [&](std::span<const std::byte> Bytes, std::string* Error) {
 				if (!std::ranges::equal(Bytes, Output.Bytes)) return Fail("Temporary cooked package bytes changed.", Error);
 				const FAssetResult Result = ValidateAssetPackageBytes(Bytes);
 				if (!Result) return Fail(std::format("Temporary cooked package is invalid: {}", Result.Message), Error);
@@ -1092,7 +1092,7 @@ namespace Durin::Asset
 
 		FCookManifest PreviousManifest;
 		const std::filesystem::path ManifestPath = CookRoot / "CookManifest.bin";
-		std::vector<uint8> PreviousBytes;
+		std::vector<std::byte> PreviousBytes;
 		const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(PreviousBytes, ManifestPath)
 			&& DecodeCookManifest(PreviousBytes, PreviousManifest);
 
@@ -1120,14 +1120,14 @@ namespace Durin::Asset
 		};
 		AddManifestEntries(PackageOutputs);
 		AddManifestEntries(BulkOutputs);
-		std::vector<uint8> ManifestBytes;
+		std::vector<std::byte> ManifestBytes;
 		if (!EncodeCookManifest(Manifest, ManifestBytes, OutError))
 		{
 			CleanupTemporaries();
 			return false;
 		}
 		std::filesystem::path ManifestTemporary;
-		auto ValidateManifest = [&](std::span<const uint8> Bytes, std::string* Error) {
+		auto ValidateManifest = [&](std::span<const std::byte> Bytes, std::string* Error) {
 			FCookManifest Decoded;
 			return DecodeCookManifest(Bytes, Decoded, Error);
 		};

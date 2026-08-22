@@ -18,7 +18,7 @@ namespace Durin::Image
 	// Stores decoded RGBA8 pixels and source-image metadata.
 	struct FDecodedImage
 	{
-		std::vector<uint8> Pixels;
+		std::vector<std::byte> Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 
@@ -53,12 +53,12 @@ namespace Durin::Image
 
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
 	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
-	CORE_API auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
+	CORE_API auto DecodeImageFromMemory(std::span<const std::byte> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeGrayscale16PngFromMemory(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
@@ -67,7 +67,7 @@ namespace Durin::Image
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	CORE_API auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,
+	CORE_API auto DecodeRadianceHDRFromMemory(std::span<const std::byte> EncodedBytes, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;

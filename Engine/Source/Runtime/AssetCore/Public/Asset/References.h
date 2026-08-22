@@ -23,7 +23,7 @@ namespace Durin::Asset
 	{
 		EAssetReferenceRouteKind Kind = EAssetReferenceRouteKind::FixedArray;
 		uint64 Index = 0;
-		std::vector<uint8> MapKeyToken;
+		std::vector<std::byte> MapKeyToken;
 		std::string DeclaringType;
 		std::string FieldName;
 

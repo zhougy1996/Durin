@@ -38,7 +38,7 @@ namespace
 
 	auto SerializeEnvironmentLighting(
 		Durin::FEnvironmentLightingData& Data,
-		std::vector<Durin::uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
 		Durin::FCanonicalMemoryWriter Ar(
@@ -50,7 +50,7 @@ namespace
 	}
 
 	auto DeserializeEnvironmentLighting(
-		std::span<const Durin::uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		Durin::FEnvironmentLightingData& OutData,
 		std::string& OutError) -> bool
 	{
@@ -67,8 +67,8 @@ TEST(FEnvironmentLightingTests, PayloadRoundTripsDeterministicallyAndRejectsCorr
 {
 	Durin::FEnvironmentLightingData Expected = MakeEnvironmentLightingFixture();
 	ASSERT_TRUE(Expected.IsValid());
-	std::vector<Durin::uint8> First;
-	std::vector<Durin::uint8> Second;
+	std::vector<std::byte> First;
+	std::vector<std::byte> Second;
 	std::string Error;
 	ASSERT_TRUE(SerializeEnvironmentLighting(Expected, First, Error)) << Error;
 	ASSERT_TRUE(SerializeEnvironmentLighting(Expected, Second, Error)) << Error;
@@ -77,12 +77,12 @@ TEST(FEnvironmentLightingTests, PayloadRoundTripsDeterministicallyAndRejectsCorr
 	Durin::FEnvironmentLightingData Decoded;
 	ASSERT_TRUE(DeserializeEnvironmentLighting(First, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded, Expected);
-	std::vector<Durin::uint8> DifferentProducer = First;
-	DifferentProducer[8] ^= 0x40;
+	std::vector<std::byte> DifferentProducer = First;
+	DifferentProducer[8] ^= std::byte{0x40};
 	ASSERT_TRUE(DeserializeEnvironmentLighting(DifferentProducer, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded, Expected);
 
-	First.back() ^= 0x80;
+	First.back() ^= std::byte{0x80};
 	const Durin::FEnvironmentLightingData BeforeFailure = Decoded;
 	EXPECT_FALSE(DeserializeEnvironmentLighting(First, Decoded, Error));
 	EXPECT_EQ(Decoded, BeforeFailure);
@@ -93,7 +93,7 @@ TEST(FEnvironmentLightingTests, CheckedInStudioPayloadIsValid)
 	const std::filesystem::path PayloadPath =
 		std::filesystem::path(Durin::FPaths::EngineContentDir())
 		/ "Renderer/DefaultStudioEnvironment.iblbulk";
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PayloadPath));
 	Durin::FEnvironmentLightingData Data;
 	std::string Error;
@@ -118,7 +118,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoringPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Asset));
 	ASSERT_NE(Asset, nullptr);
 
-	std::vector<Durin::uint8> SourceBytes;
+	std::vector<std::byte> SourceBytes;
 	std::string Error;
 	Durin::FEnvironmentLightingData SourceData = MakeEnvironmentLightingFixture();
 	ASSERT_TRUE(SerializeEnvironmentLighting(SourceData, SourceBytes, Error)) << Error;
@@ -144,8 +144,8 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoringPayloadDirectlyWithoutDdc)
 		Container,
 		&Error)) << Error;
 	ASSERT_EQ(Container.Entries.size(), 1);
-	std::span<const Durin::uint8> CookedBytes;
+	std::span<const std::byte> CookedBytes;
 	ASSERT_TRUE(Durin::Asset::ResolveCookedPayload(
 		Container, Container.Entries.front(), CookedBytes, &Error)) << Error;
-	EXPECT_EQ(std::vector<Durin::uint8>(CookedBytes.begin(), CookedBytes.end()), SourceBytes);
+	EXPECT_EQ(std::vector<std::byte>(CookedBytes.begin(), CookedBytes.end()), SourceBytes);
 }

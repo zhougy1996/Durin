@@ -115,16 +115,16 @@ float4 FragmentMain() : SV_Target
 		}
 
 		auto ExpectReloadColor(
-			const std::vector<uint8>& Pixels,
+			const std::vector<std::byte>& Pixels,
 			uint8 ExpectedRed,
 			uint8 ExpectedGreen) -> void
 		{
 			ASSERT_EQ(Pixels.size(), 17u * 17u * 4u);
 			const size_t Center = (8u * 17u + 8u) * 4u;
-			EXPECT_NEAR(Pixels[Center], ExpectedRed, 8);
-			EXPECT_NEAR(Pixels[Center + 1], ExpectedGreen, 8);
-			EXPECT_NEAR(Pixels[Center + 2], 0, 8);
-			EXPECT_NEAR(Pixels[Center + 3], 255, 8);
+			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center]), ExpectedRed, 8);
+			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 1]), ExpectedGreen, 8);
+			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 2]), 0, 8);
+			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 3]), 255, 8);
 		}
 	}
 
@@ -371,7 +371,7 @@ float4 FragmentMain() : SV_Target
 		};
 		auto RenderPipeline =
 			[](FGraphicsPipelineStateRHIRef PipelineState) {
-				auto Pixels = std::make_shared<std::vector<uint8>>();
+				auto Pixels = std::make_shared<std::vector<std::byte>>();
 				struct FRenderReloadValidationResource
 				{
 					static constexpr auto GetName() -> const char*

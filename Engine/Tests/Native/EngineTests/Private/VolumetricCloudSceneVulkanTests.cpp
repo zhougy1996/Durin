@@ -124,7 +124,8 @@ namespace Durin
 			EXPECT_TRUE(Source.SetVoxelBytes(Voxels));
 			auto Platform = std::make_unique<FVolumeTexturePlatformData>();
 			Platform->PixelFormat = EPixelFormat::R8_UNORM;
-			Platform->Mips.push_back({.Voxels = {Density}, .Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
+			Platform->Mips.push_back({.Voxels = {static_cast<std::byte>(Density)},
+				.Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
 			std::string Error;
 			EXPECT_TRUE(Texture->PublishBuiltData(std::move(Source), {}, std::move(Platform), std::format("scene-cloud-{}", Name), Error))
 				<< Error;
@@ -217,7 +218,7 @@ namespace Durin
 								   bool bForceFragment
 							   ) {
 			Fixture.bForceFragment = bForceFragment;
-			auto Pixels = std::make_shared<std::vector<uint8>>();
+			auto Pixels = std::make_shared<std::vector<std::byte>>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);

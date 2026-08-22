@@ -4,7 +4,7 @@ namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		auto Extract(std::span<const uint8> Voxels, uint32 Width, uint32 Height,
+		auto Extract(std::span<const std::byte> Voxels, uint32 Width, uint32 Height,
 			uint32 Depth, uint32 RowPitch, uint32 DepthPitch,
 			uint32 BytesPerVoxel, EVolumeTexturePreviewAxis Axis, uint32 SliceIndex)
 			-> FVolumeTexturePreviewSlice
@@ -34,11 +34,11 @@ namespace Durin::Editor::Texture
 						(static_cast<size_t>(V) * Result.Width + U) * 4;
 					if (BytesPerVoxel == 1)
 					{
-						const uint8 Value = Voxels[static_cast<size_t>(SourceOffset)];
+						const std::byte Value = Voxels[static_cast<size_t>(SourceOffset)];
 						Result.Pixels[DestinationOffset + 0] = Value;
 						Result.Pixels[DestinationOffset + 1] = Value;
 						Result.Pixels[DestinationOffset + 2] = Value;
-						Result.Pixels[DestinationOffset + 3] = 255;
+						Result.Pixels[DestinationOffset + 3] = std::byte{255};
 					}
 					else
 					{
@@ -74,7 +74,7 @@ namespace Durin::Editor::Texture
 		const uint32 BytesPerVoxel = Source.Format == EVolumeTextureFormat::R8_UNORM
 			? 1u : 4u;
 		const auto Bytes = Source.GetVoxelBytes();
-		return Extract({reinterpret_cast<const uint8*>(Bytes.data()), Bytes.size()},
+		return Extract(Bytes,
 			Source.Width, Source.Height, Source.Depth,
 			Source.Width * BytesPerVoxel,
 			Source.Width * Source.Height * BytesPerVoxel,

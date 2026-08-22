@@ -62,10 +62,10 @@ namespace Durin
 			return View;
 		}
 
-		auto DecodeHalf(const uint8* Bytes) -> float
+		auto DecodeHalf(const std::byte* Bytes) -> float
 		{
-			const uint16 Bits = static_cast<uint16>(Bytes[0])
-								| (static_cast<uint16>(Bytes[1]) << 8u);
+			const uint16 Bits = std::to_integer<uint16>(Bytes[0])
+								| (std::to_integer<uint16>(Bytes[1]) << 8u);
 			const uint32 Sign = static_cast<uint32>(Bits & 0x8000u) << 16u;
 			const uint32 Exponent = (Bits >> 10u) & 0x1fu;
 			uint32 Mantissa = Bits & 0x03ffu;
@@ -164,7 +164,7 @@ namespace Durin
 							FUpdateTextureRegion3D(
 								0, 0, 0, 0, 0, 0, Size, Size, Size
 							),
-							Size, Size * Size, Bytes.data()
+							Size, Size * Size, std::as_bytes(std::span{Bytes})
 						);
 					}
 					return Texture;
@@ -238,7 +238,7 @@ namespace Durin
 				(*Results)[7] = Fragment.Counters.Dispatches == 0
 								&& Fragment.Counters.Draws == 1
 								&& Fragment.Counters.Copies == 0;
-				std::vector<uint8> FragmentPixels;
+				std::vector<std::byte> FragmentPixels;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 
@@ -258,7 +258,9 @@ namespace Durin
 									 .SetFlags(ETextureCreateFlags::ShaderResource)
 				);
 				const uint8 White = 255;
-				if (Weather) GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1, &White);
+				if (Weather) GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0,
+					FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
+					std::as_bytes(std::span{&White, 1}));
 				auto* ShadowFragmentTargets =
 					CloudShadows.EnsureTargets_RenderThread(64, 32);
 				auto* ShadowComputeTargets =
@@ -275,7 +277,7 @@ namespace Durin
 										== FVolumetricCloudShadowRenderer::ERoute::Fragment;
 				(*Results)[31] = FragmentShadow.SampleCount == 6
 								 && FragmentShadow.TargetBytes == 64u * 32u;
-				std::vector<uint8> FragmentShadowPixels;
+				std::vector<std::byte> FragmentShadowPixels;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				const bool bFragmentShadowRead = GDynamicRHI->RHIReadTexture2D(
 					CommandList, FragmentShadow.Visibility, 0, 0, FragmentShadowPixels
@@ -289,7 +291,7 @@ namespace Durin
 										== FVolumetricCloudShadowRenderer::ERoute::Compute;
 				(*Results)[33] = CloudShadows.GetRetainedTargetBytes_RenderThread()
 								 == 2u * 64u * 32u;
-				std::vector<uint8> ComputeShadowPixels;
+				std::vector<std::byte> ComputeShadowPixels;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				const bool bComputeShadowRead = GDynamicRHI->RHIReadTexture2D(
 					CommandList, ComputeShadow.Visibility, 0, 0, ComputeShadowPixels
@@ -305,8 +307,10 @@ namespace Durin
 						 bShadowParity && X < View.ViewportX + View.ViewportWidth; ++X)
 					{
 						const size_t Index = static_cast<size_t>(Y) * 64u + X;
-						bShadowParity = std::abs(static_cast<int>(FragmentShadowPixels[Index]) - static_cast<int>(ComputeShadowPixels[Index])) <= 1;
-						bHasOcclusion |= ComputeShadowPixels[Index] < 255u;
+						bShadowParity = std::abs(
+							std::to_integer<int>(FragmentShadowPixels[Index])
+							- std::to_integer<int>(ComputeShadowPixels[Index])) <= 1;
+						bHasOcclusion |= ComputeShadowPixels[Index] < std::byte{255};
 					}
 				}
 				(*Results)[36] = bShadowParity && bHasOcclusion;
@@ -317,7 +321,7 @@ namespace Durin
 				(*Results)[34] = !InvalidShadow.Visibility
 								 && InvalidShadow.Reason
 										== FVolumetricCloudShadowRenderer::ERouteReason::InvalidInputs;
-				std::vector<uint8> ComputePixels;
+				std::vector<std::byte> ComputePixels;
 				FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
 					CommandList,
 					FRHITextureCreateDesc::Create2D(
@@ -363,7 +367,7 @@ namespace Durin
 							  <= 2.0f / 1024.0f;
 				}
 				(*Results)[14] = bParity;
-				std::vector<uint8> CompositePixels;
+				std::vector<std::byte> CompositePixels;
 				(*Results)[16] = GDynamicRHI->RHIReadTexture2D(
 									 CommandList, Composite, 0, 0, CompositePixels
 								 )
@@ -394,7 +398,7 @@ namespace Durin
 
 				auto ReadDebug = [&](EVolumetricCloudDebugMode Mode,
 					FRHITexture* ShadowVisibility, bool bHistoryAvailable,
-					bool bHistoryAccepted, std::vector<uint8>& Pixels) {
+					bool bHistoryAccepted, std::vector<std::byte>& Pixels) {
 					View.Settings.VolumetricCloud.DebugMode = Mode;
 					FRHITexture* Output = Clouds.Composite_RenderThread(
 						CommandList, SceneColor, Compute.Cloud, Depth,
@@ -403,7 +407,7 @@ namespace Durin
 					return Output && GDynamicRHI->RHIReadTexture2D(
 						CommandList, Output, 0, 0, Pixels);
 				};
-				std::vector<uint8> DebugPixels;
+				std::vector<std::byte> DebugPixels;
 				(*Results)[37] = ReadDebug(EVolumetricCloudDebugMode::Radiance,
 					nullptr, false, false, DebugPixels)
 					&& DebugPixels.size() >= Center + 8u
@@ -427,7 +431,8 @@ namespace Durin
 					&& DebugPixels.size() >= Center + 8u
 					&& ComputeShadowPixels.size() > ShadowCenter
 					&& std::abs(DecodeHalf(DebugPixels.data() + Center)
-						- static_cast<float>(ComputeShadowPixels[ShadowCenter]) / 255.0f)
+						- static_cast<float>(std::to_integer<uint8>(
+							ComputeShadowPixels[ShadowCenter])) / 255.0f)
 						<= 2.0f / 255.0f;
 				View.Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
 
@@ -459,8 +464,12 @@ namespace Durin
 				);
 				if (EdgeCloudTexture && EdgeDepthTexture)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16), 32u * 8u, reinterpret_cast<const uint8*>(EdgeCloud.data()));
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32), 64u * 4u, reinterpret_cast<const uint8*>(EdgeDepth.data()));
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture, 0, 0,
+						FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16), 32u * 8u,
+						std::as_bytes(std::span{EdgeCloud}));
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture, 0, 0,
+						FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32), 64u * 4u,
+						std::as_bytes(std::span{EdgeDepth}));
 					FSceneView EdgeView = View;
 					EdgeView.ViewportX = 0;
 					EdgeView.ViewportY = 0;
@@ -470,7 +479,7 @@ namespace Durin
 						CommandList, SceneColor, EdgeCloudTexture,
 						EdgeDepthTexture, EdgeView
 					);
-					std::vector<uint8> EdgePixels;
+					std::vector<std::byte> EdgePixels;
 					(*Results)[22] = EdgeComposite
 									 && GDynamicRHI->RHIReadTexture2D(
 										 CommandList, EdgeComposite, 0, 0, EdgePixels

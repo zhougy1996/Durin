@@ -60,7 +60,7 @@ namespace Durin
 				0, 0, 0, 0, Mip.Width, Mip.Height);
 			GDynamicRHI->RHIUpdateTexture2D(
 				CommandList, NewTexture, MipIndex, 0, Region,
-				Mip.RowPitch, Mip.Pixels.data());
+				Mip.RowPitch, Mip.Pixels);
 		}
 
 		if (Revision != Completion->GetRequestedRevision()) return;

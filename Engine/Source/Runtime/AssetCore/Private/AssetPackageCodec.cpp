@@ -9,7 +9,7 @@ namespace Durin::Asset::Private
 	namespace
 	{
 		auto ReadV4Header(
-			std::span<const uint8> Bytes,
+			std::span<const std::byte> Bytes,
 			uint64 PackageSize,
 			FAssetPackageHeader& OutHeader)
 			-> FAssetResult
@@ -40,7 +40,7 @@ namespace Durin::Asset::Private
 			return {};
 		}
 
-		auto ValidateV4(std::span<const uint8> Bytes) -> FAssetResult
+		auto ValidateV4(std::span<const std::byte> Bytes) -> FAssetResult
 		{
 			DastV4::FDecodedPackage Package;
 			DastV4::FReaderDiagnostic Diagnostic;
@@ -49,7 +49,7 @@ namespace Durin::Asset::Private
 			return {};
 		}
 
-		auto InspectV4(std::span<const uint8> Bytes, FAssetPackageInspection& OutInspection)
+		auto InspectV4(std::span<const std::byte> Bytes, FAssetPackageInspection& OutInspection)
 			-> FAssetResult
 		{
 			DastV4::FReaderDiagnostic Diagnostic;
@@ -57,7 +57,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto ExtractV4References(
-			std::span<const uint8> Bytes, const FAssetPath& SourcePackage,
+			std::span<const std::byte> Bytes, const FAssetPath& SourcePackage,
 			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 		{
 			DastV4::FReaderDiagnostic Diagnostic;
@@ -66,7 +66,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto ProbeV4Compatibility(
-			std::span<const uint8> Bytes, const FAssetPath& PackagePath,
+			std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
 			const FReflectionCompatibilityCatalog& Catalog,
 			FAssetPackageCompatibilityRecord& OutRecord,
 			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
@@ -77,7 +77,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto LoadV4(
-			std::span<const uint8> Bytes, const FAssetPath& PackagePath,
+			std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
 			DPackage*& OutPackage, FAssetLoadReport* OutReport,
 			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
 			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
@@ -95,7 +95,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto WriteV4(
-			DPackage* Package, std::vector<uint8>& OutBytes,
+			DPackage* Package, std::vector<std::byte>& OutBytes,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Serialization) -> FAssetResult
 		{
@@ -125,7 +125,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto ReadAssetPackagePreamble(
-		std::span<const uint8> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult
+		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult
 	{
 		if (Bytes.size() < sizeof(uint32) * 2)
 			return {EAssetError::CorruptFile, "Truncated asset header."};
@@ -152,7 +152,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto ResolveAssetPackageReader(
-		std::span<const uint8> Bytes, const FAssetPackageCodec*& OutCodec,
+		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		FAssetPackagePreamble* OutPreamble) -> FAssetResult
 	{
 		OutCodec = nullptr;

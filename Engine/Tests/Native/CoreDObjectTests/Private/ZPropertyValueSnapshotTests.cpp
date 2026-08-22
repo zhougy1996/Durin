@@ -598,7 +598,7 @@ namespace
 		ArrayProperty.SetInner(&ArrayInner);
 
 		std::vector<Durin::int32> SourceArray{11, 22};
-		std::vector<Durin::uint8> ArrayBytes;
+		std::vector<std::byte> ArrayBytes;
 		Durin::FMemoryWriter ArrayWriter(ArrayBytes);
 		Durin::SerializeReflectedPropertyValue(ArrayWriter, ArrayProperty, &SourceArray);
 		ASSERT_FALSE(ArrayWriter.HasError()) << ArrayWriter.GetError();
@@ -611,7 +611,7 @@ namespace
 		ASSERT_TRUE(ArrayReader.HasError());
 		EXPECT_EQ(DestinationArray, (std::vector<Durin::int32>{7, 8, 9}));
 
-		std::vector<Durin::uint8> OversizedBytes;
+		std::vector<std::byte> OversizedBytes;
 		Durin::FMemoryWriter OversizedWriter(OversizedBytes);
 		Durin::uint64 OversizedCount = 10000001;
 		OversizedWriter << OversizedCount;
@@ -623,7 +623,7 @@ namespace
 		EXPECT_TRUE(OversizedReader.HasError());
 		EXPECT_EQ(OversizedDestination, (std::vector<Durin::int32>{31, 32}));
 
-		std::vector<Durin::uint8> ValidArrayBytes;
+		std::vector<std::byte> ValidArrayBytes;
 		Durin::FMemoryWriter ValidArrayWriter(ValidArrayBytes);
 		Durin::SerializeReflectedPropertyValue(ValidArrayWriter, ArrayProperty, &SourceArray);
 		ASSERT_FALSE(ValidArrayWriter.HasError());
@@ -678,7 +678,7 @@ namespace
 		MapProperty.SetKeyProp(&MapKey);
 		MapProperty.SetValueProp(&MapValue);
 
-		std::vector<Durin::uint8> MapBytes;
+		std::vector<std::byte> MapBytes;
 		Durin::FMemoryWriter MapWriter(MapBytes);
 		Durin::uint64 MapCount = 2;
 		Durin::int32 DuplicateKey = 1;
@@ -1113,7 +1113,7 @@ namespace
 		FTraits::SerializeCount = 0;
 		FTraits::PostDeserializeCount = 0;
 		FValue Source{21, 999};
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Durin::FMemoryWriter Writer(Bytes);
 		Durin::SerializeReflectedPropertyValue(Writer, Property, &Source);
 		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -1130,7 +1130,7 @@ namespace
 		EXPECT_EQ(Destination.Value, 21);
 		EXPECT_EQ(Destination.Derived, 42);
 
-		std::vector<Durin::uint8> Truncated(Bytes.begin(), Bytes.end() - 1);
+		std::vector<std::byte> Truncated(Bytes.begin(), Bytes.end() - 1);
 		Destination = {7, 14};
 		Durin::FMemoryReader TruncatedReader(Truncated);
 		Durin::SerializeReflectedPropertyValue(TruncatedReader, Property, &Destination);

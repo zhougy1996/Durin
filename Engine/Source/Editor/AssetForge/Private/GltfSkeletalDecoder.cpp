@@ -16,7 +16,7 @@ namespace Durin::Asset::Forge::Private
 
 		struct FDecodedAccessor
 		{
-			std::span<const uint8> Bytes;
+			std::span<const std::byte> Bytes;
 			uint64 Count = 0;
 			uint64 Offset = 0;
 			uint64 Stride = 0;
@@ -297,7 +297,7 @@ namespace Durin::Asset::Forge::Private
 		public:
 			FGltfSkeletalDecoder(
 				FJsonNodeView InRoot,
-				const std::vector<std::vector<uint8>>& InBuffers,
+				const std::vector<std::vector<std::byte>>& InBuffers,
 				FSceneDecodeResult& InResult)
 				: Root(InRoot), Buffers(InBuffers), Result(InResult) {}
 
@@ -680,14 +680,14 @@ namespace Durin::Asset::Forge::Private
 			{
 				const size_t Offset = static_cast<size_t>(Accessor.Offset + Element * Accessor.Stride
 					+ static_cast<uint64>(Component) * Accessor.ComponentSize);
-				if (Accessor.ComponentType == GltfUnsignedByte) return Accessor.Bytes[Offset];
+				if (Accessor.ComponentType == GltfUnsignedByte) return std::to_integer<uint32>(Accessor.Bytes[Offset]);
 				if (Accessor.ComponentType == GltfUnsignedShort)
-					return static_cast<uint32>(Accessor.Bytes[Offset])
-						| (static_cast<uint32>(Accessor.Bytes[Offset + 1]) << 8);
-				return static_cast<uint32>(Accessor.Bytes[Offset])
-					| (static_cast<uint32>(Accessor.Bytes[Offset + 1]) << 8)
-					| (static_cast<uint32>(Accessor.Bytes[Offset + 2]) << 16)
-					| (static_cast<uint32>(Accessor.Bytes[Offset + 3]) << 24);
+					return std::to_integer<uint32>(Accessor.Bytes[Offset])
+						| (std::to_integer<uint32>(Accessor.Bytes[Offset + 1]) << 8);
+				return std::to_integer<uint32>(Accessor.Bytes[Offset])
+					| (std::to_integer<uint32>(Accessor.Bytes[Offset + 1]) << 8)
+					| (std::to_integer<uint32>(Accessor.Bytes[Offset + 2]) << 16)
+					| (std::to_integer<uint32>(Accessor.Bytes[Offset + 3]) << 24);
 			}
 
 			auto ReadComponent(const FDecodedAccessor& Accessor, uint64 Element, uint32 Component) const -> double
@@ -1333,7 +1333,7 @@ namespace Durin::Asset::Forge::Private
 			}
 
 			FJsonNodeView Root;
-			const std::vector<std::vector<uint8>>& Buffers;
+			const std::vector<std::vector<std::byte>>& Buffers;
 			FSceneDecodeResult& Result;
 			std::vector<FSourceNode> Nodes;
 			std::vector<FSourceSkin> Skins;
@@ -1347,7 +1347,7 @@ namespace Durin::Asset::Forge::Private
 
 	auto ImportGltfSkeletalData(
 		FJsonNodeView Root,
-		const std::vector<std::vector<uint8>>& Buffers,
+		const std::vector<std::vector<std::byte>>& Buffers,
 		FSceneDecodeResult& Result) -> bool
 	{
 		return FGltfSkeletalDecoder(Root, Buffers, Result).Decode();

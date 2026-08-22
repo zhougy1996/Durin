@@ -443,10 +443,10 @@ TEST(FSceneImportTests, SkeletalRootLastFailureRestoresEveryPackage)
 	const Durin::Asset::Forge::FSceneImportExecutionResult Initial =
 		Durin::Asset::Forge::ExecuteSceneImport(InitialPlan.Plan);
 	ASSERT_TRUE(Initial) << Initial.Message;
-	std::vector<std::pair<Durin::DPackage*, std::vector<Durin::uint8>>> BeforeBytes;
+	std::vector<std::pair<Durin::DPackage*, std::vector<std::byte>>> BeforeBytes;
 	auto Capture = [&](Durin::DObject* Object) {
 		ASSERT_NE(Object, nullptr);
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		const Durin::Asset::FAssetResult Serialized =
 			Durin::Asset::SerializeAssetPackageBytes(Object->GetPackage(), Bytes);
 		ASSERT_TRUE(Serialized) << Serialized.Message;
@@ -472,7 +472,7 @@ TEST(FSceneImportTests, SkeletalRootLastFailureRestoresEveryPackage)
 	EXPECT_FALSE(Failed);
 	for (const auto& [Package, ExpectedBytes] : BeforeBytes)
 	{
-		std::vector<Durin::uint8> ActualBytes;
+		std::vector<std::byte> ActualBytes;
 		const Durin::Asset::FAssetResult Serialized =
 			Durin::Asset::SerializeAssetPackageBytes(Package, ActualBytes);
 		ASSERT_TRUE(Serialized) << Serialized.Message;
@@ -664,10 +664,10 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 	ASSERT_NE(Initial.Record, nullptr);
 	ASSERT_EQ(Initial.Meshes.size(), 1u);
 	ASSERT_EQ(Initial.Textures.size(), 1u);
-	std::vector<std::pair<Durin::DPackage*, std::vector<Durin::uint8>>> BeforeBytes;
+	std::vector<std::pair<Durin::DPackage*, std::vector<std::byte>>> BeforeBytes;
 	auto CaptureBytes = [&](Durin::DPackage* Package) {
 		ASSERT_NE(Package, nullptr);
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		const Durin::Asset::FAssetResult Serialized =
 			Durin::Asset::SerializeAssetPackageBytes(Package, Bytes);
 		ASSERT_TRUE(Serialized) << Serialized.Message;
@@ -719,7 +719,7 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 	EXPECT_EQ(Reimported.Textures[0]->GetDerivedDataKey(), TextureDerivedDataKey);
 	for (const auto& [Package, ExpectedBytes] : BeforeBytes)
 	{
-		std::vector<Durin::uint8> ActualBytes;
+		std::vector<std::byte> ActualBytes;
 		const Durin::Asset::FAssetResult Serialized =
 			Durin::Asset::SerializeAssetPackageBytes(Package, ActualBytes);
 		ASSERT_TRUE(Serialized) << Serialized.Message;

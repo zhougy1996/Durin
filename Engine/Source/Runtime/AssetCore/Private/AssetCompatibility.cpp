@@ -20,17 +20,15 @@ namespace Durin::Asset
 		class FSha256
 		{
 		public:
-			auto Update(const void* Data, size_t Size) -> void
+			auto Update(std::span<const std::byte> Data) -> void
 			{
-				const auto* Bytes = static_cast<const uint8*>(Data);
-				TotalBytes += Size;
-				while (Size != 0)
+				TotalBytes += Data.size();
+				while (!Data.empty())
 				{
-					const size_t Count = std::min(Size, Block.size() - BlockSize);
-					std::memcpy(Block.data() + BlockSize, Bytes, Count);
+					const size_t Count = std::min(Data.size(), Block.size() - BlockSize);
+					std::memcpy(Block.data() + BlockSize, Data.data(), Count);
 					BlockSize += Count;
-					Bytes += Count;
-					Size -= Count;
+					Data = Data.subspan(Count);
 					if (BlockSize == Block.size()) { Transform(Block.data()); BlockSize = 0; }
 				}
 			}
@@ -38,15 +36,15 @@ namespace Durin::Asset
 			auto Finalize() -> std::string
 			{
 				const uint64 BitCount = TotalBytes * 8;
-				Block[BlockSize++] = 0x80;
+				Block[BlockSize++] = std::byte{0x80};
 				if (BlockSize > 56)
 				{
-					std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.end(), 0);
+					std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.end(), std::byte{0});
 					Transform(Block.data());
 					BlockSize = 0;
 				}
-				std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.begin() + 56, 0);
-				for (size_t Index = 0; Index < 8; ++Index) Block[63 - Index] = static_cast<uint8>(BitCount >> (Index * 8));
+				std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.begin() + 56, std::byte{0});
+				for (size_t Index = 0; Index < 8; ++Index) Block[63 - Index] = static_cast<std::byte>(BitCount >> (Index * 8));
 				Transform(Block.data());
 				std::string Hex = "sha256:";
 				for (const uint32 Value : State) Hex += std::format("{:08x}", Value);
@@ -54,7 +52,7 @@ namespace Durin::Asset
 			}
 
 		private:
-			auto Transform(const uint8* Data) -> void
+			auto Transform(const std::byte* Data) -> void
 			{
 				static constexpr std::array<uint32, 64> K = {
 					0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -67,7 +65,10 @@ namespace Durin::Asset
 					0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
 				std::array<uint32, 64> Words{};
 				for (size_t Index = 0; Index < 16; ++Index)
-					Words[Index] = uint32(Data[Index * 4]) << 24 | uint32(Data[Index * 4 + 1]) << 16 | uint32(Data[Index * 4 + 2]) << 8 | Data[Index * 4 + 3];
+					Words[Index] = std::to_integer<uint32>(Data[Index * 4]) << 24
+						| std::to_integer<uint32>(Data[Index * 4 + 1]) << 16
+						| std::to_integer<uint32>(Data[Index * 4 + 2]) << 8
+						| std::to_integer<uint32>(Data[Index * 4 + 3]);
 				for (size_t Index = 16; Index < Words.size(); ++Index)
 				{
 					const uint32 S0 = std::rotr(Words[Index - 15], 7) ^ std::rotr(Words[Index - 15], 18) ^ (Words[Index - 15] >> 3);
@@ -89,7 +90,7 @@ namespace Durin::Asset
 			}
 
 			std::array<uint32, 8> State = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
-			std::array<uint8, 64> Block{};
+			std::array<std::byte, 64> Block{};
 			size_t BlockSize = 0;
 			uint64 TotalBytes = 0;
 		};
@@ -131,7 +132,7 @@ namespace Durin::Asset
 				if (Read > 0)
 				{
 					Builder.Update(Buffer.data(), static_cast<uint64>(Read));
-					Sha256.Update(Buffer.data(), static_cast<size_t>(Read));
+					Sha256.Update(std::as_bytes(std::span(Buffer).first(static_cast<size_t>(Read))));
 				}
 			}
 			if (Stream.bad())
@@ -650,7 +651,7 @@ namespace Durin::Asset
 			Private::FindAssetPackageReader(Version))
 		{
 			bUsedCodec = true;
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
 				AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
 					std::format("Failed to open asset package {}.", Input.PhysicalPath));

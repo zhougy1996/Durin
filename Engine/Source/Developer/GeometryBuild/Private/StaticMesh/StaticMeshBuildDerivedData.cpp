@@ -43,9 +43,9 @@ namespace Durin::Asset::Build
 		template<typename T>
 		auto BuildKeyBytes(
 			const T& Input,
-			std::string& OutError) -> std::vector<uint8>
+			std::string& OutError) -> std::vector<std::byte>
 		{
-			std::vector<uint8> Bytes;
+			std::vector<std::byte> Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
 			OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -87,7 +87,7 @@ namespace Durin::Asset::Build
 
 	auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>
+		std::string& OutError) -> std::vector<std::byte>
 	{
 		return BuildKeyBytes(Input, OutError);
 	}
@@ -96,13 +96,13 @@ namespace Durin::Asset::Build
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<uint8> Bytes = BuildKeyBytes(Input, OutError);
+		const std::vector<std::byte> Bytes = BuildKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 
 	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<uint8>
+		std::string& OutError) -> std::vector<std::byte>
 	{
 		return BuildKeyBytes(Input, OutError);
 	}
@@ -111,7 +111,7 @@ namespace Durin::Asset::Build
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<uint8> Bytes = BuildKeyBytes(Input, OutError);
+		const std::vector<std::byte> Bytes = BuildKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 }

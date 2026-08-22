@@ -82,7 +82,7 @@ namespace Durin::Asset::Forge
 				return Result;
 			}
 
-			std::vector<uint8> RootBytes;
+			std::vector<std::byte> RootBytes;
 			std::string ReadError;
 			if (!Private::ReadFileBytes(RootPath, MaxImportedSceneSourceBytes, RootBytes, ReadError))
 			{
@@ -120,7 +120,7 @@ namespace Durin::Asset::Forge
 			const Private::FImportedSceneContext Context{
 				RootPath, Options.RootSource.Path, RootBytes, Options, Result};
 			std::vector<uint32> SourcePrimitiveMaterialIndices;
-			std::vector<uint8> AssimpProjection;
+			std::vector<std::byte> AssimpProjection;
 			if ((bGltf || bGlb)
 				&& !Private::ImportGltfFormat(
 					Context, bGlb, SourcePrimitiveMaterialIndices, AssimpProjection))
@@ -258,7 +258,7 @@ namespace Durin::Asset::Forge
 	}
 
 	auto ImportGeometryFromMemory(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		std::string_view ExtensionHint,
 		FImportedSceneData& OutData,
 		const FMeshImportOptions& Options) -> bool

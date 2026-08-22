@@ -128,7 +128,7 @@ namespace Durin::Asset::Forge
 	}
 
 	auto TranslateTexture2DSource(
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool
 	{
@@ -160,13 +160,13 @@ namespace Durin::Asset::Forge
 
 	auto BuildTexture2DCandidateFromSource(
 		DTexture2D& Texture,
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		const FSourcePath& SourcePath,
 		const FTexture2DImportSettings& Settings,
 		std::string& OutError,
 		int64 SourceLastWriteTime) -> bool
 	{
-		auto Bytes = std::make_shared<const std::vector<uint8>>(
+		auto Bytes = std::make_shared<const std::vector<std::byte>>(
 			EncodedBytes.begin(), EncodedBytes.end());
 		FEncodedSourceSnapshot Source{
 			.SourcePath = SourcePath,

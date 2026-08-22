@@ -10,7 +10,7 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto WriteBinaryFixture(std::string_view Name, std::span<const uint8> Bytes) -> std::filesystem::path
+		auto WriteBinaryFixture(std::string_view Name, std::span<const std::byte> Bytes) -> std::filesystem::path
 		{
 			const std::filesystem::path Path = Testing::GetTestWorkDirectory() / Name;
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
@@ -18,13 +18,13 @@ namespace Durin::Editor::Level
 			return Path;
 		}
 
-		auto TransparentPngBytes() -> std::span<const uint8>
+		auto TransparentPngBytes() -> std::span<const std::byte>
 		{
 			static constexpr uint8 Bytes[] = {
 				137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 				0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 				0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
-			return Bytes;
+			return std::as_bytes(std::span{Bytes});
 		}
 
 		auto PrepareDiskCacheTest(std::string_view Name) -> std::pair<std::filesystem::path, std::filesystem::path>
@@ -153,7 +153,8 @@ namespace Durin::Editor::Level
 		} SchedulerGuard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		const std::array<uint8, 4> CorruptPng{0, 1, 2, 3};
-		const std::filesystem::path Path = WriteBinaryFixture("AttributedThumbnail.png", CorruptPng);
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"AttributedThumbnail.png", std::as_bytes(std::span{CorruptPng}));
 		{
 			FSourceImageThumbnailCache Cache;
 			Cache.BeginFrame();
@@ -273,7 +274,8 @@ namespace Durin::Editor::Level
 			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
-		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailTransparent.png", PngBytes);
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"ThumbnailTransparent.png", std::as_bytes(std::span{PngBytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
 		std::string Error;
 		ASSERT_TRUE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error)) << Error;
@@ -291,7 +293,8 @@ namespace Durin::Editor::Level
 			195, 160, 170, 218, 173, 138, 140, 200, 255, 203, 218, 238, 245, 255, 255, 255, 155, 193, 255, 255, 255, 250, 255, 230, 253, 255, 248, 255,
 			192, 0, 11, 8, 0, 1, 0, 1, 1, 1, 17, 0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 			255, 196, 0, 20, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 63, 255, 217};
-		const std::filesystem::path Path = WriteBinaryFixture("Thumbnail.jpg", JpegBytes);
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"Thumbnail.jpg", std::as_bytes(std::span{JpegBytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
 		std::string Error;
 		ASSERT_TRUE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error)) << Error;
@@ -304,14 +307,15 @@ namespace Durin::Editor::Level
 	{
 		constexpr uint32 Width = 512;
 		constexpr uint32 Height = 256;
-		std::vector<uint8> TgaBytes(18 + static_cast<size_t>(Width) * Height * 3, 0);
-		TgaBytes[2] = 2;
-		TgaBytes[12] = static_cast<uint8>(Width & 0xff);
-		TgaBytes[13] = static_cast<uint8>(Width >> 8);
-		TgaBytes[14] = static_cast<uint8>(Height & 0xff);
-		TgaBytes[15] = static_cast<uint8>(Height >> 8);
-		TgaBytes[16] = 24;
-		TgaBytes[17] = 0x20;
+		std::vector<std::byte> TgaBytes(
+			18 + static_cast<size_t>(Width) * Height * 3, std::byte{0});
+		TgaBytes[2] = std::byte{2};
+		TgaBytes[12] = static_cast<std::byte>(Width & 0xff);
+		TgaBytes[13] = static_cast<std::byte>(Width >> 8);
+		TgaBytes[14] = static_cast<std::byte>(Height & 0xff);
+		TgaBytes[15] = static_cast<std::byte>(Height >> 8);
+		TgaBytes[16] = std::byte{24};
+		TgaBytes[17] = std::byte{0x20};
 		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailLarge.tga", TgaBytes);
 		FDecodedSourceImageThumbnail Thumbnail;
 		std::string Error;
@@ -324,7 +328,8 @@ namespace Durin::Editor::Level
 	TEST(FSourceImageThumbnailTests, RejectsCorruptImage)
 	{
 		constexpr uint8 Bytes[] = {1, 2, 3, 4, 5};
-		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailCorrupt.png", Bytes);
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"ThumbnailCorrupt.png", std::as_bytes(std::span{Bytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
 		std::string Error;
 		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));
@@ -338,7 +343,8 @@ namespace Durin::Editor::Level
 			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 32, 0, 0, 0, 32, 0, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
-		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailOversized.png", PngBytes);
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"ThumbnailOversized.png", std::as_bytes(std::span{PngBytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
 		std::string Error;
 		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));

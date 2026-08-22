@@ -186,7 +186,7 @@ namespace Durin::Editor::Level
 				const uint32 Width = Result.Thumbnail.Width;
 				const uint32 Height = Result.Thumbnail.Height;
 				const bool bHasTransparency = Result.Thumbnail.bHasTransparency;
-				auto Pixels = std::make_shared<std::vector<uint8>>(std::move(Result.Thumbnail.Pixels));
+				auto Pixels = std::make_shared<std::vector<std::byte>>(std::move(Result.Thumbnail.Pixels));
 				ENQUEUE_RENDER_COMMAND(UploadSourceImageThumbnail)([WeakState, PhysicalPath, Serial, Width, Height, bHasTransparency, Pixels](FRHICommandListImmediate& CommandList) {
 					FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SourceImageThumbnail", Width, Height, EPixelFormat::SRGBA8_UNORM);
 					Desc.AddFlags(ETextureCreateFlags::ShaderResource);
@@ -194,7 +194,7 @@ namespace Durin::Editor::Level
 					if (Texture)
 					{
 						const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-						GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, Width * 4, Pixels->data());
+						GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, Width * 4, *Pixels);
 					}
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{

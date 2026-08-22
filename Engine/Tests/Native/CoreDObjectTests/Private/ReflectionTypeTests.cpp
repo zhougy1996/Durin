@@ -326,7 +326,7 @@ namespace
 TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationTransactionally)
 {
 	std::vector<std::byte> Source{std::byte{0x10}, std::byte{0x20}, std::byte{0x30}};
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FObjectMemoryWriter Writer(Bytes, Durin::EArchivePurpose::PropertySnapshot);
 	Writer.SerializeByteBlob(Source);
 	ASSERT_FALSE(Writer.HasError());
@@ -344,10 +344,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	EXPECT_TRUE(Truncated.HasError());
 	EXPECT_EQ(Preserved, (std::vector<std::byte>{std::byte{0x7f}}));
 
-	std::vector<Durin::uint8> Oversized(sizeof(Durin::uint64));
+	std::vector<std::byte> Oversized(sizeof(Durin::uint64));
 	const Durin::uint64 OversizedCount = 1024ull * 1024 * 1024 + 1;
 	for (size_t Index = 0; Index < Oversized.size(); ++Index)
-		Oversized[Index] = static_cast<Durin::uint8>(OversizedCount >> (Index * 8));
+		Oversized[Index] = static_cast<std::byte>(OversizedCount >> (Index * 8));
 	Durin::FObjectMemoryReader OversizedReader(
 		Oversized, Durin::EArchivePurpose::PropertySnapshot);
 	OversizedReader.SerializeByteBlob(Preserved);
@@ -2301,7 +2301,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DefaultObject->GetOuter(), Class);
 		EXPECT_FALSE(DefaultObject->IsGarbage());
 		EXPECT_FALSE(DefaultObject->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
-		std::vector<Durin::uint8> SerializedDefault;
+		std::vector<std::byte> SerializedDefault;
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
 		std::string DuplicateError;
 		EXPECT_EQ(Durin::DuplicateObjectGraph(
@@ -2765,7 +2765,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto* MapProperty = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("Lookup"));
 		ASSERT_NE(MapProperty, nullptr);
 		std::string StableKey = "Stable";
-		std::vector<Durin::uint8> StableToken;
+		std::vector<std::byte> StableToken;
 		std::string TokenError;
 		ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
 			MapProperty->GetKeyProp(), &StableKey, 0, StableToken, &TokenError)) << TokenError;
@@ -2835,7 +2835,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const Durin::FAuthoredOverridePath UnavailableMapPath{
 			Durin::FAuthoredOverridePathToken::Field(
 				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("NativeMap")),
-			Durin::FAuthoredOverridePathToken::MapValue({1, 2, 3})};
+			Durin::FAuthoredOverridePathToken::MapValue(
+				{std::byte{1}, std::byte{2}, std::byte{3}})};
 		EXPECT_FALSE(Native->SetAuthoredOverride(UnavailableMapPath,
 			Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::MapKeyUnavailable);
@@ -3785,7 +3786,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_EQ(Owner->GetClass()->GetName(), "DLifecycleReferenceOwnerForTest");
 		ASSERT_EQ(ReferencedObject->GetClass(), Durin::DObject::StaticClass());
 
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Owner, Bytes));
 		ASSERT_EQ(Owner->SerializePurposes.size(), 2u);
 		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
@@ -3804,12 +3805,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		}
 		{
 			auto V1Bytes = Bytes;
-			V1Bytes[4] = 1;
-			V1Bytes[5] = V1Bytes[6] = V1Bytes[7] = 0;
+			V1Bytes[4] = std::byte{1};
+			V1Bytes[5] = V1Bytes[6] = V1Bytes[7] = std::byte{0};
 			EXPECT_EQ(Durin::LoadObjectGraphFromMemory(V1Bytes), nullptr);
 
 			auto TrailingBytes = Bytes;
-			TrailingBytes.push_back(0x7F);
+			TrailingBytes.push_back(std::byte{0x7F});
 			EXPECT_EQ(Durin::LoadObjectGraphFromMemory(TrailingBytes), nullptr);
 
 			auto InvalidReferenceBytes = Bytes;
@@ -3829,9 +3830,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				+ static_cast<size_t>(PropertySize);
 			ASSERT_GE(PropertySize, 9u);
 			ASSERT_EQ(InvalidReferenceBytes[PropertyEnd - 9],
-				static_cast<Durin::uint8>(Durin::EArchiveObjectReferenceKind::Internal));
+				static_cast<std::byte>(Durin::EArchiveObjectReferenceKind::Internal));
 			std::fill(InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd - 8),
-				InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd), 0);
+				InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd), std::byte{0});
 			EXPECT_EQ(Durin::LoadObjectGraphFromMemory(InvalidReferenceBytes), nullptr);
 		}
 		Durin::MarkAsGarbage(Owner);
@@ -3906,9 +3907,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->EmissionOnlyReference = LateReference;
 		Owner->bEmitLateReference = true;
 
-		std::vector<Durin::uint8> Bytes = {0xC0, 0xDE};
+		std::vector<std::byte> Bytes = {std::byte{0xC0}, std::byte{0xDE}};
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(Owner, Bytes));
-		EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{0xC0, 0xDE}));
+		EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0xC0}, std::byte{0xDE}}));
 		ASSERT_EQ(Owner->SerializePurposes.size(), 2u);
 		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
 		EXPECT_EQ(Owner->SerializePurposes[1], Durin::EArchivePurpose::ObjectGraph);
@@ -3917,7 +3918,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->bSkipSuperSerialize = true;
 		Owner->SerializePurposes.clear();
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(Owner, Bytes));
-		EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{0xC0, 0xDE}));
+		EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0xC0}, std::byte{0xDE}}));
 		ASSERT_EQ(Owner->SerializePurposes.size(), 1u);
 		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
 
@@ -3999,7 +4000,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EnsureDObjectInitialized();
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("GenericMemoryArchiveReference"));
-		std::vector<Durin::uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Durin::FMemoryWriter Writer(Bytes);
 		Writer.SerializeObjectReference(Object);
 		ASSERT_NE(Writer.GetFailure(), nullptr);
@@ -5090,7 +5091,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			nullptr, Durin::FName("SemanticArchiveScopeObject"));
 		ASSERT_NE(Object, nullptr);
 
-		std::vector<Durin::uint8> MissingBaseBytes;
+		std::vector<std::byte> MissingBaseBytes;
 		Durin::FMemoryWriter MissingBaseWriter(MissingBaseBytes);
 		{
 			auto ObjectScope = MissingBaseWriter.EnterObject(*Object);
@@ -5099,7 +5100,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(MissingBaseWriter.GetFailure()->Code,
 			Durin::EArchiveFailureCode::MissingBaseReflectedFields);
 
-		std::vector<Durin::uint8> DuplicateBaseBytes;
+		std::vector<std::byte> DuplicateBaseBytes;
 		Durin::FMemoryWriter DuplicateBaseWriter(DuplicateBaseBytes);
 		{
 			auto ObjectScope = DuplicateBaseWriter.EnterObject(*Object);
@@ -5110,7 +5111,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DuplicateBaseWriter.GetFailure()->Code,
 			Durin::EArchiveFailureCode::DuplicateBaseReflectedFields);
 
-		std::vector<Durin::uint8> DuplicateBytes;
+		std::vector<std::byte> DuplicateBytes;
 		Durin::FMemoryWriter DuplicateWriter(DuplicateBytes);
 		{
 			auto ObjectScope = DuplicateWriter.EnterObject(*Object);
@@ -5125,7 +5126,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(DuplicateWriter.GetFailure(), nullptr);
 		EXPECT_EQ(DuplicateWriter.GetFailure()->Code, Durin::EArchiveFailureCode::DuplicateField);
 
-		std::vector<Durin::uint8> UnbalancedBytes;
+		std::vector<std::byte> UnbalancedBytes;
 		Durin::FMemoryWriter UnbalancedWriter(UnbalancedBytes);
 		{
 			auto ObjectScope = UnbalancedWriter.EnterObject(*Object);
@@ -5158,7 +5159,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FFieldVariant(), Durin::FName("Incomplete"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, &IncompleteStruct);
 		StructOpsTest::FIncompleteAuthoredStruct IncompleteValue{41};
-		std::vector<Durin::uint8> MalformedBytes;
+		std::vector<std::byte> MalformedBytes;
 		Durin::FMemoryWriter AuthoredWriter(
 			MalformedBytes, Durin::EArchivePurpose::AuthoredPackage);
 		Durin::SerializeReflectedPropertyValue(

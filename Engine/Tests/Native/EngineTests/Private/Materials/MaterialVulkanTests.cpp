@@ -183,7 +183,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			AlignedContract);
 		ASSERT_TRUE(AlignedPool.IsAvailable()) << AlignedPool.GetDiagnostic();
 		auto CaptureAligned = [&](float Roughness) {
-			std::vector<Durin::uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			EXPECT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
 				Durin::MaterialParameters::RoughnessName(), Roughness));
 			EXPECT_TRUE(AlignedPool.SetMaterial(
@@ -206,13 +206,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::array<Durin::uint32, 5> SaturatedPixelCounts{};
 		for (size_t Index = 0; Index < RoughnessSweep.size(); ++Index)
 		{
-			const std::vector<Durin::uint8> Pixels =
+			const std::vector<std::byte> Pixels =
 				CaptureAligned(RoughnessSweep[Index]);
 			for (size_t Pixel = 0; Pixel < Pixels.size(); Pixel += 4)
 			{
 				const Durin::uint32 Brightness =
-					static_cast<Durin::uint32>(Pixels[Pixel])
-					+ Pixels[Pixel + 1] + Pixels[Pixel + 2];
+					std::to_integer<Durin::uint32>(Pixels[Pixel])
+					+ std::to_integer<Durin::uint32>(Pixels[Pixel + 1])
+					+ std::to_integer<Durin::uint32>(Pixels[Pixel + 2]);
 				Peaks[Index] = std::max(Peaks[Index], Brightness);
 				SaturatedPixelCounts[Index] +=
 					Brightness >= DisplayMappedHighlightThreshold ? 1u : 0u;
@@ -309,7 +310,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		auto Capture = [&](
 			Durin::DMaterialInterface* Material,
 			const Durin::FTransform& Transform = Durin::FTransform()) {
-			std::vector<Durin::uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			EXPECT_TRUE(Pool.SetMaterial(
 				CaptureMesh, Material, Transform, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
@@ -320,28 +321,28 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Pool.Reset();
 			return Pixels;
 		};
-		const std::vector<Durin::uint8> MaterialPixels =
+		const std::vector<std::byte> MaterialPixels =
 			Capture(CaptureMaterial);
 		Durin::FMaterialStaticProperties TwoSidedProperties =
 			CaptureMaterial->GetStaticProperties();
 		TwoSidedProperties.bTwoSided = true;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
-		const std::vector<Durin::uint8> TwoSidedFrontPixels =
+		const std::vector<std::byte> TwoSidedFrontPixels =
 			Capture(CaptureMaterial);
 		Durin::FTransform BackFaceTransform;
 		BackFaceTransform.Scale3D.z = -1.0;
-		const std::vector<Durin::uint8> TwoSidedBackPixels =
+		const std::vector<std::byte> TwoSidedBackPixels =
 			Capture(CaptureMaterial, BackFaceTransform);
 		TwoSidedProperties.bTwoSided = false;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
-		const std::vector<Durin::uint8> InstancePixels =
+		const std::vector<std::byte> InstancePixels =
 			Capture(CaptureInstance);
-		const std::vector<Durin::uint8> InheritedBeforePixels =
+		const std::vector<std::byte> InheritedBeforePixels =
 			Capture(InheritedInstance);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.15, 0.7, 0.2)));
-		const std::vector<Durin::uint8> InheritedAfterPixels =
+		const std::vector<std::byte> InheritedAfterPixels =
 			Capture(InheritedInstance);
 
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -399,7 +400,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			StaticMeshView,
 			Error)) << Error;
 		auto CaptureStaticMesh = [&] {
-			std::vector<Durin::uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			EXPECT_TRUE(Pool.SetStaticMesh(
 				StaticMeshFixture, StaticMeshView, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(
@@ -412,11 +413,11 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Pool.Reset();
 			return Pixels;
 		};
-		const std::vector<Durin::uint8> StaticMeshPixels = CaptureStaticMesh();
+		const std::vector<std::byte> StaticMeshPixels = CaptureStaticMesh();
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
-		const std::vector<Durin::uint8> RecoloredStaticMeshPixels = CaptureStaticMesh();
+		const std::vector<std::byte> RecoloredStaticMeshPixels = CaptureStaticMesh();
 		ASSERT_EQ(StaticMeshPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(RecoloredStaticMeshPixels.size(), StaticMeshPixels.size());
 		EXPECT_NE(StaticMeshPixels, RecoloredStaticMeshPixels);
@@ -426,9 +427,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			for (Durin::uint32 X = 0; X < 64; ++X)
 			{
 				const size_t Pixel = (Y * 64u + X) * 4u;
-				GeometryPixels += StaticMeshPixels[Pixel + 3] != 0u ? 1u : 0u;
+				GeometryPixels += StaticMeshPixels[Pixel + 3] != std::byte{0} ? 1u : 0u;
 				if (X == 0 || Y == 0 || X == 63 || Y == 63)
-					EXPECT_EQ(StaticMeshPixels[Pixel + 3], 0u);
+					EXPECT_EQ(StaticMeshPixels[Pixel + 3], std::byte{0});
 			}
 		}
 		EXPECT_GT(GeometryPixels, 64u);
@@ -545,7 +546,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
-		const std::vector<Durin::uint8> UntexturedPixels =
+		const std::vector<std::byte> UntexturedPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
@@ -555,16 +556,16 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.0, 0.0)));
 		Durin::DStaticMesh* TriangleCaptureMesh = CaptureMesh;
 		CaptureMesh = CaptureSphere;
-		const std::vector<Durin::uint8> UV0Pixels = Capture(CaptureMaterial);
+		const std::vector<std::byte> UV0Pixels = Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVChannel"), 3.0f));
-		const std::vector<Durin::uint8> MissingUVFallbackPixels =
+		const std::vector<std::byte> MissingUVFallbackPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVScale"), Durin::FVector2(-1.0, 1.0)));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(1.0, 0.0)));
-		const std::vector<Durin::uint8> TransformedUVPixels =
+		const std::vector<std::byte> TransformedUVPixels =
 			Capture(CaptureMaterial);
 		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
@@ -592,7 +593,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::EncodeMaterialSamplerState(RepeatSampler)));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVRotation"), 1.57079633f));
-		const std::vector<Durin::uint8> RotatedUVPixels = Capture(CaptureMaterial);
+		const std::vector<std::byte> RotatedUVPixels = Capture(CaptureMaterial);
 		EXPECT_NE(RotatedUVPixels, UV0Pixels);
 		EXPECT_FLOAT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).UVRotations[0],
@@ -607,14 +608,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorSamplerState"),
 			Durin::EncodeMaterialSamplerState(RepeatSampler)));
-		const std::vector<Durin::uint8> RepeatPixels = Capture(CaptureMaterial);
+		const std::vector<std::byte> RepeatPixels = Capture(CaptureMaterial);
 		Durin::FMaterialSamplerState ClampSampler = RepeatSampler;
 		ClampSampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorSamplerState"),
 			Durin::EncodeMaterialSamplerState(ClampSampler)));
-		const std::vector<Durin::uint8> ClampPixels = Capture(CaptureMaterial);
+		const std::vector<std::byte> ClampPixels = Capture(CaptureMaterial);
 		EXPECT_NE(RepeatPixels, ClampPixels);
 		EXPECT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).Samplers[0],
@@ -702,24 +703,24 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(),
 			Durin::FVector3(0.0)));
-		const std::vector<Durin::uint8> PbrBaselinePixels =
+		const std::vector<std::byte> PbrBaselinePixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::MetallicName(), 1.0f));
-		const std::vector<Durin::uint8> MetallicOnlyPixels =
+		const std::vector<std::byte> MetallicOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::MetallicName(), 0.0f));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::RoughnessName(), 0.1f));
-		const std::vector<Durin::uint8> RoughnessOnlyPixels =
+		const std::vector<std::byte> RoughnessOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::RoughnessName(), 0.5f));
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::NormalName(),
 			Durin::FVector3(0.6, 0.0, 0.8)));
-		const std::vector<Durin::uint8> NormalOnlyPixels =
+		const std::vector<std::byte> NormalOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::NormalName(),
@@ -727,7 +728,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(),
 			Durin::FVector3(0.15, 0.05, 0.0)));
-		const std::vector<Durin::uint8> EmissiveOnlyPixels =
+		const std::vector<std::byte> EmissiveOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
@@ -739,7 +740,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::MaterialParameters::OpacityName(), 0.4f));
 		const Durin::FMaterialPipelineIdentity LitPipelineIdentity =
 			CaptureMaterial->GetRenderData().PipelineIdentity;
-		const std::vector<Durin::uint8> LitEmissivePixels =
+		const std::vector<std::byte> LitEmissivePixels =
 			Capture(CaptureMaterial);
 		Durin::FMaterialStaticProperties StaticProperties;
 		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
@@ -747,37 +748,37 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_NE(
 			CaptureMaterial->GetRenderData().PipelineIdentity,
 			LitPipelineIdentity);
-		const std::vector<Durin::uint8> StaticIdentityPixels =
+		const std::vector<std::byte> StaticIdentityPixels =
 			Capture(CaptureMaterial);
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
 		StaticProperties.OpacityMaskThreshold = 0.4f;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.39f));
-		const std::vector<Durin::uint8> MaskedBelowPixels =
+		const std::vector<std::byte> MaskedBelowPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.4f));
-		const std::vector<Durin::uint8> MaskedEqualPixels =
+		const std::vector<std::byte> MaskedEqualPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.41f));
-		const std::vector<Durin::uint8> MaskedAbovePixels =
+		const std::vector<std::byte> MaskedAbovePixels =
 			Capture(CaptureMaterial);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.0f));
-		const std::vector<Durin::uint8> TranslucentZeroPixels =
+		const std::vector<std::byte> TranslucentZeroPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.4f));
-		const std::vector<Durin::uint8> TranslucentPartialPixels =
+		const std::vector<std::byte> TranslucentPartialPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 1.0f));
-		const std::vector<Durin::uint8> TranslucentFullPixels =
+		const std::vector<std::byte> TranslucentFullPixels =
 			Capture(CaptureMaterial);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Opaque;
@@ -790,7 +791,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FConsoleCommandRegistry::Get().Execute(
 				"renderer.reload-shaders all");
 		ASSERT_TRUE(ReloadResult.bSuccess) << ReloadResult.Message;
-		const std::vector<Durin::uint8> ReloadedPixels =
+		const std::vector<std::byte> ReloadedPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
@@ -837,7 +838,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		std::vector<Durin::uint8> DirectEnvironmentPixels;
+		std::vector<std::byte> DirectEnvironmentPixels;
 		ASSERT_EQ(
 			Pool.PollCapture(DirectEnvironmentPixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
@@ -866,7 +867,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_NE(OriginalCubeTarget, nullptr);
 		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		std::vector<Durin::uint8> RetargetedEnvironmentPixels;
+		std::vector<std::byte> RetargetedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(RetargetedEnvironmentPixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
@@ -908,7 +909,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		Durin::FlushRenderingCommands();
 		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		std::vector<Durin::uint8> UnavailableEnvironmentPixels;
+		std::vector<std::byte> UnavailableEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(UnavailableEnvironmentPixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
@@ -919,7 +920,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		std::vector<Durin::uint8> EmptyScenePixels;
+		std::vector<std::byte> EmptyScenePixels;
 		ASSERT_EQ(
 			Pool.PollCapture(EmptyScenePixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
@@ -930,7 +931,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		std::vector<Durin::uint8> FailedEnvironmentPixels;
+		std::vector<std::byte> FailedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(FailedEnvironmentPixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
@@ -978,14 +979,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_TRUE(bCancelledCaptureStarted) << Error;
 		EXPECT_GT(QueuedReferenceCount, CubeReferenceBaseline);
 		EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
-		std::vector<Durin::uint8> CancelledPixels;
+		std::vector<std::byte> CancelledPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(CancelledPixels, Error),
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Idle);
 		EXPECT_TRUE(CancelledPixels.empty());
 		EXPECT_TRUE(Error.empty());
 
-		std::vector<Durin::uint8> CubePixels;
+		std::vector<std::byte> CubePixels;
 		ASSERT_TRUE(Pool.SetTextureCube(CubeResult.Asset, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
@@ -999,9 +1000,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_EQ(UntexturedPixels.size(), MaterialPixels.size());
 		const size_t Corner = 0;
 		const size_t Center = (32u * 64u + 32u) * 4u;
-		EXPECT_EQ(MaterialPixels[Corner + 3], 0u);
-		EXPECT_GT(MaterialPixels[Center + 3], 0u);
-		EXPECT_EQ(CubePixels[Corner + 3], 255u);
+		EXPECT_EQ(MaterialPixels[Corner + 3], std::byte{0});
+		EXPECT_GT(std::to_integer<Durin::uint8>(MaterialPixels[Center + 3]), 0u);
+		EXPECT_EQ(CubePixels[Corner + 3], std::byte{255});
 		const std::array CornerRgb = {
 			MaterialPixels[Corner], MaterialPixels[Corner + 1], MaterialPixels[Corner + 2]};
 		const std::array MaterialCenterRgb = {
@@ -1019,23 +1020,23 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_NE(LitEmissivePixels, StaticIdentityPixels);
 		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
 		EXPECT_NEAR(
-			static_cast<int>(StaticIdentityPixels[Center + 2]),
+			std::to_integer<int>(StaticIdentityPixels[Center + 2]),
 			static_cast<int>(MapSrgbChannelThroughDisplay(124u)), 2);
-		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 3]), 102, 2);
-		EXPECT_EQ(MaskedBelowPixels[Center + 3], 0u);
-		EXPECT_GT(MaskedEqualPixels[Center + 3], 0u);
+		EXPECT_NEAR(std::to_integer<int>(StaticIdentityPixels[Center + 3]), 102, 2);
+		EXPECT_EQ(MaskedBelowPixels[Center + 3], std::byte{0});
+		EXPECT_GT(std::to_integer<Durin::uint8>(MaskedEqualPixels[Center + 3]), 0u);
 		EXPECT_EQ(MaskedEqualPixels, MaskedAbovePixels);
-		EXPECT_EQ(TranslucentZeroPixels[Center + 3], 0u);
+		EXPECT_EQ(TranslucentZeroPixels[Center + 3], std::byte{0});
 		EXPECT_NEAR(
-			static_cast<int>(TranslucentPartialPixels[Center + 3]), 102, 2);
-		EXPECT_EQ(TranslucentFullPixels[Center + 3], 255u);
+			std::to_integer<int>(TranslucentPartialPixels[Center + 3]), 102, 2);
+		EXPECT_EQ(TranslucentFullPixels[Center + 3], std::byte{255});
 		EXPECT_LT(
 			TranslucentPartialPixels[Center], TranslucentFullPixels[Center]);
 		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
 		const std::array CubeCenterRgb = {
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};
 		EXPECT_NE(CubeCenterRgb, CornerRgb);
-		EXPECT_NE(CubeCenterRgb, (std::array<Durin::uint8, 3>{0, 0, 0}));
+		EXPECT_NE(CubeCenterRgb, (std::array<std::byte, 3>{}));
 		std::unordered_set<Durin::uint32> CubeCornerColors;
 		for (const size_t CornerPixel : std::array<size_t, 4>{
 				0,
@@ -1044,18 +1045,18 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 				(64u * 64u - 1u) * 4u})
 		{
 			CubeCornerColors.insert(
-				static_cast<Durin::uint32>(CubePixels[CornerPixel]) << 16
-				| static_cast<Durin::uint32>(CubePixels[CornerPixel + 1]) << 8
-				| CubePixels[CornerPixel + 2]);
+				std::to_integer<Durin::uint32>(CubePixels[CornerPixel]) << 16
+				| std::to_integer<Durin::uint32>(CubePixels[CornerPixel + 1]) << 8
+				| std::to_integer<Durin::uint32>(CubePixels[CornerPixel + 2]));
 		}
 		EXPECT_GT(CubeCornerColors.size(), 1u);
 		std::unordered_set<Durin::uint32> CubeColors;
 		for (size_t Pixel = 0; Pixel < CubePixels.size(); Pixel += 4)
 		{
 			CubeColors.insert(
-				static_cast<Durin::uint32>(CubePixels[Pixel]) << 16
-				| static_cast<Durin::uint32>(CubePixels[Pixel + 1]) << 8
-				| CubePixels[Pixel + 2]);
+				std::to_integer<Durin::uint32>(CubePixels[Pixel]) << 16
+				| std::to_integer<Durin::uint32>(CubePixels[Pixel + 1]) << 8
+				| std::to_integer<Durin::uint32>(CubePixels[Pixel + 2]));
 		}
 		EXPECT_GT(CubeColors.size(), 8u);
 

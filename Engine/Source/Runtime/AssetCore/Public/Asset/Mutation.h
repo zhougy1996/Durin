@@ -50,8 +50,8 @@ namespace Durin::Asset
 	struct FAssetReferenceStorePackageRewrite
 	{
 		FAssetPath PackagePath;
-		std::vector<uint8> PreBytes;
-		std::vector<uint8> PostBytes;
+		std::vector<std::byte> PreBytes;
+		std::vector<std::byte> PostBytes;
 	};
 
 	// Owns a provider-prepared reversible write for one Fix Up transaction.

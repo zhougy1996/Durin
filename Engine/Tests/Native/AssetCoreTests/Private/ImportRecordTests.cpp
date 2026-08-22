@@ -223,7 +223,7 @@ namespace
 		{
 			OutSettings.SchemaId = "Tests.Multi.Settings";
 			OutSettings.SchemaVersion = 2;
-			OutSettings.Bytes = {0x10, 0x20, 0x30};
+			OutSettings.Bytes = {std::byte{0x10}, std::byte{0x20}, std::byte{0x30}};
 			return true;
 		}
 		auto DiscoverDependencies(
@@ -369,7 +369,7 @@ namespace
 		WriteSource(Scenario.Root / "Content" / "Source.multi");
 
 		std::string Error;
-		const std::array Bytes = {Durin::uint8{0x41}, Durin::uint8{0x42}};
+		const std::array Bytes = {std::byte{0x41}, std::byte{0x42}};
 		EXPECT_TRUE(Durin::Asset::MakeImportRecordPayload(
 			"Tests.Multi.ProviderState", 7, Bytes,
 			Durin::Asset::MaximumImportRecordProviderStateBytes,
@@ -793,7 +793,7 @@ TEST(FImportRecordFrameworkTests, RejectsStaleTargetWithoutPublishing)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Scenario.PrimaryPath, Primary));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Scenario.PeerPath, Peer));
 	Durin::Asset::FImportRecordPayload NewProviderState;
-	const std::array StateBytes = {Durin::uint8{0x50}};
+	const std::array StateBytes = {std::byte{0x50}};
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::MakeImportRecordPayload(
 		"Tests.Multi.ProviderState", 7, StateBytes,

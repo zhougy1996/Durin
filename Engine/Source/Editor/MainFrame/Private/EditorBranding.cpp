@@ -15,7 +15,7 @@ namespace Durin::Editor::MainFrame
 	{
 		struct FBrandMip
 		{
-			std::vector<uint8> Pixels;
+			std::vector<std::byte> Pixels;
 			uint32 Width = 0;
 			uint32 Height = 0;
 		};
@@ -40,10 +40,10 @@ namespace Durin::Editor::MainFrame
 						{
 							const uint32 SourceX = std::min(X * 2 + OffsetX, Source.Width - 1);
 							const size_t SourceOffset = (static_cast<size_t>(SourceY) * Source.Width + SourceX) * 4;
-							const uint32 Alpha = Source.Pixels[SourceOffset + 3];
+							const uint32 Alpha = std::to_integer<uint32>(Source.Pixels[SourceOffset + 3]);
 							AlphaSum += Alpha;
 							for (uint32 Channel = 0; Channel < 3; ++Channel)
-								PremultipliedColor[Channel] += Source.Pixels[SourceOffset + Channel] * Alpha;
+								PremultipliedColor[Channel] += std::to_integer<uint32>(Source.Pixels[SourceOffset + Channel]) * Alpha;
 							++SampleCount;
 						}
 					}
@@ -51,9 +51,9 @@ namespace Durin::Editor::MainFrame
 					const size_t DestinationOffset = (static_cast<size_t>(Y) * Result.Width + X) * 4;
 					for (uint32 Channel = 0; Channel < 3; ++Channel)
 						Result.Pixels[DestinationOffset + Channel] = AlphaSum > 0
-							? static_cast<uint8>((PremultipliedColor[Channel] + AlphaSum / 2) / AlphaSum)
-							: 0;
-					Result.Pixels[DestinationOffset + 3] = static_cast<uint8>((AlphaSum + SampleCount / 2) / SampleCount);
+							? static_cast<std::byte>((PremultipliedColor[Channel] + AlphaSum / 2) / AlphaSum)
+							: std::byte{0};
+					Result.Pixels[DestinationOffset + 3] = static_cast<std::byte>((AlphaSum + SampleCount / 2) / SampleCount);
 				}
 			}
 			return Result;
@@ -131,7 +131,7 @@ namespace Durin::Editor::MainFrame
 					GDynamicRHI->RHIUpdateTexture2D(
 						CommandList, Texture, MipIndex, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, Mip.Width, Mip.Height),
-						Mip.Width * 4, Mip.Pixels.data());
+						Mip.Width * 4, Mip.Pixels);
 				}
 			}
 			if (const std::shared_ptr<FBrandUploadState> State = WeakState.lock())

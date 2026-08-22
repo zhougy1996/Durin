@@ -36,7 +36,7 @@ namespace Durin::Asset::BulkContainer
 	class FBoundedReader
 	{
 	public:
-		explicit FBoundedReader(std::span<const uint8> InBytes, uint64 MaximumBytes)
+		explicit FBoundedReader(std::span<const std::byte> InBytes, uint64 MaximumBytes)
 			: Bytes(InBytes)
 		{
 			if (InBytes.size() > MaximumBytes)
@@ -47,23 +47,23 @@ namespace Durin::Asset::BulkContainer
 		auto Read(T& OutValue) -> bool
 		{
 			static_assert(std::is_unsigned_v<T>);
-			std::span<const uint8> Raw;
+			std::span<const std::byte> Raw;
 			if (!ReadBytes(sizeof(T), Raw)) return false;
 			T Candidate = 0;
 			for (size_t Index = 0; Index < sizeof(T); ++Index)
-				Candidate |= static_cast<T>(Raw[Index]) << (Index * 8);
+				Candidate |= static_cast<T>(std::to_integer<uint8>(Raw[Index])) << (Index * 8);
 			OutValue = Candidate;
 			return true;
 		}
 
 		auto ReadGuid(FGuid& OutValue) -> bool
 		{
-			std::span<const uint8> Raw;
+			std::span<const std::byte> Raw;
 			if (!ReadBytes(16, Raw)) return false;
 			auto ReadWord = [&](size_t Begin) {
 				uint32 Value = 0;
 				for (size_t Index = 0; Index < sizeof(uint32); ++Index)
-					Value |= static_cast<uint32>(Raw[Begin + Index]) << (Index * 8);
+					Value |= static_cast<uint32>(std::to_integer<uint8>(Raw[Begin + Index])) << (Index * 8);
 				return Value;
 			};
 			const FGuid Candidate{
@@ -72,7 +72,7 @@ namespace Durin::Asset::BulkContainer
 			return true;
 		}
 
-		auto ReadBytes(uint64 Size, std::span<const uint8>& OutValue) -> bool
+		auto ReadBytes(uint64 Size, std::span<const std::byte>& OutValue) -> bool
 		{
 			if (!IsValid()) return false;
 			uint64 End = 0;
@@ -87,7 +87,7 @@ namespace Durin::Asset::BulkContainer
 				Latch(EFailure::LimitExceeded, Cursor);
 				return false;
 			}
-			const std::span<const uint8> Candidate = Bytes.subspan(Offset, NarrowSize);
+			const std::span<const std::byte> Candidate = Bytes.subspan(Offset, NarrowSize);
 			Cursor = End;
 			OutValue = Candidate;
 			return true;
@@ -104,7 +104,7 @@ namespace Durin::Asset::BulkContainer
 			if (Failure.Category == EFailure::None) Failure = {Category, Offset};
 		}
 
-		std::span<const uint8> Bytes;
+		std::span<const std::byte> Bytes;
 		uint64 Cursor = 0;
 		FFailure Failure;
 	};
@@ -156,11 +156,6 @@ namespace Durin::Asset::BulkContainer
 			return true;
 		}
 
-		auto Write(std::span<const uint8> Value) -> bool
-		{
-			return Write(std::as_bytes(Value));
-		}
-
 		auto PadTo(uint64 Offset) -> bool
 		{
 			if (!IsValid()) return false;
@@ -175,11 +170,11 @@ namespace Durin::Asset::BulkContainer
 				Latch(EFailure::LimitExceeded, Bytes.size());
 				return false;
 			}
-			Bytes.resize(NarrowOffset, 0);
+			Bytes.resize(NarrowOffset, std::byte{0});
 			return true;
 		}
 
-		auto TryTake(std::vector<uint8>& OutBytes) -> bool
+		auto TryTake(std::vector<std::byte>& OutBytes) -> bool
 		{
 			if (!IsValid()) return false;
 			OutBytes = std::move(Bytes);
@@ -187,7 +182,7 @@ namespace Durin::Asset::BulkContainer
 		}
 
 		auto Tell() const -> uint64 { return Bytes.size(); }
-		auto View() const -> std::span<const uint8> { return Bytes; }
+		auto View() const -> std::span<const std::byte> { return Bytes; }
 		auto IsValid() const -> bool { return Failure.Category == EFailure::None; }
 		auto GetFailure() const -> FFailure { return Failure; }
 
@@ -198,7 +193,7 @@ namespace Durin::Asset::BulkContainer
 		}
 
 		uint64 MaximumBytes = 0;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		FFailure Failure;
 	};
 
@@ -289,19 +284,19 @@ namespace Durin::Asset::BulkContainer
 		return true;
 	}
 
-	inline auto IsZeroRange(std::span<const uint8> Bytes, uint64 Begin, uint64 End) -> bool
+	inline auto IsZeroRange(std::span<const std::byte> Bytes, uint64 Begin, uint64 End) -> bool
 	{
 		if (Begin > End || End > Bytes.size()) return false;
 		for (uint64 Offset = Begin; Offset < End; ++Offset)
-			if (Bytes[static_cast<size_t>(Offset)] != 0) return false;
+			if (Bytes[static_cast<size_t>(Offset)] != std::byte{0}) return false;
 		return true;
 	}
 
 	inline auto TryProjectRange(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint64 Offset,
 		uint64 Size,
-		std::span<const uint8>& OutRange) -> bool
+		std::span<const std::byte>& OutRange) -> bool
 	{
 		uint64 End = 0;
 		if (!TryAdd(Offset, Size, Bytes.size(), End)) return false;
@@ -312,7 +307,7 @@ namespace Durin::Asset::BulkContainer
 	}
 
 	inline auto ValidateLayout(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		uint64 DirectoryEnd,
 		uint64 DataOffset,
 		std::span<const FPayloadRange> Ranges,

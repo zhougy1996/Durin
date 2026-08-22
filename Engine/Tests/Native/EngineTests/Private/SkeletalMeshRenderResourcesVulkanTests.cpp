@@ -52,7 +52,7 @@ namespace
 	Durin::FViewRenderCounters GLastCounters;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneColorTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowDepthTimingQueries = nullptr;
-	std::array<std::vector<Durin::uint8>*, 4> GGBufferPixels{};
+	std::array<std::vector<std::byte>*, 4> GGBufferPixels{};
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GLastCounters = Counters;
@@ -114,7 +114,7 @@ namespace
 	}
 
 	auto ValidateCapturedGBuffer(
-		const std::array<std::vector<Durin::uint8>, 4>& Pixels
+		const std::array<std::vector<std::byte>, 4>& Pixels
 	) -> void
 	{
 		ASSERT_FALSE(Pixels[0].empty());
@@ -123,15 +123,20 @@ namespace
 		size_t ValidPixels = 0;
 		for (size_t Offset = 0; Offset < Pixels[2].size(); Offset += 4)
 		{
-			if (Pixels[2][Offset + 3] == 0u) continue;
+			if (Pixels[2][Offset + 3] == std::byte{0}) continue;
 			++ValidPixels;
-			EXPECT_EQ(Pixels[2][Offset + 3], Durin::GBufferContract::StandardLitFlag);
+			EXPECT_EQ(Pixels[2][Offset + 3],
+				static_cast<std::byte>(Durin::GBufferContract::StandardLitFlag));
 			auto DecodeNormal = [&Pixels, Offset](size_t PairOffset) {
-				return Durin::GBufferContract::DecodeOctahedralNormal({static_cast<float>(Pixels[1][Offset + PairOffset]) / 255.0f, static_cast<float>(Pixels[1][Offset + PairOffset + 1]) / 255.0f});
+				return Durin::GBufferContract::DecodeOctahedralNormal({
+					static_cast<float>(std::to_integer<Durin::uint8>(Pixels[1][Offset + PairOffset])) / 255.0f,
+					static_cast<float>(std::to_integer<Durin::uint8>(Pixels[1][Offset + PairOffset + 1])) / 255.0f});
 			};
 			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(0)), 1.0, 1.0e-5);
 			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(2)), 1.0, 1.0e-5);
-			EXPECT_GE(static_cast<Durin::uint32>(Pixels[0][Offset]) + Pixels[0][Offset + 1] + Pixels[0][Offset + 2], 254u);
+			EXPECT_GE(std::to_integer<Durin::uint32>(Pixels[0][Offset])
+				+ std::to_integer<Durin::uint32>(Pixels[0][Offset + 1])
+				+ std::to_integer<Durin::uint32>(Pixels[0][Offset + 2]), 254u);
 		}
 		EXPECT_GT(ValidPixels, 0u);
 	}
@@ -461,7 +466,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	);
 	Durin::FlushRenderingCommands();
 
-	auto Readback = std::make_shared<std::vector<Durin::uint8>>();
+	auto Readback = std::make_shared<std::vector<std::byte>>();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Renderer, &Scene, Readback](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
@@ -510,11 +515,14 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastCounters.SkeletalMeshResourceAttemptedDraws, 3u);
 	EXPECT_EQ(GLastCounters.SkeletalMeshResourceSuccessfulDraws, 3u);
 	EXPECT_EQ(GLastCounters.SkeletalMeshSuccessfulDraws, 3u);
-	EXPECT_TRUE(std::ranges::any_of(*Readback, [](Durin::uint8 Value) { return Value != 0; }));
+	EXPECT_TRUE(std::ranges::any_of(*Readback,
+		[](std::byte Value) { return Value != std::byte{0}; }));
 	size_t RedPixels = 0;
 	for (size_t Offset = 0; Offset + 3 < Readback->size(); Offset += 4)
-		RedPixels += (*Readback)[Offset] > (*Readback)[Offset + 1] + 20
-							 && (*Readback)[Offset] > (*Readback)[Offset + 2] + 20 ?
+		RedPixels += std::to_integer<Durin::uint8>((*Readback)[Offset])
+							 > std::to_integer<Durin::uint8>((*Readback)[Offset + 1]) + 20
+							 && std::to_integer<Durin::uint8>((*Readback)[Offset])
+							 > std::to_integer<Durin::uint8>((*Readback)[Offset + 2]) + 20 ?
 						 1u :
 						 0u;
 	EXPECT_GT(RedPixels, 0u);
@@ -527,7 +535,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::EViewVisibilityMode::FrustumCullingDisabled,
 		Durin::FMatrix ViewProjection = Durin::FMatrix(1.0)
 	) {
-		auto Result = std::make_shared<std::vector<Durin::uint8>>();
+		auto Result = std::make_shared<std::vector<std::byte>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
 			 bEnableGBufferQualification, ShadowCandidate, VisibilityMode,
@@ -569,7 +577,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		return Result;
 	};
 	const auto ZeroLightReadback = RenderLitReadback("ZeroLightSkeletalColor");
-	std::array<std::vector<Durin::uint8>, 4> SkeletalGBufferPixels;
+	std::array<std::vector<std::byte>, 4> SkeletalGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &SkeletalGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -616,7 +624,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	const auto MixedLightReadback = RenderLitReadback("MixedLightSkeletalColor");
 	EXPECT_EQ(ZeroLightReadback->size(), MixedLightReadback->size());
 	EXPECT_NE(*ZeroLightReadback, *MixedLightReadback);
-	EXPECT_TRUE(std::ranges::any_of(*MixedLightReadback, [](Durin::uint8 Value) { return Value != 0u; }));
+	EXPECT_TRUE(std::ranges::any_of(*MixedLightReadback,
+		[](std::byte Value) { return Value != std::byte{0}; }));
 	EXPECT_EQ(GLastCounters.HybridDeferredEnabledViews, 1u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
 	EXPECT_EQ(GLastCounters.SelectedDirectionalLights, 1u);
@@ -971,8 +980,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FPrimitiveSceneId(1), TranslatedPose
 	);
 	Durin::FlushRenderingCommands();
-	auto TranslatedReadback = std::make_shared<std::vector<Durin::uint8>>();
-	auto AuxiliaryReadback = std::make_shared<std::vector<Durin::uint8>>();
+	auto TranslatedReadback = std::make_shared<std::vector<std::byte>>();
+	auto AuxiliaryReadback = std::make_shared<std::vector<std::byte>>();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Renderer, &Scene, TranslatedReadback, AuxiliaryReadback](
 			Durin::FRHICommandListImmediate& CommandList
@@ -1043,8 +1052,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	SplineData.Params.SourceForwardMax = 0.8;
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	auto SplineReadback = std::make_shared<std::vector<Durin::uint8>>();
-	std::array<std::vector<Durin::uint8>, 4> SplineGBufferPixels;
+	auto SplineReadback = std::make_shared<std::vector<std::byte>>();
+	std::array<std::vector<std::byte>, 4> SplineGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &SplineGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -1085,10 +1094,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastCounters.GBufferSplineMeshSkippedDraws, 1u);
 	EXPECT_EQ(GLastCounters.GBufferStaticMeshAttemptedDraws, 0u);
 	EXPECT_EQ(SplineReadback->size(), 33u * 33u * 4u);
-	EXPECT_TRUE(std::ranges::any_of(*SplineReadback, [](Durin::uint8 Value) { return Value != 0; }));
+	EXPECT_TRUE(std::ranges::any_of(*SplineReadback,
+		[](std::byte Value) { return Value != std::byte{0}; }));
 	auto CaptureSplineParity = [&](std::string Name,
 								   bool bEnableGBufferQualification = false) {
-		auto Result = std::make_shared<std::vector<Durin::uint8>>();
+		auto Result = std::make_shared<std::vector<std::byte>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
 			 bEnableGBufferQualification](Durin::FRHICommandListImmediate& CommandList) {

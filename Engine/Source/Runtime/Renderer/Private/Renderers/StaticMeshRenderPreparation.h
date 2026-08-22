@@ -60,7 +60,7 @@ namespace Durin
 	struct FStaticMeshDrawSortKey
 	{
 		std::array<uint32, 26> Pipeline{};
-		std::vector<uint8> MaterialUniform;
+		std::vector<std::byte> MaterialUniform;
 		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
 		std::array<uint32, 6> Geometry{};
 		uint64 PrimitiveId = 0;

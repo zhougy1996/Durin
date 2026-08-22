@@ -992,7 +992,7 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(CompileOutput) << CompileOutput.ErrorMessage;
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 2u);
 
-		std::array<std::vector<uint8>, 2> ModePixels;
+		std::array<std::vector<std::byte>, 2> ModePixels;
 		std::array<FRHIDiagnosticSnapshot, 2> ModeSnapshots;
 		const std::array Modes{"inline", "threaded"};
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
@@ -1032,7 +1032,7 @@ namespace Durin::VulkanRHI
 			}();
 			GDynamicRHI->RHIUpdateTexture2D(Commands, Sampled, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
-				SampledBytes.data());
+				std::as_bytes(std::span{SampledBytes}));
 			FTextureViewRHIRef SampledView = GDynamicRHI->RHICreateTextureView(
 				Sampled, MakeDefaultTextureViewDesc(
 					*Sampled, ERHITextureViewUsage::Sampled));
@@ -1123,10 +1123,10 @@ namespace Durin::VulkanRHI
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, Target, 0, 0, ModePixels[ModeIndex]));
 			ASSERT_EQ(ModePixels[ModeIndex].size(), 8u * 8u * 4u);
-			EXPECT_NEAR(ModePixels[ModeIndex][0], 64, 1);
-			EXPECT_NEAR(ModePixels[ModeIndex][1], 128, 1);
-			EXPECT_NEAR(ModePixels[ModeIndex][2], 191, 1);
-			EXPECT_EQ(ModePixels[ModeIndex][3], 255);
+			EXPECT_NEAR(std::to_integer<uint8>(ModePixels[ModeIndex][0]), 64, 1);
+			EXPECT_NEAR(std::to_integer<uint8>(ModePixels[ModeIndex][1]), 128, 1);
+			EXPECT_NEAR(std::to_integer<uint8>(ModePixels[ModeIndex][2]), 191, 1);
+			EXPECT_EQ(ModePixels[ModeIndex][3], std::byte{255});
 
 			Target = nullptr;
 			TargetDesc.DebugName = "PublicRHIConformanceReplacement";
@@ -1799,7 +1799,7 @@ namespace Durin::VulkanRHI
 		MrtPassInfo.DepthStencilRenderTarget = MrtDepth;
 		MrtPassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		MrtPassInfo.ColorClearValues[1] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
-		std::vector<uint8> MrtPixels;
+		std::vector<std::byte> MrtPixels;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 			auto* Context = static_cast<FVulkanCommandListContext*>(
 				GDynamicRHI->RHIGetDefaultContext());

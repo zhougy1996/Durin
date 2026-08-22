@@ -32,7 +32,7 @@ namespace Durin::Asset::Forge
 
 	ASSETFORGE_API auto TranslateTerrainHeightmapSource(
 		std::string_view Extension,
-		std::span<const uint8> EncodedBytes,
+		std::span<const std::byte> EncodedBytes,
 		FTerrainHeightmapSourceData& OutSource,
 		std::string& OutError) -> bool;
 	ASSETFORGE_API auto ImportTerrainHeightmapAsset(

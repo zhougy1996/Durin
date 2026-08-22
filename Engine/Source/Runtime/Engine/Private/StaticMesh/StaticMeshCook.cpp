@@ -133,12 +133,12 @@ namespace Durin
 		{
 			return FailCooked(OutError);
 		}
-		const std::span<const uint8> Bytes = LoadedPayload.Payload;
+		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		FCollisionGeometryRef CookedSimple;
 		FCollisionGeometryRef CookedComplex;
 		if (bRequiresCollision)
 		{
-			std::span<const uint8> CollisionBytes;
+			std::span<const std::byte> CollisionBytes;
 			if (!Asset::ResolveCookedPayload(
 				LoadedPayload.Container, *CollisionDescriptor, CollisionBytes, &OutError))
 				return FailCooked(OutError);
@@ -216,7 +216,7 @@ namespace Durin
 		}
 
 		FStaticMeshPayloadData Payload;
-		std::vector<uint8> PayloadBytes;
+		std::vector<std::byte> PayloadBytes;
 		if (!MakeStaticMeshPayloadData(*RenderData, Payload, OutError)
 			|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError))
 		{
@@ -269,7 +269,7 @@ namespace Durin
 				}
 			}
 			FStaticMeshCollisionPayloadData CollisionPayload;
-			std::vector<uint8> CollisionBytes;
+			std::vector<std::byte> CollisionBytes;
 			if (!MakeStaticMeshCollisionPayloadData(
 				CollisionGeometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload, OutError))
 			{
@@ -300,7 +300,7 @@ namespace Durin
 			std::move(BulkPayloads),
 			[this, bRetainDiagnosticSourceMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<uint8>& OutPackageBytes,
+				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
 				const auto RenderDescriptor = std::ranges::find(
 					Descriptors, StaticMeshPrimaryCookedPayloadId,

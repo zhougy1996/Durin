@@ -18,10 +18,10 @@ namespace Durin::Asset
 	ASSETCORE_API auto BuildAuthoredBulkCompanion(
 		std::span<const FAuthoredBulkPayload> Payloads,
 		FXxHash128 ContainerHash,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		std::string* OutError = nullptr) -> bool;
 	ASSETCORE_API auto ValidateAuthoredBulkCompanion(
-		std::span<const uint8> Bytes,
+		std::span<const std::byte> Bytes,
 		FXxHash128 ExpectedContainerHash,
 		std::string* OutError = nullptr) -> bool;
 	ASSETCORE_API auto LoadAuthoredBulkPayload(

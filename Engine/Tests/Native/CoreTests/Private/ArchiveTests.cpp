@@ -27,7 +27,7 @@ namespace ArchiveCustomizationTest
 
 TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 {
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Durin::uint16 U16 = 0x1234;
 	Durin::int32 I32 = -2;
@@ -35,8 +35,10 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 	bool Boolean = true;
 	Writer << U16 << I32 << Float << Boolean;
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
-	EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{
-		0x34, 0x12, 0xfe, 0xff, 0xff, 0xff, 0x00, 0x00, 0x80, 0x3f, 0x01}));
+	EXPECT_EQ(Bytes, (std::vector<std::byte>{
+		std::byte{0x34}, std::byte{0x12}, std::byte{0xfe}, std::byte{0xff},
+		std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
+		std::byte{0x80}, std::byte{0x3f}, std::byte{0x01}}));
 
 	Durin::uint16 LoadedU16 = 0;
 	Durin::int32 LoadedI32 = 0;
@@ -53,11 +55,12 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 
 TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 {
-	const std::array<Durin::uint8, 5> Bytes{1, 2, 3, 4, 5};
+	const std::array<std::byte, 5> Bytes{
+		std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}, std::byte{5}};
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::CookedPayload);
-	std::span<const Durin::uint8> Region;
+	std::span<const std::byte> Region;
 	ASSERT_TRUE(Reader.ReadRegion(3, Region));
-	EXPECT_TRUE(std::ranges::equal(Region, std::span<const Durin::uint8>(Bytes).first(3)));
+	EXPECT_TRUE(std::ranges::equal(Region, std::span(Bytes).first(3)));
 	EXPECT_FALSE(Reader.ReadRegion(3, Region));
 	ASSERT_NE(Reader.GetFailure(), nullptr);
 	EXPECT_EQ(Reader.GetFailure()->Code, Durin::EArchiveFailureCode::TruncatedPayload);
@@ -69,7 +72,7 @@ TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 
 TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 {
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::CookedPayload);
 	std::string Label = "abc";
 	Durin::SerializeBoundedString(Writer, Label, 3);
@@ -77,7 +80,7 @@ TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 	ASSERT_EQ(Bytes.size(), 16);
 
-	Bytes.back() = 1;
+	Bytes.back() = std::byte{1};
 	std::string Preserved = "old";
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::CookedPayload);
 	Durin::SerializeBoundedString(Reader, Preserved, 3);
@@ -86,7 +89,9 @@ TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 	ASSERT_NE(Reader.GetFailure(), nullptr);
 	EXPECT_EQ(Reader.GetFailure()->Code, Durin::EArchiveFailureCode::NonZeroPadding);
 
-	const std::array<Durin::uint8, 8> OversizedLength{4, 0, 0, 0, 0, 0, 0, 0};
+	const std::array<std::byte, 8> OversizedLength{
+		std::byte{4}, std::byte{0}, std::byte{0}, std::byte{0},
+		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
 	Durin::FCanonicalMemoryReader BoundedReader(OversizedLength);
 	Preserved = "old";
 	Durin::SerializeBoundedString(BoundedReader, Preserved, 3);
@@ -97,7 +102,7 @@ TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 TEST(FArchiveTests, CountingAndHashingArchivesMatchCanonicalMemory)
 {
 	FArchiveFixtureValue Expected{17, "archive"};
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataKey);
 	Writer << Expected;
 
@@ -117,7 +122,7 @@ TEST(FArchiveTests, MemberAndFreeSerializeCustomizationsShareOneProtocol)
 {
 	FArchiveFixtureValue Member{9, "member"};
 	ArchiveCustomizationTest::FFreeValue Free{0x1234};
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Writer << Member << Free;
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -140,7 +145,7 @@ TEST(FArchiveTests, ContextAndVersionsRemainOrthogonal)
 	Durin::FArchiveVersionContext Versions{
 		.Formats = {{Durin::FName("TXPL"), 3}},
 		.CustomVersions = {{{1, 2, 3, 4}, 7}}};
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::CookedPayload, State, Versions);
 	EXPECT_TRUE(Writer.IsSaving());
@@ -179,7 +184,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 		.ContentHash = Durin::FXxHash128::HashBuffer(Payload),
 		.Buffer = Durin::FSharedByteBuffer::Copy(Payload)};
 
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
 	Writer.SerializeBulkData(Source);
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -195,7 +200,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	EXPECT_TRUE(Loaded.ContainerHash.IsZero());
 	EXPECT_TRUE(std::ranges::equal(Loaded.Buffer.GetBytes(), Payload));
 
-	Bytes.back() ^= 0xff;
+	Bytes.back() ^= std::byte{0xff};
 	Durin::FArchiveBulkDataTransfer Preserved = Loaded;
 	Durin::FCanonicalMemoryReader Corrupt(Bytes, Durin::EArchivePurpose::BulkData);
 	Corrupt.SerializeBulkData(Preserved);
@@ -214,7 +219,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 
 	Durin::FArchiveState SkipState;
 	SkipState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::Skip;
-	std::vector<Durin::uint8> Bytes;
+	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Skip(
 		Bytes, Durin::EArchivePurpose::BulkData, SkipState);
 	Skip.SerializeBulkData(Value);

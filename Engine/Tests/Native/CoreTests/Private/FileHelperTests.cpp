@@ -98,7 +98,7 @@ TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 	const std::filesystem::path FilePath = TestRoot("EmptyRead") / "Empty.bin";
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span<const std::byte>{}, FilePath));
 
-	std::vector<Durin::uint8> Bytes{0x11, 0x22};
+	std::vector<std::byte> Bytes{std::byte{0x11}, std::byte{0x22}};
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, FilePath));
 	EXPECT_TRUE(Bytes.empty());
 
@@ -131,9 +131,9 @@ TEST(FFileHelperTests, LoadsExactTextBytesAndPreservesResultsOnFailure)
 	EXPECT_FALSE(Durin::FFileHelper::LoadFileToString(Text, MissingPath.generic_string()));
 	EXPECT_EQ(Text, "preserved text");
 
-	std::vector<Durin::uint8> Bytes{0x11, 0x22};
+	std::vector<std::byte> Bytes{std::byte{0x11}, std::byte{0x22}};
 	EXPECT_FALSE(Durin::FFileHelper::LoadFileToArray(Bytes, MissingPath));
-	EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{0x11, 0x22}));
+	EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0x11}, std::byte{0x22}}));
 }
 
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)

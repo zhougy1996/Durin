@@ -119,7 +119,7 @@ namespace Durin::Asset::DastV4
 		uint64 FloatingBits = 0;
 		std::string Text;
 		FGuid Guid;
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		std::vector<uint64> ComponentBits;
 		std::vector<FValue> Elements;
 		std::vector<std::string> FieldNames;
@@ -140,8 +140,8 @@ namespace Durin::Asset::DastV4
 	{
 		std::string SchemaName;
 		std::string FieldName;
-		std::vector<uint8> DescriptorClosure;
-		std::vector<uint8> Payload;
+		std::vector<std::byte> DescriptorClosure;
+		std::vector<std::byte> Payload;
 	};
 
 	struct FObjectValueInput
@@ -169,7 +169,7 @@ namespace Durin::Asset::DastV4
 	// after the complete package, including retained closures, is valid.
 	ASSETCORE_API auto WritePackage(
 		const FPackageInput& Input,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		FWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	struct FAssetPackageWriteOptions
@@ -182,12 +182,12 @@ namespace Durin::Asset::DastV4
 	// and explicit callers that need writer diagnostics or delta-mode control.
 	ASSETCORE_API auto WriteAssetPackage(
 		DPackage* Package,
-		std::vector<uint8>& OutBytes,
+		std::vector<std::byte>& OutBytes,
 		const FAssetPackageWriteOptions& Options = {},
 		FWriterDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
 	ASSETCORE_API auto WriteRedirectorPackage(
 		const FAssetPath& SourcePath,
 		const FAssetPath& DestinationPath,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
+		std::vector<std::byte>& OutBytes) -> FAssetResult;
 }

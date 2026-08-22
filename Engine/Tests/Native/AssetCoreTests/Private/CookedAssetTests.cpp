@@ -18,20 +18,23 @@ namespace
 
 	auto Payload(FGuid Id, std::initializer_list<uint8> Bytes, uint32 Alignment = 16) -> FCookedBulkPayload
 	{
-		return {Id, 1, 7, ECookedPayloadCompression::None, Alignment, Bytes};
+		std::vector<std::byte> PayloadBytes;
+		PayloadBytes.reserve(Bytes.size());
+		for (uint8 Byte : Bytes) PayloadBytes.push_back(static_cast<std::byte>(Byte));
+		return {Id, 1, 7, ECookedPayloadCompression::None, Alignment, std::move(PayloadBytes)};
 	}
 
-	auto MakeBulk(std::vector<FCookedPayloadDescriptor>* OutDescriptors = nullptr) -> std::vector<uint8>
+	auto MakeBulk(std::vector<FCookedPayloadDescriptor>* OutDescriptors = nullptr) -> std::vector<std::byte>
 	{
 		const std::array Payloads = {
 			Payload(FGuid(2, 0, 0, 0), {9, 8, 7}, 64),
 			Payload(FGuid(1, 0, 0, 0), {1, 2, 3, 4}, 16)};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		EXPECT_TRUE(EncodeCookedBulk(Payloads, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes, OutDescriptors));
 		return Bytes;
 	}
 
-	auto MakePackageBytes() -> std::vector<uint8>
+	auto MakePackageBytes() -> std::vector<std::byte>
 	{
 		static const bool bInitialized = [] {
 			Testing::InitializeDObjectSystemForTests();
@@ -45,7 +48,7 @@ namespace
 			.Objects = {{"Root", {}, ClassName, "Root"}},
 			.ObjectValues = {{"Root", {}}},
 		};
-		std::vector<uint8> Bytes;
+		std::vector<std::byte> Bytes;
 		Asset::DastV4::FWriterDiagnostic Diagnostic;
 		EXPECT_TRUE(Asset::DastV4::WritePackage(Input, Bytes, &Diagnostic))
 			<< Diagnostic.Message;
@@ -53,15 +56,15 @@ namespace
 	}
 
 	template<typename T>
-	auto WriteLittle(std::vector<uint8>& Bytes, size_t Offset, T Value) -> void
+	auto WriteLittle(std::vector<std::byte>& Bytes, size_t Offset, T Value) -> void
 	{
 		for (size_t Index = 0; Index < sizeof(T); ++Index)
-			Bytes[Offset + Index] = static_cast<uint8>(Value >> (Index * 8));
+			Bytes[Offset + Index] = static_cast<std::byte>(Value >> (Index * 8));
 	}
 
-	auto RefreshTableHash(std::vector<uint8>& Bytes) -> void
+	auto RefreshTableHash(std::vector<std::byte>& Bytes) -> void
 	{
-		const uint32 Count = Bytes[24];
+		const uint32 Count = std::to_integer<uint32>(Bytes[24]);
 		const uint64 Hash = FXxHash64::HashBuffer(std::span(Bytes).subspan(64, Count * 80)).HashValue;
 		WriteLittle(Bytes, 48, Hash);
 	}
@@ -70,8 +73,8 @@ namespace
 TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
 {
 	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<uint8> First = MakeBulk(&Descriptors);
-	const std::vector<uint8> Second = MakeBulk();
+	const std::vector<std::byte> First = MakeBulk(&Descriptors);
+	const std::vector<std::byte> Second = MakeBulk();
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 259u);
 	const FXxHash128 GoldenHash = FXxHash128::HashBuffer(First);
@@ -83,7 +86,7 @@ TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
 
 	FCookedBulkContainer Container;
 	ASSERT_TRUE(DecodeCookedBulk(First, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-	std::span<const uint8> Resolved;
+	std::span<const std::byte> Resolved;
 	ASSERT_TRUE(ResolveCookedPayload(Container, Descriptors[1], Resolved));
 	EXPECT_TRUE(std::ranges::equal(Resolved, Container.Payloads[1]));
 }
@@ -91,17 +94,18 @@ TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
 TEST(FCookedBulkTests, RejectsWrongTargetCorruptionOverlapTruncationAndUnknownCompression)
 {
 	FCookedBulkContainer Container;
-	std::vector<uint8> Bytes = MakeBulk();
+	std::vector<std::byte> Bytes = MakeBulk();
 	EXPECT_FALSE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::EditorValidation, Container));
 
 	auto Corrupt = Bytes;
-	Corrupt.back() ^= 1;
+	Corrupt.back() ^= std::byte{1};
 	EXPECT_FALSE(DecodeCookedBulk(Corrupt, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 
 	auto Overlap = Bytes;
-	const uint64 FirstOffset = [] (const std::vector<uint8>& Value) {
+	const uint64 FirstOffset = [] (const std::vector<std::byte>& Value) {
 		uint64 Result = 0;
-		for (size_t Index = 0; Index < 8; ++Index) Result |= static_cast<uint64>(Value[64 + 40 + Index]) << (Index * 8);
+		for (size_t Index = 0; Index < 8; ++Index)
+			Result |= std::to_integer<uint64>(Value[64 + 40 + Index]) << (Index * 8);
 		return Result;
 	}(Overlap);
 	WriteLittle(Overlap, 64 + 80 + 40, FirstOffset);
@@ -120,11 +124,11 @@ TEST(FCookedBulkTests, RejectsWrongTargetCorruptionOverlapTruncationAndUnknownCo
 TEST(FCookedBulkTests, DescriptorMustExactlyMatchEntry)
 {
 	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<uint8> Bytes = MakeBulk(&Descriptors);
+	const std::vector<std::byte> Bytes = MakeBulk(&Descriptors);
 	FCookedBulkContainer Container;
 	ASSERT_TRUE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 	Descriptors[0].StoredSize++;
-	std::span<const uint8> Resolved;
+	std::span<const std::byte> Resolved;
 	EXPECT_FALSE(ResolveCookedPayload(Container, Descriptors[0], Resolved));
 	Descriptors[0] = Container.Entries[0];
 	Descriptors[0].LocationKind = 99;
@@ -133,7 +137,7 @@ TEST(FCookedBulkTests, DescriptorMustExactlyMatchEntry)
 
 TEST(FCookedBulkTests, RejectsDeclaredExcessivePayloadSizeBeforeAllocation)
 {
-	std::vector<uint8> Bytes = MakeBulk();
+	std::vector<std::byte> Bytes = MakeBulk();
 	WriteLittle(Bytes, 64 + 48, uint64{8ull * 1024 * 1024 * 1024 + 1});
 	WriteLittle(Bytes, 64 + 56, uint64{8ull * 1024 * 1024 * 1024 + 1});
 	RefreshTableHash(Bytes);
@@ -161,7 +165,7 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 		Durin::Testing::GetTestWorkDirectory() / "CookedPayloadLoad");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<uint8> Bulk = MakeBulk(&Descriptors);
+	const std::vector<std::byte> Bulk = MakeBulk(&Descriptors);
 	const std::filesystem::path Companion = Root / "Game/Textures/T.dbulk";
 	std::filesystem::create_directories(Companion.parent_path());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(
@@ -184,7 +188,7 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 	EXPECT_EQ(Loaded.Payload.data(), Loaded.Container.Payloads[1].data());
 	EXPECT_EQ(Loaded.Payload.size(), Loaded.Container.Payloads[1].size());
 
-	const std::span<const uint8> Previous = Loaded.Payload;
+	const std::span<const std::byte> Previous = Loaded.Payload;
 	EXPECT_FALSE(LoadCookedPackagePayload(
 		Runtime,
 		"/Game/Textures/Missing",
@@ -250,7 +254,7 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 		ECookTargetProfile::Game,
 		{{ECookManifestEntryKind::CookedBulk, 1, "Game/B.dbulk", 2, 3, 4},
 		 {ECookManifestEntryKind::CookedPackage, 1, "Game/A.dasset", 1, 5, 6}}};
-	std::vector<uint8> First, Second;
+	std::vector<std::byte> First, Second;
 	ASSERT_TRUE(EncodeCookManifest(Manifest, First));
 	ASSERT_TRUE(EncodeCookManifest(Manifest, Second));
 	EXPECT_EQ(First, Second);
@@ -262,7 +266,7 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 	ASSERT_TRUE(DecodeCookManifest(First, Decoded));
 	ASSERT_EQ(Decoded.Entries.size(), 2u);
 	EXPECT_EQ(Decoded.Entries[0].RelativePath, "Game/A.dasset");
-	First.back() ^= 1;
+	First.back() ^= std::byte{1};
 	EXPECT_FALSE(DecodeCookManifest(First, Decoded));
 }
 
@@ -292,7 +296,7 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 	const std::filesystem::path Relocated = Root.parent_path() / "CookPublicationRelocated";
 	Durin::Testing::RemoveTestWorkDirectory(Relocated);
 	std::filesystem::rename(Root, Relocated);
-	std::vector<uint8> BulkBytes;
+	std::vector<std::byte> BulkBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBytes, (Relocated / "Game/New.dbulk")));
 	FCookedBulkContainer Container;
 	EXPECT_TRUE(DecodeCookedBulk(BulkBytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
@@ -312,7 +316,7 @@ TEST(FCookContextTests, PublishesPackageWithoutBulkCompanion)
 		Root / "Engine/Plain.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Engine/Plain.dbulk"));
 
-	std::vector<uint8> ManifestBytes;
+	std::vector<std::byte> ManifestBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		ManifestBytes, (Root / "CookManifest.bin")));
 	FCookManifest Manifest;
@@ -334,7 +338,7 @@ TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntri
 	ASSERT_TRUE(Context.AddPackage(
 		"/Game/DescriptorAware",
 		{Payload(FGuid(4, 3, 2, 1), {7, 6, 5}, 64)},
-		[&](std::span<const FCookedPayloadDescriptor> Descriptors, std::vector<uint8>& OutBytes, std::string*) {
+		[&](std::span<const FCookedPayloadDescriptor> Descriptors, std::vector<std::byte>& OutBytes, std::string*) {
 			if (Descriptors.size() != 1) return false;
 			Captured = Descriptors.front();
 			OutBytes = MakePackageBytes();
@@ -371,7 +375,9 @@ TEST(FCookContextTests, InvalidPackageFailsBeforeBulkPublication)
 		Durin::Testing::GetTestWorkDirectory() / "CookInvalidPackage");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Context.AddPackage("/Game/Invalid", {1, 2, 3}, {Payload(FGuid(1, 0, 0, 0), {4})}));
+	ASSERT_TRUE(Context.AddPackage("/Game/Invalid",
+		{std::byte{1}, std::byte{2}, std::byte{3}},
+		{Payload(FGuid(1, 0, 0, 0), {4})}));
 	EXPECT_FALSE(Context.Publish());
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Invalid.dbulk"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Invalid.dasset"));

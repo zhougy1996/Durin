@@ -75,12 +75,12 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 				| (RoundedMantissa >> 13));
 		}
 
-		auto ReadChannel(const uint8* Voxel, uint32 Channel,
+		auto ReadChannel(const std::byte* Voxel, uint32 Channel,
 			const FFormatLayout& Layout, float& OutValue) -> bool
 		{
 			if (!Layout.bFloat)
 			{
-				OutValue = static_cast<float>(Voxel[Channel]) / 255.0f;
+				OutValue = static_cast<float>(std::to_integer<uint8>(Voxel[Channel])) / 255.0f;
 				return true;
 			}
 			uint16 Half = 0;
@@ -89,12 +89,12 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 			return std::isfinite(OutValue);
 		}
 
-		auto WriteChannel(uint8* Voxel, uint32 Channel,
+		auto WriteChannel(std::byte* Voxel, uint32 Channel,
 			const FFormatLayout& Layout, float Value) -> void
 		{
 			if (!Layout.bFloat)
 			{
-				Voxel[Channel] = static_cast<uint8>(std::floor(
+				Voxel[Channel] = static_cast<std::byte>(std::floor(
 					std::clamp(Value, 0.0f, 1.0f) * 255.0f + 0.5f));
 				return;
 			}
@@ -125,9 +125,8 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 		Base.Depth = SourceData.Depth;
 		Base.RowPitch = Base.Width * BytesPerVoxel;
 		Base.DepthPitch = Base.RowPitch * Base.Height;
-		Base.Voxels.resize(SourceData.GetVoxelBytes().size());
-		std::ranges::transform(SourceData.GetVoxelBytes(), Base.Voxels.begin(),
-			[](std::byte Byte) { return std::to_integer<uint8>(Byte); });
+		Base.Voxels.assign(
+			SourceData.GetVoxelBytes().begin(), SourceData.GetVoxelBytes().end());
 		for (size_t Offset = 0; Offset < Base.Voxels.size(); Offset += BytesPerVoxel)
 			for (uint32 Channel = 0; Channel < Layout.Channels; ++Channel)
 			{
@@ -160,7 +159,7 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 						const uint32 Y1 = std::min(Y0 + 2, Previous.Height);
 						const uint32 Z1 = std::min(Z0 + 2, Previous.Depth);
 						const uint32 SampleCount = (X1 - X0) * (Y1 - Y0) * (Z1 - Z0);
-						uint8* Destination = Next.Voxels.data()
+						std::byte* Destination = Next.Voxels.data()
 							+ static_cast<size_t>(Z) * Next.DepthPitch
 							+ static_cast<size_t>(Y) * Next.RowPitch
 							+ static_cast<size_t>(X) * BytesPerVoxel;
@@ -171,7 +170,7 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 								for (uint32 SourceY = Y0; SourceY < Y1; ++SourceY)
 									for (uint32 SourceX = X0; SourceX < X1; ++SourceX)
 									{
-										const uint8* Source = Previous.Voxels.data()
+										const std::byte* Source = Previous.Voxels.data()
 											+ static_cast<size_t>(SourceZ) * Previous.DepthPitch
 											+ static_cast<size_t>(SourceY) * Previous.RowPitch
 											+ static_cast<size_t>(SourceX) * BytesPerVoxel;

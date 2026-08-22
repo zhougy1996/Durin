@@ -412,9 +412,9 @@ namespace Durin
 			return FNameEntryHandle(CurrentBlock, ByteOffset / Stride);
 		}
 
-		static uint8* AllocBlock()
+		static std::byte* AllocBlock()
 		{
-			return static_cast<uint8*>(FPlatformMisc::AlignedAlloc(BlockSizeBytes, Stride));
+			return static_cast<std::byte*>(FPlatformMisc::AlignedAlloc(BlockSizeBytes, Stride));
 		}
 
 		void AllocateNewBlock()
@@ -428,14 +428,14 @@ namespace Durin
 			}
 		}
 
-		auto GetBlocksForDebugVisualizer() -> uint8** { return (uint8**)Blocks; }
+		auto GetBlocksForDebugVisualizer() -> std::byte** { return reinterpret_cast<std::byte**>(Blocks); }
 
 	private:
 		std::mutex Lock;
 
 		std::atomic<uint32> CurrentBlock = 0;
 		uint32 CurrentByteCursor = 0;
-		std::atomic<uint8*> Blocks[FNameMaxBlockCount] = {};
+		std::atomic<std::byte*> Blocks[FNameMaxBlockCount] = {};
 	};
 
 	template<ENameCase Sensitivity>
@@ -700,7 +700,7 @@ namespace Durin
 
 		static auto Get() -> FNamePool&;
 
-		auto GetBlocksForDebugVisualizer() -> uint8**;
+		auto GetBlocksForDebugVisualizer() -> std::byte**;
 
 		auto ReuseComparisonEntry(const FNameDisplayValue& Value) -> bool;
 
@@ -786,7 +786,7 @@ namespace Durin
 		return *Singleton;
 	}
 
-	auto FNamePool::GetBlocksForDebugVisualizer() -> uint8**
+	auto FNamePool::GetBlocksForDebugVisualizer() -> std::byte**
 	{
 		return Entries.GetBlocksForDebugVisualizer();
 	}
@@ -971,5 +971,6 @@ uint8_t** FNameDebugVisualizer::GetBlocks()
 	static_assert(BlockBits == Durin::FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
 	static_assert(OffsetBits == Durin::FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
 
-	return reinterpret_cast<Durin::FNamePool*>(Durin::NamePoolData)->GetBlocksForDebugVisualizer();
+	return reinterpret_cast<uint8_t**>(
+		reinterpret_cast<Durin::FNamePool*>(Durin::NamePoolData)->GetBlocksForDebugVisualizer());
 }
