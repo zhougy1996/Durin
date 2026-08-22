@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-22
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -679,6 +679,13 @@ section always contains payload id, semantic format id/version, logical and
 stored byte counts, XXH3-128 content hash, placement, and container hash.
 Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
 values at or above 256 KiB carry no payload bytes in DAST.
+
+The reflected `FAuthoredBulkData` value is the authored compatibility facade
+over AssetCore's provider-neutral `FBulkData`. Its public residency, failure,
+immutable buffer, and synchronous-load behavior delegate to that common value;
+its authored descriptor retains placement and container hash solely for the
+DAST/DABK Archive and package transaction. This implementation boundary does
+not change the `BulkData` opcode or any bytes described below.
 
 External authored bytes live beside the package as
 `<package-stem>.<container-hash>.dabulk`. This is distinct from cooked `.dbulk`.

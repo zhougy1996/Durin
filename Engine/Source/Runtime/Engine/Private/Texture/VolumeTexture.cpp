@@ -126,22 +126,26 @@ namespace Durin
 			return false;
 		};
 		if (CookedPayload.PayloadId != VolumeTexturePrimaryCookedPayloadId
-			|| CookedPayload.LocationKind != static_cast<uint32>(
-				Asset::ECookedPayloadLocationKind::PackageCompanion)
 			|| CookedPayload.PayloadSchemaVersion != TexturePayloadSchemaVersion
-			|| CookedPayload.TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-			|| CookedPayload.TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
 			|| CookedPayload.CompressionMethod != static_cast<uint32>(
 				Asset::ECookedPayloadCompression::None))
 			return FailCooked("required TXPL descriptor is missing or incompatible.");
 		if (!GetPackage()) return FailCooked("package companion path is unavailable.");
-		Asset::FCookedPackagePayload Loaded;
-		if (!Asset::LoadCookedPackagePayload(Asset::GetAssetRuntimeConfiguration(),
-			GetPackage()->GetPackagePath(), CookedPayload,
-			Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-			Loaded, &OutError)) return FailCooked(OutError);
+		Asset::FBulkData Loaded;
+		if (!Asset::CreateCookedPackageBulkData(Asset::GetAssetRuntimeConfiguration(),
+				GetPackage()->GetPackagePath(), CookedPayload, VolumeTextureCookedFormatId,
+				Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
+				Loaded, &OutError)
+			|| Loaded.GetDescriptor().PayloadId != VolumeTexturePrimaryCookedPayloadId
+			|| Loaded.GetDescriptor().FormatId != VolumeTextureCookedFormatId
+			|| Loaded.GetDescriptor().FormatVersion != TexturePayloadSchemaVersion
+			|| !Loaded.LoadSynchronous(OutError))
+			return FailCooked(OutError);
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
-		FCanonicalMemoryReader Ar(Loaded.Payload, EArchivePurpose::CookedPayload);
+		const std::span<const std::byte> ResidentBytes = Loaded.GetResidentBytes();
+		FCanonicalMemoryReader Ar(
+			{reinterpret_cast<const uint8*>(ResidentBytes.data()), ResidentBytes.size()},
+			EArchivePurpose::CookedPayload);
 		Candidate->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
 		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);

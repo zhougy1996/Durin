@@ -45,6 +45,7 @@ durin_add_asset_functional_test(AssetPackageTests
 	MODULES asset-core engine
 	LIBRARIES Engine
 	SOURCES
+		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
 		Private/PackageV4WireContract.cpp
 		Private/PackageV4WireContractTests.cpp

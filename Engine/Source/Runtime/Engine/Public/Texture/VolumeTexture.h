@@ -28,6 +28,8 @@ namespace Durin
 	inline constexpr FGuid VolumeTextureSourceFormatId{
 		0x2854a7c1, 0x94cb4ab8, 0x8cd8be32, 0xc2f680b7};
 	inline constexpr uint32 VolumeTextureSourceFormatVersion = 1;
+	inline constexpr FGuid VolumeTextureCookedFormatId{
+		0xd26951ea, 0x547b4eef, 0x90c785f1, 0xaa566552};
 
 	// Selects one portable uncompressed voxel format admitted by volume assets.
 	DENUM()

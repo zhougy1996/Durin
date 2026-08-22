@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-22
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -544,11 +544,36 @@ disposable while that build is running or installed.
 
 ## Authored bulk ownership and failure behavior
 
-`FAuthoredBulkData` owns one immutable shared allocation plus a descriptor and
-an explicit `Unloaded`, `Resident`, or `Failed` state. Copies may share verified
-storage; replacement builds a detached candidate and never exposes writable
-resident memory. Unqualified access returns bytes only when already resident;
-synchronous IO is an explicit operation.
+`FBulkData` is the consumer-facing read and residency value across storage
+domains. Its logical descriptor contains payload id, semantic format id/version,
+logical and stored byte counts, and XXH3-128 content hash. Provider metadata
+contains the `Authored`, `Derived`, or `Cooked` domain and physical facts such
+as package path, placement, container identity, offsets, alignment,
+compression, target/profile, or a cache key; those facts do not change logical
+descriptor equality.
+
+An `IBulkDataProvider` is an immutable shared load capability for one domain.
+`FBulkData::LoadSynchronous` asks it for an immutable `FSharedByteBuffer`, then
+verifies logical size and content hash before changing `Unloaded` to
+`Resident`. A provider error or verification failure publishes no candidate
+bytes and leaves a stable `Failed` diagnostic. Copies share provider and byte
+ownership but retain independent residency transitions. The common surface has
+no mutable lock or publication operation: authored replacement, DDC production,
+and Cook publication remain lifecycle-owned capabilities.
+
+Authored DABK and cooked DBLK are separate providers, not a common container.
+The cooked package adapter maps `FCookedPayloadDescriptor` fields into the
+logical descriptor while retaining package path, target/profile, compression,
+offset, and container handling internally. Existing low-level DBLK APIs remain
+available while consumers migrate; VolumeTexture is the first runtime cooked
+consumer. `Derived` is reserved for a later DDC adapter, so current cache misses
+and rebuilds still use the existing derived-data services.
+
+`FAuthoredBulkData` composes `FBulkData` plus the authored placement/container
+descriptor required by DAST and DABK. Replacement builds a detached verified
+candidate and never exposes writable resident memory. Unqualified access
+returns bytes only when already resident; synchronous IO is an explicit
+operation through the common value.
 
 Asset package loading resolves external storage from the logical package path
 and descriptor container hash, validates the complete DABK container and the

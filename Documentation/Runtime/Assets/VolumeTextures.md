@@ -84,7 +84,10 @@ words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`, format id words
 `{2854a7c1, 94cb4ab8, 8cd8be32, c2f680b7}`, and format version 1. Dimensions,
 portable voxel format, and import provenance remain ordinary reflected fields.
 The source accessor never performs IO; build and import paths require verified
-resident bytes and replace the complete payload atomically.
+resident bytes and replace the complete payload atomically. The authored facade
+delegates identity, residency, failure, immutable byte access, and synchronous
+loading to `Asset::FBulkData`; DAST/DABK placement and replacement remain
+authored-only capabilities.
 
 Volume source custom version 2 is the current authored-bulk representation.
 Load-only compatibility first converts the historical `Array<UInt8>` route to
@@ -109,7 +112,12 @@ The volume producer version is 1 and the primary cooked payload ID is
 one uncompressed PackageCompanion payload. Cooked loading requires the matching
 descriptor and valid payload, strips authored source by default, does not query
 DDC or invoke an importer, and fails the asset load transactionally on missing
-or corrupt bulk.
+or corrupt bulk. At runtime the reflected cooked descriptor is adapted to an
+unloaded `Asset::FBulkData` with TXPL format id words
+`{d26951ea, 547b4eef, 90c785f1, aa566552}`. The DBLK provider retains package,
+target/profile, compression, offset, and container details; VolumeTexture
+decodes only the common value's verified resident byte view. Cooked `.dasset`,
+DBLK, and TXPL bytes are unchanged by this adapter.
 
 ## GPU resource and diagnostics
 

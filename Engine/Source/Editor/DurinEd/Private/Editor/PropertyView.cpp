@@ -782,8 +782,8 @@ namespace Durin::Editor
 			const std::string_view Placement = Descriptor.StorageKind
 				== Asset::EAuthoredBulkStorageKind::External ? "external" : "inline";
 			const std::string_view Residency = Value.GetResidency()
-				== EArchiveBulkDataResidency::Resident ? "resident"
-				: Value.GetResidency() == EArchiveBulkDataResidency::Unloaded
+				== Asset::EBulkDataResidency::Resident ? "resident"
+				: Value.GetResidency() == Asset::EBulkDataResidency::Unloaded
 				? "unloaded" : "failed";
 			ImGui::TextDisabled("%s", std::format(
 				"{} bytes, {}, {}, format v{}, hash {}",

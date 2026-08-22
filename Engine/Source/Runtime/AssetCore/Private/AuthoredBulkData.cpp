@@ -6,6 +6,43 @@ namespace Durin::Asset
 	{
 		constexpr uint64 MaximumAuthoredBulkBytes = 1024ull * 1024 * 1024;
 
+		class FAuthoredBulkDataProvider final : public IBulkDataProvider
+		{
+		public:
+			explicit FAuthoredBulkDataProvider(FAuthoredBulkData::FLoadFunction InLoader)
+				: Loader(std::move(InLoader))
+			{
+			}
+
+			auto GetStorageDomain() const -> EBulkDataStorageDomain override
+			{
+				return EBulkDataStorageDomain::Authored;
+			}
+
+			auto LoadSynchronous(
+				const FBulkDataDescriptor&,
+				FSharedByteBuffer& OutBuffer,
+				std::string& OutError) const -> bool override
+			{
+				return Loader(OutBuffer, OutError);
+			}
+
+		private:
+			FAuthoredBulkData::FLoadFunction Loader;
+		};
+
+		auto ToBulkDescriptor(const FAuthoredBulkDataDescriptor& Descriptor)
+			-> FBulkDataDescriptor
+		{
+			return {
+				.PayloadId = Descriptor.PayloadId,
+				.FormatId = Descriptor.FormatId,
+				.FormatVersion = Descriptor.FormatVersion,
+				.LogicalByteCount = Descriptor.LogicalByteCount,
+				.StoredByteCount = Descriptor.StoredByteCount,
+				.ContentHash = Descriptor.ContentHash};
+		}
+
 		auto ValidateDescriptor(const FAuthoredBulkDataDescriptor& Descriptor,
 			std::string* OutError) -> bool
 		{
@@ -53,12 +90,13 @@ namespace Durin::Asset
 			.ContentHash = FXxHash128::HashBuffer(Bytes),
 			.ContainerHash = {},
 			.StorageKind = EAuthoredBulkStorageKind::Inline};
+		FBulkData CandidateData;
+		if (!FBulkData::TryCreateResident(ToBulkDescriptor(Candidate),
+				FSharedByteBuffer::Copy(Bytes), EBulkDataStorageDomain::Authored,
+				CandidateData))
+			return false;
 		Descriptor = Candidate;
-		Buffer = FSharedByteBuffer::Copy(Bytes);
-		Residency = EArchiveBulkDataResidency::Resident;
-		Loader = {};
-		Failure.clear();
-		bHashVerified = true;
+		Data = std::move(CandidateData);
 		return true;
 	}
 
@@ -76,47 +114,23 @@ namespace Durin::Asset
 			if (OutError) *OutError = Error;
 			return false;
 		}
+		FBulkData CandidateData;
+		if (!FBulkData::TryCreateUnloaded(ToBulkDescriptor(InDescriptor),
+				std::make_shared<FAuthoredBulkDataProvider>(std::move(InLoader)),
+				CandidateData, &Error))
+		{
+			if (OutError) *OutError = Error;
+			return false;
+		}
 		Descriptor = InDescriptor;
-		Residency = EArchiveBulkDataResidency::Unloaded;
-		Buffer = {};
-		Loader = std::move(InLoader);
-		Failure.clear();
-		bHashVerified = false;
+		Data = std::move(CandidateData);
 		if (OutError) OutError->clear();
 		return true;
 	}
 
 	auto FAuthoredBulkData::LoadSynchronous(std::string& OutError) -> bool
 	{
-		if (Residency == EArchiveBulkDataResidency::Resident)
-		{
-			OutError.clear();
-			return true;
-		}
-		if (!Loader)
-		{
-			OutError = Failure.empty() ? "Authored bulk payload has no synchronous loader." : Failure;
-			return false;
-		}
-		FSharedByteBuffer Candidate;
-		std::string CandidateError;
-		if (!Loader(Candidate, CandidateError)
-			|| Candidate.GetSize() != Descriptor.LogicalByteCount
-			|| FXxHash128::HashBuffer(Candidate.GetBytes()) != Descriptor.ContentHash)
-		{
-			Failure = CandidateError.empty()
-				? "Authored bulk payload size or hash verification failed."
-				: std::move(CandidateError);
-			Residency = EArchiveBulkDataResidency::Failed;
-			OutError = Failure;
-			return false;
-		}
-		Buffer = std::move(Candidate);
-		Residency = EArchiveBulkDataResidency::Resident;
-		Failure.clear();
-		bHashVerified = true;
-		OutError.clear();
-		return true;
+		return Data.LoadSynchronous(OutError);
 	}
 
 	auto FAuthoredBulkData::Serialize(FArchive& Ar) -> void
@@ -131,9 +145,13 @@ namespace Durin::Asset
 			.ContainerHash = Descriptor.ContainerHash,
 			.StorageKind = Descriptor.StorageKind == EAuthoredBulkStorageKind::Inline
 				? EArchiveBulkDataStorageKind::Inline : EArchiveBulkDataStorageKind::External,
-			.Residency = Residency,
-			.Buffer = Buffer,
-			.Failure = Failure};
+			.Residency = Data.GetResidency() == EBulkDataResidency::Resident
+				? EArchiveBulkDataResidency::Resident
+				: Data.GetResidency() == EBulkDataResidency::Unloaded
+				? EArchiveBulkDataResidency::Unloaded
+				: EArchiveBulkDataResidency::Failed,
+			.Buffer = Data.GetResidentBuffer(),
+			.Failure = std::string(Data.GetFailure())};
 		Ar.SerializeBulkData(Transfer);
 		if (!Ar.IsLoading() || Ar.HasError()
 			|| Ar.GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
@@ -153,12 +171,18 @@ namespace Durin::Asset
 			Ar.Fail(EArchiveFailureCode::InvalidData, Error);
 			return;
 		}
+		FBulkData CandidateData;
+		if (Transfer.Residency != EArchiveBulkDataResidency::Resident
+			|| !FBulkData::TryCreateResident(ToBulkDescriptor(Candidate),
+				std::move(Transfer.Buffer), EBulkDataStorageDomain::Authored,
+				CandidateData, &Error))
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				Error.empty() ? "Loaded authored bulk data is not verified and resident." : Error);
+			return;
+		}
 		Descriptor = Candidate;
-		Residency = Transfer.Residency;
-		Buffer = std::move(Transfer.Buffer);
-		Failure = std::move(Transfer.Failure);
-		Loader = {};
-		bHashVerified = Residency == EArchiveBulkDataResidency::Resident;
+		Data = std::move(CandidateData);
 	}
 
 	auto FAuthoredBulkData::Identical(const FAuthoredBulkData& Other) const -> bool
@@ -168,8 +192,6 @@ namespace Durin::Asset
 			|| Descriptor.LogicalByteCount != Other.Descriptor.LogicalByteCount
 			|| Descriptor.ContentHash != Other.Descriptor.ContentHash)
 			return false;
-		if (bHashVerified && Other.bHashVerified) return true;
-		return IsResident() && Other.IsResident()
-			&& std::ranges::equal(Buffer.GetBytes(), Other.Buffer.GetBytes());
+		return IsResident() && Other.IsResident();
 	}
 }

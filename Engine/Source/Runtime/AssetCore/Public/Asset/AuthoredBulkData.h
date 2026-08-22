@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "Asset/BulkData.h"
 #include "Serialization/Archive.h"
 
 #include <functional>
@@ -44,13 +45,11 @@ namespace Durin::Asset
 		ASSETCORE_API FAuthoredBulkData(FGuid PayloadId, FGuid FormatId, uint32 FormatVersion);
 
 		auto GetDescriptor() const -> const FAuthoredBulkDataDescriptor& { return Descriptor; }
-		auto GetResidency() const -> EArchiveBulkDataResidency { return Residency; }
-		auto GetFailure() const -> std::string_view { return Failure; }
-		auto IsResident() const -> bool { return Residency == EArchiveBulkDataResidency::Resident; }
-		auto GetResidentBytes() const -> std::span<const std::byte>
-		{
-			return IsResident() ? Buffer.GetBytes() : std::span<const std::byte>();
-		}
+		auto GetBulkData() const -> const FBulkData& { return Data; }
+		auto GetResidency() const -> EBulkDataResidency { return Data.GetResidency(); }
+		auto GetFailure() const -> std::string_view { return Data.GetFailure(); }
+		auto IsResident() const -> bool { return Data.IsResident(); }
+		auto GetResidentBytes() const -> std::span<const std::byte> { return Data.GetResidentBytes(); }
 
 		ASSETCORE_API auto ReplaceBytes(std::span<const std::byte> Bytes) -> bool;
 		ASSETCORE_API auto ReplaceBytes(
@@ -65,10 +64,6 @@ namespace Durin::Asset
 
 	private:
 		FAuthoredBulkDataDescriptor Descriptor;
-		EArchiveBulkDataResidency Residency = EArchiveBulkDataResidency::Resident;
-		FSharedByteBuffer Buffer;
-		FLoadFunction Loader;
-		std::string Failure;
-		bool bHashVerified = true;
+		FBulkData Data;
 	};
 }

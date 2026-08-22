@@ -1419,6 +1419,43 @@ TEST(FAuthoredBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(std::ranges::equal(Shared.GetResidentBytes(), Replacement));
 }
 
+TEST(FAuthoredBulkDataTests, DelegatesUnloadedResidencyToCommonBulkData)
+{
+	const Durin::FGuid PayloadId{1, 2, 3, 4};
+	const Durin::FGuid FormatId{5, 6, 7, 8};
+	const std::array Bytes{std::byte{4}, std::byte{5}, std::byte{6}};
+	const Durin::FSharedByteBuffer Shared = Durin::FSharedByteBuffer::Copy(Bytes);
+	Durin::Asset::FAuthoredBulkDataDescriptor Descriptor{
+		.PayloadId = PayloadId,
+		.FormatId = FormatId,
+		.FormatVersion = 2,
+		.LogicalByteCount = Shared.GetSize(),
+		.StoredByteCount = Shared.GetSize(),
+		.ContentHash = Durin::FXxHash128::HashBuffer(Shared.GetBytes()),
+		.ContainerHash = {9, 10},
+		.StorageKind = Durin::Asset::EAuthoredBulkStorageKind::External};
+	Durin::Asset::FAuthoredBulkData Value;
+	Durin::uint32 LoadCount = 0;
+	std::string Error;
+	ASSERT_TRUE(Value.SetUnloaded(Descriptor,
+		[&](Durin::FSharedByteBuffer& OutBuffer, std::string& OutError) {
+			++LoadCount;
+			OutBuffer = Shared;
+			OutError.clear();
+			return true;
+		}, &Error)) << Error;
+	EXPECT_EQ(Value.GetResidency(), Durin::Asset::EBulkDataResidency::Unloaded);
+	EXPECT_EQ(Value.GetBulkData().GetStorageDomain(),
+		Durin::Asset::EBulkDataStorageDomain::Authored);
+	EXPECT_EQ(Value.GetBulkData().GetDescriptor().PayloadId, PayloadId);
+	EXPECT_TRUE(Value.GetResidentBytes().empty());
+	ASSERT_TRUE(Value.LoadSynchronous(Error)) << Error;
+	EXPECT_EQ(LoadCount, 1u);
+	EXPECT_TRUE(std::ranges::equal(Value.GetResidentBytes(), Bytes));
+	EXPECT_TRUE(Value.LoadSynchronous(Error));
+	EXPECT_EQ(LoadCount, 1u);
+}
+
 TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 {
 	const Durin::FXxHash128 ContainerHash{0x1122334455667788ull, 0x8877665544332211ull};

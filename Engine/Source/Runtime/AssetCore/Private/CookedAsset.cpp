@@ -22,6 +22,50 @@ namespace Durin::Asset
 		constexpr uint64 MaximumManifestRecordBytes = 256ull * 1024 * 1024;
 		constexpr uint32 MaximumManifestEntries = 1'000'000;
 
+		class FCookedPackageBulkDataProvider final : public IBulkDataProvider
+		{
+		public:
+			FCookedPackageBulkDataProvider(
+				FAssetRuntimeConfiguration InRuntimeConfiguration,
+				std::string InVirtualPackagePath,
+				FCookedPayloadDescriptor InDescriptor,
+				ECookTargetPlatform InExpectedPlatform,
+				ECookTargetProfile InExpectedProfile)
+				: RuntimeConfiguration(std::move(InRuntimeConfiguration)),
+				  VirtualPackagePath(std::move(InVirtualPackagePath)),
+				  Descriptor(InDescriptor),
+				  ExpectedPlatform(InExpectedPlatform),
+				  ExpectedProfile(InExpectedProfile)
+			{
+			}
+
+			auto GetStorageDomain() const -> EBulkDataStorageDomain override
+			{
+				return EBulkDataStorageDomain::Cooked;
+			}
+
+			auto LoadSynchronous(
+				const FBulkDataDescriptor&,
+				FSharedByteBuffer& OutBuffer,
+				std::string& OutError) const -> bool override
+			{
+				FCookedPackagePayload Loaded;
+				if (!LoadCookedPackagePayload(RuntimeConfiguration, VirtualPackagePath,
+					Descriptor, ExpectedPlatform, ExpectedProfile, Loaded, &OutError))
+					return false;
+				OutBuffer = FSharedByteBuffer::Copy(std::as_bytes(Loaded.Payload));
+				OutError.clear();
+				return true;
+			}
+
+		private:
+			FAssetRuntimeConfiguration RuntimeConfiguration;
+			std::string VirtualPackagePath;
+			FCookedPayloadDescriptor Descriptor;
+			ECookTargetPlatform ExpectedPlatform;
+			ECookTargetProfile ExpectedProfile;
+		};
+
 		auto Fail(std::string Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
@@ -504,6 +548,41 @@ namespace Durin::Asset
 			return false;
 		}
 		return true;
+	}
+
+	auto CreateCookedPackageBulkData(
+		const FAssetRuntimeConfiguration& RuntimeConfiguration,
+		std::string_view VirtualPackagePath,
+		const FCookedPayloadDescriptor& Descriptor,
+		FGuid FormatId,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
+		FBulkData& OutBulkData,
+		std::string* OutError) -> bool
+	{
+		if (!RuntimeConfiguration.RequiresCookedPayload())
+			return Fail("Cooked bulk data requires the cooked runtime configuration.", OutError);
+		if (VirtualPackagePath.empty()
+			|| Descriptor.LocationKind != static_cast<uint32>(
+				ECookedPayloadLocationKind::PackageCompanion)
+			|| Descriptor.TargetPlatform != static_cast<uint32>(ExpectedPlatform)
+			|| Descriptor.TargetProfile != static_cast<uint32>(ExpectedProfile))
+			return Fail(
+				"Cooked bulk data descriptor does not match its package, location, target, or profile.",
+				OutError);
+
+		FBulkDataDescriptor BulkDescriptor{
+			.PayloadId = Descriptor.PayloadId,
+			.FormatId = FormatId,
+			.FormatVersion = Descriptor.PayloadSchemaVersion,
+			.LogicalByteCount = Descriptor.UncompressedSize,
+			.StoredByteCount = Descriptor.StoredSize,
+			.ContentHash = {Descriptor.PayloadHashLow, Descriptor.PayloadHashHigh}};
+		auto Provider = std::make_shared<FCookedPackageBulkDataProvider>(
+			RuntimeConfiguration, std::string(VirtualPackagePath), Descriptor,
+			ExpectedPlatform, ExpectedProfile);
+		return FBulkData::TryCreateUnloaded(
+			std::move(BulkDescriptor), std::move(Provider), OutBulkData, OutError);
 	}
 
 	auto LoadCookedBulkFile(

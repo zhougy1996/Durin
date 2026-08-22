@@ -17,15 +17,15 @@ inspection, and recovery. Normalized volume source is the production consumer:
 its real `128^3` workflow plans as one node and completes save/reload, failure
 recovery, reimport, and Cook with external verified authored bytes.
 
-Milestone 1 is complete through
+Milestones 1-2 are complete through
 [Authored Asset Bulk Data Foundation](../Plans/AuthoredAssetBulkDataFoundation.md).
-The next selected milestone is a Unified BulkData API. Authored DABK and cooked
-DBLK now provide the two concrete lifecycle implementations needed to extract a
-shared logical descriptor, immutable byte owner, residency/request surface, and
-storage-provider boundary without guessing from a single producer. Existing
-`FAuthoredBulkData` remains the compatibility facade until that migration is
-complete. Portable Typed Atomic Buffers follows the unified API and still waits
-for two consumers that require portable element metadata.
+[Unified BulkData API](../Plans/UnifiedBulkDataAPI.md) now provides the common
+logical descriptor, immutable owner/view, synchronous residency state, and
+provider boundary. `FAuthoredBulkData` delegates to the common value while
+retaining DAST/DABK authoring policy, and VolumeTexture cooked TXPL uses a DBLK
+provider adapter without changing Cook bytes. Portable Typed Atomic Buffers is
+the next ordered milestone but remains Proposed until two consumers require
+portable element metadata; no new child plan is selected yet.
 
 ## Outcome
 
@@ -131,18 +131,18 @@ the API does not merge their files, wire formats, durability, or rebuild rules.
 | --- | --- | --- |
 | Reflection | Array, Blob, and authored `BulkData` are distinct atomic/logical identities. | No portable typed atomic buffer value. |
 | Archive | Immutable shared bytes and observable Inline/Skip/External bulk transfer are landed. | No provider-neutral request handle or async operation. |
-| Authored packages | `FAuthoredBulkData`, DAST descriptors, and DABK v1 publish and mutate transactionally. | The authored name and loader are still the only public value API. |
-| Cooked packages | Descriptor-backed `.dbulk`, hashes, manifests, and publication exist. | Cook uses a parallel descriptor/access vocabulary instead of the authored logical API. |
+| Authored packages | `FAuthoredBulkData` delegates common access/residency to `FBulkData`; DAST descriptors and DABK v1 publish and mutate transactionally. | Other authored consumers still migrate through separate bounded plans. |
+| Cooked packages | Descriptor-backed `.dbulk`, hashes, manifests, publication, and a common DBLK provider adapter exist; VolumeTexture uses it. | Other cooked consumers still use the low-level compatibility vocabulary. |
 | Derived data | DDC uses deterministic keys and validated asset-specific payloads. | No adapter exposes cached bytes through the common residency/request surface. |
 | Consumers | Volume source proves authored BulkData semantics; textures, meshes, terrain, animation, and collision already expose dense data. | Other consumers still use producer-specific ownership and access APIs. |
-| Residency | Authored bulk exposes unloaded/resident/failed synchronous state; cooked data already supports deferred IO. | State, failure, and request behavior are not one contract; eviction and budgets remain absent. |
+| Residency | `FBulkData` unifies unloaded/resident/failed state, immutable bytes, and synchronous verified load for authored data and the first cooked consumer. | Async requests, cancellation, eviction, and budgets remain absent. |
 
 ## Milestone Map
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
 | 1. Authored bulk-data foundation | Reflected Blob and DAST v4 | Atomic bulk owner, descriptor, transactional authored companion, synchronous load, and one volume-source migration | Blob production regression and cooked bulk contracts are green | Historical/current volume assets save, load, move, delete, reimport, and Cook with verified external authored bytes | Completed |
-| 2. Unified BulkData API | Milestone 1 plus existing cooked DBLK | Common `FBulkData`, logical descriptor, immutable view, sync residency, provider interface, authored compatibility facade, and cooked adapter | Authored and cooked implementations provide two proven contracts to compare | Volume authored source and one cooked runtime payload use one access/identity API while DABK/DBLK transactions and bytes remain unchanged | Selected next |
+| 2. Unified BulkData API | Milestone 1 plus existing cooked DBLK | Common `FBulkData`, logical descriptor, immutable view, sync residency, provider interface, authored compatibility facade, and cooked adapter | Authored and cooked implementations provide two proven contracts to compare | Volume authored source and one cooked runtime payload use one access/identity API while DABK/DBLK transactions and bytes remain unchanged | Completed |
 | 3. Portable typed atomic buffers | Milestone 2 | Stable codec boundary and reflected typed-buffer value over common BulkData for selected scalar/struct formats | At least two concrete consumers require element metadata without per-element editing | Codec identity, canonical bytes, comparison, migration, tooling summary, and bounds pass for selected formats | Proposed |
 | 4. Consumer migration program | Milestones 2-3 as required per consumer | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | Consumer has measured package/memory/planning cost and a frozen compatibility baseline | Selected consumers no longer retain oversized ordinary Arrays; DDC/Cook/runtime bytes remain compatible or versioned | Proposed |
 | 5. Unified lifecycle diagnostics and repair | Milestone 2 plus two migrated producers | Cross-provider inspection, audit, repair, provenance tracing, and orphan cleanup | Common API exposes stable provider/domain identity from real producers | Tools trace every payload through authored, derived, and cooked states without backend-specific caller logic | Proposed |
@@ -154,16 +154,16 @@ the API does not merge their files, wire formats, durability, or rebuild rules.
 | Child plan | Owns | Must not own |
 | --- | --- | --- |
 | [Authored Asset Bulk Data Foundation](../Plans/AuthoredAssetBulkDataFoundation.md) | Authored bulk value, descriptor, local companion transaction, synchronous residency, Blob-to-bulk volume migration | Generic typed vector codecs, async streaming, global consumer conversion, remote storage |
-| Unified BulkData API (selected next) | Common logical descriptor/value, immutable access, residency/failure semantics, provider contract, authored facade migration, one cooked adapter | Merging DABK and DBLK wires, changing DDC durability, async budgets, or broad consumer migration |
+| [Unified BulkData API](../Plans/UnifiedBulkDataAPI.md) (completed) | Common logical descriptor/value, immutable access, residency/failure semantics, provider contract, authored facade migration, one cooked adapter | Merging DABK and DBLK wires, changing DDC durability, async budgets, or broad consumer migration |
 | Portable Typed Atomic Buffers (proposed) | Codec identity, canonical scalar/record encoding, reflected atomic typed values over BulkData, editor summaries | Physical payload placement or package transaction |
 | Asset Payload Consumer Migrations (one plan per bounded domain) | Domain schema versions, exact byte compatibility, authoring and Cook workflow | Redefining common bulk APIs for one producer |
 | Payload Lifecycle Inspection and Repair (proposed) | Audit graph, diagnostics, orphan detection, repair and cleanup tooling | Runtime streaming policy |
 | Asset Payload Residency and Streaming (evidence-gated) | Async requests, cancellation, priorities, budgets, eviction and mapping on the common API | Authored/cooked format reinvention |
 
-Unified BulkData API is selected as the next child-plan boundary because its
-entry gate is satisfied. Its implementation plan is created only when work is
-started; the roadmap change does not authorize refactoring the landed authored
-or cooked formats by itself.
+Unified BulkData API completed its exit gate with the common read/residency
+contract, authored facade, and VolumeTexture cooked adapter while preserving
+the landed formats and separate transaction owners. Portable Typed Atomic
+Buffers remains unselected until its two-consumer entry gate is demonstrated.
 
 ## Program Validation Matrix
 
