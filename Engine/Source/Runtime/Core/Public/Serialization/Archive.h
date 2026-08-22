@@ -70,8 +70,6 @@ namespace Durin
 	// Controls whether bulk bytes are serialized inline, omitted, or referenced externally.
 	enum class EArchiveBulkDataPolicy : uint8 { Inline, Skip, External };
 
-	// Describes the synchronous availability of one bulk transfer candidate.
-	enum class EArchiveBulkDataResidency : uint8 { Unloaded, Resident, Failed };
 	enum class EArchiveBulkDataStorageKind : uint8 { Inline, External };
 
 	// Carries placement-independent bulk identity and immutable bytes through an Archive.
@@ -85,9 +83,7 @@ namespace Durin
 		FXxHash128 ContentHash;
 		FXxHash128 ContainerHash;
 		EArchiveBulkDataStorageKind StorageKind = EArchiveBulkDataStorageKind::Inline;
-		EArchiveBulkDataResidency Residency = EArchiveBulkDataResidency::Unloaded;
 		FSharedByteBuffer Buffer;
-		std::string Failure;
 	};
 
 	// Carries stable Cook target facts queried by serializers.

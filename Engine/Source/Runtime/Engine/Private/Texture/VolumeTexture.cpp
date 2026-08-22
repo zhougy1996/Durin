@@ -37,7 +37,7 @@ namespace Durin
 		if (Info.BlockSize != 1 || Info.BytesPerBlock == 0) return false;
 		const uint64 Texels = static_cast<uint64>(Width) * Height * Depth;
 		return Texels <= MaximumTexturePayloadBytes / Info.BytesPerBlock
-			&& Voxels.IsResident()
+			&& Voxels.GetBulkData().IsResident()
 			&& GetVoxelBytes().size() == Texels * Info.BytesPerBlock;
 	}
 

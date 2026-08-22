@@ -316,6 +316,10 @@ metadata and this catalog remains an unavailable-type compatibility failure.
 Aliases may be removed only after every supported authored-content baseline has
 zero findings, canonical-resave CI passes, authored diffs have been reviewed,
 and the compatibility policy for external content has been recorded separately.
+The current repository baseline has completed that process for the former
+`Durin::Asset::Import` and `Durin::AssetImport` ImportRecord identities, so
+those concrete `LegacyNames` registrations are absent. The generic mechanism
+and owner-scoped alias tests remain available for future bounded migrations.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 

@@ -177,7 +177,6 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 		.LogicalSize = Payload.size(),
 		.StoredSize = Payload.size(),
 		.ContentHash = Durin::FXxHash128::HashBuffer(Payload),
-		.Residency = Durin::EArchiveBulkDataResidency::Resident,
 		.Buffer = Durin::FSharedByteBuffer::Copy(Payload)};
 
 	std::vector<Durin::uint8> Bytes;
@@ -194,7 +193,6 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	EXPECT_EQ(Loaded.FormatVersion, Source.FormatVersion);
 	EXPECT_EQ(Loaded.ContentHash, Source.ContentHash);
 	EXPECT_TRUE(Loaded.ContainerHash.IsZero());
-	EXPECT_EQ(Loaded.Residency, Durin::EArchiveBulkDataResidency::Resident);
 	EXPECT_TRUE(std::ranges::equal(Loaded.Buffer.GetBytes(), Payload));
 
 	Bytes.back() ^= 0xff;
@@ -212,8 +210,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 		.PayloadId = {1, 1, 1, 1},
 		.FormatId = {2, 2, 2, 2},
 		.FormatVersion = 1,
-		.StoredSize = 0,
-		.Residency = Durin::EArchiveBulkDataResidency::Unloaded};
+		.StoredSize = 0};
 
 	Durin::FArchiveState SkipState;
 	SkipState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::Skip;
@@ -232,5 +229,4 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	ASSERT_TRUE(External.HasError());
 	EXPECT_EQ(External.GetFailure()->Code,
 		Durin::EArchiveFailureCode::UnsupportedCapability);
-	EXPECT_EQ(Value.Residency, Durin::EArchiveBulkDataResidency::Unloaded);
 }

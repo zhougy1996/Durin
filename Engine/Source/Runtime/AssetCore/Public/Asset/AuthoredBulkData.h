@@ -4,8 +4,6 @@
 #include "Asset/BulkData.h"
 #include "Serialization/Archive.h"
 
-#include <functional>
-
 namespace Durin::Asset
 {
 	inline constexpr uint64 AuthoredBulkExternalThreshold = 256ull * 1024;
@@ -35,30 +33,19 @@ namespace Durin::Asset
 		FSharedByteBuffer Buffer;
 	};
 
-	// Owns one atomic authored payload with explicit synchronous residency and detached replacement.
+	// Owns one atomic authored payload and exposes residency through the common BulkData API.
 	class FAuthoredBulkData
 	{
 	public:
-		using FLoadFunction = std::function<bool(FSharedByteBuffer&, std::string&)>;
-
 		FAuthoredBulkData() = default;
 		ASSETCORE_API FAuthoredBulkData(FGuid PayloadId, FGuid FormatId, uint32 FormatVersion);
 
 		auto GetDescriptor() const -> const FAuthoredBulkDataDescriptor& { return Descriptor; }
 		auto GetBulkData() const -> const FBulkData& { return Data; }
-		auto GetResidency() const -> EBulkDataResidency { return Data.GetResidency(); }
-		auto GetFailure() const -> std::string_view { return Data.GetFailure(); }
-		auto IsResident() const -> bool { return Data.IsResident(); }
-		auto GetResidentBytes() const -> std::span<const std::byte> { return Data.GetResidentBytes(); }
-
 		ASSETCORE_API auto ReplaceBytes(std::span<const std::byte> Bytes) -> bool;
 		ASSETCORE_API auto ReplaceBytes(
 			FGuid PayloadId, FGuid FormatId, uint32 FormatVersion,
 			std::span<const std::byte> Bytes) -> bool;
-		ASSETCORE_API auto SetUnloaded(
-			FAuthoredBulkDataDescriptor InDescriptor, FLoadFunction InLoader,
-			std::string* OutError = nullptr) -> bool;
-		ASSETCORE_API auto LoadSynchronous(std::string& OutError) -> bool;
 		ASSETCORE_API auto Serialize(FArchive& Ar) -> void;
 		ASSETCORE_API auto Identical(const FAuthoredBulkData& Other) const -> bool;
 

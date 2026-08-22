@@ -680,10 +680,11 @@ stored byte counts, XXH3-128 content hash, placement, and container hash.
 Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
 values at or above 256 KiB carry no payload bytes in DAST.
 
-The reflected `FAuthoredBulkData` value is the authored compatibility facade
-over AssetCore's provider-neutral `FBulkData`. Its public residency, failure,
-immutable buffer, and synchronous-load behavior delegate to that common value;
-its authored descriptor retains placement and container hash solely for the
+The reflected `FAuthoredBulkData` value composes AssetCore's provider-neutral
+`FBulkData` with authored replacement and placement policy. Consumers obtain
+residency, failure, immutable bytes, and synchronous loading only through
+`GetBulkData()`; the wrapper does not expose a second runtime access API. Its
+authored descriptor retains placement and container hash solely for the
 DAST/DABK Archive and package transaction. This implementation boundary does
 not change the `BulkData` opcode or any bytes described below.
 

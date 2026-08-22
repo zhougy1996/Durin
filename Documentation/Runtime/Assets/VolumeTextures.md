@@ -11,20 +11,19 @@ Last reviewed: 2026-08-22
 
 `DVolumeTexture` is a `DTexture` leaf for one non-array 3D color texture. Its
 authored package stores reflected `FVolumeTextureSourceData` and
-`FVolumeTextureBuildSettings`. Source data is a validated tightly packed voxel
-Blob (`std::vector<std::byte>`) with width, height, depth, and one of five portable formats:
+`FVolumeTextureBuildSettings`. Source data is validated tightly packed authored
+BulkData with width, height, depth, and one of five portable formats:
 `R8_UNORM`, `RG8_UNORM`, `RGBA8_UNORM`, `R16_FLOAT`, or `RGBA16_FLOAT`.
 Dimensions are nonzero and no greater than 2048; the common texture payload byte
 ceiling is authoritative. Materials, streaming, and volume-rendering algorithms
 are outside this boundary.
 
-The source Blob is one atomic reflected `Bytes` value. Its default-planning
+The source payload is one atomic reflected `BulkData` value. Its default-planning
 cost is independent of voxel count, while package and allocation byte ceilings
-still apply. Historical authored packages from before
-`FVolumeTextureSourceVersion::ByteBlob` load the old `Voxels` logical
-`Array<UInt8>` through the load-only `Voxels_DEPRECATED` route, convert each
-value exactly, validate the complete source, and resave only canonical Blob
-bytes. Packages containing both representations are rejected transactionally.
+still apply. The supported baseline contains only this current schema; the
+historical `Array<UInt8>` and byte-Blob voxel fields are no longer registered or
+loaded. Assets from those retired schemas must be upgraded by a compatible
+older build before entering the current repository baseline.
 
 ## PNG atlas source import
 
@@ -84,15 +83,13 @@ words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`, format id words
 `{2854a7c1, 94cb4ab8, 8cd8be32, c2f680b7}`, and format version 1. Dimensions,
 portable voxel format, and import provenance remain ordinary reflected fields.
 The source accessor never performs IO; build and import paths require verified
-resident bytes and replace the complete payload atomically. The authored facade
-delegates identity, residency, failure, immutable byte access, and synchronous
-loading to `Asset::FBulkData`; DAST/DABK placement and replacement remain
-authored-only capabilities.
+resident bytes and replace the complete payload atomically. Consumers use
+`FAuthoredBulkData::GetBulkData()` for identity, residency, failure, immutable
+byte access, and synchronous loading; DAST/DABK placement and replacement
+remain authored-only capabilities.
 
-Volume source custom version 2 is the current authored-bulk representation.
-Load-only compatibility first converts the historical `Array<UInt8>` route to
-the version-1 byte Blob and then converts that Blob to bulk data. Current saves
-emit only the bulk field. The 256 KiB authoring threshold changes placement,
+Current saves emit only the authored BulkData field. The 256 KiB authoring
+threshold changes placement,
 not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload
 bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
 2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.

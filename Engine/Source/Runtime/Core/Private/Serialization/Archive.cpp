@@ -218,12 +218,6 @@ namespace Durin
 
 		if (IsSaving())
 		{
-			if (Value.Residency != EArchiveBulkDataResidency::Resident)
-			{
-				Fail(EArchiveFailureCode::InvalidData,
-					"Inline bulk serialization requires verified resident bytes.");
-				return;
-			}
 			const std::span<const std::byte> Bytes = Value.Buffer.GetBytes();
 			if (LogicalSize != Bytes.size() || StoredSize != Bytes.size()
 				|| FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
@@ -256,7 +250,6 @@ namespace Durin
 			.ContentHash = {HashLow, HashHigh},
 			.ContainerHash = {ContainerHashLow, ContainerHashHigh},
 			.StorageKind = EArchiveBulkDataStorageKind::Inline,
-			.Residency = EArchiveBulkDataResidency::Resident,
 			.Buffer = FSharedByteBuffer::Take(std::move(Candidate))};
 	}
 

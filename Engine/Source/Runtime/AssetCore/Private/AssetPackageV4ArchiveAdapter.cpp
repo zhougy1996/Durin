@@ -360,7 +360,6 @@ namespace Durin::Asset::Private
 					.ContainerHash = ContainerHash,
 					.StorageKind = StorageKind == 0 ? EArchiveBulkDataStorageKind::Inline
 						: EArchiveBulkDataStorageKind::External,
-					.Residency = EArchiveBulkDataResidency::Resident,
 					.Buffer = std::move(Buffer)};
 			}
 
@@ -818,8 +817,7 @@ namespace Durin::Asset::Private
 			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
 			{
 				if (HasError() || SuppressedDepth != 0) return;
-				if (Value.Residency != EArchiveBulkDataResidency::Resident
-					|| !Value.PayloadId.IsValid() || !Value.FormatId.IsValid()
+				if (!Value.PayloadId.IsValid() || !Value.FormatId.IsValid()
 					|| Value.FormatVersion == 0 || Value.LogicalSize != Value.StoredSize
 					|| Value.Buffer.GetSize() != Value.LogicalSize
 					|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)

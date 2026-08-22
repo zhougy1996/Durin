@@ -76,7 +76,10 @@ version, logical/stored sizes, XXH3-128 content hash) plus verified bytes.
 `Inline` writes the bounded descriptor and byte Blob, `Skip` performs no
 transfer, and base `External` fails before mutation unless an owning Archive
 adapter implements location and publication. Core never resolves asset paths or
-files for this operation.
+files for this operation. The transfer carries no unloaded/resident/failed
+state or provider diagnostic: those are runtime `Asset::FBulkData` concerns.
+Every saving Archive therefore receives a complete immutable candidate, and a
+loading Archive publishes a transfer only after its bytes are verified.
 
 Object, field, array, and Map scopes maintain a structured diagnostic path.
 `FArchive::Fail(...)` stores the first failure and later operations cannot clear

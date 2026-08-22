@@ -74,45 +74,6 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	EXPECT_NE(Error.find("checksum"), std::string::npos);
 }
 
-TEST(FVolumeTextureTests, DeprecatedByteArrayMigratesToCanonicalBlob)
-{
-	Durin::FVolumeTextureSourceData Legacy;
-	Legacy.Width = 2;
-	Legacy.Height = 2;
-	Legacy.Depth = 2;
-	Legacy.Format = Durin::EVolumeTextureFormat::R8_UNORM;
-	Legacy.Voxels_DEPRECATED = {1, 2, 3, 4, 5, 6, 7, 8};
-	std::string Error;
-	Durin::FDStructPostDeserializeContext Context{.Error = &Error};
-	ASSERT_TRUE(Durin::TDStructOpsTraits<Durin::FVolumeTextureSourceData>::PostDeserialize(
-		Legacy, Context)) << Error;
-	EXPECT_TRUE(Legacy.Voxels_DEPRECATED.empty());
-	const std::array Expected{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
-		std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
-	EXPECT_TRUE(std::ranges::equal(Legacy.GetVoxelBytes(), Expected));
-}
-
-TEST(FVolumeTextureTests, DeprecatedBlobMigratesToAuthoredBulkData)
-{
-	Durin::FVolumeTextureSourceData Legacy;
-	Legacy.Width = 2;
-	Legacy.Height = 2;
-	Legacy.Depth = 2;
-	Legacy.Format = Durin::EVolumeTextureFormat::R8_UNORM;
-	Legacy.VoxelsBlob_DEPRECATED = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
-		std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
-	std::string Error;
-	Durin::FDStructPostDeserializeContext Context{.Error = &Error};
-	ASSERT_TRUE(Durin::TDStructOpsTraits<Durin::FVolumeTextureSourceData>::PostDeserialize(
-		Legacy, Context)) << Error;
-	EXPECT_TRUE(Legacy.VoxelsBlob_DEPRECATED.empty());
-	EXPECT_TRUE(Legacy.Voxels_DEPRECATED.empty());
-	EXPECT_TRUE(Legacy.Voxels.IsResident());
-	EXPECT_EQ(Legacy.Voxels.GetDescriptor().FormatId,
-		Durin::VolumeTextureSourceFormatId);
-	EXPECT_EQ(Legacy.GetVoxelBytes().size(), 8u);
-}
-
 TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 {
 	FScopedDerivedDataCacheRoot CacheRoot(

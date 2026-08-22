@@ -10,19 +10,6 @@
 
 namespace Durin
 {
-	struct FVolumeTextureSourceVersion
-	{
-		inline static constexpr FGuid Guid{
-			0x769fba31, 0x9d4f42d7, 0xb311e1a4, 0x5a0d82c6};
-		enum Type : int32
-		{
-			BeforeCustomVersionWasAdded = -1,
-			ByteBlob = 1,
-			AuthoredBulkData = 2,
-			LatestVersion = AuthoredBulkData,
-		};
-	};
-
 	inline constexpr FGuid VolumeTextureSourcePayloadId{
 		0x6fe21a38, 0x494340a7, 0xa304c2d5, 0x26f22931};
 	inline constexpr FGuid VolumeTextureSourceFormatId{
@@ -74,16 +61,6 @@ namespace Durin
 		DPROPERTY()
 		Asset::FAuthoredBulkData Voxels;
 
-		DPROPERTY(Deprecated, CustomVersion = Durin::FVolumeTextureSourceVersion,
-			DeprecatedBefore = Durin::FVolumeTextureSourceVersion::AuthoredBulkData,
-			HistoricalName = "Voxels", MigratesTo = "Voxels")
-		std::vector<std::byte> VoxelsBlob_DEPRECATED;
-
-		DPROPERTY(Deprecated, CustomVersion = Durin::FVolumeTextureSourceVersion,
-			DeprecatedBefore = Durin::FVolumeTextureSourceVersion::ByteBlob,
-			MigratesTo = "Voxels")
-		std::vector<uint8> Voxels_DEPRECATED;
-
 		DPROPERTY()
 		uint32 Width = 0;
 
@@ -99,7 +76,7 @@ namespace Durin
 		ENGINE_API auto IsValid() const -> bool;
 		auto GetVoxelBytes() const -> std::span<const std::byte>
 		{
-			return Voxels.GetResidentBytes();
+			return Voxels.GetBulkData().GetResidentBytes();
 		}
 		ENGINE_API auto SetVoxelBytes(std::span<const std::byte> Bytes) -> bool;
 	};
@@ -253,42 +230,5 @@ namespace Durin
 		std::string LastBuildError;
 
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
-	};
-}
-
-namespace Durin
-{
-	template<>
-	struct TDStructOpsTraits<FVolumeTextureSourceData>
-		: TDStructOpsTraitsBase<FVolumeTextureSourceData>
-	{
-		static constexpr bool bWithPostDeserialize = true;
-
-		static auto PostDeserialize(
-			FVolumeTextureSourceData& Value,
-			FDStructPostDeserializeContext& Context) -> bool
-		{
-			if (!Value.Voxels_DEPRECATED.empty())
-			{
-				if (!Value.VoxelsBlob_DEPRECATED.empty())
-					return Context.Fail(
-						"Volume source contains both deprecated Blob and byte Array data.");
-				Value.VoxelsBlob_DEPRECATED.resize(Value.Voxels_DEPRECATED.size());
-				std::ranges::transform(Value.Voxels_DEPRECATED, Value.VoxelsBlob_DEPRECATED.begin(),
-					[](uint8 Byte) { return static_cast<std::byte>(Byte); });
-				Value.Voxels_DEPRECATED.clear();
-			}
-			if (!Value.VoxelsBlob_DEPRECATED.empty())
-			{
-				if (Value.Voxels.GetDescriptor().LogicalByteCount != 0)
-					return Context.Fail(
-						"Volume source contains both current bulk and deprecated Blob data.");
-				if (!Value.SetVoxelBytes(Value.VoxelsBlob_DEPRECATED))
-					return Context.Fail("Volume source Blob-to-bulk migration failed.");
-				Value.VoxelsBlob_DEPRECATED.clear();
-			}
-			return Value.IsValid()
-				|| Context.Fail("Volume source byte migration produced invalid dimensions or payload size.");
-		}
 	};
 }

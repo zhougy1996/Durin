@@ -571,9 +571,10 @@ and rebuilds still use the existing derived-data services.
 
 `FAuthoredBulkData` composes `FBulkData` plus the authored placement/container
 descriptor required by DAST and DABK. Replacement builds a detached verified
-candidate and never exposes writable resident memory. Unqualified access
-returns bytes only when already resident; synchronous IO is an explicit
-operation through the common value.
+candidate and never exposes writable resident memory. All runtime residency,
+failure, byte access, and synchronous IO go through `GetBulkData()`; authored
+package loading itself remains eager and publishes the object graph only after
+external DABK bytes have been resolved and verified.
 
 Asset package loading resolves external storage from the logical package path
 and descriptor container hash, validates the complete DABK container and the

@@ -29,7 +29,7 @@ namespace Durin::Asset
 	inline constexpr uint32 MaximumImportRecordDetachedTombstones = 1024;
 	inline constexpr uint32 MaximumImportRecordAcceptedDiagnostics = 1024;
 
-	DSTRUCT(LegacyNames = "Durin::Asset::Import::FImportRecordPayload;Durin::AssetImport::FImportRecordPayload")
+	DSTRUCT()
 	struct FImportRecordPayload
 	{
 		GENERATED_BODY()
@@ -52,7 +52,7 @@ namespace Durin::Asset
 		auto operator==(const FImportRecordPayload&) const -> bool = default;
 	};
 
-	DSTRUCT(LegacyNames = "Durin::Asset::Import::FImportRecordSource;Durin::AssetImport::FImportRecordSource")
+	DSTRUCT()
 	struct FImportRecordSource
 	{
 		GENERATED_BODY()
@@ -78,7 +78,7 @@ namespace Durin::Asset
 		auto operator==(const FImportRecordSource&) const -> bool = default;
 	};
 
-	DENUM(LegacyNames = "Durin::Asset::Import::EImportRecordOutputPolicy;Durin::AssetImport::EImportRecordOutputPolicy")
+	DENUM()
 	enum class EImportRecordOutputPolicy : uint8
 	{
 		Managed,
@@ -86,7 +86,7 @@ namespace Durin::Asset
 		Detached
 	};
 
-	DSTRUCT(LegacyNames = "Durin::Asset::Import::FImportRecordOutput;Durin::AssetImport::FImportRecordOutput")
+	DSTRUCT()
 	struct FImportRecordOutput
 	{
 		GENERATED_BODY()
@@ -114,7 +114,7 @@ namespace Durin::Asset
 		auto operator==(const FImportRecordOutput&) const -> bool = default;
 	};
 
-	DSTRUCT(LegacyNames = "Durin::Asset::Import::FImportRecordDetachedTombstone;Durin::AssetImport::FImportRecordDetachedTombstone")
+	DSTRUCT()
 	struct FImportRecordDetachedTombstone
 	{
 		GENERATED_BODY()
@@ -136,7 +136,7 @@ namespace Durin::Asset
 		auto operator==(const FImportRecordDetachedTombstone&) const -> bool = default;
 	};
 
-	DSTRUCT(LegacyNames = "Durin::Asset::Import::FImportRecordDiagnostic;Durin::AssetImport::FImportRecordDiagnostic")
+	DSTRUCT()
 	struct FImportRecordDiagnostic
 	{
 		GENERATED_BODY()
@@ -180,7 +180,7 @@ namespace Durin::Asset
 		auto operator==(const FImportRecordState&) const -> bool = default;
 	};
 
-	DCLASS(LegacyNames = "Durin::Asset::Import::DImportRecord;Durin::AssetImport::DImportRecord")
+	DCLASS()
 	class DImportRecord : public DObject
 	{
 		GENERATED_BODY()
