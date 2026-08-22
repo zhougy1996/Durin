@@ -4,8 +4,8 @@ Summary: Implement deterministic depth-aware volumetric-cloud spatial rendering 
 
 Last reviewed: 2026-08-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-21
 
 ## Current Status
 
@@ -34,8 +34,81 @@ with the frozen Base/Detail/Weather/Depth/Sampler/Uniform ABI and an explicit
 Weather fixed-seed fixtures upload, transition, sample, restore, and read back
 through public Vulkan RHI in inline and threaded modes. Validation passes 74/74
 `EditorRenderingTests`, 36/36 `RenderShaderContractTests`, and 63/63
-`VulkanRHIIntegrationTests`. Stage 2 is next: production Renderer resource
-slots, targets, binding, dispatch/draw, parity, and recovery.
+`VulkanRHIIntegrationTests`.
+
+Stages 2 and 3 completed on 2026-08-21. `FVolumetricCloudRenderer` now owns
+complete-or-last-known-good compute, fragment, fallback-weather, composite, and
+extent-target payloads. The compute route performs one public 8x8 dispatch with
+explicit input/output restoration; the fragment route writes the same fitted
+`RGBA16_FLOAT` target; and a scene-linear ping-pong draw implements the frozen
+radiance/transmittance algebra without a copy or load pass. Real Vulkan readback proves
+compute/fragment agreement within 2/1024 per half channel, fitted-view
+isolation, exact composite algebra, compute failure fallback, target recovery,
+and the disabled route.
+
+The hybrid retained-forward phase is split into retained opaque/masked, cloud,
+and sorted-translucency passes. With no P2 scene snapshot the default prepared
+input remains disabled, preserving all existing view output; per-view counters
+publish route/reason, samples, bytes, dispatch/draw, and composite structure.
+Validation passes 75/75 `EditorRenderingTests`, 7/7
+`EditorGridVulkanTests`, and 1/1 `VolumetricCloudVulkanTests`; the isolated
+cloud route/composite target passes in both inline and threaded RHI execution.
+The 36/36 shader-contract and 63/63 Vulkan
+RHI integration targets, `fast-all`, the complete Debug Editor build, and a
+120-tick hidden-window Debug Editor startup/render/clean-shutdown smoke also
+pass on the available RTX 3090 host. Stage 4 is complete. Lasting contracts are published in
+`Documentation/Runtime/Rendering/VolumetricCloudSpatialRendering.md`.
+
+On 2026-08-21 the user explicitly replaced the unavailable GTX 1060 6GB /
+Vulkan 1.3.280 qualification identity with the available RTX 3090 / Vulkan
+1.4.325 identity. This is a recorded post-observation adapter rebaseline, not
+an original frozen result. It changes only adapter/API identity: the extents,
+executors, 30/120 frame counts, pixel tolerances, 64 MiB ceiling, 12/16 ms
+compute gates, and 150% fragment/compute median gate remain unchanged.
+
+`VolumetricCloudQualificationTests` now owns the frozen three-extent,
+compute/fragment, 30-warm-up/120-measured-frame matrix. It reads the Vulkan
+physical-device identity, emits one machine-readable record per route/extent,
+and enforces the timing gates only for the exact named adapter/API while always
+enforcing route structure, half-float parity, target bytes, and lifecycle. The
+2026-08-21 RTX 3090 Vulkan 1.4.325 measurements used for the approved rebaseline
+are:
+
+| Executor / extent | Compute median / p95 | Fragment median / p95 | Retained bytes / parity |
+| --- | ---: | ---: | ---: |
+| Inline, 1280x720 | 306,368 / 722,496 ns | 314,272 / 317,056 ns | 22,118,400 / pass |
+| Inline, 1919x1079 fitted | 442,912 / 845,184 ns | 451,616 / 849,472 ns | 49,694,424 / pass |
+| Inline, 1920x1080 | 632,608 / 1,041,408 ns | 629,792 / 1,100,416 ns | 49,766,400 / pass |
+| Threaded, 1280x720 | 306,592 / 308,416 ns | 314,176 / 317,376 ns | 22,118,400 / pass |
+| Threaded, 1919x1079 fitted | 452,960 / 908,480 ns | 456,864 / 885,472 ns | 49,694,424 / pass |
+| Threaded, 1920x1080 | 629,376 / 1,011,936 ns | 618,944 / 1,032,384 ns | 49,766,400 / pass |
+
+Every compute sample records one dispatch, zero producer draws, and zero copies;
+forced fragment records zero dispatches, one draw, and zero copies. Raw records
+remain in the DurinDevTool/CTest logs. Both reruns reported `status=named_gate`;
+compute stayed below the unchanged 12/16 ms gates, fragment stayed below 150%
+of compute median, parity passed, and retained targets stayed below 64 MiB.
+
+The final Stage 4 host pass includes both qualification executors, 1/1
+`VolumetricCloudVulkanTests`, 75/75 `EditorRenderingTests`, 36/36
+`RenderShaderContractTests`, 63/63 `VulkanRHIIntegrationTests`, `fast-all`, the
+default native aggregate, the full Debug Editor build, and a validation-enabled
+120-tick hidden-window startup/render/clean-shutdown smoke.
+
+The post-commit Definition-of-Done audit added
+`VolumetricCloudSceneVulkanTests`. A development-only prepared-view seam now
+injects the already-frozen P1 input without creating a reflected P2 object or
+changing the production default. On both executors, the test proves exact
+disabled/invalid-input output, enabled compute and forced-fragment SceneRenderer
+counters, final SRGBA8 parity within 1/255, cloud-visible offscreen output,
+window-backed Present, resize, and clean release.
+
+P1 completed on 2026-08-21 after the approved RTX 3090 identity rebaseline and
+named-gate rerun. All Stage 0-4 pixel, structure, timing, memory, recovery,
+aggregate, build, runtime, and documentation gates pass. The frozen renderer
+handoff contains only values and generic texture bindings; the active
+`VolumetricCloudSceneContract` P2 plan owns reflected components and scene
+publication without changing P1 GPU ownership or quality policy.
 
 ## Goal
 
@@ -135,12 +208,12 @@ for the P2 scene/component plan.
   translucency.
 - Renderer resource slots publish complete payloads and retain last-known-good
   state across shader/device generations. Targets are extent-keyed and bounded
-  to 64 MiB total across compute and fragment routes. Resize/reload/retry cannot
+  to 64 MiB total across fragment, compute, and composite targets. Resize/reload/retry cannot
   expose partial resources or stale fitted-view pixels.
 
 ### Frozen qualification gates
 
-- Qualification adapter: NVIDIA GeForce GTX 1060 6GB, Vulkan 1.3.280, Win64
+- Qualification adapter: NVIDIA GeForce RTX 3090, Vulkan 1.4.325, Win64
   Debug DurinEditor. Extents are 1280x720, 1920x1080, and a 1919x1079 target
   containing a 1601x901 fitted viewport at (137, 89), through threaded and inline
   RHI executors.
@@ -214,16 +287,16 @@ for the P2 scene/component plan.
 
 ### Stage 2: Render and recover the cloud output
 
-- [ ] Add compute and fragment cloud shaders with matched density, interval,
+- [x] Add compute and fragment cloud shaders with matched density, interval,
   extinction, minimal light, early-termination, and complete fitted-target write
   behavior.
-- [ ] Add `FVolumetricCloudRenderer` resource slots, canonical texture views,
+- [x] Add `FVolumetricCloudRenderer` resource slots, canonical texture views,
   extent cache, sampler/uniform ownership, failure categories, retry/invalidation,
   timing/capture sinks, and bounded eviction.
-- [ ] Dispatch compute outside render passes with explicit sampled/depth/storage/
+- [x] Dispatch compute outside render passes with explicit sampled/depth/storage/
   graphics-read transitions; add the fullscreen fragment fallback without a
   copy or Vulkan-specific call.
-- [ ] Prove exact route selection, group/sample counters, compute/fragment target
+- [x] Prove exact route selection, group/sample counters, compute/fragment target
   parity, input-state restoration, replacement failure, reload/retry, both
   executors, repeated frames, and resource release on real Vulkan.
 
@@ -235,16 +308,16 @@ for the P2 scene/component plan.
 
 ### Stage 3: Insert depth-aware composition into every scene route
 
-- [ ] Split retained opaque/masked execution from combined sorted translucency
+- [x] Split retained opaque/masked execution from combined sorted translucency
   at the narrowest shared Renderer boundary without changing draw preparation or
   translucency ordering.
-- [ ] Render/composite clouds after sky plus opaque lighting and before sorted
+- [x] Render/composite clouds after sky plus opaque lighting and before sorted
   translucency in special-forward and hybrid-deferred Lit/Solid routes; preserve
   existing Unlit/Wireframe and no-cloud behavior explicitly.
-- [ ] Add the cloud composite shader/pass using the frozen algebra and prove
+- [x] Add the cloud composite shader/pass using the frozen algebra and prove
   opaque depth clipping, translucent foreground ordering, fitted-view isolation,
   offscreen output, window-backed Present, post-process, and editor assistance.
-- [ ] Publish per-view route/reason/sample/byte/pass counters and ensure failed
+- [x] Publish per-view route/reason/sample/byte/pass counters and ensure failed
   cloud work cannot fail an otherwise renderable scene view.
 
 #### Acceptance Gate
@@ -255,14 +328,14 @@ for the P2 scene/component plan.
 
 ### Stage 4: Qualify P1 and publish the P2 handoff
 
-- [ ] Record the frozen GPU timing/structure matrix on the named adapter without
-  revising gates after route timings are observed.
-- [ ] Run focused Renderer/Engine/RenderCore/Vulkan coverage, native aggregate,
+- [x] Record the approved GPU timing/structure matrix on the named adapter while
+  retaining the pre-observation numeric gates after the adapter rebaseline.
+- [x] Run focused Renderer/Engine/RenderCore/Vulkan coverage, native aggregate,
   full build, and a validation-enabled Debug Editor runtime matrix with resize,
   route forcing, reload/retry, stable frames, Present, and clean shutdown.
-- [ ] Publish lasting spatial rendering, composition, fallback, recovery,
+- [x] Publish lasting spatial rendering, composition, fallback, recovery,
   diagnostics, output, and parameter contracts under Runtime rendering docs.
-- [ ] Update the volumetric-cloud roadmap with P1 evidence and activate P2 only
+- [x] Update the volumetric-cloud roadmap with P1 evidence and activate P2 only
   after its input parameter/resource/fallback contract is fully frozen.
 
 #### Acceptance Gate
@@ -315,6 +388,7 @@ for the P2 scene/component plan.
 ## Related Documentation
 
 - [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
 - [Synchronous Compute Pipelines](../Runtime/Rendering/SynchronousComputePipelines.md)
 - [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)
@@ -336,6 +410,8 @@ for the P2 scene/component plan.
 - `Engine/Shaders/Slang/ContactShadow.slang`
 - `Engine/Shaders/Slang/VolumetricCloud.slang`
 - `Engine/Shaders/Slang/PostProcess.slang`
-- `Engine/Tests/Native/EngineTests/Private/EditorGridVulkanTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/VolumetricCloudVulkanTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/VolumetricCloudSceneVulkanTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/VolumetricCloudQualificationTests.cpp`
 - `Engine/Tests/Native/RenderCoreTests/Private/ShaderReflectionTests.cpp`
 - `Engine/Tests/Native/VulkanRHITests/Private/VulkanTextureSamplingTests.cpp`

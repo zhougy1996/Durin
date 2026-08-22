@@ -23,6 +23,9 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
 	// One cleared R8_UNORM contact-visibility target published for sampling.
 	RENDERER_API auto MakeContactVisibilityOutput() -> FRHIRenderTargetLayout;
+	// Cloud radiance/transmittance target and linear ping-pong scene composite.
+	RENDERER_API auto MakeVolumetricCloudOutput() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeVolumetricCloudComposite() -> FRHIRenderTargetLayout;
 	// One on-demand RGBA16_FLOAT target used only by GBuffer diagnostics.
 	RENDERER_API auto MakeGBufferDebugOutput() -> FRHIRenderTargetLayout;
 	// Isolated M3 RGBA16_FLOAT qualification output, cleared per view and left
@@ -36,6 +39,7 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
 		-> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;

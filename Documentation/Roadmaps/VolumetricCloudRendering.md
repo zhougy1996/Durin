@@ -21,11 +21,15 @@ on 2026-08-21. Their lasting compute, synchronization, fallback, recovery, and
 diagnostic contracts now satisfy the remaining P1 dependency.
 
 [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md)
-is now the active P1 plan. Stage 0 froze the flat-slab coordinate model,
-deterministic inputs, radiance/transmittance output, opaque/cloud/translucency
-order, compute/fragment/disabled routes, and spatial quality/performance gates.
-Implementation proceeds from its Stage 1 pure contracts and fixtures. Later
-child plans remain proposed until their entry gates are met.
+completed P1 on 2026-08-21. It froze and implemented the flat-slab coordinate
+model, deterministic inputs, matched compute/fragment production routes,
+scene-linear radiance/transmittance targets, exact composition, bounded
+resource recovery, diagnostics, and the opaque/cloud/sorted-translucency split.
+Focused contract and Vulkan integration coverage passes; lasting P1 contracts
+are published under Runtime rendering. The unavailable GTX 1060 identity was
+explicitly replaced by the user with RTX 3090 / Vulkan 1.4.325 while retaining
+all numeric gates; both named-gate executor reruns passed. P2 is now active in
+[Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md).
 
 ## Outcome
 
@@ -176,15 +180,15 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | P0: Generic foundations | Required; completed 2026-08-21 | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) and [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) | Existing texture, compute, renderer-scene, and view-lifetime contracts were audited. | Cooked sampled 3D data and transactional view identity/history extension pass focused, aggregate, and runtime qualification. |
-| P1: Spatial rendering and composition | Required; active 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | Met on 2026-08-21: P0 and Compute Renderer Integration are complete; Stage 0 froze the flat-slab model, spatial fixtures, output/composition, fallback, and qualification budgets. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
-| P2: Scene contract and component | Required | `VolumetricCloudSceneContract` | P1 freezes the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | One reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources. |
+| P1: Spatial rendering and composition | Required; completed 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | The user-approved RTX 3090 / Vulkan 1.4.325 rebaseline retained every numeric gate; inline/threaded named qualification passed three-extent structure, half/final-image parity, 49,766,400-byte peak retention, enabled offscreen/Present resize routes, invalid-input identity, lifecycle, aggregates, build, and runtime smoke. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
+| P2: Scene contract and component | Required; active 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | One reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources. |
 | P3: Temporal reconstruction and quality | Required | `VolumetricCloudTemporalReconstruction` | P1 spatial reference images pass; P2 publishes immutable parameters; representative camera motion, cut, resize, and performance targets are frozen. | Low-resolution cloud rendering reconstructs stable full-view output, rejects invalid history, commits/aborts transactionally, exposes bounded quality tiers, and demonstrates measured benefit over the spatial reference. |
 | P4: Lighting and cloud shadows | Required | `VolumetricCloudLightingAndShadows` | P3 output and quality policy are stable; selected directional-light and receiver scenes define radiometric, visual, and performance targets. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
 | P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; first production asset sources identify the smallest import or generation adapter required. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
 | P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5 acceptance gates pass and their remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
-P0 is complete and P1 is the only active cloud child plan. P2-P6 are ordered
-proposed plans, not simultaneous active work.
+P0 and P1 are complete. P2 is the only active cloud child plan; P3-P6 remain
+ordered proposed plans, not simultaneous active work.
 
 ## Child Plan Boundaries
 
@@ -202,7 +206,7 @@ shadows, specialized editor UI, a general volumetric framework, or async
 compute. The minimal light approximation proves visible form only; P4 owns the
 production lighting response.
 
-### `VolumetricCloudSceneContract`
+### [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md)
 
 Owns Engine-side cloud scene data, stable identity and selection, Proxy/SceneInfo
 lifetime, component/actor reflection, asset references, serialization,

@@ -7,6 +7,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
+	struct FPreparedSceneView;
 
 	using FSceneColorTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
@@ -42,6 +43,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* Visibility,
 		bool bFiltered);
+	using FVolumetricCloudPreparationSink = void (*)(
+		FPreparedSceneView& PreparedView);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -74,4 +77,9 @@ namespace Durin
 		FDeferredDirectionalCaptureSink Sink) -> void;
 	RENDERER_API auto SetGroundTruthAmbientOcclusionCaptureSink(
 		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void;
+
+	// Development seam for scene-order/output qualification before P2 owns the
+	// reflected scene snapshot that populates the same renderer-private input.
+	RENDERER_API auto SetVolumetricCloudPreparationSink(
+		FVolumetricCloudPreparationSink Sink) -> void;
 }

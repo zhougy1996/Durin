@@ -6,6 +6,7 @@
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/TerrainRenderPreparation.h"
+#include "Renderers/VolumetricCloudRenderer.h"
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Renderers/ForwardLighting.h"
@@ -59,6 +60,14 @@ namespace Durin
 		FPreparedSkeletalMeshView SkeletalMeshes;
 		FPreparedTerrainView Terrains;
 		std::vector<FPreparedTranslucentSceneDraw> TranslucentGeometry;
+		// P1 renderer-private handoff. P2 will populate this from a reflected scene
+		// snapshot without changing the texture/parameter/fallback contract.
+		bool bVolumetricCloudRequested = false;
+		// Development-only route forcing is populated through the profiling seam;
+		// P2 scene snapshots never own or publish this policy.
+		bool bVolumetricCloudForceFragmentForQualification = false;
+		FVolumetricCloudRenderer::FParameters VolumetricCloudParameters;
+		FVolumetricCloudRenderer::FTextureBindings VolumetricCloudTextures;
 		FViewRenderCounters Counters;
 	};
 

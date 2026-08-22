@@ -156,6 +156,22 @@ durin_add_engine_functional_test(GBufferQualificationTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
+durin_add_engine_functional_test(VolumetricCloudQualificationTests
+	KIND qualification
+	DOMAINS renderer
+	MODULES engine renderer vulkan-rhi
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Measures the frozen volumetric-cloud compute and fragment routes across the P1 extent matrix."
+	SOURCES Private/VolumetricCloudQualificationTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+)
+
 durin_add_engine_functional_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer
@@ -195,11 +211,47 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 	)
+
+	durin_add_engine_functional_test(VolumetricCloudVulkanTests
+		EXECUTION_HOST application
+		KIND integration
+		DOMAINS renderer
+		MODULES engine renderer vulkan-rhi
+		BACKENDS vulkan
+		STACKS renderer
+		GPU
+		TIMEOUT 900
+		RUNTIME_STACK_RATIONALE
+			"Owns one isolated Vulkan lifecycle for compute and fragment volumetric-cloud parity."
+		SOURCES Private/VolumetricCloudVulkanTests.cpp
+		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		INCLUDE_DIRECTORIES
+			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	)
+
+	durin_add_engine_functional_test(VolumetricCloudSceneVulkanTests
+		EXECUTION_HOST application
+		KIND integration
+		DOMAINS renderer viewport
+		MODULES engine renderer vulkan-rhi
+		BACKENDS vulkan
+		STACKS renderer
+		GPU
+		TIMEOUT 900
+		RUNTIME_STACK_RATIONALE
+			"Exercises enabled volumetric clouds through SceneRenderer offscreen and window-backed Present routes."
+		SOURCES Private/VolumetricCloudSceneVulkanTests.cpp
+		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"Window-backed editor-grid Vulkan qualification runs only when application tests are explicitly enabled."
-		SOURCES Private/EditorGridVulkanTests.cpp
+		SOURCES
+			Private/EditorGridVulkanTests.cpp
+			Private/VolumetricCloudVulkanTests.cpp
+			Private/VolumetricCloudSceneVulkanTests.cpp
 	)
 endif()
 

@@ -170,6 +170,28 @@ namespace Durin
 	}
 
 	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudOutputAndCompositeFreezeSceneLinearAlgebra)
+	{
+		const FRHIRenderTargetLayout Output = MakeVolumetricCloudOutput();
+		const FRHIRenderTargetLayout Composite = MakeVolumetricCloudComposite();
+		ASSERT_TRUE(Output.IsValid());
+		ASSERT_TRUE(Composite.IsValid());
+		EXPECT_EQ(Output.NumColorRenderTargets, 1u);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.Format,
+			EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.LoadAction,
+			ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.LoadAction,
+			ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.InitialLayout,
+			ERHITextureLayout::Undefined);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
 		VolumetricCloudHeightSlabCoversCameraRegimes)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
@@ -421,9 +443,11 @@ namespace Durin
 		const FRHIRenderTargetLayout Bootstrap = MakeHybridSceneBootstrap();
 		const FRHIRenderTargetLayout Deferred = MakeHybridDeferredOutput();
 		const FRHIRenderTargetLayout Retained = MakeHybridRetainedForward();
+		const FRHIRenderTargetLayout Translucency = MakeHybridSortedTranslucency();
 		ASSERT_TRUE(Bootstrap.IsValid());
 		ASSERT_TRUE(Deferred.IsValid());
 		ASSERT_TRUE(Retained.IsValid());
+		ASSERT_TRUE(Translucency.IsValid());
 		EXPECT_EQ(Bootstrap.NumColorRenderTargets, 1u);
 		EXPECT_EQ(Bootstrap.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
 		EXPECT_TRUE(Bootstrap.bHasDepthStencil);
@@ -437,6 +461,10 @@ namespace Durin
 		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
 		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
 		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Translucency.DepthStencilAttachment.FinalLayout,
+			ERHITextureLayout::DepthStencilAttachment);
+		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ScenePostProcessLeavesColorReadyForEditorAssistance)

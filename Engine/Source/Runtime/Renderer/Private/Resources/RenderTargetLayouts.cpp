@@ -110,6 +110,25 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeVolumetricCloudOutput() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead);
+		return Layout;
+	}
+
+	auto MakeVolumetricCloudComposite() -> FRHIRenderTargetLayout
+	{
+		return MakeVolumetricCloudOutput();
+	}
+
 	auto MakeGBufferDebugOutput() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
@@ -225,6 +244,11 @@ namespace Durin::RenderTargetLayouts
 		Layout.DepthStencilAttachment.FinalAccess =
 			ERHIAccess::DepthStencilReadWrite;
 		return Layout;
+	}
+
+	auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout
+	{
+		return MakeHybridRetainedForward();
 	}
 
 	auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout

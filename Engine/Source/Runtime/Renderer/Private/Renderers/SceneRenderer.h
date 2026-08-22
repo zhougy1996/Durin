@@ -12,6 +12,7 @@
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/TerrainRenderer.h"
+#include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/SceneViewState.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
@@ -141,6 +142,11 @@ namespace Durin
 			FRHITexture* SceneColor,
 			FRHITexture* GroundTruthAmbientOcclusionDebugOutput
 		) -> ERenderViewResult;
+		auto RenderVolumetricCloud_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			struct FPreparedSceneView& PreparedView,
+			FRHITexture* SceneColor,
+			FRHITexture* Depth) -> FRHITexture*;
 		auto EnqueueResourceInvalidation(
 			ERendererResourceInvalidationCause Cause
 		) -> void;
@@ -151,7 +157,7 @@ namespace Durin
 			auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
-			FRHITexture* SceneColor,
+			FRHITexture*& SceneColor,
 			FRHITexture* Depth,
 			const FDeferredDirectionalLightingRenderer::FRenderParameters*
 				DeferredParameters
@@ -177,6 +183,7 @@ namespace Durin
 		FSkyBoxRenderer SkyBoxRenderer;
 		FPostProcessRenderer PostProcessRenderer;
 		FContactShadowVisibilityRenderer ContactShadowRenderer;
+		FVolumetricCloudRenderer VolumetricCloudRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 		FSceneViewStateRegistry ViewStates;
 		uint64 RenderSubmissionSerial = 0;

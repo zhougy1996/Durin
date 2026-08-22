@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
+#include "Renderers/VolumetricCloudSpatialRenderer.h"
 
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
@@ -260,6 +261,20 @@ namespace Durin
 		size_t GroundTruthAmbientOcclusionRetainedBytes = 0;
 		size_t HybridDeferredEnabledViews = 0;
 		size_t HybridDeferredUnavailableViews = 0;
+		size_t VolumetricCloudEnabledViews = 0;
+		size_t VolumetricCloudComputeViews = 0;
+		size_t VolumetricCloudFragmentViews = 0;
+		size_t VolumetricCloudDisabledViews = 0;
+		size_t VolumetricCloudDispatches = 0;
+		size_t VolumetricCloudDraws = 0;
+		size_t VolumetricCloudCompositeDraws = 0;
+		uint64 VolumetricCloudPrimarySamples = 0;
+		uint64 VolumetricCloudLightSamples = 0;
+		uint64 VolumetricCloudActiveBytes = 0;
+		uint64 VolumetricCloudRetainedBytes = 0;
+		std::array<size_t, static_cast<size_t>(
+			FVolumetricCloudSpatialRenderer::ERouteReason::Count)>
+			VolumetricCloudRouteReasons{};
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;
 		size_t TranslucentStaticMeshSections = 0;

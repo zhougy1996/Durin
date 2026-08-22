@@ -84,6 +84,8 @@ namespace Durin
 			GDeferredDirectionalCaptureSink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionCaptureSink>
 			GGroundTruthAmbientOcclusionCaptureSink = nullptr;
+		std::atomic<FVolumetricCloudPreparationSink>
+			GVolumetricCloudPreparationSink = nullptr;
 
 		template<typename TimingQuerySink>
 		class TScopedGPUTimingQuery final
@@ -466,6 +468,12 @@ namespace Durin
 		);
 	}
 
+	auto SetVolumetricCloudPreparationSink(
+		FVolumetricCloudPreparationSink Sink) -> void
+	{
+		GVolumetricCloudPreparationSink.store(Sink, std::memory_order_release);
+	}
+
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
@@ -480,6 +488,7 @@ namespace Durin
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, ContactShadowRenderer(Coordinator, FullscreenGeometry)
+		, VolumetricCloudRenderer(Coordinator, FullscreenGeometry)
 		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
 	{
 	}
@@ -553,6 +562,7 @@ namespace Durin
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
 		PostProcessRenderer.ReleaseResources_RenderThread();
 		ContactShadowRenderer.ReleaseResources_RenderThread();
+		VolumetricCloudRenderer.ReleaseResources_RenderThread();
 		FullscreenGeometry.ReleaseResources_RenderThread();
 	}
 
@@ -666,6 +676,7 @@ namespace Durin
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						ContactShadowRenderer.ReleaseResources_RenderThread();
+						VolumetricCloudRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.ReleaseResources_RenderThread();
 						FullscreenGeometry.ReleaseResources_RenderThread();
 					},
@@ -1046,6 +1057,10 @@ namespace Durin
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, PreparedView
 		);
+		const FVolumetricCloudPreparationSink CloudPreparationSink =
+			GVolumetricCloudPreparationSink.load(std::memory_order_acquire);
+		if (CloudPreparationSink != nullptr)
+			CloudPreparationSink(PreparedView);
 
 		return ERenderViewResult::Success;
 	}
@@ -1919,10 +1934,65 @@ namespace Durin
 		return Result;
 	}
 
+	auto FSceneRenderer::RenderVolumetricCloud_RenderThread(
+		FRHICommandListImmediate& CommandList, FPreparedSceneView& PreparedView,
+		FRHITexture* SceneColor, FRHITexture* Depth) -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		const FSceneView& View = PreparedView.View;
+		const uint32 Width = SceneColor != nullptr ? SceneColor->GetSizeX() : 0;
+		const uint32 Height = SceneColor != nullptr ? SceneColor->GetSizeY() : 0;
+		const bool bInputsPresent = PreparedView.VolumetricCloudTextures.BaseDensity != nullptr
+			&& PreparedView.VolumetricCloudTextures.DetailDensity != nullptr
+			&& PreparedView.VolumetricCloudTextures.DensitySampler != nullptr
+			&& Depth != nullptr;
+		auto* FragmentTargets = PreparedView.bVolumetricCloudRequested && bInputsPresent
+			? VolumetricCloudRenderer.EnsureTargets_RenderThread(Width, Height) : nullptr;
+		auto* ComputeTargets = PreparedView.bVolumetricCloudRequested && bInputsPresent
+			&& !PreparedView.bVolumetricCloudForceFragmentForQualification
+			? VolumetricCloudRenderer.EnsureComputeTargets_RenderThread(Width, Height) : nullptr;
+		auto Textures = PreparedView.VolumetricCloudTextures;
+		Textures.SceneDepth = Depth;
+		const FVolumetricCloudRenderer::FRenderResult Result =
+			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets,
+				ComputeTargets, {.bRequested = PreparedView.bVolumetricCloudRequested,
+					.Textures = Textures,
+					.Parameters = PreparedView.VolumetricCloudParameters,
+					.View = &View, .Width = Width, .Height = Height});
+		auto& Counters = PreparedView.Counters;
+		const auto RouteIndex = static_cast<size_t>(Result.Counters.Reason);
+		if (RouteIndex < Counters.VolumetricCloudRouteReasons.size())
+			++Counters.VolumetricCloudRouteReasons[RouteIndex];
+		Counters.VolumetricCloudDispatches += Result.Counters.Dispatches;
+		Counters.VolumetricCloudDraws += Result.Counters.Draws;
+		Counters.VolumetricCloudPrimarySamples += Result.Counters.PrimarySamples;
+		Counters.VolumetricCloudLightSamples += Result.Counters.LightSamples;
+		Counters.VolumetricCloudActiveBytes = Result.Counters.TargetBytes;
+		if (Result.Counters.Route == FVolumetricCloudRenderer::ERoute::Compute)
+			++Counters.VolumetricCloudComputeViews;
+		else if (Result.Counters.Route == FVolumetricCloudRenderer::ERoute::Fragment)
+			++Counters.VolumetricCloudFragmentViews;
+		else
+			++Counters.VolumetricCloudDisabledViews;
+		FRHITexture* Composite = Result.Cloud != nullptr
+			? VolumetricCloudRenderer.Composite_RenderThread(
+				CommandList, SceneColor, Result.Cloud, View) : nullptr;
+		Counters.VolumetricCloudRetainedBytes =
+			VolumetricCloudRenderer.GetRetainedTargetBytes_RenderThread();
+		if (Composite != nullptr)
+		{
+			++Counters.VolumetricCloudEnabledViews;
+			++Counters.VolumetricCloudCompositeDraws;
+			return Composite;
+		}
+		return SceneColor;
+	}
+
 	auto FSceneRenderer::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSceneView& PreparedView,
-		FRHITexture* SceneColor,
+		FRHITexture*& SceneColor,
 		FRHITexture* Depth,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters*
 			DeferredParameters
@@ -2024,12 +2094,13 @@ namespace Durin
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
 
-		FRHIRenderPassInfo Retained{};
-		Retained.RenderTargetLayout =
+		FRHIRenderPassInfo RetainedOpaque{};
+		RetainedOpaque.RenderTargetLayout =
 			RenderTargetLayouts::MakeHybridRetainedForward();
-		Retained.ColorRenderTargets[0] = SceneColor;
-		Retained.DepthStencilRenderTarget = Depth;
-		CommandList.BeginRenderPass(Retained, "HybridRetainedForwardRenderPass");
+		RetainedOpaque.ColorRenderTargets[0] = SceneColor;
+		RetainedOpaque.DepthStencilRenderTarget = Depth;
+		CommandList.BeginRenderPass(
+			RetainedOpaque, "HybridRetainedOpaqueRenderPass");
 		SetViewRect();
 		for (const EStaticMeshBasePass Pass : {
 				 EStaticMeshBasePass::Opaque, EStaticMeshBasePass::Masked
@@ -2069,6 +2140,29 @@ namespace Durin
 					);
 				}
 		}
+		CommandList.EndRenderPass();
+		const std::array CloudBoundaryTransitions{
+			FRHITextureTransition::Whole(Depth,
+				ERHIAccess::DepthStencilReadWrite,
+				ERHIAccess::GraphicsShaderRead)};
+		CommandList.TransitionTextures(CloudBoundaryTransitions);
+
+		SceneColor = RenderVolumetricCloud_RenderThread(
+			CommandList, PreparedView, SceneColor, Depth);
+		const std::array SortedTranslucencyTransitions{
+			FRHITextureTransition::Whole(SceneColor,
+				ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::ColorAttachmentReadWrite)};
+		CommandList.TransitionTextures(SortedTranslucencyTransitions);
+
+		FRHIRenderPassInfo SortedTranslucency{};
+		SortedTranslucency.RenderTargetLayout =
+			RenderTargetLayouts::MakeHybridSortedTranslucency();
+		SortedTranslucency.ColorRenderTargets[0] = SceneColor;
+		SortedTranslucency.DepthStencilRenderTarget = Depth;
+		CommandList.BeginRenderPass(
+			SortedTranslucency, "HybridSortedTranslucencyRenderPass");
+		SetViewRect();
 		for (const FPreparedTranslucentSceneDraw& Draw :
 			 PreparedView.TranslucentGeometry)
 		{
