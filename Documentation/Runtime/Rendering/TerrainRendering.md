@@ -118,8 +118,8 @@ of each cell are `(A,B,C)` and `(B,D,C)`; the existing determinant-based front
 face policy handles mirrored component transforms.
 
 Terrain compiles the existing material base pass with the Terrain vertex
-contract. Material v3 and v2 compatibility, ErrorMaterial fallback, texture
-fallbacks, Opaque/Masked/Translucent classification, two-sided state, depth
+contract. Exact-v3 material binding, ErrorMaterial fallback, texture fallbacks,
+Opaque/Masked/Translucent classification, two-sided state, depth
 policy, Lit/Unlit lighting, Solid/Wireframe rasterization, environment data,
 and Present/offscreen render-target layouts remain shared Renderer policy.
 Terrain translucent patches enter the same back-to-front geometry list as

@@ -159,13 +159,13 @@ namespace Durin
 		return Result;
 	}
 
-	auto MakeMaterialRenderLayoutV2() -> FMaterialRenderLayout
+	auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout
 	{
 		using namespace MaterialParameters;
 		FMaterialRenderLayout Result;
-		Result.Identity = {.Version = 2, .Id = MaterialRenderLayoutV2Id};
-		Result.UniformPayloadSize = 352;
-		Result.UniformFieldCount = 32;
+		Result.Identity = {.Version = 3, .Id = MaterialRenderLayoutV3Id};
+		Result.UniformPayloadSize = 416;
+		Result.UniformFieldCount = 48;
 		Result.ResourceFieldCount = 8;
 		auto AddUniform = [&Result](FGuid Id, EMaterialRenderValueType Type, uint16 Index, uint32 Offset) {
 			Result.Fields.push_back({.ParameterId = Id, .Storage = EMaterialRenderFieldStorage::Uniform,
@@ -196,16 +196,6 @@ namespace Durin
 			Result.Fields.push_back({.ParameterId = TextureIds[Role], .Storage = EMaterialRenderFieldStorage::Resource,
 				.Type = EMaterialRenderValueType::Texture2D, .CompactIndex = Role});
 		}
-		return Result;
-	}
-
-	auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout
-	{
-		using namespace MaterialParameters;
-		FMaterialRenderLayout Result = MakeMaterialRenderLayoutV2();
-		Result.Identity = {.Version = 3, .Id = MaterialRenderLayoutV3Id};
-		Result.UniformPayloadSize = 416;
-		Result.UniformFieldCount = 48;
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
 			Result.Fields.insert(Result.Fields.begin() + 32 + Role, {
@@ -255,8 +245,7 @@ namespace Durin
 	) -> bool
 	{
 		OutDiagnostic = {};
-		if (Layout.Identity.Version != 1 && Layout.Identity.Version != 2
-			&& Layout.Identity.Version != 3)
+		if (Layout.Identity.Version != 1 && Layout.Identity.Version != 3)
 		{
 			return SetValidationFailure(
 				OutDiagnostic,
@@ -269,9 +258,7 @@ namespace Durin
 		}
 		const FGuid ExpectedIdentity = Layout.Identity.Version == 1
 			? MaterialRenderLayoutV1Id
-			: Layout.Identity.Version == 2
-				? MaterialRenderLayoutV2Id
-				: MaterialRenderLayoutV3Id;
+			: MaterialRenderLayoutV3Id;
 		if (Layout.Identity.Id != ExpectedIdentity)
 		{
 			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::UnsupportedIdentity, 0,

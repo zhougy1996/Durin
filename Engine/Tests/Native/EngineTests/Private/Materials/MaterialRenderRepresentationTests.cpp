@@ -101,7 +101,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 			Resolved = First->Resolve_RenderThread();
 		});
 	WaitForRenderingThread();
-	const Durin::FMaterialRenderV2Binding Binding =
+	const Durin::FMaterialRenderBinding Binding =
 		GetMaterialBinding(Resolved);
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
@@ -167,7 +167,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 	const Durin::FMaterialRenderData& Error =
 		Durin::GetErrorMaterialRenderData();
 	EXPECT_TRUE(Error.Representation.IsError());
-	const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Error);
+	const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Error);
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f));
 	Durin::ShutdownDefaultMaterialService();
 }
@@ -409,39 +409,11 @@ TEST(FMaterialRenderRepresentationTests, BuilderCompilesValuesIntoCompactSlots)
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 44), 0.25f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 64), 3.0f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 352), 0.5f);
-	Durin::FMaterialRenderV3Binding Binding;
-	ASSERT_TRUE(Durin::TryGetMaterialRenderV3Binding(
+	Durin::FMaterialRenderBinding Binding;
+	ASSERT_TRUE(Durin::TryGetMaterialRenderBinding(
 		Representation, Binding, Diagnostic)) << Diagnostic.Message;
 	EXPECT_FLOAT_EQ(Binding.UVRotations[0], 0.5f);
 	EXPECT_EQ(Binding.Samplers[0], Sampler);
-}
-
-TEST(FMaterialRenderRepresentationTests, V2BindingRemainsExactlyDecodable)
-{
-	Durin::FMaterialRenderRepresentationInput Input;
-	Input.Layout = Durin::MakeMaterialRenderLayoutV2();
-	Input.UniformPayload.resize(352, std::byte{0});
-	auto Write = [&Input](Durin::uint32 Offset, float Value) {
-		std::memcpy(Input.UniformPayload.data() + Offset, &Value, sizeof(Value));
-	};
-	Write(0, 0.2f);
-	Write(4, 0.4f);
-	Write(8, 0.6f);
-	Write(12, 0.8f);
-	for (Durin::uint32 Role = 0; Role < 8; ++Role)
-	{
-		Write(96 + Role * 16, 1.0f);
-		Write(100 + Role * 16, 1.0f);
-	}
-	Input.Resources.resize(8);
-	Durin::FMaterialRenderRepresentation Representation;
-	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
-	ASSERT_TRUE(Durin::FMaterialRenderRepresentation::TryCreate(
-		std::move(Input), Representation, Diagnostic)) << Diagnostic.Message;
-	Durin::FMaterialRenderV2Binding Binding;
-	ASSERT_TRUE(Durin::TryGetMaterialRenderV2Binding(
-		Representation, Binding, Diagnostic)) << Diagnostic.Message;
-	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.8f));
 }
 
 TEST(FMaterialRenderRepresentationTests, V1BindingReadsCompactValuesWithoutParameterLookup)
@@ -499,7 +471,7 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 0.25f));
 
 	const Durin::FMaterialRenderData RenderData = Instance->GetRenderData();
-	const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(RenderData);
+	const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(RenderData);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.r, 0.15f);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.g, 0.25f);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.b, 0.35f);
@@ -530,7 +502,7 @@ TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputCla
 	Durin::DTexture2D* WrongUsageTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "WrongNormalUsage");
 	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
-	const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Material->GetRenderData());
+	const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Material->GetRenderData());
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.95f, 0.62f, 0.22f, 1.0f));
 	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
 	EXPECT_FLOAT_EQ(Binding.Metallic, 1.0f);

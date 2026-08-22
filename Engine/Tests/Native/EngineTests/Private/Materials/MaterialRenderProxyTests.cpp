@@ -59,9 +59,9 @@ namespace
 		const Durin::FMaterialRenderData& Expected
 	) -> void
 	{
-		const Durin::FMaterialRenderV2Binding ActualBinding =
+		const Durin::FMaterialRenderBinding ActualBinding =
 			GetMaterialBinding(Actual);
-		const Durin::FMaterialRenderV2Binding ExpectedBinding =
+		const Durin::FMaterialRenderBinding ExpectedBinding =
 			GetMaterialBinding(Expected);
 		ExpectColorNear(ActualBinding.BaseColor, ExpectedBinding.BaseColor);
 		EXPECT_EQ(
@@ -268,7 +268,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	const FMaterialProxySnapshot BaseSnapshot =
 		CaptureMaterialProxy(BaseProxy);
 	ExpectRenderDataMatches(BaseSnapshot.RenderData, Base->GetRenderData());
-	const Durin::FMaterialRenderV3Binding BaseBinding =
+	const Durin::FMaterialRenderBinding BaseBinding =
 		GetMaterialBinding(BaseSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(BaseBinding.Metallic, 0.81f);
 	EXPECT_FLOAT_EQ(BaseBinding.Roughness, 0.23f);
@@ -307,7 +307,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		CaptureMaterialProxy(InstanceProxy);
 	ExpectRenderDataMatches(
 		InstanceSnapshot.RenderData, Instance->GetRenderData());
-	const Durin::FMaterialRenderV2Binding InstanceBinding =
+	const Durin::FMaterialRenderBinding InstanceBinding =
 		GetMaterialBinding(InstanceSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(InstanceBinding.Metallic, 0.17f);
 	EXPECT_FLOAT_EQ(InstanceBinding.Roughness, 0.5f);
@@ -494,7 +494,7 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 
 	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
-	const Durin::FMaterialRenderV2Binding UpdatedBinding =
+	const Durin::FMaterialRenderBinding UpdatedBinding =
 		GetMaterialBinding(Updated.RenderData);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Metallic, 0.27f);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Roughness, 0.63f);

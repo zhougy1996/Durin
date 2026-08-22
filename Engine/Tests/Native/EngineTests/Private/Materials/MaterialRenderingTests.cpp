@@ -309,7 +309,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
 		const Durin::FMaterialRenderData& Default = Snapshot.Materials[SlotIndex];
-		const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Default);
+		const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Default);
 		EXPECT_EQ(Binding.Textures[0], nullptr);
 		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 		EXPECT_FALSE(Default.Representation.IsError());

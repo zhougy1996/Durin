@@ -15,7 +15,7 @@ namespace Durin
 		const FPrimitiveSceneInfo* SceneInfo = nullptr;
 		const FTerrainPatchDescriptor* Patch = nullptr;
 		FMaterialRenderData Material;
-		FMaterialRenderV3Binding MaterialBinding;
+		FMaterialRenderBinding MaterialBinding;
 		FEffectiveStaticMeshPipelineKey PipelineKey;
 		FStaticMeshDrawSortKey SortKey;
 		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;

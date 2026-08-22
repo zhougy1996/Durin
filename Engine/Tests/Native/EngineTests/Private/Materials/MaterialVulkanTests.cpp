@@ -568,7 +568,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Capture(CaptureMaterial);
 		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
-		const Durin::FMaterialRenderV3Binding TransformedUVBinding =
+		const Durin::FMaterialRenderBinding TransformedUVBinding =
 			GetMaterialBinding(CaptureMaterial->GetRenderData());
 		EXPECT_FLOAT_EQ(TransformedUVBinding.UVChannels[0], 3.0f);
 		EXPECT_EQ(
@@ -671,7 +671,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			EXPECT_TRUE(std::ranges::equal(
 				ProxyRenderData.Representation.GetResources(),
 				DirectRenderData.Representation.GetResources()));
-			const Durin::FMaterialRenderV2Binding RoleBinding =
+			const Durin::FMaterialRenderBinding RoleBinding =
 				GetMaterialBinding(ProxyRenderData);
 			EXPECT_EQ(
 				RoleBinding.Textures[Role].GetReference(),

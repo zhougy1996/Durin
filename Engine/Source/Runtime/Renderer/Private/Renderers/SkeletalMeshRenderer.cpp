@@ -1,4 +1,5 @@
 #include "Renderers/SkeletalMeshRenderer.h"
+#include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 
@@ -130,29 +131,10 @@ namespace Durin
 				Item.Material = Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex
 				);
-				FMaterialRenderValidationDiagnostic BindingDiagnostic;
-				bool bBindingValid = TryGetMaterialRenderV3Binding(
-					Item.Material.Representation, Item.MaterialBinding,
-					BindingDiagnostic
-				);
-				if (!bBindingValid
-					&& Item.Material.Representation.GetLayout().Identity.Version == 2)
-				{
-					FMaterialRenderV2Binding Legacy;
-					bBindingValid = TryGetMaterialRenderV2Binding(
-						Item.Material.Representation, Legacy, BindingDiagnostic
-					);
-					if (bBindingValid)
-						static_cast<FMaterialRenderV2Binding&>(Item.MaterialBinding) =
-							std::move(Legacy);
-				}
-				if (!bBindingValid)
-				{
-					RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
-					Item.Material = GetErrorMaterialRenderData();
-					FMaterialRenderValidationDiagnostic ErrorDiagnostic;
-					if (!TryGetMaterialRenderV3Binding(Item.Material.Representation, Item.MaterialBinding, ErrorDiagnostic)) continue;
-				}
+				if (!ResolveMaterialBinding(
+						Item.Material,
+						Item.MaterialBinding,
+						"SkeletalMeshMaterialBinding")) continue;
 				Item.PrimitiveIndex = PrimitiveIndex;
 				Item.SectionIndex = SectionIndex;
 				Item.Section = &Section;
@@ -898,7 +880,7 @@ namespace Durin
 		const FSkeletalMeshRenderSection& Section = *Item.Section;
 		const FMatrix& LocalToWorld = Primitive.LocalToWorld;
 		const FMaterialRenderData& Material = Item.Material;
-		const FMaterialRenderV3Binding& Binding = Item.MaterialBinding;
+		const FMaterialRenderBinding& Binding = Item.MaterialBinding;
 		FStaticMeshTransformUniform Transform;
 		Transform.LocalToClip = Math::TransposeToFloat(View.ViewProjectionMatrix * LocalToWorld);
 		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);

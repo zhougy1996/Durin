@@ -190,7 +190,7 @@ namespace Durin::RendererPrivate
 	};
 
 	inline auto MakeStaticMeshMaterialUniform(
-		const FMaterialRenderV3Binding& Binding,
+		const FMaterialRenderBinding& Binding,
 		bool bLit
 	) -> FStaticMeshMaterialUniform
 	{
@@ -235,7 +235,7 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto MakeGBufferFragmentParameters(
-		const FMaterialRenderV3Binding& Binding,
+		const FMaterialRenderBinding& Binding,
 		FDefaultTextureResources& DefaultTextures,
 		const FRHIUniformBufferRange& Material,
 		const std::array<FRHISampler*, 8>& Samplers

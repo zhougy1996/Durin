@@ -225,50 +225,6 @@ namespace Durin
 		return true;
 	}
 
-	auto TryGetMaterialRenderV2Binding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV2Binding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool
-	{
-		OutBinding = FMaterialRenderV2Binding{};
-		OutDiagnostic = {};
-		static const FMaterialRenderLayout ExpectedLayout = MakeMaterialRenderLayoutV2();
-		const FMaterialRenderLayout& Layout = Representation.GetLayout();
-		if (Layout.Identity != ExpectedLayout.Identity)
-		{
-			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::UnsupportedIdentity, 0,
-				"Material render binding layout identity is not v2.");
-		}
-		if (Layout != ExpectedLayout)
-		{
-			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidField, 0,
-				"Material render binding layout does not match the v2 contract.");
-		}
-		const auto Payload = Representation.GetUniformPayload();
-		const auto Resources = Representation.GetResources();
-		if (Payload.size() != 352) return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidPayloadSize, 0, "Material render v2 payload size is invalid.");
-		if (Resources.size() != 8) return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, 0, "Material render v2 resource count is invalid.");
-		auto ReadFloat = [&Payload](uint32 Offset) { float Value = 0.0f; std::memcpy(&Value, Payload.data() + Offset, sizeof(Value)); return Value; };
-		auto ReadVector = [&ReadFloat](uint32 Offset) { return FVector3f(ReadFloat(Offset), ReadFloat(Offset + 4), ReadFloat(Offset + 8)); };
-		auto ReadVector2 = [&ReadFloat](uint32 Offset) { return FVector2f(ReadFloat(Offset), ReadFloat(Offset + 4)); };
-		OutBinding.BaseColor = FVector4f(ReadFloat(0), ReadFloat(4), ReadFloat(8), ReadFloat(12));
-		OutBinding.Emissive = ReadVector(16);
-		OutBinding.Metallic = ReadFloat(28);
-		OutBinding.Normal = ReadVector(32);
-		OutBinding.Roughness = ReadFloat(44);
-		OutBinding.AmbientOcclusion = ReadFloat(48);
-		OutBinding.OpacityMask = ReadFloat(52);
-		for (uint32 Role = 0; Role < 8; ++Role)
-		{
-			OutBinding.UVChannels[Role] = ReadFloat(64 + Role * 4);
-			OutBinding.UVScales[Role] = ReadVector2(96 + Role * 16);
-			OutBinding.UVOffsets[Role] = ReadVector2(224 + Role * 16);
-			OutBinding.Textures[Role] = Resources[Role];
-		}
-		return true;
-	}
-
 	auto EncodeMaterialSamplerState(const FMaterialSamplerState& State) -> float
 	{
 		const uint32 Packed = static_cast<uint32>(State.MinFilter)
@@ -306,13 +262,13 @@ namespace Durin
 		return true;
 	}
 
-	auto TryGetMaterialRenderV3Binding(
+	auto TryGetMaterialRenderBinding(
 		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV3Binding& OutBinding,
+		FMaterialRenderBinding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool
 	{
-		OutBinding = FMaterialRenderV3Binding{};
+		OutBinding = FMaterialRenderBinding{};
 		OutDiagnostic = {};
 		static const FMaterialRenderLayout ExpectedLayout =
 			MakeDefaultMaterialRenderLayout();

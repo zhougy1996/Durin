@@ -13,8 +13,8 @@ representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into canonical authored
 schema, layout compatibility, representation/builder, and diagnostics files.
-This split retains the exact v1/v2/v3 tables, GUIDs, payload sizes, error
-material, and counters.
+This split retains the current v3 table and identity, the isolated v1 decoder,
+the error material, and diagnostic counters.
 
 ## Parameter Domain
 
@@ -90,16 +90,13 @@ declarations and compiled layouts remain deferred work.
   is the only GUID-to-layout compilation seam. The renderer consumes the
   validated v3 binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
-- `FStaticMeshRenderer` accepts the exact v3 field table and the frozen v2
-  compatibility table. It
-  decodes the compact uniform bytes and resource slot through
-  `TryGetMaterialRenderV3Binding`, falling back to
-  `TryGetMaterialRenderV2Binding` only for an identified v2 representation; an
-  unsupported layout emits a
-  `ShaderBinding` resource diagnostic and selects the code-constructed
-  ErrorMaterial before shader-map or pipeline selection. The terminal is not
-  validated recursively; an incompatible terminal is a checked invariant and
-  skips the affected production draw.
+- StaticMesh, SkeletalMesh, and Terrain use one Renderer-private material
+  binding resolver. It accepts only the exact v3 field table through
+  `TryGetMaterialRenderBinding`; an unsupported layout records the shared
+  fallback reason, emits a renderer-specific `ShaderBinding` diagnostic, and
+  selects the code-constructed ErrorMaterial before shader-map or pipeline
+  selection. An incompatible terminal is a checked invariant and skips the
+  affected production draw.
 - Scene-proxy construction walks the current mesh slots in order and retains
   one stable `FMaterialRenderProxyRef` binding per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
@@ -165,12 +162,15 @@ three parts: a `FMaterialRenderLayoutIdentity`, a validated uniform byte
 payload, and counted RHI texture-reference resources. The current v3 layout is
 416-byte, 16-byte-aligned data with 48 uniform fields and eight resource
 fields; its exact field table is identified by `MaterialRenderLayoutV3Id`.
-The first 352 bytes preserve v2's constant, UV channel/scale/offset, and texture
-contract; eight rotations and eight packed per-role sampler states occupy the
-v3 suffix. The immutable v1/v2 factories, validators, and decoders remain as
-compatibility boundaries. Current materials publish v3, and StaticMesh draws
-consume v3 or identified exact-v2 data with default zero rotation and linear-
-mipmap-linear repeat sampling.
+The constant, UV channel/scale/offset, and texture fields occupy the first 352
+bytes; eight rotations and eight packed per-role sampler states occupy the v3
+suffix. Material assets persist authored parameters rather than this transient
+render representation, and every production builder starts from the canonical
+v3 seed. No asset load or cook path deserializes a prior render layout, so the
+v2 factory, validator, decoder, binding type, and renderer upgrade branches do
+not form a content compatibility boundary and have been removed. The isolated
+v1 factory and decoder remain for their separate compact-layout contract, but
+production renderers accept only v3.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,

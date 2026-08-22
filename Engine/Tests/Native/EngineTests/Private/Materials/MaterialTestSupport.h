@@ -231,11 +231,11 @@ namespace
 
 	auto GetMaterialBinding(
 		const Durin::FMaterialRenderData& RenderData)
-		-> Durin::FMaterialRenderV3Binding
+		-> Durin::FMaterialRenderBinding
 	{
-		Durin::FMaterialRenderV3Binding Binding;
+		Durin::FMaterialRenderBinding Binding;
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
-		EXPECT_TRUE(Durin::TryGetMaterialRenderV3Binding(
+		EXPECT_TRUE(Durin::TryGetMaterialRenderBinding(
 			RenderData.Representation, Binding, Diagnostic))
 			<< Diagnostic.Message;
 		return Binding;

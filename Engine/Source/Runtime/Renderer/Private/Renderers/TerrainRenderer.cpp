@@ -7,6 +7,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RendererResourceSlotCache.h"
+#include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/ViewPreparationMath.h"
@@ -188,24 +189,6 @@ namespace Durin
 			return std::hypot(DeltaX, DeltaY);
 		}
 
-		auto ResolveMaterialBinding(FPreparedTerrainDraw& Draw) -> bool
-		{
-			FMaterialRenderValidationDiagnostic Diagnostic;
-			if (TryGetMaterialRenderV3Binding(Draw.Material.Representation, Draw.MaterialBinding, Diagnostic)) return true;
-			if (Draw.Material.Representation.GetLayout().Identity.Version == 2)
-			{
-				FMaterialRenderV2Binding Legacy;
-				if (TryGetMaterialRenderV2Binding(Draw.Material.Representation, Legacy, Diagnostic))
-				{
-					static_cast<FMaterialRenderV2Binding&>(Draw.MaterialBinding) = std::move(Legacy);
-					return true;
-				}
-			}
-			RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
-			Draw.Material = GetErrorMaterialRenderData();
-			return TryGetMaterialRenderV3Binding(Draw.Material.Representation, Draw.MaterialBinding, Diagnostic);
-		}
-
 		auto AreTerrainDrawsBatchCompatible(
 			const FPreparedTerrainDraw& A, const FPreparedTerrainDraw& B
 		) -> bool
@@ -267,7 +250,10 @@ namespace Durin
 			FPreparedTerrainDraw CommonDraw;
 			CommonDraw.SceneInfo = Info;
 			CommonDraw.Material = Proxy.ResolveMaterialRenderData_RenderThread();
-			if (!ResolveMaterialBinding(CommonDraw)) continue;
+			if (!RendererPrivate::ResolveMaterialBinding(
+					CommonDraw.Material,
+					CommonDraw.MaterialBinding,
+					"TerrainMaterialBinding")) continue;
 			CommonDraw.PipelineKey.Material = CommonDraw.Material.PipelineIdentity;
 			CommonDraw.PipelineKey.Rasterizer.PolygonMode =
 				RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;

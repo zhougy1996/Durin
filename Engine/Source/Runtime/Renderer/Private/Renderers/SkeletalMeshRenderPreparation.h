@@ -51,7 +51,7 @@ namespace Durin
 		FVector3 SortCenter{0.0};
 		double TranslucentDistanceSquared = 0.0;
 		FMaterialRenderData Material;
-		FMaterialRenderV3Binding MaterialBinding;
+		FMaterialRenderBinding MaterialBinding;
 		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
 		FEffectiveStaticMeshPipelineKey PipelineKey;

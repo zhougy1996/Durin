@@ -596,7 +596,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
-	const Durin::FMaterialRenderV2Binding LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
+	const Durin::FMaterialRenderBinding LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.8f);
 	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.7f);
 	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);

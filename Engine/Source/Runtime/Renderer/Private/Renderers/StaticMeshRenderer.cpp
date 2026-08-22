@@ -1,4 +1,5 @@
 #include "Renderers/StaticMeshRenderer.h"
+#include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
 
@@ -181,53 +182,10 @@ namespace Durin
 				const FMaterialRenderData& ResolvedMaterial = bSplineMesh ? SplineProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex) : StaticProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex);
 				FPreparedStaticMeshDraw Item;
 				Item.Material = ResolvedMaterial;
-				FMaterialRenderValidationDiagnostic BindingDiagnostic;
-				bool bBindingValid = TryGetMaterialRenderV3Binding(
-					Item.Material.Representation,
-					Item.MaterialBinding,
-					BindingDiagnostic
-				);
-				if (!bBindingValid
-					&& Item.Material.Representation.GetLayout().Identity.Version == 2)
-				{
-					FMaterialRenderV2Binding LegacyBinding;
-					bBindingValid = TryGetMaterialRenderV2Binding(
-						Item.Material.Representation,
-						LegacyBinding,
-						BindingDiagnostic
-					);
-					if (bBindingValid)
-					{
-						static_cast<FMaterialRenderV2Binding&>(Item.MaterialBinding) =
-							std::move(LegacyBinding);
-					}
-				}
-				if (!bBindingValid)
-				{
-					RecordMaterialFallbackReason(
-						EMaterialFallbackReason::UnsupportedLayout
-					);
-					FRenderResourceCreateDiagnostic Diagnostic;
-					Diagnostic.Error = MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"StaticMeshMaterialBinding",
-						GetIdentityText(Item.Material.PipelineIdentity.ShaderMap),
-						std::format("{} ErrorMaterial was selected.", BindingDiagnostic.Message),
-						ERenderResourceGenerationDependency::Manual
-					);
-					ReportRendererResourceCreateDiagnostic(Diagnostic);
-					Item.Material = GetErrorMaterialRenderData();
-					FMaterialRenderValidationDiagnostic ErrorDiagnostic;
-					if (!TryGetMaterialRenderV3Binding(
-							Item.Material.Representation,
-							Item.MaterialBinding,
-							ErrorDiagnostic
-						))
-					{
-						checkf(false, "ErrorMaterial must satisfy the exact v3 binding contract: %s", ErrorDiagnostic.Message.c_str());
-						continue;
-					}
-				}
+				if (!ResolveMaterialBinding(
+						Item.Material,
+						Item.MaterialBinding,
+						"StaticMeshMaterialBinding")) continue;
 
 				Item.PrimitiveIndex = PrimitiveIndex;
 				Item.SectionIndex = SectionIndex;
@@ -1204,7 +1162,7 @@ namespace Durin
 		const FStaticMeshSection& Section = *Item.Section;
 		const FMatrix& LocalToWorld = Primitive.LocalToWorld;
 		const FMaterialRenderData& Material = Item.Material;
-		const FMaterialRenderV3Binding& MaterialBinding = Item.MaterialBinding;
+		const FMaterialRenderBinding& MaterialBinding = Item.MaterialBinding;
 		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
 		FStaticMeshTransformUniform TransformUniform;
 		TransformUniform.LocalToClip = Math::TransposeToFloat(

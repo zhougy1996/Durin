@@ -145,9 +145,9 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureMixedV4Texture>(
 				[StaticMeshProxy, &BoundTexture](FRHICommandListImmediate&) {
-					FMaterialRenderV3Binding Binding;
+					FMaterialRenderBinding Binding;
 					FMaterialRenderValidationDiagnostic Diagnostic;
-					EXPECT_TRUE(TryGetMaterialRenderV3Binding(
+					EXPECT_TRUE(TryGetMaterialRenderBinding(
 						StaticMeshProxy->ResolveMaterialRenderData_RenderThread()
 							.Representation,
 						Binding, Diagnostic)) << Diagnostic.Message;
@@ -276,9 +276,9 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
 				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
-					FMaterialRenderV3Binding Binding;
+					FMaterialRenderBinding Binding;
 					FMaterialRenderValidationDiagnostic Diagnostic;
-					const bool bValid = TryGetMaterialRenderV3Binding(
+					const bool bValid = TryGetMaterialRenderBinding(
 						StaticMeshProxy
 							->ResolveMaterialRenderData_RenderThread()
 							.Representation,

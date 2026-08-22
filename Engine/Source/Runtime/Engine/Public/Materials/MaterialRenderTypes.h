@@ -35,8 +35,6 @@ namespace Durin
 	// The Id identifies the exact v1 field table and shader binding contract.
 	inline constexpr FGuid MaterialRenderLayoutV1Id{
 		0x4a6f4c01, 0x27d140b2, 0x8a52cc39, 0x6d4f9a77};
-	inline constexpr FGuid MaterialRenderLayoutV2Id{
-		0x308cda9d, 0x46b94861, 0xb65088db, 0xc84e7feb};
 	inline constexpr FGuid MaterialRenderLayoutV3Id{
 		0xd71bc1d4, 0xa5894f47, 0x9b5c08b5, 0xf42d75b2};
 
@@ -145,26 +143,6 @@ namespace Durin
 		FRHITextureReferenceRef BaseColorTexture;
 	};
 
-	struct FMaterialRenderV2Binding
-	{
-		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
-		FVector3f Emissive{0.0f};
-		FVector3f Normal{0.0f, 0.0f, 1.0f};
-		float Metallic = 0.0f;
-		float Roughness = 0.5f;
-		float AmbientOcclusion = 1.0f;
-		float OpacityMask = 1.0f;
-		std::array<float, 8> UVChannels{};
-		std::array<FVector2f, 8> UVScales{};
-		std::array<FVector2f, 8> UVOffsets{};
-		std::array<FRHITextureReferenceRef, 8> Textures{};
-
-		FMaterialRenderV2Binding()
-		{
-			UVScales.fill(FVector2f(1.0f, 1.0f));
-		}
-	};
-
 	// glTF-compatible sampling state retained independently for every texture role.
 	enum class EMaterialSamplerMinFilter : uint8
 	{
@@ -194,10 +172,26 @@ namespace Durin
 		auto operator==(const FMaterialSamplerState&) const -> bool = default;
 	};
 
-	struct FMaterialRenderV3Binding : FMaterialRenderV2Binding
+	struct FMaterialRenderBinding
 	{
+		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
+		FVector3f Emissive{0.0f};
+		FVector3f Normal{0.0f, 0.0f, 1.0f};
+		float Metallic = 0.0f;
+		float Roughness = 0.5f;
+		float AmbientOcclusion = 1.0f;
+		float OpacityMask = 1.0f;
+		std::array<float, 8> UVChannels{};
+		std::array<FVector2f, 8> UVScales{};
+		std::array<FVector2f, 8> UVOffsets{};
+		std::array<FRHITextureReferenceRef, 8> Textures{};
 		std::array<float, 8> UVRotations{};
 		std::array<FMaterialSamplerState, 8> Samplers{};
+
+		FMaterialRenderBinding()
+		{
+			UVScales.fill(FVector2f(1.0f, 1.0f));
+		}
 	};
 
 	ENGINE_API auto TryGetMaterialRenderV1Binding(
@@ -205,14 +199,9 @@ namespace Durin
 		FMaterialRenderV1Binding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
-	ENGINE_API auto TryGetMaterialRenderV2Binding(
+	ENGINE_API auto TryGetMaterialRenderBinding(
 		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV2Binding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool;
-	ENGINE_API auto TryGetMaterialRenderV3Binding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV3Binding& OutBinding,
+		FMaterialRenderBinding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
 	ENGINE_API auto EncodeMaterialSamplerState(
@@ -232,8 +221,8 @@ namespace Durin
 
 		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
 		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
-		// Vector2 values are packed into the legacy v2 render slot as XY plus a
-		// zero compatibility component; the authored value remains two-dimensional.
+		// Vector2 values occupy XY of a 16-byte render slot; authored values remain
+		// two-dimensional.
 		ENGINE_API auto SetVector2(const FGuid& ParameterId, const FVector2& Value) -> bool;
 		ENGINE_API auto SetTexture(
 			const FGuid& ParameterId,
@@ -256,7 +245,6 @@ namespace Durin
 
 	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout;
-	ENGINE_API auto MakeMaterialRenderLayoutV2() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeCanonicalMaterialRenderRepresentation()
 		-> FMaterialRenderRepresentation;
 	ENGINE_API auto ValidateMaterialRenderLayout(
