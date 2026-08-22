@@ -1160,21 +1160,35 @@ namespace Durin::Asset::DastV4
 			const FDecodedSchema& Schema, const FDecodedField& Field,
 			const FDecodedType& Type) -> FProperty*;
 
+		auto MergeDuplicateAuthoredOverrideEntries(
+			std::vector<FAuthoredOverrideEntry>& Entries) -> void
+		{
+			std::ranges::sort(Entries, [](const FAuthoredOverrideEntry& Left,
+				const FAuthoredOverrideEntry& Right) {
+				return CompareAuthoredOverridePaths(Left.Path, Right.Path) < 0;
+			});
+			size_t OutputCount = 0;
+			for (size_t Index = 0; Index < Entries.size(); ++Index)
+			{
+				if (OutputCount != 0 && CompareAuthoredOverridePaths(
+						Entries[OutputCount - 1].Path, Entries[Index].Path) == 0)
+				{
+					if (Entries[Index].Provenance == EAuthoredOverrideProvenance::Forced)
+						Entries[OutputCount - 1].Provenance = EAuthoredOverrideProvenance::Forced;
+					continue;
+				}
+				if (OutputCount != Index) Entries[OutputCount] = std::move(Entries[Index]);
+				++OutputCount;
+			}
+			Entries.resize(OutputCount);
+		}
+
 		auto RestoreNestedLedger(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package, FAuthoredOverridePath& Path,
 			std::vector<FAuthoredOverrideEntry>& Entries,
+			bool& bUsedDeprecatedRoute,
 			FReaderDiagnostic& Diagnostic) -> bool
 		{
-			auto AddEntry = [&](FAuthoredOverrideEntry Entry) {
-				const auto Existing = std::ranges::find_if(Entries,
-					[&](const FAuthoredOverrideEntry& Candidate) {
-						return CompareAuthoredOverridePaths(Candidate.Path, Entry.Path)
-							== std::strong_ordering::equal;
-					});
-				if (Existing == Entries.end()) Entries.push_back(std::move(Entry));
-				else if (Entry.Provenance == EAuthoredOverrideProvenance::Forced)
-					Existing->Provenance = EAuthoredOverrideProvenance::Forced;
-			};
 			if (Type.Opcode == ETypeOpcode::Struct)
 			{
 				uint64 SchemaId = 0; const FDecodedSchema* Schema = FindSchema(Package, Type.QualifiedName, SchemaId);
@@ -1190,18 +1204,20 @@ namespace Durin::Asset::DastV4
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
 					if (FProperty* Route = FindDecodedDeprecatedRoute(Package, *Schema, *It, *ChildType))
 					{
+						bUsedDeprecatedRoute = true;
 						for (FName Target : Route->GetDeprecation()->MigrationTargets)
 						{
 							Path.push_back(FAuthoredOverridePathToken::Field(
 								FName(Schema->QualifiedName), Target));
-							AddEntry({Path, Provenance});
+							Entries.push_back({Path, Provenance});
 							Path.pop_back();
 						}
 						continue;
 					}
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
-					AddEntry({Path, Provenance});
-					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path, Entries, Diagnostic)) return false;
+					Entries.push_back({Path, Provenance});
+					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path,
+						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1214,7 +1230,8 @@ namespace Durin::Asset::DastV4
 					Path.push_back(Type.Opcode == ETypeOpcode::FixedArray
 						? FAuthoredOverridePathToken::FixedArrayElement(Index)
 						: FAuthoredOverridePathToken::ArrayElement(Index));
-					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path, Entries, Diagnostic)) return false;
+					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path,
+						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1228,7 +1245,8 @@ namespace Durin::Asset::DastV4
 					std::vector<uint8> Token;
 					if (!BuildLedgerMapKeyToken(*KeyType, Value.Elements[Index], Token, Diagnostic)) return false;
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
-					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path, Entries, Diagnostic)) return false;
+					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path,
+						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1981,20 +1999,7 @@ namespace Durin::Asset::DastV4
 				return Finish(Result);
 			}
 			std::vector<FAuthoredOverrideEntry> LedgerEntries;
-			auto AddLedgerEntry = [&](FAuthoredOverrideEntry Entry) {
-				const auto Existing = std::ranges::find_if(LedgerEntries,
-					[&](const FAuthoredOverrideEntry& Candidate) {
-						return CompareAuthoredOverridePaths(Candidate.Path, Entry.Path)
-							== std::strong_ordering::equal;
-					});
-				if (Existing == LedgerEntries.end())
-				{
-					LedgerEntries.push_back(std::move(Entry));
-					return;
-				}
-				if (Entry.Provenance == EAuthoredOverrideProvenance::Forced)
-					Existing->Provenance = EAuthoredOverrideProvenance::Forced;
-			};
+			bool bUsedDeprecatedRoute = false;
 			for (const FDecodedOverride* Override : KnownOverrides)
 			{
 				const FDecodedSchema* Schema = SchemaAt(Decoded, Override->SchemaId);
@@ -2011,6 +2016,7 @@ namespace Durin::Asset::DastV4
 					? FindDecodedDeprecatedRoute(Decoded, *Schema, Field, *Type) : nullptr;
 				if (DeprecatedRoute)
 				{
+					bUsedDeprecatedRoute = true;
 					const FPropertyDeprecation* Deprecation = DeprecatedRoute->GetDeprecation();
 					FAssetDeprecatedRouteEvidence Evidence{
 						.PackagePath = PackagePath,
@@ -2023,7 +2029,7 @@ namespace Durin::Asset::DastV4
 						.DeprecatedBefore = Deprecation->DeprecatedBefore};
 					for (FName Target : Deprecation->MigrationTargets)
 					{
-						AddLedgerEntry({FAuthoredOverridePath{FAuthoredOverridePathToken::Field(
+						LedgerEntries.push_back({FAuthoredOverridePath{FAuthoredOverridePathToken::Field(
 							FName(Schema->QualifiedName), Target)}, Provenance});
 						Evidence.MigrationTargets.push_back(Target.ToString());
 					}
@@ -2032,12 +2038,17 @@ namespace Durin::Asset::DastV4
 				}
 				FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
 					FName(Schema->QualifiedName), FName(Field.Name))};
-				AddLedgerEntry({Path, Provenance});
-				if (!RestoreNestedLedger(*Type, Override->Value, Decoded, Path, LedgerEntries, Diagnostic))
+				LedgerEntries.push_back({Path, Provenance});
+				if (!RestoreNestedLedger(*Type, Override->Value, Decoded, Path,
+					LedgerEntries, bUsedDeprecatedRoute, Diagnostic))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
 			}
+			// Deprecated routes may converge on the same current field. Ordinary
+			// packages retain the linear append path and skip this normalization.
+			if (bUsedDeprecatedRoute)
+				MergeDuplicateAuthoredOverrideEntries(LedgerEntries);
 			FAuthoredOverrideDiagnostic LedgerDiagnostic;
 			if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
 			{
