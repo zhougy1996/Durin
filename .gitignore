@@ -20,6 +20,7 @@
 **/DerivedDataCache/
 **/Cooked/
 **/Saved/
+**/.durin-asset-mutation/
 
 # User-specific files
 .DS_Store
