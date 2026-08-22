@@ -27,6 +27,15 @@ namespace Durin::Asset::Forge
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError) -> bool;
+	// Rebuilds one packaged texture from its retained mounted source without
+	// publishing the proposed settings until asynchronous preparation succeeds.
+	ASSETFORGE_API auto RebuildTexture2DFromCurrentSource(
+		DTexture2D& Texture,
+		const Asset::Build::FTexture2DBuildSettings& Settings,
+		std::string& OutError,
+		Asset::Build::ETexture2DBuildPriority Priority =
+			Asset::Build::ETexture2DBuildPriority::Interactive,
+		Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool;
 	ASSETFORGE_API auto ChangeTexture2DSourceReference(
 		DTexture2D& Texture,
 		std::string_view SourceVirtualPath,

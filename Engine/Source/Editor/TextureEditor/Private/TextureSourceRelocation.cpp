@@ -1,4 +1,4 @@
-#include "Texture2DSourceRelocation.h"
+#include "TextureSourceRelocation.h"
 
 #include "DObject/Object.h"
 #include "Source/MountedSourceRelocation.h"
@@ -7,18 +7,18 @@
 #include "Texture2DSourceTranslation.h"
 #include "TextureCubeSourceTranslation.h"
 
-namespace Durin::Asset::Forge
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		Editor::FMountedSourceRelocationHandlerHandle GTexture2DRelocationHandler = 0;
-		Editor::FMountedSourceRelocationHandlerHandle GTextureCubeRelocationHandler = 0;
+		FMountedSourceRelocationHandlerHandle GTexture2DRelocationHandler = 0;
+		FMountedSourceRelocationHandlerHandle GTextureCubeRelocationHandler = 0;
 	}
 
-	auto RegisterTexture2DSourceRelocation() -> bool
+	auto RegisterTextureSourceRelocation() -> bool
 	{
 		if (GTexture2DRelocationHandler != 0) return true;
-		GTexture2DRelocationHandler = Editor::RegisterMountedSourceRelocationHandler(
+		GTexture2DRelocationHandler = RegisterMountedSourceRelocationHandler(
 			[](DObject& Asset,
 				std::string_view From,
 				std::string_view To,
@@ -30,7 +30,8 @@ namespace Durin::Asset::Forge
 					OutError = "Texture2D no longer references the source being relocated.";
 					return false;
 				}
-				if (!ChangeTexture2DSourceReference(*Texture, To, OutError)) return false;
+				if (!Asset::Forge::ChangeTexture2DSourceReference(*Texture, To, OutError))
+					return false;
 				if (Asset::Build::WaitForTexture2DBuild(*Texture)) return true;
 				const std::string BuildError =
 					Asset::Build::GetTexture2DBuildDiagnostic(*Texture).Message;
@@ -40,7 +41,7 @@ namespace Durin::Asset::Forge
 				return false;
 			});
 		if (GTexture2DRelocationHandler == 0) return false;
-		GTextureCubeRelocationHandler = Editor::RegisterMountedSourceRelocationHandler(
+		GTextureCubeRelocationHandler = RegisterMountedSourceRelocationHandler(
 			[](DObject& Asset,
 				std::string_view From,
 				std::string_view To,
@@ -55,9 +56,10 @@ namespace Durin::Asset::Forge
 						OutError = "TextureCube panorama no longer references the source being relocated.";
 						return false;
 					}
-					return ChangeTextureCubePanoramaSourceReference(*Cube, To, {
-						.FaceDimension = Cube->GetPanoramaFaceDimension(),
-						.ExposureEV = Cube->GetPanoramaExposureEV()}, OutError);
+					return Asset::Forge::ChangeTextureCubePanoramaSourceReference(
+						*Cube, To, {
+							.FaceDimension = Cube->GetPanoramaFaceDimension(),
+							.ExposureEV = Cube->GetPanoramaExposureEV()}, OutError);
 				}
 				std::array<std::string, TextureCubeFaceCount> Paths;
 				bool bFound = false;
@@ -76,20 +78,20 @@ namespace Durin::Asset::Forge
 					OutError = "TextureCube faces no longer reference the source being relocated.";
 					return false;
 				}
-				return ChangeTextureCubeFaceSourceReferences(
+				return Asset::Forge::ChangeTextureCubeFaceSourceReferences(
 					*Cube, Paths, {.bSRGB = Cube->IsSRGB()}, OutError);
 			});
 		if (GTextureCubeRelocationHandler != 0) return true;
-		Editor::UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
+		UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
 		GTexture2DRelocationHandler = 0;
 		return false;
 	}
 
-	auto UnregisterTexture2DSourceRelocation() -> void
+	auto UnregisterTextureSourceRelocation() -> void
 	{
-		Editor::UnregisterMountedSourceRelocationHandler(GTextureCubeRelocationHandler);
+		UnregisterMountedSourceRelocationHandler(GTextureCubeRelocationHandler);
 		GTextureCubeRelocationHandler = 0;
-		Editor::UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
+		UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
 		GTexture2DRelocationHandler = 0;
 	}
 }

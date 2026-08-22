@@ -7,13 +7,6 @@ namespace Durin::Asset::Forge
 {
 	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
 		-> Asset::Build::FTexture2DBuildSettings;
-	auto RebuildTexture2DFromCurrentSource(
-		DTexture2D& Texture,
-		const Asset::Build::FTexture2DBuildSettings& Settings,
-		std::string& OutError,
-		Asset::Build::ETexture2DBuildPriority Priority =
-			Asset::Build::ETexture2DBuildPriority::Interactive,
-		Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool;
 	auto BuildTexture2DCandidateFromSource(
 		DTexture2D& Texture,
 		std::span<const uint8> EncodedBytes,

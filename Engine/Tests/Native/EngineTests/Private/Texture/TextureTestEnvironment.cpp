@@ -1,6 +1,8 @@
 #include "TextureTestSupport.h"
 #include "AssetForgeAuthoringTestSupport.h"
 #include "AssetForgeProviders.h"
+#include "Texture2DPropertyEditing.h"
+#include "TextureSourceRelocation.h"
 
 namespace
 {
@@ -17,10 +19,14 @@ namespace
 			ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
 			ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
 				Error, GetEngineTestModuleCallbackGate())) << Error;
+			ASSERT_TRUE(Durin::Editor::Texture::RegisterTexture2DPropertyEditing());
+			ASSERT_TRUE(Durin::Editor::Texture::RegisterTextureSourceRelocation());
 		}
 
 		auto TearDown() -> void override
 		{
+			Durin::Editor::Texture::UnregisterTextureSourceRelocation();
+			Durin::Editor::Texture::UnregisterTexture2DPropertyEditing();
 			Durin::Asset::Forge::UnregisterAssetForgeProviders();
 			Durin::Asset::Build::ShutdownBuildHost();
 			Durin::Asset::Build::ShutdownTextureBuildService();

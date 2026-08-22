@@ -291,6 +291,7 @@ set(_durin_texture_test_libraries
 	GeometryBuild
 	TextureBuild
 	AssetForge
+	TextureEditor
 	RenderCore
 	Renderer
 	DurinEd

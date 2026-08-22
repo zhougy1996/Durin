@@ -1,6 +1,8 @@
 #include "TextureEditorModule.h"
 
 #include "Editor/WorkspaceManager.h"
+#include "Texture2DPropertyEditing.h"
+#include "TextureSourceRelocation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
@@ -25,11 +27,15 @@ namespace Durin
 		EditorExtensionCallbacks =
 			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
+		require(Editor::Texture::RegisterTexture2DPropertyEditing());
+		require(Editor::Texture::RegisterTextureSourceRelocation());
 	}
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
 		UnregisterTextureEditor();
+		Editor::Texture::UnregisterTextureSourceRelocation();
+		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
 	}
 

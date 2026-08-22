@@ -1,18 +1,30 @@
 #include "Texture2DPropertyEditing.h"
-#include "Texture2DBuildAdapter.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/PropertyEditing.h"
+#include "Texture/Texture2DAuthoringService.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::Asset::Forge
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		Editor::FPropertyEditExtensionHandle GTexture2DPropertyEditExtension = 0;
+		FPropertyEditExtensionHandle GTexture2DPropertyEditExtension = 0;
+
+		auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
+			-> Asset::Build::FTexture2DBuildSettings
+		{
+			return {
+				.Usage = Texture.GetUsage(),
+				.CompressionQuality = Texture.GetCompressionQuality(),
+				.AlphaMipMode = Texture.GetAlphaMipMode(),
+				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
+				.MaxResolution = Texture.GetMaxResolution(),
+				.bSRGB = Texture.IsSRGB()};
+		}
 
 		auto PrepareTexture2DPropertyEdit(
 			DObject& Object,
@@ -113,7 +125,7 @@ namespace Durin::Asset::Forge
 						return FPropertyEditDeferredCancel{};
 					}
 					std::string Error;
-					if (!RebuildTexture2DFromCurrentSource(
+					if (!Asset::Forge::RebuildTexture2DFromCurrentSource(
 						*LiveTexture,
 						Settings,
 						Error,
@@ -139,14 +151,14 @@ namespace Durin::Asset::Forge
 	auto RegisterTexture2DPropertyEditing() -> bool
 	{
 		if (GTexture2DPropertyEditExtension != 0) return true;
-		GTexture2DPropertyEditExtension = Editor::RegisterPropertyEditExtension({
+		GTexture2DPropertyEditExtension = RegisterPropertyEditExtension({
 			.PreEdit = PrepareTexture2DPropertyEdit});
 		return GTexture2DPropertyEditExtension != 0;
 	}
 
 	auto UnregisterTexture2DPropertyEditing() -> void
 	{
-		Editor::UnregisterPropertyEditExtension(GTexture2DPropertyEditExtension);
+		UnregisterPropertyEditExtension(GTexture2DPropertyEditExtension);
 		GTexture2DPropertyEditExtension = 0;
 	}
 }

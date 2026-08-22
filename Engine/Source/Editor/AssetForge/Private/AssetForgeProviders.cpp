@@ -6,9 +6,7 @@
 #include "Texture2DBuildAdapter.h"
 #include "TextureCubeSourceTranslation.h"
 #include "VolumeTextureSourceTranslation.h"
-#include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
-#include "Texture2DSourceRelocation.h"
 #include "TextureCubePostLoadPolicy.h"
 #include "TerrainHeightmapSourceTranslation.h"
 
@@ -1460,19 +1458,6 @@ namespace Durin::Asset::Forge
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!RegisterTexture2DPropertyEditing())
-		{
-			RollbackFrameworkRegistrations();
-			OutError = "Failed to register Texture2D property authoring policy.";
-			return false;
-		}
-		if (!RegisterTexture2DSourceRelocation())
-		{
-			UnregisterTexture2DPropertyEditing();
-			RollbackFrameworkRegistrations();
-			OutError = "Failed to register Texture2D source relocation policy.";
-			return false;
-		}
 		OutError.clear();
 		return true;
 	}
@@ -1481,8 +1466,6 @@ namespace Durin::Asset::Forge
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GSceneRegistration && !GAssimpRegistration && !GImageRegistration) return;
-		UnregisterTexture2DSourceRelocation();
-		UnregisterTexture2DPropertyEditing();
 		GImageRegistration.Reset();
 		GAssimpRegistration.Reset();
 		GSceneRegistration.Reset();

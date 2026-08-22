@@ -1,9 +1,7 @@
 #include "Texture2DSourceTranslation.h"
 #include "EncodedSourceSnapshot.h"
 #include "Texture2DBuildAdapter.h"
-#include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
-#include "Texture2DSourceRelocation.h"
 
 #include "AssetAuthoring.h"
 #include "Hash/XxHash.h"
@@ -213,9 +211,6 @@ namespace Durin::Asset::Forge
 		const FTexture2DImportSettings& Settings,
 		bool bEngineAuthoringContext) -> FTexture2DImportResult
 	{
-		if (!RegisterTexture2DPropertyEditing()
-			|| !RegisterTexture2DSourceRelocation())
-			return {false, "Texture2D editor authoring policy is unavailable.", nullptr};
 		const std::filesystem::path Input =
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
