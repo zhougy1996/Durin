@@ -33,6 +33,15 @@ namespace Durin::Asset
 			Path, Class, Size, OutAsset);
 	}
 
+	auto DuplicateAsset(
+		const FAssetPath& SourcePath,
+		const FAssetPath& DestinationPath,
+		DObject*& OutAsset) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().GetLoadService().DuplicateAsset(
+			SourcePath, DestinationPath, OutAsset);
+	}
+
 	auto CreateAssetRedirectorForTesting(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,

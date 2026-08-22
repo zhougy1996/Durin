@@ -2,6 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetAuthoring.h"
+#include "ImportRecord.h"
 #include "Engine/Level.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -279,6 +280,111 @@ namespace Durin::Editor::Level
 				std::format("Rename failed: {}", Ec.message()));
 		FContentBrowserOperationResult Outcome;
 		Outcome.FocusPhysicalPath = NormalizePath(Destination.generic_string());
+		return Outcome;
+	}
+
+	auto FContentBrowserOperations::Duplicate(
+		const FContentBrowserItem& Item) -> FContentBrowserOperationResult
+	{
+		if (Item.Kind != EContentBrowserItemKind::Asset)
+			return Failure(
+				Asset::EAssetError::InvalidPackageType,
+				"Only real assets can be duplicated.");
+		const FContentBrowserModel::FMountPath Mount =
+			Model.ResolveMountPath(Item.PhysicalPath);
+		if (!Mount)
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"The asset is outside an automatically scanned content mount.");
+		if (!Mount.Mount->bAuthoringWritable)
+			return Failure(
+				Asset::EAssetError::ReadOnlyMode,
+				"This content mount is read-only for authoring. Choose a writable mount before duplicating the asset.");
+
+		FAssetPath SourcePath;
+		if (!FAssetPath::TryCreate(Item.VirtualPath, SourcePath))
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"The source asset path is invalid.");
+		const size_t Slash = Item.VirtualPath.find_last_of('/');
+		if (Slash == std::string::npos)
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"The source asset has no valid destination directory.");
+
+		FAssetPath DestinationPath;
+		std::string DestinationPhysicalPath;
+		for (uint32 Suffix = 1; Suffix <= 10000; ++Suffix)
+		{
+			const std::string CandidateName = Suffix == 1
+				? Item.Name + "_Copy"
+				: std::format("{}_Copy{}", Item.Name, Suffix);
+			FAssetPath CandidatePath;
+			if (!FAssetPath::TryCreate(
+					Item.VirtualPath.substr(0, Slash + 1) + CandidateName,
+					CandidatePath))
+				continue;
+			const std::string CandidatePhysical =
+				Model.VirtualToPhysical(CandidatePath.ToString() + ".dasset");
+			if (CandidatePhysical.empty()
+				|| Asset::FindAssetExact(CandidatePath)
+				|| Asset::FindResidentPackage(CandidatePath))
+				continue;
+			const ContentBrowserFilesystem::FPathProbe Probe =
+				ContentBrowserFilesystem::Probe(CandidatePhysical);
+			if (Probe.Error)
+				return Failure(
+					Asset::EAssetError::IoError,
+					std::format(
+						"Could not inspect the duplicate destination: {}",
+						Probe.Error.message()));
+			if (Probe.Exists()) continue;
+			DestinationPath = std::move(CandidatePath);
+			DestinationPhysicalPath = std::move(CandidatePhysical);
+			break;
+		}
+		if (!DestinationPath.IsValid())
+			return Failure(
+				Asset::EAssetError::AlreadyExists,
+				"Could not find an available copy name in this folder.");
+
+		DObject* DuplicatedAsset = nullptr;
+		Asset::FAssetResult Result = Asset::DuplicateAsset(
+			SourcePath, DestinationPath, DuplicatedAsset);
+		if (!Result) return {Result};
+		auto DiscardDuplicate = [&] {
+			return Asset::UnloadPackage(
+				DestinationPath,
+				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		};
+		if (auto* Record = Cast<Asset::DImportRecord>(DuplicatedAsset))
+		{
+			std::string CloneError;
+			if (!Record->SetRecordIdForClone(FGuid::NewGuid(), CloneError))
+			{
+				const Asset::FAssetResult Cleanup = DiscardDuplicate();
+				if (!Cleanup && !Cleanup.Message.empty())
+					CloneError += std::format(" Cleanup also failed: {}", Cleanup.Message);
+				return Failure(
+					Asset::EAssetError::InvalidObjectGraph,
+					std::move(CloneError));
+			}
+		}
+		Result = Asset::SavePackage(DuplicatedAsset->GetPackage());
+		if (!Result)
+		{
+			const Asset::FAssetResult Cleanup = DiscardDuplicate();
+			if (!Cleanup && !Cleanup.Message.empty())
+				Result.Message += std::format(
+					" The unsaved duplicate could not be discarded: {}",
+					Cleanup.Message);
+			return {Result};
+		}
+
+		FContentBrowserOperationResult Outcome;
+		Outcome.FocusPhysicalPath = std::move(DestinationPhysicalPath);
+		Outcome.RevealAssetPath = DestinationPath.ToString();
+		Outcome.OpenAssetClassName = Item.AssetClassName;
 		return Outcome;
 	}
 

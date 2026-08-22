@@ -374,6 +374,19 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
+	auto FContentBrowserPanel::DuplicateAsset(
+		const FContentBrowserItem& Item) -> void
+	{
+		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
+		if (!Result)
+		{
+			SetError(Result.Status.Message);
+			return;
+		}
+		PublishMountedContentMutation();
+		RevealAsset(Result.RevealAssetPath);
+	}
+
 	auto FContentBrowserPanel::CreateFolder(
 		std::string_view PhysicalDirectory) -> void
 	{

@@ -423,6 +423,13 @@ namespace Durin::Asset
 		size_t Size,
 		DObject*& OutAsset
 	) -> FAssetResult;
+	// Clones the complete persistent object graph into a new, unsaved package.
+	// The caller may apply class-owned clone identity changes before SavePackage.
+	ASSETCORE_API auto DuplicateAsset(
+		const FAssetPath& SourcePath,
+		const FAssetPath& DestinationPath,
+		DObject*& OutAsset
+	) -> FAssetResult;
 	template<typename T>
 	auto CreateAsset(const FAssetPath& Path, T*& OutAsset) -> FAssetResult
 	{

@@ -79,6 +79,10 @@ namespace Durin::Asset
 			DClass* Class,
 			size_t Size,
 			DObject*& OutAsset) -> FAssetResult;
+		auto DuplicateAsset(
+			const FAssetPath& SourcePath,
+			const FAssetPath& DestinationPath,
+			DObject*& OutAsset) -> FAssetResult;
 		auto CreateRedirector(
 			const FAssetPath& RedirectorPath,
 			const FAssetPath& DestinationPath,

@@ -14,6 +14,7 @@
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
+#include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -204,6 +205,77 @@ namespace Durin::Asset
 		}
 		ResidentPackages.emplace(
 			Path, Package, EAssetPackagePublicationState::NewlyCreated);
+		return {};
+	}
+
+	auto FAssetLoadService::DuplicateAsset(
+		const FAssetPath& SourcePath,
+		const FAssetPath& DestinationPath,
+		DObject*& OutAsset) -> FAssetResult
+	{
+		OutAsset = nullptr;
+		if (!bAcceptingRequests)
+			return Error(EAssetError::ShuttingDown,
+				"Asset duplication is closed while the asset manager is shutting down.");
+		if (RuntimeConfiguration.IsCooked())
+			return Error(EAssetError::ReadOnlyMode,
+				"Cooked runtime package mode does not permit asset duplication.");
+		if (!SourcePath.IsValid() || !DestinationPath.IsValid()
+			|| SourcePath == DestinationPath)
+			return Error(EAssetError::InvalidPath,
+				"Asset duplication requires distinct valid source and destination paths.");
+		const FAssetData* SourceData = Registry.FindAssetExactPointer(SourcePath);
+		if (!SourceData)
+			return Error(EAssetError::NotFound,
+				std::format("Asset {} is not registered.", SourcePath.ToString()));
+		if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
+			return Error(EAssetError::InvalidPackageType,
+				"Redirectors cannot be duplicated as assets. Duplicate the final asset instead.");
+		if (const FAssetData* Existing = Registry.FindAssetExactPointer(DestinationPath))
+			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
+				? Error(EAssetError::AlreadyExists, std::format(
+					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
+					DestinationPath.ToString(), Existing->RedirectDestination.ToString()))
+				: Error(EAssetError::AlreadyExists, std::format(
+					"Asset {} already exists. Choose another destination or delete the existing asset.",
+					DestinationPath.ToString()));
+		if (ResidentPackages.contains(DestinationPath))
+			return Error(EAssetError::AlreadyExists, std::format(
+				"A loaded package already uses {}. Close it or choose another destination.",
+				DestinationPath.ToString()));
+
+		DObject* SourceAsset = nullptr;
+		FAssetResult Result = LoadAsset(SourcePath, SourceAsset);
+		if (!Result) return Result;
+		if (!SourceAsset)
+			return Error(EAssetError::InvalidObjectGraph,
+				"The source package has no main asset to duplicate.");
+
+		DPackage* Package = NewObject<DPackage>(
+			nullptr, FName(DestinationPath.GetAssetName()));
+		Package->InitializeAssetPackage(DestinationPath);
+		AddToRoot(Package);
+		std::string DuplicateError;
+		OutAsset = DuplicateObjectGraph(
+			SourceAsset,
+			Package,
+			FName(DestinationPath.GetAssetName()),
+			&DuplicateError);
+		if (!OutAsset || !Package->SetAsset(OutAsset))
+		{
+			RemoveFromRoot(Package);
+			MarkObjectHierarchyAsGarbage(Package);
+			CollectGarbage();
+			OutAsset = nullptr;
+			return Error(EAssetError::InvalidObjectGraph,
+				DuplicateError.empty()
+					? "Failed to assign the duplicated package asset."
+					: std::move(DuplicateError));
+		}
+		ResidentPackages.emplace(
+			DestinationPath,
+			Package,
+			EAssetPackagePublicationState::NewlyCreated);
 		return {};
 	}
 

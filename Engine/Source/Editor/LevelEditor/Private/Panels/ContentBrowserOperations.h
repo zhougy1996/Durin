@@ -236,6 +236,8 @@ namespace Durin::Editor::Level
 
 		auto Rename(const FContentBrowserItem& Item, std::string_view NewName)
 			-> FContentBrowserOperationResult;
+		auto Duplicate(const FContentBrowserItem& Item)
+			-> FContentBrowserOperationResult;
 		auto CreateFolder(std::string_view PhysicalDirectory)
 			-> FContentBrowserOperationResult;
 		auto CreateLevelAsset(std::string_view VirtualDirectory)

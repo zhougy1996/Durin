@@ -758,6 +758,59 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 	EXPECT_TRUE(std::filesystem::exists(Folder / "notes.txt"));
 }
 
+TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName)
+{
+	InitializeDObjectSystem();
+	FAssetPath SourcePath;
+	FAssetPath DuplicatePath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/Original", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/Original_Copy2", DuplicatePath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	FMaterialStaticProperties Properties = Material->GetStaticProperties();
+	Properties.bTwoSided = true;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	{
+		std::ofstream Occupied(Root / "Content/Original_Copy.dasset");
+		Occupied << "unregistered collision";
+	}
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::Asset,
+		.Name = "Original",
+		.VirtualPath = SourcePath.ToString(),
+		.PhysicalPath = (Root / "Content/Original.dasset").generic_string(),
+		.AssetClassName = DMaterial::StaticClass()
+			->GetQualifiedName().ToString()};
+
+	const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
+
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_EQ(Result.RevealAssetPath, DuplicatePath.ToString());
+	EXPECT_EQ(Result.FocusPhysicalPath,
+		std::filesystem::absolute(Root / "Content/Original_Copy2.dasset")
+			.lexically_normal().generic_string());
+	DMaterial* Duplicate = nullptr;
+	ASSERT_TRUE(Asset::LoadAsset(DuplicatePath, Duplicate));
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_NE(Duplicate, Material);
+	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
+	EXPECT_FALSE(Duplicate->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::exists(Result.FocusPhysicalPath));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(DuplicatePath));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(SourcePath));
+}
+
 TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 {
 	InitializeDObjectSystem();

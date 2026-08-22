@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, immutable catalog and reference proje
 
 Modules: AssetCore, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-23
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -68,6 +68,16 @@ Cook reachability resolves explicit and registered external roots, follows
 canonical hard and soft edges, validates final classes and redirects, excludes
 alias packages, and terminates cycles through a visited set. Runtime loading and
 unload guards continue to use package-header hard dependencies.
+
+## Duplication
+
+`DuplicateAsset` clones a real asset's complete persistent object graph into a
+distinct, newly created resident package. Internal references are remapped to
+the cloned inner objects while cross-package references retain their authored
+targets. The result remains unsaved so class-owning editor code can replace
+clone-specific identity before publishing it through the ordinary package-save
+seam. Redirectors and occupied catalog or resident destinations are rejected;
+failure discards every partially constructed clone.
 
 ## Relocation Transactions
 

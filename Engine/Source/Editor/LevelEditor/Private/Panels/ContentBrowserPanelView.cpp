@@ -435,6 +435,16 @@ namespace Durin::Editor::Level
 					}); It != Model.GetItems().end()
 					&& It->Kind != EContentBrowserItemKind::Redirector)
 					BeginRename(*It);
+			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false)
+				&& Selection.size() == 1)
+				if (auto It = std::ranges::find_if(
+						Model.GetItems(),
+						[&](const FContentBrowserItem& Item) {
+							return Selection.contains(Item.StableId());
+						});
+					It != Model.GetItems().end()
+						&& It->Kind == EContentBrowserItemKind::Asset)
+					QueueContentAction([this, Item = *It] { DuplicateAsset(Item); });
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !Selection.empty()) RequestDeleteSelection();
 		}
 	}
@@ -1027,6 +1037,11 @@ namespace Durin::Editor::Level
 				QueueContentAction([this, Item] { FixUpRedirector(Item); });
 			ImGui::Separator();
 		}
+		if (ImGui::MenuItem(
+			"Duplicate", "Ctrl+D", false,
+			Selection.size() == 1
+				&& Item.Kind == EContentBrowserItemKind::Asset))
+			QueueContentAction([this, Item] { DuplicateAsset(Item); });
 		if (ImGui::MenuItem(
 			"Rename", "F2", false,
 			Selection.size() == 1

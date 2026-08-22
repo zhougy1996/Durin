@@ -71,8 +71,14 @@ remain inline in the open modal so the complete form can be corrected and
 retried without re-entry.
 
 Assets open through registered asset editors and use asset-aware rename, move,
-and deletion workflows. Opening a redirector resolves and opens its final real
-asset; redirectors are excluded from ordinary pickers, rename, and drag-move.
+duplication, and deletion workflows. **Duplicate** and `Ctrl+D` clone one
+selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
+and later suffixes until both catalog and physical destinations are free. The
+complete persistent object graph is copied and published as a clean package;
+duplicated import records receive a new record identity and relinquish
+management of the original record's outputs. Opening a redirector resolves and
+opens its final real asset; redirectors are excluded from ordinary pickers,
+rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
 Files reported as owned by AssetCore's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.
@@ -139,7 +145,7 @@ The Content Browser prepares an immutable Fix Up summary and calls only
 `Commit`; it cannot invoke package/store rewrite, alias deletion, verification,
 or compensation phases separately.
 
-Create, import/reimport, rename, move, folder relocation, and future duplication
+Create, import/reimport, duplicate, rename, move, and folder relocation
 through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
