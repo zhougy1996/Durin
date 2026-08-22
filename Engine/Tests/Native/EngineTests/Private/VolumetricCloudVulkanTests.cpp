@@ -120,7 +120,7 @@ namespace Durin
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
 		FVolumetricCloudShadowRenderer CloudShadows(Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 37>>();
+		auto Results = std::make_shared<std::array<bool, 41>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
@@ -391,6 +391,45 @@ namespace Durin
 										<= 1.0f / 1024.0f
 								 && std::abs(DecodeHalf(CompositePixels.data() + 4u) - 0.75f)
 										<= 1.0f / 1024.0f;
+
+				auto ReadDebug = [&](EVolumetricCloudDebugMode Mode,
+					FRHITexture* ShadowVisibility, bool bHistoryAvailable,
+					bool bHistoryAccepted, std::vector<uint8>& Pixels) {
+					View.Settings.VolumetricCloud.DebugMode = Mode;
+					FRHITexture* Output = Clouds.Composite_RenderThread(
+						CommandList, SceneColor, Compute.Cloud, Depth,
+						ShadowVisibility, bHistoryAvailable, bHistoryAccepted, View);
+					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+					return Output && GDynamicRHI->RHIReadTexture2D(
+						CommandList, Output, 0, 0, Pixels);
+				};
+				std::vector<uint8> DebugPixels;
+				(*Results)[37] = ReadDebug(EVolumetricCloudDebugMode::Radiance,
+					nullptr, false, false, DebugPixels)
+					&& DebugPixels.size() >= Center + 8u
+					&& std::abs(DecodeHalf(DebugPixels.data() + Center)
+						- DecodeHalf(ComputePixels.data() + Center)) <= 2.0f / 1024.0f;
+				DebugPixels.clear();
+				(*Results)[38] = ReadDebug(EVolumetricCloudDebugMode::Transmittance,
+					nullptr, false, false, DebugPixels)
+					&& DebugPixels.size() >= Center + 8u
+					&& std::abs(DecodeHalf(DebugPixels.data() + Center)
+						- DecodeHalf(ComputePixels.data() + Center + 6u)) <= 2.0f / 1024.0f;
+				DebugPixels.clear();
+				(*Results)[39] = ReadDebug(EVolumetricCloudDebugMode::TemporalStatus,
+					nullptr, true, true, DebugPixels)
+					&& DebugPixels.size() >= Center + 8u
+					&& DecodeHalf(DebugPixels.data() + Center + 2u) > 0.8f;
+				DebugPixels.clear();
+				const size_t ShadowCenter = 15u * 64u + 32u;
+				(*Results)[40] = ReadDebug(EVolumetricCloudDebugMode::ShadowVisibility,
+					ComputeShadow.Visibility, false, false, DebugPixels)
+					&& DebugPixels.size() >= Center + 8u
+					&& ComputeShadowPixels.size() > ShadowCenter
+					&& std::abs(DecodeHalf(DebugPixels.data() + Center)
+						- static_cast<float>(ComputeShadowPixels[ShadowCenter]) / 255.0f)
+						<= 2.0f / 255.0f;
+				View.Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
 
 				std::vector<uint16> EdgeCloud(32u * 16u * 4u, 0u);
 				for (uint32 Y = 0; Y < 16; ++Y)

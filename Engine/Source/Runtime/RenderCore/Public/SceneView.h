@@ -3,6 +3,7 @@
 #include "Math/DurinMath.h"
 #include "RHIResources.h"
 #include "SceneViewState.h"
+#include "VolumetricCloudView.h"
 
 namespace Durin
 {
@@ -147,6 +148,12 @@ namespace Durin
 			EGroundTruthAmbientOcclusionQuality::HalfResolution;
 	};
 
+	struct FSceneViewVolumetricCloudSettings
+	{
+		EVolumetricCloudQuality Quality = EVolumetricCloudQuality::High;
+		EVolumetricCloudDebugMode DebugMode = EVolumetricCloudDebugMode::Lit;
+	};
+
 	// Captures rendering behavior with the view submitted to the render thread.
 	// Feature-owned groups keep the immutable snapshot cohesive as capabilities grow.
 	struct FSceneViewSettings
@@ -156,6 +163,7 @@ namespace Durin
 		FSceneViewTerrainSettings Terrain;
 		FSceneViewDirectionalShadowSettings DirectionalShadow;
 		FSceneViewAmbientOcclusionSettings AmbientOcclusion;
+		FSceneViewVolumetricCloudSettings VolumetricCloud;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

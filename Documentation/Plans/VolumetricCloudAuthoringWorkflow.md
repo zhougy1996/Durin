@@ -4,12 +4,12 @@ Summary: Deliver bounded volume preview, specialized cloud editing, viewport qua
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-P0-P4 and P2.5 are complete, so this P5 plan is eligible. The runtime already
+P5 completed on 2026-08-23. The runtime already
 ships one reflected global-cloud component, imported `DVolumeTexture` inputs,
 four Renderer-owned quality tiers, temporal and lighting diagnostics, and
 qualified compute/fragment routes. The editor can import a volume atlas and
@@ -20,9 +20,25 @@ cloud debug views, or observe the last rendered cloud route and cost.
 The initial repository audit selected the existing Texture Editor for exact
 `DVolumeTexture` documents, the Level Editor Details/viewport surfaces for
 cloud authoring, `FSceneViewSettings` for per-viewport quality and debug policy,
-and a value-owned Renderer diagnostic snapshot for editor observation. There
-is no production-asset evidence requiring another source format or procedural
-generator, so neither is part of this plan.
+and the existing value-owned `FSceneViewportStatisticsSnapshot` publication
+path for editor observation. Stage 0 is complete: exact preview fixtures,
+presentation groups, view policy, debug meanings, statistics schema, and
+overhead ceilings are frozen below. The existing reflected World Outliner
+**Add Actors** route already creates and selects `AVolumetricCloudActor`, so a
+second cloud-only creation command would duplicate established transaction and
+dirtying behavior. There is no production-asset evidence requiring another
+source format or procedural generator, so neither is part of this plan.
+
+The completed implementation adds exact R8/RGBA8 orthogonal volume inspection,
+cloud-specific Details presentation and asset navigation, per-view quality and
+production-backed debug modes, and a bounded copied statistics snapshot. The
+focused Texture, Viewport, Renderer, scene-contract, shader-reflection, and both
+Vulkan cloud targets pass. The 4K RTX 3090 qualification gate passed on its
+unchanged second run after one transient High/Reference GPU-timing outlier; all
+image, memory, work, parity, and recovery assertions passed on both runs.
+`fast-all`, the full `all` build, documentation validation, and an eight-second
+DurinEditor startup smoke pass. Lasting Runtime and Editor contracts are linked
+below, and P6 is now the next eligible roadmap milestone.
 
 ## Goal
 
@@ -83,6 +99,11 @@ world reopen.
   mip levels, and meaningful source channels. It displays stored voxel values;
   cloud coverage, erosion, extinction, lighting, and weather semantics are not
   baked into the generic texture preview.
+- Frozen preview fixtures are a `7 x 5 x 3` R8 ramp and `5 x 3 x 2` RGBA8
+  coordinate pattern, each with its deterministic full mip chain. Axis order is
+  `XY: X right/Y down at Z`, `XZ: X right/Z down at Y`, and
+  `YZ: Y right/Z down at X`. A preview is expanded to RGBA8 and retains at most
+  `2048 * 2048 * 4 = 16 MiB` of staging/upload pixels.
 - Cloud rendering is previewed in the production Level Editor scene viewport.
   A separate miniature cloud renderer or editor-only preview scene would
   duplicate the depth, lighting, history, shadow, and view-state contract and
@@ -99,14 +120,31 @@ world reopen.
   They may replace final scene presentation for that view but cannot alter
   production history commit, cloud resources, authored settings, or another
   viewport.
-- Renderer publishes diagnostics as immutable values keyed by
-  `FSceneViewStateId` plus a bounded stateless fallback. Publication is
-  render-thread-owned; editor reads a copied snapshot and never waits on a GPU
-  result or rendering command. Missing/stale timing is shown as unavailable,
-  not as zero.
+- The frozen debug set is `Lit`, premultiplied cloud `Radiance`, scalar
+  `Transmittance`, binary `TemporalStatus` (green accepted, amber rejected,
+  gray unavailable), and scalar receiver `ShadowVisibility`. Debug presentation
+  may reuse the normal cloud composite but adds no retained target and does not
+  change history acceptance or commit.
+- Renderer reduces private counters into the existing immutable
+  `FSceneViewStatistics` value and `FSceneViewport` publishes that result with
+  its current revision/availability contract. The editor reads the copied
+  snapshot and never waits on a GPU result or rendering command. No separate
+  view-keyed cache, stateless fallback, stale clock, or Renderer dependency is
+  introduced.
 - Normal rendering with the diagnostic panel closed does not add a readback or
-  synchronous flush. GPU timing collection, if Stage 0 selects it for live
-  display, uses bounded delayed queries and an explicit sampling cadence.
+  synchronous flush. Stage 0 rejects live GPU timing collection for P5 because
+  exact work/byte counters already publish every frame and production timing
+  queries would add policy and retained state solely for UI. The panel labels
+  GPU time as unavailable and routes users to qualification evidence.
+- The statistics extension remains at most 160 bytes, volume preview staging
+  remains at most 16 MiB, hidden diagnostics add zero passes/queries/readbacks,
+  each debug view adds at most the already-required cloud composite draw, and
+  editor controls publish within the next submitted frame without a flush.
+- Details groups are `Activation`, `Density Inputs`, `Layer`, `Mapping and
+  Motion`, and `Optical Response`. Base density is required shape, detail
+  density is required erosion, and weather is optional coverage control. The
+  read-only header reports active/ignored selection and the exact shared
+  eligibility message; asset actions use existing Content Browser navigation.
 - Missing assets, ineligible clouds, unavailable diagnostics, unsupported
   debug sources, and failed Renderer resources retain the established identity
   or last-known-good rendering behavior and produce actionable UI state.
@@ -129,22 +167,22 @@ world reopen.
 
 ### Stage 0: Freeze workflow, debug, and observation contracts
 
-- [ ] Record representative R8/RGBA8 volume fixtures, odd dimensions, all three
+- [x] Record representative R8/RGBA8 volume fixtures, odd dimensions, all three
   slice axes, mip/channel expectations, maximum preview upload bytes, and
   source/platform-data fallback behavior.
-- [ ] Freeze the cloud Details groups, labels, units, asset-role help, active
+- [x] Freeze the cloud Details groups, labels, units, asset-role help, active
   selection/eligibility messages, navigation actions, and creation path against
   one valid, one incomplete, and two-conflicting-cloud fixture.
-- [ ] Select the exact public cloud quality enum/settings ownership and prove
+- [x] Select the exact public cloud quality enum/settings ownership and prove
   `High` default plus one-view isolation without serialized component changes.
-- [ ] Select the minimum debug set from production evidence: final Lit,
+- [x] Select the minimum debug set from production evidence: final Lit,
   premultiplied cloud radiance, transmittance, temporal history
   acceptance/rejection, and receiver cloud visibility; record unavailable and
   fallback presentation for each route.
-- [ ] Freeze the diagnostic snapshot schema, view identity, publication and
+- [x] Freeze the diagnostic snapshot schema, view identity, publication and
   stale policy, bounded entry count, timing-query cadence, disabled overhead,
   and thread/lifecycle ownership.
-- [ ] Record editor interaction, CPU, GPU-query, transient preview, and retained
+- [x] Record editor interaction, CPU, GPU-query, transient preview, and retained
   diagnostic-memory ceilings before accepting implementation measurements.
 
 #### Acceptance Gate
@@ -155,18 +193,18 @@ world reopen.
 
 ### Stage 1: Expose per-view cloud policy and diagnostics
 
-- [ ] Add the public per-view quality/debug settings, canonicalization, default,
+- [x] Add the public per-view quality/debug settings, canonicalization, default,
   and immutable scene-view propagation; replace both hard-coded `High` call
   sites with the submitted tier.
-- [ ] Implement the selected debug outputs in compute/fragment, temporal, and
+- [x] Implement the selected debug outputs in compute/fragment, temporal, and
   shadow routes without changing normal composition or history transactions.
-- [ ] Publish the bounded value-owned last-completed-view snapshot with tier,
+- [x] Publish the bounded value-owned last-completed-view snapshot with tier,
   route/reason, input/output extents, sample/work counters, history state,
   shadow work, active/retained bytes, and delayed timing availability.
-- [ ] Preserve stateless, fitted, offscreen, Present, failed, invalidated, and
+- [x] Preserve stateless, fitted, offscreen, Present, failed, invalidated, and
   released-view semantics; prune stale identities and release pending queries
   without device-idle waits.
-- [ ] Add RenderCore/Renderer contract, route parity, isolation, stale-data,
+- [x] Add RenderCore/Renderer contract, route parity, isolation, stale-data,
   failure, recovery, and release tests.
 
 #### Acceptance Gate
@@ -177,18 +215,18 @@ world reopen.
 
 ### Stage 2: Add exact volume-texture inspection
 
-- [ ] Register exact `DVolumeTexture` documents in Texture Editor without
+- [x] Register exact `DVolumeTexture` documents in Texture Editor without
   aliasing `DTexture2D`, and retain one counted asset per open document.
-- [ ] Present dimensions, format, mip count, voxel/source byte counts, source
+- [x] Present dimensions, format, mip count, voxel/source byte counts, source
   provenance, build readiness, and import/reimport/repair state using existing
   asset and source authorities.
-- [ ] Implement `XY`/`XZ`/`YZ` slice extraction for R8 and RGBA8 platform data,
+- [x] Implement `XY`/`XZ`/`YZ` slice extraction for R8 and RGBA8 platform data,
   mip and channel selection, clamped indices, zoom/checkerboard behavior, and a
   bounded 2D preview upload.
-- [ ] Refresh on asset/source/build revision, clear stale images on invalid or
+- [x] Refresh on asset/source/build revision, clear stale images on invalid or
   failed candidates, and release uploads on close, replacement, reload, and
   module shutdown.
-- [ ] Add slice-orientation/value, odd-extent, mip/channel, document identity,
+- [x] Add slice-orientation/value, odd-extent, mip/channel, document identity,
   reload, failure, and resource-release tests.
 
 #### Acceptance Gate
@@ -199,20 +237,20 @@ world reopen.
 
 ### Stage 3: Build the cloud authoring workflow
 
-- [ ] Register a `DVolumetricCloudComponent` Details customization with the
+- [x] Register a `DVolumetricCloudComponent` Details customization with the
   frozen groups, units, help, asset-role presentation, and normal reflected
   property transactions.
-- [ ] Present active/ignored conflicts and the shared Engine eligibility reason
+- [x] Present active/ignored conflicts and the shared Engine eligibility reason
   with direct navigation to assigned base, detail, and weather assets.
-- [ ] Add the bounded Level Editor command that creates/selects the existing
+- [x] Add the bounded Level Editor command that creates/selects the existing
   volumetric-cloud actor and preserves standard actor naming, undo, dirtying,
   duplication, and deletion behavior.
-- [ ] Add the viewport quality selector and mutually exclusive debug menu with
+- [x] Add the viewport quality selector and mutually exclusive debug menu with
   explicit `High (Default)` and `Reset Cloud Debug View` actions.
-- [ ] Add a nonblocking cloud diagnostics panel/section for the active viewport,
+- [x] Add a nonblocking cloud diagnostics panel/section for the active viewport,
   including stale/unavailable timing, route/fallback reason, history state,
   work, extents, and GPU-byte presentation.
-- [ ] Add editor tests for customization registration, transactions, conflict
+- [x] Add editor tests for customization registration, transactions, conflict
   order, asset navigation, creation, per-viewport isolation, diagnostics, and
   module unload/reload.
 
@@ -224,19 +262,19 @@ world reopen.
 
 ### Stage 4: Qualify persistent editor workflows
 
-- [ ] Run the frozen end-to-end sequence: import volume, inspect slices, create
+- [x] Run the frozen end-to-end sequence: import volume, inspect slices, create
   cloud, assign roles, edit valid/invalid values, observe eligibility, render
   every quality/debug mode, save, reload, close/reopen the world, and reimport
   or replace one source.
-- [ ] Verify authored values and asset references persist while quality/debug
+- [x] Verify authored values and asset references persist while quality/debug
   state remains view-owned, and cooked/runtime content has no editor-only data
   or dependency.
-- [ ] Measure the Stage 0 editor CPU, diagnostic timing, preview upload, and
+- [x] Measure the Stage 0 editor CPU, diagnostic timing, preview upload, and
   retained-memory ceilings with diagnostics hidden and visible.
-- [ ] Run focused editor/Engine/Renderer contracts and Vulkan scene coverage on
+- [x] Run focused editor/Engine/Renderer contracts and Vulkan scene coverage on
   inline and threaded executors, then affected aggregate tests, full build,
   documentation validation, and bounded DurinEditor smoke.
-- [ ] Record any evidence-backed change to debug set, cadence, workflow, or
+- [x] Record any evidence-backed change to debug set, cadence, workflow, or
   budget before closing a failed gate.
 
 #### Acceptance Gate
@@ -247,12 +285,12 @@ world reopen.
 
 ### Stage 5: Publish the lasting contract and complete P5
 
-- [ ] Publish volume inspection and cloud authoring user guidance plus the
+- [x] Publish volume inspection and cloud authoring user guidance plus the
   lasting editor architecture, view policy, diagnostic snapshot, debug,
   fallback, and lifecycle contracts in their owning documentation domains.
-- [ ] Update the cloud roadmap to mark P5 complete and make P6 eligible only
+- [x] Update the cloud roadmap to mark P5 complete and make P6 eligible only
   after all P5 acceptance gates pass.
-- [ ] Set this plan to `Completed` only after every prior checklist and
+- [x] Set this plan to `Completed` only after every prior checklist and
   validation gate is supported by recorded evidence.
 
 #### Acceptance Gate
@@ -306,6 +344,8 @@ world reopen.
 - [Volumetric cloud scene contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
 - [Volumetric cloud temporal reconstruction](../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
 - [Volumetric cloud lighting and shadows](../Runtime/Rendering/VolumetricCloudLightingAndShadows.md)
+- [Volumetric cloud authoring architecture](../Editor/Architecture/VolumetricCloudAuthoring.md)
+- [Volumetric cloud authoring guide](../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Volume texture import and cloud diagnostics](VolumeTextureImportAndCloudDiagnostics.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Implementation plan rules](AGENTS.md)

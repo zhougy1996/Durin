@@ -391,6 +391,16 @@ namespace Durin::Editor::Texture
 		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.Width, Source.Height, Source.Width * 4, Source.Pixels.data());
 	}
 
+	auto FTexturePreview::UploadRGBA8(uint32 Width, uint32 Height,
+		std::span<const uint8> Pixels, ETexturePreviewChannel Channel) -> void
+	{
+		if (Width == 0 || Height == 0
+			|| Pixels.size() != static_cast<uint64>(Width) * Height * 4) return;
+		SelectedChannel = Channel;
+		UploadPixels(EPixelFormat::RGBA8_UNORM, Width, Height, Width * 4,
+			Pixels.data());
+	}
+
 	auto FTexturePreview::SetChannel(ETexturePreviewChannel Channel) -> void
 	{
 		if (SelectedChannel == Channel) return;

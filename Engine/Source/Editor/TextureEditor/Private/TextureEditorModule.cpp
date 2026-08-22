@@ -2,12 +2,15 @@
 
 #include "Editor/WorkspaceManager.h"
 #include "Texture/Texture2D.h"
+#include "Texture/VolumeTexture.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Widgets/MTextureEditor.h"
+#include "Widgets/MVolumeTextureEditor.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
+#include "Workspace/VolumeTextureEditorWorkspace.h"
 
 namespace Durin
 {
@@ -42,6 +45,8 @@ namespace Durin
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
+		std::shared_ptr<MVolumeTextureEditor> VolumeEditor =
+			std::make_shared<MVolumeTextureEditor>(WorkspaceManager);
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
@@ -55,11 +60,28 @@ namespace Durin
 					},
 					.Workspace = Workspace,
 				},
+				{
+					.Descriptor = {
+						.WorkspaceType = VolumeWorkspace::Type,
+						.DisplayName = "Texture Editor",
+						.RootKey = std::string(VolumeWorkspace::RootKey),
+						.bShowInWindowMenu = false,
+						.bOpenByDefault = false,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
+					},
+					.Workspace = VolumeEditor,
+				},
 			},
 			.AssetEditors = {
 				{
 					.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
+					.bClosable = true,
+				},
+				{
+					.AssetClassName = DVolumeTexture::StaticClass()->GetQualifiedName().ToString(),
+					.WorkspaceType = VolumeWorkspace::Type,
 					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},

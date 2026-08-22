@@ -518,7 +518,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(MaterialModule.RegisterMaterialEditor(Manager, Service));
 	ASSERT_TRUE(TextureModule.RegisterTextureEditor(Manager, Service));
 	ASSERT_TRUE(StaticMeshModule.RegisterStaticMeshEditor(Manager, Service));
-	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 3u);
+	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 4u);
 
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
@@ -570,6 +570,9 @@ TEST(FStaticMeshAssetThumbnailTests,
 	EXPECT_TRUE(Service.Find(MaterialClass));
 	EXPECT_EQ(
 		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("TextureEditor")),
+		nullptr);
+	EXPECT_EQ(
+		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")),
 		nullptr);
 
 	MaterialModule.UnregisterMaterialEditor();

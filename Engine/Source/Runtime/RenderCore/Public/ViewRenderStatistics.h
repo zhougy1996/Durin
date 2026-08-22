@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Misc/CoreTypes.h"
+#include "VolumetricCloudView.h"
 
 namespace Durin
 {
@@ -76,6 +77,37 @@ namespace Durin
 		auto operator==(const FSceneViewLightStatistics&) const -> bool = default;
 	};
 
+	struct FSceneViewVolumetricCloudStatistics
+	{
+		EVolumetricCloudQuality Quality = EVolumetricCloudQuality::High;
+		EVolumetricCloudDebugMode DebugMode = EVolumetricCloudDebugMode::Lit;
+		EVolumetricCloudExecutionRoute Route = EVolumetricCloudExecutionRoute::None;
+		EVolumetricCloudRouteReason Reason =
+			EVolumetricCloudRouteReason::DisabledOrUnneeded;
+		EVolumetricCloudExecutionRoute ShadowRoute =
+			EVolumetricCloudExecutionRoute::None;
+		uint32 TargetWidth = 0;
+		uint32 TargetHeight = 0;
+		uint32 OutputWidth = 0;
+		uint32 OutputHeight = 0;
+		uint64 PrimarySamples = 0;
+		uint64 LightSamples = 0;
+		uint64 ShadowSamples = 0;
+		uint64 ActiveBytes = 0;
+		uint64 RetainedBytes = 0;
+		uint64 HistoryBytes = 0;
+		uint64 ShadowActiveBytes = 0;
+		uint64 ShadowRetainedBytes = 0;
+		bool bEnabled = false;
+		bool bHistoryAvailable = false;
+		bool bHistoryAccepted = false;
+		bool bGPUTimingAvailable = false;
+
+		auto operator==(const FSceneViewVolumetricCloudStatistics&) const
+			-> bool = default;
+	};
+	static_assert(sizeof(FSceneViewVolumetricCloudStatistics) <= 160);
+
 	// Carries the stable, bounded summary produced by one complete scene-view render.
 	struct FSceneViewStatistics
 	{
@@ -90,6 +122,7 @@ namespace Durin
 		FSceneViewTerrainStatistics Terrain;
 		FSceneViewShadowStatistics Shadow;
 		FSceneViewLightStatistics Lights;
+		FSceneViewVolumetricCloudStatistics VolumetricCloud;
 
 		auto operator==(const FSceneViewStatistics&) const -> bool = default;
 	};

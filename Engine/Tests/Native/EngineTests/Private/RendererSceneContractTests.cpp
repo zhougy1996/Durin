@@ -596,6 +596,10 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	EXPECT_TRUE(Settings.AmbientOcclusion.bEnabled);
 	EXPECT_EQ(Settings.AmbientOcclusion.Quality,
 		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution);
+	EXPECT_EQ(Settings.VolumetricCloud.Quality,
+		Durin::EVolumetricCloudQuality::High);
+	EXPECT_EQ(Settings.VolumetricCloud.DebugMode,
+		Durin::EVolumetricCloudDebugMode::Lit);
 }
 
 TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverride)
@@ -620,6 +624,10 @@ TEST(FRendererSceneContractTests, ViewStatisticsDefaultToAnEmptyBoundedSummary)
 	EXPECT_FALSE(Statistics.Shadow.bEnabled);
 	EXPECT_EQ(Statistics.Shadow.ContactRoute,
 		Durin::EContactShadowExecutionRoute::None);
+	EXPECT_EQ(Statistics.VolumetricCloud.Quality,
+		Durin::EVolumetricCloudQuality::High);
+	EXPECT_EQ(Statistics.VolumetricCloud.Route,
+		Durin::EVolumetricCloudExecutionRoute::None);
 }
 
 TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
@@ -647,6 +655,21 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Counters.ShadowCascadeCount = 3;
 	Counters.ContactShadowEnabledViews = 1;
 	Counters.ContactShadowComputeViews = 1;
+	Counters.VolumetricCloudQuality = Durin::EVolumetricCloudQuality::Epic;
+	Counters.VolumetricCloudDebugMode = Durin::EVolumetricCloudDebugMode::Transmittance;
+	Counters.VolumetricCloudComputeViews = 1;
+	Counters.VolumetricCloudEnabledViews = 1;
+	Counters.VolumetricCloudTargetWidth = 960;
+	Counters.VolumetricCloudTargetHeight = 540;
+	Counters.VolumetricCloudOutputWidth = 1920;
+	Counters.VolumetricCloudOutputHeight = 1080;
+	Counters.VolumetricCloudPrimarySamples = 1000;
+	Counters.VolumetricCloudLightSamples = 2000;
+	Counters.VolumetricCloudHistoryAccepted = 1;
+	Counters.VolumetricCloudTemporalDraws = 1;
+	Counters.VolumetricCloudRetainedBytes = 4096;
+	Counters.VolumetricCloudRouteReasons[
+		static_cast<size_t>(Durin::FVolumetricCloudSpatialRenderer::ERouteReason::Compute)] = 1;
 
 	const Durin::FSceneViewStatistics Statistics =
 		Durin::BuildSceneViewStatistics(Counters);
@@ -674,6 +697,20 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.Lights.Directional, 1u);
 	EXPECT_EQ(Statistics.Lights.Point, 3u);
 	EXPECT_EQ(Statistics.Lights.Spot, 2u);
+	EXPECT_EQ(Statistics.VolumetricCloud.Quality,
+		Durin::EVolumetricCloudQuality::Epic);
+	EXPECT_EQ(Statistics.VolumetricCloud.DebugMode,
+		Durin::EVolumetricCloudDebugMode::Transmittance);
+	EXPECT_EQ(Statistics.VolumetricCloud.Route,
+		Durin::EVolumetricCloudExecutionRoute::Compute);
+	EXPECT_EQ(Statistics.VolumetricCloud.Reason,
+		Durin::EVolumetricCloudRouteReason::Compute);
+	EXPECT_EQ(Statistics.VolumetricCloud.TargetWidth, 960u);
+	EXPECT_EQ(Statistics.VolumetricCloud.PrimarySamples, 1000u);
+	EXPECT_EQ(Statistics.VolumetricCloud.RetainedBytes, 4096u);
+	EXPECT_TRUE(Statistics.VolumetricCloud.bHistoryAvailable);
+	EXPECT_TRUE(Statistics.VolumetricCloud.bHistoryAccepted);
+	EXPECT_FALSE(Statistics.VolumetricCloud.bGPUTimingAvailable);
 
 	Counters.ContactShadowComputeViews = 0;
 	Counters.ContactShadowFragmentViews = 1;

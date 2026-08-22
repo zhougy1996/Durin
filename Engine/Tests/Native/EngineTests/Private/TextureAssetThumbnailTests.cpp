@@ -2,6 +2,7 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "TextureEditorModule.h"
+#include "VolumeTexturePreview.h"
 #include "Editor/WorkspaceManager.h"
 
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -9,6 +10,7 @@
 #include "AssetTools.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
+#include "Texture/VolumeTexture.h"
 #include "ThirdParty/ImGui/imgui.h"
 
 #include <gtest/gtest.h>
@@ -100,6 +102,8 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 	EXPECT_TRUE(Service.Find(TextureCubeClass));
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
+	EXPECT_NE(Manager.FindWorkspace(
+		Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")), nullptr);
 	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, Service));
 	Module.UnregisterTextureEditor();
 	EXPECT_FALSE(Service.Find(Texture2DClass));
@@ -107,6 +111,61 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 	EXPECT_FALSE(Service.Find(TextureCubeClass));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
+	EXPECT_EQ(Manager.FindWorkspace(
+		Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")), nullptr);
+}
+
+TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
+{
+	Durin::FVolumeTextureMipData Mip;
+	Mip.Width = 3;
+	Mip.Height = 2;
+	Mip.Depth = 2;
+	Mip.RowPitch = 3;
+	Mip.DepthPitch = 6;
+	Mip.Voxels.resize(12);
+	for (Durin::uint32 Z = 0; Z < Mip.Depth; ++Z)
+		for (Durin::uint32 Y = 0; Y < Mip.Height; ++Y)
+			for (Durin::uint32 X = 0; X < Mip.Width; ++X)
+				Mip.Voxels[Z * Mip.DepthPitch + Y * Mip.RowPitch + X] =
+					static_cast<Durin::uint8>(X + Y * 10 + Z * 100);
+
+	using namespace Durin::Editor::Texture;
+	const auto XY = ExtractVolumeTexturePreviewSlice(
+		Mip, Durin::EPixelFormat::R8_UNORM, EVolumeTexturePreviewAxis::XY, 1);
+	ASSERT_TRUE(XY.IsValid());
+	EXPECT_EQ(XY.Width, 3u);
+	EXPECT_EQ(XY.Height, 2u);
+	EXPECT_EQ(XY.Pixels[0], 100u);
+	EXPECT_EQ(XY.Pixels[(1 * XY.Width + 2) * 4], 112u);
+	const auto XZ = ExtractVolumeTexturePreviewSlice(
+		Mip, Durin::EPixelFormat::R8_UNORM, EVolumeTexturePreviewAxis::XZ, 1);
+	ASSERT_TRUE(XZ.IsValid());
+	EXPECT_EQ(XZ.Width, 3u);
+	EXPECT_EQ(XZ.Height, 2u);
+	EXPECT_EQ(XZ.Pixels[(1 * XZ.Width + 2) * 4], 112u);
+	const auto YZ = ExtractVolumeTexturePreviewSlice(
+		Mip, Durin::EPixelFormat::R8_UNORM, EVolumeTexturePreviewAxis::YZ, 2);
+	ASSERT_TRUE(YZ.IsValid());
+	EXPECT_EQ(YZ.Width, 2u);
+	EXPECT_EQ(YZ.Height, 2u);
+	EXPECT_EQ(YZ.Pixels[(1 * YZ.Width + 1) * 4], 112u);
+}
+
+TEST(FTextureAssetThumbnailTests, VolumePreviewPreservesRGBAAndClampsSlice)
+{
+	Durin::FVolumeTextureMipData Mip;
+	Mip.Width = 2;
+	Mip.Height = 1;
+	Mip.Depth = 1;
+	Mip.RowPitch = 8;
+	Mip.DepthPitch = 8;
+	Mip.Voxels = {1, 2, 3, 4, 10, 20, 30, 40};
+	const auto Slice = Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
+		Mip, Durin::EPixelFormat::RGBA8_UNORM,
+		Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 99);
+	ASSERT_TRUE(Slice.IsValid());
+	EXPECT_EQ(Slice.Pixels, Mip.Voxels);
 }
 
 TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)

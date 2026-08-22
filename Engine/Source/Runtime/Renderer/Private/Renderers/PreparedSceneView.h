@@ -69,6 +69,7 @@ namespace Durin
 		bool bVolumetricCloudForceFragmentForQualification = false;
 		FVolumetricCloudRenderer::FParameters VolumetricCloudParameters;
 		FVolumetricCloudRenderer::FTextureBindings VolumetricCloudTextures;
+		FRHITexture* VolumetricCloudShadowVisibility = nullptr;
 		uint64 VolumetricCloudHistoryKey = 0;
 		FViewRenderCounters Counters;
 	};

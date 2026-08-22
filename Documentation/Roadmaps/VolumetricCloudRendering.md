@@ -55,8 +55,15 @@ completed P4 on 2026-08-23. Clouds now use the selected prepared directional
 light for fixed bounded phase, full-density self-transmittance, and ambient
 radiance; a Renderer-owned full-resolution `R8_UNORM` visibility target
 multiplies only surface directional lighting. Both named executors pass the 4K
-image, timing, memory, fallback, recovery, and release gates. P5 is now active;
-P6 remains ordered proposed work.
+image, timing, memory, fallback, recovery, and release gates.
+
+[Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md)
+completed P5 on 2026-08-23. Exact volume slices, role-oriented cloud Details,
+per-view quality/debug controls, and copied nonblocking cloud statistics now
+form the production editor workflow. Focused, Vulkan, qualification, aggregate,
+full-build, documentation, and Editor-smoke gates pass. P6 is now eligible as
+the next required milestone but remains proposed until its cross-feature matrix
+is frozen in an active child plan.
 
 ## Outcome
 
@@ -214,11 +221,11 @@ flowchart LR
 | P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
 | P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
 | P4: Lighting and cloud shadows | Required; completed 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable; the frozen Stage 0 contract selected the phase model, receiver representation, fixtures, and numeric gates before implementation. | Met: directional scattering, full-density self-transmittance, ambient contribution, and full-resolution bounded receiver visibility respond deterministically to light/cloud changes, preserve existing lighting ownership, and pass explicit fallback, recovery, inline/threaded 4K, and memory gates. |
-| P5: Authoring and editor workflow | Required; active | [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
-| P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5, including P2.5, pass their acceptance gates and the remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
+| P5: Authoring and editor workflow | Required; completed 2026-08-23 | [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Met: exact volume inspection, specialized reflected Details, production-backed quality/debug controls, copied diagnostics, persistence/recovery, aggregates, full build, documentation, and Editor smoke pass. |
+| P6: Production qualification and contract publication | Required; eligible | `VolumetricCloudProductionQualification` | Met: P1-P5, including P2.5, pass their acceptance gates. Activate P6 only after freezing its remaining cross-feature qualification matrix. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
-P0-P4 are complete and P5 is active. P6 remains an ordered proposed plan and
-cannot start before P5 closes.
+P0-P5 are complete. P6 is the next eligible milestone; its child plan remains
+proposed until the cross-feature matrix is frozen and work is ready to start.
 
 ## Child Plan Boundaries
 
@@ -371,6 +378,8 @@ The roadmap is complete when:
 - [RHI resource transitions](../Runtime/Rendering/RHIResourceTransitions.md)
 - [Minimal GBuffer contract](../Runtime/Rendering/GBuffer.md)
 - [Deferred directional lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Volumetric cloud authoring](../Editor/Architecture/VolumetricCloudAuthoring.md)
+- [Volumetric cloud authoring guide](../Editor/Guides/VolumetricCloudAuthoring.md)
 - [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
 - [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)

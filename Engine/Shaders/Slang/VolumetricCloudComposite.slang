@@ -6,13 +6,15 @@ struct VSOutput { float4 pos : SV_Position; float2 uv : TEXCOORD; };
 [[vk::binding(0, 0)]] Texture2D<float4> SceneColorTexture;
 [[vk::binding(1, 0)]] Texture2D<float4> CloudTexture;
 [[vk::binding(2, 0)]] Texture2D<float> SceneDepthTexture;
+[[vk::binding(3, 0)]] Texture2D<float> DebugTexture;
 
 struct VolumetricCloudCompositeUniform
 {
 	float4 Extent; // output.xy, cloud.zw
 	float4 Viewport; // full-resolution origin.xy and extent.zw
+	float4 Debug; // mode.x, temporal status.y (-1 unavailable), shadow available.z
 };
-[[vk::binding(3, 0)]] ConstantBuffer<VolumetricCloudCompositeUniform> Params;
+[[vk::binding(4, 0)]] ConstantBuffer<VolumetricCloudCompositeUniform> Params;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -72,6 +74,24 @@ float4 FragmentMain(VSOutput input) : SV_Target0
 			}
 		}
 		cloud = totalWeight > 1.0e-5 ? accumulated / totalWeight : nearestCloud;
+	}
+	int debugMode = int(Params.Debug.x + 0.5);
+	if (debugMode == 1)
+		return float4(cloud.rgb, 1.0);
+	if (debugMode == 2)
+		return float4(cloud.aaa, 1.0);
+	if (debugMode == 3)
+	{
+		if (Params.Debug.y < -0.5) return float4(0.35, 0.35, 0.35, 1.0);
+		return Params.Debug.y > 0.5
+			? float4(0.15, 0.85, 0.25, 1.0)
+			: float4(0.95, 0.58, 0.12, 1.0);
+	}
+	if (debugMode == 4)
+	{
+		if (Params.Debug.z < 0.5) return float4(0.35, 0.35, 0.35, 1.0);
+		float visibility = DebugTexture.Load(pixel);
+		return float4(visibility.xxx, 1.0);
 	}
 	return float4(cloud.rgb + cloud.a * scene.rgb, scene.a);
 }

@@ -2,7 +2,7 @@
 
 Summary: Defines Renderer-owned cloud quality tiers, low-resolution spatial reconstruction, transactional per-view history, invalidation, diagnostics, and qualification budgets.
 
-Modules: Renderer
+Modules: RenderCore, Renderer
 
 Last reviewed: 2026-08-23
 
@@ -25,6 +25,13 @@ cloud target, while ray construction continues to use the full output
 projection. Production tiers therefore march one quarter of the output pixels,
 including for odd extents and non-zero fitted viewport origins. `Reference`
 preserves the exact full-resolution spatial route.
+
+The public per-view policy lives in `FSceneViewSettings::VolumetricCloud` as
+`EVolumetricCloudQuality` plus `EVolumetricCloudDebugMode`. Invalid submitted
+values canonicalize to `High` and `Lit`. The settings are copied into an
+immutable scene view; they are not component properties and do not serialize
+with world content. This allows main, auxiliary, fitted, offscreen, and Present
+views to choose policy independently.
 
 The deterministic eight-sample Halton jitter is selected from the successful
 view sequence and the policy key. A failed outer view does not advance that
@@ -79,6 +86,14 @@ Per-view diagnostics identify tier, route/reason, output and actual target
 extent, dispatch/draw counts, primary/light sample work, active target bytes,
 renderer-retained bytes, history bytes, temporal draws, and accepted/rejected
 history. All byte arithmetic saturates rather than wrapping.
+
+The completed values are also reduced into the bounded
+`FSceneViewVolumetricCloudStatistics` snapshot. It carries exact work and byte
+counters but intentionally reports GPU timing unavailable: editor observation
+does not add a query, readback, render-thread flush, or separate view cache.
+Cloud debug modes reuse the normal composite and production intermediates, add
+no retained target, and leave history evaluation and the outer transaction
+unchanged.
 
 At 3840x2160 one `RGBA16_FLOAT` target is 66,355,200 bytes and a half-linear
 target is 16,588,800 bytes. The qualified production steady state retains two

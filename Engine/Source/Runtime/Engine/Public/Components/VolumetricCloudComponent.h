@@ -69,41 +69,41 @@ namespace Durin
 	private:
 		auto MarkVolumetricCloudRenderStateDirty() -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Activation", ToolTip = "Enables this global cloud candidate.")
 		bool bEnabled = true;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Activation", ToolTip = "Higher priority eligible clouds win deterministic scene selection.")
 		int32 Priority = 0;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Density Inputs", ToolTip = "Required low-frequency shape density volume.")
 		TObjectPtr<DVolumeTexture> BaseDensityTexture;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Density Inputs", ToolTip = "Required high-frequency erosion density volume.")
 		TObjectPtr<DVolumeTexture> DetailDensityTexture;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Density Inputs", ToolTip = "Optional two-dimensional coverage control; white is used when absent.")
 		TObjectPtr<DTexture2D> WeatherTexture;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Layer", Units = "Meters")
 		double MinimumZ = 1500.0;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Layer", Units = "Meters")
 		double MaximumZ = 3500.0;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Layer", Units = "Meters")
 		double MaximumDistance = 100000.0;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Mapping and Motion", ToolTip = "World-to-base-volume coordinate frequency.")
 		FVector3f BaseFrequency{0.00008f};
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Mapping and Motion", ToolTip = "World-to-detail-volume coordinate frequency.")
 		FVector3f DetailFrequency{0.00032f};
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Mapping and Motion", ToolTip = "Authored volume-coordinate translation used for wind animation.")
 		FVector3f WindOffset{0.0f};
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Mapping and Motion")
 		FVector2f WeatherFrequency{0.00004f};
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Mapping and Motion")
 		FVector2f WeatherOffset{0.0f};
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Global density coverage threshold.")
 		float Coverage = 0.55f;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Detail-volume erosion strength.")
 		float DetailErosion = 0.30f;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "View-ray extinction coefficient.")
 		float Extinction = 0.0015f;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Light-ray and receiver-shadow extinction coefficient.")
 		float LightExtinction = 0.0020f;
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Bounded ambient lighting contribution.")
 		float Ambient = 0.12f;
 
 		DPROPERTY(Edit, ReadOnly, Transient)

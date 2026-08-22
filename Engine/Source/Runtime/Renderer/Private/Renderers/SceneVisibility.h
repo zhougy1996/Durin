@@ -271,6 +271,14 @@ namespace Durin
 		size_t VolumetricCloudCompositeDraws = 0;
 		uint64 VolumetricCloudPrimarySamples = 0;
 		uint64 VolumetricCloudLightSamples = 0;
+		EVolumetricCloudQuality VolumetricCloudQuality =
+			EVolumetricCloudQuality::High;
+		EVolumetricCloudDebugMode VolumetricCloudDebugMode =
+			EVolumetricCloudDebugMode::Lit;
+		uint32 VolumetricCloudTargetWidth = 0;
+		uint32 VolumetricCloudTargetHeight = 0;
+		uint32 VolumetricCloudOutputWidth = 0;
+		uint32 VolumetricCloudOutputHeight = 0;
 		uint64 VolumetricCloudActiveBytes = 0;
 		uint64 VolumetricCloudRetainedBytes = 0;
 		uint64 VolumetricCloudHistoryBytes = 0;

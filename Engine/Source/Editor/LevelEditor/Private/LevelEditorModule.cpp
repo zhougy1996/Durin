@@ -22,6 +22,8 @@
 #include "Components/TerrainComponent.h"
 #include "SkyBoxDetails.h"
 #include "TerrainDetails.h"
+#include "VolumetricCloudDetails.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "TerrainHeightmapAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "GrayboxSceneAuthoring.h"
@@ -69,6 +71,7 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization(), ExtensionGate));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization(), ExtensionGate));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization(), ExtensionGate));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 		GrayboxBuildStartupCommandHandle = RegisterStartupCommandHandler(
 			"graybox-build", RunGrayboxBuildStartupCommand,

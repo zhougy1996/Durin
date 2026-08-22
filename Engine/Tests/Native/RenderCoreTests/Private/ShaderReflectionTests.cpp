@@ -316,11 +316,12 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 5u);
 		ExpectBinding(Fragment, "SceneColorTexture", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "CloudTexture", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "SceneDepthTexture", 2, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "Params", 3, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "DebugTexture", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 4, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
 	TEST(FShaderReflectionTests, VolumetricCloudTemporalPublishesTypedHistoryBindings)

@@ -44,6 +44,11 @@ namespace Durin::Editor::Texture
 			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA
 		) -> void;
 
+		// Uploads one editor-generated RGBA8 inspection image.
+		auto UploadRGBA8(uint32 Width, uint32 Height,
+			std::span<const uint8> Pixels,
+			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA) -> void;
+
 		// Select the displayed channel without re-uploading the source texture.
 		auto SetChannel(ETexturePreviewChannel Channel) -> void;
 

@@ -172,6 +172,20 @@ namespace Durin
 			return B > std::numeric_limits<uint64>::max() - A ? std::numeric_limits<uint64>::max() : A + B;
 		}
 
+		auto CanonicalizeVolumetricCloudQuality(EVolumetricCloudQuality Quality)
+			-> EVolumetricCloudQuality
+		{
+			return Quality < EVolumetricCloudQuality::Count
+				? Quality : EVolumetricCloudQuality::High;
+		}
+
+		auto CanonicalizeVolumetricCloudDebugMode(EVolumetricCloudDebugMode Mode)
+			-> EVolumetricCloudDebugMode
+		{
+			return Mode < EVolumetricCloudDebugMode::Count
+				? Mode : EVolumetricCloudDebugMode::Lit;
+		}
+
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -381,6 +395,41 @@ namespace Durin
 			Result.Shadow.ContactRoute = EContactShadowExecutionRoute::Compute;
 		else if (Counters.ContactShadowFragmentViews != 0)
 			Result.Shadow.ContactRoute = EContactShadowExecutionRoute::Fragment;
+		auto& Cloud = Result.VolumetricCloud;
+		Cloud.Quality = Counters.VolumetricCloudQuality;
+		Cloud.DebugMode = Counters.VolumetricCloudDebugMode;
+		Cloud.TargetWidth = Counters.VolumetricCloudTargetWidth;
+		Cloud.TargetHeight = Counters.VolumetricCloudTargetHeight;
+		Cloud.OutputWidth = Counters.VolumetricCloudOutputWidth;
+		Cloud.OutputHeight = Counters.VolumetricCloudOutputHeight;
+		Cloud.PrimarySamples = Counters.VolumetricCloudPrimarySamples;
+		Cloud.LightSamples = Counters.VolumetricCloudLightSamples;
+		Cloud.ShadowSamples = Counters.VolumetricCloudShadowSamples;
+		Cloud.ActiveBytes = Counters.VolumetricCloudActiveBytes;
+		Cloud.RetainedBytes = Counters.VolumetricCloudRetainedBytes;
+		Cloud.HistoryBytes = Counters.VolumetricCloudHistoryBytes;
+		Cloud.ShadowActiveBytes = Counters.VolumetricCloudShadowActiveBytes;
+		Cloud.ShadowRetainedBytes = Counters.VolumetricCloudShadowRetainedBytes;
+		Cloud.bEnabled = Counters.VolumetricCloudEnabledViews != 0;
+		Cloud.bHistoryAvailable = Counters.VolumetricCloudTemporalDraws != 0;
+		Cloud.bHistoryAccepted = Counters.VolumetricCloudHistoryAccepted != 0;
+		if (Counters.VolumetricCloudComputeViews != 0)
+			Cloud.Route = EVolumetricCloudExecutionRoute::Compute;
+		else if (Counters.VolumetricCloudFragmentViews != 0)
+			Cloud.Route = EVolumetricCloudExecutionRoute::Fragment;
+		if (Counters.VolumetricCloudShadowComputeViews != 0)
+			Cloud.ShadowRoute = EVolumetricCloudExecutionRoute::Compute;
+		else if (Counters.VolumetricCloudShadowFragmentViews != 0)
+			Cloud.ShadowRoute = EVolumetricCloudExecutionRoute::Fragment;
+		for (size_t Index = 0; Index < Counters.VolumetricCloudRouteReasons.size(); ++Index)
+		{
+			if (Counters.VolumetricCloudRouteReasons[Index] == 0) continue;
+			Cloud.Reason = Index <= static_cast<size_t>(
+				EVolumetricCloudRouteReason::FragmentTargetUnavailable)
+				? static_cast<EVolumetricCloudRouteReason>(Index)
+				: EVolumetricCloudRouteReason::Unknown;
+			break;
+		}
 		return Result;
 	}
 
@@ -1538,7 +1587,7 @@ namespace Durin
 		auto* FragmentTargets =
 			VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(Width, Height);
 		auto* ComputeTargets = bForceFragment ? nullptr : VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
-		constexpr auto QualityTier = FVolumetricCloudSpatialRenderer::EQualityTier::High;
+		const auto QualityTier = PreparedView.Counters.VolumetricCloudQuality;
 		FRHITexture* Weather = PreparedView.VolumetricCloudTextures.Weather;
 		if (!Weather) Weather = DefaultTextures.Get_RenderThread(EDefaultTexture::White);
 		const auto Result = VolumetricCloudShadowRenderer.Render_RenderThread(
@@ -1567,6 +1616,7 @@ namespace Durin
 			return;
 		}
 		DeferredParameters.VolumetricCloudVisibility = Result.Visibility;
+		PreparedView.VolumetricCloudShadowVisibility = Result.Visibility;
 		DeferredParameters.bVolumetricCloudVisibilityEnabled = true;
 		Counters.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
 		Counters.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
@@ -1798,6 +1848,10 @@ namespace Durin
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++RenderSubmissionSerial;
 		FPreparedSceneView PreparedView;
+		PreparedView.Counters.VolumetricCloudQuality =
+			CanonicalizeVolumetricCloudQuality(View.Settings.VolumetricCloud.Quality);
+		PreparedView.Counters.VolumetricCloudDebugMode =
+			CanonicalizeVolumetricCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
 		FViewCounterSnapshotScope CounterSnapshotScope(
 			PreparedView.Counters, OutStatistics
 		);
@@ -2075,7 +2129,7 @@ namespace Durin
 									&& PreparedView.VolumetricCloudTextures.DetailDensity != nullptr
 									&& PreparedView.VolumetricCloudTextures.DensitySampler != nullptr
 									&& Depth != nullptr;
-		constexpr auto QualityTier = FVolumetricCloudRenderer::EQualityTier::High;
+		const auto QualityTier = PreparedView.Counters.VolumetricCloudQuality;
 		const auto Quality = FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(
 			QualityTier
 		);
@@ -2104,6 +2158,10 @@ namespace Durin
 		Counters.VolumetricCloudDraws += Result.Counters.Draws;
 		Counters.VolumetricCloudPrimarySamples += Result.Counters.PrimarySamples;
 		Counters.VolumetricCloudLightSamples += Result.Counters.LightSamples;
+		Counters.VolumetricCloudTargetWidth = Result.Counters.TargetWidth;
+		Counters.VolumetricCloudTargetHeight = Result.Counters.TargetHeight;
+		Counters.VolumetricCloudOutputWidth = Result.Counters.OutputWidth;
+		Counters.VolumetricCloudOutputHeight = Result.Counters.OutputHeight;
 		Counters.VolumetricCloudActiveBytes = Result.Counters.TargetBytes;
 		if (Result.Counters.Route == FVolumetricCloudRenderer::ERoute::Compute)
 			++Counters.VolumetricCloudComputeViews;
@@ -2124,7 +2182,10 @@ namespace Durin
 		else if (Temporal.bCandidatePublished)
 			++Counters.VolumetricCloudHistoryRejected;
 		FRHITexture* Composite = Temporal.Cloud != nullptr ? VolumetricCloudRenderer.Composite_RenderThread(
-																 CommandList, SceneColor, Temporal.Cloud, Depth, View
+																 CommandList, SceneColor, Temporal.Cloud, Depth,
+																 PreparedView.VolumetricCloudShadowVisibility,
+																 Temporal.bCandidatePublished,
+																 Temporal.bHistoryAccepted, View
 															 ) :
 															 nullptr;
 		Counters.VolumetricCloudRetainedBytes =

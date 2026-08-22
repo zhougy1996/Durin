@@ -89,6 +89,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneColorTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE(CloudTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepthTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(DebugTexture);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FCloudCompositeFragmentShader, FShader, "/Engine/VolumetricCloudComposite", EShaderFrequency::Fragment, "FragmentMain");
@@ -119,8 +120,9 @@ namespace Durin
 		{
 			float Extent[4]{};
 			float Viewport[4]{};
+			float Debug[4]{};
 		};
-		static_assert(sizeof(FCloudCompositeUniform) == 32);
+		static_assert(sizeof(FCloudCompositeUniform) == 48);
 
 		struct alignas(16) FCloudTemporalUniform
 		{
@@ -966,7 +968,10 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudRenderer::Composite_RenderThread(
-		FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, FRHITexture* Cloud, FRHITexture* SceneDepth, const FSceneView& View
+		FRHICommandListImmediate& CommandList, FRHITexture* SceneColor,
+		FRHITexture* Cloud, FRHITexture* SceneDepth,
+		FRHITexture* ShadowVisibility, bool bHistoryAvailable,
+		bool bHistoryAccepted, const FSceneView& View
 	)
 		-> FRHITexture*
 	{
@@ -1032,6 +1037,14 @@ namespace Durin
 		Uniform.Viewport[1] = static_cast<float>(View.ViewportY);
 		Uniform.Viewport[2] = static_cast<float>(View.ViewportWidth);
 		Uniform.Viewport[3] = static_cast<float>(View.ViewportHeight);
+		const EVolumetricCloudDebugMode DebugMode =
+			View.Settings.VolumetricCloud.DebugMode < EVolumetricCloudDebugMode::Count
+				? View.Settings.VolumetricCloud.DebugMode
+				: EVolumetricCloudDebugMode::Lit;
+		Uniform.Debug[0] = static_cast<float>(DebugMode);
+		Uniform.Debug[1] = !bHistoryAvailable ? -1.0f
+			: bHistoryAccepted ? 1.0f : 0.0f;
+		Uniform.Debug[2] = ShadowVisibility != nullptr ? 1.0f : 0.0f;
 		const FRHIUniformBufferRange UniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (UniformBuffer.Buffer == nullptr || UniformBuffer.Size != sizeof(Uniform))
@@ -1051,6 +1064,7 @@ namespace Durin
 		Params.SceneColorTexture = SceneColor;
 		Params.CloudTexture = Cloud;
 		Params.SceneDepthTexture = SceneDepth;
+		Params.DebugTexture = ShadowVisibility != nullptr ? ShadowVisibility : SceneDepth;
 		Params.Params = UniformBuffer;
 		SetShaderParameters(CommandList, Payload->FragmentShader, Params);
 		CommandList.DrawIndexed(3, 0, 0);

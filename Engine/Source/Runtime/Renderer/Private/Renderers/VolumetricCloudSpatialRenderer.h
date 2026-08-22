@@ -2,6 +2,7 @@
 
 #include "Math/Vector.h"
 #include "RendererAPI.h"
+#include "VolumetricCloudView.h"
 
 #include <functional>
 #include <limits>
@@ -12,13 +13,7 @@ namespace Durin
 	class RENDERER_API FVolumetricCloudSpatialRenderer final
 	{
 	public:
-		enum class EQualityTier : uint8
-		{
-			Performance,
-			High,
-			Epic,
-			Reference,
-		};
+		using EQualityTier = EVolumetricCloudQuality;
 
 		struct FQualityPolicy
 		{

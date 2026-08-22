@@ -100,8 +100,18 @@ namespace Durin
 			const FTemporalReconstructionInput& Input
 		)
 			-> FTemporalReconstructionResult;
-		auto Composite_RenderThread(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, FRHITexture* Cloud, FRHITexture* SceneDepth, const FSceneView& View)
+		auto Composite_RenderThread(FRHICommandListImmediate& CommandList,
+			FRHITexture* SceneColor, FRHITexture* Cloud, FRHITexture* SceneDepth,
+			FRHITexture* ShadowVisibility, bool bHistoryAvailable,
+			bool bHistoryAccepted, const FSceneView& View)
 			-> FRHITexture*;
+		auto Composite_RenderThread(FRHICommandListImmediate& CommandList,
+			FRHITexture* SceneColor, FRHITexture* Cloud, FRHITexture* SceneDepth,
+			const FSceneView& View) -> FRHITexture*
+		{
+			return Composite_RenderThread(CommandList, SceneColor, Cloud, SceneDepth,
+				nullptr, false, false, View);
+		}
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 

@@ -53,6 +53,20 @@ namespace Durin::Editor::Level
 			TViewportModeOption{EGroundTruthAmbientOcclusionQuality::FullResolution, "Full Resolution"}
 		};
 
+		constexpr std::array VolumetricCloudQualityOptions = {
+			TViewportModeOption{EVolumetricCloudQuality::Performance, "Performance"},
+			TViewportModeOption{EVolumetricCloudQuality::High, "High (Default)"},
+			TViewportModeOption{EVolumetricCloudQuality::Epic, "Epic"},
+			TViewportModeOption{EVolumetricCloudQuality::Reference, "Reference"}
+		};
+
+		constexpr std::array VolumetricCloudDebugOptions = {
+			TViewportModeOption{EVolumetricCloudDebugMode::Radiance, "Cloud Radiance"},
+			TViewportModeOption{EVolumetricCloudDebugMode::Transmittance, "Transmittance"},
+			TViewportModeOption{EVolumetricCloudDebugMode::TemporalStatus, "Temporal Status"},
+			TViewportModeOption{EVolumetricCloudDebugMode::ShadowVisibility, "Shadow Visibility"}
+		};
+
 		constexpr std::array DirectionalShadowBiasDiagnosticOptions = {
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ShadowDepthCoverage, "Shadow Depth Coverage"},
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverUnbiased, "Receiver Unbiased"},
@@ -84,6 +98,15 @@ namespace Durin::Editor::Level
 				if (Option.Value == CurrentMode) return Option.Label;
 			}
 			return "Unknown";
+		}
+
+		auto FormatByteCount(uint64 Bytes) -> std::string
+		{
+			if (Bytes >= 1024ull * 1024ull)
+				return std::format("{:.2f} MiB", static_cast<double>(Bytes) / (1024.0 * 1024.0));
+			if (Bytes >= 1024ull)
+				return std::format("{:.2f} KiB", static_cast<double>(Bytes) / 1024.0);
+			return std::format("{} B", Bytes);
 		}
 
 		template<typename T, size_t Size, typename FSetMode>
@@ -1001,6 +1024,21 @@ namespace Durin::Editor::Level
 				}
 				ImGui::EndMenu();
 			}
+			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Volumetric Clouds"))
+			{
+				ImGui::TextDisabled("Quality");
+				DrawModeOptions(
+					RenderSettingsClient->GetViewSettings().VolumetricCloud.Quality,
+					VolumetricCloudQualityOptions,
+					[RenderSettingsClient](EVolumetricCloudQuality Quality) {
+						FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+						Settings.VolumetricCloud.Quality = Quality;
+						RenderSettingsClient->SetViewSettings(Settings);
+					});
+				ImGui::Separator();
+				ImGui::TextDisabled("Quality is view-only and does not dirty the level.");
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Overlays"))
 			{
@@ -1027,6 +1065,27 @@ namespace Durin::Editor::Level
 			{
 				ImGui::TextDisabled("Temporary diagnostic rendering.");
 				DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
+				ImGui::Separator();
+				if (ImGui::BeginMenu("Volumetric Clouds"))
+				{
+					const EVolumetricCloudDebugMode Current =
+						RenderSettingsClient->GetViewSettings().VolumetricCloud.DebugMode;
+					if (ImGui::MenuItem("Reset Cloud Debug View", nullptr, false,
+						Current != EVolumetricCloudDebugMode::Lit))
+					{
+						FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+						Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
+						RenderSettingsClient->SetViewSettings(Settings);
+					}
+					ImGui::Separator();
+					DrawModeOptions(Current, VolumetricCloudDebugOptions,
+						[RenderSettingsClient](EVolumetricCloudDebugMode Mode) {
+							FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+							Settings.VolumetricCloud.DebugMode = Mode;
+							RenderSettingsClient->SetViewSettings(Settings);
+						});
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 			ImGui::EndPopup();
@@ -1368,6 +1427,21 @@ namespace Durin::Editor::Level
 				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
 					Statistics.Lights.Directional, Statistics.Lights.Point,
 					Statistics.Lights.Spot));
+				const auto& Cloud = Statistics.VolumetricCloud;
+				Y += MonaImGui::ScaleUI(3.0f);
+				const char* CloudRoute = Cloud.Route == EVolumetricCloudExecutionRoute::Compute
+					? "Compute" : Cloud.Route == EVolumetricCloudExecutionRoute::Fragment
+						? "Fragment" : "Off";
+				DrawRow("Cloud route", CloudRoute);
+				DrawRow("Cloud extent", Cloud.TargetWidth && Cloud.TargetHeight
+					? std::format("{} x {}", Cloud.TargetWidth, Cloud.TargetHeight) : "Unavailable");
+				DrawRow("Cloud samples", FormatViewportStatistic(
+					Cloud.PrimarySamples + Cloud.LightSamples + Cloud.ShadowSamples));
+				DrawRow("Cloud GPU memory", FormatByteCount(
+					Cloud.RetainedBytes + Cloud.ShadowRetainedBytes));
+				DrawRow("Cloud history", !Cloud.bHistoryAvailable ? "Unavailable"
+					: Cloud.bHistoryAccepted ? "Accepted" : "Rejected");
+				DrawRow("Cloud GPU time", "Unavailable");
 
 				if (ImGui::IsMouseHoveringRect(Layout.PanelMin, Layout.PanelMax))
 				{

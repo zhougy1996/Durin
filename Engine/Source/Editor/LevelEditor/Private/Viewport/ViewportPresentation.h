@@ -154,7 +154,7 @@ namespace Durin::Editor::Level
 		// Anchor the panel to that visible border so the two surfaces align.
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x - Margin * 2.0f;
 		const float PanelWidth = std::min(MonaImGui::ScaleUI(248.0f), AvailableWidth);
-		const float PanelHeight = MonaImGui::ScaleUI(270.0f);
+		const float PanelHeight = MonaImGui::ScaleUI(395.0f);
 		Layout.PanelMax = ImVec2(
 			Layout.BadgeMax.x + GetViewportHudSurfaceOutset(),
 			Layout.BadgeMax.y + Gap + PanelHeight);

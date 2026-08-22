@@ -2,11 +2,14 @@
 #include "Math/Operations.h"
 #include "Actors/SplineMeshActor.h"
 #include "Actors/TerrainActor.h"
+#include "Actors/VolumetricCloudActor.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/TerrainComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "TerrainDetails.h"
+#include "VolumetricCloudDetails.h"
 #include "TerrainHeightmapAssetThumbnail.h"
 
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
@@ -56,6 +59,35 @@ TEST(FTerrainDetailsCustomizationTests, HidesRawStatusAndAddsComponentFactGroups
 		EXPECT_TRUE(Builder.IsPropertyHidden(*Property));
 	}
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 2u);
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
+TEST(FVolumetricCloudDetailsCustomizationTests,
+	HidesRawEligibilityAndPreservesFrozenPropertyGroups)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AVolumetricCloudActor>(
+		nullptr, "CloudDetailsActor");
+	auto* Component = Actor->GetVolumetricCloudComponent();
+	ASSERT_NE(Component, nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::Editor::Level::FObjectPropertyViewBuilder Builder;
+	Durin::Editor::Level::CreateVolumetricCloudDetailsCustomization()
+		->CustomizeDetails(Context, Component, Builder);
+	Durin::FProperty* Eligibility = Component->GetClass()->FindPropertyByName(
+		"EligibilityStatus");
+	ASSERT_NE(Eligibility, nullptr);
+	EXPECT_TRUE(Builder.IsPropertyHidden(*Eligibility));
+	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("BaseDensityTexture")
+		->GetTypedMetadata().Category, "Density Inputs");
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MinimumZ")
+		->GetTypedMetadata().Category, "Layer");
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("WindOffset")
+		->GetTypedMetadata().Category, "Mapping and Motion");
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Extinction")
+		->GetTypedMetadata().Category, "Optical Response");
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 }
