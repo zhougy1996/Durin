@@ -65,6 +65,6 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
+		FVolumeTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult;
 
 }

@@ -120,7 +120,7 @@ namespace Durin
 
 	static auto ParseEnvironmentLightingSerializedValue(
 		std::span<const uint8> Bytes,
-		std::shared_ptr<const FEnvironmentLightingData>& OutData) -> FPayloadDecodeResult
+		FEnvironmentLightingData& OutData) -> FPayloadDecodeResult
 	{
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
 			return FPayloadDecodeResult{Code, std::move(Message)};
@@ -183,18 +183,18 @@ namespace Durin
 				"Environment-lighting payload checksum does not match.");
 		}
 
-		auto Candidate = std::make_shared<FEnvironmentLightingData>();
+		FEnvironmentLightingData Candidate;
 		size_t Offset = 0;
 		const size_t IrradianceElements = static_cast<size_t>(EnvironmentIrradianceDimension)
 			* EnvironmentIrradianceDimension * 4;
-		for (std::vector<uint16>& Face : Candidate->Irradiance)
+		for (std::vector<uint16>& Face : Candidate.Irradiance)
 			if (!ReadHalfValues(Body, Offset, IrradianceElements, Face))
 				return Reject(EPayloadDecodeError::Corrupt,
 					"Environment-lighting irradiance data is truncated.");
 		for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
 		{
 			const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
-			for (std::vector<uint16>& Face : Candidate->Prefiltered[Mip])
+			for (std::vector<uint16>& Face : Candidate.Prefiltered[Mip])
 				if (!ReadHalfValues(Body, Offset, Dimension * Dimension * 4, Face))
 					return Reject(EPayloadDecodeError::Corrupt,
 						"Environment-lighting prefilter data is truncated.");
@@ -203,8 +203,8 @@ namespace Durin
 				Body, Offset,
 				static_cast<size_t>(EnvironmentBrdfLutDimension)
 					* EnvironmentBrdfLutDimension * 4,
-				Candidate->BrdfLut)
-			|| Offset != Body.size() || !Candidate->IsValid())
+				Candidate.BrdfLut)
+			|| Offset != Body.size() || !Candidate.IsValid())
 		{
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Environment-lighting BRDF LUT data is invalid.");
@@ -215,19 +215,17 @@ namespace Durin
 
 	auto FEnvironmentLightingData::Serialize(FArchive& Ar) -> void
 	{
-		SerializeBoundedArchivePayload<std::shared_ptr<const FEnvironmentLightingData>>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{ExpectedElementCount() * sizeof(uint16) + 64,
 				"Environment-lighting payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
-				return BuildEnvironmentLightingSerializedValue(*this, Bytes, Error);
+			[](const FEnvironmentLightingData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildEnvironmentLightingSerializedValue(Value, Bytes, Error);
 			},
-			[](std::span<const uint8> Bytes,
-				std::shared_ptr<const FEnvironmentLightingData>& Candidate) {
+			[](std::span<const uint8> Bytes, FEnvironmentLightingData& Candidate) {
 				return ParseEnvironmentLightingSerializedValue(Bytes, Candidate);
-			},
-			[&](std::shared_ptr<const FEnvironmentLightingData>&& Candidate) {
-				*this = *Candidate;
 			});
 	}
 

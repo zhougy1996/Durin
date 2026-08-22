@@ -104,9 +104,8 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload) -> FPayloadDecodeResult
+		FTerrainHeightmapPayload& OutPayload) -> FPayloadDecodeResult
 	{
-		OutPayload.reset();
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
 			return FPayloadDecodeResult{.Code = Code, .Message = std::move(Message)};
 		};
@@ -187,12 +186,13 @@ namespace Durin
 		for (uint64 Index = 0; Index < SampleCount; ++Index)
 			if (!ReadLittleEndianAt(Bytes, SampleOffset + Index * 2, Samples[static_cast<size_t>(Index)]))
 				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap samples are truncated.");
-		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
+		std::shared_ptr<const FTerrainHeightmapPayload> BuiltCandidate;
 		std::string BuildError;
-		if (!BuildTerrainHeightmapPayload(Width, Height, Samples, Candidate, BuildError))
+		if (!BuildTerrainHeightmapPayload(Width, Height, Samples, BuiltCandidate, BuildError))
 			return Reject(EPayloadDecodeError::Corrupt, std::move(BuildError));
-		if (Candidate->Minimum != Minimum || Candidate->Maximum != Maximum
-			|| Candidate->Levels != Levels || Candidate->Nodes.size() != NodeCount)
+		FTerrainHeightmapPayload Candidate = *BuiltCandidate;
+		if (Candidate.Minimum != Minimum || Candidate.Maximum != Maximum
+			|| Candidate.Levels != Levels || Candidate.Nodes.size() != NodeCount)
 			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap hierarchy metadata is inconsistent.");
 		for (uint64 Index = 0; Index < NodeCount; ++Index)
 		{
@@ -200,7 +200,7 @@ namespace Durin
 			uint16 NodeMaximum = 0;
 			if (!ReadLittleEndianAt(Bytes, HierarchyOffset + Index * 4, NodeMinimum)
 				|| !ReadLittleEndianAt(Bytes, HierarchyOffset + Index * 4 + 2, NodeMaximum)
-				|| Candidate->Nodes[static_cast<size_t>(Index)]
+				|| Candidate.Nodes[static_cast<size_t>(Index)]
 					!= FTerrainHeightmapMinMaxNode{NodeMinimum, NodeMaximum})
 				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap hierarchy extrema are inconsistent.");
 		}
@@ -213,20 +213,18 @@ namespace Durin
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile) -> void
 	{
-		SerializeBoundedArchivePayload<std::shared_ptr<const FTerrainHeightmapPayload>>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumTerrainHeightmapPayloadBytes, "Terrain heightmap payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
+			[&](const FTerrainHeightmapPayload& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
 				return BuildTerrainHeightmapSerializedValue(
-					*this, TargetPlatform, TargetProfile, Bytes, Error);
+					Value, TargetPlatform, TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes,
-				std::shared_ptr<const FTerrainHeightmapPayload>& Candidate) {
+			[&](std::span<const uint8> Bytes, FTerrainHeightmapPayload& Candidate) {
 				return ParseTerrainHeightmapSerializedValue(
 					Bytes, TargetPlatform, TargetProfile, Candidate);
-			},
-			[&](std::shared_ptr<const FTerrainHeightmapPayload>&& Candidate) {
-				*this = *Candidate;
 			});
 	}
 }

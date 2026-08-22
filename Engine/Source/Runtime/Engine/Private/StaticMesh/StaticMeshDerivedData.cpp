@@ -945,18 +945,17 @@ namespace Durin
 		FArchive& Ar,
 		EStaticMeshTargetPlatform TargetPlatform) -> void
 	{
-		SerializeBoundedArchivePayload<FStaticMeshPayloadData>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumStaticMeshPayloadBytes, "Static-mesh payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
+			[&](const FStaticMeshPayloadData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
 				return BuildStaticMeshSerializedValue(
-					*this, TargetPlatform, Bytes, Error);
+					Value, TargetPlatform, Bytes, Error);
 			},
 			[&](std::span<const uint8> Bytes, FStaticMeshPayloadData& Candidate) {
 				return ParseStaticMeshSerializedValue(Bytes, TargetPlatform, Candidate);
-			},
-			[&](FStaticMeshPayloadData&& Candidate) {
-				*this = std::move(Candidate);
 			});
 	}
 
@@ -964,20 +963,19 @@ namespace Durin
 		FArchive& Ar,
 		EStaticMeshTargetPlatform TargetPlatform) -> void
 	{
-		SerializeBoundedArchivePayload<FStaticMeshCollisionPayloadData>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumStaticMeshCollisionPayloadBytes, "DCOL payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
+			[&](const FStaticMeshCollisionPayloadData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
 				return BuildStaticMeshCollisionSerializedValue(
-					*this, TargetPlatform, Bytes, Error);
+					Value, TargetPlatform, Bytes, Error);
 			},
 			[&](std::span<const uint8> Bytes,
 				FStaticMeshCollisionPayloadData& Candidate) {
 				return ParseStaticMeshCollisionSerializedValue(
 					Bytes, TargetPlatform, Candidate);
-			},
-			[&](FStaticMeshCollisionPayloadData&& Candidate) {
-				*this = std::move(Candidate);
 			});
 	}
 }

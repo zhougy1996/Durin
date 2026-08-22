@@ -716,17 +716,16 @@ namespace Durin
 		FArchive& Ar,
 		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		SerializeBoundedArchivePayload<FSkeletalMeshPayloadData>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumSkeletalMeshPayloadBytes, "SkeletalMesh payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
-				return BuildSkeletalMeshSerializedValue(*this, Context, Bytes, Error);
+			[&](const FSkeletalMeshPayloadData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildSkeletalMeshSerializedValue(Value, Context, Bytes, Error);
 			},
 			[&](std::span<const uint8> Bytes, FSkeletalMeshPayloadData& Candidate) {
 				return ParseSkeletalMeshSerializedValue(Bytes, Context, Candidate);
-			},
-			[&](FSkeletalMeshPayloadData&& Candidate) {
-				*this = std::move(Candidate);
 			});
 	}
 
@@ -734,17 +733,16 @@ namespace Durin
 		FArchive& Ar,
 		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		SerializeBoundedArchivePayload<FAnimationClipPayloadData>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumAnimationClipPayloadBytes, "AnimationClip payload"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
-				return BuildAnimationClipSerializedValue(*this, Context, Bytes, Error);
+			[&](const FAnimationClipPayloadData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildAnimationClipSerializedValue(Value, Context, Bytes, Error);
 			},
 			[&](std::span<const uint8> Bytes, FAnimationClipPayloadData& Candidate) {
 				return ParseAnimationClipSerializedValue(Bytes, Context, Candidate);
-			},
-			[&](FAnimationClipPayloadData&& Candidate) {
-				*this = std::move(Candidate);
 			});
 	}
 }

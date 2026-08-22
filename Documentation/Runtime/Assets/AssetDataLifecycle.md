@@ -410,6 +410,16 @@ helpers provide bounded little-endian reads/writes and checked alignment to the
 StaticMesh, Skeletal, Texture, and Terrain codecs; their field order, chunks,
 limits, hashes, compatibility rules, and diagnostics remain locally owned.
 
+When an Engine serializer adapts one complete asset-specific payload to an
+`FArchive`, the Archive region must advertise an exact remaining-payload bound.
+The Engine-private adapter checks that bound and the format's allocation ceiling,
+transfers the complete region, decodes into a default-constructed detached value,
+and move-replaces the destination only after successful validation. Saving passes
+the current value explicitly to its encoder and checks the encoded size before
+writing. Missing bounds, excessive sizes, incompatible payloads, corrupt payloads,
+and raw Archive failures remain distinct structured outcomes; pointer ownership
+and caller-defined commit callbacks do not cross this whole-payload boundary.
+
 The initial texture payload uses no additional container compression because BC
 texture data is already compressed and must remain independently addressable by
 mip. Other payload types may select an explicit compression method when their

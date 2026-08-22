@@ -129,7 +129,7 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult
+		FTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult
 	{
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
 			return FPayloadDecodeResult{Code, std::move(Message)};
@@ -154,9 +154,9 @@ namespace Durin
 			return Reject(EPayloadDecodeError::Incompatible,
 				"Texture payload pixel format identifier is unsupported.");
 
-		auto Candidate = std::make_unique<FTexturePlatformData>();
-		Candidate->PixelFormat = PixelFormat;
-		Candidate->Mips.reserve(Descriptor.MipCount);
+		FTexturePlatformData Candidate;
+		Candidate.PixelFormat = PixelFormat;
+		Candidate.Mips.reserve(Descriptor.MipCount);
 		for (uint32 MipIndex = 0; MipIndex < Descriptor.MipCount; ++MipIndex)
 		{
 			const TexturePayloadContainer::FRecord& Record = Container.Records[MipIndex];
@@ -168,7 +168,7 @@ namespace Durin
 					"Texture payload subresource identity or dimensions are invalid.");
 			if (MipIndex > 0)
 			{
-				const FTexture2DMipData& PreviousMip = Candidate->Mips.back();
+				const FTexture2DMipData& PreviousMip = Candidate.Mips.back();
 				if (Record.Width != std::max(PreviousMip.Width / 2, 1u)
 					|| Record.Height != std::max(PreviousMip.Height / 2, 1u))
 					return Reject(EPayloadDecodeError::Corrupt,
@@ -180,14 +180,14 @@ namespace Durin
 				return Reject(EPayloadDecodeError::Corrupt,
 					"Texture payload subresource layout does not match its format.");
 
-			FTexture2DMipData& Mip = Candidate->Mips.emplace_back();
+			FTexture2DMipData& Mip = Candidate.Mips.emplace_back();
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
 			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
-		if (!IsCompleteMipChain(*Candidate))
+		if (!IsCompleteMipChain(Candidate))
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Texture payload mip chain is incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
@@ -198,20 +198,18 @@ namespace Durin
 		FArchive& Ar,
 		const FTexturePlatformSerializationContext& Context) -> void
 	{
-		SerializeBoundedArchivePayload<std::unique_ptr<FTexturePlatformData>>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumTexturePayloadBytes, "Texture platform data"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
-				return BuildTexture2DSerializedValue(*this,
+			[&](const FTexturePlatformData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildTexture2DSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes,
-				std::unique_ptr<FTexturePlatformData>& Candidate) {
+			[&](std::span<const uint8> Bytes, FTexturePlatformData& Candidate) {
 				return ParseTexture2DSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
-			},
-			[&](std::unique_ptr<FTexturePlatformData>&& Candidate) {
-				*this = std::move(*Candidate);
 			});
 	}
 
@@ -264,7 +262,7 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData) -> FPayloadDecodeResult
+		FTextureCubePlatformData& OutPlatformData) -> FPayloadDecodeResult
 	{
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
 			return FPayloadDecodeResult{Code, std::move(Message)};
@@ -289,8 +287,8 @@ namespace Durin
 			return Reject(EPayloadDecodeError::Incompatible,
 				"Texture payload pixel format identifier is unsupported.");
 
-		auto Candidate = std::make_unique<FTextureCubePlatformData>();
-		Candidate->PixelFormat = PixelFormat;
+		FTextureCubePlatformData Candidate;
+		Candidate.PixelFormat = PixelFormat;
 		for (uint32 RecordIndex = 0; RecordIndex < Container.Records.size(); ++RecordIndex)
 		{
 			const uint32 ExpectedSlice = RecordIndex / Descriptor.MipCount;
@@ -302,7 +300,7 @@ namespace Durin
 				return Reject(EPayloadDecodeError::Corrupt,
 					"TextureCube payload subresource identity or dimensions are invalid.");
 
-			FTexturePlatformData& Face = Candidate->Faces[ExpectedSlice];
+			FTexturePlatformData& Face = Candidate.Faces[ExpectedSlice];
 			Face.PixelFormat = PixelFormat;
 			if (ExpectedMip > 0)
 			{
@@ -314,7 +312,7 @@ namespace Durin
 			}
 			else if (ExpectedSlice > 0)
 			{
-				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[0];
+				const FTexture2DMipData& Reference = Candidate.Faces[0].Mips[0];
 				if (Record.Width != Reference.Width || Record.Height != Reference.Height)
 					return Reject(EPayloadDecodeError::Corrupt,
 						"TextureCube payload face dimensions do not match.");
@@ -326,7 +324,7 @@ namespace Durin
 					"Texture payload subresource layout does not match its format.");
 			if (ExpectedSlice > 0)
 			{
-				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[ExpectedMip];
+				const FTexture2DMipData& Reference = Candidate.Faces[0].Mips[ExpectedMip];
 				if (Record.Width != Reference.Width || Record.Height != Reference.Height
 					|| Record.RowPitch != Reference.RowPitch
 					|| Record.ByteCount != Reference.Pixels.size())
@@ -341,7 +339,7 @@ namespace Durin
 			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
-		if (!IsCompleteCubeMipChain(*Candidate))
+		if (!IsCompleteCubeMipChain(Candidate))
 			return Reject(EPayloadDecodeError::Corrupt,
 				"TextureCube payload mip chains are incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
@@ -352,20 +350,18 @@ namespace Durin
 		FArchive& Ar,
 		const FTexturePlatformSerializationContext& Context) -> void
 	{
-		SerializeBoundedArchivePayload<std::unique_ptr<FTextureCubePlatformData>>(
+		SerializeBoundedArchivePayload(
 			Ar,
+			*this,
 			{MaximumTexturePayloadBytes, "TextureCube platform data"},
-			[&](std::vector<uint8>& Bytes, std::string& Error) {
-				return BuildTextureCubeSerializedValue(*this,
+			[&](const FTextureCubePlatformData& Value,
+				std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildTextureCubeSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const uint8> Bytes,
-				std::unique_ptr<FTextureCubePlatformData>& Candidate) {
+			[&](std::span<const uint8> Bytes, FTextureCubePlatformData& Candidate) {
 				return ParseTextureCubeSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
-			},
-			[&](std::unique_ptr<FTextureCubePlatformData>&& Candidate) {
-				*this = std::move(*Candidate);
 			});
 	}
 }

@@ -60,13 +60,12 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
-	std::unique_ptr<Durin::FVolumeTexturePlatformData> Decoded;
+	Durin::FVolumeTexturePlatformData Decoded;
 	Durin::FPayloadDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Decoded);
 	ASSERT_TRUE(Result) << Result.Message;
-	ASSERT_NE(Decoded, nullptr);
-	EXPECT_EQ(Decoded->Mips.back().Voxels, Platform.Mips.back().Voxels);
+	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
 	auto DifferentProducer = Bytes;
 	for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<Durin::uint8>(
@@ -75,14 +74,23 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Decoded);
 	EXPECT_TRUE(Result) << Result.Message;
-	Durin::FVolumeTexturePlatformData* DecodedBeforeFailure = Decoded.get();
+	const size_t MipCountBeforeFailure = Decoded.Mips.size();
+	const Durin::FVolumeTextureMipData LastMipBeforeFailure = Decoded.Mips.back();
+	const Durin::EPixelFormat FormatBeforeFailure = Decoded.PixelFormat;
 	Bytes.back() ^= 1;
 	Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Decoded);
 	EXPECT_FALSE(Result);
 	EXPECT_NE(Result.Message.find("checksum"), std::string::npos);
-	EXPECT_EQ(Decoded.get(), DecodedBeforeFailure);
+	ASSERT_EQ(Decoded.Mips.size(), MipCountBeforeFailure);
+	EXPECT_EQ(Decoded.Mips.back().Width, LastMipBeforeFailure.Width);
+	EXPECT_EQ(Decoded.Mips.back().Height, LastMipBeforeFailure.Height);
+	EXPECT_EQ(Decoded.Mips.back().Depth, LastMipBeforeFailure.Depth);
+	EXPECT_EQ(Decoded.Mips.back().RowPitch, LastMipBeforeFailure.RowPitch);
+	EXPECT_EQ(Decoded.Mips.back().DepthPitch, LastMipBeforeFailure.DepthPitch);
+	EXPECT_EQ(Decoded.Mips.back().Voxels, LastMipBeforeFailure.Voxels);
+	EXPECT_EQ(Decoded.PixelFormat, FormatBeforeFailure);
 }
 
 TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)

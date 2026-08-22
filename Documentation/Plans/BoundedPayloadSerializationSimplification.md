@@ -4,33 +4,26 @@ Summary: Standardize Engine payload decoders on value candidates and reduce boun
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Commit `b01baa61e` centralized nine Engine payload serializers behind
-`SerializeBoundedArchivePayload`. The shared helper now owns the bounded-region
-capability check, stored-size ceiling, raw byte transfer, decode-failure mapping,
-and success-only commit ordering. Texture container and value decoders also use
-`FPayloadDecodeResult`, and focused coverage passes for Texture, VolumeTexture,
-TerrainHeightmap, StaticMesh/collision, SkeletalMesh/AnimationClip, and
-EnvironmentLighting without changing their canonical payload bytes.
+All implementation stages are complete. The Engine-private helper now accepts a
+destination value, policy, encoder, and decoder; it owns detached candidate
+construction and the sole success move-assignment. Texture2D, TextureCube,
+VolumeTexture, TerrainHeightmap, StaticMesh render/collision, SkeletalMesh,
+AnimationClip, and EnvironmentLighting all use that contract without pointer
+candidates or caller-defined commit callbacks.
 
-The remaining abstraction is intentionally functional but broader than the
-selected long-term boundary. It exposes four template parameters and three
-callbacks: candidate type, build, parse, and commit. That shape is caused by
-historical decoder outputs rather than by the Archive protocol: Texture uses
-`unique_ptr`, Terrain and EnvironmentLighting use `shared_ptr<const T>`, while
-mesh and animation codecs already decode value candidates. The commit callback
-can consequently perform arbitrary publication and the helper cannot express
-transactional replacement as a type-level invariant. Terrain and environment
-lighting additionally copy successful pointer-owned candidates into their
-destinations.
-
-The selected next step is to normalize all complete payload decoders on detached
-value candidates, then reduce the Archive adapter to destination value, encode,
-and decode. No codec-traits framework or new result container is selected.
+The complete validation matrix passes: 32 bounded-adapter and StaticMesh/collision
+tests, 13 Texture/VolumeTexture tests, 5 Terrain tests, 14 Skeletal/Animation tests,
+and 3 EnvironmentLighting tests. Existing fixed hashes and exact-byte comparisons
+passed unchanged. Static review finds nine adapter calls, one remaining-region
+query, no old candidate/commit adaptation, and no payload schema, builder version,
+stable identifier, or fixture update. The lasting value-transaction rule now
+lives in Asset Data Lifecycle, and changed/all-plan documentation validation
+passes.
 
 ## Goal
 
@@ -154,19 +147,19 @@ Gaps:
 
 ### Stage 0: Freeze the value-transaction contract
 
-- [ ] Extend the shared adapter tests with a non-default destination value and
+- [x] Extend the shared adapter tests with a non-default destination value and
   prove that prefailed Archives, build failure, save-side size failure, missing
   remaining-region capability, load-side size failure, incompatible decode, and
   corrupt decode never replace it.
-- [ ] Preserve a success case proving that the final candidate is moved into the
+- [x] Preserve a success case proving that the final candidate is moved into the
   destination exactly once and that encode sees the current source value.
-- [ ] Confirm every target payload value is default constructible and move
+- [x] Confirm every target payload value is default constructible and move
   assignable at its serializer implementation boundary; record any exception as
   a plan decision before changing the helper signature.
-- [ ] Retain or add family-level assertions that incompatible target/schema facts
+- [x] Retain or add family-level assertions that incompatible target/schema facts
   remain distinct from corrupt bytes and that failed public decoder calls leave
   their prior output unchanged.
-- [ ] Record the current deterministic fixture hashes or exact byte-equality
+- [x] Record the current deterministic fixture hashes or exact byte-equality
   checks used by each affected target so later stages cannot treat ownership
   changes as permission to update fixtures.
 
@@ -177,24 +170,34 @@ Gaps:
   recorded exception, and deterministic-byte evidence is identified before any
   decoder ownership signature changes.
 
+Evidence: `FBoundedPayloadSerializationTests` freezes the non-default destination
+matrix, source encoding, and one-move success publication. All nine destination
+types are aggregate/default constructible and move assignable at their serializer
+boundaries. Existing fixed evidence is Texture2D's seven TXPL fixture hashes,
+TextureCube and VolumeTexture canonical repeated-byte hashes, TerrainHeightmap's
+fixed payload hash, StaticMesh render and collision fixed hashes, SkeletalMesh and
+AnimationClip fixed hashes, and EnvironmentLighting checked-in/direct-Cook byte
+equality. Family tests already distinguish incompatible target/schema facts from
+corrupt bytes and preserve prior outputs on decode failure.
+
 ### Stage 1: Normalize decoders on detached values
 
-- [ ] Change Texture2D and TextureCube internal decoders to produce
+- [x] Change Texture2D and TextureCube internal decoders to produce
   `FTexturePlatformData` and `FTextureCubePlatformData` values rather than
   `unique_ptr` candidates.
-- [ ] Change `ParseVolumeTextureSerializedValue` and its repository consumers to
+- [x] Change `ParseVolumeTextureSerializedValue` and its repository consumers to
   produce a transactional `FVolumeTexturePlatformData` value while retaining its
   `FPayloadDecodeResult` compatibility contract.
-- [ ] Change TerrainHeightmap and EnvironmentLighting decoders to produce value
+- [x] Change TerrainHeightmap and EnvironmentLighting decoders to produce value
   candidates and move them into successful outputs, eliminating the serializer's
   post-decode copy from `shared_ptr<const T>`.
-- [ ] Keep TexturePayloadContainer, StaticMesh, StaticMeshCollision,
+- [x] Keep TexturePayloadContainer, StaticMesh, StaticMeshCollision,
   SkeletalMesh, and AnimationClip on their existing value-result contracts; do
   not churn already-conforming signatures.
-- [ ] For every modified public or reusable decoder, construct a local candidate
+- [x] For every modified public or reusable decoder, construct a local candidate
   and assign the caller's output only after all structural, compatibility,
   checksum, and trailing-data validation succeeds.
-- [ ] Update decoder and family tests for the new value signatures without
+- [x] Update decoder and family tests for the new value signatures without
   changing canonical fixtures or expected compatibility classifications.
 
 #### Acceptance Gate
@@ -204,21 +207,27 @@ Gaps:
   incompatible decode preserve prior outputs, and focused family tests retain
   their exact encoded-byte evidence.
 
+Evidence: the Texture2D, TextureCube, VolumeTexture, TerrainHeightmap, and
+EnvironmentLighting decoders now build local values and publish by move only
+after validation. The public VolumeTexture consumer test uses a non-pointer
+sentinel and proves corrupt input preserves it. Focused Texture, Terrain, and
+EnvironmentLighting suites pass with their existing deterministic-byte checks.
+
 ### Stage 2: Reduce the Archive adapter to value, encode, and decode
 
-- [ ] Replace the four-parameter/three-callback helper with the selected
+- [x] Replace the four-parameter/three-callback helper with the selected
   destination-value, policy, encode, and decode signature.
-- [ ] Make the helper own loading-path candidate construction and the sole
+- [x] Make the helper own loading-path candidate construction and the sole
   success assignment; remove `CommitFn` and explicit candidate-type arguments.
-- [ ] Add focused compile-time constraints or assertions for default construction,
+- [x] Add focused compile-time constraints or assertions for default construction,
   move assignment, and callable return contracts without introducing codec
   traits or a public concept hierarchy.
-- [ ] Migrate all nine serializer entry points and pass the source value explicitly
+- [x] Migrate all nine serializer entry points and pass the source value explicitly
   to encode callables rather than allowing build ownership to remain implicit in
   an arbitrary commit closure.
-- [ ] Delete pointer-dereference commits and confirm TerrainHeightmap and
+- [x] Delete pointer-dereference commits and confirm TerrainHeightmap and
   EnvironmentLighting successful loads move values instead of copying them.
-- [ ] Keep all bounded capability, allocation, sticky failure, save-side ceiling,
+- [x] Keep all bounded capability, allocation, sticky failure, save-side ceiling,
   decode mapping, and diagnostic-name behavior centralized in the helper.
 
 #### Acceptance Gate
@@ -228,20 +237,28 @@ Gaps:
   only in the Engine-private adapter for these serializers; and the Stage 0
   transaction matrix passes unchanged.
 
+Evidence: `SerializeBoundedArchivePayload` now deduces its destination type,
+requires default construction, move assignment, and the selected callable return
+contracts, passes the current value explicitly to encode, and performs the only
+success assignment. Static search finds nine uniform calls, no explicit candidate
+template argument or commit callback, and one Engine remaining-region query.
+Shared adapter plus focused Texture, Terrain, Skeletal/Animation, and Environment
+tests pass against the reduced contract.
+
 ### Stage 3: Qualify and publish the lasting boundary
 
-- [ ] Build the smallest affected targets and run every row in the validation
+- [x] Build the smallest affected targets and run every row in the validation
   matrix using the repository agent build and testing workflows.
-- [ ] Review generated payload bytes or fixed hashes for Texture2D, TextureCube,
+- [x] Review generated payload bytes or fixed hashes for Texture2D, TextureCube,
   VolumeTexture, TerrainHeightmap, StaticMesh/collision, SkeletalMesh,
   AnimationClip, and EnvironmentLighting; reject any unexplained difference.
-- [ ] Search the Engine payload serializers for manual remaining-byte allocation,
+- [x] Search the Engine payload serializers for manual remaining-byte allocation,
   `Incompatible`/`Corrupt` Archive mapping, and pointer-shaped complete-payload
   candidates that should have migrated.
-- [ ] Update the authoritative asset-data-lifecycle documentation with the
+- [x] Update the authoritative asset-data-lifecycle documentation with the
   implemented Engine-private whole-bounded-region and value-transaction contract;
   keep Archive capability ownership in the Core serialization document.
-- [ ] Update this plan's status, checklists, validation evidence, and completion
+- [x] Update this plan's status, checklists, validation evidence, and completion
   date only after all required gates pass.
 
 #### Acceptance Gate
@@ -249,6 +266,11 @@ Gaps:
 - All validation rows pass, canonical bytes are unchanged, no migrated serializer
   retains the old candidate/commit adaptation, the lasting contract is documented
   in its owning domain, and the plan is ready to mark Completed.
+
+Evidence: all five focused test commands in the validation matrix pass after the
+final helper change. Their golden hashes and exact-byte comparisons required no
+updates. Static searches confirm the selected nine-call/one-adapter boundary, and
+documentation validation accepts both the lasting contract and completed plan.
 
 ## Validation Matrix
 
