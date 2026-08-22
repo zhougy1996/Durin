@@ -8,6 +8,7 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BoundedPayloadSerialization.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace
@@ -323,6 +324,173 @@ namespace
 		Rehash(Bytes);
 		return Bytes;
 	}
+}
+
+TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBeforeWriting)
+{
+	std::vector<Durin::uint8> Bytes;
+	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	bool bParsed = false;
+	bool bCommitted = false;
+	Durin::SerializeBoundedArchivePayload<int>(
+		Writer,
+		{2, "Fixture payload"},
+		[](std::vector<Durin::uint8>& Encoded, std::string&) {
+			Encoded = {1, 2};
+			return true;
+		},
+		[&](std::span<const Durin::uint8>, int&) {
+			bParsed = true;
+			return Durin::FPayloadDecodeResult{};
+		},
+		[&](int&&) { bCommitted = true; });
+	EXPECT_FALSE(Writer.HasError()) << Writer.GetError();
+	EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{1, 2}));
+	EXPECT_FALSE(bParsed);
+	EXPECT_FALSE(bCommitted);
+
+	std::vector<Durin::uint8> OversizedBytes;
+	Durin::FCanonicalMemoryWriter OversizedWriter(
+		OversizedBytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		OversizedWriter,
+		{1, "Fixture payload"},
+		[](std::vector<Durin::uint8>& Encoded, std::string&) {
+			Encoded = {1, 2};
+			return true;
+		},
+		[](std::span<const Durin::uint8>, int&) {
+			return Durin::FPayloadDecodeResult{};
+		},
+		[](int&&) {});
+	ASSERT_TRUE(OversizedWriter.HasError());
+	EXPECT_EQ(OversizedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
+	EXPECT_TRUE(OversizedBytes.empty());
+
+	std::vector<Durin::uint8> FailedBytes;
+	Durin::FCanonicalMemoryWriter FailedWriter(
+		FailedBytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		FailedWriter,
+		{2, "Fixture payload"},
+		[](std::vector<Durin::uint8>&, std::string& Error) {
+			Error = "fixture build failed";
+			return false;
+		},
+		[](std::span<const Durin::uint8>, int&) {
+			return Durin::FPayloadDecodeResult{};
+		},
+		[](int&&) {});
+	ASSERT_TRUE(FailedWriter.HasError());
+	EXPECT_EQ(FailedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
+	EXPECT_EQ(FailedWriter.GetFailure()->Message, "fixture build failed");
+	EXPECT_TRUE(FailedBytes.empty());
+
+	bool bBuiltAfterFailure = false;
+	Durin::SerializeBoundedArchivePayload<int>(
+		FailedWriter,
+		{2, "Fixture payload"},
+		[&](std::vector<Durin::uint8>&, std::string&) {
+			bBuiltAfterFailure = true;
+			return true;
+		},
+		[](std::span<const Durin::uint8>, int&) {
+			return Durin::FPayloadDecodeResult{};
+		},
+		[](int&&) {});
+	EXPECT_FALSE(bBuiltAfterFailure);
+}
+
+TEST(FBoundedPayloadSerializationTests, LoadRejectsMissingBoundsAndExcessiveInputBeforeParsing)
+{
+	Durin::FArchive Unbounded({
+		.Direction = Durin::EArchiveDirection::Load,
+		.Purpose = Durin::EArchivePurpose::DerivedDataPayload});
+	bool bParsed = false;
+	bool bCommitted = false;
+	Durin::SerializeBoundedArchivePayload<int>(
+		Unbounded,
+		{4, "Fixture payload"},
+		[](std::vector<Durin::uint8>&, std::string&) { return true; },
+		[&](std::span<const Durin::uint8>, int&) {
+			bParsed = true;
+			return Durin::FPayloadDecodeResult{};
+		},
+		[&](int&&) { bCommitted = true; });
+	ASSERT_TRUE(Unbounded.HasError());
+	EXPECT_EQ(Unbounded.GetFailure()->Code,
+		Durin::EArchiveFailureCode::UnsupportedCapability);
+	EXPECT_FALSE(bParsed);
+	EXPECT_FALSE(bCommitted);
+
+	const std::array<Durin::uint8, 5> Encoded{};
+	Durin::FCanonicalMemoryReader Oversized(Encoded,
+		Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		Oversized,
+		{4, "Fixture payload"},
+		[](std::vector<Durin::uint8>&, std::string&) { return true; },
+		[&](std::span<const Durin::uint8>, int&) {
+			bParsed = true;
+			return Durin::FPayloadDecodeResult{};
+		},
+		[&](int&&) { bCommitted = true; });
+	ASSERT_TRUE(Oversized.HasError());
+	EXPECT_EQ(Oversized.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
+	EXPECT_FALSE(bParsed);
+	EXPECT_FALSE(bCommitted);
+}
+
+TEST(FBoundedPayloadSerializationTests, LoadMapsDecodeFailuresAndCommitsOnlySuccess)
+{
+	const std::array<Durin::uint8, 1> Encoded{42};
+	int Published = 7;
+	auto Build = [](std::vector<Durin::uint8>&, std::string&) { return true; };
+
+	Durin::FCanonicalMemoryReader IncompatibleReader(
+		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		IncompatibleReader,
+		{Encoded.size(), "Fixture payload"},
+		Build,
+		[](std::span<const Durin::uint8>, int&) {
+			return Durin::FPayloadDecodeResult{
+				Durin::EPayloadDecodeError::Incompatible, "unsupported fixture"};
+		},
+		[&](int&& Candidate) { Published = Candidate; });
+	ASSERT_TRUE(IncompatibleReader.HasError());
+	EXPECT_EQ(IncompatibleReader.GetFailure()->Code,
+		Durin::EArchiveFailureCode::UnsupportedVersion);
+	EXPECT_EQ(Published, 7);
+
+	Durin::FCanonicalMemoryReader CorruptReader(
+		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		CorruptReader,
+		{Encoded.size(), "Fixture payload"},
+		Build,
+		[](std::span<const Durin::uint8>, int&) {
+			return Durin::FPayloadDecodeResult{
+				Durin::EPayloadDecodeError::Corrupt, "corrupt fixture"};
+		},
+		[&](int&& Candidate) { Published = Candidate; });
+	ASSERT_TRUE(CorruptReader.HasError());
+	EXPECT_EQ(CorruptReader.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
+	EXPECT_EQ(Published, 7);
+
+	Durin::FCanonicalMemoryReader SuccessReader(
+		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
+	Durin::SerializeBoundedArchivePayload<int>(
+		SuccessReader,
+		{Encoded.size(), "Fixture payload"},
+		Build,
+		[](std::span<const Durin::uint8> Bytes, int& Candidate) {
+			Candidate = Bytes.front();
+			return Durin::FPayloadDecodeResult{};
+		},
+		[&](int&& Candidate) { Published = Candidate; });
+	EXPECT_FALSE(SuccessReader.HasError()) << SuccessReader.GetError();
+	EXPECT_EQ(Published, 42);
 }
 
 TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)

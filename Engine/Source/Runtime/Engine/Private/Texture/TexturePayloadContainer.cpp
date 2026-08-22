@@ -96,16 +96,15 @@ namespace Durin::TexturePayloadContainer
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FDecodedContainer& OutContainer,
-		std::string& OutError,
-		EPayloadDecodeError& OutCode) -> bool
+		FDecodedContainer& OutContainer) -> FPayloadDecodeResult
 	{
 		using EngineWire::ReadLittleEndianAt;
-		OutContainer = {};
-		OutError.clear();
-		OutCode = EPayloadDecodeError::Corrupt;
+		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
+			return FPayloadDecodeResult{Code, std::move(Message)};
+		};
 		if (Bytes.size() < TexturePayloadHeaderSize)
-			return FailContainer(OutError, "Texture payload header is truncated.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload header is truncated.");
 
 		uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
 		uint32 Dimension = 0, StableFormat = 0, SliceCount = 0, MipCount = 0;
@@ -119,33 +118,39 @@ namespace Durin::TexturePayloadContainer
 			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
 			|| !ReadLittleEndianAt(Bytes, 48, TableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
 			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return FailContainer(OutError, "Texture payload header is truncated.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload header is truncated.");
 		if (Magic != TexturePayloadMagic)
-			return FailContainer(OutError, "Texture payload magic is invalid.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload magic is invalid.");
 		if (Schema != TexturePayloadSchemaVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return FailContainer(OutError, "Texture payload schema version is unsupported.");
-		}
+			return Reject(EPayloadDecodeError::Incompatible,
+				"Texture payload schema version is unsupported.");
 		// Producer identity is diagnostic metadata. Runtime compatibility is owned
 		// by the container schema and the stable identifiers interpreted by callers.
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return FailContainer(OutError, "Texture payload target platform or profile does not match.");
+			return Reject(EPayloadDecodeError::Incompatible,
+				"Texture payload target platform or profile does not match.");
 		if (HeaderSize != TexturePayloadHeaderSize || RecordSize != TexturePayloadRecordSize
 			|| TableOffset != TexturePayloadHeaderSize || Reserved != 0)
-			return FailContainer(OutError, "Texture payload container layout is invalid.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload container layout is invalid.");
 		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return FailContainer(OutError, "Texture payload stored size is invalid.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload stored size is invalid.");
 		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return FailContainer(OutError, "Texture payload checksum does not match.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload checksum does not match.");
 
 		const uint64 TableBytes = static_cast<uint64>(RecordCount) * RecordSize;
 		if (TableOffset > StoredSize || TableBytes > StoredSize - TableOffset)
-			return FailContainer(OutError, "Texture payload record table is outside the stored object.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload record table is outside the stored object.");
 		const uint64 TableEnd = TableOffset + TableBytes;
 
-		OutContainer.Descriptor = {
+		FDecodedContainer Candidate;
+		Candidate.Descriptor = {
 			.ProducerVersion = Producer,
 			.TargetPlatform = static_cast<Asset::ECookTargetPlatform>(Platform),
 			.TargetProfile = static_cast<Asset::ECookTargetProfile>(Profile),
@@ -153,13 +158,13 @@ namespace Durin::TexturePayloadContainer
 			.StableFormat = static_cast<ETextureStablePixelFormat>(StableFormat),
 			.SliceCount = SliceCount,
 			.MipCount = MipCount};
-		OutContainer.Records.reserve(RecordCount);
+		Candidate.Records.reserve(RecordCount);
 		uint64 PreviousEnd = TableEnd;
 		for (uint32 RecordIndex = 0; RecordIndex < RecordCount; ++RecordIndex)
 		{
 			const size_t Offset = static_cast<size_t>(
 				TableOffset + static_cast<uint64>(RecordIndex) * RecordSize);
-			FRecord& Record = OutContainer.Records.emplace_back();
+			FRecord& Record = Candidate.Records.emplace_back();
 			if (!ReadLittleEndianAt(Bytes, Offset, Record.Coordinate)
 				|| !ReadLittleEndianAt(Bytes, Offset + 4, Record.MipIndex)
 				|| !ReadLittleEndianAt(Bytes, Offset + 8, Record.Width)
@@ -168,19 +173,23 @@ namespace Durin::TexturePayloadContainer
 				|| !ReadLittleEndianAt(Bytes, Offset + 20, Record.LayerPitch)
 				|| !ReadLittleEndianAt(Bytes, Offset + 24, Record.DataOffset)
 				|| !ReadLittleEndianAt(Bytes, Offset + 32, Record.ByteCount))
-				return FailContainer(OutError, "Texture payload record is truncated.");
+				return Reject(EPayloadDecodeError::Corrupt,
+					"Texture payload record is truncated.");
 			if (Record.DataOffset % TexturePayloadAlignment != 0
 				|| Record.DataOffset < PreviousEnd || Record.DataOffset > StoredSize
 				|| Record.ByteCount > StoredSize - Record.DataOffset)
-				return FailContainer(OutError,
+				return Reject(EPayloadDecodeError::Corrupt,
 					"Texture payload record range is misaligned, overlapping, or outside the object.");
 			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < Record.DataOffset; ++PaddingOffset)
 				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return FailContainer(OutError, "Texture payload contains non-zero alignment padding.");
+					return Reject(EPayloadDecodeError::Corrupt,
+						"Texture payload contains non-zero alignment padding.");
 			PreviousEnd = Record.DataOffset + Record.ByteCount;
 		}
 		if (PreviousEnd != StoredSize)
-			return FailContainer(OutError, "Texture payload contains trailing data.");
-		return true;
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Texture payload contains trailing data.");
+		OutContainer = std::move(Candidate);
+		return {};
 	}
 }

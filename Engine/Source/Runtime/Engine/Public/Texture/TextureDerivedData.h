@@ -60,12 +60,11 @@ namespace Durin
 		Asset::ECookTargetProfile TargetProfile,
 		std::vector<uint8>& OutBytes,
 		std::string& OutError) -> bool;
+	// Decodes into detached storage and preserves the prior output on every failure.
 	ENGINE_API auto ParseVolumeTextureSerializedValue(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData,
-		std::string& OutError,
-		EPayloadDecodeError& OutCode) -> bool;
+		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
 
 }

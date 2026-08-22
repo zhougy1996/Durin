@@ -3,6 +3,7 @@
 #include "Asset/ChunkedPayload.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BoundedPayloadSerialization.h"
 
 
 
@@ -946,84 +947,39 @@ namespace Durin
 		FArchive& Ar,
 		EStaticMeshTargetPlatform TargetPlatform) -> void
 	{
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildStaticMeshSerializedValue(*this, TargetPlatform, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.Serialize(Bytes.data(), Bytes.size());
-			return;
-		}
-
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount > MaximumStaticMeshPayloadBytes
-			|| ByteCount > std::numeric_limits<size_t>::max())
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"Static-mesh payload exceeds the runtime byte limit.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.Serialize(Bytes.data(), Bytes.size());
-		if (Ar.HasError()) return;
-		FStaticMeshPayloadData Candidate;
-		const FPayloadDecodeResult Result = ParseStaticMeshSerializedValue(
-			Bytes, TargetPlatform, Candidate);
-		if (!Result)
-		{
-			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
-				? EArchiveFailureCode::UnsupportedVersion
-				: EArchiveFailureCode::InvalidData,
-				Result.Message);
-			return;
-		}
-		*this = std::move(Candidate);
+		SerializeBoundedArchivePayload<FStaticMeshPayloadData>(
+			Ar,
+			{MaximumStaticMeshPayloadBytes, "Static-mesh payload"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildStaticMeshSerializedValue(
+					*this, TargetPlatform, Bytes, Error);
+			},
+			[&](std::span<const uint8> Bytes, FStaticMeshPayloadData& Candidate) {
+				return ParseStaticMeshSerializedValue(Bytes, TargetPlatform, Candidate);
+			},
+			[&](FStaticMeshPayloadData&& Candidate) {
+				*this = std::move(Candidate);
+			});
 	}
 
 	auto FStaticMeshCollisionPayloadData::Serialize(
 		FArchive& Ar,
 		EStaticMeshTargetPlatform TargetPlatform) -> void
 	{
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildStaticMeshCollisionSerializedValue(
-				*this, TargetPlatform, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.Serialize(Bytes.data(), Bytes.size());
-			return;
-		}
-
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount > MaximumStaticMeshCollisionPayloadBytes
-			|| ByteCount > std::numeric_limits<size_t>::max())
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"DCOL payload exceeds the runtime byte limit.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.Serialize(Bytes.data(), Bytes.size());
-		if (Ar.HasError()) return;
-		FStaticMeshCollisionPayloadData Candidate;
-		const FPayloadDecodeResult Result = ParseStaticMeshCollisionSerializedValue(
-			Bytes, TargetPlatform, Candidate);
-		if (!Result)
-		{
-			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
-				? EArchiveFailureCode::UnsupportedVersion
-				: EArchiveFailureCode::InvalidData,
-				Result.Message);
-			return;
-		}
-		*this = std::move(Candidate);
+		SerializeBoundedArchivePayload<FStaticMeshCollisionPayloadData>(
+			Ar,
+			{MaximumStaticMeshCollisionPayloadBytes, "DCOL payload"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildStaticMeshCollisionSerializedValue(
+					*this, TargetPlatform, Bytes, Error);
+			},
+			[&](std::span<const uint8> Bytes,
+				FStaticMeshCollisionPayloadData& Candidate) {
+				return ParseStaticMeshCollisionSerializedValue(
+					Bytes, TargetPlatform, Candidate);
+			},
+			[&](FStaticMeshCollisionPayloadData&& Candidate) {
+				*this = std::move(Candidate);
+			});
 	}
 }

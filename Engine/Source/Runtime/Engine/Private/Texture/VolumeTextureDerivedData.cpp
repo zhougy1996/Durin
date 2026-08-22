@@ -1,6 +1,7 @@
 #include "Texture/TextureDerivedData.h"
 
 #include "Serialization/Archive.h"
+#include "Serialization/BoundedPayloadSerialization.h"
 #include "Texture/TexturePayloadContainer.h"
 #include "Texture/VolumeTexture.h"
 
@@ -96,33 +97,29 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData,
-		std::string& OutError,
-		EPayloadDecodeError& OutCode) -> bool
+		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult
 	{
-		OutPlatformData.reset();
-		OutCode = EPayloadDecodeError::Corrupt;
+		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
+			return FPayloadDecodeResult{Code, std::move(Message)};
+		};
 		if (!IsVolumeTargetSupported(ExpectedPlatform, ExpectedProfile))
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return FailVolume(OutError, "Volume texture expected target is unsupported.");
-		}
+			return Reject(EPayloadDecodeError::Incompatible,
+				"Volume texture expected target is unsupported.");
 		TexturePayloadContainer::FDecodedContainer Container;
-		if (!TexturePayloadContainer::Parse(
-			Bytes, ExpectedPlatform, ExpectedProfile, Container, OutError, OutCode))
-			return false;
+		FPayloadDecodeResult Result = TexturePayloadContainer::Parse(
+			Bytes, ExpectedPlatform, ExpectedProfile, Container);
+		if (!Result) return Result;
 		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture3D
 			|| Descriptor.SliceCount != 1 || Descriptor.MipCount == 0
 			|| Descriptor.MipCount > MaximumTextureMipCount
 			|| Container.Records.size() != Descriptor.MipCount)
-			return FailVolume(OutError, "Volume texture payload header layout is invalid.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Volume texture payload header layout is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromVolumeStableFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return FailVolume(OutError, "Volume texture stable format is unsupported.");
-		}
+			return Reject(EPayloadDecodeError::Incompatible,
+				"Volume texture stable format is unsupported.");
 
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
@@ -133,14 +130,16 @@ namespace Durin
 				|| Record.Coordinate == 0 || Record.Width > MaximumVolumeTextureDimension
 				|| Record.Height > MaximumVolumeTextureDimension
 				|| Record.Coordinate > MaximumVolumeTextureDimension)
-				return FailVolume(OutError, "Volume texture mip identity or dimensions are invalid.");
+				return Reject(EPayloadDecodeError::Corrupt,
+					"Volume texture mip identity or dimensions are invalid.");
 			if (MipIndex > 0)
 			{
 				const FVolumeTextureMipData& Previous = Candidate->Mips.back();
 				if (Record.Width != std::max(1u, Previous.Width / 2)
 					|| Record.Height != std::max(1u, Previous.Height / 2)
 					|| Record.Coordinate != std::max(1u, Previous.Depth / 2))
-					return FailVolume(OutError, "Volume texture mip progression is invalid.");
+					return Reject(EPayloadDecodeError::Corrupt,
+						"Volume texture mip progression is invalid.");
 			}
 			const FPixelFormatLayout Slice = GetPixelFormatLayout(
 				PixelFormat, Record.Width, Record.Height);
@@ -148,7 +147,8 @@ namespace Durin
 				|| Slice.DataSize != Record.LayerPitch
 				|| Record.Coordinate > std::numeric_limits<uint64>::max() / Record.LayerPitch
 				|| Record.ByteCount != static_cast<uint64>(Record.LayerPitch) * Record.Coordinate)
-				return FailVolume(OutError, "Volume texture mip pitches do not match its format.");
+				return Reject(EPayloadDecodeError::Corrupt,
+					"Volume texture mip pitches do not match its format.");
 			FVolumeTextureMipData& Mip = Candidate->Mips.emplace_back();
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
@@ -159,52 +159,29 @@ namespace Durin
 			Mip.Voxels.assign(Data.begin(), Data.end());
 		}
 		if (!Candidate->IsValid())
-			return FailVolume(OutError, "Volume texture payload is incomplete or has trailing data.");
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Volume texture payload is incomplete or has trailing data.");
 		OutPlatformData = std::move(Candidate);
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto FVolumeTexturePlatformData::Serialize(FArchive& Ar,
 		const FTexturePlatformSerializationContext& Context) -> void
 	{
-		if (Ar.HasError()) return;
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildVolumeTextureSerializedValue(*this, Context.TargetPlatform,
-				Context.TargetProfile, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
-			return;
-		}
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount == std::numeric_limits<uint64>::max()
-			|| ByteCount > MaximumTexturePayloadBytes
-			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"Volume texture platform data requires a bounded payload.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
-		if (Ar.HasError()) return;
-		std::unique_ptr<FVolumeTexturePlatformData> Candidate;
-		std::string Error;
-		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
-		if (!ParseVolumeTextureSerializedValue(Bytes, Context.TargetPlatform,
-			Context.TargetProfile, Candidate, Error, Code))
-		{
-			Ar.Fail(Code == EPayloadDecodeError::Incompatible
-				? EArchiveFailureCode::UnsupportedVersion
-				: EArchiveFailureCode::InvalidData, Error);
-			return;
-		}
-		*this = std::move(*Candidate);
+		SerializeBoundedArchivePayload<std::unique_ptr<FVolumeTexturePlatformData>>(
+			Ar,
+			{MaximumTexturePayloadBytes, "Volume texture platform data"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildVolumeTextureSerializedValue(*this,
+					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
+			},
+			[&](std::span<const uint8> Bytes,
+				std::unique_ptr<FVolumeTexturePlatformData>& Candidate) {
+				return ParseVolumeTextureSerializedValue(Bytes,
+					Context.TargetPlatform, Context.TargetProfile, Candidate);
+			},
+			[&](std::unique_ptr<FVolumeTexturePlatformData>&& Candidate) {
+				*this = std::move(*Candidate);
+			});
 	}
 }

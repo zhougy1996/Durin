@@ -6,6 +6,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BoundedPayloadSerialization.h"
 
 namespace Durin
 {
@@ -119,11 +120,11 @@ namespace Durin
 
 	static auto ParseEnvironmentLightingSerializedValue(
 		std::span<const uint8> Bytes,
-		std::shared_ptr<const FEnvironmentLightingData>& OutData,
-		std::string& OutError) -> bool
+		std::shared_ptr<const FEnvironmentLightingData>& OutData) -> FPayloadDecodeResult
 	{
-		OutData.reset();
-		OutError.clear();
+		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
+			return FPayloadDecodeResult{Code, std::move(Message)};
+		};
 		FBinaryReader Reader(Bytes);
 		uint32 PixelFormat = 0;
 		uint32 IrradianceDimension = 0;
@@ -148,10 +149,13 @@ namespace Durin
 			|| !Reader.ReadU64(ElementCount)
 			|| !Reader.ReadU64(StoredHash))
 		{
-			return Fail("Environment-lighting payload header is invalid.", &OutError);
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Environment-lighting payload header is invalid.");
 		}
-		if (Magic != EnvironmentLightingPayloadMagic
-			|| SchemaVersion != EnvironmentLightingPayloadSchemaVersion
+		if (Magic != EnvironmentLightingPayloadMagic)
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Environment-lighting payload magic is invalid.");
+		if (SchemaVersion != EnvironmentLightingPayloadSchemaVersion
 			|| SerializationMarker != BinaryFormatMarker
 			|| PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float
 			|| IrradianceDimension != EnvironmentIrradianceDimension
@@ -160,20 +164,23 @@ namespace Durin
 			|| BrdfLutDimension != EnvironmentBrdfLutDimension
 			|| ElementCount != ExpectedElementCount())
 		{
-			return Fail("Environment-lighting payload layout is incompatible.", &OutError);
+			return Reject(EPayloadDecodeError::Incompatible,
+				"Environment-lighting payload layout is incompatible.");
 		}
 		// Producer identity is diagnostic metadata. Runtime compatibility is owned
 		// by the schema and stable value identifiers.
 		(void)ProducerVersion;
 		const uint64 ExpectedBodyBytes = ElementCount * sizeof(uint16);
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
-			return Fail("Environment-lighting payload size is invalid.", &OutError);
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Environment-lighting payload size is invalid.");
 		std::vector<uint8> Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
 		{
-			return Fail("Environment-lighting payload checksum does not match.", &OutError);
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Environment-lighting payload checksum does not match.");
 		}
 
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
@@ -182,13 +189,15 @@ namespace Durin
 			* EnvironmentIrradianceDimension * 4;
 		for (std::vector<uint16>& Face : Candidate->Irradiance)
 			if (!ReadHalfValues(Body, Offset, IrradianceElements, Face))
-				return Fail("Environment-lighting irradiance data is truncated.", &OutError);
+				return Reject(EPayloadDecodeError::Corrupt,
+					"Environment-lighting irradiance data is truncated.");
 		for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
 		{
 			const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
 			for (std::vector<uint16>& Face : Candidate->Prefiltered[Mip])
 				if (!ReadHalfValues(Body, Offset, Dimension * Dimension * 4, Face))
-					return Fail("Environment-lighting prefilter data is truncated.", &OutError);
+					return Reject(EPayloadDecodeError::Corrupt,
+						"Environment-lighting prefilter data is truncated.");
 		}
 		if (!ReadHalfValues(
 				Body, Offset,
@@ -197,53 +206,29 @@ namespace Durin
 				Candidate->BrdfLut)
 			|| Offset != Body.size() || !Candidate->IsValid())
 		{
-			return Fail("Environment-lighting BRDF LUT data is invalid.", &OutError);
+			return Reject(EPayloadDecodeError::Corrupt,
+				"Environment-lighting BRDF LUT data is invalid.");
 		}
 		OutData = std::move(Candidate);
-		return true;
+		return {};
 	}
 
 	auto FEnvironmentLightingData::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.HasError()) return;
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildEnvironmentLightingSerializedValue(*this, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
-			return;
-		}
-
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount == std::numeric_limits<uint64>::max())
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
-				"Environment-lighting data requires a bounded input archive.");
-			return;
-		}
-		if (ByteCount > ExpectedElementCount() * sizeof(uint16) + 64
-			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"Environment-lighting payload exceeds its stored-size limit.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
-		if (Ar.HasError()) return;
-		std::shared_ptr<const FEnvironmentLightingData> Candidate;
-		std::string Error;
-		if (!ParseEnvironmentLightingSerializedValue(Bytes, Candidate, Error))
-		{
-			Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-			return;
-		}
-		*this = *Candidate;
+		SerializeBoundedArchivePayload<std::shared_ptr<const FEnvironmentLightingData>>(
+			Ar,
+			{ExpectedElementCount() * sizeof(uint16) + 64,
+				"Environment-lighting payload"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildEnvironmentLightingSerializedValue(*this, Bytes, Error);
+			},
+			[](std::span<const uint8> Bytes,
+				std::shared_ptr<const FEnvironmentLightingData>& Candidate) {
+				return ParseEnvironmentLightingSerializedValue(Bytes, Candidate);
+			},
+			[&](std::shared_ptr<const FEnvironmentLightingData>&& Candidate) {
+				*this = *Candidate;
+			});
 	}
 
 	DEnvironmentLighting::DEnvironmentLighting(const FObjectInitializer& ObjectInitializer)

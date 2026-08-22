@@ -4,6 +4,7 @@
 #include "PayloadDecodeResult.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BoundedPayloadSerialization.h"
 
 namespace Durin
 {
@@ -698,83 +699,35 @@ namespace Durin
 		FArchive& Ar,
 		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildSkeletalMeshSerializedValue(
-				*this, Context, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.Serialize(Bytes.data(), Bytes.size());
-			return;
-		}
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount > MaximumSkeletalMeshPayloadBytes
-			|| ByteCount > std::numeric_limits<size_t>::max())
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"SkeletalMesh payload exceeds the runtime byte limit.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.Serialize(Bytes.data(), Bytes.size());
-		if (Ar.HasError()) return;
-		FSkeletalMeshPayloadData Candidate;
-		const FPayloadDecodeResult Result = ParseSkeletalMeshSerializedValue(
-			Bytes, Context, Candidate);
-		if (!Result)
-		{
-			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
-				? EArchiveFailureCode::UnsupportedVersion
-				: EArchiveFailureCode::InvalidData,
-				Result.Message);
-			return;
-		}
-		*this = std::move(Candidate);
+		SerializeBoundedArchivePayload<FSkeletalMeshPayloadData>(
+			Ar,
+			{MaximumSkeletalMeshPayloadBytes, "SkeletalMesh payload"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildSkeletalMeshSerializedValue(*this, Context, Bytes, Error);
+			},
+			[&](std::span<const uint8> Bytes, FSkeletalMeshPayloadData& Candidate) {
+				return ParseSkeletalMeshSerializedValue(Bytes, Context, Candidate);
+			},
+			[&](FSkeletalMeshPayloadData&& Candidate) {
+				*this = std::move(Candidate);
+			});
 	}
 
 	auto FAnimationClipPayloadData::Serialize(
 		FArchive& Ar,
 		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		if (Ar.IsSaving())
-		{
-			std::vector<uint8> Bytes;
-			std::string Error;
-			if (!BuildAnimationClipSerializedValue(
-				*this, Context, Bytes, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
-				return;
-			}
-			Ar.Serialize(Bytes.data(), Bytes.size());
-			return;
-		}
-		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
-		if (ByteCount > MaximumAnimationClipPayloadBytes
-			|| ByteCount > std::numeric_limits<size_t>::max())
-		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
-				"AnimationClip payload exceeds the runtime byte limit.");
-			return;
-		}
-		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
-		Ar.Serialize(Bytes.data(), Bytes.size());
-		if (Ar.HasError()) return;
-		FAnimationClipPayloadData Candidate;
-		const FPayloadDecodeResult Result = ParseAnimationClipSerializedValue(
-			Bytes, Context, Candidate);
-		if (!Result)
-		{
-			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
-				? EArchiveFailureCode::UnsupportedVersion
-				: EArchiveFailureCode::InvalidData,
-				Result.Message);
-			return;
-		}
-		*this = std::move(Candidate);
+		SerializeBoundedArchivePayload<FAnimationClipPayloadData>(
+			Ar,
+			{MaximumAnimationClipPayloadBytes, "AnimationClip payload"},
+			[&](std::vector<uint8>& Bytes, std::string& Error) {
+				return BuildAnimationClipSerializedValue(*this, Context, Bytes, Error);
+			},
+			[&](std::span<const uint8> Bytes, FAnimationClipPayloadData& Candidate) {
+				return ParseAnimationClipSerializedValue(Bytes, Context, Candidate);
+			},
+			[&](FAnimationClipPayloadData&& Candidate) {
+				*this = std::move(Candidate);
+			});
 	}
 }

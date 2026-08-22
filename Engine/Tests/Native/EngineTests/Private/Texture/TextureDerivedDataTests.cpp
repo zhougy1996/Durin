@@ -217,7 +217,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	WriteU32(WrongProfile, 16, static_cast<Durin::uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
 	Durin::FPayloadDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;

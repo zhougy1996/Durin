@@ -61,24 +61,28 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
 	std::unique_ptr<Durin::FVolumeTexturePlatformData> Decoded;
-	Durin::EPayloadDecodeError Code = Durin::EPayloadDecodeError::Corrupt;
-	ASSERT_TRUE(Durin::ParseVolumeTextureSerializedValue(Bytes,
+	Durin::FPayloadDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code)) << Error;
+		Durin::Asset::ECookTargetProfile::Game, Decoded);
+	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Decoded, nullptr);
 	EXPECT_EQ(Decoded->Mips.back().Voxels, Platform.Mips.back().Voxels);
 	auto DifferentProducer = Bytes;
 	for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<Durin::uint8>(
 			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
-	EXPECT_TRUE(Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
+	Result = Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
 		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code)) << Error;
+		Durin::Asset::ECookTargetProfile::Game, Decoded);
+	EXPECT_TRUE(Result) << Result.Message;
+	Durin::FVolumeTexturePlatformData* DecodedBeforeFailure = Decoded.get();
 	Bytes.back() ^= 1;
-	EXPECT_FALSE(Durin::ParseVolumeTextureSerializedValue(Bytes,
+	Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code));
-	EXPECT_NE(Error.find("checksum"), std::string::npos);
+		Durin::Asset::ECookTargetProfile::Game, Decoded);
+	EXPECT_FALSE(Result);
+	EXPECT_NE(Result.Message.find("checksum"), std::string::npos);
+	EXPECT_EQ(Decoded.get(), DecodedBeforeFailure);
 }
 
 TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
