@@ -2,6 +2,7 @@
 #include "Engine/LightSceneProxy.h"
 #include "Engine/SplineMeshSceneProxy.h"
 #include "Engine/SkyBoxSceneProxy.h"
+#include "Engine/VolumetricCloudSceneProxy.h"
 
 namespace
 {
@@ -69,6 +70,29 @@ namespace
 		}
 
 		auto GetSkyBoxCount_RenderThread() const -> size_t override
+		{
+			return 0;
+		}
+
+		auto AddOrReplaceVolumetricCloud(
+			Durin::FVolumetricCloudSceneId,
+			Durin::uint64,
+			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> void override
+		{
+		}
+
+		auto RemoveVolumetricCloud(
+			Durin::FVolumetricCloudSceneId, Durin::uint64) -> void override
+		{
+		}
+
+		auto GetActiveVolumetricCloud_RenderThread(
+			Durin::FVolumetricCloudSceneData&) const -> bool override
+		{
+			return false;
+		}
+
+		auto GetVolumetricCloudCount_RenderThread() const -> size_t override
 		{
 			return 0;
 		}

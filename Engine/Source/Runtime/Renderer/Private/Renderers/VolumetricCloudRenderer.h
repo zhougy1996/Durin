@@ -68,6 +68,7 @@ namespace Durin
 		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
 		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
 			-> FComputeTargets*;
+		auto EnsureDensitySampler_RenderThread() -> FRHISampler*;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			FTargets* FragmentTargets, FComputeTargets* ComputeTargets,
 			const FRenderInput& Input) -> FRenderResult;

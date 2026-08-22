@@ -279,6 +279,8 @@ namespace Durin
 		DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
 		SpotLightSceneInfos.clear(); LightInfosById.clear();
 		SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
+		ActiveVolumetricCloudSceneInfo = nullptr;
+		VolumetricCloudSceneInfos.clear(); VolumetricCloudInfosById.clear();
 	}
 
 	auto FScene::AttachLight(FLightSceneInfo& Info) -> void
@@ -396,5 +398,99 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return SkyBoxSceneInfos.size();
+	}
+
+	auto FScene::RecomputeActiveVolumetricCloud_RenderThread() -> void
+	{
+		CheckRenderingThread();
+		ActiveVolumetricCloudSceneInfo = nullptr;
+		for (FVolumetricCloudSceneInfo* Candidate : VolumetricCloudSceneInfos)
+		{
+			const FVolumetricCloudSceneData& Data = Candidate->GetProxy().GetData();
+			if (!Data.bEligible) continue;
+			if (ActiveVolumetricCloudSceneInfo == nullptr)
+			{
+				ActiveVolumetricCloudSceneInfo = Candidate;
+				continue;
+			}
+			const FVolumetricCloudSceneData& Active =
+				ActiveVolumetricCloudSceneInfo->GetProxy().GetData();
+			if (Data.Priority > Active.Priority
+				|| (Data.Priority == Active.Priority
+					&& std::tuple(Data.PersistentId, Data.SelectionKey, Data.InstanceId)
+					< std::tuple(Active.PersistentId, Active.SelectionKey,
+						Active.InstanceId)))
+			{
+				ActiveVolumetricCloudSceneInfo = Candidate;
+			}
+		}
+	}
+
+	auto FScene::AddOrReplaceVolumetricCloud(
+		FVolumetricCloudSceneId CloudId, uint64 PublicationRevision,
+		std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
+	{
+		if (CloudId == InvalidVolumetricCloudSceneId || PublicationRevision == 0
+			|| Proxy == nullptr) return;
+		const FVolumetricCloudSceneData& Data = Proxy->GetData();
+		if (!Data.PersistentId.IsValid() || Data.InstanceId != CloudId.Value
+			|| Data.PublicationRevision != PublicationRevision) return;
+		std::shared_ptr<FVolumetricCloudSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceVolumetricCloud)(
+			[this, CloudId, PublicationRevision,
+				SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				if (const auto Found = VolumetricCloudInfosById.find(CloudId);
+					Found != VolumetricCloudInfosById.end())
+				{
+					if (Found->second->GetRevision() >= PublicationRevision) return;
+					std::erase(VolumetricCloudSceneInfos, Found->second.get());
+					VolumetricCloudInfosById.erase(Found);
+				}
+				auto Info = std::make_unique<FVolumetricCloudSceneInfo>(
+					*this, CloudId, SharedProxy);
+				VolumetricCloudSceneInfos.push_back(Info.get());
+				VolumetricCloudInfosById.emplace(CloudId, std::move(Info));
+				RecomputeActiveVolumetricCloud_RenderThread();
+			});
+	}
+
+	auto FScene::RemoveVolumetricCloud(
+		FVolumetricCloudSceneId CloudId, uint64 ExpectedRevision) -> void
+	{
+		if (CloudId == InvalidVolumetricCloudSceneId || ExpectedRevision == 0) return;
+		ENQUEUE_RENDER_COMMAND(RemoveVolumetricCloud)(
+			[this, CloudId, ExpectedRevision](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				const auto Found = VolumetricCloudInfosById.find(CloudId);
+				if (Found == VolumetricCloudInfosById.end()
+					|| Found->second->GetRevision() != ExpectedRevision) return;
+				std::erase(VolumetricCloudSceneInfos, Found->second.get());
+				VolumetricCloudInfosById.erase(Found);
+				RecomputeActiveVolumetricCloud_RenderThread();
+			});
+	}
+
+	auto FScene::GetActiveVolumetricCloudSceneInfo_RenderThread() const
+		-> const FVolumetricCloudSceneInfo*
+	{
+		CheckRenderingThread();
+		return ActiveVolumetricCloudSceneInfo;
+	}
+
+	auto FScene::GetActiveVolumetricCloud_RenderThread(
+		FVolumetricCloudSceneData& OutCloud) const -> bool
+	{
+		const FVolumetricCloudSceneInfo* Info =
+			GetActiveVolumetricCloudSceneInfo_RenderThread();
+		if (Info == nullptr) return false;
+		OutCloud = Info->GetProxy().GetData();
+		return true;
+	}
+
+	auto FScene::GetVolumetricCloudCount_RenderThread() const -> size_t
+	{
+		CheckRenderingThread();
+		return VolumetricCloudSceneInfos.size();
 	}
 }

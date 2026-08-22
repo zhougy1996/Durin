@@ -7,6 +7,7 @@
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneViewState.h"
+#include "Renderers/VolumetricCloudScenePreparation.h"
 
 #include "Profiling/Profiling.h"
 
@@ -1057,6 +1058,31 @@ namespace Durin
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, PreparedView
 		);
+		if (Scene != nullptr)
+		{
+			FVolumetricCloudSceneData Cloud;
+			if (Scene->GetActiveVolumetricCloud_RenderThread(Cloud))
+			{
+				PreparedView.bVolumetricCloudRequested = true;
+				PreparedView.VolumetricCloudParameters =
+					BuildVolumetricCloudParameters(Cloud, PreparedView.Lights);
+				auto ResolveDimension = [](const FRHITextureReferenceRef& Reference,
+					ETextureDimension Dimension) -> FRHITexture* {
+					FRHITexture* Texture = Reference != nullptr
+						? Reference->GetReferencedTexture_RenderThread() : nullptr;
+					return Texture != nullptr && Texture->GetDimension() == Dimension
+						? Texture : nullptr;
+				};
+				PreparedView.VolumetricCloudTextures.BaseDensity = ResolveDimension(
+					Cloud.BaseDensityTexture, ETextureDimension::Texture3D);
+				PreparedView.VolumetricCloudTextures.DetailDensity = ResolveDimension(
+					Cloud.DetailDensityTexture, ETextureDimension::Texture3D);
+				PreparedView.VolumetricCloudTextures.Weather = ResolveDimension(
+					Cloud.WeatherTexture, ETextureDimension::Texture2D);
+				PreparedView.VolumetricCloudTextures.DensitySampler =
+					VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
+			}
+		}
 		const FVolumetricCloudPreparationSink CloudPreparationSink =
 			GVolumetricCloudPreparationSink.load(std::memory_order_acquire);
 		if (CloudPreparationSink != nullptr)

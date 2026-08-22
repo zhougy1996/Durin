@@ -133,6 +133,7 @@ namespace Durin
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
 		struct FFallbackPayload { FTextureRHIRef WhiteWeather; };
+		struct FDensitySamplerPayload { FSamplerRHIRef Sampler; };
 
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
@@ -144,6 +145,8 @@ namespace Durin
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
 		TRenderResourceCreationSlot<FFallbackPayload> FallbackResources{
+			ERenderResourceGenerationDependency::Device};
+		TRenderResourceCreationSlot<FDensitySamplerPayload> DensitySamplerResources{
 			ERenderResourceGenerationDependency::Device};
 		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
 			ERenderResourceGenerationDependency::Device};
@@ -160,6 +163,25 @@ namespace Durin
 		  State(std::make_unique<FState>()) {}
 
 	FVolumetricCloudRenderer::~FVolumetricCloudRenderer() = default;
+
+	auto FVolumetricCloudRenderer::EnsureDensitySampler_RenderThread()
+		-> FRHISampler*
+	{
+		check(IsInRenderingThread());
+		using FResult = TRenderResourceCreateResult<FState::FDensitySamplerPayload>;
+		auto* Payload = State->DensitySamplerResources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
+				FState::FDensitySamplerPayload Candidate{
+					.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp())};
+				if (!Candidate.Sampler)
+					return FResult::Failure(MakeFailure(
+						"VolumetricCloud", "density-sampler",
+						"Density sampler creation returned null.",
+						ERenderResourceCreateErrorCategory::RHIResource));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnostic);
+		return Payload != nullptr ? Payload->Sampler.GetReference() : nullptr;
+	}
 
 	auto FVolumetricCloudRenderer::SetTimingQuerySink(FTimingQuerySink Sink) -> void
 	{
@@ -717,5 +739,6 @@ namespace Durin
 		State->ComputeResources.Reset();
 		State->CompositeResources.Reset();
 		State->FallbackResources.Reset();
+		State->DensitySamplerResources.Reset();
 	}
 } // namespace Durin

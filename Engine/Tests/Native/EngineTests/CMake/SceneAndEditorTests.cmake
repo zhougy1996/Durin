@@ -70,6 +70,17 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(VolumetricCloudSceneContractTests
+	KIND contract
+	DOMAINS renderer volumetric-cloud
+	MODULES engine renderer
+	STACKS renderer
+	RUNTIME_STACK_RATIONALE
+		"Exercises the renderer-owned scene registry and pure P1 cloud translation without GPU initialization."
+	SOURCES Private/VolumetricCloudSceneContractTests.cpp
+	LIBRARIES RenderCore Renderer
+)
+
 durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 	KIND integration
 	DOMAINS renderer shader

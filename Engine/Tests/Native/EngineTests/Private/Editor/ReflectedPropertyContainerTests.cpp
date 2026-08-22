@@ -1,5 +1,69 @@
 #include "ReflectedPropertyEditingTestSupport.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "Math/Operations.h"
+
+TEST(FReflectedPropertyEditSessionTests,
+	GenericVolumetricCloudPropertyCommitsAndUndoRedoes)
+{
+	InitializeDObjectSystem();
+	auto* Component = Durin::NewObject<Durin::DVolumetricCloudComponent>(
+		nullptr, "CloudDetailsTarget");
+	auto* Proposal = Durin::NewObject<Durin::DVolumetricCloudComponent>(
+		nullptr, "CloudDetailsProposal");
+	auto* Priority = Component->GetClass()->FindPropertyByName(
+		Durin::FName("Priority"));
+	ASSERT_NE(Priority, nullptr);
+	EXPECT_TRUE(Durin::EnumHasAnyFlags(
+		Priority->GetPropertyFlags(), Durin::EPropertyFlags::Edit));
+	Proposal->SetPriority(75);
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Priority, Proposal, 0, Proposed));
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(
+		Durin::Editor::FPropertyEditTarget::ForMember(Component, Priority),
+		"Edit Volumetric Cloud Priority", nullptr, &Transactions));
+	EXPECT_EQ(Session.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Component->GetPriority(), 75);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Component->GetPriority(), 0);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Component->GetPriority(), 75);
+
+	auto* BaseFrequency = static_cast<Durin::FStructProperty*>(
+		Component->GetClass()->FindPropertyByName("BaseFrequency"));
+	ASSERT_NE(BaseFrequency, nullptr);
+	auto* BaseFrequencyX = BaseFrequency->GetStruct()->FindPropertyByName(
+		Durin::FName("x"));
+	ASSERT_NE(BaseFrequencyX, nullptr);
+	Proposal->SetDensityMapping(
+		Durin::FVector3f(2.0f, 0.25f, 0.5f),
+		Proposal->GetDetailFrequency(), Proposal->GetWindOffset(),
+		Proposal->GetWeatherFrequency(), Proposal->GetWeatherOffset());
+	Durin::FPropertyValueSnapshot ProposedFrequency;
+	ASSERT_TRUE(Durin::CapturePropertyValue(
+		BaseFrequency, Proposal, 0, ProposedFrequency));
+	Durin::Editor::FPropertyEditSession FrequencySession;
+	ASSERT_TRUE(FrequencySession.Begin(
+		Durin::Editor::FPropertyEditTarget::ForMember(Component, BaseFrequency)
+			.ForStructMember(BaseFrequencyX),
+		"Edit Volumetric Cloud Base Frequency", nullptr, &Transactions));
+	EXPECT_EQ(FrequencySession.Apply(ProposedFrequency),
+		Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(FrequencySession.Commit(),
+		Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Component->GetBaseFrequency(),
+		Durin::FVector3f(1.0f, 0.25f, 0.5f));
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Component->GetBaseFrequency(), Durin::FVector3f(0.00008f));
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Component->GetBaseFrequency(),
+		Durin::FVector3f(1.0f, 0.25f, 0.5f));
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Proposal);
+	Durin::CollectGarbage();
+}
 
 TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructField)
 {

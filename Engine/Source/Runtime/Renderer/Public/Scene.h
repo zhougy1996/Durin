@@ -5,6 +5,7 @@
 #include "Engine/FPrimitiveSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
 #include "Engine/SkyBoxSceneProxy.h"
+#include "Engine/VolumetricCloudSceneProxy.h"
 #include "IScene.h"
 
 namespace Durin
@@ -98,6 +99,27 @@ namespace Durin
 		std::shared_ptr<FSkyBoxSceneProxy> Proxy;
 	};
 
+	class RENDERER_API FVolumetricCloudSceneInfo final
+	{
+	public:
+		FVolumetricCloudSceneInfo(FScene& InScene,
+			FVolumetricCloudSceneId InId,
+			std::shared_ptr<FVolumetricCloudSceneProxy> InProxy)
+			: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)) {}
+
+		auto GetId() const -> FVolumetricCloudSceneId { return Id; }
+		auto GetProxy() const -> const FVolumetricCloudSceneProxy& { return *Proxy; }
+		auto GetRevision() const -> uint64
+		{
+			return Proxy->GetData().PublicationRevision;
+		}
+
+	private:
+		FScene* Scene = nullptr;
+		FVolumetricCloudSceneId Id = InvalidVolumetricCloudSceneId;
+		std::shared_ptr<FVolumetricCloudSceneProxy> Proxy;
+	};
+
 	class FScene : public IScene
 	{
 	public:
@@ -119,6 +141,15 @@ namespace Durin
 		RENDERER_API auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void override;
 		RENDERER_API auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool override;
 		RENDERER_API auto GetSkyBoxCount_RenderThread() const -> size_t override;
+		RENDERER_API auto AddOrReplaceVolumetricCloud(
+			FVolumetricCloudSceneId CloudId, uint64 PublicationRevision,
+			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void override;
+		RENDERER_API auto RemoveVolumetricCloud(
+			FVolumetricCloudSceneId CloudId,
+			uint64 ExpectedRevision) -> void override;
+		RENDERER_API auto GetActiveVolumetricCloud_RenderThread(
+			FVolumetricCloudSceneData& OutCloud) const -> bool override;
+		RENDERER_API auto GetVolumetricCloudCount_RenderThread() const -> size_t override;
 
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
@@ -129,6 +160,8 @@ namespace Durin
 		auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return PointLightSceneInfos; }
 		auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return SpotLightSceneInfos; }
 		RENDERER_API auto GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*;
+		RENDERER_API auto GetActiveVolumetricCloudSceneInfo_RenderThread() const
+			-> const FVolumetricCloudSceneInfo*;
 
 	private:
 		auto Clear_RenderThread() -> void;
@@ -147,5 +180,11 @@ namespace Durin
 		std::vector<FLightSceneInfo*> SpotLightSceneInfos;
 		std::unordered_map<FSkyBoxSceneId, std::unique_ptr<FSkyBoxSceneInfo>, FSceneIdHash> SkyBoxInfosById;
 		std::vector<FSkyBoxSceneInfo*> SkyBoxSceneInfos;
+		std::unordered_map<FVolumetricCloudSceneId,
+			std::unique_ptr<FVolumetricCloudSceneInfo>, FSceneIdHash>
+			VolumetricCloudInfosById;
+		std::vector<FVolumetricCloudSceneInfo*> VolumetricCloudSceneInfos;
+		FVolumetricCloudSceneInfo* ActiveVolumetricCloudSceneInfo = nullptr;
+		auto RecomputeActiveVolumetricCloud_RenderThread() -> void;
 	};
 }

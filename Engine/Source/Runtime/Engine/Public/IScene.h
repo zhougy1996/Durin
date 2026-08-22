@@ -9,6 +9,7 @@ namespace Durin
 	class FPrimitiveSceneProxy;
 	class FLightSceneProxy;
 	class FSkyBoxSceneProxy;
+	class FVolumetricCloudSceneProxy;
 	struct FSkeletalPosePalette;
 	struct FSplineMeshRenderDynamicData;
 	template<typename TTag>
@@ -22,12 +23,15 @@ namespace Durin
 	struct FPrimitiveSceneIdTag;
 	struct FLightSceneIdTag;
 	struct FSkyBoxSceneIdTag;
+	struct FVolumetricCloudSceneIdTag;
 	using FPrimitiveSceneId = TSceneId<FPrimitiveSceneIdTag>;
 	using FLightSceneId = TSceneId<FLightSceneIdTag>;
 	using FSkyBoxSceneId = TSceneId<FSkyBoxSceneIdTag>;
+	using FVolumetricCloudSceneId = TSceneId<FVolumetricCloudSceneIdTag>;
 	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId;
 	inline constexpr FLightSceneId InvalidLightSceneId;
 	inline constexpr FSkyBoxSceneId InvalidSkyBoxSceneId;
+	inline constexpr FVolumetricCloudSceneId InvalidVolumetricCloudSceneId;
 
 	struct FSceneIdHash
 	{
@@ -89,6 +93,36 @@ namespace Durin
 		float Intensity = 1.0f;
 	};
 
+	// Captures one immutable global cloud candidate without retaining reflected objects.
+	struct FVolumetricCloudSceneData
+	{
+		FGuid PersistentId;
+		std::string SelectionKey;
+		uint64 InstanceId = 0;
+		uint64 PublicationRevision = 0;
+		int32 Priority = 0;
+		bool bEnabled = true;
+		bool bEligible = false;
+
+		FRHITextureReferenceRef BaseDensityTexture;
+		FRHITextureReferenceRef DetailDensityTexture;
+		FRHITextureReferenceRef WeatherTexture;
+
+		double MinimumZ = 1'500.0;
+		double MaximumZ = 3'500.0;
+		double MaximumDistance = 100'000.0;
+		FVector3f BaseFrequency{0.00008f};
+		FVector3f DetailFrequency{0.00032f};
+		FVector3f WindOffset{0.0f};
+		FVector2f WeatherFrequency{0.00004f};
+		FVector2f WeatherOffset{0.0f};
+		float Coverage = 0.55f;
+		float DetailErosion = 0.30f;
+		float Extinction = 0.0015f;
+		float LightExtinction = 0.0020f;
+		float Ambient = 0.12f;
+	};
+
 	// Defines the game-thread mutation boundary of a renderer-owned scene.
 	class IScene
 	{
@@ -133,5 +167,16 @@ namespace Durin
 		virtual auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void = 0;
 		virtual auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool = 0;
 		virtual auto GetSkyBoxCount_RenderThread() const -> size_t = 0;
+
+		virtual auto AddOrReplaceVolumetricCloud(
+			FVolumetricCloudSceneId CloudId,
+			uint64 PublicationRevision,
+			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void = 0;
+		virtual auto RemoveVolumetricCloud(
+			FVolumetricCloudSceneId CloudId,
+			uint64 ExpectedRevision) -> void = 0;
+		virtual auto GetActiveVolumetricCloud_RenderThread(
+			FVolumetricCloudSceneData& OutCloud) const -> bool = 0;
+		virtual auto GetVolumetricCloudCount_RenderThread() const -> size_t = 0;
 	};
 }
