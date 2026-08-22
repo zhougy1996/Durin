@@ -22,6 +22,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
@@ -162,6 +164,38 @@ namespace
 TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCommands)
 {
 	FRenderingThreadScope RenderingThread;
+	struct FBlockedRenderCommandState
+	{
+		std::mutex Mutex;
+		std::condition_variable CV;
+		bool bStarted = false;
+		bool bContinue = false;
+	};
+	auto BlockedRenderCommand =
+		std::make_shared<FBlockedRenderCommandState>();
+	struct FBlockRenderThreadCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "BlockRenderThread";
+		}
+	};
+	Durin::EnqueueRenderCommand<FBlockRenderThreadCommand>(
+		[BlockedRenderCommand](Durin::FRHICommandListImmediate&) {
+			std::unique_lock Lock(BlockedRenderCommand->Mutex);
+			BlockedRenderCommand->bStarted = true;
+			BlockedRenderCommand->CV.notify_all();
+			BlockedRenderCommand->CV.wait(Lock, [&] {
+				return BlockedRenderCommand->bContinue;
+			});
+		});
+	{
+		std::unique_lock Lock(BlockedRenderCommand->Mutex);
+		BlockedRenderCommand->CV.wait(Lock, [&] {
+			return BlockedRenderCommand->bStarted;
+		});
+	}
+
 	Durin::FRendererModule RendererModule;
 	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
@@ -196,6 +230,11 @@ TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCo
 	Scene.reset();
 	Durin::FRenderCommandFence Fence;
 	Fence.BeginFence();
+	{
+		std::lock_guard Lock(BlockedRenderCommand->Mutex);
+		BlockedRenderCommand->bContinue = true;
+	}
+	BlockedRenderCommand->CV.notify_all();
 	Fence.Wait();
 
 	EXPECT_TRUE(ObservedQueuedMutation->load(std::memory_order_acquire));

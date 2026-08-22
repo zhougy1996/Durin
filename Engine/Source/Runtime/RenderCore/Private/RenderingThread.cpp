@@ -388,9 +388,14 @@ namespace Durin
 		ActiveCommandCount += CommandsToExecute.size();
 		Lock.unlock();
 
-		for (const FCommand& Command : CommandsToExecute)
+		for (FCommand& Command : CommandsToExecute)
 		{
 			Command.Function(FRHICommandListImmediate::Get());
+			// A completed command must release its captured payload before the
+			// next command can complete a fence. Keeping every lambda alive until
+			// the whole batch is cleared makes fence-visible lifetime depend on
+			// whether adjacent commands happened to land in the same batch.
+			Command.Function = {};
 		}
 
 		CommandsToExecute.clear();
