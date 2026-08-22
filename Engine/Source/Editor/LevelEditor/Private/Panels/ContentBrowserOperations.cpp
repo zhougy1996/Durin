@@ -290,17 +290,6 @@ namespace Durin::Editor::Level
 			return Failure(
 				Asset::EAssetError::InvalidPackageType,
 				"Only real assets can be duplicated.");
-		const FContentBrowserModel::FMountPath Mount =
-			Model.ResolveMountPath(Item.PhysicalPath);
-		if (!Mount)
-			return Failure(
-				Asset::EAssetError::InvalidPath,
-				"The asset is outside an automatically scanned content mount.");
-		if (!Mount.Mount->bAuthoringWritable)
-			return Failure(
-				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is read-only for authoring. Choose a writable mount before duplicating the asset.");
-
 		FAssetPath SourcePath;
 		if (!FAssetPath::TryCreate(Item.VirtualPath, SourcePath))
 			return Failure(
@@ -311,18 +300,52 @@ namespace Durin::Editor::Level
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"The source asset has no valid destination directory.");
+		return Duplicate(SourcePath, Item.VirtualPath.substr(0, Slash + 1));
+	}
 
+	auto FContentBrowserOperations::Duplicate(
+		const FAssetPath& SourcePath,
+		std::string_view DestinationDirectory)
+		-> FContentBrowserOperationResult
+	{
+		if (!SourcePath.IsValid() || DestinationDirectory.empty())
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"Asset paste requires a valid source and destination folder.");
+		std::string Directory(DestinationDirectory);
+		if (!Directory.ends_with('/')) Directory.push_back('/');
+		const Asset::FAssetCatalogEntry SourceData =
+			Asset::FindAssetExact(SourcePath);
+		if (!SourceData
+			|| SourceData->EntryKind != Asset::EAssetRegistryEntryKind::Asset)
+			return Failure(
+				Asset::EAssetError::NotFound,
+				"The copied source is no longer an available real asset.");
+		const std::string DestinationDirectoryPhysical =
+			Model.VirtualToPhysical(Directory);
+		const FContentBrowserModel::FMountPath Mount =
+			Model.ResolveMountPath(DestinationDirectoryPhysical);
+		if (!Mount)
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"The paste destination is outside an automatically scanned content mount.");
+		if (!Mount.Mount->bAuthoringWritable)
+			return Failure(
+				Asset::EAssetError::ReadOnlyMode,
+				"This content mount is read-only for authoring. Choose a writable mount before pasting the asset.");
+
+		const std::string AssetName(SourcePath.GetAssetName());
 		FAssetPath DestinationPath;
 		std::string DestinationPhysicalPath;
-		for (uint32 Suffix = 1; Suffix <= 10000; ++Suffix)
+		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
 		{
-			const std::string CandidateName = Suffix == 1
-				? Item.Name + "_Copy"
-				: std::format("{}_Copy{}", Item.Name, Suffix);
+			const std::string CandidateName = Suffix == 0
+				? AssetName
+				: Suffix == 1
+					? AssetName + "_Copy"
+					: std::format("{}_Copy{}", AssetName, Suffix);
 			FAssetPath CandidatePath;
-			if (!FAssetPath::TryCreate(
-					Item.VirtualPath.substr(0, Slash + 1) + CandidateName,
-					CandidatePath))
+			if (!FAssetPath::TryCreate(Directory + CandidateName, CandidatePath))
 				continue;
 			const std::string CandidatePhysical =
 				Model.VirtualToPhysical(CandidatePath.ToString() + ".dasset");
@@ -384,7 +407,7 @@ namespace Durin::Editor::Level
 		FContentBrowserOperationResult Outcome;
 		Outcome.FocusPhysicalPath = std::move(DestinationPhysicalPath);
 		Outcome.RevealAssetPath = DestinationPath.ToString();
-		Outcome.OpenAssetClassName = Item.AssetClassName;
+		Outcome.OpenAssetClassName = SourceData->AssetClassName;
 		return Outcome;
 	}
 

@@ -238,6 +238,10 @@ namespace Durin::Editor::Level
 			-> FContentBrowserOperationResult;
 		auto Duplicate(const FContentBrowserItem& Item)
 			-> FContentBrowserOperationResult;
+		auto Duplicate(
+			const FAssetPath& SourcePath,
+			std::string_view DestinationDirectory)
+			-> FContentBrowserOperationResult;
 		auto CreateFolder(std::string_view PhysicalDirectory)
 			-> FContentBrowserOperationResult;
 		auto CreateLevelAsset(std::string_view VirtualDirectory)

@@ -107,6 +107,9 @@ namespace Durin::Editor::Level
 		auto DrawRenameEditor(const FContentBrowserItem& Item) -> void;
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
 		auto DuplicateAsset(const FContentBrowserItem& Item) -> void;
+		auto CopyAssetSelection() -> void;
+		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
+		auto HasAssetClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto CreateLevelAsset(std::string_view VirtualDirectory) -> void;
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;

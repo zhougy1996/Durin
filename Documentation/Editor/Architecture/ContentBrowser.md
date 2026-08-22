@@ -76,9 +76,12 @@ selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
 complete persistent object graph is copied and published as a clean package;
 duplicated import records receive a new record identity and relinquish
-management of the original record's outputs. Opening a redirector resolves and
-opens its final real asset; redirectors are excluded from ordinary pickers,
-rename, and drag-move.
+management of the original record's outputs. `Ctrl+C` writes one selected real
+asset identity to the system clipboard; `Ctrl+V` pastes it into the current
+folder, preserving its name when free and otherwise using the same copy suffix
+sequence. A folder context menu can paste directly into that folder. Opening a
+redirector resolves and opens its final real asset; redirectors are excluded
+from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
 Files reported as owned by AssetCore's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.

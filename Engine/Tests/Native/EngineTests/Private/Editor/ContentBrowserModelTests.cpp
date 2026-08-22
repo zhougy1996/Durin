@@ -763,10 +763,13 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	InitializeDObjectSystem();
 	FAssetPath SourcePath;
 	FAssetPath DuplicatePath;
+	FAssetPath PastedPath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/Original", SourcePath));
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/Original_Copy2", DuplicatePath));
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/A/Original", PastedPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
 	FMaterialStaticProperties Properties = Material->GetStaticProperties();
@@ -807,6 +810,15 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
 	EXPECT_FALSE(Duplicate->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::exists(Result.FocusPhysicalPath));
+	const FContentBrowserOperationResult PastedResult = Operations.Duplicate(
+		SourcePath, "/ContentBrowserTests/A/");
+	ASSERT_TRUE(PastedResult) << PastedResult.Status.Message;
+	EXPECT_EQ(PastedResult.RevealAssetPath, PastedPath.ToString());
+	DMaterial* Pasted = nullptr;
+	ASSERT_TRUE(Asset::LoadAsset(PastedPath, Pasted));
+	ASSERT_NE(Pasted, nullptr);
+	EXPECT_EQ(Pasted->GetStaticProperties(), Properties);
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(PastedPath));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(DuplicatePath));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(SourcePath));
 }

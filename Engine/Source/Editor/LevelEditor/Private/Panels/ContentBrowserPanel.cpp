@@ -18,6 +18,17 @@
 
 namespace Durin::Editor::Level
 {
+	namespace
+	{
+		auto ReadAssetClipboard(FAssetPath& OutPath) -> bool
+		{
+			OutPath = {};
+			const char* Clipboard = ImGui::GetClipboardText();
+			if (!Clipboard) return false;
+			return FAssetPath::TryCreate(Clipboard, OutPath);
+		}
+	}
+
 	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
 	{
 		DPackage* Package = Asset::FindResidentPackage(Path);
@@ -385,6 +396,49 @@ namespace Durin::Editor::Level
 		}
 		PublishMountedContentMutation();
 		RevealAsset(Result.RevealAssetPath);
+	}
+
+	auto FContentBrowserPanel::CopyAssetSelection() -> void
+	{
+		if (Selection.size() != 1) return;
+		const auto It = std::ranges::find_if(
+			Model.GetItems(),
+			[&](const FContentBrowserItem& Item) {
+				return Selection.contains(Item.StableId());
+			});
+		if (It == Model.GetItems().end()
+			|| It->Kind != EContentBrowserItemKind::Asset)
+			return;
+		CopyToClipboard(It->VirtualPath);
+	}
+
+	auto FContentBrowserPanel::PasteAsset(
+		std::string_view DestinationDirectory) -> void
+	{
+		FAssetPath SourcePath;
+		if (!ReadAssetClipboard(SourcePath)) return;
+		const std::string_view Directory = DestinationDirectory.empty()
+			? std::string_view(Model.GetCurrentVirtualPath())
+			: DestinationDirectory;
+		const FContentBrowserOperationResult Result = Operations.Duplicate(
+			SourcePath, Directory);
+		if (!Result)
+		{
+			SetError(Result.Status.Message);
+			return;
+		}
+		PublishMountedContentMutation();
+		RevealAsset(Result.RevealAssetPath);
+	}
+
+	auto FContentBrowserPanel::HasAssetClipboard() const -> bool
+	{
+		FAssetPath SourcePath;
+		if (!ReadAssetClipboard(SourcePath)) return false;
+		const Asset::FAssetCatalogEntry Entry =
+			Asset::FindAssetExact(SourcePath);
+		return Entry
+			&& Entry->EntryKind == Asset::EAssetRegistryEntryKind::Asset;
 	}
 
 	auto FContentBrowserPanel::CreateFolder(

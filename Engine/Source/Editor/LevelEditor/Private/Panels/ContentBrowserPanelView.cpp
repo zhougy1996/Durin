@@ -445,6 +445,11 @@ namespace Durin::Editor::Level
 					It != Model.GetItems().end()
 						&& It->Kind == EContentBrowserItemKind::Asset)
 					QueueContentAction([this, Item = *It] { DuplicateAsset(Item); });
+			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
+				CopyAssetSelection();
+			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)
+				&& HasAssetClipboard())
+				QueueContentAction([this] { PasteAsset(); });
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !Selection.empty()) RequestDeleteSelection();
 		}
 	}
@@ -1043,13 +1048,28 @@ namespace Durin::Editor::Level
 				&& Item.Kind == EContentBrowserItemKind::Asset))
 			QueueContentAction([this, Item] { DuplicateAsset(Item); });
 		if (ImGui::MenuItem(
+			"Copy Asset", "Ctrl+C", false,
+			Selection.size() == 1
+				&& Item.Kind == EContentBrowserItemKind::Asset))
+			CopyAssetSelection();
+		if (ImGui::MenuItem(
+			Item.Kind == EContentBrowserItemKind::Folder
+				? "Paste Asset Into Folder"
+				: "Paste Asset",
+			"Ctrl+V", false, HasAssetClipboard()))
+			QueueContentAction([this, Item] {
+				PasteAsset(Item.Kind == EContentBrowserItemKind::Folder
+					? std::string_view(Item.VirtualPath)
+					: std::string_view{});
+			});
+		if (ImGui::MenuItem(
 			"Rename", "F2", false,
 			Selection.size() == 1
 				&& Item.Kind != EContentBrowserItemKind::Redirector))
 			BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
 		ImGui::Separator();
-		if (ImGui::BeginMenu("Copy"))
+		if (ImGui::BeginMenu("Copy Details"))
 		{
 			if (ImGui::MenuItem("Name")) CopyToClipboard(Item.Name);
 			if (!Item.VirtualPath.empty() && ImGui::MenuItem("Virtual Path")) CopyToClipboard(Item.VirtualPath);
@@ -1208,6 +1228,10 @@ namespace Durin::Editor::Level
 				DrawImportMenu(Model.GetCurrentVirtualPath());
 				ImGui::EndMenu();
 			}
+			ImGui::Separator();
+			if (ImGui::MenuItem(
+				"Paste Asset", "Ctrl+V", false, HasAssetClipboard()))
+				QueueContentAction([this] { PasteAsset(); });
 			ImGui::Separator();
 			if (!Model.GetCurrentVirtualPath().empty()
 				&& ImGui::MenuItem("Fix Up Redirectors in Folder"))
