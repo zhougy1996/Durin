@@ -64,6 +64,7 @@ namespace Durin
 			FVector2f WeatherOffset{0.0f};
 			FVector3f LightDirection{0.0f, 0.0f, 1.0f};
 			FVector3f LightColor{1.0f};
+			FVector3f AmbientColor{1.0f};
 			float Coverage = 0.55f;
 			float DetailErosion = 0.30f;
 			float Extinction = 0.0015f;
@@ -87,7 +88,7 @@ namespace Durin
 			[[nodiscard]] auto HasRequiredInputs() const -> bool
 			{
 				return BaseDensity != nullptr && DetailDensity != nullptr
-					&& SceneDepth != nullptr && DensitySampler != nullptr;
+					   && SceneDepth != nullptr && DensitySampler != nullptr;
 			}
 		};
 
@@ -157,7 +158,7 @@ namespace Durin
 			[[nodiscard]] auto HasRequiredInputs() const -> bool
 			{
 				return static_cast<bool>(BaseDensity)
-					&& static_cast<bool>(DetailDensity);
+					   && static_cast<bool>(DetailDensity);
 			}
 		};
 
@@ -213,24 +214,25 @@ namespace Durin
 		static constexpr auto CalculateGroupCount(uint32 Extent) -> uint32
 		{
 			return Extent / ThreadGroupSize
-				+ (Extent % ThreadGroupSize != 0 ? 1u : 0u);
+				   + (Extent % ThreadGroupSize != 0 ? 1u : 0u);
 		}
 
 		static auto CalculateTargetBytes(uint32 Width, uint32 Height) -> uint64;
 		static auto ResolveQualityPolicy(EQualityTier Tier) -> FQualityPolicy;
 		static auto CalculateScaledExtent(
-			uint32 Width, uint32 Height, const FQualityPolicy& Policy) -> FExtent;
-		static auto CalculateScaledViewport(const FViewportRect& Viewport,
-			const FExtent& Output, const FExtent& Target) -> FViewportRect;
+			uint32 Width, uint32 Height, const FQualityPolicy& Policy
+		) -> FExtent;
+		static auto CalculateScaledViewport(const FViewportRect& Viewport, const FExtent& Output, const FExtent& Target) -> FViewportRect;
 		static auto CalculatePolicyKey(EQualityTier Tier) -> uint64;
 		static auto CalculateJitter(
-			uint64 SuccessfulSequence, const FQualityPolicy& Policy) -> FVector2f;
+			uint64 SuccessfulSequence, const FQualityPolicy& Policy
+		) -> FVector2f;
 		static auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
 		static auto IntersectHeightSlab(const FSlabRay& Ray) -> FSlabInterval;
 		static auto IntegrateReference(const FReferenceInput& Input)
 			-> FReferenceResult;
 		static auto MakeExecutionCounters(
-			const FRouteInputs& Inputs, const FRouteDecision& Decision,
-			uint64 PrimarySamples, uint64 LightSamples) -> FExecutionCounters;
+			const FRouteInputs& Inputs, const FRouteDecision& Decision, uint64 PrimarySamples, uint64 LightSamples
+		) -> FExecutionCounters;
 	};
 } // namespace Durin

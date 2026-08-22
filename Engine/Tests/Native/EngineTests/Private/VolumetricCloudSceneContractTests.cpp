@@ -21,7 +21,10 @@ namespace
 	class FCloudContractEngine final : public Durin::DEngine
 	{
 	public:
-		FCloudContractEngine() : DEngine(Durin::FObjectInitializer::Get()) {}
+		FCloudContractEngine()
+			: DEngine(Durin::FObjectInitializer::Get())
+		{
+		}
 		auto InstallScene(Durin::FScenePtr Scene) -> Durin::FScene*
 		{
 			MainScene = std::move(Scene);
@@ -52,23 +55,20 @@ namespace
 				Result->bHasActive =
 					Scene.GetActiveVolumetricCloud_RenderThread(Result->Active);
 				Result->Count = Scene.GetVolumetricCloudCount_RenderThread();
-			});
+			}
+		);
 		Durin::FlushRenderingCommands();
 		return *Result;
 	}
 
-	auto Publish(Durin::FScene& Scene,
-		Durin::FVolumetricCloudSceneData Data) -> void
+	auto Publish(Durin::FScene& Scene, Durin::FVolumetricCloudSceneData Data) -> void
 	{
 		const Durin::FVolumetricCloudSceneId Id(Data.InstanceId);
 		const Durin::uint64 Revision = Data.PublicationRevision;
-		Scene.AddOrReplaceVolumetricCloud(Id, Revision,
-			std::make_unique<Durin::FVolumetricCloudSceneProxy>(std::move(Data)));
+		Scene.AddOrReplaceVolumetricCloud(Id, Revision, std::make_unique<Durin::FVolumetricCloudSceneProxy>(std::move(Data)));
 	}
 
-	auto MakeCandidate(Durin::uint64 InstanceId, Durin::uint64 Revision,
-		Durin::int32 Priority, Durin::FGuid PersistentId,
-		std::string SelectionKey) -> Durin::FVolumetricCloudSceneData
+	auto MakeCandidate(Durin::uint64 InstanceId, Durin::uint64 Revision, Durin::int32 Priority, Durin::FGuid PersistentId, std::string SelectionKey) -> Durin::FVolumetricCloudSceneData
 	{
 		Durin::FVolumetricCloudSceneData Data;
 		Data.PersistentId = PersistentId;
@@ -79,14 +79,14 @@ namespace
 		Data.bEligible = true;
 		return Data;
 	}
-}
+} // namespace
 
-TEST(FVolumetricCloudSceneContractTests,
-	ReflectedDefaultsAndRuntimeIdentityAreStable)
+TEST(FVolumetricCloudSceneContractTests, ReflectedDefaultsAndRuntimeIdentityAreStable)
 {
 	InitializeDObjectSystem();
 	const auto* Default = static_cast<const Durin::DVolumetricCloudComponent*>(
-		Durin::DVolumetricCloudComponent::StaticClass()->GetDefaultObject());
+		Durin::DVolumetricCloudComponent::StaticClass()->GetDefaultObject()
+	);
 	ASSERT_NE(Default, nullptr);
 	EXPECT_FALSE(Default->GetVolumetricCloudSceneId().IsValid());
 	EXPECT_EQ(Default->GetVolumetricCloudInstanceId(), 0u);
@@ -107,19 +107,22 @@ TEST(FVolumetricCloudSceneContractTests,
 	EXPECT_FLOAT_EQ(Default->GetAmbient(), 0.12f);
 	auto* BaseFrequencyProperty = static_cast<Durin::FStructProperty*>(
 		Durin::DVolumetricCloudComponent::StaticClass()->FindPropertyByName(
-			"BaseFrequency"));
+			"BaseFrequency"
+		)
+	);
 	auto* WeatherFrequencyProperty = static_cast<Durin::FStructProperty*>(
 		Durin::DVolumetricCloudComponent::StaticClass()->FindPropertyByName(
-			"WeatherFrequency"));
+			"WeatherFrequency"
+		)
+	);
 	ASSERT_NE(BaseFrequencyProperty, nullptr);
 	ASSERT_NE(WeatherFrequencyProperty, nullptr);
-	EXPECT_EQ(BaseFrequencyProperty->GetStruct()->GetQualifiedName().ToString(),
-		"Durin::FVector3f");
-	EXPECT_EQ(WeatherFrequencyProperty->GetStruct()->GetQualifiedName().ToString(),
-		"Durin::FVector2f");
+	EXPECT_EQ(BaseFrequencyProperty->GetStruct()->GetQualifiedName().ToString(), "Durin::FVector3f");
+	EXPECT_EQ(WeatherFrequencyProperty->GetStruct()->GetQualifiedName().ToString(), "Durin::FVector2f");
 
 	auto* Runtime = Durin::NewObject<Durin::DVolumetricCloudComponent>(
-		nullptr, "RuntimeCloud");
+		nullptr, "RuntimeCloud"
+	);
 	ASSERT_NE(Runtime, nullptr);
 	EXPECT_TRUE(Runtime->GetVolumetricCloudSceneId().IsValid());
 	EXPECT_NE(Runtime->GetVolumetricCloudInstanceId(), 0u);
@@ -140,25 +143,22 @@ TEST(FVolumetricCloudSceneContractTests,
 		Durin::FVector3f(0.25f),
 		Durin::FVector3f(-2'000'000.0f, 0.0f, 2'000'000.0f),
 		Durin::FVector2f(0.0f, 2.0f),
-		Durin::FVector2f(-2'000'000.0f, 2'000'000.0f));
-	EXPECT_EQ(Runtime->GetBaseFrequency(),
-		Durin::FVector3f(0.00000001f, 0.5f, 1.0f));
+		Durin::FVector2f(-2'000'000.0f, 2'000'000.0f)
+	);
+	EXPECT_EQ(Runtime->GetBaseFrequency(), Durin::FVector3f(0.00000001f, 0.5f, 1.0f));
 	EXPECT_EQ(Runtime->GetDetailFrequency(), Durin::FVector3f(0.25f));
-	EXPECT_EQ(Runtime->GetWindOffset(),
-		Durin::FVector3f(-1'000'000.0f, 0.0f, 1'000'000.0f));
-	EXPECT_EQ(Runtime->GetWeatherFrequency(),
-		Durin::FVector2f(0.00000001f, 1.0f));
-	EXPECT_EQ(Runtime->GetWeatherOffset(),
-		Durin::FVector2f(-1'000'000.0f, 1'000'000.0f));
+	EXPECT_EQ(Runtime->GetWindOffset(), Durin::FVector3f(-1'000'000.0f, 0.0f, 1'000'000.0f));
+	EXPECT_EQ(Runtime->GetWeatherFrequency(), Durin::FVector2f(0.00000001f, 1.0f));
+	EXPECT_EQ(Runtime->GetWeatherOffset(), Durin::FVector2f(-1'000'000.0f, 1'000'000.0f));
 	Durin::MarkAsGarbage(Runtime);
 	Durin::CollectGarbage();
 }
 
-TEST(FVolumetricCloudSceneContractTests,
-	ValidationAndP1TranslationPreserveTheFrozenBoundary)
+TEST(FVolumetricCloudSceneContractTests, ValidationAndP1TranslationPreserveTheFrozenBoundary)
 {
 	Durin::FVolumetricCloudSceneData Data = MakeCandidate(
-		7, 3, 2, Durin::FGuid(1, 2, 3, 4), "Cloud");
+		7, 3, 2, Durin::FGuid(1, 2, 3, 4), "Cloud"
+	);
 	EXPECT_TRUE(Durin::AreVolumetricCloudParametersValid(Data));
 	EXPECT_FALSE(Durin::IsVolumetricCloudCandidateEligible(Data));
 	Data.MaximumZ = Data.MinimumZ;
@@ -181,6 +181,7 @@ TEST(FVolumetricCloudSceneContractTests,
 	Light.Direction = {0.0, 0.0, -1.0};
 	Light.Color = {0.5f, 0.25f, 1.0f};
 	Light.Intensity = 2.0f;
+	Light.AmbientIntensity = 0.4f;
 	Lights.Directional.push_back({Durin::FLightSceneId(9), Light});
 
 	const auto Parameters = Durin::BuildVolumetricCloudParameters(Data, Lights);
@@ -190,22 +191,29 @@ TEST(FVolumetricCloudSceneContractTests,
 	EXPECT_EQ(Parameters.WindOffset, Data.WindOffset);
 	EXPECT_EQ(Parameters.LightDirection, Durin::FVector3f(0.0f, 0.0f, 1.0f));
 	EXPECT_EQ(Parameters.LightColor, Durin::FVector3f(1.0f, 0.5f, 2.0f));
+	EXPECT_EQ(Parameters.AmbientColor, Durin::FVector3f(0.2f, 0.1f, 0.4f));
 	EXPECT_EQ(Parameters.PrimarySampleCount, 32u);
 	EXPECT_EQ(Parameters.LightSampleCount, 4u);
 	EXPECT_FLOAT_EQ(Parameters.TransmittanceCutoff, 0.01f);
+	const Durin::uint64 LightingKey =
+		Durin::CalculateVolumetricCloudLightingKey(Lights);
+	EXPECT_NE(LightingKey, 0u);
+	Lights.Directional.front().Data.Intensity = 3.0f;
+	EXPECT_NE(Durin::CalculateVolumetricCloudLightingKey(Lights), LightingKey);
+	Lights.Directional.clear();
+	EXPECT_EQ(Durin::CalculateVolumetricCloudLightingKey(Lights), 0u);
 }
 
-TEST(FVolumetricCloudSceneContractTests,
-	EligibilityDiagnosticsUseOneStableFirstFailureOrder)
+TEST(FVolumetricCloudSceneContractTests, EligibilityDiagnosticsUseOneStableFirstFailureOrder)
 {
 	Durin::FVolumetricCloudSceneData Data = MakeCandidate(
-		7, 3, 2, Durin::FGuid(1, 2, 3, 4), "Cloud");
+		7, 3, 2, Durin::FGuid(1, 2, 3, 4), "Cloud"
+	);
 	Durin::FVolumetricCloudEligibilityContext Context;
 	auto ExpectReason = [&](Durin::EVolumetricCloudEligibilityReason Reason) {
 		const auto Diagnostic = Durin::DiagnoseVolumetricCloudEligibility(Data, Context);
 		EXPECT_EQ(Diagnostic.Reason, Reason);
-		EXPECT_EQ(Diagnostic.bEligible,
-			Reason == Durin::EVolumetricCloudEligibilityReason::Ready);
+		EXPECT_EQ(Diagnostic.bEligible, Reason == Durin::EVolumetricCloudEligibilityReason::Ready);
 		EXPECT_FALSE(Diagnostic.Message.empty());
 	};
 
@@ -240,15 +248,14 @@ TEST(FVolumetricCloudSceneContractTests,
 
 	InitializeDObjectSystem();
 	auto* StatusProperty = Durin::DVolumetricCloudComponent::StaticClass()
-		->FindPropertyByName("EligibilityStatus");
+							   ->FindPropertyByName("EligibilityStatus");
 	ASSERT_NE(StatusProperty, nullptr);
 	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
 	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::ReadOnly));
 	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
 }
 
-TEST(FVolumetricCloudSceneContractTests,
-	SceneSelectsPriorityAndStableIdentityAndRejectsStaleCommands)
+TEST(FVolumetricCloudSceneContractTests, SceneSelectsPriorityAndStableIdentityAndRejectsStaleCommands)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -288,8 +295,7 @@ TEST(FVolumetricCloudSceneContractTests,
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FVolumetricCloudSceneContractTests,
-	ActorGraphRoundTripsAuthoredIntentAndAllocatesANewRuntimeIdentity)
+TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndAllocatesANewRuntimeIdentity)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AVolumetricCloudActor>(nullptr, "CloudActor");
@@ -304,7 +310,8 @@ TEST(FVolumetricCloudSceneContractTests,
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
 	auto* Loaded = Durin::Cast<Durin::AVolumetricCloudActor>(
-		Durin::LoadObjectGraphFromMemory(Bytes));
+		Durin::LoadObjectGraphFromMemory(Bytes)
+	);
 	ASSERT_NE(Loaded, nullptr);
 	auto* LoadedComponent = Loaded->GetVolumetricCloudComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
@@ -319,8 +326,7 @@ TEST(FVolumetricCloudSceneContractTests,
 	Durin::CollectGarbage();
 }
 
-TEST(FVolumetricCloudSceneContractTests,
-	ComponentRegistrationPublishesCompleteIneligibleReplacementAndExactRemoval)
+TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteIneligibleReplacementAndExactRemoval)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -330,7 +336,8 @@ TEST(FVolumetricCloudSceneContractTests,
 	Durin::GEngine = &Engine;
 	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "CloudContractWorld");
 	ASSERT_TRUE(World->SetCurrentLevel(
-		Durin::NewObject<Durin::DLevel>(World, "CloudContractLevel")));
+		Durin::NewObject<Durin::DLevel>(World, "CloudContractLevel")
+	));
 	Engine.SetWorld(World);
 	auto* Actor = World->SpawnActor<Durin::AVolumetricCloudActor>("Cloud");
 	auto* Component = Actor->GetVolumetricCloudComponent();

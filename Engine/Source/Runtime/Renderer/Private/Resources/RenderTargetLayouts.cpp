@@ -110,6 +110,11 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeVolumetricCloudShadowOutput() -> FRHIRenderTargetLayout
+	{
+		return MakeContactVisibilityOutput();
+	}
+
 	auto MakeVolumetricCloudOutput() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
@@ -120,7 +125,8 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead);
+			ERHIAccess::GraphicsShaderRead
+		);
 		return Layout;
 	}
 
@@ -169,7 +175,8 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead);
+			ERHIAccess::GraphicsShaderRead
+		);
 		return Layout;
 	}
 

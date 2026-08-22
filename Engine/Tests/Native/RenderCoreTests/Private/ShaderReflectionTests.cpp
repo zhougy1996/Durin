@@ -13,30 +13,33 @@ namespace Durin
 	{
 		auto FindBinding(
 			const FCompiledShader& Shader,
-			std::string_view Name) -> const FShaderResourceBinding*
+			std::string_view Name
+		) -> const FShaderResourceBinding*
 		{
 			const auto It = std::ranges::find(
 				Shader.Reflection.ResourceBindings,
 				Name,
-				&FShaderResourceBinding::Name);
-			return It == Shader.Reflection.ResourceBindings.end()
-				? nullptr
-				: &*It;
+				&FShaderResourceBinding::Name
+			);
+			return It == Shader.Reflection.ResourceBindings.end() ? nullptr : &*It;
 		}
 
 		auto GetSpirvInterfaceLocations(
 			const FCompiledShader& Shader,
-			uint32 StorageClass) -> std::set<uint32>
+			uint32 StorageClass
+		) -> std::set<uint32>
 		{
 			constexpr uint16 OpDecorate = 71;
 			constexpr uint16 OpVariable = 59;
 			constexpr uint32 DecorationLocation = 30;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32));
+				Shader.Code->size() / sizeof(uint32)
+			);
 			std::memcpy(
 				Words.data(),
 				Shader.Code->data(),
-				Shader.Code->size());
+				Shader.Code->size()
+			);
 
 			std::unordered_map<uint32, uint32> LocationsById;
 			std::set<uint32> InputIds;
@@ -57,10 +60,11 @@ namespace Durin
 				{
 					LocationsById.emplace(
 						Words[Offset + 1],
-						Words[Offset + 3]);
+						Words[Offset + 3]
+					);
 				}
 				else if (OpCode == OpVariable && WordCount >= 4
-					&& Words[Offset + 3] == StorageClass)
+						 && Words[Offset + 3] == StorageClass)
 				{
 					InputIds.insert(Words[Offset + 2]);
 				}
@@ -80,29 +84,34 @@ namespace Durin
 		}
 
 		auto GetSpirvInputLocations(
-			const FCompiledShader& Shader) -> std::set<uint32>
+			const FCompiledShader& Shader
+		) -> std::set<uint32>
 		{
 			constexpr uint32 StorageClassInput = 1;
 			return GetSpirvInterfaceLocations(Shader, StorageClassInput);
 		}
 
 		auto GetSpirvOutputLocations(
-			const FCompiledShader& Shader) -> std::set<uint32>
+			const FCompiledShader& Shader
+		) -> std::set<uint32>
 		{
 			constexpr uint32 StorageClassOutput = 3;
 			return GetSpirvInterfaceLocations(Shader, StorageClassOutput);
 		}
 
 		auto GetSpirvImageFormats(
-			const FCompiledShader& Shader) -> std::set<uint32>
+			const FCompiledShader& Shader
+		) -> std::set<uint32>
 		{
 			constexpr uint16 OpTypeImage = 25;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32));
+				Shader.Code->size() / sizeof(uint32)
+			);
 			std::memcpy(
 				Words.data(),
 				Shader.Code->data(),
-				Shader.Code->size());
+				Shader.Code->size()
+			);
 
 			std::set<uint32> Formats;
 			for (size_t Offset = 5; Offset < Words.size();)
@@ -128,18 +137,21 @@ namespace Durin
 
 		auto HasSpirvInputBuiltIn(
 			const FCompiledShader& Shader,
-			uint32 BuiltIn) -> bool
+			uint32 BuiltIn
+		) -> bool
 		{
 			constexpr uint16 OpDecorate = 71;
 			constexpr uint16 OpVariable = 59;
 			constexpr uint32 DecorationBuiltIn = 11;
 			constexpr uint32 StorageClassInput = 1;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32));
+				Shader.Code->size() / sizeof(uint32)
+			);
 			std::memcpy(
 				Words.data(),
 				Shader.Code->data(),
-				Shader.Code->size());
+				Shader.Code->size()
+			);
 
 			std::set<uint32> BuiltInIds;
 			std::set<uint32> InputIds;
@@ -162,7 +174,7 @@ namespace Durin
 					BuiltInIds.insert(Words[Offset + 1]);
 				}
 				else if (OpCode == OpVariable && WordCount >= 4
-					&& Words[Offset + 3] == StorageClassInput)
+						 && Words[Offset + 3] == StorageClassInput)
 				{
 					InputIds.insert(Words[Offset + 2]);
 				}
@@ -170,7 +182,8 @@ namespace Durin
 			}
 			return std::ranges::any_of(
 				BuiltInIds,
-				[&InputIds](uint32 Id) { return InputIds.contains(Id); });
+				[&InputIds](uint32 Id) { return InputIds.contains(Id); }
+			);
 		}
 
 		auto ExpectBinding(
@@ -178,7 +191,8 @@ namespace Durin
 			std::string_view Name,
 			uint32 BindingIndex,
 			ERHIBindingType Type,
-			EShaderStageFlags StageFlags) -> void
+			EShaderStageFlags StageFlags
+		) -> void
 		{
 			const FShaderResourceBinding* Binding =
 				FindBinding(Shader, Name);
@@ -189,7 +203,7 @@ namespace Durin
 			EXPECT_EQ(Binding->ArraySize, 1u) << Name;
 			EXPECT_EQ(Binding->StageFlags, StageFlags) << Name;
 		}
-	}
+	} // namespace
 
 	TEST(FShaderReflectionTests, ReflectsStorageBuffersAndImages)
 	{
@@ -213,18 +227,15 @@ namespace Durin
 		EXPECT_EQ(Bindings[2].Type, ERHIBindingType::StorageImage);
 	}
 
-	TEST(FShaderReflectionTests,
-		VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
+	TEST(FShaderReflectionTests, VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
 			/ "VolumetricCloud.slang";
 		FShaderCompileOptions Options;
 		Options.VirtualShaderPath = "/Engine/VolumetricCloud";
-		Options.EntryPoints = {"VertexMain", "CloudFragmentMain",
-			"CloudComputeMain"};
-		Options.Frequencies = {EShaderFrequency::Vertex,
-			EShaderFrequency::Fragment, EShaderFrequency::Compute};
+		Options.EntryPoints = {"VertexMain", "CloudFragmentMain", "CloudComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
@@ -240,30 +251,55 @@ namespace Durin
 
 		for (const FCompiledShader* Shader : {&Fragment, &Compute})
 		{
-			const EShaderStageFlags Stage = Shader == &Fragment
-				? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
-			ExpectBinding(*Shader, "BaseDensity", 0,
-				ERHIBindingType::Texture, Stage);
-			ExpectBinding(*Shader, "DetailDensity", 1,
-				ERHIBindingType::Texture, Stage);
-			ExpectBinding(*Shader, "WeatherTexture", 2,
-				ERHIBindingType::Texture, Stage);
-			ExpectBinding(*Shader, "SceneDepth", 3,
-				ERHIBindingType::Texture, Stage);
-			ExpectBinding(*Shader, "DensitySampler", 4,
-				ERHIBindingType::Sampler, Stage);
-			ExpectBinding(*Shader, "Params", 5,
-				ERHIBindingType::UniformBuffer, Stage);
+			const EShaderStageFlags Stage = Shader == &Fragment ? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
+			ExpectBinding(*Shader, "BaseDensity", 0, ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "DetailDensity", 1, ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "WeatherTexture", 2, ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "SceneDepth", 3, ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "DensitySampler", 4, ERHIBindingType::Sampler, Stage);
+			ExpectBinding(*Shader, "Params", 5, ERHIBindingType::UniformBuffer, Stage);
 		}
-		ExpectBinding(Compute, "CloudOutput", 6,
-			ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
+		ExpectBinding(Compute, "CloudOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
 		constexpr uint32 SpirvImageFormatRgba16f = 2;
 		EXPECT_TRUE(GetSpirvImageFormats(Compute).contains(
-			SpirvImageFormatRgba16f));
+			SpirvImageFormatRgba16f
+		));
 	}
 
-	TEST(FShaderReflectionTests,
-		VolumetricCloudCompositePublishesDepthAwareReconstructionBindings)
+	TEST(FShaderReflectionTests, VolumetricCloudShadowPublishesMatchedR8VisibilityBindings)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "VolumetricCloudShadow.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/VolumetricCloudShadow";
+		Options.EntryPoints = {"VertexMain", "CloudVisibilityFragmentMain", "CloudVisibilityComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output = Compiler.Compile(
+			ShaderPath.string(), Options
+		);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FCompiledShader& Compute = Output.CompiledShaders[2];
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
+		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
+		for (const FCompiledShader* Shader : {&Fragment, &Compute})
+		{
+			const EShaderStageFlags Stage = Shader == &Fragment ? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
+			const std::array<const char*, 4> Textures{
+				"BaseDensity", "DetailDensity", "WeatherTexture", "SceneDepth"
+			};
+			for (uint32 Index = 0; Index < Textures.size(); ++Index)
+				ExpectBinding(*Shader, Textures[Index], Index, ERHIBindingType::Texture, Stage);
+			ExpectBinding(*Shader, "DensitySampler", 4, ERHIBindingType::Sampler, Stage);
+			ExpectBinding(*Shader, "Params", 5, ERHIBindingType::UniformBuffer, Stage);
+		}
+		ExpectBinding(Compute, "CloudVisibilityOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
+	}
+
+	TEST(FShaderReflectionTests, VolumetricCloudCompositePublishesDepthAwareReconstructionBindings)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -272,7 +308,8 @@ namespace Durin
 		Options.VirtualShaderPath = "/Engine/VolumetricCloudComposite";
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {
-			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment
+		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << Output.ErrorMessage;
@@ -280,18 +317,13 @@ namespace Durin
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
-		ExpectBinding(Fragment, "SceneColorTexture", 0,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "CloudTexture", 1,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "SceneDepthTexture", 2,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "Params", 3,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "SceneColorTexture", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "CloudTexture", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "SceneDepthTexture", 2, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 3, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests,
-		VolumetricCloudTemporalPublishesTypedHistoryBindings)
+	TEST(FShaderReflectionTests, VolumetricCloudTemporalPublishesTypedHistoryBindings)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -300,7 +332,8 @@ namespace Durin
 		Options.VirtualShaderPath = "/Engine/VolumetricCloudTemporal";
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {
-			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment
+		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << Output.ErrorMessage;
@@ -308,14 +341,10 @@ namespace Durin
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
-		ExpectBinding(Fragment, "CurrentCloud", 0,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "PreviousCloud", 1,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "HistorySampler", 2,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "Params", 3,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "CurrentCloud", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "PreviousCloud", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "HistorySampler", 2, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 3, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
 	TEST(FShaderReflectionTests, FragmentDepthOutputCompilesWithoutPipelineBindings)
@@ -343,8 +372,7 @@ namespace Durin
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 
-	TEST(FShaderReflectionTests,
-		StaticMeshBasePassModuleExtractionPreservesShaderAbi)
+	TEST(FShaderReflectionTests, StaticMeshBasePassModuleExtractionPreservesShaderAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -354,7 +382,8 @@ namespace Durin
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {
 			EShaderFrequency::Vertex,
-			EShaderFrequency::Fragment};
+			EShaderFrequency::Fragment
+		};
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
@@ -375,93 +404,84 @@ namespace Durin
 		EXPECT_TRUE(HasSpirvInputBuiltIn(FragmentShader, 17u));
 		EXPECT_EQ(
 			GetSpirvInputLocations(VertexShader),
-			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));
+			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7})
+		);
 
 		ASSERT_EQ(
-			VertexShader.Reflection.ResourceBindings.size(), 1u);
+			VertexShader.Reflection.ResourceBindings.size(), 1u
+		);
 		ExpectBinding(
 			VertexShader,
 			"Transform",
 			0,
 			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Vertex);
+			EShaderStageFlags::Vertex
+		);
 		ASSERT_EQ(
-			FragmentShader.Reflection.ResourceBindings.size(), 24u);
+			FragmentShader.Reflection.ResourceBindings.size(), 24u
+		);
 		ExpectBinding(
 			FragmentShader,
 			"Lighting",
 			1,
 			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
 		ExpectBinding(
 			FragmentShader,
 			"Material",
 			2,
 			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
 		ExpectBinding(
 			FragmentShader,
 			"BaseColorTexture",
 			3,
 			ERHIBindingType::Texture,
-			EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
 		ExpectBinding(
 			FragmentShader,
 			"NormalTexture",
 			4,
 			ERHIBindingType::Texture,
-			EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "MetallicTexture", 5,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "RoughnessTexture", 6,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "AmbientOcclusionTexture", 7,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EmissiveTexture", 8,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityTexture", 9,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityMaskTexture", 10,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
+		ExpectBinding(FragmentShader, "MetallicTexture", 5, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "RoughnessTexture", 6, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "AmbientOcclusionTexture", 7, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EmissiveTexture", 8, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacityTexture", 9, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacityMaskTexture", 10, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(
 			FragmentShader,
 			"BaseColorSampler",
 			11,
 			ERHIBindingType::Sampler,
-			EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "NormalSampler", 12,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "MetallicSampler", 13,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "RoughnessSampler", 14,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "AmbientOcclusionSampler", 15,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EmissiveSampler", 16,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacitySampler", 17,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityMaskSampler", 18,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentIrradiance", 19,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentPrefiltered", 20,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentBrdfLut", 21,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentSampler", 22,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "DirectionalShadowTexture", 25,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "DirectionalShadowSampler", 26,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
+		ExpectBinding(FragmentShader, "NormalSampler", 12, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "MetallicSampler", 13, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "RoughnessSampler", 14, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "AmbientOcclusionSampler", 15, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EmissiveSampler", 16, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacitySampler", 17, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacityMaskSampler", 18, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentIrradiance", 19, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentPrefiltered", 20, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentBrdfLut", 21, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentSampler", 22, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "DirectionalShadowTexture", 25, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "DirectionalShadowSampler", 26, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 
 		FPipelineLayoutDesc PipelineLayout;
 		std::string ErrorMessage;
 		ASSERT_TRUE(BuildPipelineLayoutFromShaders(
 			Output.CompiledShaders,
 			PipelineLayout,
-			ErrorMessage)) << ErrorMessage;
+			ErrorMessage
+		)) << ErrorMessage;
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& SetLayout =
 			PipelineLayout.BindingLayouts[0].BindingLayouts;
@@ -470,34 +490,42 @@ namespace Durin
 		{
 			EXPECT_EQ(
 				SetLayout[BindingIndex].Slot,
-				BindingIndex);
+				BindingIndex
+			);
 		}
 		EXPECT_EQ(SetLayout[23].Slot, 25u);
 		EXPECT_EQ(SetLayout[24].Slot, 26u);
 		EXPECT_EQ(
 			SetLayout[0].Type,
-			ERHIBindingType::UniformBuffer);
+			ERHIBindingType::UniformBuffer
+		);
 		EXPECT_EQ(
 			SetLayout[0].StageFlags,
-			EShaderStageFlags::Vertex);
+			EShaderStageFlags::Vertex
+		);
 		EXPECT_EQ(
 			SetLayout[1].Type,
-			ERHIBindingType::UniformBuffer);
+			ERHIBindingType::UniformBuffer
+		);
 		EXPECT_EQ(
 			SetLayout[1].StageFlags,
-			EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
 		EXPECT_EQ(
 			SetLayout[2].Type,
-			ERHIBindingType::UniformBuffer);
+			ERHIBindingType::UniformBuffer
+		);
 		EXPECT_EQ(
 			SetLayout[2].StageFlags,
-			EShaderStageFlags::Fragment);
+			EShaderStageFlags::Fragment
+		);
 		for (uint32 BindingIndex = 3; BindingIndex <= 10; ++BindingIndex)
 		{
 			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Texture);
 			EXPECT_EQ(
 				SetLayout[BindingIndex].StageFlags,
-				EShaderStageFlags::Fragment);
+				EShaderStageFlags::Fragment
+			);
 		}
 		for (uint32 BindingIndex = 11; BindingIndex <= 18; ++BindingIndex)
 		{
@@ -538,23 +566,18 @@ namespace Durin
 		const FCompiledShader& Vertex = Output.CompiledShaders[0];
 		EXPECT_EQ(GetSpirvInputLocations(Vertex), (std::set<uint32>{0}));
 		constexpr uint32 SpirvImageFormatR16ui = 38;
-		EXPECT_EQ(GetSpirvImageFormats(Vertex),
-			(std::set<uint32>{SpirvImageFormatR16ui}));
+		EXPECT_EQ(GetSpirvImageFormats(Vertex), (std::set<uint32>{SpirvImageFormatR16ui}));
 		ASSERT_EQ(Vertex.Reflection.ResourceBindings.size(), 4u);
 		ExpectBinding(Vertex, "Transform", 0, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "HeightTexture", 23, ERHIBindingType::Texture, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "Terrain", 24, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(Vertex, "TerrainPatchOrigins", 27,
-			ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
+		ExpectBinding(Vertex, "TerrainPatchOrigins", 27, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
 		EXPECT_EQ(Output.CompiledShaders[1].Reflection.ResourceBindings.size(), 24u);
-		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowTexture", 25,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowSampler", 26,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowTexture", 25, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowSampler", 26, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests,
-		GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
+	TEST(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -573,12 +596,14 @@ namespace Durin
 			Options.EntryPoints = {"VertexMain", "GeometryFragmentMain"};
 			Options.Frequencies = {
 				EShaderFrequency::Vertex,
-				EShaderFrequency::Fragment};
+				EShaderFrequency::Fragment
+			};
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
 			Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
 			Options.Macros.emplace_back(
 				"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
-				"1056964608");
+				"1056964608"
+			);
 			if (DomainMacro != nullptr)
 				Options.Macros.emplace_back(DomainMacro, "1");
 
@@ -589,8 +614,7 @@ namespace Durin
 			const FCompiledShader& Fragment = Output.CompiledShaders[1];
 			EXPECT_EQ(Fragment.SourceEntryPoint, "GeometryFragmentMain")
 				<< Name;
-			EXPECT_EQ(GetSpirvOutputLocations(Fragment),
-				(std::set<uint32>{0, 1, 2, 3})) << Name;
+			EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0, 1, 2, 3})) << Name;
 			EXPECT_TRUE(HasSpirvInputBuiltIn(Fragment, 17u)) << Name;
 			ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 17u)
 				<< Name;
@@ -599,20 +623,13 @@ namespace Durin
 				<< Name;
 			EXPECT_EQ(FindBinding(Fragment, "DirectionalShadowTexture"), nullptr)
 				<< Name;
-			ExpectBinding(Fragment, "Material", 2,
-				ERHIBindingType::UniformBuffer,
-				EShaderStageFlags::Fragment);
-			ExpectBinding(Fragment, "BaseColorTexture", 3,
-				ERHIBindingType::Texture,
-				EShaderStageFlags::Fragment);
-			ExpectBinding(Fragment, "OpacityMaskSampler", 18,
-				ERHIBindingType::Sampler,
-				EShaderStageFlags::Fragment);
+			ExpectBinding(Fragment, "Material", 2, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+			ExpectBinding(Fragment, "BaseColorTexture", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+			ExpectBinding(Fragment, "OpacityMaskSampler", 18, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 		}
 	}
 
-	TEST(FShaderReflectionTests,
-		TerrainOpaqueShadowOmitsUnconsumedVertexOutputs)
+	TEST(FShaderReflectionTests, TerrainOpaqueShadowOmitsUnconsumedVertexOutputs)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -622,7 +639,8 @@ namespace Durin
 		Options.EntryPoints = {"VertexMain", "OpaqueShadowFragmentMain"};
 		Options.Frequencies = {
 			EShaderFrequency::Vertex,
-			EShaderFrequency::Fragment};
+			EShaderFrequency::Fragment
+		};
 		Options.Macros.emplace_back("DURIN_TERRAIN", "1");
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "0");
 		Options.Macros.emplace_back("DURIN_OPAQUE_SHADOW_DEPTH", "1");
@@ -636,8 +654,7 @@ namespace Durin
 		EXPECT_TRUE(GetSpirvInputLocations(Output.CompiledShaders[1]).empty());
 	}
 
-	TEST(FShaderReflectionTests,
-		GBufferDebugDecodesAllAttachmentsAndDepth)
+	TEST(FShaderReflectionTests, GBufferDebugDecodesAllAttachmentsAndDepth)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -646,7 +663,8 @@ namespace Durin
 		Options.VirtualShaderPath = "/Engine/GBufferDebug";
 		Options.EntryPoints = {"VertexMain", "DebugFragmentMain"};
 		Options.Frequencies = {
-			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment
+		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
@@ -655,22 +673,15 @@ namespace Durin
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
-		ExpectBinding(Fragment, "GBufferMaterial", 0,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GBufferNormals", 1,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GBufferSurface", 2,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GBufferEmissive", 3,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "SceneDepth", 4,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "Params", 5,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GBufferMaterial", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GBufferNormals", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GBufferSurface", 2, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GBufferEmissive", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "SceneDepth", 4, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests,
-		ContactVisibilityFreezesGBufferInputAbi)
+	TEST(FShaderReflectionTests, ContactVisibilityFreezesGBufferInputAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -679,7 +690,8 @@ namespace Durin
 		Options.VirtualShaderPath = "/Engine/ContactShadow";
 		Options.EntryPoints = {"VertexMain", "ContactVisibilityFragmentMain"};
 		Options.Frequencies = {
-			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment
+		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
@@ -692,16 +704,14 @@ namespace Durin
 		{
 			const std::array<const char*, 5> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
-				"GBufferEmissive", "SceneDepth"};
-			ExpectBinding(Fragment, Names[Index], Index,
-				ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+				"GBufferEmissive", "SceneDepth"
+			};
+			ExpectBinding(Fragment, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		}
-		ExpectBinding(Fragment, "Params", 5,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests,
-		ContactVisibilityComputeFreezesR8StorageAbi)
+	TEST(FShaderReflectionTests, ContactVisibilityComputeFreezesR8StorageAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -720,18 +730,15 @@ namespace Durin
 		{
 			const std::array<const char*, 5> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
-				"GBufferEmissive", "SceneDepth"};
-			ExpectBinding(Compute, Names[Index], Index,
-				ERHIBindingType::Texture, EShaderStageFlags::Compute);
+				"GBufferEmissive", "SceneDepth"
+			};
+			ExpectBinding(Compute, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Compute);
 		}
-		ExpectBinding(Compute, "Params", 5,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Compute);
-		ExpectBinding(Compute, "ContactVisibilityOutput", 6,
-			ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
+		ExpectBinding(Compute, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Compute);
+		ExpectBinding(Compute, "ContactVisibilityOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
 	}
 
-	TEST(FShaderReflectionTests,
-		DeferredDirectionalLightingFreezesPublishedInputAbi)
+	TEST(FShaderReflectionTests, DeferredDirectionalLightingFreezesPublishedInputAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -740,7 +747,8 @@ namespace Durin
 		Options.VirtualShaderPath = "/Engine/DeferredDirectionalLighting";
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {
-			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment
+		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
@@ -748,35 +756,26 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 18u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 19u);
 		for (uint32 Index = 0; Index <= 7; ++Index)
 		{
 			const std::array<const char*, 8> Names{
 				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
 				"GBufferEmissive", "SceneDepth", "EnvironmentIrradiance",
-				"EnvironmentPrefiltered", "EnvironmentBrdfLut"};
-			ExpectBinding(Fragment, Names[Index], Index,
-				ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+				"EnvironmentPrefiltered", "EnvironmentBrdfLut"
+			};
+			ExpectBinding(Fragment, Names[Index], Index, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		}
-		ExpectBinding(Fragment, "EnvironmentSampler", 8,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "DirectionalShadowTexture", 9,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "DirectionalShadowSampler", 10,
-			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "View", 11,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "Lighting", 12,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionRaw", 13,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionFiltered", 14,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "ContactVisibility", 15,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionResolved", 16,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionSelector", 17,
-			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "EnvironmentSampler", 8, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "DirectionalShadowTexture", 9, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "DirectionalShadowSampler", 10, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "View", 11, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Lighting", 12, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionRaw", 13, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionFiltered", 14, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "ContactVisibility", 15, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionResolved", 16, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionSelector", 17, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "VolumetricCloudVisibility", 18, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 	}
 } // namespace Durin

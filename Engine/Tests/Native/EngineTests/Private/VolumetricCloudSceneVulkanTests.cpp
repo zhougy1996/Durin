@@ -3,6 +3,7 @@
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "Actors/VolumetricCloudActor.h"
+#include "Actors/DirectionalLightActor.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -43,7 +44,10 @@ namespace Durin
 		class FSceneCloudTestEngine final : public DEngine
 		{
 		public:
-			FSceneCloudTestEngine() : DEngine(FObjectInitializer::Get()) {}
+			FSceneCloudTestEngine()
+				: DEngine(FObjectInitializer::Get())
+			{
+			}
 			auto InstallScene(FScenePtr Scene) -> FScene*
 			{
 				MainScene = std::move(Scene);
@@ -71,7 +75,8 @@ namespace Durin
 			-> FMatrix
 		{
 			const FVector3 Right = Math::Normalize(
-				Math::Cross(FVectorConstants::Up, Forward));
+				Math::Cross(FVectorConstants::Up, Forward)
+			);
 			const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 			FMatrix View(1.0);
 			View[0][0] = Forward.x;
@@ -98,7 +103,8 @@ namespace Durin
 			View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Forward);
 			EXPECT_TRUE(SceneViewProjection::BuildPerspectiveProjection(
 				60.0, static_cast<double>(Width) / Height, 0.1, 500000.0,
-				ESceneDepthConvention::ReversedZ, View.ProjectionMatrix));
+				ESceneDepthConvention::ReversedZ, View.ProjectionMatrix
+			));
 			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.ViewportWidth = Width;
 			View.ViewportHeight = Height;
@@ -112,18 +118,15 @@ namespace Durin
 		{
 			auto* Texture = NewObject<DVolumeTexture>(nullptr, Name);
 			FVolumeTextureSourceData Source{
-				.Width = 1, .Height = 1, .Depth = 1,
-				.Format = EVolumeTextureFormat::R8_UNORM};
+				.Width = 1, .Height = 1, .Depth = 1, .Format = EVolumeTextureFormat::R8_UNORM
+			};
 			const std::array Voxels{static_cast<std::byte>(Density)};
 			EXPECT_TRUE(Source.SetVoxelBytes(Voxels));
 			auto Platform = std::make_unique<FVolumeTexturePlatformData>();
 			Platform->PixelFormat = EPixelFormat::R8_UNORM;
-			Platform->Mips.push_back({
-				.Voxels = {Density}, .Width = 1, .Height = 1, .Depth = 1,
-				.RowPitch = 1, .DepthPitch = 1});
+			Platform->Mips.push_back({.Voxels = {Density}, .Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
 			std::string Error;
-			EXPECT_TRUE(Texture->PublishBuiltData(std::move(Source), {},
-				std::move(Platform), std::format("scene-cloud-{}", Name), Error))
+			EXPECT_TRUE(Texture->PublishBuiltData(std::move(Source), {}, std::move(Platform), std::format("scene-cloud-{}", Name), Error))
 				<< Error;
 			return Texture;
 		}
@@ -137,8 +140,7 @@ namespace Durin
 		};
 	} // namespace
 
-	TEST(FVolumetricCloudSceneVulkanTests,
-		EnabledCloudTraversesOffscreenAndPresentRoutes)
+	TEST(FVolumetricCloudSceneVulkanTests, EnabledCloudTraversesOffscreenAndPresentRoutes)
 	{
 		class FTestApplication final : public FGenericApplication
 		{
@@ -152,8 +154,9 @@ namespace Durin
 				-> std::shared_ptr<FGenericWindow> override
 			{
 				return Window != nullptr
-					&& Window->GetOSNativeWindowHandle() == NativeWindowHandle
-					? Window : nullptr;
+							   && Window->GetOSNativeWindowHandle() == NativeWindowHandle ?
+						   Window :
+						   nullptr;
 			}
 
 			std::shared_ptr<FGenericWindow> Window;
@@ -190,8 +193,10 @@ namespace Durin
 		GEngine = &Engine;
 		auto* World = NewObject<DWorld>(&Engine, "VolumetricCloudSceneWorld");
 		ASSERT_TRUE(World->SetCurrentLevel(
-			NewObject<DLevel>(World, "VolumetricCloudSceneLevel")));
+			NewObject<DLevel>(World, "VolumetricCloudSceneLevel")
+		));
 		Engine.SetWorld(World);
+		ASSERT_NE(World->SpawnActor<ADirectionalLightActor>("SceneSun"), nullptr);
 		auto* Actor = World->SpawnActor<AVolumetricCloudActor>("SceneCloud");
 		DVolumetricCloudComponent* Component =
 			Actor->GetVolumetricCloudComponent();
@@ -209,34 +214,40 @@ namespace Durin
 		SetVolumetricCloudPreparationSink(PrepareSceneCloud);
 		SetViewRenderCounterSink(CaptureSceneCloudCounters);
 		auto RenderOffscreen = [&Renderer, &Fixture, Scene](
-			bool bForceFragment) {
+								   bool bForceFragment
+							   ) {
 			Fixture.bForceFragment = bForceFragment;
 			auto Pixels = std::make_shared<std::vector<uint8>>();
 			auto Result = std::make_shared<ERenderViewResult>(
-				ERenderViewResult::RendererResourcesUnavailable);
+				ERenderViewResult::RendererResourcesUnavailable
+			);
 			EnqueueRenderCommand<FSceneCloudRender>(
 				[&Renderer, Scene, Pixels, Result](
-					FRHICommandListImmediate& CommandList) {
+					FRHICommandListImmediate& CommandList
+				) {
 					constexpr uint32 Width = 96;
 					constexpr uint32 Height = 64;
 					FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
 						CommandList, FRHITextureCreateDesc::Create2D(
-							"SceneCloudOffscreen", Width, Height,
-							EPixelFormat::SRGBA8_UNORM)
-							.SetFlags(ETextureCreateFlags::RenderTargetable
-								| ETextureCreateFlags::ShaderResource
-								| ETextureCreateFlags::CPUReadback));
+										 "SceneCloudOffscreen", Width, Height,
+										 EPixelFormat::SRGBA8_UNORM
+									 )
+										 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback)
+					);
 					if (!Output) return;
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
 					*Result = Renderer.RenderView(
-						CommandList, Scene, View, Output, false, {});
+						CommandList, Scene, View, Output, false, {}
+					);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					GDynamicRHI->RHIReadTexture2D(
-						CommandList, Output, 0, 0, *Pixels);
-				});
+						CommandList, Output, 0, 0, *Pixels
+					);
+				}
+			);
 			FlushRenderingCommands();
 			EXPECT_EQ(*Result, ERenderViewResult::Success);
 			return Pixels;
@@ -257,37 +268,39 @@ namespace Durin
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudComputeViews, 1u);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudDispatches, 1u);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudCompositeDraws, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowComputeViews, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowDispatches, 1u);
+		EXPECT_GT(GSceneCloudCounters.VolumetricCloudShadowSamples, 0u);
 		const auto Fragment = RenderOffscreen(true);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudEnabledViews, 1u);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudFragmentViews, 1u);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudDraws, 1u);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudCompositeDraws, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowFragmentViews, 1u);
+		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudShadowDraws, 1u);
 		ASSERT_EQ(Compute->size(), Fragment->size());
 		ASSERT_EQ(Disabled->size(), Compute->size());
 		bool bDiffersFromDisabled = false;
 		for (size_t Index = 0; Index < Compute->size(); ++Index)
 		{
-			EXPECT_LE(std::abs(static_cast<int>((*Compute)[Index])
-				- static_cast<int>((*Fragment)[Index])), 1) << Index;
+			EXPECT_LE(std::abs(static_cast<int>((*Compute)[Index]) - static_cast<int>((*Fragment)[Index])), 1) << Index;
 			bDiffersFromDisabled |= (*Compute)[Index] != (*Disabled)[Index];
 		}
 		EXPECT_TRUE(bDiffersFromDisabled);
 
-		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({
-			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
-			.SizeX = 96,
-			.SizeY = 64,
-			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
-			.PresentModePolicy = EViewportPresentModePolicy::MainWindow});
+		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({.NativeWindowHandle = Window->GetOSNativeWindowHandle(), .SizeX = 96, .SizeY = 64, .PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM, .PresentModePolicy = EViewportPresentModePolicy::MainWindow});
 		ASSERT_NE(Viewport, nullptr);
-		auto RenderPresent = [&Renderer, &Fixture, &Viewport, Scene](uint32 Width,
-			uint32 Height, bool bForceFragment) {
+		auto RenderPresent = [&Renderer, &Fixture, &Viewport, Scene](uint32 Width, uint32 Height, bool bForceFragment) {
 			Fixture.bForceFragment = bForceFragment;
 			auto Result = std::make_shared<ERenderViewResult>(
-				ERenderViewResult::RendererResourcesUnavailable);
+				ERenderViewResult::RendererResourcesUnavailable
+			);
 			EnqueueRenderCommand<FSceneCloudRender>(
 				[&Renderer, Scene, Viewport, Width, Height, Result](
-					FRHICommandListImmediate& CommandList) {
+					FRHICommandListImmediate& CommandList
+				) {
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					CommandList.BeginDrawingViewport(Viewport, nullptr);
@@ -297,11 +310,13 @@ namespace Durin
 					{
 						FSceneView View = MakeSceneCloudView(Width, Height);
 						*Result = Renderer.RenderView(
-							CommandList, Scene, View, BackBuffer, true, {});
+							CommandList, Scene, View, BackBuffer, true, {}
+						);
 					}
 					CommandList.EndDrawingViewport(Viewport, true, false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-				});
+				}
+			);
 			FlushRenderingCommands();
 			return *Result;
 		};

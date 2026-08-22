@@ -7,6 +7,7 @@
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
 
 #include <limits>
 
@@ -39,8 +40,7 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::BytesPerPixel, 1u);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::CalculateTargetBytes(1920, 1080), 2'073'600u);
-		EXPECT_EQ(FContactShadowVisibilityRenderer::MaximumRetainedBytes,
-			32u * 1024u * 1024u);
+		EXPECT_EQ(FContactShadowVisibilityRenderer::MaximumRetainedBytes, 32u * 1024u * 1024u);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ContactVisibilityRouteTableIsPureAndBounded)
@@ -56,7 +56,8 @@ namespace Durin
 				.Width = 1921,
 				.Height = 1081,
 				.MaxGroupCountX = 65'535,
-				.MaxGroupCountY = 65'535};
+				.MaxGroupCountY = 65'535
+			};
 		};
 		auto Inputs = MakeEligible();
 		auto Decision = FRenderer::SelectRoute(Inputs);
@@ -87,22 +88,19 @@ namespace Durin
 		Inputs.bComputePayloadReady = false;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::ComputePayloadUnavailable);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::ComputePayloadUnavailable);
 
 		Inputs = MakeEligible();
 		Inputs.bComputeTargetReady = false;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::ComputeTargetUnavailable);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::ComputeTargetUnavailable);
 
 		Inputs = MakeEligible();
 		Inputs.MaxGroupCountX = 240;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::ComputeExtentUnsupported);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::ComputeExtentUnsupported);
 
 		Inputs.bFragmentReady = false;
 		Decision = FRenderer::SelectRoute(Inputs);
@@ -110,8 +108,7 @@ namespace Durin
 		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::FragmentUnavailable);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudSpatialContractFreezesRouteAndBudget)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudSpatialContractFreezesRouteAndBudget)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
 		auto MakeEligible = [] {
@@ -125,50 +122,38 @@ namespace Durin
 				.Width = 1'921,
 				.Height = 1'081,
 				.MaxGroupCountX = 65'535,
-				.MaxGroupCountY = 65'535};
+				.MaxGroupCountY = 65'535
+			};
 		};
 		auto Inputs = MakeEligible();
 		auto Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Compute);
 		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::Compute);
 		EXPECT_EQ(FRenderer::CalculateGroupCount(1'921), 241u);
-		EXPECT_EQ(FRenderer::CalculateGroupCount(
-			std::numeric_limits<uint32>::max()), 536'870'912u);
-		EXPECT_EQ(FRenderer::CalculateTargetBytes(1'920, 1'080),
-			16'588'800u);
-		EXPECT_EQ(FRenderer::CalculateTargetBytes(3'840, 2'160),
-			66'355'200u);
-		EXPECT_LE(FRenderer::CalculateTargetBytes(3'840, 2'160),
-			FRenderer::MaximumRetainedTargetBytesPerFamily);
-		EXPECT_GT(FRenderer::CalculateTargetBytes(4'096, 2'160),
-			FRenderer::MaximumRetainedTargetBytesPerFamily);
-		EXPECT_EQ(FRenderer::CalculateTargetBytes(
-			std::numeric_limits<uint32>::max(),
-			std::numeric_limits<uint32>::max()),
-			std::numeric_limits<uint64>::max());
-		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytes,
-			192u * 1024u * 1024u);
-		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytesPerFamily,
-			64u * 1024u * 1024u);
+		EXPECT_EQ(FRenderer::CalculateGroupCount(std::numeric_limits<uint32>::max()), 536'870'912u);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(1'920, 1'080), 16'588'800u);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(3'840, 2'160), 66'355'200u);
+		EXPECT_LE(FRenderer::CalculateTargetBytes(3'840, 2'160), FRenderer::MaximumRetainedTargetBytesPerFamily);
+		EXPECT_GT(FRenderer::CalculateTargetBytes(4'096, 2'160), FRenderer::MaximumRetainedTargetBytesPerFamily);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(std::numeric_limits<uint32>::max(), std::numeric_limits<uint32>::max()), std::numeric_limits<uint64>::max());
+		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytes, 192u * 1024u * 1024u);
+		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytesPerFamily, 64u * 1024u * 1024u);
 
 		Inputs.bComputePayloadReady = false;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::ComputePayloadUnavailable);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::ComputePayloadUnavailable);
 
 		Inputs = MakeEligible();
 		Inputs.MaxGroupCountX = 240;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Fragment);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::ComputeExtentUnsupported);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::ComputeExtentUnsupported);
 
 		Inputs.bFragmentTargetReady = false;
 		Decision = FRenderer::SelectRoute(Inputs);
 		EXPECT_EQ(Decision.Route, FRenderer::ERoute::Disabled);
-		EXPECT_EQ(Decision.Reason,
-			FRenderer::ERouteReason::FragmentTargetUnavailable);
+		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::FragmentTargetUnavailable);
 
 		Inputs = MakeEligible();
 		Inputs.bRequiredInputsValid = false;
@@ -177,30 +162,22 @@ namespace Durin
 		EXPECT_EQ(Decision.Reason, FRenderer::ERouteReason::InvalidInputs);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudOutputAndCompositeFreezeSceneLinearAlgebra)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudOutputAndCompositeFreezeSceneLinearAlgebra)
 	{
 		const FRHIRenderTargetLayout Output = MakeVolumetricCloudOutput();
 		const FRHIRenderTargetLayout Composite = MakeVolumetricCloudComposite();
 		ASSERT_TRUE(Output.IsValid());
 		ASSERT_TRUE(Composite.IsValid());
 		EXPECT_EQ(Output.NumColorRenderTargets, 1u);
-		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.Format,
-			EPixelFormat::RGBA16_FLOAT);
-		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.LoadAction,
-			ERHIRenderTargetLoadAction::Clear);
-		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.LoadAction,
-			ERHIRenderTargetLoadAction::Clear);
-		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.InitialLayout,
-			ERHITextureLayout::Undefined);
-		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.Format, EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Output.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.InitialLayout, ERHITextureLayout::Undefined);
+		EXPECT_EQ(Composite.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudQualityPolicyFreezesAComparableTierMatrix)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudQualityPolicyFreezesAComparableTierMatrix)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
 		using ETier = FRenderer::EQualityTier;
@@ -222,32 +199,18 @@ namespace Durin
 		EXPECT_FALSE(Epic.IsFullResolution());
 		EXPECT_TRUE(Reference.IsFullResolution());
 
-		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, High),
-			(FRenderer::FExtent{1920, 1080}));
-		EXPECT_EQ(FRenderer::CalculateScaledExtent(1919, 1079, High),
-			(FRenderer::FExtent{960, 540}));
-		EXPECT_EQ(FRenderer::CalculateScaledExtent(1, 1, High),
-			(FRenderer::FExtent{1, 1}));
-		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, Reference),
-			(FRenderer::FExtent{3840, 2160}));
-		EXPECT_EQ(FRenderer::CalculateScaledExtent(0, 2160, High),
-			(FRenderer::FExtent{}));
-		EXPECT_EQ(FRenderer::CalculateScaledViewport(
-			{137, 89, 1601, 901}, {1919, 1079}, {960, 540}),
-			(FRenderer::FViewportRect{68, 44, 802, 452}));
-		EXPECT_EQ(FRenderer::CalculateScaledViewport(
-			{0, 0, 3840, 2160}, {3840, 2160}, {1920, 1080}),
-			(FRenderer::FViewportRect{0, 0, 1920, 1080}));
-		EXPECT_EQ(FRenderer::CalculateScaledViewport(
-			{0, 0, 1920, 1081}, {1920, 1080}, {960, 540}),
-			(FRenderer::FViewportRect{}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, High), (FRenderer::FExtent{1920, 1080}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(1919, 1079, High), (FRenderer::FExtent{960, 540}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(1, 1, High), (FRenderer::FExtent{1, 1}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, Reference), (FRenderer::FExtent{3840, 2160}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(0, 2160, High), (FRenderer::FExtent{}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport({137, 89, 1601, 901}, {1919, 1079}, {960, 540}), (FRenderer::FViewportRect{68, 44, 802, 452}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport({0, 0, 3840, 2160}, {3840, 2160}, {1920, 1080}), (FRenderer::FViewportRect{0, 0, 1920, 1080}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport({0, 0, 1920, 1081}, {1920, 1080}, {960, 540}), (FRenderer::FViewportRect{}));
 
-		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Performance),
-			FRenderer::CalculatePolicyKey(ETier::High));
-		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::High),
-			FRenderer::CalculatePolicyKey(ETier::Epic));
-		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Epic),
-			FRenderer::CalculatePolicyKey(ETier::Reference));
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Performance), FRenderer::CalculatePolicyKey(ETier::High));
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::High), FRenderer::CalculatePolicyKey(ETier::Epic));
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Epic), FRenderer::CalculatePolicyKey(ETier::Reference));
 		EXPECT_EQ(FRenderer::CalculateJitter(42, Reference), FVector2f(0.0f));
 		for (uint64 Sequence = 0; Sequence < High.TemporalPatternLength; ++Sequence)
 		{
@@ -257,55 +220,52 @@ namespace Durin
 			EXPECT_GE(Jitter.y, -0.5f);
 			EXPECT_LT(Jitter.y, 0.5f);
 		}
-		EXPECT_EQ(FRenderer::CalculateJitter(0, High),
-			FRenderer::CalculateJitter(High.TemporalPatternLength, High));
+		EXPECT_EQ(FRenderer::CalculateJitter(0, High), FRenderer::CalculateJitter(High.TemporalPatternLength, High));
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudHeightSlabCoversCameraRegimes)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudShadowFreezesTierWorkAndMemory)
+	{
+		using FShadow = FVolumetricCloudShadowRenderer;
+		using ETier = FVolumetricCloudSpatialRenderer::EQualityTier;
+		EXPECT_EQ(FShadow::ResolveSampleCount(ETier::Performance), 4u);
+		EXPECT_EQ(FShadow::ResolveSampleCount(ETier::High), 6u);
+		EXPECT_EQ(FShadow::ResolveSampleCount(ETier::Epic), 8u);
+		EXPECT_EQ(FShadow::ResolveSampleCount(ETier::Reference), 8u);
+		EXPECT_EQ(FShadow::CalculateTargetBytes(3840, 2160), 8'294'400u);
+		EXPECT_EQ(FShadow::CalculateGroupCount(3840), 480u);
+		EXPECT_EQ(FShadow::CalculateGroupCount(2160), 270u);
+		EXPECT_LT(FShadow::CalculateTargetBytes(3840, 2160), FShadow::MaximumRetainedBytesPerRoute);
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudHeightSlabCoversCameraRegimes)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
-		auto Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0, 500.0),
-			.Direction = FVector3(0.0, 0.0, 1.0)});
+		auto Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, 500.0), .Direction = FVector3(0.0, 0.0, 1.0)});
 		ASSERT_TRUE(Interval.bIntersects);
 		EXPECT_DOUBLE_EQ(Interval.NearDistance, 1'000.0);
 		EXPECT_DOUBLE_EQ(Interval.FarDistance, 3'000.0);
 
-		Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0, 2'000.0),
-			.Direction = FVector3(1.0, 0.0, 0.0),
-			.MaximumDistance = 8'000.0});
+		Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, 2'000.0), .Direction = FVector3(1.0, 0.0, 0.0), .MaximumDistance = 8'000.0});
 		ASSERT_TRUE(Interval.bIntersects);
 		EXPECT_DOUBLE_EQ(Interval.NearDistance, 0.0);
 		EXPECT_DOUBLE_EQ(Interval.FarDistance, 8'000.0);
 
-		Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0, 4'500.0),
-			.Direction = FVector3(0.0, 0.0, -2.0)});
+		Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, 4'500.0), .Direction = FVector3(0.0, 0.0, -2.0)});
 		ASSERT_TRUE(Interval.bIntersects);
 		EXPECT_DOUBLE_EQ(Interval.NearDistance, 500.0);
 		EXPECT_DOUBLE_EQ(Interval.FarDistance, 1'500.0);
 
-		Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0, 500.0),
-			.Direction = FVector3(1.0, 0.0, 0.0)});
+		Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, 500.0), .Direction = FVector3(1.0, 0.0, 0.0)});
 		EXPECT_FALSE(Interval.bIntersects);
 
-		Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0,
-				std::numeric_limits<double>::quiet_NaN()),
-			.Direction = FVector3(0.0, 0.0, 1.0)});
+		Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, std::numeric_limits<double>::quiet_NaN()), .Direction = FVector3(0.0, 0.0, 1.0)});
 		EXPECT_FALSE(Interval.bIntersects);
 
-		Interval = FRenderer::IntersectHeightSlab({
-			.Origin = FVector3(0.0, 0.0, 2'000.0),
-			.Direction = FVector3(0.0)});
+		Interval = FRenderer::IntersectHeightSlab({.Origin = FVector3(0.0, 0.0, 2'000.0), .Direction = FVector3(0.0)});
 		EXPECT_FALSE(Interval.bIntersects);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudParametersBindingsAndCountersAreExplicit)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudParametersBindingsAndCountersAreExplicit)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
 		FRenderer::FParameters Parameters;
@@ -335,10 +295,12 @@ namespace Durin
 			.Width = 1'920,
 			.Height = 1'080,
 			.MaxGroupCountX = 65'535,
-			.MaxGroupCountY = 65'535};
+			.MaxGroupCountY = 65'535
+		};
 		const auto Decision = FRenderer::SelectRoute(Inputs);
 		const auto Counters = FRenderer::MakeExecutionCounters(
-			Inputs, Decision, 240, 32);
+			Inputs, Decision, 240, 32
+		);
 		EXPECT_EQ(Counters.Route, FRenderer::ERoute::Compute);
 		EXPECT_EQ(Counters.GroupCountX, 240u);
 		EXPECT_EQ(Counters.GroupCountY, 135u);
@@ -350,8 +312,7 @@ namespace Durin
 		EXPECT_EQ(Counters.Copies, 0u);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		VolumetricCloudReferenceIntegratesDeterministicDensityAndDepth)
+	TEST(FRendererRenderTargetLayoutTests, VolumetricCloudReferenceIntegratesDeterministicDensityAndDepth)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;
 		auto MakeInput = [] {
@@ -379,7 +340,8 @@ namespace Durin
 		EXPECT_FLOAT_EQ(WhiteWeather.Radiance.y, WithoutWeather.Radiance.y);
 		EXPECT_FLOAT_EQ(WhiteWeather.Radiance.z, WithoutWeather.Radiance.z);
 		EXPECT_FLOAT_EQ(
-			WhiteWeather.Transmittance, WithoutWeather.Transmittance);
+			WhiteWeather.Transmittance, WithoutWeather.Transmittance
+		);
 
 		Input.Samplers.BaseDensity = [](const FVector3f&) { return 0.0f; };
 		const auto Empty = FRenderer::IntegrateReference(Input);
@@ -400,8 +362,7 @@ namespace Durin
 		const auto OpaqueInsideCloud = FRenderer::IntegrateReference(Input);
 		ASSERT_TRUE(OpaqueInsideCloud.bIntegrated);
 		EXPECT_GT(OpaqueInsideCloud.Radiance.x, 0.0f);
-		EXPECT_GT(OpaqueInsideCloud.Transmittance,
-			WithoutWeather.Transmittance);
+		EXPECT_GT(OpaqueInsideCloud.Transmittance, WithoutWeather.Transmittance);
 
 		Input = MakeInput();
 		Input.bInsideFittedViewport = false;
@@ -417,8 +378,7 @@ namespace Durin
 
 		Input = MakeInput();
 		Input.Samplers.BaseDensity = [](const FVector3f& Coordinate) {
-			return Coordinate.x + Coordinate.y + Coordinate.z > 1.25f
-				? 0.9f : 0.2f;
+			return Coordinate.x + Coordinate.y + Coordinate.z > 1.25f ? 0.9f : 0.2f;
 		};
 		Input.Samplers.DetailDensity = [](const FVector3f& Coordinate) {
 			return Coordinate.x * 0.25f + Coordinate.z * 0.5f;
@@ -430,7 +390,8 @@ namespace Durin
 		const auto StructuredB = FRenderer::IntegrateReference(Input);
 		EXPECT_EQ(StructuredA.Radiance, StructuredB.Radiance);
 		EXPECT_FLOAT_EQ(
-			StructuredA.Transmittance, StructuredB.Transmittance);
+			StructuredA.Transmittance, StructuredB.Transmittance
+		);
 		EXPECT_EQ(StructuredA.PrimarySamples, StructuredB.PrimarySamples);
 		EXPECT_EQ(StructuredA.LightSamples, StructuredB.LightSamples);
 	}
@@ -531,10 +492,8 @@ namespace Durin
 		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
 		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
 		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Translucency.DepthStencilAttachment.FinalLayout,
-			ERHITextureLayout::DepthStencilAttachment);
-		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Translucency.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
+		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ScenePostProcessLeavesColorReadyForEditorAssistance)
@@ -615,23 +574,18 @@ namespace Durin
 		EXPECT_EQ(FGroundTruthAmbientOcclusionRenderer::BytesPerPixel, 1u);
 		EXPECT_EQ(
 			FGroundTruthAmbientOcclusionRenderer::CalculateRawTargetBytes(1920, 1080),
-			2'073'600u);
+			2'073'600u
+		);
 		EXPECT_EQ(
-			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080,
-				EGroundTruthAmbientOcclusionQuality::FullResolution),
-			4'147'200u);
+			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080, EGroundTruthAmbientOcclusionQuality::FullResolution),
+			4'147'200u
+		);
 		EXPECT_EQ(
-			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080,
-				EGroundTruthAmbientOcclusionQuality::HalfResolution),
-			3'628'800u);
-		EXPECT_GE(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
-			8u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
-				1920, 1080,
-				EGroundTruthAmbientOcclusionQuality::FullResolution));
-		EXPECT_LT(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
-			9u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
-				1920, 1080,
-				EGroundTruthAmbientOcclusionQuality::FullResolution));
+			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080, EGroundTruthAmbientOcclusionQuality::HalfResolution),
+			3'628'800u
+		);
+		EXPECT_GE(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes, 8u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080, EGroundTruthAmbientOcclusionQuality::FullResolution));
+		EXPECT_LT(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes, 9u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080, EGroundTruthAmbientOcclusionQuality::FullResolution));
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, GroundTruthAmbientOcclusionHalfMappingAndSelectorAreExact)
@@ -641,12 +595,9 @@ namespace Durin
 		EXPECT_EQ(FRenderer::CalculateHalfExtent(1), 1u);
 		EXPECT_EQ(FRenderer::CalculateHalfExtent(4), 2u);
 		EXPECT_EQ(FRenderer::CalculateHalfExtent(5), 3u);
-		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({0, 0, 4, 6}),
-			(FRenderer::FRectangle{0, 0, 2, 3}));
-		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({1, 3, 5, 7}),
-			(FRenderer::FRectangle{0, 1, 3, 4}));
-		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({7, 9, 1, 1}),
-			(FRenderer::FRectangle{3, 4, 1, 1}));
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({0, 0, 4, 6}), (FRenderer::FRectangle{0, 0, 2, 3}));
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({1, 3, 5, 7}), (FRenderer::FRectangle{0, 1, 3, 4}));
+		EXPECT_EQ(FRenderer::MapFullRectangleToHalf({7, 9, 1, 1}), (FRenderer::FRectangle{3, 4, 1, 1}));
 
 		uint32 LocalX = 99;
 		uint32 LocalY = 99;
@@ -661,14 +612,11 @@ namespace Durin
 			}
 		}
 		EXPECT_FALSE(FRenderer::DecodeSelector(
-			FRenderer::InvalidSelector, LocalX, LocalY));
+			FRenderer::InvalidSelector, LocalX, LocalY
+		));
 		EXPECT_EQ(FRenderer::EncodeSelector(2, 0), FRenderer::InvalidSelector);
-		EXPECT_EQ(FRenderer::SelectRepresentative({{{false, 0.0f},
-			{false, 0.0f}, {false, 0.0f}, {false, 0.0f}}}),
-			FRenderer::InvalidSelector);
-		EXPECT_EQ(FRenderer::SelectRepresentative({{{true, 4.0f},
-			{true, 2.0f}, {true, 2.0f}, {true, 3.0f}}}), 2u);
-
+		EXPECT_EQ(FRenderer::SelectRepresentative({{{false, 0.0f}, {false, 0.0f}, {false, 0.0f}, {false, 0.0f}}}), FRenderer::InvalidSelector);
+		EXPECT_EQ(FRenderer::SelectRepresentative({{{true, 4.0f}, {true, 2.0f}, {true, 2.0f}, {true, 3.0f}}}), 2u);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, OutputVariantOwnsOnlyTheColorFinalTransition)

@@ -106,13 +106,14 @@ namespace Durin
 			float Weather[4]{};
 			float LightDirection[4]{};
 			float LightColor[4]{};
+			float AmbientColor[4]{};
 			float CameraPosition[4]{};
 			float Viewport[4]{};
 			float OutputViewport[4]{};
 			float Target[4]{};
 			float Jitter[4]{};
 		};
-		static_assert(sizeof(FCloudUniform) == 288);
+		static_assert(sizeof(FCloudUniform) == 304);
 
 		struct alignas(16) FCloudCompositeUniform
 		{
@@ -631,6 +632,7 @@ namespace Durin
 		Uniform.Weather[3] = Parameters.WeatherOffset.y;
 		Copy3(Uniform.LightDirection, glm::normalize(Parameters.LightDirection));
 		Copy3(Uniform.LightColor, Parameters.LightColor);
+		Copy3(Uniform.AmbientColor, Parameters.AmbientColor);
 		Uniform.CameraPosition[0] = static_cast<float>(View->ViewLocation.x);
 		Uniform.CameraPosition[1] = static_cast<float>(View->ViewLocation.y);
 		Uniform.CameraPosition[2] = static_cast<float>(View->ViewLocation.z);

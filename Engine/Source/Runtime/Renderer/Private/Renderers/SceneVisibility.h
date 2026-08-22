@@ -2,6 +2,7 @@
 
 #include "RendererAPI.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
 
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
@@ -273,11 +274,21 @@ namespace Durin
 		uint64 VolumetricCloudActiveBytes = 0;
 		uint64 VolumetricCloudRetainedBytes = 0;
 		uint64 VolumetricCloudHistoryBytes = 0;
+		uint64 VolumetricCloudShadowActiveBytes = 0;
+		uint64 VolumetricCloudShadowRetainedBytes = 0;
+		uint64 VolumetricCloudShadowSamples = 0;
+		size_t VolumetricCloudShadowEnabledViews = 0;
+		size_t VolumetricCloudShadowComputeViews = 0;
+		size_t VolumetricCloudShadowFragmentViews = 0;
+		size_t VolumetricCloudShadowDispatches = 0;
+		size_t VolumetricCloudShadowDraws = 0;
+		size_t VolumetricCloudShadowFactorOneViews = 0;
+		std::array<size_t, static_cast<size_t>(FVolumetricCloudShadowRenderer::ERouteReason::Count)>
+			VolumetricCloudShadowRouteReasons{};
 		size_t VolumetricCloudTemporalDraws = 0;
 		size_t VolumetricCloudHistoryAccepted = 0;
 		size_t VolumetricCloudHistoryRejected = 0;
-		std::array<size_t, static_cast<size_t>(
-			FVolumetricCloudSpatialRenderer::ERouteReason::Count)>
+		std::array<size_t, static_cast<size_t>(FVolumetricCloudSpatialRenderer::ERouteReason::Count)>
 			VolumetricCloudRouteReasons{};
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;

@@ -15,6 +15,7 @@ struct VolumetricCloudUniform
     float4 Weather;     // frequency.xy, offset.zw
     float4 LightDirection;
     float4 LightColor;
+    float4 AmbientColor;
     float4 CameraPosition;
     float4 Viewport;    // inverse cloud viewport extent.xy, cloud origin.zw
     float4 OutputViewport; // full-resolution origin.xy and extent.zw
@@ -139,16 +140,21 @@ float4 IntegrateCloud(int2 pixel)
         {
             float3 lightPosition = position + toLight
                 * ((float)lightIndex + 0.5) * lightStep;
-            lightOpticalDepth += SampleBase(lightPosition)
+            lightOpticalDepth += SampleDensity(lightPosition)
                 * Params.Density.z * lightStep;
         }
         float lightTransmittance = exp(-lightOpticalDepth);
         float stepTransmittance = exp(
             -density * Params.Layer.w * stepDistance);
         float scattered = 1.0 - stepTransmittance;
-        radiance += transmittance * scattered
-            * (Params.Density.w + lightTransmittance)
-            * Params.LightColor.xyz;
+        const float anisotropy = 0.35;
+        float cosTheta = clamp(dot(direction, toLight), -1.0, 1.0);
+        float phase = (1.0 - anisotropy * anisotropy) / max(pow(
+            1.0 + anisotropy * anisotropy
+                - 2.0 * anisotropy * cosTheta, 1.5), 1.0e-4);
+        float3 lighting = Params.Density.w * Params.AmbientColor.xyz
+            + phase * lightTransmittance * Params.LightColor.xyz;
+        radiance += transmittance * scattered * lighting;
         transmittance *= stepTransmittance;
         if (transmittance <= Params.Sampling.z)
         {

@@ -10,6 +10,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/VolumetricCloudRenderer.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -64,7 +65,7 @@ namespace Durin
 		auto DecodeHalf(const uint8* Bytes) -> float
 		{
 			const uint16 Bits = static_cast<uint16>(Bytes[0])
-				| (static_cast<uint16>(Bytes[1]) << 8u);
+								| (static_cast<uint16>(Bytes[1]) << 8u);
 			const uint32 Sign = static_cast<uint32>(Bits & 0x8000u) << 16u;
 			const uint32 Exponent = (Bits >> 10u) & 0x1fu;
 			uint32 Mantissa = Bits & 0x03ffu;
@@ -85,8 +86,8 @@ namespace Durin
 					}
 					Mantissa &= 0x03ffu;
 					FloatBits = Sign
-						| (static_cast<uint32>(113 - Shift) << 23u)
-						| (Mantissa << 13u);
+								| (static_cast<uint32>(113 - Shift) << 23u)
+								| (Mantissa << 13u);
 				}
 			}
 			else if (Exponent == 31)
@@ -96,7 +97,7 @@ namespace Durin
 			else
 			{
 				FloatBits = Sign | ((Exponent + 112u) << 23u)
-					| (Mantissa << 13u);
+							| (Mantissa << 13u);
 			}
 			return std::bit_cast<float>(FloatBits);
 		}
@@ -118,13 +119,15 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 30>>();
+		FVolumetricCloudShadowRenderer CloudShadows(Coordinator, FullscreenGeometry);
+		auto Results = std::make_shared<std::array<bool, 37>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
 		EnqueueRenderCommand<FVolumetricCloudTargetLifecycle>(
-			[&Coordinator, &Clouds, &FullscreenGeometry, Results](
-				FRHICommandListImmediate& CommandList) {
+			[&Coordinator, &Clouds, &CloudShadows, &FullscreenGeometry, Results](
+				FRHICommandListImmediate& CommandList
+			) {
 				(*Results)[0] = Clouds.EnsureTargets_RenderThread(64, 32) == nullptr;
 				(*Results)[1] = Clouds.EnsureTargets_RenderThread(64, 32) == nullptr;
 				Coordinator.Apply_RenderThread(
@@ -133,13 +136,13 @@ namespace Durin
 				);
 				auto* FragmentTargets = Clouds.EnsureTargets_RenderThread(64, 32);
 				(*Results)[2] = FragmentTargets != nullptr && FragmentTargets->Cloud
-					&& FragmentTargets->Cloud->GetFormat()
-						== EPixelFormat::RGBA16_FLOAT;
+								&& FragmentTargets->Cloud->GetFormat()
+									   == EPixelFormat::RGBA16_FLOAT;
 				auto* ComputeTargets = Clouds.EnsureComputeTargets_RenderThread(64, 32);
 				(*Results)[3] = ComputeTargets != nullptr && ComputeTargets->Cloud
-					&& ComputeTargets->SampledView && ComputeTargets->StorageView;
+								&& ComputeTargets->SampledView && ComputeTargets->StorageView;
 				(*Results)[4] = Clouds.GetRetainedTargetBytes_RenderThread()
-					== 2ull * 64ull * 32ull * 8ull;
+								== 2ull * 64ull * 32ull * 8ull;
 
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				auto MakeVolume = [&CommandList](const char* Name, uint8 Value) {
@@ -172,8 +175,8 @@ namespace Durin
 					CommandList,
 					FRHITextureCreateDesc::Create2D(
 						"CloudRouteDepth", 64, 32, EPixelFormat::D32
-					).SetFlags(ETextureCreateFlags::DepthStencilTargetable
-						| ETextureCreateFlags::ShaderResource)
+					)
+						.SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource)
 				);
 				FSamplerRHIRef Sampler = RHICreateSampler(
 					FRHISamplerDesc::LinearRepeat()
@@ -187,7 +190,7 @@ namespace Durin
 				DepthPass.RenderTargetLayout =
 					RenderTargetLayouts::MakeDirectionalShadowDepth();
 				DepthPass.DepthStencilRenderTarget = Depth;
-				DepthPass.DepthStencilClearValue = FClearValueBinding(0.0f, 0u);
+				DepthPass.DepthStencilClearValue = FClearValueBinding(0.5f, 0u);
 				CommandList.BeginRenderPass(
 					DepthPass, "VolumetricCloudDepthClear"
 				);
@@ -198,10 +201,10 @@ namespace Durin
 				const FVector3 Forward = Math::Normalize(FVector3(1.0, 0.0, 0.15));
 				View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Forward);
 				if (!SceneViewProjection::BuildPerspectiveProjection(
-					60.0, 1.0, 0.1, 500000.0,
-					ESceneDepthConvention::ReversedZ,
-					View.ProjectionMatrix
-				))
+						60.0, 1.0, 0.1, 500000.0,
+						ESceneDepthConvention::ReversedZ,
+						View.ProjectionMatrix
+					))
 				{
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					return;
@@ -231,10 +234,10 @@ namespace Durin
 				);
 				(*Results)[5] = Fragment.Cloud == FragmentTargets->Cloud.GetReference();
 				(*Results)[6] = Fragment.Counters.Route
-					== FVolumetricCloudRenderer::ERoute::Fragment;
+								== FVolumetricCloudRenderer::ERoute::Fragment;
 				(*Results)[7] = Fragment.Counters.Dispatches == 0
-					&& Fragment.Counters.Draws == 1
-					&& Fragment.Counters.Copies == 0;
+								&& Fragment.Counters.Draws == 1
+								&& Fragment.Counters.Copies == 0;
 				std::vector<uint8> FragmentPixels;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -244,17 +247,83 @@ namespace Durin
 				);
 				(*Results)[9] = Compute.Cloud == ComputeTargets->Cloud.GetReference();
 				(*Results)[10] = Compute.Counters.Route
-					== FVolumetricCloudRenderer::ERoute::Compute;
+								 == FVolumetricCloudRenderer::ERoute::Compute;
 				(*Results)[11] = Compute.Counters.Dispatches == 1
-					&& Compute.Counters.Draws == 0
-					&& Compute.Counters.Copies == 0;
+								 && Compute.Counters.Draws == 0
+								 && Compute.Counters.Copies == 0;
+				FTextureRHIRef Weather = GDynamicRHI->RHICreateTexture(
+					CommandList, FRHITextureCreateDesc::Create2D(
+									 "CloudShadowWeather", 1, 1, EPixelFormat::R8_UNORM
+								 )
+									 .SetFlags(ETextureCreateFlags::ShaderResource)
+				);
+				const uint8 White = 255;
+				if (Weather) GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1, &White);
+				auto* ShadowFragmentTargets =
+					CloudShadows.EnsureTargets_RenderThread(64, 32);
+				auto* ShadowComputeTargets =
+					CloudShadows.EnsureComputeTargets_RenderThread(64, 32);
+				FVolumetricCloudShadowRenderer::FRenderInput ShadowInput{
+					.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = Depth, .DensitySampler = Sampler, .Parameters = Input.Parameters, .View = &View, .QualityTier = FVolumetricCloudRenderer::EQualityTier::High, .Width = 64, .Height = 32
+				};
+				const auto FragmentShadow = CloudShadows.Render_RenderThread(
+					CommandList, ShadowFragmentTargets, nullptr, ShadowInput
+				);
+				(*Results)[30] = FragmentShadow.Visibility
+									 == ShadowFragmentTargets->Visibility.GetReference()
+								 && FragmentShadow.Route
+										== FVolumetricCloudShadowRenderer::ERoute::Fragment;
+				(*Results)[31] = FragmentShadow.SampleCount == 6
+								 && FragmentShadow.TargetBytes == 64u * 32u;
+				std::vector<uint8> FragmentShadowPixels;
+				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				const bool bFragmentShadowRead = GDynamicRHI->RHIReadTexture2D(
+					CommandList, FragmentShadow.Visibility, 0, 0, FragmentShadowPixels
+				);
+				const auto ComputeShadow = CloudShadows.Render_RenderThread(
+					CommandList, ShadowFragmentTargets, ShadowComputeTargets, ShadowInput
+				);
+				(*Results)[32] = ComputeShadow.Visibility
+									 == ShadowComputeTargets->Visibility.GetReference()
+								 && ComputeShadow.Route
+										== FVolumetricCloudShadowRenderer::ERoute::Compute;
+				(*Results)[33] = CloudShadows.GetRetainedTargetBytes_RenderThread()
+								 == 2u * 64u * 32u;
+				std::vector<uint8> ComputeShadowPixels;
+				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				const bool bComputeShadowRead = GDynamicRHI->RHIReadTexture2D(
+					CommandList, ComputeShadow.Visibility, 0, 0, ComputeShadowPixels
+				);
+				bool bShadowParity = bFragmentShadowRead && bComputeShadowRead
+									 && FragmentShadowPixels.size() == ComputeShadowPixels.size()
+									 && !ComputeShadowPixels.empty();
+				bool bHasOcclusion = false;
+				for (uint32 Y = View.ViewportY;
+					 bShadowParity && Y < View.ViewportY + View.ViewportHeight; ++Y)
+				{
+					for (uint32 X = View.ViewportX;
+						 bShadowParity && X < View.ViewportX + View.ViewportWidth; ++X)
+					{
+						const size_t Index = static_cast<size_t>(Y) * 64u + X;
+						bShadowParity = std::abs(static_cast<int>(FragmentShadowPixels[Index]) - static_cast<int>(ComputeShadowPixels[Index])) <= 1;
+						bHasOcclusion |= ComputeShadowPixels[Index] < 255u;
+					}
+				}
+				(*Results)[36] = bShadowParity && bHasOcclusion;
+				ShadowInput.Parameters.LightDirection = FVector3f(0.0f);
+				const auto InvalidShadow = CloudShadows.Render_RenderThread(
+					CommandList, ShadowFragmentTargets, ShadowComputeTargets, ShadowInput
+				);
+				(*Results)[34] = !InvalidShadow.Visibility
+								 && InvalidShadow.Reason
+										== FVolumetricCloudShadowRenderer::ERouteReason::InvalidInputs;
 				std::vector<uint8> ComputePixels;
 				FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
 					CommandList,
 					FRHITextureCreateDesc::Create2D(
 						"CloudCompositeScene", 64, 32, EPixelFormat::RGBA16_FLOAT
-					).SetFlags(ETextureCreateFlags::RenderTargetable
-						| ETextureCreateFlags::ShaderResource)
+					)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 				);
 				if (!SceneColor)
 				{
@@ -276,49 +345,52 @@ namespace Durin
 				);
 				(*Results)[15] = Composite != nullptr;
 				(*Results)[19] = Clouds.GetRetainedTargetBytes_RenderThread()
-					== 3ull * 64ull * 32ull * 8ull;
+								 == 3ull * 64ull * 32ull * 8ull;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				(*Results)[8] = GDynamicRHI->RHIReadTexture2D(
-					CommandList, Fragment.Cloud, 0, 0, FragmentPixels
-				) && !FragmentPixels.empty();
+									CommandList, Fragment.Cloud, 0, 0, FragmentPixels
+								)
+								&& !FragmentPixels.empty();
 				(*Results)[12] = GDynamicRHI->RHIReadTexture2D(
-					CommandList, Compute.Cloud, 0, 0, ComputePixels
-				) && ComputePixels.size() == FragmentPixels.size();
+									 CommandList, Compute.Cloud, 0, 0, ComputePixels
+								 )
+								 && ComputePixels.size() == FragmentPixels.size();
 				bool bParity = FragmentPixels.size() == ComputePixels.size();
 				for (size_t Offset = 0;
-					bParity && Offset + 1 < ComputePixels.size(); Offset += 2)
+					 bParity && Offset + 1 < ComputePixels.size(); Offset += 2)
 				{
-					bParity = std::abs(DecodeHalf(ComputePixels.data() + Offset)
-						- DecodeHalf(FragmentPixels.data() + Offset))
-						<= 2.0f / 1024.0f;
+					bParity = std::abs(DecodeHalf(ComputePixels.data() + Offset) - DecodeHalf(FragmentPixels.data() + Offset))
+							  <= 2.0f / 1024.0f;
 				}
 				(*Results)[14] = bParity;
 				std::vector<uint8> CompositePixels;
 				(*Results)[16] = GDynamicRHI->RHIReadTexture2D(
-					CommandList, Composite, 0, 0, CompositePixels
-				) && CompositePixels.size() == ComputePixels.size();
+									 CommandList, Composite, 0, 0, CompositePixels
+								 )
+								 && CompositePixels.size() == ComputePixels.size();
 				const size_t Center = (15u * 64u + 32u) * 8u;
 				bool bCompositeAlgebra = CompositePixels.size() >= Center + 8u;
 				for (size_t Channel = 0;
-					bCompositeAlgebra && Channel < 3; ++Channel)
+					 bCompositeAlgebra && Channel < 3; ++Channel)
 				{
 					const float Scene = std::array{0.25f, 0.5f, 0.75f}[Channel];
 					const float Expected =
 						DecodeHalf(ComputePixels.data() + Center + Channel * 2u)
 						+ DecodeHalf(ComputePixels.data() + Center + 6u) * Scene;
 					bCompositeAlgebra = std::abs(
-						DecodeHalf(CompositePixels.data() + Center + Channel * 2u)
-							- Expected
-					) <= 2.0f / 1024.0f;
+											DecodeHalf(CompositePixels.data() + Center + Channel * 2u)
+											- Expected
+										)
+										<= 2.0f / 1024.0f;
 				}
 				(*Results)[17] = bCompositeAlgebra;
 				(*Results)[18] = CompositePixels.size() >= 8u
-					&& std::abs(DecodeHalf(CompositePixels.data()) - 0.25f)
-						<= 1.0f / 1024.0f
-					&& std::abs(DecodeHalf(CompositePixels.data() + 2u) - 0.5f)
-						<= 1.0f / 1024.0f
-					&& std::abs(DecodeHalf(CompositePixels.data() + 4u) - 0.75f)
-						<= 1.0f / 1024.0f;
+								 && std::abs(DecodeHalf(CompositePixels.data()) - 0.25f)
+										<= 1.0f / 1024.0f
+								 && std::abs(DecodeHalf(CompositePixels.data() + 2u) - 0.5f)
+										<= 1.0f / 1024.0f
+								 && std::abs(DecodeHalf(CompositePixels.data() + 4u) - 0.75f)
+										<= 1.0f / 1024.0f;
 
 				std::vector<uint16> EdgeCloud(32u * 16u * 4u, 0u);
 				for (uint32 Y = 0; Y < 16; ++Y)
@@ -336,22 +408,20 @@ namespace Durin
 						EdgeDepth[static_cast<size_t>(Y) * 64 + X] = 0.8f;
 				FTextureRHIRef EdgeCloudTexture = GDynamicRHI->RHICreateTexture(
 					CommandList, FRHITextureCreateDesc::Create2D(
-						"CloudBilateralEdge", 32, 16, EPixelFormat::RGBA16_FLOAT)
-						.SetFlags(ETextureCreateFlags::ShaderResource));
+									 "CloudBilateralEdge", 32, 16, EPixelFormat::RGBA16_FLOAT
+								 )
+									 .SetFlags(ETextureCreateFlags::ShaderResource)
+				);
 				FTextureRHIRef EdgeDepthTexture = GDynamicRHI->RHICreateTexture(
 					CommandList, FRHITextureCreateDesc::Create2D(
-						"CloudBilateralDepthEdge", 64, 32, EPixelFormat::R32_FLOAT)
-						.SetFlags(ETextureCreateFlags::ShaderResource));
+									 "CloudBilateralDepthEdge", 64, 32, EPixelFormat::R32_FLOAT
+								 )
+									 .SetFlags(ETextureCreateFlags::ShaderResource)
+				);
 				if (EdgeCloudTexture && EdgeDepthTexture)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture,
-						0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16),
-						32u * 8u,
-						reinterpret_cast<const uint8*>(EdgeCloud.data()));
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture,
-						0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32),
-						64u * 4u,
-						reinterpret_cast<const uint8*>(EdgeDepth.data()));
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16), 32u * 8u, reinterpret_cast<const uint8*>(EdgeCloud.data()));
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32), 64u * 4u, reinterpret_cast<const uint8*>(EdgeDepth.data()));
 					FSceneView EdgeView = View;
 					EdgeView.ViewportX = 0;
 					EdgeView.ViewportY = 0;
@@ -359,22 +429,25 @@ namespace Durin
 					EdgeView.ViewportHeight = 32;
 					FRHITexture* EdgeComposite = Clouds.Composite_RenderThread(
 						CommandList, SceneColor, EdgeCloudTexture,
-						EdgeDepthTexture, EdgeView);
+						EdgeDepthTexture, EdgeView
+					);
 					std::vector<uint8> EdgePixels;
 					(*Results)[22] = EdgeComposite
-						&& GDynamicRHI->RHIReadTexture2D(
-							CommandList, EdgeComposite, 0, 0, EdgePixels);
+									 && GDynamicRHI->RHIReadTexture2D(
+										 CommandList, EdgeComposite, 0, 0, EdgePixels
+									 );
 					const size_t Left = (15u * 64u + 31u) * 8u;
 					const size_t Right = (15u * 64u + 32u) * 8u;
 					(*Results)[23] = EdgePixels.size() >= Right + 8u
-						&& DecodeHalf(EdgePixels.data() + Left) >= 0.99f
-						&& std::abs(DecodeHalf(EdgePixels.data() + Right) - 0.25f)
-							<= 2.0f / 1024.0f;
+									 && DecodeHalf(EdgePixels.data() + Left) >= 0.99f
+									 && std::abs(DecodeHalf(EdgePixels.data() + Right) - 0.25f)
+											<= 2.0f / 1024.0f;
 				}
 
 				FSceneViewState TemporalState;
 				const auto Metadata = BuildSceneViewTemporalMetadata(
-					View, nullptr, 64, 32);
+					View, nullptr, 64, 32
+				);
 				const auto FirstContext = TemporalState.Begin(Metadata, 1, false);
 				const auto FirstTemporal = Clouds.ReconstructTemporal_RenderThread(
 					CommandList,
@@ -383,19 +456,23 @@ namespace Durin
 					 .TemporalContext = &FirstContext,
 					 .ViewState = &TemporalState,
 					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
-					 .CloudHistoryKey = 91});
+					 .CloudHistoryKey = 91}
+				);
 				(*Results)[24] = FirstTemporal.bCandidatePublished
-					&& !FirstTemporal.bHistoryAccepted;
+								 && !FirstTemporal.bHistoryAccepted;
 				TemporalState.Commit();
 				(*Results)[25] = TemporalState.GetVolumetricCloudHistory()
-					.CanReproject(
-						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
-							FVolumetricCloudRenderer::EQualityTier::High),
-						91, 64, 32);
+									 .CanReproject(
+										 FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+											 FVolumetricCloudRenderer::EQualityTier::High
+										 ),
+										 91, 64, 32
+									 );
 
 				const auto FailedContext = TemporalState.Begin(Metadata, 2, false);
 				VulkanRHI::ArmVulkanCreateFailure(
-					VulkanRHI::EVulkanCreateFailurePoint::Image);
+					VulkanRHI::EVulkanCreateFailurePoint::Image
+				);
 				const auto FailedTemporal = Clouds.ReconstructTemporal_RenderThread(
 					CommandList,
 					{.CurrentCloud = Compute.Cloud,
@@ -403,14 +480,17 @@ namespace Durin
 					 .TemporalContext = &FailedContext,
 					 .ViewState = &TemporalState,
 					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
-					 .CloudHistoryKey = 91});
+					 .CloudHistoryKey = 91}
+				);
 				TemporalState.Abort();
 				(*Results)[26] = !FailedTemporal.bCandidatePublished
-					&& FailedTemporal.Cloud == Compute.Cloud
-					&& TemporalState.GetVolumetricCloudHistory().CanReproject(
-						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
-							FVolumetricCloudRenderer::EQualityTier::High),
-						91, 64, 32);
+								 && FailedTemporal.Cloud == Compute.Cloud
+								 && TemporalState.GetVolumetricCloudHistory().CanReproject(
+									 FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+										 FVolumetricCloudRenderer::EQualityTier::High
+									 ),
+									 91, 64, 32
+								 );
 
 				const auto RecoveredContext = TemporalState.Begin(Metadata, 3, false);
 				const auto RecoveredTemporal = Clouds.ReconstructTemporal_RenderThread(
@@ -420,9 +500,10 @@ namespace Durin
 					 .TemporalContext = &RecoveredContext,
 					 .ViewState = &TemporalState,
 					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
-					 .CloudHistoryKey = 91});
+					 .CloudHistoryKey = 91}
+				);
 				(*Results)[27] = RecoveredTemporal.bCandidatePublished
-					&& RecoveredTemporal.bHistoryAccepted;
+								 && RecoveredTemporal.bHistoryAccepted;
 				TemporalState.Commit();
 
 				const auto PolicyContext = TemporalState.Begin(Metadata, 4, false);
@@ -433,37 +514,44 @@ namespace Durin
 					 .TemporalContext = &PolicyContext,
 					 .ViewState = &TemporalState,
 					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::Epic,
-					 .CloudHistoryKey = 91});
+					 .CloudHistoryKey = 91}
+				);
 				TemporalState.Abort();
 				(*Results)[28] = PolicyTemporal.bCandidatePublished
-					&& !PolicyTemporal.bHistoryAccepted
-					&& TemporalState.GetVolumetricCloudHistory().CanReproject(
-						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
-							FVolumetricCloudRenderer::EQualityTier::High),
-						91, 64, 32);
+								 && !PolicyTemporal.bHistoryAccepted
+								 && TemporalState.GetVolumetricCloudHistory().CanReproject(
+									 FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+										 FVolumetricCloudRenderer::EQualityTier::High
+									 ),
+									 91, 64, 32
+								 );
 				TemporalState.Invalidate(
-					ESceneViewDiscontinuity::DeviceInvalidation);
+					ESceneViewDiscontinuity::DeviceInvalidation
+				);
 				(*Results)[29] = TemporalState.GetVolumetricCloudHistory()
-					.GetRetainedBytes() == 0;
+									 .GetRetainedBytes()
+								 == 0;
 				const auto Disabled = Clouds.Render_RenderThread(
 					CommandList, FragmentTargets, ComputeTargets,
 					FVolumetricCloudRenderer::FRenderInput{}
 				);
 				(*Results)[13] = Disabled.Cloud == nullptr
-					&& Disabled.Counters.Route
-						== FVolumetricCloudRenderer::ERoute::Disabled;
+								 && Disabled.Counters.Route
+										== FVolumetricCloudRenderer::ERoute::Disabled;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 
 				auto* Fragment4K = Clouds.EnsureTargets_RenderThread(3'840, 2'160);
 				auto* Compute4K = Clouds.EnsureComputeTargets_RenderThread(3'840, 2'160);
 				(*Results)[20] = Fragment4K != nullptr && Fragment4K->Cloud
-					&& Fragment4K->Cloud->GetSizeX() == 3'840
-					&& Fragment4K->Cloud->GetSizeY() == 2'160;
+								 && Fragment4K->Cloud->GetSizeX() == 3'840
+								 && Fragment4K->Cloud->GetSizeY() == 2'160;
 				(*Results)[21] = Compute4K != nullptr && Compute4K->Cloud
-					&& Compute4K->SampledView && Compute4K->StorageView
-					&& Compute4K->Cloud->GetSizeX() == 3'840
-					&& Compute4K->Cloud->GetSizeY() == 2'160;
+								 && Compute4K->SampledView && Compute4K->StorageView
+								 && Compute4K->Cloud->GetSizeX() == 3'840
+								 && Compute4K->Cloud->GetSizeY() == 2'160;
 				Clouds.ReleaseResources_RenderThread();
+				CloudShadows.ReleaseResources_RenderThread();
+				(*Results)[35] = CloudShadows.GetRetainedTargetBytes_RenderThread() == 0;
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);

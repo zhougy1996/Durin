@@ -23,6 +23,7 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
 	// One cleared R8_UNORM contact-visibility target published for sampling.
 	RENDERER_API auto MakeContactVisibilityOutput() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeVolumetricCloudShadowOutput() -> FRHIRenderTargetLayout;
 	// Cloud radiance/transmittance target and linear ping-pong scene composite.
 	RENDERER_API auto MakeVolumetricCloudOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeVolumetricCloudComposite() -> FRHIRenderTargetLayout;

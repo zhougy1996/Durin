@@ -13,6 +13,7 @@
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/TerrainRenderer.h"
 #include "Renderers/VolumetricCloudRenderer.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/SceneViewState.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
@@ -120,6 +121,16 @@ namespace Durin
 			bool bWantsProductionDeferred,
 			bool bGBufferComplete
 		) -> void;
+		auto RenderVolumetricCloudShadows_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			struct FPreparedSceneView& PreparedView,
+			FPostProcessRenderer::FSceneTargets* SceneTargets,
+			FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+			uint32 Width,
+			uint32 Height,
+			bool bWantsProductionDeferred,
+			bool bGBufferComplete
+		) -> void;
 		auto RenderIsolatedDeferred_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
@@ -146,7 +157,8 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
 			FRHITexture* SceneColor,
-			FRHITexture* Depth) -> FRHITexture*;
+			FRHITexture* Depth
+		) -> FRHITexture*;
 		auto EnqueueResourceInvalidation(
 			ERendererResourceInvalidationCause Cause
 		) -> void;
@@ -154,7 +166,7 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			ERendererResourceInvalidationCause Cause
 		) -> void;
-			auto RenderScene_RenderThread(
+		auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
 			FRHITexture*& SceneColor,
@@ -184,6 +196,7 @@ namespace Durin
 		FPostProcessRenderer PostProcessRenderer;
 		FContactShadowVisibilityRenderer ContactShadowRenderer;
 		FVolumetricCloudRenderer VolumetricCloudRenderer;
+		FVolumetricCloudShadowRenderer VolumetricCloudShadowRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 		FSceneViewStateRegistry ViewStates;
 		uint64 RenderSubmissionSerial = 0;

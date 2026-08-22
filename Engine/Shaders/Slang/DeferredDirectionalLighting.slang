@@ -61,6 +61,7 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(15, 0)]] Texture2D<float> ContactVisibility;
 [[vk::binding(16, 0)]] Texture2D<float> GroundTruthAmbientOcclusionResolved;
 [[vk::binding(17, 0)]] Texture2D<float> GroundTruthAmbientOcclusionSelector;
+[[vk::binding(18, 0)]] Texture2D<float> VolumetricCloudVisibility;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -132,6 +133,8 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
     float3 directional = float3(0.0);
 	float contactVisibility = View.ContactParams.x > 0.5
 		? ContactVisibility.Load(int3(pixel, 0)) : 1.0;
+	float cloudVisibility = View.ContactParams.w > 0.5
+		? VolumetricCloudVisibility.Load(int3(pixel, 0)) : 1.0;
     if (Lighting.Counts.x > 0u)
     {
         float3 lightVector = -Lighting.DirectionalDirection.xyz;
@@ -162,7 +165,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
             frame,
             toLight,
             radiance,
-			shadow.attenuation * contactVisibility);
+			shadow.attenuation * contactVisibility * cloudVisibility);
     }
 	if (View.ContactParams.y > 0.5)
 		return MakeDeferredLightingOutput(

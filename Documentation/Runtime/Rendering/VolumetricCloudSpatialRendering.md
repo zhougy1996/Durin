@@ -21,11 +21,13 @@ Base, detail, depth, sampler, valid extent, and finite parameters are required.
 Missing weather resolves to a one-texel white texture. Missing or invalid
 required input selects the disabled route and cannot fail the containing view.
 
-The P1 coordinate domain is a flat world-Z slab. Its default bounds are Z
+The coordinate domain is a flat world-Z slab. Its default bounds are Z
 1,500–3,500 with a 100,000-unit trace limit, at most 32 primary samples and four
 directional form samples. World-space base/detail frequencies, wind offsets,
-weather coverage, erosion, extinction, and the minimal light term are shared by
-the CPU reference, compute shader, and fragment shader.
+weather coverage, erosion, and extinction are shared by the CPU reference,
+compute shader, and fragment shader. The production phase, self-transmittance,
+ambient, and receiver-shadow contract is documented in
+[Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md).
 
 ## Output and composition
 
@@ -117,6 +119,7 @@ $env:DURIN_RHI_EXECUTION='threaded'
 
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
 - [Volumetric cloud temporal reconstruction](VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md)
 - [Volume textures](../Assets/VolumeTextures.md)
 - [Synchronous compute pipelines](SynchronousComputePipelines.md)
 - [RHI resource transitions](RHIResourceTransitions.md)

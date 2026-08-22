@@ -63,6 +63,7 @@ namespace Durin
 			FRHITexture* GroundTruthAmbientOcclusionResolved = nullptr;
 			FRHITexture* GroundTruthAmbientOcclusionSelector = nullptr;
 			FRHITexture* ContactVisibility = nullptr;
+			FRHITexture* VolumetricCloudVisibility = nullptr;
 			FRHIUniformBufferRange Lighting;
 			const FSceneView* View = nullptr;
 			uint32 DiagnosticMode = 0;
@@ -71,6 +72,7 @@ namespace Durin
 			bool bGroundTruthAmbientOcclusionHalfResolution = false;
 			bool bContactVisibilityEnabled = false;
 			bool bContactVisibilityDebug = false;
+			bool bVolumetricCloudVisibilityEnabled = false;
 		};
 
 		FDeferredDirectionalLightingRenderer(

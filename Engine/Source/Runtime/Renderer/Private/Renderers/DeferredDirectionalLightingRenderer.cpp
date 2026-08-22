@@ -22,24 +22,25 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FDeferredDirectionalVertexShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Vertex, "VertexMain");
 		};
 
-#define DURIN_DEFERRED_FRAGMENT_PARAMETERS()                  \
-	DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);          \
-	DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);           \
-	DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);           \
-	DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);          \
-	DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);               \
-	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);    \
-	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);   \
-	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);       \
-	DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);       \
-	DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture); \
-	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler); \
-	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionRaw); \
+#define DURIN_DEFERRED_FRAGMENT_PARAMETERS()                             \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);                     \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);                      \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);                      \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);                     \
+	DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);                          \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);               \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);              \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);                  \
+	DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);                  \
+	DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);            \
+	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);            \
+	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionRaw);      \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionFiltered); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionResolved); \
 	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionSelector); \
-	DURIN_SHADER_PARAMETER_TEXTURE(ContactVisibility);       \
-	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);      \
+	DURIN_SHADER_PARAMETER_TEXTURE(ContactVisibility);                   \
+	DURIN_SHADER_PARAMETER_TEXTURE(VolumetricCloudVisibility);           \
+	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);                 \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 
 		class FDeferredDirectionalFragmentShader final : public FShader
@@ -343,6 +344,7 @@ namespace Durin
 			|| Parameters.GroundTruthAmbientOcclusionResolved == nullptr
 			|| Parameters.GroundTruthAmbientOcclusionSelector == nullptr
 			|| Parameters.ContactVisibility == nullptr
+			|| Parameters.VolumetricCloudVisibility == nullptr
 			|| Parameters.Lighting.Buffer == nullptr)
 		{
 			return false;
@@ -377,17 +379,16 @@ namespace Durin
 		Uniform.Params = {
 			1.0f / static_cast<float>(View->ViewportWidth),
 			1.0f / static_cast<float>(View->ViewportHeight),
-			Parameters.bGroundTruthAmbientOcclusionEnabled
-				? static_cast<float>(Parameters.DiagnosticMode)
-				: -static_cast<float>(Parameters.DiagnosticMode + 1u),
+			Parameters.bGroundTruthAmbientOcclusionEnabled ? static_cast<float>(Parameters.DiagnosticMode) : -static_cast<float>(Parameters.DiagnosticMode + 1u),
 			bProduction ? 1.0f :
-				-static_cast<float>(Parameters.GroundTruthAmbientOcclusionDebugMode)
+						  -static_cast<float>(Parameters.GroundTruthAmbientOcclusionDebugMode)
 		};
 		Uniform.ContactParams = {
 			Parameters.bContactVisibilityEnabled ? 1.0f : 0.0f,
 			Parameters.bContactVisibilityDebug ? 1.0f : 0.0f,
 			Parameters.bGroundTruthAmbientOcclusionHalfResolution ? 1.0f : 0.0f,
-			0.0f};
+			Parameters.bVolumetricCloudVisibilityEnabled ? 1.0f : 0.0f
+		};
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
@@ -444,6 +445,7 @@ namespace Durin
 			ShaderParameters.GroundTruthAmbientOcclusionSelector =
 				Parameters.GroundTruthAmbientOcclusionSelector;
 			ShaderParameters.ContactVisibility = Parameters.ContactVisibility;
+			ShaderParameters.VolumetricCloudVisibility = Parameters.VolumetricCloudVisibility;
 			ShaderParameters.View = ViewUniform;
 			ShaderParameters.Lighting = Parameters.Lighting;
 		};

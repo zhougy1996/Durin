@@ -66,8 +66,9 @@ disabled frame commits the clear. Manual and device invalidation are explicit
 hard resets and release all retained history immediately.
 
 History is rejected for first use, camera cuts, scene/output/viewport/projection
-or depth-convention changes, inactivity, duplicate submissions, policy or cloud
-identity changes, missing state, and failed candidate creation. Camera
+or depth-convention changes, inactivity, duplicate submissions, policy, cloud
+identity, or selected-light radiance changes, missing state, and failed
+candidate creation. Camera
 translation and rotation remain eligible because reprojection consumes the
 previous committed matrices. A disabled or stateless view takes the spatial
 fallback and retains no candidate.
@@ -86,6 +87,11 @@ history textures: 132,710,400 bytes total. `Reference` retains three
 full-resolution renderer targets and no history: 199,065,600 bytes. Both remain
 under the 192 MiB renderer/cloud qualification ceiling; these values do not
 include unrelated scene-color or depth ownership.
+
+P4 adds a full-resolution `R8_UNORM` receiver-visibility target. Retaining both
+shadow route families adds 16,588,800 bytes, producing complete-cloud totals of
+149,299,200 bytes for production tiers and 215,654,400 bytes for `Reference`,
+both below P4's 224 MiB ceiling.
 
 Resource or shader failure returns the current spatial cloud when possible and
 publishes no temporal candidate. An outer abort leaves the prior committed
@@ -125,4 +131,5 @@ diagnostic; the bounded gate permits at most 5%/1%/0.5% of RGB components above
 - [Persistent view state](PersistentViewState.md)
 - [Volumetric cloud spatial rendering](VolumetricCloudSpatialRendering.md)
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
+- [Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md)
 - [Volumetric Cloud Rendering roadmap](../../Roadmaps/VolumetricCloudRendering.md)

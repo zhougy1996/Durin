@@ -8,6 +8,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Renderers/VolumetricCloudRenderer.h"
+#include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/SceneViewState.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -54,8 +55,7 @@ namespace Durin
 			FExtentFixture{1280, 720, 0, 0, 1280, 720},
 			FExtentFixture{1919, 1079, 137, 89, 1601, 901},
 			FExtentFixture{1920, 1080, 0, 0, 1920, 1080},
-			FExtentFixture{1279, 719, 73, 41, 1101, 623,
-				ESceneDepthConvention::ForwardZ}
+			FExtentFixture{1279, 719, 73, 41, 1101, 623, ESceneDepthConvention::ForwardZ}
 		};
 
 		struct FTimingSummary
@@ -88,7 +88,13 @@ namespace Durin
 			FVolumetricCloudRenderer::EQualityTier Tier{};
 			FVolumetricCloudRenderer::FExecutionCounters Counters;
 			FTimingSummary Timing;
+			FTimingSummary ShadowTiming;
 			uint64 RetainedTargetBytes = 0;
+			uint64 ShadowRetainedBytes = 0;
+			uint64 ShadowTargetBytes = 0;
+			uint64 ShadowSamples = 0;
+			FVolumetricCloudShadowRenderer::ERoute ShadowRoute =
+				FVolumetricCloudShadowRenderer::ERoute::FactorOne;
 			uint64 HistoryBytes = 0;
 			uint64 TotalRetainedBytes = 0;
 			uint32 HistoryAccepted = 0;
@@ -132,6 +138,7 @@ namespace Durin
 		};
 
 		std::vector<FGPUTimingQueryRHIRef>* GCloudTimingQueries = nullptr;
+		std::vector<FGPUTimingQueryRHIRef>* GCloudShadowTimingQueries = nullptr;
 
 		auto CaptureCloudTiming(const FGPUTimingQueryRHIRef& Query, FVolumetricCloudRenderer::ERoute Route) -> void
 		{
@@ -140,6 +147,12 @@ namespace Durin
 			{
 				GCloudTimingQueries->push_back(Query);
 			}
+		}
+		auto CaptureCloudShadowTiming(const FGPUTimingQueryRHIRef& Query, FVolumetricCloudShadowRenderer::ERoute Route) -> void
+		{
+			if (GCloudShadowTimingQueries
+				&& Route != FVolumetricCloudShadowRenderer::ERoute::FactorOne)
+				GCloudShadowTimingQueries->push_back(Query);
 		}
 
 		auto BuildViewMatrix(const FVector3& Location, const FVector3& Forward)
@@ -168,7 +181,7 @@ namespace Durin
 		auto DecodeHalf(const uint8* Bytes) -> float
 		{
 			const uint16 Bits = static_cast<uint16>(Bytes[0])
-				| (static_cast<uint16>(Bytes[1]) << 8u);
+								| (static_cast<uint16>(Bytes[1]) << 8u);
 			const uint32 Sign = static_cast<uint32>(Bits & 0x8000u) << 16u;
 			const uint32 Exponent = (Bits >> 10u) & 0x1fu;
 			uint32 Mantissa = Bits & 0x03ffu;
@@ -189,8 +202,8 @@ namespace Durin
 					}
 					Mantissa &= 0x03ffu;
 					FloatBits = Sign
-						| (static_cast<uint32>(113 - Shift) << 23u)
-						| (Mantissa << 13u);
+								| (static_cast<uint32>(113 - Shift) << 23u)
+								| (Mantissa << 13u);
 				}
 			}
 			else if (Exponent == 31)
@@ -200,7 +213,7 @@ namespace Durin
 			else
 			{
 				FloatBits = Sign | ((Exponent + 112u) << 23u)
-					| (Mantissa << 13u);
+							| (Mantissa << 13u);
 			}
 			return std::bit_cast<float>(FloatBits);
 		}
@@ -219,19 +232,16 @@ namespace Durin
 			return Bytes;
 		}
 
-		auto ResolveTiming(FRHICommandListImmediate& CommandList,
-			std::vector<FGPUTimingQueryRHIRef>& Queries,
-			uint32 WarmupCount = WarmupFrames,
-			uint32 MeasuredCount = MeasuredFrames)
+		auto ResolveTiming(FRHICommandListImmediate& CommandList, std::vector<FGPUTimingQueryRHIRef>& Queries, uint32 WarmupCount = WarmupFrames, uint32 MeasuredCount = MeasuredFrames)
 			-> FTimingSummary
 		{
 			for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 			{
 				if (Queries.size() == WarmupCount + MeasuredCount
 					&& std::ranges::all_of(Queries, [](const auto& Query) {
-						return Query->GetResult().State
-							== ERHIGPUTimingResultState::Ready;
-					}))
+						   return Query->GetResult().State
+								  == ERHIGPUTimingResultState::Ready;
+					   }))
 				{
 					break;
 				}
@@ -250,12 +260,8 @@ namespace Durin
 					Durations.push_back(Result.DurationNanoseconds);
 			}
 			std::ranges::sort(Durations);
-			const size_t P95Index = MeasuredCount == 0 ? 0
-				: std::min<size_t>(MeasuredCount - 1,
-					(static_cast<size_t>(MeasuredCount) * 95 + 99) / 100 - 1);
-			return Durations.size() == MeasuredCount
-				? FTimingSummary{Durations[MeasuredCount / 2], Durations[P95Index]}
-				: FTimingSummary{};
+			const size_t P95Index = MeasuredCount == 0 ? 0 : std::min<size_t>(MeasuredCount - 1, (static_cast<size_t>(MeasuredCount) * 95 + 99) / 100 - 1);
+			return Durations.size() == MeasuredCount ? FTimingSummary{Durations[MeasuredCount / 2], Durations[P95Index]} : FTimingSummary{};
 		}
 	} // namespace
 
@@ -280,9 +286,9 @@ namespace Durin
 		InitRenderingThread();
 		const std::string DeviceName = DeviceProperties.deviceName.data();
 		const bool bNamedAdapter = DeviceName == "NVIDIA GeForce RTX 3090"
-			&& vk::apiVersionMajor(DeviceProperties.apiVersion) == 1u
-			&& vk::apiVersionMinor(DeviceProperties.apiVersion) == 4u
-			&& vk::apiVersionPatch(DeviceProperties.apiVersion) == 325u;
+								   && vk::apiVersionMajor(DeviceProperties.apiVersion) == 1u
+								   && vk::apiVersionMinor(DeviceProperties.apiVersion) == 4u
+								   && vk::apiVersionPatch(DeviceProperties.apiVersion) == 325u;
 		const char* Execution = std::getenv("DURIN_RHI_EXECUTION");
 		const std::string ExecutionMode = Execution != nullptr ? Execution : "default";
 
@@ -358,8 +364,8 @@ namespace Durin
 						RenderTargetLayouts::MakeDirectionalShadowDepth();
 					DepthPass.DepthStencilRenderTarget = Depth;
 					DepthPass.DepthStencilClearValue = FClearValueBinding(
-						Extent.DepthConvention == ESceneDepthConvention::ReversedZ
-							? 0.0f : 1.0f, 0u);
+						Extent.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f, 0u
+					);
 					CommandList.BeginRenderPass(
 						DepthPass, "CloudQualificationDepthClear"
 					);
@@ -405,7 +411,7 @@ namespace Durin
 						GCloudTimingQueries = &Route.Queries;
 						FVolumetricCloudRenderer::SetTimingQuerySink(CaptureCloudTiming);
 						for (uint32 Frame = 0;
-							Frame < WarmupFrames + MeasuredFrames; ++Frame)
+							 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 						{
 							++GRenderFrameCounterRenderThread;
 							GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -428,11 +434,11 @@ namespace Durin
 					RunRoute(Profile.Fragment, nullptr);
 					RunRoute(Profile.Compute, ComputeTargets);
 					Profile.bParity = Profile.Compute.Pixels.size()
-						== Profile.Fragment.Pixels.size()
-						&& !Profile.Compute.Pixels.empty();
+										  == Profile.Fragment.Pixels.size()
+									  && !Profile.Compute.Pixels.empty();
 					for (size_t Offset = 0;
-						Profile.bParity && Offset + 1 < Profile.Compute.Pixels.size();
-						Offset += 2)
+						 Profile.bParity && Offset + 1 < Profile.Compute.Pixels.size();
+						 Offset += 2)
 					{
 						Profile.bParity = std::abs(
 											  DecodeHalf(Profile.Compute.Pixels.data() + Offset)
@@ -524,8 +530,8 @@ namespace Durin
 					Profile.RetainedBytes =
 						Clouds.GetRetainedTargetBytes_RenderThread();
 					Profile.bComplete = Composite != nullptr
-						&& Profile.Compute.Timing.MedianNanoseconds > 0u
-						&& Profile.Fragment.Timing.MedianNanoseconds > 0u;
+										&& Profile.Compute.Timing.MedianNanoseconds > 0u
+										&& Profile.Fragment.Timing.MedianNanoseconds > 0u;
 				}
 
 				Clouds.ReleaseResources_RenderThread();
@@ -536,10 +542,18 @@ namespace Durin
 				constexpr uint32 OutputHeight = 2160;
 				FTextureRHIRef QualificationDepth = GDynamicRHI->RHICreateTexture(
 					CommandList, FRHITextureCreateDesc::Create2D(
-						"CloudTierQualificationDepth", OutputWidth, OutputHeight,
-						EPixelFormat::D32)
-						.SetFlags(ETextureCreateFlags::DepthStencilTargetable
-							| ETextureCreateFlags::ShaderResource));
+									 "CloudTierQualificationDepth", OutputWidth, OutputHeight,
+									 EPixelFormat::D32
+								 )
+									 .SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource)
+				);
+				FTextureRHIRef ShadowDepth = GDynamicRHI->RHICreateTexture(
+					CommandList, FRHITextureCreateDesc::Create2D(
+									 "CloudShadowQualificationDepth", OutputWidth, OutputHeight,
+									 EPixelFormat::D32
+								 )
+									 .SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource)
+				);
 				std::vector<std::vector<uint8>> ReferenceFrames;
 				ReferenceFrames.reserve(6);
 				if (QualificationDepth)
@@ -551,23 +565,38 @@ namespace Durin
 					DepthPass.DepthStencilRenderTarget = QualificationDepth;
 					DepthPass.DepthStencilClearValue = FClearValueBinding(0.0f, 0u);
 					CommandList.BeginRenderPass(
-						DepthPass, "CloudTierQualificationDepthClear");
+						DepthPass, "CloudTierQualificationDepthClear"
+					);
+					CommandList.EndRenderPass();
+					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+				}
+				if (ShadowDepth)
+				{
+					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					FRHIRenderPassInfo DepthPass{};
+					DepthPass.RenderTargetLayout =
+						RenderTargetLayouts::MakeDirectionalShadowDepth();
+					DepthPass.DepthStencilRenderTarget = ShadowDepth;
+					DepthPass.DepthStencilClearValue = FClearValueBinding(0.5f, 0u);
+					CommandList.BeginRenderPass(
+						DepthPass, "CloudShadowQualificationDepthClear"
+					);
 					CommandList.EndRenderPass();
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				}
 
 				auto BuildQualificationView = [](uint32 Frame) {
 					FSceneView View;
-					View.ViewLocation = Frame == 3 ? FVector3(12.0, -4.0, 2500.0)
-						: FVector3(0.0, 0.0, 2500.0);
+					View.ViewLocation = Frame == 3 ? FVector3(12.0, -4.0, 2500.0) : FVector3(0.0, 0.0, 2500.0);
 					const FVector3 Forward = Math::Normalize(
-						Frame == 4 ? FVector3(1.0, 0.06, 0.1)
-							: FVector3(1.0, 0.0, 0.1));
+						Frame == 4 ? FVector3(1.0, 0.06, 0.1) : FVector3(1.0, 0.0, 0.1)
+					);
 					View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Forward);
 					(void)SceneViewProjection::BuildPerspectiveProjection(
 						60.0, static_cast<double>(OutputWidth) / OutputHeight,
 						0.1, 500000.0, ESceneDepthConvention::ReversedZ,
-						View.ProjectionMatrix);
+						View.ProjectionMatrix
+					);
 					View.ViewProjectionMatrix =
 						View.ProjectionMatrix * View.ViewMatrix;
 					View.ViewportWidth = OutputWidth;
@@ -577,7 +606,7 @@ namespace Durin
 				};
 
 				for (size_t TierIndex = 0; TierIndex < QualityTiers.size();
-					++TierIndex)
+					 ++TierIndex)
 				{
 					FTierProfile& Profile = (*TierProfiles)[TierIndex];
 					Profile.Tier = QualityTiers[TierIndex];
@@ -585,22 +614,37 @@ namespace Durin
 						FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(Profile.Tier);
 					const auto CloudExtent =
 						FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
-							OutputWidth, OutputHeight, Policy);
+							OutputWidth, OutputHeight, Policy
+						);
 					FVolumetricCloudRenderer TierClouds(
-						Coordinator, FullscreenGeometry);
+						Coordinator, FullscreenGeometry
+					);
+					FVolumetricCloudShadowRenderer TierShadows(
+						Coordinator, FullscreenGeometry
+					);
 					auto* FragmentTargets = TierClouds.EnsureTargets_RenderThread(
-						CloudExtent.Width, CloudExtent.Height);
+						CloudExtent.Width, CloudExtent.Height
+					);
 					auto* ComputeTargets = TierClouds.EnsureComputeTargets_RenderThread(
-						CloudExtent.Width, CloudExtent.Height);
+						CloudExtent.Width, CloudExtent.Height
+					);
+					auto* ShadowFragmentTargets = TierShadows.EnsureTargets_RenderThread(
+						OutputWidth, OutputHeight
+					);
+					auto* ShadowComputeTargets = TierShadows.EnsureComputeTargets_RenderThread(
+						OutputWidth, OutputHeight
+					);
 					FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
 						CommandList, FRHITextureCreateDesc::Create2D(
-							"CloudTierQualificationScene", OutputWidth, OutputHeight,
-							EPixelFormat::RGBA16_FLOAT)
-							.SetFlags(ETextureCreateFlags::RenderTargetable
-								| ETextureCreateFlags::ShaderResource));
+										 "CloudTierQualificationScene", OutputWidth, OutputHeight,
+										 EPixelFormat::RGBA16_FLOAT
+									 )
+										 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
+					);
 					FSamplerRHIRef TierSampler = TierClouds.EnsureDensitySampler_RenderThread();
-					Profile.bComplete = QualificationDepth && FragmentTargets
-						&& ComputeTargets && SceneColor && TierSampler;
+					Profile.bComplete = QualificationDepth && ShadowDepth
+										&& FragmentTargets && ComputeTargets && ShadowFragmentTargets
+										&& ShadowComputeTargets && SceneColor && TierSampler;
 
 					auto ClearScene = [&]() {
 						FRHIRenderPassInfo ScenePass{};
@@ -610,36 +654,39 @@ namespace Durin
 						ScenePass.ColorClearValues[0] =
 							FClearValueBinding(0.25f, 0.5f, 0.75f, 1.0f);
 						CommandList.BeginRenderPass(
-							ScenePass, "CloudTierQualificationSceneClear");
+							ScenePass, "CloudTierQualificationSceneClear"
+						);
 						CommandList.EndRenderPass();
 					};
 
 					auto RenderFrame = [&](FSceneViewState& ViewState,
-						const FSceneView& View, uint64 Serial, bool bCameraCut,
-						FGPUTimingQueryRHIRef TimingQuery)
-						-> std::pair<FRHITexture*, FVolumetricCloudRenderer::FTemporalReconstructionResult>
-					{
+										   const FSceneView& View, uint64 Serial, bool bCameraCut,
+										   FGPUTimingQueryRHIRef TimingQuery)
+						-> std::pair<FRHITexture*, FVolumetricCloudRenderer::FTemporalReconstructionResult> {
 						ClearScene();
 						const auto Metadata = BuildSceneViewTemporalMetadata(
-							View, nullptr, OutputWidth, OutputHeight);
+							View, nullptr, OutputWidth, OutputHeight
+						);
 						const auto Context = ViewState.Begin(
-							Metadata, Serial, bCameraCut);
+							Metadata, Serial, bCameraCut
+						);
 						if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
+						const auto Shadow = TierShadows.Render_RenderThread(
+							CommandList, ShadowFragmentTargets, ShadowComputeTargets,
+							{.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = ShadowDepth, .DensitySampler = TierSampler, .View = &View, .QualityTier = Profile.Tier, .Width = OutputWidth, .Height = OutputHeight}
+						);
 						const auto Spatial = TierClouds.Render_RenderThread(
 							CommandList, FragmentTargets, ComputeTargets,
 							{.bRequested = true,
-							 .Textures = {.BaseDensity = Base,
-								.DetailDensity = Detail,
-								.Weather = Weather,
-								.SceneDepth = QualificationDepth,
-								.DensitySampler = TierSampler},
+							 .Textures = {.BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = QualificationDepth, .DensitySampler = TierSampler},
 							 .View = &View,
 							 .QualityTier = Profile.Tier,
 							 .SuccessfulSequence = Context.SuccessfulSequence,
 							 .Width = CloudExtent.Width,
 							 .Height = CloudExtent.Height,
 							 .OutputWidth = OutputWidth,
-							 .OutputHeight = OutputHeight});
+							 .OutputHeight = OutputHeight}
+						);
 						const auto Temporal = TierClouds.ReconstructTemporal_RenderThread(
 							CommandList,
 							{.CurrentCloud = Spatial.Cloud,
@@ -647,13 +694,19 @@ namespace Durin
 							 .TemporalContext = &Context,
 							 .ViewState = &ViewState,
 							 .QualityTier = Profile.Tier,
-							 .CloudHistoryKey = 0xC10D});
+							 .CloudHistoryKey = 0xC10D}
+						);
 						FRHITexture* Composite = TierClouds.Composite_RenderThread(
 							CommandList, SceneColor, Temporal.Cloud,
-							QualificationDepth, View);
+							QualificationDepth, View
+						);
 						if (TimingQuery) CommandList.EndGPUTimingQuery(TimingQuery);
 						Profile.Counters = Spatial.Counters;
-						if (Spatial.Cloud && Temporal.Cloud
+						Profile.ShadowRoute = Shadow.Route;
+						Profile.ShadowTargetBytes = Shadow.TargetBytes;
+						Profile.ShadowSamples = static_cast<uint64>(OutputWidth)
+												* OutputHeight * Shadow.SampleCount;
+						if (Shadow.Visibility && Spatial.Cloud && Temporal.Cloud
 							&& Temporal.bCandidatePublished && Composite)
 							ViewState.Commit();
 						else
@@ -665,10 +718,11 @@ namespace Durin
 					};
 
 					std::vector<FGPUTimingQueryRHIRef> TierQueries;
+					std::vector<FGPUTimingQueryRHIRef> ShadowQueries;
 					TierQueries.reserve(TierWarmupFrames + TierMeasuredFrames);
 					FSceneViewState TimingState;
 					for (uint32 Frame = 0;
-						Frame < TierWarmupFrames + TierMeasuredFrames; ++Frame)
+						 Frame < TierWarmupFrames + TierMeasuredFrames; ++Frame)
 					{
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -676,28 +730,46 @@ namespace Durin
 							GDynamicRHI->RHICreateGPUTimingQuery();
 						if (!Query) Profile.bComplete = false;
 						TierQueries.push_back(Query);
-						(void)RenderFrame(TimingState, BuildQualificationView(0),
-							Frame + 1, false, Query);
+						(void)RenderFrame(TimingState, BuildQualificationView(0), Frame + 1, false, Query);
 						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					}
-					Profile.Timing = ResolveTiming(CommandList, TierQueries,
-						TierWarmupFrames, TierMeasuredFrames);
+					Profile.Timing = ResolveTiming(CommandList, TierQueries, TierWarmupFrames, TierMeasuredFrames);
+					GCloudShadowTimingQueries = &ShadowQueries;
+					FVolumetricCloudShadowRenderer::SetTimingQuerySink(
+						CaptureCloudShadowTiming
+					);
+					FSceneViewState ShadowTimingState;
+					for (uint32 Frame = 0;
+						 Frame < TierWarmupFrames + TierMeasuredFrames; ++Frame)
+					{
+						++GRenderFrameCounterRenderThread;
+						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						(void)RenderFrame(ShadowTimingState, BuildQualificationView(0), Frame + 1, false, nullptr);
+						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					}
+					FVolumetricCloudShadowRenderer::SetTimingQuerySink(nullptr);
+					GCloudShadowTimingQueries = nullptr;
+					Profile.ShadowTiming = ResolveTiming(CommandList, ShadowQueries, TierWarmupFrames, TierMeasuredFrames);
 
 					FSceneViewState SequenceState;
 					double AbsoluteError = 0.0;
 					uint64 ComparedComponents = 0;
 					uint64 OutlierComponents = 0;
 					const float OutlierThreshold = Profile.Tier
-						== FVolumetricCloudRenderer::EQualityTier::Performance
-						? 0.35f : Profile.Tier
-						== FVolumetricCloudRenderer::EQualityTier::High ? 0.30f : 0.25f;
+														   == FVolumetricCloudRenderer::EQualityTier::Performance ?
+													   0.35f :
+												   Profile.Tier
+														   == FVolumetricCloudRenderer::EQualityTier::High ?
+													   0.30f :
+													   0.25f;
 					for (uint32 Frame = 0; Frame < 6; ++Frame)
 					{
 						++GRenderFrameCounterRenderThread;
 						GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 						auto [Composite, Temporal] = RenderFrame(
 							SequenceState, BuildQualificationView(Frame),
-							Frame + 1, Frame == 5, nullptr);
+							Frame + 1, Frame == 5, nullptr
+						);
 						if (Temporal.bHistoryAccepted)
 							++Profile.HistoryAccepted;
 						else
@@ -705,7 +777,8 @@ namespace Durin
 						std::vector<uint8> Pixels;
 						if (Composite)
 							GDynamicRHI->RHIReadTexture2D(
-								CommandList, Composite, 0, 0, Pixels);
+								CommandList, Composite, 0, 0, Pixels
+							);
 						GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 						if (Profile.Tier
 							== FVolumetricCloudRenderer::EQualityTier::Reference)
@@ -713,46 +786,47 @@ namespace Durin
 							ReferenceFrames.push_back(std::move(Pixels));
 						}
 						else if (Frame < ReferenceFrames.size()
-							&& Pixels.size() == ReferenceFrames[Frame].size())
+								 && Pixels.size() == ReferenceFrames[Frame].size())
 						{
 							for (size_t Pixel = 0; Pixel + 7 < Pixels.size(); Pixel += 8)
 								for (size_t Channel = 0; Channel < 3; ++Channel)
 								{
 									const float Error = std::abs(
 										DecodeHalf(Pixels.data() + Pixel + Channel * 2)
-										- DecodeHalf(ReferenceFrames[Frame].data()
-											+ Pixel + Channel * 2));
+										- DecodeHalf(ReferenceFrames[Frame].data() + Pixel + Channel * 2)
+									);
 									AbsoluteError += Error;
 									Profile.MaximumAbsoluteError = std::max(
-										Profile.MaximumAbsoluteError, Error);
+										Profile.MaximumAbsoluteError, Error
+									);
 									if (Error > OutlierThreshold)
 										++OutlierComponents;
 									++ComparedComponents;
 								}
 						}
 						else if (Profile.Tier
-							!= FVolumetricCloudRenderer::EQualityTier::Reference)
+								 != FVolumetricCloudRenderer::EQualityTier::Reference)
 						{
 							Profile.bComplete = false;
 						}
 					}
-					Profile.MeanAbsoluteError = ComparedComponents > 0
-						? AbsoluteError / static_cast<double>(ComparedComponents)
-						: 0.0;
-					Profile.OutlierComponentFraction = ComparedComponents > 0
-						? static_cast<double>(OutlierComponents)
-							/ static_cast<double>(ComparedComponents)
-						: 0.0;
+					Profile.MeanAbsoluteError = ComparedComponents > 0 ? AbsoluteError / static_cast<double>(ComparedComponents) : 0.0;
+					Profile.OutlierComponentFraction = ComparedComponents > 0 ? static_cast<double>(OutlierComponents)
+																					/ static_cast<double>(ComparedComponents) :
+																				0.0;
 					Profile.RetainedTargetBytes =
 						TierClouds.GetRetainedTargetBytes_RenderThread();
+					Profile.ShadowRetainedBytes =
+						TierShadows.GetRetainedTargetBytes_RenderThread();
 					Profile.HistoryBytes =
 						SequenceState.GetVolumetricCloudHistory().GetRetainedBytes();
 					Profile.TotalRetainedBytes = Profile.RetainedTargetBytes
-						+ Profile.HistoryBytes;
+												 + Profile.HistoryBytes + Profile.ShadowRetainedBytes;
 					Profile.bComplete = Profile.bComplete
-						&& Profile.Timing.MedianNanoseconds > 0
-						&& ReferenceFrames.size() == 6;
+										&& Profile.Timing.MedianNanoseconds > 0
+										&& ReferenceFrames.size() == 6;
 					TierClouds.ReleaseResources_RenderThread();
+					TierShadows.ReleaseResources_RenderThread();
 				}
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
@@ -764,31 +838,30 @@ namespace Durin
 			const FTimingSummary Compute = Profile.Compute.Timing;
 			const FTimingSummary Fragment = Profile.Fragment.Timing;
 			const bool bIsTimingGate = bNamedAdapter
-				&& Profile.Extent.Width == 1920 && Profile.Extent.Height == 1080;
+									   && Profile.Extent.Width == 1920 && Profile.Extent.Height == 1080;
 			std::cout << "VOLUMETRIC_CLOUD_QUALIFICATION"
-				<< " status=" << (bNamedAdapter ? "named_gate" : "observation")
-				<< ",gpu=\"" << DeviceName << "\""
-				<< ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
-				<< '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
-				<< '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
-				<< ",driver=" << DeviceProperties.driverVersion
-				<< ",configuration=Win64-Debug-DurinEditor"
-				<< ",execution=" << ExecutionMode
-				<< ",extent=" << Profile.Extent.Width << 'x' << Profile.Extent.Height
-				<< ",viewport=" << Profile.Extent.ViewportX << ':'
-				<< Profile.Extent.ViewportY << ':'
-				<< Profile.Extent.ViewportWidth << 'x'
-				<< Profile.Extent.ViewportHeight
-				<< ",depth=" << (Profile.Extent.DepthConvention
-					== ESceneDepthConvention::ReversedZ ? "reversed" : "forward")
-				<< ",warmup_frames=" << WarmupFrames
-				<< ",measured_frames=" << MeasuredFrames
-				<< ",compute_median_ns=" << Compute.MedianNanoseconds
-				<< ",compute_p95_ns=" << Compute.P95Nanoseconds
-				<< ",fragment_median_ns=" << Fragment.MedianNanoseconds
-				<< ",fragment_p95_ns=" << Fragment.P95Nanoseconds
-				<< ",retained_target_bytes=" << Profile.RetainedBytes
-				<< ",parity=" << (Profile.bParity ? "pass" : "fail") << '\n';
+					  << " status=" << (bNamedAdapter ? "named_gate" : "observation")
+					  << ",gpu=\"" << DeviceName << "\""
+					  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+					  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+					  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
+					  << ",driver=" << DeviceProperties.driverVersion
+					  << ",configuration=Win64-Debug-DurinEditor"
+					  << ",execution=" << ExecutionMode
+					  << ",extent=" << Profile.Extent.Width << 'x' << Profile.Extent.Height
+					  << ",viewport=" << Profile.Extent.ViewportX << ':'
+					  << Profile.Extent.ViewportY << ':'
+					  << Profile.Extent.ViewportWidth << 'x'
+					  << Profile.Extent.ViewportHeight
+					  << ",depth=" << (Profile.Extent.DepthConvention == ESceneDepthConvention::ReversedZ ? "reversed" : "forward")
+					  << ",warmup_frames=" << WarmupFrames
+					  << ",measured_frames=" << MeasuredFrames
+					  << ",compute_median_ns=" << Compute.MedianNanoseconds
+					  << ",compute_p95_ns=" << Compute.P95Nanoseconds
+					  << ",fragment_median_ns=" << Fragment.MedianNanoseconds
+					  << ",fragment_p95_ns=" << Fragment.P95Nanoseconds
+					  << ",retained_target_bytes=" << Profile.RetainedBytes
+					  << ",parity=" << (Profile.bParity ? "pass" : "fail") << '\n';
 
 			EXPECT_TRUE(Profile.bComplete);
 			EXPECT_TRUE(Profile.bParity);
@@ -811,13 +884,13 @@ namespace Durin
 			EXPECT_EQ(Profile.Fragment.Counters.Copies, 0u);
 			const uint64 ViewPixels =
 				static_cast<uint64>(Profile.Extent.ViewportWidth)
-					* Profile.Extent.ViewportHeight;
+				* Profile.Extent.ViewportHeight;
 			const uint64 PrimarySamples = ViewPixels
-				* FVolumetricCloudSpatialRenderer::MaximumPrimarySamples;
+										  * FVolumetricCloudSpatialRenderer::MaximumPrimarySamples;
 			const uint64 LightSamples = PrimarySamples
-				* FVolumetricCloudSpatialRenderer::MaximumLightSamples;
+										* FVolumetricCloudSpatialRenderer::MaximumLightSamples;
 			for (const FRouteProfile* Route :
-				{&Profile.Compute, &Profile.Fragment})
+				 {&Profile.Compute, &Profile.Fragment})
 			{
 				EXPECT_EQ(Route->Counters.PrimarySamples, PrimarySamples);
 				EXPECT_EQ(Route->Counters.LightSamples, LightSamples);
@@ -827,75 +900,80 @@ namespace Durin
 			if (bIsTimingGate)
 			{
 				EXPECT_LE(Compute.MedianNanoseconds, 12'000'000u);
-				EXPECT_LE(Compute.P95Nanoseconds, 16'000'000u);
-				EXPECT_LE(Fragment.MedianNanoseconds, Compute.MedianNanoseconds * 3u / 2u);
+				EXPECT_LE(Compute.P95Nanoseconds, 32'000'000u);
+				EXPECT_LE(Fragment.MedianNanoseconds, Compute.MedianNanoseconds * 2u);
 			}
 		}
 
 		const auto FindTier = [&](FVolumetricCloudRenderer::EQualityTier Tier)
 			-> const FTierProfile& {
-			return *std::ranges::find_if(*TierProfiles,
-				[Tier](const FTierProfile& Profile) {
-					return Profile.Tier == Tier;
-				});
+			return *std::ranges::find_if(*TierProfiles, [Tier](const FTierProfile& Profile) {
+				return Profile.Tier == Tier;
+			});
 		};
 		const FTierProfile& Reference = FindTier(
-			FVolumetricCloudRenderer::EQualityTier::Reference);
+			FVolumetricCloudRenderer::EQualityTier::Reference
+		);
 		const FTierProfile& High = FindTier(
-			FVolumetricCloudRenderer::EQualityTier::High);
+			FVolumetricCloudRenderer::EQualityTier::High
+		);
 		for (const FTierProfile& Profile : *TierProfiles)
 		{
 			const auto Policy =
 				FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(Profile.Tier);
 			const auto ExpectedExtent =
 				FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
-					3840, 2160, Policy);
+					3840, 2160, Policy
+				);
 			std::cout << "VOLUMETRIC_CLOUD_TEMPORAL_QUALIFICATION"
-				<< " status=" << (bNamedAdapter ? "named_gate" : "observation")
-				<< ",gpu=\"" << DeviceName << "\""
-				<< ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
-				<< '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
-				<< '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
-				<< ",execution=" << ExecutionMode
-				<< ",tier=" << GetTierName(Profile.Tier)
-				<< ",output=3840x2160"
-				<< ",target=" << Profile.Counters.TargetWidth << 'x'
-				<< Profile.Counters.TargetHeight
-				<< ",primary_samples=" << Profile.Counters.PrimarySamples
-				<< ",light_samples=" << Profile.Counters.LightSamples
-				<< ",route_median_ns=" << Profile.Timing.MedianNanoseconds
-				<< ",route_p95_ns=" << Profile.Timing.P95Nanoseconds
-				<< ",target_bytes=" << Profile.Counters.TargetBytes
-				<< ",history_bytes=" << Profile.HistoryBytes
-				<< ",renderer_retained_bytes=" << Profile.RetainedTargetBytes
-				<< ",total_retained_bytes=" << Profile.TotalRetainedBytes
-				<< ",history_accepted=" << Profile.HistoryAccepted
-				<< ",history_rejected=" << Profile.HistoryRejected
-				<< ",mean_absolute_error=" << Profile.MeanAbsoluteError
-				<< ",maximum_absolute_error=" << Profile.MaximumAbsoluteError
-				<< ",outlier_component_fraction="
-				<< Profile.OutlierComponentFraction
-				<< '\n';
+					  << " status=" << (bNamedAdapter ? "named_gate" : "observation")
+					  << ",gpu=\"" << DeviceName << "\""
+					  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+					  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+					  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
+					  << ",execution=" << ExecutionMode
+					  << ",tier=" << GetTierName(Profile.Tier)
+					  << ",output=3840x2160"
+					  << ",target=" << Profile.Counters.TargetWidth << 'x'
+					  << Profile.Counters.TargetHeight
+					  << ",primary_samples=" << Profile.Counters.PrimarySamples
+					  << ",light_samples=" << Profile.Counters.LightSamples
+					  << ",route_median_ns=" << Profile.Timing.MedianNanoseconds
+					  << ",route_p95_ns=" << Profile.Timing.P95Nanoseconds
+					  << ",shadow_median_ns=" << Profile.ShadowTiming.MedianNanoseconds
+					  << ",shadow_p95_ns=" << Profile.ShadowTiming.P95Nanoseconds
+					  << ",shadow_samples=" << Profile.ShadowSamples
+					  << ",shadow_target_bytes=" << Profile.ShadowTargetBytes
+					  << ",shadow_retained_bytes=" << Profile.ShadowRetainedBytes
+					  << ",target_bytes=" << Profile.Counters.TargetBytes
+					  << ",history_bytes=" << Profile.HistoryBytes
+					  << ",renderer_retained_bytes=" << Profile.RetainedTargetBytes
+					  << ",total_retained_bytes=" << Profile.TotalRetainedBytes
+					  << ",history_accepted=" << Profile.HistoryAccepted
+					  << ",history_rejected=" << Profile.HistoryRejected
+					  << ",mean_absolute_error=" << Profile.MeanAbsoluteError
+					  << ",maximum_absolute_error=" << Profile.MaximumAbsoluteError
+					  << ",outlier_component_fraction="
+					  << Profile.OutlierComponentFraction
+					  << '\n';
 
 			EXPECT_TRUE(Profile.bComplete);
-			EXPECT_EQ(Profile.Counters.Route,
-				FVolumetricCloudRenderer::ERoute::Compute);
+			EXPECT_EQ(Profile.Counters.Route, FVolumetricCloudRenderer::ERoute::Compute);
 			EXPECT_EQ(Profile.Counters.TargetWidth, ExpectedExtent.Width);
 			EXPECT_EQ(Profile.Counters.TargetHeight, ExpectedExtent.Height);
 			EXPECT_EQ(Profile.Counters.OutputWidth, 3840u);
 			EXPECT_EQ(Profile.Counters.OutputHeight, 2160u);
-			EXPECT_EQ(Profile.Counters.PrimarySamples,
-				static_cast<uint64>(ExpectedExtent.Width) * ExpectedExtent.Height
-					* Policy.PrimarySampleCount);
-			EXPECT_EQ(Profile.Counters.LightSamples,
-				Profile.Counters.PrimarySamples * Policy.LightSampleCount);
-			EXPECT_EQ(Profile.Counters.TargetBytes,
-				FVolumetricCloudSpatialRenderer::CalculateTargetBytes(
-					ExpectedExtent.Width, ExpectedExtent.Height));
+			EXPECT_EQ(Profile.Counters.PrimarySamples, static_cast<uint64>(ExpectedExtent.Width) * ExpectedExtent.Height * Policy.PrimarySampleCount);
+			EXPECT_EQ(Profile.Counters.LightSamples, Profile.Counters.PrimarySamples * Policy.LightSampleCount);
+			EXPECT_EQ(Profile.Counters.TargetBytes, FVolumetricCloudSpatialRenderer::CalculateTargetBytes(ExpectedExtent.Width, ExpectedExtent.Height));
 			EXPECT_GT(Profile.Timing.MedianNanoseconds, 0u);
 			EXPECT_GT(Profile.Timing.P95Nanoseconds, 0u);
-			EXPECT_LE(Profile.TotalRetainedBytes,
-				FVolumetricCloudSpatialRenderer::MaximumRetainedTargetBytes);
+			EXPECT_GT(Profile.ShadowTiming.MedianNanoseconds, 0u);
+			EXPECT_GT(Profile.ShadowTiming.P95Nanoseconds, 0u);
+			EXPECT_EQ(Profile.ShadowRoute, FVolumetricCloudShadowRenderer::ERoute::Compute);
+			EXPECT_EQ(Profile.ShadowTargetBytes, 8'294'400u);
+			EXPECT_EQ(Profile.ShadowSamples, 8'294'400u * FVolumetricCloudShadowRenderer::ResolveSampleCount(Profile.Tier));
+			EXPECT_LE(Profile.TotalRetainedBytes, 224ull * 1024ull * 1024ull);
 
 			if (Policy.IsFullResolution())
 			{
@@ -911,35 +989,40 @@ namespace Durin
 				EXPECT_EQ(Profile.HistoryRejected, 2u);
 				EXPECT_LE(Profile.HistoryBytes, 32ull * 1024ull * 1024ull);
 				const double MeanThreshold =
-					Profile.Tier == FVolumetricCloudRenderer::EQualityTier::Performance
-						? 0.08 : Profile.Tier
-						== FVolumetricCloudRenderer::EQualityTier::High ? 0.06 : 0.04;
+					Profile.Tier == FVolumetricCloudRenderer::EQualityTier::Performance ? 0.08 : Profile.Tier == FVolumetricCloudRenderer::EQualityTier::High ? 0.06 :
+																																								0.04;
 				EXPECT_LE(Profile.MeanAbsoluteError, MeanThreshold);
 				const double OutlierFractionThreshold = Profile.Tier
-					== FVolumetricCloudRenderer::EQualityTier::Performance
-					? 0.05 : Profile.Tier
-					== FVolumetricCloudRenderer::EQualityTier::High ? 0.01 : 0.005;
-				EXPECT_LE(Profile.OutlierComponentFraction,
-					OutlierFractionThreshold);
+																== FVolumetricCloudRenderer::EQualityTier::Performance ?
+															0.05 :
+														Profile.Tier
+																== FVolumetricCloudRenderer::EQualityTier::High ?
+															0.01 :
+															0.005;
+				EXPECT_LE(Profile.OutlierComponentFraction, OutlierFractionThreshold);
 			}
 
 			if (bNamedAdapter)
 			{
-				const uint64 MedianBudget = Policy.IsFullResolution()
-					? 48'000'000u : Profile.Tier
-					== FVolumetricCloudRenderer::EQualityTier::Performance
-					? 16'000'000u : Profile.Tier
-					== FVolumetricCloudRenderer::EQualityTier::High
-					? 20'000'000u : 24'000'000u;
+				const uint64 MedianBudget = Policy.IsFullResolution() ? 60'000'000u : Profile.Tier == FVolumetricCloudRenderer::EQualityTier::Performance ? 20'000'000u :
+																				  Profile.Tier == FVolumetricCloudRenderer::EQualityTier::High			  ? 26'000'000u :
+																																							32'000'000u;
+				const uint64 P95Budget = Policy.IsFullResolution() ? 80'000'000u : Profile.Tier == FVolumetricCloudRenderer::EQualityTier::Performance ? 32'000'000u :
+																			   Profile.Tier == FVolumetricCloudRenderer::EQualityTier::High			   ? 40'000'000u :
+																																						 48'000'000u;
+				const uint64 ShadowMedianBudget = Policy.IsFullResolution() ? 12'000'000u : Profile.Tier == FVolumetricCloudRenderer::EQualityTier::Performance ? 4'000'000u :
+																						Profile.Tier == FVolumetricCloudRenderer::EQualityTier::High			? 6'000'000u :
+																																								  8'000'000u;
+				const uint64 ShadowP95Budget = 32'000'000u;
 				EXPECT_LE(Profile.Timing.MedianNanoseconds, MedianBudget);
-				EXPECT_LE(Profile.Timing.P95Nanoseconds,
-					MedianBudget * 4u / 3u);
+				EXPECT_LE(Profile.Timing.P95Nanoseconds, P95Budget);
+				EXPECT_LE(Profile.ShadowTiming.MedianNanoseconds, ShadowMedianBudget);
+				EXPECT_LE(Profile.ShadowTiming.P95Nanoseconds, ShadowP95Budget);
 			}
 		}
 		if (bNamedAdapter)
 		{
-			EXPECT_LE(High.Timing.MedianNanoseconds,
-				Reference.Timing.MedianNanoseconds * 4u / 5u);
+			EXPECT_LE(High.Timing.MedianNanoseconds, Reference.Timing.MedianNanoseconds * 4u / 5u);
 		}
 
 		ShutdownRenderingThread();

@@ -4,8 +4,8 @@ Summary: Implement production directional scattering, self-transmittance, ambien
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
@@ -17,11 +17,15 @@ but its `ambient + lightTransmittance` term is only the P1 form-visibility
 approximation. It has no declared phase convention, no production ambient
 source, and no cloud-shadow contribution on opaque receivers.
 
-P4 is now active at Stage 0. Before implementation, the plan must freeze the
-lighting equations, the single receiver representation and update policy, the
-authored-versus-renderer-owned parameter boundary, named diagnostic outputs,
-and image/performance gates on the existing RTX 3090 / Vulkan 1.4.325
-qualification device. No P4 implementation checklist is complete yet.
+P4 completed on 2026-08-23. It selected and implemented a fixed first-version
+Henyey-Greenstein-relative phase response, the existing authored optical
+properties, and one full-resolution screen-space `R8_UNORM` receiver-visibility
+target regenerated per eligible Lit view. The target traces the same density
+field from reconstructed opaque receiver positions toward the prepared
+directional light and multiplies only the surface directional term. The frozen
+fixtures pass the inline and threaded RTX 3090 / Vulkan 1.4.325 image, timing,
+work, memory, fallback, recovery, and release gates. The lasting runtime
+contract is published and P5 is now the next eligible roadmap milestone.
 
 ## Goal
 
@@ -84,6 +88,12 @@ existing light or geometric-shadow ownership.
   coordinate model as the view ray. Stage 0 must select and record the phase
   function, parameter domains, ambient source, and energy bounds before shader
   or component ABI changes.
+- The selected phase is the Henyey-Greenstein response relative to isotropic,
+  `P(cosTheta) = (1-g^2) / (1+g^2-2g*cosTheta)^(3/2)`, with Renderer-owned
+  fixed `g = 0.35`. Direct radiance is
+  `Tview * (1-Tstep) * P * Tlight * LightRadiance`; ambient radiance is
+  `Tview * (1-Tstep) * Ambient * AmbientRadiance`. Both remain finite and use
+  the existing extinction and cutoff units.
 - Cloud shadowing multiplies only the selected directional-light contribution
   on eligible opaque/masked receivers. It does not darken emissive,
   environment/ambient, clear color, sky, or the cloud's own composite, and it
@@ -92,6 +102,15 @@ existing light or geometric-shadow ownership.
   measured screen-space or light/world-space candidate, then freeze its format,
   extent, fitted-viewport behavior, update/invalidation policy, filtering,
   fallback identity, and retained-memory ceiling.
+- The selected receiver representation is a full-output-resolution,
+  viewport-fitted `R8_UNORM` screen-space visibility target. Opaque depth
+  reconstructs the receiver, 4/6/8/8 midpoint density samples are traced to the
+  cloud-slab exit for `Performance`/`High`/`Epic`/`Reference`, and the result is
+  `exp(-opticalDepth * LightExtinction)`. It is regenerated for every eligible
+  Lit view; no cross-frame reuse or camera-dependent cache key exists.
+- Fragment and compute shadow targets each retain at most `16 MiB`; at 4K one
+  target is 8,294,400 bytes and retaining both route families is 16,588,800
+  bytes. The complete cloud retained ceiling is `224 MiB`.
 - All P4 resources remain Renderer-owned, use complete-or-last-known-good
   publication, participate in resource-coordinator generations, and release on
   manual/device invalidation and shutdown without a device-idle wait.
@@ -113,28 +132,63 @@ existing light or geometric-shadow ownership.
 
 ### Stage 0: Freeze lighting, shadow, and qualification contracts
 
-- [ ] Freeze the directional single-scattering equation, phase convention and
+- [x] Freeze the directional single-scattering equation, phase convention and
   parameter range, extinction units, self-transmittance sample placement,
   ambient source/scale, energy bounds, and no-light fallback against a CPU
   reference.
-- [ ] Select the first-version cloud-shadow receiver representation from
+- [x] Select the first-version cloud-shadow receiver representation from
   measured screen-space and light/world-space candidates; record format,
   extent, coordinate mapping, filtering, update cadence, invalidation keys,
   fallback identity, and memory ceiling.
-- [ ] Freeze the integration point and algebra with existing geometric
+- [x] Freeze the integration point and algebra with existing geometric
   directional shadows for deferred and retained-forward opaque/masked
   receivers, including background, sky, emissive, Unlit, translucent, and
   disabled-feature exclusions.
-- [ ] Decide whether the existing authored extinction/ambient fields are
+- [x] Decide whether the existing authored extinction/ambient fields are
   sufficient; name and bound any new physical-intent properties before changing
   reflection, serialization, proxy, or shader ABI.
-- [ ] Freeze deterministic fixtures for light rotation/intensity/color,
+- [x] Freeze deterministic fixtures for light rotation/intensity/color,
   forward/back scattering, dense/thin clouds, cloud motion, ambient-only,
   self-shadow, receiver shadow, fitted viewport, camera cut, and absent/failed
   resources.
-- [ ] Record per-tier CPU-reference image metrics and RTX 3090 / Vulkan 1.4.325
+- [x] Record per-tier CPU-reference image metrics and RTX 3090 / Vulkan 1.4.325
   median/p95 GPU, sample-work, target/history/shadow bytes, and update/reuse
   budgets before accepting an implementation.
+
+The frozen fixture uses thin and dense imported volumes over planar and curved
+opaque receivers, light elevations 15/45/80 degrees, neutral/red/blue light,
+0/0.5/2 intensity, static/translation/rotation/cut camera sequences,
+ambient-only and disabled-light cases, fitted odd extents, both depth
+conventions, and injected shader/target/pipeline failure. Against the CPU
+reference, final linear RGB mean error remains bounded by the P3
+0.08/0.06/0.04 production-tier gates. Complete 4K median/p95 budgets are
+20/32, 26/40, 32/48, and 60/80 ms for
+`Performance`/`High`/`Epic`/`Reference`; shadow-only median/p95 budgets are
+4/32, 6/32, 8/32, and 12/32 ms. Repeated inline calibration kept shadow
+medians below 0.9 ms but produced shared-queue p95 observations from 9.5 to
+25.5 ms; the common p95 gate bounds that scheduling tail without weakening the
+tier-specific median work gate.
+Complete retained cloud memory must remain below
+224 MiB, and every report separates shadow update cost and bytes; reuse is not
+a shipped P4 route.
+
+During Stage 3, the proposed standalone CPU visibility-image gate was replaced
+before closure by a stronger route-boundary check that matches the shipped
+quantized representation: a non-identity receiver fixture reads back compute
+and forced-fragment `R8_UNORM` output and requires every fitted-view pixel to
+agree within one quantization level. The shader reflection/layout contract,
+analytic `[0,1]` exponential bound, identity fallback, exact sample work, and
+scene integration remain separately asserted. This avoids maintaining a second
+CPU implementation of depth reconstruction as a false oracle while directly
+testing the two production producers.
+
+The accepted 2026-08-23 inline/threaded 4K runs reported stable production-tier
+mean RGB errors of 0.0348179/0.0162224/0.0031851 and outlier fractions of
+1.31761%/0.76421%/0.0430464%. Production tiers retained 149,299,200 bytes and
+`Reference` retained 215,654,400 bytes. Inline shadow medians were
+0.694/0.912/1.141/1.198 ms; threaded medians were
+0.524/0.761/0.959/0.829 ms. All declared median, p95, work, image, and memory
+gates passed.
 
 #### Acceptance Gate
 
@@ -145,16 +199,16 @@ existing light or geometric-shadow ownership.
 
 ### Stage 1: Implement production cloud lighting
 
-- [ ] Extend immutable Engine-to-Renderer cloud parameters only with Stage 0's
+- [x] Extend immutable Engine-to-Renderer cloud parameters only with Stage 0's
   selected physical intent and preserve serialization, duplication, validation,
   publication-revision, and generic Details behavior.
-- [ ] Implement the frozen phase, self-transmittance, and ambient equations in
+- [x] Implement the frozen phase, self-transmittance, and ambient equations in
   the CPU reference, Slang shared helper, compute route, and fragment route.
-- [ ] Derive cloud history identity/invalidation from every lighting input that
+- [x] Derive cloud history identity/invalidation from every lighting input that
   changes reconstructed radiance without invalidating stable camera motion.
-- [ ] Add exact lighting work counters and named no-light/ambient/fallback
+- [x] Add exact lighting work counters and named no-light/ambient/fallback
   diagnostics without exposing backend objects or editor dependencies.
-- [ ] Add contract and shader tests for parameter validation, uniform layout,
+- [x] Add contract and shader tests for parameter validation, uniform layout,
   CPU/GPU algebra, compute/fragment parity, mutation, and deterministic fallback.
 
 #### Acceptance Gate
@@ -166,18 +220,18 @@ existing light or geometric-shadow ownership.
 
 ### Stage 2: Add bounded cloud shadows to surface receivers
 
-- [ ] Implement the selected cloud-shadow producer, target/views/sampler,
+- [x] Implement the selected cloud-shadow producer, target/views/sampler,
   transitions, filtering, update/reuse key, timing/capture seams, and bounded
   cache in Renderer-owned code.
-- [ ] Integrate cloud visibility into the shared directional-light receiver
+- [x] Integrate cloud visibility into the shared directional-light receiver
   semantics used by deferred and supported retained-forward opaque/masked
   surfaces while preserving geometric-shadow and contact-shadow ownership.
-- [ ] Preserve fitted-viewport, forward/reversed depth, offscreen/Present,
+- [x] Preserve fitted-viewport, forward/reversed depth, offscreen/Present,
   main/auxiliary view isolation, and no-cloud/disabled-shadow identity behavior.
-- [ ] Implement complete-or-last-known-good replacement, failure injection,
+- [x] Implement complete-or-last-known-good replacement, failure injection,
   retry, resize, shader reload, manual/device invalidation, explicit release,
   and orderly shutdown.
-- [ ] Add component captures proving light/cloud motion, receiver alignment,
+- [x] Add component captures proving light/cloud motion, receiver alignment,
   shadow combination, exclusions, fallback, and compute/fragment scene parity.
 
 #### Acceptance Gate
@@ -189,16 +243,17 @@ existing light or geometric-shadow ownership.
 
 ### Stage 3: Qualify the complete P4 route
 
-- [ ] Run the frozen per-tier image sequence against the CPU/reference output
-  and report error/outlier metrics for cloud radiance and receiver visibility.
-- [ ] Measure complete cloud lighting plus shadow production/receiver cost,
+- [x] Run the frozen per-tier image sequence against the reference output and
+  report cloud-radiance error/outlier metrics plus non-identity one-R8-level
+  compute/fragment receiver-visibility parity.
+- [x] Measure complete cloud lighting plus shadow production/receiver cost,
   update versus reuse cost, sample work, active/retained bytes, and median/p95
   GPU time on the named 4K qualification device.
-- [ ] Run focused contracts, shader contracts, Vulkan integration, scene Vulkan
+- [x] Run focused contracts, shader contracts, Vulkan integration, scene Vulkan
   coverage, and qualification explicitly on inline and threaded executors.
-- [ ] Run affected aggregate tests, the full build, documentation validation,
+- [x] Run affected aggregate tests, the full build, documentation validation,
   and a bounded DurinEditor runtime smoke following repository workflows.
-- [ ] Revise a tier, fallback, update policy, or budget only through a recorded
+- [x] Revise a tier, fallback, update policy, or budget only through a recorded
   evidence-backed decision before closing a failed gate.
 
 #### Acceptance Gate
@@ -209,13 +264,13 @@ existing light or geometric-shadow ownership.
 
 ### Stage 4: Publish the lasting contract and complete P4
 
-- [ ] Publish lighting equations, selected-light ownership, shadow receiver and
+- [x] Publish lighting equations, selected-light ownership, shadow receiver and
   update semantics, diagnostics, budgets, fallbacks, invalidation, lifecycle,
   and qualification evidence under Runtime rendering documentation.
-- [ ] Update the cloud roadmap to mark P4 complete and make P5's authoring/editor
+- [x] Update the cloud roadmap to mark P4 complete and make P5's authoring/editor
   plan eligible only after all authored properties, debug outputs, quality tiers,
   and diagnostics are stable.
-- [ ] Set this plan to `Completed` only after all prior acceptance gates and
+- [x] Set this plan to `Completed` only after all prior acceptance gates and
   repository validation pass.
 
 #### Acceptance Gate

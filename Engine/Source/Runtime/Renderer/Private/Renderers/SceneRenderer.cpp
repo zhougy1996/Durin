@@ -355,7 +355,7 @@ namespace Durin
 
 		Result.SplineMesh.Triangles = Counters.PreparedSplineMeshTriangles;
 		Result.StaticMesh.Triangles = Counters.PreparedStaticMeshTriangles
-									 - std::min(Counters.PreparedStaticMeshTriangles, Counters.PreparedSplineMeshTriangles);
+									  - std::min(Counters.PreparedStaticMeshTriangles, Counters.PreparedSplineMeshTriangles);
 		Result.SkeletalMesh.Triangles = Counters.PreparedSkeletalMeshTriangles;
 		Result.Terrain.Triangles = Counters.PreparedTerrainTriangles;
 		Result.Summary.Triangles = AddSaturated(
@@ -375,7 +375,7 @@ namespace Durin
 			Counters.ShadowCascadeCount, std::numeric_limits<uint32>::max()
 		));
 		Result.Shadow.bEnabled = Counters.ShadowValidReceiverViews != 0
-								&& Counters.ShadowCascadeCount != 0;
+								 && Counters.ShadowCascadeCount != 0;
 		Result.Shadow.bContactEnabled = Counters.ContactShadowEnabledViews != 0;
 		if (Counters.ContactShadowComputeViews != 0)
 			Result.Shadow.ContactRoute = EContactShadowExecutionRoute::Compute;
@@ -494,6 +494,7 @@ namespace Durin
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, ContactShadowRenderer(Coordinator, FullscreenGeometry)
 		, VolumetricCloudRenderer(Coordinator, FullscreenGeometry)
+		, VolumetricCloudShadowRenderer(Coordinator, FullscreenGeometry)
 		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
 	{
 	}
@@ -568,6 +569,7 @@ namespace Durin
 		PostProcessRenderer.ReleaseResources_RenderThread();
 		ContactShadowRenderer.ReleaseResources_RenderThread();
 		VolumetricCloudRenderer.ReleaseResources_RenderThread();
+		VolumetricCloudShadowRenderer.ReleaseResources_RenderThread();
 		FullscreenGeometry.ReleaseResources_RenderThread();
 	}
 
@@ -686,6 +688,7 @@ namespace Durin
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						ContactShadowRenderer.ReleaseResources_RenderThread();
 						VolumetricCloudRenderer.ReleaseResources_RenderThread();
+						VolumetricCloudShadowRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.ReleaseResources_RenderThread();
 						FullscreenGeometry.ReleaseResources_RenderThread();
 					},
@@ -1076,6 +1079,8 @@ namespace Durin
 														 ^ (Cloud.InstanceId + 0x9e3779b97f4a7c15ull
 															+ (Cloud.PublicationRevision << 6)
 															+ (Cloud.PublicationRevision >> 2));
+				PreparedView.VolumetricCloudHistoryKey ^=
+					CalculateVolumetricCloudLightingKey(PreparedView.Lights);
 				PreparedView.VolumetricCloudParameters =
 					BuildVolumetricCloudParameters(Cloud, PreparedView.Lights);
 				auto ResolveDimension = [](const FRHITextureReferenceRef& Reference,
@@ -1276,8 +1281,8 @@ namespace Durin
 		{
 			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
 			auto* AmbientOcclusionTargets = bGBufferComplete ? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
-														   Width, Height,
-														   RenderView.Settings.AmbientOcclusion.Quality
+																   Width, Height,
+																   RenderView.Settings.AmbientOcclusion.Quality
 															   ) :
 															   nullptr;
 			PreparedView.Counters.GroundTruthAmbientOcclusionRetainedBytes =
@@ -1402,7 +1407,7 @@ namespace Durin
 						DeferredParameters.bGroundTruthAmbientOcclusionEnabled = true;
 						DeferredParameters.bGroundTruthAmbientOcclusionHalfResolution =
 							AmbientOcclusionTargets->Quality
-								== EGroundTruthAmbientOcclusionQuality::HalfResolution;
+							== EGroundTruthAmbientOcclusionQuality::HalfResolution;
 						++PreparedView.Counters.GroundTruthAmbientOcclusionEnabledViews;
 						if (AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution)
@@ -1506,6 +1511,76 @@ namespace Durin
 				++PreparedView.Counters.ContactShadowPassFailures;
 				++PreparedView.Counters.ContactShadowFactorOneViews;
 			}
+		}
+	}
+
+	auto FSceneRenderer::RenderVolumetricCloudShadows_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FPreparedSceneView& PreparedView,
+		FPostProcessRenderer::FSceneTargets* SceneTargets,
+		FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+		uint32 Width,
+		uint32 Height,
+		bool bWantsProductionDeferred,
+		bool bGBufferComplete
+	) -> void
+	{
+		const bool bRequested = bWantsProductionDeferred && bGBufferComplete
+								&& PreparedView.bVolumetricCloudRequested
+								&& !PreparedView.Lights.Directional.empty()
+								&& PreparedView.VolumetricCloudTextures.BaseDensity
+								&& PreparedView.VolumetricCloudTextures.DetailDensity
+								&& PreparedView.VolumetricCloudTextures.DensitySampler
+								&& SceneTargets && SceneTargets->Depth;
+		if (!bRequested) return;
+		const bool bForceFragment =
+			PreparedView.bVolumetricCloudForceFragmentForQualification;
+		auto* FragmentTargets =
+			VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(Width, Height);
+		auto* ComputeTargets = bForceFragment ? nullptr : VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
+		constexpr auto QualityTier = FVolumetricCloudSpatialRenderer::EQualityTier::High;
+		FRHITexture* Weather = PreparedView.VolumetricCloudTextures.Weather;
+		if (!Weather) Weather = DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		const auto Result = VolumetricCloudShadowRenderer.Render_RenderThread(
+			CommandList, FragmentTargets, ComputeTargets,
+			{.bRequested = true,
+			 .BaseDensity = PreparedView.VolumetricCloudTextures.BaseDensity,
+			 .DetailDensity = PreparedView.VolumetricCloudTextures.DetailDensity,
+			 .Weather = Weather,
+			 .SceneDepth = SceneTargets->Depth,
+			 .DensitySampler = PreparedView.VolumetricCloudTextures.DensitySampler,
+			 .Parameters = PreparedView.VolumetricCloudParameters,
+			 .View = &PreparedView.View,
+			 .QualityTier = QualityTier,
+			 .Width = Width,
+			 .Height = Height}
+		);
+		auto& Counters = PreparedView.Counters;
+		const size_t ReasonIndex = static_cast<size_t>(Result.Reason);
+		if (ReasonIndex < Counters.VolumetricCloudShadowRouteReasons.size())
+			++Counters.VolumetricCloudShadowRouteReasons[ReasonIndex];
+		Counters.VolumetricCloudShadowRetainedBytes =
+			VolumetricCloudShadowRenderer.GetRetainedTargetBytes_RenderThread();
+		if (!Result.Visibility)
+		{
+			++Counters.VolumetricCloudShadowFactorOneViews;
+			return;
+		}
+		DeferredParameters.VolumetricCloudVisibility = Result.Visibility;
+		DeferredParameters.bVolumetricCloudVisibilityEnabled = true;
+		Counters.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
+		Counters.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
+												* Height * Result.SampleCount;
+		++Counters.VolumetricCloudShadowEnabledViews;
+		if (Result.Route == FVolumetricCloudShadowRenderer::ERoute::Compute)
+		{
+			++Counters.VolumetricCloudShadowComputeViews;
+			++Counters.VolumetricCloudShadowDispatches;
+		}
+		else
+		{
+			++Counters.VolumetricCloudShadowFragmentViews;
+			++Counters.VolumetricCloudShadowDraws;
 		}
 	}
 
@@ -1916,6 +1991,9 @@ namespace Durin
 					.GroundTruthAmbientOcclusionSelector =
 						GroundTruthAmbientOcclusionFallback,
 					.ContactVisibility = ContactVisibilityFallback,
+					.VolumetricCloudVisibility = DefaultTextures.Get_RenderThread(
+						EDefaultTexture::White
+					),
 					.Lighting = PreparedView.LightingUniformBuffer,
 					.View = &RenderView,
 					.DiagnosticMode = static_cast<uint32>(
@@ -1936,6 +2014,10 @@ namespace Durin
 			CommandList, PreparedView, GBufferTargets, SceneTargets,
 			DeferredParameters, Options, Width, Height,
 			bWantsProductionDeferred, bGBufferComplete
+		);
+		RenderVolumetricCloudShadows_RenderThread(
+			CommandList, PreparedView, SceneTargets, DeferredParameters,
+			Width, Height, bWantsProductionDeferred, bGBufferComplete
 		);
 
 		GroundTruthAmbientOcclusionDebugOutput =
