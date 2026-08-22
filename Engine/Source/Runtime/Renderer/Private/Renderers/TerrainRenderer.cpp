@@ -1,6 +1,7 @@
 #include "Renderers/TerrainRenderer.h"
 #include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/TerrainRenderPreparation.h"
+#include "Renderers/SurfaceMaterial.h"
 
 #include "Engine/TerrainSceneProxy.h"
 #include "Math/Operations.h"
@@ -29,8 +30,7 @@ namespace Durin
 {
 	namespace
 	{
-		using RendererPrivate::GetMaterialSamplerKey;
-		using RendererPrivate::MakeMaterialSamplerDesc;
+		using namespace RendererPrivate;
 		using RendererPrivate::MakeShadowPipelineKey;
 		using RendererPrivate::MakeShadowRasterizerState;
 
@@ -58,55 +58,6 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FTerrainVertexShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
 		};
 
-		class FTerrainFragmentShader final : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FTerrainFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(NormalTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(MetallicTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(RoughnessTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(AmbientOcclusionTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(NormalSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(MetallicSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(RoughnessSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(AmbientOcclusionSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(EmissiveSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacitySampler);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
-				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FTerrainFragmentShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "FragmentMain");
-		};
-
-		class FTerrainOpaqueShadowFragmentShader final : public FShader
-		{
-		public:
-			DURIN_DECLARE_SHADER(FTerrainOpaqueShadowFragmentShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "OpaqueShadowFragmentMain");
-		};
-
-		class FTerrainShadowFragmentShader final : public FShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FTerrainShadowFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FTerrainShadowFragmentShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "ShadowFragmentMain");
-		};
-
 		struct FTransformUniform
 		{
 			FMatrix4f LocalToClip{1.0f};
@@ -120,19 +71,6 @@ namespace Durin
 			std::array<uint32, 4> SamplePatch{};
 			FVector4f SpacingHeight{1.0f, 1.0f, 1.0f, 0.0f};
 			FVector4f DistanceTransition{0.0f};
-		};
-
-		struct FMaterialUniform
-		{
-			FVector4f BaseColor{1.0f};
-			FVector4f EmissiveMetallic{0.0f};
-			FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
-			FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
-			std::array<FVector4f, 8> UVTransforms{};
-			FVector4f UVChannels0{0.0f};
-			FVector4f UVChannels1{0.0f};
-			FVector4f UVRotations0{0.0f};
-			FVector4f UVRotations1{0.0f};
 		};
 
 		auto TransformBounds(const FBox& Bounds, const FMatrix& Transform) -> FBox
@@ -429,22 +367,21 @@ namespace Durin
 		{
 			std::shared_ptr<FShaderMapBase> Map;
 			TShaderRef<FTerrainVertexShader> Vertex;
-			TShaderRef<FTerrainFragmentShader> Fragment;
-			TShaderRef<FTerrainOpaqueShadowFragmentShader> OpaqueShadowFragment;
-			TShaderRef<FTerrainShadowFragmentShader> ShadowFragment;
+			TShaderRef<FSurfaceFragmentShader> Fragment;
+			TShaderRef<FSurfaceOpaqueShadowFragmentShader> OpaqueShadowFragment;
+			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragment;
 		};
 		struct FPipelinePayload
 		{
 			std::shared_ptr<FShaderMapBase> Map;
 			TShaderRef<FTerrainVertexShader> Vertex;
-			TShaderRef<FTerrainFragmentShader> Fragment;
-			TShaderRef<FTerrainOpaqueShadowFragmentShader> OpaqueShadowFragment;
-			TShaderRef<FTerrainShadowFragmentShader> ShadowFragment;
+			TShaderRef<FSurfaceFragmentShader> Fragment;
+			TShaderRef<FSurfaceOpaqueShadowFragmentShader> OpaqueShadowFragment;
+			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragment;
 			FGraphicsPipelineStateRHIRef Pipeline;
 		};
 		std::unordered_map<FTerrainTopologyKey, std::unique_ptr<FTopology>> Topologies;
 		std::unordered_map<const FTerrainHeightmapPayload*, FHeight> Heights;
-		std::unordered_map<size_t, FSamplerRHIRef> Samplers;
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload> Shaders{
 			ERenderResourceGenerationDependency::Shader
 		};
@@ -458,10 +395,9 @@ namespace Durin
 		};
 	};
 
-	FTerrainRenderer::FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, FDefaultTextureResources& InDefaultTextures, FEnvironmentLightingResources& InEnvironmentLighting)
+	FTerrainRenderer::FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials)
 		: Coordinator(InCoordinator)
-		, DefaultTextures(InDefaultTextures)
-		, EnvironmentLighting(InEnvironmentLighting)
+		, SurfaceMaterials(InSurfaceMaterials)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -564,11 +500,11 @@ namespace Durin
 						"DURIN_OPAQUE_SHADOW_DEPTH", "1");
 				}
 				FShaderType& VertexType = FTerrainVertexShader::StaticType();
-				FShaderType& FragmentType = FTerrainFragmentShader::StaticType();
+				FShaderType& FragmentType = FSurfaceFragmentShader::StaticType();
 				FShaderType& ShadowFragmentType =
-					FTerrainShadowFragmentShader::StaticType();
+					FSurfaceMaskedShadowFragmentShader::StaticType();
 				FShaderType& OpaqueShadowFragmentType =
-					FTerrainOpaqueShadowFragmentShader::StaticType();
+					FSurfaceOpaqueShadowFragmentShader::StaticType();
 				std::vector<const FShaderType*> Types{&VertexType};
 				if (!bShadowDepth)
 					Types.push_back(&FragmentType);
@@ -581,15 +517,15 @@ namespace Durin
 					return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderCompile, "TerrainShaderMap", "terrain", std::move(Error), ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
 				auto* Vertex = static_cast<FTerrainVertexShader*>(Map->GetShader(&VertexType));
 				auto* Fragment = !bShadowDepth
-					? static_cast<FTerrainFragmentShader*>(
+					? static_cast<FSurfaceFragmentShader*>(
 						Map->GetShader(&FragmentType)) : nullptr;
 				auto* ShadowFragment = bShadowDepth
 					&& Identity.BlendMode == EMaterialBlendMode::Masked
-					? static_cast<FTerrainShadowFragmentShader*>(
+					? static_cast<FSurfaceMaskedShadowFragmentShader*>(
 						Map->GetShader(&ShadowFragmentType)) : nullptr;
 				auto* OpaqueShadowFragment =
 					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked
-						? static_cast<FTerrainOpaqueShadowFragmentShader*>(
+						? static_cast<FSurfaceOpaqueShadowFragmentShader*>(
 							Map->GetShader(&OpaqueShadowFragmentType)) : nullptr;
 				if (!Vertex || (!bShadowDepth && !Fragment)) return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderBinding, "TerrainShaderMap", "terrain", "Typed shaders are missing.", ERenderResourceGenerationDependency::Shader));
 				if (bShadowDepth
@@ -683,17 +619,14 @@ namespace Durin
 			)
 													   .count();
 		}
-		for (const auto& Sampler : Draw.MaterialBinding.Samplers)
-		{
-			const size_t Key = GetMaterialSamplerKey(Sampler);
-			if (!State->Samplers.contains(Key))
-			{
-				auto Created = RHICreateSampler(MakeMaterialSamplerDesc(Sampler));
-				if (!Created) return false;
-				State->Samplers.emplace(Key, std::move(Created));
-			}
-		}
-		return true;
+		const ESurfaceMaterialPass SurfacePass = bShadowDepth
+			? (Draw.Material.PipelineIdentity.ShaderMap.BlendMode
+					== EMaterialBlendMode::Masked
+				? ESurfaceMaterialPass::MaskedShadow
+				: ESurfaceMaterialPass::OpaqueShadow)
+			: ESurfaceMaterialPass::Forward;
+		return SurfaceMaterials.Ensure_RenderThread(
+			Draw.MaterialBinding, SurfacePass);
 	}
 
 	auto FTerrainRenderer::PrepareResources_RenderThread(
@@ -919,19 +852,6 @@ namespace Durin
 			static_cast<float>(DistancePolicy.RenderDistance), 0.0f, 0.0f
 		);
 		const auto TerrainBuffer = CommandList.AllocateDynamicUniformBuffer(&Terrain, sizeof(Terrain));
-		FMaterialUniform Material;
-		const auto& Binding = Draw.MaterialBinding;
-		Material.BaseColor = Binding.BaseColor;
-		Material.EmissiveMetallic = FVector4f(Binding.Emissive, Binding.Metallic);
-		Material.NormalRoughness = FVector4f(Binding.Normal, Binding.Roughness);
-		Material.SurfaceParams = FVector4f(Binding.AmbientOcclusion, Binding.OpacityMask, RenderMode == ERenderMode::Lit && Draw.Material.PipelineIdentity.ShaderMap.ShadingModel == EMaterialShadingModel::Lit ? 1.0f : 0.0f, 0.0f);
-		for (size_t Role = 0; Role < 8; ++Role)
-			Material.UVTransforms[Role] = FVector4f(Binding.UVScales[Role].x, Binding.UVScales[Role].y, Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y);
-		Material.UVChannels0 = FVector4f(Binding.UVChannels[0], Binding.UVChannels[1], Binding.UVChannels[2], Binding.UVChannels[3]);
-		Material.UVChannels1 = FVector4f(Binding.UVChannels[4], Binding.UVChannels[5], Binding.UVChannels[6], Binding.UVChannels[7]);
-		Material.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
-		Material.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
-		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(&Material, sizeof(Material));
 		if (GBuffer == nullptr)
 		{
 			CommandList.SetGraphicsPipelineState(*Pipeline->Pipeline);
@@ -963,30 +883,23 @@ namespace Durin
 			CommandList.DrawIndexed(DrawArguments);
 			return true;
 		}
-		FTerrainFragmentShader::FParameters PS;
-		PS.Lighting = Lighting;
-		PS.Material = MaterialBuffer;
-		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) { FRHITexture* T = Binding.Textures[Role] ? Binding.Textures[Role]->GetReferencedTexture_RenderThread() : nullptr; return T ? T : DefaultTextures.Get_RenderThread(Fallback); };
-		PS.BaseColorTexture = ResolveTexture(0, EDefaultTexture::White);
-		PS.NormalTexture = ResolveTexture(1, EDefaultTexture::FlatNormal);
-		PS.MetallicTexture = ResolveTexture(2, EDefaultTexture::White);
-		PS.RoughnessTexture = ResolveTexture(3, EDefaultTexture::White);
-		PS.AmbientOcclusionTexture = ResolveTexture(4, EDefaultTexture::White);
-		PS.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
-		PS.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
-		PS.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
-		std::array<FRHISampler*, 8> Samplers{};
-		for (size_t Role = 0; Role < 8; ++Role)
-			Samplers[Role] = State->Samplers.at(
-				GetMaterialSamplerKey(Binding.Samplers[Role]));
-		PS.BaseColorSampler = Samplers[0];
-		PS.NormalSampler = Samplers[1];
-		PS.MetallicSampler = Samplers[2];
-		PS.RoughnessSampler = Samplers[3];
-		PS.AmbientOcclusionSampler = Samplers[4];
-		PS.EmissiveSampler = Samplers[5];
-		PS.OpacitySampler = Samplers[6];
-		PS.OpacityMaskSampler = Samplers[7];
+		const bool bMaskedShadow = bShadowDepth
+			&& Draw.Material.PipelineIdentity.ShaderMap.BlendMode
+				== EMaterialBlendMode::Masked;
+		const ESurfaceMaterialPass SurfacePass = GBuffer != nullptr
+			? ESurfaceMaterialPass::GBuffer
+			: (bMaskedShadow ? ESurfaceMaterialPass::MaskedShadow
+				: ESurfaceMaterialPass::Forward);
+		FResolvedSurfaceMaterial SurfaceMaterial;
+		if (!SurfaceMaterials.Resolve_RenderThread(
+				Draw.MaterialBinding, SurfacePass,
+				RenderMode == ERenderMode::Lit
+					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+						== EMaterialShadingModel::Lit,
+				Draw.DirectionalShadowTexture, Draw.DirectionalShadowSampler,
+				SurfaceMaterial)) return false;
+		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(
+			&SurfaceMaterial.Uniform, sizeof(SurfaceMaterial.Uniform));
 		if (GBuffer != nullptr)
 		{
 			const FVertexDeclarationRHIRef VertexDeclaration(
@@ -1003,17 +916,8 @@ namespace Durin
 			};
 			FGBufferRenderer::FFragmentParameters FragmentParameters;
 			FragmentParameters.Material = MaterialBuffer;
-			FragmentParameters.Textures = {
-				PS.BaseColorTexture,
-				PS.NormalTexture,
-				PS.MetallicTexture,
-				PS.RoughnessTexture,
-				PS.AmbientOcclusionTexture,
-				PS.EmissiveTexture,
-				PS.OpacityTexture,
-				PS.OpacityMaskTexture
-			};
-			FragmentParameters.Samplers = Samplers;
+			FragmentParameters.Textures = SurfaceMaterial.Textures;
+			FragmentParameters.Samplers = SurfaceMaterial.Samplers;
 			if (!GBuffer->BindPipeline_RenderThread(CommandList, *GBufferPipeline, VertexParameters, FragmentParameters))
 			{
 				return false;
@@ -1021,29 +925,16 @@ namespace Durin
 			CommandList.DrawIndexed(DrawArguments);
 			return true;
 		}
-		if (bShadowDepth
-			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
-				   == EMaterialBlendMode::Masked)
+		if (bMaskedShadow)
 		{
-			FTerrainShadowFragmentShader::FParameters ShadowParameters;
-			ShadowParameters.Material = MaterialBuffer;
-			ShadowParameters.OpacityMaskTexture = PS.OpacityMaskTexture;
-			ShadowParameters.OpacityMaskSampler = Samplers[7];
+			const auto ShadowParameters = MakeSurfaceMaskedShadowParameters(
+				SurfaceMaterial, MaterialBuffer);
 			SetShaderParameters(CommandList, Pipeline->ShadowFragment, ShadowParameters);
 			CommandList.DrawIndexed(DrawArguments);
 			return true;
 		}
-		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
-		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
-		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
-		FRHISampler* EnvironmentSampler = EnvironmentLighting.GetSampler_RenderThread();
-		const bool Complete = Irradiance && Prefiltered && Brdf && EnvironmentSampler;
-		PS.EnvironmentIrradiance = Complete ? Irradiance : DefaultTextures.GetCube_RenderThread();
-		PS.EnvironmentPrefiltered = Complete ? Prefiltered : DefaultTextures.GetCube_RenderThread();
-		PS.EnvironmentBrdfLut = Complete ? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
-		PS.EnvironmentSampler = Complete ? EnvironmentSampler : Samplers[0];
-		PS.DirectionalShadowTexture = Draw.DirectionalShadowTexture != nullptr ? Draw.DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread();
-		PS.DirectionalShadowSampler = Draw.DirectionalShadowSampler != nullptr ? Draw.DirectionalShadowSampler : Samplers[0];
+		const auto PS = MakeSurfaceForwardParameters(
+			SurfaceMaterial, MaterialBuffer, Lighting);
 		SetShaderParameters(CommandList, Pipeline->Fragment, PS);
 		CommandList.DrawIndexed(DrawArguments);
 		return true;
@@ -1188,7 +1079,6 @@ namespace Durin
 			if (Topology->VertexFactory.IsInitialized()) Topology->VertexFactory.ReleaseResource();
 		State->Topologies.clear();
 		State->Heights.clear();
-		State->Samplers.clear();
 		State->Shaders.Reset();
 		State->ShadowShaders.Reset();
 		State->Pipelines.Reset();

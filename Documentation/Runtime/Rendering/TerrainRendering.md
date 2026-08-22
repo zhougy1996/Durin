@@ -4,7 +4,7 @@ Summary: Defines finite Terrain ownership, deterministic patch LOD, crack-free s
 
 Modules: Engine, GeometryBuild, AssetForge, RHI, VulkanRHI, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-23
 
 ## Runtime ownership
 
@@ -125,6 +125,16 @@ and Present/offscreen render-target layouts remain shared Renderer policy.
 Terrain translucent patches enter the same back-to-front geometry list as
 StaticMesh and SkeletalMesh draws.
 
+Terrain retains its vertex shader, height/topology resources, pipeline keys,
+patch grouping, indexed instancing, and scalar Translucent submission. Its
+forward, opaque-shadow, and masked-shadow fragment programs are the same
+canonical surface programs used by StaticMesh and SkeletalMesh. The shared
+surface service supplies the uniform, role fallback table, complete-state
+samplers, environment set, and directional-shadow fallbacks; Terrain binds the
+result without entering the mesh geometry executor. Opaque shadow resolves no
+surface resources, masked shadow resolves only role 7 plus the uniform, and
+forward/GBuffer resolve all eight roles.
+
 After per-patch visibility, LOD, adjacency, stitching, pass classification,
 triangle accounting, and sorting are complete, opaque and masked patches are
 grouped within one immutable Terrain proxy by exact pipeline, pass, material,
@@ -242,8 +252,9 @@ invalidation and renderer shutdown release every retained Terrain resource;
 the next accepted draw reconstructs a complete generation on demand.
 
 Device invalidation and renderer shutdown release Terrain vertex factories,
-topology buffers, height textures, samplers, shader maps, and pipelines through
-the existing ordered resource coordinator. Recorded RHI commands retain their
+topology buffers, height textures, shader maps, and pipelines through the
+existing ordered resource coordinator. The `FSceneRenderer` surface owner
+releases shared material samplers exactly once. Recorded RHI commands retain their
 resource references independently. Scene removal first detaches the typed
 SceneInfo, while immutable payload ownership keeps an accepted revision alive
 until its proxy and upload are retired.

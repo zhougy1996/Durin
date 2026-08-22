@@ -6,10 +6,9 @@
 
 namespace Durin
 {
-	class FDefaultTextureResources;
-	class FEnvironmentLightingResources;
 	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
+	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
 	struct FPreparedStaticMeshView;
 	struct FPreparedStaticMeshDraw;
@@ -26,8 +25,7 @@ namespace Durin
 	public:
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FDefaultTextureResources& InDefaultTextures,
-			FEnvironmentLightingResources& InEnvironmentLighting
+			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials
 		);
 		~FStaticMeshRenderer();
 
@@ -87,7 +85,6 @@ namespace Durin
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
 		) -> bool;
-		auto EnsureBaseResources_RenderThread() -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
 			const FPreparedStaticMeshDraw& Item
 		) -> bool;
@@ -107,8 +104,7 @@ namespace Durin
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
-		FDefaultTextureResources& DefaultTextures;
-		FEnvironmentLightingResources& EnvironmentLighting;
+		RendererPrivate::FSurfaceMaterialResources& SurfaceMaterials;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

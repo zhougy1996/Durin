@@ -4,7 +4,7 @@ Summary: Define production GPU skinning, animated bounds, scene preparation, pal
 
 Modules: Engine, GeometryBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-23
 
 Durin renders `DSkeletalMeshComponent` through the ordinary scene and viewport
 pipeline. The component evaluates a complete immutable `FSkeletalPosePalette`
@@ -61,8 +61,11 @@ then freezes identity, transform, render data, LOD 0, pose/revision, palette
 range, material binding, section, pass, caster eligibility, and complete value
 sort keys before the render pass.
 
-`FSkeletalMeshRenderer` owns skeletal shader maps, pipelines, sampler slots,
-retry state, palette preparation, execution, invalidation, and release. It is a
+`FSkeletalMeshRenderer` owns skeletal shader maps, pipelines, retry state,
+palette preparation, execution, invalidation, and release. `FSceneRenderer`'s
+surface-material service owns the generation-aware material sampler slots and
+canonical surface uniform, role fallbacks, fragment programs, and parameter
+binding shared with StaticMesh and Terrain. It is a
 private feature owner composed by `FSceneRenderer`, not a parallel frame
 renderer. Opaque and Masked work remains state-grouped within each geometry
 family. One prepared combined list orders all StaticMesh and SkeletalMesh
@@ -72,9 +75,13 @@ Execution only consumes resource-complete records.
 Skeletal sections use the same PBR material snapshots, Opaque/Masked/
 Translucent meaning, Lit/Unlit behavior, Solid/Wireframe raster state, depth
 policy, straight-alpha blending, texture defaults, post-process, output, and
-editor-assistance composition as StaticMesh. Opaque and Masked sections record
-future shadow-caster eligibility, but the directional shadow pass remains a
-later rendering milestone.
+editor-assistance composition as StaticMesh. After skeletal transform/palette
+and geometry binding, the shared mesh surface-pass executor owns the
+opaque-shadow fast path, masked role-7 binding, complete forward binding, and
+single draw submission. GBuffer consumes the same canonical eight-role packet
+through its existing binder. Opaque and Masked sections participate in the
+directional-shadow path without moving palette, raster-bias, or draw counters
+out of the skeletal owner.
 
 ## Diagnostics and Recovery
 
@@ -85,7 +92,8 @@ binding, sampler, or PSO failure rejects the smallest complete draw or primitive
 and preserves unrelated features.
 
 Shader reload and device invalidation advance renderer resource generations;
-the skeletal owner recreates stale slots on the next prepared view. Scene
+the skeletal owner recreates stale shader/pipeline slots and the shared surface
+owner recreates stale samplers on the next prepared view. Scene
 removal precedes borrowed render-data retirement. Shutdown removes membership,
 drains render commands, releases renderer slots, crosses asset fences, and
 destroys each RHI resource exactly once.

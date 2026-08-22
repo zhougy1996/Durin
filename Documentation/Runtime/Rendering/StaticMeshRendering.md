@@ -4,6 +4,8 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
+Last reviewed: 2026-08-23
+
 SkeletalMesh uses the same material/pass policy and combined Translucent order
 through its dedicated geometry, vertex-factory, palette, and renderer owner; see
 [Skeletal Mesh Rendering](SkeletalMeshRendering.md).
@@ -310,8 +312,7 @@ warning. A missing proxy after binding resolution is structural failure and
 selects ErrorMaterial. The
 snapshot carries an Engine-owned `FMaterialRenderRepresentation` and a
 separate static shader/pipeline identity. `FStaticMeshRenderer` accepts the
-exact v3 layout identified by `MaterialRenderLayoutV3Id` and frozen exact-v2
-data for compatibility; it decodes the compact PBR constants, eight UV
+exact v3 layout identified by `MaterialRenderLayoutV3Id`; it decodes the compact PBR constants, eight UV
 transforms, per-role sampler states, and eight texture roles through the
 version-matched binding decoder.
 
@@ -325,6 +326,16 @@ winding, render mode, and every visible material policy select compatible PSOs.
 Texture resources use role-specific white, black, or flat-normal fallbacks;
 environment irradiance, prefilter, and BRDF-LUT resources are shared by the
 scene renderer and fall back together to black.
+
+After StaticMesh or SplineMesh selects its family pipeline, allocates transform
+and optional spline uniforms, and binds its geometry streams, both it and
+SkeletalMesh enter the same mesh surface-pass executor. The executor preserves
+pipeline/vertex-before-fragment ordering and submits exactly one bounded draw:
+opaque shadow takes the zero-material fast path, masked shadow binds only the
+canonical role-7 packet, and forward binds the complete surface packet.
+GBuffer retains its pipeline/binder ownership while consuming the same uniform,
+eight textures, and shared sampler pointers. Renderer entry points assert the
+render thread, owning render-pass state, and prepared phase symmetrically.
 
 If the representation identity or field table is unsupported, the Renderer
 reports a `ShaderBinding` resource diagnostic and switches to a complete

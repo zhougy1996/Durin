@@ -8,10 +8,9 @@
 
 namespace Durin
 {
-	class FDefaultTextureResources;
-	class FEnvironmentLightingResources;
 	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
+	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
 	struct FPreparedTerrainDraw;
 	struct FPreparedTerrainBatch;
@@ -25,7 +24,7 @@ namespace Durin
 	class FTerrainRenderer final
 	{
 	public:
-		FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, FDefaultTextureResources& InDefaultTextures, FEnvironmentLightingResources& InEnvironmentLighting);
+		FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials);
 		~FTerrainRenderer();
 
 		auto PrepareResources_RenderThread(
@@ -64,8 +63,7 @@ namespace Durin
 		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws, const FPreparedTerrainBatch& Batch, bool bShadowDepth = false, uint64* OutDynamicAllocationNanoseconds = nullptr, FGBufferRenderer* GBuffer = nullptr) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
-		FDefaultTextureResources& DefaultTextures;
-		FEnvironmentLightingResources& EnvironmentLighting;
+		RendererPrivate::FSurfaceMaterialResources& SurfaceMaterials;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

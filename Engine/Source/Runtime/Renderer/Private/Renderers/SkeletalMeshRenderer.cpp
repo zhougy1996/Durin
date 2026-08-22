@@ -9,31 +9,24 @@ namespace Durin
 
 	struct FSkeletalMeshRenderer::FState
 	{
-		struct FBaseResources
-		{
-			std::unordered_map<size_t, TRenderResourceCreationSlot<FSamplerRHIRef>> MaterialSamplerCache;
-		};
 		struct FShaderMapPayload
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
-			TShaderRef<FStaticMeshOpaqueShadowFragmentShader>
+			TShaderRef<FSurfaceFragmentShader> FragmentShader;
+			TShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
-			TShaderRef<FStaticMeshShadowFragmentShader> ShadowFragmentShader;
+			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
 		};
 		struct FPipelinePayload
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
-			TShaderRef<FStaticMeshOpaqueShadowFragmentShader>
+			TShaderRef<FSurfaceFragmentShader> FragmentShader;
+			TShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
-			TShaderRef<FStaticMeshShadowFragmentShader> ShadowFragmentShader;
+			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
-		};
-		TRenderResourceCreationSlot<FBaseResources> BaseResources{
-			ERenderResourceGenerationDependency::Device
 		};
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderMapPayload>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
@@ -253,57 +246,22 @@ namespace Durin
 	}
 	FSkeletalMeshRenderer::FSkeletalMeshRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FDefaultTextureResources& InDefaultTextures,
-		FEnvironmentLightingResources& InEnvironmentLighting
+		RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials
 	)
 		: Coordinator(InCoordinator)
-		, DefaultTextures(InDefaultTextures)
-		, EnvironmentLighting(InEnvironmentLighting)
+		, SurfaceMaterials(InSurfaceMaterials)
 		, State(std::make_unique<FState>())
 	{
 	}
 
 	FSkeletalMeshRenderer::~FSkeletalMeshRenderer() = default;
 
-	auto FSkeletalMeshRenderer::EnsureBaseResources_RenderThread() -> bool
-	{
-		using FResult = TRenderResourceCreateResult<FState::FBaseResources>;
-		return State->BaseResources.Resolve(
-				   Coordinator.GetGeneration_RenderThread(),
-				   []() -> FResult { return FResult::Success(FState::FBaseResources{}); },
-				   ReportRendererResourceCreateDiagnostic
-			   )
-			   != nullptr;
-	}
-
 	auto FSkeletalMeshRenderer::EnsureMaterialSamplers_RenderThread(
 		const FPreparedSkeletalMeshDraw& Item
 	) -> bool
 	{
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr)
-			return false;
-		for (const FMaterialSamplerState& SamplerState :
-			 Item.MaterialBinding.Samplers)
-		{
-			auto Entry = Base->MaterialSamplerCache.try_emplace(
-													   GetMaterialSamplerKey(SamplerState),
-													   ERenderResourceGenerationDependency::Device
-			)
-							 .first;
-			if (Entry->second.Resolve(
-					Coordinator.GetGeneration_RenderThread(),
-					[SamplerState] {
-						return CreateMaterialSampler(
-							SamplerState, "SkeletalMeshMaterialSampler"
-						);
-					},
-					ReportRendererResourceCreateDiagnostic
-				)
-				== nullptr)
-				return false;
-		}
-		return true;
+		return SurfaceMaterials.Ensure_RenderThread(
+			Item.MaterialBinding, ESurfaceMaterialPass::GBuffer);
 	}
 
 	auto FSkeletalMeshRenderer::EnsureSectionResources_RenderThread(
@@ -313,8 +271,7 @@ namespace Durin
 		bool bHybridRetained
 	) -> bool
 	{
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr || Primitive.VertexFactory == nullptr) return false;
+		if (Primitive.VertexFactory == nullptr) return false;
 		const FMaterialRenderData& Material = Item.Material;
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
@@ -346,11 +303,11 @@ namespace Durin
 					);
 				}
 				FShaderType& VertexType = FSkeletalMeshVertexShader::StaticType();
-				FShaderType& FragmentType = FStaticMeshFragmentShader::StaticType();
+				FShaderType& FragmentType = FSurfaceFragmentShader::StaticType();
 				FShaderType& ShadowFragmentType =
-					FStaticMeshShadowFragmentShader::StaticType();
+					FSurfaceMaskedShadowFragmentShader::StaticType();
 				FShaderType& OpaqueShadowFragmentType =
-					FStaticMeshOpaqueShadowFragmentShader::StaticType();
+					FSurfaceOpaqueShadowFragmentShader::StaticType();
 				std::vector<const FShaderType*> Types{&VertexType};
 				if (!bShadowDepth)
 					Types.push_back(&FragmentType);
@@ -371,18 +328,18 @@ namespace Durin
 				auto* Vertex = static_cast<FSkeletalMeshVertexShader*>(
 					ShaderMap->GetShader(&VertexType)
 				);
-				auto* Fragment = !bShadowDepth ? static_cast<FStaticMeshFragmentShader*>(
+				auto* Fragment = !bShadowDepth ? static_cast<FSurfaceFragmentShader*>(
 													 ShaderMap->GetShader(&FragmentType)
 												 ) :
 												 nullptr;
 				auto* ShadowFragment = bShadowDepth
 											   && Identity.BlendMode == EMaterialBlendMode::Masked ?
-										   static_cast<FStaticMeshShadowFragmentShader*>(
+										   static_cast<FSurfaceMaskedShadowFragmentShader*>(
 											   ShaderMap->GetShader(&ShadowFragmentType)
 										   ) :
 										   nullptr;
 				auto* OpaqueShadowFragment =
-					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked ? static_cast<FStaticMeshOpaqueShadowFragmentShader*>(
+					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked ? static_cast<FSurfaceOpaqueShadowFragmentShader*>(
 																						   ShaderMap->GetShader(&OpaqueShadowFragmentType)
 																					   ) :
 																					   nullptr;
@@ -512,7 +469,14 @@ namespace Durin
 		);
 		if (Pipeline == nullptr) return false;
 
-		return EnsureMaterialSamplers_RenderThread(Item);
+		const ESurfaceMaterialPass SurfacePass = bShadowDepth
+			? (Item.PipelineKey.Material.ShaderMap.BlendMode
+					== EMaterialBlendMode::Masked
+				? ESurfaceMaterialPass::MaskedShadow
+				: ESurfaceMaterialPass::OpaqueShadow)
+			: ESurfaceMaterialPass::Forward;
+		return SurfaceMaterials.Ensure_RenderThread(
+			Item.MaterialBinding, SurfacePass);
 	}
 
 	auto FSkeletalMeshRenderer::PrepareResources_RenderThread(
@@ -522,8 +486,9 @@ namespace Durin
 		bool bPrepareLitOpaqueForward
 	) -> bool
 	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
-		EnsureBaseResources_RenderThread();
 		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
 			switch (ResolveSkeletalPalette_RenderThread(
@@ -572,6 +537,7 @@ namespace Durin
 		FPreparedSkeletalMeshView& PreparedView
 	) -> bool
 	{
+		check(IsInRenderingThread());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		bool bReady = true;
 		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &bReady](const auto& Bucket, EStaticMeshBasePass Pass) {
@@ -599,10 +565,10 @@ namespace Durin
 		FPreparedSkeletalMeshView& PreparedView
 	) -> bool
 	{
+		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
 		check(PreparedView.Translucent.empty());
-		EnsureBaseResources_RenderThread();
 		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
 			switch (ResolveSkeletalPalette_RenderThread(
@@ -647,6 +613,7 @@ namespace Durin
 		FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
+		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		ForEachShadowBucket(PreparedView, [this, &CommandList, &ShadowView, &FallbackLighting, &PreparedView](const auto& Bucket) {
@@ -674,6 +641,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
+		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
@@ -715,6 +683,9 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained
 	) -> void
 	{
+		check(IsInRenderingThread());
+		check(CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		++PreparedView.AttemptedDraws;
 		const FPreparedSkeletalMeshPrimitive* Primitive =
 			PreparedView.GetPrimitive(Draw);
@@ -741,6 +712,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
+		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
@@ -754,6 +726,7 @@ namespace Durin
 		FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
+		check(IsInRenderingThread());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		FinalizeExecution(PreparedView, EPreparedSkeletalMeshPhase::Executed);
 	}
@@ -765,6 +738,7 @@ namespace Durin
 		FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
+		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		PreparedView.GBufferSkippedDraws += PreparedView.Translucent.size();
@@ -809,8 +783,6 @@ namespace Durin
 		{
 			return false;
 		}
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		if (Base == nullptr) return false;
 		const FVertexDeclarationRHIRef VertexDeclaration(
 			Primitive.VertexFactory->GetDeclaration()
 		);
@@ -835,29 +807,23 @@ namespace Durin
 		);
 		const FRHIUniformBufferRange TransformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
-		const FStaticMeshMaterialUniform MaterialUniform =
-			MakeStaticMeshMaterialUniform(Item.MaterialBinding, true);
+		FResolvedSurfaceMaterial SurfaceMaterial;
+		if (!SurfaceMaterials.Resolve_RenderThread(
+				Item.MaterialBinding, ESurfaceMaterialPass::GBuffer, true,
+				nullptr, nullptr, SurfaceMaterial)) return false;
+		const FSurfaceMaterialUniform& MaterialUniform = SurfaceMaterial.Uniform;
 		const FRHIUniformBufferRange MaterialBuffer =
 			CommandList.AllocateDynamicUniformBuffer(
 				&MaterialUniform, sizeof(MaterialUniform)
 			);
-		std::array<FRHISampler*, 8> Samplers{};
-		for (size_t Role = 0; Role < Samplers.size(); ++Role)
-		{
-			const auto It = Base->MaterialSamplerCache.find(
-				GetMaterialSamplerKey(Item.MaterialBinding.Samplers[Role])
-			);
-			if (It == Base->MaterialSamplerCache.end()) return false;
-			FSamplerRHIRef* Sampler = It->second.GetPayload();
-			if (Sampler == nullptr) return false;
-			Samplers[Role] = Sampler->GetReference();
-		}
 		const FGBufferRenderer::FVertexParameters VertexParameters{
 			.Transform = TransformBuffer,
 			.SkinPalette = Primitive.PaletteRange
 		};
-		const FGBufferRenderer::FFragmentParameters FragmentParameters =
-			MakeGBufferFragmentParameters(Item.MaterialBinding, DefaultTextures, MaterialBuffer, Samplers);
+		FGBufferRenderer::FFragmentParameters FragmentParameters;
+		FragmentParameters.Material = MaterialBuffer;
+		FragmentParameters.Textures = SurfaceMaterial.Textures;
+		FragmentParameters.Samplers = SurfaceMaterial.Samplers;
 		if (!GBuffer.BindPipeline_RenderThread(
 				CommandList, *Pipeline, VertexParameters, FragmentParameters
 			))
@@ -899,14 +865,13 @@ namespace Durin
 
 		Primitive.VertexFactory->BindStreams(CommandList);
 		CommandList.BindIndexBuffer(Data.IndexBuffer.GetRHI(), 0);
-		FState::FBaseResources* Base = State->BaseResources.GetPayload();
 		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey) : Item.PipelineKey;
 		EffectivePipelineKey.bHybridRetained =
 			!bShadowDepth && bHybridRetained;
 		auto* PipelineEntry = bShadowDepth ? State->ShadowPipelines.Find(EffectivePipelineKey) : State->Pipelines.Find(EffectivePipelineKey);
 		FState::FPipelinePayload* Pipeline = PipelineEntry != nullptr ? PipelineEntry->Slot.GetPayload() : nullptr;
-		if (Base == nullptr || Pipeline == nullptr) return false;
+		if (Pipeline == nullptr) return false;
 		CommandList.SetGraphicsPipelineState(*Pipeline->PipelineState);
 		if (bShadowDepth)
 		{
@@ -922,107 +887,43 @@ namespace Durin
 			&& Item.PipelineKey.Material.ShaderMap.BlendMode
 				   != EMaterialBlendMode::Masked)
 		{
-			CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-			return true;
+			return ExecuteMeshSurfacePass_RenderThread(
+				CommandList, ESurfaceMaterialPass::OpaqueShadow, Lighting,
+				nullptr, {}, Pipeline->FragmentShader,
+				Pipeline->ShadowFragmentShader,
+				[&] { CommandList.DrawIndexed(
+					Section.IndexCount, Section.FirstIndex, 0); });
 		}
-		FStaticMeshMaterialUniform MaterialUniform;
-		MaterialUniform.BaseColor = Binding.BaseColor;
-		MaterialUniform.EmissiveMetallic = FVector4f(
-			Binding.Emissive, Binding.Metallic
-		);
-		MaterialUniform.NormalRoughness = FVector4f(
-			Binding.Normal, Binding.Roughness
-		);
-		MaterialUniform.SurfaceParams = FVector4f(
-			Binding.AmbientOcclusion, Binding.OpacityMask,
-			RenderMode == ERenderMode::Lit
+		const bool bMaskedShadow = bShadowDepth
+			&& Item.PipelineKey.Material.ShaderMap.BlendMode
+				== EMaterialBlendMode::Masked;
+		FResolvedSurfaceMaterial SurfaceMaterial;
+		if (!SurfaceMaterials.Resolve_RenderThread(
+				Binding,
+				bMaskedShadow ? ESurfaceMaterialPass::MaskedShadow
+					: ESurfaceMaterialPass::Forward,
+				RenderMode == ERenderMode::Lit
 					&& Material.PipelineIdentity.ShaderMap.ShadingModel
-						   == EMaterialShadingModel::Lit ?
-				1.0f :
-				0.0f,
-			0.0f
-		);
-		for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-			MaterialUniform.UVTransforms[Role] = FVector4f(
-				Binding.UVScales[Role].x, Binding.UVScales[Role].y,
-				Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y
-			);
-		MaterialUniform.UVChannels0 = FVector4f(Binding.UVChannels[0], Binding.UVChannels[1], Binding.UVChannels[2], Binding.UVChannels[3]);
-		MaterialUniform.UVChannels1 = FVector4f(Binding.UVChannels[4], Binding.UVChannels[5], Binding.UVChannels[6], Binding.UVChannels[7]);
-		MaterialUniform.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
-		MaterialUniform.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
+						== EMaterialShadingModel::Lit,
+				Item.DirectionalShadowTexture, Item.DirectionalShadowSampler,
+				SurfaceMaterial)) return false;
 		const FRHIUniformBufferRange MaterialBuffer =
 			CommandList.AllocateDynamicUniformBuffer(
-				&MaterialUniform, sizeof(MaterialUniform)
+				&SurfaceMaterial.Uniform, sizeof(SurfaceMaterial.Uniform)
 			);
-		FStaticMeshFragmentShader::FParameters FragmentParameters;
-		FragmentParameters.Lighting = Lighting;
-		FragmentParameters.Material = MaterialBuffer;
-		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) {
-			FRHITexture* Texture = Binding.Textures[Role] != nullptr ? Binding.Textures[Role]->GetReferencedTexture_RenderThread() : nullptr;
-			return Texture != nullptr ? Texture : DefaultTextures.Get_RenderThread(Fallback);
-		};
-		FragmentParameters.BaseColorTexture = ResolveTexture(0, EDefaultTexture::White);
-		FragmentParameters.NormalTexture = ResolveTexture(1, EDefaultTexture::FlatNormal);
-		FragmentParameters.MetallicTexture = ResolveTexture(2, EDefaultTexture::White);
-		FragmentParameters.RoughnessTexture = ResolveTexture(3, EDefaultTexture::White);
-		FragmentParameters.AmbientOcclusionTexture = ResolveTexture(4, EDefaultTexture::White);
-		FragmentParameters.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
-		FragmentParameters.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
-		FragmentParameters.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
-		std::array<FRHISampler*, 8> Samplers{};
-		for (size_t Role = 0; Role < Samplers.size(); ++Role)
-		{
-			const auto It = Base->MaterialSamplerCache.find(
-				GetMaterialSamplerKey(Binding.Samplers[Role])
-			);
-			if (It == Base->MaterialSamplerCache.end()) return false;
-			FSamplerRHIRef* Sampler = It->second.GetPayload();
-			if (Sampler == nullptr) return false;
-			Samplers[Role] = Sampler->GetReference();
-		}
-		FragmentParameters.BaseColorSampler = Samplers[0];
-		FragmentParameters.NormalSampler = Samplers[1];
-		FragmentParameters.MetallicSampler = Samplers[2];
-		FragmentParameters.RoughnessSampler = Samplers[3];
-		FragmentParameters.AmbientOcclusionSampler = Samplers[4];
-		FragmentParameters.EmissiveSampler = Samplers[5];
-		FragmentParameters.OpacitySampler = Samplers[6];
-		FragmentParameters.OpacityMaskSampler = Samplers[7];
-		if (bShadowDepth
-			&& Item.PipelineKey.Material.ShaderMap.BlendMode
-				   == EMaterialBlendMode::Masked)
-		{
-			FStaticMeshShadowFragmentShader::FParameters ShadowParameters;
-			ShadowParameters.Material = MaterialBuffer;
-			ShadowParameters.OpacityMaskTexture =
-				FragmentParameters.OpacityMaskTexture;
-			ShadowParameters.OpacityMaskSampler = Samplers[7];
-			SetShaderParameters(CommandList, Pipeline->ShadowFragmentShader, ShadowParameters);
-			CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-			return true;
-		}
-		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
-		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
-		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
-		FRHISampler* EnvironmentSampler = EnvironmentLighting.GetSampler_RenderThread();
-		const bool bEnvironment = Irradiance && Prefiltered && Brdf && EnvironmentSampler;
-		FragmentParameters.EnvironmentIrradiance = bEnvironment ? Irradiance : DefaultTextures.GetCube_RenderThread();
-		FragmentParameters.EnvironmentPrefiltered = bEnvironment ? Prefiltered : DefaultTextures.GetCube_RenderThread();
-		FragmentParameters.EnvironmentBrdfLut = bEnvironment ? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
-		FragmentParameters.EnvironmentSampler = bEnvironment ? EnvironmentSampler : Samplers[0];
-		FragmentParameters.DirectionalShadowTexture =
-			Item.DirectionalShadowTexture != nullptr ? Item.DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread();
-		FragmentParameters.DirectionalShadowSampler =
-			Item.DirectionalShadowSampler != nullptr ? Item.DirectionalShadowSampler : Samplers[0];
-		SetShaderParameters(CommandList, Pipeline->FragmentShader, FragmentParameters);
-		CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-		return true;
+		return ExecuteMeshSurfacePass_RenderThread(
+			CommandList,
+			bMaskedShadow ? ESurfaceMaterialPass::MaskedShadow
+				: ESurfaceMaterialPass::Forward,
+			Lighting, &SurfaceMaterial, MaterialBuffer,
+			Pipeline->FragmentShader, Pipeline->ShadowFragmentShader,
+			[&] { CommandList.DrawIndexed(
+				Section.IndexCount, Section.FirstIndex, 0); });
 	}
 
 	auto FSkeletalMeshRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->BaseResources.Reset();
+		check(IsInRenderingThread());
 		State->ShaderMaps.Reset();
 		State->ShadowShaderMaps.Reset();
 		State->Pipelines.Reset();

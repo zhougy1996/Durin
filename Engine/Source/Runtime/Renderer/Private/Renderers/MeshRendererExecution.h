@@ -1,11 +1,55 @@
 #pragma once
 
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/SurfaceMaterial.h"
+#include "RenderingThread.h"
 
 #include <functional>
+#include <utility>
 
 namespace Durin::RendererPrivate
 {
+	template <typename TForwardShaderRef, typename TMaskedShadowShaderRef,
+		typename TDrawSubmission>
+	auto ExecuteMeshSurfacePass_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		ESurfaceMaterialPass Pass,
+		const FRHIUniformBufferRange& Lighting,
+		const FResolvedSurfaceMaterial* Material,
+		const FRHIUniformBufferRange& MaterialBuffer,
+		const TForwardShaderRef& ForwardShader,
+		const TMaskedShadowShaderRef& MaskedShadowShader,
+		TDrawSubmission&& SubmitDraw) -> bool
+	{
+		check(IsInRenderingThread());
+		check(CommandList.IsInsideRenderPass());
+		switch (Pass)
+		{
+		case ESurfaceMaterialPass::OpaqueShadow:
+			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
+			return true;
+		case ESurfaceMaterialPass::MaskedShadow:
+			if (Material == nullptr
+				|| Material->ResolvedRoleMask != (uint8{1} << 7)) return false;
+			SetShaderParameters(
+				CommandList, MaskedShadowShader,
+				MakeSurfaceMaskedShadowParameters(*Material, MaterialBuffer));
+			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
+			return true;
+		case ESurfaceMaterialPass::Forward:
+			if (Material == nullptr || Material->ResolvedRoleMask != 0xff)
+				return false;
+			SetShaderParameters(
+				CommandList, ForwardShader,
+				MakeSurfaceForwardParameters(*Material, MaterialBuffer, Lighting));
+			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
+			return true;
+		case ESurfaceMaterialPass::GBuffer:
+			return false;
+		}
+		return false;
+	}
+
 	template<typename TPreparedView>
 	auto GetBasePassBucket(
 		TPreparedView& PreparedView,

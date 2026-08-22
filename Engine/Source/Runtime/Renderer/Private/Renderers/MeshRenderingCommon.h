@@ -5,14 +5,6 @@
 
 namespace Durin::RendererPrivate
 {
-	inline auto GetMaterialSamplerKey(const FMaterialSamplerState& State) -> size_t
-	{
-		return static_cast<size_t>(State.MinFilter)
-			+ 6 * (static_cast<size_t>(State.MagFilter)
-				+ 2 * (static_cast<size_t>(State.AddressU)
-					+ 3 * static_cast<size_t>(State.AddressV)));
-	}
-
 	inline auto ToRHIAddress(EMaterialSamplerAddressMode Address)
 		-> ESamplerAddressMode
 	{

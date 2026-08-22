@@ -6,10 +6,9 @@
 
 namespace Durin
 {
-	class FDefaultTextureResources;
-	class FEnvironmentLightingResources;
 	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
+	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
 	struct FPreparedSkeletalMeshView;
 	struct FPreparedSkeletalMeshDraw;
@@ -25,8 +24,7 @@ namespace Durin
 	public:
 		FSkeletalMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FDefaultTextureResources& InDefaultTextures,
-			FEnvironmentLightingResources& InEnvironmentLighting
+			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials
 		);
 		~FSkeletalMeshRenderer();
 		FSkeletalMeshRenderer(const FSkeletalMeshRenderer&) = delete;
@@ -77,7 +75,6 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
-		auto EnsureBaseResources_RenderThread() -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
 			const FPreparedSkeletalMeshDraw& Item
 		) -> bool;
@@ -107,8 +104,7 @@ namespace Durin
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
-		FDefaultTextureResources& DefaultTextures;
-		FEnvironmentLightingResources& EnvironmentLighting;
+		RendererPrivate::FSurfaceMaterialResources& SurfaceMaterials;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

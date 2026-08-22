@@ -4,6 +4,8 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
+Last reviewed: 2026-08-23
+
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
 
@@ -182,6 +184,34 @@ reflected object or raw texture pointer.
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
 coalescing, stale-update, startup-replay, and counted-resource contracts.
+
+## Renderer Surface Execution
+
+`FSceneRenderer` owns one Renderer-private surface-material resource service.
+StaticMesh, SkeletalMesh, and Terrain keep their own geometry preparation,
+vertex programs, pipelines, batching, counters, and diagnostics, but consume
+one canonical fragment contract. The contract builds the 256-byte aligned PBR
+surface uniform and resolves the eight ordered roles with fallbacks `White`,
+`FlatNormal`, `White`, `White`, `White`, `Black`, `White`, and `White`.
+Missing or unready referenced textures select the role fallback without
+retaining a raw RHI pointer beyond the current command submission.
+
+The service owns generation-aware sampler slots keyed by the complete
+`FMaterialSamplerState`; identical states across all three geometry families
+therefore share one device-generation sampler. Device invalidation and
+renderer shutdown release this owner once, while shader maps, pipelines,
+geometry, Terrain topology, and height resources remain family-owned. A failed
+sampler or incomplete resolved packet rejects the smallest owning draw or
+Terrain batch, preserving feature-local attempt/result accounting.
+
+Resolution is pass-aware. Opaque shadow draws resolve no material uniform,
+texture, sampler, environment, or receiver-shadow resource. Masked shadow
+draws resolve the uniform and only OpacityMask role 7. Forward and GBuffer
+draws resolve all eight roles; only forward adds lighting, environment, and
+directional-shadow inputs. Irradiance, prefilter, BRDF LUT, and environment
+sampler are accepted only as a complete set and otherwise fall back together.
+Directional-shadow texture and sampler each retain their deterministic array
+and material-sampler fallback.
 
 ## Dependency And Invalidation Model
 

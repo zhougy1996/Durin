@@ -18,6 +18,7 @@
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "IRendererModule.h"
 #include "RendererAPI.h"
@@ -183,6 +184,7 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FDefaultTextureResources DefaultTextures;
 		FEnvironmentLightingResources EnvironmentLighting;
+		RendererPrivate::FSurfaceMaterialResources SurfaceMaterials;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FDirectionalShadowRenderer DirectionalShadowRenderer;
 		FGBufferRenderer GBufferRenderer;

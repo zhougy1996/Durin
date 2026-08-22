@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderers/MeshRenderingCommon.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ViewPreparationMath.h"
@@ -56,75 +57,6 @@ namespace Durin::RendererPrivate
 		DURIN_DECLARE_SHADER(FSplineMeshVertexShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
 	};
 
-	class FStaticMeshFragmentShader : public FShader
-	{
-	public:
-		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshFragmentShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-			DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(NormalTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(MetallicTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(RoughnessTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(AmbientOcclusionTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
-			DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-			DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(NormalSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(MetallicSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(RoughnessSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(AmbientOcclusionSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(EmissiveSampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(OpacitySampler);
-			DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-			DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
-			DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
-			DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
-			DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
-			DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);
-			DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);
-		DURIN_END_SHADER_PARAMETERS();
-
-		DURIN_DECLARE_SHADER(
-			FStaticMeshFragmentShader,
-			FShader,
-			"/Engine/StaticMeshBasePass",
-			EShaderFrequency::Fragment,
-			"FragmentMain"
-		);
-	};
-
-	class FStaticMeshOpaqueShadowFragmentShader : public FShader
-	{
-	public:
-		DURIN_DECLARE_SHADER(
-			FStaticMeshOpaqueShadowFragmentShader,
-			FShader,
-			"/Engine/StaticMeshBasePass",
-			EShaderFrequency::Fragment,
-			"OpaqueShadowFragmentMain"
-		);
-	};
-
-	class FStaticMeshShadowFragmentShader : public FShader
-	{
-	public:
-		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshShadowFragmentShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-			DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-			DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
-		DURIN_END_SHADER_PARAMETERS();
-
-		DURIN_DECLARE_SHADER(
-			FStaticMeshShadowFragmentShader,
-			FShader,
-			"/Engine/StaticMeshBasePass",
-			EShaderFrequency::Fragment,
-			"ShadowFragmentMain"
-		);
-	};
-
 	class FSkeletalMeshVertexShader : public FShader
 	{
 	public:
@@ -174,123 +106,6 @@ namespace Durin::RendererPrivate
 		Result.RollUpAxis = FVector4f(FVector3f(Params.SplineUpDirection), static_cast<float>(Params.ForwardAxis));
 		Result.SourceRangePolicy = FVector4f(static_cast<float>(Params.SourceForwardMin), static_cast<float>(Params.SourceForwardMax), Params.Interpolation == ESplineMeshInterpolation::SmoothStep ? 1.0f : 0.0f, 0.0f);
 		return Result;
-	}
-
-	struct FStaticMeshMaterialUniform
-	{
-		FVector4f BaseColor{1.0f};
-		FVector4f EmissiveMetallic{0.0f};
-		FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
-		FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
-		std::array<FVector4f, 8> UVTransforms{};
-		FVector4f UVChannels0{0.0f};
-		FVector4f UVChannels1{0.0f};
-		FVector4f UVRotations0{0.0f};
-		FVector4f UVRotations1{0.0f};
-	};
-
-	inline auto MakeStaticMeshMaterialUniform(
-		const FMaterialRenderBinding& Binding,
-		bool bLit
-	) -> FStaticMeshMaterialUniform
-	{
-		FStaticMeshMaterialUniform Result;
-		Result.BaseColor = Binding.BaseColor;
-		Result.EmissiveMetallic = FVector4f(
-			Binding.Emissive, Binding.Metallic
-		);
-		Result.NormalRoughness = FVector4f(
-			Binding.Normal, Binding.Roughness
-		);
-		Result.SurfaceParams = FVector4f(
-			Binding.AmbientOcclusion, Binding.OpacityMask,
-			bLit ? 1.0f : 0.0f, 0.0f
-		);
-		for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-		{
-			Result.UVTransforms[Role] = FVector4f(
-				Binding.UVScales[Role].x,
-				Binding.UVScales[Role].y,
-				Binding.UVOffsets[Role].x,
-				Binding.UVOffsets[Role].y
-			);
-		}
-		Result.UVChannels0 = FVector4f(
-			Binding.UVChannels[0], Binding.UVChannels[1],
-			Binding.UVChannels[2], Binding.UVChannels[3]
-		);
-		Result.UVChannels1 = FVector4f(
-			Binding.UVChannels[4], Binding.UVChannels[5],
-			Binding.UVChannels[6], Binding.UVChannels[7]
-		);
-		Result.UVRotations0 = FVector4f(
-			Binding.UVRotations[0], Binding.UVRotations[1],
-			Binding.UVRotations[2], Binding.UVRotations[3]
-		);
-		Result.UVRotations1 = FVector4f(
-			Binding.UVRotations[4], Binding.UVRotations[5],
-			Binding.UVRotations[6], Binding.UVRotations[7]
-		);
-		return Result;
-	}
-
-	inline auto MakeGBufferFragmentParameters(
-		const FMaterialRenderBinding& Binding,
-		FDefaultTextureResources& DefaultTextures,
-		const FRHIUniformBufferRange& Material,
-		const std::array<FRHISampler*, 8>& Samplers
-	)
-		-> FGBufferRenderer::FFragmentParameters
-	{
-		FGBufferRenderer::FFragmentParameters Result;
-		Result.Material = Material;
-		const std::array<EDefaultTexture, 8> Fallbacks{
-			EDefaultTexture::White,
-			EDefaultTexture::FlatNormal,
-			EDefaultTexture::White,
-			EDefaultTexture::White,
-			EDefaultTexture::White,
-			EDefaultTexture::Black,
-			EDefaultTexture::White,
-			EDefaultTexture::White
-		};
-		for (size_t Role = 0; Role < Result.Textures.size(); ++Role)
-		{
-			FRHITexture* Texture = Binding.Textures[Role] != nullptr ? Binding.Textures[Role]
-																		   ->GetReferencedTexture_RenderThread() :
-																	   nullptr;
-			Result.Textures[Role] = Texture != nullptr ? Texture : DefaultTextures.Get_RenderThread(Fallbacks[Role]);
-			Result.Samplers[Role] = Samplers[Role];
-		}
-		return Result;
-	}
-
-	inline auto CreateMaterialSampler(
-		const FMaterialSamplerState& State,
-		std::string Context
-	) -> TRenderResourceCreateResult<FSamplerRHIRef>
-	{
-		using FResult = TRenderResourceCreateResult<FSamplerRHIRef>;
-		FSamplerRHIRef Candidate =
-			RHICreateSampler(RendererPrivate::MakeMaterialSamplerDesc(State));
-		if (Candidate != nullptr)
-		{
-			return FResult::Success(std::move(Candidate));
-		}
-		return FResult::Failure(MakeRendererResourceCreateError(
-			ERenderResourceCreateErrorCategory::RHIResource,
-			std::move(Context),
-			std::format(
-				"min={},mag={},u={},v={}",
-				static_cast<uint8>(State.MinFilter),
-				static_cast<uint8>(State.MagFilter),
-				static_cast<uint8>(State.AddressU),
-				static_cast<uint8>(State.AddressV)
-			),
-			"RHI sampler creation returned null.",
-			ERenderResourceGenerationDependency::Device
-				| ERenderResourceGenerationDependency::Manual
-		));
 	}
 
 	inline auto GetIdentityText(
