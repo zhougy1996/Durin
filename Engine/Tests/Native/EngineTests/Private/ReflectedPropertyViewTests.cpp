@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/MathStructs.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -95,6 +96,7 @@ namespace
 		}
 
 		Durin::int32 Value = 5;
+		Durin::FVector3f FloatVector{0.0f};
 		FSoftObjectViewValue SoftValues[2];
 		FSoftObjectViewArray SoftArray;
 		FSoftObjectViewMap SoftMap;
@@ -344,6 +346,68 @@ TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
 
 	Durin::MarkObjectHierarchyAsGarbage(Component);
 	Durin::CollectGarbage();
+}
+
+TEST(FReflectedPropertyViewTests, FloatVectorUsesInlineComponentEditor)
+{
+	InitializeDObjectSystem();
+	Durin::DClass TestClass(
+		Durin::EC_StaticConstructor,
+		Durin::FName("DFloatVectorPropertyViewTestObject"),
+		sizeof(DPropertyViewHostTestObject),
+		alignof(DPropertyViewHostTestObject),
+		Durin::EObjectFlags::Transient,
+		Durin::EClassFlags::Native,
+		Durin::EClassCastFlags::DClass,
+		nullptr);
+	DPropertyViewHostTestObject Object(&TestClass, Durin::FName("FloatVectorPropertyView"));
+	const auto Offset = static_cast<Durin::uint16>(
+		reinterpret_cast<const Durin::uint8*>(&Object.FloatVector)
+			- reinterpret_cast<const Durin::uint8*>(&Object));
+	Durin::FStructProperty FloatVectorProperty(
+		Durin::FFieldVariant(&TestClass), Durin::FName("FloatVector"), Durin::EObjectFlags::Transient,
+		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_Durin_FVector3f());
+
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	Durin::Editor::FPropertyView PropertyView;
+
+	auto DrawFrame = [&]() {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({600.0f, 300.0f});
+		ImGui::Begin("Float Vector Property View Test", nullptr, ImGuiWindowFlags_NoTitleBar);
+		if (Durin::MonaImGui::PropertyEdit::BeginTable("FloatVectorPropertyRows"))
+		{
+			PropertyView.EditProperty({}, &Object, &FloatVectorProperty);
+			Durin::MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::End();
+		ImGui::Render();
+	};
+
+	DrawFrame();
+	// The third component occupies the right side of the fixed property window.
+	IO.AddMousePosEvent(500.0f, 16.0f);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	IO.AddInputCharactersUTF8("42");
+	DrawFrame();
+
+	EXPECT_EQ(Object.FloatVector, Durin::FVector3f(0.0f, 0.0f, 42.0f));
+	ImGui::DestroyContext(ImContext);
 }
 
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)

@@ -27,6 +27,12 @@ namespace Durin::MonaImGui::PropertyEdit
 		) -> bool
 		{
 			static_assert(NumComponents >= 2 && NumComponents <= 4);
+			using TScalar = typename TVector::value_type;
+			static_assert(std::is_same_v<TScalar, float> || std::is_same_v<TScalar, double>);
+			constexpr ImGuiDataType DataType = std::is_same_v<TScalar, float>
+				? ImGuiDataType_Float : ImGuiDataType_Double;
+			const TScalar MinimumValue = static_cast<TScalar>(Config.MinimumValue);
+			const TScalar MaximumValue = static_cast<TScalar>(Config.MaximumValue);
 			const std::array<ImVec4, 4> ComponentColors = {
 				GetThemeColor(EUIThemeColor::AxisX),
 				GetThemeColor(EUIThemeColor::AxisY),
@@ -55,11 +61,11 @@ namespace Durin::MonaImGui::PropertyEdit
 					ImGui::PushID(static_cast<int>(Component));
 					bChanged |= ImGui::DragScalar(
 						"##Value",
-						ImGuiDataType_Double,
+						DataType,
 						&Value[Component],
 						static_cast<float>(Speed),
-						Config.bHasRange ? &Config.MinimumValue : nullptr,
-						Config.bHasRange ? &Config.MaximumValue : nullptr,
+						Config.bHasRange ? &MinimumValue : nullptr,
+						Config.bHasRange ? &MaximumValue : nullptr,
 						Format,
 						Config.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
 					AccumulateLastItemState(State);
@@ -76,6 +82,16 @@ namespace Durin::MonaImGui::PropertyEdit
 			}
 			ImGui::PopStyleVar();
 			ImGui::PopID();
+			return bChanged;
+		}
+
+		template<typename TVector>
+		auto EditVectorRow(const char* Label, TVector& Value, bool bReadOnly, double Speed,
+			FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		{
+			BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
+			const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
+			EndRow(bReadOnly);
 			return bChanged;
 		}
 
@@ -143,6 +159,24 @@ namespace Durin::MonaImGui::PropertyEdit
 		return EditComponentValues<2>(Id, Value, Speed, OutState, Config);
 	}
 
+	auto EditVectorValue(const char* Id, FVector2f& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<2>(Id, Value, Speed, OutState, Config);
+	}
+
+	auto EditVectorValue(const char* Id, FVector3f& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<3>(Id, Value, Speed, OutState, Config);
+	}
+
+	auto EditVectorValue(const char* Id, FVector4f& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<4>(Id, Value, Speed, OutState, Config);
+	}
+
 	auto EditVectorValue(const char* Id, FVector3& Value, double Speed,
 		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
 	{
@@ -158,28 +192,37 @@ namespace Durin::MonaImGui::PropertyEdit
 	auto EditVector(const char* Label, FVector2& Value, bool bReadOnly, double Speed,
 		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
 	{
-		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
-		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
-		EndRow(bReadOnly);
-		return bChanged;
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector3& Value, bool bReadOnly, double Speed,
 		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
 	{
-		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
-		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
-		EndRow(bReadOnly);
-		return bChanged;
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector4& Value, bool bReadOnly, double Speed,
 		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
 	{
-		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
-		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
-		EndRow(bReadOnly);
-		return bChanged;
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
+	}
+
+	auto EditVector(const char* Label, FVector2f& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+	{
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
+	}
+
+	auto EditVector(const char* Label, FVector3f& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+	{
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
+	}
+
+	auto EditVector(const char* Label, FVector4f& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+	{
+		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditQuat(const char* Label, FQuat& Value, bool bReadOnly, FWidgetState* OutState,

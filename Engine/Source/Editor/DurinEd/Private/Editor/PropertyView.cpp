@@ -110,6 +110,9 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const DStruct* Struct = static_cast<const FStructProperty&>(Property).GetStruct();
+				if (Struct == Z_Construct_DStruct_Durin_FVector2f()) return "Vector2 (Float)";
+				if (Struct == Z_Construct_DStruct_Durin_FVector3f()) return "Vector3 (Float)";
+				if (Struct == Z_Construct_DStruct_Durin_FVector4f()) return "Vector4 (Float)";
 				if (Struct == Z_Construct_DStruct_Durin_FVector2()) return "Vector2";
 				if (Struct == Z_Construct_DStruct_Durin_FVector3()) return "Vector3";
 				if (Struct == Z_Construct_DStruct_Durin_FVector4()) return "Vector4";
@@ -161,6 +164,9 @@ namespace Durin::Editor
 		auto HasInlineStructWidget(const DStruct* Struct) -> bool
 		{
 			return Struct == Z_Construct_DStruct_Durin_FTransform()
+				|| Struct == Z_Construct_DStruct_Durin_FVector2f()
+				|| Struct == Z_Construct_DStruct_Durin_FVector3f()
+				|| Struct == Z_Construct_DStruct_Durin_FVector4f()
 				|| Struct == Z_Construct_DStruct_Durin_FVector2()
 				|| Struct == Z_Construct_DStruct_Durin_FVector3()
 				|| Struct == Z_Construct_DStruct_Durin_FVector4()
@@ -528,6 +534,15 @@ namespace Durin::Editor
 				return MonaImGui::PropertyEdit::EditTransform(Label.c_str(), Value, bReadOnly, &State, TypeTooltip.c_str());
 			});
 		}
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector2f())
+			return EditVector.template operator()<FVector2f>();
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector3f())
+			return EditVector.template operator()<FVector3f>();
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector4f())
+			return EditVector.template operator()<FVector4f>();
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector2())
 			return EditVector.template operator()<FVector2>();

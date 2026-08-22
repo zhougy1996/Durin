@@ -69,6 +69,12 @@ namespace Durin::MonaImGui::PropertyEdit
 	// Shows delayed metadata for the most recently drawn property label.
 	MONAIMGUI_API auto ShowLabelTooltip(const char* LabelTooltip, bool bReadOnly = false) -> void;
 	// Edits vector components in the current value column without opening a row.
+	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector2f& Value, double Speed = 0.05,
+		FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {}) -> bool;
+	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector3f& Value, double Speed = 0.05,
+		FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {}) -> bool;
+	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector4f& Value, double Speed = 0.05,
+		FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {}) -> bool;
 	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector2& Value, double Speed = 0.05,
 		FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {}) -> bool;
 	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector3& Value, double Speed = 0.05,
@@ -76,6 +82,15 @@ namespace Durin::MonaImGui::PropertyEdit
 	MONAIMGUI_API auto EditVectorValue(const char* Id, FVector4& Value, double Speed = 0.05,
 		FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {}) -> bool;
 	// Edits vector components in one property row. Must be called inside a property table.
+	MONAIMGUI_API auto EditVector(const char* Label, FVector2f& Value, bool bReadOnly = false,
+		double Speed = 0.05, FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {},
+		const char* LabelTooltip = nullptr) -> bool;
+	MONAIMGUI_API auto EditVector(const char* Label, FVector3f& Value, bool bReadOnly = false,
+		double Speed = 0.05, FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {},
+		const char* LabelTooltip = nullptr) -> bool;
+	MONAIMGUI_API auto EditVector(const char* Label, FVector4f& Value, bool bReadOnly = false,
+		double Speed = 0.05, FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {},
+		const char* LabelTooltip = nullptr) -> bool;
 	MONAIMGUI_API auto EditVector(const char* Label, FVector2& Value, bool bReadOnly = false,
 		double Speed = 0.05, FWidgetState* OutState = nullptr, const FValueWidgetConfig& Config = {},
 		const char* LabelTooltip = nullptr) -> bool;
