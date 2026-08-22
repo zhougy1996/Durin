@@ -64,7 +64,11 @@ an item is an asset or an ordinary file.
 Texture asset creation enters through the `Import > Texture...` action. Its
 explicit asset-type selection creates Texture2D, TextureCube, or VolumeTexture
 without inferring asset identity from a source extension; each type retains
-its own source-layout and validation contract.
+its own source-layout and validation contract. VolumeTexture inspects selected
+PNG content to suggest an atlas interpretation, while ambiguous layouts remain
+explicit choices and advanced fields stay editable. Import submission failures
+remain inline in the open modal so the complete form can be corrected and
+retried without re-entry.
 
 Assets open through registered asset editors and use asset-aware rename, move,
 and deletion workflows. Opening a redirector resolves and opens its final real

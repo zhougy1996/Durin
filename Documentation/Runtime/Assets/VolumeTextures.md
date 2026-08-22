@@ -30,10 +30,15 @@ older build before entering the current repository baseline.
 The existing texture import dialog can interpret a selected PNG as either a
 normal `DTexture2D` or a `DVolumeTexture`. Volume mode currently supports one
 `PNG Row-Major Atlas`: each tile is one Z slice, tiles advance left-to-right and
-then top-to-bottom, and unused cells after `depth` are ignored. The user supplies
-slice width and height, depth, tile columns and rows, and one of `red`, `green`,
-`blue`, `alpha`, `luminance`, or `rgba`. Scalar selections produce `R8_UNORM`;
-`rgba` preserves all four channels as `RGBA8_UNORM`. Luminance is
+then top-to-bottom, and unused cells after `depth` are ignored. Selecting a PNG
+decodes its actual dimensions and sampled channel content without interpreting
+its filename. Cubic layouts whose slice size divides both atlas axes are ranked
+by power-of-two dimensions and atlas-cell utilization. A uniquely strong
+candidate is applied automatically; ambiguous candidates remain explicit user
+choices, and non-cubic layouts remain available through advanced slice width,
+height, depth, column, and row fields. The inferred or user-selected channel is
+one of `red`, `green`, `blue`, `alpha`, `luminance`, or `rgba`. Scalar selections
+produce `R8_UNORM`; `rgba` preserves all four channels as `RGBA8_UNORM`. Luminance is
 `(54R + 183G + 19B + 128) / 256` using integer arithmetic.
 
 The PNG dimensions must exactly equal `(slice width * columns) x (slice height *
@@ -43,8 +48,10 @@ the mounted PNG path and XXH3-128 hash together with the visible import format,
 channel selection, slice dimensions, depth, grid, and decoder version. Generic
 Details exposes the source path and interpretation as read-only asset properties.
 
-External imports copy the PNG beneath the selected mounted source location, save
-the `.dasset`, and only then commit the source copy. The shared `DurinImage`
+External single-PNG imports default to the flat mounted path
+`Sources/VolumeTextures/<source>.png`; they do not create a redundant
+asset-named source directory. Imports copy the PNG beneath the selected mounted
+source location, save the `.dasset`, and only then commit the source copy. The shared `DurinImage`
 provider supplies immutable snapshots, reimport, and source repair. A missing or
 malformed PNG, extent mismatch, build failure, stale publication, or save failure
 leaves the previous asset and render resource intact. Cook excludes normalized

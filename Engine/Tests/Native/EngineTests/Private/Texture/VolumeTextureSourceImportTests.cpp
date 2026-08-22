@@ -99,6 +99,94 @@ namespace
 		AppendPngChunk(Png, "IEND", {});
 		return Png;
 	}
+
+	std::vector<uint8> MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
+	{
+		std::vector<uint8> Scanlines;
+		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
+		for (uint32 Y = 0; Y < Height; ++Y)
+		{
+			Scanlines.push_back(0);
+			for (uint32 X = 0; X < Width; ++X)
+			{
+				const uint8 Value = static_cast<uint8>((X + Y) & 0xff);
+				Scanlines.insert(Scanlines.end(), {Value, Value, Value, 255});
+			}
+		}
+
+		std::vector<uint8> Deflate{0x78, 0x01};
+		size_t Offset = 0;
+		while (Offset < Scanlines.size())
+		{
+			const uint16 BlockSize = static_cast<uint16>(
+				std::min<size_t>(65535, Scanlines.size() - Offset));
+			Deflate.push_back(Offset + BlockSize == Scanlines.size() ? 1 : 0);
+			Deflate.push_back(static_cast<uint8>(BlockSize));
+			Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+			const uint16 Complement = static_cast<uint16>(~BlockSize);
+			Deflate.push_back(static_cast<uint8>(Complement));
+			Deflate.push_back(static_cast<uint8>(Complement >> 8));
+			Deflate.insert(Deflate.end(), Scanlines.begin() + Offset,
+				Scanlines.begin() + Offset + BlockSize);
+			Offset += BlockSize;
+		}
+		uint32 AdlerA = 1;
+		uint32 AdlerB = 0;
+		for (uint8 Byte : Scanlines)
+		{
+			AdlerA = (AdlerA + Byte) % 65521;
+			AdlerB = (AdlerB + AdlerA) % 65521;
+		}
+		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
+
+		std::vector<uint8> Png{137, 80, 78, 71, 13, 10, 26, 10};
+		std::array<uint8, 13> Header{};
+		Header[0] = static_cast<uint8>(Width >> 24);
+		Header[1] = static_cast<uint8>(Width >> 16);
+		Header[2] = static_cast<uint8>(Width >> 8);
+		Header[3] = static_cast<uint8>(Width);
+		Header[4] = static_cast<uint8>(Height >> 24);
+		Header[5] = static_cast<uint8>(Height >> 16);
+		Header[6] = static_cast<uint8>(Height >> 8);
+		Header[7] = static_cast<uint8>(Height);
+		Header[8] = 8;
+		Header[9] = 6;
+		AppendPngChunk(Png, "IHDR", Header);
+		AppendPngChunk(Png, "IDAT", Deflate);
+		AppendPngChunk(Png, "IEND", {});
+		return Png;
+	}
+}
+
+TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngContent)
+{
+	const std::filesystem::path Directory =
+		Testing::GetTestWorkDirectory() / "VolumeTextureInspection";
+	std::filesystem::create_directories(Directory);
+	const std::filesystem::path AtlasPath = Directory / "Atlas.png";
+	const std::vector<uint8> Png = MakeGrayscaleRgbaPng(512, 512);
+	{
+		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
+		ASSERT_TRUE(Stream.is_open());
+		Stream.write(reinterpret_cast<const char*>(Png.data()),
+			static_cast<std::streamsize>(Png.size()));
+	}
+
+	const FVolumeTextureAtlasInspection Inspection =
+		InspectVolumeTextureAtlasSource(AtlasPath.generic_string());
+	ASSERT_TRUE(Inspection) << Inspection.Message;
+	EXPECT_EQ(Inspection.AtlasWidth, 512u);
+	EXPECT_EQ(Inspection.AtlasHeight, 512u);
+	EXPECT_EQ(Inspection.SuggestedChannels, EVolumeTextureSourceChannels::Red);
+	ASSERT_TRUE(Inspection.bHasConfidentLayout) << Inspection.Message;
+	ASSERT_FALSE(Inspection.SuggestedLayouts.empty());
+	const FVolumeTextureImportSettings& Suggested =
+		Inspection.SuggestedLayouts.front();
+	EXPECT_EQ(Suggested.SliceWidth, 64u);
+	EXPECT_EQ(Suggested.SliceHeight, 64u);
+	EXPECT_EQ(Suggested.Depth, 64u);
+	EXPECT_EQ(Suggested.TilesX, 8u);
+	EXPECT_EQ(Suggested.TilesY, 8u);
 }
 
 TEST(FVolumeTextureSourceImportTests, ValidatesDirectPngAtlasSettings)

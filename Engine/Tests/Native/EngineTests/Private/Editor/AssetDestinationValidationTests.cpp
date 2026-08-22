@@ -224,6 +224,10 @@ TEST_F(FAssetDestinationValidationTests, SuggestsImportedSourcesByKindAndBundleS
 		"/Engine/Sources/Textures/Grid.png");
 	EXPECT_EQ(
 		MakeDefaultImportedSourceVirtualPath(
+			"/Project/Textures/CloudDensity", "VolumeTextures", "CloudDensity.png"),
+		"/Project/Sources/VolumeTextures/CloudDensity.png");
+	EXPECT_EQ(
+		MakeDefaultImportedSourceVirtualPath(
 			"/Project/Imported/Robot", "Models", "Robot.gltf", "Robot"),
 		"/Project/Sources/Models/Robot/Robot.gltf");
 	EXPECT_EQ(

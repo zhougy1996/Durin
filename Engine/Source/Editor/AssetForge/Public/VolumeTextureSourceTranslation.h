@@ -46,6 +46,24 @@ namespace Durin::Asset::Forge
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	// Describes source-derived import suggestions without relying on file naming.
+	struct FVolumeTextureAtlasInspection
+	{
+		bool bSucceeded = false;
+		bool bHasConfidentLayout = false;
+		uint32 AtlasWidth = 0;
+		uint32 AtlasHeight = 0;
+		uint8 SourceChannelCount = 0;
+		EVolumeTextureSourceChannels SuggestedChannels =
+			EVolumeTextureSourceChannels::Red;
+		std::vector<FVolumeTextureImportSettings> SuggestedLayouts;
+		std::string Message;
+
+		explicit operator bool() const { return bSucceeded; }
+	};
+
+	ASSETFORGE_API auto InspectVolumeTextureAtlasSource(
+		std::string_view FilePath) -> FVolumeTextureAtlasInspection;
 	ASSETFORGE_API auto TranslateVolumeTextureAtlasSource(
 		const FVolumeTextureCapturedSource& Source,
 		const FVolumeTextureImportSettings& Settings,

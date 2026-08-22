@@ -2,6 +2,7 @@
 
 #include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
+#include "VolumeTextureSourceTranslation.h"
 
 namespace Durin::Editor::Level
 {
@@ -39,13 +40,19 @@ namespace Durin::Editor::Level
 		auto BrowseSingleSourceDestination() -> void;
 		auto SuggestSelectedSourceDestinations() -> void;
 		auto SuggestSingleSourceDestination() -> void;
+		auto InspectVolumeTextureSource() -> void;
+		auto ApplyVolumeTextureLayoutSuggestion(size_t Index) -> void;
 		auto ImportSelectedTexture() -> bool;
 		auto ImportSingleTexture() -> bool;
-		auto SetError(std::string Message) const -> void;
+		auto SetError(std::string Message) -> void;
 
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;
 		FImportDialogModalState ModalState;
 		FTextureImportDialogState State;
+		Asset::Forge::FVolumeTextureAtlasInspection VolumeInspection;
+		std::string InspectedVolumeSourcePath;
+		std::string SubmissionError;
+		int SelectedVolumeLayout = -1;
 	};
 } // namespace Durin::Editor::Level

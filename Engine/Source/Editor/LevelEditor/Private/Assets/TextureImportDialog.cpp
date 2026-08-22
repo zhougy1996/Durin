@@ -69,6 +69,10 @@ namespace Durin::Editor::Level
 	{
 		State.Reset();
 		Destination.Reset(DestinationDirectory);
+		VolumeInspection = {};
+		InspectedVolumeSourcePath.clear();
+		SubmissionError.clear();
+		SelectedVolumeLayout = -1;
 		ModalState.RequestOpen();
 	}
 
@@ -96,7 +100,10 @@ namespace Durin::Editor::Level
 		{
 			State.SetAssetType(
 				static_cast<ETextureImportAssetType>(AssetTypeIndex));
+			SubmissionError.clear();
 			SuggestSelectedSourceDestinations();
+			if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
+				InspectVolumeTextureSource();
 		}
 
 		ImGui::Spacing();
@@ -126,6 +133,8 @@ namespace Durin::Editor::Level
 				? ValidateAndDrawTextureCubeDestination()
 				: ValidateAndDrawSingleDestination();
 		DrawImportDialogWarning(ValidationMessage);
+		if (!SubmissionError.empty())
+			DrawImportDialogWarning(SubmissionError);
 
 		ImGui::Spacing();
 		ImGui::Separator();
@@ -213,21 +222,73 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		ImGui::SeparatorText("Volume atlas settings");
+		ImGui::SeparatorText("Volume atlas interpretation");
+		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
+		if (VolumeInspection &&
+			InspectedVolumeSourcePath == Volume.Source.GetSourcePathBuffer().data())
+		{
+			ImGui::Text("PNG: %u x %u, %u source channel%s",
+				VolumeInspection.AtlasWidth, VolumeInspection.AtlasHeight,
+				VolumeInspection.SourceChannelCount,
+				VolumeInspection.SourceChannelCount == 1 ? "" : "s");
+			ImGui::TextDisabled("%s", VolumeInspection.Message.c_str());
+			if (!VolumeInspection.SuggestedLayouts.empty())
+			{
+				const std::string CurrentLayout = SelectedVolumeLayout >= 0
+					? std::format("{} x {} x {}  ({} x {} tiles)",
+						Volume.SliceWidth, Volume.SliceHeight, Volume.Depth,
+						Volume.TilesX, Volume.TilesY)
+					: "Custom";
+				if (ImGui::BeginCombo("Detected layout", CurrentLayout.c_str()))
+				{
+					for (size_t Index = 0;
+						Index < VolumeInspection.SuggestedLayouts.size(); ++Index)
+					{
+						const auto& Candidate =
+							VolumeInspection.SuggestedLayouts[Index];
+						const std::string Label = std::format(
+							"{} x {} x {}  ({} x {} tiles)",
+							Candidate.SliceWidth, Candidate.SliceHeight,
+							Candidate.Depth, Candidate.TilesX, Candidate.TilesY);
+						if (ImGui::Selectable(Label.c_str(),
+							SelectedVolumeLayout == static_cast<int>(Index)))
+							ApplyVolumeTextureLayoutSuggestion(Index);
+					}
+					ImGui::EndCombo();
+				}
+			}
+		}
+		else if (!InspectedVolumeSourcePath.empty() && !SubmissionError.empty())
+		{
+			ImGui::TextDisabled("The selected PNG could not be inspected.");
+		}
+
+		const bool bOpenAdvanced = VolumeInspection.SuggestedLayouts.empty();
+		if (!ImGui::CollapsingHeader("Advanced settings",
+			bOpenAdvanced ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None))
+			return;
 		ImGui::TextDisabled("Import format: PNG Row-Major Atlas");
 		const char* ChannelNames[] = {
 			"Red", "Green", "Blue", "Alpha", "Luminance", "RGBA"};
-		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
 		int ChannelIndex = static_cast<int>(Volume.Channels);
 		if (ImGui::Combo("Channels", &ChannelIndex, ChannelNames,
 			static_cast<int>(std::size(ChannelNames))))
+		{
 			Volume.Channels =
 				static_cast<EVolumeTextureSourceChannels>(ChannelIndex);
-		ImGui::InputScalar("Slice width", ImGuiDataType_U32, &Volume.SliceWidth);
-		ImGui::InputScalar("Slice height", ImGuiDataType_U32, &Volume.SliceHeight);
-		ImGui::InputScalar("Depth", ImGuiDataType_U32, &Volume.Depth);
-		ImGui::InputScalar("Tile columns", ImGuiDataType_U32, &Volume.TilesX);
-		ImGui::InputScalar("Tile rows", ImGuiDataType_U32, &Volume.TilesY);
+			SelectedVolumeLayout = -1;
+		}
+		bool bLayoutEdited = false;
+		bLayoutEdited |= ImGui::InputScalar(
+			"Slice width", ImGuiDataType_U32, &Volume.SliceWidth);
+		bLayoutEdited |= ImGui::InputScalar(
+			"Slice height", ImGuiDataType_U32, &Volume.SliceHeight);
+		bLayoutEdited |= ImGui::InputScalar("Depth", ImGuiDataType_U32, &Volume.Depth);
+		bLayoutEdited |= ImGui::InputScalar(
+			"Tile columns", ImGuiDataType_U32, &Volume.TilesX);
+		bLayoutEdited |= ImGui::InputScalar(
+			"Tile rows", ImGuiDataType_U32, &Volume.TilesY);
+		if (bLayoutEdited) SelectedVolumeLayout = -1;
 		ImGui::TextDisabled(
 			"Slices are read left-to-right, then top-to-bottom; unused tail cells are ignored.");
 	}
@@ -315,6 +376,11 @@ namespace Durin::Editor::Level
 		{
 			const FVolumeTextureImportFormState& Volume =
 				State.GetVolumeTexture();
+			if (InspectedVolumeSourcePath == Source.GetSourcePathBuffer().data()
+				&& !VolumeInspection)
+			{
+				return VolumeInspection.Message;
+			}
 			Asset::Forge::FVolumeTextureImportSettings Settings{
 				.Channels = Volume.Channels,
 				.SliceWidth = Volume.SliceWidth,
@@ -322,7 +388,20 @@ namespace Durin::Editor::Level
 				.Depth = Volume.Depth,
 				.TilesX = Volume.TilesX,
 				.TilesY = Volume.TilesY};
-			Settings.IsValid(&ValidationMessage);
+			if (Settings.IsValid(&ValidationMessage) && VolumeInspection &&
+				InspectedVolumeSourcePath == Source.GetSourcePathBuffer().data())
+			{
+				const uint64 ExpectedWidth =
+					static_cast<uint64>(Volume.SliceWidth) * Volume.TilesX;
+				const uint64 ExpectedHeight =
+					static_cast<uint64>(Volume.SliceHeight) * Volume.TilesY;
+				if (ExpectedWidth != VolumeInspection.AtlasWidth
+					|| ExpectedHeight != VolumeInspection.AtlasHeight)
+					ValidationMessage = std::format(
+						"The selected layout expects a {}x{} atlas, but the PNG is {}x{}.",
+						ExpectedWidth, ExpectedHeight, VolumeInspection.AtlasWidth,
+						VolumeInspection.AtlasHeight);
+			}
 		}
 		return ValidationMessage;
 	}
@@ -379,6 +458,9 @@ namespace Durin::Editor::Level
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
 		SuggestSingleSourceDestination();
+		SubmissionError.clear();
+		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
+			InspectVolumeTextureSource();
 	}
 
 	auto FTextureImportDialog::SuggestSingleSourceDestination() -> void
@@ -393,8 +475,45 @@ namespace Durin::Editor::Level
 			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
 		Source.SuggestDestination(MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), bVolume ? "VolumeTextures" : "Textures",
-			AssetName + SourcePath.extension().generic_string(),
-			bVolume ? AssetName : std::string_view{}));
+			AssetName + SourcePath.extension().generic_string()));
+	}
+
+	auto FTextureImportDialog::InspectVolumeTextureSource() -> void
+	{
+		if (State.GetAssetType() != ETextureImportAssetType::VolumeTexture) return;
+		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
+		const std::string SourcePath = Volume.Source.GetSourcePathBuffer().data();
+		if (SourcePath.empty()
+			|| (SourcePath == InspectedVolumeSourcePath && VolumeInspection)) return;
+
+		InspectedVolumeSourcePath = SourcePath;
+		SelectedVolumeLayout = -1;
+		VolumeInspection = Asset::Forge::InspectVolumeTextureAtlasSource(SourcePath);
+		if (!VolumeInspection)
+		{
+			SubmissionError.clear();
+			return;
+		}
+		SubmissionError.clear();
+		Volume.Channels = VolumeInspection.SuggestedChannels;
+		if (VolumeInspection.bHasConfidentLayout)
+			ApplyVolumeTextureLayoutSuggestion(0);
+	}
+
+	auto FTextureImportDialog::ApplyVolumeTextureLayoutSuggestion(size_t Index) -> void
+	{
+		if (Index >= VolumeInspection.SuggestedLayouts.size()) return;
+		const Asset::Forge::FVolumeTextureImportSettings& Suggested =
+			VolumeInspection.SuggestedLayouts[Index];
+		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
+		Volume.Channels = Suggested.Channels;
+		Volume.SliceWidth = Suggested.SliceWidth;
+		Volume.SliceHeight = Suggested.SliceHeight;
+		Volume.Depth = Suggested.Depth;
+		Volume.TilesX = Suggested.TilesX;
+		Volume.TilesY = Suggested.TilesY;
+		SelectedVolumeLayout = static_cast<int>(Index);
+		SubmissionError.clear();
 	}
 
 	auto FTextureImportDialog::SuggestSelectedSourceDestinations() -> void
@@ -479,6 +598,7 @@ namespace Durin::Editor::Level
 	auto FTextureImportDialog::ImportSelectedTexture() -> bool
 	{
 		Callbacks.Clear();
+		SubmissionError.clear();
 		const bool bImported =
 			State.GetAssetType() == ETextureImportAssetType::TextureCube
 				? ImportTextureCube()
@@ -539,8 +659,8 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FTextureImportDialog::SetError(std::string Message) const -> void
+	auto FTextureImportDialog::SetError(std::string Message) -> void
 	{
-		Callbacks.Report(std::move(Message));
+		SubmissionError = std::move(Message);
 	}
 } // namespace Durin::Editor::Level

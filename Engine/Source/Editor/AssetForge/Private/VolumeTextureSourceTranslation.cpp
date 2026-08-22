@@ -69,8 +69,85 @@ namespace Durin::Asset::Forge
 				return false;
 			}
 			OutPath = Mount->VirtualRoot + "Sources/VolumeTextures/"
-				+ std::string(AssetPath.GetAssetName()) + "/" + std::string(FileName);
+				+ std::string(FileName);
 			return true;
+		}
+
+		auto IsPowerOfTwo(uint32 Value) -> bool
+		{
+			return Value != 0 && (Value & (Value - 1)) == 0;
+		}
+
+		auto SuggestAtlasChannels(const Image::FDecodedImage& Image)
+			-> EVolumeTextureSourceChannels
+		{
+			if (Image.SourceChannelCount <= 2)
+				return EVolumeTextureSourceChannels::Red;
+
+			bool bRgbEqual = true;
+			bool bRgbWhite = true;
+			bool bAlphaVaries = false;
+			const size_t PixelCount = Image.Pixels.size() / 4;
+			const size_t SampleCount = std::min<size_t>(PixelCount, 65536);
+			for (size_t Sample = 0; Sample < SampleCount; ++Sample)
+			{
+				const size_t PixelIndex = SampleCount == PixelCount
+					? Sample : Sample * PixelCount / SampleCount;
+				const uint8* Pixel = Image.Pixels.data() + PixelIndex * 4;
+				bRgbEqual &= Pixel[0] == Pixel[1] && Pixel[1] == Pixel[2];
+				bRgbWhite &= Pixel[0] == 255 && Pixel[1] == 255 && Pixel[2] == 255;
+				bAlphaVaries |= Pixel[3] != 255;
+			}
+			if (Image.SourceChannelCount == 4 && bAlphaVaries && bRgbWhite)
+				return EVolumeTextureSourceChannels::Alpha;
+			return bRgbEqual
+				? EVolumeTextureSourceChannels::Red
+				: EVolumeTextureSourceChannels::RGBA;
+		}
+
+		auto SuggestCubicAtlasLayouts(const Image::FDecodedImage& Image,
+			EVolumeTextureSourceChannels Channels)
+			-> std::vector<FVolumeTextureImportSettings>
+		{
+			struct FCandidate
+			{
+				FVolumeTextureImportSettings Settings;
+				double Utilization = 0.0;
+				bool bPowerOfTwo = false;
+				double Score = 0.0;
+			};
+			std::vector<FCandidate> Candidates;
+			const uint32 MaximumSlice = std::min({Image.Width, Image.Height,
+				MaximumVolumeTextureDimension});
+			for (uint32 Slice = 1; Slice <= MaximumSlice; ++Slice)
+			{
+				if (Image.Width % Slice != 0 || Image.Height % Slice != 0) continue;
+				const uint32 TilesX = Image.Width / Slice;
+				const uint32 TilesY = Image.Height / Slice;
+				const uint64 CellCount = static_cast<uint64>(TilesX) * TilesY;
+				if (CellCount < Slice) continue;
+				FVolumeTextureImportSettings Settings{
+					.Channels = Channels,
+					.SliceWidth = Slice,
+					.SliceHeight = Slice,
+					.Depth = Slice,
+					.TilesX = TilesX,
+					.TilesY = TilesY};
+				if (!Settings.IsValid()) continue;
+				const double Utilization =
+					static_cast<double>(Slice) / static_cast<double>(CellCount);
+				const bool bPowerOfTwo = IsPowerOfTwo(Slice);
+				Candidates.push_back({Settings, Utilization, bPowerOfTwo,
+					Utilization + (bPowerOfTwo ? 0.15 : 0.0)});
+			}
+			std::ranges::sort(Candidates, [](const FCandidate& A, const FCandidate& B) {
+				if (A.Score != B.Score) return A.Score > B.Score;
+				return A.Settings.SliceWidth > B.Settings.SliceWidth;
+			});
+			std::vector<FVolumeTextureImportSettings> Result;
+			for (const FCandidate& Candidate : Candidates | std::views::take(3))
+				Result.push_back(Candidate.Settings);
+			return Result;
 		}
 
 		auto ReadCaptured(const Asset::FMountedSourceFile& Source,
@@ -128,6 +205,48 @@ namespace Durin::Asset::Forge
 			return Fail("Decoded volume texture exceeds the 2 GiB source payload limit.");
 		if (OutError) OutError->clear();
 		return true;
+	}
+
+	auto InspectVolumeTextureAtlasSource(
+		std::string_view FilePath) -> FVolumeTextureAtlasInspection
+	{
+		Image::FDecodedImage Image;
+		std::string Error;
+		if (!Image::DecodeImageFromFile(FilePath, Image, Error))
+			return {.Message = std::format(
+				"Failed to inspect the volume atlas: {}", Error)};
+
+		FVolumeTextureAtlasInspection Result;
+		Result.bSucceeded = true;
+		Result.AtlasWidth = Image.Width;
+		Result.AtlasHeight = Image.Height;
+		Result.SourceChannelCount = Image.SourceChannelCount;
+		Result.SuggestedChannels = SuggestAtlasChannels(Image);
+		Result.SuggestedLayouts = SuggestCubicAtlasLayouts(
+			Image, Result.SuggestedChannels);
+		if (Result.SuggestedLayouts.empty())
+		{
+			Result.Message = "No cubic atlas layout could be inferred from the PNG dimensions.";
+			return Result;
+		}
+
+		const FVolumeTextureImportSettings& Best = Result.SuggestedLayouts.front();
+		const double BestUtilization = static_cast<double>(Best.Depth)
+			/ (static_cast<double>(Best.TilesX) * Best.TilesY);
+		bool bClearlyBetter = Result.SuggestedLayouts.size() == 1;
+		if (!bClearlyBetter)
+		{
+			const FVolumeTextureImportSettings& Second = Result.SuggestedLayouts[1];
+			const double SecondUtilization = static_cast<double>(Second.Depth)
+				/ (static_cast<double>(Second.TilesX) * Second.TilesY);
+			bClearlyBetter = BestUtilization - SecondUtilization >= 0.2;
+		}
+		Result.bHasConfidentLayout = IsPowerOfTwo(Best.SliceWidth)
+			&& BestUtilization >= 0.75 && bClearlyBetter;
+		Result.Message = Result.bHasConfidentLayout
+			? "A high-confidence cubic layout was inferred from the PNG dimensions."
+			: "Several cubic layouts fit the PNG dimensions; review the suggested layouts.";
+		return Result;
 	}
 
 	auto TranslateVolumeTextureAtlasSource(const FVolumeTextureCapturedSource& Source,
