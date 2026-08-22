@@ -99,9 +99,9 @@ namespace Durin
 		float Coverage = 0.55f;
 		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Detail-volume erosion strength.")
 		float DetailErosion = 0.30f;
-		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "View-ray extinction coefficient.")
+		DPROPERTY(Edit, Category = "Optical Response", Precision = 6, ToolTip = "View-ray extinction coefficient.")
 		float Extinction = 0.0015f;
-		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Light-ray and receiver-shadow extinction coefficient.")
+		DPROPERTY(Edit, Category = "Optical Response", Precision = 6, ToolTip = "Light-ray and receiver-shadow extinction coefficient.")
 		float LightExtinction = 0.0020f;
 		DPROPERTY(Edit, Category = "Optical Response", ToolTip = "Bounded ambient lighting contribution.")
 		float Ambient = 0.12f;

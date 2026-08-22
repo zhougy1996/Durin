@@ -161,6 +161,24 @@ namespace Durin::Editor
 			}
 		}
 
+		auto PropertyDragSpeed(const FPropertyMetadata& Metadata, double DefaultSpeed) -> double
+		{
+			switch (Metadata.Step.Kind)
+			{
+			case EPropertyMetadataNumericKind::Signed: return static_cast<double>(Metadata.Step.Signed);
+			case EPropertyMetadataNumericKind::Unsigned: return static_cast<double>(Metadata.Step.Unsigned);
+			case EPropertyMetadataNumericKind::Float: return static_cast<double>(Metadata.Step.Float);
+			case EPropertyMetadataNumericKind::Double: return Metadata.Step.Double;
+			default: return DefaultSpeed;
+			}
+		}
+
+		auto PropertyDecimalFormat(const FPropertyMetadata& Metadata, int8 DefaultPrecision = -1) -> std::string
+		{
+			const int8 Precision = Metadata.Precision >= 0 ? Metadata.Precision : DefaultPrecision;
+			return Precision >= 0 ? std::format("%.{}f", Precision) : std::string{};
+		}
+
 		auto HasInlineStructWidget(const DStruct* Struct) -> bool
 		{
 			return Struct == Z_Construct_DStruct_Durin_FTransform()
@@ -523,8 +541,15 @@ namespace Durin::Editor
 			return Result;
 		};
 		auto EditVector = [&]<typename TVector>() -> FPropertyWidgetEditResult {
+			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
+			const double Speed = PropertyDragSpeed(Metadata, 0.05);
+			const std::string Format = PropertyDecimalFormat(Metadata);
+			const MonaImGui::PropertyEdit::FValueWidgetConfig Config{
+				.Format = Format.empty() ? nullptr : Format.c_str(),
+			};
 			return EditMathStruct.template operator()<TVector>([&](TVector& Value, auto& State) {
-				return MonaImGui::PropertyEdit::EditVector(Label.c_str(), Value, bReadOnly, 0.05, &State, {}, TypeTooltip.c_str());
+				return MonaImGui::PropertyEdit::EditVector(
+					Label.c_str(), Value, bReadOnly, Speed, &State, Config, TypeTooltip.c_str());
 			});
 		};
 
@@ -676,11 +701,8 @@ namespace Durin::Editor
 			check(Property->GetElementSize() <= Value.size());
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
 			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
-			float Speed = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f;
-			if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Signed) Speed = static_cast<float>(Metadata.Step.Signed);
-			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Unsigned) Speed = static_cast<float>(Metadata.Step.Unsigned);
-			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Float) Speed = Metadata.Step.Float;
-			else if (Metadata.Step.Kind == EPropertyMetadataNumericKind::Double) Speed = static_cast<float>(Metadata.Step.Double);
+			const float Speed = static_cast<float>(PropertyDragSpeed(Metadata,
+				Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05 : 1.0));
 			auto StoreLimit = [&](const FPropertyMetadataNumber& Number, auto& Storage) -> const void* {
 				if (Number.Kind == EPropertyMetadataNumericKind::None) return nullptr;
 				auto Store = [&](auto TypedValue) -> const void* {
@@ -704,9 +726,8 @@ namespace Durin::Editor
 			};
 			const void* Minimum = StoreLimit(Metadata.UIMin, MinimumStorage);
 			const void* Maximum = StoreLimit(Metadata.UIMax, MaximumStorage);
-			std::string Format;
-			if (Metadata.Precision >= 0 && (Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double))
-				Format = std::format("%.{}f", Metadata.Precision);
+			const std::string Format = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double
+				? PropertyDecimalFormat(Metadata, 3) : std::string{};
 			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Speed, Minimum, Maximum,
 				Format.empty() ? nullptr : Format.c_str());
 			const MonaImGui::PropertyEdit::FWidgetState State{

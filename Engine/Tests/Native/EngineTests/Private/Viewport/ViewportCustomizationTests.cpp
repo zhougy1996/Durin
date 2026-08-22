@@ -88,6 +88,10 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 		->GetTypedMetadata().Category, "Mapping and Motion");
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Extinction")
 		->GetTypedMetadata().Category, "Optical Response");
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Extinction")
+		->GetTypedMetadata().Precision, 6);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("LightExtinction")
+		->GetTypedMetadata().Precision, 6);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 }
