@@ -136,11 +136,19 @@ namespace Durin
 			std::numeric_limits<uint32>::max()), 536'870'912u);
 		EXPECT_EQ(FRenderer::CalculateTargetBytes(1'920, 1'080),
 			16'588'800u);
+		EXPECT_EQ(FRenderer::CalculateTargetBytes(3'840, 2'160),
+			66'355'200u);
+		EXPECT_LE(FRenderer::CalculateTargetBytes(3'840, 2'160),
+			FRenderer::MaximumRetainedTargetBytesPerFamily);
+		EXPECT_GT(FRenderer::CalculateTargetBytes(4'096, 2'160),
+			FRenderer::MaximumRetainedTargetBytesPerFamily);
 		EXPECT_EQ(FRenderer::CalculateTargetBytes(
 			std::numeric_limits<uint32>::max(),
 			std::numeric_limits<uint32>::max()),
 			std::numeric_limits<uint64>::max());
 		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytes,
+			192u * 1024u * 1024u);
+		EXPECT_EQ(FRenderer::MaximumRetainedTargetBytesPerFamily,
 			64u * 1024u * 1024u);
 
 		Inputs.bComputePayloadReady = false;

@@ -199,7 +199,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytes / 3) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
 		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudFragment", Width, Height, EPixelFormat::RGBA16_FLOAT)
@@ -225,7 +225,7 @@ namespace Durin
 			&& State->TargetsBySize.GetRetainedPayloadWeight(
 				[](uint64 K, const FTargets&) { return FSpatial::CalculateTargetBytes(
 					static_cast<uint32>(K >> 32), static_cast<uint32>(K)); })
-				> FSpatial::MaximumRetainedTargetBytes / 3)
+				> FSpatial::MaximumRetainedTargetBytesPerFamily)
 			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
 		if (!Result) return nullptr;
 		auto* Retained = State->TargetsBySize.Find(Key);
@@ -238,7 +238,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr
-			|| Bytes > FSpatial::MaximumRetainedTargetBytes / 3) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
 		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudCompute", Width, Height, EPixelFormat::RGBA16_FLOAT)
@@ -279,7 +279,7 @@ namespace Durin
 			&& State->ComputeTargetsBySize.GetRetainedPayloadWeight(
 				[](uint64 K, const FComputeTargets&) { return FSpatial::CalculateTargetBytes(
 					static_cast<uint32>(K >> 32), static_cast<uint32>(K)); })
-				> FSpatial::MaximumRetainedTargetBytes / 3)
+				> FSpatial::MaximumRetainedTargetBytesPerFamily)
 			if (!State->ComputeTargetsBySize.EvictOldestExcept(Key)) break;
 		if (!Result) return nullptr;
 		auto* Retained = State->ComputeTargetsBySize.Find(Key);
@@ -292,7 +292,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytes / 3) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
 		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudComposite", Width, Height, EPixelFormat::RGBA16_FLOAT)
@@ -320,7 +320,7 @@ namespace Durin
 				[](uint64 K, const FTargets&) {
 					return FSpatial::CalculateTargetBytes(
 						static_cast<uint32>(K >> 32), static_cast<uint32>(K));
-				}) > FSpatial::MaximumRetainedTargetBytes / 3)
+				}) > FSpatial::MaximumRetainedTargetBytesPerFamily)
 			if (!State->CompositeTargetsBySize.EvictOldestExcept(Key)) break;
 		if (!Result) return nullptr;
 		auto* Retained = State->CompositeTargetsBySize.Find(Key);

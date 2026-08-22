@@ -95,6 +95,17 @@ The final Stage 4 host pass includes both qualification executors, 1/1
 default native aggregate, the full Debug Editor build, and a validation-enabled
 120-tick hidden-window startup/render/clean-shutdown smoke.
 
+On 2026-08-22, a production 3840x2160 editor capture on the RTX 3090 exposed
+that the original 64 MiB total retained-target ceiling rejected every
+full-resolution cloud target above roughly 2.8 million pixels. The ceiling was
+amended to 192 MiB total, preserving three equal 64 MiB family budgets and
+admitting one 66,355,200-byte 3840x2160 `RGBA16_FLOAT` target per fragment,
+compute, and composite family. The frozen 1080p timing matrix and its measured
+retained-byte observations remain unchanged. The amended contract passed the
+75-test `EditorRenderingTests` target, real 3840x2160 fragment/compute target
+creation in `VolumetricCloudVulkanTests`, changed-document validation, and the
+complete Debug Editor build.
+
 The post-commit Definition-of-Done audit added
 `VolumetricCloudSceneVulkanTests`. A development-only prepared-view seam now
 injects the already-frozen P1 input without creating a reflected P2 object or
@@ -208,7 +219,8 @@ for the P2 scene/component plan.
   translucency.
 - Renderer resource slots publish complete payloads and retain last-known-good
   state across shader/device generations. Targets are extent-keyed and bounded
-  to 64 MiB total across fragment, compute, and composite targets. Resize/reload/retry cannot
+  to 192 MiB total across fragment, compute, and composite targets, with a
+  64 MiB cap per family so 3840x2160 fits. Resize/reload/retry cannot
   expose partial resources or stale fitted-view pixels.
 
 ### Frozen qualification gates
@@ -228,7 +240,8 @@ for the P2 scene/component plan.
   compute must record one dispatch/no cloud draw/no copy and stay within 12 ms
   median and 16 ms p95 at 1920x1080 on the named adapter. Fragment must remain
   functional and within 150% of compute median. Retained cloud targets stay at
-  or below 64 MiB, excluding generic input assets owned elsewhere.
+  or below 192 MiB total and 64 MiB per family, excluding generic input assets
+  owned elsewhere.
 
 ## Current Foundations and Gaps
 
@@ -252,7 +265,8 @@ for the P2 scene/component plan.
 - [x] Freeze `RGBA16_FLOAT` radiance/transmittance semantics, depth clipping,
   fitted-view clearing, and composition algebra.
 - [x] Freeze compute/fragment/disabled route eligibility, public transition
-  boundary, complete-or-last-known-good publication, and 64 MiB target ceiling.
+  boundary, complete-or-last-known-good publication, and the amended 192 MiB
+  total / 64 MiB per-family target ceiling.
 - [x] Freeze the minimal retained opaque/cloud/translucency split and explicitly
   preserve special-forward, hybrid-deferred, offscreen, Present, post-process,
   and assistance ownership.

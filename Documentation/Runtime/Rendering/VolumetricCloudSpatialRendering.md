@@ -65,9 +65,10 @@ command.
 
 Fragment, compute, and composite targets use complete-or-last-known-good
 resource slots; compute also owns canonical sampled/storage views. Each target
-family is capped at one third of the 64 MiB retained-target ceiling, so the
-three families remain within 64 MiB total. Old extents are evicted in insertion
-order while preserving the current extent. Oversized extents fail explicitly.
+family is capped at 64 MiB under a 192 MiB retained-target ceiling, so a full
+3840x2160 `RGBA16_FLOAT` target fits in every family while all three families
+remain within 192 MiB total. Old extents are evicted in insertion order while
+preserving the current extent. Oversized extents fail explicitly.
 
 Shader/device/manual generations control retry and invalidation. Replacement
 failure retains the previous complete payload when its generation remains

@@ -117,7 +117,7 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 20>>();
+		auto Results = std::make_shared<std::array<bool, 22>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
@@ -325,6 +325,16 @@ namespace Durin
 					&& Disabled.Counters.Route
 						== FVolumetricCloudRenderer::ERoute::Disabled;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+
+				auto* Fragment4K = Clouds.EnsureTargets_RenderThread(3'840, 2'160);
+				auto* Compute4K = Clouds.EnsureComputeTargets_RenderThread(3'840, 2'160);
+				(*Results)[20] = Fragment4K != nullptr && Fragment4K->Cloud
+					&& Fragment4K->Cloud->GetSizeX() == 3'840
+					&& Fragment4K->Cloud->GetSizeY() == 2'160;
+				(*Results)[21] = Compute4K != nullptr && Compute4K->Cloud
+					&& Compute4K->SampledView && Compute4K->StorageView
+					&& Compute4K->Cloud->GetSizeX() == 3'840
+					&& Compute4K->Cloud->GetSizeY() == 2'160;
 				Clouds.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}

@@ -160,7 +160,9 @@ namespace Durin
 		static constexpr uint32 MaximumLightSamples = 4;
 		static constexpr uint64 BytesPerPixel = 8;
 		static constexpr uint64 MaximumRetainedTargetBytes =
-			64ull * 1024ull * 1024ull;
+			192ull * 1024ull * 1024ull;
+		static constexpr uint64 MaximumRetainedTargetBytesPerFamily =
+			MaximumRetainedTargetBytes / 3;
 
 		static constexpr auto CalculateGroupCount(uint32 Extent) -> uint32
 		{
