@@ -1,16 +1,13 @@
 #include "DObject/AssetPath.h"
 
+#include "Misc/Failure.h"
+
 #include "Misc/Paths.h"
 
 namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string_view Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
 	}
 
 	auto FAssetPath::TryCreate(std::string_view InPath, FAssetPath& OutPath, std::string* OutError) -> bool

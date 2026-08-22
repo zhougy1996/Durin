@@ -1,5 +1,7 @@
 #include "Texture/TextureDerivedData.h"
 
+#include "Misc/Failure.h"
+
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/EngineWire.h"
@@ -9,12 +11,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
-
 		auto IsSupportedTarget(Asset::ECookTargetPlatform Platform, Asset::ECookTargetProfile Profile) -> bool
 		{
 			return Platform == Asset::ECookTargetPlatform::Win64

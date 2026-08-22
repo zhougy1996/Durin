@@ -1,15 +1,11 @@
 #include "Asset/BulkData.h"
 
+#include "Misc/Failure.h"
+
 namespace Durin::Asset
 {
 	namespace
 	{
-		auto Fail(std::string Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
-
 		auto IsConcreteDomain(EBulkDataStorageDomain Domain) -> bool
 		{
 			return Domain == EBulkDataStorageDomain::Authored

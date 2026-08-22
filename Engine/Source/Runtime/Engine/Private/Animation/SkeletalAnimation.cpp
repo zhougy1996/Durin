@@ -1,5 +1,7 @@
 #include "Animation/SkeletalAnimation.h"
 
+#include "Misc/Failure.h"
+
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -9,12 +11,6 @@ namespace Durin
 	namespace
 	{
 		constexpr double ReferenceMatrixTolerance = 1.0e-5;
-
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
 
 		auto ToDoubleMatrix(const FMatrix4f& Source) -> FMatrix
 		{

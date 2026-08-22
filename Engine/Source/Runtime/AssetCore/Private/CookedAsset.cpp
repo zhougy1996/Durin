@@ -3,6 +3,7 @@
 #include "AssetCatalogStoreInternal.h"
 #include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
+#include "Misc/Failure.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
 
@@ -225,9 +226,7 @@ namespace Durin::Asset
 			Writer.Write(Entry.FileSize);
 			Writer.Write(Entry.HashLow);
 			Writer.Write(Entry.HashHigh);
-			Writer.WriteBytes(std::span{
-				reinterpret_cast<const uint8*>(Entry.RelativePath.data()),
-				Entry.RelativePath.size()});
+			Writer.Write(std::as_bytes(std::span(Entry.RelativePath)));
 			return Writer.IsValid();
 		}
 
@@ -274,12 +273,6 @@ namespace Durin::Asset
 			ECookTargetPlatform ExpectedPlatform;
 			ECookTargetProfile ExpectedProfile;
 		};
-
-		auto Fail(std::string Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
 
 		auto CanonicalizeCookVirtualPath(
 			std::string& VirtualPackagePath,
@@ -495,7 +488,7 @@ namespace Durin::Asset
 				return Fail(FileError.ToString(), OutError);
 			std::vector<uint8> Reloaded;
 			std::string ValidationError;
-			if (!FFileHelper::LoadFileToArray(Reloaded, OutTemporary.generic_string())
+			if (!FFileHelper::LoadFileToArray(Reloaded, OutTemporary)
 				|| !Validate(Reloaded, &ValidationError))
 			{
 				std::filesystem::remove(OutTemporary, ErrorCode);
@@ -510,7 +503,7 @@ namespace Durin::Asset
 			std::string* OutError) -> bool
 		{
 			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Temporary.generic_string()))
+			if (!FFileHelper::LoadFileToArray(Bytes, Temporary))
 				return Fail("Failed to reopen validated temporary cook output for publication.", OutError);
 			FFileHelper::FAtomicFileError FileError;
 			if (!FFileHelper::SaveArrayToFileAtomically(
@@ -644,12 +637,12 @@ namespace Durin::Asset
 			.FileSize = FileSize,
 			.TableHash = TableHash,
 			.Reserved = 0};
-		if (!WriteBulkHeader(Writer, Header) || !Writer.WriteBytes(Table.View()))
+		if (!WriteBulkHeader(Writer, Header) || !Writer.Write(Table.View()))
 			return Fail("DBLK encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
 			if (!Writer.PadTo(Descriptors[Index].Offset)) return Fail("DBLK payload layout overflowed.", OutError);
-			if (!Writer.WriteBytes(Sorted[Index]->Bytes)) return Fail("DBLK encoding failed.", OutError);
+			if (!Writer.Write(Sorted[Index]->Bytes)) return Fail("DBLK encoding failed.", OutError);
 		}
 		std::vector<uint8> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
@@ -797,7 +790,7 @@ namespace Durin::Asset
 		if (ErrorCode || FileSize > MaximumBulkBytes || FileSize > std::numeric_limits<size_t>::max())
 			return Fail("Cooked bulk companion size is invalid.", OutError);
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, Path))
 			return Fail("Failed to read cooked bulk companion.", OutError);
 		return DecodeCookedBulk(Bytes, ExpectedPlatform, ExpectedProfile, OutContainer, OutError);
 	}
@@ -892,7 +885,7 @@ namespace Durin::Asset
 			.RecordHash = FXxHash64::HashBuffer(Records.View()).HashValue,
 			.FileSize = FileSize};
 		if (!WriteManifestHeader(Writer, Header)
-			|| !Writer.WriteBytes(Records.View()) || !Writer.TryTake(Candidate))
+			|| !Writer.Write(Records.View()) || !Writer.TryTake(Candidate))
 			return Fail("Cook manifest encoding failed.", OutError);
 		FCookManifest Validation;
 		if (!DecodeCookManifest(Candidate, Validation, OutError)) return false;
@@ -1103,7 +1096,7 @@ namespace Durin::Asset
 		FCookManifest PreviousManifest;
 		const std::filesystem::path ManifestPath = CookRoot / "CookManifest.bin";
 		std::vector<uint8> PreviousBytes;
-		const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(PreviousBytes, ManifestPath.generic_string())
+		const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(PreviousBytes, ManifestPath)
 			&& DecodeCookManifest(PreviousBytes, PreviousManifest);
 
 		for (FOutput& Output : BulkOutputs)

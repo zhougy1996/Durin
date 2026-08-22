@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
+#include "Misc/Failure.h"
+
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
@@ -29,12 +31,6 @@ namespace Durin
 
 		using FPayloadWriter = EngineWire::FWriter;
 		using FPayloadReader = EngineWire::FReader;
-
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
 
 		auto IsFinite(const FVector2f& Value) -> bool
 		{

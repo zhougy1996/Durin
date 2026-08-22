@@ -1,5 +1,7 @@
 #include "SkeletalMesh/Skeleton.h"
 
+#include "Misc/Failure.h"
+
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
@@ -10,12 +12,6 @@ namespace Durin
 	{
 		constexpr double MinimumSkeletonScale = 1.0e-8;
 		constexpr double SkeletonMatrixTolerance = 1.0e-5;
-
-		auto Fail(std::string* OutError, std::string Message) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
 
 		auto CanonicalFloat(double Value) -> double
 		{

@@ -1,5 +1,7 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
+#include "Misc/Failure.h"
+
 #include "PayloadDecodeResult.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
@@ -72,12 +74,6 @@ namespace Durin
 			uint64 StoredSize = 0;
 			uint64 DecodedSize = 0;
 		};
-
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
 
 		auto Align16(uint64 Value, uint64& OutValue) -> bool
 		{

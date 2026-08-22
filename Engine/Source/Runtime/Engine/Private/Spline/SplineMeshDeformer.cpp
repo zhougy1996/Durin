@@ -1,5 +1,7 @@
 #include "Spline/SplineMeshDeformer.h"
 
+#include "Misc/Failure.h"
+
 #include "Math/Operations.h"
 
 namespace Durin
@@ -7,12 +9,6 @@ namespace Durin
 	namespace
 	{
 		constexpr double FrameEpsilon = 1.e-12;
-
-		auto Fail(std::string* OutError, std::string Message) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
 
 		auto AxisVector(ESplineMeshAxis Axis) -> FVector3
 		{

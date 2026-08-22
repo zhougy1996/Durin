@@ -70,6 +70,9 @@ TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Second, Destination, &Error)) << Error.ToString();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
+	std::vector<std::byte> Loaded;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Loaded, Destination));
+	EXPECT_EQ(Loaded, std::vector(Second.begin(), Second.end()));
 }
 
 TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
@@ -96,8 +99,12 @@ TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span<const std::byte>{}, FilePath));
 
 	std::vector<Durin::uint8> Bytes{0x11, 0x22};
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, FilePath.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, FilePath));
 	EXPECT_TRUE(Bytes.empty());
+
+	std::vector<std::byte> RawBytes{std::byte{0x11}, std::byte{0x22}};
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RawBytes, FilePath));
+	EXPECT_TRUE(RawBytes.empty());
 
 	std::vector<Durin::uint32> Words{0x11223344};
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Words, FilePath.generic_string()));

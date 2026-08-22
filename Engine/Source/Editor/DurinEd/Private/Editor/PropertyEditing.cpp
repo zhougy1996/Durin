@@ -1,4 +1,6 @@
 #include "Editor/PropertyEditing.h"
+
+#include "Misc/Failure.h"
 #include "Editor/PropertyValueDraft.h"
 
 #include "DObject/DObjectArray.h"
@@ -28,12 +30,6 @@ namespace Durin::Editor
 			for (const auto& [Handle, Extension] : GPropertyEditExtensions)
 				Extensions.push_back(Extension);
 			return Extensions;
-		}
-
-		auto Fail(std::string* OutError, std::string_view Message) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
 		}
 
 		struct FResolveMapEntryContext

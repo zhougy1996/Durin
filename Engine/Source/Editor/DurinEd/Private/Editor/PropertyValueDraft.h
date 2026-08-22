@@ -2,6 +2,7 @@
 
 #include "DObject/Property.h"
 #include "Editor/PropertyEditing.h"
+#include "Misc/Failure.h"
 
 namespace Durin::Editor
 {
@@ -83,12 +84,6 @@ namespace Durin::Editor
 		}
 
 	private:
-		static auto Fail(std::string* OutError, std::string_view Message) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
-
 		const FProperty* Property = nullptr;
 		uint32 ArrayIndex = 0;
 		FReflectedValueStorage Storage;

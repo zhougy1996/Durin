@@ -219,12 +219,13 @@ namespace Durin
 		}
 
 		template<typename ElementType>
-		static auto LoadFileToArrayInternal(std::vector<ElementType>& Result, std::string_view FileName) -> bool
+		static auto LoadFileToArrayInternal(
+			std::vector<ElementType>& Result,
+			const std::filesystem::path& FilePath) -> bool
 		{
-			const std::filesystem::path FilePath(FileName);
 			if (!std::filesystem::exists(FilePath))
 			{
-				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
+				DURIN_WARN("Failed to load file. File {} does not exist.", FilePath.generic_string());
 				return false;
 			}
 
@@ -263,14 +264,19 @@ namespace Durin
 			return true;
 		};
 
-		bool LoadFileToArray(std::vector<uint8>& Result, std::string_view FileName)
+		bool LoadFileToArray(std::vector<uint8>& Result, const std::filesystem::path& FilePath)
 		{
-			return LoadFileToArrayInternal(Result, FileName);
+			return LoadFileToArrayInternal(Result, FilePath);
+		}
+
+		bool LoadFileToArray(std::vector<std::byte>& Result, const std::filesystem::path& FilePath)
+		{
+			return LoadFileToArrayInternal(Result, FilePath);
 		}
 
 		bool LoadFileToArray(std::vector<uint32>& Result, std::string_view FileName)
 		{
-			return LoadFileToArrayInternal(Result, FileName);
+			return LoadFileToArrayInternal(Result, std::filesystem::path(FileName));
 		}
 
 		bool LoadFileToString(std::string& Result, std::string_view FileName)

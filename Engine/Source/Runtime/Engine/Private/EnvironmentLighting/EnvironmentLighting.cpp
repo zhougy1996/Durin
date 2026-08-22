@@ -1,5 +1,7 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 
+#include "Misc/Failure.h"
+
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
@@ -12,12 +14,6 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 EnvironmentLightingStablePixelFormatRgba16Float = 1;
-
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
 
 		auto ExpectedElementCount() -> uint64
 		{

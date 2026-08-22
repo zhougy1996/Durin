@@ -1,5 +1,7 @@
 #include "Animation/AnimationClip.h"
 
+#include "Misc/Failure.h"
+
 #include "AssetCook.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
@@ -11,12 +13,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
-
 		auto IsCanonicalQuaternion(const FVector4f& Value) -> bool
 		{
 			if (!Math::IsFinite(Value)

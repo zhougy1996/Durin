@@ -1,5 +1,7 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
+#include "Misc/Failure.h"
+
 #include "AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"
@@ -15,12 +17,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string* OutError, std::string Message) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
-
 		auto IsFinite(const FBox& Bounds) -> bool
 		{
 			return Bounds.bIsValid && Math::IsFinite(Bounds.Min) && Math::IsFinite(Bounds.Max)

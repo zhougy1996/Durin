@@ -1,9 +1,16 @@
 #pragma once
 
 #include "Misc/Guid.h"
+#include "Templates/CheckedArithmetic.h"
 
 namespace Durin::Asset::BulkContainer
 {
+	using Durin::IsPowerOfTwo;
+	using Durin::TryAdd;
+	using Durin::TryAlignUp;
+	using Durin::TryMultiply;
+	using Durin::TryNarrowSize;
+
 	// Categorizes private physical-container failures without owning format diagnostics.
 	enum class EFailure
 	{
@@ -24,43 +31,6 @@ namespace Durin::Asset::BulkContainer
 		EFailure Category = EFailure::None;
 		uint64 Offset = 0;
 	};
-
-	inline auto TryAdd(uint64 Left, uint64 Right, uint64 Maximum, uint64& OutValue) -> bool
-	{
-		if (Right > Maximum || Left > Maximum - Right) return false;
-		OutValue = Left + Right;
-		return true;
-	}
-
-	inline auto TryMultiply(uint64 Left, uint64 Right, uint64 Maximum, uint64& OutValue) -> bool
-	{
-		if (Left != 0 && Right > Maximum / Left) return false;
-		OutValue = Left * Right;
-		return true;
-	}
-
-	inline auto IsPowerOfTwo(uint64 Value) -> bool
-	{
-		return Value != 0 && (Value & (Value - 1)) == 0;
-	}
-
-	inline auto TryAlignUp(uint64 Value, uint64 Alignment, uint64 Maximum, uint64& OutValue) -> bool
-	{
-		if (!IsPowerOfTwo(Alignment)) return false;
-		const uint64 Mask = Alignment - 1;
-		if (Value > std::numeric_limits<uint64>::max() - Mask) return false;
-		const uint64 Candidate = (Value + Mask) & ~Mask;
-		if (Candidate > Maximum) return false;
-		OutValue = Candidate;
-		return true;
-	}
-
-	inline auto TryNarrowSize(uint64 Value, size_t& OutValue) -> bool
-	{
-		if (Value > std::numeric_limits<size_t>::max()) return false;
-		OutValue = static_cast<size_t>(Value);
-		return true;
-	}
 
 	// Reads exact little-endian values from a non-owning bounded span with latched failure.
 	class FBoundedReader
@@ -149,27 +119,27 @@ namespace Durin::Asset::BulkContainer
 		}
 
 		template<typename T>
+		requires std::is_unsigned_v<T>
 		auto Write(T Value) -> bool
 		{
-			static_assert(std::is_unsigned_v<T>);
-			std::array<uint8, sizeof(T)> Raw{};
+			std::array<std::byte, sizeof(T)> Raw{};
 			for (size_t Index = 0; Index < sizeof(T); ++Index)
-				Raw[Index] = static_cast<uint8>(Value >> (Index * 8));
-			return WriteBytes(Raw);
+				Raw[Index] = static_cast<std::byte>(Value >> (Index * 8));
+			return Write(Raw);
 		}
 
 		auto WriteGuid(const FGuid& Value) -> bool
 		{
-			std::array<uint8, 16> Raw{};
+			std::array<std::byte, 16> Raw{};
 			const std::array Words{Value.A, Value.B, Value.C, Value.D};
 			for (size_t Word = 0; Word < Words.size(); ++Word)
 				for (size_t Byte = 0; Byte < sizeof(uint32); ++Byte)
-					Raw[Word * sizeof(uint32) + Byte] = static_cast<uint8>(
+					Raw[Word * sizeof(uint32) + Byte] = static_cast<std::byte>(
 						Words[Word] >> (Byte * 8));
-			return WriteBytes(Raw);
+			return Write(Raw);
 		}
 
-		auto WriteBytes(std::span<const uint8> Value) -> bool
+		auto Write(std::span<const std::byte> Value) -> bool
 		{
 			if (!IsValid()) return false;
 			uint64 End = 0;
@@ -179,8 +149,16 @@ namespace Durin::Asset::BulkContainer
 				Latch(EFailure::LimitExceeded, Bytes.size());
 				return false;
 			}
-			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+			const size_t Begin = Bytes.size();
+			Bytes.resize(static_cast<size_t>(End));
+			if (!Value.empty())
+				std::memcpy(Bytes.data() + Begin, Value.data(), Value.size());
 			return true;
+		}
+
+		auto Write(std::span<const uint8> Value) -> bool
+		{
+			return Write(std::as_bytes(Value));
 		}
 
 		auto PadTo(uint64 Offset) -> bool

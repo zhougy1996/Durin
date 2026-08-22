@@ -1,6 +1,7 @@
 #include "Asset/AuthoredBulkStorage.h"
 
 #include "BulkContainerInfrastructure.h"
+#include "Misc/Failure.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/Archive.h"
 
@@ -42,12 +43,6 @@ namespace Durin::Asset
 			uint64 Reserved0 = 0;
 			uint64 Reserved1 = 0;
 		};
-
-		auto Fail(std::string* OutError, std::string Message) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
 
 		auto ReadHeader(BulkContainer::FBoundedReader& Reader, FHeader& OutHeader) -> bool
 		{
@@ -371,7 +366,7 @@ namespace Durin::Asset
 			if (!Writer.PadTo(Ranges[Index].Offset))
 				return Fail(OutError, "Authored bulk companion encoding failed.");
 			const auto Bytes = Sorted[Index]->Buffer.GetBytes();
-			if (!Writer.WriteBytes({reinterpret_cast<const uint8*>(Bytes.data()), Bytes.size()}))
+			if (!Writer.Write(Bytes))
 				return Fail(OutError, "Authored bulk companion encoding failed.");
 		}
 		std::vector<uint8> Candidate;
@@ -398,7 +393,7 @@ namespace Durin::Asset
 	{
 		OutBuffer = {};
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, CompanionPath.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, CompanionPath))
 			return Fail(OutError, "Authored bulk companion is missing or unreadable.");
 		std::vector<FEntry> Entries;
 		uint64 DataOffset = 0;
