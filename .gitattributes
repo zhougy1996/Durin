@@ -66,6 +66,7 @@ CMakeLists.txt text eol=lf
 # Serialized Durin packages are versioned with the source that consumes them,
 # but they are binary and cannot be line-merged.
 *.dasset binary
+*.dabulk filter=lfs diff=lfs merge=lfs -text
 
 # Large source assets are versioned through Git LFS. Keep text-based asset
 # formats here as well: their generated diffs are generally too noisy to be
