@@ -7,6 +7,7 @@ if(DURIN_WITH_EDITOR)
 		Private/Texture/VolumeTextureSourceImportTests.cpp
 		Private/Texture/Texture2DBuildCoordinatorTests.cpp
 		Private/Texture/TextureFailureTests.cpp
+		Private/Texture/TextureSourceRelocationTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
@@ -30,8 +31,8 @@ if(DURIN_WITH_EDITOR)
 	)
 	durin_register_native_test(TextureTests
 		KIND feature
-		DOMAINS texture
-		MODULES engine texture-build asset-forge
+		DOMAINS asset-workflow texture
+		MODULES engine texture-build asset-forge texture-editor
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -69,6 +70,7 @@ else()
 			Private/Texture/TextureBuildTests.cpp
 			Private/Texture/Texture2DBuildCoordinatorTests.cpp
 			Private/Texture/TextureFailureTests.cpp
+			Private/Texture/TextureSourceRelocationTests.cpp
 			Private/Texture/SceneImportTests.cpp
 			Private/Texture/SingleAssetImportTests.cpp
 			Private/Texture/EquirectangularTextureCubeTests.cpp
