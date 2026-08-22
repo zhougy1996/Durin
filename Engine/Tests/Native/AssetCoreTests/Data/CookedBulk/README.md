@@ -28,6 +28,11 @@ The encoder derives offsets, stored sizes, hashes, zero padding, table hash,
 and complete file size. Reversing the input entries must produce identical
 bytes because table order is by the unsigned GUID A/B/C/D tuple.
 
+The compact in-code DBLK regression fixture used by `FCookedBulkTests` is 259
+bytes and has whole-file XXH3-128 words `12417320302211656157` and
+`3049470508272984121`. Its compact two-record CMNF regression fixture is 137
+bytes with whole-file words `1127403949174504654` and `9302219320893799974`.
+
 ## `RelocatedCook`
 
 The logical cooked files are:

@@ -1,6 +1,7 @@
 #include "Asset/Cook.h"
 
 #include "AssetCatalogStoreInternal.h"
+#include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
@@ -98,83 +99,6 @@ namespace Durin::Asset
 		{
 			return Platform == ECookTargetPlatform::Win64
 				&& (Profile == ECookTargetProfile::Game || Profile == ECookTargetProfile::EditorValidation);
-		}
-
-		auto IsPowerOfTwo(uint32 Value) -> bool
-		{
-			return Value != 0 && (Value & (Value - 1)) == 0;
-		}
-
-		auto Align(uint64 Value, uint32 Alignment, uint64& OutValue) -> bool
-		{
-			const uint64 Mask = Alignment - 1;
-			if (Value > std::numeric_limits<uint64>::max() - Mask) return false;
-			OutValue = (Value + Mask) & ~Mask;
-			return true;
-		}
-
-		struct FWriter
-		{
-			std::vector<uint8> Bytes;
-
-			template<typename T>
-			auto Write(T Value) -> void
-			{
-				static_assert(std::is_integral_v<T>);
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Bytes.push_back(static_cast<uint8>(static_cast<std::make_unsigned_t<T>>(Value) >> (Index * 8)));
-			}
-
-			auto WriteBytes(std::span<const uint8> Value) -> void
-			{
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
-			}
-
-			auto PadTo(uint64 Offset) -> bool
-			{
-				if (Offset > std::numeric_limits<size_t>::max() || Offset < Bytes.size()) return false;
-				Bytes.resize(static_cast<size_t>(Offset), 0);
-				return true;
-			}
-		};
-
-		struct FReader
-		{
-			std::span<const uint8> Bytes;
-			size_t Offset = 0;
-
-			template<typename T>
-			auto Read(T& OutValue) -> bool
-			{
-				static_assert(std::is_integral_v<T>);
-				if (sizeof(T) > Bytes.size() - std::min(Offset, Bytes.size())) return false;
-				std::make_unsigned_t<T> Value = 0;
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Value |= static_cast<std::make_unsigned_t<T>>(Bytes[Offset++]) << (Index * 8);
-				OutValue = static_cast<T>(Value);
-				return true;
-			}
-
-			auto ReadBytes(size_t Size, std::span<const uint8>& OutValue) -> bool
-			{
-				if (Size > Bytes.size() - std::min(Offset, Bytes.size())) return false;
-				OutValue = Bytes.subspan(Offset, Size);
-				Offset += Size;
-				return true;
-			}
-		};
-
-		auto WriteGuid(FWriter& Writer, const FGuid& Guid) -> void
-		{
-			Writer.Write(Guid.A);
-			Writer.Write(Guid.B);
-			Writer.Write(Guid.C);
-			Writer.Write(Guid.D);
-		}
-
-		auto ReadGuid(FReader& Reader, FGuid& Guid) -> bool
-		{
-			return Reader.Read(Guid.A) && Reader.Read(Guid.B) && Reader.Read(Guid.C) && Reader.Read(Guid.D);
 		}
 
 		auto IsValidRelativeManifestPath(std::string_view Value) -> bool
@@ -304,16 +228,18 @@ namespace Durin::Asset
 		if (!IsValidTarget(TargetPlatform, TargetProfile)) return Fail("DBLK target is invalid.", OutError);
 		if (Payloads.empty() || Payloads.size() > MaximumPayloadCount) return Fail("DBLK payload count is outside its bound.", OutError);
 
-		std::vector<FCookedBulkPayload> Sorted(Payloads.begin(), Payloads.end());
-		std::ranges::sort(Sorted, {}, &FCookedBulkPayload::PayloadId);
+		std::vector<const FCookedBulkPayload*> Sorted;
+		if (!BulkContainer::TryMakeSortedProjection<FCookedBulkPayload>(
+			Payloads, &FCookedBulkPayload::PayloadId, Sorted))
+			return Fail("DBLK payload identifiers must be nonzero and unique.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
-			const FCookedBulkPayload& Payload = Sorted[Index];
-			if (!Payload.PayloadId.IsValid() || (Index && Sorted[Index - 1].PayloadId == Payload.PayloadId))
+			const FCookedBulkPayload& Payload = *Sorted[Index];
+			if (!Payload.PayloadId.IsValid())
 				return Fail("DBLK payload identifiers must be nonzero and unique.", OutError);
 			if ((Payload.Flags & ~1u) != 0 || Payload.PayloadSchemaVersion == 0)
 				return Fail("DBLK payload flags or schema are invalid.", OutError);
-			if (!IsPowerOfTwo(Payload.Alignment) || Payload.Alignment < 16 || Payload.Alignment > 4096)
+			if (!BulkContainer::IsPowerOfTwo(Payload.Alignment) || Payload.Alignment < 16 || Payload.Alignment > 4096)
 				return Fail("DBLK payload alignment is invalid.", OutError);
 			if (Payload.Compression != ECookedPayloadCompression::None)
 				return Fail("DBLK writer supports only uncompressed version 1 payloads.", OutError);
@@ -321,20 +247,32 @@ namespace Durin::Asset
 				return Fail("DBLK payload size is outside its bound.", OutError);
 		}
 
-		uint64 DataOffset = 0;
-		if (!Align(BulkHeaderSize + static_cast<uint64>(Sorted.size()) * BulkEntrySize, 16, DataOffset))
+		uint64 TableBytes = 0, TableEnd = 0, DataOffset = 0;
+		if (!BulkContainer::TryMultiply(Sorted.size(), BulkEntrySize, MaximumBulkBytes, TableBytes)
+			|| !BulkContainer::TryAdd(BulkHeaderSize, TableBytes, MaximumBulkBytes, TableEnd)
+			|| !BulkContainer::TryAlignUp(TableEnd, 16, MaximumBulkBytes, DataOffset))
 			return Fail("DBLK table size overflowed.", OutError);
+		std::vector<BulkContainer::FLayoutItem> LayoutItems;
+		LayoutItems.reserve(Sorted.size());
+		for (const FCookedBulkPayload* Payload : Sorted)
+			LayoutItems.push_back({Payload->Bytes.size(), Payload->Alignment});
+		std::vector<BulkContainer::FPayloadRange> Ranges;
+		uint64 FileSize = 0;
+		const BulkContainer::FLayoutPolicy LayoutPolicy{
+			MaximumPayloadCount, MaximumPayloadBytes, MaximumBulkBytes, true, false};
+		if (!BulkContainer::TryBuildLayout(
+			DataOffset, LayoutItems, LayoutPolicy, Ranges, FileSize))
+			return Fail("DBLK container exceeds its size bound.", OutError);
 		std::vector<FCookedPayloadDescriptor> Descriptors;
 		Descriptors.reserve(Sorted.size());
-		for (const FCookedBulkPayload& Payload : Sorted)
+		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
-			if (!Align(DataOffset, Payload.Alignment, DataOffset)) return Fail("DBLK payload offset overflowed.", OutError);
-			if (Payload.Bytes.size() > MaximumBulkBytes - DataOffset) return Fail("DBLK container exceeds its size bound.", OutError);
+			const FCookedBulkPayload& Payload = *Sorted[Index];
 			const FXxHash128 Hash = FXxHash128::HashBuffer(Payload.Bytes);
 			Descriptors.push_back({
 				.PayloadId = Payload.PayloadId,
 				.LocationKind = static_cast<uint32>(ECookedPayloadLocationKind::PackageCompanion),
-				.Offset = DataOffset,
+				.Offset = Ranges[Index].Offset,
 				.StoredSize = Payload.Bytes.size(),
 				.UncompressedSize = Payload.Bytes.size(),
 				.Alignment = Payload.Alignment,
@@ -344,50 +282,47 @@ namespace Durin::Asset
 				.TargetPlatform = static_cast<uint32>(TargetPlatform),
 				.TargetProfile = static_cast<uint32>(TargetProfile),
 				.CompressionMethod = static_cast<uint32>(Payload.Compression)});
-			DataOffset += Payload.Bytes.size();
 		}
-		if (DataOffset > MaximumBulkBytes || DataOffset > std::numeric_limits<size_t>::max())
-			return Fail("DBLK container exceeds its size bound.", OutError);
 
-		FWriter Table;
+		BulkContainer::FBoundedWriter Table(TableBytes);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
-			const FCookedBulkPayload& Payload = Sorted[Index];
+			const FCookedBulkPayload& Payload = *Sorted[Index];
 			const FCookedPayloadDescriptor& Descriptor = Descriptors[Index];
-			WriteGuid(Table, Payload.PayloadId);
-			Table.Write(Payload.Flags);
-			Table.Write(Payload.PayloadSchemaVersion);
-			Table.Write(static_cast<uint32>(TargetPlatform));
-			Table.Write(static_cast<uint32>(TargetProfile));
-			Table.Write(static_cast<uint32>(Payload.Compression));
-			Table.Write(Payload.Alignment);
-			Table.Write(Descriptor.Offset);
-			Table.Write(Descriptor.StoredSize);
-			Table.Write(Descriptor.UncompressedSize);
-			Table.Write(Descriptor.PayloadHashLow);
-			Table.Write(Descriptor.PayloadHashHigh);
+			if (!Table.WriteGuid(Payload.PayloadId) || !Table.Write(Payload.Flags)
+				|| !Table.Write(Payload.PayloadSchemaVersion)
+				|| !Table.Write(static_cast<uint32>(TargetPlatform))
+				|| !Table.Write(static_cast<uint32>(TargetProfile))
+				|| !Table.Write(static_cast<uint32>(Payload.Compression))
+				|| !Table.Write(Payload.Alignment) || !Table.Write(Descriptor.Offset)
+				|| !Table.Write(Descriptor.StoredSize)
+				|| !Table.Write(Descriptor.UncompressedSize)
+				|| !Table.Write(Descriptor.PayloadHashLow)
+				|| !Table.Write(Descriptor.PayloadHashHigh))
+				return Fail("DBLK table encoding failed.", OutError);
 		}
-		const uint64 TableHash = FXxHash64::HashBuffer(Table.Bytes).HashValue;
-		FWriter Writer;
-		Writer.Write(BulkMagic);
-		Writer.Write(BulkVersion);
-		Writer.Write(static_cast<uint32>(TargetPlatform));
-		Writer.Write(static_cast<uint32>(TargetProfile));
-		Writer.Write(uint32{0});
-		Writer.Write(BulkHeaderSize);
-		Writer.Write(static_cast<uint32>(Sorted.size()));
-		Writer.Write(BulkEntrySize);
-		Writer.Write(uint64{BulkHeaderSize});
-		Writer.Write(DataOffset);
-		Writer.Write(TableHash);
-		Writer.Write(uint64{0});
-		Writer.WriteBytes(Table.Bytes);
+		const uint64 TableHash = FXxHash64::HashBuffer(Table.View()).HashValue;
+		BulkContainer::FBoundedWriter Writer(MaximumBulkBytes);
+		if (!Writer.Write(BulkMagic) || !Writer.Write(BulkVersion)
+			|| !Writer.Write(static_cast<uint32>(TargetPlatform))
+			|| !Writer.Write(static_cast<uint32>(TargetProfile))
+			|| !Writer.Write(uint32{0}) || !Writer.Write(BulkHeaderSize)
+			|| !Writer.Write(static_cast<uint32>(Sorted.size()))
+			|| !Writer.Write(BulkEntrySize) || !Writer.Write(uint64{BulkHeaderSize})
+			|| !Writer.Write(FileSize) || !Writer.Write(TableHash)
+			|| !Writer.Write(uint64{0}) || !Writer.WriteBytes(Table.View()))
+			return Fail("DBLK encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
 			if (!Writer.PadTo(Descriptors[Index].Offset)) return Fail("DBLK payload layout overflowed.", OutError);
-			Writer.WriteBytes(Sorted[Index].Bytes);
+			if (!Writer.WriteBytes(Sorted[Index]->Bytes)) return Fail("DBLK encoding failed.", OutError);
 		}
-		OutBytes = std::move(Writer.Bytes);
+		std::vector<uint8> Candidate;
+		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
+			return Fail("DBLK encoding failed.", OutError);
+		FCookedBulkContainer Validation;
+		if (!DecodeCookedBulk(Candidate, TargetPlatform, TargetProfile, Validation, OutError)) return false;
+		OutBytes = std::move(Candidate);
 		if (OutDescriptors) *OutDescriptors = std::move(Descriptors);
 		if (OutError) OutError->clear();
 		return true;
@@ -402,7 +337,7 @@ namespace Durin::Asset
 	{
 		OutContainer = {};
 		if (Bytes.size() < BulkHeaderSize || Bytes.size() > MaximumBulkBytes) return Fail("DBLK file size is invalid.", OutError);
-		FReader Reader{Bytes};
+		BulkContainer::FBoundedReader Reader(Bytes, MaximumBulkBytes);
 		uint32 Magic = 0, Version = 0, Platform = 0, Profile = 0, Flags = 0, HeaderSize = 0;
 		uint32 Count = 0, EntrySize = 0;
 		uint64 TableOffset = 0, FileSize = 0, TableHash = 0, Reserved = 0;
@@ -417,21 +352,28 @@ namespace Durin::Asset
 		if (Platform != static_cast<uint32>(ExpectedPlatform) || Profile != static_cast<uint32>(ExpectedProfile)
 			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Platform), static_cast<ECookTargetProfile>(Profile)))
 			return Fail("DBLK target does not match the load context.", OutError);
-		const uint64 TableBytes = static_cast<uint64>(Count) * BulkEntrySize;
-		if (TableBytes > Bytes.size() - BulkHeaderSize) return Fail("DBLK table is truncated.", OutError);
-		const std::span<const uint8> Table = Bytes.subspan(BulkHeaderSize, static_cast<size_t>(TableBytes));
+		uint64 TableBytes = 0, DirectoryEnd = 0, MinimumDataOffset = 0;
+		if (!BulkContainer::TryMultiply(Count, BulkEntrySize, MaximumBulkBytes, TableBytes)
+			|| !BulkContainer::TryAdd(BulkHeaderSize, TableBytes, MaximumBulkBytes, DirectoryEnd)
+			|| DirectoryEnd > Bytes.size()) return Fail("DBLK table is truncated.", OutError);
+		std::span<const uint8> Table;
+		if (!BulkContainer::TryProjectRange(Bytes, BulkHeaderSize, TableBytes, Table))
+			return Fail("DBLK table is truncated.", OutError);
 		if (FXxHash64::HashBuffer(Table).HashValue != TableHash) return Fail("DBLK table checksum is invalid.", OutError);
+		if (!BulkContainer::TryAlignUp(
+			DirectoryEnd, 16, MaximumBulkBytes, MinimumDataOffset))
+			return Fail("DBLK payload range is invalid.", OutError);
 
-		FReader TableReader{Table};
+		BulkContainer::FBoundedReader TableReader(Table, TableBytes);
 		std::vector<FCookedPayloadDescriptor> Entries;
-		std::vector<uint32> EntryFlags;
+		std::vector<BulkContainer::FPayloadRange> Ranges;
 		Entries.reserve(Count);
-		uint64 PreviousEnd = 0;
+		Ranges.reserve(Count);
 		for (uint32 Index = 0; Index < Count; ++Index)
 		{
 			FCookedPayloadDescriptor Entry;
 			uint32 PayloadFlags = 0;
-			if (!ReadGuid(TableReader, Entry.PayloadId) || !TableReader.Read(PayloadFlags)
+			if (!TableReader.ReadGuid(Entry.PayloadId) || !TableReader.Read(PayloadFlags)
 				|| !TableReader.Read(Entry.PayloadSchemaVersion) || !TableReader.Read(Entry.TargetPlatform)
 				|| !TableReader.Read(Entry.TargetProfile) || !TableReader.Read(Entry.CompressionMethod)
 				|| !TableReader.Read(Entry.Alignment) || !TableReader.Read(Entry.Offset)
@@ -442,7 +384,7 @@ namespace Durin::Asset
 			if (!Entry.PayloadId.IsValid() || (Index && !(Entries.back().PayloadId < Entry.PayloadId))
 				|| (PayloadFlags & ~1u) != 0 || Entry.PayloadSchemaVersion == 0
 				|| Entry.TargetPlatform != Platform || Entry.TargetProfile != Profile
-				|| !IsPowerOfTwo(Entry.Alignment) || Entry.Alignment < 16 || Entry.Alignment > 4096
+				|| !BulkContainer::IsPowerOfTwo(Entry.Alignment) || Entry.Alignment < 16 || Entry.Alignment > 4096
 				|| Entry.StoredSize == 0 || Entry.StoredSize > MaximumPayloadBytes
 				|| Entry.UncompressedSize == 0 || Entry.UncompressedSize > MaximumPayloadBytes)
 				return Fail("DBLK table entry is invalid.", OutError);
@@ -458,25 +400,29 @@ namespace Durin::Asset
 				return Fail("DBLK Zstandard compression is unsupported by this build.", OutError);
 			}
 			else return Fail("DBLK compression method is unknown.", OutError);
-			uint64 MinimumDataOffset = 0;
-			if (!Align(BulkHeaderSize + TableBytes, 16, MinimumDataOffset)
-				|| Entry.Offset < MinimumDataOffset || Entry.Offset % Entry.Alignment != 0
-				|| Entry.Offset < PreviousEnd || Entry.StoredSize > FileSize - std::min(Entry.Offset, FileSize))
-				return Fail("DBLK payload range is invalid.", OutError);
-			for (uint64 Byte = PreviousEnd ? PreviousEnd : MinimumDataOffset; Byte < Entry.Offset; ++Byte)
-				if (Bytes[static_cast<size_t>(Byte)] != 0) return Fail("DBLK alignment padding is nonzero.", OutError);
-			PreviousEnd = Entry.Offset + Entry.StoredSize;
+			Ranges.push_back({Entry.Offset, Entry.StoredSize, Entry.Alignment});
 			Entries.push_back(Entry);
-			EntryFlags.push_back(PayloadFlags);
 		}
-		for (uint64 Byte = PreviousEnd; Byte < FileSize; ++Byte)
-			if (Bytes[static_cast<size_t>(Byte)] != 0) return Fail("DBLK trailing padding is nonzero.", OutError);
+		const BulkContainer::FLayoutPolicy LayoutPolicy{
+			MaximumPayloadCount, MaximumPayloadBytes, MaximumBulkBytes, false, true};
+		BulkContainer::FFailure LayoutFailure;
+		if (!BulkContainer::ValidateLayout(
+			Bytes, DirectoryEnd, MinimumDataOffset, Ranges, LayoutPolicy, &LayoutFailure))
+		{
+			if (LayoutFailure.Category == BulkContainer::EFailure::NonzeroPadding)
+				return Fail(LayoutFailure.Offset >= Ranges.back().Offset + Ranges.back().Size
+					? "DBLK trailing padding is nonzero."
+					: "DBLK alignment padding is nonzero.", OutError);
+			return Fail("DBLK payload range is invalid.", OutError);
+		}
 
 		std::vector<std::vector<uint8>> Payloads;
 		Payloads.reserve(Entries.size());
 		for (const FCookedPayloadDescriptor& Entry : Entries)
 		{
-			std::span<const uint8> Stored = Bytes.subspan(static_cast<size_t>(Entry.Offset), static_cast<size_t>(Entry.StoredSize));
+			std::span<const uint8> Stored;
+			if (!BulkContainer::TryProjectRange(Bytes, Entry.Offset, Entry.StoredSize, Stored))
+				return Fail("DBLK payload range is invalid.", OutError);
 			const FXxHash128 Hash = FXxHash128::HashBuffer(Stored);
 			if (Hash.HashLow != Entry.PayloadHashLow || Hash.HashHigh != Entry.PayloadHashHigh)
 				return Fail("DBLK payload checksum is invalid.", OutError);
@@ -661,7 +607,7 @@ namespace Durin::Asset
 			return Fail("Cook manifest entry count exceeds its bound.", OutError);
 		std::vector<FCookManifestEntry> Entries = Manifest.Entries;
 		std::ranges::sort(Entries, {}, &FCookManifestEntry::RelativePath);
-		FWriter Records;
+		BulkContainer::FBoundedWriter Records(MaximumManifestRecordBytes);
 		for (size_t Index = 0; Index < Entries.size(); ++Index)
 		{
 			const FCookManifestEntry& Entry = Entries[Index];
@@ -670,29 +616,36 @@ namespace Durin::Asset
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage && Entry.Kind != ECookManifestEntryKind::CookedBulk)
 				|| Entry.Flags != 1 || Entry.FileSize == 0)
 				return Fail("Cook manifest entry is invalid.", OutError);
-			Records.Write(static_cast<uint8>(Entry.Kind));
-			Records.Write(Entry.Flags);
-			Records.Write(uint16{0});
-			Records.Write(static_cast<uint32>(Entry.RelativePath.size()));
-			Records.Write(Entry.FileSize);
-			Records.Write(Entry.HashLow);
-			Records.Write(Entry.HashHigh);
-			Records.WriteBytes(std::span{reinterpret_cast<const uint8*>(Entry.RelativePath.data()), Entry.RelativePath.size()});
-			if (Records.Bytes.size() > MaximumManifestRecordBytes)
+			if (!Records.Write(static_cast<uint8>(Entry.Kind))
+				|| !Records.Write(Entry.Flags) || !Records.Write(uint16{0})
+				|| !Records.Write(static_cast<uint32>(Entry.RelativePath.size()))
+				|| !Records.Write(Entry.FileSize) || !Records.Write(Entry.HashLow)
+				|| !Records.Write(Entry.HashHigh)
+				|| !Records.WriteBytes(std::span{
+					reinterpret_cast<const uint8*>(Entry.RelativePath.data()), Entry.RelativePath.size()}))
 				return Fail("Cook manifest records exceed their byte bound.", OutError);
 		}
-		FWriter Writer;
-		Writer.Write(ManifestMagic);
-		Writer.Write(ManifestVersion);
-		Writer.Write(static_cast<uint32>(Manifest.TargetPlatform));
-		Writer.Write(static_cast<uint32>(Manifest.TargetProfile));
-		Writer.Write(static_cast<uint32>(Entries.size()));
-		Writer.Write(ManifestHeaderSize);
-		Writer.Write(static_cast<uint64>(Records.Bytes.size()));
-		Writer.Write(FXxHash64::HashBuffer(Records.Bytes).HashValue);
-		Writer.Write(static_cast<uint64>(ManifestHeaderSize + Records.Bytes.size()));
-		Writer.WriteBytes(Records.Bytes);
-		OutBytes = std::move(Writer.Bytes);
+		uint64 MaximumManifestBytes = 0;
+		if (!BulkContainer::TryAdd(ManifestHeaderSize, MaximumManifestRecordBytes,
+			std::numeric_limits<uint64>::max(), MaximumManifestBytes))
+			return Fail("Cook manifest records exceed their byte bound.", OutError);
+		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
+		const uint64 RecordBytes = Records.Tell();
+		uint64 FileSize = 0;
+		std::vector<uint8> Candidate;
+		if (!BulkContainer::TryAdd(ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize)
+			|| !Writer.Write(ManifestMagic) || !Writer.Write(ManifestVersion)
+			|| !Writer.Write(static_cast<uint32>(Manifest.TargetPlatform))
+			|| !Writer.Write(static_cast<uint32>(Manifest.TargetProfile))
+			|| !Writer.Write(static_cast<uint32>(Entries.size()))
+			|| !Writer.Write(ManifestHeaderSize) || !Writer.Write(RecordBytes)
+			|| !Writer.Write(FXxHash64::HashBuffer(Records.View()).HashValue)
+			|| !Writer.Write(FileSize) || !Writer.WriteBytes(Records.View())
+			|| !Writer.TryTake(Candidate))
+			return Fail("Cook manifest encoding failed.", OutError);
+		FCookManifest Validation;
+		if (!DecodeCookManifest(Candidate, Validation, OutError)) return false;
+		OutBytes = std::move(Candidate);
 		return true;
 	}
 
@@ -700,7 +653,8 @@ namespace Durin::Asset
 	{
 		OutManifest = {};
 		if (Bytes.size() < ManifestHeaderSize) return Fail("Cook manifest is truncated.", OutError);
-		FReader Reader{Bytes};
+		BulkContainer::FBoundedReader Reader(
+			Bytes, ManifestHeaderSize + MaximumManifestRecordBytes);
 		uint32 Magic = 0, Version = 0, Platform = 0, Profile = 0, Count = 0, HeaderSize = 0;
 		uint64 RecordBytes = 0, RecordHash = 0, FileSize = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || !Reader.Read(Platform) || !Reader.Read(Profile)
@@ -715,7 +669,7 @@ namespace Durin::Asset
 		const std::span<const uint8> Records = Bytes.subspan(ManifestHeaderSize);
 		if (FXxHash64::HashBuffer(Records).HashValue != RecordHash)
 			return Fail("Cook manifest record checksum is invalid.", OutError);
-		FReader RecordReader{Records};
+		BulkContainer::FBoundedReader RecordReader(Records, MaximumManifestRecordBytes);
 		std::vector<FCookManifestEntry> Entries;
 		Entries.reserve(Count);
 		for (uint32 Index = 0; Index < Count; ++Index)
@@ -741,7 +695,7 @@ namespace Durin::Asset
 				return Fail("Cook manifest entry is invalid.", OutError);
 			Entries.push_back(std::move(Entry));
 		}
-		if (RecordReader.Offset != Records.size()) return Fail("Cook manifest has trailing record bytes.", OutError);
+		if (RecordReader.Tell() != Records.size()) return Fail("Cook manifest has trailing record bytes.", OutError);
 		OutManifest.TargetPlatform = static_cast<ECookTargetPlatform>(Platform);
 		OutManifest.TargetProfile = static_cast<ECookTargetProfile>(Profile);
 		OutManifest.Entries = std::move(Entries);

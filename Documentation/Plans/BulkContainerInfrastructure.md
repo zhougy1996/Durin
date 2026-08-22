@@ -4,24 +4,22 @@ Summary: Extract a shared bounded binary container foundation for DABK and DBLK 
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Durin already presents authored and cooked payloads through the common
-`FBulkData` consumer API, but the two physical container implementations still
-duplicate low-level binary mechanics. `AuthoredBulkStorage.cpp` encodes DABK v1
-through `FCanonicalMemoryReader/Writer` plus local alignment and range checks;
-`CookedAsset.cpp` owns a second private little-endian reader/writer, checked
-alignment, directory hashing, padding checks, and range validation for DBLK v1
-and CMNF v1. Both implementations are bounded and tested, but their safety
-properties can drift because they are expressed independently.
+AssetCore now owns one private `BulkContainerInfrastructure.h` foundation for
+bounded little-endian IO, checked arithmetic/alignment, detached ordering,
+canonical layout construction, zero-padding validation, and safe range
+projection. DABK, DBLK, and CMNF use those primitives while retaining their
+existing schemas, diagnostics, providers, suffixes, and transaction owners.
 
-This plan is selected as an architectural-hardening child of the Large Asset
-Payload Architecture roadmap. No implementation stage has started. Stage 0
-must first freeze current bytes, diagnostics, limits, allocation behavior, and
-the exact abstraction boundary before shared code is introduced.
+Golden gates lock the focused DABK fixture at 274 bytes with XXH3-128 words
+`3311620820794941896`/`17520128536900976125`, DBLK at 259 bytes with words
+`12417320302211656157`/`3049470508272984121`, and CMNF at 137 bytes with words
+`1127403949174504654`/`9302219320893799974`. The prior cooked-local generic
+codec, alignment helper, padding loops, and range loops have been removed.
 
 ## Goal
 
@@ -147,16 +145,16 @@ manifest-owned Cook product.
 
 ### Stage 0: Define the implementation boundary
 
-- [ ] Inventory every local binary reader/writer, alignment helper, directory
+- [x] Inventory every local binary reader/writer, alignment helper, directory
   sort, hash, padding loop, and range check used by DABK, DBLK, and CMNF.
-- [ ] Capture canonical DABK, DBLK, and CMNF fixture bytes plus exact hashes,
+- [x] Capture canonical DABK, DBLK, and CMNF fixture bytes plus exact hashes,
   sizes, header/entry constants, and accepted bounds.
-- [ ] Map malformed-input coverage against truncation, overflow, duplicate
+- [x] Map malformed-input coverage against truncation, overflow, duplicate
   keys, disorder, invalid alignment, overlap, gaps, nonzero padding, wrong hash,
   and trailing bytes.
-- [ ] Freeze the private API boundary, structured failure model, ownership of
+- [x] Freeze the private API boundary, structured failure model, ownership of
   user-facing diagnostics, and allocation/publication guarantees.
-- [ ] Confirm that no public header, suffix, format version, provider, or
+- [x] Confirm that no public header, suffix, format version, provider, or
   lifecycle transaction needs to change.
 
 #### Acceptance Gate
@@ -169,17 +167,17 @@ manifest-owned Cook product.
 
 Depends on Stage 0.
 
-- [ ] Add AssetCore-private reader/writer types with explicit maximum size,
+- [x] Add AssetCore-private reader/writer types with explicit maximum size,
   little-endian fixed-width primitives, exact byte spans, cursor queries, zero
   padding, latched first failure, and detached result transfer.
-- [ ] Add checked add/multiply/align/narrow helpers and reject invalid or
+- [x] Add checked add/multiply/align/narrow helpers and reject invalid or
   overflowing operations before allocation or cursor mutation.
-- [ ] Add a dedicated `AssetBulkContainerTests` contract target, or an equally
+- [x] Add a dedicated `AssetBulkContainerTests` contract target, or an equally
   isolated focused target, covering every primitive at zero, boundary, and
   overflow values.
-- [ ] Prove truncated reads and failed writes leave caller-visible destinations
+- [x] Prove truncated reads and failed writes leave caller-visible destinations
   unchanged and never expose partially valid output.
-- [ ] Keep production DABK/DBLK paths unchanged in this stage; the new layer is
+- [x] Keep production DABK/DBLK paths unchanged in this stage; the new layer is
   independently reviewable before migration.
 
 #### Acceptance Gate
@@ -191,17 +189,17 @@ Depends on Stage 0.
 
 Depends on Stage 1.
 
-- [ ] Add detached stable sorting and strict-unique-key validation suitable for
+- [x] Add detached stable sorting and strict-unique-key validation suitable for
   GUID payload ids without embedding GUID or descriptor policy in the layout
   layer.
-- [ ] Add normalized range construction with checked aligned offset assignment
+- [x] Add normalized range construction with checked aligned offset assignment
   and explicit per-format maximum count, payload, and container bounds.
-- [ ] Add validation for directory/data separation, monotonic aligned ranges,
+- [x] Add validation for directory/data separation, monotonic aligned ranges,
   overlap, canonical gaps, zero padding, exact/trailing consumption, and safe
   byte-span projection.
-- [ ] Add exact-range and table hashing helpers while leaving algorithm choice
+- [x] Add exact-range and table hashing helpers while leaving algorithm choice
   and serialized hash fields with each format adapter.
-- [ ] Exercise mixed alignments, empty payload policy, maximum counts, one-byte
+- [x] Exercise mixed alignments, empty payload policy, maximum counts, one-byte
   truncations, near-`uint64` arithmetic, aliasing ranges, reordered entries, and
   nonzero padding.
 
@@ -215,14 +213,14 @@ Depends on Stage 1.
 
 Depends on Stages 1-2.
 
-- [ ] Rebuild DABK encoding on the shared writer, checked arithmetic, detached
+- [x] Rebuild DABK encoding on the shared writer, checked arithmetic, detached
   ordering, offset assignment, padding, and hashing helpers.
-- [ ] Rebuild DABK parsing on the shared reader and layout validator while
+- [x] Rebuild DABK parsing on the shared reader and layout validator while
   retaining authored descriptor equality, container-hash checks, and current
   domain diagnostics.
-- [ ] Remove DABK-local alignment/range mechanics that become unreachable; do
+- [x] Remove DABK-local alignment/range mechanics that become unreachable; do
   not leave forwarding compatibility wrappers.
-- [ ] Compare every canonical DABK output with the Stage 0 bytes and hashes and
+- [x] Compare every canonical DABK output with the Stage 0 bytes and hashes and
   rerun inline/external save, load, corruption, relocation, deletion, bundle,
   recovery, and reimport coverage.
 
@@ -236,17 +234,17 @@ Depends on Stages 1-2.
 
 Depends on Stage 3.
 
-- [ ] Rebuild DBLK encoding/decoding on the shared primitives and layout engine,
+- [x] Rebuild DBLK encoding/decoding on the shared primitives and layout engine,
   retaining target/profile, compression, per-entry alignment, table hash,
   payload hash, bounds, and exact-descriptor rules.
-- [ ] Migrate CMNF encoding/decoding to the shared bounded codec where required
+- [x] Migrate CMNF encoding/decoding to the shared bounded codec where required
   to remove `CookedAsset.cpp`'s duplicate generic reader/writer; keep manifest
   schema and publication behavior unchanged.
-- [ ] Remove the cooked-local generic reader/writer, alignment, padding, and
+- [x] Remove the cooked-local generic reader/writer, alignment, padding, and
   range utilities once no production or test caller remains.
-- [ ] Compare canonical DBLK and CMNF outputs with Stage 0 fixtures and hashes;
+- [x] Compare canonical DBLK and CMNF outputs with Stage 0 fixtures and hashes;
   exercise all malformed fixture categories and target/profile mismatches.
-- [ ] Run real texture, static mesh, skeletal, animation, material, terrain, and
+- [x] Run real texture, static mesh, skeletal, animation, material, terrain, and
   environment Cook consumers that rely on DBLK.
 
 #### Acceptance Gate
@@ -259,15 +257,15 @@ Depends on Stage 3.
 
 Depends on Stages 0-4.
 
-- [ ] Update serialization, asset package/lifecycle, and Large Asset Payload
+- [x] Update serialization, asset package/lifecycle, and Large Asset Payload
   documentation to distinguish shared physical mechanism from domain-owned
   formats, suffixes, providers, and transactions.
-- [ ] Run focused codec, AssetPackage, AssetCook, import/relocation, and Cook
+- [x] Run focused codec, AssetPackage, AssetCook, import/relocation, and Cook
   integration targets, then `fast-all` and the full native aggregate because a
   shared AssetCore primitive changed.
-- [ ] Run the Win64 Debug Editor `all` build and final asset audit/baseline.
-- [ ] Run changed/all documentation, plan, and roadmap validators.
-- [ ] Confirm source inventory has no duplicate DABK/DBLK reader/writer,
+- [x] Run the Win64 Debug Editor `all` build and final asset audit/baseline.
+- [x] Run changed/all documentation, plan, and roadmap validators.
+- [x] Confirm source inventory has no duplicate DABK/DBLK reader/writer,
   alignment, or range implementation and no accidental public dependency.
 
 #### Acceptance Gate
@@ -305,6 +303,23 @@ Depends on Stages 0-4.
   DABK/DBLK identities remain intentionally distinct.
 - Full validation and documentation gates pass and the plan records exact
   golden-wire evidence.
+
+## Completion Evidence
+
+- `AssetBulkContainerTests`, focused DABK, and `AssetCookTests` passed before
+  aggregate qualification; the contract target covers arithmetic boundaries,
+  invalid alignment, latched failures, unchanged destinations, detached
+  publication, sorting/duplicate rejection, mixed layouts, padding, overlap,
+  trailing bytes, and unsafe range projection.
+- `fast-all` and the full native `all` aggregate passed on
+  `Win64-Debug-DurinEditor`, including the production Cook consumers selected
+  by the plan. The Win64 Debug Editor `all` build also passed.
+- The read-only Sandbox audit reported 32/32 compatible packages with zero
+  incompatible, unsupported, failed, or stale records; baseline reported 32
+  current DAST v4 packages.
+- Changed/all documentation plus all plan and roadmap lifecycle validators
+  passed. Source inventory found no DABK/DBLK-local generic reader/writer,
+  alignment helper, or hand-written padding/range loop.
 
 ## Deferred Follow-ups
 

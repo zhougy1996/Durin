@@ -73,6 +73,10 @@ TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
 	const std::vector<uint8> First = MakeBulk(&Descriptors);
 	const std::vector<uint8> Second = MakeBulk();
 	EXPECT_EQ(First, Second);
+	EXPECT_EQ(First.size(), 259u);
+	const FXxHash128 GoldenHash = FXxHash128::HashBuffer(First);
+	EXPECT_EQ(GoldenHash.HashLow, 12417320302211656157ull);
+	EXPECT_EQ(GoldenHash.HashHigh, 3049470508272984121ull);
 	ASSERT_EQ(Descriptors.size(), 2u);
 	EXPECT_EQ(Descriptors[0].PayloadId, FGuid(1, 0, 0, 0));
 	EXPECT_EQ(Descriptors[1].PayloadId, FGuid(2, 0, 0, 0));
@@ -250,6 +254,10 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 	ASSERT_TRUE(EncodeCookManifest(Manifest, First));
 	ASSERT_TRUE(EncodeCookManifest(Manifest, Second));
 	EXPECT_EQ(First, Second);
+	const FXxHash128 GoldenHash = FXxHash128::HashBuffer(First);
+	EXPECT_EQ(First.size(), 137u);
+	EXPECT_EQ(GoldenHash.HashLow, 1127403949174504654ull);
+	EXPECT_EQ(GoldenHash.HashHigh, 9302219320893799974ull);
 	FCookManifest Decoded;
 	ASSERT_TRUE(DecodeCookManifest(First, Decoded));
 	ASSERT_EQ(Decoded.Entries.size(), 2u);

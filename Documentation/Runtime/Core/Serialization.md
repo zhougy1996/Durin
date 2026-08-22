@@ -117,6 +117,13 @@ Planning compares semantic format/version, logical size, and verified content
 identity, never physical placement or residency. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
+AssetCore's private bounded container codec is not an Archive implementation.
+It serializes only explicit little-endian fixed-width integers, GUID words, and
+exact byte spans for DABK, DBLK, and CMNF physical framing. Archive continues to
+own semantic object/value serialization, purposes, defaults, and reflected
+field traversal; physical-container helpers are not public and do not admit
+native structure layouts.
+
 In `EDefaultDeltaMode::Enabled`, top-level fields compare with the paired class
 default object. Once a Struct is emitted, its fields recursively compare with
 the Struct type default, including Structs inside fixed arrays, Arrays, and Map

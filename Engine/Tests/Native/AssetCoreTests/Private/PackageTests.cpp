@@ -1448,6 +1448,10 @@ TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 	ASSERT_TRUE(Durin::Asset::BuildAuthoredBulkCompanion(
 		Payloads, ContainerHash, SecondBytes, &Error)) << Error;
 	EXPECT_EQ(FirstBytes, SecondBytes);
+	EXPECT_EQ(FirstBytes.size(), 274u);
+	const Durin::FXxHash128 GoldenHash = Durin::FXxHash128::HashBuffer(FirstBytes);
+	EXPECT_EQ(GoldenHash.HashLow, 3311620820794941896ull);
+	EXPECT_EQ(GoldenHash.HashHigh, 17520128536900976125ull);
 	EXPECT_TRUE(Durin::Asset::ValidateAuthoredBulkCompanion(
 		FirstBytes, ContainerHash, &Error)) << Error;
 
@@ -1472,6 +1476,10 @@ TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 	Corrupt.back() ^= 1;
 	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
 		Corrupt, ContainerHash, &Error));
+	std::vector<Durin::uint8> NonzeroPayloadPadding = FirstBytes;
+	NonzeroPayloadPadding[260] = 1;
+	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
+		NonzeroPayloadPadding, ContainerHash, &Error));
 	std::array Duplicate{Low, Low};
 	EXPECT_FALSE(Durin::Asset::BuildAuthoredBulkCompanion(
 		Duplicate, ContainerHash, Corrupt, &Error));

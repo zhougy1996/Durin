@@ -386,6 +386,14 @@ aligned, non-overlapping, contained by the file, and validated before
 allocation. Each payload is independently checksummed so corruption is reported
 against the owning asset and `PayloadId`.
 
+DBLK and authored DABK reuse one AssetCore-private physical mechanism for
+bounded little-endian IO, checked arithmetic/alignment, detached ordering,
+zero-padding checks, safe range projection, and canonical layout construction.
+The mechanism stops below both schemas: magic, headers, entries, limits, hash
+algorithms, diagnostics, suffixes, providers, and authored-versus-Cook
+transactions remain format-owned. CMNF uses only the bounded codec primitives;
+it remains a Cook manifest and is not treated as a payload container.
+
 Asset-specific codecs own the bytes inside a payload. For example, a texture
 codec owns mip records and GPU block-compressed bytes, while a static-mesh codec
 owns vertex and index streams. `AssetCore` owns container lookup, bounded I/O,
@@ -437,9 +445,9 @@ asset package.
 `DBLK` version 1 uses explicit little-endian fields, a 64-byte header, 80-byte
 payload-table entries, and 16-byte default payload alignment. The header records
 target platform and profile, table offset and size, payload count, total file
-size, and an XXH3-128 checksum. Each entry records the stable payload GUID,
+size, and an XXH64 table checksum. Each entry records the stable payload GUID,
 flags, schema, location, compression, alignment, range, uncompressed size, and
-payload hash. Unknown required entries, duplicate identities, invalid enums,
+XXH3-128 payload hash. Unknown required entries, duplicate identities, invalid enums,
 misaligned or overlapping ranges, overflow, trailing size disagreement, and
 checksum failure reject the complete container before payload publication.
 
@@ -561,7 +569,9 @@ ownership but retain independent residency transitions. The common surface has
 no mutable lock or publication operation: authored replacement, DDC production,
 and Cook publication remain lifecycle-owned capabilities.
 
-Authored DABK and cooked DBLK are separate providers, not a common container.
+Authored DABK and cooked DBLK are separate providers and formats, not a common
+container, even though their private implementations share bounded physical
+container primitives.
 The cooked package adapter maps `FCookedPayloadDescriptor` fields into the
 logical descriptor while retaining package path, target/profile, compression,
 offset, and container handling internally. Existing low-level DBLK APIs remain

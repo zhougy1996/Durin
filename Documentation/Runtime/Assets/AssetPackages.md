@@ -696,6 +696,12 @@ ceiling. Readers reject invalid magic/version, duplicate or unordered ids,
 misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
 mismatch, wrong container identity, and trailing bytes.
 
+DABK schema and authored lifecycle policy sit above AssetCore's private bounded
+container infrastructure. That mechanism supplies explicit little-endian IO,
+checked arithmetic and alignment, detached canonical ordering, zero padding,
+safe byte-range projection, and layout validation; it does not know DABK magic,
+descriptors, suffixes, providers, package paths, or publication transactions.
+
 Save constructs and validates the generation-named companion before atomically
 publishing a package that references it. A failed package publication can leave
 an unreferenced candidate but cannot invalidate the previous pair. Cleanup runs

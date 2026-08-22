@@ -73,6 +73,16 @@ target_include_directories(AssetCookTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 )
 
+durin_add_asset_functional_test(AssetBulkContainerTests
+	KIND contract
+	DOMAINS asset-cook asset-package
+	MODULES asset-core
+	SOURCES Private/BulkContainerInfrastructureTests.cpp
+)
+target_include_directories(AssetBulkContainerTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+)
+
 durin_add_asset_functional_test(AssetMountedSourceTests
 	KIND contract
 	DOMAINS asset-workflow
