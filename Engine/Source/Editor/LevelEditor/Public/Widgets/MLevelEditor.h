@@ -31,7 +31,6 @@ namespace Durin::Editor::Level
 	class FSceneImportDialog;
 	class FStaticMeshImportDialog;
 	class FTextureImportDialog;
-	class FTextureCubeImportDialog;
 	class FTerrainHeightmapImportDialog;
 	class FContentBrowserPanel;
 	class FConsolePanel;
@@ -108,7 +107,6 @@ namespace Durin::Editor::Level
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
-		std::unique_ptr<FTextureCubeImportDialog> TextureCubeImportDialog;
 		std::unique_ptr<FTerrainHeightmapImportDialog> TerrainHeightmapImportDialog;
 		std::shared_ptr<FMountedContentReconciliationState>
 			MountedContentReconciliationState;

@@ -61,6 +61,11 @@ an item is an asset or an ordinary file.
 
 ## Operations
 
+Texture asset creation enters through the `Import > Texture...` action. Its
+explicit asset-type selection creates Texture2D, TextureCube, or VolumeTexture
+without inferring asset identity from a source extension; each type retains
+its own source-layout and validation contract.
+
 Assets open through registered asset editors and use asset-aware rename, move,
 and deletion workflows. Opening a redirector resolves and opens its final real
 asset; redirectors are excluded from ordinary pickers, rename, and drag-move.

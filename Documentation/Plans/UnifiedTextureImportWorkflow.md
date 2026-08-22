@@ -4,24 +4,28 @@ Summary: Consolidate Texture2D, TextureCube, and VolumeTexture creation behind o
 
 Last reviewed: 2026-08-22
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-22
 
 ## Current Status
 
-The Content Browser currently exposes `Texture...` and `Texture Cube...` as
-separate actions. `FTextureImportDialog` then combines Texture2D and
-VolumeTexture through a Boolean mode, while `FTextureCubeImportDialog` owns a
-second modal, destination model, source-mode controls, validation summary, and
-publication path. The duplication makes the user-facing taxonomy depend on
-implementation history even though all three operations create texture assets
-from authored image sources.
+Implementation is complete. The Content Browser exposes one
+`Import > Texture...` action, `MLevelEditor` owns one `FTextureImportDialog`, and
+the modal explicitly selects Texture2D, Texture Cube, or Volume Texture. Common
+popup, destination, mounted-source mode, warning, action, notification, and
+unload behavior surround independent typed form state. The existing dedicated
+Cube translation unit now supplies embedded panorama and six-face form behavior
+without owning a second popup or editor route.
 
-The selected direction is one `Import Texture...` action and one modal with an
-explicit three-value asset-type selector. The modal owns common lifecycle and
-destination presentation; type-specific state owns source collection,
-validation, settings, and submission. Existing AssetForge translators and
-runtime asset contracts remain authoritative. No implementation has started.
+Validation completed on 2026-08-22: both focused
+`FTextureImportDialogStateTests`, the `EditorAssetWorkflowTests` target (86
+passed, 1 conditionally skipped), all 75 `TextureTests`, all 11 `SkyBoxTests`,
+the two-target `asset-workflow` domain,
+the 55-target `fast-all` aggregate, the full Debug Editor build, changed-document
+and all-plan validation, and an eight-second Debug Editor startup smoke passed.
+The startup log reached Vulkan initialization and mounted-asset scanning with
+no error, fatal, assertion, or exception diagnostic before the bounded smoke
+terminated the process.
 
 ## Goal
 
@@ -33,7 +37,7 @@ type.
 ## Scope
 
 - Replace the two Content Browser texture import actions with one
-  `Import Texture...` action.
+  `Import > Texture...` action.
 - Replace the LevelEditor-owned pair of texture import modals with one modal
   and one request route.
 - Add an explicit `Texture2D`, `Texture Cube`, and `Volume Texture` asset-type
@@ -158,15 +162,15 @@ type.
 
 ### Stage 1: Introduce the unified texture-import state
 
-- [ ] Replace the Boolean Texture2D/VolumeTexture choice with a named three-type
+- [x] Replace the Boolean Texture2D/VolumeTexture choice with a named three-type
   asset selection.
-- [ ] Separate the existing Texture2D, VolumeTexture, and TextureCube form
+- [x] Separate the existing Texture2D, VolumeTexture, and TextureCube form
   values so common modal code does not directly own unrelated per-type fields.
-- [ ] Move common destination, source mode, validation-result presentation, and
+- [x] Move common destination, source mode, validation-result presentation, and
   action-row ownership into the unified dialog.
-- [ ] Preserve inactive type state and both TextureCube source layouts during
+- [x] Preserve inactive type state and both TextureCube source layouts during
   in-modal switching.
-- [ ] Add pure state tests for default selection, reset behavior, manual
+- [x] Add pure state tests for default selection, reset behavior, manual
   destination preservation, and inactive-state retention without requiring an
   ImGui application host.
 
@@ -178,16 +182,16 @@ type.
 
 ### Stage 2: Integrate TextureCube and collapse editor routing
 
-- [ ] Render all three type-specific source/settings panels inside the single
+- [x] Render all three type-specific source/settings panels inside the single
   `Import Texture` modal.
-- [ ] Integrate TextureCube panorama validation, six-face diagnostics, output
+- [x] Integrate TextureCube panorama validation, six-face diagnostics, output
   summary, source-destination suggestions, and submission into the shared
   destination and action lifecycle.
-- [ ] Replace the two Content Browser texture menu entries and request enum
-  values with one `Import Texture...` action.
-- [ ] Remove the second LevelEditor dialog owner, route, draw call, and obsolete
+- [x] Replace the two Content Browser texture menu entries and request enum
+  values with one `Import > Texture...` action.
+- [x] Remove the second LevelEditor dialog owner, route, draw call, and obsolete
   popup-only code while retaining a cohesive Cube form implementation.
-- [ ] Verify browsing cancellation, invalid sources, type switching, import
+- [x] Verify browsing cancellation, invalid sources, type switching, import
   success, and import failure do not leak state or mutate inactive sources.
 
 #### Acceptance Gate
@@ -199,16 +203,16 @@ type.
 
 ### Stage 3: Publish the workflow and complete validation
 
-- [ ] Update the TextureCube user guide to route through `Import Texture...`
+- [x] Update the TextureCube user guide to route through `Import > Texture...`
   and select `Texture Cube` without restating runtime projection contracts.
-- [ ] Update any implemented Editor architecture contract whose description of
+- [x] Update any implemented Editor architecture contract whose description of
   import routing becomes stale.
-- [ ] Run focused import-dialog state and affected LevelEditor tests discovered
+- [x] Run focused import-dialog state and affected LevelEditor tests discovered
   through the registered test list.
-- [ ] Run the appropriate bounded editor/import domain, `fast-all`, a full
+- [x] Run the appropriate bounded editor/import domain, `fast-all`, a full
   Debug Editor build, and an Editor startup smoke according to the repository
   build and test guides.
-- [ ] Record exact validation evidence, publish any lasting editor-workflow
+- [x] Record exact validation evidence, publish any lasting editor-workflow
   invariant in its owning document, and complete the plan.
 
 #### Acceptance Gate
@@ -270,8 +274,7 @@ type.
 
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.h`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.h`
-- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialogCube.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.h`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.h`

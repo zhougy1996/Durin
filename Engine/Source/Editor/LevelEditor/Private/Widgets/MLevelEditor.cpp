@@ -35,7 +35,6 @@
 #include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
 #include "Assets/TerrainHeightmapImportDialog.h"
-#include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
 
 namespace Durin::Editor::Level
@@ -209,8 +208,6 @@ namespace Durin::Editor::Level
 			MakeImportDialog<FStaticMeshImportDialog>(ImportCallbacks);
 		TextureImportDialog =
 			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
-		TextureCubeImportDialog =
-			MakeImportDialog<FTextureCubeImportDialog>(ImportCallbacks);
 		TerrainHeightmapImportDialog =
 			MakeImportDialog<FTerrainHeightmapImportDialog>(ImportCallbacks);
 	}
@@ -229,10 +226,6 @@ namespace Durin::Editor::Level
 				if (ImportType == EContentBrowserImportType::Texture)
 				{
 					if (TextureImportDialog) TextureImportDialog->Open(DestinationDirectory);
-				}
-				else if (ImportType == EContentBrowserImportType::TextureCube)
-				{
-					if (TextureCubeImportDialog) TextureCubeImportDialog->Open(DestinationDirectory);
 				}
 				else if (ImportType == EContentBrowserImportType::TerrainHeightmap)
 				{
@@ -590,7 +583,6 @@ namespace Durin::Editor::Level
 		SceneImportDialog->Draw();
 		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
-		TextureCubeImportDialog->Draw();
 		TerrainHeightmapImportDialog->Draw();
 		DrawProjectSettings();
 

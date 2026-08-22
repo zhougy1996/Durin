@@ -1062,8 +1062,6 @@ namespace Durin::Editor::Level
 		ImGui::BeginDisabled(!RequestImport);
 		if (ImGui::MenuItem("Texture..."))
 			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); });
-		if (ImGui::MenuItem("Texture Cube..."))
-			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TextureCube); });
 		if (ImGui::MenuItem("Terrain Heightmap..."))
 			QueueContentAction([this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TerrainHeightmap); });
 		if (ImGui::MenuItem("Static Mesh (Geometry Only)..."))

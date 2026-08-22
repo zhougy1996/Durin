@@ -4,8 +4,8 @@ Summary: Import, inspect, and use six-face or equirectangular TextureCube assets
 
 ## Import A Texture Cube
 
-Open the Content Browser Import menu and choose `Texture Cube...`. Select one
-source layout:
+Open the Content Browser `Import` menu, choose `Texture...`, and select
+`Texture Cube` as the asset type. Then select one source layout:
 
 - `Six Faces` accepts one mounted source for each face in
   `+X/-X/+Y/-Y/+Z/-Z` order.

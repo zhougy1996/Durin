@@ -28,9 +28,35 @@ namespace Durin::Editor::Level
 		auto Lowercase(std::string Value) -> std::string
 		{
 			std::ranges::transform(Value, Value.begin(), [](char Character) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
+				return static_cast<char>(std::tolower(
+					static_cast<unsigned char>(Character)));
 			});
 			return Value;
+		}
+
+		auto DescribeAssetType(ETextureImportAssetType AssetType) -> const char*
+		{
+			switch (AssetType)
+			{
+			case ETextureImportAssetType::Texture2D:
+				return "Create a Texture2D asset from an image file.";
+			case ETextureImportAssetType::TextureCube:
+				return "Create a TextureCube asset from six faces or a 2:1 panorama.";
+			case ETextureImportAssetType::VolumeTexture:
+				return "Create a Volume Texture asset directly from one PNG slice atlas.";
+			}
+			return "Create a texture asset from authored image sources.";
+		}
+
+		auto ImportButtonLabel(ETextureImportAssetType AssetType) -> const char*
+		{
+			switch (AssetType)
+			{
+			case ETextureImportAssetType::Texture2D: return "Import Texture2D";
+			case ETextureImportAssetType::TextureCube: return "Import Texture Cube";
+			case ETextureImportAssetType::VolumeTexture: return "Import Volume Texture";
+			}
+			return "Import Texture";
 		}
 	} // namespace
 
@@ -41,15 +67,7 @@ namespace Durin::Editor::Level
 
 	auto FTextureImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
-		SourceForm.Reset();
-		Usage = ETextureUsage::Color;
-		bImportVolume = false;
-		VolumeChannels = EVolumeTextureSourceChannels::Red;
-		VolumeSliceWidth = 128;
-		VolumeSliceHeight = 128;
-		VolumeDepth = 128;
-		VolumeTilesX = 12;
-		VolumeTilesY = 12;
+		State.Reset();
 		Destination.Reset(DestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -59,73 +77,203 @@ namespace Durin::Editor::Level
 		ModalState.OpenPopupIfRequested("Import Texture");
 
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
-		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
+		ImGui::SetNextWindowSize(
+			ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
 		if (!ImGui::BeginPopupModal("Import Texture", nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
-		const bool bVolumeSource = bImportVolume;
-		ImGui::TextUnformatted(bVolumeSource
-			? "Create a Volume Texture asset directly from one PNG slice atlas."
-			: "Create a Texture2D asset from an image file.");
-		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external file into a writable mount.");
-		const char* AssetTypeNames[] = {"Texture2D", "Volume Texture"};
-		int AssetType = bVolumeSource ? 1 : 0;
-		if (ImGui::Combo("Asset type", &AssetType, AssetTypeNames, 2))
+		const ETextureImportAssetType AssetType = State.GetAssetType();
+		ImGui::TextUnformatted(DescribeAssetType(AssetType));
+		ImGui::TextDisabled(
+			"Reference mounted sources in place, or ingest external sources into a writable mount.");
+		const char* AssetTypeNames[] = {
+			"Texture2D", "Texture Cube", "Volume Texture"};
+		int AssetTypeIndex = static_cast<int>(AssetType);
+		if (ImGui::Combo("Asset type", &AssetTypeIndex, AssetTypeNames,
+			static_cast<int>(std::size(AssetTypeNames))))
 		{
-			bImportVolume = AssetType == 1;
-			SuggestSourceDestination();
+			State.SetAssetType(
+				static_cast<ETextureImportAssetType>(AssetTypeIndex));
+			SuggestSelectedSourceDestinations();
 		}
-		ImGui::Spacing();
-		ImGui::SeparatorText("Source image");
-		SourceForm.DrawMode(
-			"Copies an external file transactionally to the explicit mounted source path.");
-		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
-		if (SourceForm.DrawSourceRow("##TextureImportSource",
-			"Choose an image file...", BrowseButtonWidth)) BrowseSource();
 
-		const std::filesystem::path SourcePath(SourcePathBuffer.data());
-		const bool bHasSource = SourcePathBuffer[0] != '\0';
-		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-		const std::string SourceExtension = Lowercase(SourcePath.extension().generic_string());
-		const bool bSupportedSource = bHasSource && (bVolumeSource
-			? SourceExtension == ".png"
-			: Asset::Forge::IsTexture2DSourceExtension(SourceExtension));
-		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());
+		ImGui::Spacing();
+		ImGui::SeparatorText("Source");
+		DrawSourceMode();
+		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
+		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
+			DrawTextureCubeSource();
+		else
+			DrawSingleSource(BrowseButtonWidth);
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
-		if (Destination.DrawRow("Asset path (one .dasset)", "##TextureImportAssetPath",
-			"/Project/Textures/AssetName", "Choose...", BrowseButtonWidth))
+		if (Destination.DrawRow("Asset path (one .dasset)",
+			"##TextureImportAssetPath", "/Project/Textures/AssetName",
+			"Choose...", BrowseButtonWidth))
 			BrowseDestination();
+		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
+			DrawTextureCubeSourceDestinations();
+		else
+			DrawSingleSourceDestination(BrowseButtonWidth);
+		if (State.GetAssetType() != ETextureImportAssetType::TextureCube)
+			DrawSingleSettings();
 
-		if (SourceForm.DrawDestinationRow("##TextureImportSourceDestination",
+		std::string ValidationMessage =
+			State.GetAssetType() == ETextureImportAssetType::TextureCube
+				? ValidateAndDrawTextureCubeDestination()
+				: ValidateAndDrawSingleDestination();
+		DrawImportDialogWarning(ValidationMessage);
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::BeginDisabled(!ValidationMessage.empty());
+		if (ImGui::Button(ImportButtonLabel(State.GetAssetType()),
+			ImVec2(MonaImGui::ScaleUI(180.0f), 0.0f)) &&
+			ImportSelectedTexture())
+			ImGui::CloseCurrentPopup();
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+
+	auto FTextureImportDialog::DrawSourceMode() -> void
+	{
+		if (ImGui::RadioButton("Reference Existing Source",
+			State.GetSourceMode() ==
+				EMountedSourceImportMode::ReferenceExisting))
+			State.SetSourceMode(EMountedSourceImportMode::ReferenceExisting);
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Ingest External Source",
+			State.GetSourceMode() == EMountedSourceImportMode::IngestExternal))
+			State.SetSourceMode(EMountedSourceImportMode::IngestExternal);
+		ImGui::TextDisabled(
+			State.GetSourceMode() == EMountedSourceImportMode::ReferenceExisting
+				? "Keeps images in allowed mounts; no copies are created."
+				: "Copies external images transactionally to explicit mounted source paths.");
+	}
+
+	auto FTextureImportDialog::GetSelectedSingleSource()
+		-> FMountedSourceImportFormModel&
+	{
+		return State.GetAssetType() == ETextureImportAssetType::VolumeTexture
+			? State.GetVolumeTexture().Source
+			: State.GetTexture2D().Source;
+	}
+
+	auto FTextureImportDialog::DrawSingleSource(float BrowseButtonWidth) -> void
+	{
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		if (Source.DrawSourceRow("##TextureImportSource",
+			State.GetAssetType() == ETextureImportAssetType::VolumeTexture
+				? "Choose a PNG slice atlas..."
+				: "Choose an image file...",
+			BrowseButtonWidth))
+			BrowseSingleSource();
+
+		const char* SourcePath = Source.GetSourcePathBuffer().data();
+		if (SourcePath[0] != '\0')
+			ImGui::TextDisabled("%s", std::filesystem::path(SourcePath)
+				.filename().generic_string().c_str());
+	}
+
+	auto FTextureImportDialog::DrawSingleSourceDestination(
+		float BrowseButtonWidth) -> void
+	{
+		if (State.GetSourceMode() != EMountedSourceImportMode::IngestExternal)
+			return;
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		Source.GetMode() = State.GetSourceMode();
+		if (Source.DrawDestinationRow(
+			"##TextureImportSourceDestination",
 			"/Project/Sources/Textures/AssetName.png", BrowseButtonWidth))
-			BrowseSourceDestination();
+			BrowseSingleSourceDestination();
+	}
+
+	auto FTextureImportDialog::DrawSingleSettings() -> void
+	{
+		ImGui::Spacing();
+		if (State.GetAssetType() == ETextureImportAssetType::Texture2D)
+		{
+			ImGui::SeparatorText("Build settings");
+			const char* UsageNames[] = {"Color", "Normal", "Data / Mask"};
+			FTexture2DImportFormState& Texture2D = State.GetTexture2D();
+			int UsageIndex = static_cast<int>(Texture2D.Usage);
+			if (ImGui::Combo("Usage", &UsageIndex, UsageNames,
+				static_cast<int>(std::size(UsageNames))))
+				Texture2D.Usage = static_cast<ETextureUsage>(UsageIndex);
+			ImGui::TextDisabled(Texture2D.Usage == ETextureUsage::Color
+				? "sRGB color sampling with color-aware mip filtering."
+				: Texture2D.Usage == ETextureUsage::Normal
+					? "Linear sampling with normalized-vector mip filtering."
+					: "Linear sampling with independent-channel mip filtering.");
+			return;
+		}
+
+		ImGui::SeparatorText("Volume atlas settings");
+		ImGui::TextDisabled("Import format: PNG Row-Major Atlas");
+		const char* ChannelNames[] = {
+			"Red", "Green", "Blue", "Alpha", "Luminance", "RGBA"};
+		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
+		int ChannelIndex = static_cast<int>(Volume.Channels);
+		if (ImGui::Combo("Channels", &ChannelIndex, ChannelNames,
+			static_cast<int>(std::size(ChannelNames))))
+			Volume.Channels =
+				static_cast<EVolumeTextureSourceChannels>(ChannelIndex);
+		ImGui::InputScalar("Slice width", ImGuiDataType_U32, &Volume.SliceWidth);
+		ImGui::InputScalar("Slice height", ImGuiDataType_U32, &Volume.SliceHeight);
+		ImGui::InputScalar("Depth", ImGuiDataType_U32, &Volume.Depth);
+		ImGui::InputScalar("Tile columns", ImGuiDataType_U32, &Volume.TilesX);
+		ImGui::InputScalar("Tile rows", ImGuiDataType_U32, &Volume.TilesY);
+		ImGui::TextDisabled(
+			"Slices are read left-to-right, then top-to-bottom; unused tail cells are ignored.");
+	}
+
+	auto FTextureImportDialog::ValidateAndDrawSingleDestination() -> std::string
+	{
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		Source.GetMode() = State.GetSourceMode();
+		const std::filesystem::path SourcePath(Source.GetSourcePathBuffer().data());
+		const bool bHasSource = Source.GetSourcePathBuffer()[0] != '\0';
+		const bool bSourceExists = bHasSource &&
+			std::filesystem::is_regular_file(SourcePath);
+		const std::string SourceExtension =
+			Lowercase(SourcePath.extension().generic_string());
+		const bool bVolume =
+			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
+		const bool bSupportedSource = bHasSource && (bVolume
+			? SourceExtension == ".png"
+			: Asset::Forge::IsTexture2DSourceExtension(SourceExtension));
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
-		const bool bEngineAuthoringContext = DestinationValidation.Mount
-			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
-		const FMountedSourceImportDiagnostic SourceDiagnostic = DestinationValidation.bAssetPathValid
-			? SourceForm.Inspect(
-				DestinationValidation.AssetPath.GetView(), bEngineAuthoringContext)
-			: FMountedSourceImportDiagnostic{};
+		const bool bEngineAuthoringContext = DestinationValidation.Mount &&
+			DestinationValidation.Mount->Owner ==
+				PathUtilities::EMountOwner::Engine;
+		const FMountedSourceImportDiagnostic SourceDiagnostic =
+			DestinationValidation.bAssetPathValid
+				? Source.Inspect(DestinationValidation.AssetPath.GetView(),
+					bEngineAuthoringContext)
+				: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
-				? SourceDestinationBuffer.data()
+				? Source.GetDestinationBuffer().data()
 				: SourceDiagnostic.VirtualPath);
-		const bool bSourceExtensionMatches = bHasSource
-			&& SourceMode == EMountedSourceImportMode::IngestExternal
-			&& Lowercase(SourceDestination.extension().generic_string())
-				== Lowercase(SourcePath.extension().generic_string());
+		const bool bSourceExtensionMatches = bHasSource &&
+			State.GetSourceMode() == EMountedSourceImportMode::IngestExternal &&
+			Lowercase(SourceDestination.extension().generic_string()) ==
+				SourceExtension;
 
-		if (DestinationValidation.bAssetPathValid
-			&& DestinationValidation.bMountedDestination && bHasSource
-			&& SourceDiagnostic.bValid)
+		if (DestinationValidation.bAssetPathValid &&
+			DestinationValidation.bMountedDestination && bHasSource &&
+			SourceDiagnostic.bValid)
 		{
 			ImGui::BeginChild("TextureImportOutputPreview",
-				ImVec2(0.0f, MonaImGui::ScaleUI(112.0f)), ImGuiChildFlags_Borders);
+				ImVec2(0.0f, MonaImGui::ScaleUI(112.0f)),
+				ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Asset identity");
 			ImGui::TextUnformatted(
 				DestinationValidation.AssetPath.ToString().c_str());
@@ -138,167 +286,174 @@ namespace Durin::Editor::Level
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
+				SourceDiagnostic.Mount->bAuthoringWritable
+					? "writable" : "read-only");
 			if (bEngineAuthoringContext)
-				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
-		}
-
-		if (!bVolumeSource)
-		{
-			ImGui::Spacing();
-			ImGui::SeparatorText("Build settings");
-			const char* UsageNames[] = {"Color", "Normal", "Data / Mask"};
-			int UsageIndex = static_cast<int>(Usage);
-			if (ImGui::Combo("Usage", &UsageIndex, UsageNames, static_cast<int>(std::size(UsageNames)))) Usage = static_cast<ETextureUsage>(UsageIndex);
-			ImGui::TextDisabled(Usage == ETextureUsage::Color
-				? "sRGB color sampling with color-aware mip filtering."
-				: Usage == ETextureUsage::Normal
-					? "Linear sampling with normalized-vector mip filtering."
-					: "Linear sampling with independent-channel mip filtering.");
-		}
-		else
-		{
-			ImGui::Spacing();
-			ImGui::SeparatorText("Volume atlas settings");
-			ImGui::TextDisabled("Import format: PNG Row-Major Atlas");
-			const char* ChannelNames[] = {"Red", "Green", "Blue", "Alpha", "Luminance", "RGBA"};
-			int ChannelIndex = static_cast<int>(VolumeChannels);
-			if (ImGui::Combo("Channels", &ChannelIndex, ChannelNames, 6))
-				VolumeChannels = static_cast<EVolumeTextureSourceChannels>(ChannelIndex);
-			ImGui::InputScalar("Slice width", ImGuiDataType_U32, &VolumeSliceWidth);
-			ImGui::InputScalar("Slice height", ImGuiDataType_U32, &VolumeSliceHeight);
-			ImGui::InputScalar("Depth", ImGuiDataType_U32, &VolumeDepth);
-			ImGui::InputScalar("Tile columns", ImGuiDataType_U32, &VolumeTilesX);
-			ImGui::InputScalar("Tile rows", ImGuiDataType_U32, &VolumeTilesY);
-			ImGui::TextDisabled("Slices are read left-to-right, then top-to-bottom; unused tail cells are ignored.");
+				ImGui::TextDisabled(
+					"Engine authoring: this import writes shared Engine content.");
 		}
 
 		std::string ValidationMessage;
-		if (!bHasSource) ValidationMessage = "Select a source image to continue.";
-		else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
-		else if (!bSupportedSource) ValidationMessage = bVolumeSource
-			? "Volume Texture atlas sources must be PNG files."
-			: "Supported Texture2D formats are PNG, JPEG, BMP, and TGA.";
+		if (!bHasSource)
+			ValidationMessage = "Select a source image to continue.";
+		else if (!bSourceExists)
+			ValidationMessage = "The selected source file no longer exists.";
+		else if (!bSupportedSource)
+			ValidationMessage = bVolume
+				? "Volume Texture atlas sources must be PNG files."
+				: "Supported Texture2D formats are PNG, JPEG, BMP, and TGA.";
 		else if (!DestinationValidation)
 			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
 			ValidationMessage = SourceDiagnostic.Message;
-		else if (SourceMode == EMountedSourceImportMode::IngestExternal
-			&& !bSourceExtensionMatches)
-			ValidationMessage = "The source copy must keep the selected image's file extension.";
-		else if (bVolumeSource)
+		else if (State.GetSourceMode() ==
+			EMountedSourceImportMode::IngestExternal &&
+			!bSourceExtensionMatches)
+			ValidationMessage =
+				"The source copy must keep the selected image's file extension.";
+		else if (bVolume)
 		{
+			const FVolumeTextureImportFormState& Volume =
+				State.GetVolumeTexture();
 			Asset::Forge::FVolumeTextureImportSettings Settings{
-				.Channels = VolumeChannels, .SliceWidth = VolumeSliceWidth,
-				.SliceHeight = VolumeSliceHeight, .Depth = VolumeDepth,
-				.TilesX = VolumeTilesX, .TilesY = VolumeTilesY};
+				.Channels = Volume.Channels,
+				.SliceWidth = Volume.SliceWidth,
+				.SliceHeight = Volume.SliceHeight,
+				.Depth = Volume.Depth,
+				.TilesX = Volume.TilesX,
+				.TilesY = Volume.TilesY};
 			Settings.IsValid(&ValidationMessage);
 		}
-
-		DrawImportDialogWarning(ValidationMessage);
-
-		ImGui::Spacing();
-		ImGui::Separator();
-		ImGui::BeginDisabled(!ValidationMessage.empty());
-		if (ImGui::Button(bVolumeSource ? "Import Volume Texture" : "Import Texture",
-			ImVec2(MonaImGui::ScaleUI(bVolumeSource ? 180.0f : 150.0f), 0.0f))
-			&& Import()) ImGui::CloseCurrentPopup();
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
-		ImGui::EndPopup();
+		return ValidationMessage;
 	}
 
-	auto FTextureImportDialog::BrowseSource() -> void
+	auto FTextureImportDialog::BrowseSingleSource() -> void
 	{
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		auto& SourcePathBuffer = Source.GetSourcePathBuffer();
 		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select a Texture Source File";
+		Request.ParentWindowHandle =
+			ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = State.GetAssetType() ==
+			ETextureImportAssetType::VolumeTexture
+			? "Select a Volume Texture PNG Atlas"
+			: "Select a Texture2D Source File";
 		Request.Filters = {
 			{"All Supported Textures", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}
-		};
-		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
-		if (SourceMode == EMountedSourceImportMode::ReferenceExisting)
+			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"},
+			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}};
+		if (const FProjectInfo* Project = GetCurrentProject())
+			Request.InitialDirectory = Project->ProjectDir;
+		if (State.GetSourceMode() ==
+			EMountedSourceImportMode::ReferenceExisting)
 		{
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
+				Request.InitialDirectory =
+					Lookup.Mount->GetContentDir().generic_string();
 		}
-		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
+		if (SourcePathBuffer[0] != '\0')
+			Request.InitialDirectory = std::filesystem::path(
+				SourcePathBuffer.data()).parent_path().generic_string();
 		const FFileDialogResult Result = OpenFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
-		if (Result.FilePath.size() >= SourcePathBuffer.size()) { SetError("The selected file path is too long for the import form."); return; }
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+		if (Result.FilePath.size() >= SourcePathBuffer.size())
+		{
+			SetError("The selected file path is too long for the import form.");
+			return;
+		}
 
 		SourcePathBuffer.fill(0);
-		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), Result.FilePath.size());
-		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "Texture");
+		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(),
+			Result.FilePath.size());
+		const std::string AssetName = StringUtils::SanitizeFileName(
+			std::filesystem::path(Result.FilePath).stem().generic_string(),
+			"Texture");
 		const FProjectInfo* Project = GetCurrentProject();
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
-		SuggestSourceDestination();
+		SuggestSingleSourceDestination();
 	}
 
-	auto FTextureImportDialog::SuggestSourceDestination() -> void
+	auto FTextureImportDialog::SuggestSingleSourceDestination() -> void
 	{
-		if (SourcePathBuffer[0] == '\0') return;
-		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		const char* SourcePathText = Source.GetSourcePathBuffer().data();
+		if (SourcePathText[0] == '\0') return;
+		const std::filesystem::path SourcePath(SourcePathText);
 		const std::string AssetName = StringUtils::SanitizeFileName(
 			SourcePath.stem().generic_string(), "Texture");
-		const bool bVolumeSource = bImportVolume;
-		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
-			Destination.GetPath(), bVolumeSource ? "VolumeTextures" : "Textures",
+		const bool bVolume =
+			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
+		Source.SuggestDestination(MakeDefaultImportedSourceVirtualPath(
+			Destination.GetPath(), bVolume ? "VolumeTextures" : "Textures",
 			AssetName + SourcePath.extension().generic_string(),
-			bVolumeSource ? AssetName : std::string_view{});
-		SourceForm.SuggestDestination(SuggestedSourceDestination);
+			bVolume ? AssetName : std::string_view{}));
+	}
+
+	auto FTextureImportDialog::SuggestSelectedSourceDestinations() -> void
+	{
+		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
+			SuggestTextureCubeSourceDestinations();
+		else
+			SuggestSingleSourceDestination();
 	}
 
 	auto FTextureImportDialog::BrowseDestination() -> void
 	{
-		const std::string DefaultFileName = SourcePathBuffer[0] != '\0'
-			? StringUtils::SanitizeFileName(
-				std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(),
-				"Texture") + ".dasset"
-			: "Texture.dasset";
+		FAssetPath CurrentAssetPath;
+		const std::string DefaultFileName =
+			FAssetPath::TryCreate(Destination.GetPath(), CurrentAssetPath)
+				? std::string(CurrentAssetPath.GetAssetName()) + ".dasset"
+				: "Texture.dasset";
 		if (Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
 			"The selected asset path is too long for the import form.",
 			"Texture assets must be saved inside a package-enabled mount.",
 			Callbacks))
-			SuggestSourceDestination();
+			SuggestSelectedSourceDestinations();
 	}
 
-	auto FTextureImportDialog::BrowseSourceDestination() -> void
+	auto FTextureImportDialog::BrowseSingleSourceDestination() -> void
 	{
 		FAssetPath AssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
 		{
-			SetError("Choose a valid asset path before selecting the source copy destination.");
+			SetError(
+				"Choose a valid asset path before selecting the source copy destination.");
 			return;
 		}
-		const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.GetView());
+		const PathUtilities::FMountPoint* Mount =
+			FindOwningMount(AssetPath.GetView());
 		if (!Mount)
 		{
-			SetError("Choose an asset destination inside a package-enabled mount first.");
+			SetError(
+				"Choose an asset destination inside a package-enabled mount first.");
 			return;
 		}
 
-		const std::filesystem::path SourceRoot = Mount->GetContentDir();
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
 		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.ParentWindowHandle =
+			ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";
 		Request.Filters = {
 			{"All Supported Textures", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}
-		};
-		Request.InitialDirectory = SourceRoot.generic_string();
-		Request.DefaultFileName = SourceDestinationBuffer[0] != '\0'
-			? std::filesystem::path(SourceDestinationBuffer.data()).filename().generic_string()
-			: SourcePathBuffer[0] != '\0'
-				? std::filesystem::path(SourcePathBuffer.data()).filename().generic_string()
+			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"},
+			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}};
+		Request.InitialDirectory = Mount->GetContentDir().generic_string();
+		Request.DefaultFileName = Source.GetDestinationBuffer()[0] != '\0'
+			? std::filesystem::path(Source.GetDestinationBuffer().data())
+				.filename().generic_string()
+			: Source.GetSourcePathBuffer()[0] != '\0'
+				? std::filesystem::path(Source.GetSourcePathBuffer().data())
+					.filename().generic_string()
 				: "Texture.png";
 
 		const FFileDialogResult Result = SaveFileDialog(Request);
@@ -308,61 +463,79 @@ namespace Durin::Editor::Level
 			SetError(Result.ErrorMessage);
 			return;
 		}
-
 		const PathUtilities::FSourcePathResult Classified =
 			PathUtilities::ClassifySourcePath(Result.FilePath);
 		if (!Classified || Classified.Mount != Mount)
 		{
-			SetError("Texture source copies must stay inside the selected mount.");
+			SetError(
+				"Texture source copies must stay inside the selected mount.");
 			return;
 		}
-		const std::string& VirtualPath = Classified.NormalizedVirtualPath;
-		if (VirtualPath.size() >= SourceDestinationBuffer.size())
-		{
-			SetError("The selected source destination is too long for the import form.");
-			return;
-		}
-		SourceForm.SetDestination(VirtualPath);
+		if (!Source.SetDestination(Classified.NormalizedVirtualPath))
+			SetError(
+				"The selected source destination is too long for the import form.");
 	}
 
-	auto FTextureImportDialog::Import() -> bool
+	auto FTextureImportDialog::ImportSelectedTexture() -> bool
 	{
 		Callbacks.Clear();
-		const bool bVolumeSource = bImportVolume;
-		if (bVolumeSource)
-		{
-			Asset::Forge::FVolumeTextureImportSettings Settings;
-			if (SourceMode == EMountedSourceImportMode::IngestExternal)
-				Settings.SourceDestination = SourceDestinationBuffer.data();
-			Settings.Channels = VolumeChannels;
-			Settings.SliceWidth = VolumeSliceWidth;
-			Settings.SliceHeight = VolumeSliceHeight;
-			Settings.Depth = VolumeDepth;
-			Settings.TilesX = VolumeTilesX;
-			Settings.TilesY = VolumeTilesY;
-			const Asset::Forge::FVolumeTextureImportResult Result =
-				Asset::Forge::ImportVolumeTextureAsset(SourcePathBuffer.data(),
-					Destination.GetPath(), Settings,
-					IsEngineAuthoringDestination(Destination.GetPath()));
-			if (!Result) { SetError(Result.Message); return false; }
-			Callbacks.NotifyImported(Destination.GetPath());
-			FAssetPath ImportedPath;
-			if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
-				Asset::UnloadPackage(ImportedPath);
-			return true;
-		}
-		FTexture2DImportSettings Settings;
-		if (SourceMode == EMountedSourceImportMode::IngestExternal)
-			Settings.SourceDestination = SourceDestinationBuffer.data();
-		Settings.Usage = Usage;
-		FTexture2DImportResult Result = Asset::Forge::ImportTexture2DAsset(
-			SourcePathBuffer.data(), Destination.GetPath(), Settings,
-			IsEngineAuthoringDestination(Destination.GetPath()));
-		if (!Result) { SetError(Result.Message); return false; }
+		const bool bImported =
+			State.GetAssetType() == ETextureImportAssetType::TextureCube
+				? ImportTextureCube()
+				: ImportSingleTexture();
+		if (!bImported) return false;
+
 		Callbacks.NotifyImported(Destination.GetPath());
 		FAssetPath ImportedPath;
 		if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
 			Asset::UnloadPackage(ImportedPath);
+		return true;
+	}
+
+	auto FTextureImportDialog::ImportSingleTexture() -> bool
+	{
+		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
+		{
+			const FVolumeTextureImportFormState& Volume =
+				State.GetVolumeTexture();
+			Asset::Forge::FVolumeTextureImportSettings Settings;
+			if (State.GetSourceMode() ==
+				EMountedSourceImportMode::IngestExternal)
+				Settings.SourceDestination =
+					Source.GetDestinationBuffer().data();
+			Settings.Channels = Volume.Channels;
+			Settings.SliceWidth = Volume.SliceWidth;
+			Settings.SliceHeight = Volume.SliceHeight;
+			Settings.Depth = Volume.Depth;
+			Settings.TilesX = Volume.TilesX;
+			Settings.TilesY = Volume.TilesY;
+			const Asset::Forge::FVolumeTextureImportResult Result =
+				Asset::Forge::ImportVolumeTextureAsset(
+					Source.GetSourcePathBuffer().data(), Destination.GetPath(),
+					Settings,
+					IsEngineAuthoringDestination(Destination.GetPath()));
+			if (!Result)
+			{
+				SetError(Result.Message);
+				return false;
+			}
+			return true;
+		}
+
+		FTexture2DImportSettings Settings;
+		if (State.GetSourceMode() == EMountedSourceImportMode::IngestExternal)
+			Settings.SourceDestination = Source.GetDestinationBuffer().data();
+		Settings.Usage = State.GetTexture2D().Usage;
+		const FTexture2DImportResult Result =
+			Asset::Forge::ImportTexture2DAsset(
+				Source.GetSourcePathBuffer().data(), Destination.GetPath(), Settings,
+				IsEngineAuthoringDestination(Destination.GetPath()));
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return false;
+		}
 		return true;
 	}
 

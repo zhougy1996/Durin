@@ -29,7 +29,6 @@ namespace Durin::Editor::Level
 	enum class EContentBrowserImportType : uint8
 	{
 		Texture,
-		TextureCube,
 		TerrainHeightmap,
 		StaticMesh,
 		Scene

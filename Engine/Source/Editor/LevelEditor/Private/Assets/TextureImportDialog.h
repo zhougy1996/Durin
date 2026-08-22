@@ -3,15 +3,9 @@
 #include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
 
-namespace Durin
-{
-	enum class ETextureUsage : uint8;
-	enum class EVolumeTextureSourceChannels : uint8;
-}
-
 namespace Durin::Editor::Level
 {
-	// Collects texture import options and submits the selected source file.
+	// Creates Texture2D, TextureCube, or VolumeTexture assets through one modal.
 	class FTextureImportDialog
 	{
 	public:
@@ -23,27 +17,35 @@ namespace Durin::Editor::Level
 		auto Draw() -> void;
 
 	private:
-		auto BrowseSource() -> void;
+		auto DrawSourceMode() -> void;
+		auto DrawSingleSource(float BrowseButtonWidth) -> void;
+		auto DrawSingleSettings() -> void;
+		auto DrawSingleSourceDestination(float BrowseButtonWidth) -> void;
+		auto ValidateAndDrawSingleDestination() -> std::string;
+
+		auto DrawTextureCubeSource() -> void;
+		auto DrawTextureCubeSourceDestinations() -> void;
+		auto ValidateAndDrawTextureCubeDestination() -> std::string;
+		auto BrowseFace(ETextureCubeFace Face) -> void;
+		auto BrowsePanorama() -> void;
+		auto RevalidateTextureCubeSources() -> bool;
+		auto ImportTextureCube() -> bool;
+		auto SuggestTextureCubeAssetPath(std::string_view SourceFile) -> void;
+		auto SuggestTextureCubeSourceDestinations() -> void;
+
+		auto GetSelectedSingleSource() -> FMountedSourceImportFormModel&;
+		auto BrowseSingleSource() -> void;
 		auto BrowseDestination() -> void;
-		auto BrowseSourceDestination() -> void;
-		auto SuggestSourceDestination() -> void;
-		auto Import() -> bool;
+		auto BrowseSingleSourceDestination() -> void;
+		auto SuggestSelectedSourceDestinations() -> void;
+		auto SuggestSingleSourceDestination() -> void;
+		auto ImportSelectedTexture() -> bool;
+		auto ImportSingleTexture() -> bool;
 		auto SetError(std::string Message) const -> void;
 
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;
 		FImportDialogModalState ModalState;
-		FMountedSourceImportFormModel SourceForm;
-		std::array<char, 512>& SourcePathBuffer = SourceForm.GetSourcePathBuffer();
-		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
-		ETextureUsage Usage = static_cast<ETextureUsage>(0);
-		bool bImportVolume = false;
-		EVolumeTextureSourceChannels VolumeChannels = static_cast<EVolumeTextureSourceChannels>(0);
-		uint32 VolumeSliceWidth = 128;
-		uint32 VolumeSliceHeight = 128;
-		uint32 VolumeDepth = 128;
-		uint32 VolumeTilesX = 12;
-		uint32 VolumeTilesY = 12;
-		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
+		FTextureImportDialogState State;
 	};
 } // namespace Durin::Editor::Level
