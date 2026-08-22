@@ -1,5 +1,6 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
+#include "Asset/ChunkedPayload.h"
 #include "PayloadDecodeResult.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
@@ -64,22 +65,33 @@ namespace Durin
 			std::vector<uint8> Bytes;
 		};
 
-		struct FChunkRecord
+		auto GetSkeletalChunkedPayloadFormat(
+			uint32 RequiredChunkCount,
+			uint64 MaximumBytes) -> Asset::FChunkedPayloadFormat
 		{
-			uint32 Type = 0;
-			uint32 Flags = 0;
-			uint64 Offset = 0;
-			uint64 StoredSize = 0;
-			uint64 DecodedSize = 0;
-		};
+			static_assert(SkeletalPayloadHeaderSize == Asset::ChunkedPayloadHeaderSize);
+			static_assert(SkeletalPayloadChunkEntrySize == Asset::ChunkedPayloadEntrySize);
+			return {
+				.HeaderSizeWordIndex = 6,
+				.ChunkCountWordIndex = 7,
+				.RequiredChunkCount = RequiredChunkCount,
+				.MaximumChunkCount = MaximumSkeletalPayloadChunks,
+				.RequiredChunkFlag = ChunkRequired,
+				.KnownChunkFlags = ChunkRequired,
+				.MaximumBytes = MaximumBytes,
+				.Alignment = SkeletalPayloadAlignment,
+				.RequireUniqueChunkTypes = true,
+				.RequireNonemptyRequiredChunks = true};
+		}
 
-		auto Align16(uint64 Value, uint64& OutValue) -> bool
+		auto FailChunkedPayload(
+			const Asset::FChunkedPayloadResult& Result,
+			std::string& OutError,
+			EPayloadDecodeError* OutCode = nullptr) -> bool
 		{
-			if (Value > std::numeric_limits<uint64>::max() - (SkeletalPayloadAlignment - 1))
-				return false;
-			OutValue = (Value + SkeletalPayloadAlignment - 1)
-				& ~(static_cast<uint64>(SkeletalPayloadAlignment) - 1);
-			return true;
+			if (OutCode && Result.Kind == Asset::EChunkedPayloadFailureKind::Incompatible)
+				*OutCode = EPayloadDecodeError::Incompatible;
+			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Skeletal payload"), &OutError);
 		}
 
 		using EngineWire::ReadLittleEndianAt;
@@ -155,62 +167,22 @@ namespace Durin
 			if (ChunkBytes.empty() || ChunkBytes.size() > MaximumSkeletalPayloadChunks)
 				return Fail("Skeletal payload chunk count is invalid.", &OutError);
 
-			uint64 Offset = SkeletalPayloadHeaderSize
-				+ static_cast<uint64>(ChunkBytes.size()) * SkeletalPayloadChunkEntrySize;
-			uint64 TotalDecoded = 0;
-			std::vector<FChunkRecord> Records;
-			Records.reserve(ChunkBytes.size());
+			std::vector<Asset::FChunkedPayloadInput> Chunks;
+			Chunks.reserve(ChunkBytes.size());
 			for (const FChunkBytes& Chunk : ChunkBytes)
-			{
-				if (!Align16(Offset, Offset) || Offset > MaximumBytes
-					|| Chunk.Bytes.size() > MaximumBytes - Offset
-					|| TotalDecoded > MaximumBytes - Chunk.Bytes.size())
-					return Fail("Skeletal payload size overflowed its bound.", &OutError);
-				Records.push_back({
+				Chunks.push_back({
 					.Type = Chunk.Type,
 					.Flags = ChunkRequired,
-					.Offset = Offset,
-					.StoredSize = Chunk.Bytes.size(),
+					.Bytes = Chunk.Bytes,
 					.DecodedSize = Chunk.Bytes.size()});
-				Offset += Chunk.Bytes.size();
-				TotalDecoded += Chunk.Bytes.size();
-			}
-			if (Offset > MaximumBytes)
-				return Fail("Skeletal payload exceeds its byte limit.", &OutError);
 
-			FWriter Body;
-			for (const FChunkRecord& Record : Records)
-			{
-				Body.WriteU32(Record.Type);
-				Body.WriteU32(Record.Flags);
-				Body.WriteU64(Record.Offset);
-				Body.WriteU64(Record.StoredSize);
-				Body.WriteU64(Record.DecodedSize);
-			}
-			uint64 BodyOffset = SkeletalPayloadHeaderSize + Body.GetBytes().size();
-			for (size_t Index = 0; Index < Records.size(); ++Index)
-			{
-				Body.WriteZeroes(static_cast<size_t>(Records[Index].Offset - BodyOffset));
-				Body.WriteBytes(ChunkBytes[Index].Bytes);
-				BodyOffset = Records[Index].Offset + Records[Index].StoredSize;
-			}
-			const std::vector<uint8> StoredBody = Body.TakeBytes();
-
-			FWriter Result;
-			Result.WriteU32(Magic);
-			Result.WriteU32(SchemaVersion);
-			Result.WriteU32(ProducerVersion);
-			Result.WriteU32(static_cast<uint32>(TargetPlatform));
-			Result.WriteU32(static_cast<uint32>(TargetProfile));
-			Result.WriteU32(0);
-			Result.WriteU32(SkeletalPayloadHeaderSize);
-			Result.WriteU32(static_cast<uint32>(Records.size()));
-			Result.WriteU64(SkeletalPayloadHeaderSize);
-			Result.WriteU64(TotalDecoded);
-			Result.WriteU64(Offset);
-			Result.WriteU64(FXxHash64::HashBuffer(StoredBody).HashValue);
-			Result.WriteBytes(StoredBody);
-			OutBytes = Result.TakeBytes();
+			const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
+				{Magic, SchemaVersion, ProducerVersion, static_cast<uint32>(TargetPlatform),
+					static_cast<uint32>(TargetProfile), 0, SkeletalPayloadHeaderSize,
+					static_cast<uint32>(Chunks.size())},
+				Chunks, GetSkeletalChunkedPayloadFormat(
+					static_cast<uint32>(Chunks.size()), MaximumBytes), OutBytes);
+			if (!Result) return FailChunkedPayload(Result, OutError);
 			OutError.clear();
 			return true;
 		}
@@ -238,14 +210,10 @@ namespace Durin
 			}
 
 			uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
-			uint32 Flags = 0, HeaderSize = 0, ChunkCount = 0;
-			uint64 TableOffset = 0, TotalDecoded = 0, StoredSize = 0, BodyHash = 0;
+			uint32 Flags = 0;
 			if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
 				|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
-				|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Flags)
-				|| !ReadLittleEndianAt(Bytes, 24, HeaderSize) || !ReadLittleEndianAt(Bytes, 28, ChunkCount)
-				|| !ReadLittleEndianAt(Bytes, 32, TableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalDecoded)
-				|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, BodyHash))
+				|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Flags))
 				return Fail("Skeletal payload header is truncated.", &OutError);
 			if (Magic != ExpectedMagic) return Fail("Skeletal payload magic is invalid.", &OutError);
 			if (Schema != ExpectedSchema)
@@ -261,73 +229,14 @@ namespace Durin
 				OutCode = EPayloadDecodeError::Incompatible;
 				return Fail("Skeletal payload target or profile does not match.", &OutError);
 			}
-			if (Flags != 0 || HeaderSize != SkeletalPayloadHeaderSize
-				|| TableOffset != SkeletalPayloadHeaderSize
-				|| ChunkCount < RequiredChunkCount || ChunkCount > MaximumSkeletalPayloadChunks)
+			if (Flags != 0)
 				return Fail("Skeletal payload header fields are invalid.", &OutError);
-			if (StoredSize != Bytes.size() || StoredSize > MaximumBytes
-				|| TotalDecoded > MaximumBytes)
-				return Fail("Skeletal payload stored or decoded size is invalid.", &OutError);
-			if (FXxHash64::HashBuffer(Bytes.subspan(SkeletalPayloadHeaderSize)).HashValue != BodyHash)
-				return Fail("Skeletal payload checksum does not match.", &OutError);
 
-			const uint64 TableSize = static_cast<uint64>(ChunkCount) * SkeletalPayloadChunkEntrySize;
-			const uint64 TableEnd = TableOffset + TableSize;
-			if (TableEnd < TableOffset || TableEnd > StoredSize)
-				return Fail("Skeletal payload chunk table is out of range.", &OutError);
-			OutRequiredChunks.assign(RequiredChunkCount, {});
-			std::unordered_set<uint32> Types;
-			uint64 PreviousEnd = TableEnd;
-			uint64 DecodedSum = 0;
-			for (uint32 Index = 0; Index < ChunkCount; ++Index)
-			{
-				const size_t Entry = static_cast<size_t>(TableOffset
-					+ static_cast<uint64>(Index) * SkeletalPayloadChunkEntrySize);
-				FChunkRecord Chunk;
-				if (!ReadLittleEndianAt(Bytes, Entry, Chunk.Type)
-					|| !ReadLittleEndianAt(Bytes, Entry + 4, Chunk.Flags)
-					|| !ReadLittleEndianAt(Bytes, Entry + 8, Chunk.Offset)
-					|| !ReadLittleEndianAt(Bytes, Entry + 16, Chunk.StoredSize)
-					|| !ReadLittleEndianAt(Bytes, Entry + 24, Chunk.DecodedSize))
-					return Fail("Skeletal payload chunk table is truncated.", &OutError);
-				if (!Types.insert(Chunk.Type).second)
-					return Fail("Skeletal payload chunk types are duplicated.", &OutError);
-				if ((Chunk.Flags & ~ChunkRequired) != 0)
-				{
-					OutCode = EPayloadDecodeError::Incompatible;
-					return Fail("Skeletal payload chunk flags are unsupported.", &OutError);
-				}
-				if (Chunk.Offset % SkeletalPayloadAlignment != 0 || Chunk.Offset < PreviousEnd
-					|| Chunk.Offset > StoredSize || Chunk.StoredSize > StoredSize - Chunk.Offset)
-					return Fail("Skeletal payload chunks are misaligned, overlapping, or out of range.", &OutError);
-				if (Chunk.DecodedSize != Chunk.StoredSize
-					|| DecodedSum > MaximumBytes - Chunk.DecodedSize)
-					return Fail("Skeletal payload chunk decoded size is invalid.", &OutError);
-				for (uint64 Padding = PreviousEnd; Padding < Chunk.Offset; ++Padding)
-					if (Bytes[static_cast<size_t>(Padding)] != 0)
-						return Fail("Skeletal payload alignment padding is nonzero.", &OutError);
-				PreviousEnd = Chunk.Offset + Chunk.StoredSize;
-				DecodedSum += Chunk.DecodedSize;
-				if (Chunk.Type >= 1 && Chunk.Type <= RequiredChunkCount)
-				{
-					if ((Chunk.Flags & ChunkRequired) == 0)
-						return Fail("Skeletal payload required chunk is not marked required.", &OutError);
-					OutRequiredChunks[Chunk.Type - 1] = Bytes.subspan(
-						static_cast<size_t>(Chunk.Offset), static_cast<size_t>(Chunk.StoredSize));
-				}
-				else if ((Chunk.Flags & ChunkRequired) != 0)
-				{
-					OutCode = EPayloadDecodeError::Incompatible;
-					return Fail("Skeletal payload contains an unknown required chunk.", &OutError);
-				}
-			}
-			if (PreviousEnd != StoredSize)
-				return Fail("Skeletal payload contains trailing data.", &OutError);
-			if (DecodedSum != TotalDecoded
-				|| std::ranges::any_of(OutRequiredChunks, [](std::span<const uint8> Chunk) {
-					return Chunk.empty();
-				}))
-				return Fail("Skeletal payload required chunks or decoded size are invalid.", &OutError);
+			Asset::FDecodedChunkedPayload Container;
+			const Asset::FChunkedPayloadResult ContainerResult = Asset::DecodeChunkedPayload(
+				Bytes, GetSkeletalChunkedPayloadFormat(RequiredChunkCount, MaximumBytes), Container);
+			if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
+			OutRequiredChunks = std::move(Container.RequiredChunks);
 			OutError.clear();
 			return true;
 		}

@@ -1,4 +1,6 @@
 #include "BulkContainerInfrastructure.h"
+#include "Asset/ChunkedPayload.h"
+#include "Hash/XxHash.h"
 
 #include <gtest/gtest.h>
 
@@ -6,6 +8,46 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::Asset::BulkContainer;
+}
+
+namespace
+{
+	auto MakeChunkedPayloadFormat() -> Durin::Asset::FChunkedPayloadFormat
+	{
+		return {
+			.HeaderSizeWordIndex = 5,
+			.ChunkCountWordIndex = 6,
+			.GlobalFlagsWordIndex = 4,
+			.GlobalCompressedFlag = 1,
+			.RequiredChunkCount = 2,
+			.MaximumChunkCount = 4,
+			.RequiredChunkFlag = Durin::Asset::ChunkedPayloadRequiredFlag,
+			.KnownChunkFlags = Durin::Asset::ChunkedPayloadRequiredFlag | 0x0000ff00,
+			.CompressionMask = 0x0000ff00,
+			.CompressionShift = 8,
+			.MaximumCompressionMethod = 1,
+			.MaximumCompressionRatio = 64,
+			.MaximumBytes = 1024,
+			.Alignment = 16,
+			.AllowTrailingZeroPadding = true};
+	}
+
+	auto WriteU32(std::vector<uint8>& Bytes, size_t Offset, uint32 Value) -> void
+	{
+		for (size_t Index = 0; Index < 4; ++Index)
+			Bytes[Offset + Index] = static_cast<uint8>(Value >> (Index * 8));
+	}
+
+	auto WriteU64(std::vector<uint8>& Bytes, size_t Offset, uint64 Value) -> void
+	{
+		for (size_t Index = 0; Index < 8; ++Index)
+			Bytes[Offset + Index] = static_cast<uint8>(Value >> (Index * 8));
+	}
+
+	auto RefreshChunkedPayloadHash(std::vector<uint8>& Bytes) -> void
+	{
+		WriteU64(Bytes, 56, FXxHash64::HashBuffer(std::span(Bytes).subspan(64)).HashValue);
+	}
 }
 
 TEST(FBulkContainerArithmeticTests, RejectsOverflowAndInvalidAlignmentWithoutChangingOutputs)
@@ -164,4 +206,92 @@ TEST(FBulkContainerLayoutTests, ReportsLimitAndTrailingPaddingFailuresPrecisely)
 	const std::array Payload{FPayloadRange{0, 4, 1}};
 	EXPECT_FALSE(ValidateLayout(Bytes, 0, 0, Payload, Policy, &Failure));
 	EXPECT_EQ(Failure.Category, EFailure::TrailingNonzeroPadding);
+}
+
+TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterministically)
+{
+	using namespace Durin::Asset;
+	const std::array<uint8, 3> First{1, 2, 3};
+	const std::array<uint8, 3> Second{4, 5, 6};
+	const std::array<uint8, 2> Optional{7, 8};
+	const std::array Chunks{
+		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, First, First.size()},
+		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Second, Second.size()},
+		FChunkedPayloadInput{99, 0, Optional, Optional.size()}};
+	std::vector<uint8> Bytes;
+	ASSERT_TRUE(EncodeChunkedPayload(
+		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		MakeChunkedPayloadFormat(), Bytes));
+
+	FDecodedChunkedPayload Decoded;
+	ASSERT_TRUE(DecodeChunkedPayload(Bytes, MakeChunkedPayloadFormat(), Decoded));
+	ASSERT_EQ(Decoded.RequiredChunks.size(), 2u);
+	EXPECT_TRUE(std::ranges::equal(Decoded.RequiredChunks[0], First));
+	EXPECT_TRUE(std::ranges::equal(Decoded.RequiredChunks[1], Second));
+	ASSERT_EQ(Decoded.Chunks.size(), 3u);
+	EXPECT_EQ(Decoded.Chunks[2].Type, 99u);
+	EXPECT_TRUE(std::ranges::equal(Decoded.Chunks[2].Bytes, Optional));
+}
+
+TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCompatibility)
+{
+	using namespace Durin::Asset;
+	const std::array<uint8, 3> First{1, 2, 3};
+	const std::array<uint8, 3> Second{4, 5, 6};
+	const std::array Chunks{
+		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, First, First.size()},
+		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Second, Second.size()}};
+	std::vector<uint8> Bytes;
+	ASSERT_TRUE(EncodeChunkedPayload(
+		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		MakeChunkedPayloadFormat(), Bytes));
+
+	FDecodedChunkedPayload Sentinel;
+	Sentinel.HeaderWords[0] = 77;
+	std::vector<uint8> NonzeroPadding = Bytes;
+	NonzeroPadding[131] = 1;
+	RefreshChunkedPayloadHash(NonzeroPadding);
+	const FChunkedPayloadResult PaddingResult = DecodeChunkedPayload(
+		NonzeroPadding, MakeChunkedPayloadFormat(), Sentinel);
+	EXPECT_EQ(PaddingResult.Failure, EChunkedPayloadFailure::NonzeroPadding);
+	EXPECT_EQ(Sentinel.HeaderWords[0], 77u);
+
+	std::vector<uint8> Duplicate = Bytes;
+	WriteU32(Duplicate, 64 + ChunkedPayloadEntrySize, 1);
+	RefreshChunkedPayloadHash(Duplicate);
+	const FChunkedPayloadResult DuplicateResult = DecodeChunkedPayload(
+		Duplicate, MakeChunkedPayloadFormat(), Sentinel);
+	EXPECT_EQ(DuplicateResult.Failure, EChunkedPayloadFailure::MissingRequiredChunk);
+
+	std::vector<uint8> Compressed = Bytes;
+	WriteU32(Compressed, 16, 1);
+	WriteU32(Compressed, 68, ChunkedPayloadRequiredFlag | (1u << 8));
+	WriteU64(Compressed, 40, 195);
+	WriteU64(Compressed, 88, 192);
+	RefreshChunkedPayloadHash(Compressed);
+	const FChunkedPayloadResult CompressionResult = DecodeChunkedPayload(
+		Compressed, MakeChunkedPayloadFormat(), Sentinel);
+	EXPECT_EQ(CompressionResult.Failure, EChunkedPayloadFailure::CompressionUnavailable);
+	EXPECT_EQ(CompressionResult.Kind, EChunkedPayloadFailureKind::Incompatible);
+}
+
+TEST(FChunkedPayloadCodecTests, DoesNotPublishFailedEncodeOrDecodeCandidates)
+{
+	using namespace Durin::Asset;
+	const std::array<uint8, 900> Oversized{};
+	const std::array Chunks{
+		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()},
+		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()}};
+	std::vector<uint8> Published{9, 9};
+	EXPECT_FALSE(EncodeChunkedPayload(
+		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		MakeChunkedPayloadFormat(), Published));
+	EXPECT_EQ(Published, (std::vector<uint8>{9, 9}));
+
+	FDecodedChunkedPayload Decoded;
+	Decoded.HeaderWords[0] = 88;
+	const std::array<uint8, 3> Truncated{};
+	EXPECT_EQ(DecodeChunkedPayload(Truncated, MakeChunkedPayloadFormat(), Decoded).Failure,
+		EChunkedPayloadFailure::TruncatedHeader);
+	EXPECT_EQ(Decoded.HeaderWords[0], 88u);
 }

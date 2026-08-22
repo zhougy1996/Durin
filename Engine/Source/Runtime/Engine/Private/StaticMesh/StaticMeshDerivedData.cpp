@@ -1,5 +1,6 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
+#include "Asset/ChunkedPayload.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
@@ -11,21 +12,9 @@ namespace Durin
 	{
 		inline constexpr uint32 StaticMeshPayloadRequiredChunkCount = 6;
 		inline constexpr uint32 StaticMeshPayloadFlagCompressed = 1;
-		inline constexpr uint32 StaticMeshChunkFlagRequired = 1;
 		inline constexpr uint32 StaticMeshChunkCompressionMask = 0x0000ff00;
-		inline constexpr uint32 StaticMeshChunkKnownFlags = StaticMeshChunkFlagRequired | StaticMeshChunkCompressionMask;
-		inline constexpr uint32 StaticMeshChunkCompressionNone = 0;
 		inline constexpr uint32 StaticMeshChunkCompressionZstandard = 1;
 		inline constexpr uint64 StaticMeshMaximumCompressionRatio = 64;
-
-		struct FStaticMeshPayloadChunk
-		{
-			uint32 Type = 0;
-			uint32 Flags = 0;
-			uint64 Offset = 0;
-			uint64 StoredSize = 0;
-			uint64 UncompressedSize = 0;
-		};
 
 		using FPayloadWriter = EngineWire::FWriter;
 		using FPayloadReader = EngineWire::FReader;
@@ -386,15 +375,36 @@ namespace Durin
 
 		using EngineWire::ReadLittleEndianAt;
 
-		auto IsRequiredChunkType(uint32 Type) -> bool
+		auto GetStaticMeshChunkedPayloadFormat() -> Asset::FChunkedPayloadFormat
 		{
-			return Type >= static_cast<uint32>(EStaticMeshPayloadChunkType::Bounds)
-				&& Type <= static_cast<uint32>(EStaticMeshPayloadChunkType::IndexBuffers);
+			static_assert(StaticMeshPayloadHeaderSize == Asset::ChunkedPayloadHeaderSize);
+			static_assert(StaticMeshPayloadChunkEntrySize == Asset::ChunkedPayloadEntrySize);
+			return {
+				.HeaderSizeWordIndex = 5,
+				.ChunkCountWordIndex = 6,
+				.GlobalFlagsWordIndex = 4,
+				.GlobalCompressedFlag = StaticMeshPayloadFlagCompressed,
+				.RequiredChunkCount = StaticMeshPayloadRequiredChunkCount,
+				.MaximumChunkCount = MaximumStaticMeshPayloadChunks,
+				.RequiredChunkFlag = Asset::ChunkedPayloadRequiredFlag,
+				.KnownChunkFlags = Asset::ChunkedPayloadRequiredFlag | StaticMeshChunkCompressionMask,
+				.CompressionMask = StaticMeshChunkCompressionMask,
+				.CompressionShift = 8,
+				.MaximumCompressionMethod = StaticMeshChunkCompressionZstandard,
+				.MaximumCompressionRatio = StaticMeshMaximumCompressionRatio,
+				.MaximumBytes = MaximumStaticMeshPayloadBytes,
+				.Alignment = StaticMeshPayloadAlignment,
+				.AllowTrailingZeroPadding = true};
 		}
 
-		auto AlignPayloadOffset(uint64 Offset) -> uint64
+		auto FailChunkedPayload(
+			const Asset::FChunkedPayloadResult& Result,
+			std::string& OutError,
+			EPayloadDecodeError* OutCode = nullptr) -> bool
 		{
-			return EngineWire::AlignUp(Offset, StaticMeshPayloadAlignment);
+			if (OutCode && Result.Kind == Asset::EChunkedPayloadFailureKind::Incompatible)
+				*OutCode = EPayloadDecodeError::Incompatible;
+			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"), &OutError);
 		}
 	}
 
@@ -410,55 +420,20 @@ namespace Durin
 		if (!ValidatePayload(Payload, OutError)) return false;
 
 		const auto ChunkBytes = BuildPayloadChunks(Payload);
-		std::array<FStaticMeshPayloadChunk, StaticMeshPayloadRequiredChunkCount> Chunks;
-		uint64 Offset = StaticMeshPayloadHeaderSize + StaticMeshPayloadRequiredChunkCount * StaticMeshPayloadChunkEntrySize;
-		uint64 TotalUncompressedSize = 0;
+		std::array<Asset::FChunkedPayloadInput, StaticMeshPayloadRequiredChunkCount> Chunks;
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
-		{
-			Offset = AlignPayloadOffset(Offset);
 			Chunks[Index] = {
 				.Type = Index + 1,
-				.Flags = StaticMeshChunkFlagRequired,
-				.Offset = Offset,
-				.StoredSize = ChunkBytes[Index].size(),
-				.UncompressedSize = ChunkBytes[Index].size()};
-			Offset += ChunkBytes[Index].size();
-			TotalUncompressedSize += ChunkBytes[Index].size();
-		}
+				.Flags = Asset::ChunkedPayloadRequiredFlag,
+				.Bytes = ChunkBytes[Index],
+				.DecodedSize = ChunkBytes[Index].size()};
 
-		FPayloadWriter Body;
-		for (const FStaticMeshPayloadChunk& Chunk : Chunks)
-		{
-			Body.WriteU32(Chunk.Type);
-			Body.WriteU32(Chunk.Flags);
-			Body.WriteU64(Chunk.Offset);
-			Body.WriteU64(Chunk.StoredSize);
-			Body.WriteU64(Chunk.UncompressedSize);
-		}
-		uint64 BodyOffset = StaticMeshPayloadHeaderSize + Body.GetBytes().size();
-		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
-		{
-			Body.WriteZeroes(static_cast<size_t>(Chunks[Index].Offset - BodyOffset));
-			Body.WriteBytes(ChunkBytes[Index]);
-			BodyOffset = Chunks[Index].Offset + Chunks[Index].StoredSize;
-		}
-		const std::vector<uint8> StoredBody = Body.TakeBytes();
-
-		FPayloadWriter Result;
-		Result.WriteU32(StaticMeshPayloadMagic);
-		Result.WriteU32(StaticMeshPayloadSchemaVersion);
-		Result.WriteU32(StaticMeshBuilderVersion);
-		Result.WriteU32(static_cast<uint32>(TargetPlatform));
-		Result.WriteU32(0);
-		Result.WriteU32(StaticMeshPayloadHeaderSize);
-		Result.WriteU32(StaticMeshPayloadRequiredChunkCount);
-		Result.WriteU32(0);
-		Result.WriteU64(StaticMeshPayloadHeaderSize);
-		Result.WriteU64(TotalUncompressedSize);
-		Result.WriteU64(Offset);
-		Result.WriteU64(FXxHash64::HashBuffer(StoredBody).HashValue);
-		Result.WriteBytes(StoredBody);
-		OutBytes = Result.TakeBytes();
+		const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
+			{StaticMeshPayloadMagic, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
+				static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize,
+				StaticMeshPayloadRequiredChunkCount, 0},
+			Chunks, GetStaticMeshChunkedPayloadFormat(), OutBytes);
+		if (!Result) return FailChunkedPayload(Result, OutError);
 		return true;
 	}
 
@@ -483,19 +458,10 @@ namespace Durin
 		uint32 BuilderVersion = 0;
 		uint32 Platform = 0;
 		uint32 PayloadFlags = 0;
-		uint32 HeaderSize = 0;
-		uint32 ChunkCount = 0;
 		uint32 Reserved = 0;
-		uint64 ChunkTableOffset = 0;
-		uint64 TotalUncompressedSize = 0;
-		uint64 StoredSize = 0;
-		uint64 StoredHash = 0;
 		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
 			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, PayloadFlags) || !ReadLittleEndianAt(Bytes, 20, HeaderSize)
-			|| !ReadLittleEndianAt(Bytes, 24, ChunkCount) || !ReadLittleEndianAt(Bytes, 28, Reserved)
-			|| !ReadLittleEndianAt(Bytes, 32, ChunkTableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalUncompressedSize)
-			|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, StoredHash))
+			|| !ReadLittleEndianAt(Bytes, 16, PayloadFlags) || !ReadLittleEndianAt(Bytes, 28, Reserved))
 			return Fail("Static-mesh payload header is truncated.", &OutError);
 		if (Magic != StaticMeshPayloadMagic) return Fail("Static-mesh payload magic is invalid.", &OutError);
 		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
@@ -509,103 +475,15 @@ namespace Durin
 			return Fail("Static-mesh payload builder version is unsupported.", &OutError);
 		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail("Static-mesh payload target platform does not match.", &OutError);
-		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || HeaderSize != StaticMeshPayloadHeaderSize
-			|| Reserved != 0 || ChunkTableOffset != StaticMeshPayloadHeaderSize)
+		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || Reserved != 0)
 			return Fail("Static-mesh payload header contains invalid flags, sizes, or reserved values.", &OutError);
-		if (ChunkCount < StaticMeshPayloadRequiredChunkCount || ChunkCount > MaximumStaticMeshPayloadChunks)
-			return Fail("Static-mesh payload chunk count is invalid.", &OutError);
-		if (StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshPayloadBytes
-			|| TotalUncompressedSize > MaximumStaticMeshPayloadBytes)
-			return Fail("Static-mesh payload stored or uncompressed size is invalid.", &OutError);
-		if (FXxHash64::HashBuffer(Bytes.subspan(StaticMeshPayloadHeaderSize)).HashValue != StoredHash)
-			return Fail("Static-mesh payload checksum does not match.", &OutError);
-
-		const uint64 TableSize = static_cast<uint64>(ChunkCount) * StaticMeshPayloadChunkEntrySize;
-		const uint64 TableEnd = ChunkTableOffset + TableSize;
-		if (TableEnd < ChunkTableOffset || TableEnd > StoredSize)
-			return Fail("Static-mesh payload chunk table is outside the stored object.", &OutError);
-
-		std::vector<FStaticMeshPayloadChunk> Chunks(ChunkCount);
-		uint64 UncompressedSum = 0;
-		uint64 PreviousEnd = TableEnd;
-		bool bHasCompressedChunk = false;
-		std::array<int32, StaticMeshPayloadRequiredChunkCount> RequiredChunkIndices;
-		RequiredChunkIndices.fill(-1);
-		for (uint32 Index = 0; Index < ChunkCount; ++Index)
-		{
-			const size_t EntryOffset = static_cast<size_t>(ChunkTableOffset + static_cast<uint64>(Index) * StaticMeshPayloadChunkEntrySize);
-			FStaticMeshPayloadChunk& Chunk = Chunks[Index];
-			if (!ReadLittleEndianAt(Bytes, EntryOffset, Chunk.Type) || !ReadLittleEndianAt(Bytes, EntryOffset + 4, Chunk.Flags)
-				|| !ReadLittleEndianAt(Bytes, EntryOffset + 8, Chunk.Offset) || !ReadLittleEndianAt(Bytes, EntryOffset + 16, Chunk.StoredSize)
-				|| !ReadLittleEndianAt(Bytes, EntryOffset + 24, Chunk.UncompressedSize))
-				return Fail("Static-mesh payload chunk table is truncated.", &OutError);
-			if ((Chunk.Flags & ~StaticMeshChunkKnownFlags) != 0)
-			{
-				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail("Static-mesh payload chunk contains unsupported flags.", &OutError);
-			}
-			const uint32 Compression = (Chunk.Flags & StaticMeshChunkCompressionMask) >> 8;
-			if (Compression > StaticMeshChunkCompressionZstandard)
-			{
-				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail("Static-mesh payload chunk uses an unsupported compression method.", &OutError);
-			}
-			if (Chunk.Offset % StaticMeshPayloadAlignment != 0 || Chunk.Offset < PreviousEnd)
-				return Fail("Static-mesh payload chunks are misaligned, unordered, or overlapping.", &OutError);
-			if (Chunk.Offset > StoredSize || Chunk.StoredSize > StoredSize - Chunk.Offset)
-				return Fail("Static-mesh payload chunk range is outside the stored object.", &OutError);
-			if (Chunk.UncompressedSize > MaximumStaticMeshPayloadBytes - UncompressedSum)
-				return Fail("Static-mesh payload total uncompressed size exceeds its allocation limit.", &OutError);
-			if (Compression == StaticMeshChunkCompressionNone && Chunk.StoredSize != Chunk.UncompressedSize)
-				return Fail("An uncompressed static-mesh chunk has inconsistent sizes.", &OutError);
-			if (Compression != StaticMeshChunkCompressionNone)
-			{
-				bHasCompressedChunk = true;
-				if (Chunk.StoredSize == 0 || Chunk.UncompressedSize / Chunk.StoredSize > StaticMeshMaximumCompressionRatio
-					|| (Chunk.UncompressedSize / Chunk.StoredSize == StaticMeshMaximumCompressionRatio
-						&& Chunk.UncompressedSize % Chunk.StoredSize != 0))
-					return Fail("Static-mesh payload chunk exceeds the maximum compression ratio.", &OutError);
-			}
-			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < Chunk.Offset; ++PaddingOffset)
-				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail("Static-mesh payload contains non-zero alignment padding.", &OutError);
-			PreviousEnd = Chunk.Offset + Chunk.StoredSize;
-			UncompressedSum += Chunk.UncompressedSize;
-
-			if (IsRequiredChunkType(Chunk.Type))
-			{
-				const uint32 RequiredIndex = Chunk.Type - 1;
-				if ((Chunk.Flags & StaticMeshChunkFlagRequired) == 0 || RequiredChunkIndices[RequiredIndex] >= 0)
-					return Fail("Static-mesh payload required chunks are missing flags or duplicated.", &OutError);
-				RequiredChunkIndices[RequiredIndex] = static_cast<int32>(Index);
-			}
-			else if ((Chunk.Flags & StaticMeshChunkFlagRequired) != 0)
-			{
-				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail("Static-mesh payload contains an unknown required chunk.", &OutError);
-			}
-		}
-		if (UncompressedSum != TotalUncompressedSize)
-			return Fail("Static-mesh payload uncompressed size does not match its chunks.", &OutError);
-		if (bHasCompressedChunk != ((PayloadFlags & StaticMeshPayloadFlagCompressed) != 0))
-			return Fail("Static-mesh payload compression flags are inconsistent.", &OutError);
-		if (std::ranges::any_of(RequiredChunkIndices, [](int32 Index) { return Index < 0; }))
-			return Fail("Static-mesh payload is missing a required chunk.", &OutError);
-		for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < StoredSize; ++PaddingOffset)
-			if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-				return Fail("Static-mesh payload contains non-zero trailing padding.", &OutError);
-		if (bHasCompressedChunk)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail("Compressed static-mesh chunks are not supported by this build.", &OutError);
-		}
-
+		Asset::FDecodedChunkedPayload Container;
+		const Asset::FChunkedPayloadResult ContainerResult = Asset::DecodeChunkedPayload(
+			Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
+		if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
 		std::array<std::span<const uint8>, StaticMeshPayloadRequiredChunkCount> RequiredChunks;
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
-		{
-			const FStaticMeshPayloadChunk& Chunk = Chunks[static_cast<size_t>(RequiredChunkIndices[Index])];
-			RequiredChunks[Index] = Bytes.subspan(static_cast<size_t>(Chunk.Offset), static_cast<size_t>(Chunk.StoredSize));
-		}
+			RequiredChunks[Index] = Container.RequiredChunks[Index];
 		FStaticMeshPayloadData Decoded;
 		if (!ReadPayloadChunks(RequiredChunks, Decoded, OutError)) return false;
 		OutPayload = std::move(Decoded);
