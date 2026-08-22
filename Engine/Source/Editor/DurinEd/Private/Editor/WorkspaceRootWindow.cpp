@@ -191,4 +191,18 @@ namespace Durin::Editor
 	{
 		return CanRedo() && GEditor->GetTransactionManager().Redo();
 	}
+
+	auto FReadOnlyAssetDocumentModel::Activate(
+		const FDocumentTab& Document, const DObject* Object) -> bool
+	{
+		DocumentHost.RequestFocus(Document.Id);
+		if (!Object) return false;
+		ActiveResourceId = Document.ResourceId;
+		return true;
+	}
+
+	auto FReadOnlyAssetDocumentModel::Close(std::string_view ResourceId) -> void
+	{
+		if (ActiveResourceId == ResourceId) ActiveResourceId.clear();
+	}
 }

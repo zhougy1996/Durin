@@ -1,20 +1,14 @@
 #include "Widgets/SkeletalAssetPreview.h"
 
 #include "Animation/AnimationClip.h"
-#include "Client/ViewportClient.h"
-#include "Components/DirectionalLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
-#include "Engine/World.h"
 #include "Math/Operations.h"
-#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
-#include "Preview/PreviewScene.h"
+#include "Preview/AssetPreviewHost.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "SkeletalMesh/SkeletalMesh.h"
-#include "Widgets/MViewport.h"
 
 namespace Durin::Editor::SkeletalMesh
 {
@@ -24,16 +18,6 @@ namespace Durin::Editor::SkeletalMesh
 		constexpr double MinimumDistance = 0.05;
 		constexpr double MaximumDistance = 1000000.0;
 
-		auto RotationFromForward(const FVector3& Direction) -> FQuat
-		{
-			const FVector3 To = Math::Normalize(Direction);
-			const double Dot = Math::Dot(FVectorConstants::Forward, To);
-			if (Dot > 1.0 - 1.0e-8) return FQuatConstants::Identity;
-			if (Dot < -1.0 + 1.0e-8)
-				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
-			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
-		}
 	}
 
 	auto FSkeletalAssetPreviewController::FrameBounds(const FBox& Bounds) -> void
@@ -75,14 +59,13 @@ namespace Durin::Editor::SkeletalMesh
 		if (FramedBounds.bIsValid) FrameBounds(FramedBounds);
 	}
 
-	class FSkeletalPreviewViewportClient final : public FViewportClient
+	class FSkeletalPreviewViewportClient final : public ::Durin::Editor::FAssetPreviewViewportClient
 	{
 	public:
-		auto SetEnabled(bool bInEnabled) -> void { bEnabled = bInEnabled; }
 		auto GetController() -> FSkeletalAssetPreviewController& { return Controller; }
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override
 		{
-			if (!bEnabled || Width == 0 || Height == 0) return false;
+			if (!IsPreviewEnabled() || Width == 0 || Height == 0) return false;
 			const double Yaw = Math::DegreesToRadians(Controller.GetYawDegrees());
 			const double Pitch = Math::DegreesToRadians(Controller.GetPitchDegrees());
 			const double CosPitch = std::cos(Pitch);
@@ -113,7 +96,6 @@ namespace Durin::Editor::SkeletalMesh
 		}
 	private:
 		FSkeletalAssetPreviewController Controller;
-		bool bEnabled = false;
 	};
 
 	class FSkeletalAssetPreview::FImpl
@@ -121,31 +103,26 @@ namespace Durin::Editor::SkeletalMesh
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<::Durin::Editor::FPreviewScene>(FName(std::format("SkeletalAssetPreview_{}", PreviewId)));
-			if (!PreviewScene->IsAvailable()) { Error = PreviewScene->GetDiagnostic(); return; }
-			AActor* Actor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("SkeletalAssetPreviewActor_{}", PreviewId)));
+			auto Client = std::make_unique<FSkeletalPreviewViewportClient>();
+			ViewportClient = Client.get();
+			Host = std::make_unique<::Durin::Editor::FAssetPreviewHost>(
+				::Durin::Editor::FAssetPreviewHostConfig{
+					.SceneName = FName(std::format("SkeletalAssetPreview_{}", PreviewId)),
+					.ContentActorName = FName(std::format("SkeletalAssetPreviewActor_{}", PreviewId)),
+					.LightActorName = FName(std::format("SkeletalAssetPreviewLightActor_{}", PreviewId)),
+					.bBeginPlay = true},
+				std::move(Client));
+			if (!Host->IsAvailable()) { Error = Host->GetDiagnostic(); return; }
+			AActor* Actor = Host->GetContentActor();
 			if (Actor) Actor->SetActorTickEnabled(true);
 			Component = Actor ? Cast<DSkeletalMeshComponent>(Actor->AddInstanceComponent(
 				DSkeletalMeshComponent::StaticClass(), "PreviewMesh")) : nullptr;
-			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("SkeletalAssetPreviewLightActor_{}", PreviewId)));
-			Light = LightActor ? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
-				DDirectionalLightComponent::StaticClass(), "PreviewLight")) : nullptr;
-			if (!Component || !Light) { Error = "The skeletal preview components could not be created."; return; }
-			Light->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
-			ViewportClient = std::make_unique<FSkeletalPreviewViewportClient>();
-			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get(), PreviewScene->GetRenderScene());
-			ViewportWidget->SetDisplaySource(SceneViewport);
-			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
-			PreviewScene->BeginPlay();
+			if (!Component) { Error = "The skeletal preview component could not be created."; return; }
 		}
 
 		~FImpl()
 		{
 			if (Component) { std::string Ignored; Component->SetAnimationClip(nullptr, Ignored); Component->SetSkeletalMesh(nullptr, Ignored); }
-			if (PreviewScene) PreviewScene->EndPlay();
-			if (GEngine) GEngine->UnregisterAuxiliarySceneViewport(SceneViewport.get());
-			SceneViewport.reset(); ViewportWidget.reset(); ViewportClient.reset(); PreviewScene.reset();
 		}
 
 		auto Bind(DSkeletalMesh* Mesh, DAnimationClip* Clip) -> bool
@@ -179,12 +156,10 @@ namespace Durin::Editor::SkeletalMesh
 				SetVisible(false); ImGui::TextWrapped("Preview unavailable: %s", Error.c_str()); ImGui::EndChild(); return;
 			}
 			Mesh->InitResources();
-			PreviewScene->Tick(std::max(0.0f, ImGui::GetIO().DeltaTime));
+			Host->Tick(ImGui::GetIO().DeltaTime);
 			SetVisible(true);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
-			ViewportWidget->SetDesiredSize({std::max(8.0f, Available.x), std::max(8.0f, Available.y)});
-			ViewportWidget->Draw();
-			if (ViewportWidget->WasTextureDrawn())
+			if (Host->DrawViewport(Available.x, Available.y))
 			{
 				const bool Hovered = ImGui::IsItemHovered(); const ImGuiIO& IO = ImGui::GetIO();
 				if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bOrbiting = true;
@@ -198,12 +173,11 @@ namespace Durin::Editor::SkeletalMesh
 			ImGui::EndChild();
 		}
 
-		auto SetVisible(bool Visible) -> void { if (ViewportClient) ViewportClient->SetEnabled(Visible); }
+		auto SetVisible(bool Visible) -> void { if (Host) Host->SetVisible(Visible); }
 		auto ComponentOrNull() const -> DSkeletalMeshComponent* { return Component; }
-		std::unique_ptr<::Durin::Editor::FPreviewScene> PreviewScene;
-		std::unique_ptr<FSkeletalPreviewViewportClient> ViewportClient;
-		std::shared_ptr<MViewport> ViewportWidget; std::shared_ptr<FSceneViewport> SceneViewport;
-		TObjectPtr<DSkeletalMeshComponent> Component; TObjectPtr<DDirectionalLightComponent> Light;
+		std::unique_ptr<::Durin::Editor::FAssetPreviewHost> Host;
+		FSkeletalPreviewViewportClient* ViewportClient = nullptr;
+		TObjectPtr<DSkeletalMeshComponent> Component;
 		DSkeletalMesh* CurrentMesh = nullptr; DAnimationClip* CurrentClip = nullptr;
 		bool bOrbiting = false; bool bPanning = false; std::string Error;
 	};

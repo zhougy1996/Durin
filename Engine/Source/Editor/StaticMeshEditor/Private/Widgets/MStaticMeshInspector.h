@@ -20,11 +20,11 @@ namespace Durin::Editor::StaticMesh
 		STATICMESHEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
 		STATICMESHEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
 		STATICMESHEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
-		STATICMESHEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
-		STATICMESHEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
-		STATICMESHEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab&) const -> bool override { return false; }
-		STATICMESHEDITOR_API auto CanSaveActiveDocument() const -> bool override { return false; }
-		STATICMESHEDITOR_API auto SaveActiveDocument() -> bool override { return false; }
+		STATICMESHEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
+		STATICMESHEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
+		STATICMESHEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
+		STATICMESHEDITOR_API auto CanSaveActiveDocument() const -> bool override { return DocumentModel.CanSaveActiveDocument(); }
+		STATICMESHEDITOR_API auto SaveActiveDocument() -> bool override { return DocumentModel.SaveActiveDocument(); }
 		STATICMESHEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		STATICMESHEDITOR_API auto ResetLayout() -> void override;
 
@@ -34,6 +34,7 @@ namespace Durin::Editor::StaticMesh
 			TObjectPtr<DStaticMesh> Mesh;
 			std::unique_ptr<FStaticMeshPreview> Preview;
 			uint32 SelectedLOD = 0;
+			uint64 PreviewId = 0;
 		};
 
 		auto FindState(std::string_view ResourceId) -> FDocumentState*;
@@ -44,10 +45,8 @@ namespace Durin::Editor::StaticMesh
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, FDocumentState> Documents;
-		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
-		std::string ActiveResourceId;
+		::Durin::Editor::FReadOnlyAssetDocumentModel DocumentModel;
 		std::string ErrorMessage;
 		float PreviewPaneRatio = 0.70f;
-		uint64 NextPreviewId = 1;
 	};
 }

@@ -1,19 +1,13 @@
 #include "Widgets/StaticMeshPreview.h"
 
-#include "Client/ViewportClient.h"
-#include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
-#include "Engine/World.h"
 #include "Math/Operations.h"
-#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
-#include "Preview/PreviewScene.h"
+#include "Preview/AssetPreviewHost.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Widgets/MViewport.h"
 
 namespace Durin::Editor::StaticMesh
 {
@@ -25,17 +19,6 @@ namespace Durin::Editor::StaticMesh
 		constexpr double RotationSensitivity = 0.25;
 		constexpr double PanSensitivity = 0.0015;
 		constexpr double ZoomScale = 0.85;
-
-		auto RotationFromForward(const FVector3& Direction) -> FQuat
-		{
-			const FVector3 To = Math::Normalize(Direction);
-			const double Dot = Math::Dot(FVectorConstants::Forward, To);
-			if (Dot > 1.0 - 1.0e-8) return FQuatConstants::Identity;
-			if (Dot < -1.0 + 1.0e-8)
-				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
-			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
-		}
 
 		auto MaxExtent(const FBox& Bounds) -> double
 		{
@@ -83,15 +66,14 @@ namespace Durin::Editor::StaticMesh
 		if (FramedBounds.bIsValid) FrameBounds(FramedBounds);
 	}
 
-	class FStaticMeshPreviewViewportClient final : public FViewportClient
+	class FStaticMeshPreviewViewportClient final : public ::Durin::Editor::FAssetPreviewViewportClient
 	{
 	public:
-		auto SetEnabled(bool bInEnabled) -> void { bEnabled = bInEnabled; }
 		auto GetController() -> FStaticMeshPreviewController& { return Controller; }
 
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override
 		{
-			if (!bEnabled || Width == 0 || Height == 0) return false;
+			if (!IsPreviewEnabled() || Width == 0 || Height == 0) return false;
 
 			const double Yaw = Math::DegreesToRadians(Controller.GetYawDegrees());
 			const double Pitch = Math::DegreesToRadians(Controller.GetPitchDegrees());
@@ -137,7 +119,6 @@ namespace Durin::Editor::StaticMesh
 
 	private:
 		FStaticMeshPreviewController Controller;
-		bool bEnabled = false;
 	};
 
 	class FStaticMeshPreview::FImpl
@@ -145,48 +126,39 @@ namespace Durin::Editor::StaticMesh
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<::Durin::Editor::FPreviewScene>(FName(std::format("StaticMeshPreview_{}", PreviewId)));
-			if (!PreviewScene->IsAvailable())
+			auto Client = std::make_unique<FStaticMeshPreviewViewportClient>();
+			ViewportClient = Client.get();
+			Host = std::make_unique<::Durin::Editor::FAssetPreviewHost>(
+				::Durin::Editor::FAssetPreviewHostConfig{
+					.SceneName = FName(std::format("StaticMeshPreview_{}", PreviewId)),
+					.ContentActorName = FName(std::format("StaticMeshPreviewActor_{}", PreviewId)),
+					.LightActorName = FName(std::format("StaticMeshPreviewLightActor_{}", PreviewId))},
+				std::move(Client));
+			if (!Host->IsAvailable())
 			{
-				Error = PreviewScene->GetDiagnostic();
+				Error = Host->GetDiagnostic();
 				return;
 			}
 
-			AActor* PreviewActor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("StaticMeshPreviewActor_{}", PreviewId)));
-			PreviewMesh = PreviewActor
-				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(DStaticMeshComponent::StaticClass(), "PreviewMesh"))
+			PreviewMesh = Host->GetContentActor()
+				? Cast<DStaticMeshComponent>(Host->GetContentActor()->AddInstanceComponent(
+					DStaticMeshComponent::StaticClass(), "PreviewMesh"))
 				: nullptr;
-			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("StaticMeshPreviewLightActor_{}", PreviewId)));
-			PreviewLight = LightActor
-				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(DDirectionalLightComponent::StaticClass(), "PreviewLight"))
-				: nullptr;
-			if (PreviewMesh == nullptr || PreviewLight == nullptr)
+			if (PreviewMesh == nullptr)
 			{
-				Error = "The StaticMesh preview components could not be created.";
+				Error = "The StaticMesh preview component could not be created.";
 				return;
 			}
-			PreviewLight->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
-
-			ViewportClient = std::make_unique<FStaticMeshPreviewViewportClient>();
-			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get(), PreviewScene->GetRenderScene());
-			ViewportWidget->SetDisplaySource(SceneViewport);
-			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 		}
 
 		~FImpl()
 		{
 			if (PreviewMesh != nullptr) PreviewMesh->SetStaticMesh(nullptr);
-			if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(SceneViewport.get());
-			SceneViewport.reset();
-			ViewportWidget.reset();
-			ViewportClient.reset();
-			PreviewScene.reset();
 		}
 
 		auto SetVisible(bool bVisible) -> void
 		{
-			if (ViewportClient != nullptr) ViewportClient->SetEnabled(bVisible);
+			if (Host) Host->SetVisible(bVisible);
 		}
 
 		auto SetWireframe(bool bWireframe) -> void
@@ -251,16 +223,13 @@ namespace Durin::Editor::StaticMesh
 			}
 			SetVisible(true);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
-			ViewportWidget->SetDesiredSize({std::max(8.0f, Available.x), std::max(8.0f, Available.y)});
-			ViewportWidget->Draw();
-			UpdateInput();
+			if (Host->DrawViewport(Available.x, Available.y)) UpdateInput();
 			ImGui::EndChild();
 		}
 
 	private:
 		auto UpdateInput() -> void
 		{
-			if (!ViewportWidget->WasTextureDrawn()) return;
 			const bool bHovered = ImGui::IsItemHovered();
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bOrbiting = true;
@@ -272,12 +241,9 @@ namespace Durin::Editor::StaticMesh
 			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->GetController().Zoom(IO.MouseWheel);
 		}
 
-		std::unique_ptr<::Durin::Editor::FPreviewScene> PreviewScene;
-		std::unique_ptr<FStaticMeshPreviewViewportClient> ViewportClient;
-		std::shared_ptr<MViewport> ViewportWidget;
-		std::shared_ptr<FSceneViewport> SceneViewport;
+		std::unique_ptr<::Durin::Editor::FAssetPreviewHost> Host;
+		FStaticMeshPreviewViewportClient* ViewportClient = nullptr;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
-		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DStaticMesh* CurrentMesh = nullptr;
 		uint64 CurrentRevision = 0;
 		bool bOrbiting = false;

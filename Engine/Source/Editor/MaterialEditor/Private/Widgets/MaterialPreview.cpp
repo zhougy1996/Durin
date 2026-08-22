@@ -1,45 +1,26 @@
 #include "Widgets/MaterialPreview.h"
 
 #include "Asset/AssetRetention.h"
-#include "Client/ViewportClient.h"
-#include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
-#include "Engine/World.h"
-#include "IScene.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/Operations.h"
-#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
-#include "Preview/PreviewScene.h"
+#include "Preview/AssetPreviewHost.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Widgets/MViewport.h"
 
 namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr double RotationTolerance = 1.0e-8;
 		constexpr float PreviewRotationSensitivity = 0.25f;
 		constexpr double PreviewMinDistance = 1.5;
 		constexpr double PreviewMaxDistance = 12.0;
 		constexpr double PreviewZoomScale = 0.85;
 		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere";
 		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box";
-
-		auto RotationFromForward(const FVector3& Direction) -> FQuat
-		{
-			const FVector3 To = Math::Normalize(Direction);
-			const double Dot = Math::Dot(FVectorConstants::Forward, To);
-			if (Dot > 1.0 - RotationTolerance) return FQuatConstants::Identity;
-			if (Dot < -1.0 + RotationTolerance)
-				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
-			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
-		}
 
 		// Selects the mesh used to visualize a material in the preview scene.
 		enum class EMaterialPreviewShape : uint8
@@ -49,11 +30,9 @@ namespace Durin::Editor::Material
 		};
 
 		// Builds the orbiting scene view for the material preview viewport.
-		class FMaterialPreviewViewportClient final : public FViewportClient
+		class FMaterialPreviewViewportClient final : public ::Durin::Editor::FAssetPreviewViewportClient
 		{
 		public:
-			auto SetEnabled(bool bInEnabled) -> void { bEnabled = bInEnabled; }
-
 			auto Zoom(float MouseWheel) -> void
 			{
 				Distance = std::clamp(
@@ -63,7 +42,7 @@ namespace Durin::Editor::Material
 
 			auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override
 			{
-				if (!bEnabled || Width == 0 || Height == 0) return false;
+				if (!IsPreviewEnabled() || Width == 0 || Height == 0) return false;
 
 				constexpr float FieldOfViewDegrees = 42.0f;
 				constexpr float NearClip = 0.1f;
@@ -103,7 +82,6 @@ namespace Durin::Editor::Material
 
 		private:
 			double Distance = 4.1;
-			bool bEnabled = false;
 		};
 	}
 
@@ -113,11 +91,18 @@ namespace Durin::Editor::Material
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<::Durin::Editor::FPreviewScene>(
-				FName(std::format("MaterialPreview_{}", PreviewId)));
-			if (!PreviewScene->IsAvailable())
+			auto Client = std::make_unique<FMaterialPreviewViewportClient>();
+			ViewportClient = Client.get();
+			Host = std::make_unique<::Durin::Editor::FAssetPreviewHost>(
+				::Durin::Editor::FAssetPreviewHostConfig{
+					.SceneName = FName(std::format("MaterialPreview_{}", PreviewId)),
+					.ContentActorName = FName(std::format("MaterialPreviewActor_{}", PreviewId)),
+					.LightActorName = FName(std::format("MaterialPreviewLightActor_{}", PreviewId)),
+					.LightComponentName = FName(std::format("MaterialPreviewLight_{}", PreviewId))},
+				std::move(Client));
+			if (!Host->IsAvailable())
 			{
-				Error = PreviewScene->GetDiagnostic();
+				Error = Host->GetDiagnostic();
 				return;
 			}
 
@@ -131,47 +116,26 @@ namespace Durin::Editor::Material
 				return;
 			}
 
-			AActor* PreviewActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
-				FName(std::format("MaterialPreviewActor_{}", PreviewId)));
-			PreviewMesh = PreviewActor
-				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(
+			PreviewMesh = Host->GetContentActor()
+				? Cast<DStaticMeshComponent>(Host->GetContentActor()->AddInstanceComponent(
 					DStaticMeshComponent::StaticClass(), "PreviewMesh"))
 				: nullptr;
-			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
-				FName(std::format("MaterialPreviewLightActor_{}", PreviewId)));
-			PreviewLight = LightActor
-				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
-					DDirectionalLightComponent::StaticClass(),
-					FName(std::format("MaterialPreviewLight_{}", PreviewId))))
-				: nullptr;
-			if (PreviewMesh == nullptr || PreviewLight == nullptr)
+			if (PreviewMesh == nullptr)
 			{
-				Error = "The material preview components could not be created.";
+				Error = "The material preview component could not be created.";
 				return;
 			}
-			// Aim the key light from just above the camera so color and specular edits remain readable on every shape.
-			PreviewLight->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
-
-			ViewportClient = std::make_unique<FMaterialPreviewViewportClient>();
-			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = FSceneViewport::CreateOffscreen(
-				ViewportClient.get(), PreviewScene->GetRenderScene());
-			ViewportWidget->SetDisplaySource(SceneViewport);
-			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 		}
 
 		~FImpl()
 		{
-			if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(SceneViewport.get());
-			SceneViewport.reset();
-			ViewportWidget.reset();
-			ViewportClient.reset();
-			PreviewScene.reset();
+			if (PreviewMesh) PreviewMesh->SetStaticMesh(nullptr);
+			Host.reset();
 		}
 
 		auto SetVisible(bool bInVisible) -> void
 		{
-			if (ViewportClient != nullptr) ViewportClient->SetEnabled(bInVisible);
+			if (Host) Host->SetVisible(bInVisible);
 		}
 
 		auto Draw(DMaterialInterface* Material, float PanelHeight) -> void
@@ -211,21 +175,13 @@ namespace Durin::Editor::Material
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float Width = std::max(8.0f, Available.x);
 			const float Height = std::max(8.0f, Available.y);
-			ViewportWidget->SetDesiredSize({Width, Height});
-			ViewportWidget->Draw();
-			UpdateViewportInput();
+			if (Host->DrawViewport(Width, Height)) UpdateViewportInput();
 			ImGui::EndChild();
 		}
 
 	private:
 		auto UpdateViewportInput() -> void
 		{
-			if (!ViewportWidget->WasTextureDrawn())
-			{
-				bRotating = false;
-				return;
-			}
-
 			const bool bHovered = ImGui::IsItemHovered();
 			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bRotating = true;
 			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) bRotating = false;
@@ -272,14 +228,11 @@ namespace Durin::Editor::Material
 			}
 		}
 
-		std::unique_ptr<::Durin::Editor::FPreviewScene> PreviewScene;
-		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
-		std::shared_ptr<MViewport> ViewportWidget;
-		std::shared_ptr<FSceneViewport> SceneViewport;
+		std::unique_ptr<::Durin::Editor::FAssetPreviewHost> Host;
+		FMaterialPreviewViewportClient* ViewportClient = nullptr;
 		::Durin::Editor::FRetainedAsset SphereAsset;
 		::Durin::Editor::FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
-		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;

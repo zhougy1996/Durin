@@ -101,4 +101,25 @@ namespace Durin::Editor
 		FWorkspaceDocumentHost DocumentHost;
 		std::string ActiveResourceId;
 	};
+
+	// Composes the root-window, focus, active-document, and immutable command
+	// behavior shared by read-only per-resource asset inspectors.
+	class FReadOnlyAssetDocumentModel
+	{
+	public:
+		DURINED_API auto Activate(const FDocumentTab& Document, const ::Durin::DObject* Object) -> bool;
+		DURINED_API auto Close(std::string_view ResourceId) -> void;
+		auto GetActiveResourceId() const -> std::string_view { return ActiveResourceId; }
+		auto GetDocumentHost() -> FWorkspaceDocumentHost& { return DocumentHost; }
+
+		auto SaveDocument(const FDocumentTab&) const -> bool { return false; }
+		auto DiscardDocument(const FDocumentTab&) const -> bool { return false; }
+		auto IsDocumentDirty(const FDocumentTab&) const -> bool { return false; }
+		auto CanSaveActiveDocument() const -> bool { return false; }
+		auto SaveActiveDocument() const -> bool { return false; }
+
+	private:
+		FWorkspaceDocumentHost DocumentHost;
+		std::string ActiveResourceId;
+	};
 }

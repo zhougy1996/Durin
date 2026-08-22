@@ -20,11 +20,11 @@ namespace Durin::Editor::SkeletalMesh
 		SKELETALMESHEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
 		SKELETALMESHEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
 		SKELETALMESHEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
-		auto SaveDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
-		auto DiscardDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
-		auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab&) const -> bool override { return false; }
-		auto CanSaveActiveDocument() const -> bool override { return false; }
-		auto SaveActiveDocument() -> bool override { return false; }
+		auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.SaveDocument(Document); }
+		auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override { return DocumentModel.DiscardDocument(Document); }
+		auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override { return DocumentModel.IsDocumentDirty(Document); }
+		auto CanSaveActiveDocument() const -> bool override { return DocumentModel.CanSaveActiveDocument(); }
+		auto SaveActiveDocument() -> bool override { return DocumentModel.SaveActiveDocument(); }
 		SKELETALMESHEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		SKELETALMESHEDITOR_API auto ResetLayout() -> void override;
 
@@ -36,6 +36,7 @@ namespace Durin::Editor::SkeletalMesh
 			std::vector<std::string> PreviewPeerPaths;
 			int32 SelectedPreviewPeer = 0;
 			std::unique_ptr<FSkeletalAssetPreview> Preview;
+			uint64 PreviewId = 0;
 		};
 
 		auto FindState(std::string_view DocumentKey) -> FDocumentState*;
@@ -43,8 +44,7 @@ namespace Durin::Editor::SkeletalMesh
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, FDocumentState> Documents;
-		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
+		::Durin::Editor::FReadOnlyAssetDocumentModel DocumentModel;
 		std::string ErrorMessage;
-		uint64 NextPreviewId = 1;
 	};
 }

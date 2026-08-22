@@ -118,14 +118,15 @@ namespace Durin::Editor::StaticMesh
 		}
 		FDocumentState State;
 		State.Mesh = Mesh;
+		State.PreviewId = Document.Id.Value;
 		Documents.emplace(Document.ResourceId, std::move(State));
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}
 
 	auto MStaticMeshInspector::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
 	{
-		if (FindState(Document.ResourceId)) ActiveResourceId = Document.ResourceId;
-		DocumentHost.RequestFocus(Document.Id);
+		FDocumentState* State = FindState(Document.ResourceId);
+		DocumentModel.Activate(Document, State ? State->Mesh.Get() : nullptr);
 	}
 
 	auto MStaticMeshInspector::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
@@ -133,7 +134,7 @@ namespace Durin::Editor::StaticMesh
 		if (FDocumentState* State = FindState(Document.ResourceId); State && State->Preview)
 			State->Preview->SetVisible(false);
 		Documents.erase(Document.ResourceId);
-		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
+		DocumentModel.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
 
@@ -142,7 +143,7 @@ namespace Durin::Editor::StaticMesh
 		if (!bActive)
 			for (auto& [ResourceId, State] : Documents)
 				if (State.Preview) State.Preview->SetVisible(false);
-		return DocumentHost.DrawDocuments(
+		return DocumentModel.GetDocumentHost().DrawDocuments(
 			WorkspaceManager,
 			Workspace::Type,
 			Workspace::RootKey,
@@ -222,7 +223,7 @@ namespace Durin::Editor::StaticMesh
 			DrawDetails(Document, State, 0.0f);
 		}
 
-		if (ActiveResourceId == Document.ResourceId && !ErrorMessage.empty())
+		if (DocumentModel.GetActiveResourceId() == Document.ResourceId && !ErrorMessage.empty())
 			ImGui::TextWrapped("%s", ErrorMessage.c_str());
 	}
 
@@ -230,7 +231,7 @@ namespace Durin::Editor::StaticMesh
 	{
 		DStaticMesh* Mesh = State.Mesh.Get();
 		const FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
-		if (!State.Preview) State.Preview = std::make_unique<FStaticMeshPreview>(NextPreviewId++);
+		if (!State.Preview) State.Preview = std::make_unique<FStaticMeshPreview>(State.PreviewId);
 		if (State.Preview) State.Preview->Draw(Mesh, Status.Revision, Height);
 	}
 

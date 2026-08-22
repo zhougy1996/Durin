@@ -113,7 +113,7 @@ namespace Durin::Editor::SkeletalMesh
 			ErrorMessage = Result ? "The selected asset is not an exact skeletal asset." : Result.Message;
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		FDocumentState State{.Asset = Asset};
+		FDocumentState State{.Asset = Asset, .PreviewId = Document.Id.Value};
 		if (Cast<DSkeletalMesh>(Asset) || Cast<DAnimationClip>(Asset))
 			State.PreviewPeer = ResolveSameRecordPreviewPeer(
 				AssetPath, Asset, State.PreviewPeerPaths);
@@ -123,7 +123,8 @@ namespace Durin::Editor::SkeletalMesh
 
 	auto MSkeletalAssetInspector::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
 	{
-		DocumentHost.RequestFocus(Document.Id);
+		FDocumentState* State = FindState(Document.DocumentKey);
+		DocumentModel.Activate(Document, State ? State->Asset.Get() : nullptr);
 	}
 
 	auto MSkeletalAssetInspector::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document)
@@ -132,6 +133,7 @@ namespace Durin::Editor::SkeletalMesh
 		if (FDocumentState* State = FindState(Document.DocumentKey); State && State->Preview)
 			State->Preview->SetVisible(false);
 		Documents.erase(Document.DocumentKey);
+		DocumentModel.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
 
@@ -139,7 +141,7 @@ namespace Durin::Editor::SkeletalMesh
 	{
 		if (!bActive) for (auto& [Key, State] : Documents)
 			if (State.Preview) State.Preview->SetVisible(false);
-		return DocumentHost.DrawDocuments(
+		return DocumentModel.GetDocumentHost().DrawDocuments(
 			WorkspaceManager, Workspace::Type,
 			Workspace::RootKey,
 			[this](const ::Durin::Editor::FDocumentTab& Document) { return FindState(Document.DocumentKey) != nullptr; },
@@ -174,7 +176,7 @@ namespace Durin::Editor::SkeletalMesh
 		if (!PreviewClip) PreviewClip = Cast<DAnimationClip>(State.PreviewPeer.Get());
 		if (PreviewMesh || PreviewClip)
 		{
-			if (!State.Preview) State.Preview = std::make_unique<FSkeletalAssetPreview>(NextPreviewId++);
+			if (!State.Preview) State.Preview = std::make_unique<FSkeletalAssetPreview>(State.PreviewId);
 			if (!State.PreviewPeerPaths.empty())
 			{
 				const char* Label = Cast<DSkeletalMesh>(Asset) ? "Preview clip" : "Preview mesh";
