@@ -1,7 +1,5 @@
 #include "SkeletalMesh/Skeleton.h"
 
-#include "Misc/Failure.h"
-
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
@@ -56,18 +54,18 @@ namespace Durin
 	{
 		if (!Math::IsFinite(Row0) || !Math::IsFinite(Row1)
 			|| !Math::IsFinite(Row2) || !Math::IsFinite(Row3))
-			return Fail(OutError, "Skeleton transform contains a non-finite component.");
+			return Fail("Skeleton transform contains a non-finite component.", OutError);
 		for (const FVector4* Row : {&Row0, &Row1, &Row2, &Row3})
 		{
 			if (CanonicalFloat(Row->x) != Row->x || CanonicalFloat(Row->y) != Row->y
 				|| CanonicalFloat(Row->z) != Row->z || CanonicalFloat(Row->w) != Row->w)
-				return Fail(OutError, "Skeleton transform is not canonical float32 data.");
+				return Fail("Skeleton transform is not canonical float32 data.", OutError);
 		}
 		if (std::abs(Row3.x) > SkeletonMatrixTolerance
 			|| std::abs(Row3.y) > SkeletonMatrixTolerance
 			|| std::abs(Row3.z) > SkeletonMatrixTolerance
 			|| std::abs(Row3.w - 1.0) > SkeletonMatrixTolerance)
-			return Fail(OutError, "Skeleton transform must be an affine matrix.");
+			return Fail("Skeleton transform must be an affine matrix.", OutError);
 
 		const FVector3 Column0(Row0.x, Row1.x, Row2.x);
 		const FVector3 Column1(Row0.y, Row1.y, Row2.y);
@@ -78,14 +76,14 @@ namespace Durin
 		if (Scale0 <= MinimumSkeletonScale
 			|| Scale1 <= MinimumSkeletonScale
 			|| Scale2 <= MinimumSkeletonScale)
-			return Fail(OutError, "Skeleton transform scale is singular.");
+			return Fail("Skeleton transform scale is singular.", OutError);
 		const FVector3 Axis0 = Column0 / Scale0;
 		const FVector3 Axis1 = Column1 / Scale1;
 		const FVector3 Axis2 = Column2 / Scale2;
 		if (std::abs(Math::Dot(Axis0, Axis1)) > SkeletonMatrixTolerance
 			|| std::abs(Math::Dot(Axis0, Axis2)) > SkeletonMatrixTolerance
 			|| std::abs(Math::Dot(Axis1, Axis2)) > SkeletonMatrixTolerance)
-			return Fail(OutError, "Skeleton transform contains unsupported shear.");
+			return Fail("Skeleton transform contains unsupported shear.", OutError);
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -227,13 +225,13 @@ namespace Durin
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
-			return Fail(&OutError, std::format(
-				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()));
+			return Fail(std::format(
+				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!GetPackage() || !Validate(OutError)) return false;
 		std::vector<uint8> PackageBytes;
 		const Asset::FAssetResult Serialized =
 			Asset::SerializeAssetPackageBytes(GetPackage(), PackageBytes);
-		if (!Serialized) return Fail(&OutError, Serialized.Message);
+		if (!Serialized) return Fail(Serialized.Message, &OutError);
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), std::move(PackageBytes), {}, &OutError);
 	}

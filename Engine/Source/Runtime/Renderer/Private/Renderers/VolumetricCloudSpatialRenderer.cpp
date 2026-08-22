@@ -1,5 +1,7 @@
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 
+#include "Math/Operations.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -28,18 +30,18 @@ namespace Durin
 
 		auto Fract(const FVector3f& Value) -> FVector3f
 		{
-			return Value - glm::floor(Value);
+			return Value - Math::Floor(Value);
 		}
 
 		auto Fract(const FVector2f& Value) -> FVector2f
 		{
-			return Value - glm::floor(Value);
+			return Value - Math::Floor(Value);
 		}
 	} // namespace
 
 	auto FVolumetricCloudSpatialRenderer::FParameters::IsValid() const -> bool
 	{
-		const float LightLengthSquared = glm::dot(LightDirection, LightDirection);
+		const float LightLengthSquared = Math::Dot(LightDirection, LightDirection);
 		return std::isfinite(MinimumZ) && std::isfinite(MaximumZ)
 			   && std::isfinite(MaximumDistance) && MinimumZ < MaximumZ
 			   && MaximumDistance > 0.0 && IsFiniteVector(BaseFrequency)
@@ -276,11 +278,11 @@ namespace Durin
 		const double StepDistance =
 			(Interval.FarDistance - Interval.NearDistance)
 			/ static_cast<double>(Parameters.PrimarySampleCount);
-		const FVector3f Direction = glm::normalize(
+		const FVector3f Direction = Math::Normalize(
 			FVector3f(Ray.Direction)
 		);
 		const FVector3f Origin = FVector3f(Ray.Origin);
-		const FVector3f ToLight = glm::normalize(Parameters.LightDirection);
+		const FVector3f ToLight = Math::Normalize(Parameters.LightDirection);
 		const float LayerThickness = static_cast<float>(
 			Parameters.MaximumZ - Parameters.MinimumZ
 		);
@@ -364,7 +366,7 @@ namespace Durin
 			const float StepTransmittance = std::exp(-StepOpticalDepth);
 			const float Scattered = 1.0f - StepTransmittance;
 			constexpr float Anisotropy = 0.35f;
-			const float CosTheta = std::clamp(glm::dot(Direction, ToLight), -1.0f, 1.0f);
+			const float CosTheta = std::clamp(Math::Dot(Direction, ToLight), -1.0f, 1.0f);
 			const float PhaseDenominator = std::pow(
 				1.0f + Anisotropy * Anisotropy
 					- 2.0f * Anisotropy * CosTheta,

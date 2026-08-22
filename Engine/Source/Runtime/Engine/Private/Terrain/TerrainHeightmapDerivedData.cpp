@@ -1,7 +1,5 @@
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-#include "Misc/Failure.h"
-
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/EngineWire.h"
@@ -44,9 +42,9 @@ namespace Durin
 		OutBytes.clear();
 		OutError.clear();
 		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
-			return Fail(OutError, "Terrain heightmap payload target is unsupported.");
+			return Fail("Terrain heightmap payload target is unsupported.", &OutError);
 		if (!Payload.IsValid())
-			return Fail(OutError, "Terrain heightmap payload is not canonical.");
+			return Fail("Terrain heightmap payload is not canonical.", &OutError);
 
 		const uint64 LevelBytes = static_cast<uint64>(Payload.Levels.size())
 			* TerrainHeightmapLevelRecordSize;
@@ -57,7 +55,7 @@ namespace Durin
 		const uint64 StoredSize = HierarchyOffset + HierarchyBytes;
 		if (StoredSize > MaximumTerrainHeightmapPayloadBytes
 			|| HierarchyBytes > MaximumTerrainHeightmapHierarchyBytes)
-			return Fail(OutError, "Terrain heightmap payload exceeds its frozen byte ceilings.");
+			return Fail("Terrain heightmap payload exceeds its frozen byte ceilings.", &OutError);
 
 		FBinaryWriter Body;
 		for (const FTerrainHeightmapLevel& Level : Payload.Levels)

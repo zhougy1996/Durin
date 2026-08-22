@@ -30,7 +30,7 @@ namespace Durin::Asset::Private
 				continue;
 			std::vector<uint8> OwnerBytes;
 			if (!FFileHelper::LoadFileToArray(
-					OwnerBytes, (Root / "owner").generic_string())
+					OwnerBytes, (Root / "owner"))
 				|| std::string_view(
 					reinterpret_cast<const char*>(OwnerBytes.data()),
 					OwnerBytes.size()) != ExpectedOwner)
@@ -92,7 +92,7 @@ namespace Durin::Asset::Private
 		std::vector<uint8>& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
-		if (!FFileHelper::LoadFileToArray(OutBytes, Path.generic_string()))
+		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
 			return Error(EAssetError::IoError, std::format(
 				"Could not read relocation input {}.", Path.generic_string()));
 		return {};

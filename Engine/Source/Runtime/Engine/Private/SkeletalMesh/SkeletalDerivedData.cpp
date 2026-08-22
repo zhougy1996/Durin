@@ -1,7 +1,5 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
-#include "Misc/Failure.h"
-
 #include "PayloadDecodeResult.h"
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
@@ -153,9 +151,9 @@ namespace Durin
 		{
 			if (TargetPlatform != ESkeletalPayloadTargetPlatform::Win64
 				|| TargetProfile != ESkeletalPayloadTargetProfile::Game)
-				return Fail(OutError, "A concrete skeletal payload target and profile are required.");
+				return Fail("A concrete skeletal payload target and profile are required.", &OutError);
 			if (ChunkBytes.empty() || ChunkBytes.size() > MaximumSkeletalPayloadChunks)
-				return Fail(OutError, "Skeletal payload chunk count is invalid.");
+				return Fail("Skeletal payload chunk count is invalid.", &OutError);
 
 			uint64 Offset = SkeletalPayloadHeaderSize
 				+ static_cast<uint64>(ChunkBytes.size()) * SkeletalPayloadChunkEntrySize;
@@ -167,7 +165,7 @@ namespace Durin
 				if (!Align16(Offset, Offset) || Offset > MaximumBytes
 					|| Chunk.Bytes.size() > MaximumBytes - Offset
 					|| TotalDecoded > MaximumBytes - Chunk.Bytes.size())
-					return Fail(OutError, "Skeletal payload size overflowed its bound.");
+					return Fail("Skeletal payload size overflowed its bound.", &OutError);
 				Records.push_back({
 					.Type = Chunk.Type,
 					.Flags = ChunkRequired,
@@ -178,7 +176,7 @@ namespace Durin
 				TotalDecoded += Chunk.Bytes.size();
 			}
 			if (Offset > MaximumBytes)
-				return Fail(OutError, "Skeletal payload exceeds its byte limit.");
+				return Fail("Skeletal payload exceeds its byte limit.", &OutError);
 
 			FWriter Body;
 			for (const FChunkRecord& Record : Records)
@@ -231,12 +229,12 @@ namespace Durin
 		{
 			OutCode = EPayloadDecodeError::Corrupt;
 			if (Bytes.size() < SkeletalPayloadHeaderSize)
-				return Fail(OutError, "Skeletal payload header is truncated.");
+				return Fail("Skeletal payload header is truncated.", &OutError);
 			if (ExpectedPlatform != ESkeletalPayloadTargetPlatform::Win64
 				|| ExpectedProfile != ESkeletalPayloadTargetProfile::Game)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "A concrete skeletal payload target and profile are required.");
+				return Fail("A concrete skeletal payload target and profile are required.", &OutError);
 			}
 
 			uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
@@ -248,35 +246,35 @@ namespace Durin
 				|| !ReadLittleEndianAt(Bytes, 24, HeaderSize) || !ReadLittleEndianAt(Bytes, 28, ChunkCount)
 				|| !ReadLittleEndianAt(Bytes, 32, TableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalDecoded)
 				|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, BodyHash))
-				return Fail(OutError, "Skeletal payload header is truncated.");
-			if (Magic != ExpectedMagic) return Fail(OutError, "Skeletal payload magic is invalid.");
+				return Fail("Skeletal payload header is truncated.", &OutError);
+			if (Magic != ExpectedMagic) return Fail("Skeletal payload magic is invalid.", &OutError);
 			if (Schema != ExpectedSchema)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Skeletal payload schema is unsupported.");
+				return Fail("Skeletal payload schema is unsupported.", &OutError);
 			}
 			if (Producer == 0)
-				return Fail(OutError, "Skeletal payload producer metadata is invalid.");
+				return Fail("Skeletal payload producer metadata is invalid.", &OutError);
 			if (Platform != static_cast<uint32>(ExpectedPlatform)
 				|| Profile != static_cast<uint32>(ExpectedProfile))
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Skeletal payload target or profile does not match.");
+				return Fail("Skeletal payload target or profile does not match.", &OutError);
 			}
 			if (Flags != 0 || HeaderSize != SkeletalPayloadHeaderSize
 				|| TableOffset != SkeletalPayloadHeaderSize
 				|| ChunkCount < RequiredChunkCount || ChunkCount > MaximumSkeletalPayloadChunks)
-				return Fail(OutError, "Skeletal payload header fields are invalid.");
+				return Fail("Skeletal payload header fields are invalid.", &OutError);
 			if (StoredSize != Bytes.size() || StoredSize > MaximumBytes
 				|| TotalDecoded > MaximumBytes)
-				return Fail(OutError, "Skeletal payload stored or decoded size is invalid.");
+				return Fail("Skeletal payload stored or decoded size is invalid.", &OutError);
 			if (FXxHash64::HashBuffer(Bytes.subspan(SkeletalPayloadHeaderSize)).HashValue != BodyHash)
-				return Fail(OutError, "Skeletal payload checksum does not match.");
+				return Fail("Skeletal payload checksum does not match.", &OutError);
 
 			const uint64 TableSize = static_cast<uint64>(ChunkCount) * SkeletalPayloadChunkEntrySize;
 			const uint64 TableEnd = TableOffset + TableSize;
 			if (TableEnd < TableOffset || TableEnd > StoredSize)
-				return Fail(OutError, "Skeletal payload chunk table is out of range.");
+				return Fail("Skeletal payload chunk table is out of range.", &OutError);
 			OutRequiredChunks.assign(RequiredChunkCount, {});
 			std::unordered_set<uint32> Types;
 			uint64 PreviousEnd = TableEnd;
@@ -291,45 +289,45 @@ namespace Durin
 					|| !ReadLittleEndianAt(Bytes, Entry + 8, Chunk.Offset)
 					|| !ReadLittleEndianAt(Bytes, Entry + 16, Chunk.StoredSize)
 					|| !ReadLittleEndianAt(Bytes, Entry + 24, Chunk.DecodedSize))
-					return Fail(OutError, "Skeletal payload chunk table is truncated.");
+					return Fail("Skeletal payload chunk table is truncated.", &OutError);
 				if (!Types.insert(Chunk.Type).second)
-					return Fail(OutError, "Skeletal payload chunk types are duplicated.");
+					return Fail("Skeletal payload chunk types are duplicated.", &OutError);
 				if ((Chunk.Flags & ~ChunkRequired) != 0)
 				{
 					OutCode = EPayloadDecodeError::Incompatible;
-					return Fail(OutError, "Skeletal payload chunk flags are unsupported.");
+					return Fail("Skeletal payload chunk flags are unsupported.", &OutError);
 				}
 				if (Chunk.Offset % SkeletalPayloadAlignment != 0 || Chunk.Offset < PreviousEnd
 					|| Chunk.Offset > StoredSize || Chunk.StoredSize > StoredSize - Chunk.Offset)
-					return Fail(OutError, "Skeletal payload chunks are misaligned, overlapping, or out of range.");
+					return Fail("Skeletal payload chunks are misaligned, overlapping, or out of range.", &OutError);
 				if (Chunk.DecodedSize != Chunk.StoredSize
 					|| DecodedSum > MaximumBytes - Chunk.DecodedSize)
-					return Fail(OutError, "Skeletal payload chunk decoded size is invalid.");
+					return Fail("Skeletal payload chunk decoded size is invalid.", &OutError);
 				for (uint64 Padding = PreviousEnd; Padding < Chunk.Offset; ++Padding)
 					if (Bytes[static_cast<size_t>(Padding)] != 0)
-						return Fail(OutError, "Skeletal payload alignment padding is nonzero.");
+						return Fail("Skeletal payload alignment padding is nonzero.", &OutError);
 				PreviousEnd = Chunk.Offset + Chunk.StoredSize;
 				DecodedSum += Chunk.DecodedSize;
 				if (Chunk.Type >= 1 && Chunk.Type <= RequiredChunkCount)
 				{
 					if ((Chunk.Flags & ChunkRequired) == 0)
-						return Fail(OutError, "Skeletal payload required chunk is not marked required.");
+						return Fail("Skeletal payload required chunk is not marked required.", &OutError);
 					OutRequiredChunks[Chunk.Type - 1] = Bytes.subspan(
 						static_cast<size_t>(Chunk.Offset), static_cast<size_t>(Chunk.StoredSize));
 				}
 				else if ((Chunk.Flags & ChunkRequired) != 0)
 				{
 					OutCode = EPayloadDecodeError::Incompatible;
-					return Fail(OutError, "Skeletal payload contains an unknown required chunk.");
+					return Fail("Skeletal payload contains an unknown required chunk.", &OutError);
 				}
 			}
 			if (PreviousEnd != StoredSize)
-				return Fail(OutError, "Skeletal payload contains trailing data.");
+				return Fail("Skeletal payload contains trailing data.", &OutError);
 			if (DecodedSum != TotalDecoded
 				|| std::ranges::any_of(OutRequiredChunks, [](std::span<const uint8> Chunk) {
 					return Chunk.empty();
 				}))
-				return Fail(OutError, "Skeletal payload required chunks or decoded size are invalid.");
+				return Fail("Skeletal payload required chunks or decoded size are invalid.", &OutError);
 			OutError.clear();
 			return true;
 		}
@@ -371,7 +369,7 @@ namespace Durin
 		{
 			const std::string Name = Section.Name.ToString();
 			if (Name.empty() || Name.size() > MaximumSkeletalPayloadNameBytes)
-				return Fail(OutError, "Skeletal-mesh section name is outside its wire bound.");
+				return Fail("Skeletal-mesh section name is outside its wire bound.", &OutError);
 			Sections.WriteString(Name);
 			Sections.WriteU32(Section.FirstIndex);
 			Sections.WriteU32(Section.IndexCount);

@@ -902,7 +902,7 @@ namespace Durin::VulkanRHI
 		const std::filesystem::path Path = PipelineCachePath();
 		if (FFileHelper::FileExists(Path.generic_string()))
 		{
-			const bool bLoaded = FFileHelper::LoadFileToArray(FileBytes, Path.generic_string());
+			const bool bLoaded = FFileHelper::LoadFileToArray(FileBytes, Path);
 			bool bCompatible = bLoaded && FileBytes.size() >= PipelineCachePrefixBytes
 				&& FileBytes.size() <= PipelineCacheMaximumBytes
 				&& ReadU32(FileBytes, 0) == PipelineCacheMagic

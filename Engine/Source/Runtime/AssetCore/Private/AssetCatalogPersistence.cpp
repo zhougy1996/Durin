@@ -71,7 +71,7 @@ namespace Durin::Asset::Private
 			return false;
 		}
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, Path))
 		{
 			OutWarning = std::format("Failed to read asset registry cache {}.", Path.generic_string());
 			return false;
@@ -275,7 +275,7 @@ namespace Durin::Asset::Private
 			return false;
 		}
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, Path))
 		{
 			OutWarning = std::format("Failed to read asset-reference cache {}.", Path.generic_string());
 			return false;

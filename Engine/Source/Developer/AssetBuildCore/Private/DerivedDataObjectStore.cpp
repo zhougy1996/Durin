@@ -99,7 +99,7 @@ namespace Durin::Asset::Build
 			return {EDerivedDataObjectReadStatus::TooLarge, "Derived-data object exceeds its configured size limit."};
 
 		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath.generic_string()))
+		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath))
 			return {EDerivedDataObjectReadStatus::ReadFailure, "Failed to read derived-data object."};
 		OutBytes = std::move(Bytes);
 		return {EDerivedDataObjectReadStatus::Hit, {}};

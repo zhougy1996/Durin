@@ -7,6 +7,7 @@
 #include "HAL/PlatformLTS.h"
 #include "NativeTestSupport.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/ForwardLighting.h"
@@ -19,7 +20,6 @@
 #include "ViewRenderStatistics.h"
 
 #include <gtest/gtest.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <atomic>
 #include <condition_variable>
@@ -848,7 +848,7 @@ TEST(FRendererSceneContractTests,
 		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
-			glm::translate(Durin::FMatrix(1.0), Position));
+			Durin::Math::TranslationMatrix(Position));
 	};
 	Add(1, {3.0, 0.0, 0.0});
 	Add(2, {3.0, 10.0, 0.0});
@@ -908,7 +908,7 @@ TEST(FRendererSceneContractTests,
 		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
-			glm::translate(Durin::FMatrix(1.0), Durin::FVector3(X, 0.0, 0.0)));
+			Durin::Math::TranslationMatrix(Durin::FVector3(X, 0.0, 0.0)));
 	}
 	Durin::FlushRenderingCommands();
 
@@ -957,8 +957,8 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 		Durin::FVector3(-1.0, -2.0, -3.0),
 		Durin::FVector3(1.0, 2.0, 3.0));
 	const Durin::FPrimitiveSceneId Id(41);
-	const Durin::FMatrix InitialTransform = glm::translate(
-		Durin::FMatrix(1.0), Durin::FVector3(10.0, 20.0, 30.0));
+	const Durin::FMatrix InitialTransform = Durin::Math::TranslationMatrix(
+		Durin::FVector3(10.0, 20.0, 30.0));
 
 	Scene.AddOrReplacePrimitive(Id,
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
@@ -980,7 +980,7 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	EXPECT_TRUE(Info->IsVisible());
 	Scene.UpdatePrimitiveTransform(
 		Id,
-		glm::scale(Durin::FMatrix(1.0), Durin::FVector3(-2.0, 3.0, 0.5)));
+		Durin::Math::ScaleMatrix(Durin::FVector3(-2.0, 3.0, 0.5)));
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(Info->GetWorldBounds().Min, Durin::FVector3(-2.0, -6.0, -1.5));
 	EXPECT_EQ(Info->GetWorldBounds().Max, Durin::FVector3(2.0, 6.0, 1.5));
@@ -1018,7 +1018,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 			Durin::FPrimitiveSceneId(Id),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
-			glm::translate(Durin::FMatrix(1.0), Location),
+			Durin::Math::TranslationMatrix(Location),
 			bVisible);
 	};
 	AddStaticMesh(1, {3.0, 0.0, 0.0}, true, &ValidRenderData);
@@ -1076,7 +1076,7 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 		Durin::FPrimitiveSceneId(9),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
-		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(3.0, 0.0, 0.0)));
+		Durin::Math::TranslationMatrix(Durin::FVector3(3.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneView MainView;
@@ -1084,7 +1084,7 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	MainView.ViewProjectionMatrix = MainView.ProjectionMatrix;
 	Durin::FSceneView AuxiliaryView = MainView;
 	AuxiliaryView.ViewProjectionMatrix = AuxiliaryView.ProjectionMatrix
-		* glm::translate(Durin::FMatrix(1.0), Durin::FVector3(0.0, -20.0, 0.0));
+		* Durin::Math::TranslationMatrix(Durin::FVector3(0.0, -20.0, 0.0));
 
 	Durin::FViewRenderCounters MainCounters;
 	Durin::FViewRenderCounters AuxiliaryCounters;
@@ -1287,7 +1287,7 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 	Scene.AddOrReplacePrimitive(Id,
 		std::make_unique<Durin::FSkeletalMeshSceneProxy>(
 			&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 1, FirstPose),
-		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)));
+		Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetSkeletalMeshSceneInfos().size(), 1u);
 	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSkeletalMeshSceneInfos().front();
@@ -1325,7 +1325,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	Scene.AddOrReplacePrimitive(Id,
 		std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData,
 			std::vector<Durin::FMaterialRenderProxyRef>{}, 1, First),
-		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)));
+		Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetSplineMeshSceneInfos().size(), 1u);
 	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSplineMeshSceneInfos().front();

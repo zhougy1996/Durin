@@ -213,7 +213,7 @@ namespace Durin::Asset
 						FAssetPackageInspection Inspection;
 						std::vector<uint8> Bytes;
 						++ReferenceIndex.Stats.PayloadReadAttempts;
-						if (!FFileHelper::LoadFileToArray(Bytes, It->path().generic_string()))
+						if (!FFileHelper::LoadFileToArray(Bytes, It->path()))
 							RedirectResult = Error(EAssetError::IoError, std::format(
 								"Failed to open asset package {}.", It->path().generic_string()));
 						else

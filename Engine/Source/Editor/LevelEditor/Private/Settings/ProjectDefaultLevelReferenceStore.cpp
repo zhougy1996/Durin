@@ -75,7 +75,7 @@ namespace Durin::Editor::Level
 				return {};
 			}
 			if (!FFileHelper::LoadFileToArray(
-					OutState.Bytes, OutState.SettingsFile.generic_string()))
+					OutState.Bytes, OutState.SettingsFile))
 				return StoreError(
 					Asset::EAssetError::IoError,
 					"Could not read project settings for redirector Fix Up.");

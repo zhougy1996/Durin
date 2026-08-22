@@ -1,7 +1,5 @@
 #include "Spline/SplineMeshDeformer.h"
 
-#include "Misc/Failure.h"
-
 #include "Math/Operations.h"
 
 namespace Durin
@@ -95,10 +93,10 @@ namespace Durin
 	{
 		if (Params.ForwardAxis != ESplineMeshAxis::X && Params.ForwardAxis != ESplineMeshAxis::Y
 			&& Params.ForwardAxis != ESplineMeshAxis::Z)
-			return Fail(OutError, "SplineMesh forward axis is invalid.");
+			return Fail("SplineMesh forward axis is invalid.", OutError);
 		if (Params.Interpolation != ESplineMeshInterpolation::Linear
 			&& Params.Interpolation != ESplineMeshInterpolation::SmoothStep)
-			return Fail(OutError, "SplineMesh interpolation policy is invalid.");
+			return Fail("SplineMesh interpolation policy is invalid.", OutError);
 		if (!Math::IsFinite(Params.StartPosition) || !Math::IsFinite(Params.StartTangent)
 			|| !Math::IsFinite(Params.EndPosition) || !Math::IsFinite(Params.EndTangent)
 			|| !Math::IsFinite(Params.StartScale) || !Math::IsFinite(Params.EndScale)
@@ -106,9 +104,9 @@ namespace Durin
 			|| !Math::IsFinite(Params.SplineUpDirection) || !std::isfinite(Params.StartRollRadians)
 			|| !std::isfinite(Params.EndRollRadians) || !std::isfinite(Params.SourceForwardMin)
 			|| !std::isfinite(Params.SourceForwardMax))
-			return Fail(OutError, "SplineMesh parameters must be finite.");
+			return Fail("SplineMesh parameters must be finite.", OutError);
 		if (Params.SourceForwardMax - Params.SourceForwardMin <= FrameEpsilon)
-			return Fail(OutError, "SplineMesh canonical forward extent must be positive and non-degenerate.");
+			return Fail("SplineMesh canonical forward extent must be positive and non-degenerate.", OutError);
 		FSplineMeshParams Candidate = Params;
 		Candidate.SplineUpDirection = SafeDirection(Params.SplineUpDirection, FVectorConstants::Up);
 		OutParams = Candidate;

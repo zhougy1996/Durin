@@ -149,6 +149,27 @@ namespace Durin::Math
 	}
 
 	template<Detail::CVector TValue>
+	[[nodiscard]] FORCEINLINE auto Floor(const TValue& Value) -> Detail::TUnqualified<TValue>
+	{
+		Detail::TUnqualified<TValue> Result = Value;
+		for (uint32 Index = 0; Index < Detail::VectorComponentCount<TValue>; ++Index)
+		{
+			Result[Index] = std::floor(Value[Index]);
+		}
+		return Result;
+	}
+
+	template<Detail::CVector TValue>
+	[[nodiscard]] FORCEINLINE auto AnyGreaterThan(const TValue& Left, const TValue& Right) -> bool
+	{
+		for (uint32 Index = 0; Index < Detail::VectorComponentCount<TValue>; ++Index)
+		{
+			if (Left[Index] > Right[Index]) return true;
+		}
+		return false;
+	}
+
+	template<Detail::CVector TValue>
 	[[nodiscard]] FORCEINLINE auto Min(const TValue& Left, const TValue& Right) -> Detail::TUnqualified<TValue>
 	{
 		return glm::min(Left, Right);
@@ -283,6 +304,18 @@ namespace Durin::Math
 		return glm::determinant(Matrix);
 	}
 
+	// Returns the determinant of the upper-left 3x3 linear transform.
+	template<typename TMatrix>
+	requires std::same_as<std::remove_cvref_t<TMatrix>, FMatrix>
+		|| std::same_as<std::remove_cvref_t<TMatrix>, FMatrix4f>
+	[[nodiscard]] FORCEINLINE auto LinearDeterminant(const TMatrix& Matrix)
+		-> std::remove_cvref_t<decltype(Matrix[0][0])>
+	{
+		return Matrix[0][0] * (Matrix[1][1] * Matrix[2][2] - Matrix[2][1] * Matrix[1][2])
+			- Matrix[1][0] * (Matrix[0][1] * Matrix[2][2] - Matrix[2][1] * Matrix[0][2])
+			+ Matrix[2][0] * (Matrix[0][1] * Matrix[1][2] - Matrix[1][1] * Matrix[0][2]);
+	}
+
 	// Requires a finite, nonsingular matrix. Use TryInverse for authored or otherwise untrusted values.
 	[[nodiscard]] FORCEINLINE auto Inverse(const FMatrix& Matrix) -> FMatrix
 	{
@@ -321,13 +354,67 @@ namespace Durin::Math
 		return glm::translate(FMatrix(1.0), Translation);
 	}
 
+	[[nodiscard]] FORCEINLINE auto TranslationMatrix(const FVector3f& Translation) -> FMatrix4f
+	{
+		FMatrix4f Result(1.0f);
+		Result[3] = FVector4f(Translation, 1.0f);
+		return Result;
+	}
+
 	[[nodiscard]] FORCEINLINE auto ScaleMatrix(const FVector3& Scale) -> FMatrix
 	{
 		return glm::scale(FMatrix(1.0), Scale);
 	}
 
+	[[nodiscard]] FORCEINLINE auto ScaleMatrix(const FVector3f& Scale) -> FMatrix4f
+	{
+		FMatrix4f Result(1.0f);
+		Result[0][0] = Scale.x;
+		Result[1][1] = Scale.y;
+		Result[2][2] = Scale.z;
+		return Result;
+	}
+
 	[[nodiscard]] FORCEINLINE auto RotationMatrix(const FQuat& Rotation) -> FMatrix
 	{
 		return glm::mat4_cast(Rotation);
+	}
+
+	[[nodiscard]] FORCEINLINE auto Translate(const FMatrix& Matrix, const FVector3& Translation) -> FMatrix
+	{
+		return Matrix * TranslationMatrix(Translation);
+	}
+
+	[[nodiscard]] FORCEINLINE auto Translate(const FMatrix4f& Matrix, const FVector3f& Translation) -> FMatrix4f
+	{
+		return Matrix * TranslationMatrix(Translation);
+	}
+
+	[[nodiscard]] FORCEINLINE auto Scale(const FMatrix& Matrix, const FVector3& Scale) -> FMatrix
+	{
+		return Matrix * ScaleMatrix(Scale);
+	}
+
+	[[nodiscard]] FORCEINLINE auto Scale(const FMatrix4f& Matrix, const FVector3f& Scale) -> FMatrix4f
+	{
+		return Matrix * ScaleMatrix(Scale);
+	}
+
+	// Axis must be finite and normalized; composition matches Matrix * RotationMatrix(...).
+	[[nodiscard]] FORCEINLINE auto RotateRadians(
+		const FMatrix& Matrix,
+		FReal Radians,
+		const FVector3& Axis) -> FMatrix
+	{
+		return Matrix * RotationMatrix(MakeQuaternionFromAxisAngleRadians(Radians, Axis));
+	}
+
+	// Axis must be finite and normalized; composition matches Matrix * RotationMatrix(...).
+	[[nodiscard]] FORCEINLINE auto RotateDegrees(
+		const FMatrix& Matrix,
+		FReal Degrees,
+		const FVector3& Axis) -> FMatrix
+	{
+		return Matrix * RotationMatrix(MakeQuaternionFromAxisAngleDegrees(Degrees, Axis));
 	}
 }

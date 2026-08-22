@@ -137,7 +137,7 @@ namespace Durin::Asset::Forge
 			std::string& OutError) -> bool
 		{
 			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+			if (!FFileHelper::LoadFileToArray(Bytes, Path))
 			{
 				OutError = std::format(
 					"Failed to read static mesh source file: {}", Path.generic_string());

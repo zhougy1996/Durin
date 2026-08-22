@@ -107,7 +107,7 @@ TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 	EXPECT_TRUE(RawBytes.empty());
 
 	std::vector<Durin::uint32> Words{0x11223344};
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Words, FilePath.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Words, FilePath));
 	EXPECT_TRUE(Words.empty());
 
 	std::string Text = "stale text";
@@ -132,7 +132,7 @@ TEST(FFileHelperTests, LoadsExactTextBytesAndPreservesResultsOnFailure)
 	EXPECT_EQ(Text, "preserved text");
 
 	std::vector<Durin::uint8> Bytes{0x11, 0x22};
-	EXPECT_FALSE(Durin::FFileHelper::LoadFileToArray(Bytes, MissingPath.generic_string()));
+	EXPECT_FALSE(Durin::FFileHelper::LoadFileToArray(Bytes, MissingPath));
 	EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{0x11, 0x22}));
 }
 

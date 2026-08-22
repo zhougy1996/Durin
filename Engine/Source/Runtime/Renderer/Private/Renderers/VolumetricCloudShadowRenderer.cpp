@@ -217,7 +217,7 @@ namespace Durin
 		FRenderResult Result;
 		if (!Input.bRequested) return Result;
 		const FSceneView* View = Input.View;
-		const double LightLengthSquared = glm::dot(
+		const double LightLengthSquared = Math::Dot(
 			Input.Parameters.LightDirection, Input.Parameters.LightDirection);
 		const bool bViewFits = View && View->ViewportX <= Input.Width
 			&& View->ViewportY <= Input.Height
@@ -360,7 +360,7 @@ namespace Durin
 		Uniform.Weather[1] = Input.Parameters.WeatherFrequency.y;
 		Uniform.Weather[2] = Input.Parameters.WeatherOffset.x;
 		Uniform.Weather[3] = Input.Parameters.WeatherOffset.y;
-		Copy3(Uniform.LightDirection, glm::normalize(Input.Parameters.LightDirection));
+		Copy3(Uniform.LightDirection, Math::Normalize(Input.Parameters.LightDirection));
 		Uniform.Viewport[0] = 1.0f / static_cast<float>(View->ViewportWidth);
 		Uniform.Viewport[1] = 1.0f / static_cast<float>(View->ViewportHeight);
 		Uniform.Viewport[2] = static_cast<float>(View->ViewportX);

@@ -56,7 +56,7 @@ namespace
 			if (!Entry.is_regular_file()) continue;
 			std::vector<Durin::uint8> Bytes;
 			if (!Durin::FFileHelper::LoadFileToArray(
-				Bytes, Entry.path().generic_string())) return false;
+				Bytes, Entry.path())) return false;
 			Out.emplace_back(
 				std::filesystem::relative(Entry.path(), Root).generic_string(),
 				std::move(Bytes));

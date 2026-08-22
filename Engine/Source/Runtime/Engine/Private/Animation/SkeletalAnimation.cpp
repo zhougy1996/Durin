@@ -1,7 +1,5 @@
 #include "Animation/SkeletalAnimation.h"
 
-#include "Misc/Failure.h"
-
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -54,20 +52,20 @@ namespace Durin
 			const FMatrix Matrix = ToDoubleMatrix(Source.ToMatrix4f());
 			FTransform Candidate;
 			if (!TryMakeTransformFromMatrix(Matrix, Candidate))
-				return Fail(OutError, "Skeleton reference transform decomposition failed.");
+				return Fail("Skeleton reference transform decomposition failed.", &OutError);
 			if (!Math::IsFinite(Candidate.Translation) || !Math::IsFinite(Candidate.Rotation)
 				|| !Math::IsFinite(Candidate.Scale3D))
-				return Fail(OutError, "Skeleton reference transform decomposition is non-finite.");
+				return Fail("Skeleton reference transform decomposition is non-finite.", &OutError);
 			if (std::abs(Candidate.Scale3D.x) <= kSmallNumber
 				|| std::abs(Candidate.Scale3D.y) <= kSmallNumber
 				|| std::abs(Candidate.Scale3D.z) <= kSmallNumber)
-				return Fail(OutError, "Skeleton reference transform scale is singular.");
+				return Fail("Skeleton reference transform scale is singular.", &OutError);
 			FQuat NormalizedRotation;
 			if (!Math::TryNormalize(Candidate.Rotation, NormalizedRotation))
-				return Fail(OutError, "Skeleton reference transform rotation is invalid.");
+				return Fail("Skeleton reference transform rotation is invalid.", &OutError);
 			Candidate.Rotation = NormalizedRotation;
 			if (!IsNear(Matrix, Candidate.ToMatrix()))
-				return Fail(OutError, "Skeleton reference transform contains unsupported shear or perspective.");
+				return Fail("Skeleton reference transform contains unsupported shear or perspective.", &OutError);
 			OutTransform = Candidate;
 			return true;
 		}
@@ -146,23 +144,23 @@ namespace Durin
 			const size_t BoneCount = Binding.ParentIndices.size();
 			if (BoneCount == 0 || BoneCount > MaximumSkeletonBones
 				|| Binding.ReferenceLocalTransforms.size() != BoneCount)
-				return Fail(OutError, "Skeletal animation binding has invalid reference-pose counts.");
+				return Fail("Skeletal animation binding has invalid reference-pose counts.", &OutError);
 			if (Binding.PaletteBoneIndices.empty()
 				|| Binding.PaletteBoneIndices.size() != Binding.InverseBindMatrices.size()
 				|| Binding.PaletteBoneIndices.size() != Binding.InfluenceBounds.size()
 				|| Binding.PaletteBoneIndices.size() > BoneCount
 				|| static_cast<uint64>(Binding.PaletteBoneIndices.size()) * sizeof(FMatrix4f)
 					> MaximumSkeletalPosePaletteBytes)
-				return Fail(OutError, "Skeletal animation binding has invalid palette counts.");
+				return Fail("Skeletal animation binding has invalid palette counts.", &OutError);
 			for (size_t Bone = 0; Bone < BoneCount; ++Bone)
 			{
 				const int32 Parent = Binding.ParentIndices[Bone];
 				if (Parent < -1 || Parent >= static_cast<int32>(Bone))
-					return Fail(OutError, "Skeletal animation binding is not parent-before-child.");
+					return Fail("Skeletal animation binding is not parent-before-child.", &OutError);
 			}
 			for (uint16 Bone : Binding.PaletteBoneIndices)
 				if (Bone >= BoneCount)
-					return Fail(OutError, "Skeletal animation palette references an invalid bone.");
+					return Fail("Skeletal animation palette references an invalid bone.", &OutError);
 			return true;
 		}
 	}
@@ -175,11 +173,11 @@ namespace Durin
 	{
 		std::string ValidationError;
 		if (!Mesh.Validate(ValidationError))
-			return Fail(OutError, std::format("Skeletal mesh is invalid: {}", ValidationError));
+			return Fail(std::format("Skeletal mesh is invalid: {}", ValidationError), &OutError);
 		const DSkeleton* Skeleton = Mesh.GetSkeleton();
 		const std::shared_ptr<const FSkeletalMeshPayloadData> MeshPayload = Mesh.GetPayloadData();
 		if (!Skeleton || !MeshPayload)
-			return Fail(OutError, "Skeletal mesh has no runtime Skeleton or payload.");
+			return Fail("Skeletal mesh has no runtime Skeleton or payload.", &OutError);
 
 		FSkeletalAnimationBinding Candidate;
 		Candidate.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity();
@@ -196,25 +194,25 @@ namespace Durin
 		if (Clip)
 		{
 			if (!Clip->Validate(ValidationError))
-				return Fail(OutError, std::format("Animation clip is invalid: {}", ValidationError));
+				return Fail(std::format("Animation clip is invalid: {}", ValidationError), &OutError);
 			const DSkeleton* ClipSkeleton = Clip->GetSkeleton();
 			if (!ClipSkeleton
 				|| ClipSkeleton->GetCompatibilityIdentity() != Candidate.SkeletonCompatibilityIdentity
 				|| Clip->GetSkeletonCompatibilityIdentity() != Candidate.SkeletonCompatibilityIdentity)
-				return Fail(OutError, "Animation clip is structurally incompatible with the skeletal mesh.");
+				return Fail("Animation clip is structurally incompatible with the skeletal mesh.", &OutError);
 			Candidate.ClipPayload = Clip->GetPayloadData();
 			if (!Candidate.ClipPayload)
-				return Fail(OutError, "Animation clip has no runtime payload.");
+				return Fail("Animation clip has no runtime payload.", &OutError);
 		}
 
 		Candidate.MeshNodeBindTransform = ToDoubleMatrix(Mesh.GetMeshNodeBindTransform().ToMatrix4f());
 		if (!Math::TryInverse(Candidate.MeshNodeBindTransform, Candidate.InverseMeshNodeBindTransform))
-			return Fail(OutError, "Skeletal mesh bind transform is singular or non-finite.");
+			return Fail("Skeletal mesh bind transform is singular or non-finite.", &OutError);
 		Candidate.PaletteBoneIndices = MeshPayload->PaletteBoneIndices;
 		Candidate.InverseBindMatrices = MeshPayload->InverseBindMatrices;
 		const FSkeletalMeshRenderData* RenderData = Mesh.GetRenderData();
 		if (!RenderData)
-			return Fail(OutError, "Skeletal mesh has no render data for animated bounds.");
+			return Fail("Skeletal mesh has no render data for animated bounds.", &OutError);
 		Candidate.InfluenceBounds = RenderData->InfluenceBounds;
 		if (!ValidateBindingShape(Candidate, OutError)) return false;
 
@@ -231,16 +229,16 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (!ValidateBindingShape(Binding, OutError)) return false;
-		if (Revision == 0) return Fail(OutError, "Skeletal pose revision must be non-zero.");
+		if (Revision == 0) return Fail("Skeletal pose revision must be non-zero.", &OutError);
 		if (!std::isfinite(SampleTimeSeconds) || SampleTimeSeconds < 0.0f)
-			return Fail(OutError, "Skeletal pose sample time must be finite and non-negative.");
+			return Fail("Skeletal pose sample time must be finite and non-negative.", &OutError);
 		if (Binding.ClipPayload)
 		{
 			if (SampleTimeSeconds > Binding.ClipPayload->DurationSeconds)
-				return Fail(OutError, "Skeletal pose sample time exceeds clip duration.");
+				return Fail("Skeletal pose sample time exceeds clip duration.", &OutError);
 		}
 		else if (SampleTimeSeconds != 0.0f)
-			return Fail(OutError, "Reference-only skeletal bindings can only sample time zero.");
+			return Fail("Reference-only skeletal bindings can only sample time zero.", &OutError);
 
 		std::vector<FTransform> LocalTransforms = Binding.ReferenceLocalTransforms;
 		if (Binding.ClipPayload)
@@ -248,7 +246,7 @@ namespace Durin
 			for (const FAnimationTrackData& Track : Binding.ClipPayload->Tracks)
 			{
 				if (Track.BoneIndex >= LocalTransforms.size())
-					return Fail(OutError, "Animation track references an invalid bone.");
+					return Fail("Animation track references an invalid bone.", &OutError);
 				FTransform& Local = LocalTransforms[Track.BoneIndex];
 				switch (Track.Path)
 				{
@@ -273,7 +271,7 @@ namespace Durin
 				? ComponentMatrices[static_cast<size_t>(Binding.ParentIndices[Bone])] * Local
 				: Local;
 			if (!Math::IsFinite(ComponentMatrices[Bone]))
-				return Fail(OutError, "Skeletal component-space pose is non-finite.");
+				return Fail("Skeletal component-space pose is non-finite.", &OutError);
 		}
 
 		auto Candidate = std::make_shared<FSkeletalPosePalette>();
@@ -287,7 +285,7 @@ namespace Durin
 				* ComponentMatrices[Binding.PaletteBoneIndices[PaletteIndex]]
 				* ToDoubleMatrix(Binding.InverseBindMatrices[PaletteIndex]);
 			if (!TryToFloatMatrix(PaletteMatrix, Candidate->Matrices[PaletteIndex]))
-				return Fail(OutError, "Skeletal pose palette contains a non-finite matrix.");
+				return Fail("Skeletal pose palette contains a non-finite matrix.", &OutError);
 			const FBox& InfluenceBound = Binding.InfluenceBounds[PaletteIndex];
 			if (!InfluenceBound.bIsValid) continue;
 			for (uint32 Corner = 0; Corner < 8; ++Corner)
@@ -298,12 +296,12 @@ namespace Durin
 					(Corner & 4u) ? InfluenceBound.Max.z : InfluenceBound.Min.z);
 				const FVector3 Transformed(PaletteMatrix * FVector4(Point, 1.0));
 				if (!Math::IsFinite(Transformed))
-					return Fail(OutError, "Skeletal pose bound contains a non-finite point.");
+					return Fail("Skeletal pose bound contains a non-finite point.", &OutError);
 				Candidate->LocalBounds.AddPoint(Transformed);
 			}
 		}
 		if (!Candidate->LocalBounds.bIsValid)
-			return Fail(OutError, "Skeletal pose has no influenced local bound.");
+			return Fail("Skeletal pose has no influenced local bound.", &OutError);
 
 		OutCandidate = std::move(Candidate);
 		OutError.clear();
@@ -318,7 +316,7 @@ namespace Durin
 		FSkeletalAnimationBinding CandidateBinding;
 		if (!BuildSkeletalAnimationBinding(Mesh, Clip, CandidateBinding, OutError)) return false;
 		if (Revision == std::numeric_limits<uint64>::max())
-			return Fail(OutError, "Skeletal animation revision overflowed.");
+			return Fail("Skeletal animation revision overflowed.", &OutError);
 		const uint64 CandidateRevision = Revision + 1;
 		std::shared_ptr<const FSkeletalPosePalette> CandidatePose;
 		if (!EvaluateSkeletalPose(CandidateBinding, 0.0f, CandidateRevision, CandidatePose, OutError))
@@ -347,9 +345,9 @@ namespace Durin
 
 	auto FSkeletalAnimationInstance::Play(std::string& OutError) -> bool
 	{
-		if (!bBound) return Fail(OutError, "Cannot play an unbound skeletal animation instance.");
+		if (!bBound) return Fail("Cannot play an unbound skeletal animation instance.", &OutError);
 		if (!Binding.ClipPayload)
-			return Fail(OutError, "Cannot play a reference-only skeletal animation binding.");
+			return Fail("Cannot play a reference-only skeletal animation binding.", &OutError);
 		bPlaying = true;
 		OutError.clear();
 		return true;
@@ -365,7 +363,7 @@ namespace Durin
 	{
 		if (Revision == std::numeric_limits<uint64>::max())
 		{
-			Fail(OutError, "Skeletal animation revision overflowed.");
+			Fail("Skeletal animation revision overflowed.", &OutError);
 			return nullptr;
 		}
 		std::shared_ptr<const FSkeletalPosePalette> Candidate;
@@ -376,7 +374,7 @@ namespace Durin
 
 	auto FSkeletalAnimationInstance::Stop(std::string& OutError) -> bool
 	{
-		if (!bBound) return Fail(OutError, "Cannot stop an unbound skeletal animation instance.");
+		if (!bBound) return Fail("Cannot stop an unbound skeletal animation instance.", &OutError);
 		if (TimeSeconds == 0.0f)
 		{
 			bPlaying = false;
@@ -407,11 +405,11 @@ namespace Durin
 
 	auto FSkeletalAnimationInstance::Seek(float InTimeSeconds, std::string& OutError) -> bool
 	{
-		if (!bBound) return Fail(OutError, "Cannot seek an unbound skeletal animation instance.");
+		if (!bBound) return Fail("Cannot seek an unbound skeletal animation instance.", &OutError);
 		if (!Binding.ClipPayload)
-			return Fail(OutError, "Cannot seek a reference-only skeletal animation binding.");
+			return Fail("Cannot seek a reference-only skeletal animation binding.", &OutError);
 		if (!std::isfinite(InTimeSeconds))
-			return Fail(OutError, "Skeletal animation seek time must be finite.");
+			return Fail("Skeletal animation seek time must be finite.", &OutError);
 		const float CandidateTime = NormalizeTime(static_cast<double>(InTimeSeconds));
 		if (CandidateTime == TimeSeconds)
 		{
@@ -430,9 +428,9 @@ namespace Durin
 
 	auto FSkeletalAnimationInstance::Tick(float DeltaSeconds, std::string& OutError) -> bool
 	{
-		if (!bBound) return Fail(OutError, "Cannot tick an unbound skeletal animation instance.");
+		if (!bBound) return Fail("Cannot tick an unbound skeletal animation instance.", &OutError);
 		if (!std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f)
-			return Fail(OutError, "Skeletal animation delta time must be finite and non-negative.");
+			return Fail("Skeletal animation delta time must be finite and non-negative.", &OutError);
 		if (!bPlaying || DeltaSeconds == 0.0f || PlayRate == 0.0f)
 		{
 			OutError.clear();
@@ -442,7 +440,7 @@ namespace Durin
 		const double AdvancedTime = static_cast<double>(TimeSeconds)
 			+ static_cast<double>(DeltaSeconds) * static_cast<double>(PlayRate);
 		if (!std::isfinite(AdvancedTime))
-			return Fail(OutError, "Skeletal animation time advance overflowed.");
+			return Fail("Skeletal animation time advance overflowed.", &OutError);
 		const float CandidateTime = NormalizeTime(AdvancedTime);
 		if (CandidateTime == TimeSeconds)
 		{
@@ -463,7 +461,7 @@ namespace Durin
 	auto FSkeletalAnimationInstance::SetPlayRate(float InPlayRate, std::string& OutError) -> bool
 	{
 		if (!std::isfinite(InPlayRate) || InPlayRate < 0.0f)
-			return Fail(OutError, "Skeletal animation play rate must be finite and non-negative.");
+			return Fail("Skeletal animation play rate must be finite and non-negative.", &OutError);
 		PlayRate = InPlayRate == 0.0f ? 0.0f : InPlayRate;
 		OutError.clear();
 		return true;

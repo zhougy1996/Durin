@@ -157,7 +157,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	std::vector<Durin::uint8> BulkBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BulkBytes,
-		(CookRoot / "Game/CookedVolume.dbulk").generic_string()));
+		(CookRoot / "Game/CookedVolume.dbulk")));
 	Durin::Asset::FCookedBulkContainer Container;
 	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(BulkBytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
@@ -274,7 +274,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	std::filesystem::rename(HeldCompanion, AuthoredBulkFiles.front());
 	std::vector<Durin::uint8> CompanionBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		CompanionBytes, AuthoredBulkFiles.front().generic_string()));
+		CompanionBytes, AuthoredBulkFiles.front()));
 	std::vector<Durin::uint8> CorruptCompanion = CompanionBytes;
 	CorruptCompanion.back() ^= 1;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(

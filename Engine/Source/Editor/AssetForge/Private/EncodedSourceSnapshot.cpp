@@ -30,7 +30,7 @@ namespace Durin::Asset::Forge
 			return false;
 		}
 		auto Bytes = std::make_shared<std::vector<uint8>>();
-		if (!FFileHelper::LoadFileToArray(*Bytes, Source.PhysicalPath.generic_string()))
+		if (!FFileHelper::LoadFileToArray(*Bytes, Source.PhysicalPath))
 		{
 			OutError = std::format("Failed to read mounted source '{}'.", Source.SourcePath.Path);
 			return false;

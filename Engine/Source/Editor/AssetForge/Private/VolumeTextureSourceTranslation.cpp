@@ -154,7 +154,7 @@ namespace Durin::Asset::Forge
 			std::vector<uint8>& OutBytes, FVolumeTextureCapturedSource& Out,
 			std::string& OutError) -> bool
 		{
-			if (!FFileHelper::LoadFileToArray(OutBytes, Source.PhysicalPath.generic_string()))
+			if (!FFileHelper::LoadFileToArray(OutBytes, Source.PhysicalPath))
 			{
 				OutError = std::format("Failed to read volume texture source '{}'.",
 					Source.PhysicalPath.generic_string());

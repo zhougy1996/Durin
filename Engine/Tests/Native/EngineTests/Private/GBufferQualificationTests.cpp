@@ -7,6 +7,7 @@
 #include "Engine/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
@@ -745,9 +746,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::FMatrix RaisedTransform = Durin::Math::TranslationMatrix(
 		Durin::FVector3{-0.25, -0.25, 0.25}
 	);
-	RaisedTransform = glm::scale(
-		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0}
-	);
+	RaisedTransform = Durin::Math::Scale(
+		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
 	Durin::FlushRenderingCommands();
 	std::vector<Durin::uint8> RaisedContactVisibility;

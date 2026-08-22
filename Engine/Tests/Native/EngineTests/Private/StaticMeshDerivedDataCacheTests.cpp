@@ -279,12 +279,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	}
 	std::vector<Durin::uint8> FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset").generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondPackage, (SecondCookRoot / "Game/CookedCollisionMesh.dasset").generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBulk, (CookRoot / "Game/CookedCollisionMesh.dbulk").generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondBulk, (SecondCookRoot / "Game/CookedCollisionMesh.dbulk").generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstManifest, (CookRoot / "CookManifest.bin").generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondManifest, (SecondCookRoot / "CookManifest.bin").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondPackage, (SecondCookRoot / "Game/CookedCollisionMesh.dasset")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBulk, (CookRoot / "Game/CookedCollisionMesh.dbulk")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondBulk, (SecondCookRoot / "Game/CookedCollisionMesh.dbulk")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstManifest, (CookRoot / "CookManifest.bin")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondManifest, (SecondCookRoot / "CookManifest.bin")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 	EXPECT_EQ(FirstManifest, SecondManifest);
@@ -431,13 +431,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	std::vector<Durin::uint8> FirstBulk;
 	std::vector<Durin::uint8> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstPackage, (CookRoot / "Game/CookedMesh.dasset").generic_string()));
+		FirstPackage, (CookRoot / "Game/CookedMesh.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondPackage, (SecondCookRoot / "Game/CookedMesh.dasset").generic_string()));
+		SecondPackage, (SecondCookRoot / "Game/CookedMesh.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, (CookRoot / "Game/CookedMesh.dbulk").generic_string()));
+		FirstBulk, (CookRoot / "Game/CookedMesh.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, (SecondCookRoot / "Game/CookedMesh.dbulk").generic_string()));
+		SecondBulk, (SecondCookRoot / "Game/CookedMesh.dbulk")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 	auto ContainsText = [](std::span<const Durin::uint8> Bytes, std::string_view Text) {

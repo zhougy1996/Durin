@@ -24,9 +24,6 @@
 #include "Terrain/TerrainTopology.h"
 #include "Terrain/TerrainVertexFactory.h"
 
-#include <glm/mat3x3.hpp>
-#include <glm/matrix.hpp>
-
 namespace Durin
 {
 	namespace
@@ -265,7 +262,7 @@ namespace Durin
 			const FTerrainSceneProxy& Proxy = Info->GetTerrainProxy();
 			const FMatrix& Transform = Info->GetTransform();
 			if (!Math::IsFinite(Transform)) continue;
-			const double Determinant = glm::determinant(glm::mat3(Transform));
+			const double Determinant = Math::LinearDeterminant(Transform);
 			if (!std::isfinite(Determinant)) continue;
 			FPreparedTerrainDraw CommonDraw;
 			CommonDraw.SceneInfo = Info;
@@ -382,7 +379,7 @@ namespace Durin
 				if (Draw.TriangleCount == 0) continue;
 				const FVector3 Center = WorldBounds.bIsValid ? WorldBounds.GetCenter() : FVector3(Transform * FVector4(0.0, 0.0, 0.0, 1.0));
 				const FVector3 Offset = Center - View.ViewLocation;
-				Draw.TranslucentDistanceSquared = glm::dot(Offset, Offset);
+				Draw.TranslucentDistanceSquared = Math::Dot(Offset, Offset);
 				Draw.SortKey.Pipeline[0] = static_cast<uint32>(Draw.Pass);
 				Draw.SortKey.Pipeline[1] = Draw.Material.PipelineIdentity.ShaderMap.RenderLayout.Version;
 				Draw.SortKey.Geometry[0] = Patch.CellCountX;
@@ -924,7 +921,7 @@ namespace Durin
 		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
 		Transform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(LocalToWorld)));
-		Transform.TransformParams.x = glm::determinant(glm::mat3(LocalToWorld)) < 0.0 ? -1.0f : 1.0f;
+		Transform.TransformParams.x = Math::LinearDeterminant(LocalToWorld) < 0.0 ? -1.0f : 1.0f;
 		const auto TransformBuffer = CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
 		FTerrainUniform Terrain;
 		Terrain.SamplePatch = {Payload->Width, Payload->Height, 0, 0};

@@ -1,7 +1,6 @@
 #include "Asset/AuthoredBulkStorage.h"
 
 #include "BulkContainerInfrastructure.h"
-#include "Misc/Failure.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/Archive.h"
 
@@ -156,7 +155,7 @@ namespace Durin::Asset
 			uint32 Depth,
 			std::string* OutError) -> bool
 		{
-			if (Depth > 64) return Fail(OutError, "Authored bulk inspection exceeded the struct depth limit.");
+			if (Depth > 64) return Fail("Authored bulk inspection exceeded the struct depth limit.", OutError);
 			FCanonicalMemoryReader Reader(Payload, EArchivePurpose::BulkData);
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
@@ -174,11 +173,11 @@ namespace Durin::Asset
 				if (Reader.HasError() || StorageKind > 1 || !Descriptor.PayloadId.IsValid()
 					|| !Descriptor.FormatId.IsValid() || Descriptor.FormatVersion == 0
 					|| Descriptor.LogicalByteCount != Descriptor.StoredByteCount)
-					return Fail(OutError, "Inspected authored bulk descriptor is invalid.");
+					return Fail("Inspected authored bulk descriptor is invalid.", OutError);
 				if (Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
 				{
 					if (Reader.Tell() != Payload.size() || Descriptor.ContainerHash.IsZero())
-						return Fail(OutError, "External authored bulk descriptor has trailing bytes or no container hash.");
+						return Fail("External authored bulk descriptor has trailing bytes or no container hash.", OutError);
 					Out.push_back(Descriptor);
 				}
 				return true;
@@ -188,7 +187,7 @@ namespace Durin::Asset
 			uint64 FieldCount = 0;
 			Reader << StructName << FieldCount;
 			if (Reader.HasError() || FieldCount > 100000)
-				return Fail(OutError, "Inspected authored struct payload header is invalid.");
+				return Fail("Inspected authored struct payload header is invalid.", OutError);
 			for (uint64 Index = 0; Index < FieldCount; ++Index)
 			{
 				std::string DeclaringType, Name, Signature;
@@ -196,7 +195,7 @@ namespace Durin::Asset
 				uint64 PayloadSize = 0;
 				Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
 				if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
-					return Fail(OutError, "Inspected authored struct field is truncated.");
+					return Fail("Inspected authored struct field is truncated.", OutError);
 				std::vector<uint8> FieldPayload(static_cast<size_t>(PayloadSize));
 				if (PayloadSize != 0)
 					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
@@ -205,7 +204,7 @@ namespace Durin::Asset
 						FieldPayload, Out, Depth + 1, OutError)) return false;
 			}
 			if (Reader.Tell() != Payload.size())
-				return Fail(OutError, "Inspected authored struct payload contains trailing bytes.");
+				return Fail("Inspected authored struct payload contains trailing bytes.", OutError);
 			return true;
 		}
 
@@ -216,11 +215,11 @@ namespace Durin::Asset
 			OutEntries.clear();
 			OutDataOffset = 0;
 			if (Bytes.size() < HeaderBytes || Bytes.size() > MaximumBytes)
-				return Fail(OutError, "Authored bulk companion size is outside the supported bound.");
+				return Fail("Authored bulk companion size is outside the supported bound.", OutError);
 			BulkContainer::FBoundedReader Reader(Bytes, MaximumBytes);
 			FHeader Header;
 			if (!ReadHeader(Reader, Header))
-				return Fail(OutError, "Authored bulk companion header is invalid.");
+				return Fail("Authored bulk companion header is invalid.", OutError);
 			uint64 DirectoryBytes = 0, DirectoryEnd = 0, ExpectedDataOffset = 0;
 			if (!IsValidHeaderIdentity(Header, ExpectedContainerHash)
 				|| !BulkContainer::TryMultiply(
@@ -229,7 +228,7 @@ namespace Durin::Asset
 				|| !BulkContainer::TryAlignUp(DirectoryEnd, Alignment, MaximumBytes, ExpectedDataOffset)
 				|| Header.DataOffset != ExpectedDataOffset
 				|| Header.DataOffset > Bytes.size())
-				return Fail(OutError, "Authored bulk companion header is invalid.");
+				return Fail("Authored bulk companion header is invalid.", OutError);
 
 			OutEntries.reserve(static_cast<size_t>(Header.EntryCount));
 			std::vector<BulkContainer::FPayloadRange> Ranges;
@@ -238,12 +237,12 @@ namespace Durin::Asset
 			{
 				FWireEntry WireEntry;
 				if (!ReadEntry(Reader, Header.ContainerHash, WireEntry))
-					return Fail(OutError, "Authored bulk companion directory entry is invalid.");
+					return Fail("Authored bulk companion directory entry is invalid.", OutError);
 				if (!IsValidEntry(WireEntry, Header.DataOffset))
-					return Fail(OutError, "Authored bulk companion directory entry is invalid.");
+					return Fail("Authored bulk companion directory entry is invalid.", OutError);
 				const FEntry& Entry = WireEntry.Entry;
 				if (!OutEntries.empty() && !(OutEntries.back().Descriptor.PayloadId < Entry.Descriptor.PayloadId))
-					return Fail(OutError, "Authored bulk companion payload ids are duplicate or noncanonical.");
+					return Fail("Authored bulk companion payload ids are duplicate or noncanonical.", OutError);
 				Ranges.push_back({Entry.Offset, Entry.Descriptor.StoredByteCount, Alignment});
 				OutEntries.push_back(Entry);
 			}
@@ -259,10 +258,10 @@ namespace Durin::Asset
 			{
 				if (LayoutFailure.Category == BulkContainer::EFailure::NonzeroPadding
 					&& LayoutFailure.Offset < Header.DataOffset)
-					return Fail(OutError, "Authored bulk directory padding is nonzero.");
+					return Fail("Authored bulk directory padding is nonzero.", OutError);
 				if (LayoutFailure.Category == BulkContainer::EFailure::TrailingBytes)
-					return Fail(OutError, "Authored bulk companion contains trailing or unconsumed bytes.");
-				return Fail(OutError, "Authored bulk payload ranges overlap, contain gaps, or exceed the file.");
+					return Fail("Authored bulk companion contains trailing or unconsumed bytes.", OutError);
+				return Fail("Authored bulk payload ranges overlap, contain gaps, or exceed the file.", OutError);
 			}
 
 			for (const FEntry& Entry : OutEntries)
@@ -270,9 +269,9 @@ namespace Durin::Asset
 				std::span<const uint8> Payload;
 				if (!BulkContainer::TryProjectRange(
 					Bytes, Entry.Offset, Entry.Descriptor.StoredByteCount, Payload))
-					return Fail(OutError, "Authored bulk payload ranges overlap, contain gaps, or exceed the file.");
+					return Fail("Authored bulk payload ranges overlap, contain gaps, or exceed the file.", OutError);
 				if (FXxHash128::HashBuffer(Payload) != Entry.Descriptor.ContentHash)
-					return Fail(OutError, "Authored bulk payload content hash verification failed.");
+					return Fail("Authored bulk payload content hash verification failed.", OutError);
 			}
 			OutDataOffset = Header.DataOffset;
 			if (OutError) OutError->clear();
@@ -286,7 +285,7 @@ namespace Durin::Asset
 	{
 		OutPath.clear();
 		if (PackagePath.extension() != ".dasset" || ContainerHash.IsZero())
-			return Fail(OutError, "Authored bulk companion requires a .dasset path and valid container hash.");
+			return Fail("Authored bulk companion requires a .dasset path and valid container hash.", OutError);
 		OutPath = PackagePath.parent_path()
 			/ std::format("{}.{}{}", PackagePath.stem().string(),
 				ContainerHash.ToString(), AuthoredBulkCompanionSuffix);
@@ -300,19 +299,19 @@ namespace Durin::Asset
 	{
 		OutBytes.clear();
 		if (Payloads.empty() || Payloads.size() > MaximumEntries || ContainerHash.IsZero())
-			return Fail(OutError, "Authored bulk companion requires a bounded nonempty payload set and container hash.");
+			return Fail("Authored bulk companion requires a bounded nonempty payload set and container hash.", OutError);
 		std::vector<const FAuthoredBulkPayload*> Sorted;
 		if (!BulkContainer::TryMakeSortedProjection<FAuthoredBulkPayload>(
 			Payloads, [](const FAuthoredBulkPayload& Payload) {
 				return Payload.Descriptor.PayloadId;
 			}, Sorted))
-			return Fail(OutError, "Authored bulk companion contains duplicate payload ids.");
+			return Fail("Authored bulk companion contains duplicate payload ids.", OutError);
 
 		uint64 DirectoryBytes = 0, DirectoryEnd = 0, DataOffset = 0;
 		if (!BulkContainer::TryMultiply(Sorted.size(), EntryBytes, MaximumBytes, DirectoryBytes)
 			|| !BulkContainer::TryAdd(HeaderBytes, DirectoryBytes, MaximumBytes, DirectoryEnd)
 			|| !BulkContainer::TryAlignUp(DirectoryEnd, Alignment, MaximumBytes, DataOffset))
-			return Fail(OutError, "Authored bulk companion exceeds the 1 GiB bound.");
+			return Fail("Authored bulk companion exceeds the 1 GiB bound.", OutError);
 		std::vector<BulkContainer::FLayoutItem> LayoutItems;
 		LayoutItems.reserve(Sorted.size());
 		for (const FAuthoredBulkPayload* Payload : Sorted)
@@ -325,7 +324,7 @@ namespace Durin::Asset
 				|| Descriptor.LogicalByteCount != Payload->Buffer.GetSize()
 				|| Descriptor.StoredByteCount != Payload->Buffer.GetSize()
 				|| FXxHash128::HashBuffer(Payload->Buffer.GetBytes()) != Descriptor.ContentHash)
-				return Fail(OutError, "Authored bulk companion input descriptor or bytes are invalid.");
+				return Fail("Authored bulk companion input descriptor or bytes are invalid.", OutError);
 			LayoutItems.push_back({Descriptor.StoredByteCount, Alignment});
 		}
 		std::vector<BulkContainer::FPayloadRange> Ranges;
@@ -338,7 +337,7 @@ namespace Durin::Asset
 			.AllowTrailingZeroPadding = false};
 		if (!BulkContainer::TryBuildLayout(
 			DataOffset, LayoutItems, LayoutPolicy, Ranges, FileSize))
-			return Fail(OutError, "Authored bulk companion exceeds the 1 GiB bound.");
+			return Fail("Authored bulk companion exceeds the 1 GiB bound.", OutError);
 
 		BulkContainer::FBoundedWriter Writer(MaximumBytes);
 		const FHeader Header{
@@ -352,26 +351,26 @@ namespace Durin::Asset
 			.ContainerHash = ContainerHash,
 			.Reserved = 0};
 		if (!WriteHeader(Writer, Header))
-			return Fail(OutError, "Authored bulk companion encoding failed.");
+			return Fail("Authored bulk companion encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
 			const auto& Descriptor = Sorted[Index]->Descriptor;
 			if (!WriteEntry(Writer, Descriptor, Ranges[Index].Offset))
-				return Fail(OutError, "Authored bulk companion encoding failed.");
+				return Fail("Authored bulk companion encoding failed.", OutError);
 		}
 		if (!Writer.PadTo(DataOffset))
-			return Fail(OutError, "Authored bulk companion encoding failed.");
+			return Fail("Authored bulk companion encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
 			if (!Writer.PadTo(Ranges[Index].Offset))
-				return Fail(OutError, "Authored bulk companion encoding failed.");
+				return Fail("Authored bulk companion encoding failed.", OutError);
 			const auto Bytes = Sorted[Index]->Buffer.GetBytes();
 			if (!Writer.Write(Bytes))
-				return Fail(OutError, "Authored bulk companion encoding failed.");
+				return Fail("Authored bulk companion encoding failed.", OutError);
 		}
 		std::vector<uint8> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
-			return Fail(OutError, "Authored bulk companion encoding failed.");
+			return Fail("Authored bulk companion encoding failed.", OutError);
 		if (!ValidateAuthoredBulkCompanion(Candidate, ContainerHash, OutError)) return false;
 		OutBytes = std::move(Candidate);
 		return true;
@@ -394,14 +393,14 @@ namespace Durin::Asset
 		OutBuffer = {};
 		std::vector<uint8> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, CompanionPath))
-			return Fail(OutError, "Authored bulk companion is missing or unreadable.");
+			return Fail("Authored bulk companion is missing or unreadable.", OutError);
 		std::vector<FEntry> Entries;
 		uint64 DataOffset = 0;
 		if (!Parse(Bytes, Descriptor.ContainerHash, Entries, DataOffset, OutError)) return false;
 		const auto It = std::ranges::find(Entries, Descriptor.PayloadId,
 			[](const FEntry& Entry) { return Entry.Descriptor.PayloadId; });
 		if (It == Entries.end() || It->Descriptor != Descriptor)
-			return Fail(OutError, "Authored bulk companion descriptor does not match the package reference.");
+			return Fail("Authored bulk companion descriptor does not match the package reference.", OutError);
 		OutBuffer = FSharedByteBuffer::Copy(std::as_bytes(std::span(Bytes)).subspan(
 			static_cast<size_t>(It->Offset), static_cast<size_t>(It->Descriptor.StoredByteCount)));
 		if (OutError) OutError->clear();

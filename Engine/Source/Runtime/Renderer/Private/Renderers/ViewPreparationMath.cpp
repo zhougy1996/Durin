@@ -35,8 +35,8 @@ namespace Durin
 
 		auto GetBoundsScale(const FBox& Bounds) -> double
 		{
-			const FVector3 AbsoluteMin = glm::abs(Bounds.Min);
-			const FVector3 AbsoluteMax = glm::abs(Bounds.Max);
+			const FVector3 AbsoluteMin = Math::Abs(Bounds.Min);
+			const FVector3 AbsoluteMax = Math::Abs(Bounds.Max);
 			return std::max({
 				1.0,
 				AbsoluteMin.x,
@@ -89,7 +89,7 @@ namespace Durin
 			Row3 - Row2}};
 		for (FVector4& Plane : Candidate.Planes)
 		{
-			const double NormalLength = glm::length(FVector3(Plane));
+			const double NormalLength = Math::Length(FVector3(Plane));
 			if (!IsFinite(Plane) || !std::isfinite(NormalLength)
 				|| NormalLength <= ProjectionKindEpsilon)
 			{
@@ -129,8 +129,8 @@ namespace Durin
 				return EViewBoundsClassification::InvalidBounds;
 			}
 			const FVector3 Normal = FVector3(Plane);
-			const double CenterDistance = glm::dot(Normal, Center) + Plane.w;
-			const double Radius = glm::dot(glm::abs(Normal), Extent);
+			const double CenterDistance = Math::Dot(Normal, Center) + Plane.w;
+			const double Radius = Math::Dot(Math::Abs(Normal), Extent);
 			if (!std::isfinite(CenterDistance) || !std::isfinite(Radius))
 			{
 				return EViewBoundsClassification::InvalidBounds;

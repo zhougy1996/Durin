@@ -7,6 +7,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Math/Operations.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
@@ -25,7 +26,6 @@
 #include <cmath>
 #include <cstdint>
 #include <gtest/gtest.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace Durin
 {
@@ -636,9 +636,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	auto OffscreenPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	Scene.UpdatePrimitiveTransform(
 		Durin::FPrimitiveSceneId(1),
-		glm::translate(
-			Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)
-		)
+		Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0))
 	);
 	Scene.AddOrReplacePrimitive(
 		Durin::FPrimitiveSceneId(2),
@@ -648,9 +646,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				Opaque, Masked, Translucent},
 			1, OffscreenPose
 		),
-		glm::translate(
-			Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 5.0)
-		)
+		Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 5.0))
 	);
 	Durin::FlushRenderingCommands();
 	const auto OffscreenCasterReadback = RenderLitReadback(
@@ -676,8 +672,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Scene.RemoveLight(Durin::FLightSceneId(12));
 		Scene.UpdatePrimitiveTransform(
 			Durin::FPrimitiveSceneId(1),
-			glm::translate(Durin::FMatrix(1.0), Durin::FVector3(-1.0, -1.0, 0.0))
-				* glm::scale(Durin::FMatrix(1.0), Durin::FVector3(4.0, 4.0, 1.0))
+			Durin::Math::TranslationMatrix(Durin::FVector3(-1.0, -1.0, 0.0))
+				* Durin::Math::ScaleMatrix(Durin::FVector3(4.0, 4.0, 1.0))
 		);
 		Durin::FlushRenderingCommands();
 		auto ProfileSceneColor = [&](const char* TargetName) {
@@ -966,9 +962,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	}
 	auto TranslatedPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	TranslatedPose->Revision = 2;
-	TranslatedPose->Matrices[1] = glm::scale(
-		Durin::FMatrix4f(1.0f), Durin::FVector3f(0.5f, 1.5f, 1.0f)
-	);
+	TranslatedPose->Matrices[1] = Durin::Math::ScaleMatrix(
+		Durin::FVector3f(0.5f, 1.5f, 1.0f));
 	TranslatedPose->LocalBounds = Durin::FBox(
 		Pose->LocalBounds.Min * 0.5, Pose->LocalBounds.Max * 0.5
 	);
@@ -1205,8 +1200,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		auto SegmentTransform = [](Durin::uint32 Index) {
 			const double X = -0.9 + static_cast<double>(Index % 8) * 0.24;
 			const double Y = -0.9 + static_cast<double>(Index / 8) * 0.48;
-			return glm::translate(Durin::FMatrix(1.0), Durin::FVector3(X, Y, 0.0))
-				   * glm::scale(Durin::FMatrix(1.0), Durin::FVector3(0.18, 0.18, 1.0));
+			return Durin::Math::TranslationMatrix(Durin::FVector3(X, Y, 0.0))
+				   * Durin::Math::ScaleMatrix(Durin::FVector3(0.18, 0.18, 1.0));
 		};
 		for (Durin::uint32 Index = 0; Index < 32; ++Index)
 			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FStaticMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), SegmentTransform(Index));

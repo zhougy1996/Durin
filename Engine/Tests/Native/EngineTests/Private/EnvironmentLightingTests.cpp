@@ -94,7 +94,7 @@ TEST(FEnvironmentLightingTests, CheckedInStudioPayloadIsValid)
 		std::filesystem::path(Durin::FPaths::EngineContentDir())
 		/ "Renderer/DefaultStudioEnvironment.iblbulk";
 	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PayloadPath.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PayloadPath));
 	Durin::FEnvironmentLightingData Data;
 	std::string Error;
 	ASSERT_TRUE(DeserializeEnvironmentLighting(Bytes, Data, Error)) << Error;

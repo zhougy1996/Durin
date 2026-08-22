@@ -632,7 +632,7 @@ namespace Durin
 		Uniform.Weather[1] = Parameters.WeatherFrequency.y;
 		Uniform.Weather[2] = Parameters.WeatherOffset.x;
 		Uniform.Weather[3] = Parameters.WeatherOffset.y;
-		Copy3(Uniform.LightDirection, glm::normalize(Parameters.LightDirection));
+		Copy3(Uniform.LightDirection, Math::Normalize(Parameters.LightDirection));
 		Copy3(Uniform.LightColor, Parameters.LightColor);
 		Copy3(Uniform.AmbientColor, Parameters.AmbientColor);
 		Uniform.CameraPosition[0] = static_cast<float>(View->ViewLocation.x);

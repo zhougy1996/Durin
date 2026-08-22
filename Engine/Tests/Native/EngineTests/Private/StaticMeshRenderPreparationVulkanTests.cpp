@@ -4,6 +4,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
@@ -14,7 +15,6 @@
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <format>
 
@@ -225,7 +225,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	SplineSceneOwner.reset();
 	Durin::FlushRenderingCommands();
 	const Durin::FPrimitiveSceneId Id(71);
-	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), glm::scale(Durin::FMatrix(1.0), Durin::FVector3(-1.0, 1.0, 1.0)));
+	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::Math::ScaleMatrix(Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
 
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
@@ -296,8 +296,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
 			1),
-		glm::translate(
-			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 20.0)));
+		Durin::Math::TranslationMatrix(Durin::FVector3(0.0, 0.0, 20.0)));
 	OrderingScene.AddOrReplacePrimitive(
 		Durin::FPrimitiveSceneId(80),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
@@ -600,8 +599,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque},
 			2),
-		glm::scale(
-			Durin::FMatrix(1.0), Durin::FVector3(1.0, 0.5, 2.0)));
+		Durin::Math::ScaleMatrix(Durin::FVector3(1.0, 0.5, 2.0)));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&MultiLODScene](Durin::FRHICommandListImmediate& CommandList) {

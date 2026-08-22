@@ -3,7 +3,6 @@
 #include "AssetCatalogStoreInternal.h"
 #include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
-#include "Misc/Failure.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
 
@@ -756,9 +755,7 @@ namespace Durin::Asset
 				ECookedPayloadLocationKind::PackageCompanion)
 			|| Descriptor.TargetPlatform != static_cast<uint32>(ExpectedPlatform)
 			|| Descriptor.TargetProfile != static_cast<uint32>(ExpectedProfile))
-			return Fail(
-				"Cooked bulk data descriptor does not match its package, location, target, or profile.",
-				OutError);
+			return Fail("Cooked bulk data descriptor does not match its package, location, target, or profile.", OutError);
 
 		FBulkDataDescriptor BulkDescriptor{
 			.PayloadId = Descriptor.PayloadId,

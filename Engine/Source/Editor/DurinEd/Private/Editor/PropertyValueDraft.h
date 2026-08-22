@@ -2,7 +2,6 @@
 
 #include "DObject/Property.h"
 #include "Editor/PropertyEditing.h"
-#include "Misc/Failure.h"
 
 namespace Durin::Editor
 {
@@ -28,17 +27,17 @@ namespace Durin::Editor
 		{
 			if (!Property || !Target.SnapshotContainer)
 			{
-				Fail(OutError, "The reflected property draft root is unavailable.");
+				Fail("The reflected property draft root is unavailable.", OutError);
 				return;
 			}
 			if (Property->HasValueAccessors())
 			{
-				Fail(OutError, "Properties with custom value accessors cannot be used as draft roots.");
+				Fail("Properties with custom value accessors cannot be used as draft roots.", OutError);
 				return;
 			}
 			if (!Property->HasValueLifecycle() || Property->GetValueSize() == 0 || Property->GetValueAlignment() == 0)
 			{
-				Fail(OutError, "The reflected property lacks generated draft-value lifecycle metadata.");
+				Fail("The reflected property lacks generated draft-value lifecycle metadata.", OutError);
 				return;
 			}
 
@@ -67,7 +66,7 @@ namespace Durin::Editor
 			void*& OutContainer, uint32& OutArrayIndex, std::string* OutError) const -> bool
 		{
 			if (!bValid || Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
-				return Fail(OutError, "The edit target does not match its reflected property draft root.");
+				return Fail("The edit target does not match its reflected property draft root.", OutError);
 			FPropertyEditTarget DraftTarget = Source;
 			DraftTarget.SnapshotContainer = Memory;
 			FResolvedPropertyValue Resolved;

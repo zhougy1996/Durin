@@ -106,7 +106,7 @@ namespace Durin
 				++Result.RejectedPalettes;
 				continue;
 			}
-			const double Determinant = glm::determinant(glm::mat3(LocalToWorld));
+			const double Determinant = Math::LinearDeterminant(LocalToWorld);
 			if (!std::isfinite(Determinant))
 			{
 				++Result.RejectedPrimitives;
@@ -186,7 +186,7 @@ namespace Durin
 				if (!Math::IsFinite(Center)) continue;
 				Item.SortCenter = FVector3(Center);
 				const FVector3 Offset = Item.SortCenter - View.ViewLocation;
-				Item.TranslucentDistanceSquared = glm::dot(Offset, Offset);
+				Item.TranslucentDistanceSquared = Math::Dot(Offset, Offset);
 				if (!std::isfinite(Item.TranslucentDistanceSquared)) continue;
 				Item.bCastsShadow = Item.Pass != EStaticMeshBasePass::Translucent;
 				Item.SortKey = MakeSkeletalMeshDrawSortKey(
@@ -844,9 +844,8 @@ namespace Durin
 		Transform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(Primitive.LocalToWorld))
 		);
-		Transform.TransformParams.x = glm::determinant(
-										  glm::mat3(FMatrix4f(Primitive.LocalToWorld))
-									  ) < 0.0f ?
+		Transform.TransformParams.x = Math::LinearDeterminant(
+			FMatrix4f(Primitive.LocalToWorld)) < 0.0f ?
 										  -1.0f :
 										  1.0f;
 		Transform.TransformParams.y = static_cast<float>(
@@ -906,9 +905,8 @@ namespace Durin
 		Transform.NormalToWorld = Math::TransposeToFloat(
 			Math::Transpose(Math::Inverse(LocalToWorld))
 		);
-		Transform.TransformParams.x = glm::determinant(
-										  glm::mat3(FMatrix4f(LocalToWorld))
-									  ) < 0.0f ?
+		Transform.TransformParams.x = Math::LinearDeterminant(
+			FMatrix4f(LocalToWorld)) < 0.0f ?
 										  -1.0f :
 										  1.0f;
 		Transform.TransformParams.y = static_cast<float>(

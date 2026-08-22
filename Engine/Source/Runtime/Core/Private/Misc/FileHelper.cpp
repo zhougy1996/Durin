@@ -274,9 +274,9 @@ namespace Durin
 			return LoadFileToArrayInternal(Result, FilePath);
 		}
 
-		bool LoadFileToArray(std::vector<uint32>& Result, std::string_view FileName)
+		bool LoadFileToArray(std::vector<uint32>& Result, const std::filesystem::path& FilePath)
 		{
-			return LoadFileToArrayInternal(Result, std::filesystem::path(FileName));
+			return LoadFileToArrayInternal(Result, FilePath);
 		}
 
 		bool LoadFileToString(std::string& Result, std::string_view FileName)

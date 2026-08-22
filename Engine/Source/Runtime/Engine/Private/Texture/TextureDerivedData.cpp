@@ -1,7 +1,5 @@
 #include "Texture/TextureDerivedData.h"
 
-#include "Misc/Failure.h"
-
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/EngineWire.h"
@@ -101,12 +99,12 @@ namespace Durin
 	{
 		OutError.clear();
 		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
-			return Fail(OutError, "Texture payload target platform or profile is unsupported.");
+			return Fail("Texture payload target platform or profile is unsupported.", &OutError);
 		if (!IsCompleteMipChain(PlatformData))
-			return Fail(OutError, "Texture payload requires a valid, complete, bounded mip chain.");
+			return Fail("Texture payload requires a valid, complete, bounded mip chain.", &OutError);
 		ETextureStablePixelFormat StableFormat;
 		if (!ToStablePixelFormat(PlatformData.PixelFormat, StableFormat))
-			return Fail(OutError, "Texture payload pixel format has no stable serialized identifier.");
+			return Fail("Texture payload pixel format has no stable serialized identifier.", &OutError);
 
 		const uint32 RecordCount = static_cast<uint32>(PlatformData.Mips.size());
 		uint64 DataOffset = AlignPayloadOffset(
@@ -117,12 +115,12 @@ namespace Durin
 		{
 			DataOffsets.push_back(DataOffset);
 			if (Mip.Pixels.size() > MaximumTexturePayloadBytes - DataOffset)
-				return Fail(OutError, "Texture payload exceeds its stored-size limit.");
+				return Fail("Texture payload exceeds its stored-size limit.", &OutError);
 			DataOffset += Mip.Pixels.size();
 			if (&Mip != &PlatformData.Mips.back()) DataOffset = AlignPayloadOffset(DataOffset);
 		}
 		if (DataOffset > MaximumTexturePayloadBytes)
-			return Fail(OutError, "Texture payload exceeds its stored-size limit.");
+			return Fail("Texture payload exceeds its stored-size limit.", &OutError);
 
 		FBinaryWriter Body;
 		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
@@ -182,10 +180,10 @@ namespace Durin
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload expected target is unsupported.");
+			return Fail("Texture payload expected target is unsupported.", &OutError);
 		}
 		if (Bytes.size() < TexturePayloadHeaderSize)
-			return Fail(OutError, "Texture payload header is truncated.");
+			return Fail("Texture payload header is truncated.", &OutError);
 
 		uint32 Magic = 0;
 		uint32 SchemaVersion = 0;
@@ -211,39 +209,39 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
 			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
 			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return Fail(OutError, "Texture payload header is truncated.");
-		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
+			return Fail("Texture payload header is truncated.", &OutError);
+		if (Magic != TexturePayloadMagic) return Fail("Texture payload magic is invalid.", &OutError);
 		if (SchemaVersion != TexturePayloadSchemaVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload schema version is unsupported.");
+			return Fail("Texture payload schema version is unsupported.", &OutError);
 		}
 		// Producer identity is diagnostic metadata. Runtime compatibility is owned
 		// by the payload schema and stable value identifiers.
 		(void)BuilderVersion;
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Fail(OutError, "Texture payload target platform or profile does not match.");
+			return Fail("Texture payload target platform or profile does not match.", &OutError);
 		if (Dimension != static_cast<uint32>(ETexturePayloadDimension::Texture2D)
 			|| SliceCount != 1 || MipCount == 0 || MipCount > MaximumTextureMipCount
 			|| RecordCount != MipCount || HeaderSize != TexturePayloadHeaderSize
 			|| RecordSize != TexturePayloadRecordSize || RecordTableOffset != TexturePayloadHeaderSize
 			|| Reserved != 0)
-			return Fail(OutError, "Texture2D payload header layout or counts are invalid.");
+			return Fail("Texture2D payload header layout or counts are invalid.", &OutError);
 		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return Fail(OutError, "Texture payload stored size is invalid.");
+			return Fail("Texture payload stored size is invalid.", &OutError);
 		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return Fail(OutError, "Texture payload checksum does not match.");
+			return Fail("Texture payload checksum does not match.", &OutError);
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(StableFormat, PixelFormat))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload pixel format identifier is unsupported.");
+			return Fail("Texture payload pixel format identifier is unsupported.", &OutError);
 		}
 		const uint64 TableEnd = RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
 		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
-			return Fail(OutError, "Texture payload record table is outside the stored object.");
+			return Fail("Texture payload record table is outside the stored object.", &OutError);
 
 		auto Candidate = std::make_unique<FTexturePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
@@ -265,27 +263,27 @@ namespace Durin
 				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width) || !ReadLittleEndianAt(Bytes, Offset + 12, Height)
 				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch) || !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
 				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset) || !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
-				return Fail(OutError, "Texture payload subresource record is truncated.");
+				return Fail("Texture payload subresource record is truncated.", &OutError);
 			if (Slice != 0 || StoredMip != MipIndex || RecordReserved != 0
 				|| Width == 0 || Height == 0 || Width > MaximumTexture2DDimension
 				|| Height > MaximumTexture2DDimension)
-				return Fail(OutError, "Texture payload subresource identity or dimensions are invalid.");
+				return Fail("Texture payload subresource identity or dimensions are invalid.", &OutError);
 			if (MipIndex > 0)
 			{
 				const FTexture2DMipData& PreviousMip = Candidate->Mips.back();
 				if (Width != std::max(PreviousMip.Width / 2, 1u)
 					|| Height != std::max(PreviousMip.Height / 2, 1u))
-					return Fail(OutError, "Texture payload mip dimensions are not a complete progression.");
+					return Fail("Texture payload mip dimensions are not a complete progression.", &OutError);
 			}
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(PixelFormat, Width, Height);
 			if (RowPitch != Layout.RowPitch || ByteCount != Layout.DataSize)
-				return Fail(OutError, "Texture payload subresource layout does not match its format.");
+				return Fail("Texture payload subresource layout does not match its format.", &OutError);
 			if (DataOffset % TexturePayloadAlignment != 0 || DataOffset < PreviousEnd
 				|| DataOffset > StoredSize || ByteCount > StoredSize - DataOffset)
-				return Fail(OutError, "Texture payload subresource range is misaligned, overlapping, or outside the object.");
+				return Fail("Texture payload subresource range is misaligned, overlapping, or outside the object.", &OutError);
 			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < DataOffset; ++PaddingOffset)
 				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail(OutError, "Texture payload contains non-zero alignment padding.");
+					return Fail("Texture payload contains non-zero alignment padding.", &OutError);
 
 			FTexture2DMipData& Mip = Candidate->Mips.emplace_back();
 			Mip.Width = Width;
@@ -297,9 +295,9 @@ namespace Durin
 			PreviousEnd = DataOffset + ByteCount;
 		}
 		if (PreviousEnd != StoredSize)
-			return Fail(OutError, "Texture payload contains trailing data.");
+			return Fail("Texture payload contains trailing data.", &OutError);
 		if (!IsCompleteMipChain(*Candidate))
-			return Fail(OutError, "Texture payload mip chain is incomplete or invalid.");
+			return Fail("Texture payload mip chain is incomplete or invalid.", &OutError);
 		OutPlatformData = std::move(Candidate);
 		return true;
 	}
@@ -364,12 +362,12 @@ namespace Durin
 	{
 		OutError.clear();
 		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
-			return Fail(OutError, "Texture payload target platform or profile is unsupported.");
+			return Fail("Texture payload target platform or profile is unsupported.", &OutError);
 		if (!IsCompleteCubeMipChain(PlatformData))
-			return Fail(OutError, "TextureCube payload requires six compatible, complete, bounded mip chains.");
+			return Fail("TextureCube payload requires six compatible, complete, bounded mip chains.", &OutError);
 		ETextureStablePixelFormat StableFormat;
 		if (!ToStablePixelFormat(PlatformData.PixelFormat, StableFormat))
-			return Fail(OutError, "Texture payload pixel format has no stable serialized identifier.");
+			return Fail("Texture payload pixel format has no stable serialized identifier.", &OutError);
 
 		const uint32 MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size());
 		const uint32 RecordCount = static_cast<uint32>(TextureCubeFaceCount) * MipCount;
@@ -383,13 +381,13 @@ namespace Durin
 			{
 				DataOffsets.push_back(DataOffset);
 				if (Mip.Pixels.size() > MaximumTexturePayloadBytes - DataOffset)
-					return Fail(OutError, "Texture payload exceeds its stored-size limit.");
+					return Fail("Texture payload exceeds its stored-size limit.", &OutError);
 				DataOffset += Mip.Pixels.size();
 				if (DataOffsets.size() != RecordCount) DataOffset = AlignPayloadOffset(DataOffset);
 			}
 		}
 		if (DataOffset > MaximumTexturePayloadBytes)
-			return Fail(OutError, "Texture payload exceeds its stored-size limit.");
+			return Fail("Texture payload exceeds its stored-size limit.", &OutError);
 
 		FBinaryWriter Body;
 		uint32 RecordIndex = 0;
@@ -459,10 +457,10 @@ namespace Durin
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload expected target is unsupported.");
+			return Fail("Texture payload expected target is unsupported.", &OutError);
 		}
 		if (Bytes.size() < TexturePayloadHeaderSize)
-			return Fail(OutError, "Texture payload header is truncated.");
+			return Fail("Texture payload header is truncated.", &OutError);
 
 		uint32 Magic = 0;
 		uint32 SchemaVersion = 0;
@@ -488,21 +486,21 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
 			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
 			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return Fail(OutError, "Texture payload header is truncated.");
-		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
+			return Fail("Texture payload header is truncated.", &OutError);
+		if (Magic != TexturePayloadMagic) return Fail("Texture payload magic is invalid.", &OutError);
 		if (SchemaVersion != TexturePayloadSchemaVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload schema version is unsupported.");
+			return Fail("Texture payload schema version is unsupported.", &OutError);
 		}
 		if (BuilderVersion != TextureCubeBuilderVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "TextureCube payload builder version is unsupported.");
+			return Fail("TextureCube payload builder version is unsupported.", &OutError);
 		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Fail(OutError, "Texture payload target platform or profile does not match.");
+			return Fail("Texture payload target platform or profile does not match.", &OutError);
 		if (Dimension != static_cast<uint32>(ETexturePayloadDimension::TextureCube)
 			|| SliceCount != TextureCubeFaceCount || MipCount == 0
 			|| MipCount > MaximumTextureMipCount
@@ -511,22 +509,22 @@ namespace Durin
 			|| RecordSize != TexturePayloadRecordSize
 			|| RecordTableOffset != TexturePayloadHeaderSize
 			|| Reserved != 0)
-			return Fail(OutError, "TextureCube payload header layout or counts are invalid.");
+			return Fail("TextureCube payload header layout or counts are invalid.", &OutError);
 		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return Fail(OutError, "Texture payload stored size is invalid.");
+			return Fail("Texture payload stored size is invalid.", &OutError);
 		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return Fail(OutError, "Texture payload checksum does not match.");
+			return Fail("Texture payload checksum does not match.", &OutError);
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(StableFormat, PixelFormat))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture payload pixel format identifier is unsupported.");
+			return Fail("Texture payload pixel format identifier is unsupported.", &OutError);
 		}
 		const uint64 TableEnd =
 			RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
 		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
-			return Fail(OutError, "Texture payload record table is outside the stored object.");
+			return Fail("Texture payload record table is outside the stored object.", &OutError);
 
 		auto Candidate = std::make_unique<FTextureCubePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
@@ -551,11 +549,11 @@ namespace Durin
 				|| !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
 				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset)
 				|| !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
-				return Fail(OutError, "Texture payload subresource record is truncated.");
+				return Fail("Texture payload subresource record is truncated.", &OutError);
 			if (Slice != ExpectedSlice || MipIndex != ExpectedMip || RecordReserved != 0
 				|| Width == 0 || Height == 0 || Width != Height
 				|| Width > MaximumTextureCubeDimension)
-				return Fail(OutError, "TextureCube payload subresource identity or dimensions are invalid.");
+				return Fail("TextureCube payload subresource identity or dimensions are invalid.", &OutError);
 
 			FTexturePlatformData& Face = Candidate->Faces[Slice];
 			Face.PixelFormat = PixelFormat;
@@ -564,31 +562,30 @@ namespace Durin
 				const FTexture2DMipData& PreviousMip = Face.Mips.back();
 				if (Width != std::max(PreviousMip.Width / 2, 1u)
 					|| Height != std::max(PreviousMip.Height / 2, 1u))
-					return Fail(OutError, "TextureCube payload mip dimensions are not a complete progression.");
+					return Fail("TextureCube payload mip dimensions are not a complete progression.", &OutError);
 			}
 			else if (Slice > 0)
 			{
 				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[0];
 				if (Width != Reference.Width || Height != Reference.Height)
-					return Fail(OutError, "TextureCube payload face dimensions do not match.");
+					return Fail("TextureCube payload face dimensions do not match.", &OutError);
 			}
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(PixelFormat, Width, Height);
 			if (RowPitch != Layout.RowPitch || ByteCount != Layout.DataSize)
-				return Fail(OutError, "Texture payload subresource layout does not match its format.");
+				return Fail("Texture payload subresource layout does not match its format.", &OutError);
 			if (Slice > 0)
 			{
 				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[MipIndex];
 				if (Width != Reference.Width || Height != Reference.Height
 					|| RowPitch != Reference.RowPitch || ByteCount != Reference.Pixels.size())
-					return Fail(OutError, "TextureCube payload faces have incompatible mip layouts.");
+					return Fail("TextureCube payload faces have incompatible mip layouts.", &OutError);
 			}
 			if (DataOffset % TexturePayloadAlignment != 0 || DataOffset < PreviousEnd
 				|| DataOffset > StoredSize || ByteCount > StoredSize - DataOffset)
-				return Fail(OutError,
-					"Texture payload subresource range is misaligned, overlapping, or outside the object.");
+				return Fail("Texture payload subresource range is misaligned, overlapping, or outside the object.", &OutError);
 			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < DataOffset; ++PaddingOffset)
 				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail(OutError, "Texture payload contains non-zero alignment padding.");
+					return Fail("Texture payload contains non-zero alignment padding.", &OutError);
 
 			FTexture2DMipData& Mip = Face.Mips.emplace_back();
 			Mip.Width = Width;
@@ -600,9 +597,9 @@ namespace Durin
 			PreviousEnd = DataOffset + ByteCount;
 		}
 		if (PreviousEnd != StoredSize)
-			return Fail(OutError, "Texture payload contains trailing data.");
+			return Fail("Texture payload contains trailing data.", &OutError);
 		if (!IsCompleteCubeMipChain(*Candidate))
-			return Fail(OutError, "TextureCube payload mip chains are incomplete or invalid.");
+			return Fail("TextureCube payload mip chains are incomplete or invalid.", &OutError);
 		OutPlatformData = std::move(Candidate);
 		return true;
 	}

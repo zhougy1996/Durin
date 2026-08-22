@@ -57,7 +57,7 @@ namespace Durin::EditorGridRendering
 		const double RelativeGridHeight =
 			View.EditorGrid.Height - View.ViewLocation.z;
 		if (!std::isfinite(RelativeGridHeight)) return false;
-		const FVector4 ClipPlane = glm::transpose(ClipToRelativeWorldMatrix)
+		const FVector4 ClipPlane = Math::Transpose(ClipToRelativeWorldMatrix)
 			* FVector4(0.0, 0.0, 1.0, -RelativeGridHeight);
 		if (!std::isfinite(ClipPlane.x) || !std::isfinite(ClipPlane.y)
 			|| !std::isfinite(ClipPlane.z) || !std::isfinite(ClipPlane.w))

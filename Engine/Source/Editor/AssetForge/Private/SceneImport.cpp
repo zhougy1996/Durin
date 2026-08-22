@@ -1292,7 +1292,7 @@ namespace Durin::Asset::Forge
 		if (Extension != ".gltf") return true;
 
 		std::vector<uint8> RootBytes;
-		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot.generic_string())
+		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot)
 			|| RootBytes.size() > MaxImportedSceneSourceBytes)
 		{
 			RollbackSceneSourceBundle(OutBundle);

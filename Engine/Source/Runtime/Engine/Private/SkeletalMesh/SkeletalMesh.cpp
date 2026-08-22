@@ -1,7 +1,5 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
-#include "Misc/Failure.h"
-
 #include "AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"
@@ -60,7 +58,7 @@ namespace Durin
 	{
 		if (!bIsValid || !Math::IsFinite(Minimum) || !Math::IsFinite(Maximum)
 			|| Minimum.x > Maximum.x || Minimum.y > Maximum.y || Minimum.z > Maximum.z)
-			return Fail(OutError, "Skeletal-mesh bounds are invalid.");
+			return Fail("Skeletal-mesh bounds are invalid.", OutError);
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -86,35 +84,35 @@ namespace Durin
 		const size_t VertexCount = Payload.Positions.size();
 		const size_t IndexCount = Payload.Indices.size();
 		if (VertexCount == 0 || VertexCount > MaximumSkeletalMeshVertices)
-			return Fail(&OutError, "Skeletal-mesh payload vertex count is outside the supported range.");
+			return Fail("Skeletal-mesh payload vertex count is outside the supported range.", &OutError);
 		if (IndexCount == 0 || IndexCount > MaximumSkeletalMeshIndices || IndexCount % 3 != 0)
-			return Fail(&OutError, "Skeletal-mesh payload index count is invalid.");
+			return Fail("Skeletal-mesh payload index count is invalid.", &OutError);
 		if (Payload.Sections.empty() || Payload.Sections.size() > MaximumSkeletalMeshSections)
-			return Fail(&OutError, "Skeletal-mesh payload section count is outside the supported range.");
+			return Fail("Skeletal-mesh payload section count is outside the supported range.", &OutError);
 		if (MaterialSlotCount == 0 || MaterialSlotCount > MaximumSkeletalMeshMaterialSlots)
-			return Fail(&OutError, "Skeletal-mesh payload material-slot count is outside the supported range.");
+			return Fail("Skeletal-mesh payload material-slot count is outside the supported range.", &OutError);
 		if (Payload.Normals.size() != VertexCount || Payload.Tangents.size() != VertexCount
 			|| Payload.Influences.size() != VertexCount)
-			return Fail(&OutError, "Skeletal-mesh payload vertex stream counts do not match.");
+			return Fail("Skeletal-mesh payload vertex stream counts do not match.", &OutError);
 		for (const auto& UVChannel : Payload.UVChannels)
 			if (!UVChannel.empty() && UVChannel.size() != VertexCount)
-				return Fail(&OutError, "Skeletal-mesh payload UV stream count does not match.");
+				return Fail("Skeletal-mesh payload UV stream count does not match.", &OutError);
 		if (!Payload.Colors.empty() && Payload.Colors.size() != VertexCount)
-			return Fail(&OutError, "Skeletal-mesh payload color stream count does not match.");
+			return Fail("Skeletal-mesh payload color stream count does not match.", &OutError);
 		if (!AllFinite<FVector3f>(Payload.Positions) || !AllFinite<FVector3f>(Payload.Normals)
 			|| !AllFinite<FVector4f>(Payload.Tangents) || !AllFinite<FVector4f>(Payload.Colors))
-			return Fail(&OutError, "Skeletal-mesh payload contains a non-finite vertex value.");
+			return Fail("Skeletal-mesh payload contains a non-finite vertex value.", &OutError);
 		for (const auto& UVChannel : Payload.UVChannels)
 			if (!AllFinite<FVector2f>(UVChannel))
-				return Fail(&OutError, "Skeletal-mesh payload contains a non-finite UV value.");
+				return Fail("Skeletal-mesh payload contains a non-finite UV value.", &OutError);
 		if (!IsFinite(Payload.LocalBounds))
-			return Fail(&OutError, "Skeletal-mesh payload local bounds are invalid.");
+			return Fail("Skeletal-mesh payload local bounds are invalid.", &OutError);
 		if (std::ranges::any_of(Payload.Positions, [&Payload](const FVector3f& Position) {
 			return !Contains(Payload.LocalBounds, Position);
 		}))
-			return Fail(&OutError, "Skeletal-mesh payload local bounds do not contain its geometry.");
+			return Fail("Skeletal-mesh payload local bounds do not contain its geometry.", &OutError);
 		if (std::ranges::any_of(Payload.Indices, [VertexCount](uint32 Index) { return Index >= VertexCount; }))
-			return Fail(&OutError, "Skeletal-mesh payload contains an out-of-range vertex index.");
+			return Fail("Skeletal-mesh payload contains an out-of-range vertex index.", &OutError);
 		uint64 PayloadBytes = 0;
 		if (!AddPayloadBytes(Payload.Positions.size(), sizeof(FVector3f), PayloadBytes)
 			|| !AddPayloadBytes(Payload.Normals.size(), sizeof(FVector3f), PayloadBytes)
@@ -125,29 +123,29 @@ namespace Durin
 			|| !AddPayloadBytes(Payload.Sections.size(), sizeof(FSkeletalMeshSection), PayloadBytes)
 			|| !AddPayloadBytes(Payload.PaletteBoneIndices.size(), sizeof(uint16), PayloadBytes)
 			|| !AddPayloadBytes(Payload.InverseBindMatrices.size(), sizeof(FMatrix4f), PayloadBytes))
-			return Fail(&OutError, "Skeletal-mesh payload exceeds the supported byte limit.");
+			return Fail("Skeletal-mesh payload exceeds the supported byte limit.", &OutError);
 		for (const auto& UVChannel : Payload.UVChannels)
 			if (!AddPayloadBytes(UVChannel.size(), sizeof(FVector2f), PayloadBytes))
-				return Fail(&OutError, "Skeletal-mesh payload exceeds the supported byte limit.");
+				return Fail("Skeletal-mesh payload exceeds the supported byte limit.", &OutError);
 
 		if (Payload.PaletteBoneIndices.empty()
 			|| Payload.PaletteBoneIndices.size() != Payload.InverseBindMatrices.size()
 			|| Payload.PaletteBoneIndices.size() > SkeletonBoneCount)
-			return Fail(&OutError, "Skeletal-mesh palette and inverse-bind counts are invalid.");
+			return Fail("Skeletal-mesh palette and inverse-bind counts are invalid.", &OutError);
 		std::unordered_set<uint16> Palette;
 		for (size_t PaletteIndex = 0; PaletteIndex < Payload.PaletteBoneIndices.size(); ++PaletteIndex)
 		{
 			const uint16 BoneIndex = Payload.PaletteBoneIndices[PaletteIndex];
 			if (BoneIndex >= SkeletonBoneCount || !Palette.insert(BoneIndex).second)
-				return Fail(&OutError, "Skeletal-mesh palette contains an invalid or duplicate bone index.");
+				return Fail("Skeletal-mesh palette contains an invalid or duplicate bone index.", &OutError);
 			if (!IsFinite(Payload.InverseBindMatrices[PaletteIndex]))
-				return Fail(&OutError, "Skeletal-mesh payload contains a non-finite inverse-bind matrix.");
+				return Fail("Skeletal-mesh payload contains a non-finite inverse-bind matrix.", &OutError);
 		}
 
 		for (const FSkeletalMeshVertexInfluences& Vertex : Payload.Influences)
 		{
 			if (Vertex.Count == 0 || Vertex.Count > MaximumSkeletalMeshInfluences)
-				return Fail(&OutError, "Skeletal-mesh vertex influence count is invalid.");
+				return Fail("Skeletal-mesh vertex influence count is invalid.", &OutError);
 			float Sum = 0.0f;
 			std::unordered_set<uint16> VertexBones;
 			for (uint8 InfluenceIndex = 0; InfluenceIndex < Vertex.Count; ++InfluenceIndex)
@@ -156,21 +154,21 @@ namespace Durin
 				const float Weight = Vertex.Weights[InfluenceIndex];
 				if (!Palette.contains(BoneIndex) || !VertexBones.insert(BoneIndex).second
 					|| !std::isfinite(Weight) || Weight <= 0.0f)
-					return Fail(&OutError, "Skeletal-mesh vertex contains an invalid bone or weight.");
+					return Fail("Skeletal-mesh vertex contains an invalid bone or weight.", &OutError);
 				if (InfluenceIndex > 0)
 				{
 					const float PreviousWeight = Vertex.Weights[InfluenceIndex - 1];
 					const uint16 PreviousBone = Vertex.BoneIndices[InfluenceIndex - 1];
 					if (Weight > PreviousWeight || (Weight == PreviousWeight && BoneIndex <= PreviousBone))
-						return Fail(&OutError, "Skeletal-mesh influences are not in canonical order.");
+						return Fail("Skeletal-mesh influences are not in canonical order.", &OutError);
 				}
 				Sum += Weight;
 			}
 			for (uint8 InfluenceIndex = Vertex.Count; InfluenceIndex < MaximumSkeletalMeshInfluences; ++InfluenceIndex)
 				if (Vertex.BoneIndices[InfluenceIndex] != 0 || Vertex.Weights[InfluenceIndex] != 0.0f)
-					return Fail(&OutError, "Skeletal-mesh unused influence slots must be zero.");
+					return Fail("Skeletal-mesh unused influence slots must be zero.", &OutError);
 			if (std::abs(Sum - 1.0f) > 1.0e-5f)
-				return Fail(&OutError, "Skeletal-mesh vertex weights do not sum to one.");
+				return Fail("Skeletal-mesh vertex weights do not sum to one.", &OutError);
 		}
 
 		uint64 CoveredIndices = 0;
@@ -181,7 +179,7 @@ namespace Durin
 				|| Section.FirstIndex != CoveredIndices || End > IndexCount
 				|| Section.MinVertexIndex > Section.MaxVertexIndex || Section.MaxVertexIndex >= VertexCount
 				|| Section.MaterialSlotIndex >= MaterialSlotCount || !IsFinite(Section.LocalBounds))
-				return Fail(&OutError, "Skeletal-mesh payload section is invalid or does not form a contiguous partition.");
+				return Fail("Skeletal-mesh payload section is invalid or does not form a contiguous partition.", &OutError);
 			uint32 ActualMinimum = std::numeric_limits<uint32>::max();
 			uint32 ActualMaximum = 0;
 			for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < End; ++IndexOffset)
@@ -190,14 +188,14 @@ namespace Durin
 				ActualMinimum = std::min(ActualMinimum, VertexIndex);
 				ActualMaximum = std::max(ActualMaximum, VertexIndex);
 				if (!Contains(Section.LocalBounds, Payload.Positions[VertexIndex]))
-					return Fail(&OutError, "Skeletal-mesh section bounds do not contain its indexed geometry.");
+					return Fail("Skeletal-mesh section bounds do not contain its indexed geometry.", &OutError);
 			}
 			if (ActualMinimum != Section.MinVertexIndex || ActualMaximum != Section.MaxVertexIndex)
-				return Fail(&OutError, "Skeletal-mesh section vertex range does not match its indices.");
+				return Fail("Skeletal-mesh section vertex range does not match its indices.", &OutError);
 			CoveredIndices = End;
 		}
 		if (CoveredIndices != IndexCount)
-			return Fail(&OutError, "Skeletal-mesh sections do not cover the complete index buffer.");
+			return Fail("Skeletal-mesh sections do not cover the complete index buffer.", &OutError);
 		OutError.clear();
 		return true;
 	}
@@ -239,13 +237,12 @@ namespace Durin
 	auto DSkeletalMesh::BuildRenderData(std::string& OutError) -> bool
 	{
 		if (!Skeleton || !PayloadData)
-			return Fail(&OutError, "SkeletalMesh render data requires a Skeleton and payload.");
+			return Fail("SkeletalMesh render data requires a Skeleton and payload.", &OutError);
 		std::unique_ptr<FSkeletalMeshRenderData> Candidate;
 		if (!BuildSkeletalMeshRenderData(*PayloadData, *Skeleton, MeshNodeBindTransform,
 			MaterialSlots, Candidate, OutError)) return false;
 		if (RenderData && RenderData->GetNumInitializedResources() != 0)
-			return Fail(&OutError,
-				"Initialized SkeletalMesh render data must be replaced through imported-state exchange.");
+			return Fail("Initialized SkeletalMesh render data must be replaced through imported-state exchange.", &OutError);
 		RenderData = std::move(Candidate);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
 		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
@@ -330,24 +327,24 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (!InData.Skeleton || !InData.Payload)
-			return Fail(&OutError, "Skeletal-mesh imported data requires a Skeleton and payload.");
+			return Fail("Skeletal-mesh imported data requires a Skeleton and payload.", &OutError);
 		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
 			? InData.ValidationSkeleton : InData.Skeleton;
 		if (InData.SkeletonCompatibilityIdentity != ValidationSkeleton->GetCompatibilityIdentity())
-			return Fail(&OutError, "Skeletal-mesh imported data is incompatible with its Skeleton.");
+			return Fail("Skeletal-mesh imported data is incompatible with its Skeleton.", &OutError);
 		if (!InData.MeshNodeBindTransform.IsValid(&OutError))
 		{
 			OutError = std::format("Skeletal-mesh bind transform is invalid: {}", OutError);
 			return false;
 		}
 		if (InData.MaterialSlots.empty() || InData.MaterialSlots.size() > MaximumSkeletalMeshMaterialSlots)
-			return Fail(&OutError, "Skeletal-mesh material-slot count is outside the supported range.");
+			return Fail("Skeletal-mesh material-slot count is outside the supported range.", &OutError);
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
 		for (const FSkeletalMeshMaterialSlotDefinition& Slot : InData.MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| !SourceIndices.insert(Slot.SourceMaterialIndex).second)
-				return Fail(&OutError, "Skeletal-mesh material slots require unique non-None names and source indices.");
+				return Fail("Skeletal-mesh material slots require unique non-None names and source indices.", &OutError);
 		if (!ValidateSkeletalMeshPayload(
 			*InData.Payload, *ValidationSkeleton,
 			static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
@@ -357,8 +354,7 @@ namespace Durin
 			InData.MeshNodeBindTransform, InData.MaterialSlots,
 			RenderDataCandidate, OutError)) return false;
 		if (RenderData && RenderData->GetNumInitializedResources() != 0)
-			return Fail(&OutError,
-				"Initialized SkeletalMesh state must be replaced through imported-state exchange.");
+			return Fail("Initialized SkeletalMesh state must be replaced through imported-state exchange.", &OutError);
 
 		Skeleton = InData.Skeleton;
 		SkeletonCompatibilityIdentity = std::move(InData.SkeletonCompatibilityIdentity);
@@ -387,7 +383,7 @@ namespace Durin
 	auto DSkeletalMesh::Validate(std::string& OutError) const -> bool
 	{
 		if (!Skeleton)
-			return Fail(&OutError, "SkeletalMesh has no Skeleton reference.");
+			return Fail("SkeletalMesh has no Skeleton reference.", &OutError);
 		return ValidateAgainstSkeleton(*Skeleton, OutError);
 	}
 
@@ -401,14 +397,14 @@ namespace Durin
 			return false;
 		}
 		if (!Skeleton || SkeletonCompatibilityIdentity != ProspectiveSkeleton.GetCompatibilityIdentity())
-			return Fail(&OutError, "SkeletalMesh compatibility identity does not match its Skeleton.");
+			return Fail("SkeletalMesh compatibility identity does not match its Skeleton.", &OutError);
 		if (!MeshNodeBindTransform.IsValid(&OutError))
 		{
 			OutError = std::format("SkeletalMesh bind transform is invalid: {}", OutError);
 			return false;
 		}
 		if (MaterialSlots.empty() || MaterialSlots.size() > MaximumSkeletalMeshMaterialSlots)
-			return Fail(&OutError, "SkeletalMesh material-slot count is outside the supported range.");
+			return Fail("SkeletalMesh material-slot count is outside the supported range.", &OutError);
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
 		const bool bRequireSourceIndices =
@@ -417,12 +413,12 @@ namespace Durin
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| (bRequireSourceIndices
 					&& !SourceIndices.insert(Slot.SourceMaterialIndex).second))
-				return Fail(&OutError, "SkeletalMesh material slots are not canonical and unique.");
+				return Fail("SkeletalMesh material slots are not canonical and unique.", &OutError);
 		if (Summary.VertexCount == 0 || Summary.VertexCount > MaximumSkeletalMeshVertices
 			|| Summary.IndexCount == 0 || Summary.IndexCount > MaximumSkeletalMeshIndices
 			|| Summary.IndexCount % 3 != 0 || Summary.SectionCount == 0
 			|| Summary.SectionCount > MaximumSkeletalMeshSections || !Summary.LocalBounds.IsValid(&OutError))
-			return Fail(&OutError, "SkeletalMesh authored summary is invalid.");
+			return Fail("SkeletalMesh authored summary is invalid.", &OutError);
 		if (PayloadData)
 		{
 			if (!ValidateSkeletalMeshPayload(
@@ -431,7 +427,7 @@ namespace Durin
 				|| PayloadData->Indices.size() != Summary.IndexCount
 				|| PayloadData->Sections.size() != Summary.SectionCount
 				|| FSkeletalMeshBounds::FromBox(PayloadData->LocalBounds) != Summary.LocalBounds)
-				return Fail(&OutError, "SkeletalMesh payload does not match its authored summary.");
+				return Fail("SkeletalMesh payload does not match its authored summary.", &OutError);
 		}
 		OutError.clear();
 		return true;
@@ -475,13 +471,13 @@ namespace Durin
 		{
 			PayloadStorageDiagnostic = std::format(
 				"SkeletalMesh DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
-			return Fail(&OutError, PayloadStorageDiagnostic);
+			return Fail(PayloadStorageDiagnostic, &OutError);
 		}
 		if (Candidate.Positions.size() != Summary.VertexCount
 			|| Candidate.Indices.size() != Summary.IndexCount
 			|| Candidate.Sections.size() != Summary.SectionCount
 			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
-			return Fail(&OutError, "SkeletalMesh DDC payload does not match authored summary.");
+			return Fail("SkeletalMesh DDC payload does not match authored summary.", &OutError);
 		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
 		bLoadedFromDerivedDataCache = true;
 		PayloadStorageDiagnostic = std::format(
@@ -551,10 +547,10 @@ namespace Durin
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
-			return Fail(&OutError, std::format(
-				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()));
+			return Fail(std::format(
+				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;
-		if (!PayloadData) return Fail(&OutError, "SkeletalMesh has no CPU payload to cook.");
+		if (!PayloadData) return Fail("SkeletalMesh has no CPU payload to cook.", &OutError);
 		std::vector<uint8> PayloadBytes;
 		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
 		const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Ar, {
@@ -562,7 +558,7 @@ namespace Durin
 			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
 			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError()) return Fail(&OutError, Ar.GetFailure()->Message);
+		if (Ar.HasError()) return Fail(Ar.GetFailure()->Message, &OutError);
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = SkeletalMeshPrimaryCookedPayloadId,
 			.Flags = 1,
@@ -619,7 +615,7 @@ namespace Durin
 		std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>
 	{
 		if (!Candidate.GetSkeleton())
-			return Fail(&OutError, "Candidate SkeletalMesh has no Skeleton reference."), nullptr;
+			return Fail("Candidate SkeletalMesh has no Skeleton reference.", &OutError), nullptr;
 		return PrepareImportedStateExchange(Candidate, *Candidate.GetSkeleton(), OutError);
 	}
 
@@ -629,7 +625,7 @@ namespace Durin
 		std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>
 	{
 		if (&Candidate == this)
-			return Fail(&OutError, "SkeletalMesh imported-state exchange requires distinct assets."), nullptr;
+			return Fail("SkeletalMesh imported-state exchange requires distinct assets.", &OutError), nullptr;
 		if (!Validate(OutError))
 		{
 			OutError = std::format("Target SkeletalMesh is invalid: {}", OutError);

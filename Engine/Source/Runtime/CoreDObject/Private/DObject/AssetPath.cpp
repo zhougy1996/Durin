@@ -1,7 +1,5 @@
 #include "DObject/AssetPath.h"
 
-#include "Misc/Failure.h"
-
 #include "Misc/Paths.h"
 
 namespace Durin

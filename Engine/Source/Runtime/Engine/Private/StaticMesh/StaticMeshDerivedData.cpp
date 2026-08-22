@@ -1,7 +1,5 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-#include "Misc/Failure.h"
-
 #include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
@@ -64,11 +62,11 @@ namespace Durin
 
 		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError) -> bool
 		{
-			if (!IsValidBounds(Payload.LocalBounds)) return Fail(OutError, "Static-mesh payload bounds are invalid or not exactly representable as float32.");
+			if (!IsValidBounds(Payload.LocalBounds)) return Fail("Static-mesh payload bounds are invalid or not exactly representable as float32.", &OutError);
 			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumStaticMeshMaterialSlots)
-				return Fail(OutError, "Static-mesh payload material-slot count is outside the supported range.");
+				return Fail("Static-mesh payload material-slot count is outside the supported range.", &OutError);
 			if (Payload.LODs.empty() || Payload.LODs.size() > MaximumStaticMeshLODs)
-				return Fail(OutError, "Static-mesh payload LOD count is outside the supported range.");
+				return Fail("Static-mesh payload LOD count is outside the supported range.", &OutError);
 
 			uint64 EncodedSizeUpperBound = StaticMeshPayloadHeaderSize
 				+ StaticMeshPayloadRequiredChunkCount * StaticMeshPayloadChunkEntrySize
@@ -84,72 +82,71 @@ namespace Durin
 					|| (LOD.ScreenSize == 0.0f
 						&& std::signbit(LOD.ScreenSize)))
 				{
-					return Fail(OutError, std::format(
+					return Fail(std::format(
 						"Static-mesh payload LOD {} screen size must be finite and in [0, 1].",
-						LODIndex));
+						LODIndex), &OutError);
 				}
 				if (LODIndex > 0
 					&& LOD.ScreenSize >= Payload.LODs[LODIndex - 1].ScreenSize)
 				{
-					return Fail(OutError,
-						"Static-mesh payload LOD screen sizes must be strictly descending.");
+					return Fail("Static-mesh payload LOD screen sizes must be strictly descending.", &OutError);
 				}
 				const size_t VertexCount = LOD.Positions.size();
 				const size_t IndexCount = LOD.Indices.size();
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid vertex count.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} has an invalid vertex count.", LODIndex), &OutError);
 				if (IndexCount == 0 || IndexCount > MaximumStaticMeshIndicesPerLOD)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid index count.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} has an invalid index count.", LODIndex), &OutError);
 				if (LOD.Sections.empty() || LOD.Sections.size() > MaximumStaticMeshSectionsPerLOD)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid section count.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} has an invalid section count.", LODIndex), &OutError);
 				if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid UV-channel count.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} has an invalid UV-channel count.", LODIndex), &OutError);
 				const uint64 LODPayloadBytes = 4ull + static_cast<uint64>(LOD.Sections.size()) * 44ull
 					+ static_cast<uint64>(VertexCount) * (40ull + static_cast<uint64>(LOD.NumTexCoords) * 8ull
 						+ (LOD.bHasVertexColors ? 16ull : 0ull))
 					+ static_cast<uint64>(IndexCount) * 4ull;
 				if (LODPayloadBytes > MaximumStaticMeshPayloadBytes - EncodedSizeUpperBound)
-					return Fail(OutError, "Static-mesh payload exceeds the stored-object size limit.");
+					return Fail("Static-mesh payload exceeds the stored-object size limit.", &OutError);
 				EncodedSizeUpperBound += LODPayloadBytes;
 				if (!IsValidBounds(LOD.LocalBounds))
-					return Fail(OutError, std::format("Static-mesh payload LOD {} bounds are invalid.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} bounds are invalid.", LODIndex), &OutError);
 				if (LOD.Normals.size() != VertexCount || LOD.Tangents.size() != VertexCount)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} vertex-stream counts do not match.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} vertex-stream counts do not match.", LODIndex), &OutError);
 				for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 				{
 					const size_t ExpectedCount = Channel < LOD.NumTexCoords ? VertexCount : 0;
 					if (LOD.TexCoords[Channel].size() != ExpectedCount)
-						return Fail(OutError, std::format(
+						return Fail(std::format(
 							"Static-mesh payload LOD {} UV stream {} has {} values; expected {}.",
-							LODIndex, Channel, LOD.TexCoords[Channel].size(), ExpectedCount));
+							LODIndex, Channel, LOD.TexCoords[Channel].size(), ExpectedCount), &OutError);
 				}
 				if (LOD.Colors.size() != (LOD.bHasVertexColors ? VertexCount : 0))
-					return Fail(OutError, std::format("Static-mesh payload LOD {} color-stream count does not match its flags.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} color-stream count does not match its flags.", LODIndex), &OutError);
 				if (std::ranges::any_of(LOD.Positions, [](const FVector3f& Value) { return !IsFinite(Value); })
 					|| std::ranges::any_of(LOD.Normals, [](const FVector3f& Value) { return !IsFinite(Value); })
 					|| std::ranges::any_of(LOD.Tangents, [](const FVector4f& Value) { return !IsFinite(Value); })
 					|| std::ranges::any_of(LOD.Colors, [](const FVector4f& Value) { return !IsFinite(Value); }))
-					return Fail(OutError, std::format("Static-mesh payload LOD {} contains a non-finite vertex attribute.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} contains a non-finite vertex attribute.", LODIndex), &OutError);
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 				{
 					if (std::ranges::any_of(LOD.TexCoords[Channel], [](const FVector2f& Value) { return !IsFinite(Value); }))
-						return Fail(OutError, std::format("Static-mesh payload LOD {} contains a non-finite UV.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} contains a non-finite UV.", LODIndex), &OutError);
 				}
 				if (std::ranges::any_of(LOD.Indices, [VertexCount](uint32 Index) { return Index >= VertexCount; }))
-					return Fail(OutError, std::format("Static-mesh payload LOD {} contains an out-of-range index.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} contains an out-of-range index.", LODIndex), &OutError);
 
 				uint64 CoveredIndices = 0;
 				for (const FStaticMeshPayloadSection& Section : LOD.Sections)
 				{
 					const uint64 SectionEnd = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
 					if (Section.IndexCount == 0 || Section.FirstIndex != CoveredIndices || SectionEnd > IndexCount)
-						return Fail(OutError, std::format("Static-mesh payload LOD {} sections do not exactly cover its index buffer.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} sections do not exactly cover its index buffer.", LODIndex), &OutError);
 					if (Section.MinVertexIndex > Section.MaxVertexIndex || Section.MaxVertexIndex >= VertexCount)
-						return Fail(OutError, std::format("Static-mesh payload LOD {} section has an invalid vertex range.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} section has an invalid vertex range.", LODIndex), &OutError);
 					if (Section.MaterialSlotIndex >= Payload.MaterialSlotCount)
-						return Fail(OutError, std::format("Static-mesh payload LOD {} section has an invalid material slot.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} section has an invalid material slot.", LODIndex), &OutError);
 					if (!IsValidBounds(Section.LocalBounds))
-						return Fail(OutError, std::format("Static-mesh payload LOD {} section bounds are invalid.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} section bounds are invalid.", LODIndex), &OutError);
 
 					uint32 ActualMinimum = std::numeric_limits<uint32>::max();
 					uint32 ActualMaximum = 0;
@@ -159,14 +156,14 @@ namespace Durin
 						ActualMaximum = std::max(ActualMaximum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
 					}
 					if (ActualMinimum != Section.MinVertexIndex || ActualMaximum != Section.MaxVertexIndex)
-						return Fail(OutError, std::format("Static-mesh payload LOD {} section vertex range does not match its indices.", LODIndex));
+						return Fail(std::format("Static-mesh payload LOD {} section vertex range does not match its indices.", LODIndex), &OutError);
 					CoveredIndices = SectionEnd;
 				}
 				if (CoveredIndices != IndexCount)
-					return Fail(OutError, std::format("Static-mesh payload LOD {} sections do not cover its complete index buffer.", LODIndex));
+					return Fail(std::format("Static-mesh payload LOD {} sections do not cover its complete index buffer.", LODIndex), &OutError);
 			}
 			if (Payload.LODs.back().ScreenSize != 0.0f)
-				return Fail(OutError, "Static-mesh payload lowest-detail LOD screen size must be exactly zero.");
+				return Fail("Static-mesh payload lowest-detail LOD screen size must be exactly zero.", &OutError);
 			return true;
 		}
 
@@ -268,22 +265,22 @@ namespace Durin
 
 			FPayloadReader Bounds(Chunks[0]);
 			if (!ReadBounds(Bounds, Payload.LocalBounds) || !Bounds.IsAtEnd())
-				return Fail(OutError, "Static-mesh bounds chunk is malformed.");
+				return Fail("Static-mesh bounds chunk is malformed.", &OutError);
 
 			FPayloadReader MaterialSlots(Chunks[1]);
 			uint32 MaterialSlotCount = 0;
 			if (!MaterialSlots.ReadU32(MaterialSlotCount) || MaterialSlotCount == 0 || MaterialSlotCount > MaximumStaticMeshMaterialSlots)
-				return Fail(OutError, "Static-mesh material-slot chunk has an invalid count.");
+				return Fail("Static-mesh material-slot chunk has an invalid count.", &OutError);
 			if (Chunks[1].size() != 4ull)
-				return Fail(OutError, "Static-mesh material-slot chunk has an invalid size.");
+				return Fail("Static-mesh material-slot chunk has an invalid size.", &OutError);
 			Payload.MaterialSlotCount = MaterialSlotCount;
 
 			FPayloadReader LODs(Chunks[2]);
 			uint32 LODCount = 0;
 			if (!LODs.ReadU32(LODCount) || LODCount == 0 || LODCount > MaximumStaticMeshLODs)
-				return Fail(OutError, "Static-mesh LOD chunk has an invalid count.");
+				return Fail("Static-mesh LOD chunk has an invalid count.", &OutError);
 			if (Chunks[2].size() != 4ull + static_cast<uint64>(LODCount) * 44ull)
-				return Fail(OutError, "Static-mesh LOD chunk has an invalid size.");
+				return Fail("Static-mesh LOD chunk has an invalid size.", &OutError);
 			Payload.LODs.resize(LODCount);
 			std::vector<uint32> VertexCounts(LODCount);
 			std::vector<uint32> IndexCounts(LODCount);
@@ -303,13 +300,13 @@ namespace Durin
 					|| !LODs.ReadU8(LOD.NumTexCoords) || !LODs.ReadU8(Flags) || !LODs.ReadU16(Reserved)
 					|| !LODs.ReadFloat(LOD.ScreenSize)
 					|| !ReadBounds(LODs, LOD.LocalBounds))
-					return Fail(OutError, "Static-mesh LOD chunk is truncated.");
+					return Fail("Static-mesh LOD chunk is truncated.", &OutError);
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD
 					|| IndexCount == 0 || IndexCount > MaximumStaticMeshIndicesPerLOD
 					|| SectionCount == 0 || SectionCount > MaximumStaticMeshSectionsPerLOD
 					|| LOD.NumTexCoords > MaxStaticMeshUVChannels
 					|| (Flags & ~1u) != 0 || Reserved != 0)
-					return Fail(OutError, "Static-mesh LOD chunk contains an invalid count, flag, or reserved value.");
+					return Fail("Static-mesh LOD chunk contains an invalid count, flag, or reserved value.", &OutError);
 				LOD.bHasVertexColors = (Flags & 1u) != 0;
 
 				const uint64 VertexStride = 40ull + static_cast<uint64>(LOD.NumTexCoords) * 8ull
@@ -320,14 +317,14 @@ namespace Durin
 				if (SectionBytes > MaximumStaticMeshPayloadBytes - ExpectedSectionBytes
 					|| VertexBytes > MaximumStaticMeshPayloadBytes - ExpectedVertexBytes
 					|| IndexBytes > MaximumStaticMeshPayloadBytes - ExpectedIndexBytes)
-					return Fail(OutError, "Static-mesh payload stream sizes exceed the allocation limit.");
+					return Fail("Static-mesh payload stream sizes exceed the allocation limit.", &OutError);
 				ExpectedSectionBytes += SectionBytes;
 				ExpectedVertexBytes += VertexBytes;
 				ExpectedIndexBytes += IndexBytes;
 			}
 			if (Chunks[3].size() != ExpectedSectionBytes || Chunks[4].size() != ExpectedVertexBytes
 				|| Chunks[5].size() != ExpectedIndexBytes)
-				return Fail(OutError, "Static-mesh payload stream chunk sizes do not match the LOD metadata.");
+				return Fail("Static-mesh payload stream chunk sizes do not match the LOD metadata.", &OutError);
 			for (uint32 LODIndex = 0; LODIndex < LODCount; ++LODIndex)
 			{
 				FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
@@ -346,16 +343,16 @@ namespace Durin
 			{
 				uint32 SectionCount = 0;
 				if (!Sections.ReadU32(SectionCount) || SectionCount != LOD.Sections.size())
-					return Fail(OutError, "Static-mesh section chunk count does not match its LOD.");
+					return Fail("Static-mesh section chunk count does not match its LOD.", &OutError);
 				for (FStaticMeshPayloadSection& Section : LOD.Sections)
 				{
 					if (!Sections.ReadU32(Section.FirstIndex) || !Sections.ReadU32(Section.IndexCount)
 						|| !Sections.ReadU32(Section.MinVertexIndex) || !Sections.ReadU32(Section.MaxVertexIndex)
 						|| !Sections.ReadU32(Section.MaterialSlotIndex) || !ReadBounds(Sections, Section.LocalBounds))
-						return Fail(OutError, "Static-mesh section chunk is truncated.");
+						return Fail("Static-mesh section chunk is truncated.", &OutError);
 				}
 			}
-			if (!Sections.IsAtEnd()) return Fail(OutError, "Static-mesh section chunk contains trailing bytes.");
+			if (!Sections.IsAtEnd()) return Fail("Static-mesh section chunk contains trailing bytes.", &OutError);
 
 			FPayloadReader VertexStreams(Chunks[4]);
 			auto ReadVector = [&VertexStreams]<typename TVector>(TVector& Value, uint32 ComponentCount) -> bool
@@ -366,21 +363,21 @@ namespace Durin
 			};
 			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
-				for (FVector3f& Value : LOD.Positions) if (!ReadVector(Value, 3)) return Fail(OutError, "Static-mesh positions contain invalid data.");
-				for (FVector3f& Value : LOD.Normals) if (!ReadVector(Value, 3)) return Fail(OutError, "Static-mesh normals contain invalid data.");
-				for (FVector4f& Value : LOD.Tangents) if (!ReadVector(Value, 4)) return Fail(OutError, "Static-mesh tangents contain invalid data.");
+				for (FVector3f& Value : LOD.Positions) if (!ReadVector(Value, 3)) return Fail("Static-mesh positions contain invalid data.", &OutError);
+				for (FVector3f& Value : LOD.Normals) if (!ReadVector(Value, 3)) return Fail("Static-mesh normals contain invalid data.", &OutError);
+				for (FVector4f& Value : LOD.Tangents) if (!ReadVector(Value, 4)) return Fail("Static-mesh tangents contain invalid data.", &OutError);
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 					for (FVector2f& Value : LOD.TexCoords[Channel])
-						if (!ReadVector(Value, 2)) return Fail(OutError, "Static-mesh UVs contain invalid data.");
-				for (FVector4f& Value : LOD.Colors) if (!ReadVector(Value, 4)) return Fail(OutError, "Static-mesh colors contain invalid data.");
+						if (!ReadVector(Value, 2)) return Fail("Static-mesh UVs contain invalid data.", &OutError);
+				for (FVector4f& Value : LOD.Colors) if (!ReadVector(Value, 4)) return Fail("Static-mesh colors contain invalid data.", &OutError);
 			}
-			if (!VertexStreams.IsAtEnd()) return Fail(OutError, "Static-mesh vertex-stream chunk contains trailing bytes.");
+			if (!VertexStreams.IsAtEnd()) return Fail("Static-mesh vertex-stream chunk contains trailing bytes.", &OutError);
 
 			FPayloadReader IndexBuffers(Chunks[5]);
 			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
 				for (uint32& Index : LOD.Indices)
-					if (!IndexBuffers.ReadU32(Index)) return Fail(OutError, "Static-mesh index-buffer chunk is truncated.");
-			if (!IndexBuffers.IsAtEnd()) return Fail(OutError, "Static-mesh index-buffer chunk contains trailing bytes.");
+					if (!IndexBuffers.ReadU32(Index)) return Fail("Static-mesh index-buffer chunk is truncated.", &OutError);
+			if (!IndexBuffers.IsAtEnd()) return Fail("Static-mesh index-buffer chunk contains trailing bytes.", &OutError);
 
 			if (!ValidatePayload(Payload, OutError)) return false;
 			OutPayload = std::move(Payload);
@@ -409,7 +406,7 @@ namespace Durin
 	{
 		OutError.clear();
 		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
-			return Fail(OutError, "A concrete target platform is required to encode a static-mesh payload.");
+			return Fail("A concrete target platform is required to encode a static-mesh payload.", &OutError);
 		if (!ValidatePayload(Payload, OutError)) return false;
 
 		const auto ChunkBytes = BuildPayloadChunks(Payload);
@@ -474,11 +471,11 @@ namespace Durin
 	{
 		OutError.clear();
 		OutCode = EPayloadDecodeError::Corrupt;
-		if (Bytes.size() < StaticMeshPayloadHeaderSize) return Fail(OutError, "Static-mesh payload header is truncated.");
+		if (Bytes.size() < StaticMeshPayloadHeaderSize) return Fail("Static-mesh payload header is truncated.", &OutError);
 		if (ExpectedPlatform != EStaticMeshTargetPlatform::Win64)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "A concrete target platform is required to decode a static-mesh payload.");
+			return Fail("A concrete target platform is required to decode a static-mesh payload.", &OutError);
 		}
 
 		uint32 Magic = 0;
@@ -499,34 +496,34 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 24, ChunkCount) || !ReadLittleEndianAt(Bytes, 28, Reserved)
 			|| !ReadLittleEndianAt(Bytes, 32, ChunkTableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalUncompressedSize)
 			|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, StoredHash))
-			return Fail(OutError, "Static-mesh payload header is truncated.");
-		if (Magic != StaticMeshPayloadMagic) return Fail(OutError, "Static-mesh payload magic is invalid.");
+			return Fail("Static-mesh payload header is truncated.", &OutError);
+		if (Magic != StaticMeshPayloadMagic) return Fail("Static-mesh payload magic is invalid.", &OutError);
 		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Static-mesh payload schema version is unsupported.");
+			return Fail("Static-mesh payload schema version is unsupported.", &OutError);
 		}
 		if (BuilderVersion != StaticMeshBuilderVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Static-mesh payload builder version is unsupported.");
+			return Fail("Static-mesh payload builder version is unsupported.", &OutError);
 		}
-		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail(OutError, "Static-mesh payload target platform does not match.");
+		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail("Static-mesh payload target platform does not match.", &OutError);
 		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || HeaderSize != StaticMeshPayloadHeaderSize
 			|| Reserved != 0 || ChunkTableOffset != StaticMeshPayloadHeaderSize)
-			return Fail(OutError, "Static-mesh payload header contains invalid flags, sizes, or reserved values.");
+			return Fail("Static-mesh payload header contains invalid flags, sizes, or reserved values.", &OutError);
 		if (ChunkCount < StaticMeshPayloadRequiredChunkCount || ChunkCount > MaximumStaticMeshPayloadChunks)
-			return Fail(OutError, "Static-mesh payload chunk count is invalid.");
+			return Fail("Static-mesh payload chunk count is invalid.", &OutError);
 		if (StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshPayloadBytes
 			|| TotalUncompressedSize > MaximumStaticMeshPayloadBytes)
-			return Fail(OutError, "Static-mesh payload stored or uncompressed size is invalid.");
+			return Fail("Static-mesh payload stored or uncompressed size is invalid.", &OutError);
 		if (FXxHash64::HashBuffer(Bytes.subspan(StaticMeshPayloadHeaderSize)).HashValue != StoredHash)
-			return Fail(OutError, "Static-mesh payload checksum does not match.");
+			return Fail("Static-mesh payload checksum does not match.", &OutError);
 
 		const uint64 TableSize = static_cast<uint64>(ChunkCount) * StaticMeshPayloadChunkEntrySize;
 		const uint64 TableEnd = ChunkTableOffset + TableSize;
 		if (TableEnd < ChunkTableOffset || TableEnd > StoredSize)
-			return Fail(OutError, "Static-mesh payload chunk table is outside the stored object.");
+			return Fail("Static-mesh payload chunk table is outside the stored object.", &OutError);
 
 		std::vector<FStaticMeshPayloadChunk> Chunks(ChunkCount);
 		uint64 UncompressedSum = 0;
@@ -541,37 +538,37 @@ namespace Durin
 			if (!ReadLittleEndianAt(Bytes, EntryOffset, Chunk.Type) || !ReadLittleEndianAt(Bytes, EntryOffset + 4, Chunk.Flags)
 				|| !ReadLittleEndianAt(Bytes, EntryOffset + 8, Chunk.Offset) || !ReadLittleEndianAt(Bytes, EntryOffset + 16, Chunk.StoredSize)
 				|| !ReadLittleEndianAt(Bytes, EntryOffset + 24, Chunk.UncompressedSize))
-				return Fail(OutError, "Static-mesh payload chunk table is truncated.");
+				return Fail("Static-mesh payload chunk table is truncated.", &OutError);
 			if ((Chunk.Flags & ~StaticMeshChunkKnownFlags) != 0)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Static-mesh payload chunk contains unsupported flags.");
+				return Fail("Static-mesh payload chunk contains unsupported flags.", &OutError);
 			}
 			const uint32 Compression = (Chunk.Flags & StaticMeshChunkCompressionMask) >> 8;
 			if (Compression > StaticMeshChunkCompressionZstandard)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Static-mesh payload chunk uses an unsupported compression method.");
+				return Fail("Static-mesh payload chunk uses an unsupported compression method.", &OutError);
 			}
 			if (Chunk.Offset % StaticMeshPayloadAlignment != 0 || Chunk.Offset < PreviousEnd)
-				return Fail(OutError, "Static-mesh payload chunks are misaligned, unordered, or overlapping.");
+				return Fail("Static-mesh payload chunks are misaligned, unordered, or overlapping.", &OutError);
 			if (Chunk.Offset > StoredSize || Chunk.StoredSize > StoredSize - Chunk.Offset)
-				return Fail(OutError, "Static-mesh payload chunk range is outside the stored object.");
+				return Fail("Static-mesh payload chunk range is outside the stored object.", &OutError);
 			if (Chunk.UncompressedSize > MaximumStaticMeshPayloadBytes - UncompressedSum)
-				return Fail(OutError, "Static-mesh payload total uncompressed size exceeds its allocation limit.");
+				return Fail("Static-mesh payload total uncompressed size exceeds its allocation limit.", &OutError);
 			if (Compression == StaticMeshChunkCompressionNone && Chunk.StoredSize != Chunk.UncompressedSize)
-				return Fail(OutError, "An uncompressed static-mesh chunk has inconsistent sizes.");
+				return Fail("An uncompressed static-mesh chunk has inconsistent sizes.", &OutError);
 			if (Compression != StaticMeshChunkCompressionNone)
 			{
 				bHasCompressedChunk = true;
 				if (Chunk.StoredSize == 0 || Chunk.UncompressedSize / Chunk.StoredSize > StaticMeshMaximumCompressionRatio
 					|| (Chunk.UncompressedSize / Chunk.StoredSize == StaticMeshMaximumCompressionRatio
 						&& Chunk.UncompressedSize % Chunk.StoredSize != 0))
-					return Fail(OutError, "Static-mesh payload chunk exceeds the maximum compression ratio.");
+					return Fail("Static-mesh payload chunk exceeds the maximum compression ratio.", &OutError);
 			}
 			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < Chunk.Offset; ++PaddingOffset)
 				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail(OutError, "Static-mesh payload contains non-zero alignment padding.");
+					return Fail("Static-mesh payload contains non-zero alignment padding.", &OutError);
 			PreviousEnd = Chunk.Offset + Chunk.StoredSize;
 			UncompressedSum += Chunk.UncompressedSize;
 
@@ -579,28 +576,28 @@ namespace Durin
 			{
 				const uint32 RequiredIndex = Chunk.Type - 1;
 				if ((Chunk.Flags & StaticMeshChunkFlagRequired) == 0 || RequiredChunkIndices[RequiredIndex] >= 0)
-					return Fail(OutError, "Static-mesh payload required chunks are missing flags or duplicated.");
+					return Fail("Static-mesh payload required chunks are missing flags or duplicated.", &OutError);
 				RequiredChunkIndices[RequiredIndex] = static_cast<int32>(Index);
 			}
 			else if ((Chunk.Flags & StaticMeshChunkFlagRequired) != 0)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Static-mesh payload contains an unknown required chunk.");
+				return Fail("Static-mesh payload contains an unknown required chunk.", &OutError);
 			}
 		}
 		if (UncompressedSum != TotalUncompressedSize)
-			return Fail(OutError, "Static-mesh payload uncompressed size does not match its chunks.");
+			return Fail("Static-mesh payload uncompressed size does not match its chunks.", &OutError);
 		if (bHasCompressedChunk != ((PayloadFlags & StaticMeshPayloadFlagCompressed) != 0))
-			return Fail(OutError, "Static-mesh payload compression flags are inconsistent.");
+			return Fail("Static-mesh payload compression flags are inconsistent.", &OutError);
 		if (std::ranges::any_of(RequiredChunkIndices, [](int32 Index) { return Index < 0; }))
-			return Fail(OutError, "Static-mesh payload is missing a required chunk.");
+			return Fail("Static-mesh payload is missing a required chunk.", &OutError);
 		for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < StoredSize; ++PaddingOffset)
 			if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-				return Fail(OutError, "Static-mesh payload contains non-zero trailing padding.");
+				return Fail("Static-mesh payload contains non-zero trailing padding.", &OutError);
 		if (bHasCompressedChunk)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Compressed static-mesh chunks are not supported by this build.");
+			return Fail("Compressed static-mesh chunks are not supported by this build.", &OutError);
 		}
 
 		std::array<std::span<const uint8>, StaticMeshPayloadRequiredChunkCount> RequiredChunks;
@@ -773,7 +770,7 @@ namespace Durin
 	{
 		if (!Geometry || (Geometry.GetKind() != ECollisionGeometryKind::ConvexHull
 			&& Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh))
-			return Fail(OutError, "Collision payload requires one valid hull or triangle mesh.");
+			return Fail("Collision payload requires one valid hull or triangle mesh.", &OutError);
 		FStaticMeshCollisionPayloadData Candidate;
 		Candidate.SourceMode = Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
 			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
@@ -784,10 +781,10 @@ namespace Durin
 		{
 			const FVector3* Vertex = Geometry.GetVertex(Index);
 			if (!Vertex || !Math::IsFinite(*Vertex))
-				return Fail(OutError, "Collision geometry contains an invalid vertex.");
+				return Fail("Collision geometry contains an invalid vertex.", &OutError);
 			const FVector3f Stored(*Vertex);
 			if (!Math::IsFinite(Stored))
-				return Fail(OutError, "Collision vertex is outside finite float32 storage.");
+				return Fail("Collision vertex is outside finite float32 storage.", &OutError);
 			Candidate.Positions.push_back(Stored);
 		}
 		Candidate.Indices.reserve(Geometry.GetTriangleCount() * 3);
@@ -795,7 +792,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < Geometry.GetTriangleCount(); ++Index)
 		{
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
-			if (!Triangle) return Fail(OutError, "Collision geometry has an invalid triangle.");
+			if (!Triangle) return Fail("Collision geometry has an invalid triangle.", &OutError);
 			Candidate.Indices.insert(Candidate.Indices.end(),
 				{Triangle->First, Triangle->Second, Triangle->Third});
 			Candidate.SourceOrdinals.push_back(Triangle->SourceOrdinal);
@@ -804,7 +801,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < Geometry.GetNodeCount(); ++Index)
 		{
 			const FCollisionGeometryNode* Node = Geometry.GetNode(Index);
-			if (!Node) return Fail(OutError, "Collision geometry has an invalid BVH node.");
+			if (!Node) return Fail("Collision geometry has an invalid BVH node.", &OutError);
 			Candidate.Nodes.push_back(*Node);
 		}
 		Candidate.LeafTriangles.reserve(Geometry.GetLeafTriangleCount());
@@ -812,7 +809,7 @@ namespace Durin
 		{
 			const uint32 TriangleIndex = Geometry.GetLeafTriangle(Index);
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(TriangleIndex);
-			if (!Triangle) return Fail(OutError, "Collision geometry has an invalid BVH membership.");
+			if (!Triangle) return Fail("Collision geometry has an invalid BVH membership.", &OutError);
 			Candidate.LeafTriangles.push_back(Triangle->SourceOrdinal);
 		}
 		OutPayload = std::move(Candidate);
@@ -828,19 +825,19 @@ namespace Durin
 		if (Payload.Positions.empty() || Payload.Indices.empty()
 			|| Payload.Indices.size() % 3 != 0
 			|| Payload.SourceOrdinals.size() != Payload.Indices.size() / 3)
-			return Fail(OutError, "Collision payload counts are inconsistent.");
+			return Fail("Collision payload counts are inconsistent.", &OutError);
 		std::vector<FVector3> Vertices;
 		Vertices.reserve(Payload.Positions.size());
 		for (const FVector3f& Position : Payload.Positions)
 		{
-			if (!Math::IsFinite(Position)) return Fail(OutError, "Collision payload contains a non-finite position.");
+			if (!Math::IsFinite(Position)) return Fail("Collision payload contains a non-finite position.", &OutError);
 			Vertices.emplace_back(Position);
 		}
 		FCollisionGeometryRef Candidate;
 		if (Payload.SourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 		{
 			if (!Payload.Nodes.empty() || !Payload.LeafTriangles.empty())
-				return Fail(OutError, "Convex collision payload must not contain a BVH.");
+				return Fail("Convex collision payload must not contain a BVH.", &OutError);
 			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices);
 		}
 		else if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
@@ -848,21 +845,21 @@ namespace Durin
 			std::map<uint32, uint32> OrdinalToTriangle;
 			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
 				if (!OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle).second)
-					return Fail(OutError, "Collision payload source ordinals are not unique.");
+					return Fail("Collision payload source ordinals are not unique.", &OutError);
 			std::vector<uint32> LeafTriangles;
 			LeafTriangles.reserve(Payload.LeafTriangles.size());
 			for (uint32 Ordinal : Payload.LeafTriangles)
 			{
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
-					return Fail(OutError, "Collision BVH references an unknown source ordinal.");
+					return Fail("Collision BVH references an unknown source ordinal.", &OutError);
 				LeafTriangles.push_back(Found->second);
 			}
 			Candidate = FCollisionGeometryRef::MakeCookedTriangleMesh(
 				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles);
 		}
-		else return Fail(OutError, "Collision payload source mode is invalid.");
-		if (!Candidate) return Fail(OutError, "Collision payload topology or BVH is invalid.");
+		else return Fail("Collision payload source mode is invalid.", &OutError);
+		if (!Candidate) return Fail("Collision payload topology or BVH is invalid.", &OutError);
 		OutGeometry = Candidate;
 		OutError.clear();
 		return true;
@@ -875,7 +872,7 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
-			return Fail(OutError, "A concrete target platform is required for DCOL encoding.");
+			return Fail("A concrete target platform is required for DCOL encoding.", &OutError);
 		FCollisionGeometryRef ValidationGeometry;
 		if (!MakeStaticMeshCollisionGeometry(Payload, ValidationGeometry, OutError)) return false;
 		std::vector<uint32> StoredIndices;
@@ -891,7 +888,7 @@ namespace Durin
 			{
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
-					return Fail(OutError, "DCOL leaf ordering references an unknown source ordinal.");
+					return Fail("DCOL leaf ordering references an unknown source ordinal.", &OutError);
 				const uint32 Triangle = Found->second;
 				StoredIndices.insert(StoredIndices.end(), Payload.Indices.begin() + Triangle * 3,
 					Payload.Indices.begin() + Triangle * 3 + 3);
@@ -932,7 +929,7 @@ namespace Durin
 			const uint64 Offset = AlignCollisionOffset(Bytes.size());
 			if (Offset > MaximumStaticMeshCollisionPayloadBytes
 				|| Chunks[Chunk].size() > MaximumStaticMeshCollisionPayloadBytes - Offset)
-				return Fail(OutError, "DCOL payload exceeds the runtime byte limit.");
+				return Fail("DCOL payload exceeds the runtime byte limit.", &OutError);
 			Bytes.resize(static_cast<size_t>(Offset), 0);
 			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
 				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;

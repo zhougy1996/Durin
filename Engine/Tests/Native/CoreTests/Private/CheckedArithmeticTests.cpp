@@ -1,4 +1,4 @@
-#include "Misc/Failure.h"
+#include "CoreMinimal.h"
 #include "Templates/CheckedArithmetic.h"
 
 #include <gtest/gtest.h>
@@ -25,11 +25,9 @@ TEST(FCheckedArithmeticTests, EnforcesBoundsWithoutChangingRejectedOutputs)
 TEST(FFailureTests, StoresOptionalDiagnosticsAndReturnsFalse)
 {
 	std::string Error;
-	EXPECT_FALSE(Durin::Fail(&Error, "pointer diagnostic"));
+	EXPECT_FALSE(Durin::Fail("pointer diagnostic", &Error));
 	EXPECT_EQ(Error, "pointer diagnostic");
-	EXPECT_FALSE(Durin::Fail("legacy argument order", &Error));
-	EXPECT_EQ(Error, "legacy argument order");
-	EXPECT_FALSE(Durin::Fail(Error, "reference diagnostic"));
+	EXPECT_FALSE(Durin::Fail("reference diagnostic", &Error));
 	EXPECT_EQ(Error, "reference diagnostic");
-	EXPECT_FALSE(Durin::Fail(nullptr, "ignored diagnostic"));
+	EXPECT_FALSE(Durin::Fail("ignored diagnostic"));
 }

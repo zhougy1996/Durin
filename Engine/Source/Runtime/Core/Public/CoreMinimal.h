@@ -12,6 +12,7 @@
 #include "Misc/EnumClassFlags.h"
 #include "Misc/Guid.h"
 #include "Misc/Name.h"
+#include "Misc/Failure.h"
 #include "Misc/Time.h"
 #include "Modules/ModuleManager.h"
 

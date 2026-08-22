@@ -293,7 +293,7 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 	Durin::Testing::RemoveTestWorkDirectory(Relocated);
 	std::filesystem::rename(Root, Relocated);
 	std::vector<uint8> BulkBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBytes, (Relocated / "Game/New.dbulk").generic_string()));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBytes, (Relocated / "Game/New.dbulk")));
 	FCookedBulkContainer Container;
 	EXPECT_TRUE(DecodeCookedBulk(BulkBytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 }
@@ -314,7 +314,7 @@ TEST(FCookContextTests, PublishesPackageWithoutBulkCompanion)
 
 	std::vector<uint8> ManifestBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		ManifestBytes, (Root / "CookManifest.bin").generic_string()));
+		ManifestBytes, (Root / "CookManifest.bin")));
 	FCookManifest Manifest;
 	ASSERT_TRUE(DecodeCookManifest(ManifestBytes, Manifest));
 	ASSERT_EQ(Manifest.Entries.size(), 1u);

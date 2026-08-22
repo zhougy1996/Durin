@@ -72,7 +72,7 @@ TEST(FSkyBoxRenderingTests, KeepsDirectionsStableForTinyNearClipAtLargeWorldCoor
 		View, Durin::FSkyBoxSceneData{}, Uniform));
 	const Durin::FVector3 Center = ReconstructSampleDirection(Uniform, {0.0, 0.0});
 	const Durin::FVector3 Neighbor = ReconstructSampleDirection(Uniform, {0.001, 0.0});
-	EXPECT_GT(glm::dot(Center, Neighbor), 0.999999);
+	EXPECT_GT(Durin::Math::Dot(Center, Neighbor), 0.999999);
 	EXPECT_NEAR(Center.x, 1.0, 1.e-6);
 	EXPECT_NEAR(Center.y, 0.0, 1.e-5);
 	EXPECT_NEAR(Center.z, 0.0, 1.e-5);

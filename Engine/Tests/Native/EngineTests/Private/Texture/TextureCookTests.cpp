@@ -162,13 +162,13 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	std::vector<Durin::uint8> FirstBulk;
 	std::vector<Durin::uint8> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstPackage, (CookRoot / "Game/CookedTexture.dasset").generic_string()));
+		FirstPackage, (CookRoot / "Game/CookedTexture.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondPackage, (SecondCookRoot / "Game/CookedTexture.dasset").generic_string()));
+		SecondPackage, (SecondCookRoot / "Game/CookedTexture.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, (CookRoot / "Game/CookedTexture.dbulk").generic_string()));
+		FirstBulk, (CookRoot / "Game/CookedTexture.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, (SecondCookRoot / "Game/CookedTexture.dbulk").generic_string()));
+		SecondBulk, (SecondCookRoot / "Game/CookedTexture.dbulk")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));

@@ -27,9 +27,6 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-#include <glm/mat3x3.hpp>
-#include <glm/matrix.hpp>
-
 namespace Durin::RendererPrivate
 {
 

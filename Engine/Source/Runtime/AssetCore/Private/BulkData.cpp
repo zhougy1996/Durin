@@ -1,7 +1,5 @@
 #include "Asset/BulkData.h"
 
-#include "Misc/Failure.h"
-
 namespace Durin::Asset
 {
 	namespace
@@ -20,12 +18,9 @@ namespace Durin::Asset
 	{
 		if (!Descriptor.PayloadId.IsValid() || !Descriptor.FormatId.IsValid()
 			|| Descriptor.FormatVersion == 0)
-			return Fail(
-				"Bulk data identity requires valid payload and format ids plus a nonzero format version.",
-				OutError);
+			return Fail("Bulk data identity requires valid payload and format ids plus a nonzero format version.", OutError);
 		if (Descriptor.LogicalByteCount != 0 && Descriptor.StoredByteCount == 0)
-			return Fail(
-				"Non-empty bulk data cannot declare zero stored bytes.", OutError);
+			return Fail("Non-empty bulk data cannot declare zero stored bytes.", OutError);
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -73,9 +68,7 @@ namespace Durin::Asset
 	{
 		if (!ValidateBulkDataDescriptor(InDescriptor, OutError)) return false;
 		if (!InProvider || !IsConcreteDomain(InProvider->GetStorageDomain()))
-			return Fail(
-				"Unloaded bulk data requires a provider with a concrete storage domain.",
-				OutError);
+			return Fail("Unloaded bulk data requires a provider with a concrete storage domain.", OutError);
 
 		FBulkData Candidate;
 		Candidate.Descriptor = std::move(InDescriptor);

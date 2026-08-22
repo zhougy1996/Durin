@@ -236,8 +236,8 @@ namespace Durin
 			Packed.ColorIntensity = FVector4f(Light.Color, Light.Intensity);
 			if (Light.Kind == ELightSceneProxyKind::Spot)
 			{
-				const float InnerCos = std::cos(glm::radians(Light.InnerConeAngle));
-				const float OuterCos = std::cos(glm::radians(Light.OuterConeAngle));
+				const float InnerCos = std::cos(Math::DegreesToRadians(Light.InnerConeAngle));
+				const float OuterCos = std::cos(Math::DegreesToRadians(Light.OuterConeAngle));
 				const float Denominator = InnerCos - OuterCos;
 				Packed.SpotCone = FVector4f(
 					InnerCos, OuterCos,

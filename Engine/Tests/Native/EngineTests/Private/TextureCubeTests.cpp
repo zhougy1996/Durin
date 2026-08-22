@@ -563,13 +563,13 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	std::vector<Durin::uint8> FirstBulk;
 	std::vector<Durin::uint8> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstPackage, (FirstRoot / "Game/CookedCube.dasset").generic_string()));
+		FirstPackage, (FirstRoot / "Game/CookedCube.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondPackage, (SecondRoot / "Game/CookedCube.dasset").generic_string()));
+		SecondPackage, (SecondRoot / "Game/CookedCube.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, (FirstRoot / "Game/CookedCube.dbulk").generic_string()));
+		FirstBulk, (FirstRoot / "Game/CookedCube.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, (SecondRoot / "Game/CookedCube.dbulk").generic_string()));
+		SecondBulk, (SecondRoot / "Game/CookedCube.dbulk")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 

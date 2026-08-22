@@ -80,7 +80,7 @@ namespace Durin::Asset::Forge::Private
 		auto ConvertMatrix(const FMatrix& Source) -> FMatrix4f
 		{
 			const FMatrix Conversion = SourceToDurinMatrix();
-			const FMatrix Converted = Conversion * Source * glm::inverse(Conversion);
+			const FMatrix Converted = Conversion * Source * Math::Inverse(Conversion);
 			FMatrix4f Result(0.0f);
 			for (uint32 Column = 0; Column < 4; ++Column)
 				for (uint32 Row = 0; Row < 4; ++Row)
@@ -90,7 +90,7 @@ namespace Durin::Asset::Forge::Private
 
 		auto NormalizeOr(const FVector3f& Value, const FVector3f& Fallback) -> FVector3f
 		{
-			const float LengthSquared = glm::dot(Value, Value);
+			const float LengthSquared = Math::Dot(Value, Value);
 			if (!std::isfinite(LengthSquared) || LengthSquared <= 1.0e-20f) return Fallback;
 			return Value / std::sqrt(LengthSquared);
 		}
@@ -100,7 +100,7 @@ namespace Durin::Asset::Forge::Private
 			const FVector3f Axis = std::abs(Normal.z) < 0.999f
 				? FVector3f(0.0f, 0.0f, 1.0f)
 				: FVector3f(0.0f, 1.0f, 0.0f);
-			return NormalizeOr(glm::cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
+			return NormalizeOr(Math::Cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
 		}
 
 		auto GenerateNormals(
@@ -115,8 +115,8 @@ namespace Durin::Asset::Forge::Private
 				const uint32 A = Indices[Index] - VertexBase;
 				const uint32 B = Indices[Index + 1] - VertexBase;
 				const uint32 C = Indices[Index + 2] - VertexBase;
-				const FVector3f Face = glm::cross(Positions[B] - Positions[A], Positions[C] - Positions[A]);
-				if (!std::isfinite(glm::dot(Face, Face))) continue;
+				const FVector3f Face = Math::Cross(Positions[B] - Positions[A], Positions[C] - Positions[A]);
+				if (!std::isfinite(Math::Dot(Face, Face))) continue;
 				Accumulated[A] += Face;
 				Accumulated[B] += Face;
 				Accumulated[C] += Face;
@@ -166,9 +166,9 @@ namespace Durin::Asset::Forge::Private
 			{
 				const FVector3f Normal = NormalizeOr(Normals[Vertex], FVector3f(0.0f, 0.0f, 1.0f));
 				const FVector3f Orthogonal = AccumulatedTangents[Vertex]
-					- Normal * glm::dot(Normal, AccumulatedTangents[Vertex]);
+					- Normal * Math::Dot(Normal, AccumulatedTangents[Vertex]);
 				const FVector3f Tangent = NormalizeOr(Orthogonal, MakePerpendicularTangent(Normal));
-				const float Handedness = glm::dot(glm::cross(Normal, Tangent), AccumulatedBitangents[Vertex]) < 0.0f
+				const float Handedness = Math::Dot(Math::Cross(Normal, Tangent), AccumulatedBitangents[Vertex]) < 0.0f
 					? -1.0f : 1.0f;
 				OutTangents[Vertex] = FVector4f(
 					CleanNumber(Tangent.x), CleanNumber(Tangent.y), CleanNumber(Tangent.z), Handedness);
@@ -283,13 +283,13 @@ namespace Durin::Asset::Forge::Private
 			const FVector3d C0(OutMatrix[0]);
 			const FVector3d C1(OutMatrix[1]);
 			const FVector3d C2(OutMatrix[2]);
-			const double L0 = glm::length(C0);
-			const double L1 = glm::length(C1);
-			const double L2 = glm::length(C2);
+			const double L0 = Math::Length(C0);
+			const double L1 = Math::Length(C1);
+			const double L2 = Math::Length(C2);
 			return L0 > MatrixTolerance && L1 > MatrixTolerance && L2 > MatrixTolerance
-				&& std::abs(glm::dot(C0 / L0, C1 / L1)) <= 1.0e-5
-				&& std::abs(glm::dot(C0 / L0, C2 / L2)) <= 1.0e-5
-				&& std::abs(glm::dot(C1 / L1, C2 / L2)) <= 1.0e-5;
+				&& std::abs(Math::Dot(C0 / L0, C1 / L1)) <= 1.0e-5
+				&& std::abs(Math::Dot(C0 / L0, C2 / L2)) <= 1.0e-5
+				&& std::abs(Math::Dot(C1 / L1, C2 / L2)) <= 1.0e-5;
 		}
 
 		class FGltfSkeletalDecoder
@@ -558,7 +558,7 @@ namespace Durin::Asset::Forge::Private
 					{
 						const int32 ParentSource = ParentJoint[Joint];
 						const FMatrix Local = ParentSource >= 0
-							? glm::inverse(Nodes[ParentSource].Global) * Nodes[Joint].Global
+							? Math::Inverse(Nodes[ParentSource].Global) * Nodes[Joint].Global
 							: Nodes[Joint].Global;
 						if (!IsFinite(Local))
 							return Malformed(std::format("skin:{}", SkinIndex), "Skeleton local reference transform is non-finite.");
@@ -916,8 +916,8 @@ namespace Durin::Asset::Forge::Private
 						const FVector3f Converted(
 							CleanNumber(-Value[2]), CleanNumber(Value[0]), CleanNumber(Value[1]));
 						Payload->Positions.push_back(Converted);
-						BoundsMin = glm::min(BoundsMin, Converted);
-						BoundsMax = glm::max(BoundsMax, Converted);
+						BoundsMin = Math::Min(BoundsMin, Converted);
+						BoundsMax = Math::Max(BoundsMax, Converted);
 					}
 
 					auto DecodeOptionalVector = [&](std::string_view Semantic, std::string_view Type,
@@ -1056,8 +1056,8 @@ namespace Durin::Asset::Forge::Private
 					FVector3f SectionMax(std::numeric_limits<float>::lowest());
 					for (uint32 Index : Indices)
 					{
-						SectionMin = glm::min(SectionMin, Payload->Positions[Index]);
-						SectionMax = glm::max(SectionMax, Payload->Positions[Index]);
+						SectionMin = Math::Min(SectionMin, Payload->Positions[Index]);
+						SectionMax = Math::Max(SectionMax, Payload->Positions[Index]);
 					}
 					Payload->Sections.push_back({
 						.Name = FName(std::format("Section_{}", PrimitiveIndex)),
@@ -1143,7 +1143,7 @@ namespace Durin::Asset::Forge::Private
 				Rotation[2][0] = 2.0 * (X * Z + Y * W);
 				Rotation[2][1] = 2.0 * (Y * Z - X * W);
 				Rotation[2][2] = 1.0 - 2.0 * (X * X + Y * Y);
-				const FMatrix Converted = SourceToDurinMatrix() * Rotation * glm::inverse(SourceToDurinMatrix());
+				const FMatrix Converted = SourceToDurinMatrix() * Rotation * Math::Inverse(SourceToDurinMatrix());
 				std::array<double, 4> Quaternion{};
 				const double Trace = Converted[0][0] + Converted[1][1] + Converted[2][2];
 				if (Trace > 0.0)

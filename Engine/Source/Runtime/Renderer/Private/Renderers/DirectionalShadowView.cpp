@@ -300,10 +300,10 @@ namespace Durin
 			for (const FVector3& Corner : Candidate.ReceiverCorners)
 			{
 				const FVector3 LightSpace{
-					glm::dot(Right, Corner), glm::dot(Up, Corner),
-					glm::dot(Forward, Corner)};
-				Minimum = glm::min(Minimum, LightSpace);
-				Maximum = glm::max(Maximum, LightSpace);
+					Math::Dot(Right, Corner), Math::Dot(Up, Corner),
+					Math::Dot(Forward, Corner)};
+				Minimum = Math::Min(Minimum, LightSpace);
+				Maximum = Math::Max(Maximum, LightSpace);
 			}
 			const double RawWidth = Maximum.x - Minimum.x;
 			const double RawHeight = Maximum.y - Minimum.y;
@@ -394,11 +394,11 @@ namespace Durin
 		const FVector3 Forward = Math::Normalize(Light.Direction);
 		const FVector3 PreferredUp{0.0, 0.0, 1.0};
 		const FVector3 FallbackUp{0.0, 1.0, 0.0};
-		const FVector3 ReferenceUp = std::abs(glm::dot(
+		const FVector3 ReferenceUp = std::abs(Math::Dot(
 			Forward, PreferredUp))
 			> 1.0 - ParallelAxisEpsilon ? FallbackUp : PreferredUp;
-		const FVector3 Right = Math::Normalize(glm::cross(ReferenceUp, Forward));
-		const FVector3 Up = Math::Normalize(glm::cross(Forward, Right));
+		const FVector3 Right = Math::Normalize(Math::Cross(ReferenceUp, Forward));
+		const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 		if (!Math::IsFinite(Right) || !Math::IsFinite(Up))
 			return false;
 		Candidate.LightDirection = Light.Direction;
@@ -463,7 +463,7 @@ namespace Durin
 	{
 		if (!Cascade.bEnabled || !WorldBounds.bIsValid
 			|| !Math::IsFinite(WorldBounds.Min) || !Math::IsFinite(WorldBounds.Max)
-			|| glm::any(glm::greaterThan(WorldBounds.Min, WorldBounds.Max)))
+			|| Math::AnyGreaterThan(WorldBounds.Min, WorldBounds.Max))
 			return EDirectionalShadowBoundsClassification::InvalidBoundsFallback;
 		FVector3 Minimum(std::numeric_limits<double>::max());
 		FVector3 Maximum(std::numeric_limits<double>::lowest());
@@ -474,14 +474,14 @@ namespace Durin
 				(Corner & 2u) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
 				(Corner & 4u) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z};
 			const FVector3 LightSpace{
-				glm::dot(Cascade.CasterVolume.Right, World),
-				glm::dot(Cascade.CasterVolume.Up, World),
-				glm::dot(Cascade.CasterVolume.Forward, World)};
-			Minimum = glm::min(Minimum, LightSpace);
-			Maximum = glm::max(Maximum, LightSpace);
+				Math::Dot(Cascade.CasterVolume.Right, World),
+				Math::Dot(Cascade.CasterVolume.Up, World),
+				Math::Dot(Cascade.CasterVolume.Forward, World)};
+			Minimum = Math::Min(Minimum, LightSpace);
+			Maximum = Math::Max(Maximum, LightSpace);
 		}
-		const FVector3 AbsoluteMinimum = glm::abs(Minimum);
-		const FVector3 AbsoluteMaximum = glm::abs(Maximum);
+		const FVector3 AbsoluteMinimum = Math::Abs(Minimum);
+		const FVector3 AbsoluteMaximum = Math::Abs(Maximum);
 		const double Scale = std::max({
 			1.0,
 			AbsoluteMinimum.x,

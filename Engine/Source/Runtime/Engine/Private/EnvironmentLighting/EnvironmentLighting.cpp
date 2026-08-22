@@ -1,7 +1,5 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 
-#include "Misc/Failure.h"
-
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
@@ -58,11 +56,11 @@ namespace Durin
 			const std::filesystem::path PayloadPath =
 				DEnvironmentLighting::GetAuthoringPayloadPath(VirtualPackagePath);
 			if (PayloadPath.empty()
-				|| !FFileHelper::LoadFileToArray(OutBytes, PayloadPath.generic_string()))
+				|| !FFileHelper::LoadFileToArray(OutBytes, PayloadPath))
 			{
-				return Fail(OutError, std::format(
+				return Fail(std::format(
 					"Environment-lighting authoring payload is missing for '{}'.",
-					VirtualPackagePath));
+					VirtualPackagePath), &OutError);
 			}
 			return true;
 		}
@@ -93,7 +91,7 @@ namespace Durin
 		OutBytes.clear();
 		OutError.clear();
 		if (!Data.IsValid())
-			return Fail(OutError, "Environment-lighting data is incomplete or malformed.");
+			return Fail("Environment-lighting data is incomplete or malformed.", &OutError);
 
 		std::vector<uint8> Body;
 		Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
@@ -150,7 +148,7 @@ namespace Durin
 			|| !Reader.ReadU64(ElementCount)
 			|| !Reader.ReadU64(StoredHash))
 		{
-			return Fail(OutError, "Environment-lighting payload header is invalid.");
+			return Fail("Environment-lighting payload header is invalid.", &OutError);
 		}
 		if (Magic != EnvironmentLightingPayloadMagic
 			|| SchemaVersion != EnvironmentLightingPayloadSchemaVersion
@@ -162,20 +160,20 @@ namespace Durin
 			|| BrdfLutDimension != EnvironmentBrdfLutDimension
 			|| ElementCount != ExpectedElementCount())
 		{
-			return Fail(OutError, "Environment-lighting payload layout is incompatible.");
+			return Fail("Environment-lighting payload layout is incompatible.", &OutError);
 		}
 		// Producer identity is diagnostic metadata. Runtime compatibility is owned
 		// by the schema and stable value identifiers.
 		(void)ProducerVersion;
 		const uint64 ExpectedBodyBytes = ElementCount * sizeof(uint16);
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
-			return Fail(OutError, "Environment-lighting payload size is invalid.");
+			return Fail("Environment-lighting payload size is invalid.", &OutError);
 		std::vector<uint8> Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
 		{
-			return Fail(OutError, "Environment-lighting payload checksum does not match.");
+			return Fail("Environment-lighting payload checksum does not match.", &OutError);
 		}
 
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
@@ -184,13 +182,13 @@ namespace Durin
 			* EnvironmentIrradianceDimension * 4;
 		for (std::vector<uint16>& Face : Candidate->Irradiance)
 			if (!ReadHalfValues(Body, Offset, IrradianceElements, Face))
-				return Fail(OutError, "Environment-lighting irradiance data is truncated.");
+				return Fail("Environment-lighting irradiance data is truncated.", &OutError);
 		for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
 		{
 			const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
 			for (std::vector<uint16>& Face : Candidate->Prefiltered[Mip])
 				if (!ReadHalfValues(Body, Offset, Dimension * Dimension * 4, Face))
-					return Fail(OutError, "Environment-lighting prefilter data is truncated.");
+					return Fail("Environment-lighting prefilter data is truncated.", &OutError);
 		}
 		if (!ReadHalfValues(
 				Body, Offset,
@@ -199,7 +197,7 @@ namespace Durin
 				Candidate->BrdfLut)
 			|| Offset != Body.size() || !Candidate->IsValid())
 		{
-			return Fail(OutError, "Environment-lighting BRDF LUT data is invalid.");
+			return Fail("Environment-lighting BRDF LUT data is invalid.", &OutError);
 		}
 		OutData = std::move(Candidate);
 		return true;
@@ -278,7 +276,7 @@ namespace Durin
 				|| CookedPayload.TargetProfile
 					!= static_cast<uint32>(Asset::ECookTargetProfile::Game))
 			{
-				return Fail(OutError, "Cooked environment-lighting descriptor is missing or incompatible.");
+				return Fail("Cooked environment-lighting descriptor is missing or incompatible.", &OutError);
 			}
 			const Asset::FAssetRuntimeConfiguration& LoadContext =
 				Asset::GetAssetRuntimeConfiguration();
@@ -306,7 +304,7 @@ namespace Durin
 				? EArchivePurpose::CookedPayload : EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(PayloadAr);
 		if (PayloadAr.HasError())
-			return Fail(OutError, PayloadAr.GetFailure()->Message);
+			return Fail(PayloadAr.GetFailure()->Message, &OutError);
 		Data = std::move(Candidate);
 		OutError.clear();
 		return true;
@@ -320,15 +318,15 @@ namespace Durin
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
 		{
-			return Fail(OutError, "Environment lighting supports only the Win64 game cook target.");
+			return Fail("Environment lighting supports only the Win64 game cook target.", &OutError);
 		}
-		if (!GetPackage()) return Fail(OutError, "Environment-lighting asset has no package.");
+		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
 		std::vector<uint8> PayloadBytes;
 		if (!LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		FEnvironmentLightingData Validated;
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		Validated.Serialize(PayloadAr);
-		if (PayloadAr.HasError()) return Fail(OutError, PayloadAr.GetFailure()->Message);
+		if (PayloadAr.HasError()) return Fail(PayloadAr.GetFailure()->Message, &OutError);
 
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = EnvironmentLightingPrimaryCookedPayloadId,

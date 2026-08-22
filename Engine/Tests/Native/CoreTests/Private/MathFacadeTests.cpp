@@ -37,6 +37,8 @@ namespace
 	static_assert(std::same_as<decltype(Durin::Math::DegreesToRadians(1.0)), double>);
 	static_assert(std::same_as<decltype(Durin::Math::Inverse(Durin::FMatrix{})), Durin::FMatrix>);
 	static_assert(std::same_as<decltype(Durin::Math::TransposeToFloat(Durin::FMatrix{})), Durin::FMatrix4f>);
+	static_assert(std::same_as<decltype(Durin::Math::Scale(
+		Durin::FMatrix4f{}, Durin::FVector3f{})), Durin::FMatrix4f>);
 }
 
 TEST(FMathFacadeTests, PreservesVectorPrecisionAndOrientation)
@@ -52,6 +54,11 @@ TEST(FMathFacadeTests, PreservesVectorPrecisionAndOrientation)
 		Durin::FVector3d(1.0, 2.0, 3.0), 0.0);
 	ExpectVectorNear(Durin::Math::Clamp(Durin::FVector3d(-2.0, 0.5, 4.0), Durin::FVector3d(0.0), Durin::FVector3d(1.0)),
 		Durin::FVector3d(0.0, 0.5, 1.0), 0.0);
+	ExpectVectorNear(Durin::Math::Floor(Durin::FVector3d(-1.25, 2.75, 3.0)),
+		Durin::FVector3d(-2.0, 2.0, 3.0), 0.0);
+	EXPECT_TRUE(Durin::Math::AnyGreaterThan(
+		Durin::FVector3d(1.0, 4.0, 2.0), Durin::FVector3d(1.0, 3.0, 5.0)));
+	EXPECT_FALSE(Durin::Math::AnyGreaterThan(Durin::FVector3d(1.0), Durin::FVector3d(1.0)));
 }
 
 TEST(FMathFacadeTests, RejectsInvalidAndNearZeroNormalizationWithoutMutatingOutput)
@@ -107,15 +114,16 @@ TEST(FMathFacadeTests, UsesExplicitAngleUnitsAndQuaternionSignEquivalence)
 
 TEST(FMathFacadeTests, PreservesColumnMajorTransformOrder)
 {
-	const Durin::FMatrix Matrix = Durin::Math::TranslationMatrix(Durin::FVector3(10.0, 20.0, 30.0))
-		* Durin::Math::RotationMatrix(Durin::Math::MakeQuaternionFromAxisAngleDegrees(
-			90.0, Durin::FVectorConstants::Up))
-		* Durin::Math::ScaleMatrix(Durin::FVector3(2.0, 3.0, 4.0));
+	Durin::FMatrix Matrix(1.0);
+	Matrix = Durin::Math::Translate(Matrix, Durin::FVector3(10.0, 20.0, 30.0));
+	Matrix = Durin::Math::RotateDegrees(Matrix, 90.0, Durin::FVectorConstants::Up);
+	Matrix = Durin::Math::Scale(Matrix, Durin::FVector3(2.0, 3.0, 4.0));
 	const Durin::FVector4 Transformed = Matrix * Durin::FVector4(1.0, 0.0, 0.0, 1.0);
 	ExpectVectorNear(Transformed, Durin::FVector4(10.0, 22.0, 30.0, 1.0), 1.e-12);
 	EXPECT_DOUBLE_EQ(Matrix[3][0], 10.0);
 	EXPECT_DOUBLE_EQ(Matrix[3][1], 20.0);
 	EXPECT_DOUBLE_EQ(Matrix[3][2], 30.0);
+	EXPECT_DOUBLE_EQ(Durin::Math::LinearDeterminant(Matrix), 24.0);
 
 	Durin::FMatrix Inverse(7.0);
 	ASSERT_TRUE(Durin::Math::TryInverse(Matrix, Inverse));

@@ -1,7 +1,5 @@
 #include "Animation/AnimationClip.h"
 
-#include "Misc/Failure.h"
-
 #include "AssetCook.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
@@ -47,15 +45,15 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (!std::isfinite(Payload.DurationSeconds) || Payload.DurationSeconds < 0.0f)
-			return Fail(OutError, "Animation payload duration is invalid.");
+			return Fail("Animation payload duration is invalid.", &OutError);
 		if (Payload.Tracks.empty() || Payload.Tracks.size() > MaximumAnimationClipTracks)
-			return Fail(OutError, "Animation payload track count is outside the supported range.");
+			return Fail("Animation payload track count is outside the supported range.", &OutError);
 
 		std::set<std::pair<uint16, EAnimationTrackPath>> TrackIdentities;
 		uint64 TotalKeys = 0;
 		uint64 PayloadBytes = 0;
 		if (!AddPayloadBytes(Payload.Tracks.size(), sizeof(FAnimationTrackData), PayloadBytes))
-			return Fail(OutError, "Animation payload exceeds the supported byte limit.");
+			return Fail("Animation payload exceeds the supported byte limit.", &OutError);
 		for (const FAnimationTrackData& Track : Payload.Tracks)
 		{
 			if ((Track.Path != EAnimationTrackPath::Translation
@@ -63,57 +61,57 @@ namespace Durin
 					&& Track.Path != EAnimationTrackPath::Scale)
 				|| Track.BoneIndex >= SkeletonBoneCount
 				|| !TrackIdentities.emplace(Track.BoneIndex, Track.Path).second)
-				return Fail(OutError, "Animation payload contains an invalid or duplicate track target.");
+				return Fail("Animation payload contains an invalid or duplicate track target.", &OutError);
 			if (Track.Interpolation != EAnimationInterpolation::Step
 				&& Track.Interpolation != EAnimationInterpolation::Linear)
-				return Fail(OutError, "Animation payload interpolation is unsupported.");
+				return Fail("Animation payload interpolation is unsupported.", &OutError);
 			if (Track.Times.empty() || Track.Times.size() > MaximumAnimationKeysPerTrack
 				|| TotalKeys > MaximumAnimationKeysPerClip - Track.Times.size())
-				return Fail(OutError, "Animation payload key count is outside the supported range.");
+				return Fail("Animation payload key count is outside the supported range.", &OutError);
 			TotalKeys += Track.Times.size();
 			if (!AddPayloadBytes(Track.Times.size(), sizeof(float), PayloadBytes)
 				|| !AddPayloadBytes(Track.VectorValues.size(), sizeof(FVector3f), PayloadBytes)
 				|| !AddPayloadBytes(Track.RotationValues.size(), sizeof(FVector4f), PayloadBytes))
-				return Fail(OutError, "Animation payload exceeds the supported byte limit.");
+				return Fail("Animation payload exceeds the supported byte limit.", &OutError);
 			for (size_t KeyIndex = 0; KeyIndex < Track.Times.size(); ++KeyIndex)
 			{
 				const float Time = Track.Times[KeyIndex];
 				if (!std::isfinite(Time) || Time < 0.0f || Time > Payload.DurationSeconds
 					|| (KeyIndex > 0 && Time <= Track.Times[KeyIndex - 1]))
-					return Fail(OutError, "Animation payload key times must be finite, bounded, and strictly increasing.");
+					return Fail("Animation payload key times must be finite, bounded, and strictly increasing.", &OutError);
 			}
 
 			if (Track.Path == EAnimationTrackPath::Rotation)
 			{
 				if (!Track.VectorValues.empty() || Track.RotationValues.size() != Track.Times.size())
-					return Fail(OutError, "Animation rotation track value count is invalid.");
+					return Fail("Animation rotation track value count is invalid.", &OutError);
 				for (size_t KeyIndex = 0; KeyIndex < Track.RotationValues.size(); ++KeyIndex)
 				{
 					const FVector4f& Value = Track.RotationValues[KeyIndex];
 					if (!IsUnitQuaternion(Value))
-						return Fail(OutError, "Animation rotation track contains an invalid quaternion.");
+						return Fail("Animation rotation track contains an invalid quaternion.", &OutError);
 					if (KeyIndex == 0 && !IsCanonicalQuaternion(Value))
-						return Fail(OutError, "Animation rotation track has a non-canonical first quaternion.");
+						return Fail("Animation rotation track has a non-canonical first quaternion.", &OutError);
 					if (KeyIndex > 0)
 					{
 						const float Dot = Math::Dot(Track.RotationValues[KeyIndex - 1], Value);
 						if (Dot < 0.0f || (Dot == 0.0f && !IsCanonicalQuaternion(Value)))
-							return Fail(OutError, "Animation rotation track has discontinuous quaternion signs.");
+							return Fail("Animation rotation track has discontinuous quaternion signs.", &OutError);
 					}
 				}
 			}
 			else
 			{
 				if (!Track.RotationValues.empty() || Track.VectorValues.size() != Track.Times.size())
-					return Fail(OutError, "Animation vector track value count is invalid.");
+					return Fail("Animation vector track value count is invalid.", &OutError);
 				if (std::ranges::any_of(Track.VectorValues, [](const FVector3f& Value) {
 					return !Math::IsFinite(Value);
-				})) return Fail(OutError, "Animation vector track contains a non-finite value.");
+				})) return Fail("Animation vector track contains a non-finite value.", &OutError);
 				if (Track.Path == EAnimationTrackPath::Scale
 					&& std::ranges::any_of(Track.VectorValues, [](const FVector3f& Value) {
 						return std::abs(Value.x) <= 1.0e-8f || std::abs(Value.y) <= 1.0e-8f
 							|| std::abs(Value.z) <= 1.0e-8f;
-					})) return Fail(OutError, "Animation scale track contains a singular value.");
+					})) return Fail("Animation scale track contains a singular value.", &OutError);
 			}
 		}
 		OutError.clear();
@@ -137,11 +135,11 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (!InData.Skeleton || !InData.Payload || InData.ClipName.IsNone())
-			return Fail(OutError, "Animation imported data requires a Skeleton, payload, and clip name.");
+			return Fail("Animation imported data requires a Skeleton, payload, and clip name.", &OutError);
 		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
 			? InData.ValidationSkeleton : InData.Skeleton;
 		if (InData.SkeletonCompatibilityIdentity != ValidationSkeleton->GetCompatibilityIdentity())
-			return Fail(OutError, "Animation imported data is incompatible with its Skeleton.");
+			return Fail("Animation imported data is incompatible with its Skeleton.", &OutError);
 		if (!ValidateAnimationClipPayload(*InData.Payload, *ValidationSkeleton, OutError)) return false;
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : InData.Payload->Tracks) KeyCount += Track.Times.size();
@@ -169,7 +167,7 @@ namespace Durin
 	auto DAnimationClip::Validate(std::string& OutError) const -> bool
 	{
 		if (!Skeleton)
-			return Fail(OutError, "AnimationClip has no Skeleton reference.");
+			return Fail("AnimationClip has no Skeleton reference.", &OutError);
 		return ValidateAgainstSkeleton(*Skeleton, OutError);
 	}
 
@@ -183,11 +181,11 @@ namespace Durin
 			return false;
 		}
 		if (!Skeleton || SkeletonCompatibilityIdentity != ProspectiveSkeleton.GetCompatibilityIdentity())
-			return Fail(OutError, "AnimationClip compatibility identity does not match its Skeleton.");
+			return Fail("AnimationClip compatibility identity does not match its Skeleton.", &OutError);
 		if (ClipName.IsNone() || !std::isfinite(Summary.DurationSeconds) || Summary.DurationSeconds < 0.0f
 			|| Summary.TrackCount == 0 || Summary.TrackCount > MaximumAnimationClipTracks
 			|| Summary.KeyCount == 0 || Summary.KeyCount > MaximumAnimationKeysPerClip)
-			return Fail(OutError, "AnimationClip authored summary or name is invalid.");
+			return Fail("AnimationClip authored summary or name is invalid.", &OutError);
 		if (PayloadData)
 		{
 			if (!ValidateAnimationClipPayload(*PayloadData, ProspectiveSkeleton, OutError)) return false;
@@ -195,7 +193,7 @@ namespace Durin
 			for (const FAnimationTrackData& Track : PayloadData->Tracks) KeyCount += Track.Times.size();
 			if (PayloadData->DurationSeconds != Summary.DurationSeconds
 				|| PayloadData->Tracks.size() != Summary.TrackCount || KeyCount != Summary.KeyCount)
-				return Fail(OutError, "AnimationClip payload does not match its authored summary.");
+				return Fail("AnimationClip payload does not match its authored summary.", &OutError);
 		}
 		OutError.clear();
 		return true;
@@ -234,13 +232,13 @@ namespace Durin
 		{
 			PayloadStorageDiagnostic = std::format(
 				"AnimationClip DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
-			return Fail(OutError, PayloadStorageDiagnostic);
+			return Fail(PayloadStorageDiagnostic, &OutError);
 		}
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : Candidate.Tracks) KeyCount += Track.Times.size();
 		if (Candidate.DurationSeconds != Summary.DurationSeconds
 			|| Candidate.Tracks.size() != Summary.TrackCount || KeyCount != Summary.KeyCount)
-			return Fail(OutError, "AnimationClip DDC payload does not match authored summary.");
+			return Fail("AnimationClip DDC payload does not match authored summary.", &OutError);
 		PayloadData = std::make_shared<const FAnimationClipPayloadData>(std::move(Candidate));
 		bLoadedFromDerivedDataCache = true;
 		PayloadStorageDiagnostic = std::format(
@@ -308,17 +306,17 @@ namespace Durin
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
-			return Fail(OutError, std::format(
-				"AnimationClip '{}' supports only the Win64 game cook target.", GetObjectPath()));
+			return Fail(std::format(
+				"AnimationClip '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;
-		if (!PayloadData) return Fail(OutError, "AnimationClip has no CPU payload to cook.");
+		if (!PayloadData) return Fail("AnimationClip has no CPU payload to cook.", &OutError);
 		std::vector<uint8> PayloadBytes;
 		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
 		const_cast<FAnimationClipPayloadData&>(*PayloadData).Serialize(Ar, {
 			.SkeletonBoneCount = Skeleton->GetBoneCount(),
 			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError()) return Fail(OutError, Ar.GetFailure()->Message);
+		if (Ar.HasError()) return Fail(Ar.GetFailure()->Message, &OutError);
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = AnimationClipPrimaryCookedPayloadId,
 			.Flags = 1,
@@ -365,7 +363,7 @@ namespace Durin
 		std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>
 	{
 		if (!Candidate.GetSkeleton())
-			return Fail(OutError, "Candidate AnimationClip has no Skeleton reference."), nullptr;
+			return Fail("Candidate AnimationClip has no Skeleton reference.", &OutError), nullptr;
 		return PrepareImportedStateExchange(Candidate, *Candidate.GetSkeleton(), OutError);
 	}
 
@@ -375,7 +373,7 @@ namespace Durin
 		std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>
 	{
 		if (&Candidate == this)
-			return Fail(OutError, "AnimationClip imported-state exchange requires distinct assets."), nullptr;
+			return Fail("AnimationClip imported-state exchange requires distinct assets.", &OutError), nullptr;
 		if (!Validate(OutError))
 		{
 			OutError = std::format("Target AnimationClip is invalid: {}", OutError);

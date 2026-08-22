@@ -253,7 +253,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
-		const double LightLengthSquared = glm::dot(LightDirection, LightDirection);
+		const double LightLengthSquared = Math::Dot(LightDirection, LightDirection);
 		const bool bViewFits = View.ViewportX <= Width && View.ViewportY <= Height
 			&& View.ViewportWidth <= Width - View.ViewportX
 			&& View.ViewportHeight <= Height - View.ViewportY;

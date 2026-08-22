@@ -148,7 +148,7 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorEquivalent.png";
 	WriteTextureFixture(Source);
 	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::FTextureSourceData BaselineSource;
 	std::string Error;
@@ -219,7 +219,7 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorScheduling.png";
 	WriteTextureFixture(Source);
 	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({
 		.MaxWorkers = 2,
@@ -298,7 +298,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorCancellation.png";
 	WriteTextureFixture(Source);
 	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
 
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 	std::mutex Mutex;

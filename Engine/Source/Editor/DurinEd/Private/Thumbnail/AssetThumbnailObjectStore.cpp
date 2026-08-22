@@ -92,7 +92,7 @@ namespace Durin::Editor
 			std::vector<uint8> Bytes;
 			std::error_code Error;
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)
-				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath().generic_string()))
+				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath()))
 				return;
 			FBinaryReader Reader(Bytes);
 			uint32 Count = 0;
@@ -188,7 +188,7 @@ namespace Durin::Editor
 			? std::filesystem::file_size(ResolvedPath, Error) : 0;
 		if (!Error && EncodedSize == Entry.EncodedBytes && EncodedSize <= Impl->Settings.MaximumObjectBytes
 			&& bContained
-			&& FFileHelper::LoadFileToArray(OutBytes, ResolvedPath.generic_string())
+			&& FFileHelper::LoadFileToArray(OutBytes, ResolvedPath)
 			&& OutBytes.size() == EncodedSize)
 		{
 			std::lock_guard Lock(Impl->Mutex);

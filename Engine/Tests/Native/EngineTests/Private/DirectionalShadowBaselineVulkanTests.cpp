@@ -5,6 +5,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -22,7 +23,6 @@
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
 #include <complex>
@@ -286,18 +286,18 @@ namespace
 
 	auto MakeTransform(const FPrimitivePlacement& Placement) -> Durin::FMatrix
 	{
-		Durin::FMatrix Transform = glm::translate(
-			Durin::FMatrix(1.0), Placement.Translation
-		);
+		Durin::FMatrix Transform = Durin::Math::TranslationMatrix(Placement.Translation);
 		if (Placement.RotationYDegrees != 0.0)
 		{
-			Transform = glm::rotate(Transform, glm::radians(Placement.RotationYDegrees), Durin::FVector3(0.0, 1.0, 0.0));
+			Transform = Durin::Math::RotateDegrees(
+				Transform, Placement.RotationYDegrees, Durin::FVectorConstants::Right);
 		}
 		if (Placement.RotationZDegrees != 0.0)
 		{
-			Transform = glm::rotate(Transform, glm::radians(Placement.RotationZDegrees), Durin::FVector3(0.0, 0.0, 1.0));
+			Transform = Durin::Math::RotateDegrees(
+				Transform, Placement.RotationZDegrees, Durin::FVectorConstants::Up);
 		}
-		return glm::scale(Transform, Placement.Scale);
+		return Durin::Math::Scale(Transform, Placement.Scale);
 	}
 
 	auto CalculateStatistics(std::string Name, const std::vector<Durin::uint8>& Pixels, const Durin::FViewRenderCounters& Counters) -> FCaptureStatistics
@@ -875,7 +875,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 				ASSERT_NE(Target, nullptr);
 				Durin::FSceneView View;
 				View.ViewLocation = {Fixture.CameraTranslationX, 0.0, 0.0};
-				View.ViewMatrix = glm::translate(Durin::FMatrix(1.0), Durin::FVector3(-Fixture.CameraTranslationX, 0.0, 0.0));
+				View.ViewMatrix = Durin::Math::TranslationMatrix(
+					Durin::FVector3(-Fixture.CameraTranslationX, 0.0, 0.0));
 				if (Fixture.bPerspective)
 				{
 					const double YScale = 1.0 / std::tan(Durin::Math::DegreesToRadians(60.0) * 0.5);

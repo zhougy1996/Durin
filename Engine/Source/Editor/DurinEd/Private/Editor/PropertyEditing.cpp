@@ -1,6 +1,5 @@
 #include "Editor/PropertyEditing.h"
 
-#include "Misc/Failure.h"
 #include "Editor/PropertyValueDraft.h"
 
 #include "DObject/DObjectArray.h"
@@ -108,7 +107,7 @@ namespace Durin::Editor
 		) -> bool
 		{
 			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(Target); }))
-				return Fail(OutError, "A reflected property hook cannot start a nested edit of the same target.");
+				return Fail("A reflected property hook cannot start a nested edit of the same target.", OutError);
 			FGenericMutationScope Scope(Target);
 
 			FPropertyValueSnapshot Before;
@@ -120,7 +119,7 @@ namespace Durin::Editor
 			const bool bResolvedLeaf = Draft.Resolve(Target, DraftLeaf.Property, DraftLeaf.Container, DraftLeaf.ArrayIndex, nullptr);
 			if (!bResolvedLeaf && Target.Kind != EPropertyChangeKind::MapKeyRename
 				&& Target.Kind != EPropertyChangeKind::MapRemove)
-				return Fail(OutError, "The detached property proposal leaf could not be resolved.");
+				return Fail("The detached property proposal leaf could not be resolved.", OutError);
 
 			std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
 			FPropertyEditProposal Proposal{
@@ -158,7 +157,7 @@ namespace Durin::Editor
 			if (Proposal.DeferredAction)
 			{
 				if (!OutDeferred)
-					return Fail(OutError, "The reflected-property caller cannot retain deferred validation.");
+					return Fail("The reflected-property caller cannot retain deferred validation.", OutError);
 				OutDeferred->ProposedValue = std::move(Normalized);
 				OutDeferred->Action = std::move(Proposal.DeferredAction);
 				if (OutAppliedValue) *OutAppliedValue = std::move(Before);
@@ -202,20 +201,20 @@ namespace Durin::Editor
 
 		auto ValidateTarget(const FPropertyEditTarget& Target, std::string* OutError) -> bool
 		{
-			if (!Target.Object) return Fail(OutError, "The edit target has no owning object.");
+			if (!Target.Object) return Fail("The edit target has no owning object.", OutError);
 			if (!Target.MemberProperty || !Target.LeafProperty
-				|| !Target.SnapshotProperty || !Target.SnapshotContainer) return Fail(OutError, "The edit target is incomplete.");
-			if (Target.SnapshotArrayIndex >= Target.SnapshotProperty->GetArrayDim()) return Fail(OutError, "The snapshot property array index is out of range.");
+				|| !Target.SnapshotProperty || !Target.SnapshotContainer) return Fail("The edit target is incomplete.", OutError);
+			if (Target.SnapshotArrayIndex >= Target.SnapshotProperty->GetArrayDim()) return Fail("The snapshot property array index is out of range.", OutError);
 			if (Target.Path.empty() || Target.Path.front().Property != Target.MemberProperty || Target.Path.back().Property != Target.LeafProperty)
 			{
-				return Fail(OutError, "The property path must run from the member property to the leaf property.");
+				return Fail("The property path must run from the member property to the leaf property.", OutError);
 			}
 			for (const FPropertyEditPathSegment& Segment : Target.Path)
 			{
-				if (!Segment.Property) return Fail(OutError, "The property path contains an empty segment.");
+				if (!Segment.Property) return Fail("The property path contains an empty segment.", OutError);
 				if (Segment.Selector != EPropertyPathSelector::MapKey && !Segment.MapKeyData.empty())
 				{
-					return Fail(OutError, "Only map-key path segments may contain serialized key data.");
+					return Fail("Only map-key path segments may contain serialized key data.", OutError);
 				}
 			}
 			return true;
@@ -299,7 +298,7 @@ namespace Durin::Editor
 			}
 			if (!Value)
 			{
-				Fail(OutError, "The reflected-property mutation value is unavailable.");
+				Fail("The reflected-property mutation value is unavailable.", OutError);
 				return Result;
 			}
 
@@ -350,7 +349,7 @@ namespace Durin::Editor
 	{
 		if (!ValidateTarget(Target, OutError)) return false;
 		if (Target.Path.front().Property != Target.SnapshotProperty)
-			return Fail(OutError, "The property path does not begin at the snapshot root.");
+			return Fail("The property path does not begin at the snapshot root.", OutError);
 
 		void* Container = Target.SnapshotContainer;
 		uint32 CurrentArrayIndex = Target.SnapshotArrayIndex;
@@ -380,11 +379,11 @@ namespace Durin::Editor
 				uint64 Num = 0;
 				if (!ArrayProperty || ArrayProperty->GetNum(Container, Num, CurrentArrayIndex) != EContainerOpResult::Success
 					|| Segment.Index >= Num)
-					return Fail(OutError, "The reflected array path index is unavailable.");
+					return Fail("The reflected array path index is unavailable.", OutError);
 				void* Element = nullptr;
 				if (ArrayProperty->GetMutableElement(Container, Segment.Index, &Element, CurrentArrayIndex)
 					!= EContainerOpResult::Success)
-					return Fail(OutError, "The reflected array path requires mutable random access.");
+					return Fail("The reflected array path requires mutable random access.", OutError);
 				Container = Element;
 				CurrentArrayIndex = 0;
 				break;
@@ -394,29 +393,29 @@ namespace Durin::Editor
 				auto* MapProperty = CurrentProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Map
 					? static_cast<FMapProperty*>(CurrentProperty) : nullptr;
 				if (!MapProperty || !Segment.MapKey.IsValid())
-					return Fail(OutError, "The reflected map path lacks a stable key snapshot.");
+					return Fail("The reflected map path lacks a stable key snapshot.", OutError);
 				FResolveMapEntryContext ResolveContext{MapProperty->GetKeyProp(), &Segment.MapKey};
 				const EContainerOpResult VisitResult = MapProperty->VisitMutableEntries(
 					Container, &ResolveMapEntry, &ResolveContext, CurrentArrayIndex);
 				if (VisitResult != EContainerOpResult::Success)
-					return Fail(OutError, "The reflected map path requires mutable mapped traversal.");
-				if (!ResolveContext.Error.empty()) return Fail(OutError, ResolveContext.Error);
-				if (!ResolveContext.Key) return Fail(OutError, "The reflected map key is unavailable.");
+					return Fail("The reflected map path requires mutable mapped traversal.", OutError);
+				if (!ResolveContext.Error.empty()) return Fail(ResolveContext.Error, OutError);
+				if (!ResolveContext.Key) return Fail("The reflected map key is unavailable.", OutError);
 				if (NextProperty == MapProperty->GetKeyProp())
 					Container = const_cast<void*>(ResolveContext.Key);
 				else if (NextProperty == MapProperty->GetValueProp())
 					Container = ResolveContext.Value;
 				else
-					return Fail(OutError, "The reflected map path does not select its key or value property.");
+					return Fail("The reflected map path does not select its key or value property.", OutError);
 				CurrentArrayIndex = 0;
 				break;
 			}
 			default:
-				return Fail(OutError, "The reflected property path selector is unsupported.");
+				return Fail("The reflected property path selector is unsupported.", OutError);
 			}
-			if (!Container || !NextProperty) return Fail(OutError, "The reflected property path could not be resolved.");
+			if (!Container || !NextProperty) return Fail("The reflected property path could not be resolved.", OutError);
 		}
-		return Fail(OutError, "The reflected property path is empty.");
+		return Fail("The reflected property path is empty.", OutError);
 	}
 
 	auto FPropertyEditTarget::ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex) -> FPropertyEditTarget
@@ -719,7 +718,7 @@ namespace Durin::Editor
 		FTransactionManager* InTransactionManager
 	) -> bool
 	{
-		if (bActive) return Fail(OutError, "A reflected-property edit session is already active.");
+		if (bActive) return Fail("A reflected-property edit session is already active.", OutError);
 		Target = InTarget;
 		if (!ValidateTarget(Target, OutError))
 		{
@@ -749,7 +748,7 @@ namespace Durin::Editor
 
 	auto FPropertyEditSession::Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
+		if (!bActive) { Fail("No reflected-property edit session is active.", OutError); return EPropertyEditResult::Failed; }
 		if (bDeferredPending)
 		{
 			if (DeferredOwnerState)
@@ -842,7 +841,7 @@ namespace Durin::Editor
 
 	auto FPropertyEditSession::Commit(std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
+		if (!bActive) { Fail("No reflected-property edit session is active.", OutError); return EPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
 		if (!ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, OutError).bSucceeded)
@@ -865,7 +864,7 @@ namespace Durin::Editor
 
 	auto FPropertyEditSession::Cancel(std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
+		if (!bActive) { Fail("No reflected-property edit session is active.", OutError); return EPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, bChanged ? &OriginalValue : nullptr, nullptr,

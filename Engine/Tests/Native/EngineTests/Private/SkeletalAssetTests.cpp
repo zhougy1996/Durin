@@ -879,7 +879,7 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	const std::filesystem::path MeshObject = CacheRoot / "SkeletalMesh/Objects"
 		/ MeshKey.substr(0, 2) / (MeshKey + ".bin");
 	std::vector<Durin::uint8> CorruptBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CorruptBytes, MeshObject.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CorruptBytes, MeshObject));
 	ASSERT_FALSE(CorruptBytes.empty());
 	CorruptBytes.back() ^= 0x80;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
@@ -1139,9 +1139,9 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		std::vector<Durin::uint8> FirstBytes;
 		std::vector<Durin::uint8> SecondBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-			FirstBytes, (FirstCookRoot / Relative).generic_string()));
+			FirstBytes, (FirstCookRoot / Relative)));
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-			SecondBytes, (SecondCookRoot / Relative).generic_string()));
+			SecondBytes, (SecondCookRoot / Relative)));
 		EXPECT_EQ(FirstBytes, SecondBytes) << Relative.generic_string();
 		if (Relative.extension() == ".dasset")
 		{
@@ -1153,9 +1153,9 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	std::vector<Durin::uint8> MeshBulk;
 	std::vector<Durin::uint8> ClipBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		MeshBulk, (FirstCookRoot / "Game/Mesh.dbulk").generic_string()));
+		MeshBulk, (FirstCookRoot / "Game/Mesh.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		ClipBulk, (FirstCookRoot / "Game/Clip.dbulk").generic_string()));
+		ClipBulk, (FirstCookRoot / "Game/Clip.dbulk")));
 	Durin::Asset::FCookedBulkContainer MeshContainer;
 	Durin::Asset::FCookedBulkContainer ClipContainer;
 	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
