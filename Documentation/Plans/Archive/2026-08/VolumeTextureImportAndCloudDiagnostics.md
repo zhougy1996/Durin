@@ -4,7 +4,7 @@ Summary: Add direct source-backed PNG-atlas volume import and actionable generic
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -308,12 +308,12 @@ is not eligible to render.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
-- [Volume textures](../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene authoring](../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Build and run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Volumetric cloud scene authoring](../../../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Build and run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

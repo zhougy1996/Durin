@@ -4,7 +4,7 @@ Summary: Add explicit `std::byte` reflection and atomic Blob serialization, then
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-22
 
 ## Execution Review
@@ -324,14 +324,14 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ## Related Documentation
 
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Generated reflection system](../Runtime/Core/ReflectionSystem.md)
-- [Asset packages](../Runtime/Assets/AssetPackages.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume textures](../Runtime/Assets/VolumeTextures.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Generated reflection system](../../../Runtime/Core/ReflectionSystem.md)
+- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Volume Texture Import and Cloud Diagnostics plan](VolumeTextureImportAndCloudDiagnostics.md)
-- [Testing](../Agents/Testing.md)
-- [Build and run](../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

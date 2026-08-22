@@ -4,7 +4,7 @@ Summary: Integrate synchronous compute into the Renderer through directional con
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -471,15 +471,15 @@ recorded pixel, lifecycle, command, and GPU-timing evidence.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [Synchronous Compute Pipelines](../Runtime/Rendering/SynchronousComputePipelines.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
+- [Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

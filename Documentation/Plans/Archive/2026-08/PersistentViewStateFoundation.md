@@ -4,7 +4,7 @@ Summary: Add renderer-owned persistent view identity and transactional previous-
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -28,7 +28,7 @@ Validation passed on 2026-08-21: `RenderContractTests` (40 tests),
 stateless output byte-for-byte in forward, deferred, and constrained offscreen
 paths; window-backed persistent rendering passed resize and present coverage.
 The lasting contract is published in
-[Persistent view state](../Runtime/Rendering/PersistentViewState.md).
+[Persistent view state](../../../Runtime/Rendering/PersistentViewState.md).
 
 ## Goal
 
@@ -318,22 +318,22 @@ fully stateless fallback.
 
 ## Related Documentation
 
-- [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
+- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
 - [Volume texture foundation plan](VolumeTextureFoundation.md)
-- [Agent build and run workflow](../Agents/BuildAndRun.md)
-- [Agent testing workflow](../Agents/Testing.md)
+- [Agent build and run workflow](../../../Agents/BuildAndRun.md)
+- [Agent testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`SceneView.h`](../../Engine/Source/Runtime/RenderCore/Public/SceneView.h)
-- [`SceneOwnership.h`](../../Engine/Source/Runtime/RenderCore/Public/SceneOwnership.h)
-- [`IRendererModule.h`](../../Engine/Source/Runtime/RenderCore/Public/IRendererModule.h)
-- [`RendererModule.cpp`](../../Engine/Source/Runtime/Renderer/Private/RendererModule.cpp)
-- [`SceneRenderer.h`](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h)
-- [`SceneRenderer.cpp`](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp)
-- [`SceneViewport.h`](../../Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h)
-- [`SceneViewport.cpp`](../../Engine/Source/Runtime/Engine/Private/Client/SceneViewport.cpp)
-- [`Engine.cpp`](../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
+- [`SceneView.h`](../../../../Engine/Source/Runtime/RenderCore/Public/SceneView.h)
+- [`SceneOwnership.h`](../../../../Engine/Source/Runtime/RenderCore/Public/SceneOwnership.h)
+- [`IRendererModule.h`](../../../../Engine/Source/Runtime/RenderCore/Public/IRendererModule.h)
+- [`RendererModule.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/RendererModule.cpp)
+- [`SceneRenderer.h`](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h)
+- [`SceneRenderer.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp)
+- [`SceneViewport.h`](../../../../Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h)
+- [`SceneViewport.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Client/SceneViewport.cpp)
+- [`Engine.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)

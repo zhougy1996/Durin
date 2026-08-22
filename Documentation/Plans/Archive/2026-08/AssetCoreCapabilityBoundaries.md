@@ -4,7 +4,7 @@ Summary: Separate AssetCore public capabilities so runtime consumers do not inhe
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -172,10 +172,10 @@ authoring-only third-party dependency for a runtime target to shed.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 
 ## Related Code
 

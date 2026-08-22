@@ -4,7 +4,7 @@ Summary: Decompose the monolithic AssetCore private implementation into cohesive
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -197,12 +197,12 @@ documentation required no contract update.
 
 ## Related Documentation
 
-- [Asset packages](../Runtime/Assets/AssetPackages.md)
-- [Asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [C++ coding standards](../Development/Standards/CodingStandards.md)
-- [Agent build and run workflow](../Agents/BuildAndRun.md)
-- [Agent testing workflow](../Agents/Testing.md)
+- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [C++ coding standards](../../../Development/Standards/CodingStandards.md)
+- [Agent build and run workflow](../../../Agents/BuildAndRun.md)
+- [Agent testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

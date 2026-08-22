@@ -4,7 +4,7 @@ Summary: Add the reflected volumetric-cloud component, stable scene snapshot, an
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -325,12 +325,12 @@ Revision)` from the old endpoint before publishing to the new one.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
-- [Volumetric cloud scene contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Volume textures](../Runtime/Assets/VolumeTextures.md)
-- [Build and run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Build and run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

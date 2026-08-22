@@ -574,14 +574,14 @@ the full validation level specified there before this plan can complete.
 ## Deferred Follow-ups
 
 - Compute commands and transitions are owned by the
-  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md).
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md).
 - Parallel recording, worker-produced lists, command sorting/merging, binary
   command compression, asynchronous queue-before-finish prerequisites, and
   asynchronous resource creation require separate evidence and plans.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)

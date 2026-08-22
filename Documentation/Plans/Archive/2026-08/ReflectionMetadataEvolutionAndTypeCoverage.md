@@ -4,7 +4,7 @@ Summary: Add typed property metadata, versioned reflected-schema migration, weak
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-22
 
 ## Current Status
@@ -518,12 +518,12 @@ distinction between hard, weak, and soft object ownership.
 
 ## Related Documentation
 
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Core Math](../Runtime/Core/Math.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Core Math](../../../Runtime/Core/Math.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 
 ## Related Code
 

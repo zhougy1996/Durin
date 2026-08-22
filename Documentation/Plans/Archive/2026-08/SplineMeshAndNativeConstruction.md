@@ -640,7 +640,7 @@ manual component management.
 - [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Renderer Light Scene Contract Plan](RendererLightSceneContract.md)
-- [Compute Renderer Integration Plan](../../ComputeRendererIntegration.md)
+- [Compute Renderer Integration Plan](ComputeRendererIntegration.md)
 - [Spline V2 and Viewport Editing Plan](SplineV2AndViewportEditing.md)
 - [Actor Component System Plan](../2026-07/ActorComponentSystem.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

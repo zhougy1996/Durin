@@ -4,7 +4,7 @@ Summary: Implement deterministic depth-aware volumetric-cloud spatial rendering 
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -401,15 +401,15 @@ for the P2 scene/component plan.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Synchronous Compute Pipelines](../Runtime/Rendering/SynchronousComputePipelines.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Build and run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Build and run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

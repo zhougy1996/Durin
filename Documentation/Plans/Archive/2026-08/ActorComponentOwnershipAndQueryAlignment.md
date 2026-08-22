@@ -4,7 +4,7 @@ Summary: Align Actor component ownership and query APIs with Unreal Engine while
 
 Last reviewed: 2026-08-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-20
 
 ## Current Status
@@ -449,8 +449,8 @@ Dependencies: Stages 1 through 4.
 | Editor integration | component tree, selection targeting, picking, details, rename/delete restrictions for generated components |
 | Documentation | changed-document validation, all-plan validation, updated Runtime ownership contracts |
 
-Build and test execution must follow [Agent Build And Run](../Agents/BuildAndRun.md)
-and [Agent Testing Workflow](../Agents/Testing.md). Test target names must be
+Build and test execution must follow [Agent Build And Run](../../../Agents/BuildAndRun.md)
+and [Agent Testing Workflow](../../../Agents/Testing.md). Test target names must be
 discovered from the configured registry rather than inferred from source paths.
 
 ## Definition of Done
@@ -489,13 +489,13 @@ discovered from the configured registry rather than inferred from source paths.
 
 ## Related Documentation
 
-- [Native Actor Construction](../Runtime/World/NativeConstruction.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Actor Component System](Archive/2026-07/ActorComponentSystem.md)
-- [Actor Lifecycle Mutation Safety](Archive/2026-07/ActorLifecycleMutationSafety.md)
+- [Native Actor Construction](../../../Runtime/World/NativeConstruction.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Actor Component System](../2026-07/ActorComponentSystem.md)
+- [Actor Lifecycle Mutation Safety](../2026-07/ActorLifecycleMutationSafety.md)
 
 ## Related Code
 

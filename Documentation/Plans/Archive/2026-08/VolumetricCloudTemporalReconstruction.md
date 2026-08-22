@@ -4,7 +4,7 @@ Summary: Implement low-resolution cloud rendering, temporal reconstruction, spat
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -251,11 +251,11 @@ quality and performance comparison.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
 - [Persistent View State Foundation](PersistentViewStateFoundation.md)
-- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Agent build and run workflow](../Agents/BuildAndRun.md)
-- [Agent testing workflow](../Agents/Testing.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Agent build and run workflow](../../../Agents/BuildAndRun.md)
+- [Agent testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

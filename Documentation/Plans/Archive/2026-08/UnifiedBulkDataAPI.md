@@ -4,7 +4,7 @@ Summary: Unify authored and cooked payload identity, immutable access, and synch
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-22
 
 ## Current Status
@@ -283,14 +283,14 @@ Depends on Stages 1-3.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture Roadmap](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Authored Asset Bulk Data Foundation](AuthoredAssetBulkDataFoundation.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

@@ -413,7 +413,7 @@ Completed stages: 0-4.
   [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md) to state that
   Renderer slots own logical PSOs, names are diagnostic-only, and the RHI
   publishes complete-or-null candidates.
-- [x] Update the [Compute Shader Pipeline](../../../Roadmaps/ComputeShaderPipeline.md)
+- [x] Update the [Compute Shader Pipeline](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
   roadmap so future compute PSOs inherit the same ownership and diagnostic-name
   boundary rather than introducing a parallel named cache.
 - [x] Update the recoverable-RHI plan's graphics-pipeline evidence and both
@@ -497,7 +497,7 @@ Completed stages: 0-4.
 - [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
-- [Compute Shader Pipeline](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

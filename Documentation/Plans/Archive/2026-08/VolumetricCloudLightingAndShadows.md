@@ -4,7 +4,7 @@ Summary: Implement production directional scattering, self-transmittance, ambien
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -321,16 +321,16 @@ gates passed.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Volumetric cloud temporal reconstruction](../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
-- [Volumetric cloud scene contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Deferred directional lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Directional shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Implementation plan rules](AGENTS.md)
-- [Build and run workflow](../Agents/BuildAndRun.md)
-- [Testing workflow](../Agents/Testing.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [Deferred directional lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Directional shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Implementation plan rules](../../AGENTS.md)
+- [Build and run workflow](../../../Agents/BuildAndRun.md)
+- [Testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

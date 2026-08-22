@@ -946,7 +946,7 @@ defined there.
 ## Deferred Follow-ups
 
 - GPU asynchronous compute remains the evidence-gated M5 milestone in the
-  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md).
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md).
 - Multiple RHI consumers, parallel command-list replay, worker-produced lists,
   and asynchronous resource-creation futures require separate plans.
 - More aggressive frame pipelining or adaptive batching starts only after
@@ -956,7 +956,7 @@ defined there.
 
 - [Recorded RHI Command List](RecordedRHICommandList.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
-- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Build and run](../../../Development/Build/BuildAndRun.md)

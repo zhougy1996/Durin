@@ -255,7 +255,7 @@ Vulkan calls or a whole-device idle dependency.
   `Documentation/Runtime/Rendering/` and remove compute limitations that are no
   longer true from shader-parameter documentation.
 - [x] Mark M2 complete in the
-  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md) and
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md) and
   record the M3 entry state without selecting its renderer consumer here.
 
 #### Acceptance Gate
@@ -308,7 +308,7 @@ Vulkan calls or a whole-device idle dependency.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)

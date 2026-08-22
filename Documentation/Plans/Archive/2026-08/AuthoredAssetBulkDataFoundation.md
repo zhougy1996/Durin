@@ -4,7 +4,7 @@ Summary: Add atomic authored bulk-payload ownership, descriptors, transactional 
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-22
 
 ## Current Status
@@ -333,15 +333,15 @@ Cook, or runtime texture results.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture Roadmap](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Reflected Byte Blob Serialization Plan](ReflectedByteBlobSerialization.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

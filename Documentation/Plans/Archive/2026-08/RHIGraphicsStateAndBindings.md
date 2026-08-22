@@ -546,7 +546,7 @@ and observed outcomes.
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
-- [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 

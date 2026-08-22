@@ -15,12 +15,12 @@ release 3D textures; `DVolumeTexture` supplies cookable package-backed volume
 assets; and Renderer owns transactional previous-view metadata with a private
 strongly typed history-extension point.
 
-[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) and the
-required [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap completed
+[Compute Renderer Integration](../Plans/Archive/2026-08/ComputeRendererIntegration.md) and the
+required [Compute Shader Pipeline](Archive/2026-08/ComputeShaderPipeline.md) roadmap completed
 on 2026-08-21. Their lasting compute, synchronization, fallback, recovery, and
 diagnostic contracts now satisfy the remaining P1 dependency.
 
-[Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md)
+[Volumetric Cloud Spatial Rendering](../Plans/Archive/2026-08/VolumetricCloudSpatialRendering.md)
 completed P1 on 2026-08-21. It froze and implemented the flat-slab coordinate
 model, deterministic inputs, matched compute/fragment production routes,
 scene-linear radiance/transmittance targets, exact composition, bounded
@@ -30,7 +30,7 @@ are published under Runtime rendering. The unavailable GTX 1060 identity was
 explicitly replaced by the user with RTX 3090 / Vulkan 1.4.325 while retaining
 all numeric gates; both named-gate executor reruns passed.
 
-[Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md)
+[Volumetric Cloud Scene Contract](../Plans/Archive/2026-08/VolumetricCloudSceneContract.md)
 completed P2 on 2026-08-21. The user then prioritized asset ingestion and
 generic diagnostics ahead of P3/P4. [Volume Texture Import and Cloud
 Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) completed
@@ -40,7 +40,7 @@ retains dependency-aware provenance for transactional reimport/repair, and
 exposes the shared cloud eligibility result in generic Details. Focused,
 aggregate, Vulkan, full-build, documentation, and Editor-smoke gates pass.
 
-[Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md)
+[Volumetric Cloud Temporal Reconstruction](../Plans/Archive/2026-08/VolumetricCloudTemporalReconstruction.md)
 completed P3 on 2026-08-23. `High` now renders at half linear resolution,
 reconstructs through bounded transactional per-view history and a depth-aware
 four-tap composite, and preserves a full-resolution `Reference` tier. The
@@ -50,14 +50,14 @@ median cost while passing image, memory, p95, recovery, and invalidation gates.
 The lasting contract is published under Runtime rendering, satisfying P4's
 entry dependency.
 
-[Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md)
+[Volumetric Cloud Lighting and Shadows](../Plans/Archive/2026-08/VolumetricCloudLightingAndShadows.md)
 completed P4 on 2026-08-23. Clouds now use the selected prepared directional
 light for fixed bounded phase, full-density self-transmittance, and ambient
 radiance; a Renderer-owned full-resolution `R8_UNORM` visibility target
 multiplies only surface directional lighting. Both named executors pass the 4K
 image, timing, memory, fallback, recovery, and release gates.
 
-[Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md)
+[Volumetric Cloud Authoring Workflow](../Plans/Archive/2026-08/VolumetricCloudAuthoringWorkflow.md)
 completed P5 on 2026-08-23. Exact volume slices, role-oriented cloud Details,
 per-view quality/debug controls, and copied nonblocking cloud statistics now
 form the production editor workflow. Focused, Vulkan, qualification, aggregate,
@@ -191,9 +191,9 @@ without representing those features as already supported.
 
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
-| Volume data | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) provides `DVolumeTexture`, deterministic mips, package/cook/DDC behavior, Texture3D sampling/storage, and lifecycle recovery. | Assign cloud meanings to generic volume inputs and qualify real density sampling without leaking cloud policy into the asset. |
+| Volume data | [Volume Texture Foundation](../Plans/Archive/2026-08/VolumeTextureFoundation.md) provides `DVolumeTexture`, deterministic mips, package/cook/DDC behavior, Texture3D sampling/storage, and lifecycle recovery. | Assign cloud meanings to generic volume inputs and qualify real density sampling without leaking cloud policy into the asset. |
 | Compute | Public synchronous compute, explicit transitions, sampled/storage images, and graphics handoff are implemented; the first Renderer consumer is completing qualification. | Add a measured cloud workload, route/fallback policy, low-resolution outputs, and scene-color consumption. |
-| Temporal state | [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) provides identity, previous matrices, discontinuities, and transactional feature-history extension. | Add cloud-specific history resources, reprojection, rejection, reconstruction, and commit/abort behavior. |
+| Temporal state | [Persistent View State Foundation](../Plans/Archive/2026-08/PersistentViewStateFoundation.md) provides identity, previous matrices, discontinuities, and transactional feature-history extension. | Add cloud-specific history resources, reprojection, rejection, reconstruction, and commit/abort behavior. |
 | Scene rendering | Renderer has sky bootstrap, GBuffer/deferred lighting, retained forward geometry, sorted translucency, post-process, editor assistance, and resource coordination. | Split opaque/cloud/translucent execution at the narrowest boundary and establish depth-aware cloud composition in every supported view route. |
 | Lighting | Directional-light scene proxies, deferred lighting, cascaded shadows, environment lighting, GTAO, and contact visibility exist. | Define cloud lighting inputs, self-transmittance, ambient approximation, and a bounded cloud-shadow path without changing light-component ownership. |
 | Authoring | The reflected cloud actor/component, stable scene selection, generic Details editing, `DVolumeTexture`, TextureBuild, AssetImportCore, AssetForge image decoding, and Content Browser import infrastructure exist. | Add the smallest source-backed volume importer and actionable generic status in P2.5; retain previews, presets, generation, and specialized UI for P5. |
@@ -215,13 +215,13 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| P0: Generic foundations | Required; completed 2026-08-21 | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) and [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) | Existing texture, compute, renderer-scene, and view-lifetime contracts were audited. | Cooked sampled 3D data and transactional view identity/history extension pass focused, aggregate, and runtime qualification. |
-| P1: Spatial rendering and composition | Required; completed 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | The user-approved RTX 3090 / Vulkan 1.4.325 rebaseline retained every numeric gate; inline/threaded named qualification passed three-extent structure, half/final-image parity, 49,766,400-byte peak retention, enabled offscreen/Present resize routes, invalid-input identity, lifecycle, aggregates, build, and runtime smoke. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
-| P2: Scene contract and component | Required; completed 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | Met: one reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources; generic Details, both Vulkan executors, aggregates, full build, and Editor smoke pass. |
-| P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
-| P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
-| P4: Lighting and cloud shadows | Required; completed 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable; the frozen Stage 0 contract selected the phase model, receiver representation, fixtures, and numeric gates before implementation. | Met: directional scattering, full-density self-transmittance, ambient contribution, and full-resolution bounded receiver visibility respond deterministically to light/cloud changes, preserve existing lighting ownership, and pass explicit fallback, recovery, inline/threaded 4K, and memory gates. |
-| P5: Authoring and editor workflow | Required; completed 2026-08-23 | [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Met: exact volume inspection, specialized reflected Details, production-backed quality/debug controls, copied diagnostics, persistence/recovery, aggregates, full build, documentation, and Editor smoke pass. |
+| P0: Generic foundations | Required; completed 2026-08-21 | [Volume Texture Foundation](../Plans/Archive/2026-08/VolumeTextureFoundation.md) and [Persistent View State Foundation](../Plans/Archive/2026-08/PersistentViewStateFoundation.md) | Existing texture, compute, renderer-scene, and view-lifetime contracts were audited. | Cooked sampled 3D data and transactional view identity/history extension pass focused, aggregate, and runtime qualification. |
+| P1: Spatial rendering and composition | Required; completed 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/Archive/2026-08/VolumetricCloudSpatialRendering.md) | The user-approved RTX 3090 / Vulkan 1.4.325 rebaseline retained every numeric gate; inline/threaded named qualification passed three-extent structure, half/final-image parity, 49,766,400-byte peak retention, enabled offscreen/Present resize routes, invalid-input identity, lifecycle, aggregates, build, and runtime smoke. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
+| P2: Scene contract and component | Required; completed 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/Archive/2026-08/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | Met: one reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources; generic Details, both Vulkan executors, aggregates, full build, and Editor smoke pass. |
+| P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/Archive/2026-08/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
+| P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/Archive/2026-08/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
+| P4: Lighting and cloud shadows | Required; completed 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../Plans/Archive/2026-08/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable; the frozen Stage 0 contract selected the phase model, receiver representation, fixtures, and numeric gates before implementation. | Met: directional scattering, full-density self-transmittance, ambient contribution, and full-resolution bounded receiver visibility respond deterministically to light/cloud changes, preserve existing lighting ownership, and pass explicit fallback, recovery, inline/threaded 4K, and memory gates. |
+| P5: Authoring and editor workflow | Required; completed 2026-08-23 | [Volumetric Cloud Authoring Workflow](../Plans/Archive/2026-08/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Met: exact volume inspection, specialized reflected Details, production-backed quality/debug controls, copied diagnostics, persistence/recovery, aggregates, full build, documentation, and Editor smoke pass. |
 | P6: Production qualification and contract publication | Required; eligible | `VolumetricCloudProductionQualification` | Met: P1-P5, including P2.5, pass their acceptance gates. Activate P6 only after freezing its remaining cross-feature qualification matrix. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
 P0-P5 are complete. P6 is the next eligible milestone; its child plan remains
@@ -229,7 +229,7 @@ proposed until the cross-feature matrix is frozen and work is ready to start.
 
 ## Child Plan Boundaries
 
-### [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md)
+### [Volumetric Cloud Spatial Rendering](../Plans/Archive/2026-08/VolumetricCloudSpatialRendering.md)
 
 Owns the first-version coordinate model, deterministic density fixture, base
 and detail volume sampling, optional weather input, spatial ray march, initial
@@ -243,7 +243,7 @@ shadows, specialized editor UI, a general volumetric framework, or async
 compute. The minimal light approximation proves visible form only; P4 owns the
 production lighting response.
 
-### [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md)
+### [Volumetric Cloud Scene Contract](../Plans/Archive/2026-08/VolumetricCloudSceneContract.md)
 
 Owns Engine-side cloud scene data, stable identity and selection, Proxy/SceneInfo
 lifetime, component/actor reflection, asset references, serialization,
@@ -254,7 +254,7 @@ It translates authored settings into the already-frozen P1 renderer input. It
 does not own GPU resources, introduce texture import policy, expose sample-count
 implementation details as content, or redesign SkyBox/light ownership.
 
-### [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md)
+### [Volume Texture Import and Cloud Diagnostics](../Plans/Archive/2026-08/VolumeTextureImportAndCloudDiagnostics.md)
 
 Owns the first source-backed `DVolumeTexture` adapter: one direct row-major PNG
 atlas, AssetImportCore/AssetForge import and reimport, provenance,
@@ -266,7 +266,7 @@ It does not add a dedicated editor, volume/cloud previews, procedural noise,
 presets, debug views, temporal reconstruction, production lighting, broader
 volume formats, or cloud semantics to the generic texture asset.
 
-### [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md)
+### [Volumetric Cloud Temporal Reconstruction](../Plans/Archive/2026-08/VolumetricCloudTemporalReconstruction.md)
 
 Owns low-resolution target sizing, sample pattern and jitter, cloud depth or
 other reprojection metadata, motion reconstruction, history rejection and
@@ -277,7 +277,7 @@ memory, camera-motion image sequences, and temporal debug diagnostics.
 It does not add TAA for scene geometry, a generic history cache, dynamic
 resolution for the whole renderer, or async-compute scheduling.
 
-### [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md)
+### [Volumetric Cloud Lighting and Shadows](../Plans/Archive/2026-08/VolumetricCloudLightingAndShadows.md)
 
 Owns the selected directional-light snapshot consumed by clouds, phase and
 extinction conventions, self-shadow/transmittance sampling, ambient/sky
@@ -289,7 +289,7 @@ It does not implement a sky-atmosphere system, multiple scattering, local-light
 volumetrics, new light-component ownership, or replace existing geometric
 directional shadows.
 
-### [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md)
+### [Volumetric Cloud Authoring Workflow](../Plans/Archive/2026-08/VolumetricCloudAuthoringWorkflow.md)
 
 Owns exact volume slice inspection, cloud asset-role presentation, component
 Details layout, per-view quality presets, production-backed cloud debug-view

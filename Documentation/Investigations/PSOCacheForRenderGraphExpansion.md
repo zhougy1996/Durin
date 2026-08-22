@@ -123,7 +123,7 @@ These are candidates, not selected architecture:
 - [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
 - [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Material system](../Runtime/Rendering/MaterialSystem.md)
-- [Compute shader pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
+- [Compute shader pipeline roadmap](../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 
 ## Relevant Implementation
 

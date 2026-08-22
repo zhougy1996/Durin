@@ -113,7 +113,7 @@ transition.
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [Texture system](TextureSystem.md)
 - [Viewport rendering](ViewportRendering.md)
-- [Compute shader pipeline roadmap](../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute shader pipeline roadmap](../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI and Vulkan backend evolution roadmap](../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 - [Native tests](../../Development/Build/NativeTests.md)

@@ -4,7 +4,7 @@ Summary: Complete the backend-neutral 3D texture path and add a cookable `DVolum
 
 Last reviewed: 2026-08-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-21
 
 ## Current Status
@@ -14,8 +14,8 @@ non-array sampled/storage/copy 3D textures, including recorded uploads and
 reflected shader bindings. Engine owns a package-backed, cookable
 `DVolumeTexture`; TextureBuild owns deterministic three-axis mip construction,
 TXPL/DDC production, and the uncooked post-load policy. The lasting contracts
-are published in [Volume textures](../Runtime/Assets/VolumeTextures.md) and
-[RHI capabilities and Vulkan startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md).
+are published in [Volume textures](../../../Runtime/Assets/VolumeTextures.md) and
+[RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md).
 
 ## Goal
 
@@ -310,23 +310,23 @@ resource-lifecycle contracts as existing texture assets.
 
 ## Related Documentation
 
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset packages](../Runtime/Assets/AssetPackages.md)
-- [RHI capabilities and Vulkan startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
+- [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
 - [Persistent view state foundation plan](PersistentViewStateFoundation.md)
-- [Agent build and run workflow](../Agents/BuildAndRun.md)
-- [Agent testing workflow](../Agents/Testing.md)
+- [Agent build and run workflow](../../../Agents/BuildAndRun.md)
+- [Agent testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`RHIDefinitions.h`](../../Engine/Source/Runtime/RHI/Public/RHIDefinitions.h)
-- [`RHIResources.h`](../../Engine/Source/Runtime/RHI/Public/RHIResources.h)
-- [`RHICapabilities.h`](../../Engine/Source/Runtime/RHI/Public/RHICapabilities.h)
-- [`VulkanTexture.cpp`](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp)
-- [`Texture.h`](../../Engine/Source/Runtime/Engine/Public/Texture/Texture.h)
-- [`Texture2D.h`](../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
-- [`TextureDerivedData.h`](../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
-- [`TextureRenderResource.h`](../../Engine/Source/Runtime/Engine/Public/Texture/TextureRenderResource.h)
-- [`TextureBuild.dmodule`](../../Engine/Source/Developer/TextureBuild/TextureBuild.dmodule)
+- [`RHIDefinitions.h`](../../../../Engine/Source/Runtime/RHI/Public/RHIDefinitions.h)
+- [`RHIResources.h`](../../../../Engine/Source/Runtime/RHI/Public/RHIResources.h)
+- [`RHICapabilities.h`](../../../../Engine/Source/Runtime/RHI/Public/RHICapabilities.h)
+- [`VulkanTexture.cpp`](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp)
+- [`Texture.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture.h)
+- [`Texture2D.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
+- [`TextureDerivedData.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
+- [`TextureRenderResource.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureRenderResource.h)
+- [`TextureBuild.dmodule`](../../../../Engine/Source/Developer/TextureBuild/TextureBuild.dmodule)

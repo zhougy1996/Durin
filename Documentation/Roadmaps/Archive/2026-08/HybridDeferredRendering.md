@@ -254,7 +254,7 @@ commands here.
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
 - [Material System Roadmap](../../MaterialSystem.md)
-- [Compute Shader Pipeline Roadmap](../../ComputeShaderPipeline.md)
+- [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
 - [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
 
 ## Related Code

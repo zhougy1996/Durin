@@ -4,7 +4,7 @@ Summary: Replace manual editor registration and mounted-source lifecycles with s
 
 Last reviewed: 2026-08-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-20
 
 ## Current Status
@@ -337,13 +337,13 @@ removing duplicated cleanup paths and pass-through glue.
 
 ## Related Documentation
 
-- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

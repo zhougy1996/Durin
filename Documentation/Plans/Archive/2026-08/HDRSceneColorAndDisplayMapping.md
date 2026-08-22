@@ -23,7 +23,7 @@ oldest other extents above `192 MiB`; one 1920x1080 extent is `49,766,400`
 bytes, so four fit and five do not.
 
 HDR is sequenced first. The active
-[Compute Renderer Integration](../../ComputeRendererIntegration.md) plan is
+[Compute Renderer Integration](ComputeRendererIntegration.md) plan is
 rebaselined to read HDR Scene Color, apply the published transform per FXAA
 sample, write a bounded display-linear `RGBA16_FLOAT` intermediate, and use a
 non-mapping graphics copy into sRGB output.
@@ -219,7 +219,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
       consumer, diagnostic, and readback of `SceneColor`, `ContactColor`, and
       final viewport output; classify each color domain.
 - [x] Record the implementation order with
-      [Compute Renderer Integration](../../ComputeRendererIntegration.md) and update
+      [Compute Renderer Integration](ComputeRendererIntegration.md) and update
       that plan if its FXAA input, intermediate, route, or pipeline assumptions
       are superseded.
 - [x] Freeze the tone-mapping equation and constants, exposure EV range and
@@ -398,7 +398,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
 - [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
-- [Compute Renderer Integration](../../ComputeRendererIntegration.md)
+- [Compute Renderer Integration](ComputeRendererIntegration.md)
 - [Directional Contact Shadows](DirectionalContactShadows.md)
 
 ## Related Code

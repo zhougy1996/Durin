@@ -4,7 +4,7 @@ Summary: Upgrade the repository asset corpus and retire proven-unused authored B
 
 Last reviewed: 2026-08-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-22
 
 ## Current Status
@@ -295,15 +295,15 @@ Depends on Stages 1-3.
 ## Related Documentation
 
 - [Unified BulkData API](UnifiedBulkDataAPI.md)
-- [Large Asset Payload Architecture Roadmap](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Canonical Resave](../Editor/Guides/CanonicalResave.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Canonical Resave](../../../Editor/Guides/CanonicalResave.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

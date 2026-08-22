@@ -834,7 +834,7 @@ build, runtime, and recovery operations follow the root
 ## Related Documentation
 
 - [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI capabilities and Vulkan startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
 - [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)

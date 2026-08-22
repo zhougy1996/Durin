@@ -4,7 +4,7 @@ Summary: Extract a shared bounded binary container foundation for DABK and DBLK 
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -339,16 +339,16 @@ Depends on Stages 0-4.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture Roadmap](../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
 - [Unified BulkData API](UnifiedBulkDataAPI.md)
 - [Authored Asset Bulk Data Foundation](AuthoredAssetBulkDataFoundation.md)
 - [BulkData Compatibility Retirement](BulkDataCompatibilityRetirement.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

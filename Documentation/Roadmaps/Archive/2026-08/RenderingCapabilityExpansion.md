@@ -464,7 +464,7 @@ visibility should not be one child plan. Activate bounded plans independently:
 - [Renderer Scene Proxy and Info Contract Plan](../../../Plans/Archive/2026-08/RendererSceneProxyAndInfoContract.md)
 - [Material System](../../../Runtime/Rendering/MaterialSystem.md)
 - [Material System Roadmap](../../MaterialSystem.md)
-- [Compute Shader Pipeline Roadmap](../../ComputeShaderPipeline.md)
+- [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
 - [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md)
 - [Skeletal Mesh Rendering Plan](../../../Plans/Archive/2026-08/SkeletalMeshRendering.md)
 - [Renderer Light Scene Contract Plan](../../../Plans/Archive/2026-08/RendererLightSceneContract.md)

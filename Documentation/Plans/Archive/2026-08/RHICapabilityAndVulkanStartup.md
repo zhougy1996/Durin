@@ -727,7 +727,7 @@ Later stages add these exact boundaries rather than replacing the baseline:
 ## Related Documentation
 
 - [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Compute Shader Pipeline Roadmap](../../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)

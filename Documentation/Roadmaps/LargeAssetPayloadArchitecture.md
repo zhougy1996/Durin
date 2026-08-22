@@ -18,16 +18,16 @@ its real `128^3` workflow plans as one node and completes save/reload, failure
 recovery, reimport, and Cook with external verified authored bytes.
 
 Milestones 1-2 are complete through
-[Authored Asset Bulk Data Foundation](../Plans/AuthoredAssetBulkDataFoundation.md).
-[Unified BulkData API](../Plans/UnifiedBulkDataAPI.md) now provides the common
+[Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md).
+[Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) now provides the common
 logical descriptor, immutable owner/view, synchronous residency state, and
 provider boundary. `FAuthoredBulkData` delegates to the common value while
 retaining DAST/DABK authoring policy, and VolumeTexture cooked TXPL uses a DBLK
 provider adapter without changing Cook bytes. The completed
-[BulkData Compatibility Retirement](../Plans/BulkDataCompatibilityRetirement.md)
+[BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md)
 upgraded tracked assets, removed concrete ImportRecord aliases and historical
 VolumeTexture voxel schemas, and left `FBulkData` as the sole runtime residency
-API. [Bulk Container Infrastructure](../Plans/BulkContainerInfrastructure.md)
+API. [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md)
 completed the architectural-hardening child by extracting bounded binary IO,
 checked layout construction, and range validation shared by DABK/DBLK without
 merging their wires or authorities. Portable Typed Atomic Buffers remains the next ordered
@@ -160,10 +160,10 @@ the API does not merge their files, wire formats, durability, or rebuild rules.
 
 | Child plan | Owns | Must not own |
 | --- | --- | --- |
-| [Authored Asset Bulk Data Foundation](../Plans/AuthoredAssetBulkDataFoundation.md) | Authored bulk value, descriptor, local companion transaction, synchronous residency, Blob-to-bulk volume migration | Generic typed vector codecs, async streaming, global consumer conversion, remote storage |
-| [Unified BulkData API](../Plans/UnifiedBulkDataAPI.md) (completed) | Common logical descriptor/value, immutable access, residency/failure semantics, provider contract, authored wrapper migration, one cooked adapter | Merging DABK and DBLK wires, changing DDC durability, async budgets, or broad consumer migration |
-| [BulkData Compatibility Retirement](../Plans/BulkDataCompatibilityRetirement.md) (completed) | Tracked asset canonicalization, concrete ImportRecord alias retirement, one authored runtime API, and current-only VolumeTexture voxels | Generic alias infrastructure, low-level cooked DBLK consumers, or wire-format changes |
-| [Bulk Container Infrastructure](../Plans/BulkContainerInfrastructure.md) (completed) | AssetCore-private bounded codec, checked arithmetic/alignment, deterministic directory construction, hashing, and range validation shared by DABK/DBLK | Merging formats/suffixes, changing lifecycle ownership, public serialization API, streaming, or wire versions |
+| [Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md) | Authored bulk value, descriptor, local companion transaction, synchronous residency, Blob-to-bulk volume migration | Generic typed vector codecs, async streaming, global consumer conversion, remote storage |
+| [Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) (completed) | Common logical descriptor/value, immutable access, residency/failure semantics, provider contract, authored wrapper migration, one cooked adapter | Merging DABK and DBLK wires, changing DDC durability, async budgets, or broad consumer migration |
+| [BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) (completed) | Tracked asset canonicalization, concrete ImportRecord alias retirement, one authored runtime API, and current-only VolumeTexture voxels | Generic alias infrastructure, low-level cooked DBLK consumers, or wire-format changes |
+| [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) (completed) | AssetCore-private bounded codec, checked arithmetic/alignment, deterministic directory construction, hashing, and range validation shared by DABK/DBLK | Merging formats/suffixes, changing lifecycle ownership, public serialization API, streaming, or wire versions |
 | Portable Typed Atomic Buffers (proposed) | Codec identity, canonical scalar/record encoding, reflected atomic typed values over BulkData, editor summaries | Physical payload placement or package transaction |
 | Asset Payload Consumer Migrations (one plan per bounded domain) | Domain schema versions, exact byte compatibility, authoring and Cook workflow | Redefining common bulk APIs for one producer |
 | Payload Lifecycle Inspection and Repair (proposed) | Audit graph, diagnostics, orphan detection, repair and cleanup tooling | Runtime streaming policy |
@@ -242,7 +242,7 @@ Buffers remains unselected until its two-consumer entry gate is demonstrated.
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Reflected Byte Blob Serialization Plan](../Plans/ReflectedByteBlobSerialization.md)
+- [Reflected Byte Blob Serialization Plan](../Plans/Archive/2026-08/ReflectedByteBlobSerialization.md)
 - [Testing](../Agents/Testing.md)
 - [Build and Run](../Agents/BuildAndRun.md)
 
