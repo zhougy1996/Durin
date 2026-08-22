@@ -596,7 +596,7 @@ namespace Durin::Asset::DastV4
 				if (Value.ReferenceTag == 1) { const uint64 Id = Tables.NameId(Value.Text); if (Id == 0) return Fail(Diagnostic, EWriterFailure::MissingDiscovery, "A soft reference path was not discovered.", std::string(Path)); Writer.VarUInt(Id); }
 				return true;
 			case ETypeOpcode::Bytes:
-				if (Value.Bytes.size() > MaximumContainerElements) return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Byte value exceeds the bound.", std::string(Path));
+				if (Value.Bytes.size() > MaximumByteValueBytes) return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Byte value exceeds the bound.", std::string(Path));
 				Writer.VarUInt(Value.Bytes.size()); Writer.Bytes(Value.Bytes); return true;
 			}
 			return Fail(Diagnostic, EWriterFailure::UnsupportedType, "A value opcode is unsupported.", std::string(Path));

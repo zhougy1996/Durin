@@ -31,7 +31,8 @@ The current system supports:
 - generated enum registration into `DEnum`
 - generated value-struct registration into `DStruct`
 - generated property metadata for reflected `DPROPERTY()` fields
-- primitive, `std::string`, enum, struct, object-pointer, fixed C array, `std::vector`, and `std::unordered_map` property nodes
+- primitive, `std::byte`, `std::string`, enum, struct, object-pointer, fixed C
+  array, `std::vector`, and `std::unordered_map` property nodes
 - nested container property metadata, with recursive array/map inner property trees
 - runtime `DObject::IsA` and `Cast<T>` based on the `DClass` hierarchy
 - runtime `DObject` registration in `GDObjectArray`
@@ -419,6 +420,25 @@ pointers are copied into process-lifetime runtime strings during construction.
 `DStructBase` stores its superclass through `SuperStructBase`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
 
 `DObject::IsA(const DClass*)` walks the `DClass` superclass chain. `Cast<T>` uses `T::StaticClass()` and `IsA`.
+
+## Byte And Blob Properties
+
+`std::byte` is a distinct reflected one-byte leaf. It is not numeric: generic
+property editing presents hexadecimal byte data and does not apply arithmetic,
+range, or decimal controls. Fixed C arrays of `std::byte` retain fixed-array
+shape.
+
+A direct `std::vector<std::byte>` is generated as one owned Blob property with
+logical Archive kind `Bytes`; it is not an `FArrayProperty` and exposes only a
+read-only byte-count summary in generic Details. Blob construction,
+destruction, copy, exact equality, snapshots, duplication, and Archive loading
+operate on the complete vector. Blob values contain no object references and
+cannot be Map keys or targets of indexed authored overrides.
+
+`std::vector<uint8>` remains the existing numeric `Array<UInt8>` contract.
+DurinHeaderTool does not infer Blob intent from a field name or size. The first
+Blob contract admits only a direct field: nested Blob containers, custom
+allocators, and Blob Map participation are rejected during generation.
 
 ## Reflected Struct Operations
 

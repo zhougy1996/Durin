@@ -112,7 +112,7 @@ namespace Durin
 		{
 			auto* Texture = NewObject<DVolumeTexture>(nullptr, Name);
 			FVolumeTextureSourceData Source{
-				.Voxels = {Density}, .Width = 1, .Height = 1, .Depth = 1,
+				.Voxels = {static_cast<std::byte>(Density)}, .Width = 1, .Height = 1, .Depth = 1,
 				.Format = EVolumeTextureFormat::R8_UNORM};
 			auto Platform = std::make_unique<FVolumeTexturePlatformData>();
 			Platform->PixelFormat = EPixelFormat::R8_UNORM;

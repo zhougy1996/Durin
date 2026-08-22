@@ -212,7 +212,9 @@ namespace Durin
 			Name,
 			Guid,
 			SoftObject,
-			WeakObject
+			WeakObject,
+			Byte,
+			Blob
 		};
 
 		enum class EPropertyParamLayout : uint8
@@ -226,8 +228,9 @@ namespace Durin
 			Array,
 			Map,
 			SoftObject,
-			WeakObject
-		};
+			WeakObject,
+			Blob
+			};
 
 		struct FPropertyParamsBase;
 
@@ -412,6 +415,7 @@ namespace Durin
 		template<> inline constexpr bool TIsPlainPropertyMapping<std::string, EPropertyGenFlags::String> = true;
 		template<> inline constexpr bool TIsPlainPropertyMapping<FName, EPropertyGenFlags::Name> = true;
 		template<> inline constexpr bool TIsPlainPropertyMapping<FGuid, EPropertyGenFlags::Guid> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<std::byte, EPropertyGenFlags::Byte> = true;
 
 		template<typename TValue, EPropertyGenFlags PropertyKind>
 		struct TPlainPropertyParams final : public FPropertyParamsBase
@@ -480,6 +484,28 @@ namespace Durin
 		using FStringPropertyParams = TPlainPropertyParams<std::string, EPropertyGenFlags::String>;
 		using FNamePropertyParams = TPlainPropertyParams<FName, EPropertyGenFlags::Name>;
 		using FGuidPropertyParams = TPlainPropertyParams<FGuid, EPropertyGenFlags::Guid>;
+		using FBytePropertyParams = TPlainPropertyParams<std::byte, EPropertyGenFlags::Byte>;
+
+		struct FBlobPropertyParams final : public FPropertyParamsBase
+		{
+			constexpr FBlobPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset,
+					  EPropertyGenFlags::Blob, EPropertyParamLayout::Blob,
+					  nullptr, nullptr, InMetaData, InNumMetaData)
+				, ValueOps(MakePropertyValueOps<std::vector<std::byte>>())
+			{
+			}
+
+			FPropertyValueOps ValueOps;
+		};
 
 		struct FEnumPropertyParams final : public FPropertyParamsBase
 		{

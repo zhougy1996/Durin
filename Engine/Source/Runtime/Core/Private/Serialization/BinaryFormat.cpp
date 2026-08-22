@@ -39,6 +39,12 @@ namespace Durin
 		Archive.WriteBytes(std::as_bytes(Value));
 	}
 
+	auto FBinaryWriter::WriteBytes(std::span<const std::byte> Value) -> void
+	{
+		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
+		Archive.WriteBytes(Value);
+	}
+
 	auto FBinaryWriter::WriteHeader(const FBinaryFormatHeader& Header) -> void
 	{
 		WriteU32(Header.Magic);
@@ -59,6 +65,17 @@ namespace Durin
 			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size())) return false;
 		std::vector<uint8> Loaded(static_cast<size_t>(ByteCount));
 		if (ByteCount != 0) Archive.ReadBytes(std::as_writable_bytes(std::span<uint8>(Loaded)));
+		if (Archive.HasError()) return false;
+		Value = std::move(Loaded);
+		return true;
+	}
+
+	auto FBinaryReader::ReadBytes(std::vector<std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+	{
+		if (ByteCount > MaximumBytes || ByteCount > GetRemainingBytes()
+			|| ByteCount > static_cast<uint64>(std::vector<std::byte>().max_size())) return false;
+		std::vector<std::byte> Loaded(static_cast<size_t>(ByteCount));
+		if (ByteCount != 0) Archive.ReadBytes(Loaded);
 		if (Archive.HasError()) return false;
 		Value = std::move(Loaded);
 		return true;

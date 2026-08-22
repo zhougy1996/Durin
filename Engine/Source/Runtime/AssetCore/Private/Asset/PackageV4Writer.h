@@ -19,6 +19,7 @@ namespace Durin::Asset::DastV4
 	inline constexpr uint64 MaximumCustomVersions = 256;
 	inline constexpr uint64 MaximumDependencies = 4'096;
 	inline constexpr uint64 MaximumContainerElements = 1'048'575;
+	inline constexpr uint64 MaximumByteValueBytes = MaximumPackageBytes;
 	inline constexpr uint32 MaximumValueDepth = 64;
 
 	enum class EWriterFailure : uint8

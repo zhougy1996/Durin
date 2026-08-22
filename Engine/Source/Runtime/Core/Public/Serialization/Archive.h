@@ -173,6 +173,9 @@ namespace Durin
 		CORE_API auto Serialize(void* Data, uint64 Size) -> void;
 		CORE_API auto WriteBytes(std::span<const std::byte> Bytes) -> void;
 		CORE_API auto ReadBytes(std::span<std::byte> Bytes) -> void;
+		// Transfers an owned byte Blob as a bounded count followed by exact bytes.
+		// Loads commit only after the complete payload has been validated and read.
+		CORE_API auto SerializeByteBlob(std::vector<std::byte>& Bytes) -> void;
 		virtual auto Tell() const -> uint64 { return 0; }
 		virtual auto GetRemainingPayloadBytes() const -> uint64 { return std::numeric_limits<uint64>::max(); }
 		virtual auto IsCurrentFieldAvailable() const -> bool { return true; }

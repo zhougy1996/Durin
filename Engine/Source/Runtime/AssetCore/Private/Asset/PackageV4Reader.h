@@ -56,6 +56,7 @@ namespace Durin::Asset::DastV4
 		uint64 CustomVersions = MaximumCustomVersions;
 		uint64 Dependencies = MaximumDependencies;
 		uint64 ContainerElements = MaximumContainerElements;
+		uint64 ByteValueBytes = MaximumByteValueBytes;
 		uint32 ValueDepth = MaximumValueDepth;
 	};
 

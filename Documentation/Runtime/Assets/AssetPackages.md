@@ -225,8 +225,9 @@ tables are:
 
 Every table, record, and section is completely consumed. Limits are 1,048,575
 names, types, schemas, and objects; 65,535 fields per schema; 4,096 dependencies;
-256 custom versions; 1,048,575 container elements; and nesting depth 64, all
-further constrained by the package-size bound.
+256 custom versions; 1,048,575 Array/Map elements; 256 MiB per Bytes value; and
+nesting depth 64, all further constrained by the package-size bound. Bytes is
+not charged against the element-count limit.
 
 The Value section is object count followed, in object-id order, by one
 length-delimited block per object. A block is override count followed by records

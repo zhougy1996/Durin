@@ -177,6 +177,7 @@ namespace Durin::Asset::DastV4
 				|| Limits.CustomVersions > MaximumCustomVersions
 				|| Limits.Dependencies > MaximumDependencies
 				|| Limits.ContainerElements == 0 || Limits.ContainerElements > MaximumContainerElements
+				|| Limits.ByteValueBytes == 0 || Limits.ByteValueBytes > MaximumByteValueBytes
 				|| Limits.ValueDepth > MaximumValueDepth)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded,
 					"Reader limits must be nonzero and may only tighten frozen wire bounds.");
@@ -492,7 +493,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::Bytes:
 			{
 				uint64 Count = 0; std::span<const uint8> Data;
-				if (!Reader.VarUInt(Count, Diagnostic) || Count > Limits.ContainerElements || !Reader.BytesSpan(Count, Data, Diagnostic))
+				if (!Reader.VarUInt(Count, Diagnostic) || Count > Limits.ByteValueBytes || !Reader.BytesSpan(Count, Data, Diagnostic))
 					return Fail(Diagnostic, EReaderFailure::InvalidValue, "Byte value is invalid.", Reader.Position(), std::move(Path));
 				Value.Bytes.assign(Data.begin(), Data.end()); break;
 			}
@@ -779,7 +780,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::Intrinsic: case ETypeOpcode::Struct: return K::Struct;
 			case ETypeOpcode::Array: return K::Array; case ETypeOpcode::Map: return K::Map;
 			case ETypeOpcode::HardRef: return K::Object; case ETypeOpcode::SoftRef: return K::SoftObject;
-			case ETypeOpcode::Bytes: return K::UInt8;
+			case ETypeOpcode::Bytes: return K::Blob;
 			case ETypeOpcode::FixedArray: break;
 			}
 			return K::None;
@@ -833,6 +834,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::String: return std::format("{}:v1", uint32(K::String));
 			case ETypeOpcode::Name: return std::format("{}:v1", uint32(K::Name));
 			case ETypeOpcode::Guid: return std::format("{}:v1", uint32(K::Guid));
+			case ETypeOpcode::Bytes: return std::format("{}:v1", uint32(K::Blob));
 			default: return std::format("{}:{}", uint32(TypeKind(*Type, Package)), TypeWidth(Type->Opcode));
 			}
 		}

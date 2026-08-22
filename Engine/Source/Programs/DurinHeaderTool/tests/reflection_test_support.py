@@ -90,7 +90,8 @@ namespace Durin
 
 namespace std
 {
-    template<typename T>
+	enum class byte : unsigned char {};
+	template<typename T>
     class vector {};
     template<typename K, typename V>
     class unordered_map {};
@@ -264,8 +265,17 @@ namespace Fixture
     {
         GENERATED_BODY()
 
-        DPROPERTY()
-        std::vector<int32> DirectScores;
+		DPROPERTY()
+		std::vector<int32> DirectScores;
+
+		DPROPERTY()
+		std::byte DirectByte{};
+
+		DPROPERTY()
+		std::byte FixedBytes[2]{};
+
+		DPROPERTY()
+		std::vector<std::byte> Blob;
 
         DPROPERTY()
         FFloatVector AliasedScores;

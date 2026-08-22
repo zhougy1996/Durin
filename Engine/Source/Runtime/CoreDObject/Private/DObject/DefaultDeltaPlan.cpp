@@ -370,6 +370,8 @@ namespace Durin
 			{
 				Diagnostic.Reason = EDefaultDeltaFailureReason::DepthLimit;
 				Diagnostic.LogicalPath.assign(Path);
+				Diagnostic.ObservedValue = Depth;
+				Diagnostic.ApplicableLimit = DefaultDeltaMaxDepth;
 				return false;
 			}
 			std::ranges::sort(Node.Fields, FieldLess);
@@ -389,6 +391,8 @@ namespace Durin
 				{
 					Diagnostic.Reason = EDefaultDeltaFailureReason::FieldLimit;
 					Diagnostic.LogicalPath.assign(Path);
+					Diagnostic.ObservedValue = FieldCount;
+					Diagnostic.ApplicableLimit = DefaultDeltaMaxFields;
 					return false;
 				}
 				const std::string ChildPath = std::format("{}.{}", Path, Field.Descriptor.Name.ToString());
@@ -396,6 +400,8 @@ namespace Durin
 				{
 					Diagnostic.Reason = EDefaultDeltaFailureReason::PathLimit;
 					Diagnostic.LogicalPath.assign(Path);
+					Diagnostic.ObservedValue = ChildPath.size();
+					Diagnostic.ApplicableLimit = DefaultDeltaMaxPathLength;
 					return false;
 				}
 				if (Field.Value && !SortCapturedNode(*Field.Value, Diagnostic, ChildPath, FieldCount, Depth + 1)) return false;

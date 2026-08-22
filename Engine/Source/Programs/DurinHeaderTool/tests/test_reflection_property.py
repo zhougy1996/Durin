@@ -600,6 +600,13 @@ class TestReflectionProperties:
 
     def test_container_spelling_contract_and_alias_resolution(self):
         symbols = self.symbols
+        byte = _make_property_from_spelling("Value", "std::byte", symbols)
+        blob = _make_property_from_spelling("Data", "std::vector<std::byte>", symbols)
+        assert byte is not None and byte.kind == "Byte"
+        assert blob is not None and blob.kind == "Blob" and blob.inner is None
+        assert _make_property_from_spelling(
+            "Nested", "std::vector<std::vector<std::byte>>", symbols
+        ) is None
 
         assert _make_property_from_spelling("Bits", "std::vector<bool>", symbols) is None
         assert _make_property_from_spelling(
@@ -626,6 +633,9 @@ class TestReflectionProperties:
 
         for property_name in (
             "DirectScores",
+            "DirectByte",
+            "FixedBytes",
+            "Blob",
             "NestedScores",
             "ObjectReferences",
             "NamedScores",
@@ -637,6 +647,16 @@ class TestReflectionProperties:
             "AliasedScores",
         ):
             assert f"NewProp_{property_name}" in self.generated_cpp
+
+        direct_byte = next(line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_DirectByte =" in line)
+        fixed_bytes = next(line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_FixedBytes =" in line)
+        blob_definition = next(line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_Blob =" in line)
+        assert "FBytePropertyParams" in direct_byte
+        assert "FBytePropertyParams" in fixed_bytes
+        assert "FBlobPropertyParams" in blob_definition
 
         alias_definition = next(
             line for line in self.generated_cpp.splitlines()

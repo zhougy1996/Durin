@@ -45,6 +45,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::String:
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Guid:
+			case DurinCodeGen::EPropertyGenFlags::Byte:
 				return DurinCodeGen::EPropertyParamLayout::Plain;
 			case DurinCodeGen::EPropertyGenFlags::Enum: return DurinCodeGen::EPropertyParamLayout::Enum;
 			case DurinCodeGen::EPropertyGenFlags::Object: return DurinCodeGen::EPropertyParamLayout::Object;
@@ -53,6 +54,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Struct: return DurinCodeGen::EPropertyParamLayout::Struct;
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return DurinCodeGen::EPropertyParamLayout::SoftObject;
 			case DurinCodeGen::EPropertyGenFlags::WeakObject: return DurinCodeGen::EPropertyParamLayout::WeakObject;
+			case DurinCodeGen::EPropertyGenFlags::Blob: return DurinCodeGen::EPropertyParamLayout::Blob;
 			case DurinCodeGen::EPropertyGenFlags::None: return DurinCodeGen::EPropertyParamLayout::Generic;
 			default: return DurinCodeGen::EPropertyParamLayout::Invalid;
 			}
@@ -604,6 +606,27 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::UInt64:
 				Property = ConstructPlainProperty<uint64, FNumericProperty>(Owner, PropertyParams);
 				break;
+			case DurinCodeGen::EPropertyGenFlags::Byte:
+				Property = ConstructPlainProperty<std::byte, FProperty>(Owner, PropertyParams);
+				break;
+			case DurinCodeGen::EPropertyGenFlags::Blob:
+				{
+					const auto* BlobParams = static_cast<const DurinCodeGen::FBlobPropertyParams*>(PropertyParams);
+					if (!IsValidValueOps(BlobParams->ValueOps)
+						|| BlobParams->ValueOps.ValueSize > std::numeric_limits<uint16>::max())
+					{
+						checkf(false, "BlobPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.",
+							GetGeneratedPropertyOwnerName(Owner),
+							PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+						return nullptr;
+					}
+					Property = new FProperty(
+						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
+						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
+						static_cast<uint16>(BlobParams->ValueOps.ValueSize), PropertyParams->Kind, nullptr);
+					SetValueOps(Property, BlobParams->ValueOps);
+					break;
+				}
 			case DurinCodeGen::EPropertyGenFlags::Float:
 				Property = ConstructPlainProperty<float, FNumericProperty>(Owner, PropertyParams);
 				break;

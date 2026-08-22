@@ -59,6 +59,7 @@ _PROPERTY_KIND_BY_TYPE = {
     "Durin::FName": "Name",
     "FGuid": "Guid",
     "Durin::FGuid": "Guid",
+    "std::byte": "Byte",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
@@ -1030,6 +1031,7 @@ def _make_property_from_spelling(
             "String": "sizeof(std::string)",
             "Name": "sizeof(Durin::FName)",
             "Guid": "sizeof(Durin::FGuid)",
+            "Byte": "sizeof(std::byte)",
         }
         return ReflectedPropertyInfo(
             name=name,
@@ -1097,6 +1099,17 @@ def _make_property_from_spelling(
             return None
         if _normalize_type_spelling(args[0]) == "bool":
             return None
+        if _normalize_type_spelling(args[0]) == "std::byte":
+            if depth != 0:
+                return None
+            return ReflectedPropertyInfo(
+                name=name,
+                type_name=type_spelling,
+                kind="Blob",
+                array_dim=array_dim,
+                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
+                flags=flags,
+            )
         inner = _make_property_from_spelling(
             f"{name}_Inner",
             args[0],

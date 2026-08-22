@@ -125,7 +125,9 @@ namespace Durin::Asset::Build::VolumeTextureBuilder
 		Base.Depth = SourceData.Depth;
 		Base.RowPitch = Base.Width * BytesPerVoxel;
 		Base.DepthPitch = Base.RowPitch * Base.Height;
-		Base.Voxels = SourceData.Voxels;
+		Base.Voxels.resize(SourceData.Voxels.size());
+		std::ranges::transform(SourceData.Voxels, Base.Voxels.begin(),
+			[](std::byte Byte) { return std::to_integer<uint8>(Byte); });
 		for (size_t Offset = 0; Offset < Base.Voxels.size(); Offset += BytesPerVoxel)
 			for (uint32 Channel = 0; Channel < Layout.Channels; ++Channel)
 			{

@@ -52,6 +52,8 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::String: return "string";
 			case DurinCodeGen::EPropertyGenFlags::Name: return "name";
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "guid";
+			case DurinCodeGen::EPropertyGenFlags::Byte: return "byte";
+			case DurinCodeGen::EPropertyGenFlags::Blob: return "blob";
 			case DurinCodeGen::EPropertyGenFlags::Enum: return "enum";
 			case DurinCodeGen::EPropertyGenFlags::Object: return "object";
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return "soft object";
@@ -87,6 +89,8 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::String: return "String";
 			case DurinCodeGen::EPropertyGenFlags::Name: return "Name";
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "GUID";
+			case DurinCodeGen::EPropertyGenFlags::Byte: return "Byte";
+			case DurinCodeGen::EPropertyGenFlags::Blob: return "Blob";
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 			{
 				const DEnum* Enum = static_cast<const FEnumProperty&>(Property).GetEnum();
@@ -739,6 +743,18 @@ namespace Durin::Editor
 			if (bChanged) Result.AssignValue = [ParsedValue](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				*static_cast<FGuidProperty*>(DestinationProperty)->GetGuidValuePtr(DestinationContainer, DestinationArrayIndex) = ParsedValue;
 			};
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::Byte)
+		{
+			const auto Value = *static_cast<const std::byte*>(
+				Property->GetValuePtr(Container, ArrayIndex));
+			ImGui::Text("0x%02X", std::to_integer<uint8>(Value));
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::Blob)
+		{
+			const auto& Value = *static_cast<const std::vector<std::byte>*>(
+				Property->GetValuePtr(Container, ArrayIndex));
+			ImGui::TextDisabled("%s", std::format("{} bytes", Value.size()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 		{

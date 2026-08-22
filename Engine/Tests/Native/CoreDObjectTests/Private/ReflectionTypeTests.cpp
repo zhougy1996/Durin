@@ -323,6 +323,38 @@ namespace
 		return Enum;
 	}
 
+TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationTransactionally)
+{
+	std::vector<std::byte> Source{std::byte{0x10}, std::byte{0x20}, std::byte{0x30}};
+	std::vector<Durin::uint8> Bytes;
+	Durin::FObjectMemoryWriter Writer(Bytes, Durin::EArchivePurpose::PropertySnapshot);
+	Writer.SerializeByteBlob(Source);
+	ASSERT_FALSE(Writer.HasError());
+
+	std::vector<std::byte> Loaded;
+	Durin::FObjectMemoryReader Reader(Bytes, Durin::EArchivePurpose::PropertySnapshot);
+	Reader.SerializeByteBlob(Loaded);
+	ASSERT_FALSE(Reader.HasError());
+	EXPECT_EQ(Loaded, Source);
+
+	Bytes.pop_back();
+	std::vector<std::byte> Preserved{std::byte{0x7f}};
+	Durin::FObjectMemoryReader Truncated(Bytes, Durin::EArchivePurpose::PropertySnapshot);
+	Truncated.SerializeByteBlob(Preserved);
+	EXPECT_TRUE(Truncated.HasError());
+	EXPECT_EQ(Preserved, (std::vector<std::byte>{std::byte{0x7f}}));
+
+	std::vector<Durin::uint8> Oversized(sizeof(Durin::uint64));
+	const Durin::uint64 OversizedCount = 1024ull * 1024 * 1024 + 1;
+	for (size_t Index = 0; Index < Oversized.size(); ++Index)
+		Oversized[Index] = static_cast<Durin::uint8>(OversizedCount >> (Index * 8));
+	Durin::FObjectMemoryReader OversizedReader(
+		Oversized, Durin::EArchivePurpose::PropertySnapshot);
+	OversizedReader.SerializeByteBlob(Preserved);
+	EXPECT_TRUE(OversizedReader.HasError());
+	EXPECT_EQ(Preserved, (std::vector<std::byte>{std::byte{0x7f}}));
+}
+
 	auto GetInvalidBuiltInLeafEnumForTest() -> Durin::DEnum*
 	{
 		static Durin::DEnum* Enum = new Durin::DEnum(
@@ -787,9 +819,20 @@ namespace
 					Durin::EPropertyFlags::None, 1,
 					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, ExactFloat)),
 					sizeof(double), Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr);
+				auto* BlobProperty = new Durin::FProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Blob"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Blob)),
+					static_cast<Durin::uint16>(sizeof(std::vector<std::byte>)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Blob, nullptr);
+				const auto BlobOps = Durin::DurinCodeGen::MakePropertyValueOps<std::vector<std::byte>>();
+				BlobProperty->SetValueLifecycle(BlobOps.ValueSize, BlobOps.ValueAlignment,
+					BlobOps.InitializeValue, BlobOps.DestroyValue,
+					BlobOps.CopyConstructValue, BlobOps.CopyAssignValue);
 				ChildProperty->Next = ClassSpecificProperty;
 				ClassSpecificProperty->Next = FixedProperty;
 				FixedProperty->Next = ExactFloatProperty;
+				ExactFloatProperty->Next = BlobProperty;
 				Class->ChildProperties = ChildProperty;
 			}
 			return Class;
@@ -799,6 +842,7 @@ namespace
 		Durin::FVector3 ClassSpecific{1.0, 2.0, 3.0};
 		Durin::int32 Fixed[2]{4, 5};
 		double ExactFloat = std::bit_cast<double>(Durin::uint64{0x7FF8000000000042ull});
+		std::vector<std::byte> Blob;
 		Durin::int32 NativeFirst = 7;
 		Durin::int32 NativeSecond = 9;
 		Durin::int32 NativeOnlyStructValue = 3;
@@ -2391,6 +2435,35 @@ namespace
 		ASSERT_EQ(DefaultPlan.Objects.size(), 2u);
 		EXPECT_EQ(DefaultPlan.EmittedFieldCount, 0u);
 		EXPECT_GT(DefaultPlan.OmittedFieldCount, 0u);
+
+		Instance->Blob.assign(Durin::DefaultDeltaMaxFields + 1, std::byte{0x5a});
+		Durin::FDefaultDeltaPlan BlobPlan;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, BlobPlan, &Diagnostic))
+			<< "reason=" << static_cast<int>(Diagnostic.Reason)
+			<< " path=" << Diagnostic.LogicalPath;
+		const auto BlobRoot = std::ranges::find_if(BlobPlan.Objects,
+			[&](const Durin::FDefaultDeltaObjectPlan& Object) { return Object.Object == Instance; });
+		ASSERT_NE(BlobRoot, BlobPlan.Objects.end());
+		const auto BlobField = std::ranges::find_if(BlobRoot->Fields,
+			[](const Durin::FDefaultDeltaFieldPlan& Field) {
+				return Field.Descriptor.Name == Durin::FName("Blob");
+			});
+		ASSERT_NE(BlobField, BlobRoot->Fields.end());
+		ASSERT_NE(BlobField->Value, nullptr);
+		EXPECT_EQ(BlobField->Value->LogicalType.Kind,
+			Durin::FArchiveLogicalTypeDescriptor::EKind::Bytes);
+		EXPECT_EQ(BlobField->Value->ByteValue.size(), Instance->Blob.size() + sizeof(Durin::uint64));
+		Durin::FProperty* ReflectedBlob = Instance->GetClass()->FindPropertyByName(
+			Durin::FName("Blob"), true);
+		ASSERT_NE(ReflectedBlob, nullptr);
+		Durin::FPropertyValueSnapshot BlobSnapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(ReflectedBlob, Instance, 0, BlobSnapshot));
+		Instance->Blob.clear();
+		ASSERT_TRUE(Durin::RestorePropertyValue(ReflectedBlob, Instance, 0, BlobSnapshot));
+		ASSERT_EQ(Instance->Blob.size(), Durin::DefaultDeltaMaxFields + 1);
+		EXPECT_EQ(Instance->Blob.front(), std::byte{0x5a});
+		Instance->Blob.clear();
 
 		Instance->ClassSpecific = Durin::FVector3(0.0);
 		Instance->Fixed[1] = 17;

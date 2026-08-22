@@ -9,6 +9,18 @@
 
 namespace Durin
 {
+	struct FVolumeTextureSourceVersion
+	{
+		inline static constexpr FGuid Guid{
+			0x769fba31, 0x9d4f42d7, 0xb311e1a4, 0x5a0d82c6};
+		enum Type : int32
+		{
+			BeforeCustomVersionWasAdded = -1,
+			ByteBlob = 1,
+			LatestVersion = ByteBlob,
+		};
+	};
+
 	// Selects one portable uncompressed voxel format admitted by volume assets.
 	DENUM()
 	enum class EVolumeTextureFormat : uint8
@@ -50,7 +62,12 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		std::vector<uint8> Voxels;
+		std::vector<std::byte> Voxels;
+
+		DPROPERTY(Deprecated, CustomVersion = Durin::FVolumeTextureSourceVersion,
+			DeprecatedBefore = Durin::FVolumeTextureSourceVersion::ByteBlob,
+			MigratesTo = "Voxels")
+		std::vector<uint8> Voxels_DEPRECATED;
 
 		DPROPERTY()
 		uint32 Width = 0;
@@ -216,5 +233,33 @@ namespace Durin
 		std::string LastBuildError;
 
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
+	};
+}
+
+namespace Durin
+{
+	template<>
+	struct TDStructOpsTraits<FVolumeTextureSourceData>
+		: TDStructOpsTraitsBase<FVolumeTextureSourceData>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto PostDeserialize(
+			FVolumeTextureSourceData& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			if (!Value.Voxels_DEPRECATED.empty())
+			{
+				if (!Value.Voxels.empty())
+					return Context.Fail(
+						"Volume source contains both current Blob and deprecated byte Array data.");
+				Value.Voxels.resize(Value.Voxels_DEPRECATED.size());
+				std::ranges::transform(Value.Voxels_DEPRECATED, Value.Voxels.begin(),
+					[](uint8 Byte) { return static_cast<std::byte>(Byte); });
+				Value.Voxels_DEPRECATED.clear();
+			}
+			return Value.IsValid()
+				|| Context.Fail("Volume source byte migration produced invalid dimensions or payload size.");
+		}
 	};
 }

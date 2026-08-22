@@ -43,6 +43,8 @@ namespace Durin
 		EDefaultObjectGraphFailureReason GraphReason = EDefaultObjectGraphFailureReason::None;
 		EArchiveFailureCode ArchiveReason = EArchiveFailureCode::InvalidData;
 		EAuthoredOverrideFailureReason AuthoredOverrideReason = EAuthoredOverrideFailureReason::None;
+		uint64 ObservedValue = 0;
+		uint64 ApplicableLimit = 0;
 
 		auto Reset() -> void { *this = {}; }
 	};

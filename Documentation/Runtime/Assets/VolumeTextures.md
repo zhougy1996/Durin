@@ -12,11 +12,19 @@ Last reviewed: 2026-08-22
 `DVolumeTexture` is a `DTexture` leaf for one non-array 3D color texture. Its
 authored package stores reflected `FVolumeTextureSourceData` and
 `FVolumeTextureBuildSettings`. Source data is a validated tightly packed voxel
-buffer with width, height, depth, and one of five portable formats:
+Blob (`std::vector<std::byte>`) with width, height, depth, and one of five portable formats:
 `R8_UNORM`, `RG8_UNORM`, `RGBA8_UNORM`, `R16_FLOAT`, or `RGBA16_FLOAT`.
 Dimensions are nonzero and no greater than 2048; the common texture payload byte
 ceiling is authoritative. Materials, streaming, and volume-rendering algorithms
 are outside this boundary.
+
+The source Blob is one atomic reflected `Bytes` value. Its default-planning
+cost is independent of voxel count, while package and allocation byte ceilings
+still apply. Historical authored packages from before
+`FVolumeTextureSourceVersion::ByteBlob` load the old `Voxels` logical
+`Array<UInt8>` through the load-only `Voxels_DEPRECATED` route, convert each
+value exactly, validate the complete source, and resave only canonical Blob
+bytes. Packages containing both representations are rejected transactionally.
 
 ## PNG atlas source import
 
@@ -57,7 +65,9 @@ TextureBuild owns the registered volume recipe. It consumes normalized voxels,
 uses a three-axis box filter in linear numeric space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
-floating inputs must be finite.
+floating inputs must be finite. Numeric filtering explicitly converts at the
+`std::byte` boundary; TXPL, DDC, mip, cook, and RHI upload bytes retain their
+existing `uint8` platform representation and byte identity.
 
 The canonical DDC key includes source bytes and dimensions, source/output
 format, mip filter, builder and payload schema versions, and Win64/Game target

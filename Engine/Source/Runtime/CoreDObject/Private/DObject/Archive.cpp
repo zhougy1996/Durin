@@ -67,6 +67,8 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::String: return FArchiveLogicalTypeDescriptor::String();
 			case DurinCodeGen::EPropertyGenFlags::Name: return FArchiveLogicalTypeDescriptor::Name();
 			case DurinCodeGen::EPropertyGenFlags::Guid: return FArchiveLogicalTypeDescriptor::Guid();
+			case DurinCodeGen::EPropertyGenFlags::Byte: return FArchiveLogicalTypeDescriptor::Bytes();
+			case DurinCodeGen::EPropertyGenFlags::Blob: return FArchiveLogicalTypeDescriptor::Bytes();
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				return FArchiveLogicalTypeDescriptor::Object(Property->GetReferencedClass()
 					? Property->GetReferencedClass()->GetQualifiedName() : FName());
@@ -283,6 +285,21 @@ namespace Durin
 				FGuid SerializedValue = Ar.IsSaving() ? *Value : FGuid();
 				Ar << SerializedValue;
 				if (Ar.IsLoading() && !Ar.HasError()) *Value = SerializedValue;
+				break;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Byte:
+			{
+				auto* Value = static_cast<std::byte*>(Property->GetValuePtr(Container, ArrayIndex));
+				std::byte Encoded = Ar.IsSaving() ? *Value : std::byte{};
+				Ar.SerializeRawBytes(std::span(&Encoded, 1));
+				if (Ar.IsLoading() && !Ar.HasError()) *Value = Encoded;
+				break;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Blob:
+			{
+				auto* Value = static_cast<std::vector<std::byte>*>(
+					Property->GetValuePtr(Container, ArrayIndex));
+				Ar.SerializeByteBlob(*Value);
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
@@ -659,6 +676,8 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::String:
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Guid:
+			case DurinCodeGen::EPropertyGenFlags::Byte:
+			case DurinCodeGen::EPropertyGenFlags::Blob:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			case DurinCodeGen::EPropertyGenFlags::WeakObject:

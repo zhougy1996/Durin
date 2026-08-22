@@ -398,9 +398,12 @@ namespace Durin::Asset::Private
 				FProperty* Property = bTopLevel
 					? FindObjectProperty(&Object, Descriptor.Name)
 					: FindReflectedProperty(Descriptor);
-				const auto ExpectedKind = Property ? Property->GetKind()
+				const bool bByteStorageProperty = Property
+					&& (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Byte
+						|| Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Blob);
+				const auto ExpectedKind = Property && !bByteStorageProperty ? Property->GetKind()
 					: GetNativeKind(Descriptor.LogicalType);
-				const std::string ExpectedSignature = Property
+				const std::string ExpectedSignature = Property && !bByteStorageProperty
 					? GetSerializedTypeSignature(Property)
 					: GetNativeTypeSignature(Descriptor.LogicalType);
 				const std::string DeclaringType = Descriptor.DeclaringType.ToString();
@@ -410,12 +413,16 @@ namespace Durin::Asset::Private
 				DStructBase* DeclaringStruct = FindDeclaringStruct(Descriptor.DeclaringType);
 				bool bFoundIdentity = false;
 				bool bReservedForDeprecatedRoute = false;
+				DurinCodeGen::EPropertyGenFlags FoundKind = DurinCodeGen::EPropertyGenFlags::None;
+				std::string FoundSignature;
 				for (size_t Index = 0; Index < Candidates.size(); ++Index)
 				{
 					const auto& Candidate = Candidates[Index];
 					if (CandidateConsumed[Index]
 						|| Candidate.DeclaringClass != DeclaringType || Candidate.Name != Name) continue;
 					bFoundIdentity = true;
+					FoundKind = Candidate.Kind;
+					FoundSignature = Candidate.TypeSignature;
 					if (!Deprecation && FindDeprecatedRoute(DeclaringStruct, Candidate.Name,
 						Candidate.Kind, Candidate.TypeSignature, GetVersionContext()))
 					{
@@ -436,8 +443,11 @@ namespace Durin::Asset::Private
 				if (!bTopLevel && bFoundIdentity && !bReservedForDeprecatedRoute)
 				{
 					FailLoad(EAssetError::TypeMismatch, EArchiveFailureCode::InvalidData,
-						std::format("Serialized struct field {}::{} is incompatible with the current schema.",
-							DeclaringType, Name));
+						std::format("Serialized struct field {}::{} is incompatible with the current schema "
+							"(stored kind={}, signature='{}'; expected kind={}, signature='{}').",
+							DeclaringType, Name, static_cast<uint32>(FoundKind),
+							FoundSignature, static_cast<uint32>(ExpectedKind),
+							ExpectedSignature));
 				}
 				Stack.emplace_back();
 			}
@@ -1415,8 +1425,34 @@ namespace Durin::Asset::DastV4
 		FDefaultDeltaDiagnostic DeltaDiagnostic;
 		if (!BuildDefaultDeltaPlan(Package->GetAsset(), Options.DeltaMode, DeltaPlan, &DeltaDiagnostic))
 		{
+			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
+				switch (Reason)
+				{
+				case EDefaultDeltaFailureReason::InvalidInput: return "InvalidInput";
+				case EDefaultDeltaFailureReason::MissingClassDefault: return "MissingClassDefault";
+				case EDefaultDeltaFailureReason::DefaultObjectGraphFailure: return "DefaultObjectGraphFailure";
+				case EDefaultDeltaFailureReason::ArchiveFailure: return "ArchiveFailure";
+				case EDefaultDeltaFailureReason::ManifestMismatch: return "ManifestMismatch";
+				case EDefaultDeltaFailureReason::DuplicateField: return "DuplicateField";
+				case EDefaultDeltaFailureReason::UnsupportedLogicalType: return "UnsupportedLogicalType";
+				case EDefaultDeltaFailureReason::UnsupportedIdentity: return "UnsupportedIdentity";
+				case EDefaultDeltaFailureReason::MissingStructDefault: return "MissingStructDefault";
+				case EDefaultDeltaFailureReason::DepthLimit: return "DepthLimit";
+				case EDefaultDeltaFailureReason::FieldLimit: return "FieldLimit";
+				case EDefaultDeltaFailureReason::PathLimit: return "PathLimit";
+				case EDefaultDeltaFailureReason::AuthoredOverrideFailure: return "AuthoredOverrideFailure";
+				default: return "Unknown";
+				}
+			};
+			std::string Message = std::format(
+				"Default-relative logical planning failed: reason={}, path='{}'",
+				ReasonName(DeltaDiagnostic.Reason), DeltaDiagnostic.LogicalPath);
+			if (DeltaDiagnostic.ApplicableLimit != 0)
+				Message += std::format(", observed={}, limit={}",
+					DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
+			Message += ".";
 			Diagnostic = {EWriterFailure::DeltaPlanFailure, DeltaDiagnostic.LogicalPath,
-				"Default-relative logical planning failed."};
+				std::move(Message)};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 		FPackageInput Input;

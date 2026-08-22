@@ -174,6 +174,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::String:
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Guid:
+			case DurinCodeGen::EPropertyGenFlags::Byte:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				return true;
 			default:
@@ -339,6 +340,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Float:
 			case DurinCodeGen::EPropertyGenFlags::Double:
 			case DurinCodeGen::EPropertyGenFlags::Enum:
+			case DurinCodeGen::EPropertyGenFlags::Byte:
 				return std::memcmp(
 						   Property->GetValuePtr(LeftContainer, LeftArrayIndex),
 						   Property->GetValuePtr(RightContainer, RightArrayIndex),
@@ -365,6 +367,15 @@ namespace Durin
 					return *GuidProperty->GetGuidValuePtr(LeftContainer, LeftArrayIndex)
 						   == *GuidProperty->GetGuidValuePtr(RightContainer, RightArrayIndex)
 						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
+				}
+			case DurinCodeGen::EPropertyGenFlags::Blob:
+				{
+					const auto& Left = *static_cast<const std::vector<std::byte>*>(
+						Property->GetValuePtr(LeftContainer, LeftArrayIndex));
+					const auto& Right = *static_cast<const std::vector<std::byte>*>(
+						Property->GetValuePtr(RightContainer, RightArrayIndex));
+					return Left == Right ? Identical
+						: SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				{
@@ -565,6 +576,8 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::String:
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Guid:
+			case DurinCodeGen::EPropertyGenFlags::Byte:
+			case DurinCodeGen::EPropertyGenFlags::Blob:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			case DurinCodeGen::EPropertyGenFlags::WeakObject:
@@ -1855,6 +1868,10 @@ namespace Durin
 				AppendBigEndian(OutToken, Guid.D);
 				return true;
 			}
+		case DurinCodeGen::EPropertyGenFlags::Byte:
+			OutToken.push_back(std::to_integer<uint8>(
+				*static_cast<const std::byte*>(Property->GetValuePtr(Container, ArrayIndex))));
+			return true;
 		case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
@@ -1901,6 +1918,7 @@ namespace Durin
 		case DurinCodeGen::EPropertyGenFlags::String:
 		case DurinCodeGen::EPropertyGenFlags::Name:
 		case DurinCodeGen::EPropertyGenFlags::Guid:
+		case DurinCodeGen::EPropertyGenFlags::Byte:
 			return true;
 		case DurinCodeGen::EPropertyGenFlags::Enum:
 			return static_cast<const FEnumProperty*>(Property)->GetUnderlyingType()

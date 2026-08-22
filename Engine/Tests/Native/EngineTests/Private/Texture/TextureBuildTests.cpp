@@ -5,6 +5,7 @@
 #include "Texture/VolumeTexture.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTextureBuilder.h"
+#include "DObject/DefaultDeltaPlan.h"
 
 TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 {
@@ -14,7 +15,8 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	Source.Depth = 3;
 	Source.Format = Durin::EVolumeTextureFormat::R8_UNORM;
 	Source.Voxels.resize(27);
-	std::iota(Source.Voxels.begin(), Source.Voxels.end(), Durin::uint8{0});
+	for (size_t Index = 0; Index < Source.Voxels.size(); ++Index)
+		Source.Voxels[Index] = static_cast<std::byte>(Index);
 	Durin::FVolumeTexturePlatformData First;
 	Durin::FVolumeTexturePlatformData Second;
 	std::string Error;
@@ -35,7 +37,8 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 {
 	Durin::FVolumeTextureSourceData Source{
-		.Voxels = {0, 32, 64, 96, 128, 160, 192, 255},
+		.Voxels = {std::byte{0}, std::byte{32}, std::byte{64}, std::byte{96},
+			std::byte{128}, std::byte{160}, std::byte{192}, std::byte{255}},
 		.Width = 2, .Height = 2, .Depth = 2,
 		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
 	Durin::FVolumeTexturePlatformData Platform;
@@ -60,12 +63,30 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	EXPECT_NE(Error.find("checksum"), std::string::npos);
 }
 
+TEST(FVolumeTextureTests, DeprecatedByteArrayMigratesToCanonicalBlob)
+{
+	Durin::FVolumeTextureSourceData Legacy;
+	Legacy.Width = 2;
+	Legacy.Height = 2;
+	Legacy.Depth = 2;
+	Legacy.Format = Durin::EVolumeTextureFormat::R8_UNORM;
+	Legacy.Voxels_DEPRECATED = {1, 2, 3, 4, 5, 6, 7, 8};
+	std::string Error;
+	Durin::FDStructPostDeserializeContext Context{.Error = &Error};
+	ASSERT_TRUE(Durin::TDStructOpsTraits<Durin::FVolumeTextureSourceData>::PostDeserialize(
+		Legacy, Context)) << Error;
+	EXPECT_TRUE(Legacy.Voxels_DEPRECATED.empty());
+	EXPECT_EQ(Legacy.Voxels, (std::vector<std::byte>{std::byte{1}, std::byte{2},
+		std::byte{3}, std::byte{4}, std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}}));
+}
+
 TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 {
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureBuildDdc");
 	Durin::FVolumeTextureSourceData Source{
-		.Voxels = {1, 2, 3, 4, 5, 6, 7, 8},
+		.Voxels = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+			std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}},
 		.Width = 2, .Height = 2, .Depth = 2,
 		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
 	Durin::Asset::Build::FVolumeTextureBuildProduct First;
@@ -75,7 +96,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, Second, Error)) << Error;
 	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
 	EXPECT_TRUE(Second.bCacheHit);
-	Source.Voxels[0] = 9;
+	Source.Voxels[0] = std::byte{9};
 	Durin::Asset::Build::FVolumeTextureBuildProduct Changed;
 	ASSERT_TRUE(Durin::Asset::Build::BuildVolumeTexture(Source, {}, Changed, Error)) << Error;
 	EXPECT_NE(First.DerivedDataKey, Changed.DerivedDataKey);
@@ -89,7 +110,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureAssetDdc");
 	Durin::FVolumeTextureSourceData Source{
-		.Voxels = {1, 2, 3, 4, 5, 6, 7, 8},
+		.Voxels = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+			std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}},
 		.Width = 2, .Height = 2, .Depth = 2,
 		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
 	Durin::Asset::Build::FVolumeTextureBuildProduct Product;
@@ -186,6 +208,63 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
+TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBlob)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureLargeBlobDdc");
+	Durin::FVolumeTextureSourceData Source;
+	Source.Width = 128;
+	Source.Height = 128;
+	Source.Depth = 128;
+	Source.Format = Durin::EVolumeTextureFormat::R8_UNORM;
+	Source.Voxels.resize(128ull * 128 * 128);
+	for (size_t Index = 0; Index < Source.Voxels.size(); ++Index)
+		Source.Voxels[Index] = static_cast<std::byte>((Index * 37) & 0xff);
+
+	Durin::FVolumeTexturePlatformData Platform;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
+		Source, {}, Platform, Error)) << Error;
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/LargeVolumeBlob", AssetPath));
+	Durin::DVolumeTexture* Texture = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
+	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
+		std::make_unique<Durin::FVolumeTexturePlatformData>(Platform),
+		"large-volume-blob", Error)) << Error;
+
+	Durin::FDefaultDeltaPlan Plan;
+	Durin::FDefaultDeltaDiagnostic Diagnostic;
+	ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+		Texture, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic))
+		<< "reason=" << static_cast<int>(Diagnostic.Reason)
+		<< " path=" << Diagnostic.LogicalPath;
+	EXPECT_LT(Plan.FieldCount, 100u);
+	Durin::FDefaultDeltaPlan NoDeltaPlan;
+	ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+		Texture, Durin::EDefaultDeltaMode::NoDelta, NoDeltaPlan, &Diagnostic))
+		<< "reason=" << static_cast<int>(Diagnostic.Reason)
+		<< " path=" << Diagnostic.LogicalPath;
+	EXPECT_LT(NoDeltaPlan.FieldCount, 100u);
+	const Durin::Asset::FAssetResult Saved = Durin::Asset::SavePackage(Texture->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Texture = nullptr;
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Texture);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_EQ(Texture->GetSourceData().Voxels, Source.Voxels);
+	Texture = nullptr;
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+}
+
 TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 {
 	const std::array Formats{
@@ -202,7 +281,7 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		Source.Height = 3;
 		Source.Depth = 5;
 		Source.Format = Formats[Index];
-		Source.Voxels.assign(15 * BytesPerVoxel[Index], 0);
+		Source.Voxels.assign(15 * BytesPerVoxel[Index], std::byte{0});
 		Durin::FVolumeTextureBuildSettings Settings;
 		Settings.OutputFormat = Formats[Index];
 		Durin::FVolumeTexturePlatformData Platform;

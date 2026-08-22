@@ -6,9 +6,100 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureDerivedData.h"
+#include "AssetCook.h"
 
 using namespace Durin;
 using namespace Durin::Asset::Forge;
+
+namespace
+{
+	void AppendBigEndian32(std::vector<uint8>& Bytes, uint32 Value)
+	{
+		for (int Shift : {24, 16, 8, 0})
+			Bytes.push_back(static_cast<uint8>(Value >> Shift));
+	}
+
+	uint32 PngCrc32(std::span<const uint8> Bytes)
+	{
+		uint32 Crc = 0xffffffffu;
+		for (uint8 Byte : Bytes)
+		{
+			Crc ^= Byte;
+			for (int Bit = 0; Bit < 8; ++Bit)
+				Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
+		}
+		return ~Crc;
+	}
+
+	void AppendPngChunk(std::vector<uint8>& Bytes, std::string_view Type,
+		std::span<const uint8> Payload)
+	{
+		AppendBigEndian32(Bytes, static_cast<uint32>(Payload.size()));
+		const size_t CrcStart = Bytes.size();
+		Bytes.insert(Bytes.end(), Type.begin(), Type.end());
+		Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
+		AppendBigEndian32(Bytes, PngCrc32(std::span(Bytes).subspan(CrcStart)));
+	}
+
+	std::vector<uint8> MakeHorizontal128CubedAtlasPng()
+	{
+		constexpr uint32 Width = 16384;
+		constexpr uint32 Height = 128;
+		std::vector<uint8> Scanlines;
+		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
+		for (uint32 Y = 0; Y < Height; ++Y)
+		{
+			Scanlines.push_back(0);
+			for (uint32 X = 0; X < Width; ++X)
+			{
+				Scanlines.push_back(static_cast<uint8>(X / 128));
+				Scanlines.insert(Scanlines.end(), {0, 0, 255});
+			}
+		}
+
+		std::vector<uint8> Deflate{0x78, 0x01};
+		size_t Offset = 0;
+		while (Offset < Scanlines.size())
+		{
+			const uint16 BlockSize = static_cast<uint16>(
+				std::min<size_t>(65535, Scanlines.size() - Offset));
+			Deflate.push_back(Offset + BlockSize == Scanlines.size() ? 1 : 0);
+			Deflate.push_back(static_cast<uint8>(BlockSize));
+			Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+			const uint16 Complement = static_cast<uint16>(~BlockSize);
+			Deflate.push_back(static_cast<uint8>(Complement));
+			Deflate.push_back(static_cast<uint8>(Complement >> 8));
+			Deflate.insert(Deflate.end(), Scanlines.begin() + Offset,
+				Scanlines.begin() + Offset + BlockSize);
+			Offset += BlockSize;
+		}
+		uint32 AdlerA = 1;
+		uint32 AdlerB = 0;
+		for (uint8 Byte : Scanlines)
+		{
+			AdlerA = (AdlerA + Byte) % 65521;
+			AdlerB = (AdlerB + AdlerA) % 65521;
+		}
+		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
+
+		std::vector<uint8> Png{137, 80, 78, 71, 13, 10, 26, 10};
+		std::array<uint8, 13> Header{};
+		Header[0] = static_cast<uint8>(Width >> 24);
+		Header[1] = static_cast<uint8>(Width >> 16);
+		Header[2] = static_cast<uint8>(Width >> 8);
+		Header[3] = static_cast<uint8>(Width);
+		Header[4] = static_cast<uint8>(Height >> 24);
+		Header[5] = static_cast<uint8>(Height >> 16);
+		Header[6] = static_cast<uint8>(Height >> 8);
+		Header[7] = static_cast<uint8>(Height);
+		Header[8] = 8;
+		Header[9] = 6;
+		AppendPngChunk(Png, "IHDR", Header);
+		AppendPngChunk(Png, "IDAT", Deflate);
+		AppendPngChunk(Png, "IEND", {});
+		return Png;
+	}
+}
 
 TEST(FVolumeTextureSourceImportTests, ValidatesDirectPngAtlasSettings)
 {
@@ -50,15 +141,15 @@ TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 	EXPECT_EQ(Source.Depth, 2u);
 	EXPECT_EQ(Source.Format, EVolumeTextureFormat::R8_UNORM);
 	ASSERT_EQ(Source.Voxels.size(), 2u);
-	EXPECT_EQ(Source.Voxels[0], 255u);
-	EXPECT_EQ(Source.Voxels[1], 0u);
+	EXPECT_EQ(Source.Voxels[0], std::byte{255});
+	EXPECT_EQ(Source.Voxels[1], std::byte{0});
 
 	Settings.Channels = EVolumeTextureSourceChannels::RGBA;
 	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source, Error)) << Error;
 	EXPECT_EQ(Source.Format, EVolumeTextureFormat::RGBA8_UNORM);
 	ASSERT_EQ(Source.Voxels.size(), 8u);
-	EXPECT_EQ(Source.Voxels[0], 255u);
-	EXPECT_EQ(Source.Voxels[3], 255u);
+	EXPECT_EQ(Source.Voxels[0], std::byte{255});
+	EXPECT_EQ(Source.Voxels[3], std::byte{255});
 }
 
 TEST(FVolumeTextureSourceImportTests, RejectsCorruptAndMismatchedAtlas)
@@ -176,4 +267,67 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	CollectGarbage();
 	Asset::UnloadPackage(BaseAssetPath);
 	Asset::UnloadPackage(DetailAssetPath);
+}
+
+TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizontal128CubedAtlas)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	ASSERT_TRUE(EnsureTextureBuildHost());
+	Durin::Tests::FScopedAssetForgeProviders Providers;
+	std::string Error;
+	ASSERT_TRUE(Providers.Register(Error)) << Error;
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasDdc");
+	const std::filesystem::path SourceDirectory =
+		Testing::GetTestWorkDirectory() / "TextureImports/Content/ProductionVolume";
+	std::filesystem::create_directories(SourceDirectory);
+	const std::filesystem::path AtlasPath = SourceDirectory / "Noise128.png";
+	const std::vector<uint8> Png = MakeHorizontal128CubedAtlasPng();
+	{
+		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
+		ASSERT_TRUE(Stream.is_open());
+		Stream.write(reinterpret_cast<const char*>(Png.data()),
+			static_cast<std::streamsize>(Png.size()));
+	}
+	const FVolumeTextureImportSettings Settings{
+		.Channels = EVolumeTextureSourceChannels::Red,
+		.SliceWidth = 128, .SliceHeight = 128, .Depth = 128,
+		.TilesX = 128, .TilesY = 1};
+	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
+		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings);
+	ASSERT_TRUE(Imported) << Imported.Message;
+	ASSERT_NE(Imported.Asset, nullptr);
+	ASSERT_EQ(Imported.Asset->GetSourceData().Voxels.size(), 128ull * 128 * 128);
+	for (uint32 Slice : {0u, 1u, 63u, 127u})
+		EXPECT_EQ(Imported.Asset->GetSourceData().Voxels[Slice * 128ull * 128],
+			static_cast<std::byte>(Slice));
+
+	auto Planned = Asset::GetImportService().CreateSingleAssetReimportPlan({
+		.Asset = Imported.Asset});
+	ASSERT_TRUE(Planned) << Planned.Message;
+	const auto Reimported = Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
+	ASSERT_TRUE(Reimported) << Reimported.Message;
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(
+		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasCook");
+	Testing::RemoveTestWorkDirectory(CookRoot);
+	Asset::FCookContext Cook(CookRoot, Asset::ECookTargetPlatform::Win64,
+		Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Imported.Asset->AddToCook(Cook, "/Game/ProductionVolume", Error)) << Error;
+	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
+
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
+	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
+	DVolumeTexture* Reloaded = nullptr;
+	const Asset::FAssetResult Loaded = Asset::LoadAsset(AssetPath, Reloaded);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->GetSourceData().Voxels.size(), 128ull * 128 * 128);
+	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }

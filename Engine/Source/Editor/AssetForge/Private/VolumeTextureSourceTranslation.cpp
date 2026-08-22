@@ -27,12 +27,12 @@ namespace Durin::Asset::Forge
 		}
 
 		auto AppendPixel(const Image::FDecodedImage& Image, size_t Pixel,
-			EVolumeTextureSourceChannels Channels, std::vector<uint8>& OutVoxels) -> void
+			EVolumeTextureSourceChannels Channels, std::vector<std::byte>& OutVoxels) -> void
 		{
 			if (Channels == EVolumeTextureSourceChannels::RGBA)
 			{
-				OutVoxels.insert(OutVoxels.end(), Image.Pixels.begin() + Pixel,
-					Image.Pixels.begin() + Pixel + 4);
+				for (size_t Channel = 0; Channel < 4; ++Channel)
+					OutVoxels.push_back(static_cast<std::byte>(Image.Pixels[Pixel + Channel]));
 				return;
 			}
 			uint8 Value = 0;
@@ -49,7 +49,7 @@ namespace Durin::Asset::Forge
 				break;
 			case EVolumeTextureSourceChannels::RGBA: break;
 			}
-			OutVoxels.push_back(Value);
+			OutVoxels.push_back(static_cast<std::byte>(Value));
 		}
 
 		auto FindOwningMount(std::string_view VirtualPath) -> const PathUtilities::FMountPoint*
@@ -163,7 +163,7 @@ namespace Durin::Asset::Forge
 			== EVolumeTextureFormat::RGBA8_UNORM ? 4u : 1u;
 		const uint64 TotalBytes = static_cast<uint64>(Settings.SliceWidth)
 			* Settings.SliceHeight * Settings.Depth * BytesPerVoxel;
-		std::vector<uint8> Voxels;
+		std::vector<std::byte> Voxels;
 		Voxels.reserve(static_cast<size_t>(TotalBytes));
 		for (uint32 Z = 0; Z < Settings.Depth; ++Z)
 		{

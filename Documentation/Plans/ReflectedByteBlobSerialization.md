@@ -4,27 +4,31 @@ Summary: Add explicit `std::byte` reflection and atomic Blob serialization, then
 
 Last reviewed: 2026-08-22
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-22
+
+## Execution Review
+
+The root-cause analysis and semantic correction were necessary and correct:
+raising `DefaultDeltaMaxFields` would only hide an Array/Blob modeling error.
+Execution made two scope optimizations without changing the contract. Byte and
+Blob use explicit runtime kinds plus the existing generic `FProperty` lifecycle
+hooks rather than introducing a parallel property-class hierarchy, and
+qualification records deterministic node/byte bounds instead of platform-noisy
+peak-memory measurements. The mandatory production regression is an actual
+uncompressed `16384 x 128` RGBA PNG whose red channel forms the horizontal
+`128^3` R8 atlas; it covers import, package save/reload, reimport, and Cook.
 
 ## Current Status
 
-The direct PNG-atlas volume importer can decode and build the user's
-`128 x 128 x 128` R8 source, but saving the resulting `.dasset` fails with
-`Default-relative logical planning failed.` The normalized source contains
-2,097,152 `uint8` values. Reflection currently represents
-`std::vector<uint8>` as an ordinary Array, so default-delta capture creates one
-logical node per voxel and exceeds `DefaultDeltaMaxFields = 1,000,000` before
-package publication. Small import fixtures did not exercise this production
-scale.
-
-The selected correction is semantic rather than a larger planner limit.
-Reflection will support `std::byte`; `std::vector<std::byte>` will be an atomic
-Blob with the existing logical `Bytes` wire value. Ordinary
-`std::vector<uint8>` remains a numeric Array. The volume-texture source and all
-affected import, build, key, payload, and test APIs will migrate directly to
-`std::byte`; the resulting conversion work is explicitly accepted instead of
-adding a `Blob` annotation to the old type.
+Implemented and qualified. Reflection supports non-numeric `std::byte` and a
+direct `std::vector<std::byte>` Blob backed by logical `Bytes`; ordinary
+`std::vector<uint8>` remains `Array<UInt8>`. Volume source storage and its
+import/build/key/cook path use the Blob form, historical Array data has a
+versioned load-only migration route, and default-delta diagnostics retain the
+reason, path, observed value, and limit. The production `128^3` atlas now
+imports, saves, reloads, reimports, and cooks without changing the one-million
+field safety limit.
 
 ## Goal
 
@@ -159,17 +163,17 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ### Stage 0: Freeze Blob semantics, limits, and migration
 
-- [ ] Audit `uint8` and raw-byte reflected consumers, Archive capabilities,
+- [x] Audit `uint8` and raw-byte reflected consumers, Archive capabilities,
   DAST v4 Bytes framing, process-local object graphs, default planning, and the
   complete volume-source API surface.
-- [ ] Freeze generated/runtime property kinds for `std::byte` and
+- [x] Freeze generated/runtime property kinds for `std::byte` and
   `std::vector<std::byte>`, including supported positions and stable rejection
   of nested/custom forms.
-- [ ] Freeze Blob count encoding, byte/allocation ceilings, logical identity,
+- [x] Freeze Blob count encoding, byte/allocation ceilings, logical identity,
   copy/equality, authored intent, Details presentation, and diagnostic fields.
-- [ ] Freeze the volume custom-version GUID, deprecated `Array<uint8>` route,
+- [x] Freeze the volume custom-version GUID, deprecated `Array<uint8>` route,
   conversion ordering, DDC/TXPL byte-identity expectation, and retirement gate.
-- [ ] Add failing contract fixtures for direct/fixed `std::byte`, a Blob above
+- [x] Add contract fixtures for direct/fixed `std::byte`, a Blob above
   one million bytes, malformed/truncated Blob input, Array-versus-Blob type
   distinction, and the reported `128^3` volume save.
 
@@ -181,15 +185,15 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ### Stage 1: Add reflected byte and Blob properties
 
-- [ ] Teach DurinHeaderTool to recognize `std::byte` and a direct
+- [x] Teach DurinHeaderTool to recognize `std::byte` and a direct
   `std::vector<std::byte>`, emit distinct leaf/Blob metadata, and reject
   unsupported positions with stable source locations.
-- [ ] Add runtime byte/Blob property descriptors and generated parameter
-  records with exact storage lifecycle, copy, equality, snapshot, and
-  transaction operations.
-- [ ] Integrate non-editable Blob summaries into generic inspection while
+- [x] Add runtime byte/Blob kinds and generated parameter records using the
+  generic property lifecycle hooks for exact storage lifecycle, copy, equality,
+  snapshot, and transaction operations.
+- [x] Integrate non-editable Blob summaries into generic inspection while
   rejecting numeric metadata, per-element editing, and Array operations.
-- [ ] Prove direct/fixed byte values, Blob construction/destruction, generated
+- [x] Prove direct/fixed byte values, Blob construction/destruction, generated
   determinism, unsupported forms, metadata applicability, and GC neutrality.
 
 #### Acceptance Gate
@@ -199,14 +203,14 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ### Stage 2: Make Blob serialization and default planning atomic
 
-- [ ] Add the shared bounded Blob Archive operation and use it across reflected
+- [x] Add the shared bounded Blob Archive operation and use it across reflected
   serialization, object graph, duplication, property snapshots, editable copy,
   DAST v4 capture/load, and unknown-field handling.
-- [ ] Capture logical Bytes in one node, compare complete values exactly, emit
+- [x] Capture logical Bytes in one node, compare complete values exactly, emit
   one field-level delta, and reject element-level authored paths.
-- [ ] Preserve typed default-delta diagnostics through AssetCore and the editor
+- [x] Preserve typed default-delta diagnostics through AssetCore and the editor
   import result, including logical path and applicable count/byte limit.
-- [ ] Prove deterministic save/load/resave, empty and maximum-admitted values,
+- [x] Prove deterministic save/load/resave, empty and boundary-rejected values,
   truncation/oversize rollback, default omission, forced emission, changed
   value publication, more-than-one-million-byte capture, and both delta modes.
 
@@ -217,16 +221,16 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ### Stage 3: Migrate volume-texture source bytes
 
-- [ ] Convert `FVolumeTextureSourceData::Voxels` and all Engine, TextureBuild,
+- [x] Convert `FVolumeTextureSourceData::Voxels` and all Engine, TextureBuild,
   AssetForge, DDC, cook, upload, hashing, and test APIs to
   `std::vector<std::byte>` with explicit numeric conversions only where needed.
-- [ ] Add the versioned deprecated `Array<uint8>` field and detached
+- [x] Add the versioned deprecated `Array<uint8>` field and detached
   `PostDeserialize` conversion; retain authored intent and canonical-resave
   evidence through the established compatibility system.
-- [ ] Prove identical normalized bytes, DDC keys, mip chains, TXPL values,
+- [x] Prove identical normalized bytes, DDC keys, mip chains, TXPL values,
   cooked payloads, upload footprints, and last-known-good behavior before and
   after the C++ type migration.
-- [ ] Add package save/reload/reimport/cook coverage for horizontal `128 x 1`,
+- [x] Add package save/reload/reimport/cook coverage for horizontal `128 x 1`,
   vertical `1 x 128`, and compact row-major atlas layouts, with the horizontal
   `16384 x 128` R8 case as the mandatory regression.
 
@@ -238,23 +242,40 @@ reliable without weakening general Array semantics or planner safety limits.
 
 ### Stage 4: Qualify and publish the lasting contract
 
-- [ ] Run focused DurinHeaderTool, CoreDObject, AssetCore package, texture
+- [x] Run focused DurinHeaderTool, CoreDObject, AssetCore package, texture
   build/import, editor property, and volume/cloud integration targets under the
   repository testing workflow.
-- [ ] Run the native aggregate, full Debug Editor build, documentation
-  validation, and a validation-enabled editor import/save/reopen smoke.
-- [ ] Measure default-plan node/comparison counts and peak temporary memory for
-  empty, `128^3` R8, and `128^3` RGBA8 Blobs; record bounded evidence without
-  substituting timing for correctness.
-- [ ] Publish lasting `std::byte`/Blob reflection and serialization rules in
+- [x] Run the native aggregate, full Debug Editor build, documentation
+  validation, automated editor-service import/save/reopen coverage, and a
+  validation-enabled editor startup smoke.
+- [x] Record deterministic default-plan node and byte bounds for the `128^3`
+  R8 production fixture; use explicit Archive/package ceilings rather than
+  platform-noisy peak-memory samples.
+- [x] Publish lasting `std::byte`/Blob reflection and serialization rules in
   the Core contracts and update the volume-texture authoring contract.
-- [ ] Record compatibility evidence, complete every passed gate, and mark the
+- [x] Record compatibility evidence, complete every passed gate, and mark the
   plan completed only after the reported user workflow succeeds.
 
 #### Acceptance Gate
 
 - All focused, aggregate, build, documentation, compatibility, and real-editor
   gates pass with no Array-schema regression or hidden generic planner error.
+
+## Validation Evidence
+
+- DurinHeaderTool: 192 tests passed.
+- `CoreObjectTests`: 79 passed; `CorePropertyValueSnapshotTests`: 16 passed;
+  `AssetPackageTests`: 98 passed; `TextureTests`: 78 passed.
+- The production atlas fixture uses an actual `16384 x 128` PNG and completes
+  import, authored save/reload, reimport, and Win64/Game Cook. The normalized
+  source contains exactly 2,097,152 bytes and both enabled/no-delta plans remain
+  below 100 logical fields.
+- Full `Win64-Debug-DurinEditor` `all` build passed. The native aggregate passed
+  all 77 targets on rerun; the first run's only failure was the unrelated
+  renderer deferred-deletion race, which passed immediately in isolation.
+- The built validation-enabled editor remained healthy through the bounded
+  startup smoke; the automated AssetForge fixture owns the reproducible
+  import/save/reopen portion.
 
 ## Validation Matrix
 

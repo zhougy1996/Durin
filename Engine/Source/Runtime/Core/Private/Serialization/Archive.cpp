@@ -154,6 +154,37 @@ namespace Durin
 		Serialize(Bytes.data(), static_cast<uint64>(Bytes.size()));
 	}
 
+	auto FArchive::SerializeByteBlob(std::vector<std::byte>& Bytes) -> void
+	{
+		constexpr uint64 MaximumBlobBytes = 1024ull * 1024 * 1024;
+		uint64 Size = IsSaving() ? static_cast<uint64>(Bytes.size()) : 0;
+		std::array<std::byte, sizeof(uint64)> EncodedSize{};
+		if (IsSaving())
+			for (size_t Index = 0; Index < EncodedSize.size(); ++Index)
+				EncodedSize[Index] = static_cast<std::byte>((Size >> (Index * 8)) & 0xffu);
+		SerializeRawBytes(EncodedSize);
+		if (HasError()) return;
+		if (IsLoading())
+			for (size_t Index = 0; Index < EncodedSize.size(); ++Index)
+				Size |= static_cast<uint64>(std::to_integer<uint8>(EncodedSize[Index])) << (Index * 8);
+		if (Size > MaximumBlobBytes
+			|| Size > static_cast<uint64>(std::numeric_limits<size_t>::max())
+			|| (IsLoading() && Size > GetRemainingPayloadBytes()))
+		{
+			Fail(EArchiveFailureCode::LimitExceeded,
+				"Byte Blob is truncated or exceeds the 1 GiB allocation limit.");
+			return;
+		}
+		if (IsSaving())
+		{
+			WriteBytes(Bytes);
+			return;
+		}
+		std::vector<std::byte> Candidate(static_cast<size_t>(Size));
+		ReadBytes(Candidate);
+		if (!HasError()) Bytes = std::move(Candidate);
+	}
+
 	auto FArchive::TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind, const void*) -> bool { return false; }
 	auto FArchive::TryCaptureLogicalText(EArchiveLogicalTextKind, std::string_view) -> bool { return false; }
 
