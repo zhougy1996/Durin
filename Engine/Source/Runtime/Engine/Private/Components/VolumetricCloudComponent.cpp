@@ -40,11 +40,16 @@ namespace Durin
 		}
 
 		template<typename TTexture>
-		auto GetValidTextureReference(TTexture* Texture) -> FRHITextureReferenceRef
+		auto GetTextureReference(TTexture* Texture) -> FRHITextureReferenceRef
 		{
-			if (Texture == nullptr || Texture->GetPlatformData() == nullptr
-				|| !Texture->GetPlatformData()->IsValid()) return {};
-			return Texture->GetTextureReferenceRHI();
+			return Texture ? Texture->GetTextureReferenceRHI() : FRHITextureReferenceRef{};
+		}
+
+		template<typename TTexture>
+		auto IsTextureReady(TTexture* Texture) -> bool
+		{
+			return Texture != nullptr && Texture->GetPlatformData() != nullptr
+				&& Texture->GetPlatformData()->IsValid();
 		}
 	}
 
@@ -56,6 +61,7 @@ namespace Durin
 		, VolumetricCloudInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
 			? 0 : GNextVolumetricCloudInstanceId.fetch_add(1, std::memory_order_relaxed))
 	{
+		RefreshEligibilityDiagnostic();
 	}
 
 	auto DVolumetricCloudComponent::OnRegister() -> void
@@ -77,6 +83,29 @@ namespace Durin
 	auto DVolumetricCloudComponent::OnOwnerVisibilityChanged() -> void
 	{
 		MarkVolumetricCloudRenderStateDirty();
+	}
+
+	auto DVolumetricCloudComponent::RefreshEligibilityDiagnostic() -> void
+	{
+		FVolumetricCloudSceneData Data;
+		Data.bEnabled = bEnabled;
+		Data.BaseDensityTexture = GetTextureReference(BaseDensityTexture.Get());
+		Data.DetailDensityTexture = GetTextureReference(DetailDensityTexture.Get());
+		Data.MinimumZ = MinimumZ; Data.MaximumZ = MaximumZ;
+		Data.MaximumDistance = MaximumDistance;
+		Data.BaseFrequency = BaseFrequency; Data.DetailFrequency = DetailFrequency;
+		Data.WindOffset = WindOffset; Data.WeatherFrequency = WeatherFrequency;
+		Data.WeatherOffset = WeatherOffset;
+		Data.Coverage = Coverage; Data.DetailErosion = DetailErosion;
+		Data.Extinction = Extinction; Data.LightExtinction = LightExtinction;
+		Data.Ambient = Ambient;
+		const AActor* Owner = GetOwner();
+		EligibilityStatus = DiagnoseVolumetricCloudEligibility(Data, {
+			.bOwnerHidden = Owner && Owner->IsHidden(),
+			.bBaseDensityTextureAssigned = BaseDensityTexture.Get() != nullptr,
+			.bBaseDensityTextureReady = IsTextureReady(BaseDensityTexture.Get()),
+			.bDetailDensityTextureAssigned = DetailDensityTexture.Get() != nullptr,
+			.bDetailDensityTextureReady = IsTextureReady(DetailDensityTexture.Get())}).Message;
 	}
 
 	auto DVolumetricCloudComponent::PreEditChangeProperty(
@@ -235,6 +264,7 @@ namespace Durin
 
 	auto DVolumetricCloudComponent::MarkVolumetricCloudRenderStateDirty() -> void
 	{
+		RefreshEligibilityDiagnostic();
 		if (!IsRegistered()) return;
 		IScene* Scene = GetRenderScene();
 		if (Scene == nullptr || VolumetricCloudInstanceId == 0) return;
@@ -245,10 +275,11 @@ namespace Durin
 		Data.PublicationRevision = ++PublicationRevision;
 		Data.Priority = Priority;
 		const AActor* Owner = GetOwner();
-		Data.bEnabled = bEnabled && (!Owner || !Owner->IsHidden());
-		Data.BaseDensityTexture = GetValidTextureReference(BaseDensityTexture.Get());
-		Data.DetailDensityTexture = GetValidTextureReference(DetailDensityTexture.Get());
-		Data.WeatherTexture = GetValidTextureReference(WeatherTexture.Get());
+		Data.bEnabled = bEnabled;
+		Data.BaseDensityTexture = GetTextureReference(BaseDensityTexture.Get());
+		Data.DetailDensityTexture = GetTextureReference(DetailDensityTexture.Get());
+		Data.WeatherTexture = IsTextureReady(WeatherTexture.Get())
+			? GetTextureReference(WeatherTexture.Get()) : FRHITextureReferenceRef{};
 		Data.MinimumZ = MinimumZ; Data.MaximumZ = MaximumZ;
 		Data.MaximumDistance = MaximumDistance;
 		Data.BaseFrequency = BaseFrequency;
@@ -259,7 +290,14 @@ namespace Durin
 		Data.Coverage = Coverage; Data.DetailErosion = DetailErosion;
 		Data.Extinction = Extinction; Data.LightExtinction = LightExtinction;
 		Data.Ambient = Ambient;
-		Data.bEligible = IsVolumetricCloudCandidateEligible(Data);
+		Data.bEligible = DiagnoseVolumetricCloudEligibility(Data, {
+			.bOwnerHidden = Owner && Owner->IsHidden(),
+			.bBaseDensityTextureAssigned = BaseDensityTexture.Get() != nullptr,
+			.bBaseDensityTextureReady = BaseDensityTexture.Get() != nullptr,
+			.bDetailDensityTextureAssigned = DetailDensityTexture.Get() != nullptr,
+			.bDetailDensityTextureReady = DetailDensityTexture.Get() != nullptr}).bEligible
+			&& Data.PersistentId.IsValid() && Data.InstanceId != 0
+			&& Data.PublicationRevision != 0;
 		Scene->AddOrReplaceVolumetricCloud(
 			FVolumetricCloudSceneId(VolumetricCloudInstanceId), PublicationRevision,
 			std::make_unique<FVolumetricCloudSceneProxy>(std::move(Data)));

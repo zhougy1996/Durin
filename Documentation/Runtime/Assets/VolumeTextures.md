@@ -1,11 +1,11 @@
 # Volume Textures
 
-Summary: Define the normalized source, deterministic build, TXPL payload, cook,
+Summary: Define source import, normalized data, deterministic build, TXPL cook,
 and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, RHI, VulkanRHI
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-22
 
 ## Asset boundary
 
@@ -15,8 +15,34 @@ authored package stores reflected `FVolumeTextureSourceData` and
 buffer with width, height, depth, and one of five portable formats:
 `R8_UNORM`, `RG8_UNORM`, `RGBA8_UNORM`, `R16_FLOAT`, or `RGBA16_FLOAT`.
 Dimensions are nonzero and no greater than 2048; the common texture payload byte
-ceiling is authoritative. File decoding, import UI, materials, streaming, and
-volume-rendering algorithms are outside this boundary.
+ceiling is authoritative. Materials, streaming, and volume-rendering algorithms
+are outside this boundary.
+
+## PNG atlas source import
+
+The existing texture import dialog can interpret a selected PNG as either a
+normal `DTexture2D` or a `DVolumeTexture`. Volume mode currently supports one
+`PNG Row-Major Atlas`: each tile is one Z slice, tiles advance left-to-right and
+then top-to-bottom, and unused cells after `depth` are ignored. The user supplies
+slice width and height, depth, tile columns and rows, and one of `red`, `green`,
+`blue`, `alpha`, `luminance`, or `rgba`. Scalar selections produce `R8_UNORM`;
+`rgba` preserves all four channels as `RGBA8_UNORM`. Luminance is
+`(54R + 183G + 19B + 128) / 256` using integer arithmetic.
+
+The PNG dimensions must exactly equal `(slice width * columns) x (slice height *
+rows)`, the grid must contain at least `depth` cells, and decoded image and volume
+sizes are bounded before allocation. `FVolumeTextureSourceImportData` serializes
+the mounted PNG path and XXH3-128 hash together with the visible import format,
+channel selection, slice dimensions, depth, grid, and decoder version. Generic
+Details exposes the source path and interpretation as read-only asset properties.
+
+External imports copy the PNG beneath the selected mounted source location, save
+the `.dasset`, and only then commit the source copy. The shared `DurinImage`
+provider supplies immutable snapshots, reimport, and source repair. A missing or
+malformed PNG, extent mismatch, build failure, stale publication, or save failure
+leaves the previous asset and render resource intact. Cook excludes normalized
+authoring source and provenance by default and never loads a PNG decoder at
+runtime.
 
 Runtime platform data owns the selected `EPixelFormat` and a complete mip chain.
 Every `FVolumeTextureMipData` records width, height, depth, exact row pitch,
@@ -105,5 +131,6 @@ for every exact format and usage combination.
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureRenderResource.cpp`
 - `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuilder.cpp`
+- `Engine/Source/Editor/AssetForge/Private/VolumeTextureSourceTranslation.cpp`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`

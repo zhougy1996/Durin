@@ -4,6 +4,7 @@ if(DURIN_WITH_EDITOR)
 		Private/Texture/TextureImportAndCacheTests.cpp
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
+		Private/Texture/VolumeTextureSourceImportTests.cpp
 		Private/Texture/Texture2DBuildCoordinatorTests.cpp
 		Private/Texture/TextureFailureTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp

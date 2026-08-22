@@ -408,6 +408,14 @@ namespace Durin
 		{
 			const FVolumetricCloudSceneData& Data = Candidate->GetProxy().GetData();
 			if (!Data.bEligible) continue;
+			// Assigned texture references are stable across import/reimport. Resolve
+			// readiness here so a recovered asset becomes selectable without an
+			// unrelated component edit or proxy republication.
+			if ((Data.BaseDensityTexture
+					&& !Data.BaseDensityTexture->GetReferencedTexture_RenderThread())
+				|| (Data.DetailDensityTexture
+					&& !Data.DetailDensityTexture->GetReferencedTexture_RenderThread()))
+				continue;
 			if (ActiveVolumetricCloudSceneInfo == nullptr)
 			{
 				ActiveVolumetricCloudSceneInfo = Candidate;

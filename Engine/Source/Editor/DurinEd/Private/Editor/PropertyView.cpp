@@ -2,6 +2,7 @@
 #include "Editor/PropertyValueDraft.h"
 
 #include "AssetAuthoring.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -376,6 +377,8 @@ namespace Durin::Editor
 			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
 			return {};
 		}
+		if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object))
+			Cloud->RefreshEligibilityDiagnostic();
 
 		// Couples a reflected property with the display label selected by filtering.
 		struct FVisibleProperty

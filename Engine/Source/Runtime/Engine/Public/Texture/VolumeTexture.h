@@ -26,6 +26,23 @@ namespace Durin
 		Box
 	};
 
+	DENUM(DisplayName = "Volume Texture Import Format")
+	enum class EVolumeTextureImportFormat : uint8
+	{
+		PngRowMajorAtlas DMETA(DisplayName = "PNG Row-Major Atlas")
+	};
+
+	DENUM(DisplayName = "Volume Texture Source Channels")
+	enum class EVolumeTextureSourceChannels : uint8
+	{
+		Red,
+		Green,
+		Blue,
+		Alpha,
+		Luminance,
+		RGBA
+	};
+
 	// Owns a tightly packed normalized voxel source retained by an authored asset.
 	DSTRUCT()
 	struct FVolumeTextureSourceData
@@ -65,6 +82,50 @@ namespace Durin
 		auto operator==(const FVolumeTextureBuildSettings&) const -> bool = default;
 	};
 
+	// Stores the mounted source image and its atlas interpretation for editor
+	// rebuild and reimport. Runtime and cooked sampling remain source-format agnostic.
+	DSTRUCT()
+	struct FVolumeTextureSourceImportData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FTextureSourceFile Source;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Source File")
+		std::string SourceFile;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Import Format")
+		EVolumeTextureImportFormat ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas;
+
+		DPROPERTY(Edit, ReadOnly)
+		EVolumeTextureSourceChannels Channels = EVolumeTextureSourceChannels::Red;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Slice Width")
+		uint32 SliceWidth = 0;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Slice Height")
+		uint32 SliceHeight = 0;
+
+		DPROPERTY(Edit, ReadOnly)
+		uint32 Depth = 0;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Tile Columns")
+		uint32 TilesX = 0;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Tile Rows")
+		uint32 TilesY = 0;
+
+		DPROPERTY()
+		std::string DecoderId;
+
+		DPROPERTY()
+		uint32 DecoderVersion = 0;
+
+		auto HasSource() const -> bool { return Source.HasSource(); }
+		auto operator==(const FVolumeTextureSourceImportData&) const -> bool = default;
+	};
+
 	// Owns one exact volume mip with explicit row and depth pitches.
 	struct FVolumeTextureMipData
 	{
@@ -101,6 +162,7 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 
 		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
+		auto GetSourceImportData() const -> const FVolumeTextureSourceImportData& { return SourceImportData; }
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
@@ -116,10 +178,17 @@ namespace Durin
 			FVolumeTextureBuildSettings InBuildSettings,
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
+		ENGINE_API auto PublishSourceImportData(
+			FVolumeTextureSourceImportData InSourceImportData,
+			std::string& OutError) -> bool;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
 		ENGINE_API auto ExchangeBuiltState(DVolumeTexture& Other) noexcept -> void;
+		auto ExchangeImportedState(DVolumeTexture& Other) noexcept -> void
+		{
+			ExchangeBuiltState(Other);
+		}
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
 	protected:
@@ -131,6 +200,9 @@ namespace Durin
 	private:
 		DPROPERTY()
 		FVolumeTextureSourceData SourceData;
+
+		DPROPERTY(Edit, ReadOnly, DisplayName = "Import")
+		FVolumeTextureSourceImportData SourceImportData;
 
 		DPROPERTY()
 		FVolumeTextureBuildSettings BuildSettings;

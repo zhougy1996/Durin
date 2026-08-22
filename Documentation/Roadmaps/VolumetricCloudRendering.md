@@ -28,8 +28,17 @@ resource recovery, diagnostics, and the opaque/cloud/sorted-translucency split.
 Focused contract and Vulkan integration coverage passes; lasting P1 contracts
 are published under Runtime rendering. The unavailable GTX 1060 identity was
 explicitly replaced by the user with RTX 3090 / Vulkan 1.4.325 while retaining
-all numeric gates; both named-gate executor reruns passed. P2 is now active in
-[Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md).
+all numeric gates; both named-gate executor reruns passed.
+
+[Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md)
+completed P2 on 2026-08-21. The user then prioritized asset ingestion and
+generic diagnostics ahead of P3/P4. [Volume Texture Import and Cloud
+Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) completed
+P2.5 on 2026-08-21, revised on 2026-08-22: the texture import workflow imports
+one row-major PNG atlas directly as R8 or RGBA8,
+retains dependency-aware provenance for transactional reimport/repair, and
+exposes the shared cloud eligibility result in generic Details. Focused,
+aggregate, Vulkan, full-build, documentation, and Editor-smoke gates pass.
 
 ## Outcome
 
@@ -149,8 +158,9 @@ without representing those features as already supported.
   counts, target scale, temporal pattern, and platform policy. Serialized
   content does not freeze implementation-specific dispatch dimensions.
 - General Details-panel reflection is sufficient for the initial P2 workflow.
-  Purpose-built asset previews, debug views, presets, and import/generation
-  adapters are deferred to P5 after runtime parameters and diagnostics stabilize.
+  P2.5 adds the smallest source-backed volume adapter and one read-only cloud
+  eligibility status before P3. Purpose-built previews, debug views, presets,
+  procedural generation, and the standalone authoring experience remain P5.
 
 ## Current Foundations and Gaps
 
@@ -161,7 +171,7 @@ without representing those features as already supported.
 | Temporal state | [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) provides identity, previous matrices, discontinuities, and transactional feature-history extension. | Add cloud-specific history resources, reprojection, rejection, reconstruction, and commit/abort behavior. |
 | Scene rendering | Renderer has sky bootstrap, GBuffer/deferred lighting, retained forward geometry, sorted translucency, post-process, editor assistance, and resource coordination. | Split opaque/cloud/translucent execution at the narrowest boundary and establish depth-aware cloud composition in every supported view route. |
 | Lighting | Directional-light scene proxies, deferred lighting, cascaded shadows, environment lighting, GTAO, and contact visibility exist. | Define cloud lighting inputs, self-transmittance, ambient approximation, and a bounded cloud-shadow path without changing light-component ownership. |
-| Authoring | Reflected scene components, stable proxy/scene-info patterns, texture assets, generic Details editing, Texture Editor infrastructure, and Content Browser selection exist. | Add a cloud actor/component, stable active selection, cloud asset workflow, previews/debug views, presets, and focused editor validation. |
+| Authoring | The reflected cloud actor/component, stable scene selection, generic Details editing, `DVolumeTexture`, TextureBuild, AssetImportCore, AssetForge image decoding, and Content Browser import infrastructure exist. | Add the smallest source-backed volume importer and actionable generic status in P2.5; retain previews, presets, generation, and specialized UI for P5. |
 
 ## Milestone Map
 
@@ -171,7 +181,8 @@ flowchart LR
     VS["Persistent View State Foundation"] --> P3["P3: Temporal reconstruction"]
     CI["Compute Renderer Integration"] --> P1
     P1 --> P2["P2: Scene contract and component"]
-    P2 --> P3
+    P2 --> P25["P2.5: Volume import and generic diagnostics"]
+    P25 --> P3
     P3 --> P4["P4: Lighting and cloud shadows"]
     P4 --> P5["P5: Authoring and editor workflow"]
     P5 --> P6["P6: Production qualification"]
@@ -182,12 +193,13 @@ flowchart LR
 | P0: Generic foundations | Required; completed 2026-08-21 | [Volume Texture Foundation](../Plans/VolumeTextureFoundation.md) and [Persistent View State Foundation](../Plans/PersistentViewStateFoundation.md) | Existing texture, compute, renderer-scene, and view-lifetime contracts were audited. | Cooked sampled 3D data and transactional view identity/history extension pass focused, aggregate, and runtime qualification. |
 | P1: Spatial rendering and composition | Required; completed 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | The user-approved RTX 3090 / Vulkan 1.4.325 rebaseline retained every numeric gate; inline/threaded named qualification passed three-extent structure, half/final-image parity, 49,766,400-byte peak retention, enabled offscreen/Present resize routes, invalid-input identity, lifecycle, aggregates, build, and runtime smoke. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
 | P2: Scene contract and component | Required; completed 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | Met: one reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources; generic Details, both Vulkan executors, aggregates, full build, and Editor smoke pass. |
-| P3: Temporal reconstruction and quality | Required | `VolumetricCloudTemporalReconstruction` | P1 spatial reference images pass; P2 publishes immutable parameters; representative camera motion, cut, resize, and performance targets are frozen. | Low-resolution cloud rendering reconstructs stable full-view output, rejects invalid history, commits/aborts transactionally, exposes bounded quality tiers, and demonstrates measured benefit over the spatial reference. |
+| P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
+| P3: Temporal reconstruction and quality | Required | `VolumetricCloudTemporalReconstruction` | P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; representative camera motion, cut, resize, and performance targets are frozen. | Low-resolution cloud rendering reconstructs stable full-view output, rejects invalid history, commits/aborts transactionally, exposes bounded quality tiers, and demonstrates measured benefit over the spatial reference. |
 | P4: Lighting and cloud shadows | Required | `VolumetricCloudLightingAndShadows` | P3 output and quality policy are stable; selected directional-light and receiver scenes define radiometric, visual, and performance targets. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
-| P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; first production asset sources identify the smallest import or generation adapter required. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
-| P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5 acceptance gates pass and their remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
+| P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path and real production-source evidence identifies any justified generation or richer adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
+| P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5, including P2.5, pass their acceptance gates and the remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
-P0-P2 are complete. P3 is the next proposed child plan; P3-P6 remain ordered
+P0-P2.5 are complete. No cloud child plan is active; P3-P6 remain ordered
 proposed plans, not simultaneous active work.
 
 ## Child Plan Boundaries
@@ -217,6 +229,18 @@ It translates authored settings into the already-frozen P1 renderer input. It
 does not own GPU resources, introduce texture import policy, expose sample-count
 implementation details as content, or redesign SkyBox/light ownership.
 
+### [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md)
+
+Owns the first source-backed `DVolumeTexture` adapter: one direct row-major PNG
+atlas, AssetImportCore/AssetForge import and reimport, provenance,
+source dependency repair/relocation, transactional candidate exchange, and
+package/cook/runtime qualification. It also owns the shared Engine cloud
+eligibility reasons and one transient read-only status in generic Details.
+
+It does not add a dedicated editor, volume/cloud previews, procedural noise,
+presets, debug views, temporal reconstruction, production lighting, broader
+volume formats, or cloud semantics to the generic texture asset.
+
 ### `VolumetricCloudTemporalReconstruction`
 
 Owns low-resolution target sizing, sample pattern and jitter, cloud depth or
@@ -242,11 +266,12 @@ directional shadows.
 
 ### `VolumetricCloudAuthoringWorkflow`
 
-Owns the smallest justified volume/weather source adapter or procedural
-generation workflow, cloud asset-role presentation, component Details layout,
-quality presets, volume/cloud preview, renderer debug-view controls,
-performance/failure presentation, Content Browser integration, and persistent
-editor workflow validation.
+Owns procedural generation or richer source adapters justified after the first
+imported production assets, cloud asset-role presentation, component Details
+layout, quality presets, volume/cloud preview, renderer debug-view controls,
+performance presentation, and persistent specialized-editor workflow
+validation. It builds on P2.5 import provenance and eligibility diagnostics
+rather than replacing them.
 
 It must reuse `DVolumeTexture`, TextureBuild, reflected component properties,
 Renderer diagnostics, and existing preview infrastructure. It does not invent
@@ -266,7 +291,7 @@ authoring feature after the matrix is frozen.
 
 | Boundary | Required plans | Evidence |
 | --- | --- | --- |
-| Authored volume -> cloud density | P1, P2, P5 | Valid cooked and uncooked assets publish stable texture references; invalid, missing, replaced, and corrupt inputs follow explicit fallback without partial rendering state. |
+| Authored volume -> cloud density | P1, P2, P2.5, P5 | Valid imported, cooked, and uncooked assets publish stable texture references; invalid, missing, replaced, and corrupt inputs follow explicit diagnostics/fallback without partial rendering state. |
 | Scene -> render thread | P2 | Add/update/remove, selection, visibility, duplication, world replacement, queued mutation, and shutdown expose only immutable snapshots and release every retained reference. |
 | Opaque depth/color -> cloud -> translucency | P1, P6 | Forward fallback, hybrid deferred, Lit/Unlit, Solid/Wireframe, fitted viewports, offscreen, Present, and editor assistance preserve the selected ordering and depth convention. |
 | Compute write -> cloud composite | P1 | Both command executors transition low-resolution outputs through public RHI, perform no hidden copy or global idle wait, and reproduce deterministic reference pixels. |
@@ -274,7 +299,7 @@ authoring feature after the matrix is frozen.
 | Directional light -> cloud/receiver | P4 | Light rotation/intensity/color, cloud motion/density, self-shadow, ambient term, receiver shadow, disabled features, and unavailable resources produce bounded deterministic output. |
 | Resource lifecycle -> recovery | P1-P6 | Shader reload, texture replacement, failed rebuild, target/PSO creation failure, retry, device invalidation, render backlog, multi-view use, scene release, and shutdown retain last-known-good or explicit null fallbacks. |
 | Quality -> performance | P1, P3, P4, P6 | Predeclared adapter/extent/view fixtures report GPU time, dispatch/draw/sample structure, target/history bytes, cache ceilings, history acceptance, and final image quality for every shipped tier. |
-| Editor -> package/cook/runtime | P2, P5, P6 | Create/edit/save/reload/reopen, asset selection/mutation/deletion diagnostics, cook without authoring-only data, runtime load, previews, debug modes, and orderly editor shutdown pass. |
+| Editor -> package/cook/runtime | P2, P2.5, P5, P6 | Import/reimport, create/edit/save/reload/reopen, asset selection/mutation/deletion diagnostics, cook without authoring-only data, runtime load, later previews/debug modes, and orderly editor shutdown pass. |
 
 Each child plan selects focused native and rendering tests using the root
 [testing workflow](../Agents/Testing.md) and validates runtime-visible changes
@@ -294,7 +319,7 @@ earlier plan gates.
 | Quality settings become serialized dispatch internals. | P2 exposes physical intent; P3 maps named tiers to implementation policy and diagnostics. |
 | Cloud lighting silently diverges from scene light selection. | P4 consumes the established prepared directional-light contract and validates deterministic active-light mutation and fallback. |
 | Cloud shadows expand into an atmosphere or lighting rewrite. | P4 freezes one receiver representation and budget; atmosphere LUTs, aerial perspective, local lights, and multiple scattering remain excluded. |
-| Editor work grows a general volume-content platform. | P5 selects only the adapter and previews required by named first-production assets; broader import formats remain deferred. |
+| Editor work grows a general volume-content platform. | P2.5 freezes one direct R8/RGBA8 row-major PNG-atlas format and one generic status row; P5 adds only richer adapters/previews justified by named production assets. |
 | Compute/Renderer work overlaps the active integration plan. | P1 cannot activate until Compute Renderer Integration completes and publishes its lasting contracts. |
 | Manual pass/resource management becomes materially unsafe as cloud phases grow. | Each plan records transitions and lifetime explicitly; a Render Graph plan activates only from concrete transition/aliasing defects or measured transient-memory pressure, not pass count alone. |
 

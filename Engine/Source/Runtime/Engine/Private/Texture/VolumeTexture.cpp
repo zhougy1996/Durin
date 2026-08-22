@@ -190,8 +190,9 @@ namespace Durin
 				if (!bRetainDiagnosticSourceData) SourceData = {};
 				Asset::FAssetPackageSerializationOptions Options;
 				if (!bRetainDiagnosticSourceData)
-					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						return Object != this || Property->NamePrivate != FName("SourceData");
+				Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
+						return Object != this || (Property->NamePrivate != FName("SourceData")
+							&& Property->NamePrivate != FName("SourceImportData"));
 					};
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, Options);
@@ -246,10 +247,33 @@ namespace Durin
 		return true;
 	}
 
+	auto DVolumeTexture::PublishSourceImportData(
+		FVolumeTextureSourceImportData InSourceImportData,
+		std::string& OutError) -> bool
+	{
+		if (!InSourceImportData.HasSource()
+			|| !InSourceImportData.Source.HasContentHash()
+			|| InSourceImportData.SourceFile != InSourceImportData.Source.SourcePath.Path
+			|| InSourceImportData.SliceWidth == 0 || InSourceImportData.SliceHeight == 0
+			|| InSourceImportData.Depth == 0 || InSourceImportData.TilesX == 0
+			|| InSourceImportData.TilesY == 0
+			|| InSourceImportData.DecoderId.empty()
+			|| InSourceImportData.DecoderVersion == 0)
+		{
+			OutError = "Volume texture source provenance requires one hashed source image, valid atlas settings, and decoder identity.";
+			return false;
+		}
+		SourceImportData = std::move(InSourceImportData);
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+	}
+
 	auto DVolumeTexture::ExchangeBuiltState(DVolumeTexture& Other) noexcept -> void
 	{
 		if (&Other == this) return;
 		std::swap(SourceData, Other.SourceData);
+		std::swap(SourceImportData, Other.SourceImportData);
 		std::swap(BuildSettings, Other.BuildSettings);
 		std::swap(CookedPayload, Other.CookedPayload);
 		std::swap(PlatformData, Other.PlatformData);

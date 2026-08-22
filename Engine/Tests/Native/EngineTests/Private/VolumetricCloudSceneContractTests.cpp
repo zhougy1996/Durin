@@ -196,6 +196,58 @@ TEST(FVolumetricCloudSceneContractTests,
 }
 
 TEST(FVolumetricCloudSceneContractTests,
+	EligibilityDiagnosticsUseOneStableFirstFailureOrder)
+{
+	Durin::FVolumetricCloudSceneData Data = MakeCandidate(
+		7, 3, 2, Durin::FGuid(1, 2, 3, 4), "Cloud");
+	Durin::FVolumetricCloudEligibilityContext Context;
+	auto ExpectReason = [&](Durin::EVolumetricCloudEligibilityReason Reason) {
+		const auto Diagnostic = Durin::DiagnoseVolumetricCloudEligibility(Data, Context);
+		EXPECT_EQ(Diagnostic.Reason, Reason);
+		EXPECT_EQ(Diagnostic.bEligible,
+			Reason == Durin::EVolumetricCloudEligibilityReason::Ready);
+		EXPECT_FALSE(Diagnostic.Message.empty());
+	};
+
+	Data.bEnabled = false;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::Disabled);
+	Data.bEnabled = true;
+	Context.bOwnerHidden = true;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::OwnerHidden);
+	Context.bOwnerHidden = false;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::MissingBaseDensityTexture);
+	Context.bBaseDensityTextureAssigned = true;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidBaseDensityTexture);
+	Context.bBaseDensityTextureReady = true;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::MissingDetailDensityTexture);
+	Context.bDetailDensityTextureAssigned = true;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidDetailDensityTexture);
+	Context.bDetailDensityTextureReady = true;
+	Data.MaximumZ = Data.MinimumZ;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidLayer);
+	Data.MaximumZ = Data.MinimumZ + 1.0;
+	Data.MaximumDistance = 0.0;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidMaximumDistance);
+	Data.MaximumDistance = 1.0;
+	Data.BaseFrequency.x = 0.0f;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidDensityMapping);
+	Data.BaseFrequency.x = 0.00008f;
+	Data.Extinction = 0.0f;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::InvalidOpticalParameters);
+	Data.Extinction = 0.0015f;
+	ExpectReason(Durin::EVolumetricCloudEligibilityReason::Ready);
+	EXPECT_TRUE(Durin::AreVolumetricCloudParametersValid(Data));
+
+	InitializeDObjectSystem();
+	auto* StatusProperty = Durin::DVolumetricCloudComponent::StaticClass()
+		->FindPropertyByName("EligibilityStatus");
+	ASSERT_NE(StatusProperty, nullptr);
+	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::ReadOnly));
+	EXPECT_TRUE(StatusProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+}
+
+TEST(FVolumetricCloudSceneContractTests,
 	SceneSelectsPriorityAndStableIdentityAndRejectsStaleCommands)
 {
 	InitializeDObjectSystem();

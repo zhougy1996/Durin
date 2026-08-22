@@ -11,6 +11,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
+#include "VolumeTextureSourceTranslation.h"
 
 namespace Durin::Editor::Level
 {
@@ -42,6 +43,13 @@ namespace Durin::Editor::Level
 	{
 		SourceForm.Reset();
 		Usage = ETextureUsage::Color;
+		bImportVolume = false;
+		VolumeChannels = EVolumeTextureSourceChannels::Red;
+		VolumeSliceWidth = 128;
+		VolumeSliceHeight = 128;
+		VolumeDepth = 128;
+		VolumeTilesX = 12;
+		VolumeTilesY = 12;
 		Destination.Reset(DestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -56,22 +64,33 @@ namespace Durin::Editor::Level
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
-		ImGui::TextUnformatted("Create a Texture2D asset from an image file.");
+		const bool bVolumeSource = bImportVolume;
+		ImGui::TextUnformatted(bVolumeSource
+			? "Create a Volume Texture asset directly from one PNG slice atlas."
+			: "Create a Texture2D asset from an image file.");
 		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external file into a writable mount.");
+		const char* AssetTypeNames[] = {"Texture2D", "Volume Texture"};
+		int AssetType = bVolumeSource ? 1 : 0;
+		if (ImGui::Combo("Asset type", &AssetType, AssetTypeNames, 2))
+		{
+			bImportVolume = AssetType == 1;
+			SuggestSourceDestination();
+		}
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source image");
 		SourceForm.DrawMode(
 			"Copies an external file transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		if (SourceForm.DrawSourceRow("##TextureImportSource",
-			"Choose a PNG, JPEG, BMP, or TGA image...", BrowseButtonWidth)) BrowseSource();
+			"Choose an image file...", BrowseButtonWidth)) BrowseSource();
 
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-		const bool bSupportedSource = bHasSource
-			&& Asset::Forge::IsTexture2DSourceExtension(
-				SourcePath.extension().generic_string());
+		const std::string SourceExtension = Lowercase(SourcePath.extension().generic_string());
+		const bool bSupportedSource = bHasSource && (bVolumeSource
+			? SourceExtension == ".png"
+			: Asset::Forge::IsTexture2DSourceExtension(SourceExtension));
 		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());
 
 		ImGui::Spacing();
@@ -124,21 +143,42 @@ namespace Durin::Editor::Level
 				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
 		}
 
-		ImGui::Spacing();
-		ImGui::SeparatorText("Build settings");
-		const char* UsageNames[] = {"Color", "Normal", "Data / Mask"};
-		int UsageIndex = static_cast<int>(Usage);
-		if (ImGui::Combo("Usage", &UsageIndex, UsageNames, static_cast<int>(std::size(UsageNames)))) Usage = static_cast<ETextureUsage>(UsageIndex);
-		ImGui::TextDisabled(Usage == ETextureUsage::Color
-			? "sRGB color sampling with color-aware mip filtering."
-			: Usage == ETextureUsage::Normal
-				? "Linear sampling with normalized-vector mip filtering."
-				: "Linear sampling with independent-channel mip filtering.");
+		if (!bVolumeSource)
+		{
+			ImGui::Spacing();
+			ImGui::SeparatorText("Build settings");
+			const char* UsageNames[] = {"Color", "Normal", "Data / Mask"};
+			int UsageIndex = static_cast<int>(Usage);
+			if (ImGui::Combo("Usage", &UsageIndex, UsageNames, static_cast<int>(std::size(UsageNames)))) Usage = static_cast<ETextureUsage>(UsageIndex);
+			ImGui::TextDisabled(Usage == ETextureUsage::Color
+				? "sRGB color sampling with color-aware mip filtering."
+				: Usage == ETextureUsage::Normal
+					? "Linear sampling with normalized-vector mip filtering."
+					: "Linear sampling with independent-channel mip filtering.");
+		}
+		else
+		{
+			ImGui::Spacing();
+			ImGui::SeparatorText("Volume atlas settings");
+			ImGui::TextDisabled("Import format: PNG Row-Major Atlas");
+			const char* ChannelNames[] = {"Red", "Green", "Blue", "Alpha", "Luminance", "RGBA"};
+			int ChannelIndex = static_cast<int>(VolumeChannels);
+			if (ImGui::Combo("Channels", &ChannelIndex, ChannelNames, 6))
+				VolumeChannels = static_cast<EVolumeTextureSourceChannels>(ChannelIndex);
+			ImGui::InputScalar("Slice width", ImGuiDataType_U32, &VolumeSliceWidth);
+			ImGui::InputScalar("Slice height", ImGuiDataType_U32, &VolumeSliceHeight);
+			ImGui::InputScalar("Depth", ImGuiDataType_U32, &VolumeDepth);
+			ImGui::InputScalar("Tile columns", ImGuiDataType_U32, &VolumeTilesX);
+			ImGui::InputScalar("Tile rows", ImGuiDataType_U32, &VolumeTilesY);
+			ImGui::TextDisabled("Slices are read left-to-right, then top-to-bottom; unused tail cells are ignored.");
+		}
 
 		std::string ValidationMessage;
 		if (!bHasSource) ValidationMessage = "Select a source image to continue.";
 		else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
-		else if (!bSupportedSource) ValidationMessage = "Supported texture formats are PNG, JPEG, BMP, and TGA.";
+		else if (!bSupportedSource) ValidationMessage = bVolumeSource
+			? "Volume Texture atlas sources must be PNG files."
+			: "Supported Texture2D formats are PNG, JPEG, BMP, and TGA.";
 		else if (!DestinationValidation)
 			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
@@ -146,13 +186,23 @@ namespace Durin::Editor::Level
 		else if (SourceMode == EMountedSourceImportMode::IngestExternal
 			&& !bSourceExtensionMatches)
 			ValidationMessage = "The source copy must keep the selected image's file extension.";
+		else if (bVolumeSource)
+		{
+			Asset::Forge::FVolumeTextureImportSettings Settings{
+				.Channels = VolumeChannels, .SliceWidth = VolumeSliceWidth,
+				.SliceHeight = VolumeSliceHeight, .Depth = VolumeDepth,
+				.TilesX = VolumeTilesX, .TilesY = VolumeTilesY};
+			Settings.IsValid(&ValidationMessage);
+		}
 
 		DrawImportDialogWarning(ValidationMessage);
 
 		ImGui::Spacing();
 		ImGui::Separator();
 		ImGui::BeginDisabled(!ValidationMessage.empty());
-		if (ImGui::Button("Import Texture", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
+		if (ImGui::Button(bVolumeSource ? "Import Volume Texture" : "Import Texture",
+			ImVec2(MonaImGui::ScaleUI(bVolumeSource ? 180.0f : 150.0f), 0.0f))
+			&& Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
@@ -165,7 +215,7 @@ namespace Durin::Editor::Level
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Select a Texture Source File";
 		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
+			{"All Supported Textures", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
 			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}
 		};
 		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
@@ -197,9 +247,11 @@ namespace Durin::Editor::Level
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const std::string AssetName = StringUtils::SanitizeFileName(
 			SourcePath.stem().generic_string(), "Texture");
+		const bool bVolumeSource = bImportVolume;
 		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
-			Destination.GetPath(), "Textures",
-			AssetName + SourcePath.extension().generic_string());
+			Destination.GetPath(), bVolumeSource ? "VolumeTextures" : "Textures",
+			AssetName + SourcePath.extension().generic_string(),
+			bVolumeSource ? AssetName : std::string_view{});
 		SourceForm.SuggestDestination(SuggestedSourceDestination);
 	}
 
@@ -238,7 +290,7 @@ namespace Durin::Editor::Level
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";
 		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
+			{"All Supported Textures", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
 			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
 			{"Targa", "*.tga"}
 		};
@@ -276,6 +328,29 @@ namespace Durin::Editor::Level
 	auto FTextureImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
+		const bool bVolumeSource = bImportVolume;
+		if (bVolumeSource)
+		{
+			Asset::Forge::FVolumeTextureImportSettings Settings;
+			if (SourceMode == EMountedSourceImportMode::IngestExternal)
+				Settings.SourceDestination = SourceDestinationBuffer.data();
+			Settings.Channels = VolumeChannels;
+			Settings.SliceWidth = VolumeSliceWidth;
+			Settings.SliceHeight = VolumeSliceHeight;
+			Settings.Depth = VolumeDepth;
+			Settings.TilesX = VolumeTilesX;
+			Settings.TilesY = VolumeTilesY;
+			const Asset::Forge::FVolumeTextureImportResult Result =
+				Asset::Forge::ImportVolumeTextureAsset(SourcePathBuffer.data(),
+					Destination.GetPath(), Settings,
+					IsEngineAuthoringDestination(Destination.GetPath()));
+			if (!Result) { SetError(Result.Message); return false; }
+			Callbacks.NotifyImported(Destination.GetPath());
+			FAssetPath ImportedPath;
+			if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
+				Asset::UnloadPackage(ImportedPath);
+			return true;
+		}
 		FTexture2DImportSettings Settings;
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = SourceDestinationBuffer.data();

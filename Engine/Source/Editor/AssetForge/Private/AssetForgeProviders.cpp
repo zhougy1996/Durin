@@ -5,6 +5,7 @@
 #include "Texture2DSourceTranslation.h"
 #include "Texture2DBuildAdapter.h"
 #include "TextureCubeSourceTranslation.h"
+#include "VolumeTextureSourceTranslation.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
@@ -35,6 +36,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureCubeBuilder.h"
+#include "Texture/VolumeTexture.h"
 #include "TextureCubeBuildAdapter.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -400,6 +402,8 @@ namespace Durin::Asset::Forge
 					return Mesh->GetSourceImportData().SourceContentHash;
 				if (const auto* Texture = Cast<DTexture2D>(AssetObject))
 					return Texture->GetDerivedDataKey();
+				if (const auto* Volume = Cast<DVolumeTexture>(AssetObject))
+					return Volume->GetDerivedDataKey();
 				if (const auto* Cube = Cast<DTextureCube>(AssetObject))
 					return Cube->GetDerivedDataKey();
 				if (const auto* Heightmap = Cast<DTerrainHeightmap>(AssetObject))
@@ -413,6 +417,9 @@ namespace Durin::Asset::Forge
 				else if (const auto* Texture = Cast<DTexture2D>(AssetObject))
 					bValid = Texture->GetPlatformData() != nullptr
 						&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready;
+				else if (const auto* Volume = Cast<DVolumeTexture>(AssetObject))
+					bValid = Volume->GetPlatformData() != nullptr
+						&& Volume->GetBuildStatus() == ETextureBuildStatus::Ready;
 				else if (const auto* Cube = Cast<DTextureCube>(AssetObject))
 					bValid = Cube->GetPlatformData() != nullptr
 						&& Cube->GetBuildStatus() == ETextureBuildStatus::Ready;
@@ -720,6 +727,99 @@ namespace Durin::Asset::Forge
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
 					.Phase = "source-repair", .Message = Error});
+				return bResult;
+			}
+		};
+
+		class FVolumeTextureHandler final : public ISingleAssetImportHandler
+		{
+		public:
+			auto GetAssetClassName() const -> std::string_view override
+			{
+				return "Durin::DVolumeTexture";
+			}
+			auto GetProviderId() const -> std::string_view override
+			{
+				return "DurinImage";
+			}
+			auto InspectProvenance(const DObject& AssetObject,
+				FSingleAssetProvenance& Out,
+				std::vector<FImportDiagnostic>&) const -> bool override
+			{
+				const auto* Texture = Cast<DVolumeTexture>(&AssetObject);
+				if (!Texture || !Texture->GetSourceImportData().HasSource()) return false;
+				const FVolumeTextureSourceImportData& Source = Texture->GetSourceImportData();
+				Out.ProviderId = Source.DecoderId;
+				Out.ProviderContractVersion = Source.DecoderVersion;
+				Out.Settings = MakePayload("Durin.VolumeTexture.ImportSettings", 1, {});
+				Out.AuthoredOutputFingerprint = Texture->GetDerivedDataKey();
+				Out.Sources.push_back({.StableIdentity = "image", .Role = "VolumeAtlas",
+					.SourcePath = Source.Source.SourcePath,
+					.ContentHash = MakeSourceHash(Source.Source)});
+				return Out.IsComplete();
+			}
+			auto QueryCapabilities(const DObject&, const FSingleAssetProvenance&) const
+				-> FSingleAssetCapabilitySet override
+			{
+				return MakeCapabilities(std::string(GetAssetClassName()),
+					std::string(VolumeTextureSourceProviderId), true,
+					"Replaces the ordered volume source, mip/platform data, DDC identity, and render resource; object identity is retained.");
+			}
+			auto BuildCandidate(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Target = Cast<DVolumeTexture>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				DVolumeTexture* Candidate = nullptr;
+				if (!Target || !Root || !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath)
+					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				FVolumeTextureCapturedSource Source{
+					.SourcePath = Root->SourcePath, .ContentHash = Root->ContentHash,
+					.Bytes = Root->GetBytes()};
+				const auto& Imported = Target->GetSourceImportData();
+				const FVolumeTextureImportSettings Settings{
+					.ImportFormat = Imported.ImportFormat, .Channels = Imported.Channels,
+					.SliceWidth = Imported.SliceWidth, .SliceHeight = Imported.SliceHeight,
+					.Depth = Imported.Depth, .TilesX = Imported.TilesX, .TilesY = Imported.TilesY};
+				if (!BuildVolumeTextureCandidate(*Candidate, Source, Settings, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					Result->Abandon();
+					return nullptr;
+				}
+				return Result;
+			}
+			auto PrepareImportedStateExchange(DObject& TargetObject,
+				ISingleAssetCandidate& CandidateObject,
+				std::vector<FImportDiagnostic>&) const
+				-> std::unique_ptr<IPreparedImportedStateExchange> override
+			{
+				auto* Target = Cast<DVolumeTexture>(&TargetObject);
+				auto* Candidate = Cast<DVolumeTexture>(CandidateObject.GetAsset());
+				return Target && Candidate
+					? std::make_unique<TNoFailExchange<DVolumeTexture>>(*Target, *Candidate)
+					: nullptr;
+			}
+			auto RepairSource(DObject& AssetObject, std::span<const FSourcePath> Sources,
+				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override
+			{
+				auto* Texture = Cast<DVolumeTexture>(&AssetObject);
+				std::string Error;
+				const bool bResult = Texture && Sources.size() == 1
+					&& RepairVolumeTextureSource(*Texture, Sources.front().Path, Error);
+				if (!bResult) Diagnostics.push_back({
+					.Severity = EImportDiagnosticSeverity::Error,
+					.Category = EImportDiagnosticCategory::InvalidSource,
+					.Phase = "source-repair",
+					.Message = Error.empty()
+						? "Volume source repair requires one mounted PNG atlas."
+						: std::move(Error)});
 				return bResult;
 			}
 		};
@@ -1352,6 +1452,7 @@ namespace Durin::Asset::Forge
 			.SourceExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"},
 			.SingleAssetHandlers = {
 				std::make_shared<FTexture2DHandler>(),
+				std::make_shared<FVolumeTextureHandler>(),
 				std::make_shared<FTextureCubeHandler>(),
 				std::make_shared<FTerrainHeightmapHandler>()}}, OwnerGate, OutError);
 		if (!GImageRegistration)

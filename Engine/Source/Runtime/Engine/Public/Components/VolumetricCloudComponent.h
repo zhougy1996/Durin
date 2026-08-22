@@ -48,6 +48,8 @@ namespace Durin
 		auto GetVolumetricCloudSceneId() const -> const FGuid& { return VolumetricCloudSceneId; }
 		auto GetVolumetricCloudInstanceId() const -> uint64 { return VolumetricCloudInstanceId; }
 		auto GetPublicationRevision() const -> uint64 { return PublicationRevision; }
+		auto GetEligibilityStatus() const -> const std::string& { return EligibilityStatus; }
+		ENGINE_API auto RefreshEligibilityDiagnostic() -> void;
 
 		ENGINE_API auto SetEnabled(bool bInEnabled) -> void;
 		ENGINE_API auto SetPriority(int32 InPriority) -> void;
@@ -103,6 +105,9 @@ namespace Durin
 		float LightExtinction = 0.0020f;
 		DPROPERTY(Edit)
 		float Ambient = 0.12f;
+
+		DPROPERTY(Edit, ReadOnly, Transient)
+		std::string EligibilityStatus;
 
 		DPROPERTY()
 		FGuid VolumetricCloudSceneId;

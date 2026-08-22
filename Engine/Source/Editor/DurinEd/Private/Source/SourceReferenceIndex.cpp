@@ -4,6 +4,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor
@@ -38,6 +39,15 @@ namespace Durin::Editor
 			{
 				AddReference(
 					References, Data, Texture2DSource.Source.SourcePath.Path);
+				return true;
+			}
+
+			FVolumeTextureSourceImportData VolumeTextureSource;
+			if (SourceField->TryReadStruct(
+				FVolumeTextureSourceImportData::StaticStruct(), &VolumeTextureSource))
+			{
+				AddReference(References, Data,
+					VolumeTextureSource.Source.SourcePath.Path);
 				return true;
 			}
 
@@ -96,6 +106,7 @@ namespace Durin::Editor
 		{
 			if (Asset.AssetClassName.find("Texture2D") == std::string::npos
 				&& Asset.AssetClassName.find("TextureCube") == std::string::npos
+				&& Asset.AssetClassName.find("VolumeTexture") == std::string::npos
 				&& Asset.AssetClassName.find("StaticMesh") == std::string::npos
 				&& Asset.AssetClassName.find("TerrainHeightmap") == std::string::npos)
 				continue;
