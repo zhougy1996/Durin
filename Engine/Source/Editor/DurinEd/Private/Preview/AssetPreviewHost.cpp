@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
+#include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "Widgets/MViewport.h"
 
@@ -97,6 +98,8 @@ namespace Durin::Editor
 		std::string Error;
 		bool bViewportRegistered = false;
 		bool bPlayBegun = false;
+		bool bLeftDragging = false;
+		bool bMiddleDragging = false;
 	};
 
 	FAssetPreviewHost::FAssetPreviewHost(
@@ -119,16 +122,41 @@ namespace Durin::Editor
 	auto FAssetPreviewHost::SetVisible(bool bVisible) -> void
 	{
 		if (Impl->ViewportClient) Impl->ViewportClient->SetPreviewEnabled(bVisible);
+		if (!bVisible)
+		{
+			Impl->bLeftDragging = false;
+			Impl->bMiddleDragging = false;
+		}
 	}
 	auto FAssetPreviewHost::Tick(float DeltaSeconds) -> void
 	{
 		if (Impl->PreviewScene) Impl->PreviewScene->Tick(std::max(0.0f, DeltaSeconds));
 	}
-	auto FAssetPreviewHost::DrawViewport(float Width, float Height) -> bool
+	auto FAssetPreviewHost::DrawViewport(float Width, float Height,
+		FAssetPreviewViewportInput* OutInput) -> bool
 	{
+		if (OutInput) *OutInput = {};
 		if (!IsAvailable()) return false;
 		Impl->ViewportWidget->SetDesiredSize({std::max(8.0f, Width), std::max(8.0f, Height)});
 		Impl->ViewportWidget->Draw();
-		return Impl->ViewportWidget->WasTextureDrawn();
+		if (!Impl->ViewportWidget->WasTextureDrawn()) return false;
+		if (OutInput)
+		{
+			OutInput->bHovered = ImGui::IsItemHovered();
+			if (OutInput->bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+				Impl->bLeftDragging = true;
+			if (OutInput->bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+				Impl->bMiddleDragging = true;
+			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) Impl->bLeftDragging = false;
+			if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle)) Impl->bMiddleDragging = false;
+
+			const ImGuiIO& IO = ImGui::GetIO();
+			OutInput->MouseDeltaX = IO.MouseDelta.x;
+			OutInput->MouseDeltaY = IO.MouseDelta.y;
+			OutInput->MouseWheel = OutInput->bHovered ? IO.MouseWheel : 0.0f;
+			OutInput->bLeftDragging = Impl->bLeftDragging;
+			OutInput->bMiddleDragging = Impl->bMiddleDragging;
+		}
+		return true;
 	}
 }

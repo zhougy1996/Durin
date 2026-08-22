@@ -175,32 +175,28 @@ namespace Durin::Editor::Material
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float Width = std::max(8.0f, Available.x);
 			const float Height = std::max(8.0f, Available.y);
-			if (Host->DrawViewport(Width, Height)) UpdateViewportInput();
+			::Durin::Editor::FAssetPreviewViewportInput Input;
+			if (Host->DrawViewport(Width, Height, &Input)) UpdateViewportInput(Input);
 			ImGui::EndChild();
 		}
 
 	private:
-		auto UpdateViewportInput() -> void
+		auto UpdateViewportInput(const ::Durin::Editor::FAssetPreviewViewportInput& Input) -> void
 		{
-			const bool bHovered = ImGui::IsItemHovered();
-			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bRotating = true;
-			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) bRotating = false;
-
-			const ImGuiIO& IO = ImGui::GetIO();
-			if (bRotating && (IO.MouseDelta.x != 0.0f || IO.MouseDelta.y != 0.0f))
+			if (Input.bLeftDragging && (Input.MouseDeltaX != 0.0f || Input.MouseDeltaY != 0.0f))
 			{
 				const FVector3 CameraForward = Math::Normalize(FVector3(-2.6, 2.6, -1.8));
 				const FVector3 CameraRight = Math::Normalize(Math::Cross(FVectorConstants::Up, CameraForward));
 				const FQuat Yaw = Math::MakeQuaternionFromAxisAngleDegrees(
-					-static_cast<double>(IO.MouseDelta.x * PreviewRotationSensitivity),
+					-static_cast<double>(Input.MouseDeltaX * PreviewRotationSensitivity),
 					FVectorConstants::Up);
 				const FQuat Pitch = Math::MakeQuaternionFromAxisAngleDegrees(
-					-static_cast<double>(IO.MouseDelta.y * PreviewRotationSensitivity),
+					-static_cast<double>(Input.MouseDeltaY * PreviewRotationSensitivity),
 					CameraRight);
 				PreviewRotation = Math::Normalize(Yaw * Pitch * PreviewRotation);
 				if (PreviewMesh != nullptr) PreviewMesh->SetWorldRotation(PreviewRotation);
 			}
-			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->Zoom(IO.MouseWheel);
+			if (Input.MouseWheel != 0.0f) ViewportClient->Zoom(Input.MouseWheel);
 		}
 
 		auto GetSelectedMesh() const -> DStaticMesh*
@@ -237,7 +233,6 @@ namespace Durin::Editor::Material
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
-		bool bRotating = false;
 		std::string Error;
 	};
 

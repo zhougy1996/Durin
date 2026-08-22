@@ -3,6 +3,7 @@
 #include "Materials/MaterialTestSupport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "Preview/OrbitAssetPreview.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMeshSourceTranslation.h"
 #include "StaticMeshEditorModule.h"
@@ -14,7 +15,7 @@
 
 TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
 {
-	Durin::Editor::StaticMesh::FStaticMeshPreviewController Controller;
+	Durin::Editor::FOrbitAssetPreviewController Controller;
 	const Durin::FBox Bounds(Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
 	Controller.FrameBounds(Bounds);
 	const Durin::FVector3 InitialTarget = Controller.GetTarget();
@@ -32,7 +33,8 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 27.5);
 	Controller.Orbit(0.0f, 1000.0f);
 	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 85.0);
-	Controller.Zoom(1.0f);
+	Controller.ApplyInput(Durin::Editor::FAssetPreviewViewportInput{
+		.MouseWheel = 1.0f});
 	EXPECT_LT(Controller.GetDistance(), InitialDistance);
 	Controller.Pan(12.0f, -8.0f);
 	EXPECT_NE(Controller.GetTarget(), InitialTarget);

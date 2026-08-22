@@ -24,6 +24,18 @@ namespace Durin::Editor
 		bool bPreviewEnabled = false;
 	};
 
+	// Describes one frame of pointer interaction with the rendered preview image.
+	// Drag capture remains active after the pointer leaves the image until release.
+	struct FAssetPreviewViewportInput
+	{
+		float MouseDeltaX = 0.0f;
+		float MouseDeltaY = 0.0f;
+		float MouseWheel = 0.0f;
+		bool bHovered = false;
+		bool bLeftDragging = false;
+		bool bMiddleDragging = false;
+	};
+
 	struct FAssetPreviewHostConfig
 	{
 		FName SceneName;
@@ -51,7 +63,8 @@ namespace Durin::Editor
 		DURINED_API auto GetContentActor() const -> AActor*;
 		DURINED_API auto SetVisible(bool bVisible) -> void;
 		DURINED_API auto Tick(float DeltaSeconds) -> void;
-		DURINED_API auto DrawViewport(float Width, float Height) -> bool;
+		DURINED_API auto DrawViewport(float Width, float Height,
+			FAssetPreviewViewportInput* OutInput = nullptr) -> bool;
 
 	private:
 		class FImpl;

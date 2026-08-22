@@ -4,6 +4,7 @@
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "NativeTestSupport.h"
+#include "Preview/OrbitAssetPreview.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMeshEditorModule.h"
@@ -14,7 +15,7 @@
 
 TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
 {
-	Durin::Editor::SkeletalMesh::FSkeletalAssetPreviewController Controller;
+	Durin::Editor::FOrbitAssetPreviewController Controller;
 	const Durin::FBox Bounds(
 		Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
 	Controller.FrameBounds(Bounds);
