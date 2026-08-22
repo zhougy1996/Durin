@@ -82,9 +82,6 @@ namespace Durin
 		auto GetComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 		// Returns an explicit frozen entry set for mutation-capable callback boundaries.
 		ENGINE_API auto GetComponentsSnapshot() const -> std::vector<TObjectPtr<DActorComponent>>;
-		// Compatibility alias for the former allocating query; use GetComponentsSnapshot().
-		[[deprecated("Use GetComponents() or GetComponentsSnapshot().")]]
-		ENGINE_API auto GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>>;
 		// Returns persistent native and instance-authored components only.
 		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return AuthoredComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
@@ -109,13 +106,6 @@ namespace Durin
 				}
 			}
 			return nullptr;
-		}
-
-		template<typename T>
-		[[deprecated("Use FindComponentByExactClass<T>().")]]
-		auto FindComponentByStaticClass() const -> T*
-		{
-			return FindComponentByExactClass<T>();
 		}
 
 		template<typename T>

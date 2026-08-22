@@ -1,7 +1,9 @@
 #pragma once
 
-#include "Asset/Package.h"
+#include "Asset/Catalog.h"
+#include "Asset/Result.h"
 #include "DObject/Archive.h"
+#include "DObject/DObjectGlobals.h"
 
 namespace Durin::Asset::Private
 {

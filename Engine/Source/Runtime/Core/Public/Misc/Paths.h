@@ -170,7 +170,5 @@ namespace Durin
 
 		static CORE_API auto EngineThirdPartyRuntimeBinariesDir() -> std::string;
 
-		// Legacy asset resolver. Returns an empty string on failure.
-		static CORE_API auto Resolve(std::string_view VirtualPath) -> std::string;
 	};
 }

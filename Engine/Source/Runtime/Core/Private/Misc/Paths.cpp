@@ -811,11 +811,4 @@ namespace Durin
 		return CachedThirdPartyDir;
 	}
 
-	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string
-	{
-		const PathUtilities::FAssetPathResult Result =
-			PathUtilities::ResolveAssetPath(VirtualPath, PathUtilities::EPathExistence::AllowMissing);
-		return Result ? Result.PhysicalPath.generic_string() : std::string{};
-	}
-
 } // namespace Durin

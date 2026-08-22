@@ -105,8 +105,6 @@ namespace Durin
 		// report when that cursor has fallen behind the retained history window.
 		CORE_API auto ReadRecords(uint64 NextSequence, uint32 MaxRecords = 512) const -> FLogReadResult;
 
-		// Compatibility entry point using the standard runtime defaults.
-		CORE_API auto Initialize() -> void;
 		CORE_API auto Initialize(const FLogSettings& Settings) -> bool;
 		CORE_API auto Flush() -> void;
 		CORE_API auto Shutdown() -> void;

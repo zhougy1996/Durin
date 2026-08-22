@@ -625,18 +625,6 @@ namespace Durin
 		return true;
 	}
 
-	auto FLogger::Initialize() -> void
-	{
-		FLogSettings Settings;
-#if DURIN_BUILD_SHIPPING
-		Settings.ConsoleLevel = ELogLevel::Info;
-		Settings.FileLevel = ELogLevel::Info;
-#endif
-		Settings.LogDirectory = FPaths::LaunchLogsDir();
-		Settings.RuntimeVariant = DURIN_RUNTIME_VARIANT;
-		(void)Initialize(Settings);
-	}
-
 	auto FLogger::Flush() -> void
 	{
 		std::unique_lock Lock(Impl->QueueMutex);

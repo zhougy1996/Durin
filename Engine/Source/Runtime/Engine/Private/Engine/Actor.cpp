@@ -168,8 +168,6 @@ namespace Durin
 		return OwnedComponents;
 	}
 
-	auto AActor::GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>> { return GetComponentsSnapshot(); }
-
 	auto AActor::GetActorTransform() const -> FTransform
 	{
 		return RootComponent ? RootComponent->GetWorldTransform() : FTransform();
