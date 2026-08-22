@@ -95,7 +95,12 @@ TEST(FBulkContainerDirectoryTests, SortsDetachedProjectionAndRejectsDuplicateKey
 
 TEST(FBulkContainerLayoutTests, BuildsMixedAlignmentAndValidatesCanonicalPadding)
 {
-	const FLayoutPolicy Policy{4, 32, 128, true, false};
+	const FLayoutPolicy Policy{
+		.MaximumCount = 4,
+		.MaximumPayloadBytes = 32,
+		.MaximumContainerBytes = 128,
+		.RequireCanonicalOffsets = true,
+		.AllowTrailingZeroPadding = false};
 	const std::array Items{FLayoutItem{3, 16}, FLayoutItem{5, 64}};
 	std::vector<FPayloadRange> Ranges;
 	uint64 FileSize = 0;
@@ -116,7 +121,12 @@ TEST(FBulkContainerLayoutTests, BuildsMixedAlignmentAndValidatesCanonicalPadding
 
 TEST(FBulkContainerLayoutTests, RejectsOverflowOverlapTrailingBytesAndUnsafeProjection)
 {
-	const FLayoutPolicy Policy{2, 16, 64, true, false};
+	const FLayoutPolicy Policy{
+		.MaximumCount = 2,
+		.MaximumPayloadBytes = 16,
+		.MaximumContainerBytes = 64,
+		.RequireCanonicalOffsets = true,
+		.AllowTrailingZeroPadding = false};
 	std::vector<FPayloadRange> Ranges;
 	uint64 FileSize = 99;
 	const std::array Overflow{FLayoutItem{16, 16}, FLayoutItem{1, 64}};
@@ -132,4 +142,26 @@ TEST(FBulkContainerLayoutTests, RejectsOverflowOverlapTrailingBytesAndUnsafeProj
 	std::span<const uint8> Projected = Bytes;
 	EXPECT_FALSE(TryProjectRange(Bytes, std::numeric_limits<uint64>::max(), 2, Projected));
 	EXPECT_EQ(Projected.size(), Bytes.size());
+}
+
+TEST(FBulkContainerLayoutTests, ReportsLimitAndTrailingPaddingFailuresPrecisely)
+{
+	const FLayoutPolicy Policy{
+		.MaximumCount = 1,
+		.MaximumPayloadBytes = 4,
+		.MaximumContainerBytes = 32,
+		.RequireCanonicalOffsets = true,
+		.AllowTrailingZeroPadding = true};
+	std::vector<FPayloadRange> Ranges;
+	uint64 FileSize = 0;
+	FFailure Failure;
+	const std::array Oversized{FLayoutItem{5, 1}};
+	EXPECT_FALSE(TryBuildLayout(0, Oversized, Policy, Ranges, FileSize, &Failure));
+	EXPECT_EQ(Failure.Category, EFailure::LimitExceeded);
+
+	std::vector<uint8> Bytes(5, 0);
+	Bytes.back() = 1;
+	const std::array Payload{FPayloadRange{0, 4, 1}};
+	EXPECT_FALSE(ValidateLayout(Bytes, 0, 0, Payload, Policy, &Failure));
+	EXPECT_EQ(Failure.Category, EFailure::TrailingNonzeroPadding);
 }

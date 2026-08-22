@@ -13,6 +13,7 @@ namespace Durin::Asset::BulkContainer
 		ArithmeticOverflow,
 		Truncated,
 		NonzeroPadding,
+		TrailingNonzeroPadding,
 		DuplicateOrUnsortedKey,
 		InvalidLayout,
 		TrailingBytes
@@ -277,26 +278,30 @@ namespace Durin::Asset::BulkContainer
 		uint64& OutFileSize,
 		FFailure* OutFailure = nullptr) -> bool
 	{
+		auto Fail = [&](EFailure Category, uint64 Offset) {
+			if (OutFailure) *OutFailure = {Category, Offset};
+			return false;
+		};
 		std::vector<FPayloadRange> Candidate;
 		uint64 Cursor = DataOffset;
 		if (Items.size() > Policy.MaximumCount || DataOffset > Policy.MaximumContainerBytes)
-		{
-			if (OutFailure) *OutFailure = {EFailure::LimitExceeded, DataOffset};
-			return false;
-		}
+			return Fail(EFailure::LimitExceeded, DataOffset);
 		Candidate.reserve(Items.size());
 		for (const FLayoutItem& Item : Items)
 		{
 			uint64 Offset = 0, End = 0;
-			if (Item.Size > Policy.MaximumPayloadBytes || !TryAlignUp(
-				Cursor, Item.Alignment, Policy.MaximumContainerBytes, Offset)
-				|| !TryAdd(Offset, Item.Size, Policy.MaximumContainerBytes, End))
-			{
-				if (OutFailure) *OutFailure = {
-					IsPowerOfTwo(Item.Alignment) ? EFailure::ArithmeticOverflow : EFailure::InvalidArgument,
-					Cursor};
-				return false;
-			}
+			if (!IsPowerOfTwo(Item.Alignment))
+				return Fail(EFailure::InvalidArgument, Cursor);
+			if (Item.Size > Policy.MaximumPayloadBytes)
+				return Fail(EFailure::LimitExceeded, Cursor);
+			if (Cursor > std::numeric_limits<uint64>::max() - (Item.Alignment - 1))
+				return Fail(EFailure::ArithmeticOverflow, Cursor);
+			if (!TryAlignUp(Cursor, Item.Alignment, Policy.MaximumContainerBytes, Offset))
+				return Fail(EFailure::LimitExceeded, Cursor);
+			if (Item.Size > std::numeric_limits<uint64>::max() - Offset)
+				return Fail(EFailure::ArithmeticOverflow, Offset);
+			if (!TryAdd(Offset, Item.Size, Policy.MaximumContainerBytes, End))
+				return Fail(EFailure::LimitExceeded, Offset);
 			Candidate.push_back({Offset, Item.Size, Item.Alignment});
 			Cursor = End;
 		}
@@ -350,11 +355,17 @@ namespace Durin::Asset::BulkContainer
 		for (const FPayloadRange& Range : Ranges)
 		{
 			uint64 CanonicalOffset = 0, End = 0;
-			if (Range.Size > Policy.MaximumPayloadBytes
-				|| !TryAlignUp(PreviousEnd, Range.Alignment, Bytes.size(), CanonicalOffset)
-				|| Range.Offset < CanonicalOffset
-				|| (Policy.RequireCanonicalOffsets && Range.Offset != CanonicalOffset)
-				|| !TryAdd(Range.Offset, Range.Size, Bytes.size(), End))
+			if (Range.Size > Policy.MaximumPayloadBytes)
+				return Fail(EFailure::LimitExceeded, Range.Offset);
+			if (!IsPowerOfTwo(Range.Alignment))
+				return Fail(EFailure::InvalidArgument, Range.Offset);
+			if (!TryAlignUp(PreviousEnd, Range.Alignment, Bytes.size(), CanonicalOffset))
+				return Fail(EFailure::InvalidLayout, Range.Offset);
+			if (Range.Offset < CanonicalOffset)
+				return Fail(EFailure::InvalidLayout, Range.Offset);
+			if (Policy.RequireCanonicalOffsets && Range.Offset != CanonicalOffset)
+				return Fail(EFailure::InvalidLayout, Range.Offset);
+			if (!TryAdd(Range.Offset, Range.Size, Bytes.size(), End))
 				return Fail(EFailure::InvalidLayout, Range.Offset);
 			if (!IsZeroRange(Bytes, PreviousEnd, Range.Offset))
 				return Fail(EFailure::NonzeroPadding, PreviousEnd);
@@ -365,7 +376,7 @@ namespace Durin::Asset::BulkContainer
 			if (!Policy.AllowTrailingZeroPadding)
 				return Fail(EFailure::TrailingBytes, PreviousEnd);
 			if (!IsZeroRange(Bytes, PreviousEnd, Bytes.size()))
-				return Fail(EFailure::NonzeroPadding, PreviousEnd);
+				return Fail(EFailure::TrailingNonzeroPadding, PreviousEnd);
 		}
 		if (OutFailure) *OutFailure = {};
 		return true;
