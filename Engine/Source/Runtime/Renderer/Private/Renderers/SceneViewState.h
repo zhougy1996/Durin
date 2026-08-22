@@ -29,15 +29,18 @@ namespace Durin
 
 	constexpr auto operator|(
 		ESceneViewDiscontinuity Left,
-		ESceneViewDiscontinuity Right) -> ESceneViewDiscontinuity
+		ESceneViewDiscontinuity Right
+	) -> ESceneViewDiscontinuity
 	{
 		return static_cast<ESceneViewDiscontinuity>(
-			static_cast<uint16>(Left) | static_cast<uint16>(Right));
+			static_cast<uint16>(Left) | static_cast<uint16>(Right)
+		);
 	}
 
 	constexpr auto operator|=(
 		ESceneViewDiscontinuity& Left,
-		ESceneViewDiscontinuity Right) -> ESceneViewDiscontinuity&
+		ESceneViewDiscontinuity Right
+	) -> ESceneViewDiscontinuity&
 	{
 		Left = Left | Right;
 		return Left;
@@ -45,7 +48,8 @@ namespace Durin
 
 	constexpr auto HasAnyViewDiscontinuity(
 		ESceneViewDiscontinuity Value,
-		ESceneViewDiscontinuity Mask) -> bool
+		ESceneViewDiscontinuity Mask
+	) -> bool
 	{
 		return (static_cast<uint16>(Value) & static_cast<uint16>(Mask)) != 0;
 	}
@@ -96,6 +100,32 @@ namespace Durin
 		RENDERER_API auto Reset() -> void;
 	};
 
+	// Private per-view cloud history. Candidate publication follows the outer
+	// view transaction; aborted candidates become reusable scratch storage.
+	struct FVolumetricCloudViewHistory
+	{
+		uint64 CommittedPolicyKey = 0;
+		uint64 CommittedCloudKey = 0;
+		uint64 PendingPolicyKey = 0;
+		uint64 PendingCloudKey = 0;
+		FTextureRHIRef CommittedTexture;
+		FTextureRHIRef PendingTexture;
+		FTextureRHIRef SpareTexture;
+		bool bPendingClear = false;
+
+		[[nodiscard]] RENDERER_API auto CanReproject(uint64 PolicyKey, uint64 CloudKey, uint32 Width, uint32 Height) const -> bool;
+		RENDERER_API auto SetPending(FTextureRHIRef Texture, uint64 PolicyKey, uint64 CloudKey) -> void;
+		RENDERER_API auto SetPendingClear(
+			uint64 PolicyKey, uint64 CloudKey
+		) -> void;
+		RENDERER_API auto TakeReusable(uint32 Width, uint32 Height)
+			-> FTextureRHIRef;
+		RENDERER_API auto Commit() -> void;
+		RENDERER_API auto Abort() -> void;
+		RENDERER_API auto Reset() -> void;
+		[[nodiscard]] RENDERER_API auto GetRetainedBytes() const -> uint64;
+	};
+
 	// Owns transactional metadata and feature-local history for one logical stream.
 	class FSceneViewState
 	{
@@ -103,11 +133,16 @@ namespace Durin
 		RENDERER_API auto Begin(
 			const FSceneViewTemporalMetadata& Current,
 			uint64 SubmissionSerial,
-			bool bDiscardHistory) -> FSceneViewTemporalContext;
+			bool bDiscardHistory
+		) -> FSceneViewTemporalContext;
 		RENDERER_API auto Commit() -> void;
 		RENDERER_API auto Abort() -> void;
 		RENDERER_API auto Invalidate(ESceneViewDiscontinuity Cause) -> void;
 		auto GetHistoryProbe() -> FSceneViewHistoryProbe& { return HistoryProbe; }
+		auto GetVolumetricCloudHistory() -> FVolumetricCloudViewHistory&
+		{
+			return VolumetricCloudHistory;
+		}
 		auto IsSubmissionActive() const -> bool { return bSubmissionActive; }
 
 	private:
@@ -120,6 +155,7 @@ namespace Durin
 			ESceneViewDiscontinuity::None;
 		bool bSubmissionActive = false;
 		FSceneViewHistoryProbe HistoryProbe;
+		FVolumetricCloudViewHistory VolumetricCloudHistory;
 	};
 
 	// Render-thread-only registry rejects any identity it did not explicitly create.
@@ -131,7 +167,8 @@ namespace Durin
 		RENDERER_API auto Find(FSceneViewStateId Id) -> FSceneViewState*;
 		RENDERER_API auto Invalidate(
 			FSceneViewStateId Id,
-			ESceneViewDiscontinuity Cause) -> bool;
+			ESceneViewDiscontinuity Cause
+		) -> bool;
 		RENDERER_API auto InvalidateAll(ESceneViewDiscontinuity Cause) -> void;
 		RENDERER_API auto ReleaseAll() -> size_t;
 		auto Num() const -> size_t { return States.size(); }
@@ -153,7 +190,8 @@ namespace Durin
 	{
 		static auto Make(
 			FSceneViewStateId Id,
-			FSceneViewStateOwner::FReleaseViewState Release)
+			FSceneViewStateOwner::FReleaseViewState Release
+		)
 			-> FSceneViewStateOwner
 		{
 			return FSceneViewStateOwner(Id, Release);
@@ -164,5 +202,6 @@ namespace Durin
 		const FSceneView& View,
 		const FScene* Scene,
 		uint32 OutputWidth,
-		uint32 OutputHeight) -> FSceneViewTemporalMetadata;
-}
+		uint32 OutputHeight
+	) -> FSceneViewTemporalMetadata;
+} // namespace Durin

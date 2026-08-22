@@ -200,6 +200,68 @@ namespace Durin
 	}
 
 	TEST(FRendererRenderTargetLayoutTests,
+		VolumetricCloudQualityPolicyFreezesAComparableTierMatrix)
+	{
+		using FRenderer = FVolumetricCloudSpatialRenderer;
+		using ETier = FRenderer::EQualityTier;
+		EXPECT_EQ(FRenderer::DefaultQualityTier, ETier::High);
+		const auto Performance = FRenderer::ResolveQualityPolicy(ETier::Performance);
+		const auto High = FRenderer::ResolveQualityPolicy(ETier::High);
+		const auto Epic = FRenderer::ResolveQualityPolicy(ETier::Epic);
+		const auto Reference = FRenderer::ResolveQualityPolicy(ETier::Reference);
+		EXPECT_EQ(Performance.PrimarySampleCount, 16u);
+		EXPECT_EQ(Performance.LightSampleCount, 1u);
+		EXPECT_EQ(High.PrimarySampleCount, 24u);
+		EXPECT_EQ(High.LightSampleCount, 2u);
+		EXPECT_EQ(Epic.PrimarySampleCount, 32u);
+		EXPECT_EQ(Epic.LightSampleCount, 4u);
+		EXPECT_EQ(Reference.PrimarySampleCount, 32u);
+		EXPECT_EQ(Reference.LightSampleCount, 4u);
+		EXPECT_FALSE(Performance.IsFullResolution());
+		EXPECT_FALSE(High.IsFullResolution());
+		EXPECT_FALSE(Epic.IsFullResolution());
+		EXPECT_TRUE(Reference.IsFullResolution());
+
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, High),
+			(FRenderer::FExtent{1920, 1080}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(1919, 1079, High),
+			(FRenderer::FExtent{960, 540}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(1, 1, High),
+			(FRenderer::FExtent{1, 1}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(3840, 2160, Reference),
+			(FRenderer::FExtent{3840, 2160}));
+		EXPECT_EQ(FRenderer::CalculateScaledExtent(0, 2160, High),
+			(FRenderer::FExtent{}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport(
+			{137, 89, 1601, 901}, {1919, 1079}, {960, 540}),
+			(FRenderer::FViewportRect{68, 44, 802, 452}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport(
+			{0, 0, 3840, 2160}, {3840, 2160}, {1920, 1080}),
+			(FRenderer::FViewportRect{0, 0, 1920, 1080}));
+		EXPECT_EQ(FRenderer::CalculateScaledViewport(
+			{0, 0, 1920, 1081}, {1920, 1080}, {960, 540}),
+			(FRenderer::FViewportRect{}));
+
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Performance),
+			FRenderer::CalculatePolicyKey(ETier::High));
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::High),
+			FRenderer::CalculatePolicyKey(ETier::Epic));
+		EXPECT_NE(FRenderer::CalculatePolicyKey(ETier::Epic),
+			FRenderer::CalculatePolicyKey(ETier::Reference));
+		EXPECT_EQ(FRenderer::CalculateJitter(42, Reference), FVector2f(0.0f));
+		for (uint64 Sequence = 0; Sequence < High.TemporalPatternLength; ++Sequence)
+		{
+			const FVector2f Jitter = FRenderer::CalculateJitter(Sequence, High);
+			EXPECT_GE(Jitter.x, -0.5f);
+			EXPECT_LT(Jitter.x, 0.5f);
+			EXPECT_GE(Jitter.y, -0.5f);
+			EXPECT_LT(Jitter.y, 0.5f);
+		}
+		EXPECT_EQ(FRenderer::CalculateJitter(0, High),
+			FRenderer::CalculateJitter(High.TemporalPatternLength, High));
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
 		VolumetricCloudHeightSlabCoversCameraRegimes)
 	{
 		using FRenderer = FVolumetricCloudSpatialRenderer;

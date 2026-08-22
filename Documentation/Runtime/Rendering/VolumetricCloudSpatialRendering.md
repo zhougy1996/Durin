@@ -1,10 +1,10 @@
 # Volumetric Cloud Spatial Rendering
 
-Summary: Defines the deterministic full-resolution volumetric-cloud producer, scene-linear composition, route fallback, and Renderer resource lifetime.
+Summary: Defines the deterministic volumetric-cloud spatial producer, scene-linear composition, route fallback, and Renderer resource lifetime.
 
 Modules: Renderer
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-23
 
 ## Ownership and input
 
@@ -29,7 +29,7 @@ the CPU reference, compute shader, and fragment shader.
 
 ## Output and composition
 
-The full target is `RGBA16_FLOAT`. RGB contains premultiplied scene-linear
+The spatial target is `RGBA16_FLOAT`. RGB contains premultiplied scene-linear
 radiance and A contains transmittance. Pixels outside the fitted viewport or
 without a positive depth-clipped slab interval contain `(0, 0, 0, 1)`.
 
@@ -84,8 +84,8 @@ view into a failed view.
 
 ## Qualification
 
-`VolumetricCloudQualificationTests` runs the frozen 1280x720, 1920x1080, and
-1919x1079-with-1601x901-fitted-viewport matrix. Each compute and forced-fragment
+`VolumetricCloudQualificationTests` runs the frozen 1280x720, 1920x1080,
+1919x1079-with-1601x901-fitted-viewport, and forward-Z odd/fitted matrix. Each compute and forced-fragment
 route receives 30 warm-up frames and 120 timestamped frames. The test always
 requires compute/fragment agreement within 2/1024 per half-float channel,
 exact dispatch/draw/copy structure, bounded retained bytes, and clean resource
@@ -116,6 +116,7 @@ $env:DURIN_RHI_EXECUTION='threaded'
 ## Related documentation
 
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
+- [Volumetric cloud temporal reconstruction](VolumetricCloudTemporalReconstruction.md)
 - [Volume textures](../Assets/VolumeTextures.md)
 - [Synchronous compute pipelines](SynchronousComputePipelines.md)
 - [RHI resource transitions](RHIResourceTransitions.md)

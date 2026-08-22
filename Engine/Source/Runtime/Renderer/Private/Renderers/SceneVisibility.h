@@ -272,6 +272,10 @@ namespace Durin
 		uint64 VolumetricCloudLightSamples = 0;
 		uint64 VolumetricCloudActiveBytes = 0;
 		uint64 VolumetricCloudRetainedBytes = 0;
+		uint64 VolumetricCloudHistoryBytes = 0;
+		size_t VolumetricCloudTemporalDraws = 0;
+		size_t VolumetricCloudHistoryAccepted = 0;
+		size_t VolumetricCloudHistoryRejected = 0;
 		std::array<size_t, static_cast<size_t>(
 			FVolumetricCloudSpatialRenderer::ERouteReason::Count)>
 			VolumetricCloudRouteReasons{};

@@ -2,7 +2,7 @@
 
 Summary: Deliver one production-qualified global volumetric-cloud layer through bounded spatial rendering, scene authoring, temporal reconstruction, lighting, and editor-workflow plans.
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-23
 
 Status: Active
 Completed:
@@ -39,6 +39,16 @@ one row-major PNG atlas directly as R8 or RGBA8,
 retains dependency-aware provenance for transactional reimport/repair, and
 exposes the shared cloud eligibility result in generic Details. Focused,
 aggregate, Vulkan, full-build, documentation, and Editor-smoke gates pass.
+
+[Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md)
+completed P3 on 2026-08-23. `High` now renders at half linear resolution,
+reconstructs through bounded transactional per-view history and a depth-aware
+four-tap composite, and preserves a full-resolution `Reference` tier. The
+frozen RTX 3090 / Vulkan 1.4.325 4K gate passes inline and threaded executors;
+the accepted observed threaded run measures `High` 62.9% below `Reference`
+median cost while passing image, memory, p95, recovery, and invalidation gates.
+The lasting contract is published under Runtime rendering, satisfying P4's
+entry dependency.
 
 ## Outcome
 
@@ -194,7 +204,7 @@ flowchart LR
 | P1: Spatial rendering and composition | Required; completed 2026-08-21 | [Volumetric Cloud Spatial Rendering](../Plans/VolumetricCloudSpatialRendering.md) | The user-approved RTX 3090 / Vulkan 1.4.325 rebaseline retained every numeric gate; inline/threaded named qualification passed three-extent structure, half/final-image parity, 49,766,400-byte peak retention, enabled offscreen/Present resize routes, invalid-input identity, lifecycle, aggregates, build, and runtime smoke. | A deterministic fixed-input cloud renders through public RHI, clips against opaque depth, composites between opaque and translucency in forward/hybrid/offscreen/Present routes, preserves no-cloud behavior, and passes predeclared pixel/timing/memory gates. |
 | P2: Scene contract and component | Required; completed 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | Met: one reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources; generic Details, both Vulkan executors, aggregates, full build, and Editor smoke pass. |
 | P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
-| P3: Temporal reconstruction and quality | Required | `VolumetricCloudTemporalReconstruction` | P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; representative camera motion, cut, resize, and performance targets are frozen. | Low-resolution cloud rendering reconstructs stable full-view output, rejects invalid history, commits/aborts transactionally, exposes bounded quality tiers, and demonstrates measured benefit over the spatial reference. |
+| P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
 | P4: Lighting and cloud shadows | Required | `VolumetricCloudLightingAndShadows` | P3 output and quality policy are stable; selected directional-light and receiver scenes define radiometric, visual, and performance targets. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
 | P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path and real production-source evidence identifies any justified generation or richer adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
 | P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5, including P2.5, pass their acceptance gates and the remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
@@ -241,7 +251,7 @@ It does not add a dedicated editor, volume/cloud previews, procedural noise,
 presets, debug views, temporal reconstruction, production lighting, broader
 volume formats, or cloud semantics to the generic texture asset.
 
-### `VolumetricCloudTemporalReconstruction`
+### [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md)
 
 Owns low-resolution target sizing, sample pattern and jitter, cloud depth or
 other reprojection metadata, motion reconstruction, history rejection and

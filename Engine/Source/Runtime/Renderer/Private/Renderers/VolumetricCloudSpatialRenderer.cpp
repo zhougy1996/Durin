@@ -69,6 +69,113 @@ namespace Durin
 			: Pixels * BytesPerPixel;
 	}
 
+	auto FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(
+		EQualityTier Tier) -> FQualityPolicy
+	{
+		switch (Tier)
+		{
+		case EQualityTier::Performance:
+			return {.PrimarySampleCount = 16, .LightSampleCount = 1,
+				.TemporalPatternLength = 8, .HistoryWeight = 0.88f};
+		case EQualityTier::High:
+			return {.PrimarySampleCount = 24, .LightSampleCount = 2,
+				.TemporalPatternLength = 8, .HistoryWeight = 0.90f};
+		case EQualityTier::Epic:
+			return {.PrimarySampleCount = 32, .LightSampleCount = 4,
+				.TemporalPatternLength = 8, .HistoryWeight = 0.92f};
+		case EQualityTier::Reference:
+			return {.LinearScaleNumerator = 1, .LinearScaleDenominator = 1,
+				.PrimarySampleCount = 32, .LightSampleCount = 4,
+				.TemporalPatternLength = 1, .HistoryWeight = 0.0f};
+		}
+		return ResolveQualityPolicy(DefaultQualityTier);
+	}
+
+	auto FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
+		uint32 Width, uint32 Height, const FQualityPolicy& Policy) -> FExtent
+	{
+		if (Width == 0 || Height == 0 || Policy.LinearScaleNumerator == 0
+			|| Policy.LinearScaleDenominator == 0)
+		{
+			return {};
+		}
+		auto Scale = [&Policy](uint32 Extent) {
+			const uint64 Product = static_cast<uint64>(Extent)
+				* Policy.LinearScaleNumerator;
+			const uint64 Rounded = Product / Policy.LinearScaleDenominator
+				+ (Product % Policy.LinearScaleDenominator != 0 ? 1ull : 0ull);
+			return static_cast<uint32>(std::clamp<uint64>(Rounded, 1,
+				std::numeric_limits<uint32>::max()));
+		};
+		return {Scale(Width), Scale(Height)};
+	}
+
+	auto FVolumetricCloudSpatialRenderer::CalculateScaledViewport(
+		const FViewportRect& Viewport, const FExtent& Output,
+		const FExtent& Target) -> FViewportRect
+	{
+		if (Output.Width == 0 || Output.Height == 0 || Target.Width == 0
+			|| Target.Height == 0 || Viewport.X > Output.Width
+			|| Viewport.Y > Output.Height
+			|| Viewport.Width > Output.Width - Viewport.X
+			|| Viewport.Height > Output.Height - Viewport.Y)
+		{
+			return {};
+		}
+		auto Floor = [](uint32 Value, uint32 TargetSize, uint32 OutputSize) {
+			return static_cast<uint32>(
+				static_cast<uint64>(Value) * TargetSize / OutputSize);
+		};
+		auto Ceil = [](uint32 Value, uint32 TargetSize, uint32 OutputSize) {
+			const uint64 Product = static_cast<uint64>(Value) * TargetSize;
+			return static_cast<uint32>(Product / OutputSize
+				+ (Product % OutputSize != 0 ? 1ull : 0ull));
+		};
+		FViewportRect Result;
+		Result.X = Floor(Viewport.X, Target.Width, Output.Width);
+		Result.Y = Floor(Viewport.Y, Target.Height, Output.Height);
+		const uint32 Right = Ceil(
+			Viewport.X + Viewport.Width, Target.Width, Output.Width);
+		const uint32 Bottom = Ceil(
+			Viewport.Y + Viewport.Height, Target.Height, Output.Height);
+		Result.Width = Right - Result.X;
+		Result.Height = Bottom - Result.Y;
+		return Result;
+	}
+
+	auto FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+		EQualityTier Tier) -> uint64
+	{
+		const FQualityPolicy Policy = ResolveQualityPolicy(Tier);
+		return static_cast<uint64>(Tier)
+			| (static_cast<uint64>(Policy.LinearScaleNumerator) << 8u)
+			| (static_cast<uint64>(Policy.LinearScaleDenominator) << 16u)
+			| (static_cast<uint64>(Policy.PrimarySampleCount) << 24u)
+			| (static_cast<uint64>(Policy.LightSampleCount) << 32u)
+			| (static_cast<uint64>(Policy.TemporalPatternLength) << 40u);
+	}
+
+	auto FVolumetricCloudSpatialRenderer::CalculateJitter(
+		uint64 SuccessfulSequence, const FQualityPolicy& Policy) -> FVector2f
+	{
+		if (Policy.TemporalPatternLength <= 1)
+			return FVector2f(0.0f);
+		auto RadicalInverse = [](uint64 Index, uint32 Base) {
+			float Result = 0.0f;
+			float Fraction = 1.0f / static_cast<float>(Base);
+			while (Index != 0)
+			{
+				Result += static_cast<float>(Index % Base) * Fraction;
+				Index /= Base;
+				Fraction /= static_cast<float>(Base);
+			}
+			return Result;
+		};
+		const uint64 Index = SuccessfulSequence % Policy.TemporalPatternLength + 1;
+		return {RadicalInverse(Index, 2) - 0.5f,
+			RadicalInverse(Index, 3) - 0.5f};
+	}
+
 	auto FVolumetricCloudSpatialRenderer::SelectRoute(
 		const FRouteInputs& Inputs) -> FRouteDecision
 	{

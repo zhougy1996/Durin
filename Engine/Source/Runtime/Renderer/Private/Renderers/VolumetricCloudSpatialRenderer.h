@@ -12,6 +12,46 @@ namespace Durin
 	class RENDERER_API FVolumetricCloudSpatialRenderer final
 	{
 	public:
+		enum class EQualityTier : uint8
+		{
+			Performance,
+			High,
+			Epic,
+			Reference,
+		};
+
+		struct FQualityPolicy
+		{
+			uint32 LinearScaleNumerator = 1;
+			uint32 LinearScaleDenominator = 2;
+			uint32 PrimarySampleCount = 24;
+			uint32 LightSampleCount = 2;
+			uint32 TemporalPatternLength = 8;
+			float HistoryWeight = 0.90f;
+
+			[[nodiscard]] auto IsFullResolution() const -> bool
+			{
+				return LinearScaleNumerator == LinearScaleDenominator;
+			}
+		};
+
+		struct FExtent
+		{
+			uint32 Width = 0;
+			uint32 Height = 0;
+
+			auto operator==(const FExtent&) const -> bool = default;
+		};
+
+		struct FViewportRect
+		{
+			uint32 X = 0;
+			uint32 Y = 0;
+			uint32 Width = 0;
+			uint32 Height = 0;
+
+			auto operator==(const FViewportRect&) const -> bool = default;
+		};
 		struct FParameters
 		{
 			double MinimumZ = 1'500.0;
@@ -153,6 +193,11 @@ namespace Durin
 			uint32 Dispatches = 0;
 			uint32 Draws = 0;
 			uint32 Copies = 0;
+			uint32 TargetWidth = 0;
+			uint32 TargetHeight = 0;
+			uint32 OutputWidth = 0;
+			uint32 OutputHeight = 0;
+			EQualityTier QualityTier = EQualityTier::High;
 		};
 
 		static constexpr uint32 ThreadGroupSize = 8;
@@ -163,6 +208,7 @@ namespace Durin
 			192ull * 1024ull * 1024ull;
 		static constexpr uint64 MaximumRetainedTargetBytesPerFamily =
 			MaximumRetainedTargetBytes / 3;
+		static constexpr EQualityTier DefaultQualityTier = EQualityTier::High;
 
 		static constexpr auto CalculateGroupCount(uint32 Extent) -> uint32
 		{
@@ -171,6 +217,14 @@ namespace Durin
 		}
 
 		static auto CalculateTargetBytes(uint32 Width, uint32 Height) -> uint64;
+		static auto ResolveQualityPolicy(EQualityTier Tier) -> FQualityPolicy;
+		static auto CalculateScaledExtent(
+			uint32 Width, uint32 Height, const FQualityPolicy& Policy) -> FExtent;
+		static auto CalculateScaledViewport(const FViewportRect& Viewport,
+			const FExtent& Output, const FExtent& Target) -> FViewportRect;
+		static auto CalculatePolicyKey(EQualityTier Tier) -> uint64;
+		static auto CalculateJitter(
+			uint64 SuccessfulSequence, const FQualityPolicy& Policy) -> FVector2f;
 		static auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
 		static auto IntersectHeightSlab(const FSlabRay& Ray) -> FSlabInterval;
 		static auto IntegrateReference(const FReferenceInput& Input)

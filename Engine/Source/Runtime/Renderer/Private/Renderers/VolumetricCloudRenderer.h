@@ -11,6 +11,8 @@ namespace Durin
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
+	struct FSceneViewTemporalContext;
+	class FSceneViewState;
 
 	// Owns the complete P1 GPU cloud producer and composition resources. Scene
 	// authoring remains outside this type: callers publish immutable parameters
@@ -24,6 +26,7 @@ namespace Durin
 		using FParameters = FSpatial::FParameters;
 		using FTextureBindings = FSpatial::FTextureBindings;
 		using FExecutionCounters = FSpatial::FExecutionCounters;
+		using EQualityTier = FSpatial::EQualityTier;
 
 		using FTimingQuerySink = void (*)(const FGPUTimingQueryRHIRef&, ERoute);
 		using FCaptureSink = void (*)(FRHITexture*, ERoute);
@@ -48,8 +51,12 @@ namespace Durin
 			FTextureBindings Textures;
 			FParameters Parameters;
 			const FSceneView* View = nullptr;
+			EQualityTier QualityTier = FSpatial::DefaultQualityTier;
+			uint64 SuccessfulSequence = 0;
 			uint32 Width = 0;
 			uint32 Height = 0;
+			uint32 OutputWidth = 0;
+			uint32 OutputHeight = 0;
 		};
 
 		struct FRenderResult
@@ -58,8 +65,26 @@ namespace Durin
 			FExecutionCounters Counters;
 		};
 
-		FVolumetricCloudRenderer(FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
+		struct FTemporalReconstructionInput
+		{
+			FRHITexture* CurrentCloud = nullptr;
+			const FSceneView* View = nullptr;
+			const FSceneViewTemporalContext* TemporalContext = nullptr;
+			FSceneViewState* ViewState = nullptr;
+			FParameters Parameters;
+			EQualityTier QualityTier = FSpatial::DefaultQualityTier;
+			uint64 CloudHistoryKey = 0;
+		};
+
+		struct FTemporalReconstructionResult
+		{
+			FRHITexture* Cloud = nullptr;
+			uint64 HistoryBytes = 0;
+			bool bHistoryAccepted = false;
+			bool bCandidatePublished = false;
+		};
+
+		FVolumetricCloudRenderer(FRendererResourceCoordinator& InCoordinator, FFullscreenGeometryResources& InFullscreenGeometry);
 		~FVolumetricCloudRenderer();
 		FVolumetricCloudRenderer(const FVolumetricCloudRenderer&) = delete;
 		auto operator=(const FVolumetricCloudRenderer&)
@@ -69,11 +94,13 @@ namespace Durin
 		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
 			-> FComputeTargets*;
 		auto EnsureDensitySampler_RenderThread() -> FRHISampler*;
-		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
-			FTargets* FragmentTargets, FComputeTargets* ComputeTargets,
-			const FRenderInput& Input) -> FRenderResult;
-		auto Composite_RenderThread(FRHICommandListImmediate& CommandList,
-			FRHITexture* SceneColor, FRHITexture* Cloud, const FSceneView& View)
+		auto Render_RenderThread(FRHICommandListImmediate& CommandList, FTargets* FragmentTargets, FComputeTargets* ComputeTargets, const FRenderInput& Input) -> FRenderResult;
+		auto ReconstructTemporal_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FTemporalReconstructionInput& Input
+		)
+			-> FTemporalReconstructionResult;
+		auto Composite_RenderThread(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, FRHITexture* Cloud, FRHITexture* SceneDepth, const FSceneView& View)
 			-> FRHITexture*;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;

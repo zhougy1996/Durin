@@ -16,7 +16,10 @@ struct VolumetricCloudUniform
     float4 LightDirection;
     float4 LightColor;
     float4 CameraPosition;
-    float4 Viewport;    // inverse local extent.xy, absolute origin.zw
+    float4 Viewport;    // inverse cloud viewport extent.xy, cloud origin.zw
+    float4 OutputViewport; // full-resolution origin.xy and extent.zw
+    float4 Target;      // cloud extent.xy, output extent.zw
+    float4 Jitter;      // subpixel cloud-target jitter.xy
 };
 
 [[vk::binding(0, 0)]] Texture3D<float> BaseDensity;
@@ -87,7 +90,8 @@ float4 IntegrateCloud(int2 pixel)
 {
     int2 viewportOrigin = int2(Params.Viewport.zw);
     int2 viewportSize = max(int2(round(rcp(Params.Viewport.xy))), int2(1));
-    float2 localUV = (float2(pixel) + 0.5 - Params.Viewport.zw)
+    float2 localUV = (float2(pixel) + 0.5 + Params.Jitter.xy
+        - Params.Viewport.zw)
         * Params.Viewport.xy;
     float nearDeviceDepth = Params.Sampling.w > 0.5 ? 1.0 : 0.0;
     float farDeviceDepth = 1.0 - nearDeviceDepth;
@@ -100,7 +104,10 @@ float4 IntegrateCloud(int2 pixel)
     if (!IntersectLayer(origin, direction, nearDistance, farDistance))
         return float4(0.0, 0.0, 0.0, 1.0);
 
-    float deviceDepth = SceneDepth.Load(int3(pixel, 0));
+    int2 outputPixel = int2(clamp(
+        floor(Params.OutputViewport.xy + localUV * Params.OutputViewport.zw),
+        float2(0.0), Params.Target.zw - 1.0));
+    float deviceDepth = SceneDepth.Load(int3(outputPixel, 0));
     bool sceneValid = Params.Sampling.w > 0.5
         ? deviceDepth > 0.001 : deviceDepth < 0.999;
     if (sceneValid)

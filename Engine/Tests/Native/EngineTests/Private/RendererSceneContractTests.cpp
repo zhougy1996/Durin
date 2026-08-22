@@ -411,6 +411,66 @@ TEST(FRendererSceneContractTests,
 }
 
 TEST(FRendererSceneContractTests,
+	VolumetricCloudHistoryPolicyFollowsOuterViewTransactions)
+{
+	FRenderingThreadScope RenderingThread;
+	auto Observed = std::make_shared<std::vector<Durin::uint64>>();
+	struct FExerciseCloudHistoryTransactionsCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ExerciseCloudHistoryTransactions";
+		}
+	};
+	Durin::EnqueueRenderCommand<FExerciseCloudHistoryTransactionsCommand>(
+		[Observed](Durin::FRHICommandListImmediate&) {
+			Durin::FSceneViewState State;
+			Durin::FSceneView View;
+			View.ViewportWidth = 640;
+			View.ViewportHeight = 360;
+			const auto Metadata = Durin::BuildSceneViewTemporalMetadata(
+				View, nullptr, 640, 360);
+			(void)State.Begin(Metadata, 1, false);
+			State.GetVolumetricCloudHistory().SetPendingClear(11, 101);
+			State.Commit();
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+
+			(void)State.Begin(Metadata, 2, false);
+			State.GetVolumetricCloudHistory().SetPendingClear(22, 202);
+			State.Abort();
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
+
+			(void)State.Begin(Metadata, 3, false);
+			State.GetVolumetricCloudHistory().SetPendingClear(33, 303);
+			State.Commit();
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
+
+			Durin::FSceneViewTemporalMetadata Resized = Metadata;
+			Resized.OutputWidth = 1280;
+			const auto ResizedContext = State.Begin(Resized, 4, false);
+			EXPECT_FALSE(ResizedContext.bHistoryValid);
+			State.Abort();
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
+
+			(void)State.Begin(Resized, 5, false);
+			State.Commit();
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedCloudKey);
+
+			State.Invalidate(Durin::ESceneViewDiscontinuity::ManualInvalidation);
+			Observed->push_back(State.GetVolumetricCloudHistory().CommittedPolicyKey);
+			EXPECT_EQ(State.GetVolumetricCloudHistory().GetRetainedBytes(), 0u);
+		});
+	Durin::FlushRenderingCommands();
+
+	EXPECT_EQ(*Observed, (std::vector<Durin::uint64>{
+		11, 11, 101, 33, 303, 33, 303, 0, 0, 0}));
+}
+
+TEST(FRendererSceneContractTests,
 	SceneViewportsOwnIsolatedOptInStateAndConsumeCutsOnce)
 {
 	std::vector<Durin::FSceneViewStateId> Released;

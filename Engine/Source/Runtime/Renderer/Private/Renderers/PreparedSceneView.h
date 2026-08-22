@@ -41,6 +41,7 @@ namespace Durin
 	{
 		FSceneView View;
 		FSceneViewTemporalContext TemporalContext;
+		FSceneViewState* ViewState = nullptr;
 		FPreparedLightView Lights;
 		FPreparedDirectionalShadowView DirectionalShadow;
 		FDirectionalShadowCasterTable DirectionalShadowCasters;
@@ -68,6 +69,7 @@ namespace Durin
 		bool bVolumetricCloudForceFragmentForQualification = false;
 		FVolumetricCloudRenderer::FParameters VolumetricCloudParameters;
 		FVolumetricCloudRenderer::FTextureBindings VolumetricCloudTextures;
+		uint64 VolumetricCloudHistoryKey = 0;
 		FViewRenderCounters Counters;
 	};
 

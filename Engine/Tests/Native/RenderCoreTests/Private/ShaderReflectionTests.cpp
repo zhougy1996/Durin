@@ -262,6 +262,62 @@ namespace Durin
 			SpirvImageFormatRgba16f));
 	}
 
+	TEST(FShaderReflectionTests,
+		VolumetricCloudCompositePublishesDepthAwareReconstructionBindings)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "VolumetricCloudComposite.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/VolumetricCloudComposite";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
+		ExpectBinding(Fragment, "SceneColorTexture", 0,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "CloudTexture", 1,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "SceneDepthTexture", 2,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 3,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+	}
+
+	TEST(FShaderReflectionTests,
+		VolumetricCloudTemporalPublishesTypedHistoryBindings)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "VolumetricCloudTemporal.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/VolumetricCloudTemporal";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
+		ExpectBinding(Fragment, "CurrentCloud", 0,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "PreviousCloud", 1,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "HistorySampler", 2,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Params", 3,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+	}
+
 	TEST(FShaderReflectionTests, FragmentDepthOutputCompilesWithoutPipelineBindings)
 	{
 		const std::filesystem::path ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "FragmentDepth.slang";

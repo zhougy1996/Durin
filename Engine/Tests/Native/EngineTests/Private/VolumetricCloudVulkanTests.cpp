@@ -8,6 +8,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Renderers/SceneViewState.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -117,7 +118,7 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 22>>();
+		auto Results = std::make_shared<std::array<bool, 30>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
@@ -220,6 +221,7 @@ namespace Durin
 						.DensitySampler = Sampler
 					},
 					.View = &View,
+					.QualityTier = FVolumetricCloudRenderer::EQualityTier::Reference,
 					.Width = 64,
 					.Height = 32
 				};
@@ -270,7 +272,7 @@ namespace Durin
 				);
 				CommandList.EndRenderPass();
 				FRHITexture* Composite = Clouds.Composite_RenderThread(
-					CommandList, SceneColor, Compute.Cloud, View
+					CommandList, SceneColor, Compute.Cloud, Depth, View
 				);
 				(*Results)[15] = Composite != nullptr;
 				(*Results)[19] = Clouds.GetRetainedTargetBytes_RenderThread()
@@ -317,6 +319,132 @@ namespace Durin
 						<= 1.0f / 1024.0f
 					&& std::abs(DecodeHalf(CompositePixels.data() + 4u) - 0.75f)
 						<= 1.0f / 1024.0f;
+
+				std::vector<uint16> EdgeCloud(32u * 16u * 4u, 0u);
+				for (uint32 Y = 0; Y < 16; ++Y)
+					for (uint32 X = 0; X < 32; ++X)
+					{
+						const size_t Pixel = (static_cast<size_t>(Y) * 32 + X) * 4;
+						if (X < 16)
+							EdgeCloud[Pixel] = 0x3c00u;
+						else
+							EdgeCloud[Pixel + 3] = 0x3c00u;
+					}
+				std::vector<float> EdgeDepth(64u * 32u, 0.2f);
+				for (uint32 Y = 0; Y < 32; ++Y)
+					for (uint32 X = 32; X < 64; ++X)
+						EdgeDepth[static_cast<size_t>(Y) * 64 + X] = 0.8f;
+				FTextureRHIRef EdgeCloudTexture = GDynamicRHI->RHICreateTexture(
+					CommandList, FRHITextureCreateDesc::Create2D(
+						"CloudBilateralEdge", 32, 16, EPixelFormat::RGBA16_FLOAT)
+						.SetFlags(ETextureCreateFlags::ShaderResource));
+				FTextureRHIRef EdgeDepthTexture = GDynamicRHI->RHICreateTexture(
+					CommandList, FRHITextureCreateDesc::Create2D(
+						"CloudBilateralDepthEdge", 64, 32, EPixelFormat::R32_FLOAT)
+						.SetFlags(ETextureCreateFlags::ShaderResource));
+				if (EdgeCloudTexture && EdgeDepthTexture)
+				{
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture,
+						0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16),
+						32u * 8u,
+						reinterpret_cast<const uint8*>(EdgeCloud.data()));
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture,
+						0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32),
+						64u * 4u,
+						reinterpret_cast<const uint8*>(EdgeDepth.data()));
+					FSceneView EdgeView = View;
+					EdgeView.ViewportX = 0;
+					EdgeView.ViewportY = 0;
+					EdgeView.ViewportWidth = 64;
+					EdgeView.ViewportHeight = 32;
+					FRHITexture* EdgeComposite = Clouds.Composite_RenderThread(
+						CommandList, SceneColor, EdgeCloudTexture,
+						EdgeDepthTexture, EdgeView);
+					std::vector<uint8> EdgePixels;
+					(*Results)[22] = EdgeComposite
+						&& GDynamicRHI->RHIReadTexture2D(
+							CommandList, EdgeComposite, 0, 0, EdgePixels);
+					const size_t Left = (15u * 64u + 31u) * 8u;
+					const size_t Right = (15u * 64u + 32u) * 8u;
+					(*Results)[23] = EdgePixels.size() >= Right + 8u
+						&& DecodeHalf(EdgePixels.data() + Left) >= 0.99f
+						&& std::abs(DecodeHalf(EdgePixels.data() + Right) - 0.25f)
+							<= 2.0f / 1024.0f;
+				}
+
+				FSceneViewState TemporalState;
+				const auto Metadata = BuildSceneViewTemporalMetadata(
+					View, nullptr, 64, 32);
+				const auto FirstContext = TemporalState.Begin(Metadata, 1, false);
+				const auto FirstTemporal = Clouds.ReconstructTemporal_RenderThread(
+					CommandList,
+					{.CurrentCloud = Compute.Cloud,
+					 .View = &View,
+					 .TemporalContext = &FirstContext,
+					 .ViewState = &TemporalState,
+					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
+					 .CloudHistoryKey = 91});
+				(*Results)[24] = FirstTemporal.bCandidatePublished
+					&& !FirstTemporal.bHistoryAccepted;
+				TemporalState.Commit();
+				(*Results)[25] = TemporalState.GetVolumetricCloudHistory()
+					.CanReproject(
+						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+							FVolumetricCloudRenderer::EQualityTier::High),
+						91, 64, 32);
+
+				const auto FailedContext = TemporalState.Begin(Metadata, 2, false);
+				VulkanRHI::ArmVulkanCreateFailure(
+					VulkanRHI::EVulkanCreateFailurePoint::Image);
+				const auto FailedTemporal = Clouds.ReconstructTemporal_RenderThread(
+					CommandList,
+					{.CurrentCloud = Compute.Cloud,
+					 .View = &View,
+					 .TemporalContext = &FailedContext,
+					 .ViewState = &TemporalState,
+					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
+					 .CloudHistoryKey = 91});
+				TemporalState.Abort();
+				(*Results)[26] = !FailedTemporal.bCandidatePublished
+					&& FailedTemporal.Cloud == Compute.Cloud
+					&& TemporalState.GetVolumetricCloudHistory().CanReproject(
+						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+							FVolumetricCloudRenderer::EQualityTier::High),
+						91, 64, 32);
+
+				const auto RecoveredContext = TemporalState.Begin(Metadata, 3, false);
+				const auto RecoveredTemporal = Clouds.ReconstructTemporal_RenderThread(
+					CommandList,
+					{.CurrentCloud = Compute.Cloud,
+					 .View = &View,
+					 .TemporalContext = &RecoveredContext,
+					 .ViewState = &TemporalState,
+					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::High,
+					 .CloudHistoryKey = 91});
+				(*Results)[27] = RecoveredTemporal.bCandidatePublished
+					&& RecoveredTemporal.bHistoryAccepted;
+				TemporalState.Commit();
+
+				const auto PolicyContext = TemporalState.Begin(Metadata, 4, false);
+				const auto PolicyTemporal = Clouds.ReconstructTemporal_RenderThread(
+					CommandList,
+					{.CurrentCloud = Compute.Cloud,
+					 .View = &View,
+					 .TemporalContext = &PolicyContext,
+					 .ViewState = &TemporalState,
+					 .QualityTier = FVolumetricCloudRenderer::EQualityTier::Epic,
+					 .CloudHistoryKey = 91});
+				TemporalState.Abort();
+				(*Results)[28] = PolicyTemporal.bCandidatePublished
+					&& !PolicyTemporal.bHistoryAccepted
+					&& TemporalState.GetVolumetricCloudHistory().CanReproject(
+						FVolumetricCloudSpatialRenderer::CalculatePolicyKey(
+							FVolumetricCloudRenderer::EQualityTier::High),
+						91, 64, 32);
+				TemporalState.Invalidate(
+					ESceneViewDiscontinuity::DeviceInvalidation);
+				(*Results)[29] = TemporalState.GetVolumetricCloudHistory()
+					.GetRetainedBytes() == 0;
 				const auto Disabled = Clouds.Render_RenderThread(
 					CommandList, FragmentTargets, ComputeTargets,
 					FVolumetricCloudRenderer::FRenderInput{}

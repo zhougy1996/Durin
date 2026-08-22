@@ -19,6 +19,94 @@ namespace Durin
 		{
 			return Causes != ESceneViewDiscontinuity::None;
 		}
+	} // namespace
+
+	auto FVolumetricCloudViewHistory::CanReproject(uint64 PolicyKey, uint64 CloudKey, uint32 Width, uint32 Height) const -> bool
+	{
+		return CommittedTexture != nullptr && CommittedPolicyKey == PolicyKey
+			   && CommittedCloudKey == CloudKey
+			   && CommittedTexture->GetSizeX() == Width
+			   && CommittedTexture->GetSizeY() == Height;
+	}
+
+	auto FVolumetricCloudViewHistory::SetPending(FTextureRHIRef Texture, uint64 PolicyKey, uint64 CloudKey) -> void
+	{
+		PendingTexture = std::move(Texture);
+		PendingPolicyKey = PolicyKey;
+		PendingCloudKey = CloudKey;
+		bPendingClear = false;
+	}
+
+	auto FVolumetricCloudViewHistory::SetPendingClear(
+		uint64 PolicyKey, uint64 CloudKey
+	) -> void
+	{
+		PendingTexture = nullptr;
+		PendingPolicyKey = PolicyKey;
+		PendingCloudKey = CloudKey;
+		bPendingClear = true;
+	}
+
+	auto FVolumetricCloudViewHistory::TakeReusable(uint32 Width, uint32 Height)
+		-> FTextureRHIRef
+	{
+		if (SpareTexture != nullptr && SpareTexture->GetSizeX() == Width
+			&& SpareTexture->GetSizeY() == Height)
+		{
+			return std::exchange(SpareTexture, nullptr);
+		}
+		SpareTexture = nullptr;
+		return nullptr;
+	}
+
+	auto FVolumetricCloudViewHistory::Commit() -> void
+	{
+		if (bPendingClear)
+		{
+			CommittedTexture = nullptr;
+			SpareTexture = nullptr;
+			CommittedPolicyKey = PendingPolicyKey;
+			CommittedCloudKey = PendingCloudKey;
+		}
+		else if (PendingTexture != nullptr)
+		{
+			SpareTexture = std::move(CommittedTexture);
+			CommittedTexture = std::move(PendingTexture);
+			CommittedPolicyKey = PendingPolicyKey;
+			CommittedCloudKey = PendingCloudKey;
+		}
+		PendingPolicyKey = 0;
+		PendingCloudKey = 0;
+		bPendingClear = false;
+	}
+
+	auto FVolumetricCloudViewHistory::Abort() -> void
+	{
+		if (PendingTexture != nullptr)
+			SpareTexture = std::move(PendingTexture);
+		PendingPolicyKey = 0;
+		PendingCloudKey = 0;
+		bPendingClear = false;
+	}
+
+	auto FVolumetricCloudViewHistory::Reset() -> void
+	{
+		CommittedPolicyKey = 0;
+		CommittedCloudKey = 0;
+		PendingPolicyKey = 0;
+		PendingCloudKey = 0;
+		CommittedTexture = nullptr;
+		PendingTexture = nullptr;
+		SpareTexture = nullptr;
+		bPendingClear = false;
+	}
+
+	auto FVolumetricCloudViewHistory::GetRetainedBytes() const -> uint64
+	{
+		auto Bytes = [](const FTextureRHIRef& Texture) -> uint64 {
+			return Texture != nullptr ? static_cast<uint64>(Texture->GetSizeX()) * Texture->GetSizeY() * 8ull : 0;
+		};
+		return Bytes(CommittedTexture) + Bytes(PendingTexture) + Bytes(SpareTexture);
 	}
 
 	auto FSceneViewHistoryProbe::Commit() -> void
@@ -51,7 +139,8 @@ namespace Durin
 	auto FSceneViewState::Begin(
 		const FSceneViewTemporalMetadata& Current,
 		uint64 SubmissionSerial,
-		bool bDiscardHistory) -> FSceneViewTemporalContext
+		bool bDiscardHistory
+	) -> FSceneViewTemporalContext
 	{
 		check(IsInRenderingThread());
 		FSceneViewTemporalContext Context;
@@ -83,9 +172,7 @@ namespace Durin
 			Context.Previous = *Committed;
 			Context.PreviousSubmissionSerial =
 				LastSuccessfulSubmissionSerial;
-			Context.SubmissionGap = SubmissionSerial >= LastSuccessfulSubmissionSerial
-				? SubmissionSerial - LastSuccessfulSubmissionSerial
-				: std::numeric_limits<uint64>::max();
+			Context.SubmissionGap = SubmissionSerial >= LastSuccessfulSubmissionSerial ? SubmissionSerial - LastSuccessfulSubmissionSerial : std::numeric_limits<uint64>::max();
 			if (Context.SubmissionGap > SceneViewStateInactiveSubmissionThreshold)
 				Context.Discontinuities |=
 					ESceneViewDiscontinuity::InactiveGapExpiry;
@@ -102,7 +189,8 @@ namespace Durin
 				Context.Discontinuities |=
 					ESceneViewDiscontinuity::ViewportRectChange;
 			if (!MatricesEqual(
-					Committed->ProjectionMatrix, Current.ProjectionMatrix))
+					Committed->ProjectionMatrix, Current.ProjectionMatrix
+				))
 				Context.Discontinuities |=
 					ESceneViewDiscontinuity::ProjectionChange;
 			if (Committed->DepthConvention != Current.DepthConvention)
@@ -111,9 +199,16 @@ namespace Durin
 		}
 
 		Context.bHistoryValid = Context.bHasPrevious
-			&& !IsHistoryInvalidating(Context.Discontinuities);
+								&& !IsHistoryInvalidating(Context.Discontinuities);
 		if (!Context.bHistoryValid)
+		{
 			HistoryProbe.Reset();
+			// View-local discontinuities participate in the outer transaction.
+			// A later render failure must be able to abort this clear and retain
+			// the last committed cloud texture. A successful cloud reconstruction
+			// replaces the pending clear with its spatial-only candidate.
+			VolumetricCloudHistory.SetPendingClear(0, 0);
+		}
 		return Context;
 	}
 
@@ -129,6 +224,7 @@ namespace Durin
 		if (SuccessfulSequence != std::numeric_limits<uint64>::max())
 			++SuccessfulSequence;
 		HistoryProbe.Commit();
+		VolumetricCloudHistory.Commit();
 		bSubmissionActive = false;
 	}
 
@@ -140,6 +236,7 @@ namespace Durin
 		Pending.reset();
 		PendingSubmissionSerial = 0;
 		HistoryProbe.Abort();
+		VolumetricCloudHistory.Abort();
 		bSubmissionActive = false;
 	}
 
@@ -148,6 +245,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		PendingInvalidation |= Cause;
 		HistoryProbe.Reset();
+		VolumetricCloudHistory.Reset();
 	}
 
 	auto FSceneViewStateRegistry::Add(FSceneViewStateId Id) -> bool
@@ -173,7 +271,8 @@ namespace Durin
 
 	auto FSceneViewStateRegistry::Invalidate(
 		FSceneViewStateId Id,
-		ESceneViewDiscontinuity Cause) -> bool
+		ESceneViewDiscontinuity Cause
+	) -> bool
 	{
 		if (FSceneViewState* State = Find(Id))
 		{
@@ -184,7 +283,8 @@ namespace Durin
 	}
 
 	auto FSceneViewStateRegistry::InvalidateAll(
-		ESceneViewDiscontinuity Cause) -> void
+		ESceneViewDiscontinuity Cause
+	) -> void
 	{
 		check(IsInRenderingThread());
 		for (auto& [Id, State] : States)
@@ -206,7 +306,8 @@ namespace Durin
 		const FSceneView& View,
 		const FScene* Scene,
 		uint32 OutputWidth,
-		uint32 OutputHeight) -> FSceneViewTemporalMetadata
+		uint32 OutputHeight
+	) -> FSceneViewTemporalMetadata
 	{
 		return {
 			.ViewMatrix = View.ViewMatrix,
@@ -223,4 +324,4 @@ namespace Durin
 			.Scene = Scene,
 		};
 	}
-}
+} // namespace Durin
