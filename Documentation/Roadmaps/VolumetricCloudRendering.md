@@ -50,6 +50,12 @@ median cost while passing image, memory, p95, recovery, and invalidation gates.
 The lasting contract is published under Runtime rendering, satisfying P4's
 entry dependency.
 
+[Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md)
+is now active at Stage 0. It will freeze the production directional phase,
+self-transmittance and ambient model, select one bounded cloud-shadow receiver
+representation, and record image/performance budgets before implementation.
+P5 and P6 remain ordered proposed work.
+
 ## Outcome
 
 Durin can render one authored global volumetric-cloud layer into lit scene
@@ -205,12 +211,12 @@ flowchart LR
 | P2: Scene contract and component | Required; completed 2026-08-21 | [Volumetric Cloud Scene Contract](../Plans/VolumetricCloudSceneContract.md) | P1 froze the spatial parameter block, coordinate model, resource inputs, and fallback behavior. | Met: one reflected component/actor serializes, duplicates, mutates, registers, replaces, and removes one stable active cloud snapshot without exposing reflected objects to the render thread or owning Renderer resources; generic Details, both Vulkan executors, aggregates, full build, and Editor smoke pass. |
 | P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
 | P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
-| P4: Lighting and cloud shadows | Required | `VolumetricCloudLightingAndShadows` | P3 output and quality policy are stable; selected directional-light and receiver scenes define radiometric, visual, and performance targets. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
+| P4: Lighting and cloud shadows | Required; active 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable. Stage 0 owns selection of directional-light and receiver scenes plus radiometric, visual, and performance targets before implementation. | Directional scattering, self-transmittance, ambient contribution, and bounded cloud shadows respond deterministically to light/cloud changes, integrate with existing lighting ownership, and retain explicit fallbacks. |
 | P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path and real production-source evidence identifies any justified generation or richer adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
 | P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5, including P2.5, pass their acceptance gates and the remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
-P0-P2.5 are complete. No cloud child plan is active; P3-P6 remain ordered
-proposed plans, not simultaneous active work.
+P0-P3 are complete. P4 is the only active cloud child plan; P5-P6 remain
+ordered proposed plans, not simultaneous active work.
 
 ## Child Plan Boundaries
 
@@ -262,7 +268,7 @@ memory, camera-motion image sequences, and temporal debug diagnostics.
 It does not add TAA for scene geometry, a generic history cache, dynamic
 resolution for the whole renderer, or async-compute scheduling.
 
-### `VolumetricCloudLightingAndShadows`
+### [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md)
 
 Owns the selected directional-light snapshot consumed by clouds, phase and
 extinction conventions, self-shadow/transmittance sampling, ambient/sky
