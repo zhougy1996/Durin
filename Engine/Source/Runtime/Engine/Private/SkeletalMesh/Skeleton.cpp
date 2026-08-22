@@ -3,6 +3,7 @@
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin
 {
@@ -18,36 +19,6 @@ namespace Durin
 			return static_cast<double>(Canonical);
 		}
 
-		class FCompatibilityWriter
-		{
-		public:
-			auto WriteBytes(std::span<const uint8> Values) -> void
-			{
-				Bytes.insert(Bytes.end(), Values.begin(), Values.end());
-			}
-
-			auto WriteU32(uint32 Value) -> void
-			{
-				for (uint32 Shift = 0; Shift < 32; Shift += 8)
-					Bytes.push_back(static_cast<uint8>((Value >> Shift) & 0xffu));
-			}
-
-			auto WriteI32(int32 Value) -> void
-			{
-				WriteU32(std::bit_cast<uint32>(Value));
-			}
-
-			auto WriteFloat(float Value) -> void
-			{
-				if (Value == 0.0f) Value = 0.0f;
-				WriteU32(std::bit_cast<uint32>(Value));
-			}
-
-			auto GetBytes() const -> std::span<const uint8> { return Bytes; }
-
-		private:
-			std::vector<uint8> Bytes;
-		};
 	}
 
 	auto FSkeletonTransform::IsValid(std::string* OutError) const -> bool
@@ -159,7 +130,7 @@ namespace Durin
 			return false;
 		}
 
-		FCompatibilityWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteBytes(std::span<const uint8>(reinterpret_cast<const uint8*>("DSKC"), 4));
 		Writer.WriteU32(SkeletonCompatibilityEncodingVersion);
 		Writer.WriteU32(static_cast<uint32>(InBones.size()));
@@ -173,7 +144,11 @@ namespace Durin
 			const FMatrix4f Matrix = Bone.ReferenceTransform.ToMatrix4f();
 			for (uint32 Row = 0; Row < 4; ++Row)
 				for (uint32 Column = 0; Column < 4; ++Column)
-					Writer.WriteFloat(Matrix[Column][Row]);
+				{
+					float Value = Matrix[Column][Row];
+					if (Value == 0.0f) Value = 0.0f;
+					Writer.WriteFloat(Value);
+				}
 		}
 		OutIdentity = FXxHash128::HashBuffer(Writer.GetBytes()).ToString();
 		OutError.clear();

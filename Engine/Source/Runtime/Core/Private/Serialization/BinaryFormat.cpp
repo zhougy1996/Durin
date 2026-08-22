@@ -8,6 +8,12 @@ namespace Durin
 		Archive << Value;
 	}
 
+	auto FBinaryWriter::WriteU16(uint16 Value) -> void
+	{
+		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
+		Archive << Value;
+	}
+
 	auto FBinaryWriter::WriteU32(uint32 Value) -> void
 	{
 		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
@@ -20,7 +26,19 @@ namespace Durin
 		Archive << Value;
 	}
 
+	auto FBinaryWriter::WriteI32(int32 Value) -> void
+	{
+		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
+		Archive << Value;
+	}
+
 	auto FBinaryWriter::WriteI64(int64 Value) -> void
+	{
+		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
+		Archive << Value;
+	}
+
+	auto FBinaryWriter::WriteFloat(float Value) -> void
 	{
 		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
@@ -59,6 +77,8 @@ namespace Durin
 		return !Archive.HasError();
 	}
 
+	auto FBinaryReader::ReadU16(uint16& Value) -> bool { Archive << Value; return !Archive.HasError(); }
+
 	auto FBinaryReader::ReadBytes(std::vector<uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		if (ByteCount > MaximumBytes || ByteCount > GetRemainingBytes()
@@ -81,9 +101,19 @@ namespace Durin
 		return true;
 	}
 
+	auto FBinaryReader::ReadRegion(
+		std::span<const uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+	{
+		Value = {};
+		if (ByteCount > MaximumBytes) return false;
+		return Archive.ReadRegion(ByteCount, Value);
+	}
+
 	auto FBinaryReader::ReadU32(uint32& Value) -> bool { Archive << Value; return !Archive.HasError(); }
 	auto FBinaryReader::ReadU64(uint64& Value) -> bool { Archive << Value; return !Archive.HasError(); }
+	auto FBinaryReader::ReadI32(int32& Value) -> bool { Archive << Value; return !Archive.HasError(); }
 	auto FBinaryReader::ReadI64(int64& Value) -> bool { Archive << Value; return !Archive.HasError(); }
+	auto FBinaryReader::ReadFloat(float& Value) -> bool { Archive << Value; return !Archive.HasError(); }
 
 	auto FBinaryReader::ReadString(std::string& Value, uint64 MaximumBytes) -> bool
 	{

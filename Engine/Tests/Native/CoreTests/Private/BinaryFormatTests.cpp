@@ -115,3 +115,42 @@ TEST(FBinaryFormatTests, SerializedDataRoundTripsBeyondMaxPath)
 	Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
 	EXPECT_FALSE(CleanupError);
 }
+
+TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
+{
+	Durin::FBinaryWriter Writer;
+	Writer.WriteU16(0x1234);
+	Writer.WriteI32(-2);
+	Writer.WriteFloat(-0.0f);
+	EXPECT_EQ(Writer.GetBytes(), (std::vector<Durin::uint8>{
+		0x34, 0x12,
+		0xfe, 0xff, 0xff, 0xff,
+		0x00, 0x00, 0x00, 0x80}));
+
+	Durin::FBinaryReader Reader(Writer.GetBytes());
+	Durin::uint16 Unsigned16 = 0;
+	Durin::int32 Signed32 = 0;
+	float Float32 = 0.0f;
+	ASSERT_TRUE(Reader.ReadU16(Unsigned16));
+	ASSERT_TRUE(Reader.ReadI32(Signed32));
+	ASSERT_TRUE(Reader.ReadFloat(Float32));
+	EXPECT_EQ(Unsigned16, 0x1234);
+	EXPECT_EQ(Signed32, -2);
+	EXPECT_TRUE(std::signbit(Float32));
+	EXPECT_TRUE(Reader.IsAtEnd());
+
+	Durin::uint32 RandomAccess = 7;
+	EXPECT_TRUE(Durin::ReadLittleEndianAt(Writer.GetBytes(), 2, RandomAccess));
+	EXPECT_EQ(RandomAccess, 0xfffffffeu);
+	EXPECT_FALSE(Durin::ReadLittleEndianAt(Writer.GetBytes(), Writer.GetBytes().size() - 1, RandomAccess));
+	EXPECT_EQ(RandomAccess, 0xfffffffeu);
+
+	Durin::FBinaryReader Regions(Writer.GetBytes());
+	std::span<const Durin::uint8> Region;
+	ASSERT_TRUE(Regions.ReadRegion(Region, 2, 2));
+	EXPECT_TRUE(std::ranges::equal(
+		Region, std::span<const Durin::uint8>(Writer.GetBytes()).first(2)));
+	EXPECT_FALSE(Regions.ReadRegion(Region, 3, 2));
+	EXPECT_TRUE(Region.empty());
+	EXPECT_EQ(Regions.GetRemainingBytes(), Writer.GetBytes().size() - 2);
+}

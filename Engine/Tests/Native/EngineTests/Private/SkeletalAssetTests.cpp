@@ -447,6 +447,14 @@ TEST(FSkeletalAssetTests, SkeletonCompatibilityMatchesFixtureEncoding)
 		"be0f679ef83133e5acfab7f12b688f54");
 	std::string Error;
 	EXPECT_TRUE(Skeleton->Validate(Error)) << Error;
+	auto SignedZeroBones = MakeContractBones();
+	for (Durin::FSkeletonBone& Bone : SignedZeroBones)
+		Bone.ReferenceTransform.CanonicalizeFloat32();
+	SignedZeroBones[0].ReferenceTransform.Row0.y = -0.0;
+	std::string SignedZeroIdentity;
+	ASSERT_TRUE(Durin::DSkeleton::ComputeCompatibilityIdentity(
+		SignedZeroBones, SignedZeroIdentity, Error)) << Error;
+	EXPECT_EQ(SignedZeroIdentity, Skeleton->GetCompatibilityIdentity());
 
 	auto Invalid = MakeContractBones();
 	Invalid[1].ParentIndex = 2;

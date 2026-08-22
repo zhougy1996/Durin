@@ -18,6 +18,14 @@ object representation, pointers, container capacity, ABI padding or unordered
 iteration. `FArchiveState` independently carries direction, persistence, Cook,
 editor-only filtering, bulk policy, purpose and target facts.
 
+`Serialization/BinaryFormat.h` is the small convenience surface for explicit
+fixed-width binary families and reuses the same Archive primitive encoding. Its
+floating-point operations preserve exact IEEE-754 bits, including signed zero;
+format-specific equivalence such as normalizing `-0.0` before a compatibility
+hash remains the responsibility of the owning format. Bounded sequential
+regions and random-access integer reads validate their complete source range
+before publishing output.
+
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
 UE-style member taking a stable owner/context when the value cannot interpret

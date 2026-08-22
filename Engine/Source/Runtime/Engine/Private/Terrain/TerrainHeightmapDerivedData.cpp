@@ -3,8 +3,8 @@
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BoundedPayloadSerialization.h"
-#include "Serialization/EngineWire.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Templates/CheckedArithmetic.h"
 
 namespace Durin
 {
@@ -19,18 +19,6 @@ namespace Durin
 					|| Profile == Asset::ECookTargetProfile::EditorValidation);
 		}
 
-		auto Align(uint64 Value) -> uint64
-		{
-			return EngineWire::AlignUp(Value, TerrainHeightmapPayloadAlignment);
-		}
-
-		auto WriteU16(FBinaryWriter& Writer, uint16 Value) -> void
-		{
-			Writer.WriteU8(static_cast<uint8>(Value));
-			Writer.WriteU8(static_cast<uint8>(Value >> 8));
-		}
-
-		using EngineWire::ReadLittleEndianAt;
 	}
 
 	auto BuildTerrainHeightmapSerializedValue(
@@ -47,15 +35,23 @@ namespace Durin
 		if (!Payload.IsValid())
 			return Fail("Terrain heightmap payload is not canonical.", &OutError);
 
-		const uint64 LevelBytes = static_cast<uint64>(Payload.Levels.size())
-			* TerrainHeightmapLevelRecordSize;
-		const uint64 SampleOffset = Align(TerrainHeightmapPayloadHeaderSize + LevelBytes);
-		const uint64 SampleBytes = static_cast<uint64>(Payload.Samples.size()) * sizeof(uint16);
-		const uint64 HierarchyOffset = Align(SampleOffset + SampleBytes);
-		const uint64 HierarchyBytes = static_cast<uint64>(Payload.Nodes.size()) * 4;
-		const uint64 StoredSize = HierarchyOffset + HierarchyBytes;
-		if (StoredSize > MaximumTerrainHeightmapPayloadBytes
-			|| HierarchyBytes > MaximumTerrainHeightmapHierarchyBytes)
+		uint64 LevelBytes = 0, LevelEnd = 0, SampleOffset = 0, SampleBytes = 0;
+		uint64 SampleEnd = 0, HierarchyOffset = 0, HierarchyBytes = 0, StoredSize = 0;
+		if (!TryMultiply(Payload.Levels.size(), TerrainHeightmapLevelRecordSize,
+				MaximumTerrainHeightmapPayloadBytes, LevelBytes)
+			|| !TryAdd(TerrainHeightmapPayloadHeaderSize, LevelBytes,
+				MaximumTerrainHeightmapPayloadBytes, LevelEnd)
+			|| !TryAlignUp(LevelEnd, TerrainHeightmapPayloadAlignment,
+				MaximumTerrainHeightmapPayloadBytes, SampleOffset)
+			|| !TryMultiply(Payload.Samples.size(), sizeof(uint16),
+				MaximumTerrainHeightmapPayloadBytes, SampleBytes)
+			|| !TryAdd(SampleOffset, SampleBytes, MaximumTerrainHeightmapPayloadBytes, SampleEnd)
+			|| !TryAlignUp(SampleEnd, TerrainHeightmapPayloadAlignment,
+				MaximumTerrainHeightmapPayloadBytes, HierarchyOffset)
+			|| !TryMultiply(Payload.Nodes.size(), uint64{4},
+				MaximumTerrainHeightmapHierarchyBytes, HierarchyBytes)
+			|| !TryAdd(HierarchyOffset, HierarchyBytes,
+				MaximumTerrainHeightmapPayloadBytes, StoredSize))
 			return Fail("Terrain heightmap payload exceeds its frozen byte ceilings.", &OutError);
 
 		FBinaryWriter Body;
@@ -69,13 +65,13 @@ namespace Durin
 		}
 		Body.WriteBytes(std::vector<uint8>(
 			static_cast<size_t>(SampleOffset - TerrainHeightmapPayloadHeaderSize - LevelBytes), 0));
-		for (uint16 Sample : Payload.Samples) WriteU16(Body, Sample);
+		for (uint16 Sample : Payload.Samples) Body.WriteU16(Sample);
 		Body.WriteBytes(std::vector<uint8>(
 			static_cast<size_t>(HierarchyOffset - SampleOffset - SampleBytes), 0));
 		for (const FTerrainHeightmapMinMaxNode& Node : Payload.Nodes)
 		{
-			WriteU16(Body, Node.Minimum);
-			WriteU16(Body, Node.Maximum);
+			Body.WriteU16(Node.Minimum);
+			Body.WriteU16(Node.Maximum);
 		}
 		const std::vector<uint8> BodyBytes = Body.TakeBytes();
 

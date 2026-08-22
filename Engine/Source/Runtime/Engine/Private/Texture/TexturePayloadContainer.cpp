@@ -2,7 +2,7 @@
 
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
-#include "Serialization/EngineWire.h"
+#include "Templates/CheckedArithmetic.h"
 
 namespace Durin::TexturePayloadContainer
 {
@@ -31,8 +31,10 @@ namespace Durin::TexturePayloadContainer
 		if (TableBytes > MaximumTexturePayloadBytes - TexturePayloadHeaderSize)
 			return FailContainer(OutError, "Texture payload record table exceeds its byte limit.");
 
-		uint64 DataOffset = EngineWire::AlignUp(
-			TexturePayloadHeaderSize + TableBytes, TexturePayloadAlignment);
+		uint64 DataOffset = 0;
+		if (!TryAlignUp(TexturePayloadHeaderSize + TableBytes, TexturePayloadAlignment,
+			MaximumTexturePayloadBytes, DataOffset))
+			return FailContainer(OutError, "Texture payload table alignment exceeds its byte limit.");
 		std::vector<uint64> DataOffsets;
 		DataOffsets.reserve(Records.size());
 		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
@@ -43,7 +45,13 @@ namespace Durin::TexturePayloadContainer
 				return FailContainer(OutError, "Texture payload exceeds its byte limit.");
 			DataOffset += Records[RecordIndex].Data.size();
 			if (RecordIndex + 1 < Records.size())
-				DataOffset = EngineWire::AlignUp(DataOffset, TexturePayloadAlignment);
+			{
+				uint64 AlignedOffset = 0;
+				if (!TryAlignUp(DataOffset, TexturePayloadAlignment,
+					MaximumTexturePayloadBytes, AlignedOffset))
+					return FailContainer(OutError, "Texture payload alignment exceeds its byte limit.");
+				DataOffset = AlignedOffset;
+			}
 		}
 
 		FBinaryWriter Body;
@@ -98,7 +106,6 @@ namespace Durin::TexturePayloadContainer
 		Asset::ECookTargetProfile ExpectedProfile,
 		FDecodedContainer& OutContainer) -> FPayloadDecodeResult
 	{
-		using EngineWire::ReadLittleEndianAt;
 		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
 			return FPayloadDecodeResult{Code, std::move(Message)};
 		};

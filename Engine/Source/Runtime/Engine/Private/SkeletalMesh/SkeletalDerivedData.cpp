@@ -2,8 +2,8 @@
 
 #include "Asset/ChunkedPayload.h"
 #include "PayloadDecodeResult.h"
-#include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/BoundedPayloadSerialization.h"
 
 namespace Durin
@@ -57,8 +57,8 @@ namespace Durin
 			Values = 4
 		};
 
-		using FWriter = EngineWire::FWriter;
-		using FReader = EngineWire::FReader;
+		using FWriter = FBinaryWriter;
+		using FReader = FBinaryReader;
 
 		struct FChunkBytes
 		{
@@ -95,7 +95,24 @@ namespace Durin
 			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Skeletal payload"), &OutError);
 		}
 
-		using EngineWire::ReadLittleEndianAt;
+		auto WritePayloadString(FWriter& Writer, std::string_view Value) -> void
+		{
+			check(Value.size() <= std::numeric_limits<uint32>::max());
+			Writer.WriteU32(static_cast<uint32>(Value.size()));
+			Writer.WriteBytes(std::span<const uint8>(
+				reinterpret_cast<const uint8*>(Value.data()), Value.size()));
+		}
+
+		auto ReadPayloadString(FReader& Reader, std::string& Value, uint64 MaximumBytes) -> bool
+		{
+			uint32 Count = 0;
+			std::span<const uint8> Bytes;
+			if (!Reader.ReadU32(Count) || Count == 0
+				|| !Reader.ReadRegion(Bytes, Count, MaximumBytes)) return false;
+			if (std::ranges::find(Bytes, uint8{0}) != Bytes.end()) return false;
+			Value.assign(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+			return true;
+		}
 
 		auto WriteVector(FWriter& Writer, const FVector2f& Value) -> void
 		{
@@ -280,7 +297,7 @@ namespace Durin
 			const std::string Name = Section.Name.ToString();
 			if (Name.empty() || Name.size() > MaximumSkeletalPayloadNameBytes)
 				return Fail("Skeletal-mesh section name is outside its wire bound.", &OutError);
-			Sections.WriteString(Name);
+			WritePayloadString(Sections, Name);
 			Sections.WriteU32(Section.FirstIndex);
 			Sections.WriteU32(Section.IndexCount);
 			Sections.WriteU32(Section.MinVertexIndex);
@@ -379,7 +396,7 @@ namespace Durin
 		for (uint32& Count : UVCounts)
 			if (!Metadata.ReadU32(Count))
 				return {EPayloadDecodeError::Corrupt, "Skeletal-mesh metadata UV counts are truncated."};
-		if (!ReadBox(Metadata, Candidate.LocalBounds) || !Metadata.AtEnd()
+		if (!ReadBox(Metadata, Candidate.LocalBounds) || !Metadata.IsAtEnd()
 			|| EncodedMaterialSlots != Context.MaterialSlotCount
 			|| PositionCount == 0 || PositionCount > MaximumSkeletalMeshVertices
 			|| NormalCount != PositionCount || TangentCount != PositionCount
@@ -403,7 +420,7 @@ namespace Durin
 		for (FSkeletalMeshSection& Section : Candidate.Sections)
 		{
 			std::string Name;
-			if (!Sections.ReadString(Name, MaximumSkeletalPayloadNameBytes) || !Sections.ReadU32(Section.FirstIndex)
+			if (!ReadPayloadString(Sections, Name, MaximumSkeletalPayloadNameBytes) || !Sections.ReadU32(Section.FirstIndex)
 				|| !Sections.ReadU32(Section.IndexCount)
 				|| !Sections.ReadU32(Section.MinVertexIndex)
 				|| !Sections.ReadU32(Section.MaxVertexIndex)
@@ -412,13 +429,13 @@ namespace Durin
 				return {EPayloadDecodeError::Corrupt, "Skeletal-mesh section record is truncated."};
 			Section.Name = FName(Name);
 		}
-		if (!Sections.AtEnd())
+		if (!Sections.IsAtEnd())
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh section chunk has trailing data."};
 
 		FReader Positions(Chunks[2]);
 		uint32 StoredPositionCount = 0;
 		if (!Positions.ReadU32(StoredPositionCount) || StoredPositionCount != PositionCount
-			|| Positions.Remaining() != static_cast<uint64>(PositionCount) * sizeof(float) * 3)
+			|| Positions.GetRemainingBytes() != static_cast<uint64>(PositionCount) * sizeof(float) * 3)
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh position chunk size is invalid."};
 		Candidate.Positions.resize(PositionCount);
 		for (FVector3f& Value : Candidate.Positions)
@@ -429,7 +446,7 @@ namespace Durin
 		auto ReadVector3Array = [&](std::vector<FVector3f>& Values, uint32 Expected) -> bool {
 			uint32 Count = 0;
 			if (!Attributes.ReadU32(Count) || Count != Expected
-				|| Attributes.Remaining() < static_cast<uint64>(Count) * 3 * sizeof(float))
+				|| Attributes.GetRemainingBytes() < static_cast<uint64>(Count) * 3 * sizeof(float))
 				return false;
 			Values.resize(Count);
 			return std::ranges::all_of(Values, [&](FVector3f& Value) {
@@ -439,7 +456,7 @@ namespace Durin
 		auto ReadVector4Array = [&](std::vector<FVector4f>& Values, uint32 Expected) -> bool {
 			uint32 Count = 0;
 			if (!Attributes.ReadU32(Count) || Count != Expected
-				|| Attributes.Remaining() < static_cast<uint64>(Count) * 4 * sizeof(float))
+				|| Attributes.GetRemainingBytes() < static_cast<uint64>(Count) * 4 * sizeof(float))
 				return false;
 			Values.resize(Count);
 			return std::ranges::all_of(Values, [&](FVector4f& Value) {
@@ -457,20 +474,20 @@ namespace Durin
 		{
 			uint32 Count = 0;
 			if (!Attributes.ReadU32(Count) || Count != UVCounts[Channel]
-				|| Attributes.Remaining() < static_cast<uint64>(Count) * 2 * sizeof(float))
+				|| Attributes.GetRemainingBytes() < static_cast<uint64>(Count) * 2 * sizeof(float))
 				return {EPayloadDecodeError::Corrupt, "Skeletal-mesh UV count does not match metadata."};
 			Candidate.UVChannels[Channel].resize(Count);
 			for (FVector2f& Value : Candidate.UVChannels[Channel])
 				if (!ReadVector(Attributes, Value))
 					return {EPayloadDecodeError::Corrupt, "Skeletal-mesh UV data is truncated."};
 		}
-		if (!ReadVector4Array(Candidate.Colors, ColorCount) || !Attributes.AtEnd())
+		if (!ReadVector4Array(Candidate.Colors, ColorCount) || !Attributes.IsAtEnd())
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh color data or trailing attributes are invalid."};
 
 		FReader Indices(Chunks[4]);
 		uint32 StoredIndexCount = 0;
 		if (!Indices.ReadU32(StoredIndexCount) || StoredIndexCount != IndexCount
-			|| Indices.Remaining() != static_cast<uint64>(IndexCount) * sizeof(uint32))
+			|| Indices.GetRemainingBytes() != static_cast<uint64>(IndexCount) * sizeof(uint32))
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh index chunk size is invalid."};
 		Candidate.Indices.resize(IndexCount);
 		for (uint32& Index : Candidate.Indices)
@@ -481,7 +498,7 @@ namespace Durin
 		uint32 StoredInfluenceCount = 0;
 		constexpr uint64 InfluenceWireBytes = 4 + MaximumSkeletalMeshInfluences * 8;
 		if (!Influences.ReadU32(StoredInfluenceCount) || StoredInfluenceCount != InfluenceCount
-			|| Influences.Remaining() != static_cast<uint64>(InfluenceCount) * InfluenceWireBytes)
+			|| Influences.GetRemainingBytes() != static_cast<uint64>(InfluenceCount) * InfluenceWireBytes)
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh influence chunk size is invalid."};
 		Candidate.Influences.resize(InfluenceCount);
 		for (FSkeletalMeshVertexInfluences& Influence : Candidate.Influences)
@@ -503,7 +520,7 @@ namespace Durin
 		FReader Palette(Chunks[6]);
 		uint32 StoredPaletteCount = 0;
 		if (!Palette.ReadU32(StoredPaletteCount) || StoredPaletteCount != PaletteCount
-			|| Palette.Remaining() < static_cast<uint64>(PaletteCount) * sizeof(uint16) + 4)
+			|| Palette.GetRemainingBytes() < static_cast<uint64>(PaletteCount) * sizeof(uint16) + 4)
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh palette count does not match metadata."};
 		Candidate.PaletteBoneIndices.resize(PaletteCount);
 		for (uint16& Bone : Candidate.PaletteBoneIndices)
@@ -512,7 +529,7 @@ namespace Durin
 		uint32 StoredInverseBindCount = 0;
 		if (!Palette.ReadU32(StoredInverseBindCount)
 			|| StoredInverseBindCount != InverseBindCount
-			|| Palette.Remaining() != static_cast<uint64>(InverseBindCount) * 16 * sizeof(float))
+			|| Palette.GetRemainingBytes() != static_cast<uint64>(InverseBindCount) * 16 * sizeof(float))
 			return {EPayloadDecodeError::Corrupt, "Skeletal-mesh inverse-bind chunk size is invalid."};
 		Candidate.InverseBindMatrices.resize(InverseBindCount);
 		for (FMatrix4f& Matrix : Candidate.InverseBindMatrices)
@@ -610,7 +627,7 @@ namespace Durin
 		FReader Metadata(Chunks[0]);
 		if (!Metadata.ReadFloat(Candidate.DurationSeconds)
 			|| !Metadata.ReadU32(TrackCount) || !Metadata.ReadU64(KeyCount)
-			|| !Metadata.AtEnd() || TrackCount == 0 || TrackCount > MaximumAnimationClipTracks
+			|| !Metadata.IsAtEnd() || TrackCount == 0 || TrackCount > MaximumAnimationClipTracks
 			|| KeyCount == 0 || KeyCount > MaximumAnimationKeysPerClip)
 			return {EPayloadDecodeError::Corrupt, "Animation payload metadata is invalid."};
 
@@ -625,7 +642,7 @@ namespace Durin
 		FReader Tracks(Chunks[1]);
 		uint32 StoredTrackCount = 0;
 		if (!Tracks.ReadU32(StoredTrackCount) || StoredTrackCount != TrackCount
-			|| Tracks.Remaining() != static_cast<uint64>(TrackCount) * 20)
+			|| Tracks.GetRemainingBytes() != static_cast<uint64>(TrackCount) * 20)
 			return {EPayloadDecodeError::Corrupt, "Animation track chunk size is invalid."};
 		std::vector<FTrackRecord> Records(TrackCount);
 		uint64 ExpectedFirst = 0;
@@ -646,7 +663,7 @@ namespace Durin
 		FReader Times(Chunks[2]);
 		uint64 StoredTimeCount = 0;
 		if (!Times.ReadU64(StoredTimeCount) || StoredTimeCount != KeyCount
-			|| Times.Remaining() != KeyCount * sizeof(float))
+			|| Times.GetRemainingBytes() != KeyCount * sizeof(float))
 			return {EPayloadDecodeError::Corrupt, "Animation time chunk size is invalid."};
 		std::vector<float> AllTimes(static_cast<size_t>(KeyCount));
 		for (float& Time : AllTimes)
@@ -657,7 +674,7 @@ namespace Durin
 		uint64 StoredValueCount = 0;
 		if (!Values.ReadU64(StoredValueCount) || StoredValueCount != KeyCount
 			|| KeyCount > (std::numeric_limits<uint64>::max() - 8) / (4 * sizeof(float))
-			|| Values.Remaining() != KeyCount * 4 * sizeof(float))
+			|| Values.GetRemainingBytes() != KeyCount * 4 * sizeof(float))
 			return {EPayloadDecodeError::Corrupt, "Animation value chunk size is invalid."};
 		std::vector<FVector4f> AllValues(static_cast<size_t>(KeyCount));
 		for (FVector4f& Value : AllValues)

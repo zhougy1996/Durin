@@ -1,8 +1,8 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 #include "Asset/ChunkedPayload.h"
-#include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BinaryFormat.h"
 #include "Serialization/BoundedPayloadSerialization.h"
 
 
@@ -17,8 +17,8 @@ namespace Durin
 		inline constexpr uint32 StaticMeshChunkCompressionZstandard = 1;
 		inline constexpr uint64 StaticMeshMaximumCompressionRatio = 64;
 
-		using FPayloadWriter = EngineWire::FWriter;
-		using FPayloadReader = EngineWire::FReader;
+		using FPayloadWriter = FBinaryWriter;
+		using FPayloadReader = FBinaryReader;
 
 		auto IsFinite(const FVector2f& Value) -> bool
 		{
@@ -373,8 +373,6 @@ namespace Durin
 			OutPayload = std::move(Payload);
 			return true;
 		}
-
-		using EngineWire::ReadLittleEndianAt;
 
 		auto GetStaticMeshChunkedPayloadFormat() -> Asset::FChunkedPayloadFormat
 		{

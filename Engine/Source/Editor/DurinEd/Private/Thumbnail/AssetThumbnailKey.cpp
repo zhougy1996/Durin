@@ -1,47 +1,13 @@
 #include "Thumbnail/AssetThumbnailKey.h"
 
 #include "Hash/XxHash.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Editor
 {
 	namespace
 	{
-		class FThumbnailKeyWriter
-		{
-		public:
-			auto WriteU32(uint32 Value) -> void
-			{
-				for (uint32 ByteIndex = 0; ByteIndex < 4; ++ByteIndex)
-					Bytes.push_back(static_cast<uint8>(Value >> (ByteIndex * 8)));
-			}
-
-			auto WriteU64(uint64 Value) -> void
-			{
-				for (uint32 ByteIndex = 0; ByteIndex < 8; ++ByteIndex)
-					Bytes.push_back(static_cast<uint8>(Value >> (ByteIndex * 8)));
-			}
-
-			auto WriteI64(int64 Value) -> void
-			{
-				WriteU64(std::bit_cast<uint64>(Value));
-			}
-
-			auto WriteString(std::string_view Value) -> void
-			{
-				WriteU64(static_cast<uint64>(Value.size()));
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
-			}
-
-			auto GetBytes() const -> std::span<const uint8>
-			{
-				return Bytes;
-			}
-
-		private:
-			std::vector<uint8> Bytes;
-		};
-
-		auto WritePackageFingerprint(FThumbnailKeyWriter& Writer, const FAssetThumbnailPackageFingerprint& Package) -> void
+		auto WritePackageFingerprint(FBinaryWriter& Writer, const FAssetThumbnailPackageFingerprint& Package) -> void
 		{
 			Writer.WriteString(Package.VirtualPath.GetView());
 			Writer.WriteString(Package.AssetClassName);
@@ -126,7 +92,7 @@ namespace Durin::Editor
 
 	auto BuildAssetThumbnailCacheKey(const FAssetThumbnailKeyInput& Input) -> std::string
 	{
-		FThumbnailKeyWriter Writer;
+		FBinaryWriter Writer;
 		Writer.WriteString("DurinAssetThumbnailKey");
 		Writer.WriteU32(1);
 		WritePackageFingerprint(Writer, Input.Asset);
