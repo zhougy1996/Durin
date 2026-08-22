@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/Cook.h"
+#include "Asset/AuthoredBulkData.h"
 #include "EngineAPI.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
@@ -17,9 +18,16 @@ namespace Durin
 		{
 			BeforeCustomVersionWasAdded = -1,
 			ByteBlob = 1,
-			LatestVersion = ByteBlob,
+			AuthoredBulkData = 2,
+			LatestVersion = AuthoredBulkData,
 		};
 	};
+
+	inline constexpr FGuid VolumeTextureSourcePayloadId{
+		0x6fe21a38, 0x494340a7, 0xa304c2d5, 0x26f22931};
+	inline constexpr FGuid VolumeTextureSourceFormatId{
+		0x2854a7c1, 0x94cb4ab8, 0x8cd8be32, 0xc2f680b7};
+	inline constexpr uint32 VolumeTextureSourceFormatVersion = 1;
 
 	// Selects one portable uncompressed voxel format admitted by volume assets.
 	DENUM()
@@ -62,7 +70,12 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		std::vector<std::byte> Voxels;
+		Asset::FAuthoredBulkData Voxels;
+
+		DPROPERTY(Deprecated, CustomVersion = Durin::FVolumeTextureSourceVersion,
+			DeprecatedBefore = Durin::FVolumeTextureSourceVersion::AuthoredBulkData,
+			HistoricalName = "Voxels", MigratesTo = "Voxels")
+		std::vector<std::byte> VoxelsBlob_DEPRECATED;
 
 		DPROPERTY(Deprecated, CustomVersion = Durin::FVolumeTextureSourceVersion,
 			DeprecatedBefore = Durin::FVolumeTextureSourceVersion::ByteBlob,
@@ -82,6 +95,11 @@ namespace Durin
 		EVolumeTextureFormat Format = EVolumeTextureFormat::R8_UNORM;
 
 		ENGINE_API auto IsValid() const -> bool;
+		auto GetVoxelBytes() const -> std::span<const std::byte>
+		{
+			return Voxels.GetResidentBytes();
+		}
+		ENGINE_API auto SetVoxelBytes(std::span<const std::byte> Bytes) -> bool;
 	};
 
 	// Freezes deterministic mip filtering and output format policy.
@@ -250,13 +268,22 @@ namespace Durin
 		{
 			if (!Value.Voxels_DEPRECATED.empty())
 			{
-				if (!Value.Voxels.empty())
+				if (!Value.VoxelsBlob_DEPRECATED.empty())
 					return Context.Fail(
-						"Volume source contains both current Blob and deprecated byte Array data.");
-				Value.Voxels.resize(Value.Voxels_DEPRECATED.size());
-				std::ranges::transform(Value.Voxels_DEPRECATED, Value.Voxels.begin(),
+						"Volume source contains both deprecated Blob and byte Array data.");
+				Value.VoxelsBlob_DEPRECATED.resize(Value.Voxels_DEPRECATED.size());
+				std::ranges::transform(Value.Voxels_DEPRECATED, Value.VoxelsBlob_DEPRECATED.begin(),
 					[](uint8 Byte) { return static_cast<std::byte>(Byte); });
 				Value.Voxels_DEPRECATED.clear();
+			}
+			if (!Value.VoxelsBlob_DEPRECATED.empty())
+			{
+				if (Value.Voxels.GetDescriptor().LogicalByteCount != 0)
+					return Context.Fail(
+						"Volume source contains both current bulk and deprecated Blob data.");
+				if (!Value.SetVoxelBytes(Value.VoxelsBlob_DEPRECATED))
+					return Context.Fail("Volume source Blob-to-bulk migration failed.");
+				Value.VoxelsBlob_DEPRECATED.clear();
 			}
 			return Value.IsValid()
 				|| Context.Fail("Volume source byte migration produced invalid dimensions or payload size.");

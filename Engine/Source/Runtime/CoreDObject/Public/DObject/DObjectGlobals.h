@@ -13,6 +13,7 @@ namespace Durin
 	class DStruct;
 	class FSoftObjectPtr;
 	class FWeakObjectPtr;
+	class FArchive;
 	struct FGuid;
 	template<typename T>
 	class TObjectPtr;
@@ -214,7 +215,8 @@ namespace Durin
 			SoftObject,
 			WeakObject,
 			Byte,
-			Blob
+			Blob,
+			BulkData
 		};
 
 		enum class EPropertyParamLayout : uint8
@@ -229,7 +231,8 @@ namespace Durin
 			Map,
 			SoftObject,
 			WeakObject,
-			Blob
+			Blob,
+			BulkData
 			};
 
 		struct FPropertyParamsBase;
@@ -505,6 +508,63 @@ namespace Durin
 			}
 
 			FPropertyValueOps ValueOps;
+		};
+
+		struct FBulkDataPropertyOps
+		{
+			FPropertyValueOps ValueOps;
+			void (*SerializeValue)(FArchive& Ar, void* Value) = nullptr;
+			bool (*IdenticalValue)(const void* Left, const void* Right) = nullptr;
+		};
+
+		template<typename TValue>
+		constexpr auto MakeBulkDataPropertyOps() -> FBulkDataPropertyOps
+		{
+			return {
+				.ValueOps = MakePropertyValueOps<TValue>(),
+				.SerializeValue = [](FArchive& Ar, void* Value) {
+					static_cast<TValue*>(Value)->Serialize(Ar);
+				},
+				.IdenticalValue = [](const void* Left, const void* Right) {
+					return static_cast<const TValue*>(Left)->Identical(
+						*static_cast<const TValue*>(Right));
+				}};
+		}
+
+		struct FBulkDataPropertyParams final : public FPropertyParamsBase
+		{
+			template<typename TValue>
+			static constexpr auto Create(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0) -> FBulkDataPropertyParams
+			{
+				return FBulkDataPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, InOffset,
+					MakeBulkDataPropertyOps<TValue>(), InMetaData, InNumMetaData);
+			}
+
+			FBulkDataPropertyOps Ops;
+
+		private:
+			constexpr FBulkDataPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FBulkDataPropertyOps InOps,
+				const FMetaDataPair* InMetaData,
+				size_t InNumMetaData)
+				: FPropertyParamsBase(
+					InNameUTF8, InFlags, InArrayDim, InOffset,
+					EPropertyGenFlags::BulkData, EPropertyParamLayout::BulkData,
+					nullptr, nullptr, InMetaData, InNumMetaData)
+				, Ops(InOps)
+			{
+			}
 		};
 
 		struct FEnumPropertyParams final : public FPropertyParamsBase

@@ -69,6 +69,15 @@ Reflected `std::vector<std::byte>` uses this operation and the logical `Bytes`
 descriptor. Structured package framing may add its own record length, but must
 not reinterpret the Blob contents or persist vector capacity/allocator state.
 
+`FSharedByteBuffer` is Core's immutable, copy-shareable byte owner. It exposes
+only a const span; replacement constructs a new allocation. `SerializeBulkData`
+transfers a placement-independent identity (payload and format ids, format
+version, logical/stored sizes, XXH3-128 content hash) plus verified bytes.
+`Inline` writes the bounded descriptor and byte Blob, `Skip` performs no
+transfer, and base `External` fails before mutation unless an owning Archive
+adapter implements location and publication. Core never resolves asset paths or
+files for this operation.
+
 Object, field, array, and Map scopes maintain a structured diagnostic path.
 `FArchive::Fail(...)` stores the first failure and later operations cannot clear
 or replace it. Unsupported capabilities and types, malformed or truncated
@@ -99,6 +108,11 @@ Equality is size plus exact byte equality and a changed or forced Blob emits as
 one complete field. It has no indexed authored-override paths. Planner
 field-count limits therefore count the field once; Archive, package-size, and
 allocation byte limits remain independent and authoritative.
+
+A reflected authored-bulk value is a distinct atomic logical `BulkData` node.
+Planning compares semantic format/version, logical size, and verified content
+identity, never physical placement or residency. Multi-megabyte values still
+contribute one node in enabled and no-delta plans.
 
 In `EDefaultDeltaMode::Enabled`, top-level fields compare with the paired class
 default object. Once a Struct is emitted, its fields recursively compare with

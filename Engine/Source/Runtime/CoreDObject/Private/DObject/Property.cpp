@@ -377,6 +377,17 @@ namespace Durin
 					return Left == Right ? Identical
 						: SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
+			case DurinCodeGen::EPropertyGenFlags::BulkData:
+				{
+					const std::optional<bool> bIdentical = Property->AreBulkDataValuesIdentical(
+						Property->GetValuePtr(LeftContainer, LeftArrayIndex),
+						Property->GetValuePtr(RightContainer, RightArrayIndex));
+					if (!bIdentical)
+						return SetIdentityDiagnostic(Context, Path, Kind,
+							UnsupportedLogicalKind, Unsupported);
+					return *bIdentical ? Identical
+						: SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
+				}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				{
 					const auto* ObjectProperty = static_cast<const FObjectProperty*>(Property);
@@ -578,6 +589,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Byte:
 			case DurinCodeGen::EPropertyGenFlags::Blob:
+			case DurinCodeGen::EPropertyGenFlags::BulkData:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			case DurinCodeGen::EPropertyGenFlags::WeakObject:

@@ -2,6 +2,7 @@
 #include "Editor/PropertyValueDraft.h"
 
 #include "AssetAuthoring.h"
+#include "Asset/AuthoredBulkData.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
@@ -54,6 +55,7 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "guid";
 			case DurinCodeGen::EPropertyGenFlags::Byte: return "byte";
 			case DurinCodeGen::EPropertyGenFlags::Blob: return "blob";
+			case DurinCodeGen::EPropertyGenFlags::BulkData: return "authored bulk data";
 			case DurinCodeGen::EPropertyGenFlags::Enum: return "enum";
 			case DurinCodeGen::EPropertyGenFlags::Object: return "object";
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return "soft object";
@@ -91,6 +93,7 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "GUID";
 			case DurinCodeGen::EPropertyGenFlags::Byte: return "Byte";
 			case DurinCodeGen::EPropertyGenFlags::Blob: return "Blob";
+			case DurinCodeGen::EPropertyGenFlags::BulkData: return "Authored Bulk Data";
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 			{
 				const DEnum* Enum = static_cast<const FEnumProperty&>(Property).GetEnum();
@@ -755,6 +758,22 @@ namespace Durin::Editor
 			const auto& Value = *static_cast<const std::vector<std::byte>*>(
 				Property->GetValuePtr(Container, ArrayIndex));
 			ImGui::TextDisabled("%s", std::format("{} bytes", Value.size()).c_str());
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
+		{
+			const auto& Value = *static_cast<const Asset::FAuthoredBulkData*>(
+				Property->GetValuePtr(Container, ArrayIndex));
+			const auto& Descriptor = Value.GetDescriptor();
+			const std::string_view Placement = Descriptor.StorageKind
+				== Asset::EAuthoredBulkStorageKind::External ? "external" : "inline";
+			const std::string_view Residency = Value.GetResidency()
+				== EArchiveBulkDataResidency::Resident ? "resident"
+				: Value.GetResidency() == EArchiveBulkDataResidency::Unloaded
+				? "unloaded" : "failed";
+			ImGui::TextDisabled("%s", std::format(
+				"{} bytes, {}, {}, format v{}, hash {}",
+				Descriptor.LogicalByteCount, Placement, Residency,
+				Descriptor.FormatVersion, Descriptor.ContentHash.ToString()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 		{

@@ -23,7 +23,7 @@ namespace Durin
 	{
 		enum class EKind : uint8
 		{
-			Scalar, Enum, String, Name, Guid, Bytes, Object, SoftObject, WeakObject,
+			Scalar, Enum, String, Name, Guid, Bytes, BulkData, Object, SoftObject, WeakObject,
 			Struct, Array, Map, FixedArray
 		};
 
@@ -44,6 +44,7 @@ namespace Durin
 		COREDOBJECT_API static auto Name() -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Guid() -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Bytes() -> FArchiveLogicalTypeDescriptor;
+		COREDOBJECT_API static auto BulkData() -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto Object(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto SoftObject(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;
 		COREDOBJECT_API static auto WeakObject(FName QualifiedType = {}) -> FArchiveLogicalTypeDescriptor;

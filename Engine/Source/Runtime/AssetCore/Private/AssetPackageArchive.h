@@ -26,6 +26,7 @@ namespace Durin::Asset::Private
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
+		const FAssetPath& PackagePath,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions = {}) -> FAssetResult;
 }

@@ -4,6 +4,7 @@
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetRelocationExtensionsInternal.h"
+#include "Asset/AuthoredBulkStorage.h"
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -376,6 +377,35 @@ namespace Durin::Asset
 				SourceBytes,
 				std::move(SourceRedirectorBytes));
 			if (!Result) return Result;
+
+			FAssetPackageInspection BulkInspection;
+			Result = InspectAssetPackage(SourceFile.generic_string(), BulkInspection);
+			if (!Result) return Result;
+			std::vector<std::filesystem::path> SourceBulkFiles;
+			std::vector<std::filesystem::path> DestinationBulkFiles;
+			std::string BulkError;
+			if (!InspectAuthoredBulkCompanionPaths(
+					SourceFile, BulkInspection, SourceBulkFiles, &BulkError)
+				|| !InspectAuthoredBulkCompanionPaths(
+					DestinationFile, BulkInspection, DestinationBulkFiles, &BulkError)
+				|| SourceBulkFiles.size() != DestinationBulkFiles.size())
+				return Error(EAssetError::CorruptFile,
+					BulkError.empty() ? "Authored bulk relocation inspection failed." : BulkError);
+			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
+			{
+				std::vector<uint8> PayloadBytes;
+				Result = LoadRelocationBytes(SourceBulkFiles[BulkIndex], PayloadBytes);
+				if (!Result) return Result;
+				if (std::filesystem::exists(DestinationBulkFiles[BulkIndex]))
+					return Error(EAssetError::AlreadyExists,
+						"Authored bulk relocation destination already exists.");
+				Result = AddFileEntry(DestinationBulkFiles[BulkIndex], {},
+					ERelocationPublicationRole::OwnedPayload, std::nullopt, PayloadBytes);
+				if (!Result) return Result;
+				Result = AddFileEntry(SourceBulkFiles[BulkIndex], {},
+					ERelocationPublicationRole::OwnedPayload, std::move(PayloadBytes), std::nullopt);
+				if (!Result) return Result;
+			}
 
 			FAssetData MovedData = *SourceData;
 			MovedData.PackagePath = Mapping.DestinationPath;

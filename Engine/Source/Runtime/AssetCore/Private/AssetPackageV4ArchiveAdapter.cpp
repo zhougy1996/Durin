@@ -2,6 +2,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageV4Writer.h"
+#include "Asset/AuthoredBulkStorage.h"
 #include "AssetPackageValueCodec.h"
 
 #include "Asset/Redirector.h"
@@ -12,6 +13,7 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
+#include "Misc/Paths.h"
 
 namespace Durin::Asset::Private
 {
@@ -44,6 +46,7 @@ namespace Durin::Asset::Private
 		{
 			std::vector<FCapturedObject> Objects;
 			std::vector<FAssetPath> Dependencies;
+			std::vector<FAuthoredBulkPayload> BulkPayloads;
 		};
 
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
@@ -196,7 +199,18 @@ namespace Durin::Asset::Private
 
 		auto EqualManifest(const FCapturedPackage& A, const FCapturedPackage& B) -> bool
 		{
-			if (A.Dependencies != B.Dependencies || A.Objects.size() != B.Objects.size()) return false;
+			if (A.Dependencies != B.Dependencies || A.Objects.size() != B.Objects.size()
+				|| A.BulkPayloads.size() != B.BulkPayloads.size()) return false;
+			for (size_t Index = 0; Index < A.BulkPayloads.size(); ++Index)
+			{
+				const auto& Left = A.BulkPayloads[Index].Descriptor;
+				const auto& Right = B.BulkPayloads[Index].Descriptor;
+				if (Left.PayloadId != Right.PayloadId || Left.FormatId != Right.FormatId
+					|| Left.FormatVersion != Right.FormatVersion
+					|| Left.LogicalByteCount != Right.LogicalByteCount
+					|| Left.StoredByteCount != Right.StoredByteCount
+					|| Left.ContentHash != Right.ContentHash) return false;
+			}
 			for (size_t ObjectIndex = 0; ObjectIndex < A.Objects.size(); ++ObjectIndex)
 			{
 				const auto& Left = A.Objects[ObjectIndex];
@@ -217,6 +231,7 @@ namespace Durin::Asset::Private
 				DObject& InObject,
 				std::span<const FAuthoredPackageFieldRecord> InFields,
 				std::span<DObject* const> InObjects,
+				const FAssetPath& InPackagePath,
 				uint32 SourceVersion,
 				std::span<const FArchiveCustomVersion> CustomVersions)
 				: FObjectArchive({EArchiveDirection::Load, EArchivePurpose::AuthoredPackage,
@@ -227,7 +242,8 @@ namespace Durin::Asset::Private
 					FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
 						std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())})
-				, Object(InObject), Fields(InFields), Objects(InObjects), Consumed(InFields.size(), 0)
+				, Object(InObject), Fields(InFields), Objects(InObjects), PackagePath(InPackagePath),
+				  Consumed(InFields.size(), 0)
 			{
 			}
 
@@ -263,6 +279,89 @@ namespace Durin::Asset::Private
 				if (!Bytes.empty())
 					std::memcpy(Bytes.data(), Scope.Record->Payload.data() + Scope.Offset, Bytes.size());
 				Scope.Offset += Bytes.size();
+			}
+
+			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			{
+				if (HasError() || !IsCurrentFieldAvailable()) return;
+				uint8 StorageKind = 0;
+				FGuid PayloadId, FormatId;
+				uint32 FormatVersion = 0;
+				uint64 LogicalSize = 0, StoredSize = 0;
+				uint64 HashLow = 0, HashHigh = 0, ContainerHashLow = 0, ContainerHashHigh = 0;
+				*this << StorageKind << PayloadId << FormatId << FormatVersion
+					<< LogicalSize << StoredSize << HashLow << HashHigh
+					<< ContainerHashLow << ContainerHashHigh;
+				if (HasError()) return;
+				if (StorageKind > static_cast<uint8>(EArchiveBulkDataStorageKind::External)
+					|| !PayloadId.IsValid() || !FormatId.IsValid() || FormatVersion == 0
+					|| LogicalSize != StoredSize)
+				{
+					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+						"Authored bulk descriptor is invalid.");
+					return;
+				}
+				const FXxHash128 ContentHash{HashLow, HashHigh};
+				const FXxHash128 ContainerHash{ContainerHashLow, ContainerHashHigh};
+				FSharedByteBuffer Buffer;
+				if (StorageKind == static_cast<uint8>(EArchiveBulkDataStorageKind::Inline))
+				{
+					if (!ContainerHash.IsZero())
+					{
+						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+							"Inline authored bulk data declares an external container hash.");
+						return;
+					}
+					std::vector<std::byte> Bytes;
+					SerializeByteBlob(Bytes);
+					if (HasError()) return;
+					Buffer = FSharedByteBuffer::Take(std::move(Bytes));
+				}
+				else
+				{
+					if (ContainerHash.IsZero())
+					{
+						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+							"External authored bulk data has no container hash.");
+						return;
+					}
+					const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
+						PackagePath.GetView(), PathUtilities::EPathExistence::AllowMissing);
+					std::filesystem::path CompanionPath;
+					std::string Error;
+					const std::filesystem::path PhysicalPackage = Resolved
+						? std::filesystem::path(Resolved.PhysicalPath.generic_string() + ".dasset")
+						: std::filesystem::path{};
+					const FAuthoredBulkDataDescriptor Descriptor{
+						.PayloadId = PayloadId, .FormatId = FormatId,
+						.FormatVersion = FormatVersion, .LogicalByteCount = LogicalSize,
+						.StoredByteCount = StoredSize, .ContentHash = ContentHash,
+						.ContainerHash = ContainerHash,
+						.StorageKind = EAuthoredBulkStorageKind::External};
+					if (!Resolved || !ResolveAuthoredBulkCompanionPath(
+							PhysicalPackage, ContainerHash, CompanionPath, &Error)
+						|| !LoadAuthoredBulkPayload(CompanionPath, Descriptor, Buffer, &Error))
+					{
+						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+							Error.empty() ? "Authored bulk companion could not be resolved." : Error);
+						return;
+					}
+				}
+				if (Buffer.GetSize() != LogicalSize
+					|| FXxHash128::HashBuffer(Buffer.GetBytes()) != ContentHash)
+				{
+					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+						"Authored bulk payload size or hash verification failed.");
+					return;
+				}
+				Value = {.PayloadId = PayloadId, .FormatId = FormatId,
+					.FormatVersion = FormatVersion, .LogicalSize = LogicalSize,
+					.StoredSize = StoredSize, .ContentHash = ContentHash,
+					.ContainerHash = ContainerHash,
+					.StorageKind = StorageKind == 0 ? EArchiveBulkDataStorageKind::Inline
+						: EArchiveBulkDataStorageKind::External,
+					.Residency = EArchiveBulkDataResidency::Resident,
+					.Buffer = std::move(Buffer)};
 			}
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
@@ -664,6 +763,7 @@ namespace Durin::Asset::Private
 			DObject& Object;
 			std::span<const FAuthoredPackageFieldRecord> Fields;
 			std::span<DObject* const> Objects;
+			FAssetPath PackagePath;
 			std::vector<uint8> Consumed;
 			std::vector<FLoadScope> Stack;
 			std::vector<FPathType> PathTypes;
@@ -678,12 +778,14 @@ namespace Durin::Asset::Private
 				const std::unordered_map<DObject*, uint64>& InObjectIds,
 				const FAssetPackageSerializationOptions& InOptions,
 				bool bInCapturePayload,
-				uint32 TargetFormatVersion)
+				uint32 TargetFormatVersion,
+				FXxHash128 InContainerHash)
 				: FObjectArchive({EArchiveDirection::Save,
 					bInCapturePayload ? EArchivePurpose::AuthoredPackage : EArchivePurpose::Discovery,
 					EArchiveCapability::None}, FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), TargetFormatVersion}}, {}})
 				, ObjectIds(InObjectIds), Options(InOptions), bCapturePayload(bInCapturePayload)
+				, ContainerHash(InContainerHash)
 			{
 				EnableCapabilities(EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 					| EArchiveCapability::CanonicalMapOrder | EArchiveCapability::ObjectReferences
@@ -711,6 +813,61 @@ namespace Durin::Asset::Private
 				if (!bCapturePayload) return;
 				const auto* Data = reinterpret_cast<const uint8*>(Bytes.data());
 				NodeStack.back()->Raw.insert(NodeStack.back()->Raw.end(), Data, Data + Bytes.size());
+			}
+
+			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			{
+				if (HasError() || SuppressedDepth != 0) return;
+				if (Value.Residency != EArchiveBulkDataResidency::Resident
+					|| !Value.PayloadId.IsValid() || !Value.FormatId.IsValid()
+					|| Value.FormatVersion == 0 || Value.LogicalSize != Value.StoredSize
+					|| Value.Buffer.GetSize() != Value.LogicalSize
+					|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)
+				{
+					Fail(EArchiveFailureCode::InvalidData,
+						"Authored bulk capture requires valid identity and verified resident bytes.");
+					return;
+				}
+				if (std::ranges::find(Package.BulkPayloads, Value.PayloadId,
+						[](const FAuthoredBulkPayload& Payload) {
+							return Payload.Descriptor.PayloadId;
+						}) != Package.BulkPayloads.end())
+				{
+					Fail(EArchiveFailureCode::DuplicateField,
+						"Authored package contains duplicate bulk payload ids.");
+					return;
+				}
+
+				const bool bExternal = Value.LogicalSize >= AuthoredBulkExternalThreshold;
+				Value.StorageKind = bExternal
+					? EArchiveBulkDataStorageKind::External
+					: EArchiveBulkDataStorageKind::Inline;
+				Value.ContainerHash = bExternal ? ContainerHash : FXxHash128{};
+				FAuthoredBulkDataDescriptor Descriptor{
+					.PayloadId = Value.PayloadId,
+					.FormatId = Value.FormatId,
+					.FormatVersion = Value.FormatVersion,
+					.LogicalByteCount = Value.LogicalSize,
+					.StoredByteCount = Value.StoredSize,
+					.ContentHash = Value.ContentHash,
+					.ContainerHash = Value.ContainerHash,
+					.StorageKind = bExternal ? EAuthoredBulkStorageKind::External
+						: EAuthoredBulkStorageKind::Inline};
+				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
+
+				if (!bExternal)
+				{
+					FArchive::SerializeBulkData(Value);
+					return;
+				}
+				uint8 StorageKind = static_cast<uint8>(EArchiveBulkDataStorageKind::External);
+				uint64 HashLow = Value.ContentHash.HashLow;
+				uint64 HashHigh = Value.ContentHash.HashHigh;
+				uint64 ContainerHashLow = Value.ContainerHash.HashLow;
+				uint64 ContainerHashHigh = Value.ContainerHash.HashHigh;
+				*this << StorageKind << Value.PayloadId << Value.FormatId << Value.FormatVersion
+					<< Value.LogicalSize << Value.StoredSize << HashLow << HashHigh
+					<< ContainerHashLow << ContainerHashHigh;
 			}
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
@@ -892,6 +1049,7 @@ namespace Durin::Asset::Private
 			uint32 SuppressedDepth = 0;
 			std::unordered_set<FAssetPath> Dependencies;
 			std::vector<FAssetPath> ExternalPaths;
+			FXxHash128 ContainerHash;
 
 		public:
 			auto SetCurrentObject(DObject* Object) -> void { CurrentDObject = Object; }
@@ -931,16 +1089,17 @@ namespace Durin::Asset::Private
 			return std::ranges::equal(Current, Frozen);
 		}
 
-			auto CapturePackage(
+		auto CapturePackage(
 			std::span<DObject* const> Objects,
 			const std::unordered_map<DObject*, uint64>& ObjectIds,
 			const FAssetPackageSerializationOptions& Options,
 			bool bCapturePayload,
 			uint32 TargetFormatVersion,
+			FXxHash128 ContainerHash,
 			FCapturedPackage& OutPackage) -> FAssetResult
 		{
 			FAuthoredCaptureArchive Archive(
-				ObjectIds, Options, bCapturePayload, TargetFormatVersion);
+				ObjectIds, Options, bCapturePayload, TargetFormatVersion, ContainerHash);
 			for (DObject* Object : Objects)
 			{
 				Archive.SetCurrentObject(Object);
@@ -952,6 +1111,35 @@ namespace Durin::Asset::Private
 			}
 			OutPackage = Archive.TakePackage();
 			return {};
+		}
+
+		auto ComputeContainerHash(std::span<const FAuthoredBulkPayload> Payloads) -> FXxHash128
+		{
+			std::vector<const FAuthoredBulkPayload*> Sorted;
+			for (const auto& Payload : Payloads)
+				if (Payload.Descriptor.LogicalByteCount >= AuthoredBulkExternalThreshold)
+					Sorted.push_back(&Payload);
+			std::ranges::sort(Sorted, {}, [](const FAuthoredBulkPayload* Payload) {
+				return Payload->Descriptor.PayloadId;
+			});
+			if (Sorted.empty()) return {};
+			std::vector<uint8> Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::BulkData);
+			uint64 Count = Sorted.size();
+			Writer << Count;
+			for (const FAuthoredBulkPayload* Payload : Sorted)
+			{
+				FGuid PayloadId = Payload->Descriptor.PayloadId;
+				FGuid FormatId = Payload->Descriptor.FormatId;
+				uint32 FormatVersion = Payload->Descriptor.FormatVersion;
+				uint64 LogicalBytes = Payload->Descriptor.LogicalByteCount;
+				uint64 StoredBytes = Payload->Descriptor.StoredByteCount;
+				uint64 HashLow = Payload->Descriptor.ContentHash.HashLow;
+				uint64 HashHigh = Payload->Descriptor.ContentHash.HashHigh;
+				Writer << PayloadId << FormatId << FormatVersion << LogicalBytes
+					<< StoredBytes << HashLow << HashHigh;
+			}
+			return Writer.HasError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);
 		}
 
 		auto AdaptV4Type(const FArchiveLogicalTypeDescriptor& Input,
@@ -977,6 +1165,7 @@ namespace Durin::Asset::Private
 			case K::Name: OutType = DastV4::MakeType(O::Name); return true;
 			case K::Guid: OutType = DastV4::MakeType(O::Guid); return true;
 			case K::Bytes: OutType = DastV4::MakeType(O::Bytes); return true;
+			case K::BulkData: OutType = DastV4::MakeType(O::BulkData); return true;
 			case K::Object: OutType = DastV4::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
 			case K::SoftObject: OutType = DastV4::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
 			case K::Struct: OutType = DastV4::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
@@ -1163,7 +1352,8 @@ namespace Durin::Asset::Private
 				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.A) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.B)
 					|| !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.C) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.D)) return Invalid();
 				break;
-			case K::Bytes: Out.Bytes = Node.Raw; Offset = Node.Raw.size(); break;
+			case K::Bytes: case K::BulkData:
+				Out.Bytes = Node.Raw; Offset = Node.Raw.size(); break;
 			case K::Object:
 				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 2) return Invalid();
 				if (Out.ReferenceTag == 1)
@@ -1298,6 +1488,7 @@ namespace Durin::Asset::Private
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
+		const FAssetPath& PackagePath,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions) -> FAssetResult
 	{
@@ -1307,7 +1498,8 @@ namespace Durin::Asset::Private
 		std::string VersionError;
 		if (!ValidateDeprecationVersions(Object.GetClass(), VersionContext, VersionError))
 			return {EAssetError::UnsupportedVersion, std::move(VersionError)};
-		FAuthoredLoadArchive Archive(Object, Fields, Objects, SourceVersion, CustomVersions);
+		FAuthoredLoadArchive Archive(
+			Object, Fields, Objects, PackagePath, SourceVersion, CustomVersions);
 		{
 			auto Scope = Archive.EnterObject(Object);
 			Object.Serialize(Archive);
@@ -1380,7 +1572,7 @@ namespace Durin::Asset::DastV4
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		Private::FCapturedPackage Discovery;
 		FAssetResult Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, false, Version, Discovery);
+			Objects, ObjectIds, Options.Serialization, false, Version, {}, Discovery);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
@@ -1390,12 +1582,38 @@ namespace Durin::Asset::DastV4
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
+		const FXxHash128 ContainerHash = Private::ComputeContainerHash(Discovery.BulkPayloads);
+		if (!Discovery.BulkPayloads.empty()
+			&& std::ranges::any_of(Discovery.BulkPayloads, [](const FAuthoredBulkPayload& Payload) {
+				return Payload.Descriptor.LogicalByteCount >= AuthoredBulkExternalThreshold;
+			}) && ContainerHash.IsZero())
+		{
+			Diagnostic = {EWriterFailure::ArchiveFailure, {},
+				"Authored bulk container identity could not be computed."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
 		Private::FCapturedPackage Captured;
 		Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, true, Version, Captured);
+			Objects, ObjectIds, Options.Serialization, true, Version, ContainerHash, Captured);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
+		}
+		if (!Options.Serialization.AuthoredBulkPayloads
+			&& std::ranges::any_of(Captured.BulkPayloads, [](const FAuthoredBulkPayload& Payload) {
+				return Payload.Descriptor.StorageKind == EAuthoredBulkStorageKind::External;
+			}))
+		{
+			Diagnostic = {EWriterFailure::ArchiveFailure, {},
+				"External authored bulk data requires a package publication payload collector."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
+		if (Options.Serialization.AuthoredBulkPayloads)
+		{
+			Options.Serialization.AuthoredBulkPayloads->clear();
+			for (const FAuthoredBulkPayload& Payload : Captured.BulkPayloads)
+				if (Payload.Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
+					Options.Serialization.AuthoredBulkPayloads->push_back(Payload);
 		}
 		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), Objects)
 			|| !Private::EqualManifest(Discovery, Captured))

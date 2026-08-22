@@ -57,7 +57,7 @@ namespace Durin::Asset::DastV4
 		F32 = 0x0a, F64 = 0x0b, String = 0x0c, Name = 0x0d,
 		Guid = 0x0e, Enum = 0x0f, Intrinsic = 0x10, Struct = 0x11,
 		FixedArray = 0x12, Array = 0x13, Map = 0x14,
-		HardRef = 0x15, SoftRef = 0x16, Bytes = 0x17,
+		HardRef = 0x15, SoftRef = 0x16, Bytes = 0x17, BulkData = 0x18,
 	};
 
 	struct FTypeDescriptor;

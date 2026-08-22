@@ -490,7 +490,7 @@ namespace Durin::Asset::DastV4
 					Value.Text = Package.Names[static_cast<size_t>(Value.ReferenceId - 1)];
 				}
 				break;
-			case ETypeOpcode::Bytes:
+			case ETypeOpcode::Bytes: case ETypeOpcode::BulkData:
 			{
 				uint64 Count = 0; std::span<const uint8> Data;
 				if (!Reader.VarUInt(Count, Diagnostic) || Count > Limits.ByteValueBytes || !Reader.BytesSpan(Count, Data, Diagnostic))
@@ -533,7 +533,7 @@ namespace Durin::Asset::DastV4
 				std::span<const uint8> RecordBytes; uint64 Offset = 0;
 				if (!Types.Record(RecordBytes, Diagnostic, &Offset)) return false;
 				FWireReader Record(RecordBytes, Offset); uint8 Opcode = 0;
-				if (!Record.U8(Opcode, Diagnostic) || Opcode < 1 || Opcode > 0x17)
+				if (!Record.U8(Opcode, Diagnostic) || Opcode < 1 || Opcode > 0x18)
 					return Fail(Diagnostic, EReaderFailure::InvalidTable, "Type opcode is unsupported.", Offset);
 				FDecodedType Type{.Opcode = static_cast<ETypeOpcode>(Opcode)}; uint64 NameId = 0;
 				switch (Type.Opcode)
@@ -781,6 +781,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::Array: return K::Array; case ETypeOpcode::Map: return K::Map;
 			case ETypeOpcode::HardRef: return K::Object; case ETypeOpcode::SoftRef: return K::SoftObject;
 			case ETypeOpcode::Bytes: return K::Blob;
+			case ETypeOpcode::BulkData: return K::BulkData;
 			case ETypeOpcode::FixedArray: break;
 			}
 			return K::None;
@@ -835,6 +836,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::Name: return std::format("{}:v1", uint32(K::Name));
 			case ETypeOpcode::Guid: return std::format("{}:v1", uint32(K::Guid));
 			case ETypeOpcode::Bytes: return std::format("{}:v1", uint32(K::Blob));
+			case ETypeOpcode::BulkData: return std::format("{}:v1", uint32(K::BulkData));
 			default: return std::format("{}:{}", uint32(TypeKind(*Type, Package)), TypeWidth(Type->Opcode));
 			}
 		}
@@ -977,7 +979,8 @@ namespace Durin::Asset::DastV4
 				return true;
 			case ETypeOpcode::SoftRef:
 				Writer.Write(Value.ReferenceTag); if (Value.ReferenceTag == 1) Writer.WriteString(Value.Text); return true;
-			case ETypeOpcode::Bytes: Writer.WriteBytes(Value.Bytes); return true;
+			case ETypeOpcode::Bytes: case ETypeOpcode::BulkData:
+				Writer.WriteBytes(Value.Bytes); return true;
 			}
 			return Fail(Diagnostic, EReaderFailure::InvalidValue, "Unsupported inspection value.", 0, std::move(Path));
 		}
@@ -1994,7 +1997,7 @@ namespace Durin::Asset::DastV4
 				KnownOverrides.push_back(&Override);
 			}
 			FAssetResult Result = Private::LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-				Version, CustomVersions);
+				PackagePath, Version, CustomVersions);
 			if (!Result)
 			{
 				Fail(Diagnostic, EReaderFailure::ArchiveFailure, Result.Message, 0, Decoded.Objects[ObjectIndex].Path); Rollback();

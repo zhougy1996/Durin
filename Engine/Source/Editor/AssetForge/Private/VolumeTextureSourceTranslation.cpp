@@ -177,9 +177,14 @@ namespace Durin::Asset::Forge
 					AppendPixel(Image, Pixel, Settings.Channels, Voxels);
 				}
 		}
-		FVolumeTextureSourceData Candidate{.Voxels = std::move(Voxels),
+		FVolumeTextureSourceData Candidate{
 			.Width = Settings.SliceWidth, .Height = Settings.SliceHeight,
 			.Depth = Settings.Depth, .Format = Settings.GetOutputFormat()};
+		if (!Candidate.SetVoxelBytes(Voxels))
+		{
+			OutError = "Volume source payload could not be published as authored bulk data.";
+			return false;
+		}
 		if (!Candidate.IsValid())
 		{
 			OutError = "Decoded volume texture source failed normalized layout validation.";

@@ -4,6 +4,7 @@
 #include "Asset/Catalog.h"
 #include "Asset/PackageTypes.h"
 #include "Asset/Result.h"
+#include "Asset/AuthoredBulkData.h"
 #include "DObject/CoreDObject.h"
 
 namespace Durin::Asset
@@ -58,6 +59,9 @@ namespace Durin::Asset
 		) const -> bool;
 		ASSETCORE_API auto TryReadObjectReferenceArray(
 			std::vector<FAssetPackageObjectReference>& OutValues
+		) const -> bool;
+		ASSETCORE_API auto TryReadAuthoredBulkDescriptor(
+			FAuthoredBulkDataDescriptor& OutValue
 		) const -> bool;
 
 		template<typename T>

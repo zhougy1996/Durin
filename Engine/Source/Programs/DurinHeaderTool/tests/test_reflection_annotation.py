@@ -181,6 +181,29 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
         assert make_dht_parse_source(source) == source
 
 
+    def test_multiline_property_annotations_preserve_later_source_lines(self):
+        source = '''DSTRUCT()
+struct FFirst
+{
+    GENERATED_BODY()
+    DPROPERTY(Deprecated,
+        HistoricalName = "OldValue",
+        MigratesTo = "Value")
+    int Value;
+};
+DSTRUCT()
+struct FSecond
+{
+    GENERATED_BODY()
+};
+'''
+        parsed = make_dht_parse_source(source)
+        assert parsed.count("\n") == source.count("\n")
+        assert parsed[:parsed.index("struct FSecond")].count("\n") == (
+            source[:source.index("struct FSecond")].count("\n")
+        )
+
+
     def test_translation_unit_skips_function_bodies(self):
         index = mock.Mock()
         index.parse.return_value = mock.sentinel.translation_unit

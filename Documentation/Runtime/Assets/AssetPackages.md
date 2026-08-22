@@ -672,6 +672,31 @@ package format. An engine release rewrites a package only through an explicit
 current-format canonical resave or a separately planned temporary corpus
 converter.
 
+## Authored bulk companions
+
+DAST v4 gives authored bulk values their own `BulkData` opcode. The Value
+section always contains payload id, semantic format id/version, logical and
+stored byte counts, XXH3-128 content hash, placement, and container hash.
+Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
+values at or above 256 KiB carry no payload bytes in DAST.
+
+External authored bytes live beside the package as
+`<package-stem>.<container-hash>.dabulk`. This is distinct from cooked `.dbulk`.
+The frozen DABK v1 format has a 64-byte header, sorted 96-byte entries, 16-byte
+payload alignment, at most 65,536 unique payload ids, and a 1 GiB file/payload
+ceiling. Readers reject invalid magic/version, duplicate or unordered ids,
+misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
+mismatch, wrong container identity, and trailing bytes.
+
+Save constructs and validates the generation-named companion before atomically
+publishing a package that references it. A failed package publication can leave
+an unreferenced candidate but cannot invalidate the previous pair. Cleanup runs
+only after package and catalog publication. Bundle saves use the same ordering;
+relocation journals companion files as owned payloads, and deletion discovers
+them from package descriptors. Referenced `.dabulk` files are authored source
+and must be submitted with their `.dasset`; repositories must not ignore the
+suffix wholesale.
+
 ## Related Asset Data Contracts
 
 Platform payload DDC objects, cooked DBLK companions, deterministic publication,

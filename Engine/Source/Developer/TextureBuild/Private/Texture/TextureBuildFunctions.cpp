@@ -327,16 +327,22 @@ namespace Durin::Asset::Build::Private
 				FBinaryReader Reader(Input->GetBytes());
 				FVolumeTextureSourceData Source;
 				FVolumeTextureBuildSettings Settings;
+				std::vector<std::byte> Voxels;
 				uint32 Format = 0, Filter = 0;
 				uint64 ByteCount = 0;
 				if (!Reader.ReadU32(Source.Width) || !Reader.ReadU32(Source.Height)
 					|| !Reader.ReadU32(Source.Depth) || !Reader.ReadU32(Format)
 					|| !Reader.ReadU32(Filter) || !Reader.ReadU64(ByteCount)
 					|| ByteCount != Reader.GetRemainingBytes()
-					|| !Reader.ReadBytes(Source.Voxels, ByteCount, Input->GetBytes().size())
+					|| !Reader.ReadBytes(Voxels, ByteCount, Input->GetBytes().size())
 					|| !Reader.IsAtEnd())
 				{
 					OutError = "Volume texture local input is malformed.";
+					return false;
+				}
+				if (!Source.SetVoxelBytes(Voxels))
+				{
+					OutError = "Volume texture local input bulk publication failed.";
 					return false;
 				}
 				Source.Format = static_cast<EVolumeTextureFormat>(Format);
@@ -444,8 +450,8 @@ namespace Durin::Asset::Build::Private
 		Writer.WriteU32(SourceData.Depth);
 		Writer.WriteU32(static_cast<uint32>(Settings.OutputFormat));
 		Writer.WriteU32(static_cast<uint32>(Settings.MipFilter));
-		Writer.WriteU64(SourceData.Voxels.size());
-		Writer.WriteBytes(SourceData.Voxels);
+		Writer.WriteU64(SourceData.GetVoxelBytes().size());
+		Writer.WriteBytes(SourceData.GetVoxelBytes());
 		return Writer.TakeBytes();
 	}
 

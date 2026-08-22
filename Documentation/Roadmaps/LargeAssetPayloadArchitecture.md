@@ -9,23 +9,20 @@ Completed:
 
 ## Current Status
 
-Durin now distinguishes ordinary `Array<UInt8>` from an atomic reflected byte
-Blob. A real `128^3` volume source plans as one logical value and completes
-import, authored save/reload, reimport, and Cook without raising structural
-planner limits. Core Archive already carries a `BulkData` purpose and
-`Inline`/`Skip`/`External` policy, while AssetCore owns bounded cooked `.dbulk`
-descriptors, containers, transactional publication, and load validation.
+Durin now distinguishes ordinary Arrays, atomic byte Blobs, and authored bulk
+data. Core owns immutable shared bytes and the semantic Archive operation;
+AssetCore owns the descriptor, explicit synchronous residency, DAST opcode,
+deterministic DABK v1 companion, cross-file publication, relocation, deletion,
+inspection, and recovery. Normalized volume source is the production consumer:
+its real `128^3` workflow plans as one node and completes save/reload, failure
+recovery, reimport, and Cook with external verified authored bytes.
 
-The remaining gap is architectural rather than another scalar-property case.
-Large authored source payloads are still resident inline values in `.dasset`;
-there is no reusable authored bulk owner, companion format, residency state, or
-typed portable-buffer layer. Adding isolated `FVector`, `FColor`, height, mesh,
-or animation exceptions now would create parallel formats before the common
-ownership and failure contract exists.
-
-The first milestone is active through
+Milestone 1 is complete through
 [Authored Asset Bulk Data Foundation](../Plans/AuthoredAssetBulkDataFoundation.md).
-Later plans are named here but remain uncreated until their entry gates pass.
+Portable Typed Atomic Buffers remains proposed: the entry gate asks for at
+least two concrete consumers that require portable element metadata, and the
+landed evidence currently supplies one. Consumer telemetry should identify the
+second bounded use before that plan is activated.
 
 ## Outcome
 
@@ -109,19 +106,19 @@ validation, hashing, and byte ownership where their contracts agree.
 
 | Area | Foundation | Program gap |
 | --- | --- | --- |
-| Reflection | Atomic `std::byte` Blob and ordinary Array semantics are distinct. | No typed atomic buffer or bulk-data reflected value. |
-| Archive | Logical `Bytes`, Blob bounds, `BulkData` purpose, and bulk policy already exist. | No common bulk descriptor/residency operation behind those policies. |
-| Authored packages | DAST v4 is bounded, field-tagged, transactional, and compatibility-aware. | Large authored values are inline and the 256 MiB package ceiling owns them. |
+| Reflection | Array, Blob, and authored `BulkData` are distinct atomic/logical identities. | No portable typed atomic buffer value. |
+| Archive | Immutable shared bytes and observable Inline/Skip/External bulk transfer are landed. | Async requests and typed element codecs remain absent. |
+| Authored packages | DAST v4 descriptors and DABK v1 companions publish and mutate transactionally. | Broader repair/orphan tooling remains a later milestone. |
 | Cooked packages | Descriptor-backed `.dbulk`, hashes, manifests, and publication exist. | Contracts are Cook-specific and cannot own editable authored source. |
 | Derived data | DDC uses deterministic keys and validated asset-specific payloads. | Payload ownership and byte sharing are producer-specific. |
 | Consumers | Volume source proves atomic Blob semantics; textures, meshes, terrain, animation, and collision already expose dense data. | Migration policy and stable typed codecs are not unified. |
-| Residency | Asset packages and GPU resources have explicit lifetime/revision rules. | Large authored payloads have no unloaded/loading/resident/failed state or memory budget. |
+| Residency | Authored bulk exposes unloaded/resident/failed synchronous state. | Async loading, eviction, and memory budgets remain absent. |
 
 ## Milestone Map
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 1. Authored bulk-data foundation | Reflected Blob and DAST v4 | Atomic bulk owner, descriptor, transactional authored companion, synchronous load, and one volume-source migration | Blob production regression and cooked bulk contracts are green | Historical/current volume assets save, load, move, delete, reimport, and Cook with verified external authored bytes | Active |
+| 1. Authored bulk-data foundation | Reflected Blob and DAST v4 | Atomic bulk owner, descriptor, transactional authored companion, synchronous load, and one volume-source migration | Blob production regression and cooked bulk contracts are green | Historical/current volume assets save, load, move, delete, reimport, and Cook with verified external authored bytes | Completed |
 | 2. Portable typed atomic buffers | Milestone 1 descriptor and byte owner | Stable codec boundary and reflected typed-buffer value for selected scalar/struct formats | At least two concrete consumers require element metadata without per-element editing | Codec identity, canonical bytes, comparison, migration, tooling summary, and bounds pass for selected formats | Proposed |
 | 3. Consumer migration program | Milestones 1-2 as required per consumer | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | Consumer has measured package/memory/planning cost and a frozen compatibility baseline | Selected consumers no longer retain oversized ordinary Arrays; DDC/Cook/runtime bytes remain compatible or versioned | Proposed |
 | 4. Unified payload lifecycle and diagnostics | Milestone 1 plus two migrated producers | Shared authored/DDC/Cook descriptor vocabulary, inspection, audit, repair, and orphan cleanup | Real producers expose duplicated ownership or diagnostics | Tools can trace every payload from owner through authored, derived, and cooked states without opaque paths | Proposed |
@@ -138,8 +135,8 @@ validation, hashing, and byte ownership where their contracts agree.
 | Payload Lifecycle Inspection and Repair (proposed) | Audit graph, diagnostics, orphan detection, repair and cleanup tooling | Runtime streaming policy |
 | Asset Payload Residency and Streaming (evidence-gated) | Requests, cancellation, priorities, budgets, eviction and mapping | Authored/cooked format reinvention |
 
-Only the first child plan is active. A later plan is created when its entry gate
-is satisfied and its working set can be validated independently.
+No later child plan is active. A later plan is created when its entry gate is
+satisfied and its working set can be validated independently.
 
 ## Program Validation Matrix
 

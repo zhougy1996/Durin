@@ -201,7 +201,12 @@ def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
             raise ValueError(f"{macro_name} at line {line}, column {column}: missing closing ')'")
 
         payload = source[match.end():closing_parenthesis]
+        # Macro payloads may span lines, but the synthetic annotation must not
+        # retain those line breaks in addition to the padding below. Doubling
+        # them shifts every later Clang cursor and can make source recovery
+        # associate properties with the following reflected type.
         replacement_text = replacement(payload, line, column)
+        replacement_text = replacement_text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
         replacement_text += "\n" * payload.count("\n")
         pieces.extend((source[output_from:match.start()], replacement_text))
         output_from = closing_parenthesis + 1

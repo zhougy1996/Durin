@@ -2,6 +2,7 @@
 
 #include "AssetCoreAPI.h"
 #include "Asset/Result.h"
+#include "Asset/AuthoredBulkData.h"
 #include "DObject/CoreDObject.h"
 
 namespace Durin::Asset
@@ -18,6 +19,7 @@ namespace Durin::Asset
 	struct FAssetPackageSerializationOptions
 	{
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
+		std::vector<FAuthoredBulkPayload>* AuthoredBulkPayloads = nullptr;
 	};
 
 	enum class EAssetBundleSavePhase : uint8

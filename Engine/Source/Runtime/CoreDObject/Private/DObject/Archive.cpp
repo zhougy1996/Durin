@@ -69,6 +69,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid: return FArchiveLogicalTypeDescriptor::Guid();
 			case DurinCodeGen::EPropertyGenFlags::Byte: return FArchiveLogicalTypeDescriptor::Bytes();
 			case DurinCodeGen::EPropertyGenFlags::Blob: return FArchiveLogicalTypeDescriptor::Bytes();
+			case DurinCodeGen::EPropertyGenFlags::BulkData: return FArchiveLogicalTypeDescriptor::BulkData();
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				return FArchiveLogicalTypeDescriptor::Object(Property->GetReferencedClass()
 					? Property->GetReferencedClass()->GetQualifiedName() : FName());
@@ -300,6 +301,14 @@ namespace Durin
 				auto* Value = static_cast<std::vector<std::byte>*>(
 					Property->GetValuePtr(Container, ArrayIndex));
 				Ar.SerializeByteBlob(*Value);
+				break;
+			}
+			case DurinCodeGen::EPropertyGenFlags::BulkData:
+			{
+				if (!Property->SerializeBulkDataValue(
+					Ar, Property->GetValuePtr(Container, ArrayIndex)))
+					Ar.Fail(EArchiveFailureCode::UnsupportedType,
+						"Bulk data property has no semantic Archive operation.");
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
@@ -678,6 +687,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Byte:
 			case DurinCodeGen::EPropertyGenFlags::Blob:
+			case DurinCodeGen::EPropertyGenFlags::BulkData:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			case DurinCodeGen::EPropertyGenFlags::WeakObject:
@@ -919,6 +929,7 @@ namespace Durin
 	auto FArchiveLogicalTypeDescriptor::Name() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Name}; }
 	auto FArchiveLogicalTypeDescriptor::Guid() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Guid}; }
 	auto FArchiveLogicalTypeDescriptor::Bytes() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Bytes}; }
+	auto FArchiveLogicalTypeDescriptor::BulkData() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::BulkData}; }
 	auto FArchiveLogicalTypeDescriptor::Object(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Object, .QualifiedType = Type}; }
 	auto FArchiveLogicalTypeDescriptor::SoftObject(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::SoftObject, .QualifiedType = Type}; }
 	auto FArchiveLogicalTypeDescriptor::WeakObject(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::WeakObject, .QualifiedType = Type}; }

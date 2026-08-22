@@ -118,7 +118,8 @@ namespace Durin::Asset::Private
 			|| Kind == DurinCodeGen::EPropertyGenFlags::Name
 			|| Kind == DurinCodeGen::EPropertyGenFlags::Guid
 			|| Kind == DurinCodeGen::EPropertyGenFlags::Byte
-			|| Kind == DurinCodeGen::EPropertyGenFlags::Blob)
+			|| Kind == DurinCodeGen::EPropertyGenFlags::Blob
+			|| Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			return std::format("{}:v1", static_cast<uint32>(Kind));
 		return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
 	}
@@ -167,6 +168,7 @@ namespace Durin::Asset::Private
 		case EKind::Array: return DurinCodeGen::EPropertyGenFlags::Array;
 		case EKind::Map: return DurinCodeGen::EPropertyGenFlags::Map;
 		case EKind::Bytes: return DurinCodeGen::EPropertyGenFlags::Blob;
+		case EKind::BulkData: return DurinCodeGen::EPropertyGenFlags::BulkData;
 		case EKind::FixedArray: break;
 		}
 		return DurinCodeGen::EPropertyGenFlags::None;
@@ -205,6 +207,7 @@ namespace Durin::Asset::Private
 		case EKind::Name: return std::format("{}:v1", uint32(DurinCodeGen::EPropertyGenFlags::Name));
 		case EKind::Guid: return std::format("{}:v1", uint32(DurinCodeGen::EPropertyGenFlags::Guid));
 		case EKind::Bytes: return std::format("{}:v1", uint32(DurinCodeGen::EPropertyGenFlags::Blob));
+		case EKind::BulkData: return std::format("{}:v1", uint32(DurinCodeGen::EPropertyGenFlags::BulkData));
 		default:
 			return std::format("{}:{}", uint32(GetNativeKind(Type)), std::max<uint8>(1, Type.BitWidth / 8));
 		}

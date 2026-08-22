@@ -140,16 +140,16 @@ TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 	EXPECT_EQ(Source.Height, 1u);
 	EXPECT_EQ(Source.Depth, 2u);
 	EXPECT_EQ(Source.Format, EVolumeTextureFormat::R8_UNORM);
-	ASSERT_EQ(Source.Voxels.size(), 2u);
-	EXPECT_EQ(Source.Voxels[0], std::byte{255});
-	EXPECT_EQ(Source.Voxels[1], std::byte{0});
+	ASSERT_EQ(Source.GetVoxelBytes().size(), 2u);
+	EXPECT_EQ(Source.GetVoxelBytes()[0], std::byte{255});
+	EXPECT_EQ(Source.GetVoxelBytes()[1], std::byte{0});
 
 	Settings.Channels = EVolumeTextureSourceChannels::RGBA;
 	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source, Error)) << Error;
 	EXPECT_EQ(Source.Format, EVolumeTextureFormat::RGBA8_UNORM);
-	ASSERT_EQ(Source.Voxels.size(), 8u);
-	EXPECT_EQ(Source.Voxels[0], std::byte{255});
-	EXPECT_EQ(Source.Voxels[3], std::byte{255});
+	ASSERT_EQ(Source.GetVoxelBytes().size(), 8u);
+	EXPECT_EQ(Source.GetVoxelBytes()[0], std::byte{255});
+	EXPECT_EQ(Source.GetVoxelBytes()[3], std::byte{255});
 }
 
 TEST(FVolumeTextureSourceImportTests, RejectsCorruptAndMismatchedAtlas)
@@ -299,9 +299,9 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
-	ASSERT_EQ(Imported.Asset->GetSourceData().Voxels.size(), 128ull * 128 * 128);
+	ASSERT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);
 	for (uint32 Slice : {0u, 1u, 63u, 127u})
-		EXPECT_EQ(Imported.Asset->GetSourceData().Voxels[Slice * 128ull * 128],
+		EXPECT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes()[Slice * 128ull * 128],
 			static_cast<std::byte>(Slice));
 
 	auto Planned = Asset::GetImportService().CreateSingleAssetReimportPlan({
@@ -327,7 +327,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	const Asset::FAssetResult Loaded = Asset::LoadAsset(AssetPath, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
-	EXPECT_EQ(Reloaded->GetSourceData().Voxels.size(), 128ull * 128 * 128);
+	EXPECT_EQ(Reloaded->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);
 	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }

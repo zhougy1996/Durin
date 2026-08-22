@@ -152,3 +152,85 @@ TEST(FArchiveTests, ContextAndVersionsRemainOrthogonal)
 	ASSERT_NE(Writer.GetVersionContext().FindFormat(Durin::FName("TXPL")), nullptr);
 	EXPECT_EQ(Writer.GetVersionContext().FindFormat(Durin::FName("TXPL"))->Version, 3);
 }
+
+TEST(FArchiveTests, SharedByteBuffersShareImmutableStorageAndReplaceByCandidate)
+{
+	const std::array<std::byte, 3> Source{std::byte{1}, std::byte{2}, std::byte{3}};
+	const Durin::FSharedByteBuffer First = Durin::FSharedByteBuffer::Copy(Source);
+	const Durin::FSharedByteBuffer Shared = First;
+	const Durin::FSharedByteBuffer Replacement = Durin::FSharedByteBuffer::Copy(
+		std::span<const std::byte>(Source).first(2));
+
+	EXPECT_TRUE(First.SharesStorageWith(Shared));
+	EXPECT_FALSE(First.SharesStorageWith(Replacement));
+	EXPECT_TRUE(std::ranges::equal(First.GetBytes(), Source));
+}
+
+TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
+{
+	const std::array<std::byte, 4> Payload{
+		std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
+	Durin::FArchiveBulkDataTransfer Source{
+		.PayloadId = {1, 2, 3, 4},
+		.FormatId = {5, 6, 7, 8},
+		.FormatVersion = 3,
+		.LogicalSize = Payload.size(),
+		.StoredSize = Payload.size(),
+		.ContentHash = Durin::FXxHash128::HashBuffer(Payload),
+		.Residency = Durin::EArchiveBulkDataResidency::Resident,
+		.Buffer = Durin::FSharedByteBuffer::Copy(Payload)};
+
+	std::vector<Durin::uint8> Bytes;
+	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
+	Writer.SerializeBulkData(Source);
+	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+
+	Durin::FArchiveBulkDataTransfer Loaded;
+	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::BulkData);
+	Reader.SerializeBulkData(Loaded);
+	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
+	EXPECT_EQ(Loaded.PayloadId, Source.PayloadId);
+	EXPECT_EQ(Loaded.FormatId, Source.FormatId);
+	EXPECT_EQ(Loaded.FormatVersion, Source.FormatVersion);
+	EXPECT_EQ(Loaded.ContentHash, Source.ContentHash);
+	EXPECT_TRUE(Loaded.ContainerHash.IsZero());
+	EXPECT_EQ(Loaded.Residency, Durin::EArchiveBulkDataResidency::Resident);
+	EXPECT_TRUE(std::ranges::equal(Loaded.Buffer.GetBytes(), Payload));
+
+	Bytes.back() ^= 0xff;
+	Durin::FArchiveBulkDataTransfer Preserved = Loaded;
+	Durin::FCanonicalMemoryReader Corrupt(Bytes, Durin::EArchivePurpose::BulkData);
+	Corrupt.SerializeBulkData(Preserved);
+	ASSERT_TRUE(Corrupt.HasError());
+	EXPECT_EQ(Preserved.ContentHash, Loaded.ContentHash);
+	EXPECT_TRUE(Preserved.Buffer.SharesStorageWith(Loaded.Buffer));
+}
+
+TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
+{
+	Durin::FArchiveBulkDataTransfer Value{
+		.PayloadId = {1, 1, 1, 1},
+		.FormatId = {2, 2, 2, 2},
+		.FormatVersion = 1,
+		.StoredSize = 0,
+		.Residency = Durin::EArchiveBulkDataResidency::Unloaded};
+
+	Durin::FArchiveState SkipState;
+	SkipState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::Skip;
+	std::vector<Durin::uint8> Bytes;
+	Durin::FCanonicalMemoryWriter Skip(
+		Bytes, Durin::EArchivePurpose::BulkData, SkipState);
+	Skip.SerializeBulkData(Value);
+	EXPECT_FALSE(Skip.HasError());
+	EXPECT_TRUE(Bytes.empty());
+
+	Durin::FArchiveState ExternalState;
+	ExternalState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::External;
+	Durin::FCanonicalMemoryWriter External(
+		Bytes, Durin::EArchivePurpose::BulkData, ExternalState);
+	External.SerializeBulkData(Value);
+	ASSERT_TRUE(External.HasError());
+	EXPECT_EQ(External.GetFailure()->Code,
+		Durin::EArchiveFailureCode::UnsupportedCapability);
+	EXPECT_EQ(Value.Residency, Durin::EArchiveBulkDataResidency::Unloaded);
+}

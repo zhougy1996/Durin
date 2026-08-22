@@ -55,6 +55,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::SoftObject: return DurinCodeGen::EPropertyParamLayout::SoftObject;
 			case DurinCodeGen::EPropertyGenFlags::WeakObject: return DurinCodeGen::EPropertyParamLayout::WeakObject;
 			case DurinCodeGen::EPropertyGenFlags::Blob: return DurinCodeGen::EPropertyParamLayout::Blob;
+			case DurinCodeGen::EPropertyGenFlags::BulkData: return DurinCodeGen::EPropertyParamLayout::BulkData;
 			case DurinCodeGen::EPropertyGenFlags::None: return DurinCodeGen::EPropertyParamLayout::Generic;
 			default: return DurinCodeGen::EPropertyParamLayout::Invalid;
 			}
@@ -625,6 +626,28 @@ namespace Durin
 						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
 						static_cast<uint16>(BlobParams->ValueOps.ValueSize), PropertyParams->Kind, nullptr);
 					SetValueOps(Property, BlobParams->ValueOps);
+					break;
+				}
+			case DurinCodeGen::EPropertyGenFlags::BulkData:
+				{
+					const auto* BulkParams = static_cast<const DurinCodeGen::FBulkDataPropertyParams*>(PropertyParams);
+					if (!IsValidValueOps(BulkParams->Ops.ValueOps)
+						|| BulkParams->Ops.ValueOps.ValueSize > std::numeric_limits<uint16>::max()
+						|| !BulkParams->Ops.SerializeValue || !BulkParams->Ops.IdenticalValue)
+					{
+						checkf(false, "BulkDataPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.",
+							GetGeneratedPropertyOwnerName(Owner),
+							PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+						return nullptr;
+					}
+					Property = new FProperty(
+						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
+						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
+						static_cast<uint16>(BulkParams->Ops.ValueOps.ValueSize),
+						PropertyParams->Kind, nullptr);
+					SetValueOps(Property, BulkParams->Ops.ValueOps);
+					Property->SetBulkDataOperations(
+						BulkParams->Ops.SerializeValue, BulkParams->Ops.IdenticalValue);
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Float:

@@ -119,6 +119,25 @@ namespace Durin
 			CopyAssignValueFunction = InCopyAssignValue;
 		}
 
+		auto SetBulkDataOperations(
+			void (*InSerializeValue)(FArchive&, void*),
+			bool (*InIdenticalValue)(const void*, const void*)) -> void
+		{
+			SerializeBulkDataValueFunction = InSerializeValue;
+			IdenticalBulkDataValueFunction = InIdenticalValue;
+		}
+		auto SerializeBulkDataValue(FArchive& Ar, void* Value) const -> bool
+		{
+			if (!SerializeBulkDataValueFunction) return false;
+			SerializeBulkDataValueFunction(Ar, Value);
+			return true;
+		}
+		auto AreBulkDataValuesIdentical(const void* Left, const void* Right) const -> std::optional<bool>
+		{
+			if (!IdenticalBulkDataValueFunction) return std::nullopt;
+			return IdenticalBulkDataValueFunction(Left, Right);
+		}
+
 		COREDOBJECT_API auto InitializeValue(void* Memory, std::string* OutError = nullptr) const -> bool;
 		COREDOBJECT_API auto DestroyValue(void* Memory) const -> void;
 		COREDOBJECT_API auto CopyConstructValue(
@@ -155,6 +174,8 @@ namespace Durin
 		void (*DestroyValueFunction)(void*) = nullptr;
 		void (*CopyConstructValueFunction)(void*, const void*) = nullptr;
 		void (*CopyAssignValueFunction)(void*, const void*) = nullptr;
+		void (*SerializeBulkDataValueFunction)(FArchive&, void*) = nullptr;
+		bool (*IdenticalBulkDataValueFunction)(const void*, const void*) = nullptr;
 		void* (*MutableValueAccessor)(void*, uint32) = nullptr;
 		const void* (*ConstValueAccessor)(const void*, uint32) = nullptr;
 	};

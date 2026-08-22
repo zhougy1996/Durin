@@ -4,6 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 #include "Misc/Name.h"
+#include "Serialization/SharedByteBuffer.h"
 
 #include <bit>
 #include <concepts>
@@ -68,6 +69,26 @@ namespace Durin
 
 	// Controls whether bulk bytes are serialized inline, omitted, or referenced externally.
 	enum class EArchiveBulkDataPolicy : uint8 { Inline, Skip, External };
+
+	// Describes the synchronous availability of one bulk transfer candidate.
+	enum class EArchiveBulkDataResidency : uint8 { Unloaded, Resident, Failed };
+	enum class EArchiveBulkDataStorageKind : uint8 { Inline, External };
+
+	// Carries placement-independent bulk identity and immutable bytes through an Archive.
+	struct FArchiveBulkDataTransfer
+	{
+		FGuid PayloadId;
+		FGuid FormatId;
+		uint32 FormatVersion = 0;
+		uint64 LogicalSize = 0;
+		uint64 StoredSize = 0;
+		FXxHash128 ContentHash;
+		FXxHash128 ContainerHash;
+		EArchiveBulkDataStorageKind StorageKind = EArchiveBulkDataStorageKind::Inline;
+		EArchiveBulkDataResidency Residency = EArchiveBulkDataResidency::Unloaded;
+		FSharedByteBuffer Buffer;
+		std::string Failure;
+	};
 
 	// Carries stable Cook target facts queried by serializers.
 	struct FArchiveTarget
@@ -176,6 +197,9 @@ namespace Durin
 		// Transfers an owned byte Blob as a bounded count followed by exact bytes.
 		// Loads commit only after the complete payload has been validated and read.
 		CORE_API auto SerializeByteBlob(std::vector<std::byte>& Bytes) -> void;
+		// Transfers one atomic bulk value according to the selected physical policy.
+		// Loading commits only a completely read and hash-verified resident candidate.
+		virtual CORE_API auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void;
 		virtual auto Tell() const -> uint64 { return 0; }
 		virtual auto GetRemainingPayloadBytes() const -> uint64 { return std::numeric_limits<uint64>::max(); }
 		virtual auto IsCurrentFieldAvailable() const -> bool { return true; }

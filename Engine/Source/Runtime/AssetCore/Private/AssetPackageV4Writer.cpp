@@ -198,7 +198,7 @@ namespace Durin::Asset::DastV4
 			if (!Visiting.insert(&Type).second)
 				return Fail(Diagnostic, EWriterFailure::DescriptorCycle, "A type descriptor contains a cycle.");
 			const uint8 Opcode = uint8(Type.Opcode);
-			if (Opcode < uint8(ETypeOpcode::Bool) || Opcode > uint8(ETypeOpcode::Bytes))
+			if (Opcode < uint8(ETypeOpcode::Bool) || Opcode > uint8(ETypeOpcode::BulkData))
 				return Fail(Diagnostic, EWriterFailure::UnsupportedType, "A type opcode is unsupported.");
 			Writer.U8(Opcode);
 			auto Plain = [&]() { return Type.QualifiedName.empty() && Type.Parameter == 0 && Type.Children.empty(); };
@@ -210,6 +210,7 @@ namespace Durin::Asset::DastV4
 			case ETypeOpcode::U16: case ETypeOpcode::U32: case ETypeOpcode::U64:
 			case ETypeOpcode::F32: case ETypeOpcode::F64: case ETypeOpcode::String:
 			case ETypeOpcode::Name: case ETypeOpcode::Guid: case ETypeOpcode::Bytes:
+			case ETypeOpcode::BulkData:
 				Valid = Plain(); break;
 			case ETypeOpcode::Enum:
 				Valid = Type.Children.empty() && Type.Parameter >= uint8(ETypeOpcode::I8)
@@ -595,7 +596,7 @@ namespace Durin::Asset::DastV4
 				Writer.U8(Value.ReferenceTag);
 				if (Value.ReferenceTag == 1) { const uint64 Id = Tables.NameId(Value.Text); if (Id == 0) return Fail(Diagnostic, EWriterFailure::MissingDiscovery, "A soft reference path was not discovered.", std::string(Path)); Writer.VarUInt(Id); }
 				return true;
-			case ETypeOpcode::Bytes:
+			case ETypeOpcode::Bytes: case ETypeOpcode::BulkData:
 				if (Value.Bytes.size() > MaximumByteValueBytes) return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Byte value exceeds the bound.", std::string(Path));
 				Writer.VarUInt(Value.Bytes.size()); Writer.Bytes(Value.Bytes); return true;
 			}
@@ -641,7 +642,7 @@ namespace Durin::Asset::DastV4
 				if (!TypeReader.Record(RecordBytes)) return false;
 				FWireReader Record(RecordBytes); uint8 RawOpcode = 0;
 				if (!Record.U8(RawOpcode) || RawOpcode < uint8(ETypeOpcode::Bool)
-					|| RawOpcode > uint8(ETypeOpcode::Bytes)) return false;
+					|| RawOpcode > uint8(ETypeOpcode::BulkData)) return false;
 				FDecodedType Type{.Opcode = ETypeOpcode(RawOpcode)};
 				switch (Type.Opcode)
 				{

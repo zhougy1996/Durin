@@ -89,6 +89,32 @@ namespace Durin
 				Node->bHasAtomicValue = true;
 			}
 
+			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			{
+				FDefaultDeltaNode* Node = CurrentNode();
+				if (!Node || Node->LogicalType.Kind != ETypeKind::BulkData)
+				{
+					Fail(EArchiveFailureCode::UnsupportedType,
+						"Bulk data does not match the active logical descriptor.");
+					return;
+				}
+				if (Value.LogicalSize != Value.StoredSize)
+				{
+					Fail(EArchiveFailureCode::InvalidData,
+						"Bulk data logical identity requires matching logical and stored sizes.");
+					return;
+				}
+				const auto Append = [&Node](const auto& Part) {
+					const auto* Begin = reinterpret_cast<const uint8*>(&Part);
+					Node->ByteValue.insert(Node->ByteValue.end(), Begin, Begin + sizeof(Part));
+				};
+				Append(Value.FormatId);
+				Append(Value.FormatVersion);
+				Append(Value.LogicalSize);
+				Append(Value.ContentHash);
+				Node->bHasAtomicValue = true;
+			}
+
 			auto SerializeObjectReference(DObject*& Value) -> void override
 			{
 				FDefaultDeltaNode* Node = ResolveAtomicTarget();
@@ -737,6 +763,7 @@ namespace Durin
 					? (Left.GuidValue == Right.GuidValue ? EPropertyIdentityResult::Identical : EPropertyIdentityResult::Different)
 					: EPropertyIdentityResult::Unsupported;
 			case ETypeKind::Bytes:
+			case ETypeKind::BulkData:
 				return Left.bHasAtomicValue && Right.bHasAtomicValue
 					? (Left.ByteValue == Right.ByteValue ? EPropertyIdentityResult::Identical : EPropertyIdentityResult::Different)
 					: EPropertyIdentityResult::Unsupported;

@@ -1,5 +1,6 @@
 #include "AssetCatalogStoreInternal.h"
 #include "AssetDeletionInternal.h"
+#include "Asset/AuthoredBulkStorage.h"
 
 #include "DObject/Class.h"
 
@@ -40,21 +41,26 @@ namespace Durin::Asset
 	{
 		OutFiles.clear();
 		if (OutHasContributor) *OutHasContributor = false;
+		FAssetPackageInspection Inspection;
+		FAssetResult InspectionResult = InspectAssetPackage(Data.PhysicalPath, Inspection);
+		if (!InspectionResult) return InspectionResult;
+		std::string BulkError;
+		if (!InspectAuthoredBulkCompanionPaths(
+				Data.PhysicalPath, Inspection, OutFiles, &BulkError))
+			return Error(EAssetError::CorruptFile, std::move(BulkError));
+		if (OutHasContributor && !OutFiles.empty()) *OutHasContributor = true;
 		DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
 		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
 		{
 			const auto It = GetDeleteContributors().find(Class);
 			if (It == GetDeleteContributors().end()) continue;
 			if (OutHasContributor) *OutHasContributor = true;
-			FAssetPackageInspection Inspection;
 			auto Call = It->second.OwnerGate.TryEnter();
 			if (It->second.OwnerGate.IsValid() && !Call)
 				return Error(EAssetError::StaleData,
 					"The asset deletion contributor is unavailable.");
-			FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
-			if (!Result) return Result;
 			FAssetDeleteContribution Contribution;
-			Result = It->second.Contributor(Data, Inspection, Contribution);
+			FAssetResult Result = It->second.Contributor(Data, Inspection, Contribution);
 			if (!Result) return Result;
 			for (const std::filesystem::path& File : Contribution.Files)
 			{

@@ -60,6 +60,9 @@ _PROPERTY_KIND_BY_TYPE = {
     "FGuid": "Guid",
     "Durin::FGuid": "Guid",
     "std::byte": "Byte",
+    "FAuthoredBulkData": "BulkData",
+    "Asset::FAuthoredBulkData": "BulkData",
+    "Durin::Asset::FAuthoredBulkData": "BulkData",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
@@ -1016,6 +1019,15 @@ def _make_property_from_spelling(
         kind = "String"
 
     if kind:
+        if kind == "BulkData":
+            return ReflectedPropertyInfo(
+                name=name,
+                type_name=type_spelling,
+                kind=kind,
+                array_dim=array_dim,
+                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
+                flags=flags,
+            )
         size_by_kind = {
             "Bool": "sizeof(bool)",
             "Int8": "sizeof(Durin::int8)",
@@ -1440,7 +1452,7 @@ def _make_property(
             array_dim=_array_dim(field_cursor),
             declaring_namespace=declaring_namespace,
         )
-        if source_prop and source_prop.kind in ("Struct", "String", "Name", "Guid"):
+        if source_prop and source_prop.kind in ("Struct", "String", "Name", "Guid", "BulkData"):
             ast_prop = _make_property_from_type(
                 field_cursor.spelling, _element_type(field_cursor), exported_symbols,
                 flags=_property_flags_from_annotation(annotation),

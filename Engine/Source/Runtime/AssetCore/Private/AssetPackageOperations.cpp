@@ -8,6 +8,7 @@
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
+#include "Asset/AuthoredBulkStorage.h"
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
 #include "Profiling/Profiling.h"
@@ -165,6 +166,7 @@ namespace Durin::Asset
 			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 			FAssetPath RedirectDestination;
 			std::vector<FAssetPath> Dependencies;
+			std::vector<FAuthoredBulkPayload> BulkPayloads;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
@@ -209,6 +211,31 @@ namespace Durin::Asset
 			return ErrorCode == std::errc::no_such_file_or_directory
 				|| ErrorCode.value() == 2
 				|| ErrorCode.value() == 3;
+		}
+
+		auto CleanupStaleAuthoredBulkCompanions(
+			const std::filesystem::path& PackagePath,
+			const std::filesystem::path& KeepPath = {}) -> void
+		{
+			const std::filesystem::path Parent = PackagePath.parent_path();
+			const std::string Prefix = PackagePath.stem().string() + ".";
+			std::error_code ErrorCode;
+			for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
+				!ErrorCode && It != End; It.increment(ErrorCode))
+			{
+				const std::filesystem::path Candidate = It->path();
+				const std::string Name = Candidate.filename().string();
+				if (!It->is_regular_file(ErrorCode) || ErrorCode
+					|| !Name.starts_with(Prefix)
+					|| !Name.ends_with(AuthoredBulkCompanionSuffix)
+					|| (!KeepPath.empty() && Candidate == KeepPath))
+				{
+					ErrorCode.clear();
+					continue;
+				}
+				std::filesystem::remove(Candidate, ErrorCode);
+				ErrorCode.clear();
+			}
 		}
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
@@ -587,8 +614,10 @@ namespace Durin::Asset
 			if (!Codec)
 				return Error(EAssetError::UnsupportedVersion,
 					"The selected ordinary asset package writer is unavailable.");
+			FAssetPackageSerializationOptions EffectiveOptions = Options;
+			if (OutFile) EffectiveOptions.AuthoredBulkPayloads = &OutFile->BulkPayloads;
 			FAssetResult Result = Codec->Write(
-				Package, OutBytes, EDefaultDeltaMode::NoDelta, Options);
+				Package, OutBytes, EDefaultDeltaMode::NoDelta, EffectiveOptions);
 			if (!Result) return Result;
 			if (OutFile)
 			{
@@ -733,6 +762,7 @@ namespace Durin::Asset
 			std::filesystem::path Destination;
 			std::filesystem::path Staged;
 			std::filesystem::path Backup;
+			std::filesystem::path PublishedCompanion;
 			uintmax_t PublishedFileSize = 0;
 			std::filesystem::file_time_type PublishedLastWriteTime{};
 			bool bHadDestination = false;
@@ -837,6 +867,36 @@ namespace Durin::Asset
 					"Failed to create package directory {}: {}",
 					Staged.Destination.parent_path().generic_string(), Ec.message()));
 			}
+			if (!Staged.File.BulkPayloads.empty())
+			{
+				const FXxHash128 ContainerHash =
+					Staged.File.BulkPayloads.front().Descriptor.ContainerHash;
+				std::vector<uint8> CompanionBytes;
+				std::string CompanionError;
+				if (ContainerHash.IsZero()
+					|| std::ranges::any_of(Staged.File.BulkPayloads,
+						[&](const FAuthoredBulkPayload& Payload) {
+							return Payload.Descriptor.ContainerHash != ContainerHash;
+						})
+					|| !BuildAuthoredBulkCompanion(Staged.File.BulkPayloads,
+						ContainerHash, CompanionBytes, &CompanionError)
+					|| !ResolveAuthoredBulkCompanionPath(Staged.Destination,
+						ContainerHash, Staged.PublishedCompanion, &CompanionError))
+				{
+					CleanupStaging();
+					return Error(EAssetError::CorruptFile, std::move(CompanionError));
+				}
+				FFileHelper::FAtomicFileError CompanionPublicationError;
+				if (!FFileHelper::SaveArrayToFileAtomically(
+						std::span{reinterpret_cast<const std::byte*>(CompanionBytes.data()),
+							CompanionBytes.size()}, Staged.PublishedCompanion,
+						&CompanionPublicationError))
+				{
+					CleanupStaging();
+					return Error(EAssetError::IoError,
+						CompanionPublicationError.ToString());
+				}
+			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::StagePackage, Index))
 			{
 				CleanupStaging();
@@ -937,6 +997,8 @@ namespace Durin::Asset
 			Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
+			CleanupStaleAuthoredBulkCompanions(
+				Staged.Destination, Staged.PublishedCompanion);
 		}
 		return {};
 	}
@@ -1040,6 +1102,33 @@ namespace Durin::Asset
 			OutValues.push_back(std::move(Value));
 		}
 		return Reader.Offset == Payload.size();
+	}
+
+	auto FAssetPackageField::TryReadAuthoredBulkDescriptor(
+		FAuthoredBulkDataDescriptor& OutValue) const -> bool
+	{
+		OutValue = {};
+		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData) return false;
+		FByteReader Reader{Payload};
+		uint8 StorageKind = 0;
+		uint64 HashLow = 0, HashHigh = 0, ContainerLow = 0, ContainerHigh = 0;
+		if (!Reader.Read(StorageKind) || StorageKind > 1
+			|| !Reader.Read(OutValue.PayloadId) || !Reader.Read(OutValue.FormatId)
+			|| !Reader.Read(OutValue.FormatVersion)
+			|| !Reader.Read(OutValue.LogicalByteCount)
+			|| !Reader.Read(OutValue.StoredByteCount)
+			|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
+			|| !Reader.Read(ContainerLow) || !Reader.Read(ContainerHigh)) return false;
+		OutValue.ContentHash = {HashLow, HashHigh};
+		OutValue.ContainerHash = {ContainerLow, ContainerHigh};
+		OutValue.StorageKind = StorageKind == 0
+			? EAuthoredBulkStorageKind::Inline : EAuthoredBulkStorageKind::External;
+		return OutValue.PayloadId.IsValid() && OutValue.FormatId.IsValid()
+			&& OutValue.FormatVersion != 0
+			&& OutValue.LogicalByteCount == OutValue.StoredByteCount
+			&& (OutValue.StorageKind == EAuthoredBulkStorageKind::Inline
+				? OutValue.ContainerHash.IsZero()
+				: OutValue.ContainerHash.IsZero() == false && Reader.Offset == Payload.size());
 	}
 
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
@@ -1191,6 +1280,28 @@ namespace Durin::Asset
 		FAssetResult SerializationResult = BuildPackageBytes(Package, Bytes, &File);
 		if (!SerializationResult) return SerializationResult;
 		FFileHelper::FAtomicFileError PublicationError;
+		std::filesystem::path PublishedCompanion;
+		if (!File.BulkPayloads.empty())
+		{
+			const FXxHash128 ContainerHash = File.BulkPayloads.front().Descriptor.ContainerHash;
+			if (ContainerHash.IsZero()
+				|| std::ranges::any_of(File.BulkPayloads, [&](const FAuthoredBulkPayload& Payload) {
+					return Payload.Descriptor.ContainerHash != ContainerHash;
+				}))
+				return Error(EAssetError::CorruptFile,
+					"Serialized authored bulk payloads disagree on container identity.");
+			std::vector<uint8> CompanionBytes;
+			std::string CompanionError;
+			if (!BuildAuthoredBulkCompanion(
+					File.BulkPayloads, ContainerHash, CompanionBytes, &CompanionError)
+				|| !ResolveAuthoredBulkCompanionPath(
+					Destination, ContainerHash, PublishedCompanion, &CompanionError))
+				return Error(EAssetError::CorruptFile, std::move(CompanionError));
+			if (!FFileHelper::SaveArrayToFileAtomically(
+					std::span{reinterpret_cast<const std::byte*>(CompanionBytes.data()),
+						CompanionBytes.size()}, PublishedCompanion, &PublicationError))
+				return Error(EAssetError::IoError, PublicationError.ToString());
+		}
 		if (!FFileHelper::SaveArrayToFileAtomically(
 			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
 			Destination,
@@ -1217,6 +1328,7 @@ namespace Durin::Asset
 			&& Resident->second.Package == Package)
 			Resident->second.PublicationState =
 				EAssetPackagePublicationState::Published;
+		CleanupStaleAuthoredBulkCompanions(Destination, PublishedCompanion);
 		return {};
 	}
 

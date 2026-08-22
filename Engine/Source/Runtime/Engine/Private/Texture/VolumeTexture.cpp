@@ -37,7 +37,15 @@ namespace Durin
 		if (Info.BlockSize != 1 || Info.BytesPerBlock == 0) return false;
 		const uint64 Texels = static_cast<uint64>(Width) * Height * Depth;
 		return Texels <= MaximumTexturePayloadBytes / Info.BytesPerBlock
-			&& Voxels.size() == Texels * Info.BytesPerBlock;
+			&& Voxels.IsResident()
+			&& GetVoxelBytes().size() == Texels * Info.BytesPerBlock;
+	}
+
+	auto FVolumeTextureSourceData::SetVoxelBytes(std::span<const std::byte> Bytes) -> bool
+	{
+		return Voxels.ReplaceBytes(
+			VolumeTextureSourcePayloadId, VolumeTextureSourceFormatId,
+			VolumeTextureSourceFormatVersion, Bytes);
 	}
 
 	auto FVolumeTextureMipData::IsValid(EPixelFormat PixelFormat) const -> bool

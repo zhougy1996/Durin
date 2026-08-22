@@ -77,6 +77,23 @@ the asset's last-known-good CPU or GPU result. Engine reaches the uncooked
 post-load policy through `IVolumeTextureAuthoringFeature`, preserving the
 Engine-to-TextureBuild dependency direction.
 
+## Authored source bulk data
+
+Normalized source voxels use `Asset::FAuthoredBulkData` with stable payload id
+words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`, format id words
+`{2854a7c1, 94cb4ab8, 8cd8be32, c2f680b7}`, and format version 1. Dimensions,
+portable voxel format, and import provenance remain ordinary reflected fields.
+The source accessor never performs IO; build and import paths require verified
+resident bytes and replace the complete payload atomically.
+
+Volume source custom version 2 is the current authored-bulk representation.
+Load-only compatibility first converts the historical `Array<UInt8>` route to
+the version-1 byte Blob and then converts that Blob to bulk data. Current saves
+emit only the bulk field. The 256 KiB authoring threshold changes placement,
+not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload
+bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
+2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.
+
 ## Payload and cook
 
 Volume data uses TXPL schema 1 with texture dimension value 3. Stable pixel

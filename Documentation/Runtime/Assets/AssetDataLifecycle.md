@@ -542,6 +542,22 @@ generated directories. Cooked output is nevertheless authoritative within a
 specific staged build: ignored means reproducible distribution output, not
 disposable while that build is running or installed.
 
+## Authored bulk ownership and failure behavior
+
+`FAuthoredBulkData` owns one immutable shared allocation plus a descriptor and
+an explicit `Unloaded`, `Resident`, or `Failed` state. Copies may share verified
+storage; replacement builds a detached candidate and never exposes writable
+resident memory. Unqualified access returns bytes only when already resident;
+synchronous IO is an explicit operation.
+
+Asset package loading resolves external storage from the logical package path
+and descriptor container hash, validates the complete DABK container and the
+selected entry, and only then publishes the decoded object graph. Missing,
+truncated, stale, excessive, or corrupt companion data retires the candidate
+graph; a prior resident package or texture resource is not partially mutated.
+Unload releases the shared allocation normally. Move/rename and deletion treat
+the package and descriptor-reachable companion set as one mutation participant.
+
 ## Related Documentation
 
 - [Asset Packages](AssetPackages.md)

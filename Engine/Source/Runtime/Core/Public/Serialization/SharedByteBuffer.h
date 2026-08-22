@@ -1,0 +1,39 @@
+#pragma once
+
+#include "CoreAPI.h"
+
+#include <memory>
+#include <span>
+#include <vector>
+
+namespace Durin
+{
+	// Shares an immutable contiguous byte allocation between payload owners.
+	class FSharedByteBuffer
+	{
+	public:
+		FSharedByteBuffer() = default;
+
+		CORE_API static auto Copy(std::span<const std::byte> Bytes) -> FSharedByteBuffer;
+		CORE_API static auto Take(std::vector<std::byte> Bytes) -> FSharedByteBuffer;
+
+		auto GetBytes() const -> std::span<const std::byte>
+		{
+			return Storage ? std::span<const std::byte>(*Storage) : std::span<const std::byte>();
+		}
+		auto GetSize() const -> uint64 { return static_cast<uint64>(GetBytes().size()); }
+		auto IsEmpty() const -> bool { return GetBytes().empty(); }
+		auto SharesStorageWith(const FSharedByteBuffer& Other) const -> bool
+		{
+			return Storage == Other.Storage;
+		}
+
+	private:
+		explicit FSharedByteBuffer(std::shared_ptr<const std::vector<std::byte>> InStorage)
+			: Storage(std::move(InStorage))
+		{
+		}
+
+		std::shared_ptr<const std::vector<std::byte>> Storage;
+	};
+}

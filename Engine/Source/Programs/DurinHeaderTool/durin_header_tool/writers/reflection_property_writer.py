@@ -27,9 +27,10 @@ PROPERTY_PARAM_BY_KIND = {
     "Bool": "FBoolPropertyParams",
     "String": "FStringPropertyParams",
     "Name": "FNamePropertyParams",
-	"Guid": "FGuidPropertyParams",
-	"Byte": "FBytePropertyParams",
-	"Blob": "FBlobPropertyParams",
+    "Guid": "FGuidPropertyParams",
+    "Byte": "FBytePropertyParams",
+    "Blob": "FBlobPropertyParams",
+    "BulkData": "FBulkDataPropertyParams",
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
     "SoftObject": "FSoftObjectPropertyParams",
@@ -216,6 +217,13 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             f"Durin::DurinCodeGen::{param_type}::{factory}<{target_type}>("
             f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
             f"{referenced_class_helper}{metadata_arguments})"
+        )
+        content += _property_assignment(class_info, prop, param_type, initializer)
+        return content
+    if prop.kind == "BulkData":
+        initializer = (
+            f"Durin::DurinCodeGen::{param_type}::Create<{value_type}>("
+            f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}{metadata_arguments})"
         )
         content += _property_assignment(class_info, prop, param_type, initializer)
         return content

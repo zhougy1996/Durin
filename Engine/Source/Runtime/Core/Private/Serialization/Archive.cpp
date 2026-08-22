@@ -185,6 +185,81 @@ namespace Durin
 		if (!HasError()) Bytes = std::move(Candidate);
 	}
 
+	auto FArchive::SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void
+	{
+		if (GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
+		if (GetBulkDataPolicy() == EArchiveBulkDataPolicy::External)
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability,
+				"External bulk data requires an Archive-owned payload adapter.");
+			return;
+		}
+
+		FGuid PayloadId = Value.PayloadId;
+		FGuid FormatId = Value.FormatId;
+		uint32 FormatVersion = Value.FormatVersion;
+		uint64 LogicalSize = Value.LogicalSize;
+		uint64 StoredSize = Value.StoredSize;
+		uint64 HashLow = Value.ContentHash.HashLow;
+		uint64 HashHigh = Value.ContentHash.HashHigh;
+		uint64 ContainerHashLow = 0;
+		uint64 ContainerHashHigh = 0;
+		uint8 StorageKind = static_cast<uint8>(EArchiveBulkDataStorageKind::Inline);
+		*this << StorageKind << PayloadId << FormatId << FormatVersion
+			<< LogicalSize << StoredSize << HashLow << HashHigh
+			<< ContainerHashLow << ContainerHashHigh;
+		if (HasError()) return;
+		if (IsLoading() && StorageKind != static_cast<uint8>(EArchiveBulkDataStorageKind::Inline))
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Inline Archive encountered an externally stored bulk payload.");
+			return;
+		}
+
+		if (IsSaving())
+		{
+			if (Value.Residency != EArchiveBulkDataResidency::Resident)
+			{
+				Fail(EArchiveFailureCode::InvalidData,
+					"Inline bulk serialization requires verified resident bytes.");
+				return;
+			}
+			const std::span<const std::byte> Bytes = Value.Buffer.GetBytes();
+			if (LogicalSize != Bytes.size() || StoredSize != Bytes.size()
+				|| FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
+			{
+				Fail(EArchiveFailureCode::InvalidData,
+					"Inline bulk descriptor size or content hash does not match its resident bytes.");
+				return;
+			}
+			std::vector<std::byte> Candidate(Bytes.begin(), Bytes.end());
+			SerializeByteBlob(Candidate);
+			return;
+		}
+
+		std::vector<std::byte> Candidate;
+		SerializeByteBlob(Candidate);
+		if (HasError()) return;
+		if (LogicalSize != Candidate.size() || StoredSize != Candidate.size()
+			|| FXxHash128::HashBuffer(Candidate) != FXxHash128{HashLow, HashHigh})
+		{
+			Fail(EArchiveFailureCode::InvalidData,
+				"Inline bulk payload size or content hash verification failed.");
+			return;
+		}
+		Value = {
+			.PayloadId = PayloadId,
+			.FormatId = FormatId,
+			.FormatVersion = FormatVersion,
+			.LogicalSize = LogicalSize,
+			.StoredSize = StoredSize,
+			.ContentHash = {HashLow, HashHigh},
+			.ContainerHash = {ContainerHashLow, ContainerHashHigh},
+			.StorageKind = EArchiveBulkDataStorageKind::Inline,
+			.Residency = EArchiveBulkDataResidency::Resident,
+			.Buffer = FSharedByteBuffer::Take(std::move(Candidate))};
+	}
+
 	auto FArchive::TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind, const void*) -> bool { return false; }
 	auto FArchive::TryCaptureLogicalText(EArchiveLogicalTextKind, std::string_view) -> bool { return false; }
 

@@ -4,22 +4,34 @@ Summary: Add atomic authored bulk-payload ownership, descriptors, transactional 
 
 Last reviewed: 2026-08-22
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-22
 
 ## Current Status
 
-The reflected byte-Blob work is complete: large opaque byte values are atomic
-for default planning, bounded in Archive and DAST, and proven by a real `128^3`
-volume import/save/reload/reimport/Cook regression. Core already exposes an
-Archive bulk-data purpose and physical policy. AssetCore already owns cooked
-payload descriptors and a transactional `.dbulk` container.
+Completed on 2026-08-22. Core now owns immutable shared byte buffers and the
+bounded Archive bulk transfer, while AssetCore owns `FAuthoredBulkData`, its
+distinct reflection/default-delta identity, and deterministic DAST bulk opcode.
+The version-1 `DABK` companion uses `.dabulk`, 16-byte alignment, a 256 KiB
+external threshold, strong hashes, strict 1 GiB/65,536-entry bounds, and
+generation-qualified names. Ordinary and bundle save, load, catalog inspection,
+relocation, deletion, reimport rollback, and stale-generation cleanup include
+the companion lifecycle.
 
-Authored normalized source still lives inline in `.dasset`, however. The first
-implementation milestone of the
-[Large Asset Payload Architecture Roadmap](../Roadmaps/LargeAssetPayloadArchitecture.md)
-will establish a reusable authored bulk owner and local companion transaction,
-then migrate volume source as the production proof. No code work has begun.
+Volume source custom version 2 stores normalized voxels in authored bulk data
+and retains both historical Array and Blob migration routes. Missing and corrupt
+companions fail before object publication and remain retryable. The production
+`16384 x 128` PNG workflow passes import, save, reload, reimport, and Cook with
+exact 128-cubed R8 source bytes. Its editable package measured 1,479 bytes and
+its 2,097,152-byte source occupied a 2,097,312-byte companion (160 bytes of
+framing/alignment), replacing the former multi-megabyte DAST value.
+
+Qualification passed the DHT reflection suites (90 tests), focused Archive,
+CoreObject, AssetPackage, and Texture suites (9, 79, 100, and 80 tests), the
+native `test all` aggregate (77 targets), and the full Win64 Debug Editor build.
+Lasting contracts were published in the owning runtime documents. The parent
+roadmap records milestone 1 complete and keeps portable typed atomic buffers
+behind its two-consumer entry gate.
 
 ## Goal
 
@@ -159,20 +171,20 @@ Cook, or runtime texture results.
 
 ### Stage 0: Freeze authored bulk semantics and wire boundaries
 
-- [ ] Audit every Archive bulk-policy branch, cooked DBLK invariant, package
+- [x] Audit every Archive bulk-policy branch, cooked DBLK invariant, package
   publication/recovery path, unknown-field retention path, asset mutation, and
   large authored field; record exact reuse and separation boundaries.
-- [ ] Freeze the Core byte owner and AssetCore bulk value/descriptor API,
+- [x] Freeze the Core byte owner and AssetCore bulk value/descriptor API,
   residency states, copy/mutation rules, logical identity, reflection kind,
   authored intent, Details presentation, and module dependencies.
-- [ ] Select and freeze authored inline/external policy, companion suffix,
+- [x] Select and freeze authored inline/external policy, companion suffix,
   magic/version, table layout, alignment, byte/count/depth ceilings, content
   hash, and canonical ordering without changing cooked `.dbulk` semantics.
-- [ ] Freeze the cross-file publication, crash windows, orphan policy, move,
+- [x] Freeze the cross-file publication, crash windows, orphan policy, move,
   copy, rename, delete, source-control, and cleanup algorithms.
-- [ ] Freeze the volume custom-version step, deprecated Blob route, conversion
+- [x] Freeze the volume custom-version step, deprecated Blob route, conversion
   order, supported corpus baseline, canonical-resave evidence, and rollback.
-- [ ] Add failing contract fixtures for inline/external boundary placement,
+- [x] Add failing contract fixtures for inline/external boundary placement,
   malformed descriptors, missing/truncated/corrupt companions, crash windows,
   unknown retained bulk fields, duplicate ids, limit rejection, and current plus
   historical `128^3` volume packages.
@@ -185,17 +197,17 @@ Cook, or runtime texture results.
 
 ### Stage 1: Add the atomic authored bulk value
 
-- [ ] Implement the Core immutable/shared byte owner and bounded synchronous
+- [x] Implement the Core immutable/shared byte owner and bounded synchronous
   transfer needed by inline and external payload adapters.
-- [ ] Implement the AssetCore bulk value and descriptor with explicit residency,
+- [x] Implement the AssetCore bulk value and descriptor with explicit residency,
   verified identity, detached replacement, copy/duplication, and diagnostics.
-- [ ] Add generated/runtime reflection metadata, one atomic logical value,
+- [x] Add generated/runtime reflection metadata, one atomic logical value,
   snapshots, editable copy, duplication, default/no-delta planning, authored
   field intent, GC neutrality, and read-only Details summary.
-- [ ] Make Archive `Inline`, `Skip`, and `External` policies observable through
+- [x] Make Archive `Inline`, `Skip`, and `External` policies observable through
   one semantic operation; reject unsupported policy/capability combinations
   before mutation.
-- [ ] Prove empty/nonempty values, shared copies, copy-on-replacement, exact
+- [x] Prove empty/nonempty values, shared copies, copy-on-replacement, exact
   identity, hash verification, unsupported references, all Archive purposes,
   limit failures, and transactional rollback.
 
@@ -207,18 +219,18 @@ Cook, or runtime texture results.
 
 ### Stage 2: Publish and load authored companion payloads
 
-- [ ] Implement the frozen authored companion reader/writer with independent
+- [x] Implement the frozen authored companion reader/writer with independent
   frozen bounds, deterministic directory ordering, and complete validation.
-- [ ] Extend DAST discovery/emission/load adapters to retain bulk descriptors,
+- [x] Extend DAST discovery/emission/load adapters to retain bulk descriptors,
   inline admitted values, external references, custom versions, unknown fields,
   and identical manifests without duplicating external bytes.
-- [ ] Integrate candidate companion creation, validation, package commit,
+- [x] Integrate candidate companion creation, validation, package commit,
   rollback, orphan tolerance, and post-commit cleanup into ordinary and bundle
   saves.
-- [ ] Integrate catalog inspection, load, unload, move, copy, rename, delete,
+- [x] Integrate catalog inspection, load, unload, move, copy, rename, delete,
   redirect, source repair, canonical resave, and compatibility audit with the
   payload set.
-- [ ] Add fault injection at every write, flush, rename, validation, catalog,
+- [x] Add fault injection at every write, flush, rename, validation, catalog,
   and cleanup boundary; prove the last published package/payload set remains
   usable and recovery is idempotent.
 
@@ -230,19 +242,19 @@ Cook, or runtime texture results.
 
 ### Stage 3: Migrate volume source as the production proof
 
-- [ ] Replace current inline Blob storage for normalized volume voxels with the
+- [x] Replace current inline Blob storage for normalized volume voxels with the
   authored bulk value while retaining dimensions, format, and provenance as
   ordinary structured fields.
-- [ ] Add the new versioned Blob-to-bulk route behind the existing
+- [x] Add the new versioned Blob-to-bulk route behind the existing
   Array-to-Blob history; load both supported historical shapes transactionally
   and resave only the current descriptor/payload representation.
-- [ ] Preserve exact normalized bytes, DDC keys, mip chains, derived payloads,
+- [x] Preserve exact normalized bytes, DDC keys, mip chains, derived payloads,
   TXPL, cooked DBLK, GPU upload, reimport, source repair, and last-known-good
   failure behavior.
-- [ ] Qualify inline/external policy boundaries plus horizontal, vertical, and
+- [x] Qualify inline/external policy boundaries plus horizontal, vertical, and
   compact atlas layouts; retain the real `16384 x 128` PNG as the mandatory
   import/save/reload/reimport/Cook regression.
-- [ ] Audit the supported content corpus and record migrated counts, rejected
+- [x] Audit the supported content corpus and record migrated counts, rejected
   schemas, payload sizes, package-size reductions, and deterministic resave
   hashes without deleting compatibility routes.
 
@@ -254,19 +266,19 @@ Cook, or runtime texture results.
 
 ### Stage 4: Qualify and publish the foundation
 
-- [ ] Run focused Core, CoreDObject, AssetCore package/mutation, TextureBuild,
+- [x] Run focused Core, CoreDObject, AssetCore package/mutation, TextureBuild,
   AssetForge, Cook, editor property, volume/cloud, and fault-injection targets
   under the repository testing workflow.
-- [ ] Run native aggregate, full Debug Editor build, documentation validation,
+- [x] Run native aggregate, full Debug Editor build, documentation validation,
   corpus compatibility/canonical-resave audit, and a validation-enabled editor
   import/save/move/reopen/reimport/Cook smoke.
-- [ ] Measure package bytes, payload bytes, save/load allocations, synchronous
+- [x] Measure package bytes, payload bytes, save/load allocations, synchronous
   access latency, and retained residency for empty, boundary, `128^3` R8, and
   `128^3` RGBA8 inputs; record bounded evidence without using timing as a
   correctness gate.
-- [ ] Publish lasting Core Archive/buffer, reflection, AssetCore authored-bulk,
+- [x] Publish lasting Core Archive/buffer, reflection, AssetCore authored-bulk,
   mutation/recovery, and volume authoring contracts in their owning documents.
-- [ ] Update the parent roadmap with landed APIs, compatibility evidence,
+- [x] Update the parent roadmap with landed APIs, compatibility evidence,
   remaining gaps, and the entry-gate decision for Portable Typed Atomic Buffers.
 
 #### Acceptance Gate
