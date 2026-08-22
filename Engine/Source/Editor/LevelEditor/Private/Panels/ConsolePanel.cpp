@@ -1,5 +1,6 @@
 #include "Panels/ConsolePanel.h"
 
+#include "Panels/ConsolePanelLayout.h"
 #include "Panels/ConsoleRecordModel.h"
 
 #include "Editor/WorkspaceUI.h"
@@ -89,8 +90,19 @@ namespace Durin::Editor::Level
 			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Record.GetCategory(), Record.Message);
 		}
 
+		auto MeasureLogPrefixWidth(const FLogRecord& Record) -> float
+		{
+			const float Spacing = MonaImGui::GetUIStyleMetrics().SpacingS;
+			const std::array<char, 16> TimeText = FormatTime(Record);
+			const std::string Category = std::format("[{}]", Record.GetCategory());
+			return ImGui::CalcTextSize(TimeText.data()).x + Spacing
+				+ ImGui::CalcTextSize("W").x + Spacing
+				+ ImGui::CalcTextSize(Category.c_str()).x + Spacing;
+		}
+
 		auto DrawLogRecord(const FLogRecord& Record) -> void
 		{
+			const float ContentWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
 			const std::array<char, 16> TimeText = FormatTime(Record);
 			const float Spacing = MonaImGui::GetUIStyleMetrics().SpacingS;
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleTimestamp), "%s", TimeText.data());
@@ -121,8 +133,55 @@ namespace Durin::Editor::Level
 				if (!Record.File.empty()) ImGui::Text("Source: %s:%u", Record.File.c_str(), Record.Line);
 				ImGui::EndTooltip();
 			}
-			ImGui::SameLine(0.0f, Spacing);
+			const float RemainingWidth = ContentWidth - MeasureLogPrefixWidth(Record);
+			const float MinimumInlineMessageWidth = std::min(
+				MonaImGui::ScaleUI(160.0f), ContentWidth * 0.45f);
+			if (RemainingWidth >= MinimumInlineMessageWidth)
+				ImGui::SameLine(0.0f, Spacing);
+			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextUnformatted(Record.Message.c_str());
+			ImGui::PopTextWrapPos();
+		}
+
+		auto MeasureLogRecordHeight(const FLogRecord& Record, float ContentWidth) -> float
+		{
+			const float PrefixWidth = MeasureLogPrefixWidth(Record);
+			const float MessageWidth = std::max(ImGui::GetFontSize(), ContentWidth - PrefixWidth);
+			const float MinimumInlineMessageWidth = std::min(
+				MonaImGui::ScaleUI(160.0f), ContentWidth * 0.45f);
+			if (ContentWidth - PrefixWidth >= MinimumInlineMessageWidth)
+				return std::max(ImGui::GetTextLineHeight(),
+					ImGui::CalcTextSize(Record.Message.c_str(), nullptr, false, MessageWidth).y);
+			return ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y
+				+ std::max(ImGui::GetTextLineHeight(),
+					ImGui::CalcTextSize(Record.Message.c_str(), nullptr, false, ContentWidth).y);
+		}
+
+		auto MeasureConsoleRecordHeight(const FConsoleRecord& Record, float ContentWidth) -> float
+		{
+			if (Record.Type == EConsoleRecordType::Log)
+				return MeasureLogRecordHeight(Record.Log, ContentWidth);
+			return std::max(ImGui::GetTextLineHeight(),
+				ImGui::CalcTextSize(Record.Text.c_str(), nullptr, false,
+					std::max(ImGui::GetFontSize(), ContentWidth)).y);
+		}
+
+		auto DrawConsoleRecord(const FConsoleRecord& Record) -> void
+		{
+			if (Record.Type == EConsoleRecordType::Log)
+			{
+				DrawLogRecord(Record.Log);
+				return;
+			}
+			const ImVec4 Color = Record.Type == EConsoleRecordType::Command ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
+				Record.Type == EConsoleRecordType::HistoryGap ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning) :
+				Record.Type == EConsoleRecordType::Error ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
+				ImGui::GetStyleColorVec4(ImGuiCol_Text);
+			ImGui::PushStyleColor(ImGuiCol_Text, Color);
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextUnformatted(Record.Text.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::PopStyleColor();
 		}
 
 		auto CommonPrefix(const std::vector<std::string>& Values) -> std::string
@@ -212,6 +271,9 @@ namespace Durin::Editor::Level
 			ImGui::EndPopup();
 		}
 		ImGui::SameLine();
+		if (DrawToolbarIconButton(Icons::ArrowDown, "ConsoleScrollToLatest")) RequestScrollToLatest();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Scroll to latest record");
+		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Copy, "ConsoleCopyVisible")) CopyVisibleRecords();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Copy visible records");
 		ImGui::SameLine();
@@ -223,45 +285,33 @@ namespace Durin::Editor::Level
 		ImGui::Separator();
 
 		const float InputHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-		if (ImGui::BeginChild("ConsoleRecords", ImVec2(0, -InputHeight), false, ImGuiWindowFlags_HorizontalScrollbar))
+		if (ImGui::BeginChild("ConsoleRecords", ImVec2(0, -InputHeight)))
 		{
 			// Sample after ImGui has applied this frame's wheel/scrollbar input, but before
 			// new records change the content extent, so scrolling up immediately breaks follow mode.
 			const bool bIsAtBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 2.0f;
 			RefreshVisibleRecords();
+			const float ContentWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+			const bool bLayoutChanged = RefreshVisibleRecordLayout(ContentWidth);
 			if (VisibleRecordIndices.empty())
 			{
 				ImGui::TextDisabled("%s", State->Records.GetRecords().empty() ? "No console records." : "No records match the current filters.");
 			}
 			else
 			{
-				const bool bShouldFollow = ScrollToLatestFrames > 0 || (bAutoScroll && bIsAtBottom && bReceivedRecords);
-				ImGuiListClipper Clipper;
-				Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
-				if (bShouldFollow)
+				const bool bShouldFollow = ScrollToLatestFrames > 0
+					|| (bAutoScroll && bIsAtBottom && (bReceivedRecords || bLayoutChanged));
+				const float RecordsStartY = ImGui::GetCursorPosY();
+				const FConsoleVisibleRange Range = ResolveConsoleVisibleRange(
+					VisibleRecordOffsets, ImGui::GetScrollY(), ImGui::GetWindowHeight());
+				for (size_t VisibleIndex = Range.Begin; VisibleIndex < Range.End; ++VisibleIndex)
 				{
-					const int EndIndex = static_cast<int>(VisibleRecordIndices.size());
-					Clipper.IncludeItemsByIndex(std::max(0, EndIndex - 2), EndIndex);
+					ImGui::SetCursorPosY(RecordsStartY + VisibleRecordOffsets[VisibleIndex]);
+					DrawConsoleRecord(State->Records.GetRecords()[VisibleRecordIndices[VisibleIndex]]);
 				}
-				while (Clipper.Step())
-				{
-					for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
-					{
-						const FConsoleRecord& Record = State->Records.GetRecords()[VisibleRecordIndices[VisibleIndex]];
-						if (Record.Type == EConsoleRecordType::Log)
-							DrawLogRecord(Record.Log);
-						else
-						{
-							const ImVec4 Color = Record.Type == EConsoleRecordType::Command	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
-												 Record.Type == EConsoleRecordType::HistoryGap ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning) :
-												 Record.Type == EConsoleRecordType::Error	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
-																								 ImGui::GetStyleColorVec4(ImGuiCol_Text);
-							ImGui::TextColored(Color, "%s", Record.Text.c_str());
-						}
-						if (bShouldFollow && VisibleIndex == static_cast<int>(VisibleRecordIndices.size()) - 1)
-							ImGui::SetScrollHereY(1.0f);
-					}
-				}
+				ImGui::SetCursorPosY(RecordsStartY + VisibleRecordOffsets.back());
+				ImGui::Dummy(ImVec2(0.0f, 0.0f));
+				if (bShouldFollow) ImGui::SetScrollHereY(1.0f);
 			}
 			if (ScrollToLatestFrames > 0) --ScrollToLatestFrames;
 			if (ImGui::BeginPopupContextWindow("ConsoleRecordsContext", ImGuiPopupFlags_MouseButtonRight))
@@ -391,6 +441,7 @@ namespace Durin::Editor::Level
 	auto FConsolePanel::MarkRecordsChanged() -> void
 	{
 		bVisibleRecordsDirty = true;
+		bVisibleRecordLayoutDirty = true;
 	}
 
 	auto FConsolePanel::RefreshVisibleRecords() -> void
@@ -402,6 +453,29 @@ namespace Durin::Editor::Level
 		for (size_t Index = 0; Index < Records.size(); ++Index)
 			if (IsRecordVisible(Index)) VisibleRecordIndices.push_back(Index);
 		bVisibleRecordsDirty = false;
+		bVisibleRecordLayoutDirty = true;
+	}
+
+	auto FConsolePanel::RefreshVisibleRecordLayout(float ContentWidth) -> bool
+	{
+		const float FontSize = ImGui::GetFontSize();
+		if (!bVisibleRecordLayoutDirty
+			&& std::abs(VisibleRecordLayoutWidth - ContentWidth) < 0.5f
+			&& std::abs(VisibleRecordLayoutFontSize - FontSize) < 0.01f) return false;
+		VisibleRecordOffsets.clear();
+		VisibleRecordOffsets.reserve(VisibleRecordIndices.size() + 1);
+		VisibleRecordOffsets.push_back(0.0f);
+		const std::deque<FConsoleRecord>& Records = State->Records.GetRecords();
+		for (const size_t RecordIndex : VisibleRecordIndices)
+		{
+			const float Height = MeasureConsoleRecordHeight(Records[RecordIndex], ContentWidth)
+				+ ImGui::GetStyle().ItemSpacing.y;
+			VisibleRecordOffsets.push_back(VisibleRecordOffsets.back() + Height);
+		}
+		VisibleRecordLayoutWidth = ContentWidth;
+		VisibleRecordLayoutFontSize = FontSize;
+		bVisibleRecordLayoutDirty = false;
+		return true;
 	}
 
 	auto FConsolePanel::IsRecordVisible(size_t Index) const -> bool

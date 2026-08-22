@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Panels/ConsolePanelLayout.h"
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 #include "MonaImGui.h"
@@ -23,10 +24,31 @@ namespace Durin::Editor::Level
 			ELevelEditorPanelRole::DrawerTool));
 		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::ActivityHistory));
+		EXPECT_EQ(ResolveDrawerToggleDisposition(false, false, false),
+			EDrawerToggleDisposition::OpenDrawer);
+		EXPECT_EQ(ResolveDrawerToggleDisposition(false, true, true),
+			EDrawerToggleDisposition::CloseDrawer);
+		EXPECT_EQ(ResolveDrawerToggleDisposition(false, true, false),
+			EDrawerToggleDisposition::OpenDrawer);
+		EXPECT_EQ(ResolveDrawerToggleDisposition(true, false, false),
+			EDrawerToggleDisposition::FocusPanel);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Info), 4u);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Warn), 5u);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(998, ELogLevel::Error), 999u);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(999, ELogLevel::Fatal), 999u);
+	}
+
+	TEST(FEditorUILayoutTests, ClipsVariableHeightConsoleRecordsWithOverscan)
+	{
+		const std::array<float, 5> Offsets{0.0f, 20.0f, 60.0f, 80.0f, 140.0f};
+		const FConsoleVisibleRange Middle = ResolveConsoleVisibleRange(Offsets, 55.0f, 30.0f);
+		EXPECT_EQ(Middle.Begin, 0u);
+		EXPECT_EQ(Middle.End, 4u);
+
+		const FConsoleVisibleRange Bottom = ResolveConsoleVisibleRange(Offsets, 120.0f, 30.0f);
+		EXPECT_EQ(Bottom.Begin, 2u);
+		EXPECT_EQ(Bottom.End, 4u);
+		EXPECT_EQ(ResolveConsoleVisibleRange({}, 0.0f, 100.0f).End, 0u);
 	}
 
 	TEST(FMonaImGuiStyleTests, ClampsScaleAndReturnsScaledMetrics)
@@ -114,6 +136,26 @@ namespace Durin::Editor::Level
 		EXPECT_FLOAT_EQ(State.Visibility, 0.0f);
 	}
 
+	TEST(FMonaImGuiStyleTests, BottomDrawerDismissesOnlyAfterDragLeavesBounds)
+	{
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "DragDismissDrawerTest",
+			.bDismissWhenDragLeavesBounds = true,
+		};
+		const MonaImGui::FBottomDrawerGeometry Geometry{
+			.Min = ImVec2(20.0f, 300.0f),
+			.Size = ImVec2(1000.0f, 400.0f),
+		};
+		EXPECT_FALSE(MonaImGui::ShouldDismissBottomDrawerForDrag(
+			Config, Geometry, false, ImVec2(100.0f, 200.0f)));
+		EXPECT_FALSE(MonaImGui::ShouldDismissBottomDrawerForDrag(
+			Config, Geometry, true, ImVec2(100.0f, 500.0f)));
+		EXPECT_TRUE(MonaImGui::ShouldDismissBottomDrawerForDrag(
+			Config, Geometry, true, ImVec2(100.0f, 299.0f)));
+		EXPECT_TRUE(MonaImGui::ShouldDismissBottomDrawerForDrag(
+			Config, Geometry, true, ImVec2(1020.0f, 500.0f)));
+	}
+
 	TEST(FMonaImGuiStyleTests, BottomDrawerBeginsAsTransientOverlay)
 	{
 		ImGuiContext* Context = ImGui::CreateContext();
@@ -146,6 +188,44 @@ namespace Durin::Editor::Level
 		ImGui::NewFrame();
 		EXPECT_FALSE(MonaImGui::BeginBottomDrawer(Config, State));
 		ImGui::Render();
+		ImGui::DestroyContext(Context);
+	}
+
+	TEST(FMonaImGuiStyleTests, TransientBottomDrawerClosesAfterLosingFocus)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1280.0f, 720.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		MonaImGui::FBottomDrawerState State;
+		State.Open();
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "FocusDismissDrawerTest",
+			.AnchorMin = ImVec2(0.0f, 0.0f),
+			.AnchorMax = ImVec2(1000.0f, 600.0f),
+			.AnimationDuration = 0.0f,
+			.bDismissOnFocusLoss = true,
+		};
+
+		ImGui::NewFrame();
+		ASSERT_TRUE(MonaImGui::BeginBottomDrawer(Config, State));
+		ImGui::TextUnformatted("Drawer contents");
+		MonaImGui::EndBottomDrawer(State);
+		ImGui::Begin("OtherWindow");
+		ImGui::SetWindowFocus();
+		ImGui::End();
+		ImGui::Render();
+		ASSERT_TRUE(State.IsOpen());
+
+		ImGui::NewFrame();
+		ASSERT_TRUE(MonaImGui::BeginBottomDrawer(Config, State));
+		ImGui::TextUnformatted("Drawer contents");
+		MonaImGui::EndBottomDrawer(State);
+		ImGui::Render();
+		EXPECT_FALSE(State.IsOpen());
 		ImGui::DestroyContext(Context);
 	}
 

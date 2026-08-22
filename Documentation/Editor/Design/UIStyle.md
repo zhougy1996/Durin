@@ -66,14 +66,21 @@ The default drawer height is 36% of its anchor, clamped between scaled 180- and
 720-unit limits. Its top edge is vertically resizable for the current session.
 Open/close motion uses a short time-based transition, recomputes its screen
 geometry every frame, and leaves no interactive rectangle after it becomes
-invisible. Ordinary focus loss does not dismiss a drawer because editor tools
-may begin a drag operation inside it and complete the drop on the viewport.
+invisible. Drawers may opt into transient focus-loss dismissal. A transient
+drawer closes after it has received focus and then loses it, while active text
+input, popup, or item interaction takes precedence. Hosts may additionally
+dismiss when an active drag leaves the drawer rectangle: pickup and in-drawer
+organization keep the drawer visible, while dragging beyond its bounds retracts
+the overlay and keeps the payload alive for exposed workspace targets.
 
 A selected status-bar action toggles its drawer; selecting another drawer tool
 switches content in place. Escape dismisses only when the drawer owns focus and
 no text input, popup, active item, or drag-and-drop operation has precedence.
-Drawer headers provide close and open-in-window actions. At compact widths the
-open-in-window label degrades to an icon with a tooltip.
+Drawer headers provide close and dock-in-layout actions. At compact widths the
+dock-in-layout label degrades to an icon with a tooltip. Feature hosts that
+reuse one content instance focus an existing docked panel from its status-bar
+action. The user closes that panel explicitly before the same action can reopen
+its preserved state in the drawer.
 
 ## Editor Main Window Title Bar
 

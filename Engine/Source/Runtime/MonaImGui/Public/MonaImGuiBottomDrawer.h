@@ -16,9 +16,13 @@ namespace Durin::MonaImGui
 	// Retains caller-owned presentation state for one bottom drawer instance.
 	struct FBottomDrawerState
 	{
-		auto Open() -> void { bOpen = true; }
+		auto Open() -> void
+		{
+			if (!bOpen) bReceivedFocus = false;
+			bOpen = true;
+		}
 		auto Close() -> void { bOpen = false; }
-		auto Toggle() -> void { bOpen = !bOpen; }
+		auto Toggle() -> void { bOpen ? Close() : Open(); }
 		auto IsOpen() const -> bool { return bOpen; }
 		auto IsVisible() const -> bool { return Visibility > 0.0f; }
 		MONAIMGUI_API auto Reset() -> void;
@@ -34,6 +38,7 @@ namespace Durin::MonaImGui
 
 		bool bOpen = false;
 		bool bBegun = false;
+		bool bReceivedFocus = false;
 		int LastDrawFrame = -1;
 	};
 
@@ -49,6 +54,8 @@ namespace Durin::MonaImGui
 		float AnimationDuration = 0.14f;
 		bool bAllowResize = true;
 		bool bAllowEscapeDismissal = true;
+		bool bDismissOnFocusLoss = false;
+		bool bDismissWhenDragLeavesBounds = false;
 	};
 
 	// Reports the resolved animated drawer rectangle in screen space.
@@ -67,4 +74,9 @@ namespace Durin::MonaImGui
 	MONAIMGUI_API auto ResolveBottomDrawerGeometry(
 		const FBottomDrawerConfig& Config,
 		const FBottomDrawerState& State) -> FBottomDrawerGeometry;
+	MONAIMGUI_API auto ShouldDismissBottomDrawerForDrag(
+		const FBottomDrawerConfig& Config,
+		const FBottomDrawerGeometry& Geometry,
+		bool bDragActive,
+		ImVec2 MousePosition) -> bool;
 } // namespace Durin::MonaImGui

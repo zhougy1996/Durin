@@ -8,8 +8,8 @@
 #include "Panels/ContentBrowserItemView.h"
 
 #include "AssetAuthoring.h"
-#include "Assets/ContentBrowserDragDrop.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
+#include "Editor/AssetDragDrop.h"
 #include "Editor/WorkspaceUI.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -1116,10 +1116,10 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
 	{
 		if (Item.Kind != EContentBrowserItemKind::Asset || !ImGui::BeginDragDropSource()) return;
-		FContentBrowserAssetPayload Payload;
+		::Durin::Editor::FAssetDragDropPayload Payload;
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
-		ImGui::SetDragDropPayload(ContentBrowserAssetPayloadType, &Payload, sizeof(Payload));
+		ImGui::SetDragDropPayload(::Durin::Editor::AssetDragDropPayloadType, &Payload, sizeof(Payload));
 		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item), Item.Name.c_str());
 		ImGui::EndDragDropSource();
 	}
@@ -1127,9 +1127,9 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::AcceptAssetDrop(std::string_view DestinationDirectory, bool bPhysicalDirectory) -> void
 	{
 		if (!ImGui::BeginDragDropTarget()) return;
-		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
+		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 		{
-			const auto* AssetPayload = static_cast<const FContentBrowserAssetPayload*>(Payload->Data);
+			const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
 			FAssetPath OldPath;
 			if (FAssetPath::TryCreate(AssetPayload->AssetPath.data(), OldPath))
 			{

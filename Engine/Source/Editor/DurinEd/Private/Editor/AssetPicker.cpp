@@ -3,8 +3,10 @@
 #include "AssetAuthoring.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "Editor/AssetDragDrop.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 namespace Durin::Editor::AssetPicker
 {
@@ -145,6 +147,16 @@ namespace Durin::Editor::AssetPicker
 				+ static_cast<float>(ActionCount) * MonaImGui::GetCompactToolbarIconButtonWidth()
 				+ static_cast<float>(ActionCount - 1) * InterActionSpacing;
 		}
+
+		template <size_t Capacity>
+		auto ReadPayloadString(const std::array<char, Capacity>& Storage)
+			-> std::optional<std::string_view>
+		{
+			const auto Terminator = std::ranges::find(Storage, '\0');
+			if (Terminator == Storage.end()) return std::nullopt;
+			return std::string_view(Storage.data(),
+				static_cast<size_t>(std::distance(Storage.begin(), Terminator)));
+		}
 	}
 
 	auto MatchesPathPrefix(std::string_view AssetPath, std::string_view PathPrefix) -> bool
@@ -206,7 +218,30 @@ namespace Durin::Editor::AssetPicker
 		else ImGui::SetNextItemWidth(-FLT_MIN);
 
 		const ImGuiID PickerId = ImGui::GetID(Config.ComboId);
-		if (ImGui::BeginCombo(Config.ComboId, Preview.c_str()))
+		const auto AssignObject = [&](DObject* Selection) {
+			std::string Error;
+			if (!Config.AssignSelection(Selection, Error))
+			{
+				PickerResult.Error = Error.empty() ? "The selected asset was rejected." : std::move(Error);
+				return;
+			}
+			const std::string SelectedPath = GetAssetPathOrNone(Selection, {});
+			PickerResult.bSelectionChanged = SelectedPath != CurrentPath;
+		};
+		const auto AssignPath = [&](std::string_view SelectionPath) {
+			std::string Error;
+			if (!Config.AssignPathSelection(SelectionPath, Error))
+			{
+				PickerResult.Error = Error.empty() ? "The selected asset path was rejected." : std::move(Error);
+				return;
+			}
+			PickerResult.bSelectionChanged = SelectionPath != CurrentPath;
+		};
+		const bool bComboOpen = ImGui::BeginCombo(Config.ComboId, Preview.c_str());
+		const bool bPickerDisabled = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) != 0;
+		const ImVec2 PickerRectMin = ImGui::GetItemRectMin();
+		const ImVec2 PickerRectMax = ImGui::GetItemRectMax();
+		if (bComboOpen)
 		{
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			ImGui::InputTextWithHint(
@@ -216,25 +251,6 @@ namespace Durin::Editor::AssetPicker
 				Config.SearchText.size()
 			);
 
-			const auto AssignObject = [&](DObject* Selection) {
-				std::string Error;
-				if (!Config.AssignSelection(Selection, Error))
-				{
-					PickerResult.Error = Error.empty() ? "The selected asset was rejected." : std::move(Error);
-					return;
-				}
-				const std::string SelectedPath = GetAssetPathOrNone(Selection, {});
-				PickerResult.bSelectionChanged = SelectedPath != CurrentPath;
-			};
-			const auto AssignPath = [&](std::string_view SelectionPath) {
-				std::string Error;
-				if (!Config.AssignPathSelection(SelectionPath, Error))
-				{
-					PickerResult.Error = Error.empty() ? "The selected asset path was rejected." : std::move(Error);
-					return;
-				}
-				PickerResult.bSelectionChanged = SelectionPath != CurrentPath;
-			};
 			if (Config.bAllowNone && ImGui::Selectable(NoneLabel.data(), CurrentPath.empty()))
 			{
 				if (bPathAssignment) AssignPath({});
@@ -281,6 +297,69 @@ namespace Durin::Editor::AssetPicker
 			else if (Search.bTruncated)
 				ImGui::TextDisabled("Showing the first %u matches. Refine the search to see more.", Config.MaxSearchResults);
 			ImGui::EndCombo();
+		}
+
+		if (!bPickerDisabled
+			&& ImGui::BeginDragDropTargetCustom(ImRect(PickerRectMin, PickerRectMax), PickerId))
+		{
+			const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(
+				AssetDragDropPayloadType,
+				ImGuiDragDropFlags_AcceptBeforeDelivery
+					| ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+			if (Payload)
+			{
+				std::string DropError;
+				FAssetPath DroppedPath;
+				bool bCompatible = false;
+				if (Payload->DataSize != sizeof(FAssetDragDropPayload))
+					DropError = "The dragged asset payload is invalid.";
+				else
+				{
+					const auto* AssetPayload = static_cast<const FAssetDragDropPayload*>(Payload->Data);
+					const std::optional<std::string_view> Path = ReadPayloadString(AssetPayload->AssetPath);
+					const std::optional<std::string_view> ClassName = ReadPayloadString(AssetPayload->AssetClassName);
+					const DClass* CandidateClass = ClassName
+						? FindClassByQualifiedName(*ClassName) : nullptr;
+					if (!Path || !ClassName)
+						DropError = "The dragged asset payload is not terminated.";
+					else if (!FAssetPath::TryCreate(*Path, DroppedPath, &DropError))
+					{
+						if (DropError.empty()) DropError = "The dragged asset path is invalid.";
+					}
+					else if (!MatchesPathPrefix(*Path, Config.PathPrefixFilter))
+						DropError = "The dragged asset is outside the allowed path.";
+					else if (!MatchesClass(CandidateClass, Config.RequiredClass, Config.ClassPolicy))
+						DropError = "The dragged asset does not match the required class.";
+					else bCompatible = true;
+				}
+
+				ImGui::GetWindowDrawList()->AddRect(
+					PickerRectMin, PickerRectMax,
+					MonaImGui::GetThemeColorU32(bCompatible
+						? MonaImGui::EUIThemeColor::Success
+						: MonaImGui::EUIThemeColor::Error),
+					ImGui::GetStyle().FrameRounding, 0, 2.0f);
+				if (!bCompatible && ImGui::IsMouseHoveringRect(PickerRectMin, PickerRectMax))
+					ImGui::SetTooltip("%s", DropError.c_str());
+
+				if (bCompatible && Payload->IsDelivery())
+				{
+					if (bPathAssignment) AssignPath(DroppedPath.GetView());
+					else
+					{
+						DObject* LoadedAsset = nullptr;
+						const Asset::FAssetResult LoadResult = Asset::LoadAsset(DroppedPath, LoadedAsset);
+						if (!LoadResult || !LoadedAsset)
+							PickerResult.Error = LoadResult
+								? "The dropped asset could not be loaded."
+								: LoadResult.Message;
+						else if (!MatchesClass(LoadedAsset->GetClass(), Config.RequiredClass, Config.ClassPolicy))
+							PickerResult.Error = "The loaded asset does not match the required class.";
+						else AssignObject(LoadedAsset);
+					}
+				}
+			}
+			ImGui::EndDragDropTarget();
 		}
 
 		bool bFirstAction = true;

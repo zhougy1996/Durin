@@ -109,8 +109,17 @@ or Console through the reusable MonaImGui drawer. Drawer selection and open
 state are session-transient and do not extend `LevelEditorSession.yaml` or
 `imgui.ini`. Each hosted panel separates its ordinary window wrapper from one
 state-preserving content body, and that body is submitted at most once per
-frame. Content Browser reveal requests select its drawer unless a separate
-Content Browser window is already visible.
+frame. The drawer dismisses after losing focus, except while text input, a
+popup, an active item, or an in-bounds drag-and-drop operation owns the
+interaction. An active drag that leaves the drawer bounds dismisses the overlay
+without discarding its payload, exposing workspace drop targets. Its Dock in
+Layout action opens the selected tool as an ordinary dockable panel while
+preserving its content state and the transient drawer entry point. Selecting
+the matching status-bar action while that single-instance panel is open focuses
+the panel without changing the layout. After the user closes the docked panel,
+the same action opens its preserved state in the drawer again. Content Browser
+reveal requests select its drawer unless a separate Content Browser window is
+already visible.
 
 The Level Editor status bar exposes Content Drawer and Console on the left,
 with workspace status (`Ready` when idle), notification actions, and Activity
@@ -221,9 +230,14 @@ The Level workspace composition root constructs panels and document services in
 dependency order, while panel and dialog presenters remain module-private
 implementation details.
 
-Class-filtered asset selection uses the `DurinEd` asset picker. Its optional path
-prefix limits candidate enumeration without retaining a loaded current
-selection.
+Class-filtered asset selection uses the `DurinEd` asset picker. The shared
+editor asset payload carries canonical path and reflected class identity from
+asset views to picker targets. Compatible drops use the picker's normal
+assignment callback: hard references load and assign the object, while soft
+references retain the canonical path without forcing a load. Incompatible,
+malformed, disabled, or out-of-prefix drops do not mutate the property. Its
+optional path prefix limits candidate enumeration without retaining a loaded
+current selection.
 
 ## Related Documentation
 

@@ -175,51 +175,53 @@ namespace Durin::Editor::Level
 				: 0.0f;
 
 			auto DrawToolButton = [&](const std::string& Label, const char* Tooltip,
-				EEditorStatusBarAction Action) {
+				EEditorStatusBarAction Action, float Width = 0.0f) {
 				const bool bSelected = SelectedDrawer == Action;
 				ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ToolSelected : Transparent);
 				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToolHovered);
 				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToolActive);
-				if (ImGui::Button(Label.c_str())) Result = Action;
+				if (ImGui::Button(Label.c_str(), ImVec2(Width, 0.0f))) Result = Action;
 				ImGui::PopStyleColor(3);
 				if (bSelected)
 				{
 					const ImVec2 ItemMin = ImGui::GetItemRectMin();
 					const ImVec2 ItemMax = ImGui::GetItemRectMax();
-					const float IndicatorInset = ImGui::GetStyle().FramePadding.x;
 					const float IndicatorHeight = MonaImGui::ScaleUI(2.0f);
 					ImGui::GetWindowDrawList()->AddRectFilled(
-						ImVec2(ItemMin.x + IndicatorInset, ItemMax.y - IndicatorHeight),
-						ImVec2(ItemMax.x - IndicatorInset, ItemMax.y),
+						ImVec2(ItemMin.x, ItemMax.y - IndicatorHeight),
+						ItemMax,
 						ImGui::ColorConvertFloat4ToU32(
 							MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionSecondary)),
-						IndicatorHeight);
+						0.0f);
 				}
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
 			};
 
-			if (ImGui::BeginTable("##EditorStatusLayout", 6,
+			if (ImGui::BeginTable("##EditorStatusLayout", 5,
 				ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 			{
-				ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthFixed, ContentWidth);
-				ImGui::TableSetupColumn("Console", ImGuiTableColumnFlags_WidthFixed, ConsoleWidth);
+				ImGui::TableSetupColumn("DrawerTools", ImGuiTableColumnFlags_WidthFixed,
+					ContentWidth + ConsoleWidth);
 				ImGui::TableSetupColumn("Spacer", ImGuiTableColumnFlags_WidthStretch);
 				ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, StatusWidth);
 				ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, ActionWidth);
 				ImGui::TableSetupColumn("Activity", ImGuiTableColumnFlags_WidthFixed, ActivityWidth);
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+					ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
 				DrawToolButton(ContentLabel, "Content Browser (Ctrl+Space)",
-					EEditorStatusBarAction::ContentBrowser);
+					EEditorStatusBarAction::ContentBrowser, ContentWidth);
 
-				ImGui::TableNextColumn();
+				ImGui::SameLine(0.0f, 0.0f);
 				if (ConsoleUnreadCount > 0)
 					ImGui::PushStyleColor(ImGuiCol_Text,
 						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
 				DrawToolButton(ConsoleLabel, ConsoleUnreadCount == 0
 					? "Console" : "Console has unread warnings or errors",
-					EEditorStatusBarAction::Console);
+					EEditorStatusBarAction::Console, ConsoleWidth);
 				if (ConsoleUnreadCount > 0) ImGui::PopStyleColor();
+				ImGui::PopStyleVar();
 
 				ImGui::TableNextColumn();
 				ImGui::TableNextColumn();

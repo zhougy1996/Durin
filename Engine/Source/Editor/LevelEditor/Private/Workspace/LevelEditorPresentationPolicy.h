@@ -12,10 +12,25 @@ namespace Durin::Editor::Level
 		ActivityHistory,
 	};
 
+	enum class EDrawerToggleDisposition : uint8
+	{
+		OpenDrawer,
+		CloseDrawer,
+		FocusPanel,
+	};
+
 	constexpr auto IsLevelEditorPanelOpenByDefault(
 		ELevelEditorPanelRole Role) -> bool
 	{
 		return Role == ELevelEditorPanelRole::Persistent;
+	}
+
+	constexpr auto ResolveDrawerToggleDisposition(
+		bool bPanelOpen, bool bDrawerOpen, bool bSameTool) -> EDrawerToggleDisposition
+	{
+		if (bPanelOpen) return EDrawerToggleDisposition::FocusPanel;
+		if (bDrawerOpen && bSameTool) return EDrawerToggleDisposition::CloseDrawer;
+		return EDrawerToggleDisposition::OpenDrawer;
 	}
 
 	constexpr auto AccumulateConsoleUnreadImportantRecord(

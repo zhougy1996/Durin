@@ -1,7 +1,8 @@
 # Editor Console
 
 The Console combines structured engine logs with a command prompt. Open it from
-the editor's window menu when it is hidden.
+the Level Editor status bar or the editor's window menu when it is hidden. A
+newly opened Console starts at the latest visible record.
 
 ## Log History
 
@@ -80,9 +81,13 @@ example plain "two words" 'three words' escaped\ value
 - The level buttons independently show or hide Trace, Debug, Info, Warn, Error,
   and Fatal log records. They do not hide command results. Fatal uses the error
   presentation color but remains an independent filter level.
-- **Follow** keeps the view at the newest record while the user is already at
-  the bottom. Scrolling upward temporarily suspends following for incoming
+- **Auto Scroll** keeps the view at the newest record while the user is already
+  at the bottom. Scrolling upward temporarily suspends following for incoming
   logs; submitting a command still reveals its echo and result.
+- The down-arrow toolbar action jumps to the latest visible record on demand.
+- Long records wrap to the available panel width instead of requiring
+  horizontal scrolling. Large histories retain variable-height viewport
+  clipping so wrapping does not require drawing every retained record.
 - The toolbar and context menu provide **Copy** for currently visible,
   filtered records and **Clear** with the same behavior as the `clear` command.
 

@@ -3,7 +3,7 @@
 #include "AssetAuthoring.h"
 #include "Components/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Assets/ContentBrowserDragDrop.h"
+#include "Editor/AssetDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
 #include "Editor/WorkspaceUI.h"
@@ -276,9 +276,9 @@ namespace Durin::Editor::Level
 				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
 					&& ImGui::BeginDragDropTarget())
 				{
-					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
+					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 					{
-						const auto* AssetPayload = static_cast<const FContentBrowserAssetPayload*>(Payload->Data);
+						const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
 						FAssetPath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;

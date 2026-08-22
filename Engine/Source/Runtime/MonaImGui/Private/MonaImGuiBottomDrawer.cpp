@@ -19,6 +19,7 @@ namespace Durin::MonaImGui
 		HeightFraction = 0.0f;
 		Visibility = 0.0f;
 		bOpen = false;
+		bReceivedFocus = false;
 		LastDrawFrame = -1;
 	}
 
@@ -61,6 +62,19 @@ namespace Durin::MonaImGui
 		return Geometry;
 	}
 
+	auto ShouldDismissBottomDrawerForDrag(
+		const FBottomDrawerConfig& Config,
+		const FBottomDrawerGeometry& Geometry,
+		bool bDragActive,
+		ImVec2 MousePosition) -> bool
+	{
+		if (!Config.bDismissWhenDragLeavesBounds || !bDragActive) return false;
+		return MousePosition.x < Geometry.Min.x
+			|| MousePosition.y < Geometry.Min.y
+			|| MousePosition.x >= Geometry.Min.x + Geometry.Size.x
+			|| MousePosition.y >= Geometry.Min.y + Geometry.Size.y;
+	}
+
 	auto BeginBottomDrawer(
 		const FBottomDrawerConfig& Config,
 		FBottomDrawerState& State) -> bool
@@ -78,6 +92,9 @@ namespace Durin::MonaImGui
 		State.LastDrawFrame = Frame;
 		const FBottomDrawerGeometry Geometry = ResolveBottomDrawerGeometry(Config, State);
 		if (Geometry.Size.x <= 0.0f || Geometry.Size.y <= 0.0f) return false;
+		if (ShouldDismissBottomDrawerForDrag(
+			Config, Geometry, ImGui::GetDragDropPayload() != nullptr, ImGui::GetMousePos()))
+			State.Close();
 
 		ImGui::SetNextWindowPos(Geometry.Min, ImGuiCond_Always);
 		ImGui::SetNextWindowSize(Geometry.Size, ImGuiCond_Always);
@@ -95,6 +112,15 @@ namespace Durin::MonaImGui
 			return false;
 		}
 		State.bBegun = true;
+		const bool bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		if (bFocused) State.bReceivedFocus = true;
+		else if (Config.bDismissOnFocusLoss && State.bReceivedFocus
+			&& !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive()
+			&& ImGui::GetDragDropPayload() == nullptr
+			&& !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId))
+		{
+			State.Close();
+		}
 
 		if (Config.bAllowResize)
 		{

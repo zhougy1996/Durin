@@ -687,7 +687,13 @@ namespace Durin::Editor::Level
 			: static_cast<ILevelEditorPanel*>(ContentBrowserPanel);
 		if (!TargetPanel) return;
 
-		if (TargetPanel->IsOpen())
+		const ELevelEditorDrawerTool Tool = bConsole
+			? ELevelEditorDrawerTool::Console
+			: ELevelEditorDrawerTool::ContentBrowser;
+		const EDrawerToggleDisposition Disposition = ResolveDrawerToggleDisposition(
+			TargetPanel->IsOpen(), DrawerHostState->Drawer.IsOpen(),
+			DrawerHostState->SelectedTool == Tool);
+		if (Disposition == EDrawerToggleDisposition::FocusPanel)
 		{
 			const char* DisplayName = bConsole ? "Console" : "Content Browser";
 			const char* PanelKey = bConsole ? "OutputLog" : "ContentBrowser";
@@ -698,12 +704,7 @@ namespace Durin::Editor::Level
 			else ContentBrowserPanel->RequestSearchFocus();
 			return;
 		}
-
-		const ELevelEditorDrawerTool Tool = bConsole
-			? ELevelEditorDrawerTool::Console
-			: ELevelEditorDrawerTool::ContentBrowser;
-		if (DrawerHostState->Drawer.IsOpen()
-			&& DrawerHostState->SelectedTool == Tool)
+		if (Disposition == EDrawerToggleDisposition::CloseDrawer)
 		{
 			DrawerHostState->Drawer.Close();
 			return;
@@ -711,7 +712,11 @@ namespace Durin::Editor::Level
 
 		DrawerHostState->SelectedTool = Tool;
 		DrawerHostState->Drawer.Open();
-		if (bConsole) ConsolePanel->RequestInputFocus();
+		if (bConsole)
+		{
+			ConsolePanel->RequestInputFocus();
+			ConsolePanel->RequestScrollToLatest();
+		}
 		else ContentBrowserPanel->RequestSearchFocus();
 	}
 
@@ -723,6 +728,8 @@ namespace Durin::Editor::Level
 			.Id = "Level Editor Bottom Drawer###Durin.LevelEditor.BottomDrawer",
 			.AnchorMin = DrawerHostState->AnchorMin,
 			.AnchorMax = DrawerHostState->AnchorMax,
+			.bDismissOnFocusLoss = true,
+			.bDismissWhenDragLeavesBounds = true,
 		};
 		const ImVec2 DrawerPadding(
 			ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(4.0f));
@@ -739,14 +746,14 @@ namespace Durin::Editor::Level
 			+ ImGui::GetStyle().FramePadding.x * 2.0f;
 		const bool bCompactHeader = ImGui::GetContentRegionAvail().x
 			< MonaImGui::ScaleUI(480.0f);
-		const char* OpenLabel = bCompactHeader ? Icons::Expand : "Open in Window";
+		const char* OpenLabel = bCompactHeader ? Icons::Expand : "Dock in Layout";
 		const float OpenWidth = ImGui::CalcTextSize(OpenLabel).x
 			+ ImGui::GetStyle().FramePadding.x * 2.0f;
 		ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
 			ImGui::GetWindowContentRegionMax().x - OpenWidth - CloseWidth
 				- ImGui::GetStyle().ItemSpacing.x));
-		const bool bOpenInWindow = ImGui::Button(OpenLabel);
-		if (bCompactHeader && ImGui::IsItemHovered()) ImGui::SetTooltip("Open in Window");
+		const bool bDockInLayout = ImGui::Button(OpenLabel);
+		if (bCompactHeader && ImGui::IsItemHovered()) ImGui::SetTooltip("Dock in Layout");
 		ImGui::SameLine();
 		if (ImGui::Button(Icons::Close)) DrawerHostState->Drawer.Close();
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Close drawer");
@@ -763,7 +770,7 @@ namespace Durin::Editor::Level
 		}
 		MonaImGui::EndBottomDrawer(DrawerHostState->Drawer);
 
-		if (bOpenInWindow)
+		if (bDockInLayout)
 		{
 			if (bConsole && ConsolePanel)
 			{
@@ -802,7 +809,11 @@ namespace Durin::Editor::Level
 						DrawerHostState->Drawer.Reset();
 						if (Panel.get() == ContentBrowserPanel)
 							ContentBrowserPanel->RequestSearchFocus();
-						else ConsolePanel->RequestInputFocus();
+						else
+						{
+							ConsolePanel->RequestInputFocus();
+							ConsolePanel->RequestScrollToLatest();
+						}
 					}
 				}
 			}
