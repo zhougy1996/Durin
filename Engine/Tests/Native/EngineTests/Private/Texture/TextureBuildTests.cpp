@@ -67,6 +67,13 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code)) << Error;
 	ASSERT_NE(Decoded, nullptr);
 	EXPECT_EQ(Decoded->Mips.back().Voxels, Platform.Mips.back().Voxels);
+	auto DifferentProducer = Bytes;
+	for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+		DifferentProducer[8 + Byte] = static_cast<Durin::uint8>(
+			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
+	EXPECT_TRUE(Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Decoded, Error, Code)) << Error;
 	Bytes.back() ^= 1;
 	EXPECT_FALSE(Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,

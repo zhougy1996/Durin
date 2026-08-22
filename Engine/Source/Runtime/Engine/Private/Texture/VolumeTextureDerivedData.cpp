@@ -1,9 +1,7 @@
 #include "Texture/TextureDerivedData.h"
 
-#include "Hash/XxHash.h"
 #include "Serialization/Archive.h"
-#include "Serialization/BinaryFormat.h"
-#include "Serialization/EngineWire.h"
+#include "Texture/TexturePayloadContainer.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin
@@ -68,66 +66,30 @@ namespace Durin
 		if (!ToVolumeStableFormat(PlatformData.PixelFormat, StableFormat))
 			return FailVolume(OutError, "Volume texture format has no stable identifier.");
 
-		const uint32 RecordCount = static_cast<uint32>(PlatformData.Mips.size());
-		uint64 DataOffset = EngineWire::AlignUp(TexturePayloadHeaderSize
-			+ static_cast<uint64>(RecordCount) * TexturePayloadRecordSize,
-			TexturePayloadAlignment);
-		std::vector<uint64> DataOffsets;
-		for (const FVolumeTextureMipData& Mip : PlatformData.Mips)
-		{
-			DataOffsets.push_back(DataOffset);
-			if (DataOffset > MaximumTexturePayloadBytes
-				|| Mip.Voxels.size() > MaximumTexturePayloadBytes - DataOffset)
-				return FailVolume(OutError, "Volume texture payload exceeds its byte limit.");
-			DataOffset += Mip.Voxels.size();
-			if (&Mip != &PlatformData.Mips.back())
-				DataOffset = EngineWire::AlignUp(DataOffset, TexturePayloadAlignment);
-		}
-
-		FBinaryWriter Body;
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
+		std::vector<TexturePayloadContainer::FBuildRecord> Records;
+		Records.reserve(PlatformData.Mips.size());
+		for (uint32 MipIndex = 0; MipIndex < PlatformData.Mips.size(); ++MipIndex)
 		{
 			const FVolumeTextureMipData& Mip = PlatformData.Mips[MipIndex];
-			Body.WriteU32(Mip.Depth);
-			Body.WriteU32(MipIndex);
-			Body.WriteU32(Mip.Width);
-			Body.WriteU32(Mip.Height);
-			Body.WriteU32(Mip.RowPitch);
-			Body.WriteU32(Mip.DepthPitch);
-			Body.WriteU64(DataOffsets[MipIndex]);
-			Body.WriteU64(Mip.Voxels.size());
+			Records.push_back({
+				.Record = {
+					.Coordinate = Mip.Depth,
+					.MipIndex = MipIndex,
+					.Width = Mip.Width,
+					.Height = Mip.Height,
+					.RowPitch = Mip.RowPitch,
+					.LayerPitch = Mip.DepthPitch},
+				.Data = std::span<const uint8>(Mip.Voxels)});
 		}
-		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
-		{
-			const FVolumeTextureMipData& Mip = PlatformData.Mips[MipIndex];
-			Body.WriteBytes(std::vector<uint8>(
-				static_cast<size_t>(DataOffsets[MipIndex] - CurrentOffset), 0));
-			Body.WriteBytes(Mip.Voxels);
-			CurrentOffset = DataOffsets[MipIndex] + Mip.Voxels.size();
-		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
-		FBinaryWriter Result;
-		Result.WriteU32(TexturePayloadMagic);
-		Result.WriteU32(TexturePayloadSchemaVersion);
-		Result.WriteU32(VolumeTextureBuilderVersion);
-		Result.WriteU32(static_cast<uint32>(TargetPlatform));
-		Result.WriteU32(static_cast<uint32>(TargetProfile));
-		Result.WriteU32(static_cast<uint32>(ETexturePayloadDimension::Texture3D));
-		Result.WriteU32(static_cast<uint32>(StableFormat));
-		Result.WriteU32(1);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadHeaderSize);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadRecordSize);
-		Result.WriteU64(TexturePayloadHeaderSize);
-		Result.WriteU64(DataOffset);
-		Result.WriteU64(FXxHash64::HashBuffer(BodyBytes).HashValue);
-		Result.WriteU64(0);
-		Result.WriteBytes(BodyBytes);
-		OutBytes = Result.TakeBytes();
-		OutError.clear();
-		return true;
+		return TexturePayloadContainer::Build({
+			.ProducerVersion = VolumeTextureBuilderVersion,
+			.TargetPlatform = TargetPlatform,
+			.TargetProfile = TargetProfile,
+			.Dimension = ETexturePayloadDimension::Texture3D,
+			.StableFormat = StableFormat,
+			.SliceCount = 1,
+			.MipCount = static_cast<uint32>(PlatformData.Mips.size())},
+			Records, OutBytes, OutError);
 	}
 
 	auto ParseVolumeTextureSerializedValue(
@@ -138,7 +100,6 @@ namespace Durin
 		std::string& OutError,
 		EPayloadDecodeError& OutCode) -> bool
 	{
-		using EngineWire::ReadLittleEndianAt;
 		OutPlatformData.reset();
 		OutCode = EPayloadDecodeError::Corrupt;
 		if (!IsVolumeTargetSupported(ExpectedPlatform, ExpectedProfile))
@@ -146,104 +107,58 @@ namespace Durin
 			OutCode = EPayloadDecodeError::Incompatible;
 			return FailVolume(OutError, "Volume texture expected target is unsupported.");
 		}
-		if (Bytes.size() < TexturePayloadHeaderSize)
-			return FailVolume(OutError, "Volume texture payload header is truncated.");
-		uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
-		uint32 Dimension = 0, StableFormat = 0, SliceCount = 0, MipCount = 0;
-		uint32 HeaderSize = 0, RecordCount = 0, RecordSize = 0;
-		uint64 TableOffset = 0, StoredSize = 0, StoredHash = 0, Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
-			|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
-			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
-			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
-			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
-			|| !ReadLittleEndianAt(Bytes, 48, TableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
-			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return FailVolume(OutError, "Volume texture payload header is truncated.");
-		if (Magic != TexturePayloadMagic)
-			return FailVolume(OutError, "Volume texture payload magic is invalid.");
-		if (Schema != TexturePayloadSchemaVersion || Producer != VolumeTextureBuilderVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return FailVolume(OutError, "Volume texture payload version is unsupported.");
-		}
-		if (Platform != static_cast<uint32>(ExpectedPlatform)
-			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return FailVolume(OutError, "Volume texture payload target does not match.");
-		if (Dimension != static_cast<uint32>(ETexturePayloadDimension::Texture3D)
-			|| SliceCount != 1 || MipCount == 0 || MipCount > MaximumTextureMipCount
-			|| RecordCount != MipCount || HeaderSize != TexturePayloadHeaderSize
-			|| RecordSize != TexturePayloadRecordSize || TableOffset != TexturePayloadHeaderSize
-			|| Reserved != 0)
+		TexturePayloadContainer::FDecodedContainer Container;
+		if (!TexturePayloadContainer::Parse(
+			Bytes, ExpectedPlatform, ExpectedProfile, Container, OutError, OutCode))
+			return false;
+		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
+		if (Descriptor.Dimension != ETexturePayloadDimension::Texture3D
+			|| Descriptor.SliceCount != 1 || Descriptor.MipCount == 0
+			|| Descriptor.MipCount > MaximumTextureMipCount
+			|| Container.Records.size() != Descriptor.MipCount)
 			return FailVolume(OutError, "Volume texture payload header layout is invalid.");
-		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes
-			|| FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return FailVolume(OutError, "Volume texture payload size or checksum is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromVolumeStableFormat(StableFormat, PixelFormat))
+		if (!FromVolumeStableFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
 			return FailVolume(OutError, "Volume texture stable format is unsupported.");
 		}
-		const uint64 TableEnd = TableOffset + static_cast<uint64>(RecordCount) * RecordSize;
-		if (TableEnd < TableOffset || TableEnd > StoredSize)
-			return FailVolume(OutError, "Volume texture record table is outside the payload.");
 
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
-		uint64 PreviousEnd = TableEnd;
-		for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex)
+		for (uint32 MipIndex = 0; MipIndex < Descriptor.MipCount; ++MipIndex)
 		{
-			const size_t Offset = static_cast<size_t>(TableOffset
-				+ static_cast<uint64>(MipIndex) * RecordSize);
-			uint32 Depth = 0, StoredMip = 0, Width = 0, Height = 0;
-			uint32 RowPitch = 0, DepthPitch = 0;
-			uint64 DataOffset = 0, ByteCount = 0;
-			if (!ReadLittleEndianAt(Bytes, Offset, Depth)
-				|| !ReadLittleEndianAt(Bytes, Offset + 4, StoredMip)
-				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width)
-				|| !ReadLittleEndianAt(Bytes, Offset + 12, Height)
-				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch)
-				|| !ReadLittleEndianAt(Bytes, Offset + 20, DepthPitch)
-				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset)
-				|| !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
-				return FailVolume(OutError, "Volume texture mip record is truncated.");
-			if (StoredMip != MipIndex || Width == 0 || Height == 0 || Depth == 0
-				|| Width > MaximumVolumeTextureDimension
-				|| Height > MaximumVolumeTextureDimension
-				|| Depth > MaximumVolumeTextureDimension)
+			const TexturePayloadContainer::FRecord& Record = Container.Records[MipIndex];
+			if (Record.MipIndex != MipIndex || Record.Width == 0 || Record.Height == 0
+				|| Record.Coordinate == 0 || Record.Width > MaximumVolumeTextureDimension
+				|| Record.Height > MaximumVolumeTextureDimension
+				|| Record.Coordinate > MaximumVolumeTextureDimension)
 				return FailVolume(OutError, "Volume texture mip identity or dimensions are invalid.");
 			if (MipIndex > 0)
 			{
 				const FVolumeTextureMipData& Previous = Candidate->Mips.back();
-				if (Width != std::max(1u, Previous.Width / 2)
-					|| Height != std::max(1u, Previous.Height / 2)
-					|| Depth != std::max(1u, Previous.Depth / 2))
+				if (Record.Width != std::max(1u, Previous.Width / 2)
+					|| Record.Height != std::max(1u, Previous.Height / 2)
+					|| Record.Coordinate != std::max(1u, Previous.Depth / 2))
 					return FailVolume(OutError, "Volume texture mip progression is invalid.");
 			}
-			const FPixelFormatLayout Slice = GetPixelFormatLayout(PixelFormat, Width, Height);
-			if (Slice.RowPitch != RowPitch || Slice.DataSize != DepthPitch
-				|| Depth > std::numeric_limits<uint64>::max() / DepthPitch
-				|| ByteCount != static_cast<uint64>(DepthPitch) * Depth)
+			const FPixelFormatLayout Slice = GetPixelFormatLayout(
+				PixelFormat, Record.Width, Record.Height);
+			if (Record.LayerPitch == 0 || Slice.RowPitch != Record.RowPitch
+				|| Slice.DataSize != Record.LayerPitch
+				|| Record.Coordinate > std::numeric_limits<uint64>::max() / Record.LayerPitch
+				|| Record.ByteCount != static_cast<uint64>(Record.LayerPitch) * Record.Coordinate)
 				return FailVolume(OutError, "Volume texture mip pitches do not match its format.");
-			if (DataOffset % TexturePayloadAlignment != 0 || DataOffset < PreviousEnd
-				|| DataOffset > StoredSize || ByteCount > StoredSize - DataOffset)
-				return FailVolume(OutError, "Volume texture mip range is invalid.");
-			for (uint64 Padding = PreviousEnd; Padding < DataOffset; ++Padding)
-				if (Bytes[static_cast<size_t>(Padding)] != 0)
-					return FailVolume(OutError, "Volume texture alignment padding is nonzero.");
 			FVolumeTextureMipData& Mip = Candidate->Mips.emplace_back();
-			Mip.Width = Width;
-			Mip.Height = Height;
-			Mip.Depth = Depth;
-			Mip.RowPitch = RowPitch;
-			Mip.DepthPitch = DepthPitch;
-			Mip.Voxels.assign(Bytes.begin() + static_cast<size_t>(DataOffset),
-				Bytes.begin() + static_cast<size_t>(DataOffset + ByteCount));
-			PreviousEnd = DataOffset + ByteCount;
+			Mip.Width = Record.Width;
+			Mip.Height = Record.Height;
+			Mip.Depth = Record.Coordinate;
+			Mip.RowPitch = Record.RowPitch;
+			Mip.DepthPitch = Record.LayerPitch;
+			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			Mip.Voxels.assign(Data.begin(), Data.end());
 		}
-		if (PreviousEnd != StoredSize || !Candidate->IsValid())
+		if (!Candidate->IsValid())
 			return FailVolume(OutError, "Volume texture payload is incomplete or has trailing data.");
 		OutPlatformData = std::move(Candidate);
 		OutError.clear();

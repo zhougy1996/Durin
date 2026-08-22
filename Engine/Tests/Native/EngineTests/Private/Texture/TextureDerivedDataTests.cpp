@@ -333,6 +333,13 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	for (size_t FaceIndex = 0; FaceIndex < Expected.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Expected.Faces[FaceIndex]);
 
+	auto DifferentProducer = First;
+	WriteU32(DifferentProducer, 8, Durin::TextureCubeBuilderVersion + 17);
+	Durin::FCanonicalMemoryReader CompatibleReader(
+		DifferentProducer, Durin::EArchivePurpose::DerivedDataPayload);
+	Actual.Serialize(CompatibleReader, Context);
+	EXPECT_FALSE(CompatibleReader.HasError()) << CompatibleReader.GetError();
+
 	auto WrongOrder = First;
 	WriteU32(WrongOrder, Durin::TexturePayloadHeaderSize, 1);
 	const auto Existing = Actual;

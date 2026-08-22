@@ -1,9 +1,8 @@
 #include "Texture/TextureDerivedData.h"
 
-#include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
-#include "Serialization/EngineWire.h"
 #include "Texture/TextureCube.h"
+#include "Texture/TexturePayloadContainer.h"
 
 namespace Durin
 {
@@ -46,11 +45,6 @@ namespace Durin
 			}
 		}
 
-		auto AlignPayloadOffset(uint64 Offset) -> uint64
-		{
-			return EngineWire::AlignUp(Offset, TexturePayloadAlignment);
-		}
-
 		auto IsCompleteMipChain(const FTexturePlatformData& PlatformData) -> bool
 		{
 			return PlatformData.IsValid()
@@ -87,7 +81,6 @@ namespace Durin
 			return true;
 		}
 
-		using EngineWire::ReadLittleEndianAt;
 	}
 
 	auto BuildTexture2DSerializedValue(
@@ -106,65 +99,29 @@ namespace Durin
 		if (!ToStablePixelFormat(PlatformData.PixelFormat, StableFormat))
 			return Fail("Texture payload pixel format has no stable serialized identifier.", &OutError);
 
-		const uint32 RecordCount = static_cast<uint32>(PlatformData.Mips.size());
-		uint64 DataOffset = AlignPayloadOffset(
-			TexturePayloadHeaderSize + static_cast<uint64>(RecordCount) * TexturePayloadRecordSize);
-		std::vector<uint64> DataOffsets;
-		DataOffsets.reserve(RecordCount);
-		for (const FTexture2DMipData& Mip : PlatformData.Mips)
-		{
-			DataOffsets.push_back(DataOffset);
-			if (Mip.Pixels.size() > MaximumTexturePayloadBytes - DataOffset)
-				return Fail("Texture payload exceeds its stored-size limit.", &OutError);
-			DataOffset += Mip.Pixels.size();
-			if (&Mip != &PlatformData.Mips.back()) DataOffset = AlignPayloadOffset(DataOffset);
-		}
-		if (DataOffset > MaximumTexturePayloadBytes)
-			return Fail("Texture payload exceeds its stored-size limit.", &OutError);
-
-		FBinaryWriter Body;
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
+		std::vector<TexturePayloadContainer::FBuildRecord> Records;
+		Records.reserve(PlatformData.Mips.size());
+		for (uint32 MipIndex = 0; MipIndex < PlatformData.Mips.size(); ++MipIndex)
 		{
 			const FTexture2DMipData& Mip = PlatformData.Mips[MipIndex];
-			Body.WriteU32(0);
-			Body.WriteU32(MipIndex);
-			Body.WriteU32(Mip.Width);
-			Body.WriteU32(Mip.Height);
-			Body.WriteU32(Mip.RowPitch);
-			Body.WriteU32(0);
-			Body.WriteU64(DataOffsets[MipIndex]);
-			Body.WriteU64(Mip.Pixels.size());
+			Records.push_back({
+				.Record = {
+					.Coordinate = 0,
+					.MipIndex = MipIndex,
+					.Width = Mip.Width,
+					.Height = Mip.Height,
+					.RowPitch = Mip.RowPitch},
+				.Data = std::span<const uint8>(Mip.Pixels)});
 		}
-		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
-		{
-			std::vector<uint8> Padding(static_cast<size_t>(DataOffsets[MipIndex] - CurrentOffset), 0);
-			Body.WriteBytes(Padding);
-			Body.WriteBytes(PlatformData.Mips[MipIndex].Pixels);
-			CurrentOffset = DataOffsets[MipIndex] + PlatformData.Mips[MipIndex].Pixels.size();
-		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
-
-		FBinaryWriter Result;
-		Result.WriteU32(TexturePayloadMagic);
-		Result.WriteU32(TexturePayloadSchemaVersion);
-		Result.WriteU32(Texture2DPayloadProducerVersion);
-		Result.WriteU32(static_cast<uint32>(TargetPlatform));
-		Result.WriteU32(static_cast<uint32>(TargetProfile));
-		Result.WriteU32(static_cast<uint32>(ETexturePayloadDimension::Texture2D));
-		Result.WriteU32(static_cast<uint32>(StableFormat));
-		Result.WriteU32(1);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadHeaderSize);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadRecordSize);
-		Result.WriteU64(TexturePayloadHeaderSize);
-		Result.WriteU64(DataOffset);
-		Result.WriteU64(FXxHash64::HashBuffer(BodyBytes).HashValue);
-		Result.WriteU64(0);
-		Result.WriteBytes(BodyBytes);
-		OutBytes = Result.TakeBytes();
-		return true;
+		return TexturePayloadContainer::Build({
+			.ProducerVersion = Texture2DPayloadProducerVersion,
+			.TargetPlatform = TargetPlatform,
+			.TargetProfile = TargetProfile,
+			.Dimension = ETexturePayloadDimension::Texture2D,
+			.StableFormat = StableFormat,
+			.SliceCount = 1,
+			.MipCount = static_cast<uint32>(PlatformData.Mips.size())},
+			Records, OutBytes, OutError);
 	}
 
 	auto ParseTexture2DSerializedValue(
@@ -182,120 +139,54 @@ namespace Durin
 			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail("Texture payload expected target is unsupported.", &OutError);
 		}
-		if (Bytes.size() < TexturePayloadHeaderSize)
-			return Fail("Texture payload header is truncated.", &OutError);
-
-		uint32 Magic = 0;
-		uint32 SchemaVersion = 0;
-		uint32 BuilderVersion = 0;
-		uint32 Platform = 0;
-		uint32 Profile = 0;
-		uint32 Dimension = 0;
-		uint32 StableFormat = 0;
-		uint32 SliceCount = 0;
-		uint32 MipCount = 0;
-		uint32 HeaderSize = 0;
-		uint32 RecordCount = 0;
-		uint32 RecordSize = 0;
-		uint64 RecordTableOffset = 0;
-		uint64 StoredSize = 0;
-		uint64 StoredHash = 0;
-		uint64 Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
-			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
-			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
-			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
-			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
-			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
-			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return Fail("Texture payload header is truncated.", &OutError);
-		if (Magic != TexturePayloadMagic) return Fail("Texture payload magic is invalid.", &OutError);
-		if (SchemaVersion != TexturePayloadSchemaVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail("Texture payload schema version is unsupported.", &OutError);
-		}
-		// Producer identity is diagnostic metadata. Runtime compatibility is owned
-		// by the payload schema and stable value identifiers.
-		(void)BuilderVersion;
-		if (Platform != static_cast<uint32>(ExpectedPlatform)
-			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Fail("Texture payload target platform or profile does not match.", &OutError);
-		if (Dimension != static_cast<uint32>(ETexturePayloadDimension::Texture2D)
-			|| SliceCount != 1 || MipCount == 0 || MipCount > MaximumTextureMipCount
-			|| RecordCount != MipCount || HeaderSize != TexturePayloadHeaderSize
-			|| RecordSize != TexturePayloadRecordSize || RecordTableOffset != TexturePayloadHeaderSize
-			|| Reserved != 0)
+		TexturePayloadContainer::FDecodedContainer Container;
+		if (!TexturePayloadContainer::Parse(
+			Bytes, ExpectedPlatform, ExpectedProfile, Container, OutError, OutCode))
+			return false;
+		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
+		if (Descriptor.Dimension != ETexturePayloadDimension::Texture2D
+			|| Descriptor.SliceCount != 1 || Descriptor.MipCount == 0
+			|| Descriptor.MipCount > MaximumTextureMipCount
+			|| Container.Records.size() != Descriptor.MipCount)
 			return Fail("Texture2D payload header layout or counts are invalid.", &OutError);
-		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return Fail("Texture payload stored size is invalid.", &OutError);
-		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return Fail("Texture payload checksum does not match.", &OutError);
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromStablePixelFormat(StableFormat, PixelFormat))
+		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail("Texture payload pixel format identifier is unsupported.", &OutError);
 		}
-		const uint64 TableEnd = RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
-		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
-			return Fail("Texture payload record table is outside the stored object.", &OutError);
 
 		auto Candidate = std::make_unique<FTexturePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
-		Candidate->Mips.reserve(MipCount);
-		uint64 PreviousEnd = TableEnd;
-		for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex)
+		Candidate->Mips.reserve(Descriptor.MipCount);
+		for (uint32 MipIndex = 0; MipIndex < Descriptor.MipCount; ++MipIndex)
 		{
-			const size_t Offset = static_cast<size_t>(
-				RecordTableOffset + static_cast<uint64>(MipIndex) * RecordSize);
-			uint32 Slice = 0;
-			uint32 StoredMip = 0;
-			uint32 Width = 0;
-			uint32 Height = 0;
-			uint32 RowPitch = 0;
-			uint32 RecordReserved = 0;
-			uint64 DataOffset = 0;
-			uint64 ByteCount = 0;
-			if (!ReadLittleEndianAt(Bytes, Offset, Slice) || !ReadLittleEndianAt(Bytes, Offset + 4, StoredMip)
-				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width) || !ReadLittleEndianAt(Bytes, Offset + 12, Height)
-				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch) || !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
-				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset) || !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
-				return Fail("Texture payload subresource record is truncated.", &OutError);
-			if (Slice != 0 || StoredMip != MipIndex || RecordReserved != 0
-				|| Width == 0 || Height == 0 || Width > MaximumTexture2DDimension
-				|| Height > MaximumTexture2DDimension)
+			const TexturePayloadContainer::FRecord& Record = Container.Records[MipIndex];
+			if (Record.Coordinate != 0 || Record.MipIndex != MipIndex || Record.LayerPitch != 0
+				|| Record.Width == 0 || Record.Height == 0
+				|| Record.Width > MaximumTexture2DDimension
+				|| Record.Height > MaximumTexture2DDimension)
 				return Fail("Texture payload subresource identity or dimensions are invalid.", &OutError);
 			if (MipIndex > 0)
 			{
 				const FTexture2DMipData& PreviousMip = Candidate->Mips.back();
-				if (Width != std::max(PreviousMip.Width / 2, 1u)
-					|| Height != std::max(PreviousMip.Height / 2, 1u))
+				if (Record.Width != std::max(PreviousMip.Width / 2, 1u)
+					|| Record.Height != std::max(PreviousMip.Height / 2, 1u))
 					return Fail("Texture payload mip dimensions are not a complete progression.", &OutError);
 			}
-			const FPixelFormatLayout Layout = GetPixelFormatLayout(PixelFormat, Width, Height);
-			if (RowPitch != Layout.RowPitch || ByteCount != Layout.DataSize)
+			const FPixelFormatLayout Layout = GetPixelFormatLayout(
+				PixelFormat, Record.Width, Record.Height);
+			if (Record.RowPitch != Layout.RowPitch || Record.ByteCount != Layout.DataSize)
 				return Fail("Texture payload subresource layout does not match its format.", &OutError);
-			if (DataOffset % TexturePayloadAlignment != 0 || DataOffset < PreviousEnd
-				|| DataOffset > StoredSize || ByteCount > StoredSize - DataOffset)
-				return Fail("Texture payload subresource range is misaligned, overlapping, or outside the object.", &OutError);
-			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < DataOffset; ++PaddingOffset)
-				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail("Texture payload contains non-zero alignment padding.", &OutError);
 
 			FTexture2DMipData& Mip = Candidate->Mips.emplace_back();
-			Mip.Width = Width;
-			Mip.Height = Height;
-			Mip.RowPitch = RowPitch;
-			Mip.Pixels.assign(
-				Bytes.begin() + static_cast<size_t>(DataOffset),
-				Bytes.begin() + static_cast<size_t>(DataOffset + ByteCount));
-			PreviousEnd = DataOffset + ByteCount;
+			Mip.Width = Record.Width;
+			Mip.Height = Record.Height;
+			Mip.RowPitch = Record.RowPitch;
+			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
-		if (PreviousEnd != StoredSize)
-			return Fail("Texture payload contains trailing data.", &OutError);
 		if (!IsCompleteMipChain(*Candidate))
 			return Fail("Texture payload mip chain is incomplete or invalid.", &OutError);
 		OutPlatformData = std::move(Candidate);
@@ -371,77 +262,31 @@ namespace Durin
 
 		const uint32 MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size());
 		const uint32 RecordCount = static_cast<uint32>(TextureCubeFaceCount) * MipCount;
-		uint64 DataOffset = AlignPayloadOffset(
-			TexturePayloadHeaderSize + static_cast<uint64>(RecordCount) * TexturePayloadRecordSize);
-		std::vector<uint64> DataOffsets;
-		DataOffsets.reserve(RecordCount);
-		for (const FTexturePlatformData& Face : PlatformData.Faces)
-		{
-			for (const FTexture2DMipData& Mip : Face.Mips)
-			{
-				DataOffsets.push_back(DataOffset);
-				if (Mip.Pixels.size() > MaximumTexturePayloadBytes - DataOffset)
-					return Fail("Texture payload exceeds its stored-size limit.", &OutError);
-				DataOffset += Mip.Pixels.size();
-				if (DataOffsets.size() != RecordCount) DataOffset = AlignPayloadOffset(DataOffset);
-			}
-		}
-		if (DataOffset > MaximumTexturePayloadBytes)
-			return Fail("Texture payload exceeds its stored-size limit.", &OutError);
-
-		FBinaryWriter Body;
-		uint32 RecordIndex = 0;
+		std::vector<TexturePayloadContainer::FBuildRecord> Records;
+		Records.reserve(RecordCount);
 		for (uint32 Slice = 0; Slice < TextureCubeFaceCount; ++Slice)
 		{
-			for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex, ++RecordIndex)
+			for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex)
 			{
 				const FTexture2DMipData& Mip = PlatformData.Faces[Slice].Mips[MipIndex];
-				Body.WriteU32(Slice);
-				Body.WriteU32(MipIndex);
-				Body.WriteU32(Mip.Width);
-				Body.WriteU32(Mip.Height);
-				Body.WriteU32(Mip.RowPitch);
-				Body.WriteU32(0);
-				Body.WriteU64(DataOffsets[RecordIndex]);
-				Body.WriteU64(Mip.Pixels.size());
+				Records.push_back({
+					.Record = {
+						.Coordinate = Slice,
+						.MipIndex = MipIndex,
+						.Width = Mip.Width,
+						.Height = Mip.Height,
+						.RowPitch = Mip.RowPitch},
+					.Data = std::span<const uint8>(Mip.Pixels)});
 			}
 		}
-		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
-		RecordIndex = 0;
-		for (const FTexturePlatformData& Face : PlatformData.Faces)
-		{
-			for (const FTexture2DMipData& Mip : Face.Mips)
-			{
-				std::vector<uint8> Padding(
-					static_cast<size_t>(DataOffsets[RecordIndex] - CurrentOffset), 0);
-				Body.WriteBytes(Padding);
-				Body.WriteBytes(Mip.Pixels);
-				CurrentOffset = DataOffsets[RecordIndex] + Mip.Pixels.size();
-				++RecordIndex;
-			}
-		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
-
-		FBinaryWriter Result;
-		Result.WriteU32(TexturePayloadMagic);
-		Result.WriteU32(TexturePayloadSchemaVersion);
-		Result.WriteU32(TextureCubeBuilderVersion);
-		Result.WriteU32(static_cast<uint32>(TargetPlatform));
-		Result.WriteU32(static_cast<uint32>(TargetProfile));
-		Result.WriteU32(static_cast<uint32>(ETexturePayloadDimension::TextureCube));
-		Result.WriteU32(static_cast<uint32>(StableFormat));
-		Result.WriteU32(TextureCubeFaceCount);
-		Result.WriteU32(MipCount);
-		Result.WriteU32(TexturePayloadHeaderSize);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadRecordSize);
-		Result.WriteU64(TexturePayloadHeaderSize);
-		Result.WriteU64(DataOffset);
-		Result.WriteU64(FXxHash64::HashBuffer(BodyBytes).HashValue);
-		Result.WriteU64(0);
-		Result.WriteBytes(BodyBytes);
-		OutBytes = Result.TakeBytes();
-		return true;
+		return TexturePayloadContainer::Build({
+			.ProducerVersion = TextureCubeBuilderVersion,
+			.TargetPlatform = TargetPlatform,
+			.TargetProfile = TargetProfile,
+			.Dimension = ETexturePayloadDimension::TextureCube,
+			.StableFormat = StableFormat,
+			.SliceCount = TextureCubeFaceCount,
+			.MipCount = MipCount}, Records, OutBytes, OutError);
 	}
 
 	auto ParseTextureCubeSerializedValue(
@@ -459,145 +304,71 @@ namespace Durin
 			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail("Texture payload expected target is unsupported.", &OutError);
 		}
-		if (Bytes.size() < TexturePayloadHeaderSize)
-			return Fail("Texture payload header is truncated.", &OutError);
-
-		uint32 Magic = 0;
-		uint32 SchemaVersion = 0;
-		uint32 BuilderVersion = 0;
-		uint32 Platform = 0;
-		uint32 Profile = 0;
-		uint32 Dimension = 0;
-		uint32 StableFormat = 0;
-		uint32 SliceCount = 0;
-		uint32 MipCount = 0;
-		uint32 HeaderSize = 0;
-		uint32 RecordCount = 0;
-		uint32 RecordSize = 0;
-		uint64 RecordTableOffset = 0;
-		uint64 StoredSize = 0;
-		uint64 StoredHash = 0;
-		uint64 Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
-			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
-			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
-			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
-			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
-			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
-			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return Fail("Texture payload header is truncated.", &OutError);
-		if (Magic != TexturePayloadMagic) return Fail("Texture payload magic is invalid.", &OutError);
-		if (SchemaVersion != TexturePayloadSchemaVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail("Texture payload schema version is unsupported.", &OutError);
-		}
-		if (BuilderVersion != TextureCubeBuilderVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail("TextureCube payload builder version is unsupported.", &OutError);
-		}
-		if (Platform != static_cast<uint32>(ExpectedPlatform)
-			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Fail("Texture payload target platform or profile does not match.", &OutError);
-		if (Dimension != static_cast<uint32>(ETexturePayloadDimension::TextureCube)
-			|| SliceCount != TextureCubeFaceCount || MipCount == 0
-			|| MipCount > MaximumTextureMipCount
-			|| RecordCount != SliceCount * MipCount
-			|| HeaderSize != TexturePayloadHeaderSize
-			|| RecordSize != TexturePayloadRecordSize
-			|| RecordTableOffset != TexturePayloadHeaderSize
-			|| Reserved != 0)
+		TexturePayloadContainer::FDecodedContainer Container;
+		if (!TexturePayloadContainer::Parse(
+			Bytes, ExpectedPlatform, ExpectedProfile, Container, OutError, OutCode))
+			return false;
+		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
+		if (Descriptor.Dimension != ETexturePayloadDimension::TextureCube
+			|| Descriptor.SliceCount != TextureCubeFaceCount || Descriptor.MipCount == 0
+			|| Descriptor.MipCount > MaximumTextureMipCount
+			|| Container.Records.size() != Descriptor.SliceCount * Descriptor.MipCount)
 			return Fail("TextureCube payload header layout or counts are invalid.", &OutError);
-		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return Fail("Texture payload stored size is invalid.", &OutError);
-		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return Fail("Texture payload checksum does not match.", &OutError);
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromStablePixelFormat(StableFormat, PixelFormat))
+		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail("Texture payload pixel format identifier is unsupported.", &OutError);
 		}
-		const uint64 TableEnd =
-			RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
-		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
-			return Fail("Texture payload record table is outside the stored object.", &OutError);
 
 		auto Candidate = std::make_unique<FTextureCubePlatformData>();
 		Candidate->PixelFormat = PixelFormat;
-		uint64 PreviousEnd = TableEnd;
-		for (uint32 RecordIndex = 0; RecordIndex < RecordCount; ++RecordIndex)
+		for (uint32 RecordIndex = 0; RecordIndex < Container.Records.size(); ++RecordIndex)
 		{
-			const uint32 ExpectedSlice = RecordIndex / MipCount;
-			const uint32 ExpectedMip = RecordIndex % MipCount;
-			const size_t Offset = static_cast<size_t>(
-				RecordTableOffset + static_cast<uint64>(RecordIndex) * RecordSize);
-			uint32 Slice = 0;
-			uint32 MipIndex = 0;
-			uint32 Width = 0;
-			uint32 Height = 0;
-			uint32 RowPitch = 0;
-			uint32 RecordReserved = 0;
-			uint64 DataOffset = 0;
-			uint64 ByteCount = 0;
-			if (!ReadLittleEndianAt(Bytes, Offset, Slice) || !ReadLittleEndianAt(Bytes, Offset + 4, MipIndex)
-				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width) || !ReadLittleEndianAt(Bytes, Offset + 12, Height)
-				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch)
-				|| !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
-				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset)
-				|| !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
-				return Fail("Texture payload subresource record is truncated.", &OutError);
-			if (Slice != ExpectedSlice || MipIndex != ExpectedMip || RecordReserved != 0
-				|| Width == 0 || Height == 0 || Width != Height
-				|| Width > MaximumTextureCubeDimension)
+			const uint32 ExpectedSlice = RecordIndex / Descriptor.MipCount;
+			const uint32 ExpectedMip = RecordIndex % Descriptor.MipCount;
+			const TexturePayloadContainer::FRecord& Record = Container.Records[RecordIndex];
+			if (Record.Coordinate != ExpectedSlice || Record.MipIndex != ExpectedMip
+				|| Record.LayerPitch != 0 || Record.Width == 0 || Record.Height == 0
+				|| Record.Width != Record.Height || Record.Width > MaximumTextureCubeDimension)
 				return Fail("TextureCube payload subresource identity or dimensions are invalid.", &OutError);
 
-			FTexturePlatformData& Face = Candidate->Faces[Slice];
+			FTexturePlatformData& Face = Candidate->Faces[ExpectedSlice];
 			Face.PixelFormat = PixelFormat;
-			if (MipIndex > 0)
+			if (ExpectedMip > 0)
 			{
 				const FTexture2DMipData& PreviousMip = Face.Mips.back();
-				if (Width != std::max(PreviousMip.Width / 2, 1u)
-					|| Height != std::max(PreviousMip.Height / 2, 1u))
+				if (Record.Width != std::max(PreviousMip.Width / 2, 1u)
+					|| Record.Height != std::max(PreviousMip.Height / 2, 1u))
 					return Fail("TextureCube payload mip dimensions are not a complete progression.", &OutError);
 			}
-			else if (Slice > 0)
+			else if (ExpectedSlice > 0)
 			{
 				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[0];
-				if (Width != Reference.Width || Height != Reference.Height)
+				if (Record.Width != Reference.Width || Record.Height != Reference.Height)
 					return Fail("TextureCube payload face dimensions do not match.", &OutError);
 			}
-			const FPixelFormatLayout Layout = GetPixelFormatLayout(PixelFormat, Width, Height);
-			if (RowPitch != Layout.RowPitch || ByteCount != Layout.DataSize)
+			const FPixelFormatLayout Layout = GetPixelFormatLayout(
+				PixelFormat, Record.Width, Record.Height);
+			if (Record.RowPitch != Layout.RowPitch || Record.ByteCount != Layout.DataSize)
 				return Fail("Texture payload subresource layout does not match its format.", &OutError);
-			if (Slice > 0)
+			if (ExpectedSlice > 0)
 			{
-				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[MipIndex];
-				if (Width != Reference.Width || Height != Reference.Height
-					|| RowPitch != Reference.RowPitch || ByteCount != Reference.Pixels.size())
+				const FTexture2DMipData& Reference = Candidate->Faces[0].Mips[ExpectedMip];
+				if (Record.Width != Reference.Width || Record.Height != Reference.Height
+					|| Record.RowPitch != Reference.RowPitch
+					|| Record.ByteCount != Reference.Pixels.size())
 					return Fail("TextureCube payload faces have incompatible mip layouts.", &OutError);
 			}
-			if (DataOffset % TexturePayloadAlignment != 0 || DataOffset < PreviousEnd
-				|| DataOffset > StoredSize || ByteCount > StoredSize - DataOffset)
-				return Fail("Texture payload subresource range is misaligned, overlapping, or outside the object.", &OutError);
-			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < DataOffset; ++PaddingOffset)
-				if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
-					return Fail("Texture payload contains non-zero alignment padding.", &OutError);
 
 			FTexture2DMipData& Mip = Face.Mips.emplace_back();
-			Mip.Width = Width;
-			Mip.Height = Height;
-			Mip.RowPitch = RowPitch;
-			Mip.Pixels.assign(
-				Bytes.begin() + static_cast<size_t>(DataOffset),
-				Bytes.begin() + static_cast<size_t>(DataOffset + ByteCount));
-			PreviousEnd = DataOffset + ByteCount;
+			Mip.Width = Record.Width;
+			Mip.Height = Record.Height;
+			Mip.RowPitch = Record.RowPitch;
+			const std::span<const uint8> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
-		if (PreviousEnd != StoredSize)
-			return Fail("Texture payload contains trailing data.", &OutError);
 		if (!IsCompleteCubeMipChain(*Candidate))
 			return Fail("TextureCube payload mip chains are incomplete or invalid.", &OutError);
 		OutPlatformData = std::move(Candidate);
