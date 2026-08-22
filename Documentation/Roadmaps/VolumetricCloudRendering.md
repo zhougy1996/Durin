@@ -55,8 +55,8 @@ completed P4 on 2026-08-23. Clouds now use the selected prepared directional
 light for fixed bounded phase, full-density self-transmittance, and ambient
 radiance; a Renderer-owned full-resolution `R8_UNORM` visibility target
 multiplies only surface directional lighting. Both named executors pass the 4K
-image, timing, memory, fallback, recovery, and release gates. P5 is now the next
-eligible child plan; P6 remains ordered proposed work.
+image, timing, memory, fallback, recovery, and release gates. P5 is now active;
+P6 remains ordered proposed work.
 
 ## Outcome
 
@@ -214,11 +214,11 @@ flowchart LR
 | P2.5: Volume import and generic diagnostics | Required; completed 2026-08-21 | [Volume Texture Import and Cloud Diagnostics](../Plans/VolumeTextureImportAndCloudDiagnostics.md) | P0 supplies the volume build/cook/runtime asset; P2 supplies assignable Base/Detail properties and reasoned eligibility can remain Engine-owned. | Met: users import and reimport deterministic R8/RGBA8 PNG-slice volumes through the normal Content Browser, assign them to a cloud, and see an exact generic Details status; package/cook/runtime and real rendered-output gates pass without a specialized editor. |
 | P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../Plans/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
 | P4: Lighting and cloud shadows | Required; completed 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../Plans/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable; the frozen Stage 0 contract selected the phase model, receiver representation, fixtures, and numeric gates before implementation. | Met: directional scattering, full-density self-transmittance, ambient contribution, and full-resolution bounded receiver visibility respond deterministically to light/cloud changes, preserve existing lighting ownership, and pass explicit fallback, recovery, inline/threaded 4K, and memory gates. |
-| P5: Authoring and editor workflow | Required | `VolumetricCloudAuthoringWorkflow` | P2-P4 freeze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path and real production-source evidence identifies any justified generation or richer adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
+| P5: Authoring and editor workflow | Required; active | [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Users can create/select cloud content, edit and persist settings, inspect volume/cloud previews and debug modes, choose quality presets, observe failures/performance, and complete save/reload/world-reopen workflows. |
 | P6: Production qualification and contract publication | Required | `VolumetricCloudProductionQualification` | P1-P5, including P2.5, pass their acceptance gates and the remaining cross-feature qualification matrix is frozen. | Required adapters, executors, view routes, camera regimes, reload/recovery cases, memory/timing budgets, cook/package behavior, editor smoke, aggregate tests, and full build pass; lasting contracts are published and the roadmap can close. |
 
-P0-P4 are complete. P5 is the next eligible cloud child plan; P6 remains an
-ordered proposed plan and cannot start before P5 closes.
+P0-P4 are complete and P5 is active. P6 remains an ordered proposed plan and
+cannot start before P5 closes.
 
 ## Child Plan Boundaries
 
@@ -282,14 +282,14 @@ It does not implement a sky-atmosphere system, multiple scattering, local-light
 volumetrics, new light-component ownership, or replace existing geometric
 directional shadows.
 
-### `VolumetricCloudAuthoringWorkflow`
+### [Volumetric Cloud Authoring Workflow](../Plans/VolumetricCloudAuthoringWorkflow.md)
 
-Owns procedural generation or richer source adapters justified after the first
-imported production assets, cloud asset-role presentation, component Details
-layout, quality presets, volume/cloud preview, renderer debug-view controls,
-performance presentation, and persistent specialized-editor workflow
-validation. It builds on P2.5 import provenance and eligibility diagnostics
-rather than replacing them.
+Owns exact volume slice inspection, cloud asset-role presentation, component
+Details layout, per-view quality presets, production-backed cloud debug-view
+controls, nonblocking performance/route presentation, and persistent
+specialized-editor workflow validation. It builds on P2.5 import provenance and
+eligibility diagnostics rather than replacing them. No current production
+evidence justifies procedural generation or a richer source adapter.
 
 It must reuse `DVolumeTexture`, TextureBuild, reflected component properties,
 Renderer diagnostics, and existing preview infrastructure. It does not invent
@@ -337,7 +337,7 @@ earlier plan gates.
 | Quality settings become serialized dispatch internals. | P2 exposes physical intent; P3 maps named tiers to implementation policy and diagnostics. |
 | Cloud lighting silently diverges from scene light selection. | P4 consumes the established prepared directional-light contract and validates deterministic active-light mutation and fallback. |
 | Cloud shadows expand into an atmosphere or lighting rewrite. | P4 freezes one receiver representation and budget; atmosphere LUTs, aerial perspective, local lights, and multiple scattering remain excluded. |
-| Editor work grows a general volume-content platform. | P2.5 freezes one direct R8/RGBA8 row-major PNG-atlas format and one generic status row; P5 adds only richer adapters/previews justified by named production assets. |
+| Editor work grows a general volume-content platform. | P2.5 freezes one direct R8/RGBA8 row-major PNG-atlas format and one generic status row; P5 adds bounded slice previews and admits richer adapters or generation only when justified by named production assets. |
 | Compute/Renderer work overlaps the active integration plan. | P1 cannot activate until Compute Renderer Integration completes and publishes its lasting contracts. |
 | Manual pass/resource management becomes materially unsafe as cloud phases grow. | Each plan records transitions and lifetime explicitly; a Render Graph plan activates only from concrete transition/aliasing defects or measured transient-memory pressure, not pass count alone. |
 
