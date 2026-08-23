@@ -38,6 +38,7 @@ commands:
 | `viewport.camera.speed` | `viewport.camera.speed [unitsPerSecond]` | Queries or sets the editor viewport fly speed. |
 | `viewport.camera.move` | `viewport.camera.move <forward> [right] [up]` | Moves the editor camera along its local axes. |
 | `viewport.camera.position` | `viewport.camera.position [x y z]` | Queries or sets the editor camera world position. |
+| `viewport.specular-aa` | `viewport.specular-aa [on\|off\|toggle]` | Queries or changes the session-local Specular AA state for the editor viewport. |
 
 Other runtime or editor modules may register commands while they are loaded.
 Use `help` in the Console for the authoritative list available in the current
@@ -49,6 +50,7 @@ Examples:
 help
 help clear
 clear
+viewport.specular-aa toggle
 ```
 
 ## Input And Navigation

@@ -82,12 +82,12 @@ namespace Durin::Editor::Level
 		CameraPreviewSceneViewport = FSceneViewport::CreateOffscreen(CameraPreviewViewportClient.get());
 		CameraPreviewViewportWidget->SetDisplaySource(CameraPreviewSceneViewport);
 		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
-		RegisterCameraConsoleCommands();
+		RegisterViewportConsoleCommands();
 	}
 
 	FSceneViewportPanel::~FSceneViewportPanel()
 	{
-		for (const FConsoleCommandHandle Handle : CameraConsoleCommandHandles)
+		for (const FConsoleCommandHandle Handle : ViewportConsoleCommandHandles)
 			FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
 		CameraPreviewSceneViewport.reset();
@@ -95,12 +95,12 @@ namespace Durin::Editor::Level
 		SceneViewport.reset();
 	}
 
-	auto FSceneViewportPanel::RegisterCameraConsoleCommands() -> void
+	auto FSceneViewportPanel::RegisterViewportConsoleCommands() -> void
 	{
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
 			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(
 				std::move(Desc), OwnerGate))
-				CameraConsoleCommandHandles.push_back(Handle);
+				ViewportConsoleCommandHandles.push_back(Handle);
 		};
 		RegisterCommand({"viewport.camera.speed", "Gets or sets the editor viewport fly speed.", "viewport.camera.speed [unitsPerSecond]", [this](std::span<const std::string> Args) {
 			if (ViewportClient == nullptr || Args.size() > 1) return FConsoleCommandResult::Failure("Usage: viewport.camera.speed [unitsPerSecond]");
@@ -141,6 +141,21 @@ namespace Durin::Editor::Level
 			}
 			const FVector3& Location = ViewportClient->GetCameraTransform().GetLocation();
 			return FConsoleCommandResult::Success(std::format("Editor camera position: {:.3f} {:.3f} {:.3f}", Location.x, Location.y, Location.z));
+		}});
+		RegisterCommand({"viewport.specular-aa", "Gets or sets Specular AA for the editor viewport.", "viewport.specular-aa [on|off|toggle]", [this](std::span<const std::string> Args) {
+			if (ViewportClient == nullptr || Args.size() > 1)
+				return FConsoleCommandResult::Failure("Usage: viewport.specular-aa [on|off|toggle]");
+			FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+			if (!Args.empty())
+			{
+				if (Args[0] == "on") Settings.Mode.bEnableSpecularAA = true;
+				else if (Args[0] == "off") Settings.Mode.bEnableSpecularAA = false;
+				else if (Args[0] == "toggle") Settings.Mode.bEnableSpecularAA = !Settings.Mode.bEnableSpecularAA;
+				else return FConsoleCommandResult::Failure("Usage: viewport.specular-aa [on|off|toggle]");
+				ViewportClient->SetViewSettings(Settings);
+			}
+			return FConsoleCommandResult::Success(std::format(
+				"Editor viewport Specular AA: {}", Settings.Mode.bEnableSpecularAA ? "enabled" : "disabled"));
 		}});
 	}
 

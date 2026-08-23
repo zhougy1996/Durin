@@ -62,7 +62,7 @@ namespace Durin::Editor::Level
 		auto UpdateCameraPreview(FLevelEditorContext& Context) -> void;
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
-		auto RegisterCameraConsoleCommands() -> void;
+		auto RegisterViewportConsoleCommands() -> void;
 		FModuleOwnedCallbackGate OwnerGate;
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
@@ -78,6 +78,6 @@ namespace Durin::Editor::Level
 		bool bShowStatistics = false;
 		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
 		::Durin::Editor::EPlayDestination PreferredPlayDestination;
-		std::vector<FConsoleCommandHandle> CameraConsoleCommandHandles;
+		std::vector<FConsoleCommandHandle> ViewportConsoleCommandHandles;
 	};
 } // namespace Durin::Editor::Level
