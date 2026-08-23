@@ -136,6 +136,39 @@ TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenLowRoughnessSweep)
 	}
 }
 
+TEST(FMaterialTests, SpecularAARoughnessFilteringIsFiniteBoundedAndMonotonic)
+{
+	EXPECT_FLOAT_EQ(Durin::FilterSpecularRoughness(0.2f, 0.0f), 0.2f);
+	EXPECT_FLOAT_EQ(
+		Durin::FilterSpecularRoughness(0.2f, 100.0f, false), 0.2f);
+	EXPECT_FLOAT_EQ(Durin::FilterSpecularRoughness(0.0f, 0.0f), 0.045f);
+	EXPECT_FLOAT_EQ(Durin::FilterSpecularRoughness(2.0f, 0.0f), 1.0f);
+
+	const float LowVariance =
+		Durin::FilterSpecularRoughness(0.2f, 0.1f);
+	const float HighVariance =
+		Durin::FilterSpecularRoughness(0.2f, 1.0f);
+	EXPECT_NEAR(LowVariance, std::sqrt(0.07f), 1.0e-6f);
+	EXPECT_NEAR(HighVariance, std::sqrt(0.24f), 1.0e-6f);
+	EXPECT_GT(LowVariance, 0.2f);
+	EXPECT_GT(HighVariance, LowVariance);
+	EXPECT_FLOAT_EQ(
+		Durin::FilterSpecularRoughness(0.2f, 100.0f), HighVariance);
+
+	EXPECT_FLOAT_EQ(
+		Durin::FilterSpecularRoughness(
+			std::numeric_limits<float>::quiet_NaN(), 0.0f),
+		0.5f);
+	EXPECT_FLOAT_EQ(
+		Durin::FilterSpecularRoughness(
+			0.2f, std::numeric_limits<float>::quiet_NaN()),
+		0.2f);
+	EXPECT_FLOAT_EQ(
+		Durin::FilterSpecularRoughness(
+			0.2f, std::numeric_limits<float>::infinity()),
+		0.2f);
+}
+
 TEST(FMaterialTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
 {
 	Durin::FPBRMappedNormalInput Input;

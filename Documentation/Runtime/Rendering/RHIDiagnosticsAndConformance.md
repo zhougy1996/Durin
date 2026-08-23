@@ -61,13 +61,15 @@ timestamp period. Unsupported backends publish `false` and `0.0`.
 
 `RHICreateGPUTimingQuery` returns one counted interval or null when unsupported
 or the bounded pool is exhausted. Recorded begin/end commands retain it through
-replay. One query cannot overlap, cross command lists, or be reused while
+replay. Different queries may nest on one command list and must close in strict
+last-in-first-out order; crossed or unclosed intervals are invalid command
+admission. One query cannot overlap, cross command lists, or be reused while
 recording or pending. `RHIGetGPUTimingResult` is a const, nonblocking read with
 `Unsupported`, `Pending`, `Ready`, or `Invalid` state; it never submits, flushes,
 waits, resets a query, or changes ordering.
 
-Vulkan lazily allocates at most eight pages of 64 intervals (128 timestamp
-slots per page, 512 live intervals total). Each pair is reset and written in
+Vulkan lazily allocates at most twenty pages of 64 intervals (128 timestamp
+slots per page, 1,280 live intervals total). Each pair is reset and written in
 its recording command buffer, associated with the exact submission token, and
 polled without a wait flag only after that token completes. Slot reuse requires
 completion and a released query generation. Exhaustion fails without waiting;

@@ -104,6 +104,9 @@ namespace Durin
 		ERasterMode RasterMode = ERasterMode::Solid;
 		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
 		EViewLODMode LODMode = EViewLODMode::Automatic;
+		// Renderer-owned material quality policy. Development captures may disable
+		// it per submitted view for exact A/B evidence; normal views keep it on.
+		bool bEnableSpecularAA = true;
 	};
 
 	struct FSceneViewPostProcessSettings

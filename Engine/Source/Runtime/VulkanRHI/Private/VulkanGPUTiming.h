@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 
 	struct FVulkanGPUTimingStatistics
 	{
-		uint64 IntervalCapacity = 512;
+		uint64 IntervalCapacity = 1280;
 		uint64 AllocatedPages = 0;
 		uint64 LiveIntervals = 0;
 		uint64 PendingIntervals = 0;
@@ -80,7 +80,7 @@ namespace Durin::VulkanRHI
 
 	private:
 		static constexpr uint32 IntervalsPerPage = 64;
-		static constexpr uint32 MaxPageCount = 8;
+		static constexpr uint32 MaxPageCount = 20;
 		struct FPage
 		{
 			vk::QueryPool Handle;

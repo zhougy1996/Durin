@@ -823,8 +823,8 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Statistics.AllocationFailureCount, 1u);
 
 		std::vector<FGPUTimingQueryRHIRef> Queries;
-		Queries.reserve(512);
-		for (uint32 Index = 0; Index < 512; ++Index)
+		Queries.reserve(1280);
+		for (uint32 Index = 0; Index < 1280; ++Index)
 		{
 			FGPUTimingQueryRHIRef Query =
 				GDynamicRHI->RHICreateGPUTimingQuery();
@@ -833,10 +833,10 @@ namespace Durin::VulkanRHI
 		}
 		EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
 		Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
-		EXPECT_EQ(Statistics.IntervalCapacity, 512u);
-		EXPECT_EQ(Statistics.AllocatedPages, 8u);
-		EXPECT_EQ(Statistics.LiveIntervals, 512u);
-		EXPECT_EQ(Statistics.IntervalHighWater, 512u);
+		EXPECT_EQ(Statistics.IntervalCapacity, 1280u);
+		EXPECT_EQ(Statistics.AllocatedPages, 20u);
+		EXPECT_EQ(Statistics.LiveIntervals, 1280u);
+		EXPECT_EQ(Statistics.IntervalHighWater, 1280u);
 		EXPECT_EQ(Statistics.ExhaustionCount, 1u);
 
 		Queries.clear();
@@ -876,7 +876,7 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Before.Availability.bDebugUtilsActive);
 		EXPECT_TRUE(Before.Availability.bValidationLayerActive);
 		EXPECT_TRUE(Before.Availability.bMessengerActive);
-		EXPECT_EQ(Before.Timing.IntervalCapacity, 512u);
+		EXPECT_EQ(Before.Timing.IntervalCapacity, 1280u);
 		EXPECT_EQ(Before.Timing.AllocatedPages, 1u);
 		EXPECT_EQ(Before.Timing.LiveIntervals, 1u);
 		EXPECT_EQ(Before.Executor.Mode, ERHICommandListExecutorMode::Threaded);

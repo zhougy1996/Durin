@@ -14,6 +14,7 @@ import Lighting.PBRLighting;
 import Lighting.DirectionalShadow;
 import Lighting.ForwardLightingUniform;
 import Lighting.SurfaceLighting;
+import Material.SpecularAntialiasing;
 import Material.SurfaceMaterial;
 
 // Static mesh material foundation shader.
@@ -274,6 +275,30 @@ FMaterialSurface EvaluateInputMaterialSurface(VSOutput input)
         samples);
 }
 
+struct FResolvedSurfaceShading
+{
+    FMaterialNormalFrame normalFrame;
+    float effectiveRoughness;
+};
+
+FResolvedSurfaceShading ResolveSurfaceShading(
+    VSOutput input,
+    FMaterialSurface surface,
+    bool isFrontFace)
+{
+    FResolvedSurfaceShading result;
+    result.normalFrame = EvaluateMaterialNormalFrame(
+        input.worldNormal,
+        input.worldTangent,
+        surface.tangentNormal,
+        isFrontFace);
+    result.effectiveRoughness = FilterSpecularRoughness(
+        surface.roughness,
+        result.normalFrame.shadingNormal,
+        Material.SurfaceParams.w > 0.5);
+    return result;
+}
+
 bool RejectTerrainCoverage(VSOutput input)
 {
 #if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
@@ -324,9 +349,13 @@ GeometryPassFragmentOutput GeometryFragmentMain(
     VSOutput input,
     bool isFrontFace : SV_IsFrontFace)
 {
+    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
+    FResolvedSurfaceShading shading = ResolveSurfaceShading(
+        input, surface, isFrontFace);
+    // Keep explicit derivatives in uniform control flow before coverage
+    // rejection so masked and Terrain helper lanes have defined quad inputs.
     if (RejectTerrainCoverage(input))
         discard;
-    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
 #if DURIN_MATERIAL_BLEND_MODE == 1
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
@@ -335,18 +364,13 @@ GeometryPassFragmentOutput GeometryFragmentMain(
 #endif
     if (Material.SurfaceParams.z < 0.5)
         discard;
-    FMaterialNormalFrame normalFrame = EvaluateMaterialNormalFrame(
-        input.worldNormal,
-        input.worldTangent,
-        surface.tangentNormal,
-        isFrontFace);
     GeometryPassFragmentOutput output;
     output.material = float4(surface.baseColor, surface.metallic);
     output.normals = float4(
-        EncodeOctahedralNormal(normalFrame.shadingNormal),
-        EncodeOctahedralNormal(normalFrame.geometricNormal));
+        EncodeOctahedralNormal(shading.normalFrame.shadingNormal),
+        EncodeOctahedralNormal(shading.normalFrame.geometricNormal));
     output.surface = float4(
-        surface.roughness,
+        shading.effectiveRoughness,
         surface.ambientOcclusion,
         surface.opacity,
         1.0 / 255.0);
@@ -359,9 +383,16 @@ float4 FragmentMain(
     VSOutput input,
     bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
+    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
+    FResolvedSurfaceShading shading;
+    if (Material.SurfaceParams.z >= 0.5)
+    {
+        shading = ResolveSurfaceShading(input, surface, isFrontFace);
+    }
+    // Lit derivative work precedes non-uniform coverage rejection. Unlit
+    // surfaces retain their early-out and never evaluate normal derivatives.
     if (RejectTerrainCoverage(input))
         discard;
-    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
 #if DURIN_MATERIAL_BLEND_MODE == 1
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
@@ -374,18 +405,11 @@ float4 FragmentMain(
 			surface.baseColor + surface.emissive, surface.opacity);
 	}
 
-    FMaterialNormalFrame normalFrame = EvaluateMaterialNormalFrame(
-        input.worldNormal,
-        input.worldTangent,
-        surface.tangentNormal,
-        isFrontFace);
     FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
         input.worldPosition,
-        normalFrame.shadingNormal,
+        shading.normalFrame.shadingNormal,
         Lighting.ViewPosition.xyz);
-    float3 normal = lightingFrame.normal;
     float3 direct = float3(0.0);
-	float3 directionalDirect = float3(0.0);
     if (Lighting.Counts.x > 0u)
     {
         float3 toLight = SafeSurfaceNormal(
@@ -394,7 +418,7 @@ float4 FragmentMain(
             * Lighting.DirectionalColorIntensity.a;
         FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
             input.worldPosition,
-            normalFrame.geometricNormal,
+            shading.normalFrame.geometricNormal,
             Lighting.DirectionalShadowControl,
             Lighting.DirectionalShadowViewDepthTransform,
             Lighting.DirectionalShadowSplitDepths,
@@ -403,14 +427,13 @@ float4 FragmentMain(
             DirectionalShadowTexture,
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
-		{
-			return float4(
-				shadow.diagnosticColor, surface.opacity);
-		}
-		directionalDirect = EvaluateSurfaceDirectionalLighting(
-            surface.baseColor, surface.metallic, surface.roughness,
+        {
+            return float4(
+                shadow.diagnosticColor, surface.opacity);
+        }
+        direct += EvaluateSurfaceDirectionalLighting(
+            surface.baseColor, surface.metallic, shading.effectiveRoughness,
             lightingFrame, toLight, radiance, shadow.attenuation);
-		direct += directionalDirect;
     }
     [unroll]
     for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
@@ -418,13 +441,13 @@ float4 FragmentMain(
         if (lightIndex >= Lighting.Counts.y)
             break;
         direct += EvaluateSurfaceLocalLighting(
-            surface.baseColor, surface.metallic, surface.roughness,
+            surface.baseColor, surface.metallic, shading.effectiveRoughness,
             input.worldPosition, lightingFrame, Lighting.Local[lightIndex]);
     }
     float3 environment = EvaluateSurfaceEnvironmentLighting(
         surface.baseColor,
         surface.metallic,
-        surface.roughness,
+        shading.effectiveRoughness,
         surface.ambientOcclusion,
         lightingFrame,
         EnvironmentIrradiance,

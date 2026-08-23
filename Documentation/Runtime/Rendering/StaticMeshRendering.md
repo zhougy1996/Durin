@@ -188,7 +188,15 @@ The direct GGX distribution relies on the canonical minimum perceptual
 roughness of `0.045` for finite evaluation and uses
 `(1 - NoH^2) + NoH^2 * alpha^2` for its denominator term. It does not apply a
 separate denominator floor that would reshape low-roughness highlights;
-specular antialiasing remains a distinct future filtering concern.
+the shared surface material module instead derives a bounded normal variance
+from screen derivatives of the final world-space shading normal and folds it
+into effective perceptual roughness. Opaque and masked StaticMesh, SplineMesh,
+SkeletalMesh, and Terrain records publish that value through the existing
+GBuffer roughness channel; retained Lit forward surfaces use the same value for
+directional, local, and environment lighting. Unlit and shadow/depth-only
+paths do not evaluate the filter. Authored roughness and material identities
+remain unchanged, and the default-enabled per-view switch is a development A/B
+seam rather than an editor or material setting.
 Vulkan vertex fetch expands the normalized integer tangent and color streams to
 floats before the vertex-factory module receives them.
 

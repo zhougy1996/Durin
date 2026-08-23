@@ -52,6 +52,26 @@ useful and report application execution as not run. Do not leave the current
 sandbox, change machine authorization, relocate artifacts, or substitute the
 product application merely to make this optional lane pass.
 
+## Performance Qualification and Concurrent Agents
+
+Ordinary correctness builds and tests may run while other agents are active,
+subject to the repository's single-writer and no-overlapping-build rules. GPU
+timing qualification is different: results are authoritative only from an
+exclusive quiet GPU lane with no competing agent test, editor, browser workload,
+capture tool, or other GPU application. A machine reboot is not required when
+the qualification supplies its documented warm-up.
+
+The `durin-gpu` resource lock serializes registered tests within one CTest
+scheduler. It does not coordinate independent DevTool/CTest invocations,
+separate worktrees, agents, or external applications. When any of those may be
+competing, run correctness coverage normally but label timing output diagnostic
+only: do not rebaseline a threshold, accept a performance gate, or claim a
+regression from it. Rerun the exact qualification selection in a quiet window;
+prefer consecutive passes and report the warm-up/sample count and median/p95.
+Statistical stability checks can reject bursty contention, but stable sustained
+contention is indistinguishable from a code regression without exclusive
+execution.
+
 Use positional selections. Whole-target execution is the default. Isolate an
 aggregate failure with its named target and case.
 

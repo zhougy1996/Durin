@@ -76,10 +76,6 @@ public FMaterialSurface EvaluateMaterialSurface(
         * saturate(samples.ambientOcclusion);
     result.opacityMask = saturate(
         constantSurfaceParams.y * samples.opacityMask);
-    // constantSurfaceParams.w is a zero-valued runtime carry that keeps the
-    // fixed material descriptor ABI reflected across static shader variants.
-    result.opacity = saturate(result.opacity + constantSurfaceParams.w
-        * (result.ambientOcclusion + result.opacityMask));
     result.emissive = max(constantEmissiveMetallic.xyz, 0.0)
         + max(samples.emissive, 0.0);
     result.tangentNormal = BlendSurfaceNormalsRNM(

@@ -57,6 +57,12 @@ namespace Durin
 	RENDERER_API auto EvaluatePBRMappedNormal(
 		const FPBRMappedNormalInput& Input) -> FVector3f;
 
+	// CPU reference for the screen-space normal-variance transform used by the
+	// shared surface shader. NormalVariance is the unscaled sum of squared
+	// screen derivatives of the normalized world-space shading normal.
+	RENDERER_API auto FilterSpecularRoughness(
+		float Roughness, float NormalVariance, bool bEnabled = true) -> float;
+
 	// CPU reference for split-sum environment composition and its AO scope.
 	RENDERER_API auto EvaluatePBREnvironmentLighting(
 		const FPBREnvironmentLightingInput& Input) -> FVector3f;

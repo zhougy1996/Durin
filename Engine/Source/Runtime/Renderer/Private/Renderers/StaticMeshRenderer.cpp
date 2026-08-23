@@ -1055,6 +1055,7 @@ namespace Durin
 		FResolvedSurfaceMaterial SurfaceMaterial;
 		if (!SurfaceMaterials.Resolve_RenderThread(
 				Item.MaterialBinding, ESurfaceMaterialPass::GBuffer, true,
+				View.Settings.Mode.bEnableSpecularAA,
 				nullptr, nullptr, SurfaceMaterial)) return false;
 		const FSurfaceMaterialUniform& MaterialUniform = SurfaceMaterial.Uniform;
 		const FRHIUniformBufferRange MaterialBuffer =
@@ -1183,6 +1184,7 @@ namespace Durin
 				RenderMode == ERenderMode::Lit
 					&& Material.PipelineIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
+				View.Settings.Mode.bEnableSpecularAA,
 				Item.DirectionalShadowTexture, Item.DirectionalShadowSampler,
 				SurfaceMaterial)) return false;
 		const FRHIUniformBufferRange MaterialUniformBuffer =

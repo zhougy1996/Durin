@@ -186,8 +186,8 @@ namespace Durin
 		bool bInsideRenderPass = false;
 		uint32 DiagnosticRegionDepth = 0;
 		uint32 RenderPassDiagnosticRegionDepth = 0;
-		FRHIGPUTimingQuery* ActiveGPUTimingQuery = nullptr;
-		std::shared_ptr<void> ActiveGPUTimingReservation;
+		std::vector<FRHIGPUTimingQuery*> ActiveGPUTimingQueries;
+		std::vector<std::shared_ptr<void>> ActiveGPUTimingReservations;
 		uint64 NumRecordedDrawCommands = 0;
 
 		friend class FRHICommandList;

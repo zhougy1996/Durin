@@ -17,6 +17,12 @@ namespace Durin
 		const FGPUTimingQueryRHIRef& Query);
 	using FDeferredDirectionalTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
+	using FRetainedOpaqueTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
+	using FVolumetricCloudTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
+	using FSortedTranslucencyTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
 	using FGroundTruthAmbientOcclusionTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
 	using FGroundTruthAmbientOcclusionFilterTimingQuerySink = void (*)(
@@ -57,6 +63,12 @@ namespace Durin
 		FGBufferTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetDeferredDirectionalTimingQuerySink(
 		FDeferredDirectionalTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetRetainedOpaqueTimingQuerySink(
+		FRetainedOpaqueTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetVolumetricCloudTimingQuerySink(
+		FVolumetricCloudTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetSortedTranslucencyTimingQuerySink(
+		FSortedTranslucencyTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetGroundTruthAmbientOcclusionTimingQuerySink(
 		FGroundTruthAmbientOcclusionTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetGroundTruthAmbientOcclusionFilterTimingQuerySink(

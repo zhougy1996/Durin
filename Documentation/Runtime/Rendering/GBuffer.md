@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-23
 
 ## Scope and Ownership
 
@@ -31,7 +31,7 @@ Every extent owns four cleared color attachments and uses the existing sampled
 | --- | --- | --- |
 | `GBufferMaterial` | `RGBA8_UNORM` | Base color RGB, metallic A |
 | `GBufferNormals` | `RGBA8_UNORM` | Octahedral shading normal RG, octahedral geometric normal BA |
-| `GBufferSurface` | `RGBA8_UNORM` | Roughness R, ambient occlusion G, effective opacity B, flags/255 A |
+| `GBufferSurface` | `RGBA8_UNORM` | Effective perceptual roughness R, ambient occlusion G, effective opacity B, flags/255 A |
 | `GBufferEmissive` | `R11G11B10_FLOAT` | Finite non-negative scene-linear emissive RGB |
 
 All attachments clear to zero. Bit 0 of the decoded flags is
@@ -42,9 +42,15 @@ is counter-owned and is not stored per pixel.
 The shading normal includes the authored normal-map perturbation. The
 geometric normal is the independently encoded, oriented visible-side normal
 before normal mapping. Both use the shared octahedral contract. Base color,
-metallic, roughness, AO, emissive, opacity, and mask decisions come from the
-same material evaluation used by forward rendering rather than a parallel
-material model.
+metallic, authored roughness, AO, emissive, opacity, and mask decisions come
+from the same material evaluation used by forward rendering rather than a
+parallel material model. For standard-Lit records, `GBufferSurface.R` stores
+the effective roughness after the shared derivative-based specular-AA policy
+has combined authored roughness with bounded variance of the final world-space
+shading normal. Deferred consumers use that stored result directly and never
+filter the decoded/quantized neighboring normals a second time. Disabling the
+per-view development A/B seam stores the existing authored/clamped result;
+material assets and the GBuffer format do not change.
 
 ## Decode and Reconstruction
 
@@ -117,6 +123,27 @@ gates. Attachment and peak retained bytes were both `33,177,600` for the
 single-extent run. Main, auxiliary, preview, thumbnail, Present, offscreen,
 resize, alternating-extent, reload, device-invalidation, and shutdown coverage
 must remain qualified as consumers are added.
+
+Hybrid production qualification records GBuffer, Scene, deferred lighting,
+retained opaque/masked, volumetric-cloud, sorted-translucency, post-process,
+and shadow intervals from the same 30-warm-up plus 120-measured frames. Scene
+is the strict-LIFO outer interval around its deferred and three retained scene
+subpasses; the aggregate is formed per frame as shadow + GBuffer + Scene +
+post-process before statistics are calculated. Hard p95
+budgets belong to this synchronized production route. Isolated GTAO and contact
+route sweeps retain median budgets and publish p95 characterization, but their
+independently scheduled validation batches do not compare or gate cross-batch
+p95 values.
+
+Performance evidence requires an exclusive quiet GPU lane. The `durin-gpu`
+resource lock serializes targets inside one CTest scheduler, but it does not
+coordinate independent DevTool/CTest processes, other worktrees, applications,
+or GPU-accelerated desktop tools. Results collected while those competitors are
+active are diagnostic only and must not rebaseline a gate. The production route
+also requires p95 to remain within 125% of its median; violation reports an
+unstable qualification environment and requires a quiet rerun. Stable sustained
+external load cannot be distinguished from a renderer regression by timestamps
+alone, so this statistical guard does not replace exclusive execution.
 
 ## M3 Input Contract
 

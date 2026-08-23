@@ -782,6 +782,30 @@ namespace Durin
 		InlineExecutor.Submit({}, ERHISubmitFlags::None);
 	}
 
+	TEST(FRHICommandListTests,
+		NestedGPUTimingQueriesReplayInStrictStackOrder)
+	{
+		auto RecordTiming = [](FRHICommandListImmediate& Immediate,
+			FRHIGPUTimingQuery* Outer, FRHIGPUTimingQuery* Inner) {
+			Immediate.BeginGPUTimingQuery(Outer);
+			Immediate.BeginGPUTimingQuery(Inner);
+			Immediate.EndGPUTimingQuery(Inner);
+			Immediate.EndGPUTimingQuery(Outer);
+		};
+
+		TRefCountPtr<FTestGPUTimingQuery> Outer =
+			MakeRefCount<FTestGPUTimingQuery>();
+		TRefCountPtr<FTestGPUTimingQuery> Inner =
+			MakeRefCount<FTestGPUTimingQuery>();
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		RecordTiming(Executor.GetImmediateCommandList(), Outer, Inner);
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"BeginTiming", "BeginTiming", "EndTiming", "EndTiming"}));
+	}
+
 	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)
 	{
 		FRecordingCommandContext Context;
@@ -1475,6 +1499,14 @@ namespace Durin
 		TRefCountPtr<FTestGPUTimingQuery> OtherTimingQuery =
 			MakeRefCount<FTestGPUTimingQuery>();
 		EXPECT_DEATH(UnbalancedTiming.EndGPUTimingQuery(OtherTimingQuery), "");
+		EXPECT_DEATH(([] {
+			FRHICommandList CrossedTiming;
+			auto Outer = MakeRefCount<FTestGPUTimingQuery>();
+			auto Inner = MakeRefCount<FTestGPUTimingQuery>();
+			CrossedTiming.BeginGPUTimingQuery(Outer);
+			CrossedTiming.BeginGPUTimingQuery(Inner);
+			CrossedTiming.EndGPUTimingQuery(Outer);
+		}()), "");
 		EXPECT_DEATH(FRHICommandList().BeginGPUTimingQuery(TimingQuery), "");
 		TRefCountPtr<FTestGPUTimingQuery> PendingTimingQuery =
 			MakeRefCount<FTestGPUTimingQuery>();

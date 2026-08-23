@@ -73,6 +73,12 @@ namespace Durin
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
 		std::atomic<FDeferredDirectionalTimingQuerySink>
 			GDeferredDirectionalTimingQuerySink = nullptr;
+		std::atomic<FRetainedOpaqueTimingQuerySink>
+			GRetainedOpaqueTimingQuerySink = nullptr;
+		std::atomic<FVolumetricCloudTimingQuerySink>
+			GVolumetricCloudTimingQuerySink = nullptr;
+		std::atomic<FSortedTranslucencyTimingQuerySink>
+			GSortedTranslucencyTimingQuerySink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionTimingQuerySink>
 			GGroundTruthAmbientOcclusionTimingQuerySink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionFilterTimingQuerySink>
@@ -453,6 +459,31 @@ namespace Durin
 	) -> void
 	{
 		GDeferredDirectionalTimingQuerySink.store(
+			Sink, std::memory_order_release
+		);
+	}
+
+	auto SetRetainedOpaqueTimingQuerySink(
+		FRetainedOpaqueTimingQuerySink Sink
+	) -> void
+	{
+		GRetainedOpaqueTimingQuerySink.store(
+			Sink, std::memory_order_release
+		);
+	}
+
+	auto SetVolumetricCloudTimingQuerySink(
+		FVolumetricCloudTimingQuerySink Sink
+	) -> void
+	{
+		GVolumetricCloudTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetSortedTranslucencyTimingQuerySink(
+		FSortedTranslucencyTimingQuerySink Sink
+	) -> void
+	{
+		GSortedTranslucencyTimingQuerySink.store(
 			Sink, std::memory_order_release
 		);
 	}
@@ -2306,6 +2337,11 @@ namespace Durin
 			++PreparedView.Counters.HybridDeferredUnavailableViews;
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
+		const FRetainedOpaqueTimingQuerySink RetainedOpaqueTimingSink =
+			GRetainedOpaqueTimingQuerySink.load(std::memory_order_acquire);
+		TScopedGPUTimingQuery RetainedOpaqueTiming(
+			CommandList, RetainedOpaqueTimingSink
+		);
 
 		FRHIRenderPassInfo RetainedOpaque{};
 		RetainedOpaque.RenderTargetLayout =
@@ -2355,6 +2391,12 @@ namespace Durin
 				}
 		}
 		CommandList.EndRenderPass();
+		RetainedOpaqueTiming.Commit();
+		const FVolumetricCloudTimingQuerySink VolumetricCloudTimingSink =
+			GVolumetricCloudTimingQuerySink.load(std::memory_order_acquire);
+		TScopedGPUTimingQuery VolumetricCloudTiming(
+			CommandList, VolumetricCloudTimingSink
+		);
 		const std::array CloudBoundaryTransitions{
 			FRHITextureTransition::Whole(Depth, ERHIAccess::DepthStencilReadWrite, ERHIAccess::GraphicsShaderRead)
 		};
@@ -2367,6 +2409,12 @@ namespace Durin
 			FRHITextureTransition::Whole(SceneColor, ERHIAccess::GraphicsShaderRead, ERHIAccess::ColorAttachmentReadWrite)
 		};
 		CommandList.TransitionTextures(SortedTranslucencyTransitions);
+		VolumetricCloudTiming.Commit();
+		const FSortedTranslucencyTimingQuerySink SortedTranslucencyTimingSink =
+			GSortedTranslucencyTimingQuerySink.load(std::memory_order_acquire);
+		TScopedGPUTimingQuery SortedTranslucencyTiming(
+			CommandList, SortedTranslucencyTimingSink
+		);
 
 		FRHIRenderPassInfo SortedTranslucency{};
 		SortedTranslucency.RenderTargetLayout =
@@ -2403,6 +2451,7 @@ namespace Durin
 				);
 		}
 		CommandList.EndRenderPass();
+		SortedTranslucencyTiming.Commit();
 		// Lit opaque/masked sections were already consumed by GBuffer + deferred
 		// lighting, so the retained-forward attempted count intentionally does not
 		// equal every prepared section as it does in the all-forward finalizer.

@@ -898,6 +898,7 @@ namespace Durin
 				RenderMode == ERenderMode::Lit
 					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
+				SceneView.Settings.Mode.bEnableSpecularAA,
 				Draw.DirectionalShadowTexture, Draw.DirectionalShadowSampler,
 				SurfaceMaterial)) return false;
 		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(

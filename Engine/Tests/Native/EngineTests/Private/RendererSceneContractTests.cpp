@@ -58,7 +58,7 @@ TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)
 	Expected.EmissiveMetallic = Durin::FVector4f(Binding.Emissive, Binding.Metallic);
 	Expected.NormalRoughness = Durin::FVector4f(Binding.Normal, Binding.Roughness);
 	Expected.SurfaceParams = Durin::FVector4f(
-		Binding.AmbientOcclusion, Binding.OpacityMask, 1.0f, 0.0f);
+		Binding.AmbientOcclusion, Binding.OpacityMask, 1.0f, 1.0f);
 	for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
 	{
 		Expected.UVTransforms[Role] = Durin::FVector4f(
@@ -79,10 +79,16 @@ TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)
 		Binding.UVRotations[6], Binding.UVRotations[7]);
 
 	const auto Lit = Durin::RendererPrivate::MakeSurfaceMaterialUniform(
-		Binding, true);
+		Binding, true, true);
 	EXPECT_EQ(std::memcmp(&Lit, &Expected, sizeof(Expected)), 0);
+	const auto LitWithoutSpecularAA =
+		Durin::RendererPrivate::MakeSurfaceMaterialUniform(
+			Binding, true, false);
+	Expected.SurfaceParams.w = 0.0f;
+	EXPECT_EQ(
+		std::memcmp(&LitWithoutSpecularAA, &Expected, sizeof(Expected)), 0);
 	const auto Unlit = Durin::RendererPrivate::MakeSurfaceMaterialUniform(
-		Binding, false);
+		Binding, false, true);
 	Expected.SurfaceParams.z = 0.0f;
 	EXPECT_EQ(std::memcmp(&Unlit, &Expected, sizeof(Expected)), 0);
 }

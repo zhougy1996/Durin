@@ -94,6 +94,7 @@ namespace Durin::RendererPrivate
 		const FMaterialRenderBinding& Binding,
 		ESurfaceMaterialPass Pass,
 		bool bLit,
+		bool bEnableSpecularAA,
 		FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler,
 		FResolvedSurfaceMaterial& OutMaterial) const -> bool
@@ -102,7 +103,8 @@ namespace Durin::RendererPrivate
 		OutMaterial = {};
 		if (Pass == ESurfaceMaterialPass::OpaqueShadow) return true;
 
-		OutMaterial.Uniform = MakeSurfaceMaterialUniform(Binding, bLit);
+		OutMaterial.Uniform = MakeSurfaceMaterialUniform(
+			Binding, bLit, bEnableSpecularAA);
 		const uint8 RequiredRoles = GetSurfaceMaterialRequiredRoleMask(Pass);
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();

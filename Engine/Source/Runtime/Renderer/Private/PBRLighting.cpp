@@ -25,6 +25,9 @@ namespace Durin
 				std::clamp(Value.y, 0.0f, 1.0f),
 				std::clamp(Value.z, 0.0f, 1.0f));
 		}
+
+		constexpr float SpecularAAVarianceScale = 0.15f;
+		constexpr float SpecularAAKernelThreshold = 0.20f;
 	}
 
 	auto EvaluatePBRDirectLighting(
@@ -157,6 +160,24 @@ namespace Durin
 			Tangent * TangentNormal.x + Bitangent * TangentNormal.y
 				+ GeometricNormal * TangentNormal.z,
 			GeometricNormal);
+	}
+
+	auto FilterSpecularRoughness(
+		float Roughness, float NormalVariance, bool bEnabled) -> float
+	{
+		const float AuthoredRoughness = std::isfinite(Roughness)
+			? std::clamp(Roughness, MinPerceptualRoughness, 1.0f)
+			: 0.5f;
+		if (!bEnabled) return AuthoredRoughness;
+		const float FiniteVariance = std::isfinite(NormalVariance)
+			? std::max(NormalVariance, 0.0f) : 0.0f;
+		const float KernelRoughnessSquared = std::min(
+			2.0f * SpecularAAVarianceScale * FiniteVariance,
+			SpecularAAKernelThreshold);
+		return std::clamp(
+			std::sqrt(AuthoredRoughness * AuthoredRoughness
+				+ KernelRoughnessSquared),
+			MinPerceptualRoughness, 1.0f);
 	}
 
 	auto EvaluatePBREnvironmentLighting(

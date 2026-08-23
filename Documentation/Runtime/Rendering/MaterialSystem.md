@@ -123,8 +123,14 @@ declarations and compiled layouts remain deferred work.
   lower bound makes the GGX distribution denominator finite without an
   independent epsilon floor. The distribution term uses the stable equivalent
   form `(1 - NoH^2) + NoH^2 * alpha^2`, preserving the supported smooth-surface
-  peak. Direct-specular antialiasing is a separate future filtering policy and
-  must not be approximated by clamping the BRDF denominator.
+  peak. Standard-Lit surfaces apply renderer-owned specular antialiasing after
+  the final world-space shading normal is built: bounded screen derivatives of
+  that normal increase an effective perceptual roughness before both direct and
+  split-sum environment evaluation. The authored roughness, material render
+  representation, shader-map identity, and BRDF denominator remain unchanged.
+  `FSceneViewModeSettings::bEnableSpecularAA` defaults on and exists only as a
+  per-view development A/B seam; there is no material parameter or normal-map
+  payload change.
   Missing role textures retain the selected material and use Renderer-owned
   white, black, or flat-normal resources. Missing environment resources retain
   the selected material and use the black environment set.

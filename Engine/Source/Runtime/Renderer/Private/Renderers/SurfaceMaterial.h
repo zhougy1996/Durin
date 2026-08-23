@@ -73,7 +73,8 @@ namespace Durin
 
 		inline auto MakeSurfaceMaterialUniform(
 			const FMaterialRenderBinding& Binding,
-			bool bLit) -> FSurfaceMaterialUniform
+			bool bLit,
+			bool bEnableSpecularAA) -> FSurfaceMaterialUniform
 		{
 			FSurfaceMaterialUniform Result;
 			Result.BaseColor = Binding.BaseColor;
@@ -81,7 +82,8 @@ namespace Durin
 			Result.NormalRoughness = FVector4f(Binding.Normal, Binding.Roughness);
 			Result.SurfaceParams = FVector4f(
 				Binding.AmbientOcclusion, Binding.OpacityMask,
-				bLit ? 1.0f : 0.0f, 0.0f);
+				bLit ? 1.0f : 0.0f,
+				bLit && bEnableSpecularAA ? 1.0f : 0.0f);
 			for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
 			{
 				Result.UVTransforms[Role] = FVector4f(
@@ -200,6 +202,7 @@ namespace Durin
 				const FMaterialRenderBinding& Binding,
 				ESurfaceMaterialPass Pass,
 				bool bLit,
+				bool bEnableSpecularAA,
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;
