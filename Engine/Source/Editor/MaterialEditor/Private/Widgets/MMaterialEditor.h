@@ -16,6 +16,7 @@ namespace Durin
 namespace Durin::Editor::Material
 {
 	class FMaterialPreview;
+	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
 	struct FMaterialParameterPanelEntry;
 
@@ -74,6 +75,7 @@ namespace Durin::Editor::Material
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
 		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
+		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;

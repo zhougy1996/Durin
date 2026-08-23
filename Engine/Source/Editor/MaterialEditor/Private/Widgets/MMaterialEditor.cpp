@@ -39,7 +39,7 @@ namespace Durin::Editor::Material
 		{
 			std::string Label;
 			std::string Path;
-			std::vector<const FMaterialParameterPanelEntry*> Entries;
+			std::vector<size_t> EntryIndices;
 			std::vector<FMaterialParameterGroup> Children;
 		};
 
@@ -56,12 +56,13 @@ namespace Durin::Editor::Material
 
 		auto AddParameterToGroupTree(
 			FMaterialParameterGroup& Root,
-			const FMaterialParameterPanelEntry& Entry
+			const FMaterialParameterPanelEntry& Entry,
+			size_t EntryIndex
 		) -> void
 		{
 			if (!Entry.Definition || Entry.Definition->GroupName.IsNone())
 			{
-				Root.Entries.push_back(&Entry);
+				Root.EntryIndices.push_back(EntryIndex);
 				return;
 			}
 
@@ -82,7 +83,7 @@ namespace Durin::Editor::Material
 				if (End == std::string::npos) break;
 				Begin = End + 1;
 			}
-			Group->Entries.push_back(&Entry);
+			Group->EntryIndices.push_back(EntryIndex);
 		}
 
 		auto FormatParameterSource(const FMaterialParameterPanelEntry& Entry) -> std::string
@@ -100,8 +101,86 @@ namespace Durin::Editor::Material
 		}
 	}
 
+	class FMaterialParameterPanelCache
+	{
+	public:
+		auto Synchronize(DMaterialInterface* Material) -> const FMaterialParameterPanelModel&
+		{
+			ObservedRevision.clear();
+			for (DMaterialInterface* Current = Material;
+				Current && std::ranges::find(ObservedRevision, Current,
+					&FRevisionNode::Material) == ObservedRevision.end();
+				Current = Current->GetParent())
+			{
+				DPackage* Package = Current->GetPackage();
+				ObservedRevision.push_back({
+					.Material = Current,
+					.Package = Package,
+					.PackageEditRevision = Package ? Package->GetEditRevision() : 0,
+					.RenderStateRevision = Current->GetRenderStateVersion(),
+				});
+			}
+			if (Model && ObservedRevision == Revision) return *Model;
+
+			Revision = ObservedRevision;
+			Model = std::make_unique<FMaterialParameterPanelModel>(Material);
+			std::vector<FSchemaNode> CurrentSchema;
+			const std::span Entries = Model->GetEntries();
+			CurrentSchema.reserve(Entries.size());
+			for (const FMaterialParameterPanelEntry& Entry : Entries)
+			{
+				CurrentSchema.push_back({
+					.ParameterId = Entry.ParameterId,
+					.GroupPath = Entry.Definition
+						? Entry.Definition->GroupName.ToString() : std::string{},
+					.bOrphan = Entry.bOrphan,
+				});
+			}
+			if (CurrentSchema != Schema)
+			{
+				Schema = std::move(CurrentSchema);
+				Root = {};
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
+				{
+					AddParameterToGroupTree(Root, Entries[Index], Index);
+				}
+			}
+			return *Model;
+		}
+
+		auto GetRoot() const -> const FMaterialParameterGroup& { return Root; }
+
+	private:
+		struct FRevisionNode
+		{
+			DMaterialInterface* Material = nullptr;
+			DPackage* Package = nullptr;
+			uint64 PackageEditRevision = 0;
+			uint64 RenderStateRevision = 0;
+
+			auto operator==(const FRevisionNode&) const -> bool = default;
+		};
+
+		struct FSchemaNode
+		{
+			FGuid ParameterId;
+			std::string GroupPath;
+			bool bOrphan = false;
+
+			auto operator==(const FSchemaNode&) const -> bool = default;
+		};
+
+		std::vector<FRevisionNode> Revision;
+		// Reused by the per-frame validation path so a stable parent depth allocates nothing.
+		std::vector<FRevisionNode> ObservedRevision;
+		std::vector<FSchemaNode> Schema;
+		std::unique_ptr<FMaterialParameterPanelModel> Model;
+		FMaterialParameterGroup Root;
+	};
+
 	MMaterialEditor::MMaterialEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
+		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 	{
 	}
 
@@ -469,15 +548,9 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DrawMaterialParameters(DMaterialInterface* Material) -> void
 	{
-		const FMaterialParameterPanelModel Model(Material);
-		FMaterialParameterGroup Root;
-		for (const FMaterialParameterPanelEntry& Entry : Model.GetEntries())
-		{
-			AddParameterToGroupTree(Root, Entry);
-		}
-
-		std::function<void(const FMaterialParameterGroup&, uint32)> DrawGroup;
-		DrawGroup = [this, &Model, &DrawGroup](const FMaterialParameterGroup& Group, uint32 Depth) {
+		const FMaterialParameterPanelModel& Model = MaterialParameterPanelCache->Synchronize(Material);
+		const auto DrawGroup = [this, &Model](const auto& Self,
+			const FMaterialParameterGroup& Group, uint32 Depth) -> void {
 			for (const FMaterialParameterGroup& Child : Group.Children)
 			{
 				const std::string Id = "MaterialParameterGroup/" + Child.Path;
@@ -485,16 +558,17 @@ namespace Durin::Editor::Material
 					? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
 				if (MonaImGui::PropertyEdit::BeginGroup(Id.c_str(), Child.Label.c_str(), Flags))
 				{
-					DrawGroup(Child, Depth + 1);
+					Self(Self, Child, Depth + 1);
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
-			for (const FMaterialParameterPanelEntry* Entry : Group.Entries)
+			const std::span Entries = Model.GetEntries();
+			for (size_t EntryIndex : Group.EntryIndices)
 			{
-				DrawMaterialParameter(Model, *Entry);
+				DrawMaterialParameter(Model, Entries[EntryIndex]);
 			}
 		};
-		DrawGroup(Root, 0);
+		DrawGroup(DrawGroup, MaterialParameterPanelCache->GetRoot(), 0);
 	}
 
 	auto MMaterialEditor::DrawMaterialParameter(
