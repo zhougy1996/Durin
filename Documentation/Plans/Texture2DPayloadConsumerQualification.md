@@ -4,22 +4,24 @@ Summary: Qualify Texture2D as the second production consumer of domain-owned pay
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Stage 0 is active. The tracked corpus contains Texture2D source images up to
-4.00 MiB while their `.dasset` packages remain approximately 1.2-1.4 KiB,
-demonstrating a real dense-data workload without oversized reflected arrays.
-Texture2D already keeps dimensions, usage, color-space, alpha, and build policy
-in domain metadata; decoded source pixels are transient and cooked bytes use a
-domain descriptor plus `LoadCookedPackagePayload`.
+All stages are complete with an explicit already-conforming disposition. Three
+tracked 1024 x 1024 x 32-bit TGA sources are 4,194,322 bytes each and decode to
+exactly 4 MiB RGBA8; their Texture2D packages are only 1,300-1,387 bytes. The
+asset has 15 bounded reflected domain metadata/descriptor fields, while decoded
+source pixels and platform mip vectors are non-reflected transient products.
 
-The first task is therefore qualification, not an assumed storage conversion.
-It will measure structural, package, decoded-memory, DDC, and cooked behavior,
-freeze compatibility evidence, and select either a bounded correction or an
-explicit already-conforming disposition.
+Texture2D owns TXPL schema 1, every source/build/pixel-format input, canonical
+DDC serialization, cooked descriptor qualification, decoded CPU publication,
+and RHI upload. No generic semantic descriptor, native-layout persistence, or
+oversized ordinary reflected pixel array exists, so changing storage would add
+risk without closing a measured gap. The 39 focused Texture2D, derived-data,
+Cook, coordination, source, and resource-transaction tests pass; the same code
+revision also passed `fast-all` and the Debug Editor `all` build.
 
 ## Goal
 
@@ -51,13 +53,13 @@ gaps supported by measured production evidence.
 
 ### Stage 0: Measure and freeze the Texture2D baseline
 
-- [ ] Record tracked source/package/companion sizes and representative decoded
+- [x] Record tracked source/package/companion sizes and representative decoded
   and upload byte counts.
-- [ ] Inventory reflected structural nodes and every durable/transient pixel
+- [x] Inventory reflected structural nodes and every durable/transient pixel
   representation.
-- [ ] Freeze source import, DDC, Cook/runtime, malformed-input, and golden-byte
+- [x] Freeze source import, DDC, Cook/runtime, malformed-input, and golden-byte
   evidence.
-- [ ] Decide whether a migration is required and state the exact compatibility
+- [x] Decide whether a migration is required and state the exact compatibility
   route.
 
 #### Acceptance Gate
@@ -67,10 +69,10 @@ gaps supported by measured production evidence.
 
 ### Stage 1: Close measured boundary gaps
 
-- [ ] Implement only the Stage 0-selected change, if any.
-- [ ] Keep Texture2D metadata and codecs authoritative for pixel meaning.
-- [ ] Preserve transactional publication and last-known-good CPU/GPU resources.
-- [ ] Keep ordinary package structure bounded independently of pixel count.
+- [x] Implement only the Stage 0-selected change, if any (no code change selected).
+- [x] Keep Texture2D metadata and codecs authoritative for pixel meaning.
+- [x] Preserve transactional publication and last-known-good CPU/GPU resources.
+- [x] Keep ordinary package structure bounded independently of pixel count.
 
 #### Acceptance Gate
 
@@ -79,10 +81,10 @@ gaps supported by measured production evidence.
 
 ### Stage 2: Qualify diagnostics and end-to-end behavior
 
-- [ ] Record source, DDC, cooked, decoded, and GPU diagnostic facts without
+- [x] Record source, DDC, cooked, decoded, and GPU diagnostic facts without
   exposing backend paths to Texture2D callers.
-- [ ] Run focused Texture2D workflows, aggregate tests/build, and docs validators.
-- [ ] Complete the plan and update the roadmap with the second-consumer evidence.
+- [x] Run focused Texture2D workflows, aggregate tests/build, and docs validators.
+- [x] Complete the plan and update the roadmap with the second-consumer evidence.
 
 #### Acceptance Gate
 

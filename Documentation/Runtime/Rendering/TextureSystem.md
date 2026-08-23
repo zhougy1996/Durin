@@ -55,6 +55,24 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Derived Platform Data
 
+### Payload architecture qualification
+
+Texture2D is a qualified production consumer of domain-owned payload schemas.
+The tracked VintageLighter derived sources include three 1024 x 1024 x 32-bit
+TGA files of 4,194,322 bytes each; each decodes to exactly 4 MiB RGBA8, while
+the corresponding `.dasset` packages are only 1,300-1,387 bytes. `DTexture2D`
+persists 15 bounded reflected source/build/domain descriptor fields. Neither
+`FTextureSourceData::Pixels` nor platform mip vectors are reflected or stored in
+the authored package.
+
+Source image encoding belongs to the mounted source file and decoder, TXPL
+schema 1 belongs to Texture2D, DDC values are rebuildable canonical platform
+data, and cooked DBLK bytes are immutable deployment data loaded through
+`LoadCookedPackagePayload`. Decoded source, platform mip, and RHI resource
+lifetimes are independent downstream products. This measured boundary already
+satisfies the large-payload architecture; converting Texture2D to editor DABK
+would not remove an oversized reflected value and is not selected.
+
 Texture2D platform mip chains are content-addressed beneath
 `DerivedDataCache/Textures/Objects/` as `.bin` objects. A canonical 128-bit key
 includes the imported source-content hash, usage, explicit color-space choice,
