@@ -4,7 +4,7 @@ Summary: Consolidate fixed-width canonical binary primitives in Core and remove 
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -144,10 +144,10 @@ partial writer.
 
 ## Related Documentation
 
-- [Serialization](../Runtime/Core/Serialization.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

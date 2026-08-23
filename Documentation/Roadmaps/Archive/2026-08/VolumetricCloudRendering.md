@@ -62,7 +62,7 @@ completed P5 on 2026-08-23. Exact volume slices, role-oriented cloud Details,
 per-view quality/debug controls, and copied nonblocking cloud statistics now
 form the production editor workflow. Focused, Vulkan, qualification, aggregate,
 full-build, documentation, and Editor-smoke gates pass. The
-[Volumetric Cloud Production Qualification](../../../Plans/VolumetricCloudProductionQualification.md)
+[Volumetric Cloud Production Qualification](../../../Plans/Archive/2026-08/VolumetricCloudProductionQualification.md)
 plan completed P6 on 2026-08-23. Its sequential cross-feature replay passed the
 cloud scene and Renderer transaction contracts, volume import/cook, exact slice
 preview, cloud Details, inline/threaded Vulkan lifecycle and authored-scene
@@ -228,7 +228,7 @@ flowchart LR
 | P3: Temporal reconstruction and quality | Required; completed 2026-08-23 | [Volumetric Cloud Temporal Reconstruction](../../../Plans/Archive/2026-08/VolumetricCloudTemporalReconstruction.md) | Met: P1 spatial reference images pass; P2 publishes immutable parameters; P2.5 supplies real imported density fixtures and actionable input diagnostics; the P3 plan froze representative camera motion, cut, resize, and 4K performance targets before timing. | Met: half-linear-resolution production rendering reconstructs stable full-view output, rejects and commits/aborts history transactionally, exposes four bounded tiers, and passes inline/threaded 4K image, timing, memory, recovery, and runtime gates with a measured `High` median benefit over `Reference`. |
 | P4: Lighting and cloud shadows | Required; completed 2026-08-23 | [Volumetric Cloud Lighting and Shadows](../../../Plans/Archive/2026-08/VolumetricCloudLightingAndShadows.md) | Met: P3 output and quality policy are stable; the frozen Stage 0 contract selected the phase model, receiver representation, fixtures, and numeric gates before implementation. | Met: directional scattering, full-density self-transmittance, ambient contribution, and full-resolution bounded receiver visibility respond deterministically to light/cloud changes, preserve existing lighting ownership, and pass explicit fallback, recovery, inline/threaded 4K, and memory gates. |
 | P5: Authoring and editor workflow | Required; completed 2026-08-23 | [Volumetric Cloud Authoring Workflow](../../../Plans/Archive/2026-08/VolumetricCloudAuthoringWorkflow.md) | Met: P2-P4 froze authored properties, asset roles, debug outputs, quality tiers, and diagnostics; P2.5 supplies the first import/provenance path, and no production-source evidence currently justifies generation or another adapter. | Met: exact volume inspection, specialized reflected Details, production-backed quality/debug controls, copied diagnostics, persistence/recovery, aggregates, full build, documentation, and Editor smoke pass. |
-| P6: Production qualification and contract publication | Required; completed 2026-08-23 | [Volumetric Cloud Production Qualification](../../../Plans/VolumetricCloudProductionQualification.md) | Met: P1-P5, including P2.5, pass their acceptance gates, and P6 froze its remaining cross-feature qualification matrix before replay. | Met: required adapters, executors, view routes, camera regimes, reload/recovery cases, accepted memory/timing budgets, cook/package behavior, Editor smoke, aggregate tests, full build, and lasting contract publication pass. |
+| P6: Production qualification and contract publication | Required; completed 2026-08-23 | [Volumetric Cloud Production Qualification](../../../Plans/Archive/2026-08/VolumetricCloudProductionQualification.md) | Met: P1-P5, including P2.5, pass their acceptance gates, and P6 froze its remaining cross-feature qualification matrix before replay. | Met: required adapters, executors, view routes, camera regimes, reload/recovery cases, accepted memory/timing budgets, cook/package behavior, Editor smoke, aggregate tests, full build, and lasting contract publication pass. |
 
 P0-P6, including P2.5, are complete. The roadmap outcome and every required
 completion criterion are satisfied.
@@ -309,7 +309,7 @@ Renderer diagnostics, and existing preview infrastructure. It does not invent
 an editor-private runtime representation or make editor modules runtime
 dependencies.
 
-### [Volumetric Cloud Production Qualification](../../../Plans/VolumetricCloudProductionQualification.md)
+### [Volumetric Cloud Production Qualification](../../../Plans/Archive/2026-08/VolumetricCloudProductionQualification.md)
 
 Owns only cross-plan closure that cannot be attributed to one feature owner:
 the final runtime/cook/editor matrix, long-duration and multi-view behavior,

@@ -4,7 +4,7 @@ Summary: Turn the recently extracted scene-frame stages into real ownership boun
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -799,16 +799,16 @@ selected.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation and Fixed Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Volumetric Cloud Spatial Rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Renderer Frame Preparation Refactor Plan](Archive/2026-08/RendererFramePreparationRefactor.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Renderer Frame Preparation and Fixed Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Renderer Frame Preparation Refactor Plan](RendererFramePreparationRefactor.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

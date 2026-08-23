@@ -4,7 +4,7 @@ Summary: Standardize Engine payload decoders on value candidates and reduce boun
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -317,26 +317,26 @@ documentation validation accepts both the lasting contract and completed plan.
 
 ## Related Documentation
 
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BoundedPayloadSerialization.h`](../../Engine/Source/Runtime/Engine/Private/Serialization/BoundedPayloadSerialization.h)
-- [`PayloadDecodeResult.h`](../../Engine/Source/Runtime/Engine/Public/PayloadDecodeResult.h)
-- [`TextureDerivedData.h`](../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
-- [`TextureDerivedData.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedData.cpp)
-- [`VolumeTextureDerivedData.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp)
-- [`TexturePayloadContainer.h`](../../Engine/Source/Runtime/Engine/Private/Texture/TexturePayloadContainer.h)
-- [`TerrainHeightmapDerivedData.cpp`](../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmapDerivedData.cpp)
-- [`StaticMeshDerivedData.cpp`](../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshDerivedData.cpp)
-- [`SkeletalDerivedData.cpp`](../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalDerivedData.cpp)
-- [`EnvironmentLighting.cpp`](../../Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLighting.cpp)
-- [`StaticMeshPayloadCodecTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/StaticMeshPayloadCodecTests.cpp)
-- [`TextureDerivedDataTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)
-- [`TextureBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
-- [`TerrainHeightmapTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)
-- [`SkeletalAssetTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
-- [`EnvironmentLightingTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/EnvironmentLightingTests.cpp)
+- [`BoundedPayloadSerialization.h`](../../../../Engine/Source/Runtime/Engine/Private/Serialization/BoundedPayloadSerialization.h)
+- [`PayloadDecodeResult.h`](../../../../Engine/Source/Runtime/Engine/Public/PayloadDecodeResult.h)
+- [`TextureDerivedData.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
+- [`TextureDerivedData.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedData.cpp)
+- [`VolumeTextureDerivedData.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp)
+- [`TexturePayloadContainer.h`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TexturePayloadContainer.h)
+- [`TerrainHeightmapDerivedData.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmapDerivedData.cpp)
+- [`StaticMeshDerivedData.cpp`](../../../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshDerivedData.cpp)
+- [`SkeletalDerivedData.cpp`](../../../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalDerivedData.cpp)
+- [`EnvironmentLighting.cpp`](../../../../Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLighting.cpp)
+- [`StaticMeshPayloadCodecTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/StaticMeshPayloadCodecTests.cpp)
+- [`TextureDerivedDataTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)
+- [`TextureBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
+- [`TerrainHeightmapTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainHeightmapTests.cpp)
+- [`SkeletalAssetTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp)
+- [`EnvironmentLightingTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/EnvironmentLightingTests.cpp)

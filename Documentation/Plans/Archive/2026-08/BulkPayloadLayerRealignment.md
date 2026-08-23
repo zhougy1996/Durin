@@ -4,7 +4,7 @@ Summary: Realign common bulk payload code around opaque immutable bytes and auth
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -171,14 +171,14 @@ descriptors, loading, publication, and failure behavior.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build and Run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

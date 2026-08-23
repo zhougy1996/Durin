@@ -4,7 +4,7 @@ Summary: Migrate repository-owned untyped byte buffers from uint8 to std::byte a
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -146,12 +146,12 @@ migration rather than deferred compatibility work.
 
 ## Related Documentation
 
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

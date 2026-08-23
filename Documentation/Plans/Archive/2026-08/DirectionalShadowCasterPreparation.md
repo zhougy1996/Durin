@@ -4,7 +4,7 @@ Summary: Remove redundant per-cascade scene and draw-fact preparation while pres
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -429,11 +429,11 @@ scenes with overlapping cascade casters.
 
 ## Related Documentation
 
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Shadow System Evolution Roadmap](../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
-- [Cascaded Directional Shadows Plan](Archive/2026-08/CascadedDirectionalShadows.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
+- [Cascaded Directional Shadows Plan](CascadedDirectionalShadows.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

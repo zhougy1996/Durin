@@ -4,7 +4,7 @@ Summary: Generalize editor-side asynchronous asset build completion, commit, rol
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -195,10 +195,10 @@ mounted-source, or Widget policy into the infrastructure.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

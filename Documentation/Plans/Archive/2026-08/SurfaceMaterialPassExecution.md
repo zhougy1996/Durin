@@ -4,7 +4,7 @@ Summary: Unify renderer-private surface material resource resolution and forward
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -396,15 +396,15 @@ guides rather than being duplicated here.
 
 ## Related Documentation
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Directional Shadow Caster Preparation Plan](DirectionalShadowCasterPreparation.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

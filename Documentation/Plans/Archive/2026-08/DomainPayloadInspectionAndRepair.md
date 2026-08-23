@@ -4,7 +4,7 @@ Summary: Join domain schema facts to editor, derived, and cooked payload state w
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -94,11 +94,11 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 
 ## Related Code
 

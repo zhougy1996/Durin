@@ -4,7 +4,7 @@ Summary: Close the volumetric-cloud roadmap through a frozen cross-feature runti
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -180,16 +180,16 @@ new feature or weakening a previously accepted numeric gate.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
-- [Volumetric cloud spatial rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [Volumetric cloud scene contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Volumetric cloud temporal reconstruction](../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
-- [Volumetric cloud lighting and shadows](../Runtime/Rendering/VolumetricCloudLightingAndShadows.md)
-- [Volumetric cloud authoring architecture](../Editor/Architecture/VolumetricCloudAuthoring.md)
-- [Volumetric cloud authoring guide](../Editor/Guides/VolumetricCloudAuthoring.md)
-- [Volume textures](../Runtime/Assets/VolumeTextures.md)
-- [Build and run workflow](../Agents/BuildAndRun.md)
-- [Testing workflow](../Agents/Testing.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
+- [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
+- [Volumetric cloud lighting and shadows](../../../Runtime/Rendering/VolumetricCloudLightingAndShadows.md)
+- [Volumetric cloud authoring architecture](../../../Editor/Architecture/VolumetricCloudAuthoring.md)
+- [Volumetric cloud authoring guide](../../../Editor/Guides/VolumetricCloudAuthoring.md)
+- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Build and run workflow](../../../Agents/BuildAndRun.md)
+- [Testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

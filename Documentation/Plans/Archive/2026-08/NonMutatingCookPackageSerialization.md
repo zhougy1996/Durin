@@ -4,7 +4,7 @@ Summary: Replace live-asset Cook mutation with recursive EditorOnly filtering an
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -381,8 +381,8 @@ Adopt Unreal-compatible terminology and behavior:
 | Broad shared-runtime regression | `fast-all`, then the repository-wide native-test gate | Required because `EPropertyFlags` and shared reflected serialization change |
 | Documentation lifecycle | `doc validate --scope changed` and `doc plan validate --scope all` | Active plan and lasting contracts have valid metadata and links |
 
-Follow [Agent Testing Workflow](../Agents/Testing.md) for selection and
-[Agent Build and Run Workflow](../Agents/BuildAndRun.md) before configuring,
+Follow [Agent Testing Workflow](../../../Agents/Testing.md) for selection and
+[Agent Build and Run Workflow](../../../Agents/BuildAndRun.md) before configuring,
 building, or running repository targets. GPU-backed texture integration is a
 correctness gate here, not a performance qualification.
 
@@ -425,26 +425,26 @@ correctness gate here, not a performance qualification.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [`FArchiveState` and archive purposes](../../Engine/Source/Runtime/Core/Public/Serialization/Archive.h)
-- [`EPropertyFlags`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectMacros.h)
-- [Reflected object and struct serialization](../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
-- [Asset package serialization options](../../Engine/Source/Runtime/AssetCore/Public/Asset/PackageAuthoring.h)
-- [DAST v4 package capture](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4ArchiveAdapter.cpp)
-- [`FCookContext`](../../Engine/Source/Runtime/AssetCore/Public/Asset/Cook.h)
-- [Texture2D Cook](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
-- [TextureCube Cook](../../Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp)
-- [VolumeTexture Cook](../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp)
-- [TerrainHeightmap Cook](../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmap.cpp)
-- [StaticMesh Cook](../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshCook.cpp)
-- [SkeletalMesh Cook](../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalMesh.cpp)
-- [AnimationClip Cook](../../Engine/Source/Runtime/Engine/Private/Animation/AnimationClip.cpp)
-- [EnvironmentLighting Cook](../../Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLighting.cpp)
+- [`FArchiveState` and archive purposes](../../../../Engine/Source/Runtime/Core/Public/Serialization/Archive.h)
+- [`EPropertyFlags`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectMacros.h)
+- [Reflected object and struct serialization](../../../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
+- [Asset package serialization options](../../../../Engine/Source/Runtime/AssetCore/Public/Asset/PackageAuthoring.h)
+- [DAST v4 package capture](../../../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4ArchiveAdapter.cpp)
+- [`FCookContext`](../../../../Engine/Source/Runtime/AssetCore/Public/Asset/Cook.h)
+- [Texture2D Cook](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
+- [TextureCube Cook](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp)
+- [VolumeTexture Cook](../../../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp)
+- [TerrainHeightmap Cook](../../../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmap.cpp)
+- [StaticMesh Cook](../../../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshCook.cpp)
+- [SkeletalMesh Cook](../../../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalMesh.cpp)
+- [AnimationClip Cook](../../../../Engine/Source/Runtime/Engine/Private/Animation/AnimationClip.cpp)
+- [EnvironmentLighting Cook](../../../../Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLighting.cpp)

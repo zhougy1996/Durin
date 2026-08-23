@@ -4,7 +4,7 @@ Summary: Finalize independent authored, derived-cache, and cooked payload servic
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -177,14 +177,14 @@ inherit another authority's placement, fallback, or failure policy.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
 - [VolumeTexture Domain Payload Pilot](VolumeTextureDomainPayloadPilot.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Build and Run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

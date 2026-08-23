@@ -4,7 +4,7 @@ Summary: Add derivative-based specular antialiasing to the shared material surfa
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -426,14 +426,14 @@ forward/deferred surface parity.
 
 ## Related Documentation
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
