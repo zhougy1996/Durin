@@ -130,24 +130,6 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto ResolveMountedSourceReference(
-		std::string_view ReferencingAssetPath,
-		std::string_view SourceVirtualPath,
-		FMountedSourceFile& OutSource,
-		std::string& OutError) -> bool
-	{
-		OutSource = {};
-		FMountedSourceResolution Resolution;
-		if (!ResolveMountedSourceReference(
-			ReferencingAssetPath, SourceVirtualPath,
-			EMountedSourceExistencePolicy::RequireFile, Resolution, OutError))
-			return false;
-		OutSource.SourcePath = std::move(Resolution.SourcePath);
-		OutSource.PhysicalPath = std::move(Resolution.PhysicalPath);
-		OutSource.Disposition = ESourceFileDisposition::ReferenceExisting;
-		return true;
-	}
-
 	auto PrepareMountedSourceFile(
 		const std::filesystem::path& InputFile,
 		std::string_view ReferencingAssetPath,
@@ -171,8 +153,17 @@ namespace Durin::Asset
 		const PathUtilities::FSourcePathResult Classified =
 			PathUtilities::ClassifySourcePath(Input);
 		if (Classified)
-			return ResolveMountedSourceReference(
-				ReferencingAssetPath, Classified.NormalizedVirtualPath, OutSource, OutError);
+		{
+			FMountedSourceResolution Resolution;
+			if (!ResolveMountedSourceReference(
+				ReferencingAssetPath, Classified.NormalizedVirtualPath,
+				EMountedSourceExistencePolicy::RequireFile, Resolution, OutError))
+				return false;
+			OutSource.SourcePath = std::move(Resolution.SourcePath);
+			OutSource.PhysicalPath = std::move(Resolution.PhysicalPath);
+			OutSource.Disposition = ESourceFileDisposition::ReferenceExisting;
+			return true;
+		}
 		if (Classified.Error != PathUtilities::EMountPathError::UnknownMount)
 		{
 			OutError = Classified.Message;

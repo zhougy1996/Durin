@@ -1193,9 +1193,10 @@ namespace Durin::Asset::Forge
 				OutError = "Only packaged static meshes can retain source provenance.";
 				return false;
 			}
-			FScopedMountedSourceFile Source;
+			FMountedSourceResolution Source;
 			if (!ResolveMountedSourceReference(
-				Mesh.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
+				Mesh.GetPackage()->GetPackagePath(), SourceVirtualPath,
+				EMountedSourceExistencePolicy::RequireFile, Source, OutError))
 				return false;
 			std::string SourceHash;
 			if (!HashStaticMeshSource(Source.PhysicalPath, SourceHash, OutError)) return false;

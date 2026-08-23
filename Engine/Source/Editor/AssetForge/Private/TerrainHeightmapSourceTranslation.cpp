@@ -78,14 +78,16 @@ namespace Durin::Asset::Forge
 			return true;
 		}
 
+		template<typename TMountedSource>
 		auto BuildFromMountedSource(
 			DTerrainHeightmap& Heightmap,
-			const FMountedSourceFile& Source,
+			const TMountedSource& Source,
 			std::string& OutError) -> bool
 		{
 			FEncodedSourceSnapshot Snapshot;
 			if (!CaptureEncodedSource(
-				Source, Snapshot, OutError, MaximumTerrainHeightmapEncodedBytes)) return false;
+				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError,
+				MaximumTerrainHeightmapEncodedBytes)) return false;
 			FTerrainHeightmapSourceData SourceData;
 			if (!TranslateTerrainHeightmapSource(
 				Source.PhysicalPath.extension().generic_string(), Snapshot.GetBytes(),
@@ -255,9 +257,10 @@ namespace Durin::Asset::Forge
 			OutError = "Terrain heightmap source changes require an owning package.";
 			return false;
 		}
-		FMountedSourceFile Source;
+		FMountedSourceResolution Source;
 		return ResolveMountedSourceReference(
-			Heightmap.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError)
+			Heightmap.GetPackage()->GetPackagePath(), SourceVirtualPath,
+			EMountedSourceExistencePolicy::RequireFile, Source, OutError)
 			&& BuildFromMountedSource(Heightmap, Source, OutError);
 	}
 

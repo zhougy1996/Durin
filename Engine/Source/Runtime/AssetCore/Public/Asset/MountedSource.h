@@ -94,13 +94,6 @@ namespace Durin::Asset
 		FMountedSourceResolution& OutResolution,
 		std::string& OutError) -> bool;
 
-	// Compatibility entry point for operations that require an existing file.
-	ASSETCORE_API auto ResolveMountedSourceReference(
-		std::string_view ReferencingAssetPath,
-		std::string_view SourceVirtualPath,
-		FMountedSourceFile& OutSource,
-		std::string& OutError) -> bool;
-
 	struct FMountedSourceReplacement
 	{
 		FSourcePath SourcePath;

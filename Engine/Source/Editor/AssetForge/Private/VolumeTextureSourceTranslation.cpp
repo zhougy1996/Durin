@@ -150,7 +150,8 @@ namespace Durin::Asset::Forge
 			return Result;
 		}
 
-		auto ReadCaptured(const Asset::FMountedSourceFile& Source,
+		template<typename TMountedSource>
+		auto ReadCaptured(const TMountedSource& Source,
 			std::vector<std::byte>& OutBytes, FVolumeTextureCapturedSource& Out,
 			std::string& OutError) -> bool
 		{
@@ -395,9 +396,10 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged volume textures can retain source provenance.";
 			return false;
 		}
-		Asset::FMountedSourceFile MountedSource;
+		Asset::FMountedSourceResolution MountedSource;
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
-			SourcePath, MountedSource, OutError)) return false;
+			SourcePath, Asset::EMountedSourceExistencePolicy::RequireFile,
+			MountedSource, OutError)) return false;
 		std::vector<std::byte> SourceBytes;
 		FVolumeTextureCapturedSource CapturedSource;
 		if (!ReadCaptured(MountedSource, SourceBytes, CapturedSource, OutError)) return false;

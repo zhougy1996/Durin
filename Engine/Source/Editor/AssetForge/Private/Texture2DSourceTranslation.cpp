@@ -91,16 +91,18 @@ namespace Durin::Asset::Forge
 			return true;
 		}
 
+		template<typename TMountedSource>
 		auto SubmitTexture2DFromMountedSource(
 			DTexture2D& Texture,
-			const FMountedSourceFile& Source,
+			const TMountedSource& Source,
 			const Asset::Build::FTexture2DBuildSettings& Settings,
 			std::string& OutError,
 			Asset::Build::ETexture2DBuildPriority Priority,
 			Asset::Build::FAsyncBuildCompletion Completion = {}) -> bool
 		{
 			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(Source, Snapshot, OutError)) return false;
+			if (!CaptureEncodedSource(
+				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError)) return false;
 			FTextureSourceData SourceData;
 			if (!TranslateTexture2DSource(Snapshot.GetBytes(), SourceData, OutError)) return false;
 			return Asset::Build::SubmitTexture2DBuild(Texture, {
@@ -264,7 +266,8 @@ namespace Durin::Asset::Forge
 			return {false, std::move(Error), nullptr};
 
 		FEncodedSourceSnapshot Snapshot;
-		if (!CaptureEncodedSource(MountedSource, Snapshot, Error))
+		if (!CaptureEncodedSource(
+			MountedSource.SourcePath, MountedSource.PhysicalPath, Snapshot, Error))
 		{
 			return {false, std::move(Error), nullptr};
 		}
@@ -327,9 +330,10 @@ namespace Durin::Asset::Forge
 				? "The mounted Texture2D source is unavailable." : Source.Message;
 			return false;
 		}
-		FMountedSourceFile MountedSource{
+		FMountedSourceResolution MountedSource{
 			.SourcePath = Texture.GetSourceImportData().Source.SourcePath,
-			.PhysicalPath = Source.PhysicalPath};
+			.PhysicalPath = Source.PhysicalPath,
+			.bExists = true};
 		return SubmitTexture2DFromMountedSource(
 			Texture, MountedSource, Settings, OutError, Priority, std::move(Completion));
 	}
@@ -371,9 +375,10 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged textures can retain source provenance.";
 			return false;
 		}
-		FScopedMountedSourceFile Source;
+		FMountedSourceResolution Source;
 		if (!ResolveMountedSourceReference(
-			Texture.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
+			Texture.GetPackage()->GetPackagePath(), SourceVirtualPath,
+			EMountedSourceExistencePolicy::RequireFile, Source, OutError))
 			return false;
 		return SubmitTexture2DFromMountedSource(
 			Texture,
@@ -471,11 +476,10 @@ namespace Durin::Asset::Forge
 			StoredSourcePath,
 			Relocation,
 			OutError)) return false;
-		FMountedSourceFile Source{
+		FMountedSourceResolution Source{
 			.SourcePath = Relocation.DestinationSourcePath,
 			.PhysicalPath = Relocation.DestinationPhysicalPath,
-			.Disposition = ESourceFileDisposition::IngestedExternal,
-			.bCreatedFile = true};
+			.bExists = true};
 		const bool bSubmitted = SubmitTexture2DFromMountedSource(
 			Texture,
 			Source,

@@ -83,22 +83,25 @@ namespace Durin::Asset::Forge
 
 		auto LoadMountedSource(
 			const FSourcePath& SourcePath,
-			Asset::FMountedSourceFile& OutSource,
+			Asset::FMountedSourceResolution& OutSource,
 			std::string_view PackagePath,
 			std::string& OutError) -> bool
 		{
 			return Asset::ResolveMountedSourceReference(
-				PackagePath, SourcePath.Path, OutSource, OutError);
+				PackagePath, SourcePath.Path,
+				Asset::EMountedSourceExistencePolicy::RequireFile, OutSource, OutError);
 		}
 
+		template<typename TMountedSource>
 		auto BuildPanorama(
 			DTextureCube& Texture,
-			const Asset::FMountedSourceFile& Source,
+			const TMountedSource& Source,
 			const FTextureCubePanoramaImportSettings& Settings,
 			std::string& OutError) -> bool
 		{
 			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(Source, Snapshot, OutError)) return false;
+			if (!CaptureEncodedSource(
+				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError)) return false;
 			FTextureCubePanoramaSourceData Panorama;
 			if (!TranslateTextureCubePanoramaSource(
 				Snapshot.GetBytes(), Snapshot.PhysicalPath.extension().generic_string(),
@@ -125,7 +128,9 @@ namespace Durin::Asset::Forge
 			std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				if (!CaptureEncodedSource(Sources[Index], Snapshots[Index], OutError))
+				if (!CaptureEncodedSource(
+					Sources[Index].SourcePath, Sources[Index].PhysicalPath,
+					Snapshots[Index], OutError))
 				{
 					OutError = std::format("Failed to capture {} TextureCube face: {}",
 						FaceNames[Index], OutError);
@@ -397,7 +402,7 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged panorama-backed texture cubes can be reimported.";
 			return false;
 		}
-		Asset::FScopedMountedSourceFile Source;
+		Asset::FMountedSourceResolution Source;
 		if (!LoadMountedSource(Texture.GetSourceImportData().Panorama.SourcePath,
 			Source, Texture.GetPackage()->GetPackagePath(), OutError)) return false;
 		std::error_code Error;
@@ -426,7 +431,7 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged six-face texture cubes can be reimported.";
 			return false;
 		}
-		std::array<Asset::FMountedSourceFile, TextureCubeFaceCount> Sources;
+		std::array<Asset::FMountedSourceResolution, TextureCubeFaceCount> Sources;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			if (!LoadMountedSource(Texture.GetSourceImportData().GetFace(
@@ -458,9 +463,10 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged texture cubes can retain source provenance.";
 			return false;
 		}
-		Asset::FScopedMountedSourceFile Source;
+		Asset::FMountedSourceResolution Source;
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
-			SourceVirtualPath, Source, OutError)) return false;
+			SourceVirtualPath, Asset::EMountedSourceExistencePolicy::RequireFile,
+			Source, OutError)) return false;
 		return BuildAndSaveCandidate(Texture,
 			[&](DTextureCube& Candidate) {
 				return BuildPanorama(Candidate, Source, Settings, OutError);
@@ -478,10 +484,11 @@ namespace Durin::Asset::Forge
 			OutError = "Only packaged texture cubes can retain source provenance.";
 			return false;
 		}
-		std::array<Asset::FMountedSourceFile, TextureCubeFaceCount> Sources;
+		std::array<Asset::FMountedSourceResolution, TextureCubeFaceCount> Sources;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 			if (!Asset::ResolveMountedSourceReference(
 				Texture.GetPackage()->GetPackagePath(), SourceVirtualPaths[Index],
+				Asset::EMountedSourceExistencePolicy::RequireFile,
 				Sources[Index], OutError)) return false;
 		return BuildAndSaveCandidate(Texture,
 			[&](DTextureCube& Candidate) {

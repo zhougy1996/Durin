@@ -23,7 +23,8 @@ namespace Durin::Asset::Forge
 	};
 
 	auto CaptureEncodedSource(
-		const FMountedSourceFile& Source,
+		const FSourcePath& SourcePath,
+		const std::filesystem::path& PhysicalPath,
 		FEncodedSourceSnapshot& OutSnapshot,
 		std::string& OutError,
 		uint64 MaximumEncodedBytes = std::numeric_limits<uint64>::max()) -> bool;

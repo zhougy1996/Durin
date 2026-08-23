@@ -7,7 +7,8 @@
 namespace Durin::Asset::Forge
 {
 	auto CaptureEncodedSource(
-		const FMountedSourceFile& Source,
+		const FSourcePath& SourcePath,
+		const std::filesystem::path& PhysicalPath,
 		FEncodedSourceSnapshot& OutSnapshot,
 		std::string& OutError,
 		uint64 MaximumEncodedBytes) -> bool
@@ -15,7 +16,7 @@ namespace Durin::Asset::Forge
 		OutSnapshot = {};
 		OutError.clear();
 		std::error_code Error;
-		const uint64 FileSize = std::filesystem::file_size(Source.PhysicalPath, Error);
+		const uint64 FileSize = std::filesystem::file_size(PhysicalPath, Error);
 		if (Error || FileSize > MaximumEncodedBytes
 			|| FileSize > static_cast<uint64>(std::numeric_limits<size_t>::max()))
 		{
@@ -23,21 +24,21 @@ namespace Durin::Asset::Forge
 			return false;
 		}
 		const std::filesystem::file_time_type LastWriteTime =
-			std::filesystem::last_write_time(Source.PhysicalPath, Error);
+			std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error)
 		{
 			OutError = Error.message();
 			return false;
 		}
 		auto Bytes = std::make_shared<std::vector<std::byte>>();
-		if (!FFileHelper::LoadFileToArray(*Bytes, Source.PhysicalPath))
+		if (!FFileHelper::LoadFileToArray(*Bytes, PhysicalPath))
 		{
-			OutError = std::format("Failed to read mounted source '{}'.", Source.SourcePath.Path);
+			OutError = std::format("Failed to read mounted source '{}'.", SourcePath.Path);
 			return false;
 		}
-		const uint64 SizeAfter = std::filesystem::file_size(Source.PhysicalPath, Error);
+		const uint64 SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
 		const std::filesystem::file_time_type TimeAfter =
-			std::filesystem::last_write_time(Source.PhysicalPath, Error);
+			std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error || SizeAfter != FileSize || TimeAfter != LastWriteTime
 			|| Bytes->size() != FileSize)
 		{
@@ -45,8 +46,8 @@ namespace Durin::Asset::Forge
 			return false;
 		}
 		OutSnapshot = {
-			.SourcePath = Source.SourcePath,
-			.PhysicalPath = Source.PhysicalPath,
+			.SourcePath = SourcePath,
+			.PhysicalPath = PhysicalPath,
 			.Bytes = std::move(Bytes),
 			.FileSize = FileSize,
 			.LastWriteTime = FileTime::ToStableTicks(LastWriteTime)};
@@ -67,8 +68,8 @@ namespace Durin::Asset::Forge
 			OutError = Resolved.Message;
 			return false;
 		}
-		return CaptureEncodedSource({.SourcePath = {
-			.Path = Resolved.NormalizedVirtualPath}, .PhysicalPath = Resolved.PhysicalPath},
+		return CaptureEncodedSource(
+			{.Path = Resolved.NormalizedVirtualPath}, Resolved.PhysicalPath,
 			OutSnapshot, OutError, MaximumEncodedBytes);
 	}
 
