@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Materials/MaterialRenderProxy.h"
-#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 #include "Scene.h"
+#include "SceneView.h"
 
 namespace Durin
 {
@@ -16,9 +17,9 @@ namespace Durin
 		const FTerrainPatchDescriptor* Patch = nullptr;
 		FMaterialRenderData Material;
 		FMaterialRenderBinding MaterialBinding;
-		FEffectiveStaticMeshPipelineKey PipelineKey;
-		FStaticMeshDrawSortKey SortKey;
-		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
+		FEffectiveMeshPipelineKey PipelineKey;
+		FMeshDrawSortKey SortKey;
+		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		uint32 RequestedLOD = 0;
 		uint32 ResolvedLOD = 0;
 		uint32 LODStep = 1;

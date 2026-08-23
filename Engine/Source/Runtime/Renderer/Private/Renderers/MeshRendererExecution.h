@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 #include "Renderers/SurfaceMaterial.h"
 #include "RenderingThread.h"
 
@@ -53,12 +53,12 @@ namespace Durin::RendererPrivate
 	template<typename TPreparedView>
 	auto GetBasePassBucket(
 		TPreparedView& PreparedView,
-		EStaticMeshBasePass Pass
+		EMeshBasePass Pass
 	) -> decltype(auto)
 	{
-		return Pass == EStaticMeshBasePass::Opaque ?
+		return Pass == EMeshBasePass::Opaque ?
 				   (PreparedView.Opaque) :
-			   Pass == EStaticMeshBasePass::Masked ?
+			   Pass == EMeshBasePass::Masked ?
 				   (PreparedView.Masked) :
 				   (PreparedView.Translucent);
 	}
@@ -69,12 +69,12 @@ namespace Durin::RendererPrivate
 		TFunction&& Function
 	) -> void
 	{
-		std::invoke(Function, PreparedView.Opaque, EStaticMeshBasePass::Opaque);
-		std::invoke(Function, PreparedView.Masked, EStaticMeshBasePass::Masked);
+		std::invoke(Function, PreparedView.Opaque, EMeshBasePass::Opaque);
+		std::invoke(Function, PreparedView.Masked, EMeshBasePass::Masked);
 		std::invoke(
 			Function,
 			PreparedView.Translucent,
-			EStaticMeshBasePass::Translucent
+			EMeshBasePass::Translucent
 		);
 	}
 

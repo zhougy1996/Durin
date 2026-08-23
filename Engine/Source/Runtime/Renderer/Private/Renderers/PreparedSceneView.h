@@ -4,6 +4,7 @@
 #include "Renderers/SceneViewState.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/VolumetricCloudRenderer.h"
@@ -33,7 +34,7 @@ namespace Durin
 			EPreparedTranslucentGeometryFamily::StaticMesh;
 		uint32 DrawIndex = 0;
 		double DistanceSquared = 0.0;
-		FStaticMeshDrawSortKey SortKey;
+		FMeshDrawSortKey SortKey;
 	};
 
 	// Command-local immutable scene data used by Scene Color execution.

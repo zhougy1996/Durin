@@ -204,18 +204,18 @@ namespace Durin
 				View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
 			const auto CommonBlend =
 				CommonDraw.Material.PipelineIdentity.ShaderMap.BlendMode;
-			CommonDraw.Pass = CommonBlend == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : CommonBlend == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																														 EStaticMeshBasePass::Opaque;
+			CommonDraw.Pass = CommonBlend == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : CommonBlend == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
+																								 EMeshBasePass::Opaque;
 			if (Mode == ERenderPreparationMode::ShadowDepth
-				&& CommonDraw.Pass == EStaticMeshBasePass::Translucent)
+				&& CommonDraw.Pass == EMeshBasePass::Translucent)
 				continue;
 			const auto CommonDepth =
 				CommonDraw.Material.PipelineIdentity.DepthWritePolicy;
 			CommonDraw.PipelineKey.Depth.bEnableWrite =
 				CommonDepth == EMaterialDepthWritePolicy::Enabled
 				|| (CommonDepth == EMaterialDepthWritePolicy::Automatic
-					&& CommonDraw.Pass != EStaticMeshBasePass::Translucent);
-			if (CommonDraw.Pass == EStaticMeshBasePass::Translucent)
+					&& CommonDraw.Pass != EMeshBasePass::Translucent);
+			if (CommonDraw.Pass == EMeshBasePass::Translucent)
 				CommonDraw.PipelineKey.ColorBlend = FRHIColorBlendState::StraightAlpha();
 			const auto Patches = Proxy.GetPatches();
 			std::vector<uint32> RequestedLODs;
@@ -321,7 +321,7 @@ namespace Durin
 				++Result.VisiblePatches;
 				Result.Triangles += Draw.TriangleCount;
 				++Result.StitchMaskHistogram[Draw.StitchMask];
-				auto& Bucket = Draw.Pass == EStaticMeshBasePass::Opaque ? Result.Opaque : Draw.Pass == EStaticMeshBasePass::Masked ? Result.Masked :
+				auto& Bucket = Draw.Pass == EMeshBasePass::Opaque ? Result.Opaque : Draw.Pass == EMeshBasePass::Masked ? Result.Masked :
 																																	 Result.Translucent;
 				Bucket.push_back(std::move(Draw));
 			}
@@ -390,10 +390,10 @@ namespace Durin
 		};
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload>
 			ShadowShaders{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> Pipelines{
+		TRendererResourceSlotCache<FEffectiveMeshPipelineKey, FPipelinePayload> Pipelines{
 			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
 		};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> ShadowPipelines{
+		TRendererResourceSlotCache<FEffectiveMeshPipelineKey, FPipelinePayload> ShadowPipelines{
 			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
 		};
 	};
@@ -567,7 +567,7 @@ namespace Durin
 													 .count();
 
 			const auto PipelineBegin = std::chrono::steady_clock::now();
-			FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+			FEffectiveMeshPipelineKey EffectivePipelineKey =
 				bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey) : Draw.PipelineKey;
 			EffectivePipelineKey.bHybridRetained =
 				!bShadowDepth && bHybridRetained;
@@ -791,7 +791,7 @@ namespace Durin
 			static_cast<uint16>(Draw.LODStep), Draw.StitchMask
 		};
 		auto TopologyIt = State->Topologies.find(Key);
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+		FEffectiveMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey) : Draw.PipelineKey;
 		EffectivePipelineKey.bHybridRetained =
 			!bShadowDepth && bHybridRetained;
@@ -990,11 +990,11 @@ namespace Durin
 	}
 
 	auto FTerrainRenderer::ExecutePass_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedTerrainView& View
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedTerrainView& View
 	) -> void
 	{
-		const auto& Draws = Pass == EStaticMeshBasePass::Opaque ? View.Opaque : View.Masked;
-		const auto& Batches = Pass == EStaticMeshBasePass::Opaque ? View.OpaqueBatches : View.MaskedBatches;
+		const auto& Draws = Pass == EMeshBasePass::Opaque ? View.Opaque : View.Masked;
+		const auto& Batches = Pass == EMeshBasePass::Opaque ? View.OpaqueBatches : View.MaskedBatches;
 		for (const auto& Batch : Batches)
 		{
 			const auto Begin = std::chrono::steady_clock::now();

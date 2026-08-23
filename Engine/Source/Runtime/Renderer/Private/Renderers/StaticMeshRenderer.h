@@ -17,7 +17,7 @@ namespace Durin
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
 	struct FSceneView;
-	enum class EStaticMeshBasePass : uint8;
+	enum class EMeshBasePass : uint8;
 
 	// Owns StaticMesh shaders, material pipelines, and proxy draw submission.
 	class FStaticMeshRenderer final
@@ -59,10 +59,10 @@ namespace Durin
 			FPreparedStaticMeshView& PreparedView
 		) -> void;
 		auto ExecutePass_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedStaticMeshView& PreparedView
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedStaticMeshView& PreparedView
 		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, FPreparedStaticMeshView& PreparedView, bool bHybridRetained = false
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, FPreparedStaticMeshView& PreparedView, bool bHybridRetained = false
 		) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedStaticMeshView& PreparedView)
 			-> void;

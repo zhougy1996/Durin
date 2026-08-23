@@ -1,9 +1,11 @@
 #pragma once
 
-#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 
 #include "Animation/SkeletalAnimation.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Scene.h"
+#include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
 #include <unordered_map>
@@ -52,10 +54,10 @@ namespace Durin
 		double TranslucentDistanceSquared = 0.0;
 		FMaterialRenderData Material;
 		FMaterialRenderBinding MaterialBinding;
-		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
+		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
-		FEffectiveStaticMeshPipelineKey PipelineKey;
-		FStaticMeshDrawSortKey SortKey;
+		FEffectiveMeshPipelineKey PipelineKey;
+		FMeshDrawSortKey SortKey;
 		bool bCastsShadow = false;
 		bool bResourcesReady = false;
 		FRHITexture* DirectionalShadowTexture = nullptr;

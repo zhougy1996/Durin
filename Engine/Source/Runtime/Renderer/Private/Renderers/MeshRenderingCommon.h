@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Renderers/DirectionalShadowView.h"
-#include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
 
 namespace Durin::RendererPrivate
 {
@@ -55,10 +55,10 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto MakeShadowPipelineKey(
-		const FEffectiveStaticMeshPipelineKey& Source
-	) -> FEffectiveStaticMeshPipelineKey
+		const FEffectiveMeshPipelineKey& Source
+	) -> FEffectiveMeshPipelineKey
 	{
-		FEffectiveStaticMeshPipelineKey Result = Source;
+		FEffectiveMeshPipelineKey Result = Source;
 		Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
 		// Bias magnitudes are dynamic draw state and do not identify pipeline slots.
 		Result.Rasterizer.DepthBiasConstantFactor = 0.0f;

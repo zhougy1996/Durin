@@ -135,7 +135,7 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto GetIdentityText(
-		const FEffectiveStaticMeshPipelineKey& Identity
+		const FEffectiveMeshPipelineKey& Identity
 	) -> std::string
 	{
 		return std::format(
@@ -160,8 +160,8 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto MakeMeshDrawSortKey(
-		EStaticMeshBasePass Pass,
-		const FEffectiveStaticMeshPipelineKey& PipelineKey,
+		EMeshBasePass Pass,
+		const FEffectiveMeshPipelineKey& PipelineKey,
 		const FMaterialRenderRepresentation& Representation,
 		uint32 NumVertices,
 		const FVertexDeclarationElementList& Elements,
@@ -169,9 +169,9 @@ namespace Durin::RendererPrivate
 		uint64 PrimitiveId,
 		uint32 LODIndex,
 		uint32 SectionIndex
-	) -> FStaticMeshDrawSortKey
+	) -> FMeshDrawSortKey
 	{
-		FStaticMeshDrawSortKey Result;
+		FMeshDrawSortKey Result;
 		const FMaterialPipelineIdentity& Material = PipelineKey.Material;
 		const FMaterialShaderMapIdentity& Shader = Material.ShaderMap;
 		const FGuid& LayoutId = Shader.RenderLayout.Id;
@@ -232,7 +232,7 @@ namespace Durin::RendererPrivate
 	inline auto MakeStaticMeshDrawSortKey(
 		const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Draw
-	) -> FStaticMeshDrawSortKey
+	) -> FMeshDrawSortKey
 	{
 		const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
 		const std::array<uint32, 6> Geometry = Draw.Section != nullptr ? std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.LOD->IndexBuffer.GetIndices().size())} : std::array<uint32, 6>{};
@@ -242,7 +242,7 @@ namespace Durin::RendererPrivate
 	inline auto MakeSkeletalMeshDrawSortKey(
 		const FPreparedSkeletalMeshPrimitive& Primitive,
 		const FPreparedSkeletalMeshDraw& Draw
-	) -> FStaticMeshDrawSortKey
+	) -> FMeshDrawSortKey
 	{
 		const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
 		const std::array<uint32, 6> Geometry = Draw.Section != nullptr

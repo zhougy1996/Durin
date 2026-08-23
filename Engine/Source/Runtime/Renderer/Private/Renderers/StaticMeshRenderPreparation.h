@@ -2,6 +2,7 @@
 
 #include "RendererAPI.h"
 
+#include "Renderers/MeshRenderPreparationCommon.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Engine/SplineMeshSceneProxy.h"
 #include "RHIResources.h"
@@ -9,67 +10,11 @@
 #include "SceneView.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-#include <array>
 #include <vector>
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
-	enum class EStaticMeshBasePass : uint8
-	{
-		Opaque,
-		Masked,
-		Translucent,
-	};
-
-	enum class ERenderPreparationMode : uint8
-	{
-		Full,
-		ShadowDepth,
-	};
-
-	enum class EVertexDeformationDomain : uint8
-	{
-		Local,
-		Spline,
-		Skeletal
-	};
-
-	struct FMeshShaderMapKey
-	{
-		FMaterialShaderMapIdentity Material;
-		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
-		auto operator==(const FMeshShaderMapKey&) const -> bool = default;
-	};
-
-	struct FEffectiveStaticMeshPipelineKey
-	{
-		FMaterialPipelineIdentity Material;
-		FRHIRasterizerState Rasterizer;
-		FRHIDepthStencilState Depth;
-		FRHIColorBlendState ColorBlend;
-		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
-		bool bHybridRetained = false;
-
-		auto operator==(const FEffectiveStaticMeshPipelineKey&) const
-			-> bool = default;
-	};
-
-	// Complete value-only ordering facts. Stable identity is kept last so state
-	// grouping happens before deterministic primitive/section tie breaking.
-	struct FStaticMeshDrawSortKey
-	{
-		std::array<uint32, 26> Pipeline{};
-		std::vector<std::byte> MaterialUniform;
-		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
-		std::array<uint32, 6> Geometry{};
-		uint64 PrimitiveId = 0;
-		uint32 SelectedLODIndex = 0;
-		uint32 SectionIndex = 0;
-
-		auto operator<=>(const FStaticMeshDrawSortKey&) const = default;
-	};
-
 	enum class EPreparedStaticMeshPhase : uint8
 	{
 		Prepared,
@@ -100,10 +45,10 @@ namespace Durin
 		double TranslucentDistanceSquared = 0.0;
 		FMaterialRenderData Material;
 		FMaterialRenderBinding MaterialBinding;
-		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
+		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
-		FEffectiveStaticMeshPipelineKey PipelineKey;
-		FStaticMeshDrawSortKey SortKey;
+		FEffectiveMeshPipelineKey PipelineKey;
+		FMeshDrawSortKey SortKey;
 		bool bResourcesReady = false;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;

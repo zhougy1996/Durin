@@ -2387,11 +2387,11 @@ namespace Durin
 			RetainedOpaque, "HybridRetainedOpaqueRenderPass"
 		);
 		SetViewRect();
-		for (const EStaticMeshBasePass Pass : {
-				 EStaticMeshBasePass::Opaque, EStaticMeshBasePass::Masked
+		for (const EMeshBasePass Pass : {
+				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
 		{
-			const auto& StaticDraws = Pass == EStaticMeshBasePass::Opaque ? PreparedView.StaticMeshes.Opaque : PreparedView.StaticMeshes.Masked;
+			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? PreparedView.StaticMeshes.Opaque : PreparedView.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
@@ -2402,7 +2402,7 @@ namespace Durin
 						PreparedView.StaticMeshes, true
 					);
 				}
-			const auto& SkeletalDraws = Pass == EStaticMeshBasePass::Opaque ? PreparedView.SkeletalMeshes.Opaque : PreparedView.SkeletalMeshes.Masked;
+			const auto& SkeletalDraws = Pass == EMeshBasePass::Opaque ? PreparedView.SkeletalMeshes.Opaque : PreparedView.SkeletalMeshes.Masked;
 			for (const FPreparedSkeletalMeshDraw& Draw : SkeletalDraws)
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
@@ -2413,7 +2413,7 @@ namespace Durin
 						PreparedView.SkeletalMeshes, true
 					);
 				}
-			const auto& TerrainDraws = Pass == EStaticMeshBasePass::Opaque ? PreparedView.Terrains.Opaque : PreparedView.Terrains.Masked;
+			const auto& TerrainDraws = Pass == EMeshBasePass::Opaque ? PreparedView.Terrains.Opaque : PreparedView.Terrains.Masked;
 			for (const FPreparedTerrainDraw& Draw : TerrainDraws)
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
@@ -2466,14 +2466,14 @@ namespace Durin
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes, true
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes, true
 				);
@@ -2551,8 +2551,8 @@ namespace Durin
 			}
 		}
 
-		for (const EStaticMeshBasePass Pass : {
-				 EStaticMeshBasePass::Opaque, EStaticMeshBasePass::Masked
+		for (const EMeshBasePass Pass : {
+				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(
@@ -2574,14 +2574,14 @@ namespace Durin
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
-					View.Settings.Mode.RenderMode, EStaticMeshBasePass::Translucent,
+					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes
 				);

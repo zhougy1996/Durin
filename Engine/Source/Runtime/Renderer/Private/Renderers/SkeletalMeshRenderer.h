@@ -17,7 +17,7 @@ namespace Durin
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
 	struct FSceneView;
-	enum class EStaticMeshBasePass : uint8;
+	enum class EMeshBasePass : uint8;
 
 	class FSkeletalMeshRenderer final
 	{
@@ -59,10 +59,10 @@ namespace Durin
 			FPreparedSkeletalMeshView& PreparedView
 		) -> void;
 		auto ExecutePass_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
 		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained = false
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained = false
 		) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedSkeletalMeshView& PreparedView)
 			-> void;

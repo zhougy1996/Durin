@@ -32,11 +32,11 @@ namespace Durin
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderMapPayload>
 			ShadowShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> Pipelines{
+		TRendererResourceSlotCache<FEffectiveMeshPipelineKey, FPipelinePayload> Pipelines{
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device
 		};
-		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> ShadowPipelines{
+		TRendererResourceSlotCache<FEffectiveMeshPipelineKey, FPipelinePayload> ShadowPipelines{
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device
 		};
@@ -146,17 +146,17 @@ namespace Durin
 					View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
-				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
-																																				   EStaticMeshBasePass::Opaque;
+				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
+																												   EMeshBasePass::Opaque;
 				if (Mode == ERenderPreparationMode::ShadowDepth
-					&& Item.Pass == EStaticMeshBasePass::Translucent)
+					&& Item.Pass == EMeshBasePass::Translucent)
 					continue;
 				const auto DepthPolicy = Item.Material.PipelineIdentity.DepthWritePolicy;
 				Item.PipelineKey.Depth.bEnableWrite =
 					DepthPolicy == EMaterialDepthWritePolicy::Enabled
 					|| (DepthPolicy == EMaterialDepthWritePolicy::Automatic
-						&& Item.Pass != EStaticMeshBasePass::Translucent);
-				if (Item.Pass == EStaticMeshBasePass::Translucent)
+						&& Item.Pass != EMeshBasePass::Translucent);
+				if (Item.Pass == EMeshBasePass::Translucent)
 					Item.PipelineKey.ColorBlend = FRHIColorBlendState::StraightAlpha();
 				const FVector4 Center = LocalToWorld
 										* FVector4(Section.LocalBounds.GetCenter(), 1.0);
@@ -165,11 +165,11 @@ namespace Durin
 				const FVector3 Offset = Item.SortCenter - View.ViewLocation;
 				Item.TranslucentDistanceSquared = Math::Dot(Offset, Offset);
 				if (!std::isfinite(Item.TranslucentDistanceSquared)) continue;
-				Item.bCastsShadow = Item.Pass != EStaticMeshBasePass::Translucent;
+				Item.bCastsShadow = Item.Pass != EMeshBasePass::Translucent;
 				Item.SortKey = MakeSkeletalMeshDrawSortKey(
 					Result.Primitives[PrimitiveIndex], Item
 				);
-				auto* Bucket = Item.Pass == EStaticMeshBasePass::Opaque ? &Result.Opaque : Item.Pass == EStaticMeshBasePass::Masked ? &Result.Masked :
+				auto* Bucket = Item.Pass == EMeshBasePass::Opaque ? &Result.Opaque : Item.Pass == EMeshBasePass::Masked ? &Result.Masked :
 																																	  &Result.Translucent;
 				Bucket->push_back(std::move(Item));
 				Result.SelectedTriangles += Section.IndexCount / 3;
@@ -407,7 +407,7 @@ namespace Durin
 		if (ShaderPayload == nullptr) return false;
 
 		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+		FEffectiveMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey) : Item.PipelineKey;
 		EffectivePipelineKey.bHybridRetained =
 			!bShadowDepth && bHybridRetained;
@@ -510,14 +510,14 @@ namespace Durin
 				break;
 			}
 		}
-		ForEachBasePassBucket(PreparedView, [&](auto& Bucket, EStaticMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [&](auto& Bucket, EMeshBasePass Pass) {
 			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
 				++PreparedView.ResourcePreparationAttemptedDraws;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				const bool bNeedsForwardPipeline =
-					Pass == EStaticMeshBasePass::Translucent
+					Pass == EMeshBasePass::Translucent
 					|| bPrepareLitOpaqueForward
 					|| Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
@@ -542,10 +542,10 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		bool bReady = true;
-		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &bReady](const auto& Bucket, EStaticMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
-				if (Pass != EStaticMeshBasePass::Translucent
+				if (Pass != EMeshBasePass::Translucent
 					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
@@ -651,7 +651,7 @@ namespace Durin
 			PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
 			return;
 		}
-		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EStaticMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
 				++PreparedView.AttemptedDraws;
@@ -682,7 +682,7 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshRenderer::ExecutePreparedDraw_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained
 	) -> void
 	{
 		check(IsInRenderingThread());
@@ -711,7 +711,7 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshRenderer::ExecutePass_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
 	) -> void
 	{
 		check(IsInRenderingThread());
@@ -868,7 +868,7 @@ namespace Durin
 
 		Primitive.VertexFactory->BindStreams(CommandList);
 		CommandList.BindIndexBuffer(Data.IndexBuffer.GetRHI(), 0);
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+		FEffectiveMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey) : Item.PipelineKey;
 		EffectivePipelineKey.bHybridRetained =
 			!bShadowDepth && bHybridRetained;

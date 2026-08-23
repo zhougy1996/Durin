@@ -18,7 +18,7 @@ namespace Durin
 	struct FRHIUniformBufferRange;
 	struct FSceneView;
 	enum class ERenderMode : uint8;
-	enum class EStaticMeshBasePass : uint8;
+	enum class EMeshBasePass : uint8;
 
 	// Owns exact height/topology caches and Terrain shader draw submission.
 	class FTerrainRenderer final
@@ -46,7 +46,7 @@ namespace Durin
 			const FRHIUniformBufferRange& FallbackLighting,
 			FPreparedTerrainView& View
 		) -> void;
-		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedTerrainView& View) -> void;
+		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedTerrainView& View) -> void;
 		auto ExecutePreparedDraw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bHybridRetained = false) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void;
 		auto ExecuteGBuffer_RenderThread(
