@@ -15,10 +15,16 @@ namespace Durin
 			require(ImportRegistryCallbackRegistration.IsValid());
 			StaticMeshRegistration = FModuleStartup::RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
 			Texture2DRegistration = FModuleStartup::RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
+			Texture2DRecoveryRegistration = FModuleStartup::RegisterFeature<
+				ITexture2DInterchangeRecoveryFeature>(AuthoringFeatures);
 			TextureCubeRegistration = FModuleStartup::RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
+			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
+				IVolumeTextureInterchangeRecoveryFeature>(AuthoringFeatures);
 			require(StaticMeshRegistration.IsValid());
 			require(Texture2DRegistration.IsValid());
+			require(Texture2DRecoveryRegistration.IsValid());
 			require(TextureCubeRegistration.IsValid());
+			require(VolumeTextureRegistration.IsValid());
 			TerrainFeatures = std::make_unique<Asset::Forge::FTerrainAuthoringFeature>();
 			require(TerrainFeatures->SetOperationGroup(
 				FModuleStartup::CreateAsyncOperationGroup("TerrainAuthoringLoads")));
@@ -39,7 +45,9 @@ namespace Durin
 		Asset::Forge::FAssetForgeAuthoringFeatures AuthoringFeatures;
 		FModularFeatureRegistration StaticMeshRegistration;
 		FModularFeatureRegistration Texture2DRegistration;
+		FModularFeatureRegistration Texture2DRecoveryRegistration;
 		FModularFeatureRegistration TextureCubeRegistration;
+		FModularFeatureRegistration VolumeTextureRegistration;
 		std::unique_ptr<Asset::Forge::FTerrainAuthoringFeature> TerrainFeatures;
 		FModularFeatureRegistration TerrainRegistration;
 		FModuleOwnedCallbackRegistration ImportRegistryCallbackRegistration;

@@ -528,76 +528,6 @@ namespace Durin::Asset
 		explicit operator bool() const { return bSucceeded; }
 	};
 
-	// A provider-neutral projection of the lightweight provenance retained by a
-	// concrete runtime asset. Settings remain opaque to the framework while the
-	// source vocabulary and provider identity stay common across asset types.
-	struct FSingleAssetSourceProvenance
-	{
-		std::string StableIdentity;
-		std::string Role;
-		FSourcePath SourcePath;
-		FXxHash128 ContentHash{};
-		uint64 ByteCount = 0;
-
-		auto operator==(const FSingleAssetSourceProvenance&) const -> bool = default;
-	};
-
-	struct FSingleAssetProvenance
-	{
-		std::string ProviderId;
-		uint32 ProviderContractVersion = 0;
-		FImportPayload Settings;
-		std::vector<FSingleAssetSourceProvenance> Sources;
-		std::string AuthoredOutputFingerprint;
-
-		auto IsComplete() const -> bool
-		{
-			return !ProviderId.empty() && ProviderContractVersion != 0
-				&& !Settings.SchemaId.empty() && Settings.SchemaVersion != 0
-				&& !Sources.empty();
-		}
-		auto operator==(const FSingleAssetProvenance&) const -> bool = default;
-	};
-
-	enum class ESingleAssetImportCapability : uint8
-	{
-		Import,
-		ReimportCurrentSource,
-		ReimportNewSource,
-		RepairSource
-	};
-
-	struct FSingleAssetCapability
-	{
-		ESingleAssetImportCapability Capability = ESingleAssetImportCapability::Import;
-		bool bAvailable = false;
-		std::string Label;
-		std::string ReplacedStateDescription;
-		std::vector<FImportDiagnostic> Diagnostics;
-	};
-
-	struct FSingleAssetCapabilitySet
-	{
-		std::string AssetClassName;
-		std::string ProviderId;
-		std::vector<FSingleAssetCapability> Capabilities;
-
-		auto Find(ESingleAssetImportCapability Capability) const -> const FSingleAssetCapability*
-		{
-			const auto It = std::ranges::find(
-				Capabilities, Capability, &FSingleAssetCapability::Capability);
-			return It == Capabilities.end() ? nullptr : &*It;
-		}
-	};
-
-	class FSingleAssetImportPlan;
-	class FImportService;
-	struct FSingleAssetPlanResult;
-	struct FSingleAssetExecutionOptions;
-	struct FSingleAssetExecutionResult;
-	class ISingleAssetPreparedProduct;
-	class ISingleAssetPreparation;
-
 	class ASSETIMPORTCORE_API ISingleAssetCandidate
 	{
 	public:
@@ -607,27 +537,10 @@ namespace Durin::Asset
 		virtual auto IsNewAsset() const -> bool = 0;
 		virtual auto GetAuthoredFingerprint() const -> std::string = 0;
 		virtual auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool = 0;
+		// Two-phase framework cleanup detaches every candidate before unloading any
+		// package, so one GC pass cannot invalidate sibling candidate pointers.
+		virtual auto DetachPackageForAbandon() noexcept -> DPackage* = 0;
 		virtual auto Abandon() noexcept -> void = 0;
-	};
-
-	class ASSETIMPORTCORE_API ISingleAssetPreparedProduct
-	{
-	public:
-		virtual ~ISingleAssetPreparedProduct() = default;
-	};
-
-	// Immutable editor-thread capture whose Build implementation may only create
-	// provider-owned value data. Materialization happens after returning to the
-	// editor thread through ISingleAssetImportHandler.
-	class ASSETIMPORTCORE_API ISingleAssetPreparation
-	{
-	public:
-		virtual ~ISingleAssetPreparation() = default;
-		virtual auto Build(
-			IImportProgressReporter* Progress,
-			const std::function<bool()>& IsCancellationRequested,
-			std::vector<FImportDiagnostic>& OutDiagnostics) const
-			-> std::unique_ptr<ISingleAssetPreparedProduct> = 0;
 	};
 
 	// All failable runtime work is completed before this token is returned.
@@ -641,122 +554,5 @@ namespace Durin::Asset
 		virtual auto Finalize() noexcept -> void = 0;
 	};
 
-	class ASSETIMPORTCORE_API ISingleAssetImportHandler
-	{
-	public:
-		virtual ~ISingleAssetImportHandler() = default;
-		virtual auto GetAssetClassName() const -> std::string_view = 0;
-		virtual auto GetProviderId() const -> std::string_view = 0;
-		virtual auto InspectProvenance(
-			const DObject& Asset,
-			FSingleAssetProvenance& OutProvenance,
-			std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool = 0;
-		virtual auto QueryCapabilities(
-			const DObject& Asset,
-			const FSingleAssetProvenance& Provenance) const -> FSingleAssetCapabilitySet = 0;
-		virtual auto BuildCandidate(
-			const FSingleAssetImportPlan& Plan,
-			std::vector<FImportDiagnostic>& OutDiagnostics) const
-			-> std::unique_ptr<ISingleAssetCandidate> = 0;
-		virtual auto CapturePreparation(
-			const FSingleAssetImportPlan&,
-			std::vector<FImportDiagnostic>&) const
-			-> std::shared_ptr<const ISingleAssetPreparation> { return {}; }
-		virtual auto MaterializeCandidate(
-			const FSingleAssetImportPlan&,
-			std::unique_ptr<ISingleAssetPreparedProduct>,
-			std::vector<FImportDiagnostic>&) const
-			-> std::unique_ptr<ISingleAssetCandidate> { return {}; }
-		virtual auto PrepareImportedStateExchange(
-			DObject& Target,
-			ISingleAssetCandidate& Candidate,
-			std::vector<FImportDiagnostic>& OutDiagnostics) const
-			-> std::unique_ptr<IPreparedImportedStateExchange> = 0;
-		virtual auto RepairSource(
-			DObject& Asset,
-			std::span<const FSourcePath> Sources,
-			std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool = 0;
-	};
-
-	struct FSingleAssetReimportRequest
-	{
-		DObject* Asset = nullptr;
-		// Empty reuses persisted sources. A populated list performs a mounted,
-		// no-copy source replacement and must match the provider's source arity.
-		std::vector<FSourcePath> ReplacementSources;
-		FSourceCaptureLimits Limits;
-		IImportProgressReporter* Progress = nullptr;
-	};
-
-	class ASSETIMPORTCORE_API FSingleAssetImportPlan
-	{
-	public:
-		auto GetAsset() const -> DObject* { return Asset; }
-		auto GetAssetPath() const -> const FAssetPath& { return AssetPath; }
-		auto GetAssetClassName() const -> std::string_view { return AssetClassName; }
-		auto GetProvenance() const -> const FSingleAssetProvenance& { return Provenance; }
-		auto GetSnapshot() const -> const FSourceSnapshot& { return *Snapshot; }
-		auto GetProvider() const -> const FProviderLease& { return Provider; }
-		auto GetPackageEditRevision() const -> uint64 { return PackageEditRevision; }
-		auto GetServiceRevision() const -> uint64 { return ServiceRevision; }
-		auto ReplacesSource() const -> bool { return bReplacesSource; }
-		auto GetPreparation() const
-			-> const std::shared_ptr<const ISingleAssetPreparation>&
-		{
-			return Preparation;
-		}
-
-	private:
-		DObject* Asset = nullptr;
-		FAssetPath AssetPath;
-		std::string AssetClassName;
-		FSingleAssetProvenance Provenance;
-		FSingleAssetProvenance ObservedProvenance;
-		std::shared_ptr<const FSourceSnapshot> Snapshot;
-		FProviderLease Provider;
-		std::shared_ptr<const ISingleAssetImportHandler> Handler;
-		std::shared_ptr<const ISingleAssetPreparation> Preparation;
-		FImportService* Service = nullptr;
-		uint64 PackageEditRevision = 0;
-		uint64 ServiceRevision = 0;
-		bool bReplacesSource = false;
-
-		friend class FImportService;
-	};
-
-	struct FSingleAssetPlanResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		FSingleAssetImportPlan Plan;
-		std::vector<FImportDiagnostic> Diagnostics;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
-	struct FSingleAssetAsyncPlanOptions
-	{
-		std::shared_ptr<IImportProgressReporter> OwnedProgress;
-		std::function<bool()> IsCancellationRequested;
-	};
-
-	struct FSingleAssetExecutionOptions
-	{
-		Asset::FAssetBundleSaveOptions SaveOptions;
-		IImportProgressReporter* Progress = nullptr;
-		std::shared_ptr<IImportProgressReporter> OwnedProgress;
-		std::function<bool()> IsCancellationRequested;
-	};
-
-	struct FSingleAssetExecutionResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DObject* Asset = nullptr;
-		std::vector<FImportDiagnostic> Diagnostics;
-		FProviderLease Provider;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
 
 }

@@ -173,11 +173,9 @@ namespace Durin::Editor::Level
 		std::vector<FAssetPath> LastReimportOrphans;
 		struct FPendingSingleAssetReimport
 		{
-			Asset::FAsyncImportPlanHandle Operation;
-			Asset::FSingleAssetAsyncPlanHandle Planning;
-			std::optional<Asset::FSingleAssetAsyncExecutionHandle> Execution;
 			std::optional<Asset::FInterchangeImportHandle> Interchange;
 			FAssetPath AssetPath;
+			std::vector<Asset::FImportRecordOutput> PreviousRecordOutputs;
 		};
 		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;

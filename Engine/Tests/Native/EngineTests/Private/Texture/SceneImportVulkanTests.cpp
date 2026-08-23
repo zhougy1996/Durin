@@ -22,6 +22,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "SceneImport.h"
+#include "ImportService.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
@@ -168,17 +169,25 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	const Durin::Asset::Forge::FSceneImportPlanResult Planned = Durin::Asset::Forge::PlanSceneImport({
-		.RootSource = {.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
-		.DestinationDirectory = DestinationDirectory,
-		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
-	ASSERT_TRUE(Planned) << Planned.Message;
-	ASSERT_EQ(Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 3u);
+	Durin::Asset::FInterchangeImportRequest SceneRequest;
+	std::string SceneError;
+	ASSERT_TRUE(Durin::Asset::Forge::MakeSceneInterchangeRequest(
+		{.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
+		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(),
+		Durin::Asset::EInterchangeImportMode::Import,
+		{.OwnerId = "SceneImportVulkan.Interchange"}, {}, SceneRequest, SceneError))
+		<< SceneError;
+	const Durin::Asset::FInterchangeImportResult Executed =
+		Durin::Asset::GetImportService().RunInterchangeImportInline(
+			std::move(SceneRequest), "Scene Vulkan Interchange import");
+	ASSERT_EQ(Executed.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Executed.Outcome.Diagnostic;
+	ASSERT_EQ(Executed.Inspection.Outputs.size(), 4u);
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
 	for (const Durin::Asset::FImportOutputPreview& Output
-		: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
+		: Executed.Inspection.Outputs)
 	{
 		if (Output.AssetClassName
 			== Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString())
@@ -193,10 +202,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(MeshPath.IsValid());
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
-	const Durin::Asset::Forge::FSceneImportExecutionResult Executed =
-		Durin::Asset::Forge::ExecuteSceneImport(Planned.Plan);
-	ASSERT_TRUE(Executed) << Executed.Message;
-	ASSERT_EQ(Executed.Meshes.size(), 1u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));

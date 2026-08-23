@@ -9,6 +9,7 @@
 #include "TerrainHeightmapBuildAdapter.h"
 #include "TerrainHeightmapSourceTranslation.h"
 #include "Threading/Task.h"
+#include "ImportService.h"
 
 namespace Durin::Asset::Forge
 {
@@ -52,6 +53,7 @@ namespace Durin::Asset::Forge
 		std::mutex Mutex;
 		std::unordered_map<std::string, std::weak_ptr<FTerrainAuthoringLoadWork>> LoadsByKey;
 		std::unordered_map<uint64, FTerrainAuthoringLoadPending> PendingByObject;
+		std::unordered_map<uint64, FInterchangeImportHandle> PendingInterchangeByObject;
 		FAsyncOperationGroup OperationGroup;
 	};
 
@@ -311,15 +313,38 @@ namespace Durin::Asset::Forge
 					return true;
 				}
 			}
-			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(Heightmap.GetSourceImportData().SourcePath,
-				Snapshot, OutError, MaximumTerrainHeightmapEncodedBytes)) return false;
-			FTerrainHeightmapSourceData SourceData;
-			return TranslateTerrainHeightmapSource(
-				std::filesystem::path(Snapshot.SourcePath.Path).extension().generic_string(),
-				Snapshot.GetBytes(), SourceData, OutError)
-				&& BuildTerrainHeightmapFromSource(Heightmap, std::move(SourceData), Snapshot,
-					OutError, false, false, false);
+			FAssetPath Destination;
+			if (!Heightmap.GetPackage()
+				|| !FAssetPath::TryCreate(Heightmap.GetPackage()->GetPackagePath(),
+					Destination, &OutError)) return false;
+			FInterchangeProvenance Existing;
+			std::optional<FInterchangeProvenance> Provenance;
+			if (InspectTerrainHeightmapInterchangeProvenance(Heightmap, Existing, OutError))
+				Provenance = std::move(Existing);
+			else OutError.clear();
+			FInterchangeImportRequest Request;
+			if (!MakeTerrainHeightmapInterchangeRequest(
+				Heightmap.GetSourceImportData().SourcePath, Destination,
+				EInterchangeImportMode::Recover,
+				{.OwnerId = std::format("TerrainHeightmap.Recovery:{}", Destination.ToString()),
+					.ConflictIdentities = {Destination.ToString()}},
+				std::move(Provenance), Request, OutError)) return false;
+			Request.Lifetime = EImportOperationLifetime::SessionCritical;
+			FInterchangeImportHandle Interchange = GetImportService().SubmitInterchangeImport(
+				std::move(Request),
+				std::format("Recover TerrainHeightmap {}", Destination.GetAssetName()));
+			if (!Interchange)
+			{
+				OutError = "TerrainHeightmap Interchange recovery could not be submitted.";
+				return false;
+			}
+			{
+				std::lock_guard Lock(State.Mutex);
+				State.PendingInterchangeByObject[ObjectKey(MakeObjectHandle(&Heightmap))] =
+					std::move(Interchange);
+			}
+			OutError.clear();
+			return true;
 		}
 
 		auto WaitForTerrainLoad(
@@ -327,6 +352,35 @@ namespace Durin::Asset::Forge
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
+			FInterchangeImportHandle Interchange;
+			{
+				std::lock_guard Lock(State.Mutex);
+				if (const auto Found = State.PendingInterchangeByObject.find(ObjectKey(Handle));
+					Found != State.PendingInterchangeByObject.end())
+					Interchange = Found->second;
+			}
+			if (Interchange)
+			{
+				while (!Interchange.GetOperationHandle().GetSnapshot().IsTerminal())
+				{
+					GetImportService().PumpImportOperations();
+					std::this_thread::yield();
+				}
+				FInterchangeImportResult Result;
+				const bool bHasResult = Interchange.TryGetResult(Result);
+				{
+					std::lock_guard Lock(State.Mutex);
+					State.PendingInterchangeByObject.erase(ObjectKey(Handle));
+				}
+				if (bHasResult && Result.Outcome.State == EImportOperationState::Succeeded)
+				{
+					OutError.clear();
+					return true;
+				}
+				OutError = bHasResult ? Result.Outcome.Diagnostic
+					: "TerrainHeightmap Interchange recovery produced no result.";
+				return false;
+			}
 			FTerrainAuthoringLoadPending Pending;
 			{
 				std::lock_guard Lock(State.Mutex);
@@ -375,18 +429,24 @@ namespace Durin::Asset::Forge
 	{
 		std::vector<std::shared_ptr<FTerrainAuthoringLoadWork>> Works;
 		std::vector<FTaskHandle> Publishers;
+		std::vector<FImportOperationHandle> InterchangeOperations;
 		{
 			std::lock_guard Lock(State->Mutex);
 			for (auto& [Key, Weak] : State->LoadsByKey)
 				if (auto Work = Weak.lock()) Works.push_back(std::move(Work));
 			for (auto& [Key, Pending] : State->PendingByObject)
 				Publishers.push_back(Pending.Publisher);
+			for (auto& [Key, Pending] : State->PendingInterchangeByObject)
+				InterchangeOperations.push_back(Pending.GetOperationHandle());
 			State->PendingByObject.clear();
+			State->PendingInterchangeByObject.clear();
 			State->LoadsByKey.clear();
 		}
 		for (const auto& Work : Works)
 			(void)CancelTask(Work->Worker);
 		for (const FTaskHandle& Publisher : Publishers) (void)CancelTask(Publisher);
+		for (const FImportOperationHandle& Operation : InterchangeOperations)
+			GetImportService().CancelAndDrainImportOperation(Operation);
 	}
 
 	auto FTerrainAuthoringFeature::PostLoadUncooked(
@@ -409,6 +469,7 @@ namespace Durin::Asset::Forge
 		const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
 		std::shared_ptr<FTerrainAuthoringLoadWork> Work;
 		FTaskHandle Publisher;
+		FImportOperationHandle InterchangeOperation;
 		bool bWorkHasOtherSubscribers = false;
 		{
 			std::lock_guard Lock(State->Mutex);
@@ -428,9 +489,17 @@ namespace Durin::Asset::Forge
 					if (!bWorkHasOtherSubscribers) State->LoadsByKey.erase(KeyFound);
 				}
 			}
+			if (const auto Found = State->PendingInterchangeByObject.find(ObjectKey(Handle));
+				Found != State->PendingInterchangeByObject.end())
+			{
+				InterchangeOperation = Found->second.GetOperationHandle();
+				State->PendingInterchangeByObject.erase(Found);
+			}
 		}
 		if (Work && !bWorkHasOtherSubscribers) (void)CancelTask(Work->Worker);
 		if (Publisher.IsValid()) (void)CancelTask(Publisher);
+		if (InterchangeOperation.IsValid())
+			GetImportService().CancelAndDrainImportOperation(InterchangeOperation);
 		return ChangeTerrainHeightmapSourceReference(Heightmap, SourceVirtualPath, OutError);
 	}
 }

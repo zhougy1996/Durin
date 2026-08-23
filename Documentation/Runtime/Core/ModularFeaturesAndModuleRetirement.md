@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, owner-bound asynchronous drain, and fa
 
 Modules: Core
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-24
 
 ## Feature Contract
 
@@ -165,11 +165,19 @@ and any forgotten stored entry or escaped instance leaves a non-zero retained
 resource count that blocks native release. A `shared_ptr` alone is never DLL
 lifetime evidence because its deleter and virtual destructor may be Plugin code.
 
-This contract currently covers asset-import providers and handlers, build-host
-contributions and local build functions, Editor workspaces and routes, rendered
-thumbnail providers, customizations, viewport modes, startup and console
-commands, asset-reference stores, and asset-move observers. Each registry keeps
-its existing domain-specific matching and ordering behavior.
+This contract currently covers asset-import translators, pipelines, and typed
+factories; build-host contributions and local build functions; Editor
+workspaces and routes; rendered thumbnail providers; customizations; viewport
+modes; startup and console commands; asset-reference stores; and asset-move
+observers. Each registry keeps its existing domain-specific matching and
+ordering behavior.
+
+Interchange component leases cover more than callback duration. Submitted jobs,
+detached products, and reusable preview products retain the exact component and
+module resource until their values are destroyed. Component unregistration
+closes admission and clears matching preview cache entries before the exact
+registration generation retires; provider code can therefore neither execute
+nor run a product destructor after native release.
 
 ## External and Deferred Execution
 

@@ -2,6 +2,8 @@
 
 #include "AssetForgeAPI.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Interchange.h"
+#include "InterchangeJob.h"
 
 namespace Durin
 {
@@ -47,4 +49,21 @@ namespace Durin::Asset::Forge
 	ASSETFORGE_API auto ReimportTerrainHeightmapSource(
 		DTerrainHeightmap& Heightmap,
 		std::string& OutError) -> bool;
+	ASSETFORGE_API auto MakeTerrainHeightmapInterchangeRequest(
+		const FSourcePath& MountedSource,
+		const FAssetPath& Destination,
+		Asset::EInterchangeImportMode Mode,
+		Asset::FImportOperationOwner Owner,
+		std::optional<Asset::FInterchangeProvenance> ExistingProvenance,
+		Asset::FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto InspectTerrainHeightmapInterchangeProvenance(
+		const DTerrainHeightmap& Heightmap,
+		Asset::FInterchangeProvenance& OutProvenance,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto SubmitTerrainHeightmapInterchangeImport(
+		std::string_view FilePath, const FAssetPath& Destination,
+		std::string_view SourceDestination, bool bEngineAuthoringContext,
+		Asset::FInterchangeImportCompletion Completion,
+		std::string& OutError) -> Asset::FInterchangeImportHandle;
 }

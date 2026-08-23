@@ -187,7 +187,11 @@ namespace Durin::Asset
 		std::string& OutError) -> bool
 	{
 		std::vector<std::byte> Bytes;
-		const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(Package, Bytes);
+		std::vector<FEditorBulkDataStoragePayload> ExternalPayloads;
+		FAssetPackageSerializationOptions Options;
+		Options.EditorBulkDataStoragePayloads = &ExternalPayloads;
+		const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
+			Package, Bytes, Options);
 		if (!Result)
 		{
 			OutError = Result.Message;

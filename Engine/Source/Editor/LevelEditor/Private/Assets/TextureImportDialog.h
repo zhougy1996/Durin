@@ -53,6 +53,9 @@ namespace Durin::Editor::Level
 		Asset::Forge::FVolumeTextureAtlasInspection VolumeInspection;
 		std::string InspectedVolumeSourcePath;
 		std::string SubmissionError;
+		std::optional<Asset::FInterchangeImportHandle> TextureCubePreview;
+		std::string PendingTextureCubePreviewKey;
+		std::string ValidatedTextureCubePreviewKey;
 		int SelectedVolumeLayout = -1;
 	};
 } // namespace Durin::Editor::Level

@@ -150,11 +150,19 @@ accepted editor diagnostics, record indexes, and provider-module identities do
 not enter cooked runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
-Editor importers register once with AssetImportCore's `FImportService`. The
-descriptor binds source recognition and planning to its optional single-asset
-and record-backed capabilities. Initial import, reimport, repair, multi-output
-reconciliation, cancellation, and descriptor retirement therefore share one
-service owner; callers never coordinate parallel provider/handler registries.
+Editor import extensions register translators, ordered pipelines, and typed
+factories with AssetImportCore's `FImportService`. One
+`FInterchangeImportRequest` and framework-owned job serve initial import,
+preview, reimport, repair, multi-output reconciliation, and implemented editor
+recovery. Callers never coordinate a parallel provider, single-asset-handler,
+or record-handler workflow.
+
+The translator graph records source semantics and explicit dependencies. The
+factory graph records output class, destination, reconciliation policy, and
+cross-output dependencies. Both are immutable, bounded, canonically ordered,
+and fingerprinted. Detached products remain ordinary CPU-owned values until
+the editor thread materializes candidates and enters failure-atomic package
+publication.
 
 The current import behavior is:
 
@@ -227,10 +235,14 @@ immutable CPU payloads: they contain no source token, reflected object, RHI
 handle, playback clock, evaluated pose, or palette state.
 
 Authored editor packages may retain a content-addressed rebuild key and compact
-source/import metadata. A loaded package can populate a missing CPU payload
-from a validated DDC object when that key is present, but package load does not
-reopen Scene source or invoke an import provider. `DSkeleton` has no external
-payload and therefore no DDC object or DBLK companion.
+source/import metadata. A loaded package first attempts a validated DDC object.
+Where an editor recovery policy exists, missing disposable data reconstructs a
+`SessionCritical` Interchange request from persisted provenance or the managing
+Scene record; it does not enter a separate decoder or publication path. Scene
+replacement target loading may tolerate missing disposable skeletal payloads
+while preserving the published object identity that the recovery transaction
+updates. `DSkeleton` has no external payload and therefore no DDC object or
+DBLK companion.
 
 ## Derived Data Cache Objects
 

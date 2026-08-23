@@ -10,38 +10,6 @@
 namespace Durin::Asset
 {
 	class FImportService;
-	struct FSingleAssetAsyncExecutionState;
-	struct FSingleAssetAsyncPlanState;
-
-	class ASSETIMPORTCORE_API FSingleAssetAsyncPlanHandle
-	{
-	public:
-		FSingleAssetAsyncPlanHandle() = default;
-		auto IsValid() const -> bool { return State != nullptr; }
-		explicit operator bool() const { return IsValid(); }
-	private:
-		explicit FSingleAssetAsyncPlanHandle(
-			std::shared_ptr<FSingleAssetAsyncPlanState> InState)
-			: State(std::move(InState)) {}
-		std::shared_ptr<FSingleAssetAsyncPlanState> State;
-		friend class FImportService;
-	};
-
-	class ASSETIMPORTCORE_API FSingleAssetAsyncExecutionHandle
-	{
-	public:
-		FSingleAssetAsyncExecutionHandle() = default;
-		auto IsValid() const -> bool { return State != nullptr; }
-		explicit operator bool() const { return IsValid(); }
-
-	private:
-		explicit FSingleAssetAsyncExecutionHandle(
-			std::shared_ptr<FSingleAssetAsyncExecutionState> InState)
-			: State(std::move(InState)) {}
-		std::shared_ptr<FSingleAssetAsyncExecutionState> State;
-		friend class FImportService;
-	};
-
 	class ASSETIMPORTCORE_API FImporterRegistration final
 	{
 	public:
@@ -74,8 +42,6 @@ namespace Durin::Asset
 		uint32 ContractVersion = 0;
 		std::vector<std::string> SourceExtensions;
 		std::shared_ptr<IImportProvider> Provider;
-		std::vector<std::shared_ptr<ISingleAssetImportHandler>> SingleAssetHandlers;
-		std::shared_ptr<IImportRecordHandler> RecordHandler;
 	};
 
 	class ASSETIMPORTCORE_API FImportService final
@@ -148,47 +114,12 @@ namespace Durin::Asset
 		auto CancelAndDrainAllAsyncImports() -> void;
 		auto CloseAsyncAdmission() -> void;
 		auto CreateImportPlan(const FImportPlanRequest& Request) -> FImportPlanResult;
-		auto HasSingleAssetImporter(std::string_view AssetClassName) const -> bool;
-		auto QuerySingleAssetCapabilities(const DObject& Asset) const
-			-> FSingleAssetCapabilitySet;
-		auto CreateSingleAssetReimportPlan(const FSingleAssetReimportRequest& Request)
-			-> FSingleAssetPlanResult;
-		auto BeginSingleAssetReimportPlan(
-			const FSingleAssetReimportRequest& Request,
-			FSingleAssetAsyncPlanOptions Options = {},
-			FTaskScopeToken OperationScope = {}) -> FSingleAssetAsyncPlanHandle;
-		auto PollSingleAssetReimportPlan(
-			FSingleAssetAsyncPlanHandle& Handle,
-			FSingleAssetPlanResult& OutResult) -> EAsyncImportPlanStatus;
-		auto CancelAndDrainSingleAssetReimportPlan(
-			FSingleAssetAsyncPlanHandle& Handle) -> void;
-		auto ExecuteSingleAssetImport(const FSingleAssetImportPlan& Plan,
-			const FSingleAssetExecutionOptions& Options = {})
-			-> FSingleAssetExecutionResult;
-		auto BeginSingleAssetImportExecution(
-			const FSingleAssetImportPlan& Plan,
-			FSingleAssetExecutionOptions Options = {},
-			FTaskScopeToken OperationScope = {})
-			-> FSingleAssetAsyncExecutionHandle;
-		auto PollSingleAssetImportExecution(
-			FSingleAssetAsyncExecutionHandle& Handle,
-			FSingleAssetExecutionResult& OutResult) -> EAsyncImportPlanStatus;
-		auto CancelAndDrainSingleAssetImportExecution(
-			FSingleAssetAsyncExecutionHandle& Handle) -> void;
-		auto RepairSingleAssetSource(DObject& Asset,
-			std::span<const FSourcePath> Sources) -> FSingleAssetExecutionResult;
 		auto CreateMultiOutputImportPlan(const FMultiOutputPlanRequest& Request,
 			FImportRecordIndex& Index) -> FMultiOutputPlanResult;
 		auto ExecuteMultiOutputImport(const FMultiOutputImportPlan& Plan,
 			FPreparedMultiOutputImport Prepared, FImportRecordIndex& Index,
 			const FMultiOutputExecutionOptions& Options = {})
 			-> FMultiOutputExecutionResult;
-		auto QueryImportRecordCapabilities(const FImportRecordInspection& Inspection) const
-			-> FImportRecordCapabilitySet;
-		auto ExecuteImportRecordAction(DImportRecord& Record,
-			EImportRecordAction Action,
-			const FMultiOutputExecutionOptions& Options = {})
-			-> FImportRecordActionResult;
 		auto GetRevision() const -> uint64;
 
 	private:
@@ -198,20 +129,11 @@ namespace Durin::Asset
 		std::shared_ptr<void> Lifetime;
 		std::unique_ptr<FImpl> Impl;
 		auto FindProvider(std::string_view ProviderId) const -> FProviderLease;
-		auto FindSingleAssetHandler(std::string_view AssetClassName) const
-			-> std::shared_ptr<const ISingleAssetImportHandler>;
-		auto FindImportRecordHandler(std::string_view ProviderId) const
-			-> std::shared_ptr<const IImportRecordHandler>;
 		auto OpenAsyncImporterAdmission(std::string_view ProviderId) -> void;
 		auto UnregisterImporter(std::string_view ProviderId, uint64 Identity) -> bool;
 		auto UnregisterInterchangeComponent(EInterchangeComponentRole Role,
 			std::string_view Id, uint64 Identity) -> bool;
-		auto ExecuteSingleAssetImportPrepared(
-			const FSingleAssetImportPlan& Plan,
-			const FSingleAssetExecutionOptions& Options,
-			std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
-			std::vector<FImportDiagnostic> PreparationDiagnostics)
-			-> FSingleAssetExecutionResult;
+
 
 	};
 

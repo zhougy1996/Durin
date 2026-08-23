@@ -282,11 +282,18 @@ namespace
 		}
 		auto Abandon() noexcept -> void override
 		{
-			if (!Package) return;
+			if (Durin::DPackage* Detached = DetachPackageForAbandon())
+				(void)Durin::Asset::UnloadPackage(Detached,
+					Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		}
+		auto DetachPackageForAbandon() noexcept -> Durin::DPackage* override
+		{
+			if (!Package) return nullptr;
 			if (AbandonCount) ++*AbandonCount;
-			(void)Durin::Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			Durin::DPackage* Detached = Package;
 			Package = nullptr;
 			Asset = nullptr;
+			return Detached;
 		}
 
 	private:

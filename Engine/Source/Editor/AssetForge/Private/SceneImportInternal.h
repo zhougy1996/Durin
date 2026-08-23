@@ -73,6 +73,4 @@ namespace Durin::Asset::Forge
 		const std::function<bool()>& IsCancellationRequested,
 		FSceneInterchangeTextureProduct& OutProduct,
 		std::string& OutError) -> bool;
-	auto CreateSceneImportProvider()
-		-> std::shared_ptr<IImportProvider>;
 }

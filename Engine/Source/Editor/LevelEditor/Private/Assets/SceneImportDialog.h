@@ -40,8 +40,8 @@ namespace Durin::Editor::Level
 		FMeshCoordinateImportModel Coordinates;
 		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 		std::string PreviewKey;
-		std::optional<Asset::Forge::FSceneImportPlanResult> Preview;
-		std::optional<Asset::Forge::FSceneImportAsyncPlanHandle> PreviewRequest;
+		std::optional<Asset::FInterchangeImportResult> Preview;
+		std::optional<Asset::FInterchangeImportHandle> PreviewRequest;
 		std::optional<Asset::Forge::FSceneSourceBundleAsyncHandle> SourceRequest;
 		std::optional<FAssetPath> PendingImportDirectory;
 		std::optional<Asset::FInterchangeImportHandle> InterchangeRequest;

@@ -74,6 +74,7 @@ namespace Durin::Asset
 			FInterchangeProvenance Provenance;
 			FInterchangeInspection Inspection;
 			uint64 RegistryRevision = 0;
+			FXxHash128 PreviewReuseFingerprint{};
 		};
 
 		auto CloneGraphs(const FInterchangeGraphJobValue& Source)
@@ -86,6 +87,7 @@ namespace Durin::Asset
 			Result->Provenance = Source.Provenance;
 			Result->Inspection = Source.Inspection;
 			Result->RegistryRevision = Source.RegistryRevision;
+			Result->PreviewReuseFingerprint = Source.PreviewReuseFingerprint;
 			return Result;
 		}
 
@@ -178,6 +180,14 @@ namespace Durin::Asset
 				RetainedBytes += Bytes;
 			}
 
+			auto Clear() -> void
+			{
+				std::lock_guard Lock(Mutex);
+				Entries.clear();
+				Order.clear();
+				RetainedBytes = 0;
+			}
+
 		private:
 			struct FEntry
 			{
@@ -223,6 +233,61 @@ namespace Durin::Asset
 			FInterchangeGraphJobValue Graphs;
 			std::vector<FInterchangeProductEntry> Products;
 		};
+
+		auto CloneProducts(const FInterchangeProductJobValue& Source)
+			-> std::unique_ptr<FInterchangeProductJobValue>
+		{
+			auto Result = std::make_unique<FInterchangeProductJobValue>();
+			Result->Graphs = *CloneGraphs(Source.Graphs);
+			Result->Products.reserve(Source.Products.size());
+			for (const FInterchangeProductEntry& Entry : Source.Products)
+			{
+				if (!Entry.Product) return {};
+				auto Product = Entry.Product->CloneDetachedProduct();
+				if (!Product) return {};
+				Result->Products.push_back({
+					.Factory = Entry.Factory, .Product = std::move(Product),
+					.NodeIndex = Entry.NodeIndex});
+			}
+			return Result;
+		}
+
+		class FInterchangeProductPreviewCache
+		{
+		public:
+			auto Find(const FXxHash128& Fingerprint)
+				-> std::unique_ptr<FInterchangeProductJobValue>
+			{
+				std::lock_guard Lock(Mutex);
+				const auto It = Entries.find(Fingerprint);
+				return It == Entries.end() ? nullptr : CloneProducts(*It->second);
+			}
+			auto Store(const FXxHash128& Fingerprint,
+				const FInterchangeProductJobValue& Value) -> void
+			{
+				auto Clone = CloneProducts(Value);
+				if (!Clone) return;
+				std::lock_guard Lock(Mutex);
+				if (Entries.size() >= MaximumEntries) Entries.erase(Entries.begin());
+				Entries[Fingerprint] = std::shared_ptr<FInterchangeProductJobValue>(Clone.release());
+			}
+			auto Clear() -> void
+			{
+				std::lock_guard Lock(Mutex);
+				Entries.clear();
+			}
+		private:
+			static constexpr size_t MaximumEntries = 4;
+			std::mutex Mutex;
+			std::unordered_map<FXxHash128,
+				std::shared_ptr<FInterchangeProductJobValue>> Entries;
+		};
+
+		auto GetInterchangeProductPreviewCache() -> FInterchangeProductPreviewCache&
+		{
+			static FInterchangeProductPreviewCache Cache;
+			return Cache;
+		}
 
 		struct FPreparedInterchangeOutput
 		{
@@ -277,15 +342,6 @@ namespace Durin::Asset
 					auto* Graphs = dynamic_cast<FInterchangeGraphJobValue*>(PreviousWorkerResult.get());
 					if (!Graphs) return Complete(FailureOutcome({},
 						"Interchange graph preparation returned an invalid value."));
-					if (Request.Mode == EInterchangeImportMode::Preview)
-					{
-						FInterchangeImportResult Result;
-						Result.Outcome.State = EImportOperationState::Succeeded;
-						Result.Provenance = Graphs->Provenance;
-						Result.Inspection = Graphs->Inspection;
-						StoreResult(Result);
-						return FImportJobEditorAdvance::Complete(Result.Outcome);
-					}
 					State = EState::AwaitProducts;
 					WorkerRound = 1;
 					return FImportJobEditorAdvance::ContinueWith({
@@ -299,6 +355,18 @@ namespace Durin::Asset
 					auto* Products = dynamic_cast<FInterchangeProductJobValue*>(PreviousWorkerResult.get());
 					if (!Products) return Complete(FailureOutcome({},
 						"Interchange product construction returned an invalid value."));
+					if (Request.Mode == EInterchangeImportMode::Preview)
+					{
+						GetInterchangeProductPreviewCache().Store(
+							Products->Graphs.PreviewReuseFingerprint, *Products);
+						FInterchangeImportResult Result;
+						Result.Outcome.State = EImportOperationState::Succeeded;
+						Result.Provenance = Products->Graphs.Provenance;
+						Result.Inspection = Products->Graphs.Inspection;
+						StoreResult(Result);
+						State = EState::Terminal;
+						return FImportJobEditorAdvance::Complete(Result.Outcome);
+					}
 					State = EState::Materialize;
 					return MaterializeAndPublish(Context, *Products);
 				}
@@ -335,6 +403,11 @@ namespace Durin::Asset
 				FSourceSnapshotBuilder SnapshotBuilder(Request.SourceLimits);
 				if (!SnapshotBuilder.CaptureRoot(Request.RootSource, Diagnostics))
 					return WorkerFailure(std::move(Diagnostics), "Source capture failed.");
+				for (const FInterchangeDeclaredSource& Source : Request.DeclaredSources)
+					if (!SnapshotBuilder.CaptureDeclaredSource(
+						Source.StableIdentity, Source.Role, Source.SourcePath, Diagnostics))
+						return WorkerFailure(std::move(Diagnostics),
+							"Declared source capture failed.");
 				const FSourceSnapshotEntry& Root = SnapshotBuilder.GetCapturedSources().front();
 				const std::filesystem::path RootPath(Request.RootSource.Path);
 				const size_t PrefixSize = static_cast<size_t>(std::min<uint64>(
@@ -424,6 +497,7 @@ namespace Durin::Asset
 				Value->TranslatedGraph = std::move(TranslatedGraph);
 				Value->FactoryGraph = std::move(PipelineResult.Graph);
 				Value->RegistryRevision = PipelineResult.RegistryRevision;
+				Value->PreviewReuseFingerprint = PreviewReuseFingerprint;
 				if (Request.Mode == EInterchangeImportMode::Preview)
 					GetInterchangePreviewCache().Store(PreviewReuseFingerprint, *Value);
 				return {.Value = std::move(Value)};
@@ -435,6 +509,10 @@ namespace Durin::Asset
 				auto* Graphs = dynamic_cast<FInterchangeGraphJobValue*>(Input.get());
 				if (!Graphs) return {.bSucceeded = false,
 					.Diagnostic = "Interchange product input is invalid."};
+				if (Request.Mode != EInterchangeImportMode::Preview)
+					if (auto Cached = GetInterchangeProductPreviewCache().Find(
+						Graphs->PreviewReuseFingerprint))
+						return {.Value = std::move(Cached)};
 				auto Value = std::make_unique<FInterchangeProductJobValue>();
 				Value->Graphs = std::move(*Graphs);
 				const auto Nodes = Value->Graphs.FactoryGraph.GetNodes();
@@ -542,15 +620,20 @@ namespace Durin::Asset
 						.NodeIndex = Product.NodeIndex};
 					if (Node.Policy != EImportOutputPolicy::Create)
 					{
-						const Asset::FAssetResult Loaded = Asset::LoadAsset(
-							Node.Destination, Output.ExistingTarget);
+						const Asset::FAssetResult Loaded =
+							Invocation && Output.Factory.GetFactory()
+							? Output.Factory.GetFactory()->LoadExistingTarget(
+								Node, Output.ExistingTarget)
+							: Asset::FAssetResult{
+								.Error = Asset::EAssetError::ShuttingDown,
+								.Message = "Interchange factory retired before target loading."};
 						if (!Loaded || !Output.ExistingTarget)
 						{
 							Abandon(Prepared);
 							Output.Candidate->Abandon();
 							return Complete(FailureOutcome(std::move(Diagnostics),
-								std::format("Replacement target '{}' is unavailable.",
-									Node.Destination.ToString())));
+								std::format("Replacement target '{}' is unavailable: {}",
+									Node.Destination.ToString(), Loaded.Message)));
 						}
 					}
 					Prepared.push_back(std::move(Output));
@@ -725,10 +808,11 @@ namespace Durin::Asset
 					{
 						Output.Exchange->Finalize();
 						Output.Exchange.reset();
-						Output.Candidate->Abandon();
 					}
-					Output.Candidate.reset();
 				}
+				Abandon(Prepared, true);
+				for (FPreparedInterchangeOutput& Output : Prepared)
+					Output.Candidate.reset();
 				StoreResult(Result);
 				State = EState::Terminal;
 				return FImportJobEditorAdvance::Complete(Result.Outcome);
@@ -746,6 +830,14 @@ namespace Durin::Asset
 				std::string Message) const -> FImportJobWorkerResult
 			{
 				FinalizeImportDiagnostics(Diagnostics, "interchange-worker");
+				for (auto It = Diagnostics.rbegin(); It != Diagnostics.rend(); ++It)
+				{
+					if (It->Severity == EImportDiagnosticSeverity::Error && !It->Message.empty())
+					{
+						Message = It->Message;
+						break;
+					}
+				}
 				return {.bSucceeded = false, .Diagnostic = std::move(Message),
 					.Value = std::make_unique<FInterchangeDiagnosticJobValue>(
 						std::move(Diagnostics))};
@@ -790,10 +882,26 @@ namespace Durin::Asset
 				if (Completion) Completion(Result);
 			}
 
-			static auto Abandon(std::vector<FPreparedInterchangeOutput>& Outputs) -> void
+			static auto Abandon(std::vector<FPreparedInterchangeOutput>& Outputs,
+				bool bOnlyReplacementCandidates = false) -> void
 			{
+				std::vector<FAssetPath> Packages;
 				for (FPreparedInterchangeOutput& Output : Outputs)
-					if (Output.Candidate) Output.Candidate->Abandon();
+				{
+					if (!Output.Candidate
+						|| (bOnlyReplacementCandidates && Output.Candidate->IsNewAsset()))
+						continue;
+					DPackage* Package = Output.Candidate->DetachPackageForAbandon();
+					FAssetPath Path;
+					if (Package && FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+						Packages.push_back(std::move(Path));
+					Output.Candidate.reset();
+				}
+				std::ranges::sort(Packages, {}, &FAssetPath::ToString);
+				Packages.erase(std::unique(Packages.begin(), Packages.end()), Packages.end());
+				for (const FAssetPath& Path : Packages)
+					(void)Asset::UnloadPackage(
+						Path, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
 
 			FInterchangeImportRequest Request;
@@ -828,6 +936,12 @@ namespace Durin::Asset
 			return false;
 		OutResult = {.Outcome = std::move(Outcome)};
 		return true;
+	}
+
+	auto ClearInterchangePreviewCache() -> void
+	{
+		GetInterchangeProductPreviewCache().Clear();
+		GetInterchangePreviewCache().Clear();
 	}
 
 	auto FImportService::SubmitInterchangeImport(

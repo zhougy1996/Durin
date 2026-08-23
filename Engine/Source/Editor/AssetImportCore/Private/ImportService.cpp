@@ -1,6 +1,7 @@
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
 #include "InterchangeRegistryInternal.h"
+#include "InterchangeJob.h"
 
 namespace Durin::Asset
 {
@@ -149,15 +150,11 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 	{
 		struct FRegistration
 		{
-			std::vector<std::string> AssetClassNames;
-			bool bHasRecordHandler = false;
 			uint64 Identity = 0;
 		};
 
 		mutable std::mutex Mutex;
 		FImporterStore Providers;
-		FSingleAssetHandlerRegistry SingleAssetHandlers;
-		FImportRecordHandlerRegistry RecordHandlers;
 		FInterchangeRegistryStore Interchange;
 		std::map<std::string, FRegistration, std::less<>> Registrations;
 		uint64 Revision = 1;
@@ -207,21 +204,6 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 			OutError = "An importer descriptor requires a non-empty provider id.";
 			return {};
 		}
-		for (const auto& Handler : Descriptor.SingleAssetHandlers)
-		{
-			if (!Handler || Handler->GetProviderId() != ProviderId)
-			{
-				OutError = "Every single-asset capability must belong to the descriptor provider.";
-				return {};
-			}
-		}
-		if (Descriptor.RecordHandler
-			&& Descriptor.RecordHandler->GetProviderId() != ProviderId)
-		{
-			OutError = "The record capability must belong to the descriptor provider.";
-			return {};
-		}
-
 		std::lock_guard Lock(Impl->Mutex);
 		if (Impl->Registrations.contains(ProviderId))
 		{
@@ -234,36 +216,6 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 
 		FImpl::FRegistration Registration;
 		Registration.Identity = Impl->NextRegistrationIdentity++;
-		auto Rollback = [&]
-		{
-			for (auto It = Registration.AssetClassNames.rbegin();
-				It != Registration.AssetClassNames.rend(); ++It)
-				Impl->SingleAssetHandlers.Unregister(*It);
-			if (Registration.bHasRecordHandler)
-				Impl->RecordHandlers.Unregister(ProviderId);
-			Impl->Providers.Unregister(ProviderId);
-		};
-
-		if (Descriptor.RecordHandler)
-		{
-			if (!Impl->RecordHandlers.Register(
-				std::move(Descriptor.RecordHandler), OwnerGate, OutError))
-			{
-				Rollback();
-				return {};
-			}
-			Registration.bHasRecordHandler = true;
-		}
-		for (auto& Handler : Descriptor.SingleAssetHandlers)
-		{
-			const std::string AssetClassName(Handler->GetAssetClassName());
-			if (!Impl->SingleAssetHandlers.Register(std::move(Handler), OwnerGate, OutError))
-			{
-				Rollback();
-				return {};
-			}
-			Registration.AssetClassNames.push_back(AssetClassName);
-		}
 		const uint64 Identity = Registration.Identity;
 		Impl->Registrations.emplace(ProviderId, std::move(Registration));
 		++Impl->Revision;
@@ -278,11 +230,6 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		const auto It = Impl->Registrations.find(ProviderId);
 		if (It == Impl->Registrations.end()) return false;
 		CancelAndDrainAsyncImportsForProvider(ProviderId);
-		for (auto ClassIt = It->second.AssetClassNames.rbegin();
-			ClassIt != It->second.AssetClassNames.rend(); ++ClassIt)
-			Impl->SingleAssetHandlers.Unregister(*ClassIt);
-		if (It->second.bHasRecordHandler)
-			Impl->RecordHandlers.Unregister(ProviderId);
 		Impl->Providers.Unregister(ProviderId);
 		Impl->Registrations.erase(It);
 		++Impl->Revision;
@@ -297,20 +244,10 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		if (It == Impl->Registrations.end() || It->second.Identity != Identity)
 			return false;
 		CancelAndDrainAsyncImportsForProvider(ProviderId);
-		for (auto ClassIt = It->second.AssetClassNames.rbegin();
-			ClassIt != It->second.AssetClassNames.rend(); ++ClassIt)
-			Impl->SingleAssetHandlers.Unregister(*ClassIt);
-		if (It->second.bHasRecordHandler)
-			Impl->RecordHandlers.Unregister(ProviderId);
 		Impl->Providers.Unregister(ProviderId);
 		Impl->Registrations.erase(It);
 		++Impl->Revision;
 		return true;
-	}
-
-	auto FImportService::HasSingleAssetImporter(std::string_view AssetClassName) const -> bool
-	{
-		return static_cast<bool>(Impl->SingleAssetHandlers.Find(AssetClassName));
 	}
 
 	auto FImportService::GetRevision() const -> uint64
@@ -323,17 +260,6 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 	{
 		return Impl->Providers.Find(ProviderId);
 	}
-	auto FImportService::FindSingleAssetHandler(std::string_view AssetClassName) const
-		-> std::shared_ptr<const ISingleAssetImportHandler>
-	{
-		return Impl->SingleAssetHandlers.Find(AssetClassName);
-	}
-	auto FImportService::FindImportRecordHandler(std::string_view ProviderId) const
-		-> std::shared_ptr<const IImportRecordHandler>
-	{
-		return Impl->RecordHandlers.Find(ProviderId);
-	}
-
 	auto FImportService::IsImporterRegistered(std::string_view ProviderId) const -> bool
 	{
 		std::lock_guard Lock(Impl->Mutex);
@@ -400,6 +326,7 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		std::string_view Id,
 		uint64 Identity) -> bool
 	{
+		ClearInterchangePreviewCache();
 		CancelAndDrainAsyncImportsForProvider(Id);
 		return Impl->Interchange.Unregister(Role, Id, Identity);
 	}

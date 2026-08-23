@@ -3,6 +3,8 @@
 #include "AssetForgeAPI.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
+#include "Interchange.h"
+#include "InterchangeJob.h"
 
 namespace Durin::Asset::Forge
 {
@@ -103,4 +105,29 @@ namespace Durin::Asset::Forge
 		const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
+
+	ASSETFORGE_API auto MakeTextureCubeInterchangeRequest(
+		std::span<const FSourcePath> MountedSources,
+		ETextureCubeSourceLayout Layout,
+		const FAssetPath& Destination,
+		const FTextureCubeImportSettings& FaceSettings,
+		const FTextureCubePanoramaImportSettings& PanoramaSettings,
+		Asset::EInterchangeImportMode Mode,
+		Asset::FImportOperationOwner Owner,
+		std::optional<Asset::FInterchangeProvenance> ExistingProvenance,
+		Asset::FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto InspectTextureCubeInterchangeProvenance(
+		const DTextureCube& Texture,
+		Asset::FInterchangeProvenance& OutProvenance,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto SubmitTextureCubeInterchangeImport(
+		std::span<const std::string> SourceFiles,
+		std::span<const std::string> SourceDestinations,
+		ETextureCubeSourceLayout Layout, const FAssetPath& Destination,
+		const FTextureCubeImportSettings& FaceSettings,
+		const FTextureCubePanoramaImportSettings& PanoramaSettings,
+		bool bEngineAuthoringContext,
+		Asset::FInterchangeImportCompletion Completion,
+		std::string& OutError) -> Asset::FInterchangeImportHandle;
 }

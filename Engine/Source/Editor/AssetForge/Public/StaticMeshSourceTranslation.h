@@ -2,6 +2,7 @@
 
 #include "AssetForgeAPI.h"
 #include "Interchange.h"
+#include "InterchangeJob.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Asset::Forge
@@ -21,6 +22,12 @@ namespace Durin::Asset::Forge
 		const DStaticMesh& Mesh,
 		FInterchangeProvenance& OutProvenance,
 		std::string& OutError) -> bool;
+	ASSETFORGE_API auto SubmitStaticMeshInterchangeImport(
+		std::string_view FilePath, const FAssetPath& Destination,
+		const FStaticMeshImportSettings& Settings,
+		std::string_view SourceDestination, bool bEngineAuthoringContext,
+		FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle;
 	ASSETFORGE_API auto ChangeStaticMeshSourceReference(
 		DStaticMesh& Mesh,
 		std::string_view SourceVirtualPath,

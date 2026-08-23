@@ -7,6 +7,7 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "TerrainHeightmapBuildAdapter.h"
+#include "ImportService.h"
 
 namespace Durin::Asset::Forge
 {
@@ -226,25 +227,55 @@ namespace Durin::Asset::Forge
 				? EMountedSourceMutationContext::EngineAuthoring
 				: EMountedSourceMutationContext::DependencySafe))
 			return {false, std::move(Error), nullptr};
-		DTerrainHeightmap* Heightmap = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);
-		if (!Created)
-		{
-			return {false, Created.Message, nullptr};
-		}
-		if (!BuildFromMountedSource(*Heightmap, MountedSource, Error))
-		{
-			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, std::move(Error), nullptr};
-		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
-		if (!Saved)
-		{
-			Asset::UnloadPackage(Heightmap->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, Saved.Message, nullptr};
-		}
+		FInterchangeImportRequest Request;
+		if (!MakeTerrainHeightmapInterchangeRequest(MountedSource.SourcePath, ParsedPath,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("TerrainHeightmap.Import:{}", ParsedPath.ToString())},
+			{}, Request, Error)) return {false, std::move(Error), nullptr};
+		const FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Import Terrain Heightmap {}", ParsedPath.GetAssetName()));
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return {false, Imported.Outcome.Diagnostic, nullptr};
+		DObject* Object = nullptr;
+		(void)Asset::LoadAsset(ParsedPath, Object);
+		auto* Heightmap = Cast<DTerrainHeightmap>(Object);
+		if (!Heightmap) return {false, "Terrain Interchange published no asset.", nullptr};
 		MountedSource.Commit();
 		return {true, {}, Heightmap};
+	}
+
+	auto SubmitTerrainHeightmapInterchangeImport(std::string_view FilePath,
+		const FAssetPath& Destination, std::string_view SourceDestination,
+		bool bEngineAuthoringContext, FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle
+	{
+		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
+		const std::string Extension = NormalizeExtension(Input.extension().generic_string());
+		if (!std::filesystem::is_regular_file(Input) || !IsTerrainHeightmapSourceExtension(Extension))
+		{
+			OutError = "Terrain heightmap source is unavailable or unsupported.";
+			return {};
+		}
+		std::string StoredSourcePath;
+		if (!MakeCanonicalSourceLocation(Destination, SourceDestination, Extension,
+			StoredSourcePath, OutError)) return {};
+		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
+		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
+			*Mounted, OutError, bEngineAuthoringContext
+				? EMountedSourceMutationContext::EngineAuthoring
+				: EMountedSourceMutationContext::DependencySafe)) return {};
+		FInterchangeImportRequest Request;
+		if (!MakeTerrainHeightmapInterchangeRequest(Mounted->SourcePath, Destination,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("TerrainHeightmap.Import:{}", Destination.ToString()),
+				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
+		OutError.clear();
+		return GetImportService().SubmitInterchangeImport(std::move(Request),
+			std::format("Import Terrain Heightmap {}", Destination.GetAssetName()),
+			[Mounted, Completion = std::move(Completion)](const FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == EImportOperationState::Succeeded) Mounted->Commit();
+				if (Completion) Completion(Result);
+			});
 	}
 
 	auto ChangeTerrainHeightmapSourceReference(
@@ -258,10 +289,27 @@ namespace Durin::Asset::Forge
 			return false;
 		}
 		FMountedSourceResolution Source;
-		return ResolveMountedSourceReference(
+		if (!ResolveMountedSourceReference(
 			Heightmap.GetPackage()->GetPackagePath(), SourceVirtualPath,
-			EMountedSourceExistencePolicy::RequireFile, Source, OutError)
-			&& BuildFromMountedSource(Heightmap, Source, OutError);
+			EMountedSourceExistencePolicy::RequireFile, Source, OutError)) return false;
+		FAssetPath Destination;
+		if (!FAssetPath::TryCreate(Heightmap.GetPackage()->GetPackagePath(), Destination, &OutError))
+			return false;
+		std::optional<FInterchangeProvenance> Existing;
+		FInterchangeProvenance Persisted;
+		std::string ProvenanceError;
+		if (InspectTerrainHeightmapInterchangeProvenance(Heightmap, Persisted, ProvenanceError))
+			Existing = std::move(Persisted);
+		FInterchangeImportRequest Request;
+		if (!MakeTerrainHeightmapInterchangeRequest(Source.SourcePath, Destination,
+			EInterchangeImportMode::Repair,
+			{.OwnerId = std::format("TerrainHeightmap.Repair:{}", Destination.ToString())},
+			std::move(Existing), Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Repair Terrain Heightmap {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 
 	auto ReimportTerrainHeightmapSource(

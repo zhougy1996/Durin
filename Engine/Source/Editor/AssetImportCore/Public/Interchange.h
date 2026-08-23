@@ -2,6 +2,7 @@
 
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
+#include "Asset/Load.h"
 
 namespace Durin::Asset
 {
@@ -243,6 +244,10 @@ namespace Durin::Asset
 	{
 	public:
 		virtual ~IInterchangeFactoryProduct() = default;
+		// Preview reuse is opt-in for extension products. The clone remains an
+		// immutable detached value and is destroyed while the factory lease lives.
+		virtual auto CloneDetachedProduct() const
+			-> std::unique_ptr<IInterchangeFactoryProduct> { return {}; }
 	};
 
 	// Read-only view of the complete prospective authored graph. Factories use
@@ -271,6 +276,14 @@ namespace Durin::Asset
 			std::unique_ptr<IInterchangeFactoryProduct> Product,
 			std::vector<FImportDiagnostic>& OutDiagnostics) const
 			-> std::unique_ptr<ISingleAssetCandidate> = 0;
+		// Providers may relax disposable derived-data loading while obtaining the
+		// published identity that a replacement will update.
+		virtual auto LoadExistingTarget(
+			const FImportFactoryNode& FactoryNode,
+			DObject*& OutTarget) const -> FAssetResult
+		{
+			return Asset::LoadAsset(FactoryNode.Destination, OutTarget);
+		}
 		virtual auto ResolveCandidateDependencies(
 			const FImportFactoryNode&,
 			ISingleAssetCandidate&,
@@ -461,7 +474,16 @@ namespace Durin::Asset
 		uint32 SchemaVersion = InterchangeContractVersion;
 		FInterchangeComponentIdentity Translator;
 		std::vector<FInterchangePipelineStackEntry> PipelineStack;
-		std::vector<FSingleAssetSourceProvenance> Sources;
+		struct FSourceProvenance
+		{
+			std::string StableIdentity;
+			std::string Role;
+			FSourcePath SourcePath;
+			FXxHash128 ContentHash{};
+			uint64 ByteCount = 0;
+			auto operator==(const FSourceProvenance&) const -> bool = default;
+		};
+		std::vector<FSourceProvenance> Sources;
 		std::vector<FInterchangeOutputMapping> OutputMappings;
 		FXxHash128 TranslatedGraphFingerprint{};
 		FXxHash128 FactoryGraphFingerprint{};
@@ -471,10 +493,22 @@ namespace Durin::Asset
 		auto operator==(const FInterchangeProvenance&) const -> bool = default;
 	};
 
+	struct FInterchangeDeclaredSource
+	{
+		std::string StableIdentity;
+		std::string Role;
+		FSourcePath SourcePath;
+	};
+
 	struct FInterchangeImportRequest
 	{
 		EInterchangeImportMode Mode = EInterchangeImportMode::Import;
 		FSourcePath RootSource;
+		// Additional caller-declared sources are captured into the same immutable
+		// snapshot before translator dependency discovery. This is required for
+		// formats such as a six-face cube whose complete source set cannot be
+		// inferred from one root file.
+		std::vector<FInterchangeDeclaredSource> DeclaredSources;
 		std::string TranslatorId;
 		FInterchangePayload TranslatorSettings;
 		std::vector<FInterchangePipelineStackEntry> PipelineStack;

@@ -385,6 +385,40 @@ namespace Durin::Asset::Forge
 		return Imported;
 	}
 
+	auto SubmitTexture2DInterchangeImport(std::string_view FilePath,
+		const FAssetPath& Destination, const FTexture2DImportSettings& Settings,
+		bool bEngineAuthoringContext, FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle
+	{
+		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input)
+			|| !IsTexture2DSourceExtension(Input.extension().generic_string()))
+		{
+			OutError = "Texture2D source is unavailable or unsupported.";
+			return {};
+		}
+		std::string StoredSourcePath;
+		if (!MakeCanonicalSourceLocation(Destination, Input.extension().generic_string(),
+			Settings.SourceDestination, StoredSourcePath, OutError)) return {};
+		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
+		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
+			*Mounted, OutError, bEngineAuthoringContext
+				? EMountedSourceMutationContext::EngineAuthoring
+				: EMountedSourceMutationContext::DependencySafe)) return {};
+		FInterchangeImportRequest Request;
+		if (!MakeTexture2DInterchangeRequest(Mounted->SourcePath, Destination, Settings,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("Texture2D.Import:{}", Destination.ToString()),
+				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
+		OutError.clear();
+		return GetImportService().SubmitInterchangeImport(std::move(Request),
+			std::format("Import Texture2D {}", Destination.GetAssetName()),
+			[Mounted, Completion = std::move(Completion)](const FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == EImportOperationState::Succeeded) Mounted->Commit();
+				if (Completion) Completion(Result);
+			});
+	}
+
 	auto ImportTexture2DAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,

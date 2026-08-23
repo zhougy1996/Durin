@@ -352,7 +352,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
 	EXPECT_EQ(Loaded->GetSourceWidth(), 5u);
 	EXPECT_EQ(Loaded->GetSourceHeight(), 3u);
-	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));

@@ -96,6 +96,7 @@ namespace Durin
 			return SourceImportData.Panorama.SourcePath.Path;
 		}
 		auto GetSourceImportData() const -> const FTextureCubeSourceImportData& { return SourceImportData; }
+		auto GetInterchangeProvenance() const -> std::string_view { return InterchangeProvenance; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
@@ -139,6 +140,7 @@ namespace Durin
 			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
 			std::string InDerivedDataKey,
 			std::string& OutError) -> bool;
+		ENGINE_API auto PublishInterchangeProvenance(std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto ExchangeImportedState(DTextureCube& Other) noexcept -> void;
 
 	protected:
@@ -157,6 +159,9 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		FTextureCubeSourceImportData SourceImportData;
+
+		DPROPERTY(EditorOnly)
+		std::string InterchangeProvenance;
 
 		DPROPERTY(DisplayName = "Panorama Face Dimension")
 		uint32 PanoramaFaceDimension = 0;

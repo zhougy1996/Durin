@@ -72,6 +72,9 @@ namespace Durin::Editor::Level
 		VolumeInspection = {};
 		InspectedVolumeSourcePath.clear();
 		SubmissionError.clear();
+		TextureCubePreview.reset();
+		PendingTextureCubePreviewKey.clear();
+		ValidatedTextureCubePreviewKey.clear();
 		SelectedVolumeLayout = -1;
 		ModalState.RequestOpen();
 	}
@@ -603,18 +606,31 @@ namespace Durin::Editor::Level
 			State.GetAssetType() == ETextureImportAssetType::TextureCube
 				? ImportTextureCube()
 				: ImportSingleTexture();
-		if (!bImported) return false;
-
-		Callbacks.NotifyImported(Destination.GetPath());
-		FAssetPath ImportedPath;
-		if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
-			Asset::UnloadPackage(ImportedPath);
-		return true;
+		return bImported;
 	}
 
 	auto FTextureImportDialog::ImportSingleTexture() -> bool
 	{
 		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		FAssetPath AssetPath;
+		std::string Error;
+		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		{
+			SetError(std::move(Error));
+			return false;
+		}
+		const std::string Path = AssetPath.ToString();
+		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
+		auto Completion = [CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
+			if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+			{
+				CompletionCallbacks.NotifyImported(Path);
+				FAssetPath ImportedPath;
+				if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
+			}
+			else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
+				? "Texture Interchange import failed." : Result.Outcome.Diagnostic);
+		};
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
 		{
 			const FVolumeTextureImportFormState& Volume =
@@ -630,16 +646,17 @@ namespace Durin::Editor::Level
 			Settings.Depth = Volume.Depth;
 			Settings.TilesX = Volume.TilesX;
 			Settings.TilesY = Volume.TilesY;
-			const Asset::Forge::FVolumeTextureImportResult Result =
-				Asset::Forge::ImportVolumeTextureAsset(
-					Source.GetSourcePathBuffer().data(), Destination.GetPath(),
-					Settings,
-					IsEngineAuthoringDestination(Destination.GetPath()));
-			if (!Result)
+			Asset::FInterchangeImportHandle Handle =
+				Asset::Forge::SubmitVolumeTextureInterchangeImport(
+					Source.GetSourcePathBuffer().data(), AssetPath, Settings,
+					IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
+			if (!Handle)
 			{
-				SetError(Result.Message);
+				SetError(std::move(Error));
 				return false;
 			}
+			Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
+				std::format("Import VolumeTexture {}", AssetPath.GetAssetName()));
 			return true;
 		}
 
@@ -647,17 +664,16 @@ namespace Durin::Editor::Level
 		if (State.GetSourceMode() == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = Source.GetDestinationBuffer().data();
 		Settings.Usage = State.GetTexture2D().Usage;
-		const Asset::FInterchangeImportResult Result =
-			Asset::Forge::ImportTexture2DInterchange(
-				Source.GetSourcePathBuffer().data(), Destination.GetPath(), Settings,
-				IsEngineAuthoringDestination(Destination.GetPath()));
-		if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTexture2DInterchangeImport(
+			Source.GetSourcePathBuffer().data(), AssetPath, Settings,
+			IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
+		if (!Handle)
 		{
-			SetError(Result.Outcome.Diagnostic.empty()
-				? "Texture2D Interchange import failed."
-				: Result.Outcome.Diagnostic);
+			SetError(std::move(Error));
 			return false;
 		}
+		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
+			std::format("Import Texture2D {}", AssetPath.GetAssetName()));
 		return true;
 	}
 

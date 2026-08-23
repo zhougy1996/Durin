@@ -2,6 +2,12 @@
 #include "Texture2DSourceTranslation.h"
 #include "StaticMeshSourceTranslation.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "TextureCubeSourceTranslation.h"
+#include "VolumeTextureSourceTranslation.h"
+#include "TerrainHeightmapSourceTranslation.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetImportCore.h"
@@ -144,20 +150,9 @@ namespace Durin::Editor::Level
 
 	FContentBrowserPanel::~FContentBrowserPanel()
 	{
-		if (!PendingSingleAssetReimport) return;
-		if (PendingSingleAssetReimport->Interchange)
-		{
+		if (PendingSingleAssetReimport && PendingSingleAssetReimport->Interchange)
 			Asset::GetImportService().CancelAndDrainImportOperation(
 				PendingSingleAssetReimport->Interchange->GetOperationHandle());
-			return;
-		}
-		Asset::GetImportService().CancelAndDrainAsyncImport(
-			PendingSingleAssetReimport->Operation);
-		Asset::GetImportService().CancelAndDrainSingleAssetReimportPlan(
-			PendingSingleAssetReimport->Planning);
-		if (PendingSingleAssetReimport->Execution)
-			Asset::GetImportService().CancelAndDrainSingleAssetImportExecution(
-				*PendingSingleAssetReimport->Execution);
 	}
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> void
@@ -562,13 +557,33 @@ namespace Durin::Editor::Level
 					Path, Asset::GetImportRecordIndex());
 		if (Inspection && Inspection.Record)
 		{
-			const Asset::FImportRecordActionResult Executed =
-				Asset::GetImportService().ExecuteImportRecordAction(
-					*Inspection.Record, Action);
-			if (!Executed) { SetError(Executed.Message); return; }
-			LastReimportOrphans = Executed.Orphans;
-			PublishMountedContentMutation();
-			RevealAsset(Path.ToString());
+			Asset::FInterchangeImportRequest Request;
+			std::string Error;
+			if (!Asset::Forge::MakeSceneRecordInterchangeRequest(
+				*Inspection.Record, Action,
+				{.OwnerId = std::format("ContentBrowser.RecordReimport:{}", Path.ToString()),
+					.ConflictIdentities = {Inspection.RecordPath.ToString()}},
+				Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			Asset::FInterchangeImportHandle Handle =
+				Asset::GetImportService().SubmitInterchangeImport(
+					std::move(Request), "Reimport Scene graph");
+			if (!Handle)
+			{
+				SetError("The Scene Interchange record action could not be submitted.");
+				return;
+			}
+			LastReimportOrphans.clear();
+			PendingSingleAssetReimport = FPendingSingleAssetReimport{
+				.Interchange = std::move(Handle), .AssetPath = Path,
+				.PreviousRecordOutputs = std::vector<Asset::FImportRecordOutput>(
+					Inspection.Record->GetOutputs().begin(), Inspection.Record->GetOutputs().end())};
+			if (NotifyImportStarted)
+				NotifyImportStarted(PendingSingleAssetReimport->Interchange->GetOperationHandle(),
+					"Reimport Scene graph");
 			return;
 		}
 		if (auto* Texture = Cast<DTexture2D>(AssetObject);
@@ -669,128 +684,132 @@ namespace Durin::Editor::Level
 				.Interchange = std::move(Handle), .AssetPath = Path};
 			return;
 		}
-		const Asset::FSingleAssetCapabilitySet Capabilities =
-			Asset::GetImportService().QuerySingleAssetCapabilities(*AssetObject);
-		const Asset::FSingleAssetCapability* Reimport = Capabilities.Find(
-			Asset::ESingleAssetImportCapability::ReimportCurrentSource);
-		if (Reimport && Reimport->bAvailable && !bRecreateMissingAssets)
-		{
-			Asset::FAsyncImportPlanHandle Operation =
-				Asset::GetImportService().BeginAsyncImportOperation(
-					std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-					Capabilities.ProviderId,
-					std::format("Reimport {}", Path.GetAssetName()));
-			if (!Operation || Operation.GetOperationSnapshot().IsTerminal())
+		auto SubmitInterchange = [&](Asset::FInterchangeImportRequest Request,
+			std::string_view Family) -> bool {
+			Asset::FInterchangeImportHandle Handle =
+				Asset::GetImportService().SubmitInterchangeImport(
+					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
+			if (!Handle)
 			{
-				SetError(Operation ? Operation.GetOperationSnapshot().Diagnostic
-					: "The reimport operation could not be created.");
-				return;
-			}
-			const std::shared_ptr<Asset::IImportProgressReporter> Progress =
-				Operation.CreateProgressReporter();
-			Asset::FSingleAssetAsyncPlanHandle Planning =
-				Asset::GetImportService().BeginSingleAssetReimportPlan(
-					{.Asset = AssetObject}, {
-						.OwnedProgress = Progress,
-						.IsCancellationRequested = [Operation] {
-							return Operation.IsCancellationRequested();
-						}}, Operation.GetOperationTaskScope());
-			if (!Planning)
-			{
-				Operation.CompleteOperation(Asset::EImportOperationState::Rejected,
-					"The single-asset plan could not be created.");
-				SetError("The single-asset plan could not be created.");
-				return;
+				SetError(std::format("The {} Interchange reimport could not be submitted.", Family));
+				return false;
 			}
 			LastReimportOrphans.clear();
-			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.Operation = Operation,
-				.Planning = std::move(Planning),
-				.AssetPath = Path};
 			if (NotifyImportStarted)
-				NotifyImportStarted(Operation.GetOperationHandle(),
+				NotifyImportStarted(Handle.GetOperationHandle(),
 					std::format("Reimport {}", Path.GetAssetName()));
+			PendingSingleAssetReimport = FPendingSingleAssetReimport{
+				.Interchange = std::move(Handle), .AssetPath = Path};
+			return true;
+		};
+		if (auto* Cube = Cast<DTextureCube>(AssetObject);
+			Cube && !bRecreateMissingAssets)
+		{
+			Asset::FInterchangeProvenance Existing;
+			std::string Error;
+			if (!Asset::Forge::InspectTextureCubeInterchangeProvenance(*Cube, Existing, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			std::array<FSourcePath, TextureCubeFaceCount> Sources;
+			const size_t SourceCount = Cube->GetSourceLayout()
+				== ETextureCubeSourceLayout::SixFaces ? TextureCubeFaceCount : 1;
+			if (SourceCount == 1) Sources[0] = Cube->GetSourceImportData().Panorama.SourcePath;
+			else for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+				Sources[Index] = Cube->GetSourceImportData().GetFace(
+					static_cast<ETextureCubeFace>(Index)).SourcePath;
+			Asset::FInterchangeImportRequest Request;
+			if (!Asset::Forge::MakeTextureCubeInterchangeRequest(
+				std::span(Sources).first(SourceCount), Cube->GetSourceLayout(), Path,
+				{.bSRGB = Cube->IsSRGB()},
+				{.FaceDimension = Cube->GetPanoramaFaceDimension(),
+					.ExposureEV = Cube->GetPanoramaExposureEV()},
+				Asset::EInterchangeImportMode::Reimport,
+				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+					.ConflictIdentities = {Path.ToString()}},
+				std::move(Existing), Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			(void)SubmitInterchange(std::move(Request), "TextureCube");
 			return;
 		}
-
-		SetError(Reimport && !Reimport->Diagnostics.empty()
-			? Reimport->Diagnostics.back().Message
-			: Inspection.Message.empty()
-				? "The selected asset has no available reimport capability."
-				: Inspection.Message);
+		if (auto* Volume = Cast<DVolumeTexture>(AssetObject);
+			Volume && !bRecreateMissingAssets)
+		{
+			Asset::FInterchangeProvenance Existing;
+			std::string Error;
+			if (!Asset::Forge::InspectVolumeTextureInterchangeProvenance(*Volume, Existing, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			const FVolumeTextureSourceImportData& Source = Volume->GetSourceImportData();
+			Asset::Forge::FVolumeTextureImportSettings Settings{
+				.ImportFormat = Source.ImportFormat, .Channels = Source.Channels,
+				.SliceWidth = Source.SliceWidth, .SliceHeight = Source.SliceHeight,
+				.Depth = Source.Depth, .TilesX = Source.TilesX, .TilesY = Source.TilesY};
+			Asset::FInterchangeImportRequest Request;
+			if (!Asset::Forge::MakeVolumeTextureInterchangeRequest(Source.Source.SourcePath,
+				Path, Settings, Asset::EInterchangeImportMode::Reimport,
+				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+					.ConflictIdentities = {Path.ToString()}},
+				std::move(Existing), Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			(void)SubmitInterchange(std::move(Request), "VolumeTexture");
+			return;
+		}
+		if (auto* Terrain = Cast<DTerrainHeightmap>(AssetObject);
+			Terrain && !bRecreateMissingAssets)
+		{
+			Asset::FInterchangeProvenance Existing;
+			Asset::FInterchangeImportRequest Request;
+			std::string Error;
+			if (!Asset::Forge::InspectTerrainHeightmapInterchangeProvenance(*Terrain, Existing, Error)
+				|| !Asset::Forge::MakeTerrainHeightmapInterchangeRequest(
+					Terrain->GetSourceImportData().SourcePath, Path,
+					Asset::EInterchangeImportMode::Reimport,
+					{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+						.ConflictIdentities = {Path.ToString()}},
+					std::move(Existing), Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			(void)SubmitInterchange(std::move(Request), "TerrainHeightmap");
+			return;
+		}
+		SetError(Inspection.Message.empty()
+			? "The selected asset has no Interchange reimport capability."
+			: Inspection.Message);
 	}
 
 	auto FContentBrowserPanel::PollSingleAssetReimport() -> void
 	{
-		if (!PendingSingleAssetReimport) return;
-		if (PendingSingleAssetReimport->Interchange)
-		{
-			Asset::FInterchangeImportResult Result;
-			if (!PendingSingleAssetReimport->Interchange->TryGetResult(Result)) return;
-			const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
-			PendingSingleAssetReimport.reset();
-			if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
-			{
-				if (Result.Outcome.State != Asset::EImportOperationState::Canceled)
-					SetError(Result.Outcome.Diagnostic.empty()
-						? "Texture2D Interchange reimport failed."
-						: Result.Outcome.Diagnostic);
-				return;
-			}
-			PublishMountedContentMutation();
-			RevealAsset(AssetPath.ToString());
-			return;
-		}
-		if (!PendingSingleAssetReimport->Execution)
-		{
-			Asset::FSingleAssetPlanResult Planned;
-			const Asset::EAsyncImportPlanStatus PlanStatus =
-				Asset::GetImportService().PollSingleAssetReimportPlan(
-					PendingSingleAssetReimport->Planning, Planned);
-			if (PlanStatus == Asset::EAsyncImportPlanStatus::Pending) return;
-			if (PlanStatus != Asset::EAsyncImportPlanStatus::Succeeded || !Planned)
-			{
-				const Asset::FAsyncImportPlanHandle Operation =
-					PendingSingleAssetReimport->Operation;
-				PendingSingleAssetReimport.reset();
-				const bool bCanceled = PlanStatus
-					== Asset::EAsyncImportPlanStatus::Canceled;
-				Operation.CompleteOperation(bCanceled
-					? Asset::EImportOperationState::Canceled
-					: Asset::EImportOperationState::Failed, Planned.Message);
-				if (!bCanceled) SetError(Planned.Message);
-				return;
-			}
-			const Asset::FAsyncImportPlanHandle Operation =
-				PendingSingleAssetReimport->Operation;
-			PendingSingleAssetReimport->Execution =
-				Asset::GetImportService().BeginSingleAssetImportExecution(
-					Planned.Plan, {
-						.OwnedProgress = Operation.CreateProgressReporter(),
-						.IsCancellationRequested = [Operation] {
-							return Operation.IsCancellationRequested();
-						}}, Operation.GetOperationTaskScope());
-			return;
-		}
-		Asset::FSingleAssetExecutionResult Result;
-		const Asset::EAsyncImportPlanStatus Status =
-			Asset::GetImportService().PollSingleAssetImportExecution(
-				*PendingSingleAssetReimport->Execution, Result);
-		if (Status == Asset::EAsyncImportPlanStatus::Pending) return;
-		const Asset::FAsyncImportPlanHandle Operation =
-			PendingSingleAssetReimport->Operation;
+		if (!PendingSingleAssetReimport || !PendingSingleAssetReimport->Interchange) return;
+		Asset::FInterchangeImportResult Result;
+		if (!PendingSingleAssetReimport->Interchange->TryGetResult(Result)) return;
 		const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
+		const std::vector<Asset::FImportRecordOutput> PreviousOutputs =
+			std::move(PendingSingleAssetReimport->PreviousRecordOutputs);
 		PendingSingleAssetReimport.reset();
-		if (Status != Asset::EAsyncImportPlanStatus::Succeeded || !Result)
+		if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
 		{
-			const bool bCanceled = Status == Asset::EAsyncImportPlanStatus::Canceled;
-			Operation.CompleteOperation(bCanceled
-				? Asset::EImportOperationState::Canceled
-				: Asset::EImportOperationState::Failed, Result.Message);
-			if (!bCanceled) SetError(Result.Message);
+			if (Result.Outcome.State != Asset::EImportOperationState::Canceled)
+				SetError(Result.Outcome.Diagnostic.empty()
+					? "Interchange reimport failed." : Result.Outcome.Diagnostic);
 			return;
 		}
-		Operation.CompleteOperation(Asset::EImportOperationState::Succeeded);
+		for (const Asset::FImportRecordOutput& Previous : PreviousOutputs)
+			if (std::ranges::none_of(Result.Provenance.OutputMappings,
+				[&](const Asset::FInterchangeOutputMapping& Mapping) {
+					return Mapping.OutputIdentity == Previous.StableIdentity; }))
+				LastReimportOrphans.push_back(Previous.AssetPath);
 		PublishMountedContentMutation();
 		RevealAsset(AssetPath.ToString());
 	}

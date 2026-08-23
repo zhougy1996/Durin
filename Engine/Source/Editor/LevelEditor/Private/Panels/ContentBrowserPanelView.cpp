@@ -2,6 +2,10 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "StaticMesh/StaticMesh.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
+#include "Terrain/TerrainHeightmap.h"
 #include "AssetImportCore.h"
 #include "ImportService.h"
 #include "MultiOutputImport.h"
@@ -891,21 +895,27 @@ namespace Durin::Editor::Level
 					}
 					ImGui::EndMenu();
 				}
-				const Asset::FImportRecordCapabilitySet Capabilities =
-					Asset::GetImportService().QueryImportRecordCapabilities(
-						Inspection);
 				for (const Asset::EImportRecordAction Action : {
 					Asset::EImportRecordAction::Reimport,
 					Asset::EImportRecordAction::RecreateMissingOutputs,
 					Asset::EImportRecordAction::RepairManagedOutputs})
 				{
-					const Asset::FImportRecordCapability* Capability = Capabilities.Find(Action);
-					if (!Capability) continue;
-					if (ImGui::MenuItem(Capability->Label.c_str(), nullptr, false, Capability->bAvailable))
+					const bool bRelevant = Action == Asset::EImportRecordAction::Reimport
+						|| Action == Asset::EImportRecordAction::RecreateMissingOutputs
+							&& Inspection.bHasMissingManagedOutput
+						|| Action == Asset::EImportRecordAction::RepairManagedOutputs
+							&& Inspection.bHasFingerprintMismatch;
+					const bool bAvailable = !Inspection.bConflicted && bRelevant;
+					const char* Label = Action == Asset::EImportRecordAction::Reimport
+						? "Reimport Managed Outputs"
+						: Action == Asset::EImportRecordAction::RecreateMissingOutputs
+							? "Recreate Missing Outputs" : "Repair Changed Outputs";
+					if (ImGui::MenuItem(Label, nullptr, false, bAvailable))
 						QueueContentAction([this, Item, Action] { ReimportAsset(Item, Action); });
-					if (!Capability->bAvailable && ImGui::IsItemHovered()
-						&& !Capability->Diagnostics.empty())
-						ImGui::SetTooltip("%s", Capability->Diagnostics.back().Message.c_str());
+					if (!bAvailable && ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", Inspection.bConflicted
+							? "Repair the import-record conflict first."
+							: "The selected record does not require this action.");
 				}
 				if (bManagedByRecord && ImGui::MenuItem("Detach from Import Record"))
 				{
@@ -943,40 +953,18 @@ namespace Durin::Editor::Level
 				ImGui::Separator();
 			}
 		}
+		const bool bInterchangeSingleAsset =
+			Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
+			|| Item.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
+			|| Item.AssetClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
+			|| Item.AssetClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString()
+			|| Item.AssetClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString();
 		if (Item.Kind == EContentBrowserItemKind::Asset
-			&& !bManagedByRecord
-			&& Asset::GetImportService().HasSingleAssetImporter(Item.AssetClassName))
+			&& !bManagedByRecord && bInterchangeSingleAsset)
 		{
-			FAssetPath CapabilityPath;
-			DObject* CapabilityAsset = nullptr;
-			const bool bLoadedForCapabilities = FAssetPath::TryCreate(Item.VirtualPath, CapabilityPath)
-				&& Asset::LoadAsset(CapabilityPath, CapabilityAsset);
-			const Asset::FSingleAssetCapability* ReimportCapability = nullptr;
-			Asset::FSingleAssetCapabilitySet CapabilitySet;
-			if (bLoadedForCapabilities && CapabilityAsset)
-			{
-				CapabilitySet = Asset::GetImportService().QuerySingleAssetCapabilities(
-					*CapabilityAsset);
-				ReimportCapability = CapabilitySet.Find(
-					Asset::ESingleAssetImportCapability::ReimportCurrentSource);
-			}
-			const bool bCanSingleReimport = ReimportCapability && ReimportCapability->bAvailable;
-			if (ImGui::MenuItem(
-				bCanSingleReimport ? ReimportCapability->Label.c_str() : "Reimport from Current Source",
-				nullptr, false, bCanSingleReimport))
+			if (ImGui::MenuItem("Reimport from Current Source"))
 				QueueContentAction([this, Item] {
 					ReimportAsset(Item, Asset::EImportRecordAction::Reimport);
-				});
-			if (ReimportCapability && ImGui::IsItemHovered())
-				ImGui::SetTooltip("%s", ReimportCapability->ReplacedStateDescription.c_str());
-			if (!bCanSingleReimport && ReimportCapability && ImGui::IsItemHovered()
-				&& !ReimportCapability->Diagnostics.empty())
-				ImGui::SetTooltip("%s", ReimportCapability->Diagnostics.back().Message.c_str());
-			if (Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
-				&& !bCanSingleReimport
-				&& ImGui::MenuItem("Reimport Legacy Scene and Recreate Missing Outputs"))
-				QueueContentAction([this, Item] {
-					ReimportAsset(Item, Asset::EImportRecordAction::RecreateMissingOutputs);
 				});
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))

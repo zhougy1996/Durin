@@ -10,6 +10,9 @@ namespace Durin::Asset
 
 	struct FInterchangeImportResultState;
 
+	// Releases graph/product preview values before component retirement.
+	ASSETIMPORTCORE_API auto ClearInterchangePreviewCache() -> void;
+
 	// Observes one framework-owned interchange job and its immutable terminal
 	// inspection/result value.
 	class FInterchangeImportHandle

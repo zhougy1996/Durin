@@ -2,6 +2,7 @@
 
 #include "AssetForgeAPI.h"
 #include "Interchange.h"
+#include "InterchangeJob.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 
@@ -30,6 +31,11 @@ namespace Durin::Asset::Forge
 		const DTexture2D& Texture,
 		FInterchangeProvenance& OutProvenance,
 		std::string& OutError) -> bool;
+	ASSETFORGE_API auto SubmitTexture2DInterchangeImport(
+		std::string_view FilePath, const FAssetPath& Destination,
+		const FTexture2DImportSettings& Settings, bool bEngineAuthoringContext,
+		FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle;
 	// Ingests an external source and executes the generic request inline. The
 	// returned framework outcome is the UI-facing submission contract.
 	ASSETFORGE_API auto ImportTexture2DInterchange(

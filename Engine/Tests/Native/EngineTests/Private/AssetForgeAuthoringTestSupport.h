@@ -12,6 +12,8 @@ namespace Durin::Tests
 		{
 			StaticMesh = Context.RegisterFeature<IStaticMeshAuthoringFeature>(Features);
 			Texture2D = Context.RegisterFeature<ITexture2DAuthoringFeature>(Features);
+			Texture2DRecovery = Context.RegisterFeature<
+				ITexture2DInterchangeRecoveryFeature>(Features);
 			TextureCube = Context.RegisterFeature<ITextureCubeAuthoringFeature>(Features);
 			Terrain = Context.RegisterFeature<ITerrainHeightmapAuthoringFeature>(TerrainFeatures);
 		}
@@ -21,6 +23,7 @@ namespace Durin::Tests
 		Asset::Forge::FTerrainAuthoringFeature TerrainFeatures;
 		FModularFeatureRegistration StaticMesh;
 		FModularFeatureRegistration Texture2D;
+		FModularFeatureRegistration Texture2DRecovery;
 		FModularFeatureRegistration TextureCube;
 		FModularFeatureRegistration Terrain;
 	};
@@ -35,6 +38,7 @@ namespace Durin::Tests
 	{
 		auto& State = GetAssetForgeAuthoringTestState();
 		return State.StaticMesh.IsValid() && State.Texture2D.IsValid()
+			&& State.Texture2DRecovery.IsValid()
 			&& State.TextureCube.IsValid() && State.Terrain.IsValid();
 	}
 

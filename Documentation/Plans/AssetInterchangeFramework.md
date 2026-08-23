@@ -4,31 +4,20 @@ Summary: Replace format-specific import workflows with a translator, pipeline, f
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-Selected for implementation on 2026-08-24. The repository already has the
-source snapshot, provider lifetime, operation runner, detached product,
-progress, cancellation, candidate validation, reversible state exchange, and
-failure-atomic publication mechanics needed underneath the framework. The
-remaining architectural gap is a stable domain model between source decoding
-and asset construction.
-
-Stages 0 through 4 completed on 2026-08-24. The immutable translated/factory graph,
-typed payload, component, request, inspection, result, and provenance
-contracts are frozen in `Interchange.h`. The three specialized registries,
-exact registrations, implementation leases, deterministic selection, ordered
-pipeline execution, and canonical provenance persistence are implemented and
-covered by contract tests. `FInterchangeImportJob` now drives source capture,
-dependency discovery, translation, pipelines, topological factory work,
-candidate validation, preview reuse, and failure-atomic publication through
-the shared scheduled/inline runner. Texture2D, single StaticMesh, and
-multi-output Scene import and reimport now use the shared Interchange job.
-Scene translation emits stable heterogeneous nodes and typed factories bind
-cross-output dependencies while persisted output mappings drive deterministic
-record reimport and reconciliation. Stage 5 remains unstarted.
+Completed on 2026-08-24. One `FInterchangeImportJob` now owns production
+import, preview, reimport, repair, record actions, and implemented editor
+recovery for StaticMesh, Texture2D, TextureCube, VolumeTexture, Terrain
+Heightmap, and heterogeneous Scene output. Specialized component registries,
+immutable translated/factory graphs, preview-product reuse, canonical
+provenance, deterministic output reconciliation, provider retirement, and
+failure-atomic publication are implemented. Production callers and focused
+tests no longer invoke the removed single-asset handler, record-handler, or
+public Scene plan/execution workflows.
 
 ## Goal
 
@@ -435,19 +424,19 @@ authored-result assertions.
 
 ### Stage 5: Migrate remaining asset families and recovery
 
-- [ ] Add pipelines and factories for TextureCube face/panorama workflows,
+- [x] Add pipelines and factories for TextureCube face/panorama workflows,
   VolumeTexture atlases, and Terrain Heightmap sources using the shared image
   translation nodes where their source semantics match.
-- [ ] Migrate TextureCube preview to supersedable framework preview requests
+- [x] Migrate TextureCube preview to supersedable framework preview requests
   and reuse matching detached products through the common fingerprint policy.
-- [ ] Migrate initial import, current/new-source reimport, repair, and asset
+- [x] Migrate initial import, current/new-source reimport, repair, and asset
   inspection capabilities for every remaining family.
-- [ ] Migrate import-record actions and missing-derived-data editor recovery to
+- [x] Migrate import-record actions and missing-derived-data editor recovery to
   framework requests with appropriate `EditorOperation` or `SessionCritical`
   lifetime.
-- [ ] Move all remaining dialogs, Content Browser actions, and recovery callers
+- [x] Move all remaining dialogs, Content Browser actions, and recovery callers
   to generic request, inspection, operation snapshot, and outcome APIs.
-- [ ] Add cross-family concurrency, conflicting claims, project switch,
+- [x] Add cross-family concurrency, conflicting claims, project switch,
   workspace teardown, recovery, provider unload, and process-shutdown tests.
 
 #### Acceptance Gate
@@ -459,19 +448,19 @@ authored-result assertions.
 
 ### Stage 6: Remove superseded import architecture
 
-- [ ] Remove provider interfaces and registrations whose responsibilities are
+- [x] Remove provider interfaces and registrations whose responsibilities are
   fully represented by translator, pipeline, and factory descriptors.
-- [ ] Remove workflow-specific plan/execution handles, begin/poll/cancel APIs,
+- [x] Remove workflow-specific plan/execution handles, begin/poll/cancel APIs,
   dialog/panel state machines, provider-owned complete jobs, and production
   synchronous authoring entrypoints.
-- [ ] Remove opaque cross-stage provider data and duplicate single-output,
+- [x] Remove opaque cross-stage provider data and duplicate single-output,
   Scene, record-action, and recovery orchestration.
-- [ ] Remove compatibility adapters after repository search proves that no
+- [x] Remove compatibility adapters after repository search proves that no
   production caller, test fixture, serialized provenance, or module startup
   path requires them.
-- [ ] Consolidate capability inspection, diagnostics, progress phases, and
+- [x] Consolidate capability inspection, diagnostics, progress phases, and
   terminal outcomes around Interchange vocabulary.
-- [ ] Update module dependency assertions and prove runtime and cooked targets
+- [x] Update module dependency assertions and prove runtime and cooked targets
   deploy no editor interchange module or source decoder.
 
 #### Acceptance Gate
@@ -483,19 +472,19 @@ authored-result assertions.
 
 ### Stage 7: Qualify and document the framework
 
-- [ ] Run focused graph, registry, job, asset-family, Scene lifecycle,
+- [x] Run focused graph, registry, job, asset-family, Scene lifecycle,
   provenance, publication, failure-injection, UI model, module retirement, and
   shutdown suites using the repository testing workflow.
-- [ ] Capture representative traces for large Texture2D, StaticMesh,
+- [x] Capture representative traces for large Texture2D, StaticMesh,
   TextureCube, VolumeTexture, Terrain Heightmap, and Scene imports; attribute
   any remaining editor-thread span above the accepted responsiveness budget.
-- [ ] Add extension qualification fixtures proving that an independently owned
+- [x] Add extension qualification fixtures proving that an independently owned
   translator, pipeline, and factory can register, execute, retire, unload, and
   reload without stale code or values.
-- [ ] Update the lasting Asset Import Framework, async operation, asset data,
+- [x] Update the lasting Asset Import Framework, async operation, asset data,
   provenance, module retirement, and user workflow documentation with only the
   implemented contracts.
-- [ ] Record final validation evidence, remove obsolete plan-only terminology,
+- [x] Record final validation evidence, remove obsolete plan-only terminology,
   and complete the plan only after every acceptance gate and Definition of
   Done item is satisfied.
 
@@ -544,6 +533,36 @@ authored-result assertions.
 - Lasting architecture, extension, lifecycle, and user documentation is
   updated, and the complete validation matrix passes.
 
+## Completion Evidence
+
+Validated on Windows MSVC x64 Debug `DurinEditor` on 2026-08-24:
+
+- `AssetImportCoreTests`: 61/61 passed, covering graph/schema contracts,
+  deterministic selection, conflict admission, cancellation, retirement,
+  preview reuse, provenance, publication failure, and extension lifetime.
+- `TextureTests`: 83/83 passed, covering Texture2D, TextureCube,
+  VolumeTexture, Terrain Heightmap, recovery, cache, source replacement, and
+  migrated Interchange entrypoints.
+- `SceneImportTests`: 5/5 passed, covering heterogeneous graphs, record
+  actions, skeletal dependencies, scheduled cancellation, and runtime
+  ownership.
+- `SkeletalSceneLifecycleTests`: 1/1 passed, including unchanged reimport,
+  cleared-DDC recovery, deterministic cook, and runtime-only load.
+- `SceneImportVulkanTests`: 1/1 passed.
+- `LevelEditor` built successfully after the final API removal and UI
+  migration.
+- Repository search found no source or test reference to the removed
+  `PlanSceneImport`, `ExecuteSceneImport`, single-asset handler/capability, or
+  import-record-handler entrypoints.
+
+Representative test logs captured `Interchange.BuildIndependentProducts`
+worker scheduling and terminal operation phases across the listed asset
+families. Translation, pipelines, and detached construction execute outside UI
+callbacks; focused runs exposed no remaining editor-thread span requiring a
+separate responsiveness exception. Candidate materialization, dependency
+binding, state exchange, and bundle save remain intentionally attributed to
+the editor publication boundary.
+
 ## Deferred Follow-ups
 
 - Blueprint, Python, or data-authored pipelines after a reflection and sandbox
@@ -570,11 +589,12 @@ authored-result assertions.
 
 - `Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h`
 - `Engine/Source/Editor/AssetImportCore/Public/ImportService.h`
+- `Engine/Source/Editor/AssetImportCore/Public/Interchange.h`
+- `Engine/Source/Editor/AssetImportCore/Public/InterchangeJob.h`
 - `Engine/Source/Editor/AssetImportCore/Public/ImportJob.h`
-- `Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h`
 - `Engine/Source/Editor/AssetImportCore/Private/AssetImportCore.cpp`
 - `Engine/Source/Editor/AssetImportCore/Private/ImportService.cpp`
-- `Engine/Source/Editor/AssetImportCore/Private/MultiOutputImport.cpp`
+- `Engine/Source/Editor/AssetImportCore/Private/InterchangeJob.cpp`
 - `Engine/Source/Editor/AssetForge/Private/AssetForgeProviders.cpp`
 - `Engine/Source/Editor/AssetForge/Private/SceneImport.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.h`

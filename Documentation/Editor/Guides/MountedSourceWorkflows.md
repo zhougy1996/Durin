@@ -1,6 +1,8 @@
 # Mounted Source Workflows
 
-StaticMesh, Texture2D, and TextureCube assets keep source provenance as a
+Last reviewed: 2026-08-24
+
+StaticMesh, Texture2D, TextureCube, VolumeTexture, and Terrain Heightmap assets keep source provenance as a
 complete virtual `FSourcePath`. Asset packages and authoring files resolve
 through the same mount `GetContentDir()`. Their typed identities remain
 distinct even when a source file and `.dasset` coexist in one directory.
@@ -36,9 +38,16 @@ provenance on that asset. A multi-output import publishes peer assets plus an
 editor-only `DImportRecord`; selecting an output does not make it the owner of
 the others. See [Asset Import Framework](../Architecture/AssetImportFramework.md).
 
+After confirmation, every import dialog submits one Interchange operation.
+Closing the dialog or choosing background mode does not abandon accepted work;
+the status bar and Activity History observe the same operation. Cancellation
+remains available until final publication begins, when the operation becomes
+non-cancelable and completes success or full restoration.
+
 Use **Scene Source (FBX/glTF)** for supported scene documents. Choose one output
 directory; the importer creates only populated type directories beneath it,
-currently `Meshes`, `Materials`, and `Textures`, and stores
+including `Meshes`, `Materials`, `Textures`, `Skeletons`, `SkeletalMeshes`, and
+`Animations` as required, and stores
 `<SourceName>_Import` at the output root. No generated Mesh is treated as the
 primary asset.
 

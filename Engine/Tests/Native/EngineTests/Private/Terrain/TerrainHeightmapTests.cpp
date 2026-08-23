@@ -209,6 +209,30 @@ namespace
 		(void)Initialized;
 		return Root;
 	}
+
+	auto ReimportHeightmap(Durin::DTerrainHeightmap& Heightmap,
+		Durin::Asset::FAssetBundleSaveOptions SaveOptions = {})
+		-> Durin::Asset::FInterchangeImportResult
+	{
+		Durin::FAssetPath Destination;
+		Durin::Asset::FInterchangeProvenance Provenance;
+		Durin::Asset::FInterchangeImportRequest Request;
+		std::string Error;
+		if (!Heightmap.GetPackage() || !Durin::FAssetPath::TryCreate(
+			Heightmap.GetPackage()->GetPackagePath(), Destination, &Error)
+			|| !Durin::Asset::Forge::InspectTerrainHeightmapInterchangeProvenance(
+				Heightmap, Provenance, Error)
+			|| !Durin::Asset::Forge::MakeTerrainHeightmapInterchangeRequest(
+				Heightmap.GetSourceImportData().SourcePath, Destination,
+				Durin::Asset::EInterchangeImportMode::Reimport,
+				{.OwnerId = "TerrainHeightmapTests.InterchangeReimport"}, Provenance,
+				Request, Error))
+			return {.Outcome = {.State = Durin::Asset::EImportOperationState::Failed,
+				.Diagnostic = std::move(Error)}};
+		Request.SaveOptions = std::move(SaveOptions);
+		return Durin::Asset::GetImportService().RunInterchangeImportInline(
+			std::move(Request), "Reimport Terrain Heightmap");
+	}
 }
 
 TEST(FTerrainHeightmapPayloadTests, PreservesAsymmetricTopLeftRowMajorSamplesAndExactQueries)
@@ -486,22 +510,18 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	EXPECT_TRUE(Imported.Asset->GetSourceFile().ends_with(".raw"));
 
 	const uint64 InitialRevision = Imported.Asset->GetRevision();
-	auto Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Noop = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
-	ASSERT_TRUE(Noop) << Noop.Message;
+	const auto Noop = ReimportHeightmap(*Imported.Asset);
+	ASSERT_EQ(Noop.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Noop.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	const std::array<uint16, 9> Changed{
 		9, 8, 7,
 		6, 5, 4,
 		3, 2, 1};
 	WriteRaw16(Source, Changed);
-	Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Updated = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
-	ASSERT_TRUE(Updated) << Updated.Message;
+	const auto Updated = ReimportHeightmap(*Imported.Asset);
+	ASSERT_EQ(Updated.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Updated.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
 		std::vector<uint16>(Changed.begin(), Changed.end()));
@@ -578,22 +598,18 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 
-	auto Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(Plan) << Plan.Message;
 	const uint64 InitialRevision = Imported.Asset->GetRevision();
-	const auto Noop = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
-	ASSERT_TRUE(Noop) << Noop.Message;
+	const auto Noop = ReimportHeightmap(*Imported.Asset);
+	ASSERT_EQ(Noop.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Noop.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
 	const std::array<uint16, 6> Changed{1, 2, 3, 4, 5, 6};
 	WritePng(Source, 3, 2, Changed);
-	Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Updated = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
-	ASSERT_TRUE(Updated) << Updated.Message;
+	const auto Updated = ReimportHeightmap(*Imported.Asset);
+	ASSERT_EQ(Updated.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Updated.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 1);
 	EXPECT_EQ(Imported.Asset->GetMaximum(), 6);
@@ -603,14 +619,11 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const auto BeforeFailurePayload = Imported.Asset->GetPayload();
 	const std::array<uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
 	WritePng(Source, 3, 2, FailedChange);
-	Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Failed = Durin::Asset::GetImportService().ExecuteSingleAssetImport(
-		Plan.Plan, {.SaveOptions = {.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
+	const auto Failed = ReimportHeightmap(*Imported.Asset,
+		{.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
-		}}});
-	EXPECT_FALSE(Failed);
+		}});
+	EXPECT_EQ(Failed.Outcome.State, Durin::Asset::EImportOperationState::Failed);
 	EXPECT_EQ(Imported.Asset->GetRevision(), BeforeFailureRevision);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples, BeforeFailurePayload->Samples);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());

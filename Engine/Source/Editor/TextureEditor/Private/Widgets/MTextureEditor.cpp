@@ -864,26 +864,21 @@ namespace Durin::Editor::Texture
 			ImGui::TextDisabled("%s", Phase);
 		}
 		ImGui::BeginDisabled(bReplacingThisSource);
-		const Asset::FSingleAssetCapabilitySet ImportCapabilities =
-			Asset::GetImportService().QuerySingleAssetCapabilities(*Texture);
-		const Asset::FSingleAssetCapability* ReimportCapability =
-			ImportCapabilities.Find(
-				Asset::ESingleAssetImportCapability::ReimportCurrentSource);
-		const bool bCanReimport = ReimportCapability && ReimportCapability->bAvailable;
-		const char* ReimportLabel = ReimportCapability
-			&& !ReimportCapability->Label.empty()
-			? ReimportCapability->Label.c_str()
-			: "Reimport from Current Source";
+		Asset::FInterchangeProvenance ReimportProvenance;
+		std::string ReimportDiagnostic;
+		const bool bCanReimport = Asset::Forge::InspectTexture2DInterchangeProvenance(
+			*Texture, ReimportProvenance, ReimportDiagnostic);
+		constexpr const char* ReimportLabel = "Reimport from Current Source";
 		if (!bCanReimport) ImGui::BeginDisabled();
 		if (ImGui::Button(ReimportLabel))
 			ReimportSource(Texture);
 		if (!bCanReimport) ImGui::EndDisabled();
-		if (ImGui::IsItemHovered() && ReimportCapability)
+		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", bCanReimport
-				? ReimportCapability->ReplacedStateDescription.c_str()
-				: (ReimportCapability->Diagnostics.empty()
+				? "Replaces decoded source, provenance, import settings, derived data, and the render resource while retaining object identity."
+				: (ReimportDiagnostic.empty()
 					? "Reimport is unavailable."
-					: ReimportCapability->Diagnostics.back().Message.c_str()));
+					: ReimportDiagnostic.c_str()));
 		ImGui::SameLine();
 		if (ImGui::Button("Reference Existing...")) ChangeSourceReference(Texture);
 		if (ImGui::IsItemHovered())

@@ -280,6 +280,12 @@ namespace
 
 	class FJobProduct final : public Durin::Asset::IInterchangeFactoryProduct
 	{
+	public:
+		auto CloneDetachedProduct() const
+			-> std::unique_ptr<Durin::Asset::IInterchangeFactoryProduct> override
+		{
+			return std::make_unique<FJobProduct>();
+		}
 	};
 
 	class FJobCandidate final : public Durin::Asset::ISingleAssetCandidate
@@ -312,10 +318,15 @@ namespace
 		}
 		auto Abandon() noexcept -> void override
 		{
-			if (!Record) return;
-			(void)Durin::Asset::UnloadPackage(Record->GetPackage(),
-				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			if (Durin::DPackage* Detached = DetachPackageForAbandon())
+				(void)Durin::Asset::UnloadPackage(Detached,
+					Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		}
+		auto DetachPackageForAbandon() noexcept -> Durin::DPackage* override
+		{
+			Durin::DPackage* Detached = Record ? Record->GetPackage() : nullptr;
 			Record = nullptr;
+			return Detached;
 		}
 
 	private:
@@ -325,6 +336,8 @@ namespace
 	class FJobFactory final : public Durin::Asset::IInterchangeFactory
 	{
 	public:
+		explicit FJobFactory(std::shared_ptr<std::atomic_uint32_t> InBuildCount)
+			: BuildCount(std::move(InBuildCount)) {}
 		auto BuildDetachedProduct(
 			const Durin::Asset::FImportFactoryNode&,
 			const Durin::Asset::FTranslatedAssetGraph&,
@@ -333,6 +346,7 @@ namespace
 			std::vector<Durin::Asset::FImportDiagnostic>&) const
 			-> std::unique_ptr<Durin::Asset::IInterchangeFactoryProduct> override
 		{
+			BuildCount->fetch_add(1, std::memory_order_relaxed);
 			return IsCancellationRequested() ? nullptr : std::make_unique<FJobProduct>();
 		}
 
@@ -395,6 +409,8 @@ namespace
 			}
 			return std::make_unique<FJobCandidate>(*Record);
 		}
+	private:
+		std::shared_ptr<std::atomic_uint32_t> BuildCount;
 	};
 
 	class FTaskSchedulerGuard
@@ -856,6 +872,7 @@ TEST(FInterchangeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedu
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	auto& Service = Durin::Asset::GetImportService();
 	const auto TranslateCount = std::make_shared<std::atomic_uint32_t>(0);
+	const auto BuildCount = std::make_shared<std::atomic_uint32_t>(0);
 	const std::string ClassName = Durin::Asset::DImportRecord::StaticClass()
 		->GetQualifiedName().ToString();
 	std::string Error;
@@ -870,7 +887,7 @@ TEST(FInterchangeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedu
 		.Descriptor = {
 			.Identity = {.Id = "Tests.Interchange.JobFactory", .ContractVersion = 1},
 			.OutputClassName = ClassName},
-		.Implementation = std::make_shared<FJobFactory>()},
+		.Implementation = std::make_shared<FJobFactory>(BuildCount)},
 		GetInterchangeTestGate(), Error);
 	ASSERT_TRUE(Factory) << Error;
 	const Durin::FAssetPath InlineFirst = AssetPath("/InterchangeTests/Inline/First");
@@ -914,11 +931,13 @@ TEST(FInterchangeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedu
 		Service.RunInterchangeImportInline(PreviewRequest, "Interchange preview test");
 	ASSERT_EQ(Preview.Outcome.State, Durin::Asset::EImportOperationState::Succeeded);
 	EXPECT_EQ(TranslateCount->load(std::memory_order_relaxed), 1u);
+	EXPECT_EQ(BuildCount->load(std::memory_order_relaxed), 2u);
 	const Durin::Asset::FInterchangeImportResult Inline =
 		Service.RunInterchangeImportInline(InlineRequest, "Inline interchange test");
 	ASSERT_EQ(Inline.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
 		<< Inline.Outcome.Diagnostic;
 	EXPECT_EQ(TranslateCount->load(std::memory_order_relaxed), 1u);
+	EXPECT_EQ(BuildCount->load(std::memory_order_relaxed), 2u);
 	EXPECT_EQ(Inline.Outcome.PublishedAssetIdentities.size(), 2u);
 	EXPECT_EQ(Inline.Provenance.OutputMappings.size(), 2u);
 	EXPECT_TRUE(Durin::Asset::FindAssetExact(InlineFirst));

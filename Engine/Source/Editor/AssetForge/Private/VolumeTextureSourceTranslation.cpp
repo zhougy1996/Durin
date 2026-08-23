@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildOperations.h"
+#include "ImportService.h"
 
 namespace Durin::Asset::Forge
 {
@@ -366,26 +367,56 @@ namespace Durin::Asset::Forge
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
 			SourceDestination, MountedSource, Error, MutationContext))
 			return {false, std::move(Error), nullptr};
-		std::vector<std::byte> CapturedBytes;
-		FVolumeTextureCapturedSource CapturedSource;
-		if (!ReadCaptured(MountedSource, CapturedBytes, CapturedSource, Error))
-			return {false, std::move(Error), nullptr};
-		DVolumeTexture* Texture = nullptr;
-		const Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!CreateResult) return {false, CreateResult.Message, nullptr};
-		if (!BuildVolumeTextureCandidate(*Texture, CapturedSource, Settings, Error))
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, std::move(Error), nullptr};
-		}
-		const Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
-		if (!SaveResult)
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, SaveResult.Message, nullptr};
-		}
+		FInterchangeImportRequest Request;
+		if (!MakeVolumeTextureInterchangeRequest(MountedSource.SourcePath, ParsedAssetPath,
+			Settings, EInterchangeImportMode::Import,
+			{.OwnerId = std::format("VolumeTexture.Import:{}", ParsedAssetPath.ToString())},
+			{}, Request, Error)) return {false, std::move(Error), nullptr};
+		const FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Import VolumeTexture {}", ParsedAssetPath.GetAssetName()));
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return {false, Imported.Outcome.Diagnostic, nullptr};
+		DObject* Object = nullptr;
+		(void)Asset::LoadAsset(ParsedAssetPath, Object);
+		auto* Texture = Cast<DVolumeTexture>(Object);
+		if (!Texture) return {false, "VolumeTexture Interchange published no asset.", nullptr};
 		MountedSource.Commit();
 		return {true, {}, Texture};
+	}
+
+	auto SubmitVolumeTextureInterchangeImport(std::string_view FilePath,
+		const FAssetPath& Destination, const FVolumeTextureImportSettings& Settings,
+		bool bEngineAuthoringContext, FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle
+	{
+		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input)
+			|| Lowercase(Input.extension().generic_string()) != ".png"
+			|| !Settings.IsValid(&OutError))
+		{
+			if (OutError.empty()) OutError = "VolumeTexture source is unavailable or invalid.";
+			return {};
+		}
+		std::string SourceDestination = Settings.SourceDestination;
+		if (SourceDestination.empty() && !MakeDefaultSourceDestination(Destination,
+			Input.filename().generic_string(), SourceDestination, OutError)) return {};
+		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
+		if (!PrepareMountedSourceFile(Input, Destination.ToString(), SourceDestination,
+			*Mounted, OutError, bEngineAuthoringContext
+				? EMountedSourceMutationContext::EngineAuthoring
+				: EMountedSourceMutationContext::DependencySafe)) return {};
+		FInterchangeImportRequest Request;
+		if (!MakeVolumeTextureInterchangeRequest(Mounted->SourcePath, Destination, Settings,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("VolumeTexture.Import:{}", Destination.ToString()),
+				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
+		OutError.clear();
+		return GetImportService().SubmitInterchangeImport(std::move(Request),
+			std::format("Import VolumeTexture {}", Destination.GetAssetName()),
+			[Mounted, Completion = std::move(Completion)](const FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == EImportOperationState::Succeeded) Mounted->Commit();
+				if (Completion) Completion(Result);
+			});
 	}
 
 	auto RepairVolumeTextureSource(DVolumeTexture& Texture,
@@ -400,10 +431,23 @@ namespace Durin::Asset::Forge
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
 			SourcePath, Asset::EMountedSourceExistencePolicy::RequireFile,
 			MountedSource, OutError)) return false;
-		std::vector<std::byte> SourceBytes;
-		FVolumeTextureCapturedSource CapturedSource;
-		if (!ReadCaptured(MountedSource, SourceBytes, CapturedSource, OutError)) return false;
-		return BuildVolumeTextureCandidate(Texture, CapturedSource,
-			MakeImportSettings(Texture.GetSourceImportData()), OutError);
+		FAssetPath Destination;
+		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
+			return false;
+		std::optional<FInterchangeProvenance> Existing;
+		FInterchangeProvenance Persisted;
+		std::string ProvenanceError;
+		if (InspectVolumeTextureInterchangeProvenance(Texture, Persisted, ProvenanceError))
+			Existing = std::move(Persisted);
+		FInterchangeImportRequest Request;
+		if (!MakeVolumeTextureInterchangeRequest(MountedSource.SourcePath, Destination,
+			MakeImportSettings(Texture.GetSourceImportData()), EInterchangeImportMode::Repair,
+			{.OwnerId = std::format("VolumeTexture.Repair:{}", Destination.ToString())},
+			std::move(Existing), Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Repair VolumeTexture {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 }

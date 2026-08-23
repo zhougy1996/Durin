@@ -8,6 +8,7 @@
 #include "Misc/Paths.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "TextureCubeBuildAdapter.h"
+#include "ImportService.h"
 #include "Texture2DSourceTranslation.h"
 
 namespace Durin::Asset::Forge
@@ -321,19 +322,21 @@ namespace Durin::Asset::Forge
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
 			StoredSourcePath, Source, Error, MutationContext(bEngineAuthoringContext)))
 			return {false, std::move(Error), nullptr};
-		DTextureCube* Texture = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!Created || !BuildPanorama(*Texture, Source, Settings, Error))
-		{
-			if (Created) Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, Created ? std::move(Error) : Created.Message, nullptr};
-		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
-		if (!Saved)
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, Saved.Message, nullptr};
-		}
+		FInterchangeImportRequest Request;
+		const std::array Mounted{Source.SourcePath};
+		if (!MakeTextureCubeInterchangeRequest(Mounted,
+			ETextureCubeSourceLayout::EquirectangularPanorama, ParsedAssetPath, {}, Settings,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("TextureCube.Import:{}", ParsedAssetPath.ToString())},
+			{}, Request, Error)) return {false, std::move(Error), nullptr};
+		const FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Import TextureCube {}", ParsedAssetPath.GetAssetName()));
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return {false, Imported.Outcome.Diagnostic, nullptr};
+		DObject* Object = nullptr;
+		(void)Asset::LoadAsset(ParsedAssetPath, Object);
+		auto* Texture = Cast<DTextureCube>(Object);
+		if (!Texture) return {false, "TextureCube Interchange published no asset.", nullptr};
 		Source.Commit();
 		return {true, {}, Texture};
 	}
@@ -373,21 +376,80 @@ namespace Durin::Asset::Forge
 				return {false, std::move(Error), nullptr};
 			}
 		}
-		DTextureCube* Texture = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!Created || !BuildFaces(*Texture, Sources, Settings, Error))
-		{
-			if (Created) Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, Created ? std::move(Error) : Created.Message, nullptr};
-		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
-		if (!Saved)
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, Saved.Message, nullptr};
-		}
+		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
+		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+			Mounted[Index] = Sources[Index].SourcePath;
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
+			ParsedAssetPath, Settings, {}, EInterchangeImportMode::Import,
+			{.OwnerId = std::format("TextureCube.Import:{}", ParsedAssetPath.ToString())},
+			{}, Request, Error)) return {false, std::move(Error), nullptr};
+		const FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Import TextureCube {}", ParsedAssetPath.GetAssetName()));
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return {false, Imported.Outcome.Diagnostic, nullptr};
+		DObject* Object = nullptr;
+		(void)Asset::LoadAsset(ParsedAssetPath, Object);
+		auto* Texture = Cast<DTextureCube>(Object);
+		if (!Texture) return {false, "TextureCube Interchange published no asset.", nullptr};
 		for (auto& Source : Sources) Source.Commit();
 		return {true, {}, Texture};
+	}
+
+	auto SubmitTextureCubeInterchangeImport(std::span<const std::string> SourceFiles,
+		std::span<const std::string> SourceDestinations, ETextureCubeSourceLayout Layout,
+		const FAssetPath& Destination, const FTextureCubeImportSettings& FaceSettings,
+		const FTextureCubePanoramaImportSettings& PanoramaSettings,
+		bool bEngineAuthoringContext, FInterchangeImportCompletion Completion,
+		std::string& OutError) -> FInterchangeImportHandle
+	{
+		const size_t Required = Layout == ETextureCubeSourceLayout::SixFaces
+			? TextureCubeFaceCount : 1;
+		if (SourceFiles.size() != Required
+			|| (!SourceDestinations.empty() && SourceDestinations.size() != Required))
+		{
+			OutError = "TextureCube source set is incomplete.";
+			return {};
+		}
+		auto Mounted = std::make_shared<std::vector<FScopedMountedSourceFile>>(Required);
+		std::vector<FSourcePath> MountedPaths(Required);
+		for (size_t Index = 0; Index < Required; ++Index)
+		{
+			const std::filesystem::path Input =
+				std::filesystem::absolute(SourceFiles[Index]).lexically_normal();
+			if (!std::filesystem::is_regular_file(Input)
+				|| (Layout == ETextureCubeSourceLayout::SixFaces
+					? !IsTextureCubeFaceSourceExtension(Input.extension().generic_string())
+					: !IsTextureCubePanoramaSourceExtension(Input.extension().generic_string())))
+			{
+				OutError = "TextureCube source is unavailable or unsupported.";
+				return {};
+			}
+			const std::string_view RequestedDestination = SourceDestinations.empty()
+				? std::string_view{} : std::string_view(SourceDestinations[Index]);
+			const std::string Suffix = Layout == ETextureCubeSourceLayout::SixFaces
+				? std::format("_{}", FaceSuffixes[Index]) : "_panorama";
+			std::string StoredSourcePath;
+			if (!MakeCanonicalSourceLocation(Destination, Suffix,
+				Input.extension().generic_string(), RequestedDestination,
+				StoredSourcePath, OutError)
+				|| !PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
+					(*Mounted)[Index], OutError, MutationContext(bEngineAuthoringContext))) return {};
+			MountedPaths[Index] = (*Mounted)[Index].SourcePath;
+		}
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(MountedPaths, Layout, Destination,
+			FaceSettings, PanoramaSettings, EInterchangeImportMode::Import,
+			{.OwnerId = std::format("TextureCube.Import:{}", Destination.ToString()),
+				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
+		OutError.clear();
+		return GetImportService().SubmitInterchangeImport(std::move(Request),
+			std::format("Import TextureCube {}", Destination.GetAssetName()),
+			[Mounted, Completion = std::move(Completion)](const FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == EImportOperationState::Succeeded)
+					for (FScopedMountedSourceFile& Source : *Mounted) Source.Commit();
+				if (Completion) Completion(Result);
+			});
 	}
 
 	auto ReimportTextureCubePanorama(
@@ -413,10 +475,22 @@ namespace Durin::Asset::Forge
 				"Reimport is read-only and must use the persisted mounted panorama source.";
 			return false;
 		}
-		return BuildAndSaveCandidate(Texture,
-			[&](DTextureCube& Candidate) {
-				return BuildPanorama(Candidate, Source, Settings, OutError);
-			}, OutError);
+		FAssetPath Destination;
+		FInterchangeProvenance Existing;
+		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError)
+			|| !InspectTextureCubeInterchangeProvenance(Texture, Existing, OutError)) return false;
+		const std::array Mounted{Source.SourcePath};
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(Mounted,
+			ETextureCubeSourceLayout::EquirectangularPanorama, Destination, {}, Settings,
+			EInterchangeImportMode::Reimport,
+			{.OwnerId = std::format("TextureCube.Reimport:{}", Destination.ToString())},
+			Existing, Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Reimport TextureCube {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 
 	auto ReimportTextureCubeFaces(
@@ -446,10 +520,23 @@ namespace Durin::Asset::Forge
 				return false;
 			}
 		}
-		return BuildAndSaveCandidate(Texture,
-			[&](DTextureCube& Candidate) {
-				return BuildFaces(Candidate, Sources, Settings, OutError);
-			}, OutError);
+		FAssetPath Destination;
+		FInterchangeProvenance Existing;
+		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError)
+			|| !InspectTextureCubeInterchangeProvenance(Texture, Existing, OutError)) return false;
+		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
+		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+			Mounted[Index] = Sources[Index].SourcePath;
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
+			Destination, Settings, {}, EInterchangeImportMode::Reimport,
+			{.OwnerId = std::format("TextureCube.Reimport:{}", Destination.ToString())},
+			Existing, Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Reimport TextureCube {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 
 	auto ChangeTextureCubePanoramaSourceReference(
@@ -467,10 +554,26 @@ namespace Durin::Asset::Forge
 		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
 			SourceVirtualPath, Asset::EMountedSourceExistencePolicy::RequireFile,
 			Source, OutError)) return false;
-		return BuildAndSaveCandidate(Texture,
-			[&](DTextureCube& Candidate) {
-				return BuildPanorama(Candidate, Source, Settings, OutError);
-			}, OutError);
+		FAssetPath Destination;
+		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
+			return false;
+		std::optional<FInterchangeProvenance> Existing;
+		FInterchangeProvenance Persisted;
+		std::string ProvenanceError;
+		if (InspectTextureCubeInterchangeProvenance(Texture, Persisted, ProvenanceError))
+			Existing = std::move(Persisted);
+		const std::array Mounted{Source.SourcePath};
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(Mounted,
+			ETextureCubeSourceLayout::EquirectangularPanorama, Destination, {}, Settings,
+			EInterchangeImportMode::ReplaceSource,
+			{.OwnerId = std::format("TextureCube.ReplaceSource:{}", Destination.ToString())},
+			std::move(Existing), Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Replace TextureCube source {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 
 	auto ChangeTextureCubeFaceSourceReferences(
@@ -490,10 +593,27 @@ namespace Durin::Asset::Forge
 				Texture.GetPackage()->GetPackagePath(), SourceVirtualPaths[Index],
 				Asset::EMountedSourceExistencePolicy::RequireFile,
 				Sources[Index], OutError)) return false;
-		return BuildAndSaveCandidate(Texture,
-			[&](DTextureCube& Candidate) {
-				return BuildFaces(Candidate, Sources, Settings, OutError);
-			}, OutError);
+		FAssetPath Destination;
+		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
+			return false;
+		std::optional<FInterchangeProvenance> Existing;
+		FInterchangeProvenance Persisted;
+		std::string ProvenanceError;
+		if (InspectTextureCubeInterchangeProvenance(Texture, Persisted, ProvenanceError))
+			Existing = std::move(Persisted);
+		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
+		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+			Mounted[Index] = Sources[Index].SourcePath;
+		FInterchangeImportRequest Request;
+		if (!MakeTextureCubeInterchangeRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
+			Destination, Settings, {}, EInterchangeImportMode::ReplaceSource,
+			{.OwnerId = std::format("TextureCube.ReplaceSource:{}", Destination.ToString())},
+			std::move(Existing), Request, OutError)) return false;
+		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+			std::move(Request), std::format("Replace TextureCube sources {}", Destination.GetAssetName()));
+		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
+		OutError = Result.Outcome.Diagnostic;
+		return false;
 	}
 
 	auto IngestAndChangeTextureCubePanoramaSource(

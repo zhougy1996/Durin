@@ -569,7 +569,7 @@ namespace Durin::Asset
 					return Writer.WritePayload(Entry.Settings);
 				})
 			|| !WriteVector(Writer, Provenance.Sources,
-				[&](const FSingleAssetSourceProvenance& Source) {
+				[&](const FInterchangeProvenance::FSourceProvenance& Source) {
 					if (!Writer.WriteString(Source.StableIdentity)
 						|| !Writer.WriteString(Source.Role)
 						|| !Writer.WriteString(Source.SourcePath.Path)) return false;
@@ -622,7 +622,7 @@ namespace Durin::Asset
 						&& Reader.ReadPayload(Entry.Settings);
 				})
 			|| !ReadVector(Reader, Value.Sources, 8'192,
-				[&](FSingleAssetSourceProvenance& Source) {
+				[&](FInterchangeProvenance::FSourceProvenance& Source) {
 					return Reader.ReadString(Source.StableIdentity)
 						&& Reader.ReadString(Source.Role)
 						&& Reader.ReadString(Source.SourcePath.Path)

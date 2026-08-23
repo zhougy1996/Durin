@@ -5,6 +5,7 @@
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureBuildService.h"
 #include "Texture/TextureBuilder.h"
+#include "Texture/Texture2DPostLoad.h"
 
 namespace Durin::Asset::Build
 {
@@ -252,7 +253,12 @@ namespace Durin::Asset::Build
 			FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
 			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
 		}
-		if (RequestId == 0) return true;
+		if (RequestId == 0)
+		{
+			if (const auto Interchange = TryWaitForTexture2DInterchangeRecovery(
+				Texture, TimeoutSeconds)) return *Interchange;
+			return true;
+		}
 		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
 		if (!Coordinator || !Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
 		PumpBuildHostCompletions(std::numeric_limits<uint32>::max());

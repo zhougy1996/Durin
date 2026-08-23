@@ -52,15 +52,28 @@ namespace Durin::Editor::Level
 
 			for (Asset::DImportRecord* Record : Records)
 			{
-				const Asset::FImportRecordActionResult Result =
-					Asset::GetImportService().ExecuteImportRecordAction(
-						*Record,
-						Asset::EImportRecordAction::Reimport);
-				if (!Result)
+				Asset::FInterchangeImportRequest Request;
+				std::string Error;
+				if (!Asset::Forge::MakeSceneRecordInterchangeRequest(*Record,
+					Asset::EImportRecordAction::Reimport,
+					{.OwnerId = std::format("LevelOpen.SceneRecovery:{}", Record->GetObjectPath()),
+						.ConflictIdentities = {Record->GetObjectPath()}},
+					Request, Error))
 				{
 					OutError = std::format(
 						"Could not rebuild skeletal derived data from its Scene import record: {}",
-						Result.Message);
+						Error);
+					return false;
+				}
+				Request.Lifetime = Asset::EImportOperationLifetime::SessionCritical;
+				const Asset::FInterchangeImportResult Result =
+					Asset::GetImportService().RunInterchangeImportInline(
+						std::move(Request), "Recover Scene skeletal data");
+				if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+				{
+					OutError = std::format(
+						"Could not rebuild skeletal derived data from its Scene import record: {}",
+						Result.Outcome.Diagnostic);
 					return false;
 				}
 			}

@@ -8,11 +8,15 @@
 #include "Texture/Texture2DPostLoad.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
+#include "ImportService.h"
 
 namespace Durin::Asset::Forge
 {
 	namespace
 	{
+		std::mutex GRecoveryMutex;
+		std::unordered_map<std::string, FInterchangeImportHandle> GRecoveries;
+
 		auto IsCanonicalTextureHash(std::string_view Hash) -> bool
 		{
 			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
@@ -38,42 +42,49 @@ namespace Durin::Asset::Forge
 
 		auto SubmitLoadBuild(
 			DTexture2D& Texture,
-			std::string_view PhysicalPath,
-			uint64 SourceFileSize,
-			int64 SourceLastWriteTime,
-			bool bMetadataChanged,
+			std::string_view,
+			uint64,
+			int64,
+			bool,
 			std::string& OutError) -> bool
 		{
-			std::vector<std::byte> EncodedBytes;
-			if (!FFileHelper::LoadFileToArray(EncodedBytes, PhysicalPath))
+			FAssetPath Destination;
+			if (!Texture.GetPackage()
+				|| !FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
+				return false;
+			FInterchangeProvenance Existing;
+			std::optional<FInterchangeProvenance> Provenance;
+			if (InspectTexture2DInterchangeProvenance(Texture, Existing, OutError))
+				Provenance = std::move(Existing);
+			else OutError.clear();
+			FInterchangeImportRequest Request;
+			const FTexture2DImportSettings Settings{
+				.Usage = Texture.GetUsage(),
+				.CompressionQuality = Texture.GetCompressionQuality(),
+				.AlphaMipMode = Texture.GetAlphaMipMode(),
+				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
+				.MaxResolution = Texture.GetMaxResolution(),
+				.bSRGB = Texture.IsSRGB()};
+			if (!MakeTexture2DInterchangeRequest(
+				Texture.GetSourceImportData().Source.SourcePath, Destination,
+				Settings, EInterchangeImportMode::Recover,
+				{.OwnerId = std::format("Texture2D.Recovery:{}", Destination.ToString()),
+					.ConflictIdentities = {Destination.ToString()}},
+				std::move(Provenance), Request, OutError)) return false;
+			Request.Lifetime = EImportOperationLifetime::SessionCritical;
+			const FInterchangeImportHandle Handle = GetImportService().SubmitInterchangeImport(
+				std::move(Request), std::format("Recover Texture2D {}", Destination.GetAssetName()));
+			if (!Handle)
 			{
-				OutError = std::format("Failed to read texture source file: {}", PhysicalPath);
-				return Texture.PublishUncookedLoadFailure(
-					ETextureDerivedDataStatus::SourceUnavailable,
-					ETextureBuildStatus::MissingSource,
-					OutError);
+				OutError = "Texture2D Interchange recovery could not be submitted.";
+				return false;
 			}
-			FTextureSourceData SourceData;
-			if (!TranslateTexture2DSource(EncodedBytes, SourceData, OutError))
-				return Texture.PublishUncookedLoadFailure(
-					ETextureDerivedDataStatus::Corrupt,
-					ETextureBuildStatus::DecodeFailure,
-					OutError);
-			const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
-			return Asset::Build::SubmitTexture2DBuild(Texture, {
-				.SourceData = std::move(SourceData),
-				.SourceContentHashLow = SourceHash.HashLow,
-				.SourceContentHashHigh = SourceHash.HashHigh,
-				.SourcePath = Texture.GetSourceImportData().Source.SourcePath,
-				.Settings = MakeTexture2DBuildSettings(Texture),
-				.DecoderId = "DurinImage",
-				.DecoderVersion = 1,
-				.SourceFileSize = SourceFileSize,
-				.SourceLastWriteTime = SourceLastWriteTime,
-				.Priority = Asset::Build::ETexture2DBuildPriority::Background,
-				.bPersistDerivedData = true,
-				.bMarkPackageDirty = bMetadataChanged,
-				.bReportLoadMutation = bMetadataChanged}, OutError);
+			{
+				std::lock_guard Lock(GRecoveryMutex);
+				GRecoveries.insert_or_assign(Texture.GetObjectPath(), Handle);
+			}
+			OutError.clear();
+			return true;
 		}
 
 		auto PostLoadTexture2DImpl(DTexture2D& Texture, std::string& OutError) -> bool
@@ -173,5 +184,33 @@ namespace Durin::Asset::Forge
 	auto PostLoadTexture2DFeature(DTexture2D& Texture, std::string& OutError) -> bool
 	{
 		return PostLoadTexture2DImpl(Texture, OutError);
+	}
+
+	auto WaitForTexture2DInterchangeRecovery(
+		DTexture2D& Texture, double TimeoutSeconds) -> bool
+	{
+		FInterchangeImportHandle Handle;
+		{
+			std::lock_guard Lock(GRecoveryMutex);
+			const auto Found = GRecoveries.find(Texture.GetObjectPath());
+			if (Found == GRecoveries.end())
+				return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
+			Handle = Found->second;
+		}
+		const auto Deadline = std::chrono::steady_clock::now()
+			+ std::chrono::duration<double>(TimeoutSeconds);
+		FInterchangeImportResult Result;
+		while (!Handle.TryGetResult(Result) && std::chrono::steady_clock::now() < Deadline)
+		{
+			(void)GetImportService().PumpImportOperations();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		if (!Handle.TryGetResult(Result)) return false;
+		{
+			std::lock_guard Lock(GRecoveryMutex);
+			GRecoveries.erase(Texture.GetObjectPath());
+		}
+		return Result.Outcome.State == EImportOperationState::Succeeded
+			&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 	}
 }

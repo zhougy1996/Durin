@@ -13,6 +13,31 @@ using namespace Durin::Asset::Forge;
 
 namespace
 {
+	auto ReimportVolumeTexture(DVolumeTexture& Texture,
+		const FVolumeTextureImportSettings& Settings) -> Asset::FInterchangeImportResult
+	{
+		FAssetPath Destination;
+		std::string Error;
+		if (!Texture.GetPackage() || !FAssetPath::TryCreate(
+			Texture.GetPackage()->GetPackagePath(), Destination, &Error))
+			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+				.Diagnostic = std::move(Error)}};
+		Asset::FInterchangeProvenance Provenance;
+		if (!InspectVolumeTextureInterchangeProvenance(Texture, Provenance, Error))
+			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+				.Diagnostic = std::move(Error)}};
+		Asset::FInterchangeImportRequest Request;
+		if (!MakeVolumeTextureInterchangeRequest(
+			Texture.GetSourceImportData().Source.SourcePath, Destination, Settings,
+			Asset::EInterchangeImportMode::Reimport,
+			{.OwnerId = "Tests.VolumeTexture.InterchangeReimport"}, Provenance,
+			Request, Error))
+			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+				.Diagnostic = std::move(Error)}};
+		return Asset::GetImportService().RunInterchangeImportInline(
+			std::move(Request), "Reimport VolumeTexture");
+	}
+
 	void AppendBigEndian32(std::vector<std::byte>& Bytes, uint32 Value)
 	{
 		for (int Shift : {24, 16, 8, 0})
@@ -310,23 +335,17 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	EXPECT_TRUE(SourceFileProperty->HasAnyPropertyFlags(EPropertyFlags::Edit));
 	EXPECT_TRUE(SourceFileProperty->HasAnyPropertyFlags(EPropertyFlags::ReadOnly));
 
-	auto Planned = Asset::GetImportService().CreateSingleAssetReimportPlan({
-		.Asset = Imported.Asset});
-	ASSERT_TRUE(Planned) << Planned.Message;
-	EXPECT_NE(Planned.Plan.GetSnapshot().FindSource("root"), nullptr);
-	EXPECT_EQ(Planned.Plan.GetSnapshot().FindSource("slice-0000"), nullptr);
-	auto Executed = Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
-	ASSERT_TRUE(Executed) << Executed.Message;
+	auto Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
+	ASSERT_EQ(Executed.Outcome.State, Asset::EImportOperationState::Succeeded)
+		<< Executed.Outcome.Diagnostic;
 	const std::string LastKnownGoodKey = Imported.Asset->GetDerivedDataKey();
 
 	{
 		std::ofstream Corrupt(AtlasPath, std::ios::binary | std::ios::trunc);
 		Corrupt << "not a png";
 	}
-	Planned = Asset::GetImportService().CreateSingleAssetReimportPlan({.Asset = Imported.Asset});
-	ASSERT_TRUE(Planned) << Planned.Message;
-	Executed = Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
-	EXPECT_FALSE(Executed);
+	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
+	EXPECT_EQ(Executed.Outcome.State, Asset::EImportOperationState::Failed);
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), LastKnownGoodKey);
 	EXPECT_EQ(Imported.Asset->GetBuildStatus(), ETextureBuildStatus::Ready);
 
@@ -408,11 +427,9 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		EXPECT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes()[Slice * 128ull * 128],
 			static_cast<std::byte>(Slice));
 
-	auto Planned = Asset::GetImportService().CreateSingleAssetReimportPlan({
-		.Asset = Imported.Asset});
-	ASSERT_TRUE(Planned) << Planned.Message;
-	const auto Reimported = Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
-	ASSERT_TRUE(Reimported) << Reimported.Message;
+	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
+	ASSERT_EQ(Reimported.Outcome.State, Asset::EImportOperationState::Succeeded)
+		<< Reimported.Outcome.Diagnostic;
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasCook");

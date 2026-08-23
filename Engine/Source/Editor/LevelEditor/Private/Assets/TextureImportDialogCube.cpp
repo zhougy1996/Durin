@@ -5,6 +5,7 @@
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
 #include "AssetAuthoring.h"
+#include "ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -60,6 +61,7 @@ namespace Durin::Editor::Level
 	auto FTextureImportDialog::DrawTextureCubeSource() -> void
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
+		if (TextureCubePreview) (void)RevalidateTextureCubeSources();
 		ImGui::TextUnformatted("Source format");
 		if (ImGui::RadioButton("Panorama (2:1)",
 			Cube.SourceLayout ==
@@ -144,8 +146,7 @@ namespace Durin::Editor::Level
 					Cube.PanoramaCustomFaceDimension =
 						Cube.PanoramaCustomFaceDimension > 0
 							? Cube.PanoramaCustomFaceDimension
-							: (Cube.bSourcesValid
-								? Cube.ValidatedDimension : 1024);
+							: 1024;
 					Cube.PanoramaFaceDimension =
 						Cube.PanoramaCustomFaceDimension;
 				}
@@ -192,22 +193,7 @@ namespace Durin::Editor::Level
 		}
 
 		if (Cube.bSourcesValid)
-		{
-			if (Cube.SourceLayout ==
-				ETextureCubeSourceLayout::EquirectangularPanorama)
-			{
-				ImGui::SeparatorText("Projection summary");
-				ImGui::TextDisabled("Source: %ux%u %s panorama.",
-					Cube.ValidatedSourceWidth, Cube.ValidatedSourceHeight,
-					Cube.bValidatedHDR ? "Radiance HDR" : "LDR");
-				ImGui::TextDisabled(
-					"Projection: longitude wraps; +Y is the north pole; pixel-center bilinear sampling.");
-			}
-			ImGui::TextDisabled("Output: 6 faces, %ux%u, %u mips, %s (LDR).",
-				Cube.ValidatedDimension, Cube.ValidatedDimension,
-				Cube.ValidatedMipCount,
-				GetPixelFormatInfo(Cube.ValidatedPixelFormat).Name);
-		}
+			ImGui::TextDisabled("Interchange verified the TextureCube source graph and output policy.");
 		else
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
@@ -441,75 +427,151 @@ namespace Durin::Editor::Level
 	auto FTextureImportDialog::RevalidateTextureCubeSources() -> bool
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
-		Asset::Forge::FTextureCubeImportValidation Validation;
+		std::array<std::string, TextureCubeFaceCount> Files;
+		const size_t SourceCount = Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
+			? TextureCubeFaceCount : 1;
+		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
+			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+				Files[Index] = Cube.FacePathBuffers[Index].data();
+		else Files[0] = Cube.PanoramaPathBuffer.data();
+		const std::string CurrentKey = std::format("{}:{}:{}:{}",
+			static_cast<uint32>(Cube.SourceLayout), Cube.PanoramaFaceDimension,
+			Cube.PanoramaExposureEV,
+			std::accumulate(Files.begin(), Files.begin() + SourceCount, std::string{},
+				[](std::string Result, const std::string& File) {
+					Result.append("|").append(File); return Result;
+				}));
+		if (TextureCubePreview)
+		{
+			if (PendingTextureCubePreviewKey != CurrentKey)
+			{
+				TextureCubePreview.reset();
+				PendingTextureCubePreviewKey.clear();
+			}
+			else
+			{
+			Asset::FInterchangeImportResult Preview;
+			if (!TextureCubePreview->TryGetResult(Preview)) return Cube.bSourcesValid;
+			TextureCubePreview.reset();
+			PendingTextureCubePreviewKey.clear();
+			Cube.bSourcesValid = Preview.Outcome.State == Asset::EImportOperationState::Succeeded
+				&& Preview.Inspection.bCompatible;
+			ValidatedTextureCubePreviewKey = Cube.bSourcesValid ? CurrentKey : std::string{};
+			Cube.SourceValidationMessage = Cube.bSourcesValid
+				? "TextureCube source graph is compatible."
+				: Preview.Outcome.Diagnostic.empty()
+					? "TextureCube Interchange preview failed."
+					: Preview.Outcome.Diagnostic;
+			return Cube.bSourcesValid;
+			}
+		}
+		if (ValidatedTextureCubePreviewKey == CurrentKey) return Cube.bSourcesValid;
+		std::array<FSourcePath, TextureCubeFaceCount> Sources;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
-			std::array<std::string, TextureCubeFaceCount> Faces;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-				Faces[Index] = Cube.FacePathBuffers[Index].data();
-			Validation = Asset::Forge::ValidateTextureCubeFaces(Faces);
+			{
+				Sources[Index].Path = Files[Index];
+			}
 		}
 		else
+			Sources[0].Path = Files[0];
+		if (std::ranges::any_of(std::span(Files).first(SourceCount),
+			[](const std::string& File) { return File.empty(); }))
 		{
-			const Asset::Forge::FTextureCubePanoramaImportSettings Settings{
-				.FaceDimension = Cube.PanoramaFaceDimension,
-				.ExposureEV = IsRadianceHDRPath(
-					Cube.PanoramaPathBuffer.data())
-					? Cube.PanoramaExposureEV : 0.0f};
-			Validation = Asset::Forge::ValidateTextureCubePanorama(
-				Cube.PanoramaPathBuffer.data(), Settings);
+			Cube.bSourcesValid = false;
+			Cube.SourceValidationMessage = "Select every required TextureCube source.";
+			return false;
 		}
-		Cube.bSourcesValid = static_cast<bool>(Validation);
-		Cube.SourceValidationMessage = Validation.Message;
-		Cube.ValidatedSourceWidth = Validation.SourceWidth;
-		Cube.ValidatedSourceHeight = Validation.SourceHeight;
-		Cube.ValidatedDimension = Validation.Dimension;
-		Cube.ValidatedMipCount = Validation.MipCount;
-		Cube.ValidatedPixelFormat = Validation.PixelFormat;
-		Cube.bValidatedHDR = Validation.bHDR;
-		return Cube.bSourcesValid;
+		FAssetPath PreviewDestination;
+		if (!FAssetPath::TryCreate(Destination.GetPath(), PreviewDestination))
+			(void)FAssetPath::TryCreate("/Engine/Transient/TextureCubePreview", PreviewDestination);
+		Asset::FInterchangeImportRequest Request;
+		std::string Error;
+		if (!Asset::Forge::MakeTextureCubeInterchangeRequest(
+			std::span(Sources).first(SourceCount), Cube.SourceLayout, PreviewDestination, {},
+			{.FaceDimension = Cube.PanoramaFaceDimension,
+				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
+					? Cube.PanoramaExposureEV : 0.0f},
+			Asset::EInterchangeImportMode::Preview,
+			{.OwnerId = "TextureImportDialog.TextureCubePreview"}, {}, Request, Error))
+		{
+			Cube.bSourcesValid = false;
+			Cube.SourceValidationMessage = std::move(Error);
+			return false;
+		}
+		Request.Lifetime = Asset::EImportOperationLifetime::EphemeralPreview;
+		TextureCubePreview = Asset::GetImportService().SubmitInterchangeImport(
+			std::move(Request), "Preview TextureCube");
+		PendingTextureCubePreviewKey = TextureCubePreview && *TextureCubePreview
+			? CurrentKey : std::string{};
+		Cube.bSourcesValid = false;
+		Cube.SourceValidationMessage = TextureCubePreview && *TextureCubePreview
+			? "Preparing TextureCube preview..." : "TextureCube preview could not be submitted.";
+		return false;
 	}
 
 	auto FTextureImportDialog::ImportTextureCube() -> bool
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
 		if (!RevalidateTextureCubeSources()) return false;
-		Asset::Forge::FTextureCubeImportResult Result;
+		FAssetPath AssetPath;
+		std::string Error;
+		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		{
+			SetError(std::move(Error));
+			return false;
+		}
+		std::array<std::string, TextureCubeFaceCount> Sources;
+		std::array<std::string, TextureCubeFaceCount> Destinations;
+		size_t SourceCount = 1;
+		Asset::Forge::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
-			std::array<std::string, TextureCubeFaceCount> Faces;
-			std::array<std::string, TextureCubeFaceCount> Destinations;
+			SourceCount = TextureCubeFaceCount;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				Faces[Index] = Cube.FacePathBuffers[Index].data();
+				Sources[Index] = Cube.FacePathBuffers[Index].data();
 				if (State.GetSourceMode() ==
 					EMountedSourceImportMode::IngestExternal)
 					Destinations[Index] =
 						Cube.FaceDestinationBuffers[Index].data();
 			}
-			Result = Asset::Forge::ImportTextureCubeFaces(Faces,
-				Destination.GetPath(), {}, Destinations,
-				IsEngineAuthoringDestination(Destination.GetPath()));
 		}
 		else
 		{
-			const Asset::Forge::FTextureCubePanoramaImportSettings Settings{
+			Sources[0] = Cube.PanoramaPathBuffer.data();
+			PanoramaSettings = {
 				.FaceDimension = Cube.PanoramaFaceDimension,
-				.ExposureEV = Cube.bValidatedHDR
+				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
 					? Cube.PanoramaExposureEV : 0.0f};
-			Result = Asset::Forge::ImportTextureCubePanorama(
-				Cube.PanoramaPathBuffer.data(), Destination.GetPath(), Settings,
-				State.GetSourceMode() ==
-					EMountedSourceImportMode::IngestExternal
-					? Cube.PanoramaDestinationBuffer.data()
-					: std::string_view{},
-				IsEngineAuthoringDestination(Destination.GetPath()));
+			if (State.GetSourceMode() ==
+					EMountedSourceImportMode::IngestExternal)
+				Destinations[0] = Cube.PanoramaDestinationBuffer.data();
 		}
-		if (!Result)
+		const std::string Path = AssetPath.ToString();
+		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
+		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTextureCubeInterchangeImport(
+			std::span(Sources).first(SourceCount), std::span(Destinations).first(SourceCount),
+			Cube.SourceLayout, AssetPath, {}, PanoramaSettings,
+			IsEngineAuthoringDestination(Destination.GetPath()),
+			[CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+				{
+					CompletionCallbacks.NotifyImported(Path);
+					FAssetPath ImportedPath;
+					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
+				}
+				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
+					? "TextureCube Interchange import failed." : Result.Outcome.Diagnostic);
+			}, Error);
+		if (!Handle)
 		{
-			SetError(Result.Message);
+			SetError(std::move(Error));
 			return false;
 		}
+		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
+			std::format("Import TextureCube {}", AssetPath.GetAssetName()));
 		return true;
 	}
 

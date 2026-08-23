@@ -162,56 +162,6 @@ namespace Durin::Asset
 		RepairManagedOutputs
 	};
 
-	struct FImportRecordCapability
-	{
-		EImportRecordAction Action = EImportRecordAction::Reimport;
-		bool bAvailable = false;
-		std::string Label;
-		std::vector<FImportDiagnostic> Diagnostics;
-	};
-
-	struct FImportRecordCapabilitySet
-	{
-		std::string ProviderId;
-		std::vector<FImportRecordCapability> Capabilities;
-
-		auto Find(EImportRecordAction Action) const -> const FImportRecordCapability*
-		{
-			const auto It = std::ranges::find(
-				Capabilities, Action, &FImportRecordCapability::Action);
-			return It == Capabilities.end() ? nullptr : &*It;
-		}
-	};
-
-	struct FImportRecordActionResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DImportRecord* Record = nullptr;
-		std::vector<DObject*> Outputs;
-		std::vector<FAssetPath> Orphans;
-		std::vector<FImportDiagnostic> Diagnostics;
-		FProviderLease Provider;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
-	class ASSETIMPORTCORE_API IImportRecordHandler
-	{
-	public:
-		virtual ~IImportRecordHandler() = default;
-		virtual auto GetProviderId() const -> std::string_view = 0;
-		virtual auto QueryCapabilities(
-			const DImportRecord& Record,
-			const FImportRecordInspection& Inspection) const
-			-> FImportRecordCapabilitySet = 0;
-		virtual auto Execute(
-			DImportRecord& Record,
-			EImportRecordAction Action,
-			const FMultiOutputExecutionOptions& Options) const
-			-> FImportRecordActionResult = 0;
-	};
-
 	ASSETIMPORTCORE_API auto BuildMultiOutputImportPreview(
 		const FMultiOutputImportPlan& Plan) -> FImportPreview;
 }

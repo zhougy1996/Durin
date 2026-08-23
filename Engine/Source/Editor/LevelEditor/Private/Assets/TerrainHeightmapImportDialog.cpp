@@ -137,19 +137,35 @@ namespace Durin::Editor::Level
 		const std::filesystem::path Source(SourcePathBuffer.data());
 		const std::string SourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "TerrainHeightmaps", Source.filename().generic_string());
-		const FTerrainHeightmapImportResult Result = Asset::Forge::ImportTerrainHeightmapAsset(
-			Source.generic_string(), Destination.GetPath(),
-			{.SourceDestination = SourceDestination},
-			IsEngineAuthoringDestination(Destination.GetPath()));
-		if (!Result)
+		FAssetPath AssetPath;
+		std::string Error;
+		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
 		{
-			SetError(Result.Message);
+			SetError(std::move(Error));
 			return false;
 		}
-		Callbacks.NotifyImported(Destination.GetPath());
-		FAssetPath ImportedPath;
-		if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
-			Asset::UnloadPackage(ImportedPath);
+		const std::string Path = AssetPath.ToString();
+		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
+		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTerrainHeightmapInterchangeImport(
+			Source.generic_string(), AssetPath, SourceDestination,
+			IsEngineAuthoringDestination(Destination.GetPath()),
+			[CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
+				if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+				{
+					CompletionCallbacks.NotifyImported(Path);
+					FAssetPath ImportedPath;
+					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
+				}
+				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
+					? "Terrain heightmap Interchange import failed." : Result.Outcome.Diagnostic);
+			}, Error);
+		if (!Handle)
+		{
+			SetError(std::move(Error));
+			return false;
+		}
+		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
+			std::format("Import Terrain Heightmap {}", AssetPath.GetAssetName()));
 		return true;
 	}
 

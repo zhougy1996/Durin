@@ -1,15 +1,19 @@
 # Asset Import Framework
 
-Summary: Define format-neutral import admission, built-in importers, asset publication, and extension ownership.
+Summary: Define graph-based Interchange admission, translation, authoring policy, typed construction, publication, and extension ownership.
 
 Modules: AssetImportCore, AssetForge, AssetCore
 
-Durin editor imports use one provider-neutral framework for source capture,
-planning, preview, candidate construction, validation, publication, diagnostics,
-and cancellation. `AssetImportCore` owns the generic contracts;
-`AssetForge` supplies the built-in StaticMesh, texture, material, and
-Scene providers, including the bounded glTF skeletal path. Runtime targets
-depend on neither module.
+Last reviewed: 2026-08-24
+
+Durin editor imports use one Interchange framework for source capture,
+translation, ordered pipeline execution, typed detached construction, preview,
+candidate validation, publication, diagnostics, cancellation, reimport, record
+actions, and editor recovery. `AssetImportCore` owns immutable translated and
+factory graphs plus `FInterchangeImportJob`; `AssetForge` supplies built-in
+translators, pipelines, and factories for StaticMesh, Texture2D, TextureCube,
+VolumeTexture, Terrain Heightmap, and heterogeneous Scene output. Runtime
+targets depend on neither editor module.
 
 Concrete translation terminates at normalized owned values. Standard providers
 do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
@@ -29,15 +33,15 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
   failed candidate rollback; successful bundle publication promotes the same
   resident entries to `Published`. AssetCore has no knowledge of providers or
   concrete imported asset classes.
-- `AssetImportCore` owns one `FImportService`, importer descriptors, source
-  snapshots, diagnostics, candidates, import records, record indexing, and
-  synchronous and asynchronous orchestration.
-- Provider modules register one immutable descriptor per logical importer. A
-  descriptor owns format recognition, dependency discovery, settings, optional
-  single-asset capabilities, optional record capabilities, output identities,
-  typed state exchange, and reconciliation policy.
-- Editor hosts query framework capabilities. A concrete asset class alone does
-  not imply that import or reimport is available.
+- `AssetImportCore` owns one `FImportService`, source snapshots, diagnostics,
+  translated/factory graph contracts, candidates, import records, record
+  indexing, component registries, and scheduled/inline orchestration.
+- Provider modules register translators for source semantics, ordered pipelines
+  for authoring policy, and typed factories for output construction. None owns
+  a complete import job.
+- Editor hosts build or reconstruct `FInterchangeImportRequest` values and
+  observe framework operation snapshots and terminal outcomes. They do not
+  advance domain work from Widget drawing.
 
 `AssetForge` is the default aggregate for built-in providers and owns
 their Assimp and concrete source-translation policy. Asset-independent image
@@ -58,32 +62,25 @@ namespace is retained through a compatibility alias.
 
 ## Import service and registration
 
-`FImportService` is the only registration and orchestration boundary. A module
-registers one `FImporterDescriptor` under its module-owned callback gate; the
-descriptor binds one provider identity and contract version to source
-recognition/planning plus any supported single-asset classes and import-record
-actions. AssetForge registers exactly three descriptors: Scene,
-Assimp geometry, and DurinImage. It does not coordinate separate provider,
-single-asset-handler, or record-handler registries.
+`FImportService` is the only production orchestration boundary. Translator,
+pipeline, and factory registries are specialized because their selection uses
+component identity, contract/schema version, source recognition, output class,
+pipeline order, and persisted provenance. Selection is deterministic and an
+ambiguous or incompatible match fails with structured evidence.
 
-Initial planning, single-asset capability/reimport/repair, Scene multi-output
-planning/execution, and record capability/actions are service operations.
-Specialized plan/results remain where they carry distinct reconciliation or
-state-exchange values, but callers never perform a second registry lookup.
-Descriptor registration opens asynchronous admission; unregistration closes
-the provider, cancels and drains its admitted work, and only then retires its
-capabilities and provider lease. Module shutdown therefore cannot race a new
-request or invoke retired provider state.
+Each exact registration retains the module callback gate and resource lease.
+A submitted or cached value retains component leases through invocation and
+destruction; preview-product cache entries are discarded during component
+unregistration. Retirement closes admission, cancels and drains owned jobs,
+waits admitted callbacks, clears escaped cached products, then removes the
+exact generation. A stale registration handle cannot retire its replacement.
 
-Production registration ownership is represented by a move-only
-`FImporterRegistration`. The service mints an identity for the exact installed
-descriptor; resetting or destroying the handle validates that identity before
-closing admission and removing capabilities. A failed collision acquires no
-handle, and a stale handle cannot remove a later descriptor that reused the
-same provider ID. Aggregate providers retain handles in installation order and
-reset them in strict reverse order, including partial-startup unwind. The
-string-based registration query remains diagnostic; production teardown uses
-the exact handle rather than an ID-only unregister request.
+The public request selects one translator, versioned translator settings, an
+ordered pipeline stack, a mounted root and optional declared sources, one
+destination, operation owner/lifetime, limits, save policy, and optional
+existing provenance. Initial import, preview, reimport, source replacement,
+repair, recovery, and record actions differ by request mode and graph content,
+not by orchestration interface.
 
 TextureCube follows the same boundary. `TextureCubeSourceTranslation.h` owns
 six-face and panorama validation, import/reimport, source-reference changes,
@@ -92,18 +89,21 @@ owned normalized requests to TextureBuild, and publishes only detached products
 through Engine's narrow TextureCube state exchange. Runtime Engine exposes no
 create/save/source workflow and no mutable TextureCube authoring registry.
 
-## Source snapshots and plans
+## Source snapshots and graphs
 
 Import first resolves a mounted `FSourcePath` and captures its bytes. A provider
 may inspect those captured bytes and declare bounded dependencies. The framework
 resolves and captures each dependency once, enforces containment and resource
 limits, and freezes the complete closure as an immutable source snapshot.
 
-Parsing, hashing, normalized CPU data, plan fingerprints, candidates, and DDC
+Parsing, hashing, normalized CPU data, graph fingerprints, candidates, and DDC
 keys consume the same snapshot bytes. No later phase reopens a physical source.
-A plan is mutation-free, canonically ordered, and records target revisions and
-management preconditions. Publication rejects a stale plan before changing any
-loaded identity or package.
+The translator emits a bounded immutable `FTranslatedAssetGraph`; the ordered
+pipeline stack emits a bounded immutable `FImportFactoryGraph`. Canonical node
+ordering, explicit dependencies, versioned payload schemas, stable identities,
+and deterministic fingerprints make both graphs safe cross-stage values.
+Unknown schemas, missing references, duplicates, cycles, invalid destinations,
+and resource-limit excess fail before candidate construction.
 
 Direct authoring, source-reference changes, repair, and uncooked PostLoad use
 the same AssetForge encoded-source snapshot contract. Texture2D,
@@ -113,12 +113,15 @@ candidate and uncooked-policy orchestration never decode image formats.
 independently; aggregate startup installs them in declaration order and rolls
 back or tears them down in strict reverse order.
 
-## Single-asset and record reimport
+## Reimport, records, and recovery
 
-Single-asset reimport requires an asset identity, complete lightweight source
-provenance, and an available compatible provider. It produces one detached
-candidate and saves one authored package. StaticMesh geometry and texture
-reimport use this path without a companion record.
+Single-output reimport requires an asset identity, complete framework
+provenance, and compatible recorded translator/pipeline/factory components. It
+produces one detached candidate and saves one authored package. StaticMesh and
+the texture/terrain families use this path without a companion record. The
+same provenance reconstructs `SessionCritical` requests used by implemented
+missing-derived-data recovery policies; ordinary load observes or submits that
+work and does not run a separate family workflow.
 
 Multi-output import creates an editor-only `DImportRecord`. Its outputs are
 independent peer assets; no StaticMesh, material, texture, or other output owns
@@ -147,9 +150,13 @@ record's optional primary-output identity unset. FBX remains static-only;
 version-1 skeletal import is a glTF/GLB-specific direct decoder and does not use
 Assimp to associate joints, weights, inverse binds, or animation channels.
 
-Record reimport starts from the record and reconciles every managed output. It
-reports removed outputs as orphans and never silently deletes or adopts an
-occupied path. Detach, recreate, and repair are explicit record actions.
+Record reimport reconstructs a Scene Interchange request from the record and
+reconciles every managed output in one factory graph. Existing output mappings
+preserve loaded identities and paths; removed outputs are reported as orphans,
+and occupied unmanaged paths remain collisions. Reimport, recreate-missing,
+and repair actions use the same request builder and job. Stable authored Scene
+settings exclude ephemeral replacement mappings so unchanged reimport retains
+record fingerprints and skeletal derived-data keys.
 
 Canonical resave is not an import action. A selected record or any managed
 output can route to the record package through the index, but AssetImportCore
@@ -319,19 +326,19 @@ retired StaticMesh-owned Scene `ImportManifest`, generated material/texture
 `ImportOwner`, StaticMesh `SourceFile` and duplicate `ImportSettings`,
 StaticMeshComponent `Material`/`Materials`, Texture2D `SourceFile`, and
 TextureCube face/panorama source-string fields have no compatibility reader or
-migration API. Import-record schema 1, Scene provider contract 1 and settings
-schema 1, and StaticMesh material-slot schema 0 are also unsupported. The
-current Scene provider contract is 3, its settings schema is 2, and its typed
-provider-state schema is 1; skeletal output identities and graph state are part
-of those current fingerprints rather than an inferred extension to an old
-record.
+migration API. Import-record schema 1 and StaticMesh material-slot schema 0 are
+unsupported. New Scene records identify translator `Durin.SceneGraph`
+contract 1 and `Durin.Scene.Plan` settings schema 1. The record request builder
+also reads the immediately preceding Scene provider contract 3/settings schema
+2 so authored repository records can enter the same Interchange job; it does
+not retain the former provider execution path.
 Repository assets must be upgraded or regenerated in the same change that
 removes an old schema.
 
 AssetCore's construct-free compatibility audit reports retired or unknown
 import fields, while ordinary load rejects them before package residency. There
 is no partially compatible live package or data-loss save permission. Recreate
-or reimport that asset with the current importer descriptor.
+or reimport that asset with compatible Interchange components.
 
 ## Editor workflow
 

@@ -3,6 +3,8 @@
 #include "AssetForgeAPI.h"
 #include "Hash/XxHash.h"
 #include "Texture/VolumeTexture.h"
+#include "Interchange.h"
+#include "InterchangeJob.h"
 
 namespace Durin::Asset::Forge
 {
@@ -83,4 +85,22 @@ namespace Durin::Asset::Forge
 		DVolumeTexture& Texture,
 		std::string_view SourcePath,
 		std::string& OutError) -> bool;
+	ASSETFORGE_API auto MakeVolumeTextureInterchangeRequest(
+		const FSourcePath& MountedSource,
+		const FAssetPath& Destination,
+		const FVolumeTextureImportSettings& Settings,
+		Asset::EInterchangeImportMode Mode,
+		Asset::FImportOperationOwner Owner,
+		std::optional<Asset::FInterchangeProvenance> ExistingProvenance,
+		Asset::FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto InspectVolumeTextureInterchangeProvenance(
+		const DVolumeTexture& Texture,
+		Asset::FInterchangeProvenance& OutProvenance,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto SubmitVolumeTextureInterchangeImport(
+		std::string_view FilePath, const FAssetPath& Destination,
+		const FVolumeTextureImportSettings& Settings, bool bEngineAuthoringContext,
+		Asset::FInterchangeImportCompletion Completion,
+		std::string& OutError) -> Asset::FInterchangeImportHandle;
 }
