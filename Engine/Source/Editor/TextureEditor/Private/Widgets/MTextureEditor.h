@@ -4,8 +4,8 @@
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Editor/PropertyView.h"
+#include "Editor/CompensatingAsyncOperation.h"
 #include "Source/SourceReferenceIndex.h"
-#include "Source/SharedSourceReplacementWorkflow.h"
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
 
@@ -58,7 +58,6 @@ namespace Durin::Editor::Texture
 		auto RepairSource(DTexture2D* Texture) -> void;
 		auto RequestSharedSourceReplacement(DTexture2D* Texture) -> void;
 		auto DrawSharedSourceReplacementConfirmation(DTexture2D* Texture) -> void;
-		auto TickSharedSourceReplacement() -> void;
 		auto RequestSharedSourceRelocation(DTexture2D* Texture) -> void;
 		auto DrawSharedSourceRelocationConfirmation(DTexture2D* Texture) -> void;
 		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
@@ -80,7 +79,7 @@ namespace Durin::Editor::Texture
 			bool bOpenRequested = false;
 		};
 		FPendingSourceReplacement PendingSourceReplacement;
-		FSharedSourceReplacementWorkflow SharedSourceReplacementWorkflow;
+		::Durin::Editor::FCompensatingAsyncOperation SharedSourceReplacementOperation;
 		std::string ActiveSourceReplacementResourceId;
 		struct FPendingSourceRelocation
 		{

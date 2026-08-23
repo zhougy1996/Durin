@@ -27,6 +27,7 @@ not open the other rows or scan an entire directory.
 | Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
+| Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
 | Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/Core/Serialization.md) |
 | Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Core/WindowFrames.md) |

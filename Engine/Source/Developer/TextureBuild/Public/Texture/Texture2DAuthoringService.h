@@ -1,13 +1,12 @@
 #pragma once
 
+#include "AssetBuild/AsyncBuild.h"
 #include "TextureBuildAPI.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Texture/TextureBuildOperations.h"
 
 namespace Durin::Asset::Build
 {
-	using FTexture2DAuthoringCompletion = std::function<void(bool, std::string)>;
-
 	struct FTexture2DAuthoringRequest
 	{
 		FTextureSourceData SourceData;
@@ -29,7 +28,7 @@ namespace Durin::Asset::Build
 		DTexture2D& Texture,
 		FTexture2DAuthoringRequest Request,
 		std::string& OutError,
-		FTexture2DAuthoringCompletion Completion = {}) -> bool;
+		FAsyncBuildCompletion Completion = {}) -> bool;
 	TEXTUREBUILD_API auto GetTexture2DBuildDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DBuildDiagnostic;
 	TEXTUREBUILD_API auto HasPendingTexture2DBuild(const DTexture2D& Texture) -> bool;

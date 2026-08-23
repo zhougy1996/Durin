@@ -17,6 +17,7 @@
 #include "MonaUIBackend.h"
 #include "PixelFormat.h"
 #include "Source/MountedSourceRelocation.h"
+#include "Source/TextureSourceReplacementOperation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -26,10 +27,6 @@
 
 namespace Durin::Editor::Texture
 {
-	using Asset::CommitMountedSourceReplacement;
-	using Asset::FMountedSourceReplacement;
-	using Asset::PrepareMountedSourceReplacement;
-	using Asset::RollbackMountedSourceReplacement;
 	namespace
 	{
 		constexpr float DefaultPreviewPaneRatio = 0.70f;
@@ -37,13 +34,6 @@ namespace Durin::Editor::Texture
 		constexpr float MinimumPreviewWidth = 440.0f;
 		constexpr float MinimumDetailsWidth = 340.0f;
 		constexpr float NarrowPreviewHeight = 430.0f;
-
-		struct FTextureBuildOutcome
-		{
-			std::string Error;
-			bool bComplete = false;
-			bool bSucceeded = false;
-		};
 
 		auto FindOwningMount(std::string_view VirtualPath)
 			-> const PathUtilities::FMountPoint*
@@ -144,7 +134,7 @@ namespace Durin::Editor::Texture
 			(void)ResourceId;
 			if (Texture) Asset::Build::CancelTexture2DBuild(*Texture);
 		}
-		SharedSourceReplacementWorkflow.Abort();
+		SharedSourceReplacementOperation.Abort();
 	}
 
 	auto MTextureEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -189,7 +179,7 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
 	{
-		if (SharedSourceReplacementWorkflow.IsBusy()
+		if (SharedSourceReplacementOperation.IsBusy()
 			&& ActiveSourceReplacementResourceId == Document.ResourceId)
 		{
 			SetError("Wait for the shared source replacement to finish before closing this texture.");
@@ -267,7 +257,6 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		TickSharedSourceReplacement();
 		return Documents.GetDocumentHost().DrawDocuments(
 			WorkspaceManager,
 			Workspace::Type,
@@ -801,12 +790,12 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		const bool bReplacingThisSource = SharedSourceReplacementWorkflow.IsBusy()
+		const bool bReplacingThisSource = SharedSourceReplacementOperation.IsBusy()
 			&& ActiveSourceReplacementResourceId == Texture->GetObjectPath();
 		if (bReplacingThisSource)
 		{
-			const char* Phase = SharedSourceReplacementWorkflow.GetPhase()
-				== FSharedSourceReplacementWorkflow::EPhase::BuildingReplacement
+			const char* Phase = SharedSourceReplacementOperation.GetPhase()
+				== FCompensatingAsyncOperation::EPhase::Applying
 				? "Building replacement texture..." : "Restoring original texture...";
 			ImGui::TextDisabled("%s", Phase);
 		}
@@ -1075,64 +1064,25 @@ namespace Durin::Editor::Texture
 		if (ImGui::Button("Replace and Reimport Current",
 			ImVec2(MonaImGui::ScaleUI(220.0f), 0.0f)))
 		{
-			const auto Replacement = std::make_shared<FMountedSourceReplacement>();
-			const auto BuildOutcome = std::make_shared<FTextureBuildOutcome>();
-			const std::string ReplacementPhysicalPath =
-				PendingSourceReplacement.ReplacementPhysicalPath;
-			const std::string SourceVirtualPath = PendingSourceReplacement.SourceVirtualPath;
-			const std::string PackagePath = Texture->GetPackage()->GetPackagePath();
 			ActiveSourceReplacementResourceId = Texture->GetObjectPath();
-			SharedSourceReplacementWorkflow.Begin({
-				.Prepare = [Replacement, ReplacementPhysicalPath, PackagePath,
-					SourceVirtualPath](std::string& OutError) {
-					return PrepareMountedSourceReplacement(
-						ReplacementPhysicalPath, PackagePath, SourceVirtualPath,
-						*Replacement, OutError);
-				},
-				.StartReplacementBuild = [Texture, BuildOutcome](std::string& OutError) {
-					*BuildOutcome = {};
-					return Asset::Forge::ReimportTexture2DSource(
-						*Texture, {}, OutError,
-						[BuildOutcome](bool bSucceeded, std::string Error) {
-							BuildOutcome->Error = std::move(Error);
-							BuildOutcome->bComplete = true;
-							BuildOutcome->bSucceeded = bSucceeded;
-						});
-				},
-				.IsBuildPending = [Texture] {
-					return Asset::Build::HasPendingTexture2DBuild(*Texture);
-				},
-				.DidBuildSucceed = [BuildOutcome](std::string& OutError) {
-					if (BuildOutcome->bComplete && BuildOutcome->bSucceeded) return true;
-					OutError = BuildOutcome->Error.empty()
-						? "The texture build did not report a successful completion."
-						: BuildOutcome->Error;
-					return false;
-				},
-				.Save = [this, Texture](std::string& OutError) {
-					return Documents.Save(Texture, {}, [&OutError](std::string Message) {
-						OutError = std::move(Message);
-					});
-				},
-				.Commit = [Replacement] { CommitMountedSourceReplacement(*Replacement); },
-				.Rollback = [Replacement] { RollbackMountedSourceReplacement(*Replacement); },
-				.StartRestoreBuild = [Texture, BuildOutcome](std::string& OutError) {
-					*BuildOutcome = {};
-					return Asset::Forge::ReimportTexture2DSource(
-						*Texture, {}, OutError,
-						[BuildOutcome](bool bSucceeded, std::string Error) {
-							BuildOutcome->Error = std::move(Error);
-							BuildOutcome->bComplete = true;
-							BuildOutcome->bSucceeded = bSucceeded;
-						});
-				},
-			});
-			if (!SharedSourceReplacementWorkflow.IsBusy())
-			{
-				SetError(SharedSourceReplacementWorkflow.GetError());
-				ActiveSourceReplacementResourceId.clear();
-				SharedSourceReplacementWorkflow.Reset();
-			}
+			SharedSourceReplacementOperation.Begin(
+				MakeTextureSourceReplacementOperation({
+					.Texture = Texture,
+					.ReplacementPhysicalPath =
+						PendingSourceReplacement.ReplacementPhysicalPath,
+					.SourceVirtualPath = PendingSourceReplacement.SourceVirtualPath,
+					.Save = [this](DTexture2D& TextureToSave, std::string& OutError) {
+						return Documents.Save(
+							&TextureToSave, {}, [&OutError](std::string Message) {
+								OutError = std::move(Message);
+							});
+					},
+					.Finished = [this](bool bSucceeded, std::string_view Error) {
+						if (bSucceeded) SourceReferenceIndex.Invalidate();
+						else if (!Error.empty()) SetError(std::string(Error));
+						ActiveSourceReplacementResourceId.clear();
+					},
+				}));
 			PendingSourceReplacement = {};
 			ImGui::CloseCurrentPopup();
 		}
@@ -1144,30 +1094,6 @@ namespace Durin::Editor::Texture
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
-	}
-
-	auto MTextureEditor::TickSharedSourceReplacement() -> void
-	{
-		if (!SharedSourceReplacementWorkflow.IsBusy()) return;
-		DTexture2D* Texture = FindOpenTexture(ActiveSourceReplacementResourceId);
-		if (!Texture)
-		{
-			SharedSourceReplacementWorkflow.Abort();
-		}
-		else
-		{
-			Texture->RefreshBuildStatus();
-			SharedSourceReplacementWorkflow.Tick();
-		}
-		if (SharedSourceReplacementWorkflow.IsBusy()) return;
-
-		if (SharedSourceReplacementWorkflow.GetPhase()
-			== FSharedSourceReplacementWorkflow::EPhase::Succeeded)
-			SourceReferenceIndex.Invalidate();
-		else if (!SharedSourceReplacementWorkflow.GetError().empty())
-			SetError(SharedSourceReplacementWorkflow.GetError());
-		ActiveSourceReplacementResourceId.clear();
-		SharedSourceReplacementWorkflow.Reset();
 	}
 
 	auto MTextureEditor::RequestSharedSourceRelocation(

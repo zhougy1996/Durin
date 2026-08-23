@@ -57,6 +57,14 @@ startup, completion pumping, bounded wait, admission closure, ordered drain,
 and module-retirement lifetime. A build function registration uses the same
 module callback gate for bounded calls but does not become a hosted scheduler.
 
+Accepted asynchronous family requests use AssetBuildCore's terminal
+`FAsyncBuildResult` vocabulary and complete their observer exactly once,
+including cancellation and supersession. The family service still owns request
+identity, workers, typed publication, and the thread on which it pumps that
+completion. Editor-side commit and recovery sequencing is separately defined by
+[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
+it does not move scheduling or typed build policy into DurinEd.
+
 ## Storage Classes
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |

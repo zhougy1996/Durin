@@ -97,7 +97,7 @@ namespace Durin::Asset::Forge
 			const Asset::Build::FTexture2DBuildSettings& Settings,
 			std::string& OutError,
 			Asset::Build::ETexture2DBuildPriority Priority,
-			Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool
+			Asset::Build::FAsyncBuildCompletion Completion = {}) -> bool
 		{
 			FEncodedSourceSnapshot Snapshot;
 			if (!CaptureEncodedSource(Source, Snapshot, OutError)) return false;
@@ -311,7 +311,7 @@ namespace Durin::Asset::Forge
 		const Asset::Build::FTexture2DBuildSettings& Settings,
 		std::string& OutError,
 		Asset::Build::ETexture2DBuildPriority Priority,
-		Asset::Build::FTexture2DAuthoringCompletion Completion) -> bool
+		Asset::Build::FAsyncBuildCompletion Completion) -> bool
 	{
 		if (!Texture.GetPackage() || !Texture.GetSourceImportData().HasSource())
 		{
@@ -338,7 +338,7 @@ namespace Durin::Asset::Forge
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError,
-		Asset::Build::FTexture2DAuthoringCompletion Completion) -> bool
+		Asset::Build::FAsyncBuildCompletion Completion) -> bool
 	{
 		const FTextureSourceDiagnostic Source = Texture.InspectSource();
 		if (!FilePath.empty())

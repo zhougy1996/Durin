@@ -125,14 +125,19 @@ namespace Durin::Editor::Texture
 						return FPropertyEditDeferredCancel{};
 					}
 					std::string Error;
+					const auto DeferredCompletion =
+						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
 					if (!Asset::Forge::RebuildTexture2DFromCurrentSource(
 						*LiveTexture,
 						Settings,
 						Error,
 						Asset::Build::ETexture2DBuildPriority::Interactive,
-						Completion))
+						[DeferredCompletion](Asset::Build::FAsyncBuildResult Result) {
+							(*DeferredCompletion)(
+								Result.Succeeded(), std::move(Result.Diagnostic));
+						}))
 					{
-						Completion(false, std::move(Error));
+						(*DeferredCompletion)(false, std::move(Error));
 						return FPropertyEditDeferredCancel{};
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {

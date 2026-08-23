@@ -18,7 +18,7 @@ namespace Durin::Asset::Build
 			uint64 LastRequestId = 0;
 			bool bLastRequestFailed = false;
 			FTexture2DPublicationContext PublicationContext;
-			FTexture2DAuthoringCompletion Completion;
+			FAsyncBuildCompletion Completion;
 		};
 
 		std::mutex GTexture2DAuthoringMutex;
@@ -36,7 +36,7 @@ namespace Durin::Asset::Build
 			CheckGameThread();
 			TWeakObjectPtr<DTexture2D> WeakTexture;
 			FTexture2DPublicationContext PublicationContext;
-			FTexture2DAuthoringCompletion Completion;
+			FAsyncBuildCompletion Completion;
 			{
 				std::lock_guard Lock(GTexture2DAuthoringMutex);
 				FTexture2DAuthoringState* State = FindStateLocked(Result.AssetIdentity);
@@ -52,15 +52,20 @@ namespace Durin::Asset::Build
 			DTexture2D* Texture = WeakTexture.Get();
 			if (!Texture || Texture->GetObjectPath() != Result.AssetIdentity)
 			{
-				if (Completion) Completion(false, "The Texture2D authoring target is unavailable.");
+				if (Completion) Completion({
+					.Status = EAsyncBuildStatus::Failed,
+					.Diagnostic = "The Texture2D authoring target is unavailable."});
 				return;
 			}
 			if (Result.Phase != ETexture2DBuildPhase::UploadPending
 				|| !Result.SourceData || !Result.PlatformData)
 			{
-				if (Completion) Completion(false, Result.Error.empty()
-					? "The Texture2D authoring build did not produce a publishable product."
-					: std::move(Result.Error));
+				if (Completion) Completion({
+					.Status = Result.Phase == ETexture2DBuildPhase::Cancelled
+						? EAsyncBuildStatus::Canceled : EAsyncBuildStatus::Failed,
+					.Diagnostic = Result.Error.empty()
+						? "The Texture2D authoring build did not produce a publishable product."
+						: std::move(Result.Error)});
 				return;
 			}
 
@@ -90,10 +95,12 @@ namespace Durin::Asset::Build
 				}
 				DURIN_ERROR("Texture2D authoring publication failed for {}: {}",
 					Result.AssetIdentity, Error);
-				if (Completion) Completion(false, std::move(Error));
+				if (Completion) Completion({
+					.Status = EAsyncBuildStatus::Failed,
+					.Diagnostic = std::move(Error)});
 				return;
 			}
-			if (Completion) Completion(true, {});
+			if (Completion) Completion({.Status = EAsyncBuildStatus::Succeeded});
 		}
 	}
 
@@ -101,7 +108,7 @@ namespace Durin::Asset::Build
 		DTexture2D& Texture,
 		FTexture2DAuthoringRequest Request,
 		std::string& OutError,
-		FTexture2DAuthoringCompletion Completion) -> bool
+		FAsyncBuildCompletion Completion) -> bool
 	{
 		CheckGameThread();
 		if (!Request.SourceData.IsValid() || Request.SourcePath.IsEmpty()
@@ -126,10 +133,13 @@ namespace Durin::Asset::Build
 		const std::string Identity = Texture.GetObjectPath();
 		uint64 Generation = 0;
 		uint64 PreviousRequestId = 0;
+		FAsyncBuildCompletion SupersededCompletion;
 		{
 			std::lock_guard Lock(GTexture2DAuthoringMutex);
 			FTexture2DAuthoringState& State = GTexture2DAuthoringStates[Identity];
 			PreviousRequestId = State.ActiveRequestId;
+			if (PreviousRequestId != 0)
+				SupersededCompletion = std::move(State.Completion);
 			Generation = GNextTexture2DGeneration++;
 			State = {
 				.Texture = TWeakObjectPtr<DTexture2D>(&Texture),
@@ -172,9 +182,15 @@ namespace Durin::Asset::Build
 			.bPersistDerivedData = Request.bPersistDerivedData}, ApplyCompletion);
 		if (RequestId == 0)
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			if (FTexture2DAuthoringState* State = FindStateLocked(Identity);
-				State && State->Generation == Generation) GTexture2DAuthoringStates.erase(Identity);
+			{
+				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				if (FTexture2DAuthoringState* State = FindStateLocked(Identity);
+					State && State->Generation == Generation)
+					GTexture2DAuthoringStates.erase(Identity);
+			}
+			if (SupersededCompletion) SupersededCompletion({
+				.Status = EAsyncBuildStatus::Superseded,
+				.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
 			OutError = "The TextureBuild coordinator rejected the request.";
 			return false;
 		}
@@ -187,6 +203,9 @@ namespace Durin::Asset::Build
 				State->LastRequestId = RequestId;
 			}
 		}
+		if (SupersededCompletion) SupersededCompletion({
+			.Status = EAsyncBuildStatus::Superseded,
+			.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
 		OutError.clear();
 		return true;
 	}
