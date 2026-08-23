@@ -762,46 +762,51 @@ namespace Durin::Editor::Level
 				Specs->Specs[0].SortDirection != ImGuiSortDirection_Descending);
 			Specs->SpecsDirty = false;
 		}
-		for (size_t Index = 0; Index < Model.GetItems().size(); ++Index)
+		ImGuiListClipper Clipper;
+		Clipper.Begin(static_cast<int32>(Model.GetItems().size()));
+		while (Clipper.Step())
 		{
-			const FContentBrowserItem& Item = Model.GetItems()[Index];
-			ImGui::PushID(Item.StableId().c_str());
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			if (RenameTarget == Item.StableId())
-				DrawRenameEditor(Item);
-			else
+			for (int32 Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 			{
-				const std::string Label = std::format(
-					"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
-				ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
-				bContentItemHovered |= ImGui::IsItemHovered();
-				if (ImGui::IsItemClicked()) SelectItem(Index);
-				if (ImGui::IsItemHovered()
-					&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					QueueContentAction([this, Item] { OpenItem(Item); });
-				BeginAssetDragDrop(Item);
-				if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
-				if (ImGui::BeginPopupContextItem("ItemContext"))
+				const FContentBrowserItem& Item = Model.GetItems()[static_cast<size_t>(Index)];
+				ImGui::PushID(Item.StableId().c_str());
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				if (RenameTarget == Item.StableId())
+					DrawRenameEditor(Item);
+				else
 				{
-					if (!Selection.contains(Item.StableId()))
+					const std::string Label = std::format(
+						"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
+					ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+					bContentItemHovered |= ImGui::IsItemHovered();
+					if (ImGui::IsItemClicked()) SelectItem(static_cast<size_t>(Index));
+					if (ImGui::IsItemHovered()
+						&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						QueueContentAction([this, Item] { OpenItem(Item); });
+					BeginAssetDragDrop(Item);
+					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
+					if (ImGui::BeginPopupContextItem("ItemContext"))
 					{
-						Selection.clear();
-						Selection.insert(Item.StableId());
+						if (!Selection.contains(Item.StableId()))
+						{
+							Selection.clear();
+							Selection.insert(Item.StableId());
+						}
+						DrawItemContextMenu(Item);
+						ImGui::EndPopup();
 					}
-					DrawItemContextMenu(Item);
-					ImGui::EndPopup();
 				}
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
+					: ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
+					: ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
+				ImGui::PopID();
 			}
-			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
-			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
-				: ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
-			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-"
-				: ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());
-			ImGui::PopID();
 		}
 		DrawBackgroundContextMenu();
 		ImGui::EndTable();
