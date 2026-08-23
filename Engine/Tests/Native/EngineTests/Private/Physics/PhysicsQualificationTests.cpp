@@ -9,9 +9,9 @@
 
 namespace
 {
-	constexpr Durin::uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
+	constexpr uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
 	constexpr std::array<size_t, 4> FixtureBodyCounts{0, 32, 1'000, 10'000};
-	inline constexpr Durin::uint64 ExpectedPrimitiveRetainedBytes =
+	inline constexpr uint64 ExpectedPrimitiveRetainedBytes =
 		DURIN_BUILD_DEBUG ? 208u : 200u;
 
 	enum class EFixtureDistribution
@@ -22,7 +22,7 @@ namespace
 
 	struct FDeterministicGenerator
 	{
-		Durin::uint64 State = FixtureSeed;
+		uint64 State = FixtureSeed;
 
 		auto NextUnit() -> double
 		{
@@ -33,7 +33,7 @@ namespace
 
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
-		Durin::uint64 UserToken,
+		uint64 UserToken,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
@@ -70,7 +70,7 @@ namespace
 					(Generator.NextUnit() - 0.5) * 0.4};
 			}
 
-			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<Durin::uint64>(Index + 1));
+			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<uint64>(Index + 1));
 			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0, Durin::FVectorConstants::Up);
 			Desc.Transform.Scale3D = {
@@ -98,7 +98,7 @@ TEST(FAetherCollisionGeometryQualificationTests, TenThousandBodiesRetainOneShare
 	Durin::FPhysicsScene Scene;
 	std::vector<Durin::FPhysicsActorHandle> Handles;
 	Handles.reserve(10'000);
-	for (Durin::uint32 Index = 0; Index < 10'000; ++Index)
+	for (uint32 Index = 0; Index < 10'000; ++Index)
 	{
 		Durin::FPhysicsBodyDesc Desc;
 		Desc.Geometry = Geometry;
@@ -120,22 +120,22 @@ TEST(FAetherCollisionGeometryQualificationTests, TenThousandBodiesRetainOneShare
 
 TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAndKeepsSparseWorkLocal)
 {
-	constexpr Durin::uint32 GridSize = 224;
+	constexpr uint32 GridSize = 224;
 	std::vector<Durin::FVector3> Vertices;
-	std::vector<Durin::uint32> Indices;
+	std::vector<uint32> Indices;
 	Vertices.reserve((GridSize + 1) * (GridSize + 1));
 	Indices.reserve(GridSize * GridSize * 6);
-	for (Durin::uint32 Y = 0; Y <= GridSize; ++Y)
-		for (Durin::uint32 X = 0; X <= GridSize; ++X)
+	for (uint32 Y = 0; Y <= GridSize; ++Y)
+		for (uint32 X = 0; X <= GridSize; ++X)
 			Vertices.emplace_back(static_cast<double>(X), static_cast<double>(Y), 0.0);
-	for (Durin::uint32 Y = 0; Y < GridSize; ++Y)
+	for (uint32 Y = 0; Y < GridSize; ++Y)
 	{
-		for (Durin::uint32 X = 0; X < GridSize; ++X)
+		for (uint32 X = 0; X < GridSize; ++X)
 		{
-			const Durin::uint32 A = Y * (GridSize + 1) + X;
-			const Durin::uint32 B = A + 1;
-			const Durin::uint32 C = A + GridSize + 1;
-			const Durin::uint32 D = C + 1;
+			const uint32 A = Y * (GridSize + 1) + X;
+			const uint32 B = A + 1;
+			const uint32 C = A + GridSize + 1;
+			const uint32 D = C + 1;
 			Indices.insert(Indices.end(), {A, B, D, A, D, C});
 		}
 	}
@@ -150,7 +150,7 @@ TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAn
 	RecordProperty("grid_estimated_peak_bytes", Facts.EstimatedPeakBytes);
 	EXPECT_LE(Facts.MaximumDepth, 64u);
 	EXPECT_EQ(Mesh.GetLeafTriangleCount(), Facts.RetainedTriangles);
-	for (Durin::uint32 Index = 0; Index < Mesh.GetNodeCount(); ++Index)
+	for (uint32 Index = 0; Index < Mesh.GetNodeCount(); ++Index)
 	{
 		const Durin::FCollisionGeometryNode* Node = Mesh.GetNode(Index);
 		ASSERT_NE(Node, nullptr);
@@ -193,7 +193,7 @@ TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAn
 	EXPECT_EQ(ProductionWork.ReferenceFallbacks, 0u);
 	std::mt19937_64 Random(0x42564832ull);
 	std::uniform_real_distribution<double> Coordinate(-10.0, GridSize + 10.0);
-	for (Durin::uint32 Iteration = 0; Iteration < 32; ++Iteration)
+	for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
 	{
 		const double X = Coordinate(Random);
 		const double Y = Coordinate(Random);
@@ -216,12 +216,12 @@ TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAn
 TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharingBudgets)
 {
 	using FClock = std::chrono::steady_clock;
-	constexpr Durin::uint32 Dimension = 1025;
-	constexpr Durin::uint32 QueryCount = 256;
-	std::vector<Durin::uint16> Samples(static_cast<size_t>(Dimension) * Dimension);
-	for (Durin::uint32 Y = 0; Y < Dimension; ++Y)
-		for (Durin::uint32 X = 0; X < Dimension; ++X)
-			Samples[static_cast<size_t>(Y) * Dimension + X] = static_cast<Durin::uint16>(
+	constexpr uint32 Dimension = 1025;
+	constexpr uint32 QueryCount = 256;
+	std::vector<uint16> Samples(static_cast<size_t>(Dimension) * Dimension);
+	for (uint32 Y = 0; Y < Dimension; ++Y)
+		for (uint32 X = 0; X < Dimension; ++X)
+			Samples[static_cast<size_t>(Y) * Dimension + X] = static_cast<uint16>(
 				(X * 31u + Y * 17u + ((X ^ Y) & 63u) * 257u) & 0xffffu);
 
 	Durin::FCollisionGeometryBuildDiagnostics Facts;
@@ -239,7 +239,7 @@ TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharin
 	Durin::FPhysicsQueryHit Hit;
 	FDeterministicGenerator Generator;
 	const auto QueryStart = FClock::now();
-	for (Durin::uint32 Index = 0; Index < QueryCount; ++Index)
+	for (uint32 Index = 0; Index < QueryCount; ++Index)
 	{
 		const double X = Generator.NextUnit() * static_cast<double>(Dimension - 1);
 		const double Y = Generator.NextUnit() * static_cast<double>(Dimension - 1);
@@ -251,7 +251,7 @@ TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharin
 	const auto QueryEnd = FClock::now();
 	EXPECT_EQ(Work.HeightFieldTriangleTests, Work.HeightFieldCellTests * 2u);
 	EXPECT_LT(Work.HeightFieldCellTests,
-		static_cast<Durin::uint64>(QueryCount) * (Dimension - 1) * (Dimension - 1));
+		static_cast<uint64>(QueryCount) * (Dimension - 1) * (Dimension - 1));
 	EXPECT_EQ(Work.ReferenceFallbacks, 0u);
 	EXPECT_EQ(Work.Unsupported, 0u);
 	EXPECT_EQ(Work.NonConverged, 0u);
@@ -264,7 +264,7 @@ TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharin
 		Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
 	const auto ReferenceEnd = FClock::now();
 	EXPECT_EQ(DenseReferenceWork.HeightFieldCellTests,
-		static_cast<Durin::uint64>(Dimension - 1) * (Dimension - 1));
+		static_cast<uint64>(Dimension - 1) * (Dimension - 1));
 	EXPECT_EQ(DenseReferenceWork.HeightFieldTriangleTests,
 		DenseReferenceWork.HeightFieldCellTests * 2u);
 
@@ -274,7 +274,7 @@ TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharin
 	const auto FirstBodyStart = FClock::now();
 	ASSERT_TRUE(Scene.AddBody(FirstBody).IsValid());
 	const auto FirstBodyEnd = FClock::now();
-	for (Durin::uint32 Index = 1; Index < 1024; ++Index)
+	for (uint32 Index = 1; Index < 1024; ++Index)
 	{
 		Durin::FPhysicsBodyDesc Body;
 		Body.Geometry = Geometry;
@@ -360,7 +360,7 @@ TEST(FAetherSceneAccelerationQualificationTests, RetainedMemoryFitsEveryScaleAnd
 		Durin::FPhysicsQueryHit Hit;
 		StaticScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
 		MixedScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
-		const Durin::uint64 Budget = 64u * BodyCount + 64u * 1024u;
+		const uint64 Budget = 64u * BodyCount + 64u * 1024u;
 		EXPECT_LE(StaticScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
 		EXPECT_LE(MixedScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
 		EXPECT_EQ(StaticScene.CaptureQueryDiagnostics().Mutations.StaticBodies, BodyCount);
@@ -387,7 +387,7 @@ TEST(FAetherQueryFixtureQualificationTests, DefinesRecordedScalesDistributionsFi
 		for (size_t Index = 1; Index < Handles.size(); Index += 3)
 		{
 			Durin::FPhysicsBodyDesc Updated = MakeBoxBody(
-				{500.0 + static_cast<double>(Index), 0.0, 0.0}, static_cast<Durin::uint64>(Index + 1));
+				{500.0 + static_cast<double>(Index), 0.0, 0.0}, static_cast<uint64>(Index + 1));
 			Updated.Filter.Responses[0] = Index % 2 == 0
 				? Durin::EPhysicsQueryResponse::Ignore
 				: Durin::EPhysicsQueryResponse::Overlap;

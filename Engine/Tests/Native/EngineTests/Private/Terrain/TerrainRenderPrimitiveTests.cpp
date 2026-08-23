@@ -73,9 +73,9 @@ namespace
 
 	TEST(TerrainRenderPrimitive, BuildsExactYMajorEdgePatchesAndBounds)
 	{
-		constexpr Durin::uint32 Width = 130;
-		constexpr Durin::uint32 Height = 70;
-		std::vector<Durin::uint16> Samples(static_cast<size_t>(Width) * Height, 0);
+		constexpr uint32 Width = 130;
+		constexpr uint32 Height = 70;
+		std::vector<uint16> Samples(static_cast<size_t>(Width) * Height, 0);
 		Samples[0] = 65535;
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainPatchHeightmap");
 		std::string Error;
@@ -98,9 +98,9 @@ namespace
 		EXPECT_EQ(Proxy.GetPatches()[0].GridX, 0u);
 		EXPECT_EQ(Proxy.GetPatches()[3].GridY, 1u);
 		EXPECT_EQ(Proxy.GetPatches()[0].LODSteps,
-			(std::vector<Durin::uint32>{1, 2, 4, 8, 16, 32, 64}));
+			(std::vector<uint32>{1, 2, 4, 8, 16, 32, 64}));
 		EXPECT_EQ(Proxy.GetPatches()[2].LODSteps,
-			(std::vector<Durin::uint32>{1}));
+			(std::vector<uint32>{1}));
 		EXPECT_LE(Proxy.GetLODMetadataBytes(), 64u * 1024u);
 		const Durin::FBox Bounds = Proxy.GetLocalBounds();
 		EXPECT_DOUBLE_EQ(Bounds.Min.x, 0.0);
@@ -112,8 +112,8 @@ namespace
 
 	TEST(TerrainRenderPrimitive, BuildsConservativeMonotonicPatchErrors)
 	{
-		constexpr Durin::uint32 Size = 65;
-		std::vector<Durin::uint16> Samples(Size * Size, 0);
+		constexpr uint32 Size = 65;
+		std::vector<uint16> Samples(Size * Size, 0);
 		Samples[32u * Size + 32u] = 65535;
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainLODErrorHeightmap");
 		std::string Error;
@@ -132,8 +132,8 @@ namespace
 
 	TEST(TerrainRenderPrimitive, ReusesDerivedPatchesAndInvalidatesChangedParameters)
 	{
-		constexpr Durin::uint32 Size = 65;
-		std::vector<Durin::uint16> Samples(Size * Size, 0);
+		constexpr uint32 Size = 65;
+		std::vector<uint16> Samples(Size * Size, 0);
 		Samples.back() = 65'535;
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr,
 			"TerrainDerivedCacheHeightmap");
@@ -174,7 +174,7 @@ namespace
 	TEST(TerrainRenderPrimitive, ResolvesAdjacencyByStableCoarsePromotion)
 	{
 		std::vector<Durin::FTerrainPatchDescriptor> Patches(3);
-		for (Durin::uint16 X = 0; X < 3; ++X)
+		for (uint16 X = 0; X < 3; ++X)
 		{
 			Patches[X].GridX = X;
 			Patches[X].CellCountX = 64;
@@ -182,15 +182,15 @@ namespace
 			Patches[X].LODSteps = {1, 2, 4, 8};
 			Patches[X].LODErrors = {0.0, 1.0, 2.0, 4.0};
 		}
-		const std::array<Durin::uint32, 3> Requested{0, 3, 3};
+		const std::array<uint32, 3> Requested{0, 3, 3};
 		const auto Result = Durin::ResolveTerrainPatchAdjacency(Patches, Requested);
 		ASSERT_TRUE(Result.bValid);
-		EXPECT_EQ(Result.ResolvedLODs, (std::vector<Durin::uint32>{0, 1, 2}));
+		EXPECT_EQ(Result.ResolvedLODs, (std::vector<uint32>{0, 1, 2}));
 		EXPECT_EQ(Result.Promotions, 3u);
 		EXPECT_EQ(Result.StitchMasks[0],
-			static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::East));
+			static_cast<uint8>(Durin::ETerrainStitchEdge::East));
 		EXPECT_EQ(Result.StitchMasks[1],
-			static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::East));
+			static_cast<uint8>(Durin::ETerrainStitchEdge::East));
 		EXPECT_EQ(Result.StitchMasks[2], 0u);
 	}
 
@@ -241,8 +241,8 @@ namespace
 
 	TEST(TerrainRenderPrimitive, GeneratesAllStitchMasksWithoutInvalidTriangles)
 	{
-		for (Durin::uint16 Step : {1u, 2u, 4u, 8u, 16u, 32u})
-		for (Durin::uint8 Mask = 0; Mask < 16; ++Mask)
+		for (uint16 Step : {1u, 2u, 4u, 8u, 16u, 32u})
+		for (uint8 Mask = 0; Mask < 16; ++Mask)
 		{
 			const Durin::FTerrainTopologyKey Key{64, 64, Step, Mask};
 			Durin::FTerrainTopologyData Data;
@@ -250,7 +250,7 @@ namespace
 				<< "step=" << Step << " mask=" << static_cast<int>(Mask);
 			ASSERT_EQ(Data.Indices.size() / 3,
 				Durin::GetTerrainTopologyTriangleCount(Key));
-			Durin::uint64 TotalDoubleArea = 0;
+			uint64 TotalDoubleArea = 0;
 			for (size_t Index = 0; Index < Data.Indices.size(); Index += 3)
 			{
 				const auto& A = Data.Vertices[Data.Indices[Index]];
@@ -261,7 +261,7 @@ namespace
 					- (static_cast<int>(B[1]) - A[1])
 					* (static_cast<int>(C[0]) - A[0]);
 				EXPECT_GT(Area, 0);
-				TotalDoubleArea += static_cast<Durin::uint64>(Area);
+				TotalDoubleArea += static_cast<uint64>(Area);
 				EXPECT_LE(A[0], 64u); EXPECT_LE(A[1], 64u);
 				EXPECT_LE(B[0], 64u); EXPECT_LE(B[1], 64u);
 				EXPECT_LE(C[0], 64u); EXPECT_LE(C[1], 64u);
@@ -269,7 +269,7 @@ namespace
 			EXPECT_EQ(TotalDoubleArea, 2u * 64u * 64u)
 				<< "step=" << Step << " mask=" << static_cast<int>(Mask);
 			auto CheckEdge = [&](Durin::ETerrainStitchEdge Edge) {
-				std::set<std::pair<Durin::uint16, Durin::uint16>> Segments;
+				std::set<std::pair<uint16, uint16>> Segments;
 				for (size_t Index = 0; Index < Data.Indices.size(); Index += 3)
 					for (size_t Side = 0; Side < 3; ++Side)
 					{
@@ -277,19 +277,19 @@ namespace
 						const auto& B = Data.Vertices[Data.Indices[Index + (Side + 1) % 3]];
 						const bool Horizontal = Edge == Durin::ETerrainStitchEdge::North
 							|| Edge == Durin::ETerrainStitchEdge::South;
-						const Durin::uint16 Boundary = (Edge == Durin::ETerrainStitchEdge::South
+						const uint16 Boundary = (Edge == Durin::ETerrainStitchEdge::South
 							|| Edge == Durin::ETerrainStitchEdge::East) ? 64 : 0;
 						if ((Horizontal && A[1] == Boundary && B[1] == Boundary && A[0] != B[0])
 							|| (!Horizontal && A[0] == Boundary && B[0] == Boundary && A[1] != B[1]))
 						{
-							const Durin::uint16 V0 = Horizontal ? A[0] : A[1];
-							const Durin::uint16 V1 = Horizontal ? B[0] : B[1];
+							const uint16 V0 = Horizontal ? A[0] : A[1];
+							const uint16 V1 = Horizontal ? B[0] : B[1];
 							Segments.emplace(std::min(V0, V1), std::max(V0, V1));
 						}
 					}
-				const bool Stitched = (Mask & static_cast<Durin::uint8>(Edge)) != 0;
+				const bool Stitched = (Mask & static_cast<uint8>(Edge)) != 0;
 				ASSERT_EQ(Segments.size(), 64u / (Step * (Stitched ? 2u : 1u)));
-				Durin::uint16 Cursor = 0;
+				uint16 Cursor = 0;
 				for (const auto& Segment : Segments)
 				{
 					EXPECT_EQ(Segment.first, Cursor);
@@ -307,14 +307,14 @@ namespace
 		EXPECT_TRUE(Durin::BuildTerrainTopology({64, 64, 64, 0}, Coarsest));
 		Durin::FTerrainTopologyData Partial;
 		EXPECT_TRUE(Durin::BuildTerrainTopology({6, 8, 2,
-			static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::East)}, Partial));
+			static_cast<uint8>(Durin::ETerrainStitchEdge::East)}, Partial));
 		EXPECT_FALSE(Durin::BuildTerrainTopology({6, 8, 2,
-			static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::North)}, Partial));
+			static_cast<uint8>(Durin::ETerrainStitchEdge::North)}, Partial));
 	}
 
 	TEST(TerrainRenderPrimitive, ProxyRetainsExactPayloadRevision)
 	{
-		const std::array<Durin::uint16, 4> Samples{0, 1, 32768, 65535};
+		const std::array<uint16, 4> Samples{0, 1, 32768, 65535};
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainRevisionHeightmap");
 		std::string Error;
 		ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error));
@@ -325,14 +325,14 @@ namespace
 		auto& Terrain = static_cast<Durin::FTerrainSceneProxy&>(*Proxy);
 		EXPECT_EQ(Terrain.GetRevision(), Heightmap->GetRevision());
 		EXPECT_EQ(Terrain.GetPayload(), Heightmap->GetPayload());
-		Durin::uint16 Value = 0;
+		uint16 Value = 0;
 		ASSERT_TRUE(Terrain.GetPayload()->GetSample(1, 1, Value));
 		EXPECT_EQ(Value, 65535);
 	}
 
 	TEST(TerrainRenderPrimitive, ValidAssetBeyondT1CeilingIsNotRendered)
 	{
-		std::vector<Durin::uint16> Samples(1026u * 2u, 1u);
+		std::vector<uint16> Samples(1026u * 2u, 1u);
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainOversizeHeightmap");
 		std::string Error;
 		ASSERT_TRUE(Heightmap->InitializeFromSamples(1026, 2, Samples, Error));

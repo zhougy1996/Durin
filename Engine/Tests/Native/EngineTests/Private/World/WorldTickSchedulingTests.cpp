@@ -123,7 +123,7 @@ TEST(FWorldTickSchedulingTests, SelfDestructionCancelsFutureTicks)
 	Durin::AActor* Actor = World->SpawnActor(Durin::AActor::StaticClass(), "Actor");
 	FTickSchedulingTestComponent* Component = AddTickComponent(Actor, "Self");
 	ASSERT_NE(Component, nullptr);
-	Durin::uint32 TickCount = 0;
+	uint32 TickCount = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate != Component) return;
@@ -150,7 +150,7 @@ TEST(FWorldTickSchedulingTests, SiblingDestructionSkipsTheCancelledQueueSlot)
 	FTickSchedulingTestComponent* Target = AddTickComponent(Actor, "Target");
 	ASSERT_NE(Destroyer, nullptr);
 	ASSERT_NE(Target, nullptr);
-	Durin::uint32 TargetTicks = 0;
+	uint32 TargetTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Destroyer) EXPECT_TRUE(Actor->DestroyInstanceComponent(Target));
@@ -174,7 +174,7 @@ TEST(FWorldTickSchedulingTests, AddedSameGroupComponentStartsOnTheNextFrame)
 	FTickSchedulingTestComponent* Adder = AddTickComponent(Actor, "Adder");
 	ASSERT_NE(Adder, nullptr);
 	FTickSchedulingTestComponent* Added = nullptr;
-	Durin::uint32 AddedTicks = 0;
+	uint32 AddedTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Adder && !Added) Added = AddTickComponent(Actor, "Added");
@@ -202,7 +202,7 @@ TEST(FWorldTickSchedulingTests, DisableEnableCannotReviveAStaleQueueSlot)
 	ASSERT_NE(Mutator, nullptr);
 	ASSERT_NE(Target, nullptr);
 	bool bMutated = false;
-	Durin::uint32 TargetTicks = 0;
+	uint32 TargetTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Mutator && !std::exchange(bMutated, true))
@@ -233,7 +233,7 @@ TEST(FWorldTickSchedulingTests, UnregisterRegisterCannotReviveAStaleQueueSlot)
 	ASSERT_NE(Mutator, nullptr);
 	ASSERT_NE(Target, nullptr);
 	bool bMutated = false;
-	Durin::uint32 TargetTicks = 0;
+	uint32 TargetTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Mutator && !std::exchange(bMutated, true))
@@ -263,12 +263,12 @@ TEST(FWorldTickSchedulingTests, FutureGroupRegistrationExecutesInTheSameFrame)
 	FTickSchedulingTestComponent* Adder = AddTickComponent(Actor, "Adder", ETickingGroup::PrePhysics);
 	ASSERT_NE(Adder, nullptr);
 	std::vector<FTickSchedulingTestComponent*> Added;
-	Durin::uint32 PhysicsTicks = 0;
+	uint32 PhysicsTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Adder && Added.empty())
 		{
-			for (Durin::uint32 Index = 0; Index < 32; ++Index)
+			for (uint32 Index = 0; Index < 32; ++Index)
 			{
 				Added.push_back(AddTickComponent(Actor, std::format("Physics{}", Index), ETickingGroup::Physics));
 			}
@@ -324,7 +324,7 @@ TEST(FWorldTickSchedulingTests, OwnerDestructionStopsRemainingComponentTicks)
 	FTickSchedulingTestComponent* Target = AddTickComponent(Actor, "Target");
 	ASSERT_NE(Destroyer, nullptr);
 	ASSERT_NE(Target, nullptr);
-	Durin::uint32 TargetTicks = 0;
+	uint32 TargetTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Destroyer) EXPECT_TRUE(World->DestroyActor(Actor));
@@ -351,7 +351,7 @@ TEST(FWorldTickSchedulingTests, PendingLevelTransitionStopsTheActiveGroup)
 	ASSERT_NE(Requester, nullptr);
 	ASSERT_NE(Target, nullptr);
 	ASSERT_NE(Replacement, nullptr);
-	Durin::uint32 TargetTicks = 0;
+	uint32 TargetTicks = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent& Candidate)
 	{
 		if (&Candidate == Requester) EXPECT_TRUE(World->RequestLevelTransition(Replacement));
@@ -374,12 +374,12 @@ TEST(FWorldTickSchedulingTests, LargeRegisteredSetExecutesExactlyOncePerFrame)
 	FTickSchedulingCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
 	Durin::AActor* Actor = World->SpawnActor(Durin::AActor::StaticClass(), "Actor");
-	constexpr Durin::uint32 ComponentCount = 256;
-	for (Durin::uint32 Index = 0; Index < ComponentCount; ++Index)
+	constexpr uint32 ComponentCount = 256;
+	for (uint32 Index = 0; Index < ComponentCount; ++Index)
 	{
 		ASSERT_NE(AddTickComponent(Actor, std::format("Component{}", Index)), nullptr);
 	}
-	Durin::uint32 TickCount = 0;
+	uint32 TickCount = 0;
 	FTickSchedulingTestComponent::Callback = [&](FTickSchedulingTestComponent&) { ++TickCount; };
 	ASSERT_TRUE(World->BeginPlay({}));
 

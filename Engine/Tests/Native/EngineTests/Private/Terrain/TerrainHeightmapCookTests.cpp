@@ -29,10 +29,10 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "DDC").generic_string());
 	std::vector<std::byte> Raw;
 	// RAW requires a square sample plane; use a 3x3 asymmetric Gaea/Unity profile.
-	const std::array<Durin::uint16, 9> RawSamples{
+	const std::array<uint16, 9> RawSamples{
 		0, 17, 257, 4097, 32'768, 65'535, 111, 222, 333};
 	Raw.clear();
-	for (Durin::uint16 Sample : RawSamples)
+	for (uint16 Sample : RawSamples)
 	{
 		Raw.push_back(static_cast<std::byte>(Sample));
 		Raw.push_back(static_cast<std::byte>(Sample >> 8));
@@ -73,7 +73,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPayload(), nullptr);
 	EXPECT_EQ(Cooked->GetPayload()->Samples,
-		std::vector<Durin::uint16>(RawSamples.begin(), RawSamples.end()));
+		std::vector<uint16>(RawSamples.begin(), RawSamples.end()));
 	EXPECT_TRUE(Cooked->GetSourceFile().empty());
 	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
 	auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "CookedTerrainComponent");

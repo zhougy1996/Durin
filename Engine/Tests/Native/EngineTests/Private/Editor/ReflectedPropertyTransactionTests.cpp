@@ -150,8 +150,8 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	InitializeDObjectSystem();
 	Durin::FObjectProperty Property(
 		Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-		Durin::EPropertyFlags::Edit, 1, static_cast<Durin::uint16>(offsetof(FObjectValueContainer, Value)),
-		static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+		Durin::EPropertyFlags::Edit, 1, static_cast<uint16>(offsetof(FObjectValueContainer, Value)),
+		static_cast<uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
 		Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
 		[](const void* Value) -> Durin::DObject* {
 			return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get();

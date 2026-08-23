@@ -21,9 +21,9 @@ namespace
 {
 	struct FFakePickingState
 	{
-		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendRequest> Requests;
-		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendCompletion> Completions;
-		std::unordered_set<Durin::uint64> Cancelled;
+		std::unordered_map<uint64, Durin::Editor::Level::FViewportPickingBackendRequest> Requests;
+		std::unordered_map<uint64, Durin::Editor::Level::FViewportPickingBackendCompletion> Completions;
+		std::unordered_set<uint64> Cancelled;
 
 		auto CompleteFirst(Durin::Editor::Level::FViewportPickTicket Ticket, double Distance = 3.0) -> void
 		{
@@ -104,8 +104,8 @@ namespace
 	{
 		Durin::FSkeletonTransform Result;
 		Durin::FVector4* Rows[] = {&Result.Row0, &Result.Row1, &Result.Row2, &Result.Row3};
-		for (Durin::uint32 Row = 0; Row < 4; ++Row)
-			for (Durin::uint32 Column = 0; Column < 4; ++Column)
+		for (uint32 Row = 0; Row < 4; ++Row)
+			for (uint32 Column = 0; Column < 4; ++Column)
 				(*Rows[Row])[Column] = Matrix[Column][Row];
 		Result.CanonicalizeFloat32();
 		return Result;
@@ -128,9 +128,9 @@ namespace
 
 			Skeleton = Durin::NewObject<Durin::DSkeleton>(Level, "SkeletalPickingSkeleton");
 			std::vector<Durin::FSkeletonBone> Bones;
-			for (Durin::uint16 BoneIndex = 0; BoneIndex < 4; ++BoneIndex)
+			for (uint16 BoneIndex = 0; BoneIndex < 4; ++BoneIndex)
 				Bones.push_back({.Name = Durin::FName(std::format("Bone{}", BoneIndex)),
-					.ParentIndex = BoneIndex == 0 ? -1 : static_cast<Durin::int32>(BoneIndex - 1),
+					.ParentIndex = BoneIndex == 0 ? -1 : static_cast<int32>(BoneIndex - 1),
 					.ReferenceTransform = MatrixTransform(Durin::FMatrix(1.0))});
 			std::string Error;
 			if (!Skeleton->InitializeCanonicalBones(std::move(Bones), Error)) throw std::runtime_error(Error);
@@ -196,30 +196,30 @@ namespace
 				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
 	}
 
-	auto CreateGridStaticMesh(Durin::DLevel* Level, Durin::uint32 TriangleCount) -> Durin::DStaticMesh*
+	auto CreateGridStaticMesh(Durin::DLevel* Level, uint32 TriangleCount) -> Durin::DStaticMesh*
 	{
-		const Durin::uint32 CellCount = (TriangleCount + 1) / 2;
-		const Durin::uint32 Width = std::max<Durin::uint32>(1,
-			static_cast<Durin::uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
-		const Durin::uint32 Height = (CellCount + Width - 1) / Width;
+		const uint32 CellCount = (TriangleCount + 1) / 2;
+		const uint32 Width = std::max<uint32>(1,
+			static_cast<uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
+		const uint32 Height = (CellCount + Width - 1) / Width;
 		Durin::Asset::Build::FStaticMeshImportedData Imported;
 		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		auto& Mesh = Imported.Meshes.emplace_back();
 		Mesh.Name = "PickingGrid";
 		Mesh.SourceMaterialIndex = 0;
 		Mesh.Positions.reserve(static_cast<size_t>(Width + 1) * (Height + 1));
-		for (Durin::uint32 Y = 0; Y <= Height; ++Y)
-			for (Durin::uint32 X = 0; X <= Width; ++X)
+		for (uint32 Y = 0; Y <= Height; ++Y)
+			for (uint32 X = 0; X <= Width; ++X)
 				Mesh.Positions.emplace_back(static_cast<float>(X), static_cast<float>(Y), 0.0f);
 		Mesh.Indices.reserve(static_cast<size_t>(TriangleCount) * 3);
-		for (Durin::uint32 Cell = 0; Cell < CellCount && Mesh.Indices.size() / 3 < TriangleCount; ++Cell)
+		for (uint32 Cell = 0; Cell < CellCount && Mesh.Indices.size() / 3 < TriangleCount; ++Cell)
 		{
-			const Durin::uint32 X = Cell % Width;
-			const Durin::uint32 Y = Cell / Width;
-			const Durin::uint32 A = Y * (Width + 1) + X;
-			const Durin::uint32 B = A + 1;
-			const Durin::uint32 C = A + Width + 1;
-			const Durin::uint32 D = C + 1;
+			const uint32 X = Cell % Width;
+			const uint32 Y = Cell / Width;
+			const uint32 A = Y * (Width + 1) + X;
+			const uint32 B = A + 1;
+			const uint32 C = A + Width + 1;
+			const uint32 D = C + 1;
 			Mesh.Indices.insert(Mesh.Indices.end(), {A, B, D});
 			if (Mesh.Indices.size() / 3 < TriangleCount) Mesh.Indices.insert(Mesh.Indices.end(), {A, D, C});
 		}
@@ -339,12 +339,12 @@ TEST(FViewportPickingContractTests, CancelsPendingWorkOnModeAndViewportExit)
 	Input.MousePosition = {400.0f, 300.0f};
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, nullptr));
 	ASSERT_EQ(State->Requests.size(), 1u);
-	const Durin::uint64 ModeTicket = State->Requests.begin()->first;
+	const uint64 ModeTicket = State->Requests.begin()->first;
 	Manager.Shutdown(&Context);
 	EXPECT_TRUE(State->Cancelled.contains(ModeTicket));
 
 	auto ViewportState = std::make_shared<FFakePickingState>();
-	Durin::uint64 ViewportTicket = 0;
+	uint64 ViewportTicket = 0;
 	{
 		Durin::Editor::Level::FLevelEditorViewportClient Client;
 		Client.InitializeForLevel(Fixture.Level);
@@ -551,7 +551,7 @@ TEST(FViewportPickingContractTests, OrdersStaticAndSkeletalByWorldDistanceAndSta
 	Skeletal->SetWorldLocation({0.0, 0.0, 4.0});
 	Static->SetWorldLocation({0.0, 0.0, 2.0});
 
-	auto MakeMixedRequest = [&](bool bReverse, Durin::uint64 SkeletalKey, Durin::uint64 StaticKey)
+	auto MakeMixedRequest = [&](bool bReverse, uint64 SkeletalKey, uint64 StaticKey)
 	{
 		Durin::Editor::Level::FViewportPickingBackendRequest Request{{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0}};
 		Durin::Editor::Level::FViewportPickingTarget SkeletalTarget{1, Skeletal->GetPrimitiveSceneId(), Fixture.Actor,
@@ -661,8 +661,8 @@ TEST(FViewportPickingContractTests, SkipsIncompleteIncompatibleAndMalformedSkele
 
 	const auto* RenderData = Fixture.Mesh->GetRenderData();
 	ASSERT_NE(RenderData, nullptr);
-	auto& Indices = const_cast<std::vector<Durin::uint32>&>(RenderData->IndexBuffer.GetIndices());
-	const Durin::uint32 FirstIndex = Indices[0];
+	auto& Indices = const_cast<std::vector<uint32>&>(RenderData->IndexBuffer.GetIndices());
+	const uint32 FirstIndex = Indices[0];
 	Indices[0] = 999;
 	ExpectInvalid();
 	Indices[0] = FirstIndex;
@@ -729,7 +729,7 @@ TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAnd
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
 	auto* SharedMesh = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh();
-	for (Durin::uint32 ActorIndex = 0; ActorIndex < 100; ++ActorIndex)
+	for (uint32 ActorIndex = 0; ActorIndex < 100; ++ActorIndex)
 	{
 		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(
 			Durin::FName(std::format("Sparse{}", ActorIndex)));
@@ -824,14 +824,14 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 	std::mt19937 Generator(0x5A17C3u);
 	std::uniform_real_distribution<double> Position(-8.0, 8.0);
 	std::vector<Durin::AStaticMeshActor*> Actors{Fixture.Actor};
-	for (Durin::uint32 Index = 1; Index < 96; ++Index)
+	for (uint32 Index = 1; Index < 96; ++Index)
 	{
 		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(Durin::FName(std::format("Random{}", Index)));
 		ASSERT_NE(Actor, nullptr);
 		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 		Actors.push_back(Actor);
 	}
-	for (Durin::uint32 Iteration = 0; Iteration < 32; ++Iteration)
+	for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
 	{
 		Durin::Editor::Level::FViewportPickingBackendRequest Request{{Iteration + 1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
 		for (size_t Index = 0; Index < Actors.size(); ++Index)
@@ -839,8 +839,8 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 			auto* Component = Actors[Index]->GetStaticMeshComponent();
 			Component->SetWorldLocation({Position(Generator), Position(Generator), 1.0 + std::abs(Position(Generator))});
 			Component->SetWorldScale3D({Iteration % 3 == 0 ? -1.0 : 1.0, 0.5 + (Index % 4), 1.0});
-			Request.Targets.push_back({static_cast<Durin::uint32>(Index + 1), Component->GetPrimitiveSceneId(),
-				Actors[Index], Component, static_cast<Durin::uint64>(Index), Component->GetRegistrationGeneration()});
+			Request.Targets.push_back({static_cast<uint32>(Index + 1), Component->GetPrimitiveSceneId(),
+				Actors[Index], Component, static_cast<uint64>(Index), Component->GetRegistrationGeneration()});
 		}
 		if ((Iteration & 1u) != 0) std::ranges::reverse(Request.Targets);
 		const auto Completion = Durin::Editor::Level::MakeViewportPickingBackend(
@@ -856,7 +856,7 @@ TEST(FViewportPickingContractTests, TerrainSurfaceMatchesReferenceAcrossMirrored
 	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("TerrainPicking");
 	ASSERT_NE(Actor, nullptr);
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "PickingHeightmap");
-	const std::array<Durin::uint16, 6> Samples{0, 0, 0, 0, 65'535, 0};
+	const std::array<uint16, 6> Samples{0, 0, 0, 0, 65'535, 0};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(3, 2, Samples, Error)) << Error;
 	auto* Component = Actor->GetTerrainComponent();
@@ -889,7 +889,7 @@ TEST(FViewportPickingContractTests, TerrainAccelerationBoundsSparseMaximumFixtur
 	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("MaximumTerrain");
 	ASSERT_NE(Actor, nullptr);
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "MaximumHeightmap");
-	std::vector<Durin::uint16> Samples(1025u * 1025u, 0);
+	std::vector<uint16> Samples(1025u * 1025u, 0);
 	Samples[512u * 1025u + 512u] = 65'535;
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(1025, 1025, Samples, Error)) << Error;

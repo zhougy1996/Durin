@@ -42,10 +42,10 @@
 #include <gtest/gtest.h>
 namespace
 {
-	constexpr Durin::uint32 TimingWidth = 1920;
-	constexpr Durin::uint32 TimingHeight = 1080;
-	constexpr Durin::uint32 WarmupFrames = 30;
-	constexpr Durin::uint32 MeasuredFrames = 120;
+	constexpr uint32 TimingWidth = 1920;
+	constexpr uint32 TimingHeight = 1080;
+	constexpr uint32 WarmupFrames = 30;
+	constexpr uint32 MeasuredFrames = 120;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GGBufferTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GDeferredTimingQueries = nullptr;
@@ -318,8 +318,8 @@ namespace
 
 	auto MakeSpecularAAQuad() -> std::unique_ptr<Durin::FStaticMeshRenderData>
 	{
-		constexpr Durin::uint32 QuadsPerAxis = 8;
-		constexpr Durin::uint32 VerticesPerAxis = QuadsPerAxis + 1;
+		constexpr uint32 QuadsPerAxis = 8;
+		constexpr uint32 VerticesPerAxis = QuadsPerAxis + 1;
 		constexpr float Extent = 0.25f;
 		auto Data = std::make_unique<Durin::FStaticMeshRenderData>();
 		Data->MaterialSlots = {{"Opaque", 0}};
@@ -333,9 +333,9 @@ namespace
 		Normals.reserve(VerticesPerAxis * VerticesPerAxis);
 		Tangents.reserve(VerticesPerAxis * VerticesPerAxis);
 		UVs[0].reserve(VerticesPerAxis * VerticesPerAxis);
-		for (Durin::uint32 Y = 0; Y < VerticesPerAxis; ++Y)
+		for (uint32 Y = 0; Y < VerticesPerAxis; ++Y)
 		{
-			for (Durin::uint32 X = 0; X < VerticesPerAxis; ++X)
+			for (uint32 X = 0; X < VerticesPerAxis; ++X)
 			{
 				const float U = static_cast<float>(X) / QuadsPerAxis;
 				const float V = static_cast<float>(Y) / QuadsPerAxis;
@@ -348,16 +348,16 @@ namespace
 				UVs[0].push_back({U, V});
 			}
 		}
-		std::vector<Durin::uint32> Indices;
+		std::vector<uint32> Indices;
 		Indices.reserve(QuadsPerAxis * QuadsPerAxis * 6u);
-		for (Durin::uint32 Y = 0; Y < QuadsPerAxis; ++Y)
+		for (uint32 Y = 0; Y < QuadsPerAxis; ++Y)
 		{
-			for (Durin::uint32 X = 0; X < QuadsPerAxis; ++X)
+			for (uint32 X = 0; X < QuadsPerAxis; ++X)
 			{
-				const Durin::uint32 A = Y * VerticesPerAxis + X;
-				const Durin::uint32 B = A + 1u;
-				const Durin::uint32 C = A + VerticesPerAxis;
-				const Durin::uint32 D = C + 1u;
+				const uint32 A = Y * VerticesPerAxis + X;
+				const uint32 B = A + 1u;
+				const uint32 C = A + VerticesPerAxis;
+				const uint32 D = C + 1u;
 				Indices.insert(Indices.end(), {A, B, D, A, D, C});
 			}
 		}
@@ -365,16 +365,16 @@ namespace
 		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
 			Normals, Tangents);
 		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(
-			std::move(UVs), static_cast<Durin::uint32>(Positions.size()), 1);
+			std::move(UVs), static_cast<uint32>(Positions.size()), 1);
 		LOD.VertexBuffers.ColorVertexBuffer.Init(
 			std::vector<Durin::FVector4f>(Positions.size(), Durin::FVector4f(1.0f)),
-			static_cast<Durin::uint32>(Positions.size()));
+			static_cast<uint32>(Positions.size()));
 		LOD.IndexBuffer.Init(Indices);
 		LOD.Sections.push_back({
 			.Name = "Opaque", .FirstIndex = 0,
-			.IndexCount = static_cast<Durin::uint32>(Indices.size()),
+			.IndexCount = static_cast<uint32>(Indices.size()),
 			.MinVertexIndex = 0,
-			.MaxVertexIndex = static_cast<Durin::uint32>(Positions.size() - 1u),
+			.MaxVertexIndex = static_cast<uint32>(Positions.size() - 1u),
 			.MaterialSlotIndex = 0,
 			.LocalBounds = Durin::FBox(
 				{-Extent, -Extent, 0.0}, {Extent, Extent, 0.0})});
@@ -486,7 +486,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Pose->Matrices = {Durin::FMatrix4f(1.0f)};
 	Pose->LocalBounds = SkeletalQuad->LocalBounds;
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FSkeletalMeshSceneProxy>(SkeletalQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, Pose), Translate(-1.0, 0.0));
-	const std::array<Durin::uint16, 4> Heights{};
+	const std::array<uint16, 4> Heights{};
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> HeightPayload;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(
@@ -581,8 +581,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[&Renderer, &SpecularAAScene, bEnableSpecularAA](
 				Durin::FRHICommandListImmediate& CommandList) {
-				constexpr Durin::uint32 Width = 32;
-				constexpr Durin::uint32 Height = 32;
+				constexpr uint32 Width = 32;
+				constexpr uint32 Height = 32;
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 					"SpecularAAQualification", Width, Height,
 					Durin::EPixelFormat::SRGBA8_UNORM)
@@ -636,8 +636,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			SpecularAAEnabledSurface[Offset + 3],
 			SpecularAADisabledSurface[Offset + 3]);
 		EXPECT_GE(
-			std::to_integer<Durin::uint8>(SpecularAAEnabledSurface[Offset]),
-			std::to_integer<Durin::uint8>(SpecularAADisabledSurface[Offset]));
+			std::to_integer<uint8>(SpecularAAEnabledSurface[Offset]),
+			std::to_integer<uint8>(SpecularAADisabledSurface[Offset]));
 		if (SpecularAAEnabledSurface[Offset]
 			> SpecularAADisabledSurface[Offset]) ++BroadenedPixels;
 	}
@@ -656,8 +656,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	};
 	auto MeasureSpecularAAStability = [&Renderer, &SpecularAAScene](
 		bool bEnableSpecularAA, bool bEnableFXAA, double Scale) {
-		constexpr Durin::uint32 Width = 192;
-		constexpr Durin::uint32 Height = 192;
+		constexpr uint32 Width = 192;
+		constexpr uint32 Height = 192;
 		constexpr std::array<double, 9> MotionPixels{
 			-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
 		std::array<std::vector<std::byte>, MotionPixels.size()> Frames;
@@ -726,21 +726,21 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		size_t Samples = 0;
 		std::array<double, MotionPixels.size()> FrameMeans{};
 		std::array<double, MotionPixels.size()> FramePeaks{};
-		const Durin::uint32 Radius = static_cast<Durin::uint32>(18.0 * Scale);
+		const uint32 Radius = static_cast<uint32>(18.0 * Scale);
 		for (size_t FrameIndex = 0; FrameIndex < Frames.size(); ++FrameIndex)
 		{
 			EXPECT_EQ(Frames[FrameIndex].size(), Width * Height * 4u);
-			for (Durin::uint32 Y = Height / 2 - Radius;
+			for (uint32 Y = Height / 2 - Radius;
 				 Y < Height / 2 + Radius; ++Y)
 			{
-				for (Durin::uint32 X = Width / 2 - Radius;
+				for (uint32 X = Width / 2 - Radius;
 					 X < Width / 2 + Radius; ++X)
 				{
 					const size_t Offset =
 						(static_cast<size_t>(Y) * Width + X) * 4u;
 					auto Luminance = [&Frames, Offset](size_t Index) {
 						const auto Channel = [&Frames, Offset, Index](size_t C) {
-							return std::to_integer<Durin::uint8>(
+							return std::to_integer<uint8>(
 								Frames[Index][Offset + C]) / 255.0;
 						};
 						return 0.2126 * Channel(0) + 0.7152 * Channel(1)
@@ -829,7 +829,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			Durin::FSceneViewRenderOptions Options;
 			Options.bEnableGBufferQualification = true;
 			Options.bEnableDeferredDirectionalQualification = true;
-			for (Durin::uint32 Frame = 0;
+			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				++Durin::GRenderFrameCounterRenderThread;
@@ -844,7 +844,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::SetDeferredDirectionalTimingQuerySink(nullptr);
 	GGBufferTimingQueries = nullptr;
 	GDeferredTimingQueries = nullptr;
-	for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+	for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 	{
 		auto AllReady = [](const auto& Queries) {
 			return std::ranges::all_of(Queries, [](const auto& Query) {
@@ -869,9 +869,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	}
 	ASSERT_EQ(GBufferQueries.size(), WarmupFrames + MeasuredFrames);
 	ASSERT_EQ(DeferredQueries.size(), WarmupFrames + MeasuredFrames);
-	std::vector<Durin::uint64> GBufferDurations;
-	std::vector<Durin::uint64> DeferredDurations;
-	std::vector<Durin::uint64> CombinedDurations;
+	std::vector<uint64> GBufferDurations;
+	std::vector<uint64> DeferredDurations;
+	std::vector<uint64> CombinedDurations;
 	for (size_t Index = WarmupFrames; Index < GBufferQueries.size(); ++Index)
 	{
 		const Durin::FRHIGPUTimingResult GBufferResult =
@@ -891,20 +891,20 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::ranges::sort(DeferredDurations);
 	std::ranges::sort(CombinedDurations);
 	ASSERT_EQ(GBufferDurations.size(), MeasuredFrames);
-	auto Median = [](const std::vector<Durin::uint64>& Durations) {
+	auto Median = [](const std::vector<uint64>& Durations) {
 		const size_t Upper = Durations.size() / 2;
 		const size_t Lower = (Durations.size() - 1) / 2;
 		return (Durations[Lower] + Durations[Upper]) / 2;
 	};
-	auto Percentile95 = [](const std::vector<Durin::uint64>& Durations) {
+	auto Percentile95 = [](const std::vector<uint64>& Durations) {
 		return Durations[(Durations.size() * 95u + 99u) / 100u - 1u];
 	};
-	const Durin::uint64 GBufferMedian = Median(GBufferDurations);
-	const Durin::uint64 GBufferP95 = Percentile95(GBufferDurations);
-	const Durin::uint64 DeferredMedian = Median(DeferredDurations);
-	const Durin::uint64 DeferredP95 = Percentile95(DeferredDurations);
-	const Durin::uint64 CombinedMedian = Median(CombinedDurations);
-	const Durin::uint64 CombinedP95 = Percentile95(CombinedDurations);
+	const uint64 GBufferMedian = Median(GBufferDurations);
+	const uint64 GBufferP95 = Percentile95(GBufferDurations);
+	const uint64 DeferredMedian = Median(DeferredDurations);
+	const uint64 DeferredP95 = Percentile95(DeferredDurations);
+	const uint64 CombinedMedian = Median(CombinedDurations);
+	const uint64 CombinedP95 = Percentile95(CombinedDurations);
 	EXPECT_LE(GBufferMedian, 350'000u);
 	EXPECT_LE(GBufferP95, 500'000u);
 	EXPECT_LE(DeferredMedian, 450'000u);
@@ -928,7 +928,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_EQ(GLastCounters.DeferredDirectionalUnavailableViews, 0u);
 	EXPECT_EQ(GLastCounters.DeferredDirectionalPassFailures, 0u);
 	EXPECT_EQ(GLastCounters.DeferredDirectionalOutputBytes, Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(TimingWidth, TimingHeight));
-	const Durin::uint64 AttachmentBytes =
+	const uint64 AttachmentBytes =
 		Durin::FGBufferRenderer::CalculateTargetBytes(TimingWidth, TimingHeight);
 	EXPECT_EQ(GLastCounters.GBufferAttachmentBytes, AttachmentBytes);
 	EXPECT_LE(AttachmentBytes, Durin::FGBufferRenderer::MaximumRetainedBytes);
@@ -980,7 +980,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
 			Durin::FSceneViewRenderOptions Options;
 			Options.bEnableGroundTruthAmbientOcclusionQualification = true;
-			for (Durin::uint32 Frame = 0;
+			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				++Durin::GRenderFrameCounterRenderThread;
@@ -995,7 +995,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::SetGroundTruthAmbientOcclusionFilterTimingQuerySink(nullptr);
 	GGroundTruthAmbientOcclusionTimingQueries = nullptr;
 	GGroundTruthAmbientOcclusionFilterTimingQueries = nullptr;
-	for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+	for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 	{
 		const bool bReady =
 			AmbientOcclusionQueries.size() == WarmupFrames + MeasuredFrames
@@ -1022,9 +1022,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	}
 	ASSERT_EQ(AmbientOcclusionQueries.size(), WarmupFrames + MeasuredFrames);
 	ASSERT_EQ(AmbientOcclusionFilterQueries.size(), WarmupFrames + MeasuredFrames);
-	std::vector<Durin::uint64> AmbientOcclusionDurations;
-	std::vector<Durin::uint64> AmbientOcclusionFilterDurations;
-	std::vector<Durin::uint64> AmbientOcclusionCombinedDurations;
+	std::vector<uint64> AmbientOcclusionDurations;
+	std::vector<uint64> AmbientOcclusionFilterDurations;
+	std::vector<uint64> AmbientOcclusionCombinedDurations;
 	for (size_t Index = WarmupFrames; Index < AmbientOcclusionQueries.size(); ++Index)
 	{
 		const auto Result = AmbientOcclusionQueries[Index]->GetResult();
@@ -1043,16 +1043,16 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::ranges::sort(AmbientOcclusionDurations);
 	std::ranges::sort(AmbientOcclusionFilterDurations);
 	std::ranges::sort(AmbientOcclusionCombinedDurations);
-	const Durin::uint64 AmbientOcclusionMedian = Median(AmbientOcclusionDurations);
-	const Durin::uint64 AmbientOcclusionP95 =
+	const uint64 AmbientOcclusionMedian = Median(AmbientOcclusionDurations);
+	const uint64 AmbientOcclusionP95 =
 		Percentile95(AmbientOcclusionDurations);
-	const Durin::uint64 AmbientOcclusionFilterMedian =
+	const uint64 AmbientOcclusionFilterMedian =
 		Median(AmbientOcclusionFilterDurations);
-	const Durin::uint64 AmbientOcclusionFilterP95 =
+	const uint64 AmbientOcclusionFilterP95 =
 		Percentile95(AmbientOcclusionFilterDurations);
-	const Durin::uint64 AmbientOcclusionCombinedMedian =
+	const uint64 AmbientOcclusionCombinedMedian =
 		Median(AmbientOcclusionCombinedDurations);
-	const Durin::uint64 AmbientOcclusionCombinedP95 =
+	const uint64 AmbientOcclusionCombinedP95 =
 		Percentile95(AmbientOcclusionCombinedDurations);
 	EXPECT_GT(AmbientOcclusionMedian, 0u);
 	EXPECT_LE(AmbientOcclusionMedian, 600'000u);
@@ -1083,10 +1083,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	AmbientOcclusionQueries.clear();
 	AmbientOcclusionFilterQueries.clear();
 
-	constexpr Durin::uint32 CaptureWidth = 320;
-	constexpr Durin::uint32 CaptureHeight = 180;
+	constexpr uint32 CaptureWidth = 320;
+	constexpr uint32 CaptureHeight = 180;
 	auto CaptureAmbientOcclusionFrame = [&Renderer, &Scene](
-											Durin::uint32 Width, Durin::uint32 Height,
+											uint32 Width, uint32 Height,
 											std::vector<std::byte>& Pixels,
 											std::vector<std::byte>& FilteredPixels
 										) {
@@ -1172,8 +1172,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	ASSERT_EQ(ResizedFilteredVisibility.size(), 384u * 216u);
 	EXPECT_EQ(RepeatedRawVisibility, FirstRawVisibility);
 	EXPECT_EQ(RepeatedFilteredVisibility, FirstFilteredVisibility);
-	auto PixelAt = [&FirstRawVisibility](Durin::uint32 X, Durin::uint32 Y) {
-		return std::to_integer<Durin::uint32>(
+	auto PixelAt = [&FirstRawVisibility](uint32 X, uint32 Y) {
+		return std::to_integer<uint32>(
 			FirstRawVisibility[Y * CaptureWidth + X]);
 	};
 	EXPECT_GE(PixelAt(80, 45), 250u);
@@ -1181,9 +1181,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_GE(PixelAt(80, 135), 250u);
 	EXPECT_GE(PixelAt(240, 135), 250u);
 	auto FilteredPixelAt = [&FirstFilteredVisibility](
-							   Durin::uint32 X, Durin::uint32 Y
+							   uint32 X, uint32 Y
 						   ) {
-		return std::to_integer<Durin::uint32>(
+		return std::to_integer<uint32>(
 			FirstFilteredVisibility[Y * CaptureWidth + X]);
 	};
 	EXPECT_GE(FilteredPixelAt(80, 45), 250u);
@@ -1210,8 +1210,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	size_t OccludedPixels = 0;
 	for (size_t Index = 0; Index < RaisedContactVisibility.size(); ++Index)
 	{
-		if (std::to_integer<Durin::uint32>(RaisedContactVisibility[Index]) + 2u
-			< std::to_integer<Durin::uint32>(FirstRawVisibility[Index]))
+		if (std::to_integer<uint32>(RaisedContactVisibility[Index]) + 2u
+			< std::to_integer<uint32>(FirstRawVisibility[Index]))
 			++OccludedPixels;
 	}
 	EXPECT_GT(OccludedPixels, 0u);
@@ -1219,9 +1219,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	size_t FilteredOccludedPixels = 0;
 	for (size_t Index = 0; Index < RaisedContactFilteredVisibility.size(); ++Index)
 	{
-		if (std::to_integer<Durin::uint32>(RaisedContactFilteredVisibility[Index])
+		if (std::to_integer<uint32>(RaisedContactFilteredVisibility[Index])
 				+ 2u
-			< std::to_integer<Durin::uint32>(FirstFilteredVisibility[Index]))
+			< std::to_integer<uint32>(FirstFilteredVisibility[Index]))
 			++FilteredOccludedPixels;
 	}
 	EXPECT_GT(FilteredOccludedPixels, 0u);
@@ -1269,29 +1269,29 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionPostProcessQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionShadowQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionContactQueries;
-	std::vector<Durin::uint64> ProductionGBufferDurations;
-	std::vector<Durin::uint64> ProductionSceneDurations;
-	std::vector<Durin::uint64> ProductionDeferredDurations;
-	std::vector<Durin::uint64> ProductionDeferredWithoutAODurations;
-	std::vector<Durin::uint64> ProductionRetainedOpaqueDurations;
-	std::vector<Durin::uint64> ProductionVolumetricCloudDurations;
-	std::vector<Durin::uint64> ProductionSortedTranslucencyDurations;
-	std::vector<Durin::uint64> ProductionRetainedDurations;
-	std::vector<Durin::uint64> ProductionPostProcessDurations;
-	std::vector<Durin::uint64> ProductionShadowDurations;
-	std::vector<Durin::uint64> ProductionComputeContactDurations;
-	std::vector<Durin::uint64> ProductionFragmentContactDurations;
-	std::vector<Durin::uint64> ConstrainedComputeContactDurations;
-	std::vector<Durin::uint64> ConstrainedFragmentContactDurations;
+	std::vector<uint64> ProductionGBufferDurations;
+	std::vector<uint64> ProductionSceneDurations;
+	std::vector<uint64> ProductionDeferredDurations;
+	std::vector<uint64> ProductionDeferredWithoutAODurations;
+	std::vector<uint64> ProductionRetainedOpaqueDurations;
+	std::vector<uint64> ProductionVolumetricCloudDurations;
+	std::vector<uint64> ProductionSortedTranslucencyDurations;
+	std::vector<uint64> ProductionRetainedDurations;
+	std::vector<uint64> ProductionPostProcessDurations;
+	std::vector<uint64> ProductionShadowDurations;
+	std::vector<uint64> ProductionComputeContactDurations;
+	std::vector<uint64> ProductionFragmentContactDurations;
+	std::vector<uint64> ConstrainedComputeContactDurations;
+	std::vector<uint64> ConstrainedFragmentContactDurations;
 	bool bEnableProductionAmbientOcclusion = true;
 	bool bEnableProductionContactShadows = false;
 	bool bForceProductionFragmentContact = false;
-	Durin::uint32 ProductionWidth = TimingWidth;
-	Durin::uint32 ProductionHeight = TimingHeight;
-	Durin::uint32 ProductionViewportX = 0;
-	Durin::uint32 ProductionViewportY = 0;
-	Durin::uint32 ProductionViewportWidth = TimingWidth;
-	Durin::uint32 ProductionViewportHeight = TimingHeight;
+	uint32 ProductionWidth = TimingWidth;
+	uint32 ProductionHeight = TimingHeight;
+	uint32 ProductionViewportX = 0;
+	uint32 ProductionViewportY = 0;
+	uint32 ProductionViewportWidth = TimingWidth;
+	uint32 ProductionViewportHeight = TimingHeight;
 	Durin::EGroundTruthAmbientOcclusionQuality ProductionAmbientOcclusionQuality =
 		Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution;
 	auto RenderProductionFrames = [&Renderer, &Scene,
@@ -1303,7 +1303,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 								   &ProductionViewportWidth,
 								   &ProductionViewportHeight,
 								   &ProductionAmbientOcclusionQuality](
-			Durin::uint32 FrameCount) {
+			uint32 FrameCount) {
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[&Renderer, &Scene, bEnableProductionAmbientOcclusion,
 			 bEnableProductionContactShadows, bForceProductionFragmentContact,
@@ -1344,7 +1344,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				Durin::FSceneViewRenderOptions Options;
 				Options.bForceFragmentContactVisibility =
 					bForceProductionFragmentContact;
-				for (Durin::uint32 Frame = 0; Frame < FrameCount; ++Frame)
+				for (uint32 Frame = 0; Frame < FrameCount; ++Frame)
 				{
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1356,8 +1356,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::FlushRenderingCommands();
 	};
 	auto WaitForProductionQueries = [](const auto& Queries,
-			Durin::uint32 ExpectedCount) {
-		for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+			uint32 ExpectedCount) {
+		for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 		{
 			const bool bReady = Queries.size() == ExpectedCount
 								&& std::ranges::all_of(Queries, [](const auto& Query) {
@@ -1377,9 +1377,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		}
 	};
 	auto CollectProductionDurations = [&WaitForProductionQueries](
-			auto& Queries, auto& Durations, Durin::uint32 WarmupCount,
-			Durin::uint32 MeasuredCount) {
-		const Durin::uint32 ExpectedCount = WarmupCount + MeasuredCount;
+			auto& Queries, auto& Durations, uint32 WarmupCount,
+			uint32 MeasuredCount) {
+		const uint32 ExpectedCount = WarmupCount + MeasuredCount;
 		WaitForProductionQueries(Queries, ExpectedCount);
 		EXPECT_EQ(Queries.size(), ExpectedCount);
 		if (Queries.size() == ExpectedCount)
@@ -1501,9 +1501,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	bEnableProductionAmbientOcclusion = true;
 	std::vector<Durin::FGPUTimingQueryRHIRef> GTAOFeatureQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> GTAOResolveQueries;
-	std::vector<Durin::uint64> FullGTAOFeatureDurations;
-	std::vector<Durin::uint64> HalfGTAOFeatureDurations;
-	std::vector<Durin::uint64> HalfGTAOResolveDurations;
+	std::vector<uint64> FullGTAOFeatureDurations;
+	std::vector<uint64> HalfGTAOFeatureDurations;
+	std::vector<uint64> HalfGTAOResolveDurations;
 	ProductionAmbientOcclusionQuality =
 		Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
 	ProfileProductionInterval(GTAOFeatureQueries, FullGTAOFeatureDurations,
@@ -1578,7 +1578,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	ProductionViewportHeight = TimingHeight;
 	bEnableProductionContactShadows = false;
 	bForceProductionFragmentContact = false;
-	std::vector<Durin::uint64> ProductionTotalDurations;
+	std::vector<uint64> ProductionTotalDurations;
 	ASSERT_EQ(
 		ProductionGBufferDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionSceneDurations.size(), MeasuredFrames);
@@ -1634,70 +1634,70 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	std::ranges::sort(ProductionFragmentContactDurations);
 	std::ranges::sort(ConstrainedComputeContactDurations);
 	std::ranges::sort(ConstrainedFragmentContactDurations);
-	const Durin::uint64 ProductionGBufferMedian = Median(ProductionGBufferDurations);
-	const Durin::uint64 ProductionSceneMedian = Median(ProductionSceneDurations);
-	const Durin::uint64 ProductionDeferredMedian = Median(ProductionDeferredDurations);
-	const Durin::uint64 ProductionDeferredWithoutAOMedian =
+	const uint64 ProductionGBufferMedian = Median(ProductionGBufferDurations);
+	const uint64 ProductionSceneMedian = Median(ProductionSceneDurations);
+	const uint64 ProductionDeferredMedian = Median(ProductionDeferredDurations);
+	const uint64 ProductionDeferredWithoutAOMedian =
 		Median(ProductionDeferredWithoutAODurations);
-	const Durin::uint64 ProductionAmbientOcclusionCompositionIncrement =
+	const uint64 ProductionAmbientOcclusionCompositionIncrement =
 		ProductionDeferredMedian > ProductionDeferredWithoutAOMedian ? ProductionDeferredMedian - ProductionDeferredWithoutAOMedian : 0u;
-	const Durin::uint64 ProductionRetainedOpaqueMedian =
+	const uint64 ProductionRetainedOpaqueMedian =
 		Median(ProductionRetainedOpaqueDurations);
-	const Durin::uint64 ProductionVolumetricCloudMedian =
+	const uint64 ProductionVolumetricCloudMedian =
 		Median(ProductionVolumetricCloudDurations);
-	const Durin::uint64 ProductionSortedTranslucencyMedian =
+	const uint64 ProductionSortedTranslucencyMedian =
 		Median(ProductionSortedTranslucencyDurations);
-	const Durin::uint64 ProductionRetainedMedian = Median(ProductionRetainedDurations);
-	const Durin::uint64 ProductionPostProcessMedian = Median(ProductionPostProcessDurations);
-	const Durin::uint64 ProductionShadowMedian = Median(ProductionShadowDurations);
-	const Durin::uint64 ProductionTotalMedian = Median(ProductionTotalDurations);
-	const Durin::uint64 FullGTAOFeatureMedian =
+	const uint64 ProductionRetainedMedian = Median(ProductionRetainedDurations);
+	const uint64 ProductionPostProcessMedian = Median(ProductionPostProcessDurations);
+	const uint64 ProductionShadowMedian = Median(ProductionShadowDurations);
+	const uint64 ProductionTotalMedian = Median(ProductionTotalDurations);
+	const uint64 FullGTAOFeatureMedian =
 		Median(FullGTAOFeatureDurations);
-	const Durin::uint64 HalfGTAOFeatureMedian =
+	const uint64 HalfGTAOFeatureMedian =
 		Median(HalfGTAOFeatureDurations);
-	const Durin::uint64 HalfGTAOResolveMedian =
+	const uint64 HalfGTAOResolveMedian =
 		Median(HalfGTAOResolveDurations);
-	const Durin::uint64 ProductionComputeContactMedian =
+	const uint64 ProductionComputeContactMedian =
 		Median(ProductionComputeContactDurations);
-	const Durin::uint64 ProductionFragmentContactMedian =
+	const uint64 ProductionFragmentContactMedian =
 		Median(ProductionFragmentContactDurations);
-	const Durin::uint64 ConstrainedComputeContactMedian =
+	const uint64 ConstrainedComputeContactMedian =
 		Median(ConstrainedComputeContactDurations);
-	const Durin::uint64 ConstrainedFragmentContactMedian =
+	const uint64 ConstrainedFragmentContactMedian =
 		Median(ConstrainedFragmentContactDurations);
-	const Durin::uint64 ProductionGBufferP95 =
+	const uint64 ProductionGBufferP95 =
 		Percentile95(ProductionGBufferDurations);
-	const Durin::uint64 ProductionSceneP95 =
+	const uint64 ProductionSceneP95 =
 		Percentile95(ProductionSceneDurations);
-	const Durin::uint64 ProductionDeferredP95 =
+	const uint64 ProductionDeferredP95 =
 		Percentile95(ProductionDeferredDurations);
-	const Durin::uint64 ProductionRetainedOpaqueP95 =
+	const uint64 ProductionRetainedOpaqueP95 =
 		Percentile95(ProductionRetainedOpaqueDurations);
-	const Durin::uint64 ProductionVolumetricCloudP95 =
+	const uint64 ProductionVolumetricCloudP95 =
 		Percentile95(ProductionVolumetricCloudDurations);
-	const Durin::uint64 ProductionSortedTranslucencyP95 =
+	const uint64 ProductionSortedTranslucencyP95 =
 		Percentile95(ProductionSortedTranslucencyDurations);
-	const Durin::uint64 ProductionRetainedP95 =
+	const uint64 ProductionRetainedP95 =
 		Percentile95(ProductionRetainedDurations);
-	const Durin::uint64 ProductionPostProcessP95 =
+	const uint64 ProductionPostProcessP95 =
 		Percentile95(ProductionPostProcessDurations);
-	const Durin::uint64 ProductionShadowP95 =
+	const uint64 ProductionShadowP95 =
 		Percentile95(ProductionShadowDurations);
-	const Durin::uint64 ProductionTotalP95 =
+	const uint64 ProductionTotalP95 =
 		Percentile95(ProductionTotalDurations);
-	const Durin::uint64 FullGTAOFeatureP95 =
+	const uint64 FullGTAOFeatureP95 =
 		Percentile95(FullGTAOFeatureDurations);
-	const Durin::uint64 HalfGTAOFeatureP95 =
+	const uint64 HalfGTAOFeatureP95 =
 		Percentile95(HalfGTAOFeatureDurations);
-	const Durin::uint64 HalfGTAOResolveP95 =
+	const uint64 HalfGTAOResolveP95 =
 		Percentile95(HalfGTAOResolveDurations);
-	const Durin::uint64 ProductionComputeContactP95 =
+	const uint64 ProductionComputeContactP95 =
 		Percentile95(ProductionComputeContactDurations);
-	const Durin::uint64 ProductionFragmentContactP95 =
+	const uint64 ProductionFragmentContactP95 =
 		Percentile95(ProductionFragmentContactDurations);
-	const Durin::uint64 ConstrainedComputeContactP95 =
+	const uint64 ConstrainedComputeContactP95 =
 		Percentile95(ConstrainedComputeContactDurations);
-	const Durin::uint64 ConstrainedFragmentContactP95 =
+	const uint64 ConstrainedFragmentContactP95 =
 		Percentile95(ConstrainedFragmentContactDurations);
 	EXPECT_GT(ProductionComputeContactMedian, 0u);
 	EXPECT_GT(ProductionFragmentContactMedian, 0u);
@@ -1753,7 +1753,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_LE(ProductionTotalP95 * 100u, ProductionTotalMedian * 125u)
 		<< "Qualification samples are unstable; rerun without competing GPU "
 			"work before treating this as a renderer regression.";
-	constexpr Durin::uint64 ProductionActiveBytes =
+	constexpr uint64 ProductionActiveBytes =
 		Durin::FPostProcessRenderer::CalculateSceneTargetBytes(
 			TimingWidth, TimingHeight
 		)
@@ -1762,9 +1762,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			TimingWidth, TimingHeight,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution
 		)
-		+ static_cast<Durin::uint64>(TimingWidth) * TimingHeight * 4u;
-	constexpr Durin::uint64 ShadowBytes = 50'331'648u;
-	constexpr Durin::uint64 ProductionRetainedCeiling =
+		+ static_cast<uint64>(TimingWidth) * TimingHeight * 4u;
+	constexpr uint64 ShadowBytes = 50'331'648u;
+	constexpr uint64 ProductionRetainedCeiling =
 		Durin::FPostProcessRenderer::MaximumRetainedSceneTargetBytes
 		+ Durin::FGBufferRenderer::MaximumRetainedBytes
 		+ Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes;
@@ -1876,7 +1876,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			View.Settings.DirectionalShadow.Candidate =
 				Durin::EDirectionalShadowCandidate::SingleMap;
 			Durin::FSceneViewRenderOptions Options;
-			for (Durin::uint32 Frame = 0; Frame < 2; ++Frame)
+			for (uint32 Frame = 0; Frame < 2; ++Frame)
 			{
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);

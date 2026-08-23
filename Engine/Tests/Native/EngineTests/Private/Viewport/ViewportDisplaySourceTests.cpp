@@ -72,8 +72,8 @@ namespace
 		std::vector<const Durin::FRHITexture*> Drawn;
 		Durin::FVector2f LastDrawSize = {};
 		bool bDrawSucceeds = true;
-		Durin::uint32 NewFrameCount = 0;
-		Durin::uint32 RenderCount = 0;
+		uint32 NewFrameCount = 0;
+		uint32 RenderCount = 0;
 	};
 
 }

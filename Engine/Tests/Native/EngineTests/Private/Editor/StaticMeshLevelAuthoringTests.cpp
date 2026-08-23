@@ -56,7 +56,7 @@ namespace
 			Durin::CollectGarbage();
 		}
 
-		static inline Durin::uint64 NextId = 1;
+		static inline uint64 NextId = 1;
 	};
 
 	auto MakeCreate(Durin::FName Name, const Durin::FTransform& Transform = {})
@@ -74,7 +74,7 @@ TEST(FTerrainLevelAuthoringTests, PlacesOneRevisionAtomicallyAndRestoresSavedSta
 {
 	FLevelFixture Fixture;
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "GoldenHeightmap");
-	const std::array<Durin::uint16, 6> Samples{0, 10'000, 20'000, 30'000, 65'535, 40'000};
+	const std::array<uint16, 6> Samples{0, 10'000, 20'000, 30'000, 65'535, 40'000};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(3, 2, Samples, Error)) << Error;
 	Durin::Editor::FTransactionManager Transactions;
@@ -111,7 +111,7 @@ TEST(FTerrainLevelAuthoringTests, RejectsStaleReadOnlyAndInvalidRequestsWithoutM
 {
 	FLevelFixture Fixture;
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "Heightmap");
-	const std::array<Durin::uint16, 4> Samples{0, 1, 2, 3};
+	const std::array<uint16, 4> Samples{0, 1, 2, 3};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
 	auto Request = Durin::Editor::Level::FTerrainLevelAuthoringService::CaptureTarget(*Fixture.Level);

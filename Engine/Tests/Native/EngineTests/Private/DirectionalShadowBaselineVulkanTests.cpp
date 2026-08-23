@@ -39,8 +39,8 @@
 
 namespace
 {
-	constexpr Durin::uint32 CaptureWidth = 257;
-	constexpr Durin::uint32 CaptureHeight = 257;
+	constexpr uint32 CaptureWidth = 257;
+	constexpr uint32 CaptureHeight = 257;
 
 	struct FShadowBaselineCommand
 	{
@@ -57,8 +57,8 @@ namespace
 		size_t DarkPixels = 0;
 		size_t MidPixels = 0;
 		size_t BrightPixels = 0;
-		std::array<Durin::uint8, 4> Minimum{255, 255, 255, 255};
-		std::array<Durin::uint8, 4> Maximum{0, 0, 0, 0};
+		std::array<uint8, 4> Minimum{255, 255, 255, 255};
+		std::array<uint8, 4> Maximum{0, 0, 0, 0};
 		std::array<double, 4> Mean{};
 		Durin::FViewRenderCounters Counters;
 	};
@@ -333,7 +333,7 @@ namespace
 		return Result;
 	}
 
-	auto CountChangedPixels(const std::vector<std::byte>& First, const std::vector<std::byte>& Second, Durin::uint8 ChannelTolerance)
+	auto CountChangedPixels(const std::vector<std::byte>& First, const std::vector<std::byte>& Second, uint8 ChannelTolerance)
 		-> size_t
 	{
 		if (First.size() != Second.size()) return SIZE_MAX;
@@ -352,7 +352,7 @@ namespace
 		return Changed;
 	}
 
-	auto LuminanceAt(const std::vector<std::byte>& Pixels, Durin::uint32 X, Durin::uint32 Y) -> int
+	auto LuminanceAt(const std::vector<std::byte>& Pixels, uint32 X, uint32 Y) -> int
 	{
 		const size_t Offset = (static_cast<size_t>(Y) * CaptureWidth + X) * 4u;
 		return static_cast<int>((static_cast<unsigned>(Pixels[Offset]) * 54u + static_cast<unsigned>(Pixels[Offset + 1]) * 183u + static_cast<unsigned>(Pixels[Offset + 2]) * 19u) / 256u);
@@ -363,18 +363,18 @@ namespace
 	) -> size_t
 	{
 		size_t Maximum = 0;
-		auto MeasureLine = [&](bool bVertical, Durin::uint32 Fixed) {
+		auto MeasureLine = [&](bool bVertical, uint32 Fixed) {
 			size_t Run = 0;
-			for (Durin::uint32 Variable = 0; Variable < CaptureWidth; ++Variable)
+			for (uint32 Variable = 0; Variable < CaptureWidth; ++Variable)
 			{
-				const Durin::uint32 X = bVertical ? Fixed : Variable;
-				const Durin::uint32 Y = bVertical ? Variable : Fixed;
+				const uint32 X = bVertical ? Fixed : Variable;
+				const uint32 Y = bVertical ? Variable : Fixed;
 				const int Luminance = LuminanceAt(Pixels, X, Y);
 				Run = Luminance >= 48 && Luminance < 160 ? Run + 1u : 0u;
 				Maximum = std::max(Maximum, Run);
 			}
 		};
-		for (Durin::uint32 Line = 0; Line < CaptureWidth; ++Line)
+		for (uint32 Line = 0; Line < CaptureWidth; ++Line)
 		{
 			MeasureLine(false, Line);
 			MeasureLine(true, Line);
@@ -385,8 +385,8 @@ namespace
 	auto ShadowDifferenceAt(
 		const std::vector<std::byte>& Enabled,
 		const std::vector<std::byte>& Disabled,
-		Durin::uint32 X,
-		Durin::uint32 Y
+		uint32 X,
+		uint32 Y
 	) -> int
 	{
 		const int Reference = LuminanceAt(Disabled, X, Y);
@@ -439,12 +439,12 @@ namespace
 		double Mean = 0.0;
 		for (size_t Y = RoiMinimum; Y < RoiMaximum; ++Y)
 			for (size_t X = RoiMinimum; X < RoiMaximum; ++X)
-				Mean += ShadowDifferenceAt(Enabled, Disabled, static_cast<Durin::uint32>(X), static_cast<Durin::uint32>(Y));
+				Mean += ShadowDifferenceAt(Enabled, Disabled, static_cast<uint32>(X), static_cast<uint32>(Y));
 		Mean /= static_cast<double>(RoiSize * RoiSize);
 		for (size_t Y = 0; Y < RoiSize; ++Y)
 			for (size_t X = 0; X < RoiSize; ++X)
 				Values[Y * TransformSize + X] =
-					static_cast<double>(ShadowDifferenceAt(Enabled, Disabled, static_cast<Durin::uint32>(X + RoiMinimum), static_cast<Durin::uint32>(Y + RoiMinimum))) - Mean;
+					static_cast<double>(ShadowDifferenceAt(Enabled, Disabled, static_cast<uint32>(X + RoiMinimum), static_cast<uint32>(Y + RoiMinimum))) - Mean;
 		for (size_t Y = 0; Y < TransformSize; ++Y)
 			TransformRadix2(Values.data() + Y * TransformSize, TransformSize);
 		std::array<std::complex<double>, TransformSize> Column;
@@ -943,7 +943,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 				EXPECT_GE(GLastCounters.ShadowTargetBackendBytes, GLastCounters.ShadowTargetLogicalBytes);
 				EXPECT_LE(GLastCounters.ShadowTargetBackendBytes, 64ull * 1024 * 1024);
 				size_t CascadeAttempts = 0;
-				for (Durin::uint32 Cascade = 0;
+				for (uint32 Cascade = 0;
 					 Cascade < Durin::DirectionalShadowCascadeCount; ++Cascade)
 					CascadeAttempts +=
 						GLastCounters.ShadowCascades[Cascade].AttemptedDraws;
@@ -1337,12 +1337,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	ASSERT_EQ(DeferredHDR.size(), ForwardOnlyHDR.size());
 	ASSERT_EQ(DeferredHDR.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 8u);
 
-	auto DecodeHalf = [](const Durin::uint8* Bytes) {
-		const Durin::uint16 Bits = static_cast<Durin::uint16>(Bytes[0])
-								   | static_cast<Durin::uint16>(Bytes[1] << 8);
+	auto DecodeHalf = [](const uint8* Bytes) {
+		const uint16 Bits = static_cast<uint16>(Bytes[0])
+								   | static_cast<uint16>(Bytes[1] << 8);
 		const bool bNegative = (Bits & 0x8000u) != 0;
-		const Durin::uint32 Exponent = (Bits >> 10) & 0x1fu;
-		const Durin::uint32 Mantissa = Bits & 0x3ffu;
+		const uint32 Exponent = (Bits >> 10) & 0x1fu;
+		const uint32 Mantissa = Bits & 0x3ffu;
 		double Value = 0.0;
 		if (Exponent == 0)
 			Value = std::ldexp(static_cast<double>(Mantissa), -24);
@@ -1478,7 +1478,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_EQ(Counters.DeferredDirectionalDebugViews, 1u);
 		EXPECT_EQ(Counters.DeferredDirectionalPassFailures, 0u);
 		EXPECT_EQ(Image.size(), DeferredHDR.size());
-		EXPECT_TRUE(std::ranges::any_of(Image, [](Durin::uint8 Value) { return Value != 0u; }));
+		EXPECT_TRUE(std::ranges::any_of(Image, [](uint8 Value) { return Value != 0u; }));
 	}
 	EXPECT_NE(DeferredDebugImages.front(), DeferredDebugImages.back());
 	std::vector<std::byte> DeferredPerspectiveOutput;
@@ -1713,12 +1713,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalDebugViews, 1u);
 	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalPassFailures, 0u);
-	EXPECT_TRUE(std::ranges::any_of(LocalDiagnosticHDR, [](Durin::uint8 Value) { return Value != 0u; }));
+	EXPECT_TRUE(std::ranges::any_of(LocalDiagnosticHDR, [](uint8 Value) { return Value != 0u; }));
 	// This fixture has no directional, environment, or emissive term, so the
 	// isolated local component is exactly the final deferred result.
 	EXPECT_EQ(LocalDiagnosticHDR, InvalidLocalDeferred);
 
-	for (const Durin::uint64 Id : {199u, 200u, 201u, 202u, 203u, 204u})
+	for (const uint64 Id : {199u, 200u, 201u, 202u, 203u, 204u})
 		Scene.RemoveLight(Durin::FLightSceneId(Id));
 
 	Directional.bCastShadows = true;
@@ -1805,7 +1805,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	size_t BackgroundGBufferPixels = 0;
 	for (size_t Offset = 0; Offset < GBufferSurfacePixels.size(); Offset += 4)
 	{
-		Durin::uint32 PackedEmissive = 0;
+		uint32 PackedEmissive = 0;
 		std::memcpy(&PackedEmissive, GBufferEmissivePixels.data() + Offset, sizeof(PackedEmissive));
 		if (GBufferSurfacePixels[Offset + 3] == 0u)
 		{
@@ -1822,7 +1822,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			continue;
 		}
 		++ValidGBufferPixels;
-		const auto ToUNorm = [](Durin::uint8 Value) {
+		const auto ToUNorm = [](uint8 Value) {
 			return static_cast<float>(Value) / 255.0f;
 		};
 		const Durin::GBufferContract::FDecodedRecord Record =
@@ -1884,7 +1884,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_EQ(DebugViewCounters.GBufferDebugViews, 1u);
 		EXPECT_EQ(DebugViewCounters.GBufferDebugFailures, 0u);
 		EXPECT_NE(Image, PixelsOff);
-		EXPECT_TRUE(std::ranges::any_of(Image, [](Durin::uint8 Value) {
+		EXPECT_TRUE(std::ranges::any_of(Image, [](uint8 Value) {
 			return Value != 0u;
 		}));
 	}
@@ -1938,9 +1938,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			for (size_t Channel = 0; Channel < 3; ++Channel)
 			{
 				const size_t ChannelOffset = Offset + Channel * 2;
-				const Durin::uint16 Bits =
-					static_cast<Durin::uint16>(Pixels[ChannelOffset])
-					| static_cast<Durin::uint16>(
+				const uint16 Bits =
+					static_cast<uint16>(Pixels[ChannelOffset])
+					| static_cast<uint16>(
 						Pixels[ChannelOffset + 1] << 8
 					);
 				if (Bits > 0x3c00u && Bits < 0x7c00u) return true;
@@ -2055,7 +2055,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::FlushRenderingCommands();
 	std::vector<std::byte> ShallowContactDebug;
 	RenderCapture(true, true, ShallowContactDebug);
-	Durin::uint8 ShallowContactPeak = 0u;
+	uint8 ShallowContactPeak = 0u;
 	for (size_t Pixel = 0; Pixel + 3 < ShallowContactDebug.size(); Pixel += 4)
 		ShallowContactPeak = std::max(
 			ShallowContactPeak, ShallowContactDebug[Pixel]);

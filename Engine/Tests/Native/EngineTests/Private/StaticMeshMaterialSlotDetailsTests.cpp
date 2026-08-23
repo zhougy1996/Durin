@@ -22,21 +22,21 @@
 namespace
 {
 	auto AddSlot(Durin::DStaticMesh* Mesh, std::string_view Name, Durin::DMaterialInterface* Default = nullptr)
-		-> Durin::uint32
+		-> uint32
 	{
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
-		const Durin::uint64 Index = Slots->Num(Mesh);
+		const uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
 		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
-		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
+		Slot->SourceMaterialIndex = static_cast<uint32>(Index);
 		Slot->DefaultMaterial = Default;
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
 			->MaterialSlots.push_back(
 				{std::string(Name),
-					static_cast<Durin::uint32>(Index)});
-		return static_cast<Durin::uint32>(Index);
+					static_cast<uint32>(Index)});
+		return static_cast<uint32>(Index);
 	}
 
 	auto MakeContext(Durin::Editor::FTransactionManager& Transactions, std::string& Error)
@@ -55,7 +55,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 	auto* FirstSlot = const_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Mesh->GetMaterialSlot(0));
 	FirstSlot->Name = Durin::FName("Body");
 	FirstSlot->DefaultMaterial = Default;
-	const Durin::uint32 SecondIndex = AddSlot(Mesh, "Glass");
+	const uint32 SecondIndex = AddSlot(Mesh, "Glass");
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SlotDetailsComponent");
 	Component->SetStaticMesh(Mesh);
 	ASSERT_TRUE(Component->SetMaterial(SecondIndex, Override));
@@ -102,7 +102,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotSecondMaterial");
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "NotAMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	const Durin::uint32 SecondIndex = AddSlot(Mesh, "Second");
+	const uint32 SecondIndex = AddSlot(Mesh, "Second");
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SlotTransactionComponent");
 	Component->SetStaticMesh(Mesh);
 

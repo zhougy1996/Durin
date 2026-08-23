@@ -154,7 +154,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	ASSERT_TRUE(Durin::CapturePropertyValue(Array.get(), &SecondProposal, 0, SecondSnapshot));
 	ASSERT_EQ(Session.Apply(SecondSnapshot), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(Container.Values, (std::vector<Durin::int32>{3, 23, 11}));
+	ASSERT_EQ(Container.Values, (std::vector<int32>{3, 23, 11}));
 
 	ASSERT_EQ(Object.Changes.size(), 3u);
 	const FCapturedChange& Commit = Object.Changes.back();
@@ -165,9 +165,9 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	EXPECT_EQ(Commit.Indices[0], 1u);
 	EXPECT_EQ(Commit.Selectors[1], Durin::EPropertyPathSelector::None);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Container.Values, (std::vector<Durin::int32>{3, 7, 11}));
+	EXPECT_EQ(Container.Values, (std::vector<int32>{3, 7, 11}));
 	ASSERT_TRUE(Transactions.Redo());
-	EXPECT_EQ(Container.Values, (std::vector<Durin::int32>{3, 23, 11}));
+	EXPECT_EQ(Container.Values, (std::vector<int32>{3, 23, 11}));
 }
 
 TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsRestoreRemovedAndResizedElements)
@@ -180,7 +180,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsRestoreRemovedAndRe
 	Target.SnapshotContainer = &Container;
 	Durin::Editor::FTransactionManager Transactions;
 
-	auto CommitValues = [&](std::vector<Durin::int32> Values, Durin::EPropertyChangeKind Kind) {
+	auto CommitValues = [&](std::vector<int32> Values, Durin::EPropertyChangeKind Kind) {
 		Target.Kind = Kind;
 		FArrayValueContainer Proposed{std::move(Values)};
 		Durin::FPropertyValueSnapshot Snapshot;
@@ -195,22 +195,22 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsRestoreRemovedAndRe
 	CommitValues({4, 8, 15, 16}, Durin::EPropertyChangeKind::ArrayAdd);
 	EXPECT_EQ(Container.Values.size(), 4u);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Container.Values, (std::vector<Durin::int32>{4, 8, 15}));
+	EXPECT_EQ(Container.Values, (std::vector<int32>{4, 8, 15}));
 	Transactions.Clear();
 	CommitValues({4, 8}, Durin::EPropertyChangeKind::ArrayRemove);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Container.Values, (std::vector<Durin::int32>{4, 8, 15}));
+	EXPECT_EQ(Container.Values, (std::vector<int32>{4, 8, 15}));
 	Transactions.Clear();
 	CommitValues({4}, Durin::EPropertyChangeKind::ArrayResize);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Container.Values, (std::vector<Durin::int32>{4, 8, 15}));
+	EXPECT_EQ(Container.Values, (std::vector<int32>{4, 8, 15}));
 }
 
 TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAndStructuralKinds)
 {
 	Durin::FStringProperty KeyProperty(
 		Durin::FFieldVariant(), Durin::FName("Key"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
-		1, 0, static_cast<Durin::uint16>(sizeof(std::string)), Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
+		1, 0, static_cast<uint16>(sizeof(std::string)), Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
 	);
 	auto ValueProperty = MakeValueProperty();
 	auto MapProperty = MakeMapProperty(KeyProperty, *ValueProperty);

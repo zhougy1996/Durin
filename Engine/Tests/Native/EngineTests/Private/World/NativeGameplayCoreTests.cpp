@@ -156,7 +156,7 @@ namespace
 		{
 		}
 
-		auto GetUpdateCount() const -> Durin::uint32 { return UpdateCount; }
+		auto GetUpdateCount() const -> uint32 { return UpdateCount; }
 		auto GetLastIntent() const -> const Durin::FPawnControlIntent& { return LastIntent; }
 
 	protected:
@@ -168,7 +168,7 @@ namespace
 
 	private:
 		Durin::FPawnControlIntent LastIntent;
-		Durin::uint32 UpdateCount = 0;
+		uint32 UpdateCount = 0;
 	};
 
 	class FIntentPawn final : public Durin::APawn
@@ -212,7 +212,7 @@ namespace
 		auto SetNextIntent(Durin::FPawnControlIntent Intent) -> void { NextIntent = std::move(Intent); }
 		auto SetUseRawMapping(bool bEnabled) -> void { bUseRawMapping = bEnabled; }
 		auto SetWorldToClearDuringBuild(Durin::DWorld* World) -> void { WorldToClearDuringBuild = World; }
-		auto GetBuildCount() const -> Durin::uint32 { return BuildCount; }
+		auto GetBuildCount() const -> uint32 { return BuildCount; }
 		auto SubmitDirect(const Durin::FPawnControlIntent& Intent) -> bool { return SubmitControlIntent(Intent); }
 
 	protected:
@@ -238,7 +238,7 @@ namespace
 
 	private:
 		Durin::FPawnControlIntent NextIntent;
-		mutable Durin::uint32 BuildCount = 0;
+		mutable uint32 BuildCount = 0;
 		mutable Durin::DWorld* WorldToClearDuringBuild = nullptr;
 		bool bUseRawMapping = false;
 	};

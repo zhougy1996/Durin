@@ -17,7 +17,7 @@ namespace
 		std::vector<bool> OwnedDuringConstruction;
 		bool bAcquireFirstTwice = false;
 		bool bRequestAgain = false;
-		Durin::uint32 ConstructionCalls = 0;
+		uint32 ConstructionCalls = 0;
 
 	protected:
 		auto OnNativeConstruct(Durin::FActorConstructionContext& Context,
@@ -53,14 +53,14 @@ namespace
 			new (Initializer.GetObj()) FNativeConstructionTestActor(Initializer);
 		};
 		auto Class = std::make_unique<Durin::DClass>(Durin::EC_StaticConstructor,
-			"NativeConstructionTestActor", static_cast<Durin::uint32>(sizeof(FNativeConstructionTestActor)),
-			static_cast<Durin::uint32>(alignof(FNativeConstructionTestActor)), Durin::EObjectFlags::Transient,
+			"NativeConstructionTestActor", static_cast<uint32>(sizeof(FNativeConstructionTestActor)),
+			static_cast<uint32>(alignof(FNativeConstructionTestActor)), Durin::EObjectFlags::Transient,
 			Durin::EClassFlags::None, Durin::EClassCastFlags::DClass, Constructor);
 		Class->SetSuperStructBase(Durin::AActor::StaticClass());
 		return Class;
 	}
 
-	auto MakeGeneratedKey(Durin::uint32 Value) -> Durin::FActorGeneratedComponentKey
+	auto MakeGeneratedKey(uint32 Value) -> Durin::FActorGeneratedComponentKey
 	{
 		return {"TestGenerated", Durin::FGuid(0x44555249, 0x4E47454E, 0, Value)};
 	}
@@ -160,7 +160,7 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	EXPECT_TRUE(Actor->OwnsComponent(First));
 
 	Actor->Desired.resize(1);
-	const Durin::uint32 CallsBeforeCoalescing = Actor->ConstructionCalls;
+	const uint32 CallsBeforeCoalescing = Actor->ConstructionCalls;
 	Actor->bRequestAgain = true;
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->ConstructionCalls, CallsBeforeCoalescing + 2);
@@ -210,7 +210,7 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	ASSERT_NE(Actor, nullptr);
 	Actor->Desired = {{MakeGeneratedKey(1), Durin::DSceneComponent::StaticClass()}};
 	Level->GetPackage()->ClearDirty();
-	const Durin::uint64 Revision = Level->GetPackage()->GetEditRevision();
+	const uint64 Revision = Level->GetPackage()->GetEditRevision();
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());

@@ -69,17 +69,17 @@ namespace
 			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
-	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Bytes.size());
-		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint64 Value) -> void
+	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		ASSERT_LE(Offset + 8, Bytes.size());
-		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
+		for (uint32 Byte = 0; Byte < 8; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
@@ -110,7 +110,7 @@ namespace
 		{
 			MaterialSlots->push_back({
 				.Name = Durin::FName("PayloadMismatch"),
-				.SourceMaterialIndex = static_cast<Durin::uint32>(MaterialSlots->size())});
+				.SourceMaterialIndex = static_cast<uint32>(MaterialSlots->size())});
 		}
 		std::vector<std::byte> PackageBytes;
 		const Durin::Asset::FAssetResult Result =
@@ -225,7 +225,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreserve
 	const std::string Key = Fixture.Mesh->GetDerivedDataDiagnostic().Key;
 	const std::filesystem::path ObjectPath = GetObjectPath(Fixture, Key);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
-	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
+	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), ObjectPath));
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
@@ -263,10 +263,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	ASSERT_NE(Fixture.Mesh->GetBodySetup(), nullptr);
 	Durin::FCollisionGeometryRef AuthoredGeometry;
 	ASSERT_TRUE(Fixture.Mesh->GetBodySetup()->BuildComplexGeometry(AuthoredGeometry));
-	const Durin::uint32 AuthoredVertices = AuthoredGeometry.GetVertexCount();
-	const Durin::uint32 AuthoredTriangles = AuthoredGeometry.GetTriangleCount();
-	const Durin::uint32 AuthoredNodes = AuthoredGeometry.GetNodeCount();
-	const Durin::uint64 AuthoredBytes = AuthoredGeometry.GetRetainedBytes();
+	const uint32 AuthoredVertices = AuthoredGeometry.GetVertexCount();
+	const uint32 AuthoredTriangles = AuthoredGeometry.GetTriangleCount();
+	const uint32 AuthoredNodes = AuthoredGeometry.GetNodeCount();
+	const uint64 AuthoredBytes = AuthoredGeometry.GetRetainedBytes();
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "CookCollision");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionSecond");
@@ -464,7 +464,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	const std::filesystem::path WrongPlatformRoot =
 		std::filesystem::absolute(Fixture.Root / "CookWrongPlatform");
 	std::vector<std::byte> WrongPlatformBulk = FirstBulk;
-	WriteU32(WrongPlatformBulk, 8, static_cast<Durin::uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
+	WriteU32(WrongPlatformBulk, 8, static_cast<uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
 	std::filesystem::create_directories(WrongPlatformRoot / "Game");
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstPackage)), WrongPlatformRoot / "Game/CookedMesh.dasset"));

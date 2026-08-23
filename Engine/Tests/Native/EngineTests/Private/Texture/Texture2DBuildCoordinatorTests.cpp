@@ -52,8 +52,8 @@ namespace
 	auto WaitForTerminalCount(
 		std::mutex& Mutex,
 		std::condition_variable& Condition,
-		const Durin::uint32& TerminalCount,
-		Durin::uint32 Expected) -> bool
+		const uint32& TerminalCount,
+		uint32 Expected) -> bool
 	{
 		std::unique_lock Lock(Mutex);
 		return Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
@@ -88,7 +88,7 @@ TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyHostService)
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	bool bCompleted = false;
-	const Durin::uint64 RequestId = Coordinator->Submit(
+	const uint64 RequestId = Coordinator->Submit(
 		MakeCoordinatorRequest(TransparentPngData(), "/BuildHost/Restarted"),
 		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			EXPECT_EQ(
@@ -117,7 +117,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	std::optional<Durin::Asset::Build::FTexture2DQueuedBuildResult> Completion;
-	const Durin::uint64 RequestId = Coordinator->Submit({
+	const uint64 RequestId = Coordinator->Submit({
 		.AssetIdentity = "/AuthoringCoordinator/Normalized",
 		.SourcePath = {.Path = "/TextureImportTests/Coordinator.png"},
 		.SourceData = std::move(SourceData),
@@ -172,15 +172,15 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 	std::mutex Mutex;
 	std::condition_variable Condition;
-	Durin::uint32 TerminalCount = 0;
+	uint32 TerminalCount = 0;
 	std::optional<Durin::Asset::Build::FTexture2DQueuedBuildResult> Completion;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+	Coordinator.SetPhaseHookForTests([&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 		if (!IsTerminal(Phase)) return;
 		std::lock_guard Lock(Mutex);
 		++TerminalCount;
 		Condition.notify_all();
 	});
-	const Durin::uint64 RequestId = Coordinator.Submit(
+	const uint64 RequestId = Coordinator.Submit(
 		MakeCoordinatorRequest(Bytes, "/Coordinator/Equivalent"),
 		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			Completion.emplace(std::move(Result));
@@ -207,8 +207,8 @@ TEST(FTexture2DBuildCoordinatorTests, RejectsInvalidNormalizedSourceBeforeAdmiss
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
-	Durin::uint32 CompletionCount = 0;
-	const Durin::uint64 RequestId = Coordinator.Submit(
+	uint32 CompletionCount = 0;
+	const uint64 RequestId = Coordinator.Submit(
 		{.AssetIdentity = "/Coordinator/Invalid", .SourceHash = {.HashLow = 1}},
 		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) { ++CompletionCount; });
 	EXPECT_EQ(RequestId, 0u);
@@ -233,9 +233,9 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	bool bReleaseFirst = false;
-	Durin::uint32 TerminalCount = 0;
-	std::vector<Durin::uint64> PreparationOrder;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64 RequestId, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+	uint32 TerminalCount = 0;
+	std::vector<uint64> PreparationOrder;
+	Coordinator.SetPhaseHookForTests([&](uint64 RequestId, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 		std::unique_lock Lock(Mutex);
 		if (Phase == Durin::Asset::Build::ETexture2DBuildPhase::Preparing)
 		{
@@ -250,9 +250,9 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 			Condition.notify_all();
 		}
 	});
-	std::vector<Durin::uint64> BackgroundIds;
-	std::vector<Durin::uint64> InteractiveIds;
-	Durin::uint32 CompletionCount = 0;
+	std::vector<uint64> BackgroundIds;
+	std::vector<uint64> InteractiveIds;
+	uint32 CompletionCount = 0;
 	auto Complete = [&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 		EXPECT_EQ(Result.Phase, Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
 		++CompletionCount;
@@ -267,7 +267,7 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	}
 	BackgroundIds.push_back(Coordinator.Submit(
 		MakeCoordinatorRequest(Bytes, "/Coordinator/Background1"), Complete));
-	for (Durin::uint32 Index = 0; Index < 5; ++Index)
+	for (uint32 Index = 0; Index < 5; ++Index)
 	{
 		InteractiveIds.push_back(Coordinator.Submit(
 			MakeCoordinatorRequest(
@@ -310,7 +310,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	std::condition_variable Condition;
 	bool bWorkerEntered = false;
 	bool bReleaseWorker = false;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+	Coordinator.SetPhaseHookForTests([&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 		if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 		std::unique_lock Lock(Mutex);
 		bWorkerEntered = true;
@@ -321,7 +321,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	auto Complete = [&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 		CompletionPhases.push_back(Result.Phase);
 	};
-	const Durin::uint64 RunningId = Coordinator.Submit(
+	const uint64 RunningId = Coordinator.Submit(
 		MakeCoordinatorRequest(Bytes, "/Coordinator/Running"), Complete);
 	{
 		std::unique_lock Lock(Mutex);
@@ -329,7 +329,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 			return bWorkerEntered;
 		}));
 	}
-	const Durin::uint64 QueuedId = Coordinator.Submit(
+	const uint64 QueuedId = Coordinator.Submit(
 		MakeCoordinatorRequest(Bytes, "/Coordinator/Queued"), Complete);
 	ASSERT_TRUE(Coordinator.Cancel(RunningId));
 	ASSERT_TRUE(Coordinator.Cancel(QueuedId));
@@ -355,16 +355,16 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 	ASSERT_NE(Coordinator, nullptr);
 	std::mutex Mutex;
 	std::condition_variable Condition;
-	Durin::uint32 TerminalCount = 0;
-	Durin::uint32 CompletionCount = 0;
+	uint32 TerminalCount = 0;
+	uint32 CompletionCount = 0;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (!IsTerminal(Phase)) return;
 			std::lock_guard Lock(Mutex);
 			++TerminalCount;
 			Condition.notify_all();
 		});
-	for (Durin::uint32 Index = 0; Index < 65; ++Index)
+	for (uint32 Index = 0; Index < 65; ++Index)
 	{
 		ASSERT_NE(Coordinator->Submit(
 			MakeCoordinatorRequest(
@@ -388,9 +388,9 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 {
 	InitializeDObjectSystem();
 	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 2});
-	Durin::uint32 CompletionCount = 0;
-	std::vector<Durin::uint64> RequestIds;
-	for (Durin::uint32 Index = 0; Index < 70; ++Index)
+	uint32 CompletionCount = 0;
+	std::vector<uint64> RequestIds;
+	for (uint32 Index = 0; Index < 70; ++Index)
 	{
 		RequestIds.push_back(Coordinator.Submit(
 			MakeCoordinatorRequest(
@@ -398,11 +398,11 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 			[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) { ++CompletionCount; }));
 		ASSERT_NE(RequestIds.back(), 0u);
 	}
-	for (const Durin::uint64 RequestId : RequestIds)
+	for (const uint64 RequestId : RequestIds)
 		ASSERT_TRUE(Coordinator.WaitForRequest(RequestId, 10.0));
 	EXPECT_EQ(CompletionCount, 0u);
 	EXPECT_EQ(
-		Coordinator.PumpCompletions(std::numeric_limits<Durin::uint32>::max()),
+		Coordinator.PumpCompletions(std::numeric_limits<uint32>::max()),
 		70u);
 	EXPECT_EQ(CompletionCount, 70u);
 }

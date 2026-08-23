@@ -153,8 +153,8 @@ namespace
 			return Durin::ERenderViewResult::RendererResourcesUnavailable;
 		}
 
-		Durin::uint64 NextId = 1000;
-		Durin::uint32 CreateCount = 0;
+		uint64 NextId = 1000;
+		uint32 CreateCount = 0;
 	};
 
 	std::vector<Durin::FViewRenderCounters>* GObservedViewCounterSnapshots = nullptr;
@@ -393,7 +393,7 @@ TEST(FRendererSceneContractTests,
 {
 	FRenderingThreadScope RenderingThread;
 	auto Result = std::make_shared<std::vector<Durin::FSceneViewTemporalContext>>();
-	auto ProbeRevisions = std::make_shared<std::vector<Durin::uint64>>();
+	auto ProbeRevisions = std::make_shared<std::vector<uint64>>();
 	struct FExerciseViewStateTransactionsCommand
 	{
 		static constexpr auto GetName() -> const char*
@@ -499,7 +499,7 @@ TEST(FRendererSceneContractTests,
 	VolumetricCloudHistoryPolicyFollowsOuterViewTransactions)
 {
 	FRenderingThreadScope RenderingThread;
-	auto Observed = std::make_shared<std::vector<Durin::uint64>>();
+	auto Observed = std::make_shared<std::vector<uint64>>();
 	struct FExerciseCloudHistoryTransactionsCommand
 	{
 		static constexpr auto GetName() -> const char*
@@ -551,7 +551,7 @@ TEST(FRendererSceneContractTests,
 		});
 	Durin::FlushRenderingCommands();
 
-	EXPECT_EQ(*Observed, (std::vector<Durin::uint64>{
+	EXPECT_EQ(*Observed, (std::vector<uint64>{
 		11, 11, 101, 33, 303, 33, 303, 0, 0, 0}));
 }
 
@@ -606,7 +606,7 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 			State.Commit();
 
 			auto ObserveAbort = [&](Durin::FSceneViewTemporalMetadata Candidate,
-				Durin::uint64 Serial) {
+				uint64 Serial) {
 				Contexts->push_back(State.Begin(Candidate, Serial, false));
 				State.Abort();
 			};
@@ -868,7 +868,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	std::atomic<bool> bReaderReady = false;
 	std::atomic<bool> bStopReader = false;
 	std::atomic<bool> bObservedMixedSnapshot = false;
-	std::atomic<Durin::uint64> ReadCount = 0;
+	std::atomic<uint64> ReadCount = 0;
 	std::jthread Reader([&] {
 		bReaderReady.store(true, std::memory_order_release);
 		while (!bStopReader.load(std::memory_order_acquire))
@@ -892,7 +892,7 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	};
 	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
 		[Viewport](Durin::FRHICommandListImmediate&) {
-			for (Durin::uint64 Value = 1; Value <= 1000; ++Value)
+			for (uint64 Value = 1; Value <= 1000; ++Value)
 			{
 				Durin::FSceneViewStatistics Statistics;
 				Statistics.Summary.Triangles = Value;
@@ -929,7 +929,7 @@ TEST(FRendererSceneContractTests,
 	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.25), Durin::FVector3(0.25));
-	auto Add = [&](Durin::uint64 Id, const Durin::FVector3& Position) {
+	auto Add = [&](uint64 Id, const Durin::FVector3& Position) {
 		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
@@ -985,10 +985,10 @@ TEST(FRendererSceneContractTests,
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.05), Durin::FVector3(0.05));
 	for (const auto [Id, X] : std::array{
-		std::pair<Durin::uint64, double>{1u, 0.0},
-		std::pair<Durin::uint64, double>{2u, 1.5},
-		std::pair<Durin::uint64, double>{3u, 2.5},
-		std::pair<Durin::uint64, double>{4u, 10.0}})
+		std::pair<uint64, double>{1u, 0.0},
+		std::pair<uint64, double>{2u, 1.5},
+		std::pair<uint64, double>{3u, 2.5},
+		std::pair<uint64, double>{4u, 10.0}})
 	{
 		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
@@ -1000,7 +1000,7 @@ TEST(FRendererSceneContractTests,
 	Durin::FPreparedDirectionalShadowView Shadow;
 	Shadow.bEnabled = true;
 	Shadow.CascadeCount = Durin::DirectionalShadowCascadeCount;
-	for (Durin::uint32 CascadeIndex = 0;
+	for (uint32 CascadeIndex = 0;
 		 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
 	{
 		auto& Cascade = Shadow.Cascades[CascadeIndex];
@@ -1015,7 +1015,7 @@ TEST(FRendererSceneContractTests,
 	const Durin::FDirectionalShadowCasterTable Table =
 		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow);
 	ASSERT_EQ(Table.Records.size(), 4u);
-	std::array<Durin::uint8, 4> Masks{};
+	std::array<uint8, 4> Masks{};
 	for (const Durin::FDirectionalShadowCasterRecord& Record : Table.Records)
 	{
 		ASSERT_NE(Record.SceneInfo, nullptr);
@@ -1097,7 +1097,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 		Durin::FVector3(-0.5), Durin::FVector3(0.5));
 	Durin::FStaticMeshRenderData InvalidBoundsRenderData;
 
-	auto AddStaticMesh = [&](Durin::uint64 Id, const Durin::FVector3& Location,
+	auto AddStaticMesh = [&](uint64 Id, const Durin::FVector3& Location,
 		bool bVisible, const Durin::FStaticMeshRenderData* RenderData) {
 		Scene.AddOrReplacePrimitive(
 			Durin::FPrimitiveSceneId(Id),
@@ -1265,14 +1265,14 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 {
 	FRenderingThreadScope RenderingThread;
 	Durin::FScene Scene;
-	for (Durin::uint64 Id : {101u, 100u})
+	for (uint64 Id : {101u, 100u})
 	{
 		Durin::FDirectionalLightSceneData Data;
 		Data.Intensity = 1.0f;
 		Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
 			std::make_unique<Durin::FDirectionalLightSceneProxy>(Data));
 	}
-	for (Durin::uint64 Id = 10; Id > 0; --Id)
+	for (uint64 Id = 10; Id > 0; --Id)
 	{
 		if ((Id & 1u) == 0)
 		{
@@ -1328,7 +1328,7 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 {
 	FRenderingThreadScope RenderingThread;
 	Durin::FScene Scene;
-	auto AddPoint = [&](Durin::uint64 Id, const Durin::FVector3& Position) {
+	auto AddPoint = [&](uint64 Id, const Durin::FVector3& Position) {
 		Durin::FPointLightSceneData Data;
 		Data.Position = Position;
 		Data.Intensity = 1.0f;

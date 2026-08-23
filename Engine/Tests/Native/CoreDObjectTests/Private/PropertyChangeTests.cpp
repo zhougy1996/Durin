@@ -9,7 +9,7 @@ namespace
 	{
 		const Durin::FProperty* Property = nullptr;
 		Durin::EPropertyPathSelector Selector = Durin::EPropertyPathSelector::None;
-		Durin::uint64 Index = 0;
+		uint64 Index = 0;
 		std::vector<std::byte> MapKeyData;
 	};
 
@@ -37,7 +37,7 @@ namespace
 			}
 		}
 
-		Durin::uint32 CallCount = 0;
+		uint32 CallCount = 0;
 		const Durin::FProperty* MemberProperty = nullptr;
 		const Durin::FProperty* LeafProperty = nullptr;
 		Durin::EPropertyChangePhase Phase = Durin::EPropertyChangePhase::Committed;

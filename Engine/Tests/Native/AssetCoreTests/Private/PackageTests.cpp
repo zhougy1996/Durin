@@ -26,28 +26,28 @@
 
 namespace AssetStructTest
 {
-	inline Durin::uint64 CodecSerializeLoadCount = 0;
-	inline Durin::uint64 CodecPostDeserializeCount = 0;
+	inline uint64 CodecSerializeLoadCount = 0;
+	inline uint64 CodecPostDeserializeCount = 0;
 	inline Durin::EDStructDeserializeSource CodecPostDeserializeSource =
 		Durin::EDStructDeserializeSource::RuntimeArchive;
-	inline Durin::uint32 CodecPostDeserializeVersion = 0;
+	inline uint32 CodecPostDeserializeVersion = 0;
 	inline bool RejectCodecPostDeserialize = false;
 
 	struct FCodecSource
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FCodecTarget
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FStructMigrationVersion
 	{
 		inline static constexpr Durin::FGuid Guid{
 			0x51aa15c4, 0x14df423f, 0x81dc1a82, 0x638fc15e};
-		enum Type : Durin::int32
+		enum Type : int32
 		{
 			BeforeCustomVersionWasAdded = -1,
 			Changed = 1,
@@ -58,10 +58,10 @@ namespace AssetStructTest
 	struct FMigratingValue
 	{
 		float Value = 0.0f;
-		Durin::int32 Value_DEPRECATED = 0;
+		int32 Value_DEPRECATED = 0;
 	};
 
-	inline Durin::uint64 MigrationPostDeserializeCount = 0;
+	inline uint64 MigrationPostDeserializeCount = 0;
 	inline bool RejectMigrationPostDeserialize = false;
 } // namespace AssetStructTest
 
@@ -239,19 +239,19 @@ namespace
 	}
 
 	template<typename T>
-	auto VectorNum(const void* Container) -> Durin::uint64 { return static_cast<const std::vector<T>*>(Container)->size(); }
+	auto VectorNum(const void* Container) -> uint64 { return static_cast<const std::vector<T>*>(Container)->size(); }
 	template<typename T>
-	auto VectorGet(const void* Container, Durin::uint64 Index) -> const void* { return &(*static_cast<const std::vector<T>*>(Container))[Index]; }
+	auto VectorGet(const void* Container, uint64 Index) -> const void* { return &(*static_cast<const std::vector<T>*>(Container))[Index]; }
 	template<typename T>
-	auto VectorGetMutable(void* Container, Durin::uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[Index]; }
+	auto VectorGetMutable(void* Container, uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[Index]; }
 	template<typename T>
-	auto VectorResize(void* Container, Durin::uint64 Num) -> bool
+	auto VectorResize(void* Container, uint64 Num) -> bool
 	{
 		static_cast<std::vector<T>*>(Container)->resize(Num);
 		return true;
 	}
 
-	auto GIntVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::int32>>(); }
+	auto GIntVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<int32>>(); }
 	auto GGuidVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FGuid>>(); }
 	auto GVector3VectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FVector3>>(); }
 	auto GMigratingValueVectorHelper() -> const Durin::FArrayOps*
@@ -259,21 +259,21 @@ namespace
 		return Durin::ResolveArrayOps<std::vector<AssetStructTest::FMigratingValue>>();
 	}
 
-	using FScoreMap = std::unordered_map<std::string, Durin::int32>;
-	auto MapNum(const void* Container) -> Durin::uint64 { return static_cast<const FScoreMap*>(Container)->size(); }
-	auto MapKey(const void* Container, Durin::uint64 Index) -> const void*
+	using FScoreMap = std::unordered_map<std::string, int32>;
+	auto MapNum(const void* Container) -> uint64 { return static_cast<const FScoreMap*>(Container)->size(); }
+	auto MapKey(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const FScoreMap*>(Container)->begin();
 		std::advance(It, Index);
 		return &It->first;
 	}
-	auto MapValue(const void* Container, Durin::uint64 Index) -> const void*
+	auto MapValue(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const FScoreMap*>(Container)->begin();
 		std::advance(It, Index);
 		return &It->second;
 	}
-	auto MapMutableValue(void* Container, Durin::uint64 Index) -> void*
+	auto MapMutableValue(void* Container, uint64 Index) -> void*
 	{
 		auto It = static_cast<FScoreMap*>(Container)->begin();
 		std::advance(It, Index);
@@ -283,11 +283,11 @@ namespace
 	auto CreateString() -> void* { return new std::string(); }
 	auto CopyString(const void* Value) -> void* { return new std::string(*static_cast<const std::string*>(Value)); }
 	auto DestroyString(void* Value) -> void { delete static_cast<std::string*>(Value); }
-	auto CreateInt() -> void* { return new Durin::int32(); }
-	auto DestroyInt(void* Value) -> void { delete static_cast<Durin::int32*>(Value); }
+	auto CreateInt() -> void* { return new int32(); }
+	auto DestroyInt(void* Value) -> void { delete static_cast<int32*>(Value); }
 	auto MapInsert(void* Container, const void* Key, const void* Value) -> bool
 	{
-		static_cast<FScoreMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value));
+		static_cast<FScoreMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const int32*>(Value));
 		return true;
 	}
 	auto MapContains(const void* Container, const void* Key) -> bool
@@ -313,20 +313,20 @@ namespace
 	auto GScoreMapHelper() -> const Durin::FMapOps* { return Durin::ResolveMapOps<FScoreMap>(); }
 
 	using FVectorMap = std::unordered_map<std::string, Durin::FVector3>;
-	auto VectorMapNum(const void* Container) -> Durin::uint64 { return static_cast<const FVectorMap*>(Container)->size(); }
-	auto VectorMapKey(const void* Container, Durin::uint64 Index) -> const void*
+	auto VectorMapNum(const void* Container) -> uint64 { return static_cast<const FVectorMap*>(Container)->size(); }
+	auto VectorMapKey(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const FVectorMap*>(Container)->begin();
 		std::advance(It, Index);
 		return &It->first;
 	}
-	auto VectorMapValue(const void* Container, Durin::uint64 Index) -> const void*
+	auto VectorMapValue(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const FVectorMap*>(Container)->begin();
 		std::advance(It, Index);
 		return &It->second;
 	}
-	auto VectorMapMutableValue(void* Container, Durin::uint64 Index) -> void*
+	auto VectorMapMutableValue(void* Container, uint64 Index) -> void*
 	{
 		auto It = static_cast<FVectorMap*>(Container)->begin();
 		std::advance(It, Index);
@@ -363,7 +363,7 @@ namespace
 		return static_cast<FVectorMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0;
 	}
 	auto GVectorMapHelper() -> const Durin::FMapOps* { return Durin::ResolveMapOps<FVectorMap>(); }
-	Durin::uint64 GSoftPackageConstructionCount = 0;
+	uint64 GSoftPackageConstructionCount = 0;
 
 	class DPackageAssetForTest : public Durin::DObject
 	{
@@ -400,25 +400,25 @@ namespace
 				Durin::DurinCodeGen::WithLegacyNames(
 					Durin::DurinCodeGen::FInt32PropertyParams{
 						"Value", Durin::EPropertyFlags::None, 1,
-						static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value))},
+						static_cast<uint16>(offsetof(DPackageAssetForTest, Value))},
 					ValueLegacyNames, std::size(ValueLegacyNames));
-			static const Durin::DurinCodeGen::FStringPropertyParams LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Label))};
-			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DisplayName))};
-			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, PersistentId))};
+			static const Durin::DurinCodeGen::FStringPropertyParams LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, Label))};
+			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, DisplayName))};
+			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, PersistentId))};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidInner = {"RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, RelatedIds)), &GuidInner, &GGuidVectorHelper};
+			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, RelatedIds)), &GuidInner, &GGuidVectorHelper};
 			static const Durin::DurinCodeGen::FInt32PropertyParams ScoreInner = {"Scores_Inner", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FArrayPropertyParams ScoresProp = {"Scores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Scores)), &ScoreInner, &GIntVectorHelper};
+			static const Durin::DurinCodeGen::FArrayPropertyParams ScoresProp = {"Scores", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, Scores)), &ScoreInner, &GIntVectorHelper};
 			static const Durin::DurinCodeGen::FStringPropertyParams MapKeyProp = {"NamedScores_Key", Durin::EPropertyFlags::None, 1, 0};
 			static const Durin::DurinCodeGen::FInt32PropertyParams MapValueProp = {"NamedScores_Value", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FMapPropertyParams NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, NamedScores)), &MapKeyProp, &MapValueProp, &GScoreMapHelper};
+			static const Durin::DurinCodeGen::FMapPropertyParams NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, NamedScores)), &MapKeyProp, &MapValueProp, &GScoreMapHelper};
 			static const Durin::DurinCodeGen::FStructPropertyParams SourcePathProp = {
 				"SourcePath", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, SourcePath)),
+				static_cast<uint16>(offsetof(DPackageAssetForTest, SourcePath)),
 				&Durin::FSourcePath::StaticStruct
 			};
-			static const Durin::DurinCodeGen::FObjectPropertyParams ChildProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DefaultChild)), &Durin::DObject::StaticClass);
-			static const Durin::DurinCodeGen::FObjectPropertyParams ExternalProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, ExternalReference)), &Durin::DObject::StaticClass);
+			static const Durin::DurinCodeGen::FObjectPropertyParams ChildProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, DefaultChild)), &Durin::DObject::StaticClass);
+			static const Durin::DurinCodeGen::FObjectPropertyParams ExternalProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, ExternalReference)), &Durin::DObject::StaticClass);
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&ValueProp, &LabelProp, &DisplayNameProp, &GuidProp, &GuidsProp, &ScoresProp,
 				&NamedScoresProp, &SourcePathProp, &ChildProp, &ExternalProp
@@ -428,12 +428,12 @@ namespace
 			return Class;
 		}
 
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 		std::string Label;
 		Durin::FName DisplayName;
 		Durin::FGuid PersistentId;
 		std::vector<Durin::FGuid> RelatedIds;
-		std::vector<Durin::int32> Scores;
+		std::vector<int32> Scores;
 		FScoreMap NamedScores;
 		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
@@ -444,7 +444,7 @@ namespace
 	{
 		inline static constexpr Durin::FGuid Guid{
 			0x78d61a4e, 0x29554b39, 0x93bbf092, 0x9c8eb965};
-		enum Type : Durin::int32
+		enum Type : int32
 		{
 			BeforeCustomVersionWasAdded = -1,
 			Initial = 0,
@@ -607,13 +607,13 @@ namespace
 
 		float A = 0.0f;
 		float B = 0.0f;
-		Durin::int32 Merged = 0;
+		int32 Merged = 0;
 		float Distance = 0.0f;
-		Durin::int32 Anchor = 0;
+		int32 Anchor = 0;
 		AssetStructTest::FMigratingValue StructData;
-		Durin::int32 A_DEPRECATED = 0;
-		Durin::int32 Left_DEPRECATED = 0;
-		Durin::int32 Right_DEPRECATED = 0;
+		int32 A_DEPRECATED = 0;
+		int32 Left_DEPRECATED = 0;
+		int32 Right_DEPRECATED = 0;
 		float Distance_DEPRECATED = 0.0f;
 	};
 
@@ -671,9 +671,9 @@ namespace
 	};
 
 	std::vector<Durin::EArchivePurpose> GAuthoredArchivePurposes;
-	std::vector<Durin::uint32> GAuthoredArchiveFormatVersions;
-	Durin::uint64 GAuthoredConstructCount = 0;
-	Durin::uint64 GAuthoredLoadSerializeCount = 0;
+	std::vector<uint32> GAuthoredArchiveFormatVersions;
+	uint64 GAuthoredConstructCount = 0;
+	uint64 GAuthoredLoadSerializeCount = 0;
 	bool GRejectAuthoredLoad = false;
 	bool GRejectAuthoredPostLoad = false;
 
@@ -766,7 +766,7 @@ namespace
 			{
 				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("EmissionOnly"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(false, 8)});
-				Durin::uint8 Value = 1;
+				uint8 Value = 1;
 				Ar << Value;
 			}
 			if (bUnsupportedCustomVersion)
@@ -784,7 +784,7 @@ namespace
 			return DObject::PostLoad(OutError);
 		}
 
-		Durin::int32 NativeValue = 73;
+		int32 NativeValue = 73;
 		Durin::TObjectPtr<Durin::DObject> HardReference;
 		Durin::FSoftObjectPath SoftReference;
 		bool bSkipSuper = false;
@@ -849,13 +849,13 @@ namespace
 			static const auto DirectProp =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftReference>(
 					"Direct", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DSoftPackageAssetForTest, Direct)),
+					static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Direct)),
 					&DPackageAssetForTest::StaticClass
 				);
 			static const auto FixedProp =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftReference>(
 					"Fixed", Durin::EPropertyFlags::None, 2,
-					static_cast<Durin::uint16>(offsetof(DSoftPackageAssetForTest, Fixed)),
+					static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Fixed)),
 					&DPackageAssetForTest::StaticClass
 				);
 			static const auto ArrayInner =
@@ -865,7 +865,7 @@ namespace
 				);
 			static const Durin::DurinCodeGen::FArrayPropertyParams ArrayProp = {
 				"Array", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DSoftPackageAssetForTest, Array)),
+				static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Array)),
 				&ArrayInner, &ResolveSoftArrayOps
 			};
 			static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
@@ -878,7 +878,7 @@ namespace
 				);
 			static const Durin::DurinCodeGen::FMapPropertyParams MapProp = {
 				"Map", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DSoftPackageAssetForTest, Map)),
+				static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Map)),
 				&MapKey, &MapValue, &ResolveSoftMapOps
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -912,7 +912,7 @@ namespace
 	{
 		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
 			"Value", Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(AssetStructTest::FCodecSource, Value))
+			static_cast<uint16>(offsetof(AssetStructTest::FCodecSource, Value))
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
 		static const Durin::DurinCodeGen::FStructParams Params = {
@@ -938,7 +938,7 @@ namespace
 	{
 		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
 			"Value", Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(AssetStructTest::FCodecTarget, Value))
+			static_cast<uint16>(offsetof(AssetStructTest::FCodecTarget, Value))
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
 		static const Durin::DurinCodeGen::FStructParams Params = {
@@ -995,7 +995,7 @@ namespace
 			constexpr bool bSource = std::is_same_v<TValue, AssetStructTest::FCodecSource>;
 			static const Durin::DurinCodeGen::FStructPropertyParams ValueProp = {
 				"Value", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(TCodecAssetForTest, Value)),
+				static_cast<uint16>(offsetof(TCodecAssetForTest, Value)),
 				bSource ? &GetCodecSourceStruct : &GetCodecTargetStruct
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -1057,22 +1057,22 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorProp = {
 				"Vector", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vector)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, Vector)),
 				&Durin::Z_Construct_DStruct_Durin_FVector3
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams TransformProp = {
 				"Transform", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, Transform)),
 				&Durin::Z_Construct_DStruct_Durin_FTransform
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatQuatProp = {
 				"FloatQuat", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, FloatQuat)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, FloatQuat)),
 				&Durin::Z_Construct_DStruct_Durin_FQuatf
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatMatrixProp = {
 				"FloatMatrix", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, FloatMatrix)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, FloatMatrix)),
 				&Durin::Z_Construct_DStruct_Durin_FMatrix4f
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
@@ -1081,7 +1081,7 @@ namespace
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams VectorsProp = {
 				"Vectors", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vectors)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, Vectors)),
 				&VectorInner, &GVector3VectorHelper
 			};
 			static const Durin::DurinCodeGen::FStringPropertyParams VectorMapKey = {
@@ -1093,7 +1093,7 @@ namespace
 			};
 			static const Durin::DurinCodeGen::FMapPropertyParams VectorMapProp = {
 				"VectorMap", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, VectorMap)),
+				static_cast<uint16>(offsetof(DMathStructAssetForTest, VectorMap)),
 				&VectorMapKey, &VectorMapValue, &GVectorMapHelper
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -1274,8 +1274,8 @@ namespace
 	) -> bool
 	{
 		if (OldValue.size() != NewValue.size()) return false;
-		std::vector<std::byte> Pattern(sizeof(Durin::uint64) + OldValue.size());
-		const Durin::uint64 Length = OldValue.size();
+		std::vector<std::byte> Pattern(sizeof(uint64) + OldValue.size());
+		const uint64 Length = OldValue.size();
 		std::memcpy(Pattern.data(), &Length, sizeof(Length));
 		std::memcpy(Pattern.data() + sizeof(Length), OldValue.data(), OldValue.size());
 		const auto It = std::search(Bytes.begin(), Bytes.end(), Pattern.begin(), Pattern.end());
@@ -1288,9 +1288,9 @@ namespace
 		std::vector<std::byte>& Bytes,
 		std::string_view OldValue,
 		std::string_view NewValue
-	) -> Durin::uint64
+	) -> uint64
 	{
-		Durin::uint64 Count = 0;
+		uint64 Count = 0;
 		while (RenameSerializedString(Bytes, OldValue, NewValue))
 			++Count;
 		return Count;
@@ -1304,8 +1304,8 @@ namespace
 	) -> bool
 	{
 		if (OldValue.size() != NewValue.size()) return false;
-		std::vector<std::byte> Pattern(sizeof(Durin::uint64) + OldValue.size());
-		const Durin::uint64 Length = OldValue.size();
+		std::vector<std::byte> Pattern(sizeof(uint64) + OldValue.size());
+		const uint64 Length = OldValue.size();
 		std::memcpy(Pattern.data(), &Length, sizeof(Length));
 		std::memcpy(Pattern.data() + sizeof(Length), OldValue.data(), OldValue.size());
 		auto SearchStart = Bytes.begin();
@@ -1344,11 +1344,11 @@ namespace
 			.ExpectedContentHash = Durin::FXxHash128::HashBuffer(Bytes)};
 	}
 
-	auto HexDigit(char Character) -> Durin::uint8
+	auto HexDigit(char Character) -> uint8
 	{
-		if (Character >= '0' && Character <= '9') return static_cast<Durin::uint8>(Character - '0');
-		if (Character >= 'A' && Character <= 'F') return static_cast<Durin::uint8>(Character - 'A' + 10);
-		if (Character >= 'a' && Character <= 'f') return static_cast<Durin::uint8>(Character - 'a' + 10);
+		if (Character >= '0' && Character <= '9') return static_cast<uint8>(Character - '0');
+		if (Character >= 'A' && Character <= 'F') return static_cast<uint8>(Character - 'A' + 10);
+		if (Character >= 'a' && Character <= 'f') return static_cast<uint8>(Character - 'a' + 10);
 		ADD_FAILURE() << "Invalid hexadecimal fixture digit.";
 		return 0;
 	}
@@ -1630,10 +1630,10 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	WriteTestBytes(CorruptFile, Corrupt);
 	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(CorruptFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
 
-	for (const Durin::uint32 Version : {3u, 5u})
+	for (const uint32 Version : {3u, 5u})
 	{
 		auto Unsupported = Valid;
-		std::memcpy(Unsupported.data() + sizeof(Durin::uint32), &Version, sizeof(Version));
+		std::memcpy(Unsupported.data() + sizeof(uint32), &Version, sizeof(Version));
 		const auto UnsupportedFile = Root / std::format("HeaderUnsupported{}.dasset", Version);
 		WriteTestBytes(UnsupportedFile, Unsupported);
 		EXPECT_EQ(
@@ -1821,14 +1821,14 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 	EXPECT_EQ(FirstBytes, SecondBytes);
 	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::Discovery), 4);
 	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::AuthoredPackage), 4);
-	EXPECT_TRUE(std::ranges::all_of(GAuthoredArchiveFormatVersions, [](Durin::uint32 Version) {
+	EXPECT_TRUE(std::ranges::all_of(GAuthoredArchiveFormatVersions, [](uint32 Version) {
 		return Version == Durin::Asset::AssetPackageV4FormatVersion;
 	}));
 
 	const auto File = Durin::Testing::GetTestWorkDirectory()
 		/ "Assets" / "AuthoredArchiveInspection.dasset";
 	WriteTestBytes(File, FirstBytes);
-	const Durin::uint64 ConstructCountBeforeTools = GAuthoredConstructCount;
+	const uint64 ConstructCountBeforeTools = GAuthoredConstructCount;
 	const size_t SerializeCountBeforeTools = GAuthoredArchivePurposes.size();
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
@@ -1838,7 +1838,7 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 	ASSERT_NE(NativeField, nullptr);
 	EXPECT_EQ(NativeField->DeclaringClass, "Tests::DAuthoredArchiveAssetForTest");
 	EXPECT_EQ(NativeField->TypeSignature, "4:4");
-	Durin::int32 NativeValue = 0;
+	int32 NativeValue = 0;
 	ASSERT_TRUE(NativeField->TryReadScalar(NativeValue));
 	EXPECT_EQ(NativeValue, Source->NativeValue);
 	const auto* HardField = Inspection.FindField("HardReference");
@@ -1908,7 +1908,7 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Loaded->DisplayName, Durin::FName("RoundTripName"));
 	EXPECT_EQ(Loaded->PersistentId, (Durin::FGuid(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff)));
 	EXPECT_EQ(Loaded->RelatedIds, (std::vector<Durin::FGuid>{Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)}));
-	EXPECT_EQ(Loaded->Scores, (std::vector<Durin::int32>{3, 5, 8}));
+	EXPECT_EQ(Loaded->Scores, (std::vector<int32>{3, 5, 8}));
 	EXPECT_EQ(Loaded->NamedScores.at("Alpha"), 11);
 	EXPECT_EQ(Loaded->NamedScores.at("Beta"), 17);
 	EXPECT_EQ(Loaded->SourcePath.Path, "/TestAssets/Sources/RoundTrip.txt");
@@ -1932,7 +1932,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectTarget", Path));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectAlias", AliasPath));
 
-	const Durin::uint64 CatalogRevisionBeforeDraft =
+	const uint64 CatalogRevisionBeforeDraft =
 		Durin::Asset::GetAssetCatalogRevision();
 	DPackageAssetForTest* Created = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Created));
@@ -2159,8 +2159,8 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 
 	std::vector<std::byte> OversizedBytes;
 	Durin::FMemoryWriter OversizedWriter(OversizedBytes);
-	Durin::uint8 ReferenceKind = 1;
-	Durin::uint64 OversizedPathSize = 1024 * 1024 + 1;
+	uint8 ReferenceKind = 1;
+	uint64 OversizedPathSize = 1024 * 1024 + 1;
 	OversizedWriter << ReferenceKind << OversizedPathSize;
 	Owner->Direct.SetPath(SentinelPath);
 	Durin::FMemoryReader OversizedReader(OversizedBytes);
@@ -2228,13 +2228,13 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	);
 	ASSERT_NE(CatalogField, nullptr);
 	EXPECT_EQ(CatalogField->TypeSignature, DirectField->TypeSignature);
-	ASSERT_GE(DirectField->Payload.size(), 1u + sizeof(Durin::uint64));
+	ASSERT_GE(DirectField->Payload.size(), 1u + sizeof(uint64));
 	EXPECT_EQ(DirectField->Payload.front(), std::byte{1});
 	const Durin::Asset::FAssetPackageField* FixedField =
 		Inspection.FindField("Fixed");
 	ASSERT_NE(FixedField, nullptr);
 	const size_t FirstFixedValueBytes =
-		1 + sizeof(Durin::uint64) + MissingPath.GetView().size();
+		1 + sizeof(uint64) + MissingPath.GetView().size();
 	ASSERT_EQ(FixedField->Payload.size(), FirstFixedValueBytes + 1);
 	EXPECT_EQ(FixedField->Payload[FirstFixedValueBytes], std::byte{0});
 
@@ -2318,9 +2318,9 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 				if (Field.Name == Name) return &Field;
 		return nullptr;
 	};
-	auto MakePathPayload = [](Durin::uint8 Kind, std::string_view Path) {
+	auto MakePathPayload = [](uint8 Kind, std::string_view Path) {
 		std::vector<std::byte> Payload{static_cast<std::byte>(Kind)};
-		const Durin::uint64 Size = Path.size();
+		const uint64 Size = Path.size();
 		const auto SizeBytes = std::as_bytes(std::span{&Size, 1});
 		Payload.insert(Payload.end(), SizeBytes.begin(), SizeBytes.end());
 		const auto PathBytes = std::as_bytes(std::span{Path});
@@ -2349,7 +2349,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 
 	auto Overlong = Valid;
 	FindMutableField(Overlong, "Direct")->Payload = {std::byte{1}};
-	const Durin::uint64 OverlongSize = 1024 * 1024 + 1;
+	const uint64 OverlongSize = 1024 * 1024 + 1;
 	const auto OverlongBytes = std::as_bytes(std::span{&OverlongSize, 1});
 	FindMutableField(Overlong, "Direct")->Payload.insert(
 		FindMutableField(Overlong, "Direct")->Payload.end(), OverlongBytes.begin(), OverlongBytes.end());
@@ -2667,7 +2667,7 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	UnloadedOwner->Map.emplace("unloaded", DSoftPackageAssetForTest::FSoftReference(OldPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(UnloadedOwner->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(UnloadedOwnerPath));
-	const Durin::uint64 ConstructionsBeforeMove = GSoftPackageConstructionCount;
+	const uint64 ConstructionsBeforeMove = GSoftPackageConstructionCount;
 
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionsBeforeMove);
@@ -3070,7 +3070,7 @@ namespace
 		EXPECT_EQ(Summary.GetPackageOccurrences().size(), 2u);
 		EXPECT_EQ(Summary.GetStoreOccurrences().size(), 1u);
 		EXPECT_EQ(Summary.GetDeletableRedirectors().size(), 1u);
-		const Durin::uint64 ConstructionCount = GSoftPackageConstructionCount;
+		const uint64 ConstructionCount = GSoftPackageConstructionCount;
 		ASSERT_TRUE(Transaction.Commit());
 		const Durin::Asset::FAssetMutationResultDetails Details =
 			Transaction.GetLastResultDetails();
@@ -3387,7 +3387,7 @@ TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MapOrderingBaseline", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	const std::array<std::pair<std::string, Durin::int32>, 8> Entries = {{{"alpha", 1}, {"bravo", 2}, {"charlie", 3}, {"delta", 4}, {"echo", 5}, {"foxtrot", 6}, {"golf", 7}, {"hotel", 8}}};
+	const std::array<std::pair<std::string, int32>, 8> Entries = {{{"alpha", 1}, {"bravo", 2}, {"charlie", 3}, {"delta", 4}, {"echo", 5}, {"foxtrot", 6}, {"golf", 7}, {"hotel", 8}}};
 
 	Asset->NamedScores.clear();
 	Asset->NamedScores.rehash(37);
@@ -3453,8 +3453,8 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_EQ(Transform->GetPropertyFlags(), Durin::EPropertyFlags::None);
 	EXPECT_EQ(Vector->GetArrayDim(), 1);
 	EXPECT_EQ(Transform->GetArrayDim(), 1);
-	EXPECT_EQ(Vector->GetOffset(), static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vector)));
-	EXPECT_EQ(Transform->GetOffset(), static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)));
+	EXPECT_EQ(Vector->GetOffset(), static_cast<uint16>(offsetof(DMathStructAssetForTest, Vector)));
+	EXPECT_EQ(Transform->GetOffset(), static_cast<uint16>(offsetof(DMathStructAssetForTest, Transform)));
 	EXPECT_EQ(Vector->GetElementSize(), VectorStruct->PropertiesSize);
 	EXPECT_EQ(Transform->GetElementSize(), TransformStruct->PropertiesSize);
 	EXPECT_EQ(Vector->GetValueAlignment(), VectorStruct->MinAlignment);
@@ -4105,12 +4105,12 @@ TEST(FPackageAssetTests, PackageEditRevisionAdvancesForRepeatedDirtyEdits)
 	Durin::DPackage* Package = Asset->GetPackage();
 	ASSERT_NE(Package, nullptr);
 
-	const Durin::uint64 CreatedRevision = Package->GetEditRevision();
+	const uint64 CreatedRevision = Package->GetEditRevision();
 	Package->ClearDirty();
 	EXPECT_EQ(Package->GetEditRevision(), CreatedRevision);
 
 	Package->MarkDirty();
-	const Durin::uint64 FirstEditRevision = Package->GetEditRevision();
+	const uint64 FirstEditRevision = Package->GetEditRevision();
 	EXPECT_GT(FirstEditRevision, CreatedRevision);
 	EXPECT_TRUE(Package->IsDirty());
 
@@ -4349,7 +4349,7 @@ TEST(FPackageAssetTests, RelocationTransactionOwnsStateMachineAndExactUndoRedo)
 		Durin::Asset::EAssetMutationTransactionState::Prepared);
 	EXPECT_EQ(Transaction.Undo().Error, Durin::Asset::EAssetError::StaleData);
 	EXPECT_EQ(Transaction.Redo().Error, Durin::Asset::EAssetError::StaleData);
-	const Durin::uint64 BeforeRevision =
+	const uint64 BeforeRevision =
 		Durin::Asset::GetAssetCatalogRevision();
 	ASSERT_TRUE(Transaction.Commit());
 	EXPECT_EQ(Transaction.GetState(),
@@ -4472,7 +4472,7 @@ TEST(FPackageAssetTests, PackageDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStab
 	const auto OldFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "MoveSource.dasset";
 	std::vector<std::byte> Before;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile));
-	EXPECT_EQ(*reinterpret_cast<const Durin::uint32*>(Before.data() + sizeof(Durin::uint32)),
+	EXPECT_EQ(*reinterpret_cast<const uint32*>(Before.data() + sizeof(uint32)),
 		Durin::Asset::AssetPackageV4FormatVersion);
 	const std::string_view OldPathView = OldPath.GetView();
 	const std::span<const std::byte> OldPathBytes =
@@ -4675,8 +4675,8 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LegacyVersion.dasset";
 	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
 	ASSERT_TRUE(Stream.is_open());
-	const Durin::uint32 Version = 1;
-	Stream.seekp(sizeof(Durin::uint32));
+	const uint32 Version = 1;
+	Stream.seekp(sizeof(uint32));
 	Stream.write(reinterpret_cast<const char*>(&Version), sizeof(Version));
 	Stream.close();
 	Durin::DObject* Loaded = nullptr;
@@ -4788,7 +4788,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	std::filesystem::copy_file(ValidSource, ContentA / "Beta.dasset");
 	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentA.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	const Durin::uint64 RevisionBeforeInitialScan =
+	const uint64 RevisionBeforeInitialScan =
 		Durin::Asset::GetAssetCatalogRevision();
 	const auto InitialRefresh = Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation);
@@ -4806,7 +4806,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	std::vector<std::byte> FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstCache, CacheFile));
 
-	const Durin::uint64 StableRevision = Durin::Asset::GetAssetCatalogRevision();
+	const uint64 StableRevision = Durin::Asset::GetAssetCatalogRevision();
 	const auto StableRefresh = Durin::Asset::RefreshAssetCatalog();
 	ASSERT_TRUE(StableRefresh);
 	EXPECT_EQ(StableRefresh.ResultingRevision, StableRevision);
@@ -4872,8 +4872,8 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 
 	std::vector<std::byte> IncompatibleCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(IncompatibleCache, CacheFile));
-	const Durin::uint32 IncompatibleSchema = 99;
-	std::memcpy(IncompatibleCache.data() + sizeof(Durin::uint32), &IncompatibleSchema, sizeof(IncompatibleSchema));
+	const uint32 IncompatibleSchema = 99;
+	std::memcpy(IncompatibleCache.data() + sizeof(uint32), &IncompatibleSchema, sizeof(IncompatibleSchema));
 	WriteTestBytes(CacheFile, IncompatibleCache);
 	const auto IncompatibleCacheRefresh = Durin::Asset::RefreshAssetCatalog();
 	ASSERT_TRUE(IncompatibleCacheRefresh);
@@ -4991,7 +4991,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	const Durin::uint64 EmptyRegistryRevision = Durin::Asset::GetAssetCatalogRevision();
+	const uint64 EmptyRegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
 	Durin::FAssetPath FirstPath;
 	Durin::FAssetPath MovedPath;
@@ -5016,7 +5016,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	EXPECT_EQ(FirstWarmRefresh.CatalogStats.Reparsed, 0u);
 
 	Durin::DObject* Reloaded = nullptr;
-	const Durin::uint64 RevisionBeforeLoad = Durin::Asset::GetAssetCatalogRevision();
+	const uint64 RevisionBeforeLoad = Durin::Asset::GetAssetCatalogRevision();
 	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Reloaded));
 	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RevisionBeforeLoad);
 	EXPECT_FALSE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());

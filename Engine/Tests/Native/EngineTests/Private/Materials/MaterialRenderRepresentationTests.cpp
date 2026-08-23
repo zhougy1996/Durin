@@ -8,7 +8,7 @@
 
 namespace
 {
-	auto ReadFloat(std::span<const std::byte> Bytes, Durin::uint32 Offset) -> float
+	auto ReadFloat(std::span<const std::byte> Bytes, uint32 Offset) -> float
 	{
 		float Value = 0.0f;
 		std::memcpy(&Value, Bytes.data() + Offset, sizeof(Value));
@@ -20,7 +20,7 @@ namespace
 		Durin::FMaterialRenderRepresentationInput Input;
 		Input.Layout = Durin::MakeMaterialRenderLayoutV1();
 		Input.UniformPayload.resize(32, std::byte{0});
-		auto Write = [&Input](Durin::uint32 Offset, float Value) { std::memcpy(Input.UniformPayload.data() + Offset, &Value, sizeof(Value)); };
+		auto Write = [&Input](uint32 Offset, float Value) { std::memcpy(Input.UniformPayload.data() + Offset, &Value, sizeof(Value)); };
 		Write(0, 0.95f); Write(4, 0.62f); Write(8, 0.22f); Write(12, 1.0f); Write(16, 0.35f); Write(20, 32.0f);
 		Input.Resources.resize(1);
 		return Input;
@@ -420,7 +420,7 @@ TEST(FMaterialRenderRepresentationTests, V1BindingReadsCompactValuesWithoutParam
 {
 	Durin::FMaterialRenderRepresentationInput Input = MakeV1Input();
 	const std::array Values{0.3f, 0.5f, 0.7f, 0.4f, 0.6f, 48.0f};
-	const std::array<Durin::uint32, 6> Offsets{0, 4, 8, 12, 16, 20};
+	const std::array<uint32, 6> Offsets{0, 4, 8, 12, 16, 20};
 	for (size_t Index = 0; Index < Values.size(); ++Index) std::memcpy(Input.UniformPayload.data() + Offsets[Index], &Values[Index], sizeof(float));
 	Durin::FMaterialRenderRepresentation Representation;
 	Durin::FMaterialRenderValidationDiagnostic Diagnostic;

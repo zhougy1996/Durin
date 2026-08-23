@@ -134,8 +134,8 @@ namespace
 	auto MakePrincipalAxisView(
 		const Durin::FVector3& Direction,
 		const Durin::FVector3& Location,
-		Durin::uint32 Width,
-		Durin::uint32 Height
+		uint32 Width,
+		uint32 Height
 	) -> Durin::FSceneView
 	{
 		const Durin::FVector3 Forward = glm::normalize(Direction);
@@ -159,24 +159,24 @@ namespace
 	auto GetSourceColor(
 		const Durin::DTextureCube& Cube,
 		Durin::ETextureCubeFace Face,
-		Durin::uint32 X,
-		Durin::uint32 Y
-	) -> std::array<Durin::uint8, 4>
+		uint32 X,
+		uint32 Y
+	) -> std::array<uint8, 4>
 	{
 		const Durin::FTextureSourceData& Source = Cube.GetSourceData()->Faces[static_cast<size_t>(Face)];
 		const size_t PixelOffset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
 		return {
-			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset]),
-			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 1]),
-			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 2]),
-			std::to_integer<Durin::uint8>(Source.Pixels[PixelOffset + 3])
+			std::to_integer<uint8>(Source.Pixels[PixelOffset]),
+			std::to_integer<uint8>(Source.Pixels[PixelOffset + 1]),
+			std::to_integer<uint8>(Source.Pixels[PixelOffset + 2]),
+			std::to_integer<uint8>(Source.Pixels[PixelOffset + 3])
 		};
 	}
 
 	auto MapSrgbReferenceThroughDisplay(
-		const std::array<Durin::uint8, 4>& Source) -> std::array<Durin::uint8, 4>
+		const std::array<uint8, 4>& Source) -> std::array<uint8, 4>
 	{
-		auto Decode = [](Durin::uint8 Value) {
+		auto Decode = [](uint8 Value) {
 			const float Encoded = static_cast<float>(Value) / 255.0f;
 			return Encoded <= 0.04045f
 				? Encoded / 12.92f
@@ -186,7 +186,7 @@ namespace
 			const float Encoded = Linear <= 0.0031308f
 				? 12.92f * Linear
 				: 1.055f * std::pow(Linear, 1.0f / 2.4f) - 0.055f;
-			return static_cast<Durin::uint8>(std::lround(
+			return static_cast<uint8>(std::lround(
 				std::clamp(Encoded, 0.0f, 1.0f) * 255.0f));
 		};
 		const Durin::FVector3f Mapped =
@@ -198,10 +198,10 @@ namespace
 
 	auto ExpectRgbNear(
 		const std::vector<std::byte>& Pixels,
-		Durin::uint32 Width,
-		Durin::uint32 X,
-		Durin::uint32 Y,
-		const std::array<Durin::uint8, 4>& Expected,
+		uint32 Width,
+		uint32 X,
+		uint32 Y,
+		const std::array<uint8, 4>& Expected,
 		int Tolerance = 20
 	) -> void
 	{
@@ -216,9 +216,9 @@ namespace
 	auto ExpectRgbMatch(
 		const std::vector<std::byte>& Actual,
 		const std::vector<std::byte>& Expected,
-		Durin::uint32 Width,
-		Durin::uint32 X,
-		Durin::uint32 Y,
+		uint32 Width,
+		uint32 X,
+		uint32 Y,
 		int Tolerance = 2
 	) -> void
 	{
@@ -234,20 +234,20 @@ namespace
 	auto FindClosestCenterRgb(
 		const std::vector<std::byte>& Actual,
 		const std::array<std::vector<std::byte>, Durin::TextureCubeFaceCount>& Candidates,
-		Durin::uint32 Width
+		uint32 Width
 	) -> size_t
 	{
 		const size_t Offset = (static_cast<size_t>(Width / 2) * Width + Width / 2) * 4;
 		size_t ClosestIndex = 0;
-		Durin::uint32 ClosestDistance = std::numeric_limits<Durin::uint32>::max();
+		uint32 ClosestDistance = std::numeric_limits<uint32>::max();
 		for (size_t CandidateIndex = 0; CandidateIndex < Candidates.size(); ++CandidateIndex)
 		{
-			Durin::uint32 Distance = 0;
+			uint32 Distance = 0;
 			for (size_t Channel = 0; Channel < 3; ++Channel)
 			{
 				const int Difference = static_cast<int>(Actual[Offset + Channel])
 					- static_cast<int>(Candidates[CandidateIndex][Offset + Channel]);
-				Distance += static_cast<Durin::uint32>(Difference * Difference);
+				Distance += static_cast<uint32>(Difference * Difference);
 			}
 			if (Distance < ClosestDistance)
 			{

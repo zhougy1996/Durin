@@ -24,7 +24,7 @@ namespace
 	protected:
 		void SetUp() override
 		{
-			static std::atomic<Durin::uint32> NextId = 0;
+			static std::atomic<uint32> NextId = 0;
 			Root = Durin::Testing::GetTestWorkDirectory()
 				/ std::format("ProjectHistory-{}", NextId++);
 			std::filesystem::create_directories(Root);
@@ -56,9 +56,9 @@ namespace
 TEST(FProjectTests, PlatformProcessReportsCurrentProcessId)
 {
 #if defined(_WIN32)
-	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<Durin::uint32>(::_getpid()));
+	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<uint32>(::_getpid()));
 #elif defined(__APPLE__)
-	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<Durin::uint32>(::getpid()));
+	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<uint32>(::getpid()));
 #endif
 }
 
@@ -113,7 +113,7 @@ TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
 	}
 	std::string Error;
 	EXPECT_TRUE(Durin::FPlatformProcess::WaitForProcessExit(
-		static_cast<Durin::uint32>(Child), &Error)) << Error;
+		static_cast<uint32>(Child), &Error)) << Error;
 	int Status = 0;
 	EXPECT_EQ(waitpid(Child, &Status, 0), Child);
 }

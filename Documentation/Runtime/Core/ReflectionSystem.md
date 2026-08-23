@@ -582,10 +582,6 @@ The current generated property metadata supports these scalar and value kinds:
 - reflected soft `TSoftObjectPtr<T>` values
 - reflected struct values
 
-Fixed-width integer properties use the global `::int8` through `::uint64`
-types as their canonical generated C++ spelling. The parser also accepts
-unqualified source spellings and the compatibility `Durin::` aliases.
-
 The runtime property node stores:
 
 - name

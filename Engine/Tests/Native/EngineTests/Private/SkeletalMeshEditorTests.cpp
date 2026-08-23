@@ -68,7 +68,7 @@ TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 TEST(FSkeletalMeshEditorTests, PreviewSceneOwnsAndReleasesProductionComponents)
 {
 	FMaterialPreviewHarness Harness;
-	constexpr Durin::uint64 PreviewId = 97531;
+	constexpr uint64 PreviewId = 97531;
 	const std::string ActorName = std::format("SkeletalAssetPreviewActor_{}", PreviewId);
 	const std::string LightName = std::format("SkeletalAssetPreviewLightActor_{}", PreviewId);
 	{

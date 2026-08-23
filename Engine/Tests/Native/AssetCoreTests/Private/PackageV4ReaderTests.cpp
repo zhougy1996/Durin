@@ -15,7 +15,6 @@ namespace
 {
 	namespace Production = Durin::Asset::DastV4;
 	namespace Reference = Durin::Testing::DastV4;
-	using Durin::uint8;
 	auto MakeBytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result;
@@ -221,7 +220,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedField
 	ASSERT_EQ(Inspection.Objects.size(), 1);
 	ASSERT_EQ(Inspection.Objects.front().Fields.size(), 2);
 	EXPECT_EQ(Inspection.Objects.front().FindField("Count")->SourceFormatVersion, 4);
-	Durin::int32 Count = 0;
+	int32 Count = 0;
 	EXPECT_TRUE(Inspection.Objects.front().FindField("Count")->TryReadScalar(Count));
 	EXPECT_EQ(Count, -7);
 
@@ -278,7 +277,7 @@ TEST(FPackageV4ReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBa
 	EXPECT_EQ(Diagnostic.Failure, Production::EReaderFailure::PublicationFailure);
 	EXPECT_EQ(Loaded.GetPackage(), Published);
 	Production::FLiveLoadOptions Failure;
-	Failure.ShouldFail = [](Production::ELiveLoadPhase Phase, Durin::uint64) {
+	Failure.ShouldFail = [](Production::ELiveLoadPhase Phase, uint64) {
 		return Phase == Production::ELiveLoadPhase::PostLoad;
 	};
 	Durin::FAssetPath FailurePath;

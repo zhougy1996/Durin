@@ -129,14 +129,14 @@ namespace
 				static_cast<std::byte>(Durin::GBufferContract::StandardLitFlag));
 			auto DecodeNormal = [&Pixels, Offset](size_t PairOffset) {
 				return Durin::GBufferContract::DecodeOctahedralNormal({
-					static_cast<float>(std::to_integer<Durin::uint8>(Pixels[1][Offset + PairOffset])) / 255.0f,
-					static_cast<float>(std::to_integer<Durin::uint8>(Pixels[1][Offset + PairOffset + 1])) / 255.0f});
+					static_cast<float>(std::to_integer<uint8>(Pixels[1][Offset + PairOffset])) / 255.0f,
+					static_cast<float>(std::to_integer<uint8>(Pixels[1][Offset + PairOffset + 1])) / 255.0f});
 			};
 			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(0)), 1.0, 1.0e-5);
 			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(2)), 1.0, 1.0e-5);
-			EXPECT_GE(std::to_integer<Durin::uint32>(Pixels[0][Offset])
-				+ std::to_integer<Durin::uint32>(Pixels[0][Offset + 1])
-				+ std::to_integer<Durin::uint32>(Pixels[0][Offset + 2]), 254u);
+			EXPECT_GE(std::to_integer<uint32>(Pixels[0][Offset])
+				+ std::to_integer<uint32>(Pixels[0][Offset + 1])
+				+ std::to_integer<uint32>(Pixels[0][Offset + 2]), 254u);
 		}
 		EXPECT_GT(ValidPixels, 0u);
 	}
@@ -182,7 +182,7 @@ namespace
 			);
 		}
 		Data->IndexBuffer.Init({0, 1, 2, 0, 1, 2, 0, 1, 2});
-		for (Durin::uint32 SectionIndex = 0; SectionIndex < 3; ++SectionIndex)
+		for (uint32 SectionIndex = 0; SectionIndex < 3; ++SectionIndex)
 			Data->Sections.push_back({.Name = Durin::FName(std::format("Section{}", SectionIndex)), .FirstIndex = SectionIndex * 3, .IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2, .MaterialSlotIndex = SectionIndex, .LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0})});
 		Data->MaterialSlots = {
 			Durin::FName("Opaque"), Durin::FName("Masked"),
@@ -237,7 +237,7 @@ namespace
 			std::vector<Durin::FVector4f>(3, Durin::FVector4f(1.0f)), 3
 		);
 		LOD.IndexBuffer.Init({0, 1, 2, 0, 1, 2, 0, 1, 2});
-		for (Durin::uint32 SectionIndex = 0; SectionIndex < 3; ++SectionIndex)
+		for (uint32 SectionIndex = 0; SectionIndex < 3; ++SectionIndex)
 			LOD.Sections.push_back({.Name = std::format("Spline{}", SectionIndex), .FirstIndex = SectionIndex * 3, .IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2, .MaterialSlotIndex = SectionIndex, .LocalBounds = Durin::FBox({-0.8, -0.25, 0.0}, {0.8, 0.25, 0.0})});
 		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
 		Data->LODVertexFactories.resize(1);
@@ -251,12 +251,12 @@ namespace
 		Data->MaterialSlots = {{"Opaque", 0}};
 		auto& LOD = Data->LODResources.emplace_back();
 		std::vector<Durin::FVector3f> Positions;
-		std::vector<Durin::uint32> Indices;
+		std::vector<uint32> Indices;
 		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels> UVs;
 		Positions.reserve(256);
 		UVs[0].reserve(256);
 		Indices.reserve(254 * 3);
-		for (Durin::uint32 Slice = 0; Slice < 128; ++Slice)
+		for (uint32 Slice = 0; Slice < 128; ++Slice)
 		{
 			const float X = static_cast<float>(Slice) / 127.0f;
 			Positions.push_back({X, -0.5f, 0.0f});
@@ -264,7 +264,7 @@ namespace
 			UVs[0].push_back({X, 0.0f});
 			UVs[0].push_back({X, 1.0f});
 			if (Slice == 0) continue;
-			const Durin::uint32 Base = (Slice - 1) * 2;
+			const uint32 Base = (Slice - 1) * 2;
 			Indices.insert(Indices.end(), {Base, Base + 1, Base + 2, Base + 1, Base + 3, Base + 2});
 		}
 		LOD.VertexBuffers.PositionVertexBuffer.Init(std::move(Positions));
@@ -519,10 +519,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		[](std::byte Value) { return Value != std::byte{0}; }));
 	size_t RedPixels = 0;
 	for (size_t Offset = 0; Offset + 3 < Readback->size(); Offset += 4)
-		RedPixels += std::to_integer<Durin::uint8>((*Readback)[Offset])
-							 > std::to_integer<Durin::uint8>((*Readback)[Offset + 1]) + 20
-							 && std::to_integer<Durin::uint8>((*Readback)[Offset])
-							 > std::to_integer<Durin::uint8>((*Readback)[Offset + 2]) + 20 ?
+		RedPixels += std::to_integer<uint8>((*Readback)[Offset])
+							 > std::to_integer<uint8>((*Readback)[Offset + 1]) + 20
+							 && std::to_integer<uint8>((*Readback)[Offset])
+							 > std::to_integer<uint8>((*Readback)[Offset + 2]) + 20 ?
 						 1u :
 						 0u;
 	EXPECT_GT(RedPixels, 0u);
@@ -686,8 +686,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		);
 		Durin::FlushRenderingCommands();
 		auto ProfileSceneColor = [&](const char* TargetName) {
-			constexpr Durin::uint32 WarmupFrames = 10;
-			constexpr Durin::uint32 MeasuredFrames = 120;
+			constexpr uint32 WarmupFrames = 10;
+			constexpr uint32 MeasuredFrames = 120;
 			std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
 			GSceneColorTimingQueries = &Queries;
 			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
@@ -710,7 +710,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
 					View.Settings.Mode.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
-					for (Durin::uint32 Frame = 0;
+					for (uint32 Frame = 0;
 						 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 					{
 						Durin::GRenderFrameCounterRenderThread++;
@@ -723,7 +723,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::FlushRenderingCommands();
 			Durin::SetSceneColorTimingQuerySink(nullptr);
 			GSceneColorTimingQueries = nullptr;
-			for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+			for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 			{
 				const bool bReady = Queries.size() == WarmupFrames + MeasuredFrames
 									&& std::ranges::all_of(Queries, [](const auto& Query) {
@@ -742,7 +742,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 			EXPECT_EQ(Queries.size(), WarmupFrames + MeasuredFrames);
-			std::vector<Durin::uint64> Durations;
+			std::vector<uint64> Durations;
 			for (size_t Index = WarmupFrames; Index < Queries.size(); ++Index)
 			{
 				const Durin::FRHIGPUTimingResult Result = Queries[Index]->GetResult();
@@ -752,17 +752,17 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			}
 			std::ranges::sort(Durations);
 			EXPECT_EQ(Durations.size(), MeasuredFrames);
-			return Durations.empty() ? Durin::uint64(0) : Durations[Durations.size() / 2];
+			return Durations.empty() ? uint64(0) : Durations[Durations.size() / 2];
 		};
-		const Durin::uint64 DirectionalMedian =
+		const uint64 DirectionalMedian =
 			ProfileSceneColor("DirectionalLightingProfile");
-		for (Durin::uint64 Id = 20; Id < 24; ++Id)
+		for (uint64 Id = 20; Id < 24; ++Id)
 		{
 			if ((Id & 1u) == 0)
 			{
 				auto Data = Point;
 				Data.Position.x += static_cast<double>(
-									   static_cast<Durin::int64>(Id) - 24
+									   static_cast<int64>(Id) - 24
 								   )
 								   * 0.1;
 				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id), std::make_unique<Durin::FPointLightSceneProxy>(Data));
@@ -771,23 +771,23 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			{
 				auto Data = Spot;
 				Data.Position.y += static_cast<double>(
-									   static_cast<Durin::int64>(Id) - 24
+									   static_cast<int64>(Id) - 24
 								   )
 								   * 0.1;
 				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id), std::make_unique<Durin::FSpotLightSceneProxy>(Data));
 			}
 		}
 		Durin::FlushRenderingCommands();
-		const Durin::uint64 MultiLightMedian =
+		const uint64 MultiLightMedian =
 			ProfileSceneColor("MultiLightingProfile");
-		const Durin::uint64 Incremental = MultiLightMedian > DirectionalMedian ? MultiLightMedian - DirectionalMedian : 0;
+		const uint64 Incremental = MultiLightMedian > DirectionalMedian ? MultiLightMedian - DirectionalMedian : 0;
 		std::cout << "Lighting profile: directional=" << DirectionalMedian
 				  << " ns, 1+4=" << MultiLightMedian << " ns, incremental="
 				  << Incremental << " ns\n";
 		EXPECT_LE(Incremental, 1'000'000u);
 
-		constexpr Durin::uint32 ShadowWarmupFrames = 30;
-		constexpr Durin::uint32 ShadowMeasuredFrames = 120;
+		constexpr uint32 ShadowWarmupFrames = 30;
+		constexpr uint32 ShadowMeasuredFrames = 120;
 		auto ProfileShadowTier = [&](
 									 bool bEnabled,
 									 Durin::EDirectionalShadowDiagnosticMode DiagnosticMode,
@@ -831,7 +831,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.Settings.DirectionalShadow.Candidate = Candidate;
 					View.Settings.Mode.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
-					for (Durin::uint32 Frame = 0;
+					for (uint32 Frame = 0;
 						 Frame < ShadowWarmupFrames + ShadowMeasuredFrames; ++Frame)
 					{
 						Durin::GRenderFrameCounterRenderThread++;
@@ -846,7 +846,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::SetShadowDepthTimingQuerySink(nullptr);
 			GSceneColorTimingQueries = nullptr;
 			GShadowDepthTimingQueries = nullptr;
-			for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+			for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 			{
 				const bool bSceneReady = SceneQueries.size()
 											 == ShadowWarmupFrames + ShadowMeasuredFrames
@@ -873,7 +873,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 			auto Median = [ShadowMeasuredFrames](const auto& Queries) {
-				std::vector<Durin::uint64> Values;
+				std::vector<uint64> Values;
 				for (size_t Index = ShadowWarmupFrames;
 					 Index < Queries.size(); ++Index)
 					if (const auto Result = Queries[Index]->GetResult();
@@ -881,9 +881,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 						Values.push_back(Result.DurationNanoseconds);
 				std::ranges::sort(Values);
 				EXPECT_EQ(Values.size(), ShadowMeasuredFrames);
-				return Values.empty() ? Durin::uint64(0) : Values[Values.size() / 2];
+				return Values.empty() ? uint64(0) : Values[Values.size() / 2];
 			};
-			return std::pair{Median(SceneQueries), bEnabled ? Median(ShadowQueries) : Durin::uint64(0)};
+			return std::pair{Median(SceneQueries), bEnabled ? Median(ShadowQueries) : uint64(0)};
 		};
 		const auto DisabledShadow = ProfileShadowTier(
 			false, Durin::EDirectionalShadowDiagnosticMode::Lit,
@@ -921,26 +921,26 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::EDirectionalShadowCandidate::ThreeCascades,
 			"ShadowFilterDiagnosticProfile"
 		);
-		const Durin::uint64 SingleCombined =
+		const uint64 SingleCombined =
 			SingleMediumShadow.first + SingleMediumShadow.second;
-		const Durin::uint64 CandidateCombined =
+		const uint64 CandidateCombined =
 			MediumShadow.first + MediumShadow.second;
-		const Durin::uint64 CascadeIncrement = CandidateCombined > SingleCombined ? CandidateCombined - SingleCombined : 0;
-		const Durin::uint64 SceneIncrement = LowShadow.first
+		const uint64 CascadeIncrement = CandidateCombined > SingleCombined ? CandidateCombined - SingleCombined : 0;
+		const uint64 SceneIncrement = LowShadow.first
 													 > DisabledShadow.first ?
 												 LowShadow.first - DisabledShadow.first :
 												 0;
-		const Durin::uint64 CombinedIncrement =
+		const uint64 CombinedIncrement =
 			SceneIncrement + LowShadow.second;
-		const Durin::uint64 MediumSceneIncrement =
+		const uint64 MediumSceneIncrement =
 			MediumShadow.first > LowShadow.first ? MediumShadow.first - LowShadow.first : 0;
-		const Durin::uint64 HighSceneIncrement =
+		const uint64 HighSceneIncrement =
 			HighShadow.first > LowShadow.first ? HighShadow.first - LowShadow.first : 0;
-		const Durin::uint64 MediumShadowDepthRegression =
+		const uint64 MediumShadowDepthRegression =
 			MediumShadow.second > LowShadow.second ? MediumShadow.second - LowShadow.second : 0;
-		const Durin::uint64 HighShadowDepthRegression =
+		const uint64 HighShadowDepthRegression =
 			HighShadow.second > LowShadow.second ? HighShadow.second - LowShadow.second : 0;
-		const Durin::uint64 DiagnosticIncrement = DiagnosticShadow.first
+		const uint64 DiagnosticIncrement = DiagnosticShadow.first
 														  > MediumShadow.first ?
 													  DiagnosticShadow.first - MediumShadow.first :
 													  0;
@@ -1207,18 +1207,18 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FScenePtr ProfileSceneOwner = Renderer.CreateScene();
 		auto& ProfileScene =
 			static_cast<Durin::FScene&>(*ProfileSceneOwner);
-		auto SegmentTransform = [](Durin::uint32 Index) {
+		auto SegmentTransform = [](uint32 Index) {
 			const double X = -0.9 + static_cast<double>(Index % 8) * 0.24;
 			const double Y = -0.9 + static_cast<double>(Index / 8) * 0.48;
 			return Durin::Math::TranslationMatrix(Durin::FVector3(X, Y, 0.0))
 				   * Durin::Math::ScaleMatrix(Durin::FVector3(0.18, 0.18, 1.0));
 		};
-		for (Durin::uint32 Index = 0; Index < 32; ++Index)
+		for (uint32 Index = 0; Index < 32; ++Index)
 			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FStaticMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), SegmentTransform(Index));
 		Durin::FlushRenderingCommands();
 		auto ProfileP95 = [&](const char* TargetName) {
-			constexpr Durin::uint32 WarmupFrames = 10;
-			constexpr Durin::uint32 MeasuredFrames = 120;
+			constexpr uint32 WarmupFrames = 10;
+			constexpr uint32 MeasuredFrames = 120;
 			std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
 			GSceneColorTimingQueries = &Queries;
 			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
@@ -1232,7 +1232,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.ViewportHeight = 1080;
 					View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
 					View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-					for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
+					for (uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
 					{
 						Durin::GRenderFrameCounterRenderThread++;
 						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1244,7 +1244,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::FlushRenderingCommands();
 			Durin::SetSceneColorTimingQuerySink(nullptr);
 			GSceneColorTimingQueries = nullptr;
-			for (Durin::uint32 Attempt = 0; Attempt < 200; ++Attempt)
+			for (uint32 Attempt = 0; Attempt < 200; ++Attempt)
 			{
 				if (Queries.size() == WarmupFrames + MeasuredFrames
 					&& std::ranges::all_of(Queries, [](const auto& Query) { return Query->GetResult().State == Durin::ERHIGPUTimingResultState::Ready; })) break;
@@ -1258,16 +1258,16 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				Durin::FlushRenderingCommands();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
-			std::vector<Durin::uint64> Durations;
+			std::vector<uint64> Durations;
 			for (size_t Index = WarmupFrames; Index < Queries.size(); ++Index)
 				if (const auto Result = Queries[Index]->GetResult();
 					Result.State == Durin::ERHIGPUTimingResultState::Ready)
 					Durations.push_back(Result.DurationNanoseconds);
 			std::ranges::sort(Durations);
 			EXPECT_EQ(Durations.size(), MeasuredFrames);
-			return Durations.size() == MeasuredFrames ? Durations[113] : Durin::uint64(0);
+			return Durations.size() == MeasuredFrames ? Durations[113] : uint64(0);
 		};
-		const Durin::uint64 StaticP95 = ProfileP95("StaticRoadProfile");
+		const uint64 StaticP95 = ProfileP95("StaticRoadProfile");
 		Durin::FSplineMeshRenderDynamicData RoadSpline{
 			.Params = {}, .LocalBounds = Durin::FBox({-0.1, -0.6, -0.2}, {1.1, 0.8, 0.4}), .Revision = 1
 		};
@@ -1276,11 +1276,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		RoadSpline.Params.EndTangent = {0.8, -0.2, 0.3};
 		RoadSpline.Params.SourceForwardMin = 0.0;
 		RoadSpline.Params.SourceForwardMax = 1.0;
-		for (Durin::uint32 Index = 0; Index < 32; ++Index)
+		for (uint32 Index = 0; Index < 32; ++Index)
 			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FSplineMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1, RoadSpline), SegmentTransform(Index));
 		Durin::FlushRenderingCommands();
-		const Durin::uint64 SplineP95 = ProfileP95("SplineRoadProfile");
-		const Durin::uint64 Delta = SplineP95 > StaticP95 ? SplineP95 - StaticP95 : 0;
+		const uint64 SplineP95 = ProfileP95("SplineRoadProfile");
+		const uint64 Delta = SplineP95 > StaticP95 ? SplineP95 - StaticP95 : 0;
 		std::cout << "Spline profile: static_p95=" << StaticP95
 				  << " ns, spline_p95=" << SplineP95 << " ns, delta=" << Delta << " ns\n";
 		EXPECT_LE(Delta, 350'000u);

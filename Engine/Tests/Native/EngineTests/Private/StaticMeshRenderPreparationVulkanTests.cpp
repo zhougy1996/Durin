@@ -63,7 +63,7 @@ namespace
 			std::vector<Durin::FVector4f>(3, Durin::FVector4f(1.0f)), 3
 		);
 		LOD.IndexBuffer.Init({0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2});
-		for (Durin::uint32 SectionIndex = 0; SectionIndex < 4; ++SectionIndex)
+		for (uint32 SectionIndex = 0; SectionIndex < 4; ++SectionIndex)
 		{
 			LOD.Sections.push_back({.Name = std::format("Section{}", SectionIndex), .FirstIndex = SectionIndex * 3, .IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2, .MaterialSlotIndex = SectionIndex, .LocalBounds = Durin::FBox(Durin::FVector3(-1.0, -1.0, static_cast<double>(SectionIndex)), Durin::FVector3(1.0, 1.0, static_cast<double>(SectionIndex)))});
 		}
@@ -88,7 +88,7 @@ namespace
 			 {5.0f, 1.0f, 1.0f}, {5.0f, -1.0f, 1.0f}},
 			{{5.0f, -1.0f, -1.0f}, {5.0f, 1.0f, -1.0f},
 			 {5.0f, 0.0f, 1.0f}}}};
-		const std::array<std::vector<Durin::uint32>, 3> Indices{{
+		const std::array<std::vector<uint32>, 3> Indices{{
 			{0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4},
 			{0, 1, 2, 0, 2, 3},
 			{0, 1, 2}}};
@@ -112,18 +112,18 @@ namespace
 			}
 			LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(
 				std::move(TexCoords),
-				static_cast<Durin::uint32>(Positions[LODIndex].size()), 1);
+				static_cast<uint32>(Positions[LODIndex].size()), 1);
 			LOD.VertexBuffers.ColorVertexBuffer.Init(
 				std::vector<Durin::FVector4f>(
 					Positions[LODIndex].size(), Durin::FVector4f(1.0f)),
-				static_cast<Durin::uint32>(Positions[LODIndex].size()));
+				static_cast<uint32>(Positions[LODIndex].size()));
 			LOD.IndexBuffer.Init(Indices[LODIndex]);
 			LOD.Sections.push_back({
 				.Name = std::format("LOD{}", LODIndex),
 				.FirstIndex = 0,
-				.IndexCount = static_cast<Durin::uint32>(Indices[LODIndex].size()),
+				.IndexCount = static_cast<uint32>(Indices[LODIndex].size()),
 				.MinVertexIndex = 0,
-				.MaxVertexIndex = static_cast<Durin::uint32>(
+				.MaxVertexIndex = static_cast<uint32>(
 					Positions[LODIndex].size() - 1),
 				.MaterialSlotIndex = 0,
 				.LocalBounds = Durin::FBox(
@@ -313,7 +313,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					CommandList, OrderingScene.GetStaticMeshSceneInfos(), OriginView,
 					Durin::ERasterMode::Solid);
 			ASSERT_EQ(FromOrigin.Translucent.size(), 8u);
-			for (Durin::uint32 Index = 0; Index < 4; ++Index)
+			for (uint32 Index = 0; Index < 4; ++Index)
 			{
 				EXPECT_EQ(
 					FromOrigin.Primitives[
@@ -356,7 +356,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FlushRenderingCommands();
 
 	Durin::FScene GroupingScene;
-	auto AddGroupingPrimitive = [&](Durin::uint64 PrimitiveId) {
+	auto AddGroupingPrimitive = [&](uint64 PrimitiveId) {
 		GroupingScene.AddOrReplacePrimitive(
 			Durin::FPrimitiveSceneId(PrimitiveId),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
@@ -370,7 +370,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	AddGroupingPrimitive(200);
 	Durin::FlushRenderingCommands();
 	auto GroupedOrder = std::make_shared<
-		std::vector<std::pair<Durin::uint64, Durin::uint32>>>();
+		std::vector<std::pair<uint64, uint32>>>();
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&GroupingScene, GroupedOrder](
 			Durin::FRHICommandListImmediate& CommandList) {
@@ -429,7 +429,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList, GroupingScene.GetStaticMeshSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
-			std::vector<std::pair<Durin::uint64, Durin::uint32>> ReaddedOrder;
+			std::vector<std::pair<uint64, uint32>> ReaddedOrder;
 			for (const Durin::FPreparedStaticMeshDraw& Draw : Readded.Opaque)
 			{
 				ReaddedOrder.emplace_back(
@@ -471,7 +471,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				return View;
 			};
 			auto MakePerspectiveView = [](
-				double CameraX, Durin::uint32 Width, Durin::uint32 Height) {
+				double CameraX, uint32 Width, uint32 Height) {
 				Durin::FSceneView View;
 				View.ViewLocation = {CameraX, 0.0, 0.0};
 				View.ViewMatrix[3][0] = -CameraX;

@@ -10,7 +10,7 @@ namespace
 	template<typename TVector>
 	auto ExpectVectorNear(const TVector& Actual, const TVector& Expected, double Tolerance) -> void
 	{
-		for (Durin::uint32 Index = 0; Index < Actual.length(); ++Index)
+		for (uint32 Index = 0; Index < Actual.length(); ++Index)
 		{
 			EXPECT_NEAR(Actual[Index], Expected[Index], Tolerance);
 		}
@@ -18,9 +18,9 @@ namespace
 
 	auto ExpectIdentity(const Durin::FMatrix& Matrix, double Tolerance = 1.e-10) -> void
 	{
-		for (Durin::uint32 Column = 0; Column < 4; ++Column)
+		for (uint32 Column = 0; Column < 4; ++Column)
 		{
-			for (Durin::uint32 Row = 0; Row < 4; ++Row)
+			for (uint32 Row = 0; Row < 4; ++Row)
 			{
 				EXPECT_NEAR(Matrix[Column][Row], Column == Row ? 1.0 : 0.0, Tolerance);
 			}
@@ -134,18 +134,18 @@ TEST(FMathFacadeTests, PreservesColumnMajorTransformOrder)
 TEST(FMathFacadeTests, TransposesWhileNarrowingMatrixPrecision)
 {
 	Durin::FMatrix Matrix(0.0);
-	for (Durin::uint32 Column = 0; Column < 4; ++Column)
+	for (uint32 Column = 0; Column < 4; ++Column)
 	{
-		for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		for (uint32 Row = 0; Row < 4; ++Row)
 		{
 			Matrix[Column][Row] = static_cast<double>(Column * 4 + Row) + 0.25;
 		}
 	}
 
 	const Durin::FMatrix4f Result = Durin::Math::TransposeToFloat(Matrix);
-	for (Durin::uint32 Column = 0; Column < 4; ++Column)
+	for (uint32 Column = 0; Column < 4; ++Column)
 	{
-		for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		for (uint32 Row = 0; Row < 4; ++Row)
 		{
 			EXPECT_FLOAT_EQ(Result[Column][Row],
 				static_cast<float>(Matrix[Row][Column]));

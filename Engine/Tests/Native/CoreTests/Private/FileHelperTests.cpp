@@ -106,7 +106,7 @@ TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RawBytes, FilePath));
 	EXPECT_TRUE(RawBytes.empty());
 
-	std::vector<Durin::uint32> Words{0x11223344};
+	std::vector<uint32> Words{0x11223344};
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Words, FilePath));
 	EXPECT_TRUE(Words.empty());
 

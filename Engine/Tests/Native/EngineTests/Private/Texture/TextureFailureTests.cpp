@@ -220,9 +220,9 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 	EXPECT_TRUE(Texture->GetLastBuildError().empty());
 
 	const Durin::FTexturePlatformData RetainedPlatformData = *Texture->GetPlatformData();
-	const Durin::uint64 RetainedRevision = Texture->GetBuildRevision();
+	const uint64 RetainedRevision = Texture->GetBuildRevision();
 	{
-		const std::array<Durin::uint8, 4> CorruptBytes = {1, 2, 3, 4};
+		const std::array<uint8, 4> CorruptBytes = {1, 2, 3, 4};
 		std::ofstream Stream(GetTextureCachePath(*Texture), std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
@@ -259,11 +259,11 @@ TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
 	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Render Resource State");
 
 	const Durin::FEnumValue* Unbuilt = BuildStatusEnum->FindValueRecordByValue(
-		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::Unbuilt));
+		static_cast<uint64>(Durin::ETextureBuildStatus::Unbuilt));
 	const Durin::FEnumValue* MissingSource = BuildStatusEnum->FindValueRecordByValue(
-		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::MissingSource));
+		static_cast<uint64>(Durin::ETextureBuildStatus::MissingSource));
 	const Durin::FEnumValue* Building = ResourceStateEnum->FindValueRecordByValue(
-		static_cast<Durin::uint64>(Durin::ERenderResourceState::Building));
+		static_cast<uint64>(Durin::ERenderResourceState::Building));
 	ASSERT_NE(Unbuilt, nullptr);
 	ASSERT_NE(MissingSource, nullptr);
 	ASSERT_NE(Building, nullptr);
@@ -287,7 +287,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	Durin::DTexture2D* Texture = Imported.Asset;
 	ASSERT_NE(Texture, nullptr);
 	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
-	const Durin::uint64 LastGoodRevision = Texture->GetBuildRevision();
+	const uint64 LastGoodRevision = Texture->GetBuildRevision();
 
 	ASSERT_TRUE(EnsureTextureBuildHost());
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
@@ -298,7 +298,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	bool bEntered = false;
 	bool bRelease = false;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 			std::unique_lock Lock(Mutex);
 			if (bEntered) return;
@@ -318,7 +318,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 			return bEntered;
 		}));
 	}
-	const Durin::uint64 RequestId =
+	const uint64 RequestId =
 		Durin::Asset::Build::GetTexture2DBuildDiagnostic(*Texture).RequestId;
 	ASSERT_NE(RequestId, 0u);
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);

@@ -14,9 +14,9 @@ namespace
 {
 	struct FFakePickingState
 	{
-		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendRequest> Requests;
-		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendCompletion> Completions;
-		std::unordered_set<Durin::uint64> Cancelled;
+		std::unordered_map<uint64, Durin::Editor::Level::FViewportPickingBackendRequest> Requests;
+		std::unordered_map<uint64, Durin::Editor::Level::FViewportPickingBackendCompletion> Completions;
+		std::unordered_set<uint64> Cancelled;
 	};
 
 	class FControlledPickingBackend final : public Durin::Editor::Level::IViewportPickingBackend
@@ -93,30 +93,30 @@ namespace
 				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
 	}
 
-	auto CreateGridStaticMesh(Durin::DLevel* Level, Durin::uint32 TriangleCount) -> Durin::DStaticMesh*
+	auto CreateGridStaticMesh(Durin::DLevel* Level, uint32 TriangleCount) -> Durin::DStaticMesh*
 	{
-		const Durin::uint32 CellCount = (TriangleCount + 1) / 2;
-		const Durin::uint32 Width = std::max<Durin::uint32>(1,
-			static_cast<Durin::uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
-		const Durin::uint32 Height = (CellCount + Width - 1) / Width;
+		const uint32 CellCount = (TriangleCount + 1) / 2;
+		const uint32 Width = std::max<uint32>(1,
+			static_cast<uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
+		const uint32 Height = (CellCount + Width - 1) / Width;
 		Durin::Asset::Build::FStaticMeshImportedData Imported;
 		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		auto& Mesh = Imported.Meshes.emplace_back();
 		Mesh.Name = "PickingGrid";
 		Mesh.SourceMaterialIndex = 0;
 		Mesh.Positions.reserve(static_cast<size_t>(Width + 1) * (Height + 1));
-		for (Durin::uint32 Y = 0; Y <= Height; ++Y)
-			for (Durin::uint32 X = 0; X <= Width; ++X)
+		for (uint32 Y = 0; Y <= Height; ++Y)
+			for (uint32 X = 0; X <= Width; ++X)
 				Mesh.Positions.emplace_back(static_cast<float>(X), static_cast<float>(Y), 0.0f);
 		Mesh.Indices.reserve(static_cast<size_t>(TriangleCount) * 3);
-		for (Durin::uint32 Cell = 0; Cell < CellCount && Mesh.Indices.size() / 3 < TriangleCount; ++Cell)
+		for (uint32 Cell = 0; Cell < CellCount && Mesh.Indices.size() / 3 < TriangleCount; ++Cell)
 		{
-			const Durin::uint32 X = Cell % Width;
-			const Durin::uint32 Y = Cell / Width;
-			const Durin::uint32 A = Y * (Width + 1) + X;
-			const Durin::uint32 B = A + 1;
-			const Durin::uint32 C = A + Width + 1;
-			const Durin::uint32 D = C + 1;
+			const uint32 X = Cell % Width;
+			const uint32 Y = Cell / Width;
+			const uint32 A = Y * (Width + 1) + X;
+			const uint32 B = A + 1;
+			const uint32 C = A + Width + 1;
+			const uint32 D = C + 1;
 			Mesh.Indices.insert(Mesh.Indices.end(), {A, B, D});
 			if (Mesh.Indices.size() / 3 < TriangleCount)
 				Mesh.Indices.insert(Mesh.Indices.end(), {A, D, C});
@@ -139,7 +139,7 @@ TEST(FViewportPickingQualificationTests, RepresentativeStaticTriangleCountsBuild
 {
 	FPickingFixture Fixture;
 	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation({0.0, 0.0, 3.0});
-	for (Durin::uint32 TriangleCount : {10'000u, 250'000u})
+	for (uint32 TriangleCount : {10'000u, 250'000u})
 	{
 		Durin::DStaticMesh* Mesh = CreateGridStaticMesh(Fixture.Level, TriangleCount);
 		Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -151,7 +151,7 @@ TEST(FViewportPickingQualificationTests, RepresentativeStaticTriangleCountsBuild
 		ASSERT_TRUE(Completion.Hit);
 		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
 		EXPECT_LE(Completion.Diagnostics.StaticCandidateTriangles,
-			std::max<Durin::uint32>(1, TriangleCount / 100));
+			std::max<uint32>(1, TriangleCount / 100));
 		RecordProperty(std::format("triangles_{}_bytes", TriangleCount),
 			std::to_string(Data->LODResources[0].RayQueryAcceleration->RetainedBytes));
 		RecordProperty(std::format("triangles_{}_build_ns", TriangleCount),
@@ -162,7 +162,7 @@ TEST(FViewportPickingQualificationTests, RepresentativeStaticTriangleCountsBuild
 TEST(FViewportPickingQualificationTests, MillionTriangleFixtureMeetsDeterministicCandidateAndMemoryGates)
 {
 	FPickingFixture Fixture;
-	constexpr Durin::uint32 TriangleCount = 1'000'000;
+	constexpr uint32 TriangleCount = 1'000'000;
 	Durin::DStaticMesh* Mesh = CreateGridStaticMesh(Fixture.Level, TriangleCount);
 	ASSERT_NE(Mesh, nullptr);
 	Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -188,22 +188,22 @@ TEST(FViewportPickingQualificationTests, MillionTriangleFixtureMeetsDeterministi
 	const auto Measure = [&Request](Durin::Editor::Level::EViewportPickingBackendPolicy Policy)
 	{
 		auto Backend = Durin::Editor::Level::MakeViewportPickingBackend(Policy);
-		std::array<Durin::uint64, 3> Samples{};
-		for (Durin::uint64& Sample : Samples)
+		std::array<uint64, 3> Samples{};
+		for (uint64& Sample : Samples)
 		{
 			const auto Start = std::chrono::steady_clock::now();
 			const auto Completion = Backend->Submit(Request);
 			const auto End = std::chrono::steady_clock::now();
 			if (!Completion.Hit) throw std::runtime_error("timed picking query missed");
-			Sample = static_cast<Durin::uint64>(
+			Sample = static_cast<uint64>(
 				std::chrono::duration_cast<std::chrono::nanoseconds>(End - Start).count());
 		}
 		std::ranges::sort(Samples);
 		return Samples[1];
 	};
-	const Durin::uint64 ReferenceNanoseconds = Measure(
+	const uint64 ReferenceNanoseconds = Measure(
 		Durin::Editor::Level::EViewportPickingBackendPolicy::Reference);
-	const Durin::uint64 AcceleratedNanoseconds = Measure(
+	const uint64 AcceleratedNanoseconds = Measure(
 		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated);
 	RecordProperty("reference_median_ns", std::to_string(ReferenceNanoseconds));
 	RecordProperty("accelerated_median_ns", std::to_string(AcceleratedNanoseconds));
@@ -223,16 +223,16 @@ TEST(FViewportPickingQualificationTests, TenThousandPrimitiveSparseFixtureMeetsS
 	Fixture.Client.SetPickingSceneIndex(Index);
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
-	for (Durin::uint32 ActorIndex = 1; ActorIndex < 10'000; ++ActorIndex)
+	for (uint32 ActorIndex = 1; ActorIndex < 10'000; ++ActorIndex)
 	{
 		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(
 			Durin::FName(std::format("LargeSparse{}", ActorIndex)));
 		ASSERT_NE(Actor, nullptr);
 		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
-		const Durin::uint32 X = ActorIndex % 100;
-		const Durin::uint32 Y = ActorIndex / 100;
+		const uint32 X = ActorIndex % 100;
+		const uint32 Y = ActorIndex / 100;
 		Actor->GetStaticMeshComponent()->SetWorldLocation({100.0 + X * 2.0, 100.0 + Y * 2.0, 3.0});
-		const Durin::uint32 PrimitiveCount = ActorIndex + 1;
+		const uint32 PrimitiveCount = ActorIndex + 1;
 		if (PrimitiveCount == 100 || PrimitiveCount == 2'000)
 		{
 			const auto Checkpoint = Fixture.Client.SubmitViewportPick(
@@ -244,18 +244,18 @@ TEST(FViewportPickingQualificationTests, TenThousandPrimitiveSparseFixtureMeetsS
 		}
 	}
 	Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	const Durin::uint64 NodeVisitsBefore = Index->GetDiagnostics().NodeVisits;
-	std::array<Durin::uint64, 5> AcceleratedSamples{};
+	const uint64 NodeVisitsBefore = Index->GetDiagnostics().NodeVisits;
+	std::array<uint64, 5> AcceleratedSamples{};
 	Durin::Editor::Level::FViewportPickSubmission Pick;
-	for (Durin::uint64& Sample : AcceleratedSamples)
+	for (uint64& Sample : AcceleratedSamples)
 	{
 		const auto Start = std::chrono::steady_clock::now();
 		Pick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-		Sample = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+		Sample = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - Start).count());
 	}
 	const size_t CandidateCount = State->Requests.at(Pick.Ticket.Id).Targets.size();
-	const Durin::uint64 WarmNodeVisits = Index->GetDiagnostics().NodeVisits - NodeVisitsBefore;
+	const uint64 WarmNodeVisits = Index->GetDiagnostics().NodeVisits - NodeVisitsBefore;
 	std::vector<Durin::Editor::Level::FViewportPickingSceneCandidate> DenseCandidates;
 	ASSERT_TRUE(Index->QueryRay({99.0, 100.1, 3.0}, {1.0, 0.0, 0.0}, DenseCandidates));
 	EXPECT_GE(DenseCandidates.size(), 90u);
@@ -264,20 +264,20 @@ TEST(FViewportPickingQualificationTests, TenThousandPrimitiveSparseFixtureMeetsS
 	auto ReferenceState = std::make_shared<FFakePickingState>();
 	ReferenceClient.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(ReferenceState));
 	ReferenceClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	std::array<Durin::uint64, 5> ReferenceSamples{};
+	std::array<uint64, 5> ReferenceSamples{};
 	Durin::Editor::Level::FViewportPickSubmission ReferencePick;
-	for (Durin::uint64& Sample : ReferenceSamples)
+	for (uint64& Sample : ReferenceSamples)
 	{
 		const auto Start = std::chrono::steady_clock::now();
 		ReferencePick = ReferenceClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-		Sample = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+		Sample = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - Start).count());
 	}
 	ASSERT_EQ(ReferenceState->Requests.at(ReferencePick.Ticket.Id).Targets.size(), 10'000u);
 	std::ranges::sort(AcceleratedSamples);
 	std::ranges::sort(ReferenceSamples);
-	const Durin::uint64 AcceleratedNanoseconds = AcceleratedSamples[2];
-	const Durin::uint64 ReferenceNanoseconds = ReferenceSamples[2];
+	const uint64 AcceleratedNanoseconds = AcceleratedSamples[2];
+	const uint64 ReferenceNanoseconds = ReferenceSamples[2];
 	EXPECT_LE(CandidateCount, 500u);
 	EXPECT_LE(Index->GetDiagnostics().RetainedBytes, 64ull * 1024ull * 1024ull);
 	RecordProperty("scene_candidates", std::to_string(CandidateCount));
@@ -295,7 +295,7 @@ TEST(FViewportPickingQualificationTests, MaximumTerrainMeetsCellParityAndRelativ
 	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("QualifiedTerrain");
 	ASSERT_NE(Actor, nullptr);
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "QualifiedHeightmap");
-	std::vector<Durin::uint16> Samples(1025u * 1025u, 0);
+	std::vector<uint16> Samples(1025u * 1025u, 0);
 	Samples[512u * 1025u + 512u] = 65'535;
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(1025, 1025, Samples, Error)) << Error;
@@ -311,12 +311,12 @@ TEST(FViewportPickingQualificationTests, MaximumTerrainMeetsCellParityAndRelativ
 		Durin::Editor::Level::FViewportPickingBackendCompletion& OutCompletion)
 	{
 		auto Backend = Durin::Editor::Level::MakeViewportPickingBackend(Policy);
-		std::array<Durin::uint64, 3> Times{};
-		for (Durin::uint64& Time : Times)
+		std::array<uint64, 3> Times{};
+		for (uint64& Time : Times)
 		{
 			const auto Start = std::chrono::steady_clock::now();
 			OutCompletion = Backend->Submit(Request);
-			Time = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			Time = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - Start).count());
 			if (!OutCompletion.Hit) throw std::runtime_error("timed Terrain query missed");
 		}
@@ -325,9 +325,9 @@ TEST(FViewportPickingQualificationTests, MaximumTerrainMeetsCellParityAndRelativ
 	};
 	Durin::Editor::Level::FViewportPickingBackendCompletion Reference;
 	Durin::Editor::Level::FViewportPickingBackendCompletion Accelerated;
-	const Durin::uint64 ReferenceNs = Measure(
+	const uint64 ReferenceNs = Measure(
 		Durin::Editor::Level::EViewportPickingBackendPolicy::Reference, Reference);
-	const Durin::uint64 AcceleratedNs = Measure(
+	const uint64 AcceleratedNs = Measure(
 		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated, Accelerated);
 	EXPECT_LE(Accelerated.Diagnostics.TerrainVisitedCells, (1024u * 1024u) / 100u);
 	EXPECT_LE(AcceleratedNs, ReferenceNs / 4);

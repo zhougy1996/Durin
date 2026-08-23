@@ -89,7 +89,7 @@ TEST(FTransformTests, ZeroParentScaleProducesFiniteRelativeTransform)
 
 	const Durin::FTransform Relative = Durin::FTransform::MakeRelative(World, Parent);
 
-	for (Durin::uint32 Axis = 0; Axis < 3; ++Axis)
+	for (uint32 Axis = 0; Axis < 3; ++Axis)
 	{
 		EXPECT_TRUE(std::isfinite(Relative.Translation[Axis]));
 		EXPECT_TRUE(std::isfinite(Relative.Scale3D[Axis]));

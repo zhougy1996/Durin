@@ -14,17 +14,17 @@ namespace
 		Durin::FXxHash128Builder Left;
 		const std::string_view LeftA = "ab";
 		const std::string_view LeftB = "c";
-		Left.UpdateValue(static_cast<Durin::uint64>(LeftA.size()));
+		Left.UpdateValue(static_cast<uint64>(LeftA.size()));
 		Left.Update(LeftA);
-		Left.UpdateValue(static_cast<Durin::uint64>(LeftB.size()));
+		Left.UpdateValue(static_cast<uint64>(LeftB.size()));
 		Left.Update(LeftB);
 
 		Durin::FXxHash128Builder Right;
 		const std::string_view RightA = "a";
 		const std::string_view RightB = "bc";
-		Right.UpdateValue(static_cast<Durin::uint64>(RightA.size()));
+		Right.UpdateValue(static_cast<uint64>(RightA.size()));
 		Right.Update(RightA);
-		Right.UpdateValue(static_cast<Durin::uint64>(RightB.size()));
+		Right.UpdateValue(static_cast<uint64>(RightB.size()));
 		Right.Update(RightB);
 
 		EXPECT_NE(Left.Finalize(), Right.Finalize());

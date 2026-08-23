@@ -25,7 +25,7 @@ namespace
 {
 	struct FValueContainer
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FGuidValueContainer
@@ -40,12 +40,12 @@ namespace
 
 	struct FArrayValueContainer
 	{
-		std::vector<Durin::int32> Values;
+		std::vector<int32> Values;
 	};
 
 	struct FMapValueContainer
 	{
-		std::unordered_map<std::string, Durin::int32> Values;
+		std::unordered_map<std::string, int32> Values;
 	};
 
 	template<typename T>
@@ -66,7 +66,7 @@ namespace
 		const Durin::FProperty* MemberProperty = nullptr;
 		const Durin::FProperty* LeafProperty = nullptr;
 		std::vector<Durin::EPropertyPathSelector> Selectors;
-		std::vector<Durin::uint64> Indices;
+		std::vector<uint64> Indices;
 		std::vector<std::byte> MapKeyData;
 	};
 
@@ -101,7 +101,7 @@ namespace
 
 		std::vector<FCapturedChange> Changes;
 		std::function<bool(Durin::FPropertyEditProposal&, std::string&)> PreChange;
-		Durin::uint32 PreChangeCount = 0;
+		uint32 PreChangeCount = 0;
 		Durin::EPropertyChangePhase LastProposalPhase = Durin::EPropertyChangePhase::Interactive;
 		Durin::EPropertyChangeOrigin LastProposalOrigin = Durin::EPropertyChangeOrigin::Edit;
 		Durin::EPropertyChangeKind LastProposalKind = Durin::EPropertyChangeKind::ValueSet;
@@ -112,10 +112,10 @@ namespace
 	{
 		auto Property = std::make_unique<Durin::FNumericProperty>(
 			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::Edit, 1, static_cast<Durin::uint16>(offsetof(FValueContainer, Value)),
-			static_cast<Durin::uint16>(sizeof(Durin::int32)), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+			Durin::EPropertyFlags::Edit, 1, static_cast<uint16>(offsetof(FValueContainer, Value)),
+			static_cast<uint16>(sizeof(int32)), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
-		SetTestValueLifecycle<Durin::int32>(*Property);
+		SetTestValueLifecycle<int32>(*Property);
 		return Property;
 	}
 
@@ -123,35 +123,35 @@ namespace
 	{
 		auto Property = std::make_unique<Durin::FGuidProperty>(
 			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::Edit, 1, static_cast<Durin::uint16>(offsetof(FGuidValueContainer, Value)),
-			static_cast<Durin::uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
+			Durin::EPropertyFlags::Edit, 1, static_cast<uint16>(offsetof(FGuidValueContainer, Value)),
+			static_cast<uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
 		);
 		SetTestValueLifecycle<Durin::FGuid>(*Property);
 		return Property;
 	}
 
 	template<typename T>
-	auto VectorNum(const void* Container) -> Durin::uint64 { return static_cast<Durin::uint64>(static_cast<const std::vector<T>*>(Container)->size()); }
+	auto VectorNum(const void* Container) -> uint64 { return static_cast<uint64>(static_cast<const std::vector<T>*>(Container)->size()); }
 	template<typename T>
-	auto VectorElement(const void* Container, Durin::uint64 Index) -> const void* { return &(*static_cast<const std::vector<T>*>(Container))[static_cast<size_t>(Index)]; }
+	auto VectorElement(const void* Container, uint64 Index) -> const void* { return &(*static_cast<const std::vector<T>*>(Container))[static_cast<size_t>(Index)]; }
 	template<typename T>
-	auto MutableVectorElement(void* Container, Durin::uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[static_cast<size_t>(Index)]; }
+	auto MutableVectorElement(void* Container, uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[static_cast<size_t>(Index)]; }
 	template<typename T>
-	auto ResizeVector(void* Container, Durin::uint64 Num) -> bool { static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num)); return true; }
+	auto ResizeVector(void* Container, uint64 Num) -> bool { static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num)); return true; }
 
 
-	using FStringIntMap = std::unordered_map<std::string, Durin::int32>;
-	auto MapNum(const void* Container) -> Durin::uint64 { return static_cast<Durin::uint64>(static_cast<const FStringIntMap*>(Container)->size()); }
-	auto MapKey(const void* Container, Durin::uint64 Index) -> const void* { auto It = static_cast<const FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->first; }
-	auto MapValue(const void* Container, Durin::uint64 Index) -> const void* { auto It = static_cast<const FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->second; }
-	auto MutableMapValue(void* Container, Durin::uint64 Index) -> void* { auto It = static_cast<FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->second; }
+	using FStringIntMap = std::unordered_map<std::string, int32>;
+	auto MapNum(const void* Container) -> uint64 { return static_cast<uint64>(static_cast<const FStringIntMap*>(Container)->size()); }
+	auto MapKey(const void* Container, uint64 Index) -> const void* { auto It = static_cast<const FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->first; }
+	auto MapValue(const void* Container, uint64 Index) -> const void* { auto It = static_cast<const FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->second; }
+	auto MutableMapValue(void* Container, uint64 Index) -> void* { auto It = static_cast<FStringIntMap*>(Container)->begin(); std::advance(It, static_cast<size_t>(Index)); return &It->second; }
 	auto ClearMap(void* Container) -> void { static_cast<FStringIntMap*>(Container)->clear(); }
 	auto CreateMapKey() -> void* { return new std::string(); }
 	auto CopyMapKey(const void* Key) -> void* { return new std::string(*static_cast<const std::string*>(Key)); }
 	auto DestroyMapKey(void* Key) -> void { delete static_cast<std::string*>(Key); }
-	auto CreateMapValue() -> void* { return new Durin::int32(); }
-	auto DestroyMapValue(void* Value) -> void { delete static_cast<Durin::int32*>(Value); }
-	auto InsertMap(void* Container, const void* Key, const void* Value) -> bool { static_cast<FStringIntMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value)); return true; }
+	auto CreateMapValue() -> void* { return new int32(); }
+	auto DestroyMapValue(void* Value) -> void { delete static_cast<int32*>(Value); }
+	auto InsertMap(void* Container, const void* Key, const void* Value) -> bool { static_cast<FStringIntMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const int32*>(Value)); return true; }
 	auto ContainsMap(const void* Container, const void* Key) -> bool { return static_cast<const FStringIntMap*>(Container)->contains(*static_cast<const std::string*>(Key)); }
 	auto RenameMapKey(void* Container, const void* OldKey, const void* NewKey) -> bool
 	{
@@ -172,11 +172,11 @@ namespace
 	{
 		auto Property = std::make_unique<Durin::FArrayProperty>(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
-			1, static_cast<Durin::uint16>(offsetof(FArrayValueContainer, Values)), static_cast<Durin::uint16>(sizeof(std::vector<Durin::int32>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, Durin::ResolveArrayOps<std::vector<Durin::int32>>()
+			1, static_cast<uint16>(offsetof(FArrayValueContainer, Values)), static_cast<uint16>(sizeof(std::vector<int32>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, Durin::ResolveArrayOps<std::vector<int32>>()
 		);
 		Property->SetInner(&Inner);
-		SetTestValueLifecycle<std::vector<Durin::int32>>(*Property);
+		SetTestValueLifecycle<std::vector<int32>>(*Property);
 		return Property;
 	}
 
@@ -184,7 +184,7 @@ namespace
 	{
 		auto Property = std::make_unique<Durin::FMapProperty>(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
-			1, static_cast<Durin::uint16>(offsetof(FMapValueContainer, Values)), static_cast<Durin::uint16>(sizeof(FStringIntMap)),
+			1, static_cast<uint16>(offsetof(FMapValueContainer, Values)), static_cast<uint16>(sizeof(FStringIntMap)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, Durin::ResolveMapOps<FStringIntMap>()
 		);
 		Property->SetKeyProp(&Key);
@@ -193,7 +193,7 @@ namespace
 		return Property;
 	}
 
-	auto CaptureValue(const Durin::FProperty* Property, FValueContainer& Container, Durin::int32 Value) -> Durin::FPropertyValueSnapshot
+	auto CaptureValue(const Durin::FProperty* Property, FValueContainer& Container, int32 Value) -> Durin::FPropertyValueSnapshot
 	{
 		FValueContainer Proposed{Value};
 		Durin::FPropertyValueSnapshot Snapshot;
@@ -221,7 +221,7 @@ namespace
 			"/ReflectedRevisionTests/",
 			(Durin::Testing::GetTestWorkDirectory() / "ReflectedRevisionTests").generic_string() + "/"
 		);
-		static Durin::uint64 NextPackageId = 1;
+		static uint64 NextPackageId = 1;
 		const std::string Name = "Package" + std::to_string(NextPackageId++);
 		Durin::FAssetPath Path;
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/ReflectedRevisionTests/" + Name, Path));

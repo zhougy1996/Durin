@@ -39,13 +39,13 @@ namespace
 			.VirtualPath = Data.PackagePath,
 			.AssetClassName = Data.AssetClassName,
 			.PackageFormatVersion = Data.FormatVersion,
-			.FileSize = static_cast<Durin::uint64>(Data.FileSize),
+			.FileSize = static_cast<uint64>(Data.FileSize),
 			.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 	}
 
 	auto MakeRequest(
 		const Durin::Editor::FAssetThumbnailPackageFingerprint& Asset,
-		Durin::uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
+		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = Asset,
@@ -86,7 +86,7 @@ namespace
 
 	auto ThumbnailPngBytes() -> std::span<const std::byte>
 	{
-		static constexpr Durin::uint8 Bytes[] = {
+		static constexpr uint8 Bytes[] = {
 			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
 			0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
@@ -394,7 +394,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_FALSE(CacheKey.empty()) << Error;
 	const std::filesystem::path CacheRoot = MakeCacheRoot("CorruptRecovery");
 	{
-		const std::array<Durin::uint8, 8> Corrupt = {0, 1, 2, 3, 4, 5, 6, 7};
+		const std::array<uint8, 8> Corrupt = {0, 1, 2, 3, 4, 5, 6, 7};
 		Durin::Editor::FAssetThumbnailObjectStore Store({
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});

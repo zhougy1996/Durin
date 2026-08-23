@@ -12,10 +12,10 @@ namespace
 	{
 		Durin::FMaterialRenderData RenderData;
 		const Durin::FMaterialRenderProxy* ParentIdentity = nullptr;
-		Durin::uint64 LocalVersion = 0;
-		Durin::uint64 ResolvedVersion = 0;
-		Durin::uint64 ObservedParentResolvedVersion = 0;
-		Durin::uint64 StalePublicationCount = 0;
+		uint64 LocalVersion = 0;
+		uint64 ResolvedVersion = 0;
+		uint64 ObservedParentResolvedVersion = 0;
+		uint64 StalePublicationCount = 0;
 	};
 
 	auto CaptureMaterialProxy(
@@ -527,11 +527,11 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 		Durin::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.7, 0.6, 0.5)));
 
-	constexpr Durin::uint32 ChainLength = 32;
+	constexpr uint32 ChainLength = 32;
 	std::vector<Durin::DMaterialInstance*> Chain;
 	Chain.reserve(ChainLength);
 	Durin::DMaterialInterface* Parent = FirstBase;
-	for (Durin::uint32 Index = 0; Index < ChainLength; ++Index)
+	for (uint32 Index = 0; Index < ChainLength; ++Index)
 	{
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr,
@@ -731,10 +731,10 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndDestruction)
 {
 	FRenderSceneHarness Harness;
-	constexpr Durin::uint32 ChainLength = 48;
-	constexpr Durin::uint32 SharedUserCount = 12;
-	constexpr Durin::uint32 SlotCount = 8;
-	constexpr Durin::uint32 UnrelatedMaterialCount = 256;
+	constexpr uint32 ChainLength = 48;
+	constexpr uint32 SharedUserCount = 12;
+	constexpr uint32 SlotCount = 8;
+	constexpr uint32 UnrelatedMaterialCount = 256;
 	auto CapturePrimitiveCount = [&Harness]() -> size_t {
 		size_t Count = 0;
 		struct FCaptureMaterialStressPrimitiveCountCommand
@@ -768,7 +768,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	std::vector<Durin::DMaterialInstance*> Chain;
 	Chain.reserve(ChainLength);
 	Durin::DMaterialInterface* Parent = Base;
-	for (Durin::uint32 Index = 0; Index < ChainLength; ++Index)
+	for (uint32 Index = 0; Index < ChainLength; ++Index)
 	{
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr,
@@ -789,7 +789,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		nullptr, "ProxyStressReplacement");
 	std::vector<Durin::DMaterial*> SlotMaterials;
 	SlotMaterials.reserve(SlotCount);
-	for (Durin::uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
+	for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			nullptr,
@@ -811,7 +811,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
-	for (Durin::uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
+	for (uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
 	{
 		AddDebugMaterialSlot(
 			Mesh,
@@ -820,14 +820,14 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 
 	std::vector<Durin::DStaticMeshComponent*> Components;
 	Components.reserve(SharedUserCount);
-	for (Durin::uint32 UserIndex = 0; UserIndex < SharedUserCount; ++UserIndex)
+	for (uint32 UserIndex = 0; UserIndex < SharedUserCount; ++UserIndex)
 	{
 		auto* Component = Harness.CreateStaticMeshComponent(
 			Durin::FName(std::format("ProxyStressUser{}", UserIndex)));
 		ASSERT_NE(Component, nullptr);
 		Component->SetStaticMesh(Mesh);
 		Component->SetMaterial(0, Shared);
-		for (Durin::uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
+		for (uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
 		{
 			Component->SetMaterial(SlotIndex, SlotMaterials[SlotIndex]);
 		}
@@ -847,7 +847,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 
 	std::vector<Durin::DMaterial*> UnrelatedMaterials;
 	UnrelatedMaterials.reserve(UnrelatedMaterialCount);
-	for (Durin::uint32 Index = 0; Index < UnrelatedMaterialCount; ++Index)
+	for (uint32 Index = 0; Index < UnrelatedMaterialCount; ++Index)
 	{
 		UnrelatedMaterials.push_back(Durin::NewObject<Durin::DMaterial>(
 			nullptr,
@@ -889,7 +889,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		});
 	CommandStartedFuture.wait();
 
-	for (Durin::uint32 UpdateIndex = 0; UpdateIndex < 6; ++UpdateIndex)
+	for (uint32 UpdateIndex = 0; UpdateIndex < 6; ++UpdateIndex)
 	{
 		ASSERT_TRUE(Base->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),

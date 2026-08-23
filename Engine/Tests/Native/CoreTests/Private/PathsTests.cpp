@@ -19,7 +19,7 @@ namespace
 	protected:
 		void SetUp() override
 		{
-			static std::atomic<Durin::uint32> NextId = 0;
+			static std::atomic<uint32> NextId = 0;
 			Root = Durin::Testing::GetTestWorkDirectory()
 				/ std::format("MountRegistry-{}", NextId++);
 			std::error_code CleanupError;

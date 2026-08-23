@@ -64,11 +64,11 @@ namespace
 	auto Publish(Durin::FScene& Scene, Durin::FVolumetricCloudSceneData Data) -> void
 	{
 		const Durin::FVolumetricCloudSceneId Id(Data.InstanceId);
-		const Durin::uint64 Revision = Data.PublicationRevision;
+		const uint64 Revision = Data.PublicationRevision;
 		Scene.AddOrReplaceVolumetricCloud(Id, Revision, std::make_unique<Durin::FVolumetricCloudSceneProxy>(std::move(Data)));
 	}
 
-	auto MakeCandidate(Durin::uint64 InstanceId, Durin::uint64 Revision, Durin::int32 Priority, Durin::FGuid PersistentId, std::string SelectionKey) -> Durin::FVolumetricCloudSceneData
+	auto MakeCandidate(uint64 InstanceId, uint64 Revision, int32 Priority, Durin::FGuid PersistentId, std::string SelectionKey) -> Durin::FVolumetricCloudSceneData
 	{
 		Durin::FVolumetricCloudSceneData Data;
 		Data.PersistentId = PersistentId;
@@ -195,7 +195,7 @@ TEST(FVolumetricCloudSceneContractTests, ValidationAndP1TranslationPreserveTheFr
 	EXPECT_EQ(Parameters.PrimarySampleCount, 32u);
 	EXPECT_EQ(Parameters.LightSampleCount, 4u);
 	EXPECT_FLOAT_EQ(Parameters.TransmittanceCutoff, 0.01f);
-	const Durin::uint64 LightingKey =
+	const uint64 LightingKey =
 		Durin::CalculateVolumetricCloudLightingKey(Lights);
 	EXPECT_NE(LightingKey, 0u);
 	Lights.Directional.front().Data.Intensity = 3.0f;
@@ -306,7 +306,7 @@ TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndAl
 	Component->SetLayer(900.0, 4100.0, 75000.0);
 	Component->SetOpticalProperties(0.7f, 0.2f, 0.004f, 0.006f, 0.3f);
 	const Durin::FGuid PersistentId = Component->GetVolumetricCloudSceneId();
-	const Durin::uint64 RuntimeId = Component->GetVolumetricCloudInstanceId();
+	const uint64 RuntimeId = Component->GetVolumetricCloudInstanceId();
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
 	auto* Loaded = Durin::Cast<Durin::AVolumetricCloudActor>(
@@ -345,7 +345,7 @@ TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteI
 	auto Observation = ObserveClouds(*Scene);
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_FALSE(Observation.bHasActive);
-	const Durin::uint64 FirstRevision = Component->GetPublicationRevision();
+	const uint64 FirstRevision = Component->GetPublicationRevision();
 	Component->SetPriority(50);
 	Observation = ObserveClouds(*Scene);
 	EXPECT_EQ(Observation.Count, 1u);

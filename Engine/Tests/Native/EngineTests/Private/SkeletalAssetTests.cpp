@@ -45,7 +45,7 @@ namespace
 	auto SerializeMeshPayload(
 		const Durin::FSkeletalMeshPayloadData& Payload,
 		const Durin::DSkeleton& Skeleton,
-		Durin::uint32 MaterialSlotCount,
+		uint32 MaterialSlotCount,
 		std::vector<std::byte>& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -141,7 +141,7 @@ namespace
 		ASSERT_TRUE(Skeleton.InitializeCanonicalBones(std::move(Bones), Error)) << Error;
 	}
 
-	auto MakeMeshPayload(Durin::uint16 BoneIndex = 1) -> std::shared_ptr<const Durin::FSkeletalMeshPayloadData>
+	auto MakeMeshPayload(uint16 BoneIndex = 1) -> std::shared_ptr<const Durin::FSkeletalMeshPayloadData>
 	{
 		auto Payload = std::make_shared<Durin::FSkeletalMeshPayloadData>();
 		Payload->Positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
@@ -168,7 +168,7 @@ namespace
 		return Payload;
 	}
 
-	auto MakeCookedDescriptor(Durin::uint32 Seed) -> Durin::Asset::FCookedPayloadDescriptor
+	auto MakeCookedDescriptor(uint32 Seed) -> Durin::Asset::FCookedPayloadDescriptor
 	{
 		return {
 			.PayloadId = Durin::FGuid(Seed, Seed + 1, Seed + 2, Seed + 3),
@@ -221,7 +221,7 @@ namespace
 				.SkeletonBoneCount = Skeleton.GetBoneCount(),
 				.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 				.MeshNodeBindTransform = Data.MeshNodeBindTransform,
-				.MaterialSlotCount = static_cast<Durin::uint32>(Data.MaterialSlots.size()),
+				.MaterialSlotCount = static_cast<uint32>(Data.MaterialSlots.size()),
 				.Payload = Data.Payload,
 				.KeyInput = std::move(KeyInput)}, Product, Error);
 			if (bBuilt)
@@ -318,35 +318,35 @@ namespace
 		return Root;
 	}
 
-	auto ReadWireU64(const std::vector<std::byte>& Bytes, size_t Offset) -> Durin::uint64
+	auto ReadWireU64(const std::vector<std::byte>& Bytes, size_t Offset) -> uint64
 	{
-		Durin::uint64 Value = 0;
-		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
-			Value |= std::to_integer<Durin::uint64>(Bytes[Offset + Byte]) << (Byte * 8);
+		uint64 Value = 0;
+		for (uint32 Byte = 0; Byte < 8; ++Byte)
+			Value |= std::to_integer<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
 		return Value;
 	}
 
 	auto WriteWireU32(
 		std::vector<std::byte>& Bytes,
 		size_t Offset,
-		Durin::uint32 Value) -> void
+		uint32 Value) -> void
 	{
-		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
 	auto WriteWireU64(
 		std::vector<std::byte>& Bytes,
 		size_t Offset,
-		Durin::uint64 Value) -> void
+		uint64 Value) -> void
 	{
-		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
+		for (uint32 Byte = 0; Byte < 8; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
 	auto RefreshSkeletalPayloadHash(std::vector<std::byte>& Bytes) -> void
 	{
-		const Durin::uint64 Hash = Durin::FXxHash64::HashBuffer(
+		const uint64 Hash = Durin::FXxHash64::HashBuffer(
 			std::span<const std::byte>(Bytes).subspan(
 				Durin::SkeletalPayloadHeaderSize)).HashValue;
 		WriteWireU64(Bytes, 56, Hash);
@@ -432,7 +432,7 @@ TEST(FSkeletalRenderDataTests, FailedReplacementKeepsCompleteRenderData)
 		.Payload = std::move(InvalidPayload)}, Error));
 	EXPECT_EQ(Mesh->GetRenderData(), Previous);
 	EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),
-		std::vector<Durin::uint32>({0, 1, 2}));
+		std::vector<uint32>({0, 1, 2}));
 }
 
 TEST(FSkeletalAssetTests, SkeletonCompatibilityMatchesFixtureEncoding)
@@ -785,7 +785,7 @@ TEST(FSkeletalAssetTests, PayloadDecodersRejectMalformedContainersTransactionall
 	RefreshSkeletalPayloadHash(DuplicateChunk);
 	ExpectMeshFailure(std::move(DuplicateChunk));
 	auto Overlap = MeshBytes;
-	const Durin::uint64 FirstOffset = ReadWireU64(
+	const uint64 FirstOffset = ReadWireU64(
 		Overlap, Durin::SkeletalPayloadHeaderSize + 8);
 	WriteWireU64(Overlap,
 		Durin::SkeletalPayloadHeaderSize + Durin::SkeletalPayloadChunkEntrySize + 8,
@@ -969,7 +969,7 @@ TEST(FSkeletalAssetTests, DerivedDataWriteFailureKeepsCompleteMemoryCandidate)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(Root);
 	const std::filesystem::path BlockedRoot = Root / "Blocked";
-	const std::array<Durin::uint8, 1> BlockedBytes{0xff};
+	const std::array<uint8, 1> BlockedBytes{0xff};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(BlockedBytes)), BlockedRoot));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());

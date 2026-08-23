@@ -30,7 +30,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 	Durin::Editor::FSourceReferenceIndex Index;
 	Index.Refresh();
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 2u);
-	const Durin::uint64 FirstRevision = Index.GetRegistryRevision();
+	const uint64 FirstRevision = Index.GetRegistryRevision();
 
 	const Durin::FTexture2DImportResult Third = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.PhysicalPath, "/TextureImportTests/SourceIndex/Third");

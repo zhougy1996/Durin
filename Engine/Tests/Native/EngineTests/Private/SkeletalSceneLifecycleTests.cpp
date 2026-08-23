@@ -182,7 +182,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					.VirtualPath = MeshData->PackagePath,
 					.AssetClassName = MeshData->AssetClassName,
 					.PackageFormatVersion = MeshData->FormatVersion,
-					.FileSize = static_cast<Durin::uint64>(MeshData->FileSize),
+					.FileSize = static_cast<uint64>(MeshData->FileSize),
 					.LastWriteTimeTicks = MeshData->LastWriteTimeTicks};
 				ASSERT_TRUE(Provider.CaptureGenerationRequest({
 					.Asset = Fingerprint,
@@ -438,8 +438,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				Mesh->GetSkeletonCompatibilityIdentity());
 			EXPECT_EQ(Pose->Matrices.size(), Mesh->GetPayloadData()->PaletteBoneIndices.size());
 			for (const Durin::FMatrix4f& Matrix : Pose->Matrices)
-				for (Durin::uint32 Column = 0; Column < 4; ++Column)
-					for (Durin::uint32 Row = 0; Row < 4; ++Row)
+				for (uint32 Column = 0; Column < 4; ++Column)
+					for (uint32 Row = 0; Row < 4; ++Row)
 						EXPECT_TRUE(std::isfinite(Matrix[Column][Row]));
 			RuntimePoses.push_back(Pose);
 			Component->UnregisterComponent();
@@ -452,8 +452,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			const auto& GlbPose = RuntimePoses[MeshWithinContainer + 2];
 			ASSERT_EQ(GltfPose->Matrices.size(), GlbPose->Matrices.size());
 			for (size_t MatrixIndex = 0; MatrixIndex < GltfPose->Matrices.size(); ++MatrixIndex)
-				for (Durin::uint32 Column = 0; Column < 4; ++Column)
-					for (Durin::uint32 Row = 0; Row < 4; ++Row)
+				for (uint32 Column = 0; Column < 4; ++Column)
+					for (uint32 Row = 0; Row < 4; ++Row)
 						EXPECT_NEAR(
 							GltfPose->Matrices[MatrixIndex][Column][Row],
 							GlbPose->Matrices[MatrixIndex][Column][Row], 1.0e-5f);

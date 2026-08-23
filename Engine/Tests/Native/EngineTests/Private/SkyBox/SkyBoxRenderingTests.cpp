@@ -23,13 +23,13 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 
 	const Durin::FVector3 OriginDirection = ReconstructSampleDirection(OriginUniform, {0.0, 0.0});
 	const Durin::FVector3 TranslatedDirection = ReconstructSampleDirection(TranslatedUniform, {0.0, 0.0});
-	for (Durin::uint32 Axis = 0; Axis < 3; ++Axis)
+	for (uint32 Axis = 0; Axis < 3; ++Axis)
 	{
 		EXPECT_NEAR(OriginDirection[Axis], TranslatedDirection[Axis], 1.e-6);
 	}
 	const Durin::FVector3 ExpectedDirection = Durin::Math::RotateVector(
 		Durin::Math::Inverse(Durin::Math::Normalize(SkyBox.Rotation)), Durin::FVectorConstants::Up);
-	for (Durin::uint32 Axis = 0; Axis < 3; ++Axis)
+	for (uint32 Axis = 0; Axis < 3; ++Axis)
 	{
 		EXPECT_NEAR(OriginDirection[Axis], ExpectedDirection[Axis], 1.e-6);
 	}

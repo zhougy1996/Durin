@@ -7,14 +7,6 @@ These conventions apply to repository-owned C++ source. Generated code and third
 `CoreStd.h` supplies common STL headers. Add another standard-library header
 only when the translation unit requires it.
 
-## Fundamental Numeric Types
-
-`CoreTypes.h` defines the fixed-width integer names `int8` through `int64` and
-`uint8` through `uint64`, plus `float32` and `float64`, in the global namespace.
-Use these names unqualified in engine and game namespaces. `Durin::` aliases
-exist only for source compatibility and are not the canonical spelling for new
-code or generated output.
-
 ## Byte Data
 
 Use `std::byte` for repository-owned untyped byte storage and views, including

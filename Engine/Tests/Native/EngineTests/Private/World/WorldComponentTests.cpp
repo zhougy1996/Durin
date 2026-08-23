@@ -189,7 +189,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	RootComponent->SetRelativeLocation(Durin::FVector3(1.0, 2.0, 3.0));
 	Durin::DPackage* Package = Level->GetPackage();
 	ASSERT_NE(Package, nullptr);
-	const Durin::uint64 Revision = Package->GetEditRevision();
+	const uint64 Revision = Package->GetEditRevision();
 
 	RootComponent->SetRelativeTransform(RootComponent->GetRelativeTransform());
 	RootComponent->SetWorldTransform(RootComponent->GetWorldTransform());

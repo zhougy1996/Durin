@@ -56,7 +56,7 @@ inline auto RestartTextureBuildHost(
 
 namespace
 {
-	constexpr Durin::uint8 TransparentPngBytes[] = {
+	constexpr uint8 TransparentPngBytes[] = {
 		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 		0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 		0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
@@ -71,31 +71,31 @@ namespace
 	auto WriteNpotTextureFixture(const std::filesystem::path& Path) -> void
 	{
 		InitializeTextureImportMount();
-		constexpr Durin::uint16 Width = 5;
-		constexpr Durin::uint16 Height = 3;
-		std::array<Durin::uint8, 18> Header{};
+		constexpr uint16 Width = 5;
+		constexpr uint16 Height = 3;
+		std::array<uint8, 18> Header{};
 		Header[2] = 2;
-		Header[12] = static_cast<Durin::uint8>(Width);
-		Header[14] = static_cast<Durin::uint8>(Height);
+		Header[12] = static_cast<uint8>(Width);
+		Header[14] = static_cast<uint8>(Height);
 		Header[16] = 32;
 		Header[17] = 0x28;
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
-		for (Durin::uint16 Y = 0; Y < Height; ++Y)
+		for (uint16 Y = 0; Y < Height; ++Y)
 		{
-			for (Durin::uint16 X = 0; X < Width; ++X)
+			for (uint16 X = 0; X < Width; ++X)
 			{
-				const Durin::uint8 Value = X == Width - 1 ? 255 : 0;
-				const std::array<Durin::uint8, 4> Pixel = {Value, Value, Value, 255};
+				const uint8 Value = X == Width - 1 ? 255 : 0;
+				const std::array<uint8, 4> Pixel = {Value, Value, Value, 255};
 				Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
 			}
 		}
 	}
 
 	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<std::byte>& Block)
-		-> std::array<Durin::uint8, 4>
+		-> std::array<uint8, 4>
 	{
-		std::array<Durin::uint8, 64> Pixels{};
+		std::array<uint8, 64> Pixels{};
 		switch (Format)
 		{
 		case Durin::EPixelFormat::BC1_UNORM:
@@ -121,8 +121,8 @@ namespace
 		return {Pixels[0], Pixels[1], Pixels[2], Pixels[3]};
 	}
 
-	auto ExpectPixelNear(const std::array<Durin::uint8, 4>& Actual,
-		const std::array<Durin::uint8, 4>& Expected, int Tolerance = 24) -> void
+	auto ExpectPixelNear(const std::array<uint8, 4>& Actual,
+		const std::array<uint8, 4>& Expected, int Tolerance = 24) -> void
 	{
 		for (size_t Channel = 0; Channel < Expected.size(); ++Channel)
 			EXPECT_NEAR(Actual[Channel], Expected[Channel], Tolerance) << "channel " << Channel;
@@ -131,19 +131,19 @@ namespace
 	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
-		const Durin::uint32 BlocksWide = (Mip.Width + 3) / 4;
-		const Durin::uint32 BlocksHigh = (Mip.Height + 3) / 4;
-		for (Durin::uint32 BlockY = 0; BlockY < BlocksHigh; ++BlockY)
+		const uint32 BlocksWide = (Mip.Width + 3) / 4;
+		const uint32 BlocksHigh = (Mip.Height + 3) / 4;
+		for (uint32 BlockY = 0; BlockY < BlocksHigh; ++BlockY)
 		{
-			for (Durin::uint32 BlockX = 0; BlockX < BlocksWide; ++BlockX)
+			for (uint32 BlockX = 0; BlockX < BlocksWide; ++BlockX)
 			{
-				std::array<Durin::uint8, 64> BlockPixels{};
-				const Durin::uint8* Block = reinterpret_cast<const Durin::uint8*>(Mip.Pixels.data())
+				std::array<uint8, 64> BlockPixels{};
+				const uint8* Block = reinterpret_cast<const uint8*>(Mip.Pixels.data())
 					+ static_cast<size_t>(BlockY) * Mip.RowPitch + BlockX * 16;
 				EXPECT_TRUE(rgbcx::unpack_bc3(Block, BlockPixels.data()));
-				for (Durin::uint32 Y = 0; Y < 4 && BlockY * 4 + Y < Mip.Height; ++Y)
+				for (uint32 Y = 0; Y < 4 && BlockY * 4 + Y < Mip.Height; ++Y)
 				{
-					for (Durin::uint32 X = 0; X < 4 && BlockX * 4 + X < Mip.Width; ++X)
+					for (uint32 X = 0; X < 4 && BlockX * 4 + X < Mip.Width; ++X)
 					{
 						const size_t SourceOffset = (Y * 4 + X) * 4;
 						const size_t DestOffset = (static_cast<size_t>(BlockY * 4 + Y) * Mip.Width
@@ -156,11 +156,11 @@ namespace
 		return Result;
 	}
 
-	auto CalculateDecodedCoverage(const std::vector<std::byte>& Pixels, Durin::uint8 Threshold) -> double
+	auto CalculateDecodedCoverage(const std::vector<std::byte>& Pixels, uint8 Threshold) -> double
 	{
 		size_t CoveredPixelCount = 0;
 		for (size_t Offset = 3; Offset < Pixels.size(); Offset += 4)
-			if (std::to_integer<Durin::uint8>(Pixels[Offset]) >= Threshold) ++CoveredPixelCount;
+			if (std::to_integer<uint8>(Pixels[Offset]) >= Threshold) ++CoveredPixelCount;
 		return static_cast<double>(CoveredPixelCount) / (Pixels.size() / 4);
 	}
 

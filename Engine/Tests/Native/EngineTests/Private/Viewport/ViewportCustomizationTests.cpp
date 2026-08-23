@@ -99,14 +99,14 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 TEST(FTerrainHeightmapThumbnailTests, GeneratesFixedCanonicalOrientationAndMarker)
 {
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
-	const std::array<Durin::uint16, 6> Samples{0, 10'000, 65'535, 20'000, 30'000, 40'000};
+	const std::array<uint16, 6> Samples{0, 10'000, 65'535, 20'000, 30'000, 40'000};
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 2, Samples, Payload, Error)) << Error;
 	std::vector<std::byte> Pixels;
 	ASSERT_TRUE(Durin::Editor::Level::GenerateTerrainHeightmapThumbnailPixels(
 		*Payload, Pixels, Error)) << Error;
 	EXPECT_EQ(Pixels.size(), 256u * 256u * 4u);
-	const auto Pixel = [&](Durin::uint32 X, Durin::uint32 Y, Durin::uint32 Channel)
+	const auto Pixel = [&](uint32 X, uint32 Y, uint32 Channel)
 	{
 		return Pixels[(static_cast<size_t>(Y) * 256 + X) * 4 + Channel];
 	};
@@ -220,14 +220,14 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	ASSERT_TRUE(Spline->UpdateSplinePoint(0, Start));
 	ASSERT_TRUE(Spline->UpdateSplinePoint(1, End));
 	std::vector<Durin::FVector3> Before;
-	for (Durin::uint32 Step = 0; Step <= 100; ++Step) Before.push_back(Spline->GetSampleAtParameter({0, Step / 100.0}).Position);
+	for (uint32 Step = 0; Step <= 100; ++Step) Before.push_back(Spline->GetSampleAtParameter({0, Step / 100.0}).Position);
 	Durin::FGuid NewId;
 	constexpr double SplitT = 0.37;
 	ASSERT_TRUE(Durin::Editor::Level::SplitSplineSegment(*Spline, 0, SplitT, &NewId));
 	ASSERT_TRUE(NewId.IsValid());
 	ASSERT_EQ(Spline->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, NewId);
-	for (Durin::uint32 Step = 0; Step <= 100; ++Step)
+	for (uint32 Step = 0; Step <= 100; ++Step)
 	{
 		const double U = Step / 100.0;
 		const Durin::FSplineParameter Parameter = U <= SplitT
@@ -490,7 +490,7 @@ TEST(FLevelEditorViewportClientTests, AppendsBoundedHeightFieldCollisionTriangle
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "HeightFieldOverlayLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(World, "HeightFieldOverlayAsset");
-	const std::array<Durin::uint16, 4> Samples{0, 0, 0, 65535};
+	const std::array<uint16, 4> Samples{0, 0, 0, 65535};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
 	auto* Actor = Level->SpawnActor<Durin::ATerrainActor>("HeightFieldOverlayTerrain");

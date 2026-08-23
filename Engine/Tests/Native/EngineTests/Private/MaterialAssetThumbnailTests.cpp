@@ -20,14 +20,14 @@ namespace
 {
 	auto MakeRequest(
 		const Durin::Asset::FAssetData& Data,
-		Durin::uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
+		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
 				.VirtualPath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
-				.FileSize = static_cast<Durin::uint64>(Data.FileSize),
+				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
 			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 			.RequestSerial = Serial};

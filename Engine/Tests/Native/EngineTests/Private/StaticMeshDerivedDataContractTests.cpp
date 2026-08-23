@@ -30,7 +30,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 	const std::vector<std::byte> Second =
 		Durin::Asset::Build::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const std::vector<std::byte> Expected = [] {
-		const Durin::uint8 Values[]{
+		const uint8 Values[]{
 		0x01, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,

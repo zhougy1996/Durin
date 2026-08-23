@@ -18,15 +18,15 @@ namespace
 			static_cast<size_t>(Durin::EnvironmentIrradianceDimension)
 			* Durin::EnvironmentIrradianceDimension * 4;
 		for (size_t Face = 0; Face < Data.Irradiance.size(); ++Face)
-			Data.Irradiance[Face].assign(IrradianceElements, static_cast<Durin::uint16>(Face + 1));
-		for (Durin::uint32 Mip = 0; Mip < Durin::EnvironmentPrefilterMipCount; ++Mip)
+			Data.Irradiance[Face].assign(IrradianceElements, static_cast<uint16>(Face + 1));
+		for (uint32 Mip = 0; Mip < Durin::EnvironmentPrefilterMipCount; ++Mip)
 		{
 			const size_t Dimension = Durin::EnvironmentPrefilterDimension >> Mip;
 			for (size_t Face = 0; Face < Data.Prefiltered[Mip].size(); ++Face)
 			{
 				Data.Prefiltered[Mip][Face].assign(
 					Dimension * Dimension * 4,
-					static_cast<Durin::uint16>(100 + Mip * 10 + Face));
+					static_cast<uint16>(100 + Mip * 10 + Face));
 			}
 		}
 		Data.BrdfLut.assign(

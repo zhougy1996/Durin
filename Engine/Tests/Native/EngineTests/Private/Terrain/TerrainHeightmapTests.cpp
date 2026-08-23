@@ -54,7 +54,7 @@ namespace
 			/ (std::string(Key) + ".bin");
 	}
 
-	auto AppendBigU32(std::vector<std::byte>& Bytes, Durin::uint32 Value) -> void
+	auto AppendBigU32(std::vector<std::byte>& Bytes, uint32 Value) -> void
 	{
 		Bytes.push_back(static_cast<std::byte>(Value >> 24));
 		Bytes.push_back(static_cast<std::byte>(Value >> 16));
@@ -62,13 +62,13 @@ namespace
 		Bytes.push_back(static_cast<std::byte>(Value));
 	}
 
-	auto Crc32(std::span<const std::byte> Bytes) -> Durin::uint32
+	auto Crc32(std::span<const std::byte> Bytes) -> uint32
 	{
-		Durin::uint32 Crc = 0xffffffffu;
+		uint32 Crc = 0xffffffffu;
 		for (std::byte Byte : Bytes)
 		{
-			Crc ^= std::to_integer<Durin::uint8>(Byte);
-			for (Durin::uint32 Bit = 0; Bit < 8; ++Bit)
+			Crc ^= std::to_integer<uint8>(Byte);
+			for (uint32 Bit = 0; Bit < 8; ++Bit)
 				Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
 		}
 		return ~Crc;
@@ -79,7 +79,7 @@ namespace
 		std::string_view Type,
 		std::span<const std::byte> Data) -> void
 	{
-		AppendBigU32(Png, static_cast<Durin::uint32>(Data.size()));
+		AppendBigU32(Png, static_cast<uint32>(Data.size()));
 		const size_t CrcBegin = Png.size();
 		const std::span<const std::byte> TypeBytes =
 			std::as_bytes(std::span{Type.data(), Type.size()});
@@ -89,21 +89,21 @@ namespace
 	}
 
 	auto MakeGrayscale16Png(
-		Durin::uint32 Width,
-		Durin::uint32 Height,
-		std::span<const Durin::uint16> Samples,
-		Durin::uint8 BitDepth = 16,
-		Durin::uint8 ColorType = 0,
-		Durin::uint8 Interlace = 0) -> std::vector<std::byte>
+		uint32 Width,
+		uint32 Height,
+		std::span<const uint16> Samples,
+		uint8 BitDepth = 16,
+		uint8 ColorType = 0,
+		uint8 Interlace = 0) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Raw;
 		Raw.reserve(static_cast<size_t>(Height) * (1 + static_cast<size_t>(Width) * 2));
-		for (Durin::uint32 Y = 0; Y < Height; ++Y)
+		for (uint32 Y = 0; Y < Height; ++Y)
 		{
 			Raw.push_back(std::byte{0});
-			for (Durin::uint32 X = 0; X < Width; ++X)
+			for (uint32 X = 0; X < Width; ++X)
 			{
-				const Durin::uint16 Sample = Samples[static_cast<size_t>(Y) * Width + X];
+				const uint16 Sample = Samples[static_cast<size_t>(Y) * Width + X];
 				Raw.push_back(static_cast<std::byte>(Sample >> 8));
 				Raw.push_back(static_cast<std::byte>(Sample));
 			}
@@ -112,23 +112,23 @@ namespace
 		size_t Offset = 0;
 		while (Offset < Raw.size())
 		{
-			const Durin::uint16 Count = static_cast<Durin::uint16>(
+			const uint16 Count = static_cast<uint16>(
 				std::min<size_t>(65'535, Raw.size() - Offset));
 			Deflate.push_back(Offset + Count == Raw.size()
 				? std::byte{1} : std::byte{0});
 			Deflate.push_back(static_cast<std::byte>(Count));
 			Deflate.push_back(static_cast<std::byte>(Count >> 8));
-			const Durin::uint16 Inverse = static_cast<Durin::uint16>(~Count);
+			const uint16 Inverse = static_cast<uint16>(~Count);
 			Deflate.push_back(static_cast<std::byte>(Inverse));
 			Deflate.push_back(static_cast<std::byte>(Inverse >> 8));
 			Deflate.insert(Deflate.end(), Raw.begin() + Offset, Raw.begin() + Offset + Count);
 			Offset += Count;
 		}
-		Durin::uint32 A = 1;
-		Durin::uint32 B = 0;
+		uint32 A = 1;
+		uint32 B = 0;
 		for (std::byte Byte : Raw)
 		{
-			A = (A + std::to_integer<Durin::uint8>(Byte)) % 65'521;
+			A = (A + std::to_integer<uint8>(Byte)) % 65'521;
 			B = (B + A) % 65'521;
 		}
 		AppendBigU32(Deflate, (B << 16) | A);
@@ -150,9 +150,9 @@ namespace
 
 	auto WritePng(
 		const std::filesystem::path& Path,
-		Durin::uint32 Width,
-		Durin::uint32 Height,
-		std::span<const Durin::uint16> Samples) -> void
+		uint32 Width,
+		uint32 Height,
+		std::span<const uint16> Samples) -> void
 	{
 		std::filesystem::create_directories(Path.parent_path());
 		const std::vector<std::byte> Bytes =
@@ -161,11 +161,11 @@ namespace
 			std::as_bytes(std::span(Bytes)), Path));
 	}
 
-	auto MakeRaw16(std::span<const Durin::uint16> Samples) -> std::vector<std::byte>
+	auto MakeRaw16(std::span<const uint16> Samples) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Bytes;
-		Bytes.reserve(Samples.size() * sizeof(Durin::uint16));
-		for (Durin::uint16 Sample : Samples)
+		Bytes.reserve(Samples.size() * sizeof(uint16));
+		for (uint16 Sample : Samples)
 		{
 			Bytes.push_back(static_cast<std::byte>(Sample));
 			Bytes.push_back(static_cast<std::byte>(Sample >> 8));
@@ -175,7 +175,7 @@ namespace
 
 	auto WriteRaw16(
 		const std::filesystem::path& Path,
-		std::span<const Durin::uint16> Samples) -> void
+		std::span<const uint16> Samples) -> void
 	{
 		std::filesystem::create_directories(Path.parent_path());
 		const std::vector<std::byte> Bytes = MakeRaw16(Samples);
@@ -213,7 +213,7 @@ namespace
 
 TEST(FTerrainHeightmapPayloadTests, PreservesAsymmetricTopLeftRowMajorSamplesAndExactQueries)
 {
-	const std::array<Durin::uint16, 15> Samples{
+	const std::array<uint16, 15> Samples{
 		0, 1, 2, 3, 4,
 		100, 200, 300, 400, 500,
 		65'535, 900, 800, 700, 600};
@@ -221,13 +221,13 @@ TEST(FTerrainHeightmapPayloadTests, PreservesAsymmetricTopLeftRowMajorSamplesAnd
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(5, 3, Samples, Payload, Error)) << Error;
 	ASSERT_NE(Payload, nullptr);
-	Durin::uint16 Value = 0;
+	uint16 Value = 0;
 	EXPECT_TRUE(Payload->GetSample(0, 0, Value));
 	EXPECT_EQ(Value, 0);
 	EXPECT_TRUE(Payload->GetSample(4, 2, Value));
 	EXPECT_EQ(Value, 600);
-	Durin::uint16 Minimum = 0;
-	Durin::uint16 Maximum = 0;
+	uint16 Minimum = 0;
+	uint16 Maximum = 0;
 	EXPECT_TRUE(Payload->QueryMinMax(1, 1, 4, 3, Minimum, Maximum));
 	EXPECT_EQ(Minimum, 200);
 	EXPECT_EQ(Maximum, 900);
@@ -239,9 +239,9 @@ TEST(FTerrainHeightmapPayloadTests, PreservesAsymmetricTopLeftRowMajorSamplesAnd
 
 TEST(FTerrainHeightmapPayloadTests, FreezesGolden257By129OrientationAndFacts)
 {
-	constexpr Durin::uint32 Width = 257;
-	constexpr Durin::uint32 Height = 129;
-	std::vector<Durin::uint16> Samples(static_cast<size_t>(Width) * Height, 7'000);
+	constexpr uint32 Width = 257;
+	constexpr uint32 Height = 129;
+	std::vector<uint16> Samples(static_cast<size_t>(Width) * Height, 7'000);
 	Samples[0] = 101;
 	Samples[Width - 1] = 202;
 	Samples[static_cast<size_t>(Height - 1) * Width] = 303;
@@ -264,12 +264,12 @@ TEST(FTerrainHeightmapPayloadTests, FreezesGolden257By129OrientationAndFacts)
 	EXPECT_EQ(Payload->Samples[static_cast<size_t>(Height - 1) * Width], 303);
 	EXPECT_EQ(Payload->Samples.back(), 404);
 	EXPECT_EQ(Payload->Samples[static_cast<size_t>(37) * Width + 91], 65'535);
-	EXPECT_EQ(Payload->GetSampleBytes(), static_cast<Durin::uint64>(Width) * Height * sizeof(Durin::uint16));
+	EXPECT_EQ(Payload->GetSampleBytes(), static_cast<uint64>(Width) * Height * sizeof(uint16));
 }
 
 TEST(FTerrainHeightmapPayloadTests, BuildsDeterministicOddEdgeHierarchyAndRejectsLimits)
 {
-	std::vector<Durin::uint16> Samples(65 * 67, 42);
+	std::vector<uint16> Samples(65 * 67, 42);
 	Samples[64] = 0;
 	Samples.back() = 65'535;
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> First;
@@ -285,12 +285,12 @@ TEST(FTerrainHeightmapPayloadTests, BuildsDeterministicOddEdgeHierarchyAndReject
 	EXPECT_EQ(First->Levels, Second->Levels);
 	EXPECT_EQ(First->Nodes, Second->Nodes);
 	EXPECT_FALSE(Durin::BuildTerrainHeightmapPayload(1, 2, Samples, Second, Error));
-	EXPECT_EQ(First->GetSampleBytes(), Samples.size() * sizeof(Durin::uint16));
+	EXPECT_EQ(First->GetSampleBytes(), Samples.size() * sizeof(uint16));
 }
 
 TEST(FTerrainHeightmapPayloadTests, SeparatesTrustedLayoutFromExactCanonicalValidation)
 {
-	const std::array<Durin::uint16, 12> Samples{
+	const std::array<uint16, 12> Samples{
 		1, 2, 3, 4, 10, 20, 30, 40, 100, 200, 300, 400};
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Canonical;
 	std::string Error;
@@ -311,7 +311,7 @@ TEST(FTerrainHeightmapPayloadTests, SeparatesTrustedLayoutFromExactCanonicalVali
 
 TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorruptionSafe)
 {
-	const std::array<Durin::uint16, 12> Samples{
+	const std::array<uint16, 12> Samples{
 		1, 2, 3, 4, 10, 20, 30, 40, 100, 200, 300, 400};
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
@@ -341,7 +341,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 	Durin::Asset::Build::FTerrainHeightmapBuildProduct PngProduct;
 	Durin::Asset::Build::FTerrainHeightmapBuildProduct RawProduct;
 	ASSERT_TRUE(Durin::Asset::Build::BuildTerrainHeightmap({
-		.Samples = std::vector<Durin::uint16>(Samples.begin(), Samples.end()),
+		.Samples = std::vector<uint16>(Samples.begin(), Samples.end()),
 		.Width = 4,
 		.Height = 3,
 		.SourceContentHashLow = 1,
@@ -351,7 +351,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		.SourceProfileVersion = 1,
 		.bPersistDerivedData = false}, PngProduct, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::BuildTerrainHeightmap({
-		.Samples = std::vector<Durin::uint16>(Samples.begin(), Samples.end()),
+		.Samples = std::vector<uint16>(Samples.begin(), Samples.end()),
 		.Width = 4,
 		.Height = 3,
 		.SourceContentHashLow = 2,
@@ -399,14 +399,14 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 
 TEST(FTerrainHeightmapDecoderTests, AcceptsOnlyNonInterlacedGrayscale16Png)
 {
-	const std::array<Durin::uint16, 6> Samples{0, 1, 257, 4096, 32'768, 65'535};
+	const std::array<uint16, 6> Samples{0, 1, 257, 4096, 32'768, 65'535};
 	Durin::Image::FDecodedGrayscale16Image Decoded;
 	std::string Error;
 	const std::vector<std::byte> Valid = MakeGrayscale16Png(3, 2, Samples);
 	ASSERT_TRUE(Durin::Image::DecodeGrayscale16PngFromMemory(Valid, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded.Width, 3);
 	EXPECT_EQ(Decoded.Height, 2);
-	EXPECT_EQ(Decoded.Samples, std::vector<Durin::uint16>(Samples.begin(), Samples.end()));
+	EXPECT_EQ(Decoded.Samples, std::vector<uint16>(Samples.begin(), Samples.end()));
 	EXPECT_FALSE(Durin::Image::DecodeGrayscale16PngFromMemory(
 		MakeGrayscale16Png(3, 2, Samples, 8), Decoded, Error));
 	EXPECT_FALSE(Durin::Image::DecodeGrayscale16PngFromMemory(
@@ -420,8 +420,8 @@ TEST(FTerrainHeightmapDecoderTests, AcceptsOnlyNonInterlacedGrayscale16Png)
 TEST(FTerrainHeightmapDecoderTests, DecodesExactSquareU16LeAndRejectsMalformedRaw)
 {
 	// Gaea 2.3 Unity RAW oracle: U16LE, first sample at top-left, rows top-to-bottom.
-	constexpr Durin::uint32 Dimension = 513;
-	std::vector<Durin::uint16> Samples(
+	constexpr uint32 Dimension = 513;
+	std::vector<uint16> Samples(
 		static_cast<size_t>(Dimension) * Dimension, 7'000);
 	Samples[0] = 0x1234;
 	Samples[Dimension - 1] = 0x5678;
@@ -448,11 +448,11 @@ TEST(FTerrainHeightmapDecoderTests, DecodesExactSquareU16LeAndRejectsMalformedRa
 	EXPECT_FALSE(Durin::Asset::Forge::TranslateTerrainHeightmapSource(
 		".raw", std::span<const std::byte>{}, Decoded, Error));
 	EXPECT_EQ(Error, "RAW16 terrain heightmap must contain at least four samples (8 bytes).");
-	const std::array<Durin::uint8, 9> Odd{};
+	const std::array<uint8, 9> Odd{};
 	EXPECT_FALSE(Durin::Asset::Forge::TranslateTerrainHeightmapSource(
 		".raw", std::as_bytes(std::span{Odd}), Decoded, Error));
 	EXPECT_EQ(Error, "RAW16 terrain heightmap byte count must be even.");
-	const std::array<Durin::uint8, 16> NonSquare{};
+	const std::array<uint8, 16> NonSquare{};
 	EXPECT_FALSE(Durin::Asset::Forge::TranslateTerrainHeightmapSource(
 		".raw", std::as_bytes(std::span{NonSquare}), Decoded, Error));
 	EXPECT_EQ(Error,
@@ -467,7 +467,7 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "RawDDC");
 	const std::filesystem::path Source = Root / "Sources/Asymmetric.raw";
-	const std::array<Durin::uint16, 9> Initial{
+	const std::array<uint16, 9> Initial{
 		1, 2, 3,
 		100, 200, 300,
 		65'535, 900, 4};
@@ -479,20 +479,20 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
-		std::vector<Durin::uint16>(Initial.begin(), Initial.end()));
+		std::vector<uint16>(Initial.begin(), Initial.end()));
 	EXPECT_EQ(Imported.Asset->GetSourceImportData().DecoderId, "DurinTerrainRaw16");
 	EXPECT_EQ(Imported.Asset->GetSourceImportData().SourceFormat,
 		Durin::ETerrainHeightmapSourceFormat::Raw16);
 	EXPECT_TRUE(Imported.Asset->GetSourceFile().ends_with(".raw"));
 
-	const Durin::uint64 InitialRevision = Imported.Asset->GetRevision();
+	const uint64 InitialRevision = Imported.Asset->GetRevision();
 	auto Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
 	const auto Noop = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Noop) << Noop.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
-	const std::array<Durin::uint16, 9> Changed{
+	const std::array<uint16, 9> Changed{
 		9, 8, 7,
 		6, 5, 4,
 		3, 2, 1};
@@ -504,12 +504,12 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	ASSERT_TRUE(Updated) << Updated.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
-		std::vector<Durin::uint16>(Changed.begin(), Changed.end()));
+		std::vector<uint16>(Changed.begin(), Changed.end()));
 
 	const std::filesystem::path Relocated = Root / "Relocated/Asymmetric.raw";
 	WriteRaw16(Relocated, Changed);
 	std::string Error;
-	const Durin::uint64 BeforeRelocationRevision = Imported.Asset->GetRevision();
+	const uint64 BeforeRelocationRevision = Imported.Asset->GetRevision();
 	ASSERT_TRUE(Durin::Asset::Forge::ChangeTerrainHeightmapSourceReference(
 		*Imported.Asset, "/TerrainHeightmap/Relocated/Asymmetric.raw", Error)) << Error;
 	EXPECT_EQ(Imported.Asset->GetSourceFile(),
@@ -534,7 +534,7 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), Key);
 	EXPECT_EQ(Reloaded->GetPayload()->Samples,
-		std::vector<Durin::uint16>(Changed.begin(), Changed.end()));
+		std::vector<uint16>(Changed.begin(), Changed.end()));
 }
 
 TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheAssetContract)
@@ -545,7 +545,7 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
 		Error, GetEngineTestModuleCallbackGate())) << Error;
 	const std::filesystem::path Source = Root / "Sources/Asymmetric.png";
-	const std::array<Durin::uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
+	const std::array<uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
 	WritePng(Source, 3, 2, Initial);
 	const Durin::FTerrainHeightmapImportResult Imported =
 		Durin::Asset::Forge::ImportTerrainHeightmapAsset(
@@ -570,7 +570,7 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	EXPECT_EQ(Duplicate->GetRevision(), Imported.Asset->GetRevision());
 	const auto RetainedSnapshot = Duplicate->GetPayload();
 	Duplicate->BeginDestroy();
-	EXPECT_EQ(RetainedSnapshot->Samples, std::vector<Durin::uint16>(Initial.begin(), Initial.end()));
+	EXPECT_EQ(RetainedSnapshot->Samples, std::vector<uint16>(Initial.begin(), Initial.end()));
 
 	// Ordinary PNG import remains the Texture2D path even for a 16-bit grayscale source.
 	const Durin::FTexture2DImportResult TextureImport = Durin::Asset::Forge::ImportTexture2DAsset(
@@ -581,13 +581,13 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	auto Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 		{.Asset = Imported.Asset});
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const Durin::uint64 InitialRevision = Imported.Asset->GetRevision();
+	const uint64 InitialRevision = Imported.Asset->GetRevision();
 	const auto Noop = Durin::Asset::GetImportService().ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Noop) << Noop.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
-	const std::array<Durin::uint16, 6> Changed{1, 2, 3, 4, 5, 6};
+	const std::array<uint16, 6> Changed{1, 2, 3, 4, 5, 6};
 	WritePng(Source, 3, 2, Changed);
 	Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 		{.Asset = Imported.Asset});
@@ -599,9 +599,9 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	EXPECT_EQ(Imported.Asset->GetMaximum(), 6);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
-	const Durin::uint64 BeforeFailureRevision = Imported.Asset->GetRevision();
+	const uint64 BeforeFailureRevision = Imported.Asset->GetRevision();
 	const auto BeforeFailurePayload = Imported.Asset->GetPayload();
-	const std::array<Durin::uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
+	const std::array<uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
 	WritePng(Source, 3, 2, FailedChange);
 	Plan = Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 		{.Asset = Imported.Asset});
@@ -621,7 +621,7 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "WarmReloadDDC");
 	const std::filesystem::path Source = Root / "Sources/WarmReload.png";
-	const std::array<Durin::uint16, 6> Samples{5, 4, 3, 2, 1, 0};
+	const std::array<uint16, 6> Samples{5, 4, 3, 2, 1, 0};
 	WritePng(Source, 3, 2, Samples);
 	const Durin::FTerrainHeightmapImportResult Imported =
 		Durin::Asset::Forge::ImportTerrainHeightmapAsset(
@@ -640,11 +640,11 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), Key);
 	EXPECT_EQ(Reloaded->GetPayload()->Samples,
-		std::vector<Durin::uint16>(Samples.begin(), Samples.end()));
+		std::vector<uint16>(Samples.begin(), Samples.end()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	const std::filesystem::path CachePath = GetTerrainCachePath(Key);
 	std::string Error;
-	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
+	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));
 	Reloaded = nullptr;
@@ -657,10 +657,10 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "AsyncReloadDDC");
 	const std::filesystem::path Source = Root / "Sources/AsyncReload.raw";
-	std::vector<std::byte> Bytes(513u * 513u * sizeof(Durin::uint16));
+	std::vector<std::byte> Bytes(513u * 513u * sizeof(uint16));
 	for (size_t Index = 0; Index < Bytes.size() / 2; ++Index)
 	{
-		const Durin::uint16 Value = static_cast<Durin::uint16>(Index);
+		const uint16 Value = static_cast<uint16>(Index);
 		Bytes[Index * 2] = static_cast<std::byte>(Value);
 		Bytes[Index * 2 + 1] = static_cast<std::byte>(Value >> 8);
 	}
@@ -701,7 +701,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
 	const std::filesystem::path CachePath = GetTerrainCachePath(Key);
-	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
+	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));
 	Reloaded = nullptr;

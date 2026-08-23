@@ -76,13 +76,13 @@ namespace
 
 		auto AddOrReplaceVolumetricCloud(
 			Durin::FVolumetricCloudSceneId,
-			Durin::uint64,
+			uint64,
 			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> void override
 		{
 		}
 
 		auto RemoveVolumetricCloud(
-			Durin::FVolumetricCloudSceneId, Durin::uint64) -> void override
+			Durin::FVolumetricCloudSceneId, uint64) -> void override
 		{
 		}
 
@@ -97,7 +97,7 @@ namespace
 			return 0;
 		}
 
-		Durin::uint32 RemovePrimitiveCount = 0;
+		uint32 RemovePrimitiveCount = 0;
 	};
 }
 

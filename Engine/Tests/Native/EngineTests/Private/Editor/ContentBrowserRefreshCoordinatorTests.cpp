@@ -35,7 +35,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	OrdinaryTransactionsNeverPublishMountedContentInvalidation)
 {
 	Durin::Editor::FTransactionManager Transactions;
-	const Durin::uint64 InitialRevision =
+	const uint64 InitialRevision =
 		Transactions.GetMountedContentMutationRevision();
 	ASSERT_TRUE(Transactions.Execute(
 		std::make_unique<FRefreshTestTransaction>(false)));
@@ -53,7 +53,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	MountedContentTransactionsPublishEverySuccessfulTransition)
 {
 	Durin::Editor::FTransactionManager Transactions;
-	const Durin::uint64 InitialRevision =
+	const uint64 InitialRevision =
 		Transactions.GetMountedContentMutationRevision();
 	ASSERT_TRUE(Transactions.Execute(
 		std::make_unique<FRefreshTestTransaction>(true)));
@@ -76,7 +76,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	FContentBrowserRefreshCoordinator Coordinator(4, 10);
 	int ScanCount = 0;
 	int RefreshCount = 0;
-	Durin::uint64 RegistryRevision = 11;
+	uint64 RegistryRevision = 11;
 	const auto Reconcile = [&] {
 		++ScanCount;
 		return Durin::Asset::FAssetResult{};
@@ -100,7 +100,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	FContentBrowserRefreshCoordinator Coordinator(7, 20);
 	int ScanCount = 0;
 	int RefreshCount = 0;
-	Durin::uint64 RegistryRevision = 20;
+	uint64 RegistryRevision = 20;
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
@@ -136,7 +136,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	int ScanCount = 0;
 	int FirstRefreshCount = 0;
 	int SecondRefreshCount = 0;
-	Durin::uint64 RegistryRevision = 12;
+	uint64 RegistryRevision = 12;
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
@@ -161,7 +161,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	FContentBrowserRefreshCoordinator Coordinator(2, 30);
 	int ScanCount = 0;
 	int RefreshCount = 0;
-	Durin::uint64 RegistryRevision = 30;
+	uint64 RegistryRevision = 30;
 	bool bFail = true;
 	const auto Reconcile = [&] {
 		++ScanCount;
@@ -211,7 +211,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 		return Durin::Asset::FAssetResult{};
 	};
 	const auto Refresh = [&] { ++RefreshCount; };
-	const auto GetRegistryRevision = [] { return Durin::uint64{40}; };
+	const auto GetRegistryRevision = [] { return uint64{40}; };
 
 	EXPECT_FALSE(Coordinator.Synchronize(
 		9, 40, Reconcile, Refresh, GetRegistryRevision));

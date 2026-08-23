@@ -33,7 +33,7 @@ namespace
 
 	auto SetDefaultMaterial(
 		Durin::DStaticMesh* Mesh,
-		Durin::uint64 SlotIndex,
+		uint64 SlotIndex,
 		Durin::DMaterialInterface* Material
 	) -> void
 	{

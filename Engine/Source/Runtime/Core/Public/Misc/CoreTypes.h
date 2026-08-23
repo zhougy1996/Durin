@@ -14,19 +14,3 @@ using int64 = std::int64_t;
 
 using float32 = float;
 using float64 = double;
-
-namespace Durin
-{
-	using ::uint8;
-	using ::uint16;
-	using ::uint32;
-	using ::uint64;
-
-	using ::int8;
-	using ::int16;
-	using ::int32;
-	using ::int64;
-
-	using ::float32;
-	using ::float64;
-}

@@ -99,7 +99,6 @@ namespace std
 
 namespace Fixture
 {
-    using Durin::int32;
     using FFloatVector = std::vector<float>;
 
     struct FFixtureVersion

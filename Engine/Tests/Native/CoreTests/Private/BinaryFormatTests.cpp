@@ -25,7 +25,7 @@ namespace
 
 TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnboundedData)
 {
-	constexpr Durin::uint32 Magic = 0x48434143;
+	constexpr uint32 Magic = 0x48434143;
 	auto MakeBytes = [] {
 		Durin::FBinaryWriter Writer;
 		Writer.WriteHeader({Magic, 3, 2});
@@ -43,8 +43,8 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 	Durin::FBinaryReader Reader(First);
 	ASSERT_TRUE(Reader.ReadAndValidateHeader(Magic, 3, 2));
 	std::string Path;
-	Durin::uint64 Size = 0;
-	Durin::int64 Ticks = 0;
+	uint64 Size = 0;
+	int64 Ticks = 0;
 	std::vector<std::byte> Payload;
 	EXPECT_TRUE(Reader.ReadString(Path));
 	EXPECT_TRUE(Reader.ReadU64(Size));
@@ -69,10 +69,10 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 
 TEST(FFileTimeTests, StableFileTicksRoundTripAtNanosecondPrecision)
 {
-	constexpr Durin::int64 ExpectedTicks = -1234567890100;
+	constexpr int64 ExpectedTicks = -1234567890100;
 	const auto Time = std::filesystem::file_time_type{
 		std::chrono::duration_cast<std::filesystem::file_time_type::duration>(std::chrono::nanoseconds(ExpectedTicks))};
-	const Durin::int64 Ticks = Durin::FileTime::ToStableTicks(Time);
+	const int64 Ticks = Durin::FileTime::ToStableTicks(Time);
 	EXPECT_EQ(Ticks, ExpectedTicks);
 	EXPECT_EQ(Durin::FileTime::ToStableTicks(Durin::FileTime::FromStableTicks(Ticks)), Ticks);
 }
@@ -124,8 +124,8 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 		std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x80}}));
 
 	Durin::FBinaryReader Reader(Writer.GetBytes());
-	Durin::uint16 Unsigned16 = 0;
-	Durin::int32 Signed32 = 0;
+	uint16 Unsigned16 = 0;
+	int32 Signed32 = 0;
 	float Float32 = 0.0f;
 	ASSERT_TRUE(Reader.ReadU16(Unsigned16));
 	ASSERT_TRUE(Reader.ReadI32(Signed32));
@@ -135,7 +135,7 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 	EXPECT_TRUE(std::signbit(Float32));
 	EXPECT_TRUE(Reader.IsAtEnd());
 
-	Durin::uint32 RandomAccess = 7;
+	uint32 RandomAccess = 7;
 	EXPECT_TRUE(Durin::ReadLittleEndianAt(Writer.GetBytes(), 2, RandomAccess));
 	EXPECT_EQ(RandomAccess, 0xfffffffeu);
 	EXPECT_FALSE(Durin::ReadLittleEndianAt(Writer.GetBytes(), Writer.GetBytes().size() - 1, RandomAccess));

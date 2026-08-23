@@ -51,7 +51,7 @@ TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 
 	Durin::FMaterialStaticProperties Invalid = Properties;
 	Invalid.OpacityMaskThreshold = 1.1f;
-	const Durin::uint64 InitialVersion = Base->GetRenderStateVersion();
+	const uint64 InitialVersion = Base->GetRenderStateVersion();
 	EXPECT_FALSE(Base->SetStaticProperties(Invalid));
 	EXPECT_EQ(Base->GetStaticProperties(), Properties);
 	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
@@ -94,7 +94,7 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		EXPECT_TRUE(Names.insert(Definition.Name).second);
 		EXPECT_FALSE(Definition.Name.IsNone());
 		EXPECT_FALSE(Definition.DisplayName.empty());
-		EXPECT_EQ(Definition.SortOrder, static_cast<Durin::int32>(Index));
+		EXPECT_EQ(Definition.SortOrder, static_cast<int32>(Index));
 		if (Index % 7 == 3 || Index % 7 == 4)
 		{
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector2);
@@ -352,13 +352,13 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
-	const Durin::uint64 BeforeVersion = Material->GetRenderStateVersion();
+	const uint64 BeforeVersion = Material->GetRenderStateVersion();
 	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
-		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.6f;
 		}, true));
 	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
-		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.4f;
 		}, true));
 	EXPECT_GT(Material->GetRenderStateVersion(), BeforeVersion);
@@ -394,7 +394,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	};
 	PropertyView.HandleOwnerContext(Context, Owner);
 	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
-		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.5f;
 		}, true));
 	EXPECT_TRUE(PropertyView.IsEditingObject(Material));
@@ -452,7 +452,7 @@ TEST(FMaterialTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "RejectedSetterMaterial");
-	const Durin::uint64 Version = Material->GetRenderStateVersion();
+	const uint64 Version = Material->GetRenderStateVersion();
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.25f));
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.25f));
 	EXPECT_EQ(Material->GetRenderStateVersion(), Version);
@@ -581,7 +581,7 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 {
 	InitializeDObjectSystem();
 	(void)Durin::Z_Construct_DStruct_Durin_FVector4();
-	Durin::uint32 ProductionStructCount = 0;
+	uint32 ProductionStructCount = 0;
 	for (Durin::DObject* Object : Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates))
 	{
 		auto* Struct = Durin::Cast<Durin::DStruct>(Object);
@@ -595,7 +595,7 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 	EXPECT_GT(ProductionStructCount, 0u);
 
 	std::vector<Durin::DClass*> Classes;
-	Durin::uint32 ProductionClassCount = 0;
+	uint32 ProductionClassCount = 0;
 	for (Durin::DObject* Object : Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates))
 	{
 		auto* Class = Durin::Cast<Durin::DClass>(Object);
@@ -648,7 +648,7 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
 					|| Property->NamePrivate == Durin::FName("SkyBoxSceneId")
 					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")) return;
-				for (Durin::uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
 					Durin::FPropertyIdentityDiagnostic IdentityDiagnostic;
 					EXPECT_EQ(

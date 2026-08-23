@@ -16,7 +16,7 @@ namespace
 {
 	auto NextObjectName(std::string_view Prefix) -> Durin::FName
 	{
-		static Durin::uint32 Counter = 0;
+		static uint32 Counter = 0;
 		return Durin::FName(std::format("{}{}", Prefix, ++Counter));
 	}
 
@@ -24,8 +24,8 @@ namespace
 	{
 		Durin::FSkeletonTransform Result;
 		Durin::FVector4* Rows[] = {&Result.Row0, &Result.Row1, &Result.Row2, &Result.Row3};
-		for (Durin::uint32 Row = 0; Row < 4; ++Row)
-			for (Durin::uint32 Column = 0; Column < 4; ++Column)
+		for (uint32 Row = 0; Row < 4; ++Row)
+			for (uint32 Column = 0; Column < 4; ++Column)
 				(*Rows[Row])[Column] = Matrix[Column][Row];
 		Result.CanonicalizeFloat32();
 		return Result;
@@ -34,8 +34,8 @@ namespace
 	auto FloatMatrix(const Durin::FMatrix& Matrix) -> Durin::FMatrix4f
 	{
 		Durin::FMatrix4f Result(0.0f);
-		for (Durin::uint32 Column = 0; Column < 4; ++Column)
-			for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		for (uint32 Column = 0; Column < 4; ++Column)
+			for (uint32 Row = 0; Row < 4; ++Row)
 				Result[Column][Row] = static_cast<float>(Matrix[Column][Row]);
 		return Result;
 	}
@@ -50,7 +50,7 @@ namespace
 
 	auto MakeMesh(
 		Durin::DSkeleton& Skeleton,
-		std::vector<Durin::uint16> Palette,
+		std::vector<uint16> Palette,
 		std::vector<Durin::FMatrix4f> InverseBinds,
 		const Durin::FMatrix& MeshBind = Durin::FMatrix(1.0)) -> Durin::DSkeletalMesh*
 	{
@@ -114,8 +114,8 @@ namespace
 		const Durin::FMatrix4f& Actual,
 		float Tolerance = 1.0e-5f) -> void
 	{
-		for (Durin::uint32 Column = 0; Column < 4; ++Column)
-			for (Durin::uint32 Row = 0; Row < 4; ++Row)
+		for (uint32 Column = 0; Column < 4; ++Column)
+			for (uint32 Row = 0; Row < 4; ++Row)
 				EXPECT_NEAR(Expected[Column][Row], Actual[Column][Row], Tolerance);
 	}
 
@@ -395,7 +395,7 @@ TEST(FSkeletalAnimationInstanceTests, RetainsCoherentStateAfterInvalidTickAndReb
 	ASSERT_TRUE(Instance.Play(Error)) << Error;
 	ASSERT_TRUE(Instance.Tick(0.5f, Error)) << Error;
 	const float PreviousTime = Instance.GetTimeSeconds();
-	const Durin::uint64 PreviousRevision = Instance.GetRevision();
+	const uint64 PreviousRevision = Instance.GetRevision();
 	const auto PreviousCandidate = Instance.GetLatestPosePalette();
 
 	EXPECT_FALSE(Instance.Tick(std::numeric_limits<float>::quiet_NaN(), Error));
@@ -556,7 +556,7 @@ TEST(DSkeletalMeshComponentTests, RejectsProspectiveChangesWithoutDestroyingPlay
 	Component->DispatchBeginPlay();
 	Component->TickComponent(0.5f);
 	const auto Previous = Component->GetLatestPosePalette();
-	const Durin::uint64 Revision = Component->GetPlaybackRevision();
+	const uint64 Revision = Component->GetPlaybackRevision();
 
 	EXPECT_FALSE(Component->SetAnimationClip(IncompatibleClip, Error));
 	EXPECT_FALSE(Component->SetSkeletalMesh(nullptr, Error));

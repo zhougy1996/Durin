@@ -321,7 +321,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	Settings.FarClip = 100.0f;
 	Settings.AspectRatioMode = Durin::ECameraAspectRatioMode::Custom;
 	Settings.CustomAspectRatio = 20.0f;
-	const Durin::uint64 SettingsRevision = Package->GetEditRevision();
+	const uint64 SettingsRevision = Package->GetEditRevision();
 	Camera->SetProjectionSettings(Settings);
 	EXPECT_EQ(Package->GetEditRevision(), SettingsRevision + 1);
 	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 170.0f);
@@ -331,13 +331,13 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	EXPECT_LT(Camera->GetViewRenderDistance(), 100.0f);
 
 	Package->ClearDirty();
-	const Durin::uint64 EquivalentRevision = Package->GetEditRevision();
+	const uint64 EquivalentRevision = Package->GetEditRevision();
 	Camera->SetProjectionSettings(Camera->GetProjectionSettings());
 	Camera->SetViewDistance(Camera->GetViewDistance());
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_EQ(Package->GetEditRevision(), EquivalentRevision);
 
-	const Durin::uint64 TransformRevision = Package->GetEditRevision();
+	const uint64 TransformRevision = Package->GetEditRevision();
 	Camera->SetLookAt({10.0, 20.0, 30.0}, {11.0, 20.0, 30.0});
 	EXPECT_EQ(Package->GetEditRevision(), TransformRevision + 1);
 	ExpectVectorNear(Camera->GetWorldLocation(), {10.0, 20.0, 30.0});
@@ -399,7 +399,7 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	};
 	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {
 		return View.SubmitPropertyValueEdit(Context, MakeTarget(Field),
-			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				*ScratchProperty->ContainerPtrToValuePtr<float>(ScratchContainer, ScratchArrayIndex) = Value;
 		}, bContinuous);
 	};
@@ -431,7 +431,7 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MakeTarget(AspectRatioMode),
-		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 			*ScratchProperty->ContainerPtrToValuePtr<Durin::ECameraAspectRatioMode>(ScratchContainer, ScratchArrayIndex) = Durin::ECameraAspectRatioMode::Custom;
 	}, false));
 	ASSERT_TRUE(SubmitFloat(CustomAspectRatio, 20.0f, false));

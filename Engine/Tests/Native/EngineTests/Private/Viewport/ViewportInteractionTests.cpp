@@ -44,7 +44,7 @@ namespace
 		Durin::Editor::Level::FLevelEditorViewportClient& Client,
 		Durin::DLevel* Level,
 		float DeltaSeconds,
-		Durin::int32 FrameCount
+		int32 FrameCount
 	) -> void
 	{
 		Durin::Editor::Level::FLevelEditorViewportInput Input;
@@ -54,7 +54,7 @@ namespace
 		Input.bRightMouseDown = true;
 		Input.bMoveForward = true;
 		Input.MouseDelta = {90.0f * DeltaSeconds, -30.0f * DeltaSeconds};
-		for (Durin::int32 Frame = 0; Frame < FrameCount; ++Frame)
+		for (int32 Frame = 0; Frame < FrameCount; ++Frame)
 		{
 			Input.bRightMousePressed = Frame == 0;
 			Client.Update(Level, nullptr, Input);
@@ -126,7 +126,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
 	Durin::Editor::FTransactionManager Transactions;
-	const Durin::uint64 MountedContentRevision =
+	const uint64 MountedContentRevision =
 		Transactions.GetMountedContentMutationRevision();
 	Input.bFocused = true;
 	Input.bHovered = true;

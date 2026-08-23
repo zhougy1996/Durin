@@ -67,7 +67,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
 	auto DifferentProducer = Bytes;
-	for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+	for (uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<std::byte>(
 			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
 	Result = Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
@@ -147,7 +147,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
 		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData),
 		Product.DerivedDataKey, Error)) << Error;
-	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
+	const uint64 ValidRevision = Texture->GetBuildRevision();
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_FALSE(Texture->PublishBuiltData({}, {}, nullptr, "invalid", Error));
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
@@ -327,7 +327,7 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		Durin::EVolumeTextureFormat::RGBA8_UNORM,
 		Durin::EVolumeTextureFormat::R16_FLOAT,
 		Durin::EVolumeTextureFormat::RGBA16_FLOAT};
-	const std::array<Durin::uint32, 5> BytesPerVoxel{1, 2, 4, 2, 8};
+	const std::array<uint32, 5> BytesPerVoxel{1, 2, 4, 2, 8};
 	for (size_t Index = 0; Index < Formats.size(); ++Index)
 	{
 		Durin::FVolumeTextureSourceData Source;
@@ -344,12 +344,12 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		ASSERT_TRUE(Durin::Asset::Build::VolumeTextureBuilder::BuildMipChain(
 			Source, Settings, Platform, Error)) << Error;
 		ASSERT_EQ(Platform.Mips.size(), 3u);
-		const std::array<Durin::uint32, 3> MiddleExtent{
+		const std::array<uint32, 3> MiddleExtent{
 			Platform.Mips[1].Width, Platform.Mips[1].Height, Platform.Mips[1].Depth};
-		const std::array<Durin::uint32, 3> TailExtent{
+		const std::array<uint32, 3> TailExtent{
 			Platform.Mips[2].Width, Platform.Mips[2].Height, Platform.Mips[2].Depth};
-		EXPECT_EQ(MiddleExtent, (std::array<Durin::uint32, 3>{1, 1, 2}));
-		EXPECT_EQ(TailExtent, (std::array<Durin::uint32, 3>{1, 1, 1}));
+		EXPECT_EQ(MiddleExtent, (std::array<uint32, 3>{1, 1, 2}));
+		EXPECT_EQ(TailExtent, (std::array<uint32, 3>{1, 1, 1}));
 		EXPECT_TRUE(Platform.IsValid());
 	}
 }
@@ -434,7 +434,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		Durin::ETextureUsage Usage;
 		std::string_view AssetName;
 		Durin::EPixelFormat PixelFormat;
-		std::array<Durin::uint8, 4> ExpectedPixel;
+		std::array<uint8, 4> ExpectedPixel;
 	};
 	const std::array Presets = {
 		FExpectedPreset{Durin::ETextureUsage::Color, "PresetColor", Durin::EPixelFormat::BC3_UNORM_SRGB, {188, 0, 0, 128}},
@@ -560,21 +560,21 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 	Source.Format = Durin::ETextureSourceFormat::RGBA8;
 	Source.bHasTransparency = true;
 	Source.Pixels.resize(8 * 8 * 4);
-	constexpr std::array<Durin::uint8, 16> OpaqueCounts = {
+	constexpr std::array<uint8, 16> OpaqueCounts = {
 		3, 3, 3, 3,
 		3, 2, 2, 1,
 		0, 0, 0, 0,
 		0, 0, 0, 0
 	};
-	for (Durin::uint32 BlockY = 0; BlockY < 4; ++BlockY)
+	for (uint32 BlockY = 0; BlockY < 4; ++BlockY)
 	{
-		for (Durin::uint32 BlockX = 0; BlockX < 4; ++BlockX)
+		for (uint32 BlockX = 0; BlockX < 4; ++BlockX)
 		{
-			const Durin::uint8 OpaqueCount = OpaqueCounts[BlockY * 4 + BlockX];
-			for (Durin::uint32 Pixel = 0; Pixel < 4; ++Pixel)
+			const uint8 OpaqueCount = OpaqueCounts[BlockY * 4 + BlockX];
+			for (uint32 Pixel = 0; Pixel < 4; ++Pixel)
 			{
-				const Durin::uint32 X = BlockX * 2 + Pixel % 2;
-				const Durin::uint32 Y = BlockY * 2 + Pixel / 2;
+				const uint32 X = BlockX * 2 + Pixel % 2;
+				const uint32 Y = BlockY * 2 + Pixel / 2;
 				const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
 				Source.Pixels[Offset] = static_cast<std::byte>(X * 24);
 				Source.Pixels[Offset + 1] = static_cast<std::byte>(Y * 24);
@@ -634,7 +634,7 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 	Durin::FTexture2DMipData Mip;
 	Mip.Width = 5;
 	Mip.Height = 3;
-	Mip.RowPitch = static_cast<Durin::uint32>(BC1Npot.RowPitch);
+	Mip.RowPitch = static_cast<uint32>(BC1Npot.RowPitch);
 	Mip.Pixels.resize(static_cast<size_t>(BC1Npot.DataSize));
 	EXPECT_TRUE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
 	Mip.RowPitch = 8;
@@ -654,7 +654,7 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 		static_cast<size_t>(Source.Width) * Source.Height
 		* Durin::Asset::Build::TextureBuilder::ChannelCount,
 		std::byte{127});
-	Durin::uint32 CheckpointCount = 0;
+	uint32 CheckpointCount = 0;
 	const Durin::Asset::Build::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [&] { return ++CheckpointCount == 20; }};
 	Durin::FTexturePlatformData Platform;
@@ -762,50 +762,50 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, UsageProperty),
-			[Usage](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[Usage](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
-					Container, static_cast<Durin::uint64>(Usage), ArrayIndex);
+					Container, static_cast<uint64>(Usage), ArrayIndex);
 			}, false);
 	};
 	const auto SubmitSRGB = [&](bool bSRGB) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, SRGBProperty),
-			[bSRGB](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[bSRGB](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex) = bSRGB;
 			}, false);
 	};
-	const auto SubmitMaxResolution = [&](Durin::uint32 MaxResolution) {
+	const auto SubmitMaxResolution = [&](uint32 MaxResolution) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, MaxResolutionProperty),
-			[MaxResolution](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
-				*Property->ContainerPtrToValuePtr<Durin::uint32>(Container, ArrayIndex) = MaxResolution;
+			[MaxResolution](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
+				*Property->ContainerPtrToValuePtr<uint32>(Container, ArrayIndex) = MaxResolution;
 			}, false);
 	};
 	const auto SubmitCompressionQuality = [&](Durin::ETextureCompressionQuality Quality) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, CompressionQualityProperty),
-			[Quality](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[Quality](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
-					Container, static_cast<Durin::uint64>(Quality), ArrayIndex);
+					Container, static_cast<uint64>(Quality), ArrayIndex);
 			}, false);
 	};
 	const auto SubmitAlphaMipMode = [&](Durin::ETextureAlphaMipMode Mode) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, AlphaMipModeProperty),
-			[Mode](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[Mode](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
-					Container, static_cast<Durin::uint64>(Mode), ArrayIndex);
+					Container, static_cast<uint64>(Mode), ArrayIndex);
 			}, false);
 	};
 	const auto SubmitAlphaCoverageThreshold = [&](float Threshold) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
-			[Threshold](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[Threshold](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = Threshold;
 			}, false);
 	};
 
-	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
+	const uint64 InitialRevision = Texture->GetBuildRevision();
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
@@ -926,9 +926,9 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		return PropertyView.SubmitPropertyValueEdit(
 			Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(Texture, UsageProperty),
-			[Usage](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[Usage](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
-					Container, static_cast<Durin::uint64>(Usage), ArrayIndex);
+					Container, static_cast<uint64>(Usage), ArrayIndex);
 			},
 			false);
 	};
@@ -941,7 +941,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	bool bEntered = false;
 	bool bRelease = false;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 			std::unique_lock Lock(Mutex);
 			if (bEntered) return;
@@ -975,7 +975,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	bEntered = false;
 	bRelease = false;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 			std::unique_lock Lock(Mutex);
 			if (bEntered) return;
@@ -1005,7 +1005,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	bEntered = false;
 	bRelease = false;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 			std::unique_lock Lock(Mutex);
 			if (bEntered) return;

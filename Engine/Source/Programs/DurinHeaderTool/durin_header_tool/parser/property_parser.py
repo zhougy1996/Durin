@@ -59,14 +59,6 @@ _PROPERTY_KIND_BY_TYPE = {
     "::uint16": "UInt16",
     "::uint32": "UInt32",
     "::uint64": "UInt64",
-    "Durin::int8": "Int8",
-    "Durin::int16": "Int16",
-    "Durin::int32": "Int32",
-    "Durin::int64": "Int64",
-    "Durin::uint8": "UInt8",
-    "Durin::uint16": "UInt16",
-    "Durin::uint32": "UInt32",
-    "Durin::uint64": "UInt64",
     "float": "Float",
     "double": "Double",
     "bool": "Bool",
@@ -949,7 +941,7 @@ def _cpp_type_spelling(
     primitive_types = {
         spelling: f"::{name}"
         for name in ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
-        for spelling in (name, f"::{name}", f"Durin::{name}")
+        for spelling in (name, f"::{name}")
     } | {
         "bool": "bool",
         "float": "float",
@@ -1305,10 +1297,6 @@ def _underlying_kind_from_type_spelling(type_spelling: str) -> str:
         "int16": "Int16",
         "int32": "Int32",
         "int64": "Int64",
-        "Durin::int8": "Int8",
-        "Durin::int16": "Int16",
-        "Durin::int32": "Int32",
-        "Durin::int64": "Int64",
         "unsigned char": "UInt8",
         "unsigned short": "UInt16",
         "unsigned short int": "UInt16",
@@ -1321,10 +1309,6 @@ def _underlying_kind_from_type_spelling(type_spelling: str) -> str:
         "uint16": "UInt16",
         "uint32": "UInt32",
         "uint64": "UInt64",
-        "Durin::uint8": "UInt8",
-        "Durin::uint16": "UInt16",
-        "Durin::uint32": "UInt32",
-        "Durin::uint64": "UInt64",
         "::int8": "Int8",
         "::int16": "Int16",
         "::int32": "Int32",

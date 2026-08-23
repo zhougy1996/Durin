@@ -16,8 +16,8 @@ namespace
 	public:
 		auto OnWindowResize(
 			const std::shared_ptr<Durin::FGenericWindow>&,
-			Durin::int32,
-			Durin::int32,
+			int32,
+			int32,
 			bool) -> void override
 		{
 			++ResizeCount;
@@ -25,15 +25,15 @@ namespace
 
 		auto OnWindowViewportResize(
 			const std::shared_ptr<Durin::FGenericWindow>&,
-			Durin::int32,
-			Durin::int32,
+			int32,
+			int32,
 			bool) -> void override
 		{
 			++ViewportResizeCount;
 		}
 
-		Durin::uint32 ResizeCount = 0;
-		Durin::uint32 ViewportResizeCount = 0;
+		uint32 ResizeCount = 0;
+		uint32 ViewportResizeCount = 0;
 	};
 
 	class FWindowTestApplication final : public Durin::FGenericApplication
@@ -101,7 +101,7 @@ TEST(FMacOSWindowLifecycleTests, RepeatedHiddenCocoaWindowsExposeRetinaAndEventS
 		EXPECT_GT(Monitor.DpiScale, 0.0f);
 	}
 
-	for (Durin::uint32 Cycle = 0; Cycle < 3; ++Cycle)
+	for (uint32 Cycle = 0; Cycle < 3; ++Cycle)
 	{
 		auto Window = Durin::MakePlatformWindow();
 		Application->Window = Window;
@@ -185,7 +185,7 @@ TEST(FMacOSWindowLifecycleTests, CustomTitleBarRetainsNativeWindowControlsAndMet
 	auto Application = std::make_shared<FWindowTestApplication>(Handler);
 	Durin::GApp = Application;
 
-	for (Durin::uint32 Cycle = 0; Cycle < 3; ++Cycle)
+	for (uint32 Cycle = 0; Cycle < 3; ++Cycle)
 	{
 		auto Window = Durin::MakePlatformWindow();
 		Application->Window = Window;
@@ -197,13 +197,13 @@ TEST(FMacOSWindowLifecycleTests, CustomTitleBarRetainsNativeWindowControlsAndMet
 
 		void* NativeWindow = Window->GetOSNativeWindowHandle();
 		EXPECT_NE(SendObjectiveCMessage<void*>(NativeWindow, "delegate"), nullptr);
-		constexpr Durin::uint64 FullSizeContentViewStyle = 1ull << 15;
-		const Durin::uint64 StyleMask = SendObjectiveCMessage<Durin::uint64>(NativeWindow, "styleMask");
+		constexpr uint64 FullSizeContentViewStyle = 1ull << 15;
+		const uint64 StyleMask = SendObjectiveCMessage<uint64>(NativeWindow, "styleMask");
 		EXPECT_NE(StyleMask & FullSizeContentViewStyle, 0u);
-		EXPECT_EQ(SendObjectiveCMessage<Durin::int64>(NativeWindow, "titleVisibility"), 1);
+		EXPECT_EQ(SendObjectiveCMessage<int64>(NativeWindow, "titleVisibility"), 1);
 		EXPECT_TRUE(SendObjectiveCMessage<bool>(NativeWindow, "titlebarAppearsTransparent"));
 
-		for (const Durin::int64 ButtonKind : {0, 1, 2})
+		for (const int64 ButtonKind : {0, 1, 2})
 		{
 			void* Button = SendObjectiveCMessage<void*>(
 				NativeWindow, "standardWindowButton:", ButtonKind);

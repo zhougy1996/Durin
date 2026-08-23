@@ -34,38 +34,38 @@ namespace
 {
 	auto WriteNpotTextureFixture(const std::filesystem::path& Path) -> void
 	{
-		constexpr Durin::uint16 Width = 5;
-		constexpr Durin::uint16 Height = 3;
-		std::array<Durin::uint8, 18> Header{};
+		constexpr uint16 Width = 5;
+		constexpr uint16 Height = 3;
+		std::array<uint8, 18> Header{};
 		Header[2] = 2;
-		Header[12] = static_cast<Durin::uint8>(Width);
-		Header[14] = static_cast<Durin::uint8>(Height);
+		Header[12] = static_cast<uint8>(Width);
+		Header[14] = static_cast<uint8>(Height);
 		Header[16] = 32;
 		Header[17] = 0x28;
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
-		for (Durin::uint16 Y = 0; Y < Height; ++Y)
+		for (uint16 Y = 0; Y < Height; ++Y)
 		{
-			for (Durin::uint16 X = 0; X < Width; ++X)
+			for (uint16 X = 0; X < Width; ++X)
 			{
-				const Durin::uint8 Value = X == Width - 1 ? 255 : 0;
-				const std::array<Durin::uint8, 4> Pixel = {Value, Value, Value, 255};
+				const uint8 Value = X == Width - 1 ? 255 : 0;
+				const std::array<uint8, 4> Pixel = {Value, Value, Value, 255};
 				Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
 			}
 		}
 	}
 
-	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Bytes.size());
-		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint64 Value) -> void
+	auto WriteU64(std::vector<std::byte>& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		ASSERT_LE(Offset + 8, Bytes.size());
-		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
+		for (uint32 Byte = 0; Byte < 8; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
@@ -204,7 +204,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	WriteU32(
 		WrongProfileBulk,
 		12,
-		static_cast<Durin::uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
+		static_cast<uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
 	std::filesystem::create_directories(WrongProfileRoot / "Game");
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstPackage)),
@@ -216,7 +216,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const std::filesystem::path UnsupportedFormatRoot =
 		std::filesystem::absolute(Root / "CookUnsupportedFormat");
 	std::vector<std::byte> UnsupportedFormatPayload = DecodedBulk.Payloads.front();
-	WriteU32(UnsupportedFormatPayload, 24, std::numeric_limits<Durin::uint32>::max());
+	WriteU32(UnsupportedFormatPayload, 24, std::numeric_limits<uint32>::max());
 	WriteU64(
 		UnsupportedFormatPayload,
 		64,
@@ -409,9 +409,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	{
 		ASSERT_EQ(UploadResult->SamplePixels.size(), 17u * 17u * 4u);
 		const size_t Center = (8u * 17u + 8u) * 4u;
-		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center]), 180u);
-		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center + 1]), 180u);
-		EXPECT_GT(std::to_integer<Durin::uint8>(UploadResult->SamplePixels[Center + 2]), 180u);
+		EXPECT_GT(std::to_integer<uint8>(UploadResult->SamplePixels[Center]), 180u);
+		EXPECT_GT(std::to_integer<uint8>(UploadResult->SamplePixels[Center + 1]), 180u);
+		EXPECT_GT(std::to_integer<uint8>(UploadResult->SamplePixels[Center + 2]), 180u);
 	}
 
 	SceneOwner.reset();

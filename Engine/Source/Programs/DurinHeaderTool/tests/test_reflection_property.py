@@ -70,7 +70,7 @@ from reflection_test_support import reflection_fixture
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionProperties:
-    @pytest.mark.parametrize("spelling", ["uint32", "::uint32", "Durin::uint32"])
+    @pytest.mark.parametrize("spelling", ["uint32", "::uint32"])
     def test_fixed_width_integer_spellings_use_global_canonical_type(self, spelling):
         prop = _make_property_from_spelling("Value", spelling, None)
 

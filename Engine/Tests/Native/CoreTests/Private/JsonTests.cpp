@@ -34,7 +34,7 @@ namespace
 		ASSERT_TRUE(Root.IsObject());
 		EXPECT_TRUE(Root.Contains("flags"));
 		std::string Name;
-		Durin::int64 Version = 0;
+		int64 Version = 0;
 		EXPECT_TRUE(Root.GetChildValue("name", Name));
 		EXPECT_TRUE(Root.GetChildValue("version", Version));
 		EXPECT_EQ(Name, "yyjson smoke test");

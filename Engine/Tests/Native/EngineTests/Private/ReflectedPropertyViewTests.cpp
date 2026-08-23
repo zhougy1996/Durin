@@ -95,7 +95,7 @@ namespace
 			return true;
 		}
 
-		Durin::int32 Value = 5;
+		int32 Value = 5;
 		Durin::FVector3f FloatVector{0.0f};
 		FSoftObjectViewValue SoftValues[2];
 		FSoftObjectViewArray SoftArray;
@@ -118,18 +118,18 @@ namespace
 				nullptr
 			);
 			DPropertyViewHostTestObject OffsetProbe(Class, Durin::FName("OffsetProbe"));
-			const auto Offset = static_cast<Durin::uint16>(
-				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.Value)
-				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe)
+			const auto Offset = static_cast<uint16>(
+				reinterpret_cast<const uint8*>(&OffsetProbe.Value)
+				- reinterpret_cast<const uint8*>(&OffsetProbe)
 			);
 			Property = new Durin::FNumericProperty(
 				Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::Transient,
-				Durin::EPropertyFlags::Edit, 1, Offset, sizeof(Durin::int32),
+				Durin::EPropertyFlags::Edit, 1, Offset, sizeof(int32),
 				Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 			);
-			Property->SetValueLifecycle(sizeof(Durin::int32), alignof(Durin::int32),
-				[](void* Memory) { std::construct_at(static_cast<Durin::int32*>(Memory)); },
-				[](void* Memory) { std::destroy_at(static_cast<Durin::int32*>(Memory)); });
+			Property->SetValueLifecycle(sizeof(int32), alignof(int32),
+				[](void* Memory) { std::construct_at(static_cast<int32*>(Memory)); },
+				[](void* Memory) { std::destroy_at(static_cast<int32*>(Memory)); });
 			const Durin::FPropertyMetadataParams Metadata{
 				.DisplayName = "Bounded Value",
 				.ToolTip = "A value with authoring bounds.",
@@ -142,9 +142,9 @@ namespace
 			};
 			Property->SetTypedMetadata(&Metadata);
 
-			const auto SoftValuesOffset = static_cast<Durin::uint16>(
-				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftValues)
-				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			const auto SoftValuesOffset = static_cast<uint16>(
+				reinterpret_cast<const uint8*>(&OffsetProbe.SoftValues)
+				- reinterpret_cast<const uint8*>(&OffsetProbe));
 			SoftProperty = new Durin::FSoftObjectProperty(
 				Durin::FFieldVariant(Class), Durin::FName("SoftValues"), Durin::EObjectFlags::Transient,
 				Durin::EPropertyFlags::Edit, 2, SoftValuesOffset, sizeof(FSoftObjectViewValue),
@@ -156,9 +156,9 @@ namespace
 				Durin::EPropertyFlags::None, 1, 0, sizeof(FSoftObjectViewValue),
 				Durin::DObject::StaticClass(), &GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
 			SetPropertyViewValueLifecycle<FSoftObjectViewValue>(*ArrayInner);
-			const auto SoftArrayOffset = static_cast<Durin::uint16>(
-				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftArray)
-				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			const auto SoftArrayOffset = static_cast<uint16>(
+				reinterpret_cast<const uint8*>(&OffsetProbe.SoftArray)
+				- reinterpret_cast<const uint8*>(&OffsetProbe));
 			ArrayProperty = new Durin::FArrayProperty(
 				Durin::FFieldVariant(Class), Durin::FName("SoftArray"), Durin::EObjectFlags::Transient,
 				Durin::EPropertyFlags::Edit, 1, SoftArrayOffset, sizeof(FSoftObjectViewArray),
@@ -177,9 +177,9 @@ namespace
 				Durin::EPropertyFlags::None, 1, 0, sizeof(FSoftObjectViewValue),
 				Durin::DObject::StaticClass(), &GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
 			SetPropertyViewValueLifecycle<FSoftObjectViewValue>(*MapValue);
-			const auto SoftMapOffset = static_cast<Durin::uint16>(
-				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftMap)
-				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			const auto SoftMapOffset = static_cast<uint16>(
+				reinterpret_cast<const uint8*>(&OffsetProbe.SoftMap)
+				- reinterpret_cast<const uint8*>(&OffsetProbe));
 			MapProperty = new Durin::FMapProperty(
 				Durin::FFieldVariant(Class), Durin::FName("SoftMap"), Durin::EObjectFlags::Transient,
 				Durin::EPropertyFlags::Edit, 1, SoftMapOffset, sizeof(FSoftObjectViewMap),
@@ -222,8 +222,8 @@ namespace
 		return View.SubmitPropertyValueEdit(
 			Context,
 			Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
-			[](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
-				*static_cast<Durin::int32*>(Property->GetValuePtr(Container, ArrayIndex)) = 8;
+			[](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
+				*static_cast<int32*>(Property->GetValuePtr(Container, ArrayIndex)) = 8;
 			},
 			true
 		);
@@ -361,9 +361,9 @@ TEST(FReflectedPropertyViewTests, FloatVectorUsesInlineComponentEditor)
 		Durin::EClassCastFlags::DClass,
 		nullptr);
 	DPropertyViewHostTestObject Object(&TestClass, Durin::FName("FloatVectorPropertyView"));
-	const auto Offset = static_cast<Durin::uint16>(
-		reinterpret_cast<const Durin::uint8*>(&Object.FloatVector)
-			- reinterpret_cast<const Durin::uint8*>(&Object));
+	const auto Offset = static_cast<uint16>(
+		reinterpret_cast<const uint8*>(&Object.FloatVector)
+			- reinterpret_cast<const uint8*>(&Object));
 	Durin::FStructProperty FloatVectorProperty(
 		Durin::FFieldVariant(&TestClass), Durin::FName("FloatVector"), Durin::EObjectFlags::Transient,
 		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_Durin_FVector3f());
@@ -423,9 +423,9 @@ TEST(FReflectedPropertyViewTests, FloatVectorUsesAuthoredStepAndPrecision)
 		Durin::EClassCastFlags::DClass,
 		nullptr);
 	DPropertyViewHostTestObject Object(&TestClass, Durin::FName("FloatVectorMetadataPropertyView"));
-	const auto Offset = static_cast<Durin::uint16>(
-		reinterpret_cast<const Durin::uint8*>(&Object.FloatVector)
-			- reinterpret_cast<const Durin::uint8*>(&Object));
+	const auto Offset = static_cast<uint16>(
+		reinterpret_cast<const uint8*>(&Object.FloatVector)
+			- reinterpret_cast<const uint8*>(&Object));
 	Durin::FStructProperty FloatVectorProperty(
 		Durin::FFieldVariant(&TestClass), Durin::FName("FloatVector"), Durin::EObjectFlags::Transient,
 		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_Durin_FVector3f());
@@ -657,7 +657,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	const Durin::Editor::FPropertyViewContext Context{.Transactions = &Transactions};
 	auto AssignPath = [](Durin::FSoftObjectPath Path) {
 		return [Path = std::move(Path)](
-			Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 			auto* Reference = static_cast<Durin::FSoftObjectProperty*>(Property)
 				->GetSoftObjectPtr(Container, ArrayIndex);
 			ASSERT_NE(Reference, nullptr);
@@ -716,8 +716,8 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	EXPECT_FALSE(View.SubmitPropertyValueEdit(
 		Context,
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.Property),
-		[](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
-			*Property->ContainerPtrToValuePtr<Durin::int32>(Container, ArrayIndex) = 11;
+		[](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
+			*Property->ContainerPtrToValuePtr<int32>(Container, ArrayIndex) = 11;
 		}, false));
 	EXPECT_EQ(Object.Value, 5);
 	EXPECT_NE(Error.find("ClampMax"), std::string::npos);

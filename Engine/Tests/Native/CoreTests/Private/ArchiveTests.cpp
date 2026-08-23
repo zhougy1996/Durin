@@ -6,7 +6,7 @@ namespace
 {
 	struct FArchiveFixtureValue
 	{
-		Durin::uint32 Count = 0;
+		uint32 Count = 0;
 		std::string Label;
 
 		auto Serialize(Durin::FArchive& Ar) -> void
@@ -21,7 +21,7 @@ namespace
 
 namespace ArchiveCustomizationTest
 {
-	struct FFreeValue { Durin::uint16 Value = 0; };
+	struct FFreeValue { uint16 Value = 0; };
 	inline auto Serialize(Durin::FArchive& Ar, FFreeValue& Value) -> void { Ar << Value.Value; }
 }
 
@@ -29,8 +29,8 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 {
 	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::uint16 U16 = 0x1234;
-	Durin::int32 I32 = -2;
+	uint16 U16 = 0x1234;
+	int32 I32 = -2;
 	float Float = 1.0f;
 	bool Boolean = true;
 	Writer << U16 << I32 << Float << Boolean;
@@ -40,8 +40,8 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 		std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
 		std::byte{0x80}, std::byte{0x3f}, std::byte{0x01}}));
 
-	Durin::uint16 LoadedU16 = 0;
-	Durin::int32 LoadedI32 = 0;
+	uint16 LoadedU16 = 0;
+	int32 LoadedI32 = 0;
 	float LoadedFloat = 0;
 	bool LoadedBoolean = false;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
@@ -65,7 +65,7 @@ TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 	ASSERT_NE(Reader.GetFailure(), nullptr);
 	EXPECT_EQ(Reader.GetFailure()->Code, Durin::EArchiveFailureCode::TruncatedPayload);
 	EXPECT_EQ(Reader.Tell(), 3);
-	Durin::uint8 Unchanged = 42;
+	uint8 Unchanged = 42;
 	Reader << Unchanged;
 	EXPECT_EQ(Unchanged, 42);
 }

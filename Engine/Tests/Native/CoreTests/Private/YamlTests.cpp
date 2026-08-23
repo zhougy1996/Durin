@@ -39,7 +39,7 @@ features:
 		ASSERT_TRUE(Root.IsMap());
 		EXPECT_TRUE(Root.Contains("flags"));
 		std::string Name;
-		Durin::int64 Version = 0;
+		int64 Version = 0;
 		bool bEnabled = false;
 		double Threshold = 0.0;
 		EXPECT_TRUE(Root.GetChildValue("name", Name));
@@ -124,11 +124,11 @@ features:
 		Root.SetChildValue("threshold", 1.5);
 
 		Durin::FYamlNodeRef Flags = Root.AddMap("flags");
-		Flags.SetChildValue("count", static_cast<Durin::uint64>(3));
+		Flags.SetChildValue("count", static_cast<uint64>(3));
 
 		Durin::FYamlNodeRef Features = Root.AddSequence("features");
 		Features.AppendValue("parse");
-		Features.AppendValue(static_cast<Durin::int64>(12));
+		Features.AppendValue(static_cast<int64>(12));
 		Features.AppendValue(false);
 		EXPECT_EQ(Features.GetView(0).GetString(), "parse");
 

@@ -7,11 +7,11 @@
 
 namespace
 {
-	constexpr Durin::uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
+	constexpr uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
 
 	struct FDeterministicGenerator
 	{
-		Durin::uint64 State = FixtureSeed;
+		uint64 State = FixtureSeed;
 
 		auto NextUnit() -> double
 		{
@@ -22,7 +22,7 @@ namespace
 
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
-		Durin::uint64 UserToken,
+		uint64 UserToken,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
@@ -47,7 +47,7 @@ namespace
 				100.0 + static_cast<double>(Index % 100) * 4.0,
 				-200.0 + static_cast<double>((Index / 100) % 100) * 4.0,
 				20.0 + static_cast<double>(Index / 10'000) * 4.0};
-			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<Durin::uint64>(Index + 1));
+			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<uint64>(Index + 1));
 			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0, Durin::FVectorConstants::Up);
 			Desc.Transform.Scale3D = {
@@ -125,7 +125,7 @@ namespace
 	auto ExpectQueryCountersReconcile(const Durin::FPhysicsSceneQueryCounters& Counters) -> void
 	{
 		ASSERT_GE(Counters.SubmittedQueries, Counters.InvalidQueries + Counters.OffThreadQueries);
-		const Durin::uint64 ValidSubmissions =
+		const uint64 ValidSubmissions =
 			Counters.SubmittedQueries - Counters.InvalidQueries - Counters.OffThreadQueries;
 		EXPECT_EQ(
 			Counters.ReferenceExecutions + Counters.ProductionExecutions,
@@ -447,13 +447,13 @@ TEST(FAetherGeometryCounterTests, OptionalSinkCountsBoundedDistanceWorkAndSatura
 	EXPECT_EQ(Counters.SearchIterations, 1'652u);
 
 	Counters = {
-		.DistanceEvaluations = std::numeric_limits<Durin::uint64>::max() - 10,
-		.SearchIterations = std::numeric_limits<Durin::uint64>::max() - 10};
+		.DistanceEvaluations = std::numeric_limits<uint64>::max() - 10,
+		.SearchIterations = std::numeric_limits<uint64>::max() - 10};
 	CapsuleTransform.Translation = {0.0, 0.0, 0.0};
 	ASSERT_TRUE(Durin::CollisionGeometry::OverlapCapsuleBox(
 		Capsule, CapsuleTransform, Box, BoxTransform, CountedHit, &Counters));
-	EXPECT_EQ(Counters.DistanceEvaluations, std::numeric_limits<Durin::uint64>::max());
-	EXPECT_EQ(Counters.SearchIterations, std::numeric_limits<Durin::uint64>::max());
+	EXPECT_EQ(Counters.DistanceEvaluations, std::numeric_limits<uint64>::max());
+	EXPECT_EQ(Counters.SearchIterations, std::numeric_limits<uint64>::max());
 	EXPECT_TRUE(Counters.bOverflowed);
 }
 
@@ -628,7 +628,7 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndS
 	Snapshot = Scene.CaptureQueryDiagnostics();
 	EXPECT_EQ(
 		GetQueryCounters(Snapshot, Durin::EPhysicsSceneQueryKind::LineTraceSingle).SubmittedQueries,
-		std::numeric_limits<Durin::uint64>::max());
+		std::numeric_limits<uint64>::max());
 	EXPECT_TRUE(Snapshot.bOverflowed);
 	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 }
@@ -714,9 +714,9 @@ TEST(FAetherSceneAccelerationTests, ReusesGenerationSlotsAndRepairsDenseSwapsWit
 
 TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRejectsOverflow)
 {
-	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Static) == 0);
-	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Kinematic) == 1);
-	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Dynamic) == 2);
+	static_assert(static_cast<uint8>(Durin::EPhysicsBodyMotionType::Static) == 0);
+	static_assert(static_cast<uint8>(Durin::EPhysicsBodyMotionType::Kinematic) == 1);
+	static_assert(static_cast<uint8>(Durin::EPhysicsBodyMotionType::Dynamic) == 2);
 	EXPECT_EQ(Durin::FPhysicsBodyDesc{}.MotionType, Durin::EPhysicsBodyMotionType::Kinematic);
 
 	Durin::FPhysicsScene Scene;
@@ -817,10 +817,10 @@ TEST(FAetherSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferen
 
 TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatchFreeThroughChurn)
 {
-	constexpr Durin::uint64 ParitySeed = 0xA37E'5041'5459'0001ull;
+	constexpr uint64 ParitySeed = 0xA37E'5041'5459'0001ull;
 	for (size_t Scenario = 0; Scenario < 16; ++Scenario)
 	{
-		const Durin::uint64 ScenarioSeed = ParitySeed + static_cast<Durin::uint64>(Scenario);
+		const uint64 ScenarioSeed = ParitySeed + static_cast<uint64>(Scenario);
 		SCOPED_TRACE(std::format("seed={}, scenario={}", ScenarioSeed, Scenario));
 		FDeterministicGenerator Generator{ScenarioSeed};
 		std::vector<Durin::FPhysicsBodyDesc> Descs;
@@ -832,7 +832,7 @@ TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatch
 					(Generator.NextUnit() - 0.5) * 20.0,
 					(Generator.NextUnit() - 0.5) * 20.0,
 					(Generator.NextUnit() - 0.5) * 6.0},
-				static_cast<Durin::uint64>(Scenario * 100 + Index + 1),
+				static_cast<uint64>(Scenario * 100 + Index + 1),
 				{
 					0.2 + Generator.NextUnit() * 1.8,
 					0.2 + Generator.NextUnit() * 1.8,
@@ -844,7 +844,7 @@ TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatch
 				0.25 + Generator.NextUnit() * 2.0,
 				0.25 + Generator.NextUnit() * 2.0,
 				0.25 + Generator.NextUnit() * 2.0};
-			Desc.Filter.ObjectChannel = static_cast<Durin::uint8>(Index % 4);
+			Desc.Filter.ObjectChannel = static_cast<uint8>(Index % 4);
 			if (Index % 7 == 0) Desc.Filter.Responses[Scenario % 4] = Durin::EPhysicsQueryResponse::Ignore;
 			else if (Index % 7 == 1) Desc.Filter.Responses[Scenario % 4] = Durin::EPhysicsQueryResponse::Overlap;
 			Descs.push_back(Desc);
@@ -864,7 +864,7 @@ TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatch
 		ASSERT_TRUE(Scene.ResetQueryDiagnostics());
 
 		Durin::FPhysicsQueryFilter Filter;
-		Filter.QueryChannel = static_cast<Durin::uint8>(Scenario % 4);
+		Filter.QueryChannel = static_cast<uint8>(Scenario % 4);
 		if (Scenario % 3 == 0) Filter.Responses[(Scenario + 1) % 4] = Durin::EPhysicsQueryResponse::Overlap;
 		for (size_t Index = Scenario % 5; Index < Handles.size(); Index += 5)
 			Filter.IgnoredActors.push_back(Handles[Index]);

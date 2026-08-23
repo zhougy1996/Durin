@@ -11,10 +11,10 @@ namespace
 	{
 		return std::string(32, Fill);
 	}
-	auto Bytes(std::initializer_list<Durin::uint8> Values) -> std::vector<std::byte>
+	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result;
-		for (Durin::uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
+		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
 		return Result;
 	}
 }

@@ -187,7 +187,7 @@ struct std::hash<Durin::FXxHash128>
 {
 	auto operator()(const Durin::FXxHash128& Hash) const noexcept -> size_t
 	{
-		const Durin::uint64 Mixed = Hash.HashLow ^ (Hash.HashHigh + 0x9e3779b97f4a7c15ull + (Hash.HashLow << 6) + (Hash.HashLow >> 2));
+		const uint64 Mixed = Hash.HashLow ^ (Hash.HashHigh + 0x9e3779b97f4a7c15ull + (Hash.HashLow << 6) + (Hash.HashLow >> 2));
 		return static_cast<size_t>(Mixed);
 	}
 };

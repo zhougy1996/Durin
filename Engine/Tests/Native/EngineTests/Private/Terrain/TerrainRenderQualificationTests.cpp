@@ -58,8 +58,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
-	constexpr Durin::uint32 MaximumSamples = 1025;
-	std::vector<Durin::uint16> MaximumPlane(
+	constexpr uint32 MaximumSamples = 1025;
+	std::vector<uint16> MaximumPlane(
 		static_cast<size_t>(MaximumSamples) * MaximumSamples, 32768);
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> MaximumPayload;
 	std::string Error;
@@ -82,14 +82,14 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 
 	std::vector<Durin::FTerrainPatchDescriptor> MaximumPatches;
 	MaximumPatches.reserve(256);
-	for (Durin::uint32 Y = 0; Y < 1024; Y += 64)
-		for (Durin::uint32 X = 0; X < 1024; X += 64)
+	for (uint32 Y = 0; Y < 1024; Y += 64)
+		for (uint32 X = 0; X < 1024; X += 64)
 		{
 			Durin::FTerrainPatchDescriptor Patch;
 			Patch.OriginX = X;
 			Patch.OriginY = Y;
-			Patch.GridX = static_cast<Durin::uint16>(X / 64);
-			Patch.GridY = static_cast<Durin::uint16>(Y / 64);
+			Patch.GridX = static_cast<uint16>(X / 64);
+			Patch.GridY = static_cast<uint16>(Y / 64);
 			Patch.CellCountX = 64;
 			Patch.CellCountY = 64;
 			Patch.LODSteps = {1, 2, 4, 8, 16, 32, 64};
@@ -108,8 +108,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 		std::move(MaximumProxy), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 
-	constexpr Durin::uint32 WarmupFrames = 2;
-	constexpr Durin::uint32 MeasuredFrames = 7;
+	constexpr uint32 WarmupFrames = 2;
+	constexpr uint32 MeasuredFrames = 7;
 	std::vector<Durin::FGPUTimingQueryRHIRef> TimingQueries;
 	std::vector<double> CpuMilliseconds;
 	double FirstFrameCpuMilliseconds = 0.0;
@@ -131,7 +131,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
-			for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
+			for (uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				Durin::GRenderFrameCounterRenderThread++;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -152,7 +152,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	Durin::SetSceneColorTimingQuerySink(nullptr);
 	GTimingQueries = nullptr;
 
-	for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+	for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 	{
 		const bool Ready = TimingQueries.size() == WarmupFrames + MeasuredFrames
 			&& std::ranges::all_of(TimingQueries, [](const auto& Query) {
@@ -194,7 +194,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	const Durin::FViewRenderCounters& FirstFrame = GCounterSnapshots.front();
 	EXPECT_EQ(FirstFrame.TerrainHeightUploads, 1u);
 	EXPECT_EQ(FirstFrame.TerrainHeightUploadBytes,
-		static_cast<size_t>(MaximumSamples) * MaximumSamples * sizeof(Durin::uint16));
+		static_cast<size_t>(MaximumSamples) * MaximumSamples * sizeof(uint16));
 	EXPECT_EQ(FirstFrame.TerrainTopologyCreations, 1u);
 	EXPECT_EQ(FirstFrame.TerrainShaderLookups,
 		FirstFrame.TerrainShaderCreations + FirstFrame.TerrainShaderReuses);

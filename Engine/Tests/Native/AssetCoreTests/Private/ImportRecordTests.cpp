@@ -130,7 +130,7 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FInt32PropertyParams ValueProperty = {
 				"Value", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DImportRecordOutputForTest, Value))
+				static_cast<uint16>(offsetof(DImportRecordOutputForTest, Value))
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&ValueProperty
@@ -146,16 +146,16 @@ namespace
 			return Class;
 		}
 
-		auto SetValue(Durin::int32 NewValue) -> void
+		auto SetValue(int32 NewValue) -> void
 		{
 			Value = NewValue;
 			MarkPackageDirty();
 		}
 
-		auto GetValue() const -> Durin::int32 { return Value; }
+		auto GetValue() const -> int32 { return Value; }
 
 	private:
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	auto InitializeImportRecordTests() -> void
@@ -210,7 +210,7 @@ namespace
 		}
 
 		auto GetProviderId() const -> std::string_view override { return Id; }
-		auto GetContractVersion() const -> Durin::uint32 override { return 3; }
+		auto GetContractVersion() const -> uint32 override { return 3; }
 		auto CanImport(const Durin::Asset::FImportSourceRecognition& Source) const
 			-> bool override
 		{
@@ -255,7 +255,7 @@ namespace
 	class FTestCandidate final : public Durin::Asset::ISingleAssetCandidate
 	{
 	public:
-		FTestCandidate(Durin::DObject* InAsset, bool bInNewAsset, Durin::uint32* InAbandonCount = nullptr)
+		FTestCandidate(Durin::DObject* InAsset, bool bInNewAsset, uint32* InAbandonCount = nullptr)
 			: Asset(InAsset)
 			, Package(InAsset ? InAsset->GetPackage() : nullptr)
 			, bNewAsset(bInNewAsset)
@@ -293,7 +293,7 @@ namespace
 		Durin::DObject* Asset = nullptr;
 		Durin::DPackage* Package = nullptr;
 		bool bNewAsset = false;
-		Durin::uint32* AbandonCount = nullptr;
+		uint32* AbandonCount = nullptr;
 	};
 
 	class FValueExchange final : public Durin::Asset::IPreparedImportedStateExchange
@@ -311,7 +311,7 @@ namespace
 	private:
 		auto Swap() noexcept -> void
 		{
-			const Durin::int32 TargetValue = Target.GetValue();
+			const int32 TargetValue = Target.GetValue();
 			Target.SetValue(Candidate.GetValue());
 			Candidate.SetValue(TargetValue);
 		}
@@ -400,7 +400,7 @@ namespace
 		Scenario.GenericPlan = Generic.Plan;
 	}
 
-	auto MakeInitialPrepared(const FScenario& Scenario, Durin::int32 PrimaryValue)
+	auto MakeInitialPrepared(const FScenario& Scenario, int32 PrimaryValue)
 		-> Durin::Asset::FPreparedMultiOutputImport
 	{
 		DImportRecordOutputForTest* Primary = nullptr;
@@ -425,7 +425,7 @@ namespace
 	auto PublishInitial(
 		FScenario& Scenario,
 		Durin::Asset::FImportRecordIndex& Index,
-		Durin::int32 Value = 11
+		int32 Value = 11
 	) -> Durin::Asset::FMultiOutputExecutionResult
 	{
 		const auto Plan = PlanInitial(Scenario, Index);
@@ -446,7 +446,7 @@ namespace
 		const FScenario& Scenario,
 		DImportRecordOutputForTest* PrimaryTarget,
 		Durin::DObject* PeerTarget,
-		Durin::int32 NewValue
+		int32 NewValue
 	)
 		-> Durin::Asset::FPreparedMultiOutputImport
 	{
@@ -1019,7 +1019,7 @@ TEST(FImportRecordFrameworkTests, AbandonsPreparedCandidatesAndReleasesRetiredPr
 	const std::array Mounts = {MakeMount(Scenario.Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	ConfigureScenario(Scenario);
-	Durin::uint32 AbandonCount = 0;
+	uint32 AbandonCount = 0;
 	Durin::Asset::FProviderLease Provider = Scenario.GenericPlan.GetProvider();
 	Scenario.GenericPlan = {};
 	{

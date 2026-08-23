@@ -357,7 +357,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 				+ sizeof(Durin::FStaticMeshPackedTangentBasis)
 				+ sizeof(Durin::FStaticMeshTexcoordVertex)
 				+ sizeof(Durin::FStaticMeshColorVertex))
-		+ LifecycleLOD.GetNumIndices() * sizeof(Durin::uint32);
+		+ LifecycleLOD.GetNumIndices() * sizeof(uint32);
 	EXPECT_EQ(
 		StaticMeshBufferBytes,
 		ExpectedStaticMeshBufferBytes);
@@ -668,7 +668,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
 		const size_t Center = (32u * 64u + 32u) * 4u;
-		EXPECT_GT(std::to_integer<Durin::uint8>(ImportedPixels[Center + 3]), 0u);
+		EXPECT_GT(std::to_integer<uint8>(ImportedPixels[Center + 3]), 0u);
 		EXPECT_GT(ImportedPixels[Center + 2], ImportedPixels[Center]);
 		EXPECT_GT(ImportedPixels[Center], ImportedPixels[Center + 1]);
 		EXPECT_NE(ImportedPixels, TextureOnlyPixels);

@@ -3,24 +3,18 @@
 
 #include <gtest/gtest.h>
 
-namespace GameTypeFixture
-{
-	constexpr uint32 Value = 32;
-	static_assert(sizeof(Value) == sizeof(Durin::uint32));
-}
-
 TEST(FCheckedArithmeticTests, EnforcesBoundsWithoutChangingRejectedOutputs)
 {
-	Durin::uint64 Value = 91;
+	uint64 Value = 91;
 	EXPECT_TRUE(Durin::TryAdd(2, 3, 5, Value));
 	EXPECT_EQ(Value, 5);
 
 	Value = 91;
-	EXPECT_FALSE(Durin::TryAdd(std::numeric_limits<Durin::uint64>::max(), 1,
-		std::numeric_limits<Durin::uint64>::max(), Value));
+	EXPECT_FALSE(Durin::TryAdd(std::numeric_limits<uint64>::max(), 1,
+		std::numeric_limits<uint64>::max(), Value));
 	EXPECT_EQ(Value, 91);
-	EXPECT_FALSE(Durin::TryMultiply(std::numeric_limits<Durin::uint64>::max(), 2,
-		std::numeric_limits<Durin::uint64>::max(), Value));
+	EXPECT_FALSE(Durin::TryMultiply(std::numeric_limits<uint64>::max(), 2,
+		std::numeric_limits<uint64>::max(), Value));
 	EXPECT_EQ(Value, 91);
 	EXPECT_FALSE(Durin::TryAlignUp(7, 3, 100, Value));
 	EXPECT_EQ(Value, 91);

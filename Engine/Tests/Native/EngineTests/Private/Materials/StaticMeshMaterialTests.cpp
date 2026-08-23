@@ -62,9 +62,9 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
 	{
 		const Durin::FStaticMeshSection& Section = LOD.Sections[SectionIndex];
-		EXPECT_EQ(Section.FirstIndex, static_cast<Durin::uint32>(SectionIndex) * 3u);
+		EXPECT_EQ(Section.FirstIndex, static_cast<uint32>(SectionIndex) * 3u);
 		EXPECT_EQ(Section.IndexCount, 3u);
-		EXPECT_EQ(Section.MaterialSlotIndex, static_cast<Durin::uint32>(SectionIndex % 2u));
+		EXPECT_EQ(Section.MaterialSlotIndex, static_cast<uint32>(SectionIndex % 2u));
 		EXPECT_TRUE(Section.LocalBounds.bIsValid);
 	}
 	EXPECT_TRUE(LOD.LocalBounds.bIsValid);
@@ -248,7 +248,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	};
 	auto Rebuild = [&](Durin::DStaticMesh* Mesh, std::string_view Name, std::string_view Materials,
 		std::optional<std::pair<std::string_view, std::string_view>> Replacement = std::nullopt, bool LastOnly = false,
-		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt) {
+		std::optional<uint32> AppendedMaterialIndex = std::nullopt) {
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		std::string Error;
@@ -343,7 +343,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	const Durin::FStaticMeshMaterialSlotDefinition* RedSlot =
 		Import.Asset->FindMaterialSlot(Durin::FName("Red"));
 	ASSERT_NE(RedSlot, nullptr);
-	const Durin::uint32 RedIndex = static_cast<Durin::uint32>(
+	const uint32 RedIndex = static_cast<uint32>(
 		RedSlot - Import.Asset->GetMaterialSlots().data());
 
 	Durin::DMaterial* Material = nullptr;
@@ -582,7 +582,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, BasePath), InstanceData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, TexturePath), InstanceData->Dependencies.end());
 	ASSERT_FALSE(Instance->GetPackage()->IsDirty());
-	const Durin::uint64 SavedVersion = Instance->GetRenderStateVersion();
+	const uint64 SavedVersion = Instance->GetRenderStateVersion();
 	EXPECT_FALSE(Instance->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.2f));
 	EXPECT_FALSE(Instance->SetVectorParameterValue(Durin::MaterialParameters::OpacityName(), Durin::FVector3(0.2)));
 	EXPECT_FALSE(Instance->GetPackage()->IsDirty());

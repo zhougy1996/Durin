@@ -9,7 +9,7 @@ TEST(FStartupCommandTests, DispatchesOneOpaqueCommandAfterHandlerRegistration)
 	static auto Registration = Context.CreateOwnedCallbackRegistration(
 		"Tests.StartupCommands");
 	std::vector<std::string> Received;
-	const Durin::uint64 Handle = Durin::RegisterStartupCommandHandler(
+	const uint64 Handle = Durin::RegisterStartupCommandHandler(
 		"test.opaque", [&Received](std::span<const std::string> Arguments) {
 			Received.assign(Arguments.begin(), Arguments.end());
 			return 17;

@@ -339,7 +339,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 
 	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Snapshot.Materials.size(), 2u);
-	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
+	for (uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
 		const Durin::FMaterialRenderData& Default = Snapshot.Materials[SlotIndex];
 		const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Default);
@@ -606,8 +606,8 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 
-	constexpr Durin::uint64 FirstPreviewId = 987654321;
-	constexpr Durin::uint64 SecondPreviewId = 987654322;
+	constexpr uint64 FirstPreviewId = 987654321;
+	constexpr uint64 SecondPreviewId = 987654322;
 	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
 	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
 	{

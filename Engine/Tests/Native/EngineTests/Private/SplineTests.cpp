@@ -83,7 +83,7 @@ namespace
 			return CurveTarget(Spline).ForStructMember(Points);
 		}
 
-		auto PointFieldTarget(Durin::DSplineComponent* Spline, Durin::uint32 Index, Durin::FProperty* Field) const
+		auto PointFieldTarget(Durin::DSplineComponent* Spline, uint32 Index, Durin::FProperty* Field) const
 			-> Durin::Editor::FPropertyEditTarget
 		{
 			return PointsTarget(Spline).ForArrayElement(Point, Index).ForStructMember(Field);
@@ -116,14 +116,14 @@ TEST(FSplineCurveTests, AuthoringOperationsMaintainStableUniquePointIds)
 
 	ASSERT_TRUE(Curve.MovePoint(1, 0));
 	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
-	const Durin::uint32 AddedIndex = Curve.AddPoint(*Curve.GetPoint(0));
+	const uint32 AddedIndex = Curve.AddPoint(*Curve.GetPoint(0));
 	EXPECT_NE(Curve.GetPoint(AddedIndex)->Id, RepairedId);
 	ASSERT_TRUE(Curve.UpdatePoint(0, MakePoint({7.0, 8.0, 9.0})));
 	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
 	const Durin::FGuid UpdatedId = Curve.GetPoint(0)->Id;
 	ASSERT_TRUE(Curve.InsertPoint(1, *Curve.GetPoint(0)));
 	EXPECT_NE(Curve.GetPoint(1)->Id, UpdatedId);
-	const std::optional<Durin::uint32> DuplicatedIndex = Curve.DuplicatePoint(0);
+	const std::optional<uint32> DuplicatedIndex = Curve.DuplicatePoint(0);
 	ASSERT_TRUE(DuplicatedIndex.has_value());
 	EXPECT_NE(Curve.GetPoint(*DuplicatedIndex)->Id, UpdatedId);
 	EXPECT_EQ(Curve.GetPoint(*DuplicatedIndex)->Position, Curve.GetPoint(0)->Position);
@@ -277,7 +277,7 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 {
 	InitializeDObjectSystem();
 	auto* Spline = Durin::NewObject<Durin::DSplineComponent>(nullptr, "Spline");
-	const Durin::uint64 InitialRevision = Spline->GetSplineRevision();
+	const uint64 InitialRevision = Spline->GetSplineRevision();
 	Spline->SetSplinePoints({
 		MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
 		MakePoint({10.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
@@ -356,7 +356,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
 
 	Durin::Editor::FTransactionManager Transactions;
-	const Durin::uint64 MountedContentRevision =
+	const uint64 MountedContentRevision =
 		Transactions.GetMountedContentMutationRevision();
 	Durin::Editor::FPropertyView View;
 	std::string Error;
@@ -367,7 +367,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		const Durin::Editor::FPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
 		return View.SubmitPropertyValueEdit(Context, Target,
-			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;
 			}, bContinuous);
 	};
@@ -437,7 +437,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		return View.SubmitPropertyValueEdit(Context,
 			Reflection.PointFieldTarget(Actor->GetSplineComponent(), 1, Reflection.Position),
-			[&](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			[&](Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<Durin::FVector3>(Container, ArrayIndex) = Position;
 			}, bContinuous);
 	};

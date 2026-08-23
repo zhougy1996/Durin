@@ -116,7 +116,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 	GCounterSnapshots.clear();
 
-	const std::array<Durin::uint16, 9> Samples{
+	const std::array<uint16, 9> Samples{
 		0, 16384, 32768, 8192, 32768, 49152, 0, 32768, 65535};
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
@@ -216,20 +216,20 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 		++ValidTerrainGBufferPixels;
 		EXPECT_EQ(TerrainGBufferPixels[2][Offset + 3],
 			static_cast<std::byte>(Durin::GBufferContract::StandardLitFlag));
-		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+		EXPECT_NEAR(static_cast<float>(std::to_integer<uint8>(
 			TerrainGBufferPixels[0][Offset])) / 255.0f,
 			0.8f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+		EXPECT_NEAR(static_cast<float>(std::to_integer<uint8>(
 			TerrainGBufferPixels[0][Offset + 1])) / 255.0f,
 			0.2f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(static_cast<float>(std::to_integer<Durin::uint8>(
+		EXPECT_NEAR(static_cast<float>(std::to_integer<uint8>(
 			TerrainGBufferPixels[0][Offset + 2])) / 255.0f,
 			0.1f, Durin::GBufferContract::MaximumUNorm8Error);
 		const Durin::FVector3f ShadingNormal =
 			Durin::GBufferContract::DecodeOctahedralNormal({
-				static_cast<float>(std::to_integer<Durin::uint8>(
+				static_cast<float>(std::to_integer<uint8>(
 					TerrainGBufferPixels[1][Offset])) / 255.0f,
-				static_cast<float>(std::to_integer<Durin::uint8>(
+				static_cast<float>(std::to_integer<uint8>(
 					TerrainGBufferPixels[1][Offset + 1])) / 255.0f});
 		EXPECT_NEAR(Durin::Math::Length(ShadingNormal), 1.0, 1.0e-5);
 	}
@@ -391,7 +391,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.DeferredDirectionalUnavailableViews, 0u);
 	EXPECT_EQ(GCounters.DeferredDirectionalPassFailures, 0u);
 
-	const std::array<Durin::uint16, 15> MixedSamples{
+	const std::array<uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,
 		65535, 65535, 65535, 65535, 65535,
 		65535, 65535, 65535, 65535, 65535};
@@ -449,7 +449,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 		(std::vector<size_t>{1u, 1u}));
 	EXPECT_EQ(GCounters.TerrainStitchMaskHistogram[0], 1u);
 	EXPECT_EQ(GCounters.TerrainStitchMaskHistogram[
-		static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::West)], 1u);
+		static_cast<uint8>(Durin::ETerrainStitchEdge::West)], 1u);
 	EXPECT_EQ(GCounters.TerrainAdjacencyPromotions, 0u);
 	// The preceding device invalidation cleared both topology keys; this mixed
 	// view rebuilds each exact key once.
@@ -460,15 +460,15 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.ShadowSuccessfulDraws, 6u);
 
 	Scene.RemoveLight(Durin::FLightSceneId(10));
-	std::vector<Durin::uint16> MaskSamples(7u * 7u, 65535);
+	std::vector<uint16> MaskSamples(7u * 7u, 65535);
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> MaskPayload;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(
 		7, 7, MaskSamples, MaskPayload, Error)) << Error;
-	for (Durin::uint8 Mask = 0; Mask < 16; ++Mask)
+	for (uint8 Mask = 0; Mask < 16; ++Mask)
 	{
 		std::vector<Durin::FTerrainPatchDescriptor> MaskPatches;
-		for (Durin::uint16 GridY = 0; GridY < 3; ++GridY)
-			for (Durin::uint16 GridX = 0; GridX < 3; ++GridX)
+		for (uint16 GridY = 0; GridY < 3; ++GridY)
+			for (uint16 GridX = 0; GridX < 3; ++GridX)
 			{
 				Durin::FTerrainPatchDescriptor MaskPatch;
 				MaskPatch.OriginX = GridX * 2;
@@ -480,13 +480,13 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				MaskPatch.LODSteps = {1, 2};
 				const bool Center = GridX == 1 && GridY == 1;
 				const bool CoarseNorth = GridX == 1 && GridY == 0
-					&& (Mask & static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::North));
+					&& (Mask & static_cast<uint8>(Durin::ETerrainStitchEdge::North));
 				const bool CoarseEast = GridX == 2 && GridY == 1
-					&& (Mask & static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::East));
+					&& (Mask & static_cast<uint8>(Durin::ETerrainStitchEdge::East));
 				const bool CoarseSouth = GridX == 1 && GridY == 2
-					&& (Mask & static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::South));
+					&& (Mask & static_cast<uint8>(Durin::ETerrainStitchEdge::South));
 				const bool CoarseWest = GridX == 0 && GridY == 1
-					&& (Mask & static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::West));
+					&& (Mask & static_cast<uint8>(Durin::ETerrainStitchEdge::West));
 				const bool bCoarse = !Center
 					&& (CoarseNorth || CoarseEast || CoarseSouth || CoarseWest);
 				MaskPatch.LODErrors = bCoarse ? std::vector<double>{0.0, 0.0}

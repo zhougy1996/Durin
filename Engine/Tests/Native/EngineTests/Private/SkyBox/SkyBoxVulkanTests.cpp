@@ -95,8 +95,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
-	std::array<std::array<Durin::uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
-	std::array<std::array<Durin::uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
+	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
+	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		SourceColors[FaceIndex] = GetSourceColor(
@@ -258,9 +258,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->Error = "Cube render resource was not ready.";
 				return;
 			}
-			for (Durin::uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+			for (uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 			{
-				for (Durin::uint32 MipIndex = 0; MipIndex < PlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
+				for (uint32 MipIndex = 0; MipIndex < PlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
 				{
 					std::vector<std::byte> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
@@ -284,9 +284,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				Result->Error = "HDR cube render resource was not ready.";
 				return;
 			}
-			for (Durin::uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+			for (uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 			{
-				for (Durin::uint32 MipIndex = 0; MipIndex < HdrPlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
+				for (uint32 MipIndex = 0; MipIndex < HdrPlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
 				{
 					std::vector<std::byte> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(

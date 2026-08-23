@@ -9,9 +9,6 @@
 
 namespace
 {
-	using Durin::uint8;
-	using Durin::uint32;
-	using Durin::uint64;
 	namespace Production = Durin::Asset::DastV4;
 	namespace Reference = Durin::Testing::DastV4;
 	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>

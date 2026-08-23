@@ -34,7 +34,7 @@
 
 namespace
 {
-	auto MapSrgbChannelThroughDisplay(Durin::uint8 Source) -> Durin::uint8
+	auto MapSrgbChannelThroughDisplay(uint8 Source) -> uint8
 	{
 		const float Encoded = static_cast<float>(Source) / 255.0f;
 		const float Linear = Encoded <= 0.04045f
@@ -45,7 +45,7 @@ namespace
 		const float DisplayEncoded = Mapped <= 0.0031308f
 			? 12.92f * Mapped
 			: 1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f;
-		return static_cast<Durin::uint8>(std::lround(
+		return static_cast<uint8>(std::lround(
 			std::clamp(DisplayEncoded, 0.0f, 1.0f) * 255.0f));
 	}
 
@@ -200,20 +200,20 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			return Pixels;
 		};
 		constexpr std::array RoughnessSweep{0.045f, 0.1f, 0.2f, 0.5f, 1.0f};
-		const Durin::uint32 DisplayMappedHighlightThreshold =
+		const uint32 DisplayMappedHighlightThreshold =
 			3u * MapSrgbChannelThroughDisplay(250u);
-		std::array<Durin::uint32, 5> Peaks{};
-		std::array<Durin::uint32, 5> SaturatedPixelCounts{};
+		std::array<uint32, 5> Peaks{};
+		std::array<uint32, 5> SaturatedPixelCounts{};
 		for (size_t Index = 0; Index < RoughnessSweep.size(); ++Index)
 		{
 			const std::vector<std::byte> Pixels =
 				CaptureAligned(RoughnessSweep[Index]);
 			for (size_t Pixel = 0; Pixel < Pixels.size(); Pixel += 4)
 			{
-				const Durin::uint32 Brightness =
-					std::to_integer<Durin::uint32>(Pixels[Pixel])
-					+ std::to_integer<Durin::uint32>(Pixels[Pixel + 1])
-					+ std::to_integer<Durin::uint32>(Pixels[Pixel + 2]);
+				const uint32 Brightness =
+					std::to_integer<uint32>(Pixels[Pixel])
+					+ std::to_integer<uint32>(Pixels[Pixel + 1])
+					+ std::to_integer<uint32>(Pixels[Pixel + 2]);
 				Peaks[Index] = std::max(Peaks[Index], Brightness);
 				SaturatedPixelCounts[Index] +=
 					Brightness >= DisplayMappedHighlightThreshold ? 1u : 0u;
@@ -421,10 +421,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_EQ(StaticMeshPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(RecoloredStaticMeshPixels.size(), StaticMeshPixels.size());
 		EXPECT_NE(StaticMeshPixels, RecoloredStaticMeshPixels);
-		Durin::uint32 GeometryPixels = 0;
-		for (Durin::uint32 Y = 0; Y < 64; ++Y)
+		uint32 GeometryPixels = 0;
+		for (uint32 Y = 0; Y < 64; ++Y)
 		{
-			for (Durin::uint32 X = 0; X < 64; ++X)
+			for (uint32 X = 0; X < 64; ++X)
 			{
 				const size_t Pixel = (Y * 64u + X) * 4u;
 				GeometryPixels += StaticMeshPixels[Pixel + 3] != std::byte{0} ? 1u : 0u;
@@ -459,7 +459,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			.VirtualPath = StaticMeshAssetData->PackagePath,
 			.AssetClassName = StaticMeshAssetData->AssetClassName,
 			.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
-			.FileSize = static_cast<Durin::uint64>(StaticMeshAssetData->FileSize),
+			.FileSize = static_cast<uint64>(StaticMeshAssetData->FileSize),
 			.LastWriteTimeTicks = StaticMeshAssetData->LastWriteTimeTicks};
 		const std::filesystem::path ThumbnailCacheRoot =
 			Durin::Testing::GetTestWorkDirectory() / "StaticMeshRenderedCacheVulkan";
@@ -469,7 +469,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
 		auto PumpCacheToReady = [&](Durin::Editor::FRenderedAssetThumbnailCache& Cache) {
 			Durin::Editor::FAssetThumbnailView View;
-			for (Durin::uint32 Attempt = 0; Attempt < 16; ++Attempt)
+			for (uint32 Attempt = 0; Attempt < 16; ++Attempt)
 			{
 				Cache.BeginFrame();
 				Cache.Request(
@@ -810,9 +810,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			.TextureReference = CaptureCubeReference};
 		const Durin::FViewEnvironmentOverride Texture2DEnvironment{
 			.TextureReference = Texture2DReference};
-		const Durin::uint32 CubeReferenceBaseline =
+		const uint32 CubeReferenceBaseline =
 			CaptureCubeReference->GetRefCount();
-		const Durin::uint32 Texture2DReferenceBaseline =
+		const uint32 Texture2DReferenceBaseline =
 			Texture2DReference->GetRefCount();
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
 		ASSERT_TRUE(Pool.SetView(Error)) << Error;
@@ -968,7 +968,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		}
 		const bool bCancelledCaptureStarted = Pool.BeginCapture(Error);
 		Pool.Reset();
-		const Durin::uint32 QueuedReferenceCount =
+		const uint32 QueuedReferenceCount =
 			CaptureCubeReference->GetRefCount();
 		{
 			std::lock_guard Lock(Gate->Mutex);
@@ -1001,7 +1001,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		const size_t Corner = 0;
 		const size_t Center = (32u * 64u + 32u) * 4u;
 		EXPECT_EQ(MaterialPixels[Corner + 3], std::byte{0});
-		EXPECT_GT(std::to_integer<Durin::uint8>(MaterialPixels[Center + 3]), 0u);
+		EXPECT_GT(std::to_integer<uint8>(MaterialPixels[Center + 3]), 0u);
 		EXPECT_EQ(CubePixels[Corner + 3], std::byte{255});
 		const std::array CornerRgb = {
 			MaterialPixels[Corner], MaterialPixels[Corner + 1], MaterialPixels[Corner + 2]};
@@ -1024,7 +1024,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			static_cast<int>(MapSrgbChannelThroughDisplay(124u)), 2);
 		EXPECT_NEAR(std::to_integer<int>(StaticIdentityPixels[Center + 3]), 102, 2);
 		EXPECT_EQ(MaskedBelowPixels[Center + 3], std::byte{0});
-		EXPECT_GT(std::to_integer<Durin::uint8>(MaskedEqualPixels[Center + 3]), 0u);
+		EXPECT_GT(std::to_integer<uint8>(MaskedEqualPixels[Center + 3]), 0u);
 		EXPECT_EQ(MaskedEqualPixels, MaskedAbovePixels);
 		EXPECT_EQ(TranslucentZeroPixels[Center + 3], std::byte{0});
 		EXPECT_NEAR(
@@ -1037,7 +1037,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};
 		EXPECT_NE(CubeCenterRgb, CornerRgb);
 		EXPECT_NE(CubeCenterRgb, (std::array<std::byte, 3>{}));
-		std::unordered_set<Durin::uint32> CubeCornerColors;
+		std::unordered_set<uint32> CubeCornerColors;
 		for (const size_t CornerPixel : std::array<size_t, 4>{
 				0,
 				(64u - 1u) * 4u,
@@ -1045,18 +1045,18 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 				(64u * 64u - 1u) * 4u})
 		{
 			CubeCornerColors.insert(
-				std::to_integer<Durin::uint32>(CubePixels[CornerPixel]) << 16
-				| std::to_integer<Durin::uint32>(CubePixels[CornerPixel + 1]) << 8
-				| std::to_integer<Durin::uint32>(CubePixels[CornerPixel + 2]));
+				std::to_integer<uint32>(CubePixels[CornerPixel]) << 16
+				| std::to_integer<uint32>(CubePixels[CornerPixel + 1]) << 8
+				| std::to_integer<uint32>(CubePixels[CornerPixel + 2]));
 		}
 		EXPECT_GT(CubeCornerColors.size(), 1u);
-		std::unordered_set<Durin::uint32> CubeColors;
+		std::unordered_set<uint32> CubeColors;
 		for (size_t Pixel = 0; Pixel < CubePixels.size(); Pixel += 4)
 		{
 			CubeColors.insert(
-				std::to_integer<Durin::uint32>(CubePixels[Pixel]) << 16
-				| std::to_integer<Durin::uint32>(CubePixels[Pixel + 1]) << 8
-				| std::to_integer<Durin::uint32>(CubePixels[Pixel + 2]));
+				std::to_integer<uint32>(CubePixels[Pixel]) << 16
+				| std::to_integer<uint32>(CubePixels[Pixel + 1]) << 8
+				| std::to_integer<uint32>(CubePixels[Pixel + 2]));
 		}
 		EXPECT_GT(CubeColors.size(), 8u);
 

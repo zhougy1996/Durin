@@ -26,26 +26,26 @@
 
 namespace StructOpsTest
 {
-	inline Durin::uint32 DefaultSequence = 0;
+	inline uint32 DefaultSequence = 0;
 	inline Durin::DStruct* ReentrantDefaultStruct = nullptr;
 	inline Durin::DObject* DefaultReferenceTarget = nullptr;
-	inline Durin::uint32 SideEffectSequence = 0;
+	inline uint32 SideEffectSequence = 0;
 	inline std::vector<Durin::DObject*> SideEffectObjects;
 
 	auto ConstructStableDefault(void* Destination) -> void
 	{
-		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+		std::construct_at(static_cast<int32*>(Destination), 7);
 	}
 
 	auto ConstructChangingDefault(void* Destination) -> void
 	{
-		std::construct_at(static_cast<Durin::int32*>(Destination), static_cast<Durin::int32>(++DefaultSequence));
+		std::construct_at(static_cast<int32*>(Destination), static_cast<int32>(++DefaultSequence));
 	}
 
 	auto ConstructReentrantDefault(void* Destination) -> void
 	{
 		(void)ReentrantDefaultStruct->GetDefaultValue();
-		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+		std::construct_at(static_cast<int32*>(Destination), 7);
 	}
 
 	struct FReferenceDefault
@@ -91,7 +91,7 @@ namespace StructOpsTest
 	{
 		SideEffectObjects.push_back(Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName(std::format("StructDefaultSideEffect{}", ++SideEffectSequence))));
-		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+		std::construct_at(static_cast<int32*>(Destination), 7);
 	}
 
 	auto DestroyReferenceDefault(void* Value) -> void
@@ -110,21 +110,21 @@ namespace StructOpsTest
 
 	struct FUnsupportedArchiveLayout
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 	struct FIncompleteAuthoredStruct
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FOrdinary
 	{
-		Durin::int32 Value = 7;
+		int32 Value = 7;
 	};
 
 	struct FMoveOnly
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 
 		FMoveOnly() = default;
 		FMoveOnly(const FMoveOnly&) = delete;
@@ -136,11 +136,11 @@ namespace StructOpsTest
 	struct FDeletedDefault
 	{
 		FDeletedDefault() = delete;
-		explicit FDeletedDefault(Durin::int32 InValue)
+		explicit FDeletedDefault(int32 InValue)
 			: Value(InValue)
 		{
 		}
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FNonTrivial
@@ -150,7 +150,7 @@ namespace StructOpsTest
 
 	struct FCustomOps
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 	};
 
 	struct FMalformedIdentical
@@ -213,7 +213,7 @@ concept CArchiveWritable = requires(Durin::FArchive& Archive, T& Value)
 	Archive << Value;
 };
 
-static_assert(CArchiveWritable<Durin::int32>);
+static_assert(CArchiveWritable<int32>);
 static_assert(CArchiveWritable<Durin::FGuid>);
 static_assert(!CArchiveWritable<StructOpsTest::FUnsupportedArchiveLayout>);
 
@@ -225,15 +225,15 @@ static_assert(!std::is_constructible_v<
 			  Durin::DurinCodeGen::FPropertyParamsBase,
 			  const char*,
 			  Durin::EPropertyFlags,
-			  Durin::uint16,
-			  Durin::uint16,
+			  uint16,
+			  uint16,
 			  Durin::DurinCodeGen::EPropertyGenFlags,
 			  Durin::DurinCodeGen::EPropertyParamLayout>);
 static_assert(Durin::DurinCodeGen::TIsPlainPropertyMapping<
-			  Durin::int32,
+			  int32,
 			  Durin::DurinCodeGen::EPropertyGenFlags::Int32>);
 static_assert(!Durin::DurinCodeGen::TIsPlainPropertyMapping<
-			  Durin::int32,
+			  int32,
 			  Durin::DurinCodeGen::EPropertyGenFlags::Float>);
 static_assert(!std::is_same_v<
 			  Durin::DurinCodeGen::FInt32PropertyParams,
@@ -246,61 +246,61 @@ namespace
 {
 	struct FReflectedPropertyOwnerForTest
 	{
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 		Durin::DObject* ObjectValue = nullptr;
 		Durin::TObjectPtr<Durin::DObject> ObjectPtrValue;
 		std::string StringValue;
 		Durin::FName NameValue;
 		std::vector<Durin::DObject*> ObjectArray;
 		std::vector<Durin::TObjectPtr<Durin::DObject>> ObjectPtrArray;
-		std::unordered_map<std::string, Durin::int32> StringToInt;
-		std::vector<std::vector<Durin::int32>> NestedScores;
+		std::unordered_map<std::string, int32> StringToInt;
+		std::vector<std::vector<int32>> NestedScores;
 		std::unordered_map<std::string, std::vector<Durin::DObject*>> ObjectLists;
 	};
 
-	enum class EReflectedEnumForTest : Durin::uint8
+	enum class EReflectedEnumForTest : uint8
 	{
 		A,
 		B = 4
 	};
 
-	enum class ESignedEnumValueForTest : Durin::int8
+	enum class ESignedEnumValueForTest : int8
 	{
 		Negative = -1,
 		Positive = 1
 	};
 
-	enum class EUnsignedEnumValueForTest : Durin::uint64
+	enum class EUnsignedEnumValueForTest : uint64
 	{
 		Low = 0,
-		High = std::numeric_limits<Durin::uint64>::max()
+		High = std::numeric_limits<uint64>::max()
 	};
 
 	struct FBuiltInLeafOwnerForTest
 	{
 		bool BoolValue = false;
-		Durin::int8 Int8Value = 0;
-		Durin::int16 Int16Value = 0;
-		Durin::int32 Int32Value = 0;
-		Durin::int64 Int64Value = 0;
-		Durin::uint8 UInt8Value = 0;
-		Durin::uint16 UInt16Value = 0;
-		Durin::uint32 UInt32Value = 0;
-		Durin::uint64 UInt64Value = 0;
+		int8 Int8Value = 0;
+		int16 Int16Value = 0;
+		int32 Int32Value = 0;
+		int64 Int64Value = 0;
+		uint8 UInt8Value = 0;
+		uint16 UInt16Value = 0;
+		uint32 UInt32Value = 0;
+		uint64 UInt64Value = 0;
 		float FloatValue = 0.0f;
 		double DoubleValue = 0.0;
 		std::string StringValue;
 		Durin::FName NameValue;
 		Durin::FGuid GuidValue;
-		Durin::int32 FixedValues[2] = {};
-		Durin::int8 EnumInt8 = 0;
-		Durin::int16 EnumInt16 = 0;
-		Durin::int32 EnumInt32 = 0;
-		Durin::int64 EnumInt64 = 0;
-		Durin::uint8 EnumUInt8 = 0;
-		Durin::uint16 EnumUInt16 = 0;
-		Durin::uint32 EnumUInt32 = 0;
-		Durin::uint64 EnumUInt64 = 0;
+		int32 FixedValues[2] = {};
+		int8 EnumInt8 = 0;
+		int16 EnumInt16 = 0;
+		int32 EnumInt32 = 0;
+		int64 EnumInt64 = 0;
+		uint8 EnumUInt8 = 0;
+		uint16 EnumUInt16 = 0;
+		uint32 EnumUInt32 = 0;
+		uint64 EnumUInt64 = 0;
 		Durin::DObject* RawObject = nullptr;
 		Durin::TObjectPtr<Durin::DObject> ObjectPtr;
 	};
@@ -310,13 +310,13 @@ namespace
 	{
 		static Durin::DEnum* Enum = new Durin::DEnum(
 			Durin::EC_StaticConstructor,
-			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
-			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
-			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<uint8>(UnderlyingType))),
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<uint8>(UnderlyingType))),
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<uint8>(UnderlyingType))),
 			"",
 			true,
 			UnderlyingType,
-			static_cast<Durin::uint16>(sizeof(TValue)),
+			static_cast<uint16>(sizeof(TValue)),
 			std::vector<Durin::FEnumValue>{},
 			Durin::EObjectFlags::Transient
 		);
@@ -344,8 +344,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	EXPECT_TRUE(Truncated.HasError());
 	EXPECT_EQ(Preserved, (std::vector<std::byte>{std::byte{0x7f}}));
 
-	std::vector<std::byte> Oversized(sizeof(Durin::uint64));
-	const Durin::uint64 OversizedCount = 1024ull * 1024 * 1024 + 1;
+	std::vector<std::byte> Oversized(sizeof(uint64));
+	const uint64 OversizedCount = 1024ull * 1024 * 1024 + 1;
 	for (size_t Index = 0; Index < Oversized.size(); ++Index)
 		Oversized[Index] = static_cast<std::byte>(OversizedCount >> (Index * 8));
 	Durin::FObjectMemoryReader OversizedReader(
@@ -365,7 +365,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
-			static_cast<Durin::uint16>(sizeof(Durin::uint8)),
+			static_cast<uint16>(sizeof(uint8)),
 			std::vector<Durin::FEnumValue>{},
 			Durin::EObjectFlags::Transient
 		);
@@ -373,28 +373,28 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	}
 
 	template<typename T>
-	auto VectorPropertyNum(const void* Container) -> Durin::uint64
+	auto VectorPropertyNum(const void* Container) -> uint64
 	{
 		const auto* Value = static_cast<const std::vector<T>*>(Container);
-		return static_cast<Durin::uint64>(Value->size());
+		return static_cast<uint64>(Value->size());
 	}
 
 	template<typename T>
-	auto VectorPropertyGetElement(const void* Container, Durin::uint64 Index) -> const void*
+	auto VectorPropertyGetElement(const void* Container, uint64 Index) -> const void*
 	{
 		const auto* Value = static_cast<const std::vector<T>*>(Container);
 		return &(*Value)[static_cast<size_t>(Index)];
 	}
 
 	template<typename T>
-	auto VectorPropertyGetMutableElement(void* Container, Durin::uint64 Index) -> void*
+	auto VectorPropertyGetMutableElement(void* Container, uint64 Index) -> void*
 	{
 		auto* Value = static_cast<std::vector<T>*>(Container);
 		return &(*Value)[static_cast<size_t>(Index)];
 	}
 
 	template<typename T>
-	auto VectorPropertyResize(void* Container, Durin::uint64 Num) -> bool
+	auto VectorPropertyResize(void* Container, uint64 Num) -> bool
 	{
 		auto* Value = static_cast<std::vector<T>*>(Container);
 		Value->resize(static_cast<size_t>(Num));
@@ -411,13 +411,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	using TTestMap = std::unordered_map<K, V>;
 
 	template<typename K, typename V>
-	auto MapPropertyNum(const void* Container) -> Durin::uint64
+	auto MapPropertyNum(const void* Container) -> uint64
 	{
-		return static_cast<Durin::uint64>(static_cast<const TTestMap<K, V>*>(Container)->size());
+		return static_cast<uint64>(static_cast<const TTestMap<K, V>*>(Container)->size());
 	}
 
 	template<typename K, typename V>
-	auto MapPropertyGetKey(const void* Container, Durin::uint64 Index) -> const void*
+	auto MapPropertyGetKey(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const TTestMap<K, V>*>(Container)->begin();
 		std::advance(It, static_cast<size_t>(Index));
@@ -425,7 +425,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	}
 
 	template<typename K, typename V>
-	auto MapPropertyGetValue(const void* Container, Durin::uint64 Index) -> const void*
+	auto MapPropertyGetValue(const void* Container, uint64 Index) -> const void*
 	{
 		auto It = static_cast<const TTestMap<K, V>*>(Container)->begin();
 		std::advance(It, static_cast<size_t>(Index));
@@ -433,7 +433,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	}
 
 	template<typename K, typename V>
-	auto MapPropertyGetMutableValue(void* Container, Durin::uint64 Index) -> void*
+	auto MapPropertyGetMutableValue(void* Container, uint64 Index) -> void*
 	{
 		auto It = static_cast<TTestMap<K, V>*>(Container)->begin();
 		std::advance(It, static_cast<size_t>(Index));
@@ -529,9 +529,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	class DLifecycleTestObject : public Durin::DObject
 	{
 	public:
-		inline static Durin::uint64 BeginDestroyCount = 0;
-		inline static Durin::uint64 FinishDestroyCount = 0;
-		inline static Durin::uint64 DestructorCount = 0;
+		inline static uint64 BeginDestroyCount = 0;
+		inline static uint64 FinishDestroyCount = 0;
+		inline static uint64 DestructorCount = 0;
 		bool bReadyForFinishDestroy = true;
 		FShutdownDestroyScheduler* ShutdownDestroyScheduler = nullptr;
 
@@ -628,7 +628,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	class DRecursiveDefaultObjectForTest : public Durin::DObject
 	{
 	public:
-		inline static Durin::uint64 DestructorCount = 0;
+		inline static uint64 DestructorCount = 0;
 
 		explicit DRecursiveDefaultObjectForTest(
 			const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
@@ -724,7 +724,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					Durin::FArchiveLogicalTypeDescriptor::Map(
 						Durin::FArchiveLogicalTypeDescriptor::String(),
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
-				Durin::uint64 Count = 1;
+				uint64 Count = 1;
 				Ar << Count;
 				std::string Key = "Key";
 				{
@@ -751,7 +751,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			if (bEmitDeepField)
 			{
 				std::vector<Durin::FArchiveFieldScope> Scopes;
-				for (Durin::uint32 Depth = 0; Depth < Durin::DefaultDeltaMaxDepth + 2; ++Depth)
+				for (uint32 Depth = 0; Depth < Durin::DefaultDeltaMaxDepth + 2; ++Depth)
 				{
 					Scopes.push_back(Durin::EnterArchiveField(Ar, {Durin::FName("Tests::FDeepDelta"),
 						Durin::FName(std::format("Depth{}", Depth)),
@@ -766,7 +766,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("OversizedArray"),
 					Durin::FArchiveLogicalTypeDescriptor::Array(
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
-				Durin::uint64 Count = Durin::DefaultDeltaMaxFields + 1;
+				uint64 Count = Durin::DefaultDeltaMaxFields + 1;
 				Ar << Count;
 			}
 		}
@@ -792,38 +792,38 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Durin::DObjectForceRegistration(Class);
 				const auto Params = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
 					"Child", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
 					&Durin::DObject::StaticClass
 				);
 				auto* ChildProperty = new Durin::FObjectProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Child"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
-					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
+					static_cast<uint16>(sizeof(Durin::DObject*)),
 					Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(),
 					true, Params.ReadObjectValue, Params.WriteObjectValue
 				);
 				auto* ClassSpecificProperty = new Durin::FStructProperty(
 					Durin::FFieldVariant(Class), Durin::FName("ClassSpecific"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, ClassSpecific)),
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, ClassSpecific)),
 					Durin::Z_Construct_DStruct_Durin_FVector3()
 				);
 				auto* FixedProperty = new Durin::FNumericProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Fixed"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 2,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Fixed)),
-					sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, Fixed)),
+					sizeof(int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 				auto* ExactFloatProperty = new Durin::FNumericProperty(
 					Durin::FFieldVariant(Class), Durin::FName("ExactFloat"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, ExactFloat)),
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, ExactFloat)),
 					sizeof(double), Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr);
 				auto* BlobProperty = new Durin::FProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Blob"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Blob)),
-					static_cast<Durin::uint16>(sizeof(std::vector<std::byte>)),
+					static_cast<uint16>(offsetof(DDefaultGraphOwnerForTest, Blob)),
+					static_cast<uint16>(sizeof(std::vector<std::byte>)),
 					Durin::DurinCodeGen::EPropertyGenFlags::Blob, nullptr);
 				const auto BlobOps = Durin::DurinCodeGen::MakePropertyValueOps<std::vector<std::byte>>();
 				BlobProperty->SetValueLifecycle(BlobOps.ValueSize, BlobOps.ValueAlignment,
@@ -840,13 +840,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::TObjectPtr<Durin::DObject> Child;
 		Durin::FVector3 ClassSpecific{1.0, 2.0, 3.0};
-		Durin::int32 Fixed[2]{4, 5};
-		double ExactFloat = std::bit_cast<double>(Durin::uint64{0x7FF8000000000042ull});
+		int32 Fixed[2]{4, 5};
+		double ExactFloat = std::bit_cast<double>(uint64{0x7FF8000000000042ull});
 		std::vector<std::byte> Blob;
-		Durin::int32 NativeFirst = 7;
-		Durin::int32 NativeSecond = 9;
-		Durin::int32 NativeOnlyStructValue = 3;
-		Durin::int32 NativeMapValue = 11;
+		int32 NativeFirst = 7;
+		int32 NativeSecond = 9;
+		int32 NativeOnlyStructValue = 3;
+		int32 NativeMapValue = 11;
 		bool bReverseNativeOrder = false;
 		bool bEmitLateField = false;
 		bool bEmitOptionalField = false;
@@ -884,7 +884,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Ops.Identical = &StructOpsTest::IdenticalAuthoritativeText;
 				static const Durin::DurinCodeGen::FStringPropertyParams TextProperty = {
 					"Value", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(StructOpsTest::FAuthoritativeText, Value))};
+					static_cast<uint16>(offsetof(StructOpsTest::FAuthoritativeText, Value))};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
 					&TextProperty};
 				auto NoRegister = []() -> Durin::DStruct* {
@@ -921,7 +921,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Class->ChildProperties = new Durin::FStructProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DAuthoritativeDeltaOwnerForTest, Value)), TextStruct);
+					static_cast<uint16>(offsetof(DAuthoritativeDeltaOwnerForTest, Value)), TextStruct);
 			}
 			return Class;
 		}
@@ -972,8 +972,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					Durin::DurinCodeGen::WithLegacyNames(
 						Durin::DurinCodeGen::FArrayPropertyParams{
 							"Values", Durin::EPropertyFlags::None, 1,
-							static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Values)),
-							&ValuesInner, &GVectorPropertyHelper<Durin::int32>},
+							static_cast<uint16>(offsetof(DOverrideContainerOwnerForTest, Values)),
+							&ValuesInner, &GVectorPropertyHelper<int32>},
 						ValuesLegacyNames, std::size(ValuesLegacyNames));
 				static const Durin::DurinCodeGen::FStringPropertyParams LookupKey = {
 					"Lookup_Key", Durin::EPropertyFlags::None, 1, 0};
@@ -981,9 +981,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Lookup_Value", Durin::EPropertyFlags::None, 1, 0};
 				static const Durin::DurinCodeGen::FMapPropertyParams LookupProperty = {
 					"Lookup", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Lookup)),
+					static_cast<uint16>(offsetof(DOverrideContainerOwnerForTest, Lookup)),
 					&LookupKey, &LookupValue,
-					&GMapPropertyHelper<std::string, Durin::int32>};
+					&GMapPropertyHelper<std::string, int32>};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
 					&ValuesProperty, &LookupProperty};
 				static const Durin::DurinCodeGen::FClassParams Params = {
@@ -995,8 +995,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			return Class;
 		}
 
-		std::vector<Durin::int32> Values;
-		TTestMap<std::string, Durin::int32> Lookup;
+		std::vector<int32> Values;
+		TTestMap<std::string, int32> Lookup;
 	};
 
 	class DLifecycleReferenceOwnerForTest : public Durin::DObject
@@ -1009,7 +1009,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		struct FNativeStruct
 		{
-			Durin::int32 Value = 0;
+			int32 Value = 0;
 			Durin::FName Label;
 		};
 
@@ -1041,7 +1041,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			static const auto Reference = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<
 				Durin::TWeakObjectPtr<Durin::DObject>>(
 				"Reference", Durin::EPropertyFlags::Transient, 1,
-				static_cast<Durin::uint16>(offsetof(FWeakNested, Reference)), &Durin::DObject::StaticClass);
+				static_cast<uint16>(offsetof(FWeakNested, Reference)), &Durin::DObject::StaticClass);
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Reference};
 			static const Durin::DurinCodeGen::FStructParams Params = {
 				&WeakNestedStructNoRegister, "Tests::FWeakNested", "FWeakNested",
@@ -1083,26 +1083,26 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Value",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Value))
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Value))
 				};
 				static const Durin::DurinCodeGen::FBoolPropertyParams BoolPropertyParams = {
 					"bEnabled",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, bEnabled))
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, bEnabled))
 				};
 				static const Durin::DurinCodeGen::FStringPropertyParams NamePropertyParams = {
 					"Label",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Label))
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Label))
 				};
 				static const Durin::DurinCodeGen::FObjectPropertyParams ReferencePropertyParams =
 					Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
 						"Reference",
 						Durin::EPropertyFlags::None,
 						1,
-						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Reference)),
+						static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Reference)),
 						&Durin::DObject::StaticClass
 					);
 				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencePropertyParams =
@@ -1110,7 +1110,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 						"ObjectPtrReference",
 						Durin::EPropertyFlags::None,
 						1,
-						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReference)),
+						static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReference)),
 						&Durin::DObject::StaticClass
 					);
 				static const Durin::DurinCodeGen::FObjectPropertyParams RawReferencesInnerPropertyParams =
@@ -1125,7 +1125,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"RawReferences",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, RawReferences)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, RawReferences)),
 					&RawReferencesInnerPropertyParams,
 					&GVectorPropertyHelper<Durin::DObject*>
 				};
@@ -1141,7 +1141,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"ObjectPtrReferences",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReferences)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReferences)),
 					&ObjectPtrReferencesInnerPropertyParams,
 					&GVectorPropertyHelper<Durin::TObjectPtr<Durin::DObject>>
 				};
@@ -1155,9 +1155,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Scores",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Scores)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Scores)),
 					&ScoresInnerPropertyParams,
-					&GVectorPropertyHelper<Durin::int32>
+					&GVectorPropertyHelper<int32>
 				};
 				static const Durin::DurinCodeGen::FStringPropertyParams TagsInnerPropertyParams = {
 					"Tags_Inner",
@@ -1169,7 +1169,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Tags",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Tags)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Tags)),
 					&TagsInnerPropertyParams,
 					&GVectorPropertyHelper<std::string>
 				};
@@ -1184,7 +1184,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Modes",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Modes)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, Modes)),
 					&ModesInnerPropertyParams,
 					&GVectorPropertyHelper<EReflectedEnumForTest>
 				};
@@ -1200,38 +1200,38 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					1,
 					0,
 					&ScoreGroupsInnerInnerPropertyParams,
-					&GVectorPropertyHelper<Durin::int32>
+					&GVectorPropertyHelper<int32>
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams ScoreGroupsPropertyParams = {
 					"ScoreGroups",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ScoreGroups)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, ScoreGroups)),
 					&ScoreGroupsInnerPropertyParams,
-					&GVectorPropertyHelper<std::vector<Durin::int32>>
+					&GVectorPropertyHelper<std::vector<int32>>
 				};
 				static const Durin::DurinCodeGen::FInt32PropertyParams TransientPropertyParams = {
 					"TransientValue",
 					Durin::EPropertyFlags::Transient,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue))
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue))
 				};
 				static const auto WeakReferencePropertyParams =
 					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
 						"WeakReference", Durin::EPropertyFlags::Transient, 1,
-						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReference)),
+						static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReference)),
 						&Durin::DObject::StaticClass);
 				static const auto WeakExternalPropertyParams =
 					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
 						"WeakExternal", Durin::EPropertyFlags::Transient, 1,
-						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakExternal)),
+						static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakExternal)),
 						&Durin::DObject::StaticClass);
 				static const auto WeakReferencesInnerPropertyParams =
 					Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
 						"WeakReferences_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
 				static const Durin::DurinCodeGen::FArrayPropertyParams WeakReferencesPropertyParams = {
 					"WeakReferences", Durin::EPropertyFlags::Transient, 1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReferences)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakReferences)),
 					&WeakReferencesInnerPropertyParams,
 					&GVectorPropertyHelper<Durin::TWeakObjectPtr<Durin::DObject>>};
 				static const Durin::DurinCodeGen::FStringPropertyParams WeakMapKeyPropertyParams = {
@@ -1241,18 +1241,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 						"WeakMap_Value", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
 				static const Durin::DurinCodeGen::FMapPropertyParams WeakMapPropertyParams = {
 					"WeakMap", Durin::EPropertyFlags::Transient, 1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakMap)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakMap)),
 					&WeakMapKeyPropertyParams, &WeakMapValuePropertyParams,
 					&GMapPropertyHelper<std::string, Durin::TWeakObjectPtr<Durin::DObject>>};
 				static const Durin::DurinCodeGen::FStructPropertyParams WeakNestedPropertyParams = {
 					"WeakNested", Durin::EPropertyFlags::Transient, 1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNested)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNested)),
 					&WeakNestedStruct};
 				static const Durin::DurinCodeGen::FStructPropertyParams WeakNestedArrayInnerPropertyParams = {
 					"WeakNestedArray_Inner", Durin::EPropertyFlags::None, 1, 0, &WeakNestedStruct};
 				static const Durin::DurinCodeGen::FArrayPropertyParams WeakNestedArrayPropertyParams = {
 					"WeakNestedArray", Durin::EPropertyFlags::Transient, 1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNestedArray)),
+					static_cast<uint16>(offsetof(DLifecycleReferenceOwnerForTest, WeakNestedArray)),
 					&WeakNestedArrayInnerPropertyParams, &GVectorPropertyHelper<FWeakNested>};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 					&ValuePropertyParams,
@@ -1326,7 +1326,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("NativeValues"),
 					Durin::FArchiveLogicalTypeDescriptor::Array(
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
-				Durin::uint64 Count = static_cast<Durin::uint64>(NativeValues.size());
+				uint64 Count = static_cast<uint64>(NativeValues.size());
 				Ar << Count;
 				if (Ar.IsLoading() && !Ar.HasError())
 				{
@@ -1337,14 +1337,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					}
 					else
 					{
-						std::vector<Durin::int32> Loaded(static_cast<size_t>(Count));
-						for (Durin::int32& Value : Loaded) Ar << Value;
+						std::vector<int32> Loaded(static_cast<size_t>(Count));
+						for (int32& Value : Loaded) Ar << Value;
 						if (!Ar.HasError()) NativeValues = std::move(Loaded);
 					}
 				}
 				else
 				{
-					for (Durin::int32& Value : NativeValues) Ar << Value;
+					for (int32& Value : NativeValues) Ar << Value;
 				}
 			}
 			{
@@ -1375,18 +1375,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			return false;
 		}
 
-		Durin::int32 Value = 0;
+		int32 Value = 0;
 		bool bEnabled = false;
 		std::string Label;
 		Durin::DObject* Reference = nullptr;
 		Durin::TObjectPtr<Durin::DObject> ObjectPtrReference;
 		std::vector<Durin::DObject*> RawReferences;
 		std::vector<Durin::TObjectPtr<Durin::DObject>> ObjectPtrReferences;
-		std::vector<Durin::int32> Scores;
+		std::vector<int32> Scores;
 		std::vector<std::string> Tags;
 		std::vector<EReflectedEnumForTest> Modes;
-		std::vector<std::vector<Durin::int32>> ScoreGroups;
-		Durin::int32 TransientValue = 0;
+		std::vector<std::vector<int32>> ScoreGroups;
+		int32 TransientValue = 0;
 		Durin::TWeakObjectPtr<Durin::DObject> WeakReference;
 		Durin::TWeakObjectPtr<Durin::DObject> WeakExternal;
 		std::vector<Durin::TWeakObjectPtr<Durin::DObject>> WeakReferences;
@@ -1394,9 +1394,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FWeakNested WeakNested;
 		std::vector<FWeakNested> WeakNestedArray;
 		Durin::DObject* NativeReference = nullptr;
-		Durin::int32 NativeScalar = 0;
+		int32 NativeScalar = 0;
 		FNativeStruct NativeStruct;
-		std::vector<Durin::int32> NativeValues;
+		std::vector<int32> NativeValues;
 		Durin::DObject* SerializedNativeReference = nullptr;
 		Durin::DObject* EmissionOnlyReference = nullptr;
 		std::vector<Durin::EArchivePurpose> SerializePurposes;
@@ -1404,14 +1404,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		bool bEmitLateReference = false;
 		bool bInjectSerializeFailure = false;
 		bool bRejectPostLoad = false;
-		Durin::int32 PostLoadCallCount = 0;
+		int32 PostLoadCallCount = 0;
 	};
 
 	struct FGCReferenceLeafForTest
 	{
 		Durin::TObjectPtr<Durin::DObject> Reference;
 		Durin::TObjectPtr<Durin::DObject> StaticReferences[2];
-		Durin::int32 NonReferenceValue = 0;
+		int32 NonReferenceValue = 0;
 	};
 
 	struct FGCReferenceNestedForTest
@@ -1425,18 +1425,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			static const Durin::DurinCodeGen::FObjectPropertyParams Reference =
 				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
 					"Reference", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, Reference)),
+					static_cast<uint16>(offsetof(FGCReferenceLeafForTest, Reference)),
 					&Durin::DObject::StaticClass
 				);
 			static const Durin::DurinCodeGen::FObjectPropertyParams StaticReferences =
 				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
 					"StaticReferences", Durin::EPropertyFlags::None, 2,
-					static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, StaticReferences)),
+					static_cast<uint16>(offsetof(FGCReferenceLeafForTest, StaticReferences)),
 					&Durin::DObject::StaticClass
 				);
 			static const Durin::DurinCodeGen::FInt32PropertyParams NonReferenceValue = {
 				"NonReferenceValue", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, NonReferenceValue))
+				static_cast<uint16>(offsetof(FGCReferenceLeafForTest, NonReferenceValue))
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
 				&Reference, &StaticReferences, &NonReferenceValue
@@ -1469,7 +1469,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		static Durin::DStruct* Struct = [] {
 			static const Durin::DurinCodeGen::FStructPropertyParams Leaf = {
 				"Leaf", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(FGCReferenceNestedForTest, Leaf)),
+				static_cast<uint16>(offsetof(FGCReferenceNestedForTest, Leaf)),
 				&GetGCReferenceLeafStructForTest
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&Leaf};
@@ -1529,13 +1529,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				static const Durin::DurinCodeGen::FObjectPropertyParams BaseReference =
 					Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
 						"BaseReference", Durin::EPropertyFlags::None, 1,
-						static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, BaseReference)),
+						static_cast<uint16>(offsetof(DGCReferenceSchemaBaseForTest, BaseReference)),
 						&Durin::DObject::StaticClass
 					);
 				static const Durin::DurinCodeGen::FObjectPropertyParams RawReference =
 					Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
 						"RawReference", Durin::EPropertyFlags::None, 1,
-						static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, RawReference)),
+						static_cast<uint16>(offsetof(DGCReferenceSchemaBaseForTest, RawReference)),
 						&Durin::DObject::StaticClass
 					);
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&BaseReference, &RawReference};
@@ -1595,7 +1595,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		static Durin::DClass* Class = [] {
 			static const Durin::DurinCodeGen::FStructPropertyParams Nested = {
 				"Nested", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, Nested)),
+				static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, Nested)),
 				&GetGCReferenceNestedStructForTest
 			};
 
@@ -1605,7 +1605,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams StructArray = {
 				"StructArray", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, StructArray)),
+				static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, StructArray)),
 				&StructArrayInner, &GVectorPropertyHelper<FGCReferenceLeafForTest>
 			};
 
@@ -1621,7 +1621,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams NestedArrays = {
 				"NestedArrays", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, NestedArrays)),
+				static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, NestedArrays)),
 				&NestedArraysInner,
 				&GVectorPropertyHelper<std::vector<Durin::TObjectPtr<Durin::DObject>>>
 			};
@@ -1636,7 +1636,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				);
 			static const Durin::DurinCodeGen::FMapPropertyParams DirectMap = {
 				"DirectMap", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DirectMap)),
+				static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DirectMap)),
 				&DirectMapKey, &DirectMapValue,
 				&GMapPropertyHelper<std::string, Durin::TObjectPtr<Durin::DObject>>
 			};
@@ -1656,7 +1656,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			};
 			static const Durin::DurinCodeGen::FMapPropertyParams ArrayMap = {
 				"ArrayMap", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, ArrayMap)),
+				static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, ArrayMap)),
 				&ArrayMapKey, &ArrayMapValue,
 				&GMapPropertyHelper<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>>
 			};
@@ -1664,13 +1664,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			static const Durin::DurinCodeGen::FObjectPropertyParams DuplicateReference =
 				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
 					"DuplicateReference", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DuplicateReference)),
+					static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DuplicateReference)),
 					&Durin::DObject::StaticClass
 				);
 			static const auto SoftReference =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<Durin::TSoftObjectPtr<Durin::DObject>>(
 					"SoftReference", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, SoftReference)),
+					static_cast<uint16>(offsetof(DGCReferenceSchemaDerivedForTest, SoftReference)),
 					&Durin::DObject::StaticClass
 				);
 
@@ -1736,7 +1736,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				"Reflected Enum For Test",
 				true,
 				Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
-				static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
+				static_cast<uint16>(sizeof(EReflectedEnumForTest)),
 				std::move(Values),
 				Durin::EObjectFlags::NoFlags
 			);
@@ -1769,31 +1769,31 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	auto GetBuiltInLeafOwnerStructForTest() -> Durin::DStruct*
 	{
 		using namespace Durin::DurinCodeGen;
-		static const FBoolPropertyParams BoolValue = {"BoolValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, BoolValue))};
-		static const FInt8PropertyParams Int8Value = {"Int8Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int8Value))};
-		static const FInt16PropertyParams Int16Value = {"Int16Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int16Value))};
-		static const FInt32PropertyParams Int32Value = {"Int32Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int32Value))};
-		static const FInt64PropertyParams Int64Value = {"Int64Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int64Value))};
-		static const FUInt8PropertyParams UInt8Value = {"UInt8Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt8Value))};
-		static const FUInt16PropertyParams UInt16Value = {"UInt16Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt16Value))};
-		static const FUInt32PropertyParams UInt32Value = {"UInt32Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt32Value))};
-		static const FUInt64PropertyParams UInt64Value = {"UInt64Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt64Value))};
-		static const FFloatPropertyParams FloatValue = {"FloatValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, FloatValue))};
-		static const FDoublePropertyParams DoubleValue = {"DoubleValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, DoubleValue))};
-		static const FStringPropertyParams StringValue = {"StringValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, StringValue))};
-		static const FNamePropertyParams NameValue = {"NameValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, NameValue))};
-		static const FGuidPropertyParams GuidValue = {"GuidValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, GuidValue))};
-		static const FInt32PropertyParams FixedValues = {"FixedValues", Durin::EPropertyFlags::None, 2, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, FixedValues))};
-		static const FEnumPropertyParams EnumInt8 = {"EnumInt8", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int8, Durin::int8>};
-		static const FEnumPropertyParams EnumInt16 = {"EnumInt16", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int16, Durin::int16>};
-		static const FEnumPropertyParams EnumInt32 = {"EnumInt32", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int32, Durin::int32>};
-		static const FEnumPropertyParams EnumInt64 = {"EnumInt64", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int64, Durin::int64>};
-		static const FEnumPropertyParams EnumUInt8 = {"EnumUInt8", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt8, Durin::uint8>};
-		static const FEnumPropertyParams EnumUInt16 = {"EnumUInt16", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt16, Durin::uint16>};
-		static const FEnumPropertyParams EnumUInt32 = {"EnumUInt32", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt32, Durin::uint32>};
-		static const FEnumPropertyParams EnumUInt64 = {"EnumUInt64", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt64, Durin::uint64>};
-		static const FObjectPropertyParams RawObject = FObjectPropertyParams::Raw<Durin::DObject>("RawObject", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, RawObject)), &Durin::DObject::StaticClass);
-		static const FObjectPropertyParams ObjectPtr = FObjectPropertyParams::ObjectPtr<Durin::DObject>("ObjectPtr", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, ObjectPtr)), &Durin::DObject::StaticClass);
+		static const FBoolPropertyParams BoolValue = {"BoolValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, BoolValue))};
+		static const FInt8PropertyParams Int8Value = {"Int8Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, Int8Value))};
+		static const FInt16PropertyParams Int16Value = {"Int16Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, Int16Value))};
+		static const FInt32PropertyParams Int32Value = {"Int32Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, Int32Value))};
+		static const FInt64PropertyParams Int64Value = {"Int64Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, Int64Value))};
+		static const FUInt8PropertyParams UInt8Value = {"UInt8Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt8Value))};
+		static const FUInt16PropertyParams UInt16Value = {"UInt16Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt16Value))};
+		static const FUInt32PropertyParams UInt32Value = {"UInt32Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt32Value))};
+		static const FUInt64PropertyParams UInt64Value = {"UInt64Value", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt64Value))};
+		static const FFloatPropertyParams FloatValue = {"FloatValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, FloatValue))};
+		static const FDoublePropertyParams DoubleValue = {"DoubleValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, DoubleValue))};
+		static const FStringPropertyParams StringValue = {"StringValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, StringValue))};
+		static const FNamePropertyParams NameValue = {"NameValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, NameValue))};
+		static const FGuidPropertyParams GuidValue = {"GuidValue", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, GuidValue))};
+		static const FInt32PropertyParams FixedValues = {"FixedValues", Durin::EPropertyFlags::None, 2, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, FixedValues))};
+		static const FEnumPropertyParams EnumInt8 = {"EnumInt8", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int8, int8>};
+		static const FEnumPropertyParams EnumInt16 = {"EnumInt16", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int16, int16>};
+		static const FEnumPropertyParams EnumInt32 = {"EnumInt32", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int32, int32>};
+		static const FEnumPropertyParams EnumInt64 = {"EnumInt64", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int64, int64>};
+		static const FEnumPropertyParams EnumUInt8 = {"EnumUInt8", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt8, uint8>};
+		static const FEnumPropertyParams EnumUInt16 = {"EnumUInt16", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt16, uint16>};
+		static const FEnumPropertyParams EnumUInt32 = {"EnumUInt32", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt32, uint32>};
+		static const FEnumPropertyParams EnumUInt64 = {"EnumUInt64", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt64, uint64>};
+		static const FObjectPropertyParams RawObject = FObjectPropertyParams::Raw<Durin::DObject>("RawObject", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, RawObject)), &Durin::DObject::StaticClass);
+		static const FObjectPropertyParams ObjectPtr = FObjectPropertyParams::ObjectPtr<Durin::DObject>("ObjectPtr", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FBuiltInLeafOwnerForTest, ObjectPtr)), &Durin::DObject::StaticClass);
 		static const FPropertyParamsBase* Properties[] = {
 			&BoolValue, &Int8Value, &Int16Value, &Int32Value, &Int64Value,
 			&UInt8Value, &UInt16Value, &UInt32Value, &UInt64Value,
@@ -1847,22 +1847,22 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		StructOpsTest::FMoveOnly MoveOnly;
 	};
 
-	auto GetAccessedVector(void* Container, Durin::uint32 ArrayIndex) -> void*
+	auto GetAccessedVector(void* Container, uint32 ArrayIndex) -> void*
 	{
 		return &static_cast<FTypedStructPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
 	}
 
-	auto GetAccessedVector(const void* Container, Durin::uint32 ArrayIndex) -> const void*
+	auto GetAccessedVector(const void* Container, uint32 ArrayIndex) -> const void*
 	{
 		return &static_cast<const FTypedStructPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
 	}
 
-	auto GetAccessedSoftObject(void* Container, Durin::uint32 ArrayIndex) -> void*
+	auto GetAccessedSoftObject(void* Container, uint32 ArrayIndex) -> void*
 	{
 		return &static_cast<FSoftObjectPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
 	}
 
-	auto GetAccessedSoftObject(const void* Container, Durin::uint32 ArrayIndex) -> const void*
+	auto GetAccessedSoftObject(const void* Container, uint32 ArrayIndex) -> const void*
 	{
 		return &static_cast<const FSoftObjectPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
 	}
@@ -1892,7 +1892,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"Direct",
 			Durin::EPropertyFlags::Edit,
 			1,
-			static_cast<Durin::uint16>(offsetof(FTypedStructPropertyOwnerForTest, Direct)),
+			static_cast<uint16>(offsetof(FTypedStructPropertyOwnerForTest, Direct)),
 			&Durin::Z_Construct_DStruct_Durin_FVector3,
 			DirectMetaData,
 			std::size(DirectMetaData)
@@ -1943,12 +1943,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		static const Durin::DurinCodeGen::FMetaDataPair DirectMetaData[] = {{"Category", "SoftObject"}};
 		static const auto Direct = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
 			"Direct", Durin::EPropertyFlags::Edit, 1,
-			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Direct)),
+			static_cast<uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Direct)),
 			&Durin::DObject::StaticClass, DirectMetaData, std::size(DirectMetaData)
 		);
 		static const auto Fixed = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
 			"Fixed", Durin::EPropertyFlags::Edit, 2,
-			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Fixed)),
+			static_cast<uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Fixed)),
 			&Durin::DObject::StaticClass
 		);
 		static const auto Accessed = Durin::DurinCodeGen::FSoftObjectPropertyParams::WithAccessors<FSoftPtr>(
@@ -1961,7 +1961,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		);
 		static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
 			"Array", Durin::EPropertyFlags::Edit, 1,
-			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Array)),
+			static_cast<uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Array)),
 			&ArrayInner, &GVectorPropertyHelper<FSoftPtr>
 		};
 		static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
@@ -1972,7 +1972,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		);
 		static const Durin::DurinCodeGen::FMapPropertyParams Map = {
 			"Map", Durin::EPropertyFlags::Edit, 1,
-			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Map)),
+			static_cast<uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Map)),
 			&MapKey, &MapValue, &GMapPropertyHelper<std::string, FSoftPtr>
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -2010,20 +2010,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		using FWeakPtr = Durin::TWeakObjectPtr<Durin::DObject>;
 		constexpr auto WeakFlags = Durin::EPropertyFlags::Transient;
 		static const auto Direct = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
-			"Direct", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Direct)), &Durin::DObject::StaticClass);
+			"Direct", WeakFlags, 1, static_cast<uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Direct)), &Durin::DObject::StaticClass);
 		static const auto Fixed = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
-			"Fixed", WeakFlags, 2, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Fixed)), &Durin::DObject::StaticClass);
+			"Fixed", WeakFlags, 2, static_cast<uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Fixed)), &Durin::DObject::StaticClass);
 		static const auto ArrayInner = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
 			"Array_Inner", WeakFlags, 1, 0, &Durin::DObject::StaticClass);
 		static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
-			"Array", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Array)),
+			"Array", WeakFlags, 1, static_cast<uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Array)),
 			&ArrayInner, &GVectorPropertyHelper<FWeakPtr>};
 		static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
 			"Map_Key", Durin::EPropertyFlags::None, 1, 0};
 		static const auto MapValue = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
 			"Map_Value", WeakFlags, 1, 0, &Durin::DObject::StaticClass);
 		static const Durin::DurinCodeGen::FMapPropertyParams Map = {
-			"Map", WeakFlags, 1, static_cast<Durin::uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Map)),
+			"Map", WeakFlags, 1, static_cast<uint16>(offsetof(FWeakObjectPropertyOwnerForTest, Map)),
 			&MapKey, &MapValue, &GMapPropertyHelper<std::string, FWeakPtr>};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Direct, &Fixed, &Array, &Map};
 		static const Durin::DurinCodeGen::FStructParams Params = {
@@ -2113,14 +2113,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"DeletedDefault",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, DeletedDefault)),
+			static_cast<uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, DeletedDefault)),
 			&GetDeletedDefaultStruct
 		};
 		static const Durin::DurinCodeGen::FStructPropertyParams MoveOnly = {
 			"MoveOnly",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, MoveOnly)),
+			static_cast<uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, MoveOnly)),
 			&GetMoveOnlyStruct
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&DeletedDefault, &MoveOnly};
@@ -2327,7 +2327,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
 		(void)DLifecycleTestObject::StaticClass();
-		const Durin::uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
+		const uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
 		DRecursiveDefaultObjectForTest::DestructorCount = 0;
 		DLifecycleTestObject::ResetLifecycleCounts();
 
@@ -2453,7 +2453,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(BlobField->Value, nullptr);
 		EXPECT_EQ(BlobField->Value->LogicalType.Kind,
 			Durin::FArchiveLogicalTypeDescriptor::EKind::Bytes);
-		EXPECT_EQ(BlobField->Value->ByteValue.size(), Instance->Blob.size() + sizeof(Durin::uint64));
+		EXPECT_EQ(BlobField->Value->ByteValue.size(), Instance->Blob.size() + sizeof(uint64));
 		Durin::FProperty* ReflectedBlob = Instance->GetClass()->FindPropertyByName(
 			Durin::FName("Blob"), true);
 		ASSERT_NE(ReflectedBlob, nullptr);
@@ -2469,7 +2469,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Instance->Fixed[1] = 17;
 		Instance->NativeSecond = 11;
 		const Durin::FVector3 BeforeStruct = Instance->ClassSpecific;
-		const Durin::int32 BeforeFixed = Instance->Fixed[1];
+		const int32 BeforeFixed = Instance->Fixed[1];
 		Durin::FDefaultDeltaPlan ChangedPlan;
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, ChangedPlan, &Diagnostic))
@@ -2538,7 +2538,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(SignedZeroStruct->Value->Fields[2].Disposition,
 			Durin::EDefaultDeltaDisposition::Omitted);
 
-		Instance->ExactFloat = std::bit_cast<double>(Durin::uint64{0x7FF8000000000043ull});
+		Instance->ExactFloat = std::bit_cast<double>(uint64{0x7FF8000000000043ull});
 		Durin::FDefaultDeltaPlan NaNPlan;
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, NaNPlan, &Diagnostic));
@@ -2703,7 +2703,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			StructPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::TemplateObject);
 		Durin::FAuthoredOverridePath Excessive = StructPath;
-		for (Durin::uint32 Index = 0; Index < Durin::DefaultDeltaMaxDepth; ++Index)
+		for (uint32 Index = 0; Index < Durin::DefaultDeltaMaxDepth; ++Index)
 			Excessive.push_back(Durin::FAuthoredOverridePathToken::Field(Vector, Durin::FName("x")));
 		EXPECT_FALSE(Instance->SetAuthoredOverride(
 			Excessive, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
@@ -2921,7 +2921,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Class->ForEachProperty([&](Durin::FProperty* Property) {
 			if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)) return;
-			for (Durin::uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 			{
 				EXPECT_TRUE(Durin::ArePropertyValuesIdentical(
 					Property, DefaultObject, Index, Instance, Index))
@@ -3559,7 +3559,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->ObjectPtrReference = ReferencedObject;
 		Durin::AddToRoot(Owner);
 
-		for (Durin::uint32 Index = 0; Index < 4; ++Index)
+		for (uint32 Index = 0; Index < 4; ++Index)
 		{
 			Durin::CollectGarbage();
 			EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 0u);
@@ -3603,10 +3603,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, DeepOuterChainUsesIterativeMarkAndDestroy)
 	{
 		EnsureDObjectInitialized();
-		constexpr Durin::uint32 ChainLength = 10000;
+		constexpr uint32 ChainLength = 10000;
 		Durin::DObject* Outermost = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCDeepOuter0"));
 		Durin::DObject* Innermost = Outermost;
-		for (Durin::uint32 Index = 1; Index < ChainLength; ++Index)
+		for (uint32 Index = 1; Index < ChainLength; ++Index)
 		{
 			Innermost = Durin::NewObject<Durin::DObject>(Innermost, Durin::FName("GCDeepOuter"));
 		}
@@ -3793,10 +3793,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Owner->SerializePurposes[1], Durin::EArchivePurpose::ObjectGraph);
 		{
 			Durin::FMemoryReader HeaderReader(Bytes);
-			Durin::uint32 Magic = 0;
-			Durin::uint32 Version = 0;
-			Durin::uint64 RootId = 0;
-			Durin::uint64 ObjectCount = 0;
+			uint32 Magic = 0;
+			uint32 Version = 0;
+			uint64 RootId = 0;
+			uint64 ObjectCount = 0;
 			HeaderReader << Magic << Version << RootId << ObjectCount;
 			EXPECT_EQ(Magic, 0x4E524F44u);
 			EXPECT_EQ(Version, 2u);
@@ -3815,18 +3815,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 			auto InvalidReferenceBytes = Bytes;
 			auto ReadUint64 = [&InvalidReferenceBytes](size_t Offset) {
-				Durin::uint64 Value = 0;
+				uint64 Value = 0;
 				std::memcpy(&Value, InvalidReferenceBytes.data() + Offset, sizeof(Value));
 				return Value;
 			};
 			size_t Offset = 24 + 16;
 			for (int StringIndex = 0; StringIndex < 2; ++StringIndex)
 			{
-				const Durin::uint64 Length = ReadUint64(Offset);
-				Offset += sizeof(Durin::uint64) + static_cast<size_t>(Length);
+				const uint64 Length = ReadUint64(Offset);
+				Offset += sizeof(uint64) + static_cast<size_t>(Length);
 			}
-			const Durin::uint64 PropertySize = ReadUint64(Offset);
-			const size_t PropertyEnd = Offset + sizeof(Durin::uint64)
+			const uint64 PropertySize = ReadUint64(Offset);
+			const size_t PropertyEnd = Offset + sizeof(uint64)
 				+ static_cast<size_t>(PropertySize);
 			ASSERT_GE(PropertySize, 9u);
 			ASSERT_EQ(InvalidReferenceBytes[PropertyEnd - 9],
@@ -3887,7 +3887,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(LoadedOwner->NativeScalar, 73);
 		EXPECT_EQ(LoadedOwner->NativeStruct.Value, 19);
 		EXPECT_EQ(LoadedOwner->NativeStruct.Label, Durin::FName("NativeStructLabel"));
-		EXPECT_EQ(LoadedOwner->NativeValues, (std::vector<Durin::int32>{2, 4, 8, 16}));
+		EXPECT_EQ(LoadedOwner->NativeValues, (std::vector<int32>{2, 4, 8, 16}));
 		ASSERT_NE(LoadedOwner->SerializedNativeReference, nullptr);
 		EXPECT_EQ(LoadedOwner->SerializedNativeReference->GetName(), "SerializedNativeReference");
 		EXPECT_EQ(LoadedOwner->NativeReference, nullptr);
@@ -4501,7 +4501,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EnsureDObjectInitialized();
 		Durin::CollectGarbage();
-		const Durin::uint64 InitialCount = Durin::GDObjectArray.GetNum();
+		const uint64 InitialCount = Durin::GDObjectArray.GetNum();
 		Durin::DObject* A = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountA"));
 		Durin::DObject* B = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountB"));
 		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount + 2);
@@ -4534,7 +4534,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"Reflected Enum For Test",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
-			static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
+			static_cast<uint16>(sizeof(EReflectedEnumForTest)),
 			Values,
 			3
 		};
@@ -4552,7 +4552,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Enum->GetValues()[1].DisplayName, "B");
 		EXPECT_EQ(Durin::FindEnumByQualifiedName("EReflectedEnumForTest"), Enum);
 
-		Durin::uint64 Value = std::numeric_limits<Durin::uint64>::max();
+		uint64 Value = std::numeric_limits<uint64>::max();
 		EXPECT_TRUE(Enum->FindValueByName(Durin::FName("A"), Value));
 		EXPECT_EQ(Value, 0);
 
@@ -4571,7 +4571,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"Mode",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedEnumPropertyOwnerForTest, Mode)),
+			static_cast<uint16>(offsetof(FReflectedEnumPropertyOwnerForTest, Mode)),
 			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
@@ -4608,9 +4608,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::Int8,
-			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)),
+			static_cast<uint16>(sizeof(ESignedEnumValueForTest)),
 			std::vector<Durin::FEnumValue>{
-				{Durin::FName("Negative"), std::numeric_limits<Durin::uint64>::max()},
+				{Durin::FName("Negative"), std::numeric_limits<uint64>::max()},
 				{Durin::FName("Positive"), 1}
 			},
 			Durin::EObjectFlags::NoFlags
@@ -4623,26 +4623,26 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
-			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)),
+			static_cast<uint16>(sizeof(EUnsignedEnumValueForTest)),
 			std::vector<Durin::FEnumValue>{
 				{Durin::FName("Low"), 0},
-				{Durin::FName("High"), std::numeric_limits<Durin::uint64>::max()}
+				{Durin::FName("High"), std::numeric_limits<uint64>::max()}
 			},
 			Durin::EObjectFlags::NoFlags
 		);
 
 		Durin::FEnumProperty SignedProperty(
 			{}, Durin::FName("Signed"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(FWideEnumPropertyOwnerForTest, Signed)),
-			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, SignedEnum.get()
+			static_cast<uint16>(offsetof(FWideEnumPropertyOwnerForTest, Signed)),
+			static_cast<uint16>(sizeof(ESignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, SignedEnum.get()
 		);
 		Durin::FEnumProperty UnsignedProperty(
 			{}, Durin::FName("Unsigned"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(FWideEnumPropertyOwnerForTest, Unsigned)),
-			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, UnsignedEnum.get()
+			static_cast<uint16>(offsetof(FWideEnumPropertyOwnerForTest, Unsigned)),
+			static_cast<uint16>(sizeof(EUnsignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, UnsignedEnum.get()
 		);
 		FWideEnumPropertyOwnerForTest Instance;
-		const Durin::uint64 MaxValue = std::numeric_limits<Durin::uint64>::max();
+		const uint64 MaxValue = std::numeric_limits<uint64>::max();
 
 		EXPECT_EQ(SignedProperty.GetValueAsUInt64(&Instance), MaxValue);
 		EXPECT_EQ(UnsignedProperty.GetValueAsUInt64(&Instance), MaxValue);
@@ -4665,14 +4665,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"Value",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, Value))
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, Value))
 		};
 		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPropertyParams =
 			Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
 				"ObjectValue",
 				Durin::EPropertyFlags::Edit,
 				1,
-				static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectValue)),
+				static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectValue)),
 				&Durin::DObject::StaticClass
 			);
 		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrPropertyParams =
@@ -4680,20 +4680,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				"ObjectPtrValue",
 				Durin::EPropertyFlags::None,
 				1,
-				static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrValue)),
+				static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrValue)),
 				&Durin::DObject::StaticClass
 			);
 		static const Durin::DurinCodeGen::FStringPropertyParams StringPropertyParams = {
 			"StringValue",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue))
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue))
 		};
 		static const Durin::DurinCodeGen::FNamePropertyParams NamePropertyParams = {
 			"NameValue",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NameValue))
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, NameValue))
 		};
 		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectArrayInnerPropertyParams =
 			Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
@@ -4707,7 +4707,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"ObjectArray",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectArray)),
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectArray)),
 			&ObjectArrayInnerPropertyParams,
 			&GVectorPropertyHelper<Durin::DObject*>
 		};
@@ -4723,7 +4723,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"ObjectPtrArray",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrArray)),
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrArray)),
 			&ObjectPtrArrayInnerPropertyParams,
 			&GVectorPropertyHelper<Durin::TObjectPtr<Durin::DObject>>
 		};
@@ -4743,10 +4743,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"StringToInt",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringToInt)),
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, StringToInt)),
 			&StringToIntKeyPropertyParams,
 			&StringToIntValuePropertyParams,
-			&GMapPropertyHelper<std::string, Durin::int32>
+			&GMapPropertyHelper<std::string, int32>
 		};
 		static const Durin::DurinCodeGen::FInt32PropertyParams NestedScoresInnerInnerPropertyParams = {
 			"NestedScores_Inner_Inner",
@@ -4760,15 +4760,15 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			1,
 			0,
 			&NestedScoresInnerInnerPropertyParams,
-			&GVectorPropertyHelper<Durin::int32>
+			&GVectorPropertyHelper<int32>
 		};
 		static const Durin::DurinCodeGen::FArrayPropertyParams NestedScoresPropertyParams = {
 			"NestedScores",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NestedScores)),
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, NestedScores)),
 			&NestedScoresInnerPropertyParams,
-			&GVectorPropertyHelper<std::vector<Durin::int32>>
+			&GVectorPropertyHelper<std::vector<int32>>
 		};
 		static const Durin::DurinCodeGen::FStringPropertyParams ObjectListsKeyPropertyParams = {
 			"ObjectLists_Key",
@@ -4796,7 +4796,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			"ObjectLists",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectLists)),
+			static_cast<uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectLists)),
 			&ObjectListsKeyPropertyParams,
 			&ObjectListsValuePropertyParams,
 			&GMapPropertyHelper<std::string, std::vector<Durin::DObject*>>
@@ -4833,11 +4833,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto* ValueProperty = Class->FindPropertyByName("Value");
 		ASSERT_NE(ValueProperty, nullptr);
 		EXPECT_EQ(ValueProperty->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Int32);
-		EXPECT_EQ(ValueProperty->GetElementSize(), sizeof(Durin::int32));
+		EXPECT_EQ(ValueProperty->GetElementSize(), sizeof(int32));
 		EXPECT_TRUE(ValueProperty->ClassPrivate->IsChildOf(Durin::FNumericProperty::StaticClass()));
 
 		FReflectedPropertyOwnerForTest Instance;
-		*ValueProperty->ContainerPtrToValuePtr<Durin::int32>(&Instance) = 42;
+		*ValueProperty->ContainerPtrToValuePtr<int32>(&Instance) = 42;
 		EXPECT_EQ(Instance.Value, 42);
 
 		auto* ObjectProperty = static_cast<Durin::FObjectProperty*>(Class->FindPropertyByName("ObjectValue"));
@@ -4994,7 +4994,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_GT(Property->GetValueSize(), 0u);
 			EXPECT_GT(Property->GetValueAlignment(), 0u);
 
-			const Durin::uint32 ArrayIndex = Property->NamePrivate.ToString() == "FixedValues" ? 1u : 0u;
+			const uint32 ArrayIndex = Property->NamePrivate.ToString() == "FixedValues" ? 1u : 0u;
 			Durin::FReflectedValueStorage DefaultStorage;
 			ASSERT_TRUE(DefaultStorage.DefaultConstruct(Property, ArrayIndex))
 				<< Property->NamePrivate.ToString();
@@ -5073,7 +5073,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, SemanticArchiveCapabilitiesScopesAndFailuresAreSticky)
 	{
-		Durin::int32 Sentinel = 73;
+		int32 Sentinel = 73;
 		Durin::FArchive Unsupported({
 			Durin::EArchiveDirection::Load,
 			Durin::EArchivePurpose::ObjectGraph,
@@ -5152,8 +5152,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FNumericProperty ReflectedValue(
 			Durin::FFieldVariant(&IncompleteStruct), Durin::FName("Value"),
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(StructOpsTest::FIncompleteAuthoredStruct, Value)),
-			sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			static_cast<uint16>(offsetof(StructOpsTest::FIncompleteAuthoredStruct, Value)),
+			sizeof(int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 		IncompleteStruct.ChildProperties = &ReflectedValue;
 		Durin::FStructProperty IncompleteProperty(
 			Durin::FFieldVariant(), Durin::FName("Incomplete"), Durin::EObjectFlags::NoFlags,
@@ -5285,9 +5285,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(TranslationStructProperty->GetStruct(), VectorStruct);
 		EXPECT_EQ(ScaleStructProperty->GetStruct(), VectorStruct);
 		for (const auto& [Property, Offset] : std::array{
-				 std::pair{RotationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Rotation))},
-				 std::pair{TranslationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Translation))},
-				 std::pair{ScaleStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Scale3D))}
+				 std::pair{RotationStructProperty, static_cast<uint16>(STRUCT_OFFSET(Durin::FTransform, Rotation))},
+				 std::pair{TranslationStructProperty, static_cast<uint16>(STRUCT_OFFSET(Durin::FTransform, Translation))},
+				 std::pair{ScaleStructProperty, static_cast<uint16>(STRUCT_OFFSET(Durin::FTransform, Scale3D))}
 			 })
 		{
 			EXPECT_EQ(Property->GetPropertyFlags(), Durin::EPropertyFlags::None);
@@ -5357,7 +5357,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		}
 
 		Durin::FMatrix4f Matrix(1.0f);
-		for (Durin::uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
+		for (uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
 		{
 			const std::string ColumnName = "Column" + std::to_string(ColumnIndex);
 			auto* Column = static_cast<Durin::FStructProperty*>(
@@ -5389,21 +5389,21 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		Durin::FNumericProperty UnsignedProperty(
 			Durin::FFieldVariant(), Durin::FName("Unsigned"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::Edit, 1, 0, sizeof(Durin::uint64),
+			Durin::EPropertyFlags::Edit, 1, 0, sizeof(uint64),
 			Durin::DurinCodeGen::EPropertyGenFlags::UInt64, nullptr);
 		const Durin::FPropertyMetadataParams UnsignedMetadata{
 			"Counter", "Exact unsigned value", "Numbers", Durin::EPropertyUnit::Unitless,
 			Durin::FPropertyMetadataNumber::FromUnsigned(1), -1,
 			Durin::FPropertyMetadataNumber::FromUnsigned(9'007'199'254'740'993ULL),
-			Durin::FPropertyMetadataNumber::FromUnsigned(std::numeric_limits<Durin::uint64>::max())};
+			Durin::FPropertyMetadataNumber::FromUnsigned(std::numeric_limits<uint64>::max())};
 		UnsignedProperty.SetTypedMetadata(&UnsignedMetadata);
 		EXPECT_EQ(UnsignedProperty.GetTypedMetadata().ClampMin.Unsigned, 9'007'199'254'740'993ULL);
 		EXPECT_EQ(UnsignedProperty.GetTypedMetadata().ClampMax.Unsigned,
-			std::numeric_limits<Durin::uint64>::max());
+			std::numeric_limits<uint64>::max());
 		EXPECT_EQ(UnsignedProperty.GetMetaData(Durin::FName("DisplayName")), "Counter");
 
 		std::string Error;
-		Durin::uint64 Value = 9'007'199'254'740'993ULL;
+		uint64 Value = 9'007'199'254'740'993ULL;
 		EXPECT_TRUE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
 		Value = 9'007'199'254'740'992ULL;
 		EXPECT_FALSE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
@@ -5441,19 +5441,19 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FDStructOps StableOps = MakeOps(&StructOpsTest::ConstructStableDefault);
 		Durin::DStruct Stable(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FStableDefault"), Durin::FName("FStableDefault"),
-			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+			sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient
 		);
 		Stable.InitializeOps(&StableOps);
 		Durin::FNumericProperty StableValue(
 			Durin::FFieldVariant(&Stable), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::EPropertyFlags::None, 1, 0, sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
 		AttachValue(Stable, StableValue);
 		const std::array StableBatch{&Stable};
 		ASSERT_TRUE(Durin::Private::CreateDStructDefaultsForBatch(StableBatch));
 		ASSERT_EQ(Stable.GetDefaultState(), Durin::EDStructDefaultState::Ready);
-		EXPECT_EQ(*static_cast<const Durin::int32*>(Stable.GetDefaultValue()), 7);
+		EXPECT_EQ(*static_cast<const int32*>(Stable.GetDefaultValue()), 7);
 		const void* WorkerDefault = nullptr;
 		std::thread Worker([&] { WorkerDefault = Stable.GetDefaultValue(); });
 		Worker.join();
@@ -5463,23 +5463,23 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FDStructOps ChangingOps = MakeOps(&StructOpsTest::ConstructChangingDefault);
 		Durin::DStruct AtomicStable(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::AAtomicStableDefault"), Durin::FName("AAtomicStableDefault"),
-			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+			sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient
 		);
 		AtomicStable.InitializeOps(&StableOps);
 		Durin::FNumericProperty AtomicStableValue(
 			Durin::FFieldVariant(&AtomicStable), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::EPropertyFlags::None, 1, 0, sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
 		AttachValue(AtomicStable, AtomicStableValue);
 		Durin::DStruct Changing(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::ZChangingDefault"), Durin::FName("ZChangingDefault"),
-			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+			sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient
 		);
 		Changing.InitializeOps(&ChangingOps);
 		Durin::FNumericProperty ChangingValue(
 			Durin::FFieldVariant(&Changing), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::EPropertyFlags::None, 1, 0, sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
 		AttachValue(Changing, ChangingValue);
@@ -5495,12 +5495,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FDStructOps ReentrantOps = MakeOps(&StructOpsTest::ConstructReentrantDefault);
 		Durin::DStruct Reentrant(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FReentrantDefault"), Durin::FName("FReentrantDefault"),
-			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+			sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient
 		);
 		Reentrant.InitializeOps(&ReentrantOps);
 		Durin::FNumericProperty ReentrantValue(
 			Durin::FFieldVariant(&Reentrant), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::EPropertyFlags::None, 1, 0, sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
 		AttachValue(Reentrant, ReentrantValue);
@@ -5514,16 +5514,16 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FDStructOps SideEffectOps = MakeOps(&StructOpsTest::ConstructSideEffectDefault);
 		Durin::DStruct SideEffect(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FSideEffectDefault"),
-			Durin::FName("FSideEffectDefault"), sizeof(Durin::int32), alignof(Durin::int32),
+			Durin::FName("FSideEffectDefault"), sizeof(int32), alignof(int32),
 			Durin::EObjectFlags::Transient);
 		SideEffect.InitializeOps(&SideEffectOps);
 		Durin::FNumericProperty SideEffectValue(
 			Durin::FFieldVariant(&SideEffect), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::EPropertyFlags::None, 1, 0, sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 		AttachValue(SideEffect, SideEffectValue);
 		StructOpsTest::SideEffectObjects.clear();
-		const Durin::uint64 ObjectCountBefore = Durin::GDObjectArray.GetNum();
+		const uint64 ObjectCountBefore = Durin::GDObjectArray.GetNum();
 		const std::array SideEffectBatch{&SideEffect};
 		EXPECT_FALSE(Durin::Private::CreateDStructDefaultsForBatch(SideEffectBatch));
 		EXPECT_EQ(SideEffect.GetDefaultReason(), Durin::EDStructDefaultReason::PublicationSideEffect);
@@ -5556,13 +5556,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Struct->InitializeOps(&ReferenceOps);
 		const auto Params = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
 			"Value", Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
+			static_cast<uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
 			&Durin::DObject::StaticClass);
 		auto* ValueProperty = new Durin::FObjectProperty(
 			Durin::FFieldVariant(Struct), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
-			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+			static_cast<uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
+			static_cast<uint16>(sizeof(Durin::DObject*)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(),
 			false, Params.ReadObjectValue, Params.WriteObjectValue);
 		Struct->ChildProperties = ValueProperty;
@@ -5595,7 +5595,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto MakeStruct = [](const char* Name) {
 			return Durin::DStruct(
 				Durin::EC_StaticConstructor, Durin::FName(Name), Durin::FName(Name),
-				sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient);
+				sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient);
 		};
 
 		auto MissingOps = MakeStruct("Tests::FMissingOpsDefault");
@@ -5884,7 +5884,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				EnsureDObjectInitialized();
 				const Durin::DurinCodeGen::FGenericPropertyParams Params = {
 					"InvalidGeneric", Durin::EPropertyFlags::None, 1, 0, 0,
-					Durin::DurinCodeGen::MakePropertyValueOps<Durin::int32>()
+					Durin::DurinCodeGen::MakePropertyValueOps<int32>()
 				};
 				ConstructInvalidStructProperty(Params);
 			}()),
@@ -5909,7 +5909,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Value", Durin::EPropertyFlags::None, 1, 0};
 				const Durin::DurinCodeGen::FMapPropertyParams Params = {
 					"WeakKeyMap", Durin::EPropertyFlags::Transient, 1, 0,
-					&Key, &Value, &GMapPropertyHelper<std::string, Durin::int32>};
+					&Key, &Value, &GMapPropertyHelper<std::string, int32>};
 				ConstructInvalidStructProperty(Params);
 			}()),
 			"MapPropertyRegistration.WeakKeyUnsupported"

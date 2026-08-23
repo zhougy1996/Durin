@@ -50,21 +50,21 @@ namespace
 			"EquirectangularPanorama" / FileName;
 	}
 
-	auto WriteSolidTga(const std::filesystem::path& Path, Durin::uint16 Width, Durin::uint16 Height,
-		Durin::uint8 Alpha = 255) -> void
+	auto WriteSolidTga(const std::filesystem::path& Path, uint16 Width, uint16 Height,
+		uint8 Alpha = 255) -> void
 	{
-		std::array<Durin::uint8, 18> Header{};
+		std::array<uint8, 18> Header{};
 		Header[2] = 2;
-		Header[12] = static_cast<Durin::uint8>(Width & 0xff);
-		Header[13] = static_cast<Durin::uint8>(Width >> 8);
-		Header[14] = static_cast<Durin::uint8>(Height & 0xff);
-		Header[15] = static_cast<Durin::uint8>(Height >> 8);
+		Header[12] = static_cast<uint8>(Width & 0xff);
+		Header[13] = static_cast<uint8>(Width >> 8);
+		Header[14] = static_cast<uint8>(Height & 0xff);
+		Header[15] = static_cast<uint8>(Height >> 8);
 		Header[16] = 32;
 		Header[17] = 0x28;
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
-		const std::array<Durin::uint8, 4> Pixel = {32, 64, 128, Alpha};
-		for (Durin::uint32 PixelIndex = 0; PixelIndex < static_cast<Durin::uint32>(Width) * Height; ++PixelIndex)
+		const std::array<uint8, 4> Pixel = {32, 64, 128, Alpha};
+		for (uint32 PixelIndex = 0; PixelIndex < static_cast<uint32>(Width) * Height; ++PixelIndex)
 			Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
 	}
 
@@ -253,7 +253,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	const std::string InitialKey = Texture->GetDerivedDataKey();
-	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
+	const uint64 InitialRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Transparent =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceTransparent.tga";
 	WriteSolidTga(Transparent, 128, 128, 128);
@@ -277,7 +277,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Root / "Textures/ReimportFaces_nz.png"));
 
 	const std::string ValidKey = Texture->GetDerivedDataKey();
-	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
+	const uint64 ValidRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Corrupt =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceCorrupt.png";
 	{
@@ -387,8 +387,8 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 TEST(FTextureCubeTests, SourceLayoutReflectionRetainsSixFaceCompatibilityValue)
 {
 	InitializeDObjectSystem();
-	EXPECT_EQ(static_cast<Durin::uint8>(Durin::ETextureCubeSourceLayout::SixFaces), 0u);
-	EXPECT_EQ(static_cast<Durin::uint8>(
+	EXPECT_EQ(static_cast<uint8>(Durin::ETextureCubeSourceLayout::SixFaces), 0u);
+	EXPECT_EQ(static_cast<uint8>(
 		Durin::ETextureCubeSourceLayout::EquirectangularPanorama), 1u);
 	Durin::DEnum* SourceLayoutEnum =
 		Durin::FindEnumByQualifiedName("Durin::ETextureCubeSourceLayout");
@@ -441,7 +441,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(), "/TextureCubeTests/ReimportPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
-	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
+	const uint64 InitialRevision = Texture->GetBuildRevision();
 
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::Forge::IngestAndChangeTextureCubePanoramaSource(*Texture,
@@ -459,14 +459,14 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Root / "Textures/ReimportPanorama_panorama.hdr"));
 
-	const Durin::uint64 FirstReimportRevision = Texture->GetBuildRevision();
+	const uint64 FirstReimportRevision = Texture->GetBuildRevision();
 	ASSERT_TRUE(Durin::Asset::Forge::ReimportTextureCubePanorama(*Texture,
 		(Root / "Textures/ReimportPanorama_panorama.hdr").generic_string(),
 		{.FaceDimension = 4, .ExposureEV = 1.0f}, Error)) << Error;
 	EXPECT_GT(Texture->GetBuildRevision(), FirstReimportRevision);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 
-	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
+	const uint64 ValidRevision = Texture->GetBuildRevision();
 	const std::vector<std::byte> ValidPixels = Texture->GetSourceData()->Faces[0].Pixels;
 	const std::filesystem::path Corrupt = Root / "CorruptReplacement.hdr";
 	{

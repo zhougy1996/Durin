@@ -25,7 +25,7 @@ namespace
 				.VirtualPath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
-				.FileSize = static_cast<Durin::uint64>(Data.FileSize),
+				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
 			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 			.RequestSerial = 3};
@@ -60,7 +60,7 @@ public:
 		return true;
 	}
 
-	Durin::uint32 WorldRequests = 0;
+	uint32 WorldRequests = 0;
 	Durin::Editor::FRenderedAssetThumbnailPreviewView LastView;
 	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
 };
@@ -124,9 +124,9 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
 	Mip.RowPitch = 3;
 	Mip.DepthPitch = 6;
 	Mip.Voxels.resize(12);
-	for (Durin::uint32 Z = 0; Z < Mip.Depth; ++Z)
-		for (Durin::uint32 Y = 0; Y < Mip.Height; ++Y)
-			for (Durin::uint32 X = 0; X < Mip.Width; ++X)
+	for (uint32 Z = 0; Z < Mip.Depth; ++Z)
+		for (uint32 Y = 0; Y < Mip.Height; ++Y)
+			for (uint32 X = 0; X < Mip.Width; ++X)
 				Mip.Voxels[Z * Mip.DepthPitch + Y * Mip.RowPitch + X] =
 					static_cast<std::byte>(X + Y * 10 + Z * 100);
 

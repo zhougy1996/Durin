@@ -18,7 +18,7 @@ namespace
 		const std::filesystem::path& Root,
 		std::string_view Name,
 		bool bComplete,
-		Durin::uint32 AgeDays) -> std::filesystem::path
+		uint32 AgeDays) -> std::filesystem::path
 	{
 		const std::filesystem::path Directory = Root / Name;
 		std::filesystem::create_directories(Directory);

@@ -71,7 +71,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	EXPECT_FALSE(Transactions.CanUndo());
 
 	Object.PreChange = [Property = Property.get()](Durin::FPropertyEditProposal& Proposal, std::string&) {
-		auto* Value = Property->ContainerPtrToValuePtr<Durin::int32>(Proposal.DraftLeafContainer, Proposal.DraftLeafArrayIndex);
+		auto* Value = Property->ContainerPtrToValuePtr<int32>(Proposal.DraftLeafContainer, Proposal.DraftLeafArrayIndex);
 		*Value = std::clamp(*Value, 0, 10);
 		return true;
 	};

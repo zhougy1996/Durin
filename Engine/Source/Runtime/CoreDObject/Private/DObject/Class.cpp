@@ -10,7 +10,7 @@
 
 namespace
 {
-	Durin::uint32 GDStructRegistrationBatchDepth = 0;
+	uint32 GDStructRegistrationBatchDepth = 0;
 
 	struct FQualifiedTypeRegistry
 	{

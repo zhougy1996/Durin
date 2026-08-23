@@ -40,7 +40,7 @@
 
 namespace
 {
-	constexpr Durin::uint8 MaterialTexturePngBytes[] = {
+	constexpr uint8 MaterialTexturePngBytes[] = {
 		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 		0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 		0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
@@ -80,11 +80,11 @@ namespace
 		if (SchemaIndex == std::string::npos) return false;
 
 		using Durin::Asset::DastV4::ETypeOpcode;
-		const Durin::uint64 KeyTypeId = Package.Types.size() + 1;
+		const uint64 KeyTypeId = Package.Types.size() + 1;
 		Package.Types.push_back({.Opcode = ETypeOpcode::String});
-		const Durin::uint64 ValueTypeId = Package.Types.size() + 1;
+		const uint64 ValueTypeId = Package.Types.size() + 1;
 		Package.Types.push_back({.Opcode = ETypeOpcode::String});
-		const Durin::uint64 MapTypeId = Package.Types.size() + 1;
+		const uint64 MapTypeId = Package.Types.size() + 1;
 		Package.Types.push_back({
 			.Opcode = ETypeOpcode::Map,
 			.ChildTypeIds = {KeyTypeId, ValueTypeId}});
@@ -136,7 +136,7 @@ namespace
 		std::string_view MaterialDeclarations,
 		std::optional<std::pair<std::string_view, std::string_view>> PrimitiveReplacement = std::nullopt,
 		bool bReplaceLastOnly = false,
-		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt,
+		std::optional<uint32> AppendedMaterialIndex = std::nullopt,
 		bool bSwapPrimitiveMaterialIndices = false) -> void
 	{
 		std::ifstream Input(std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf");
@@ -246,8 +246,8 @@ namespace
 		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
 		Durin::FMaterialRenderData Material;
 		Durin::FMatrix Transform{1.0};
-		Durin::uint64 ComponentRevision = 0;
-		Durin::uint64 ProxyCount = 0;
+		uint64 ComponentRevision = 0;
+		uint64 ProxyCount = 0;
 	};
 
 	struct FMaterialSlotsSnapshot
@@ -256,7 +256,7 @@ namespace
 		const Durin::FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<Durin::FMaterialRenderData> Materials;
 		std::vector<const Durin::FMaterialRenderProxy*> MaterialProxies;
-		Durin::uint64 ComponentRevision = 0;
+		uint64 ComponentRevision = 0;
 	};
 
 	auto CaptureScene(Durin::FScene* Scene) -> FSceneSnapshot
@@ -294,7 +294,7 @@ namespace
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.RenderData = Snapshot.Proxy->GetRenderData();
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
-			for (Durin::uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
+			for (uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
 			{
 				Snapshot.Materials.push_back(
 					Snapshot.Proxy->ResolveMaterialRenderData_RenderThread(
@@ -429,16 +429,16 @@ namespace
 	{
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 		EXPECT_NE(Slots, nullptr);
-		const Durin::uint64 Index = Slots->Num(Mesh);
+		const uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
 		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
-		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
+		Slot->SourceMaterialIndex = static_cast<uint32>(Index);
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
 			->MaterialSlots.push_back(
 				{std::string(Name),
-					static_cast<Durin::uint32>(Index)});
+					static_cast<uint32>(Index)});
 	}
 
 	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)
@@ -458,7 +458,7 @@ namespace
 		const std::span DefinitionsView = Material->GetParameterDefinitions();
 		const auto It = std::ranges::find(DefinitionsView, Id, &Durin::FMaterialParameterDefinition::Id);
 		if (It == DefinitionsView.end()) return std::nullopt;
-		const Durin::uint64 Index = static_cast<Durin::uint64>(It - DefinitionsView.begin());
+		const uint64 Index = static_cast<uint64>(It - DefinitionsView.begin());
 		void* Definition = Definitions->GetMutableElementPtr(Material, Index);
 		void* Value = ValueProperty->GetValuePtr(Definition);
 		return Durin::Editor::FPropertyEditTarget::ForMember(Material, Definitions)

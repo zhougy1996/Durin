@@ -55,7 +55,7 @@ namespace
 		~FGraphProvider() override { if (Destroyed) *Destroyed = true; }
 
 		auto GetProviderId() const -> std::string_view override { return Id; }
-		auto GetContractVersion() const -> Durin::uint32 override { return 1; }
+		auto GetContractVersion() const -> uint32 override { return 1; }
 
 		auto CanImport(const Durin::Asset::FImportSourceRecognition& Source) const
 			-> bool override
@@ -139,7 +139,7 @@ namespace
 					.EstimatedCpuBytes = It->ByteCount,
 					.EstimatedDiskBytes = It->ByteCount});
 			}
-			Builder.SetProviderData(std::make_shared<const Durin::uint32>(17));
+			Builder.SetProviderData(std::make_shared<const uint32>(17));
 			return true;
 		}
 
@@ -175,7 +175,7 @@ namespace
 			: Id(std::move(InId)), State(std::move(InState)) {}
 
 		auto GetProviderId() const -> std::string_view override { return Id; }
-		auto GetContractVersion() const -> Durin::uint32 override { return 1; }
+		auto GetContractVersion() const -> uint32 override { return 1; }
 		auto CanImport(const Durin::Asset::FImportSourceRecognition& Source) const
 			-> bool override { return Source.Extension == ".graph"; }
 		auto CaptureSettings(Durin::Asset::FImportPayload& OutSettings,
@@ -229,7 +229,7 @@ namespace
 		Durin::Asset::FImportPlanResult& OutResult)
 		-> Durin::Asset::EAsyncImportPlanStatus
 	{
-		for (Durin::uint32 Attempt = 0; Attempt < 5'000; ++Attempt)
+		for (uint32 Attempt = 0; Attempt < 5'000; ++Attempt)
 		{
 			(void)Durin::Asset::DrainAsyncImportCompletionMailbox();
 			const auto Status = Durin::Asset::TryTakeAsyncImportPlanResult(
@@ -514,7 +514,7 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::Asset::FImportService Registry;
 	RegisterGraphProvider(Registry);
-	const Durin::uint64 RegistryRevision = Durin::Asset::GetAssetCatalogRevision();
+	const uint64 RegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
 	const Durin::Asset::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"}};

@@ -133,7 +133,7 @@ namespace
 			"/EditorRevisionTests/",
 			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
 		);
-		static Durin::uint64 NextPackageId = 1;
+		static uint64 NextPackageId = 1;
 		const std::string Name = std::string(Label) + std::to_string(NextPackageId++);
 		Durin::FAssetPath Path;
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/EditorRevisionTests/" + Name, Path));
@@ -145,7 +145,7 @@ namespace
 	class FTestViewportClient final : public Durin::FViewportClient
 	{
 	public:
-		auto CalcSceneView(Durin::uint32 Width, Durin::uint32 Height, Durin::FSceneView& OutView) const -> bool override
+		auto CalcSceneView(uint32 Width, uint32 Height, Durin::FSceneView& OutView) const -> bool override
 		{
 			OutView.ViewportWidth = Width;
 			OutView.ViewportHeight = Height;

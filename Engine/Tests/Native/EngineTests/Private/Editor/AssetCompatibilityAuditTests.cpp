@@ -18,7 +18,7 @@ namespace
 		return Path;
 	}
 
-	auto MakeData(std::string_view Path, uintmax_t Size = 10, Durin::int64 Ticks = 20)
+	auto MakeData(std::string_view Path, uintmax_t Size = 10, int64 Ticks = 20)
 		-> Durin::Asset::FAssetData
 	{
 		Durin::FAssetPath AssetPath = MakePath(Path);
@@ -174,7 +174,7 @@ TEST_F(FAssetCompatibilityAuditTests, CancellationPublishesNoPartialRecordForThe
 
 TEST_F(FAssetCompatibilityAuditTests, RepresentativeCorpusMeasuresWorkerAndMailboxCosts)
 {
-	constexpr Durin::uint32 PackageCount = 32;
+	constexpr uint32 PackageCount = 32;
 	std::atomic_uint32_t ProbeCount = 0;
 	Durin::Editor::FAssetCompatibilityAuditModel Model(
 		[&ProbeCount](const auto& Input, const auto&, const auto&) {
@@ -182,7 +182,7 @@ TEST_F(FAssetCompatibilityAuditTests, RepresentativeCorpusMeasuresWorkerAndMailb
 			return MakeCompletedRecord(Input);
 		});
 	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets;
-	for (Durin::uint32 Index = 0; Index < PackageCount; ++Index)
+	for (uint32 Index = 0; Index < PackageCount; ++Index)
 	{
 		const auto Data = MakeData(std::format("/AuditTests/Qualification{:02}", Index));
 		Assets.emplace(Data.PackagePath, Data);
@@ -245,7 +245,7 @@ TEST_F(FAssetCompatibilityAuditTests, RerunAdvancesTheRequestSerialAndReplacesTh
 	const auto Second = MakeData("/AuditTests/Second");
 	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{{First.PackagePath, First}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
-	const Durin::uint64 FirstSerial = Model.GetRequestSerial();
+	const uint64 FirstSerial = Model.GetRequestSerial();
 	ASSERT_TRUE(WaitUntil([&] { Model.Tick(Assets); return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed; }));
 
 	Assets = {{Second.PackagePath, Second}};
@@ -269,7 +269,7 @@ TEST_F(FAssetCompatibilityAuditTests, ProjectChangeCancelsAndDrainsBeforeClearin
 	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{{Data.PackagePath, Data}};
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { return Started.load(); }));
-	const Durin::uint64 Serial = Model.GetRequestSerial();
+	const uint64 Serial = Model.GetRequestSerial();
 
 	Model.ProjectChanged();
 
@@ -375,7 +375,7 @@ TEST_F(FAssetCompatibilityAuditTests, ProjectChangeDropsQueuedTerminalPublicatio
 		std::this_thread::yield();
 	}
 	ASSERT_EQ(1u, Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
-	const Durin::uint64 Serial = Model.GetRequestSerial();
+	const uint64 Serial = Model.GetRequestSerial();
 	Model.ProjectChanged();
 	Durin::PumpGameThreadDeferredWork({.bUnlimited = true});
 

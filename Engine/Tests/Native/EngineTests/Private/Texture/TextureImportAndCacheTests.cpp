@@ -250,7 +250,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	{
-		const std::array<Durin::uint8, 7> CorruptBytes = {0, 1, 2, 3, 4, 5, 6};
+		const std::array<uint8, 7> CorruptBytes = {0, 1, 2, 3, 4, 5, 6};
 		std::ofstream Stream(CachePath, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}

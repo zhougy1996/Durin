@@ -687,7 +687,7 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 	Durin::Asset::Forge::FSceneImportPlanResult Asynchronous;
 	Durin::Asset::EAsyncImportPlanStatus Status =
 		Durin::Asset::EAsyncImportPlanStatus::Pending;
-	for (Durin::uint32 Attempt = 0; Attempt < 10'000
+	for (uint32 Attempt = 0; Attempt < 10'000
 		&& Status == Durin::Asset::EAsyncImportPlanStatus::Pending; ++Attempt)
 	{
 		Status = Durin::Asset::Forge::PollSceneImportPlan(Handle, Asynchronous);
@@ -748,7 +748,7 @@ TEST(FSceneImportTests, SkeletalAsyncPreparationMatchesSynchronousAssetGraph)
 	Durin::Asset::Forge::FSceneImportPlanResult Asynchronous;
 	Durin::Asset::EAsyncImportPlanStatus Status =
 		Durin::Asset::EAsyncImportPlanStatus::Pending;
-	for (Durin::uint32 Attempt = 0; Attempt < 10'000
+	for (uint32 Attempt = 0; Attempt < 10'000
 		&& Status == Durin::Asset::EAsyncImportPlanStatus::Pending; ++Attempt)
 	{
 		Status = Durin::Asset::Forge::PollSceneImportPlan(Handle, Asynchronous);

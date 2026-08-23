@@ -13,7 +13,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Component->RegisterComponent();
 	const FSceneSnapshot Initial = CaptureScene(Harness.Scene);
 
-	const Durin::uint64 VersionBefore = Base->GetRenderStateVersion();
+	const uint64 VersionBefore = Base->GetRenderStateVersion();
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	const FSceneSnapshot ParentChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(ParentChanged.Proxy, Initial.Proxy);
@@ -21,7 +21,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	EXPECT_EQ(ParentChanged.ComponentRevision, Initial.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(ParentChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
-	const Durin::uint64 NoOpVersion = Base->GetRenderStateVersion();
+	const uint64 NoOpVersion = Base->GetRenderStateVersion();
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	EXPECT_EQ(Base->GetRenderStateVersion(), NoOpVersion);
 	Instance->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
@@ -250,7 +250,7 @@ TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "GuidOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	const Durin::FGuid Unknown{1, 2, 3, 4};
-	const Durin::uint64 InitialVersion = Instance->GetRenderStateVersion();
+	const uint64 InitialVersion = Instance->GetRenderStateVersion();
 	EXPECT_FALSE(Instance->SetParameterOverride(
 		Unknown, Durin::EMaterialParameterType::Scalar, Durin::FMaterialParameterValue::MakeScalar(0.5f)));
 	EXPECT_FALSE(Instance->SetParameterOverride(
@@ -264,7 +264,7 @@ TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 		Durin::MaterialParameters::OpacityId,
 		Durin::EMaterialParameterType::Scalar,
 		Durin::FMaterialParameterValue::MakeScalar(0.5f)));
-	const Durin::uint64 OverriddenVersion = Instance->GetRenderStateVersion();
+	const uint64 OverriddenVersion = Instance->GetRenderStateVersion();
 	Durin::FMaterialParameterValue SameActiveValue = Durin::FMaterialParameterValue::MakeScalar(0.5f);
 	SameActiveValue.VectorValue = Durin::FVector3(9.0);
 	ASSERT_TRUE(Instance->SetParameterOverride(

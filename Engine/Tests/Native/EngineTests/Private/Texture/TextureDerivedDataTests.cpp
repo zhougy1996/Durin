@@ -14,23 +14,23 @@ namespace
 	{
 		Durin::FTexturePlatformData Result;
 		Result.PixelFormat = PixelFormat;
-		for (Durin::uint32 Dimension : {5u, 2u, 1u})
+		for (uint32 Dimension : {5u, 2u, 1u})
 		{
 			const Durin::FPixelFormatLayout Layout =
 				Durin::GetPixelFormatLayout(Result.PixelFormat, Dimension, Dimension);
 			Durin::FTexture2DMipData& Mip = Result.Mips.emplace_back();
 			Mip.Width = Dimension;
 			Mip.Height = Dimension;
-			Mip.RowPitch = static_cast<Durin::uint32>(Layout.RowPitch);
+			Mip.RowPitch = static_cast<uint32>(Layout.RowPitch);
 			Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize),
 				static_cast<std::byte>(Dimension));
 		}
 		return Result;
 	}
 
-	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
 	{
-		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
@@ -215,7 +215,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	Durin::FTexturePlatformData* ExistingAddress = Existing.get();
 
 	auto WrongProfile = Bytes;
-	WriteU32(WrongProfile, 16, static_cast<Durin::uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
+	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
 	Durin::FPayloadDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);

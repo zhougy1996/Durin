@@ -73,7 +73,7 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 {
 	FMaterialPreviewHarness Harness;
-	constexpr Durin::uint64 PreviewId = 246813579;
+	constexpr uint64 PreviewId = 246813579;
 	const std::string ActorName = std::format("StaticMeshPreviewActor_{}", PreviewId);
 	const std::string LightName = std::format("StaticMeshPreviewLightActor_{}", PreviewId);
 	{
@@ -101,7 +101,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 	ASSERT_TRUE(Existing) << Error;
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
-	const Durin::uint64 ExistingGeneration = ThumbnailService.Find(ClassName).Generation;
+	const uint64 ExistingGeneration = ThumbnailService.Find(ClassName).Generation;
 
 	Durin::FStaticMeshEditorModule Module;
 	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));

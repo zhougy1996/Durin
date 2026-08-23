@@ -4,9 +4,9 @@
 
 namespace
 {
-	auto RunLaunchChild(std::string_view Arguments) -> Durin::int32
+	auto RunLaunchChild(std::string_view Arguments) -> int32
 	{
-		Durin::int32 ReturnCode = -1;
+		int32 ReturnCode = -1;
 		std::string Error;
 		EXPECT_TRUE(Durin::FPlatformProcess::ExecuteProcess(
 			DURIN_LAUNCH_EXECUTABLE, Arguments, ReturnCode, &Error)) << Error;

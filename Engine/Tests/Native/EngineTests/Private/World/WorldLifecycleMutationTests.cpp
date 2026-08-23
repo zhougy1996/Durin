@@ -147,7 +147,7 @@ namespace
 	auto RetainActorCapacity(Durin::DWorld* World) -> void
 	{
 		std::vector<Durin::TObjectPtr<Durin::AActor>> Padding;
-		for (Durin::uint32 Index = 0; Index < 8; ++Index)
+		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			Padding.emplace_back(SpawnMutationActor(World, std::format("Padding{}", Index)));
 		}
@@ -160,7 +160,7 @@ namespace
 	auto RetainComponentCapacity(Durin::AActor* Actor) -> void
 	{
 		std::vector<Durin::TObjectPtr<Durin::DActorComponent>> Padding;
-		for (Durin::uint32 Index = 0; Index < 8; ++Index)
+		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			Padding.emplace_back(AddMutationComponent(Actor, std::format("Padding{}", Index)));
 		}
@@ -325,7 +325,7 @@ TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
 	RetainActorCapacity(World);
 	World->BeginPlay({});
 	std::vector<std::string> Events;
-	Durin::uint32 DestroyRequests = 0;
+	uint32 DestroyRequests = 0;
 	bool bDestroyResult = false;
 	FActorLifecycleMutationTestActor::Callback =
 		[&](FActorLifecycleMutationTestActor& Actor, ETestLifecycleEvent Event)
