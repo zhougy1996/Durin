@@ -8,6 +8,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -153,24 +154,25 @@ namespace Durin
 			-> FGroundTruthAmbientOcclusionRenderer& = delete;
 
 		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height,
-			EGroundTruthAmbientOcclusionQuality Quality) -> FTargets*;
+			EGroundTruthAmbientOcclusionQuality Quality)
+			-> std::optional<FTargets>;
 		auto RenderRaw_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FTargets& Targets,
+			const FTargets& Targets,
 			FRHITexture* Normals,
 			FRHITexture* Surface,
 			FRHITexture* Depth,
 			const FSceneView& View) -> bool;
 		auto RenderFilter_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FTargets& Targets,
+			const FTargets& Targets,
 			FRHITexture* Normals,
 			FRHITexture* Surface,
 			FRHITexture* Depth,
 			const FSceneView& View) -> bool;
 		auto RenderResolve_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FTargets& Targets,
+			const FTargets& Targets,
 			FRHITexture* Normals,
 			FRHITexture* Surface,
 			FRHITexture* Depth,

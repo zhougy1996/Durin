@@ -9,7 +9,34 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
-	struct FVolumetricCloudQualificationOptions;
+	// Feature-bounded development routes. This type is Renderer-private so
+	// production submissions cannot request qualification-only execution.
+	struct FRendererQualificationPolicy
+	{
+		bool bEnableGBuffer = false;
+		bool bEnableDeferredDirectional = false;
+		bool bEnableGroundTruthAmbientOcclusion = false;
+		bool bForceFragmentContactVisibility = false;
+		bool bForceFragmentVolumetricCloud = false;
+	};
+
+	// Installs one render-thread qualification policy for the lexical duration
+	// of a test/tool submission. The fixed executor snapshots the value.
+	class RENDERER_API FScopedRendererQualificationPolicy final
+	{
+	public:
+		explicit FScopedRendererQualificationPolicy(
+			FRendererQualificationPolicy Policy);
+		~FScopedRendererQualificationPolicy();
+
+		FScopedRendererQualificationPolicy(
+			const FScopedRendererQualificationPolicy&) = delete;
+		auto operator=(const FScopedRendererQualificationPolicy&)
+			-> FScopedRendererQualificationPolicy& = delete;
+
+	private:
+		FRendererQualificationPolicy Previous;
+	};
 
 	template<typename TimingQuerySink>
 	class TScopedRendererGPUTimingQuery final
@@ -92,8 +119,6 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* Visibility,
 		bool bFiltered);
-	using FVolumetricCloudPreparationSink = void (*)(
-		FVolumetricCloudQualificationOptions& Options);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -133,12 +158,9 @@ namespace Durin
 	RENDERER_API auto SetGroundTruthAmbientOcclusionCaptureSink(
 		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void;
 
-	// Development seam for scene-order/output qualification before P2 owns the
-	// reflected scene snapshot that populates the same renderer-private input.
-	RENDERER_API auto SetVolumetricCloudPreparationSink(
-		FVolumetricCloudPreparationSink Sink) -> void;
-
 	// Renderer-private immutable snapshots of the current observer registrations.
+	RENDERER_API auto GetRendererQualificationPolicy()
+		-> FRendererQualificationPolicy;
 	auto GetSceneColorTimingQuerySink() -> FSceneColorTimingQuerySink;
 	auto GetPostProcessTimingQuerySink() -> FPostProcessTimingQuerySink;
 	auto GetGBufferTimingQuerySink() -> FGBufferTimingQuerySink;
@@ -162,6 +184,4 @@ namespace Durin
 		-> FDeferredDirectionalCaptureSink;
 	auto GetGroundTruthAmbientOcclusionCaptureSink()
 		-> FGroundTruthAmbientOcclusionCaptureSink;
-	auto GetVolumetricCloudPreparationSink()
-		-> FVolumetricCloudPreparationSink;
 }

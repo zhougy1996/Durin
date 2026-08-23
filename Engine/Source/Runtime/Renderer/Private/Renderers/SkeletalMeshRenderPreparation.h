@@ -9,7 +9,6 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
 #include <unordered_map>
-#include <unordered_set>
 
 namespace Durin
 {
@@ -22,21 +21,30 @@ namespace Durin
 		FMatrix LocalToWorld{1.0};
 	};
 
-	// One render-submission-local registry shared by the receiver view and every
-	// directional-shadow cascade. A primitive publishes one immutable pose into
-	// the registry and every view reuses the resulting dynamic storage range.
+	// One render-submission-local logical registry shared by the receiver view
+	// and every directional-shadow cascade. Entries contain no upload state.
 	struct FPreparedSkeletalPaletteTable
 	{
 		struct FEntry
 		{
 			std::shared_ptr<const FSkeletalPosePalette> Pose;
-			FRHIStorageBufferRange Range;
-			bool bUploadAttempted = false;
 		};
 
 		std::vector<FEntry> Entries;
 		std::unordered_map<FPrimitiveSceneId, uint32, FSceneIdHash>
 			PrimitiveToEntry;
+	};
+
+	// Owns the fallible upload result for the corresponding logical registry.
+	struct FResolvedSkeletalPaletteTable
+	{
+		struct FEntry
+		{
+			FRHIStorageBufferRange Range;
+			bool bUploadAttempted = false;
+		};
+
+		std::vector<FEntry> Entries;
 		uint64 UploadedBytes = 0;
 		size_t RequestedPalettes = 0;
 		size_t UploadedPalettes = 0;
@@ -47,6 +55,7 @@ namespace Durin
 
 	struct FPreparedSkeletalMeshDraw
 	{
+		uint32 ResolvedIndex = 0;
 		uint32 PrimitiveIndex = 0;
 		uint32 SectionIndex = 0;
 		const FSkeletalMeshRenderSection* Section = nullptr;
@@ -102,16 +111,8 @@ namespace Durin
 		}
 	};
 
-	// Owns fallible SkeletalMesh resources and execution measurements.
-	struct FResolvedSkeletalMeshView
+	struct FSkeletalMeshRenderObservations
 	{
-		std::unordered_set<const FPreparedSkeletalMeshDraw*> ReadyDraws;
-		std::unordered_map<const FPreparedSkeletalMeshDraw*,
-			FMaterialRenderBinding> MaterialBindings;
-		std::unordered_map<const FPreparedSkeletalMeshPrimitive*,
-			FRHIStorageBufferRange> PaletteRanges;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -127,24 +128,34 @@ namespace Durin
 		size_t RejectedPalettes = 0;
 		size_t UploadedPaletteMatrices = 0;
 		size_t UploadedPaletteBytes = 0;
+	};
+
+	// Owns fallible SkeletalMesh resources separately from observations.
+	struct FResolvedSkeletalMeshView
+	{
+		std::vector<FResolvedMeshDrawRecord> Draws;
+		std::vector<FRHIStorageBufferRange> PaletteRanges;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
+		FSkeletalMeshRenderObservations Observations;
 
 		auto IsReady(const FPreparedSkeletalMeshDraw& Draw) const -> bool
 		{
-			return ReadyDraws.contains(&Draw);
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].bReady;
 		}
 		auto GetMaterialBinding(const FPreparedSkeletalMeshDraw& Draw) const
 			-> const FMaterialRenderBinding*
 		{
-			const auto It = MaterialBindings.find(&Draw);
-			return It != MaterialBindings.end() ? &It->second : nullptr;
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].MaterialBinding
+				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
-		auto GetPaletteRange(
-			const FPreparedSkeletalMeshPrimitive& Primitive) const
+		auto GetPaletteRange(const FPreparedSkeletalMeshDraw& Draw) const
 			-> FRHIStorageBufferRange
 		{
-			const auto It = PaletteRanges.find(&Primitive);
-			return It != PaletteRanges.end() ? It->second
-				: FRHIStorageBufferRange{};
+			return Draw.PrimitiveIndex < PaletteRanges.size()
+				? PaletteRanges[Draw.PrimitiveIndex] : FRHIStorageBufferRange{};
 		}
 	};
 

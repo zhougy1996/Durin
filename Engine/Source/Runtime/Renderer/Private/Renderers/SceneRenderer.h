@@ -29,8 +29,6 @@ namespace Durin
 {
 	class FConsoleCommandRegistry;
 	class FFixedSceneFrameExecutor;
-	class FSceneFramePreparation;
-	class FSceneFrameFinalization;
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class FScene;
@@ -86,98 +84,6 @@ namespace Durin
 
 	private:
 		friend class FFixedSceneFrameExecutor;
-		friend class FSceneFramePreparation;
-		friend class FSceneFrameFinalization;
-		auto ExecuteFixedFrame_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			FScene* Scene,
-			const FSceneView& View,
-			FRHITexture* OutputTarget,
-			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics
-		) -> ERenderViewResult;
-		auto PrepareView_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			FScene* Scene,
-			FSceneView& RenderView,
-			const FSceneViewRenderOptions& Options,
-			struct FSceneRenderPlan& PreparedView
-		) -> ERenderViewResult;
-		auto RenderGBuffer_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FPostProcessRenderer::FSceneTargets* SceneTargets,
-			const FSceneViewRenderOptions& Options,
-			uint32 Width,
-			uint32 Height,
-			bool bNeedsGBuffer,
-			bool bWantsIsolatedDeferred
-		) -> FGBufferPassResult;
-		auto RenderGroundTruthAmbientOcclusion_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FGBufferRenderer::FTargets* GBufferTargets,
-			FPostProcessRenderer::FSceneTargets* SceneTargets,
-			FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
-			const FSceneViewRenderOptions& Options,
-			uint32 Width,
-			uint32 Height,
-			bool bWantsGroundTruthAmbientOcclusion,
-			bool bGBufferComplete,
-			FRHITexture* GroundTruthAmbientOcclusionFallback
-		) -> void;
-		auto RenderContactShadows_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FGBufferRenderer::FTargets* GBufferTargets,
-			FPostProcessRenderer::FSceneTargets* SceneTargets,
-			FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
-			const FSceneViewRenderOptions& Options,
-			uint32 Width,
-			uint32 Height,
-			bool bWantsProductionDeferred,
-			bool bGBufferComplete,
-			bool bGBufferHasGeometry
-		) -> void;
-		auto RenderVolumetricCloudShadows_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FPostProcessRenderer::FSceneTargets* SceneTargets,
-			FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
-			uint32 Width,
-			uint32 Height,
-			bool bWantsProductionDeferred,
-			bool bGBufferComplete
-		) -> void;
-		auto RenderIsolatedDeferred_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
-			const FSceneViewRenderOptions& Options,
-			uint32 Width,
-			uint32 Height,
-			bool bWantsIsolatedDeferred,
-			bool bGBufferComplete
-		) -> FRHITexture*;
-		auto RenderPostProcess_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			const FSceneView& View,
-			FRHITexture* OutputTarget,
-			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options,
-			FPostProcessRenderer::FSceneTargets* SceneTargets,
-			FGBufferRenderer::FTargets* GBufferTargets,
-			FRHITexture* SceneColor,
-			FRHITexture* GroundTruthAmbientOcclusionDebugOutput
-		) -> ERenderViewResult;
-		auto RenderVolumetricCloud_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FRHITexture* SceneColor,
-			FRHITexture* Depth
-		) -> FRHITexture*;
 		auto EnqueueResourceInvalidation(
 			ERendererResourceInvalidationCause Cause
 		) -> void;
@@ -185,19 +91,6 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			ERendererResourceInvalidationCause Cause
 		) -> void;
-		auto RenderScene_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FRHITexture*& SceneColor,
-			FRHITexture* Depth,
-			const FDeferredDirectionalLightingRenderer::FRenderParameters*
-				DeferredParameters
-		) -> ERenderViewResult;
-		auto RenderSpecialForwardScene_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FSceneRenderPlan& PreparedView,
-			FRHITexture* RenderTarget
-		) -> bool;
 
 		FRendererResourceCoordinator Coordinator;
 		FRendererTransientTargetPool TransientTargets;

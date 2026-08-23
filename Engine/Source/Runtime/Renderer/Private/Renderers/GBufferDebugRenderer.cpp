@@ -66,7 +66,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		FTargets CurrentTargets;
 	};
 
 	FGBufferDebugRenderer::FGBufferDebugRenderer(
@@ -83,10 +82,10 @@ namespace Durin
 	FGBufferDebugRenderer::~FGBufferDebugRenderer() = default;
 
 	auto FGBufferDebugRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height) -> FTargets*
+		uint32 Width, uint32 Height) -> std::optional<FTargets>
 	{
 		check(IsInRenderingThread());
-		if (Width == 0 || Height == 0) return nullptr;
+		if (Width == 0 || Height == 0) return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"GBufferDebugColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -94,10 +93,10 @@ namespace Durin
 			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 		const uint64 RetainedBudget = static_cast<uint64>(Width) * Height * 16;
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"GBufferDebug", std::span(&Desc, 1), RetainedBudget);
-		if (!Lease) return nullptr;
-		State->CurrentTargets.Color = Lease->Get(0);
-		return &State->CurrentTargets;
+			ERendererTransientTargetGroup::GBufferDebug,
+			std::span(&Desc, 1), RetainedBudget);
+		if (!Lease) return std::nullopt;
+		return FTargets{.Color = Lease->Textures[0]};
 	}
 
 	auto FGBufferDebugRenderer::Render_RenderThread(
@@ -286,6 +285,5 @@ namespace Durin
 	auto FGBufferDebugRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Slot.Reset();
-		State->CurrentTargets = {};
 	}
 } // namespace Durin

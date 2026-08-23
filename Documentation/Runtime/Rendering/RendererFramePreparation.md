@@ -11,11 +11,12 @@ Last reviewed: 2026-08-24
 ## Ownership Boundary
 
 One render command prepares one `FSceneRenderPlan`. Only fixed Renderer
-orchestration may inspect this outer value. It owns command-local partitions
-for the fitted view and temporal metadata, optional environment, lighting,
-receiver geometry and its shared Skeletal palette table, optional directional
-shadow, optional volumetric cloud, resolved execution resources, pass results,
-and telemetry.
+orchestration may inspect this outer value. It owns command-local logical
+partitions for the fitted view, optional environment, selected lighting,
+receiver geometry and its shared Skeletal pose table, optional directional
+shadow, and optional volumetric cloud. The temporal transaction, resolved
+execution resources, pass results, and telemetry are sibling executor state,
+not fields of the logical plan.
 
 Logical geometry is immutable after publication. StaticMesh, SplineMesh,
 SkeletalMesh, and Terrain logical draws contain visibility, LOD, material and
@@ -26,12 +27,48 @@ execution consume logical values as `const`; they do not write readiness,
 execution phases, target pointers, bindings, or counters back into a logical
 draw.
 
-`FSceneFramePreparation` builds the plan from the fitted `FSceneView` and
-render-thread `FScene` snapshot. The plan never contains a reflected or
-game-thread object and remains bounded by the render command's existing
-SceneInfo/proxy lifetime. Optional environment and cloud partitions are
-complete values: absence is valid, while a selected but invalid required
+After each family's final sort, logical draws receive contiguous
+`ResolvedIndex` values shared by receiver, GBuffer, retained-forward, and
+shadow execution. Resolved StaticMesh/SplineMesh, SkeletalMesh, and Terrain
+views store one index-aligned record per draw; each record co-locates the
+optional material binding and readiness bit. Skeletal palette ranges align
+with prepared primitive indices, while Terrain batches have their own bounded
+contiguous indices. Submission-local geometry performs no pointer-keyed draw,
+primitive, material-binding, palette-range, or batch-readiness lookup.
+
+Preparation/resource/execution measurements live in family-specific
+observation values rather than the resolved correctness record surface. Common
+conservation helpers finalize those observations, and the scene telemetry
+reducer reads them once after successful Scene Color execution. Rendering
+policy and draw readiness inspect only prepared identities and resolved records.
+
+Qualification-only route selection is not part of public
+`FSceneViewRenderOptions` or the logical plan. Tests and development tools may
+install one Renderer-private `FScopedRendererQualificationPolicy` on the
+render thread; the fixed executor snapshots it once when the submission starts.
+That bounded value can request isolated GBuffer/deferred/GTAO work or force the
+contact/cloud fragment comparison routes. It cannot change scene preparation,
+and the former mutable volumetric-cloud preparation callback no longer exists.
+Supported GBuffer, deferred, and GTAO debug modes remain explicit public view
+options and execute through the same fixed schedule. Timing and capture sinks
+observe completed typed pass results only.
+
+The fixed executor's preparation stage builds the plan from the fitted
+`FSceneView` and render-thread `FScene` snapshot. The plan never contains a
+reflected or game-thread object and remains bounded by the render command's
+existing SceneInfo/proxy lifetime. Optional environment and cloud partitions
+are complete values: absence is valid, while a selected but invalid required
 environment fails the view.
+
+Preparation returns either one complete plan or a typed failure. The published
+plan is then held as `const`. A distinct resolution stage allocates the packed
+lighting uniform, resolves receiver and shadow resources, uploads shared
+Skeletal palettes into a resolved palette table, and resolves the cloud
+sampler. The executor then derives one immutable `FSceneFrameRequirements`
+value and resolves Scene Color/depth plus every requested feature bundle into
+`FResolvedSceneFrame::Targets`. Directional-shadow command recording follows
+both resolution boundaries as an explicit fixed-schedule step; it is never
+performed by logical preparation.
 
 ## Resource Lifetime Classes
 
@@ -41,15 +78,17 @@ environment fails the view.
 | Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the transient pool. |
 | Frame-transient | `FRendererTransientTargetPool` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | Frame setup acquires a complete typed lease. Pass execution receives resolved targets and performs no target lookup or creation. |
 
-The transient pool keys every texture by semantic group and complete creation
-description: debug identity, dimension, flags, format, extent, depth, array
-size, mip/sample counts, and clear binding/value. A bundle is visible only
-when every requested texture resolves. Entries use device-generation-aware
-creation slots, so a failed request is suppressed in the same generation and
-is eligible after manual or device invalidation. Per-group retained-byte
-budgets evict the oldest inactive description while preserving every active
-lease. RHI references held by a lease remain valid if its pool entry is later
-evicted.
+The transient pool partitions entries by bounded
+`ERendererTransientTargetGroup` identity and keys each group by the complete
+creation description: debug identity, dimension, flags, format, extent, depth,
+array size, mip/sample counts, and clear binding/value. Lookup is bounded to
+one semantic group. A bundle is visible only when every requested texture
+resolves. Failed bundle acquisition discards newly created successful siblings,
+enforces the group budget, and retains the failed generation-aware creation
+slot so an immediate retry is suppressed until manual or device invalidation.
+Per-group retained-byte budgets evict the oldest inactive description while
+preserving every active lease. RHI references held by a lease remain valid if
+its pool entry is later evicted.
 
 Feature release clears feature-local views and persistent payloads; the pool
 owner performs deterministic transient release before the shared coordinator
@@ -63,14 +102,16 @@ introduce synchronization.
 `FFixedSceneFrameExecutor`. The executor is the sole production scheduler and
 keeps this order:
 
-1. Validate output extent and persistent startup resources; acquire Scene
-   Color/depth.
+1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
    temporal transaction.
 3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
-   shared palettes, and optional cloud inputs; resolve geometry resources.
-4. Render directional-shadow cascades, then acquire and execute GBuffer if the
-   production or qualification route requires it.
+   shared poses, combined translucency, and optional cloud inputs; publish the
+   immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
+   resources into `FResolvedSceneFrame`. Derive the frame requirements once and
+   resolve all requested frame-transient bundles before execution begins.
+4. Render directional-shadow cascades, then execute GBuffer from its resolved
+   target bundle if the production or qualification route requires it.
 5. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
    visibility, and explicit isolated debug/qualification branches.
 6. Bootstrap/produce Scene Color, render retained unlit opaque/masked
@@ -78,9 +119,10 @@ keeps this order:
    composite clouds.
 7. Restore Scene Color attachment access and render combined translucent
    geometry in the prepared stable order.
-8. `FSceneFrameFinalization` selects debug or Scene Color output, performs post
-   process, optional editor assistance, restores the output viewport/scissor,
-   and finishes in `Present` for window output or `ShaderReadOnly` offscreen.
+8. The executor's finalization stage selects debug or Scene Color output,
+   performs post process, optional editor assistance, restores the output
+   viewport/scissor, and finishes in `Present` for window output or
+   `ShaderReadOnly` offscreen.
 9. On complete success, commit temporal state and publish telemetry. Every
    early return aborts pending view state and publishes no partial statistics.
 
@@ -90,12 +132,25 @@ execute an alternate production scheduler.
 
 ## Typed Results and Failure Policy
 
+`FSceneFrameOutcome` owns the submission's typed directional-shadow, GBuffer,
+GTAO, contact-shadow, cloud-shadow, isolated-deferred, Scene Color/cloud, and
+post-process results. Each fallible producer publishes `NotRequested`,
+`Complete`, or `Failed` with the resources required by its consumers. A status
+alone is insufficient: result predicates reject `Complete` values whose
+required output is absent.
+
 Geometry resolution and execution return family-specific resolved/result
 values. `FGBufferPassResult` establishes completeness and whether any geometry
 was rendered directly from execution outcomes; no correctness branch derives
-either fact from counters. Deferred, GTAO, contact-shadow, cloud-shadow, cloud,
-post-process, and geometry boundaries expose their exact RHI inputs, output
-resources, status, route/fallback, and execution measurements.
+either fact from counters. GTAO, contact visibility, and cloud-shadow execution
+return independent results and never mutate a shared deferred parameter block.
+After all producers finish, one `BuildDeferredParameters` boundary constructs
+the complete binding set from their outputs or documented white/array
+fallbacks. Isolated diagnostics receive a copy, production receives a separate
+copy with production diagnostic policy, and cloud composition receives cloud-
+shadow visibility explicitly rather than through executor member state. Scene
+Color and post process return explicit output/result values instead of
+rewriting caller-owned texture variables.
 
 Required output, Scene targets, required environment, or required production
 resources fail the view. Optional compute routes may fall back to fragment;

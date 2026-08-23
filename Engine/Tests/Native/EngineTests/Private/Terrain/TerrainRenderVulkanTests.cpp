@@ -175,11 +175,11 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Readback));
-			Durin::FSceneViewRenderOptions QualificationOptions;
-			QualificationOptions.bEnableGBufferQualification = true;
-			QualificationOptions.bEnableDeferredDirectionalQualification = true;
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGBuffer = true,
+				.bEnableDeferredDirectional = true});
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target,
-				false, QualificationOptions), Durin::ERenderViewResult::Success);
+				false, {}), Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *QualificationReadback));
 			View.Settings.Mode.LODMode = Durin::EViewLODMode::Automatic;
@@ -372,11 +372,11 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.Settings.Mode.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
-			Durin::FSceneViewRenderOptions QualificationOptions;
-			QualificationOptions.bEnableGBufferQualification = true;
-			QualificationOptions.bEnableDeferredDirectionalQualification = true;
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGBuffer = true,
+				.bEnableDeferredDirectional = true});
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false,
-				QualificationOptions),
+				{}),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *LargeCoordinateReadback));

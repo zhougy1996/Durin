@@ -464,8 +464,8 @@ namespace Durin
 					View.Settings.PostProcess.bEnableFXAA = Route.bEnableFXAA;
 					FSceneViewRenderOptions Options;
 					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::Flags : EGBufferDebugMode::Disabled;
-					Options.bEnableDeferredDirectionalQualification =
-						bGBufferDebug;
+					FScopedRendererQualificationPolicy Qualification({
+						.bEnableDeferredDirectional = bGBufferDebug});
 					EXPECT_EQ(Renderer.RenderView(CommandList, nullptr, View, Output, false, Options), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
 						CommandList, Output, 0, 0, *Pixels
@@ -650,20 +650,20 @@ namespace Durin
 			 RecoveredTargets, AlternateTargets, PipelineResults](
 				FRHICommandListImmediate&
 			) {
-				*bFailed = GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
+				*bFailed = !GBuffer.EnsureTargets_RenderThread(64, 32);
 				*bSuppressed =
-					GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
+					!GBuffer.EnsureTargets_RenderThread(64, 32);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				const auto* Recovered =
+				auto Recovered =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
-				ASSERT_NE(Recovered, nullptr);
+				ASSERT_TRUE(Recovered);
 				*RecoveredTargets = *Recovered;
-				const auto* Alternate =
+				auto Alternate =
 					GBuffer.EnsureTargets_RenderThread(32, 16);
-				ASSERT_NE(Alternate, nullptr);
+				ASSERT_TRUE(Alternate);
 				*AlternateTargets = *Alternate;
 
 				FMaterialPipelineIdentity Material;
@@ -734,18 +734,18 @@ namespace Durin
 					ERendererResourceInvalidationCause::Device,
 					FRendererResourceInvalidationTargets{}
 				);
-				const auto* DeviceTargets =
+				auto DeviceTargets =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
-				(*PipelineResults)[9] = DeviceTargets != nullptr
+				(*PipelineResults)[9] = DeviceTargets.has_value()
 										&& DeviceTargets->Material.GetReference() != BeforeDevice;
 				(*PipelineResults)[10] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
-				FRHITexture* BeforeRelease = DeviceTargets != nullptr ? DeviceTargets->Material.GetReference() : nullptr;
+				FRHITexture* BeforeRelease = DeviceTargets.has_value() ? DeviceTargets->Material.GetReference() : nullptr;
 				GBuffer.ReleaseResources_RenderThread();
 				TransientTargets.Release_RenderThread();
-				const auto* ReleasedTargets =
+				auto ReleasedTargets =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
-				(*PipelineResults)[11] = ReleasedTargets != nullptr
+				(*PipelineResults)[11] = ReleasedTargets.has_value()
 										 && ReleasedTargets->Material.GetReference() != BeforeRelease;
 				(*PipelineResults)[12] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
@@ -825,47 +825,47 @@ namespace Durin
 				FRHICommandListImmediate& CommandList
 			) {
 				(*Results)[0] =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
-						EGroundTruthAmbientOcclusionQuality::FullResolution) == nullptr;
+					!AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				(*Results)[1] =
-					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
-						EGroundTruthAmbientOcclusionQuality::FullResolution) == nullptr;
+					!AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
+						EGroundTruthAmbientOcclusionQuality::FullResolution);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				auto* Recovered =
+				auto Recovered =
 					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[2] = Recovered != nullptr && Recovered->Raw != nullptr
+				(*Results)[2] = Recovered.has_value() && Recovered->Raw != nullptr
 								&& Recovered->Scratch != nullptr
 								&& Recovered->Raw->GetFormat() == EPixelFormat::R8_UNORM;
 				FRHITexture* RecoveredRaw =
-					Recovered != nullptr ? Recovered->Raw.GetReference() : nullptr;
-				auto* Alternate =
+					Recovered.has_value() ? Recovered->Raw.GetReference() : nullptr;
+				auto Alternate =
 					AmbientOcclusion.EnsureTargets_RenderThread(32, 16,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[3] = Alternate != nullptr && Alternate->Raw != nullptr
+				(*Results)[3] = Alternate.has_value() && Alternate->Raw != nullptr
 								&& Alternate->Raw->GetSizeX() == 32
 								&& Alternate->Raw->GetSizeY() == 16;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::Device,
 					FRendererResourceInvalidationTargets{}
 				);
-				auto* DeviceTargets =
+				auto DeviceTargets =
 					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[4] = DeviceTargets != nullptr
+				(*Results)[4] = DeviceTargets.has_value()
 								&& DeviceTargets->Raw.GetReference() != RecoveredRaw;
-				FRHITexture* DeviceRaw = DeviceTargets != nullptr ? DeviceTargets->Raw.GetReference() : nullptr;
+				FRHITexture* DeviceRaw = DeviceTargets.has_value() ? DeviceTargets->Raw.GetReference() : nullptr;
 				AmbientOcclusion.ReleaseResources_RenderThread();
 				TransientTargets.Release_RenderThread();
-				auto* ReleasedTargets =
+				auto ReleasedTargets =
 					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[5] = ReleasedTargets != nullptr
+				(*Results)[5] = ReleasedTargets.has_value()
 								&& ReleasedTargets->Raw.GetReference() != DeviceRaw;
-				(*Results)[6] = ReleasedTargets != nullptr
+				(*Results)[6] = ReleasedTargets.has_value()
 								&& ReleasedTargets->Raw->GetSizeX() == 64
 								&& ReleasedTargets->Raw->GetSizeY() == 32;
 				(*Results)[7] =
@@ -923,10 +923,10 @@ namespace Durin
 					FRendererResourceInvalidationTargets{}
 				);
 				(*Results)[12] = RenderRaw();
-				auto* HalfTargets = AmbientOcclusion.EnsureTargets_RenderThread(
+				auto HalfTargets = AmbientOcclusion.EnsureTargets_RenderThread(
 					65, 33,
 					EGroundTruthAmbientOcclusionQuality::HalfResolution);
-				(*Results)[13] = HalfTargets != nullptr
+				(*Results)[13] = HalfTargets.has_value()
 					&& HalfTargets->Raw->GetSizeX() == 33
 					&& HalfTargets->Raw->GetSizeY() == 17
 					&& HalfTargets->Selector != nullptr
@@ -973,38 +973,38 @@ namespace Durin
 				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
-					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
+					!ContactVisibility.EnsureTargets_RenderThread(64, 32);
 				(*Results)[1] =
-					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
+					!ContactVisibility.EnsureTargets_RenderThread(64, 32);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{});
-				auto* Recovered =
+				auto Recovered =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32);
-				(*Results)[2] = Recovered != nullptr
+				(*Results)[2] = Recovered.has_value()
 					&& Recovered->Visibility != nullptr
 					&& Recovered->Visibility->GetFormat() == EPixelFormat::R8_UNORM;
-				FRHITexture* RecoveredTexture = Recovered != nullptr
+				FRHITexture* RecoveredTexture = Recovered.has_value()
 					? Recovered->Visibility.GetReference() : nullptr;
-				auto* Alternate =
+				auto Alternate =
 					ContactVisibility.EnsureTargets_RenderThread(32, 16);
-				(*Results)[3] = Alternate != nullptr
+				(*Results)[3] = Alternate.has_value()
 					&& Alternate->Visibility->GetSizeX() == 32
 					&& Alternate->Visibility->GetSizeY() == 16;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::Device,
 					FRendererResourceInvalidationTargets{});
-				auto* DeviceTargets =
+				auto DeviceTargets =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32);
-				(*Results)[4] = DeviceTargets != nullptr
+				(*Results)[4] = DeviceTargets.has_value()
 					&& DeviceTargets->Visibility.GetReference() != RecoveredTexture;
-				FRHITexture* DeviceTexture = DeviceTargets != nullptr
+				FRHITexture* DeviceTexture = DeviceTargets.has_value()
 					? DeviceTargets->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
 				TransientTargets.Release_RenderThread();
-				auto* Released =
+				auto Released =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32);
-				(*Results)[5] = Released != nullptr
+				(*Results)[5] = Released.has_value()
 					&& Released->Visibility.GetReference() != DeviceTexture;
 				(*Results)[6] = FContactShadowVisibilityRenderer::
 					CalculateTargetBytes(64, 32) == 2048;
@@ -1013,35 +1013,35 @@ namespace Durin
 				VulkanRHI::ArmVulkanCreateFailure(
 					VulkanRHI::EVulkanCreateFailurePoint::Image);
 				(*Results)[8] =
-					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33) == nullptr;
+					!ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
 				(*Results)[9] =
-					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33) == nullptr;
+					!ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{});
-				auto* ComputeTargets =
+				auto ComputeTargets =
 					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
-				(*Results)[10] = ComputeTargets != nullptr
+				(*Results)[10] = ComputeTargets.has_value()
 					&& ComputeTargets->Visibility != nullptr
 					&& ComputeTargets->Visibility->GetFormat() == EPixelFormat::R8_UNORM
 					&& ComputeTargets->SampledView != nullptr
 					&& ComputeTargets->StorageView != nullptr;
-				FRHITexture* ComputeTexture = ComputeTargets != nullptr
+				FRHITexture* ComputeTexture = ComputeTargets.has_value()
 					? ComputeTargets->Visibility.GetReference() : nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::Device,
 					FRendererResourceInvalidationTargets{});
-				auto* RecreatedCompute =
+				auto RecreatedCompute =
 					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
-				(*Results)[11] = RecreatedCompute != nullptr
+				(*Results)[11] = RecreatedCompute.has_value()
 					&& RecreatedCompute->Visibility.GetReference() != ComputeTexture;
-				FRHITexture* RecreatedComputeTexture = RecreatedCompute != nullptr
+				FRHITexture* RecreatedComputeTexture = RecreatedCompute.has_value()
 					? RecreatedCompute->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
 				TransientTargets.Release_RenderThread();
-				auto* ReleasedCompute =
+				auto ReleasedCompute =
 					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
-				(*Results)[12] = ReleasedCompute != nullptr
+				(*Results)[12] = ReleasedCompute.has_value()
 					&& ReleasedCompute->Visibility.GetReference()
 						!= RecreatedComputeTexture;
 				(*Results)[13] = FContactShadowVisibilityRenderer::
@@ -1079,9 +1079,9 @@ namespace Durin
 					FRHITextureTransition::Whole(Depth, ERHIAccess::Discard,
 						ERHIAccess::GraphicsShaderRead)};
 				CommandList.TransitionTextures(InputTransitions);
-				auto* FragmentTargets =
+				auto FragmentTargets =
 					ContactVisibility.EnsureTargets_RenderThread(65, 33);
-				auto* FailureComputeTargets =
+				auto FailureComputeTargets =
 					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
 				FSceneView View;
 				View.ViewProjectionMatrix = FMatrix(1.0);
@@ -1090,13 +1090,13 @@ namespace Durin
 				VulkanRHI::ArmVulkanCreateFailure(
 					VulkanRHI::EVulkanCreateFailurePoint::PipelineLayout);
 				const auto FailedCompute = ContactVisibility.Render_RenderThread(
-					CommandList, true, FragmentTargets, FailureComputeTargets,
+					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
 					FVector3(0.0, 0.0, -1.0), 65, 33);
 				(*Results)[14] = FailedCompute.Route
 					== FContactShadowVisibilityRenderer::ERoute::Fragment;
 				const auto SuppressedRetry = ContactVisibility.Render_RenderThread(
-					CommandList, true, FragmentTargets, FailureComputeTargets,
+					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
 					FVector3(0.0, 0.0, -1.0), 65, 33);
 				(*Results)[15] = SuppressedRetry.Route
@@ -1105,7 +1105,7 @@ namespace Durin
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{});
 				const auto RecoveredCompute = ContactVisibility.Render_RenderThread(
-					CommandList, true, FragmentTargets, FailureComputeTargets,
+					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
 					FVector3(0.0, 0.0, -1.0), 65, 33);
 				(*Results)[16] = RecoveredCompute.Route
@@ -1235,21 +1235,21 @@ namespace Durin
 			[&Coordinator, &TransientTargets, &FullscreenGeometry, &Deferred, Results,
 			 FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
-					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
+					!Deferred.EnsureTargets_RenderThread(64, 32);
 				(*Results)[1] =
-					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
+					!Deferred.EnsureTargets_RenderThread(64, 32);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				const auto* Recovered =
+				auto Recovered =
 					Deferred.EnsureTargets_RenderThread(64, 32);
-				(*Results)[2] = Recovered != nullptr;
-				if (Recovered != nullptr) *FirstTarget = *Recovered;
-				const auto* Alternate =
+				(*Results)[2] = Recovered.has_value();
+				if (Recovered.has_value()) *FirstTarget = *Recovered;
+				auto Alternate =
 					Deferred.EnsureTargets_RenderThread(32, 16);
-				(*Results)[3] = Alternate != nullptr;
-				if (Alternate != nullptr) *AlternateTarget = *Alternate;
+				(*Results)[3] = Alternate.has_value();
+				if (Alternate.has_value()) *AlternateTarget = *Alternate;
 
 				(*Results)[4] = !Deferred.EnsureResources_RenderThread(CommandList);
 				(*Results)[5] = !Deferred.EnsureResources_RenderThread(CommandList);
@@ -1275,24 +1275,24 @@ namespace Durin
 					ERendererResourceInvalidationCause::Device,
 					FRendererResourceInvalidationTargets{}
 				);
-				const auto* DeviceTarget =
+				auto DeviceTarget =
 					Deferred.EnsureTargets_RenderThread(64, 32);
-				(*Results)[10] = DeviceTarget != nullptr
+				(*Results)[10] = DeviceTarget.has_value()
 								 && DeviceTarget->Color.GetReference() != BeforeDevice;
 				(*Results)[11] =
 					Deferred.EnsureResources_RenderThread(CommandList);
 
-				FRHITexture* BeforeRelease = DeviceTarget != nullptr ? DeviceTarget->Color.GetReference() : nullptr;
+				FRHITexture* BeforeRelease = DeviceTarget.has_value() ? DeviceTarget->Color.GetReference() : nullptr;
 				Deferred.ReleaseResources_RenderThread();
 				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
-				const auto* ReleasedTarget =
+				auto ReleasedTarget =
 					Deferred.EnsureTargets_RenderThread(64, 32);
-				(*Results)[12] = ReleasedTarget != nullptr
+				(*Results)[12] = ReleasedTarget.has_value()
 								 && ReleasedTarget->Color.GetReference() != BeforeRelease;
 				(*Results)[13] =
 					Deferred.EnsureResources_RenderThread(CommandList);
-				(*Results)[14] = ReleasedTarget != nullptr
+				(*Results)[14] = ReleasedTarget.has_value()
 								 && ReleasedTarget->Color->GetFormat()
 										== EPixelFormat::RGBA16_FLOAT;
 				(*Results)[15] = AlternateTarget->Color != FirstTarget->Color;
@@ -1415,8 +1415,8 @@ namespace Durin
 						bEnableContactShadows;
 					FSceneViewRenderOptions Options;
 					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::ReconstructionError : EGBufferDebugMode::Disabled;
-					Options.bEnableDeferredDirectionalQualification =
-						bGBufferDebug;
+					FScopedRendererQualificationPolicy Qualification({
+						.bEnableDeferredDirectional = bGBufferDebug});
 					*Result = Renderer.RenderView(
 						CommandList, nullptr, View, BackBuffer, true, Options
 					);

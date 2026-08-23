@@ -146,7 +146,6 @@ namespace Durin
 			TShaderRef<FGBufferFragmentShader> Fragment;
 		};
 
-		FTargets CurrentTargets;
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<FGBufferPipelineKey, std::unique_ptr<FPipeline>>
@@ -167,9 +166,9 @@ namespace Durin
 
 	auto FGBufferRenderer::EnsureTargets_RenderThread(
 		uint32 Width,
-		uint32 Height) -> FTargets*
+		uint32 Height) -> std::optional<FTargets>
 	{
-		if (Width == 0 || Height == 0) return nullptr;
+		if (Width == 0 || Height == 0) return std::nullopt;
 		auto MakeDesc = [Width, Height](const char* Name, EPixelFormat Format) {
 			return FRHITextureCreateDesc::Create2D(Name, Width, Height, Format)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -183,14 +182,14 @@ namespace Durin
 			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM),
 			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT)};
 		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"GBuffer", Descriptions, MaximumRetainedBytes);
-		if (!Lease) return nullptr;
-		State->CurrentTargets = {
+			ERendererTransientTargetGroup::GBuffer, Descriptions,
+			MaximumRetainedBytes);
+		if (!Lease) return std::nullopt;
+		return FTargets{
 			.Material = Lease->Textures[0],
 			.Normals = Lease->Textures[1],
 			.Surface = Lease->Textures[2],
 			.Emissive = Lease->Textures[3]};
-		return &State->CurrentTargets;
 	}
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> FPipeline*
@@ -515,7 +514,6 @@ namespace Durin
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->CurrentTargets = {};
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
 	}

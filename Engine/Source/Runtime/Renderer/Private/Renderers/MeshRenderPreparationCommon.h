@@ -6,6 +6,7 @@
 #include <array>
 #include <compare>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace Durin
@@ -63,4 +64,21 @@ namespace Durin
 
 		auto operator<=>(const FMeshDrawSortKey&) const = default;
 	};
+
+	struct FResolvedMeshDrawRecord
+	{
+		std::optional<FMaterialRenderBinding> MaterialBinding;
+		bool bReady = false;
+	};
+
+	template <typename... TBuckets>
+	auto AssignResolvedIndices(TBuckets&... Buckets) -> uint32
+	{
+		uint32 NextIndex = 0;
+		auto AssignBucket = [&NextIndex](auto& Bucket) {
+			for (auto& Item : Bucket) Item.ResolvedIndex = NextIndex++;
+		};
+		(AssignBucket(Buckets), ...);
+		return NextIndex;
+	}
 } // namespace Durin

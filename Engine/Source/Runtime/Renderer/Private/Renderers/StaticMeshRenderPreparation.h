@@ -11,8 +11,6 @@
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <vector>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace Durin
 {
@@ -34,6 +32,7 @@ namespace Durin
 	// References its owning prepared primitive by index so vector relocation is safe.
 	struct FPreparedStaticMeshDraw
 	{
+		uint32 ResolvedIndex = 0;
 		uint32 PrimitiveIndex = 0;
 		uint32 SectionIndex = 0;
 		const FStaticMeshSection* Section = nullptr;
@@ -103,14 +102,8 @@ namespace Durin
 		}
 	};
 
-	// Owns fallible bindings and execution measurements without mutating logical draws.
-	struct FResolvedStaticMeshView
+	struct FStaticMeshRenderObservations
 	{
-		std::unordered_set<const FPreparedStaticMeshDraw*> ReadyDraws;
-		std::unordered_map<const FPreparedStaticMeshDraw*,
-			FMaterialRenderBinding> MaterialBindings;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -129,16 +122,27 @@ namespace Durin
 		size_t GBufferSplineSuccessfulDraws = 0;
 		size_t GBufferSplineRejectedDraws = 0;
 		size_t GBufferSplineSkippedDraws = 0;
+	};
+
+	// Owns fallible bindings without mutating logical draws.
+	struct FResolvedStaticMeshView
+	{
+		std::vector<FResolvedMeshDrawRecord> Draws;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
+		FStaticMeshRenderObservations Observations;
 
 		auto IsReady(const FPreparedStaticMeshDraw& Draw) const -> bool
 		{
-			return ReadyDraws.contains(&Draw);
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].bReady;
 		}
 		auto GetMaterialBinding(const FPreparedStaticMeshDraw& Draw) const
 			-> const FMaterialRenderBinding*
 		{
-			const auto It = MaterialBindings.find(&Draw);
-			return It != MaterialBindings.end() ? &It->second : nullptr;
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].MaterialBinding
+				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
 	};
 

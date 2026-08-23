@@ -5,6 +5,7 @@
 #include "RHIResources.h"
 
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -105,12 +106,14 @@ namespace Durin
 		auto operator=(const FContactShadowVisibilityRenderer&)
 			-> FContactShadowVisibilityRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FTargets>;
 		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
-			-> FComputeTargets*;
+			-> std::optional<FComputeTargets>;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList, bool bRequested,
-			FTargets* FragmentTargets, FComputeTargets* ComputeTargets,
+			const FTargets* FragmentTargets,
+			const FComputeTargets* ComputeTargets,
 			FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
 			FRHITexture* Emissive, FRHITexture* SceneDepth,
 			const FSceneView& View, const FVector3& LightDirection,

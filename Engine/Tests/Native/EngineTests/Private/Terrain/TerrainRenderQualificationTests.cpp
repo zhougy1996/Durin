@@ -310,8 +310,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	constexpr size_t ShadowMeasuredFrames = 120u;
 	struct FShadowProfile
 	{
-		std::vector<Durin::uint64> Logical;
-		std::vector<Durin::uint64> Terrain;
+		std::vector<uint64> Logical;
+		std::vector<uint64> Terrain;
 		Durin::FViewRenderCounters Counters;
 	};
 	auto ProfileShadowCandidate = [&Renderer, &Scene](
@@ -380,7 +380,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	const FShadowProfile ThreeCascades = ProfileShadowCandidate(
 		Durin::EDirectionalShadowCandidate::ThreeCascades,
 		"MaximumTerrainCascadeShadowQualification");
-	auto Summarize = [](std::vector<Durin::uint64> Values) {
+	auto Summarize = [](std::vector<uint64> Values) {
 		std::ranges::sort(Values);
 		const size_t P95 = std::min(
 			Values.size() - 1u,

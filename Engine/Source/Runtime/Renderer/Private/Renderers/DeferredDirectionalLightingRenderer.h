@@ -7,6 +7,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -92,10 +93,11 @@ namespace Durin
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList
 		) -> bool;
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FTargets>;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FTargets& Targets,
+			const FTargets& Targets,
 			const FRenderParameters& Parameters
 		) -> bool;
 		auto RenderProduction_RenderThread(

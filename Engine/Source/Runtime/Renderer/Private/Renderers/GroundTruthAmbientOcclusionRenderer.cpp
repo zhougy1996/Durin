@@ -145,7 +145,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		FTargets CurrentTargets;
 	};
 
 	FGroundTruthAmbientOcclusionRenderer::FGroundTruthAmbientOcclusionRenderer(
@@ -383,11 +382,11 @@ namespace Durin
 
 	auto FGroundTruthAmbientOcclusionRenderer::EnsureTargets_RenderThread(
 		uint32 Width, uint32 Height,
-		EGroundTruthAmbientOcclusionQuality Quality) -> FTargets*
+		EGroundTruthAmbientOcclusionQuality Quality) -> std::optional<FTargets>
 	{
 		if (Width == 0 || Height == 0
 			|| Quality >= EGroundTruthAmbientOcclusionQuality::Count)
-			return nullptr;
+			return std::nullopt;
 		const bool bHalf =
 			Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
 		const uint32 NativeWidth = bHalf ? CalculateHalfExtent(Width) : Width;
@@ -424,20 +423,20 @@ namespace Durin
 			Descriptions.push_back(ResolvedDesc);
 		}
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"GroundTruthAmbientOcclusion", Descriptions, MaximumRetainedBytes);
-		if (!Lease) return nullptr;
-		State->CurrentTargets = {
+			ERendererTransientTargetGroup::GroundTruthAmbientOcclusion,
+			Descriptions, MaximumRetainedBytes);
+		if (!Lease) return std::nullopt;
+		return FTargets{
 			.Raw = Lease->Textures[0],
 			.Scratch = Lease->Textures[1],
 			.Selector = bHalf ? Lease->Textures[2] : FTextureRHIRef{},
 			.Resolved = bHalf ? Lease->Textures[3] : FTextureRHIRef{},
 			.Quality = Quality};
-		return &State->CurrentTargets;
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::RenderRaw_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FTargets& Targets,
+		const FTargets& Targets,
 		FRHITexture* Normals,
 		FRHITexture* Surface,
 		FRHITexture* Depth,
@@ -583,7 +582,7 @@ namespace Durin
 
 	auto FGroundTruthAmbientOcclusionRenderer::RenderFilter_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FTargets& Targets,
+		const FTargets& Targets,
 		FRHITexture* Normals,
 		FRHITexture* Surface,
 		FRHITexture* Depth,
@@ -706,7 +705,7 @@ namespace Durin
 
 	auto FGroundTruthAmbientOcclusionRenderer::RenderResolve_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FTargets& Targets,
+		const FTargets& Targets,
 		FRHITexture* Normals,
 		FRHITexture* Surface,
 		FRHITexture* Depth,
@@ -800,13 +799,12 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		return TransientTargets.GetRetainedBytes_RenderThread(
-			"GroundTruthAmbientOcclusion");
+			ERendererTransientTargetGroup::GroundTruthAmbientOcclusion);
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
 		State->Resources.Reset();
-		State->CurrentTargets = {};
 	}
 }

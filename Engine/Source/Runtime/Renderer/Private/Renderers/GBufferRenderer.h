@@ -8,6 +8,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -84,7 +85,8 @@ namespace Durin
 		FGBufferRenderer(const FGBufferRenderer&) = delete;
 		auto operator=(const FGBufferRenderer&) -> FGBufferRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FTargets>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
 			-> FPipeline*;
 		auto BindPipeline_RenderThread(

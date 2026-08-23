@@ -561,12 +561,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					ShadowCandidate;
 				View.Settings.Mode.VisibilityMode =
 					VisibilityMode;
-				Durin::FSceneViewRenderOptions RenderOptions;
-				RenderOptions.bEnableGBufferQualification =
-					bEnableGBufferQualification;
-				RenderOptions.bEnableDeferredDirectionalQualification =
-					bEnableGBufferQualification;
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
+				Durin::FScopedRendererQualificationPolicy Qualification({
+					.bEnableGBuffer = bEnableGBufferQualification,
+					.bEnableDeferredDirectional = bEnableGBufferQualification});
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Result
 				));
@@ -1072,9 +1070,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.ViewportHeight = 33;
 			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			Durin::FSceneViewRenderOptions QualificationOptions;
-			QualificationOptions.bEnableGBufferQualification = true;
-			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, QualificationOptions), Durin::ERenderViewResult::Success);
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGBuffer = true});
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *SplineReadback));
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		}
@@ -1115,10 +1113,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				View.ViewportHeight = 33;
 				View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
 				View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				Durin::FSceneViewRenderOptions RenderOptions;
-				RenderOptions.bEnableGBufferQualification =
-					bEnableGBufferQualification;
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
+				Durin::FScopedRendererQualificationPolicy Qualification({
+					.bEnableGBuffer = bEnableGBufferQualification});
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Result));
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}

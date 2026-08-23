@@ -114,7 +114,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		FSceneTargets CurrentSceneTargets;
 	};
 
 	FPostProcessRenderer::FPostProcessRenderer(
@@ -358,9 +357,9 @@ namespace Durin
 
 	auto FPostProcessRenderer::EnsureSceneTargets_RenderThread(
 		uint32 Width,
-		uint32 Height) -> FSceneTargets*
+		uint32 Height) -> std::optional<FSceneTargets>
 	{
-		if (Width == 0 || Height == 0) return nullptr;
+		if (Width == 0 || Height == 0) return std::nullopt;
 		const std::array Descriptions{
 			FRHITextureCreateDesc::Create2D("SceneColor", Width, Height,
 				EPixelFormat::RGBA16_FLOAT)
@@ -374,11 +373,11 @@ namespace Durin
 					| ETextureCreateFlags::ShaderResource)
 				.SetClearValue(FClearValueBinding(0.0f, 0u))};
 		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"Scene", Descriptions, MaximumRetainedSceneTargetBytes);
-		if (!Lease) return nullptr;
-		State->CurrentSceneTargets = {
+			ERendererTransientTargetGroup::Scene, Descriptions,
+			MaximumRetainedSceneTargetBytes);
+		if (!Lease) return std::nullopt;
+		return FSceneTargets{
 			.Color = Lease->Textures[0], .Depth = Lease->Textures[1]};
-		return &State->CurrentSceneTargets;
 	}
 	auto FPostProcessRenderer::Draw_RenderThread(
 		FRHICommandListImmediate& CommandList,
@@ -483,6 +482,5 @@ namespace Durin
 	auto FPostProcessRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Slot.Reset();
-		State->CurrentSceneTargets = {};
 	}
 } // namespace Durin

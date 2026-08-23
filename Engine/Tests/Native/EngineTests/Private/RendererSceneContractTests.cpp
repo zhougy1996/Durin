@@ -11,8 +11,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/FixedSceneFrameExecutor.h"
-#include "Renderers/SceneFrameFinalization.h"
-#include "Renderers/SceneFramePreparation.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/SceneViewState.h"
@@ -32,16 +31,139 @@
 #include <mutex>
 #include <thread>
 
+template <typename T>
+concept CHasResolvedReceiver = requires(T Value) { Value.ResolvedReceiver; };
+
+template <typename T>
+concept CHasResolvedDirectionalShadow = requires(T Value) {
+	Value.ResolvedDirectionalShadow;
+};
+
+template <typename T>
+concept CHasTelemetry = requires(T Value) { Value.Telemetry; };
+
+template <typename T>
+concept CHasResolvedTargets = requires(T Value) { Value.Targets; };
+
+template <typename T>
+concept CHasDeferredParameters = requires(T Value) { Value.DeferredParameters; };
+
+template <typename T>
+concept CHasReadyDrawHash = requires(T Value) { Value.ReadyDraws; };
+
+template <typename T>
+concept CHasMaterialBindingHash = requires(T Value) { Value.MaterialBindings; };
+
+template <typename T>
+concept CHasResolvedDrawRecords = requires(T Value) { Value.Draws; };
+
+template <typename T>
+concept CHasRenderObservations = requires(T Value) { Value.Observations; };
+
+template <typename T>
+concept CHasDirectExecutionCounters = requires(T Value) {
+	Value.AttemptedDraws;
+	Value.SuccessfulDraws;
+	Value.RejectedDraws;
+};
+
+template <typename T>
+concept CHasUploadRange = requires(T Value) { Value.Range; };
+
+template <typename T>
+concept CHasPublicQualificationSwitches = requires(T Value) {
+	Value.bEnableGBufferQualification;
+	Value.bEnableDeferredDirectionalQualification;
+	Value.bEnableGroundTruthAmbientOcclusionQualification;
+	Value.bForceFragmentContactVisibility;
+};
+
 static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_final_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(std::is_empty_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(std::is_final_v<Durin::FSceneFramePreparation>);
-static_assert(std::is_empty_v<Durin::FSceneFramePreparation>);
-static_assert(std::is_final_v<Durin::FSceneFrameFinalization>);
-static_assert(std::is_empty_v<Durin::FSceneFrameFinalization>);
+static_assert(!std::is_empty_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(!std::is_copy_constructible_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(!std::is_copy_assignable_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(!std::is_move_constructible_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(!std::is_move_assignable_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(!CHasPublicQualificationSwitches<
+	Durin::FSceneViewRenderOptions>);
+static_assert(!std::is_copy_constructible_v<
+	Durin::FScopedRendererQualificationPolicy>);
+static_assert(!CHasResolvedReceiver<Durin::FSceneRenderPlan>);
+static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
+static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
+static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
+static_assert(CHasResolvedTargets<Durin::FResolvedSceneFrame>);
+static_assert(!CHasTelemetry<Durin::FSceneFrameOutcome>);
+static_assert(!CHasDeferredParameters<Durin::FSceneFrameOutcome>);
+static_assert(std::is_default_constructible_v<Durin::FSceneFrameOutcome>);
+static_assert(!CHasUploadRange<Durin::FPreparedSkeletalPaletteTable::FEntry>);
+static_assert(CHasUploadRange<Durin::FResolvedSkeletalPaletteTable::FEntry>);
+static_assert(std::is_copy_constructible_v<Durin::FSceneFrameRequirements>);
+static_assert(CHasResolvedDrawRecords<Durin::FResolvedStaticMeshView>);
+static_assert(CHasResolvedDrawRecords<Durin::FResolvedSkeletalMeshView>);
+static_assert(CHasResolvedDrawRecords<Durin::FResolvedTerrainView>);
+static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
+static_assert(!CHasReadyDrawHash<Durin::FResolvedSkeletalMeshView>);
+static_assert(!CHasReadyDrawHash<Durin::FResolvedTerrainView>);
+static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
+static_assert(!CHasMaterialBindingHash<Durin::FResolvedSkeletalMeshView>);
+static_assert(!CHasMaterialBindingHash<Durin::FResolvedTerrainView>);
+static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
+static_assert(CHasRenderObservations<Durin::FResolvedSkeletalMeshView>);
+static_assert(CHasRenderObservations<Durin::FResolvedTerrainView>);
+static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
+static_assert(!CHasDirectExecutionCounters<Durin::FResolvedSkeletalMeshView>);
+static_assert(!CHasDirectExecutionCounters<Durin::FResolvedTerrainView>);
+static_assert(static_cast<uint8>(
+	Durin::ERendererTransientTargetGroup::Count) == 12);
+
+TEST(FRendererSceneContractTests, QualificationPolicyIsLexicallyScoped)
+{
+	EXPECT_FALSE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
+	{
+		Durin::FScopedRendererQualificationPolicy Outer({
+			.bEnableGBuffer = true});
+		EXPECT_TRUE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
+		{
+			Durin::FScopedRendererQualificationPolicy Inner({
+				.bForceFragmentVolumetricCloud = true});
+			const auto InnerPolicy =
+				Durin::GetRendererQualificationPolicy();
+			EXPECT_FALSE(InnerPolicy.bEnableGBuffer);
+			EXPECT_TRUE(InnerPolicy.bForceFragmentVolumetricCloud);
+		}
+		EXPECT_TRUE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
+	}
+	EXPECT_FALSE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
+}
+
+TEST(FRendererSceneContractTests, TypedPassResultsRejectIncompleteOutputs)
+{
+	Durin::FGBufferPassResult GBuffer;
+	Durin::FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
+	Durin::FContactShadowPassResult ContactShadow;
+	Durin::FVolumetricCloudShadowPassResult CloudShadow;
+	Durin::FSceneColorPassResult SceneColor;
+	EXPECT_FALSE(GBuffer.IsComplete());
+	EXPECT_FALSE(AmbientOcclusion.IsComplete());
+	EXPECT_FALSE(ContactShadow.IsComplete());
+	EXPECT_FALSE(CloudShadow.IsComplete());
+	EXPECT_FALSE(SceneColor.IsSuccess());
+	GBuffer.Status = Durin::EScenePassStatus::Complete;
+	AmbientOcclusion.Status = Durin::EScenePassStatus::Complete;
+	ContactShadow.Status = Durin::EScenePassStatus::Complete;
+	CloudShadow.Status = Durin::EScenePassStatus::Complete;
+	SceneColor.Result = Durin::ERenderViewResult::Success;
+	EXPECT_FALSE(GBuffer.IsComplete());
+	EXPECT_FALSE(AmbientOcclusion.IsComplete());
+	EXPECT_FALSE(ContactShadow.IsComplete());
+	EXPECT_FALSE(CloudShadow.IsComplete());
+	EXPECT_FALSE(SceneColor.IsSuccess());
+}
 
 TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)
 {

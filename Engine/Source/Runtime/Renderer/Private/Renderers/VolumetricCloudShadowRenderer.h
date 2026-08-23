@@ -4,6 +4,7 @@
 #include "RHIResources.h"
 
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -96,10 +97,13 @@ namespace Durin
 		auto operator=(const FVolumetricCloudShadowRenderer&)
 			-> FVolumetricCloudShadowRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
-		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height) -> FComputeTargets*;
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FTargets>;
+		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FComputeTargets>;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
-			FTargets* FragmentTargets, FComputeTargets* ComputeTargets,
+			const FTargets* FragmentTargets,
+			const FComputeTargets* ComputeTargets,
 			const FRenderInput& Input) -> FRenderResult;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;

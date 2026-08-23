@@ -103,8 +103,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device};
-		FTargets CurrentFragmentTargets;
-		FComputeTargets CurrentComputeTargets;
 	};
 
 	FVolumetricCloudShadowRenderer::FVolumetricCloudShadowRenderer(
@@ -125,12 +123,12 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudShadowRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height) -> FTargets*
+		uint32 Width, uint32 Height) -> std::optional<FTargets>
 	{
 		check(IsInRenderingThread());
 		if (Width == 0 || Height == 0
 			|| CalculateTargetBytes(Width, Height) > MaximumRetainedBytesPerRoute)
-			return nullptr;
+			return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudVisibility", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -138,47 +136,48 @@ namespace Durin
 				| ETextureCreateFlags::CPUReadback)
 			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"VolumetricCloudShadowFragment", std::span(&Desc, 1),
+			ERendererTransientTargetGroup::VolumetricCloudShadowFragment,
+			std::span(&Desc, 1),
 			MaximumRetainedBytesPerRoute);
-		if (!Lease) return nullptr;
-		State->CurrentFragmentTargets.Visibility = Lease->Get(0);
-		return &State->CurrentFragmentTargets;
+		if (!Lease) return std::nullopt;
+		return FTargets{.Visibility = Lease->Textures[0]};
 	}
 
 	auto FVolumetricCloudShadowRenderer::EnsureComputeTargets_RenderThread(
-		uint32 Width, uint32 Height) -> FComputeTargets*
+		uint32 Width, uint32 Height) -> std::optional<FComputeTargets>
 	{
 		check(IsInRenderingThread());
 		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr
 			|| CalculateTargetBytes(Width, Height) > MaximumRetainedBytesPerRoute)
-			return nullptr;
+			return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudVisibilityCompute", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::ShaderResource
 				| ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return nullptr;
+		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return std::nullopt;
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"VolumetricCloudShadowCompute", std::span(&Desc, 1),
+			ERendererTransientTargetGroup::VolumetricCloudShadowCompute,
+			std::span(&Desc, 1),
 			MaximumRetainedBytesPerRoute);
-		if (!Lease) return nullptr;
-		State->CurrentComputeTargets = {};
-		State->CurrentComputeTargets.Visibility = Lease->Textures[0];
-		State->CurrentComputeTargets.SampledView =
+		if (!Lease) return std::nullopt;
+		FComputeTargets Targets{.Visibility = Lease->Textures[0]};
+		Targets.SampledView =
 			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
 				MakeDefaultTextureViewDesc(*Lease->Textures[0],
 					ERHITextureViewUsage::Sampled));
-		State->CurrentComputeTargets.StorageView =
+		Targets.StorageView =
 			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
 				MakeDefaultTextureViewDesc(*Lease->Textures[0],
 					ERHITextureViewUsage::Storage));
-		return State->CurrentComputeTargets.SampledView
-			&& State->CurrentComputeTargets.StorageView
-			? &State->CurrentComputeTargets : nullptr;
+		return Targets.SampledView && Targets.StorageView
+			? std::optional<FComputeTargets>{std::move(Targets)} : std::nullopt;
 	}
 
 	auto FVolumetricCloudShadowRenderer::Render_RenderThread(
-		FRHICommandListImmediate& CommandList, FTargets* FragmentTargets,
-		FComputeTargets* ComputeTargets, const FRenderInput& Input) -> FRenderResult
+		FRHICommandListImmediate& CommandList,
+		const FTargets* FragmentTargets,
+		const FComputeTargets* ComputeTargets,
+		const FRenderInput& Input) -> FRenderResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -431,17 +430,15 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		const uint64 Fragment = TransientTargets.GetRetainedBytes_RenderThread(
-			"VolumetricCloudShadowFragment");
+			ERendererTransientTargetGroup::VolumetricCloudShadowFragment);
 		const uint64 Compute = TransientTargets.GetRetainedBytes_RenderThread(
-			"VolumetricCloudShadowCompute");
+			ERendererTransientTargetGroup::VolumetricCloudShadowCompute);
 		return Fragment + Compute;
 	}
 
 	auto FVolumetricCloudShadowRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->CurrentFragmentTargets = {};
-		State->CurrentComputeTargets = {};
 		State->FragmentResources.Reset();
 		State->ComputeResources.Reset();
 	}

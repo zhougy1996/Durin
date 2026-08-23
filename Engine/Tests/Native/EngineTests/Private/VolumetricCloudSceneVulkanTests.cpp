@@ -36,11 +36,6 @@ namespace Durin
 {
 	namespace
 	{
-		struct FSceneCloudFixture
-		{
-			bool bForceFragment = false;
-		};
-
 		class FSceneCloudTestEngine final : public DEngine
 		{
 		public:
@@ -56,15 +51,7 @@ namespace Durin
 			auto ResetScene() -> void { MainScene.reset(); }
 		};
 
-		FSceneCloudFixture* GSceneCloudFixture = nullptr;
 		FViewRenderCounters GSceneCloudCounters;
-
-		auto PrepareSceneCloud(
-			FVolumetricCloudQualificationOptions& Options) -> void
-		{
-			if (GSceneCloudFixture == nullptr) return;
-			Options.bForceFragment = GSceneCloudFixture->bForceFragment;
-		}
 
 		auto CaptureSceneCloudCounters(const FViewRenderCounters& Counters) -> void
 		{
@@ -210,20 +197,16 @@ namespace Durin
 		ASSERT_NE(BaseAsset->GetTextureReferenceRHI(), nullptr);
 		ASSERT_NE(DetailAsset->GetTextureReferenceRHI(), nullptr);
 
-		FSceneCloudFixture Fixture;
-		GSceneCloudFixture = &Fixture;
-		SetVolumetricCloudPreparationSink(PrepareSceneCloud);
 		SetViewRenderCounterSink(CaptureSceneCloudCounters);
-		auto RenderOffscreen = [&Renderer, &Fixture, Scene](
+		auto RenderOffscreen = [&Renderer, Scene](
 								   bool bForceFragment
 							   ) {
-			Fixture.bForceFragment = bForceFragment;
 			auto Pixels = std::make_shared<std::vector<std::byte>>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
-				[&Renderer, Scene, Pixels, Result](
+				[&Renderer, Scene, Pixels, Result, bForceFragment](
 					FRHICommandListImmediate& CommandList
 				) {
 					constexpr uint32 Width = 96;
@@ -239,6 +222,8 @@ namespace Durin
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
+					FScopedRendererQualificationPolicy Qualification({
+						.bForceFragmentVolumetricCloud = bForceFragment});
 					*Result = Renderer.RenderView(
 						CommandList, Scene, View, Output, false, {}
 					);
@@ -293,13 +278,12 @@ namespace Durin
 
 		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({.NativeWindowHandle = Window->GetOSNativeWindowHandle(), .SizeX = 96, .SizeY = 64, .PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM, .PresentModePolicy = EViewportPresentModePolicy::MainWindow});
 		ASSERT_NE(Viewport, nullptr);
-		auto RenderPresent = [&Renderer, &Fixture, &Viewport, Scene](uint32 Width, uint32 Height, bool bForceFragment) {
-			Fixture.bForceFragment = bForceFragment;
+		auto RenderPresent = [&Renderer, &Viewport, Scene](uint32 Width, uint32 Height, bool bForceFragment) {
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
-				[&Renderer, Scene, Viewport, Width, Height, Result](
+				[&Renderer, Scene, Viewport, Width, Height, Result, bForceFragment](
 					FRHICommandListImmediate& CommandList
 				) {
 					++GRenderFrameCounterRenderThread;
@@ -310,6 +294,8 @@ namespace Durin
 					if (BackBuffer)
 					{
 						FSceneView View = MakeSceneCloudView(Width, Height);
+						FScopedRendererQualificationPolicy Qualification({
+							.bForceFragmentVolumetricCloud = bForceFragment});
 						*Result = Renderer.RenderView(
 							CommandList, Scene, View, BackBuffer, true, {}
 						);
@@ -329,11 +315,8 @@ namespace Durin
 		EXPECT_EQ(RenderPresent(128, 72, true), ERenderViewResult::Success);
 		EXPECT_EQ(GSceneCloudCounters.VolumetricCloudFragmentViews, 1u);
 
-		SetVolumetricCloudPreparationSink(nullptr);
 		SetViewRenderCounterSink(nullptr);
-		GSceneCloudFixture = nullptr;
 		Viewport = nullptr;
-		Fixture = {};
 		Component->UnregisterComponent();
 		Engine.SetWorld(nullptr);
 		Engine.ResetScene();

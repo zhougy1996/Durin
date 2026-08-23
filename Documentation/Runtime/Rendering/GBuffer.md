@@ -16,11 +16,12 @@ write.
 
 Production solid Lit views always execute this pass, and it is the
 sole depth/material owner for eligible Lit opaque/masked records. Explicit A/B
-tests may still request the M2 qualification route with
-`FSceneViewRenderOptions::bEnableGBufferQualification`; that isolated capture
-does not replace the selected product result. Debug replacement is separately
-selected by `GBufferDebugMode`; it is not a fallback or a second production
-renderer.
+tests may still request the M2 qualification route with the Renderer-private
+`FScopedRendererQualificationPolicy`; the fixed executor snapshots that policy
+once and the isolated capture does not replace the selected product result.
+Production `FSceneViewRenderOptions` contains no qualification route switch.
+Debug replacement is separately selected by `GBufferDebugMode`; it is not a
+fallback or a second production renderer.
 
 ## Record Encoding
 

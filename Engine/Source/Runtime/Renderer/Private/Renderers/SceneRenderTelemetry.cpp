@@ -150,20 +150,20 @@ namespace Durin
 		Counters.StaticMeshGeometryTransitions =
 			StaticMeshes.GeometryTransitions;
 		Counters.StaticMeshResourceAttemptedDraws =
-			Resolved.ResourcePreparationAttemptedDraws;
+			Resolved.Observations.ResourcePreparationAttemptedDraws;
 		Counters.StaticMeshResourceSuccessfulDraws =
-			Resolved.ResourcePreparationSuccessfulDraws;
+			Resolved.Observations.ResourcePreparationSuccessfulDraws;
 		Counters.StaticMeshResourceRejectedDraws =
-			Resolved.ResourcePreparationRejectedDraws;
-		Counters.StaticMeshAttemptedDraws = Resolved.AttemptedDraws;
-		Counters.StaticMeshSuccessfulDraws = Resolved.SuccessfulDraws;
-		Counters.StaticMeshRejectedDraws = Resolved.RejectedDraws;
+			Resolved.Observations.ResourcePreparationRejectedDraws;
+		Counters.StaticMeshAttemptedDraws = Resolved.Observations.AttemptedDraws;
+		Counters.StaticMeshSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
+		Counters.StaticMeshRejectedDraws = Resolved.Observations.RejectedDraws;
 	}
 
 	auto ReduceSkeletalMeshTelemetry(
 		const FPreparedSkeletalMeshView& Meshes,
 		const FResolvedSkeletalMeshView& Resolved,
-		const FPreparedSkeletalPaletteTable& Palettes,
+		const FResolvedSkeletalPaletteTable& Palettes,
 		FViewRenderCounters& Counters
 	) -> void
 	{
@@ -187,14 +187,14 @@ namespace Durin
 			Meshes.VertexFactoryTransitions;
 		Counters.SkeletalMeshGeometryTransitions = Meshes.GeometryTransitions;
 		Counters.SkeletalMeshResourceAttemptedDraws =
-			Resolved.ResourcePreparationAttemptedDraws;
+			Resolved.Observations.ResourcePreparationAttemptedDraws;
 		Counters.SkeletalMeshResourceSuccessfulDraws =
-			Resolved.ResourcePreparationSuccessfulDraws;
+			Resolved.Observations.ResourcePreparationSuccessfulDraws;
 		Counters.SkeletalMeshResourceRejectedDraws =
-			Resolved.ResourcePreparationRejectedDraws;
-		Counters.SkeletalMeshAttemptedDraws = Resolved.AttemptedDraws;
-		Counters.SkeletalMeshSuccessfulDraws = Resolved.SuccessfulDraws;
-		Counters.SkeletalMeshRejectedDraws = Resolved.RejectedDraws;
+			Resolved.Observations.ResourcePreparationRejectedDraws;
+		Counters.SkeletalMeshAttemptedDraws = Resolved.Observations.AttemptedDraws;
+		Counters.SkeletalMeshSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
+		Counters.SkeletalMeshRejectedDraws = Resolved.Observations.RejectedDraws;
 		Counters.RequestedSkeletalPaletteUploads = Palettes.RequestedPalettes;
 		Counters.UploadedSkeletalPalettes = Palettes.UploadedPalettes;
 		Counters.ReusedSkeletalPalettes = Palettes.ReusedPalettes;
@@ -229,42 +229,42 @@ namespace Durin
 		Counters.OpaqueTerrainPatches = Terrain.Opaque.size();
 		Counters.MaskedTerrainPatches = Terrain.Masked.size();
 		Counters.TranslucentTerrainPatches = Terrain.Translucent.size();
-		Counters.TerrainResourceAttemptedDraws = Resolved.ResourceAttemptedDraws;
-		Counters.TerrainResourceSuccessfulDraws = Resolved.ResourceSuccessfulDraws;
-		Counters.TerrainResourceRejectedDraws = Resolved.ResourceRejectedDraws;
-		Counters.PreparedTerrainBatches = Resolved.PreparedBatches;
-		Counters.TerrainBatchChunks = Resolved.BatchChunks;
-		Counters.TerrainInstances = Resolved.InstanceCount;
-		Counters.TerrainInstanceBytes = Resolved.InstanceBytes;
-		Counters.TerrainInstanceAllocations = Resolved.InstanceAllocations;
-		Counters.TerrainResourceAttemptedBatches = Resolved.ResourceAttemptedBatches;
-		Counters.TerrainResourceSuccessfulBatches = Resolved.ResourceSuccessfulBatches;
-		Counters.TerrainResourceRejectedBatches = Resolved.ResourceRejectedBatches;
-		Counters.TerrainSubmittedLogicalPatches = Resolved.SubmittedLogicalPatches;
-		Counters.TerrainScalarTranslucentDraws = Resolved.ScalarTranslucentDraws;
+		Counters.TerrainResourceAttemptedDraws = Resolved.Observations.ResourceAttemptedDraws;
+		Counters.TerrainResourceSuccessfulDraws = Resolved.Observations.ResourceSuccessfulDraws;
+		Counters.TerrainResourceRejectedDraws = Resolved.Observations.ResourceRejectedDraws;
+		Counters.PreparedTerrainBatches = Resolved.Observations.PreparedBatches;
+		Counters.TerrainBatchChunks = Resolved.Observations.BatchChunks;
+		Counters.TerrainInstances = Resolved.Observations.InstanceCount;
+		Counters.TerrainInstanceBytes = Resolved.Observations.InstanceBytes;
+		Counters.TerrainInstanceAllocations = Resolved.Observations.InstanceAllocations;
+		Counters.TerrainResourceAttemptedBatches = Resolved.Observations.ResourceAttemptedBatches;
+		Counters.TerrainResourceSuccessfulBatches = Resolved.Observations.ResourceSuccessfulBatches;
+		Counters.TerrainResourceRejectedBatches = Resolved.Observations.ResourceRejectedBatches;
+		Counters.TerrainSubmittedLogicalPatches = Resolved.Observations.SubmittedLogicalPatches;
+		Counters.TerrainScalarTranslucentDraws = Resolved.Observations.ScalarTranslucentDraws;
 		Counters.TerrainLogicalPreparationNanoseconds = Terrain.LogicalPreparationNanoseconds;
 		Counters.TerrainBatchConstructionNanoseconds = Terrain.BatchConstructionNanoseconds;
-		Counters.TerrainResourcePreparationNanoseconds = Resolved.ResourcePreparationNanoseconds;
-		Counters.TerrainHeightPreparationNanoseconds = Resolved.HeightPreparationNanoseconds;
-		Counters.TerrainTopologyPreparationNanoseconds = Resolved.TopologyPreparationNanoseconds;
-		Counters.TerrainShaderPreparationNanoseconds = Resolved.ShaderPreparationNanoseconds;
-		Counters.TerrainPipelinePreparationNanoseconds = Resolved.PipelinePreparationNanoseconds;
-		Counters.TerrainDynamicAllocationNanoseconds = Resolved.DynamicAllocationNanoseconds;
-		Counters.TerrainCommandRecordingNanoseconds = Resolved.CommandRecordingNanoseconds;
-		Counters.TerrainAttemptedDraws = Resolved.AttemptedDraws;
-		Counters.TerrainSuccessfulDraws = Resolved.SuccessfulDraws;
-		Counters.TerrainRejectedDraws = Resolved.RejectedDraws;
-		Counters.TerrainHeightUploadBytes = Resolved.HeightUploadBytes;
-		Counters.TerrainHeightUploads = Resolved.HeightUploads;
-		Counters.TerrainHeightReuses = Resolved.HeightReuses;
-		Counters.TerrainTopologyCreations = Resolved.TopologyCreations;
-		Counters.TerrainTopologyReuses = Resolved.TopologyReuses;
-		Counters.TerrainTopologyBytes = Resolved.TopologyBytes;
-		Counters.TerrainShaderLookups = Resolved.ShaderLookups;
-		Counters.TerrainShaderCreations = Resolved.ShaderCreations;
-		Counters.TerrainShaderReuses = Resolved.ShaderReuses;
-		Counters.TerrainPipelineLookups = Resolved.PipelineLookups;
-		Counters.TerrainPipelineCreations = Resolved.PipelineCreations;
-		Counters.TerrainPipelineReuses = Resolved.PipelineReuses;
+		Counters.TerrainResourcePreparationNanoseconds = Resolved.Observations.ResourcePreparationNanoseconds;
+		Counters.TerrainHeightPreparationNanoseconds = Resolved.Observations.HeightPreparationNanoseconds;
+		Counters.TerrainTopologyPreparationNanoseconds = Resolved.Observations.TopologyPreparationNanoseconds;
+		Counters.TerrainShaderPreparationNanoseconds = Resolved.Observations.ShaderPreparationNanoseconds;
+		Counters.TerrainPipelinePreparationNanoseconds = Resolved.Observations.PipelinePreparationNanoseconds;
+		Counters.TerrainDynamicAllocationNanoseconds = Resolved.Observations.DynamicAllocationNanoseconds;
+		Counters.TerrainCommandRecordingNanoseconds = Resolved.Observations.CommandRecordingNanoseconds;
+		Counters.TerrainAttemptedDraws = Resolved.Observations.AttemptedDraws;
+		Counters.TerrainSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
+		Counters.TerrainRejectedDraws = Resolved.Observations.RejectedDraws;
+		Counters.TerrainHeightUploadBytes = Resolved.Observations.HeightUploadBytes;
+		Counters.TerrainHeightUploads = Resolved.Observations.HeightUploads;
+		Counters.TerrainHeightReuses = Resolved.Observations.HeightReuses;
+		Counters.TerrainTopologyCreations = Resolved.Observations.TopologyCreations;
+		Counters.TerrainTopologyReuses = Resolved.Observations.TopologyReuses;
+		Counters.TerrainTopologyBytes = Resolved.Observations.TopologyBytes;
+		Counters.TerrainShaderLookups = Resolved.Observations.ShaderLookups;
+		Counters.TerrainShaderCreations = Resolved.Observations.ShaderCreations;
+		Counters.TerrainShaderReuses = Resolved.Observations.ShaderReuses;
+		Counters.TerrainPipelineLookups = Resolved.Observations.PipelineLookups;
+		Counters.TerrainPipelineCreations = Resolved.Observations.PipelineCreations;
+		Counters.TerrainPipelineReuses = Resolved.Observations.PipelineReuses;
 	}
 } // namespace Durin

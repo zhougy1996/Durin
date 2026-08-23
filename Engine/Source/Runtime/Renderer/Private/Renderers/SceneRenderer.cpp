@@ -253,8 +253,8 @@ namespace Durin
 		FSceneViewStatistics* OutStatistics
 	) -> ERenderViewResult
 	{
-		return FFixedSceneFrameExecutor{}.Execute_RenderThread(
-			*this, CommandList, Scene, View, OutputTarget, bPresentOutput,
+		return FFixedSceneFrameExecutor(*this).Execute_RenderThread(
+			CommandList, Scene, View, OutputTarget, bPresentOutput,
 			Options, OutStatistics
 		);
 	}

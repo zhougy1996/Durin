@@ -202,9 +202,6 @@ namespace Durin
 		TRenderResourceCreationSlot<FDensitySamplerPayload> DensitySamplerResources{
 			ERenderResourceGenerationDependency::Device
 		};
-		FTargets CurrentFragmentTargets;
-		FComputeTargets CurrentComputeTargets;
-		FTargets CurrentCompositeTargets;
 	};
 
 	FVolumetricCloudRenderer::FVolumetricCloudRenderer(
@@ -256,82 +253,87 @@ namespace Durin
 
 	auto FVolumetricCloudRenderer::EnsureTargets_RenderThread(
 		uint32 Width, uint32 Height
-	) -> FTargets*
+	) -> std::optional<FTargets>
 	{
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
+			return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudFragment", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback)
 							  .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"VolumetricCloudFragment", std::span(&Desc, 1),
+			ERendererTransientTargetGroup::VolumetricCloudFragment,
+			std::span(&Desc, 1),
 			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return nullptr;
-		State->CurrentFragmentTargets.Cloud = Lease->Get(0);
-		return &State->CurrentFragmentTargets;
+		if (!Lease) return std::nullopt;
+		return FTargets{.Cloud = Lease->Textures[0]};
 	}
 
 	auto FVolumetricCloudRenderer::EnsureComputeTargets_RenderThread(
 		uint32 Width, uint32 Height
-	) -> FComputeTargets*
+	) -> std::optional<FComputeTargets>
 	{
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
+			return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudCompute", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return nullptr;
+		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return std::nullopt;
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"VolumetricCloudCompute", std::span(&Desc, 1),
+			ERendererTransientTargetGroup::VolumetricCloudCompute,
+			std::span(&Desc, 1),
 			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return nullptr;
-		State->CurrentComputeTargets = {};
-		State->CurrentComputeTargets.Cloud = Lease->Textures[0];
-		State->CurrentComputeTargets.SampledView =
+		if (!Lease) return std::nullopt;
+		FComputeTargets Targets{.Cloud = Lease->Textures[0]};
+		Targets.SampledView =
 			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
 				MakeDefaultTextureViewDesc(*Lease->Textures[0],
 					ERHITextureViewUsage::Sampled));
-		State->CurrentComputeTargets.StorageView =
+		Targets.StorageView =
 			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
 				MakeDefaultTextureViewDesc(*Lease->Textures[0],
 					ERHITextureViewUsage::Storage));
-		return State->CurrentComputeTargets.SampledView
-			&& State->CurrentComputeTargets.StorageView
-			? &State->CurrentComputeTargets : nullptr;
+		return Targets.SampledView && Targets.StorageView
+			? std::optional<FComputeTargets>{std::move(Targets)} : std::nullopt;
 	}
 
 	auto FVolumetricCloudRenderer::EnsureCompositeTargets_RenderThread(
 		uint32 Width, uint32 Height
-	) -> FTargets*
+	) -> std::optional<FTargets>
 	{
 		check(IsInRenderingThread());
 		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
 		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily) return nullptr;
+			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
+			return std::nullopt;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudComposite", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback)
 							  .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"VolumetricCloudComposite", std::span(&Desc, 1),
+			ERendererTransientTargetGroup::VolumetricCloudComposite,
+			std::span(&Desc, 1),
 			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return nullptr;
-		State->CurrentCompositeTargets.Cloud = Lease->Get(0);
-		return &State->CurrentCompositeTargets;
+		if (!Lease) return std::nullopt;
+		return FTargets{.Cloud = Lease->Textures[0]};
 	}
 
 	// Resource resolution, binding, and execution continue below to keep target
 	// creation independently testable.
 	auto FVolumetricCloudRenderer::Render_RenderThread(
-		FRHICommandListImmediate& CommandList, FTargets* FragmentTargets, FComputeTargets* ComputeTargets, const FRenderInput& Input
+		FRHICommandListImmediate& CommandList,
+		const FTargets* FragmentTargets,
+		const FComputeTargets* ComputeTargets,
+		const FRenderInput& Input
 	) -> FRenderResult
 	{
 		check(IsInRenderingThread());
@@ -890,7 +892,8 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudRenderer::Composite_RenderThread(
-		FRHICommandListImmediate& CommandList, FRHITexture* SceneColor,
+		FRHICommandListImmediate& CommandList,
+		const FTargets& CompositeTargets, FRHITexture* SceneColor,
 		FRHITexture* Cloud, FRHITexture* SceneDepth,
 		FRHITexture* ShadowVisibility, bool bHistoryAvailable,
 		bool bHistoryAccepted, const FSceneView& View
@@ -902,10 +905,7 @@ namespace Durin
 		if (SceneColor == nullptr || Cloud == nullptr || SceneDepth == nullptr
 			|| View.ViewportWidth == 0
 			|| View.ViewportHeight == 0) return nullptr;
-		FTargets* CompositeTargets = EnsureCompositeTargets_RenderThread(
-			SceneColor->GetSizeX(), SceneColor->GetSizeY()
-		);
-		if (CompositeTargets == nullptr || !CompositeTargets->Cloud) return nullptr;
+		if (!CompositeTargets.Cloud) return nullptr;
 		using FPayload = FState::FCompositePayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		FPayload* Payload = State->CompositeResources.Resolve(
@@ -974,12 +974,12 @@ namespace Durin
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.RenderTargetLayout =
 			RenderTargetLayouts::MakeVolumetricCloudComposite();
-		PassInfo.ColorRenderTargets[0] = CompositeTargets->Cloud;
+		PassInfo.ColorRenderTargets[0] = CompositeTargets.Cloud;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "VolumetricCloudCompositeRenderPass");
 		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
-		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(CompositeTargets->Cloud->GetSizeX()), static_cast<float>(CompositeTargets->Cloud->GetSizeY()), 1.0f);
-		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(CompositeTargets->Cloud->GetSizeX()), static_cast<float>(CompositeTargets->Cloud->GetSizeY()));
+		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()), 1.0f);
+		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()));
 		CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 		CommandList.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
 		FCloudCompositeFragmentShader::FParameters Params;
@@ -991,18 +991,18 @@ namespace Durin
 		SetShaderParameters(CommandList, Payload->FragmentShader, Params);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
-		return CompositeTargets->Cloud;
+		return CompositeTargets.Cloud;
 	}
 
 	auto FVolumetricCloudRenderer::GetRetainedTargetBytes_RenderThread() const -> uint64
 	{
 		check(IsInRenderingThread());
 		const uint64 Fragment = TransientTargets.GetRetainedBytes_RenderThread(
-			"VolumetricCloudFragment");
+			ERendererTransientTargetGroup::VolumetricCloudFragment);
 		const uint64 Compute = TransientTargets.GetRetainedBytes_RenderThread(
-			"VolumetricCloudCompute");
+			ERendererTransientTargetGroup::VolumetricCloudCompute);
 		const uint64 Composite = TransientTargets.GetRetainedBytes_RenderThread(
-			"VolumetricCloudComposite");
+			ERendererTransientTargetGroup::VolumetricCloudComposite);
 		const uint64 RouteBytes = Compute > std::numeric_limits<uint64>::max() - Fragment ? std::numeric_limits<uint64>::max() : Fragment + Compute;
 		return Composite > std::numeric_limits<uint64>::max() - RouteBytes ? std::numeric_limits<uint64>::max() : RouteBytes + Composite;
 	}
@@ -1010,9 +1010,6 @@ namespace Durin
 	auto FVolumetricCloudRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->CurrentFragmentTargets = {};
-		State->CurrentComputeTargets = {};
-		State->CurrentCompositeTargets = {};
 		State->FragmentResources.Reset();
 		State->ComputeResources.Reset();
 		State->CompositeResources.Reset();

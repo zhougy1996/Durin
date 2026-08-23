@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-24
 
 ## Complete-Or-Null Construction
 
@@ -49,6 +49,21 @@ retry semantics; complete typed bundles are returned only after every texture
 resolves. Device or manual invalidation and retained-byte eviction make later
 construction eligible without moving shaders, PSOs, samplers, or committed
 view history into transient ownership.
+
+The fixed frame executor derives one immutable requirements value after logical
+preparation and persistent-resource resolution, then acquires every requested
+frame-transient bundle before the first consuming pass. The pool partitions
+descriptions into bounded typed semantic groups. A failed multi-texture bundle
+releases newly created siblings but retains the failed generation-aware slot,
+so a same-generation frame does not partially publish or repeatedly retry it.
+Pass execution receives the resolved bundle and never performs target lookup,
+creation, or recovery policy itself.
+
+Qualification policy does not participate in generation state or mutate a
+prepared plan. A Renderer-private scoped policy may add feature-bounded target
+requirements for one test/tool submission, but those targets follow the same
+pool transaction and invalidation rules as production and supported debug
+views.
 
 ## Invalidation And Commands
 

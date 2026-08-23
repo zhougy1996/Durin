@@ -346,6 +346,7 @@ namespace Durin
 				return A.SortKey < B.SortKey;
 			}
 		);
+		AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
 		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
 															std::chrono::nanoseconds>(
 															std::chrono::steady_clock::now() - SortingStart
@@ -454,7 +455,8 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh resource preparation must occur before the scene render pass.");
-		ResolvedView.ResourcePreparationAttemptedDraws =
+		ResolvedView.Draws.resize(PreparedView.GetNumSections());
+		ResolvedView.Observations.ResourcePreparationAttemptedDraws =
 			PreparedView.GetNumSections();
 		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &ResolvedView, bPrepareLitOpaqueForward](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Item : Bucket)
@@ -463,9 +465,10 @@ namespace Durin
 				if (!ResolvePreparedMaterialBinding(Item.Material, MaterialBinding,
 						"StaticMeshMaterialBinding"))
 					continue;
+				auto& Record = ResolvedView.Draws[Item.ResolvedIndex];
+				Record.MaterialBinding = std::move(MaterialBinding);
 				const FMaterialRenderBinding& StoredBinding =
-					ResolvedView.MaterialBindings.emplace(&Item,
-						std::move(MaterialBinding)).first->second;
+					*Record.MaterialBinding;
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Item);
 				const bool bNeedsForwardPipeline =
@@ -478,8 +481,8 @@ namespace Durin
 						? EnsureSectionResources_RenderThread(*Primitive, Item,
 							StoredBinding)
 						: EnsureMaterialSamplers_RenderThread(StoredBinding));
-				if (bReady) ResolvedView.ReadyDraws.insert(&Item);
-				ResolvedView.ResourcePreparationSuccessfulDraws +=
+				Record.bReady = bReady;
+				ResolvedView.Observations.ResourcePreparationSuccessfulDraws +=
 					bReady ? 1u : 0u;
 			}
 		});
@@ -524,7 +527,8 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		check(PreparedView.Translucent.empty());
-		ResolvedView.ResourcePreparationAttemptedDraws =
+		ResolvedView.Draws.resize(PreparedView.GetNumSections());
+		ResolvedView.Observations.ResourcePreparationAttemptedDraws =
 			PreparedView.GetNumSections();
 		ForEachShadowBucket(PreparedView, [this, &PreparedView, &ResolvedView](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
@@ -533,16 +537,17 @@ namespace Durin
 				if (!ResolvePreparedMaterialBinding(Draw.Material, MaterialBinding,
 						"StaticMeshShadowMaterialBinding"))
 					continue;
+				auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
+				Record.MaterialBinding = std::move(MaterialBinding);
 				const FMaterialRenderBinding& StoredBinding =
-					ResolvedView.MaterialBindings.emplace(&Draw,
-						std::move(MaterialBinding)).first->second;
+					*Record.MaterialBinding;
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				const bool bReady = Primitive != nullptr
 					&& EnsureSectionResources_RenderThread(*Primitive, Draw,
 						StoredBinding, true);
-				if (bReady) ResolvedView.ReadyDraws.insert(&Draw);
-				ResolvedView.ResourcePreparationSuccessfulDraws +=
+				Record.bReady = bReady;
+				ResolvedView.Observations.ResourcePreparationSuccessfulDraws +=
 					bReady ? 1u : 0u;
 			}
 		});
@@ -565,7 +570,7 @@ namespace Durin
 			&bComplete](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				++ResolvedView.AttemptedDraws;
+				++ResolvedView.Observations.AttemptedDraws;
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				if (Primitive != nullptr && ResolvedView.IsReady(Draw)
@@ -573,11 +578,11 @@ namespace Durin
 						CommandList, ShadowView, FallbackLighting,
 						ERenderMode::Unlit, *Primitive, Draw, ResolvedView, true
 					))
-					++ResolvedView.SuccessfulDraws;
+					++ResolvedView.Observations.SuccessfulDraws;
 				else
 				{
 					bComplete = false;
-					++ResolvedView.RejectedDraws;
+					++ResolvedView.Observations.RejectedDraws;
 				}
 			}
 		});
@@ -889,7 +894,7 @@ namespace Durin
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedStaticMeshDraw& Item : Bucket)
 			{
-				++ResolvedView.AttemptedDraws;
+				++ResolvedView.Observations.AttemptedDraws;
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Item);
 				const bool bBucketMatches = Item.Pass == Pass;
@@ -911,7 +916,7 @@ namespace Durin
 				if (!bBucketMatches || !bSortKeyMatchesPass || !bComplete
 					|| !ResolvedView.IsReady(Item))
 				{
-					++ResolvedView.RejectedDraws;
+					++ResolvedView.Observations.RejectedDraws;
 					continue;
 				}
 				if (DrawSection_RenderThread(
@@ -919,11 +924,11 @@ namespace Durin
 						Item, ResolvedView
 					))
 				{
-					++ResolvedView.SuccessfulDraws;
+					++ResolvedView.Observations.SuccessfulDraws;
 				}
 				else
 				{
-					++ResolvedView.RejectedDraws;
+					++ResolvedView.Observations.RejectedDraws;
 				}
 			}
 		});
@@ -936,7 +941,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		++ResolvedView.AttemptedDraws;
+		++ResolvedView.Observations.AttemptedDraws;
 		const FPreparedStaticMeshPrimitive* Primitive =
 			PreparedView.GetPrimitive(Item);
 		const bool bComplete = Primitive != nullptr
@@ -948,14 +953,14 @@ namespace Durin
 							   && Item.PipelineKey.Material == Item.Material.PipelineIdentity;
 		if (!bComplete || !ResolvedView.IsReady(Item))
 		{
-			++ResolvedView.RejectedDraws;
+			++ResolvedView.Observations.RejectedDraws;
 			return;
 		}
 		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode,
 			*Primitive, Item, ResolvedView, false, bHybridRetained))
-			++ResolvedView.SuccessfulDraws;
+			++ResolvedView.Observations.SuccessfulDraws;
 		else
-			++ResolvedView.RejectedDraws;
+			++ResolvedView.Observations.RejectedDraws;
 	}
 
 	auto FStaticMeshRenderer::ExecutePass_RenderThread(
@@ -977,7 +982,7 @@ namespace Durin
 	) -> void
 	{
 		check(IsInRenderingThread());
-		FinalizeExecution(ResolvedView, ResolvedView.AttemptedDraws);
+		FinalizeExecution(ResolvedView, ResolvedView.Observations.AttemptedDraws);
 	}
 
 	auto FStaticMeshRenderer::ExecuteGBuffer_RenderThread(
@@ -993,14 +998,17 @@ namespace Durin
 		bool bComplete = true;
 		bool bRenderedGeometry = false;
 		auto RecordFamily = [](FResolvedStaticMeshView& Resolved,
-							   const FPreparedStaticMeshDraw& Draw, size_t FResolvedStaticMeshView::* Local,
-							   size_t FResolvedStaticMeshView::* Spline) {
-			++(Resolved.*(Draw.PipelineKey.VertexDomain == EVertexDeformationDomain::Spline ? Spline : Local));
+							   const FPreparedStaticMeshDraw& Draw,
+							   size_t FStaticMeshRenderObservations::* Local,
+							   size_t FStaticMeshRenderObservations::* Spline) {
+			++(Resolved.Observations.*(
+				Draw.PipelineKey.VertexDomain == EVertexDeformationDomain::Spline
+					? Spline : Local));
 		};
 		for (const FPreparedStaticMeshDraw& Draw : PreparedView.Translucent)
 		{
-			++ResolvedView.GBufferSkippedDraws;
-			RecordFamily(ResolvedView, Draw, &FResolvedStaticMeshView::GBufferLocalSkippedDraws, &FResolvedStaticMeshView::GBufferSplineSkippedDraws);
+			++ResolvedView.Observations.GBufferSkippedDraws;
+			RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSkippedDraws, &FStaticMeshRenderObservations::GBufferSplineSkippedDraws);
 		}
 		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
@@ -1008,12 +1016,12 @@ namespace Durin
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
-					++ResolvedView.GBufferSkippedDraws;
-					RecordFamily(ResolvedView, Draw, &FResolvedStaticMeshView::GBufferLocalSkippedDraws, &FResolvedStaticMeshView::GBufferSplineSkippedDraws);
+					++ResolvedView.Observations.GBufferSkippedDraws;
+					RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSkippedDraws, &FStaticMeshRenderObservations::GBufferSplineSkippedDraws);
 					continue;
 				}
-				++ResolvedView.GBufferAttemptedDraws;
-				RecordFamily(ResolvedView, Draw, &FResolvedStaticMeshView::GBufferLocalAttemptedDraws, &FResolvedStaticMeshView::GBufferSplineAttemptedDraws);
+				++ResolvedView.Observations.GBufferAttemptedDraws;
+				RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalAttemptedDraws, &FStaticMeshRenderObservations::GBufferSplineAttemptedDraws);
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				if (Primitive != nullptr && ResolvedView.IsReady(Draw)
@@ -1023,24 +1031,24 @@ namespace Durin
 					))
 				{
 					bRenderedGeometry = true;
-					++ResolvedView.GBufferSuccessfulDraws;
-					RecordFamily(ResolvedView, Draw, &FResolvedStaticMeshView::GBufferLocalSuccessfulDraws, &FResolvedStaticMeshView::GBufferSplineSuccessfulDraws);
+					++ResolvedView.Observations.GBufferSuccessfulDraws;
+					RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSuccessfulDraws, &FStaticMeshRenderObservations::GBufferSplineSuccessfulDraws);
 				}
 				else
 				{
 					bComplete = false;
-					++ResolvedView.GBufferRejectedDraws;
-					RecordFamily(ResolvedView, Draw, &FResolvedStaticMeshView::GBufferLocalRejectedDraws, &FResolvedStaticMeshView::GBufferSplineRejectedDraws);
+					++ResolvedView.Observations.GBufferRejectedDraws;
+					RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalRejectedDraws, &FStaticMeshRenderObservations::GBufferSplineRejectedDraws);
 				}
 			}
 		});
-		check(ResolvedView.GBufferAttemptedDraws == ResolvedView.GBufferSuccessfulDraws + ResolvedView.GBufferRejectedDraws);
-		check(ResolvedView.GBufferAttemptedDraws == ResolvedView.GBufferLocalAttemptedDraws + ResolvedView.GBufferSplineAttemptedDraws);
+		check(ResolvedView.Observations.GBufferAttemptedDraws == ResolvedView.Observations.GBufferSuccessfulDraws + ResolvedView.Observations.GBufferRejectedDraws);
+		check(ResolvedView.Observations.GBufferAttemptedDraws == ResolvedView.Observations.GBufferLocalAttemptedDraws + ResolvedView.Observations.GBufferSplineAttemptedDraws);
 		return {bComplete, bRenderedGeometry,
-			ResolvedView.GBufferAttemptedDraws,
-			ResolvedView.GBufferSuccessfulDraws,
-			ResolvedView.GBufferRejectedDraws,
-			ResolvedView.GBufferSkippedDraws};
+			ResolvedView.Observations.GBufferAttemptedDraws,
+			ResolvedView.Observations.GBufferSuccessfulDraws,
+			ResolvedView.Observations.GBufferRejectedDraws,
+			ResolvedView.Observations.GBufferSkippedDraws};
 	}
 
 	auto FStaticMeshRenderer::DrawGBufferSection_RenderThread(

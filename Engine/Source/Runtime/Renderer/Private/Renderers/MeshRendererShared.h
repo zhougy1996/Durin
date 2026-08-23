@@ -261,49 +261,53 @@ namespace Durin::RendererPrivate
 
 	inline auto ResolveSkeletalPalette_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPreparedSkeletalPaletteTable& Table,
+		const FPreparedSkeletalPaletteTable& PreparedTable,
+		FResolvedSkeletalPaletteTable& ResolvedTable,
 		const FPreparedSkeletalMeshPrimitive& Primitive,
 		FRHIStorageBufferRange& OutRange
 	) -> ESkeletalPaletteResolveResult
 	{
 		constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
-		++Table.RequestedPalettes;
+		++ResolvedTable.RequestedPalettes;
 		if (Primitive.Pose == nullptr)
 		{
-			++Table.RejectedPalettes;
+			++ResolvedTable.RejectedPalettes;
 			return ESkeletalPaletteResolveResult::Rejected;
 		}
 
 		const FPrimitiveSceneId PrimitiveId = Primitive.PrimitiveId;
-		auto It = Table.PrimitiveToEntry.find(PrimitiveId);
-		if (It == Table.PrimitiveToEntry.end())
+		const auto It = PreparedTable.PrimitiveToEntry.find(PrimitiveId);
+		if (It == PreparedTable.PrimitiveToEntry.end()
+			|| It->second >= PreparedTable.Entries.size())
 		{
-			const uint32 EntryIndex = static_cast<uint32>(Table.Entries.size());
-			It = Table.PrimitiveToEntry.emplace(PrimitiveId, EntryIndex).first;
-			Table.Entries.push_back({.Pose = Primitive.Pose});
-		}
-		auto& Entry = Table.Entries[It->second];
-		if (Entry.Pose != Primitive.Pose)
-		{
-			++Table.RejectedPalettes;
+			++ResolvedTable.RejectedPalettes;
 			return ESkeletalPaletteResolveResult::Rejected;
 		}
+		const auto& PreparedEntry = PreparedTable.Entries[It->second];
+		if (PreparedEntry.Pose != Primitive.Pose)
+		{
+			++ResolvedTable.RejectedPalettes;
+			return ESkeletalPaletteResolveResult::Rejected;
+		}
+		if (ResolvedTable.Entries.size() < PreparedTable.Entries.size())
+			ResolvedTable.Entries.resize(PreparedTable.Entries.size());
+		auto& Entry = ResolvedTable.Entries[It->second];
 		if (Entry.Range.Buffer != nullptr)
 		{
 			OutRange = Entry.Range;
-			++Table.ReusedPalettes;
+			++ResolvedTable.ReusedPalettes;
 			return ESkeletalPaletteResolveResult::Reused;
 		}
 		if (Entry.bUploadAttempted)
 		{
-			++Table.RejectedPalettes;
+			++ResolvedTable.RejectedPalettes;
 			return ESkeletalPaletteResolveResult::Rejected;
 		}
 		Entry.bUploadAttempted = true;
 		const uint64 Bytes = Primitive.Pose->Matrices.size() * sizeof(FMatrix4f);
-		if (Bytes == 0 || Table.UploadedBytes + Bytes > PaletteBudget)
+		if (Bytes == 0 || ResolvedTable.UploadedBytes + Bytes > PaletteBudget)
 		{
-			++Table.RejectedPalettes;
+			++ResolvedTable.RejectedPalettes;
 			return ESkeletalPaletteResolveResult::Rejected;
 		}
 
@@ -313,7 +317,7 @@ namespace Durin::RendererPrivate
 		if (Entry.Range.Buffer == nullptr || Entry.Range.Size != Bytes)
 		{
 			Entry.Range = {};
-			++Table.RejectedPalettes;
+			++ResolvedTable.RejectedPalettes;
 			return ESkeletalPaletteResolveResult::Rejected;
 		}
 		const std::array Transition{FRHIBufferTransition{
@@ -322,9 +326,9 @@ namespace Durin::RendererPrivate
 		}};
 		CommandList.TransitionBuffers(Transition);
 		OutRange = Entry.Range;
-		Table.UploadedBytes += Bytes;
-		++Table.UploadedPalettes;
-		Table.UploadedMatrices += Primitive.Pose->Matrices.size();
+		ResolvedTable.UploadedBytes += Bytes;
+		++ResolvedTable.UploadedPalettes;
+		ResolvedTable.UploadedMatrices += Primitive.Pose->Matrices.size();
 		return ESkeletalPaletteResolveResult::Uploaded;
 	}
 } // namespace Durin::RendererPrivate

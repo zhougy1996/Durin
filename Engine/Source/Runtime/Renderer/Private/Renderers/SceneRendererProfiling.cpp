@@ -4,6 +4,7 @@ namespace Durin
 {
 	namespace
 	{
+		thread_local FRendererQualificationPolicy GRendererQualificationPolicy;
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
@@ -19,7 +20,23 @@ namespace Durin
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
 		std::atomic<FDeferredDirectionalCaptureSink> GDeferredDirectionalCaptureSink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionCaptureSink> GGroundTruthAmbientOcclusionCaptureSink = nullptr;
-		std::atomic<FVolumetricCloudPreparationSink> GVolumetricCloudPreparationSink = nullptr;
+	}
+
+	FScopedRendererQualificationPolicy::FScopedRendererQualificationPolicy(
+		FRendererQualificationPolicy Policy)
+		: Previous(GRendererQualificationPolicy)
+	{
+		GRendererQualificationPolicy = Policy;
+	}
+
+	FScopedRendererQualificationPolicy::~FScopedRendererQualificationPolicy()
+	{
+		GRendererQualificationPolicy = Previous;
+	}
+
+	auto GetRendererQualificationPolicy() -> FRendererQualificationPolicy
+	{
+		return GRendererQualificationPolicy;
 	}
 	auto SetSceneColorTimingQuerySink(FSceneColorTimingQuerySink Sink) -> void
 	{
@@ -134,13 +151,6 @@ namespace Durin
 		);
 	}
 
-	auto SetVolumetricCloudPreparationSink(
-		FVolumetricCloudPreparationSink Sink
-	) -> void
-	{
-		GVolumetricCloudPreparationSink.store(Sink, std::memory_order_release);
-	}
-
 #define DURIN_DEFINE_SINK_GETTER(Name, Type, Storage) \
 	auto Name() -> Type { return Storage.load(std::memory_order_acquire); }
 	DURIN_DEFINE_SINK_GETTER(GetSceneColorTimingQuerySink,
@@ -178,8 +188,6 @@ namespace Durin
 	DURIN_DEFINE_SINK_GETTER(GetGroundTruthAmbientOcclusionCaptureSink,
 		FGroundTruthAmbientOcclusionCaptureSink,
 		GGroundTruthAmbientOcclusionCaptureSink)
-	DURIN_DEFINE_SINK_GETTER(GetVolumetricCloudPreparationSink,
-		FVolumetricCloudPreparationSink, GVolumetricCloudPreparationSink)
 #undef DURIN_DEFINE_SINK_GETTER
 
 } // namespace Durin

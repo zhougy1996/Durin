@@ -8,7 +8,7 @@ namespace Durin
 	struct FResolvedStaticMeshView;
 	struct FPreparedSkeletalMeshView;
 	struct FResolvedSkeletalMeshView;
-	struct FPreparedSkeletalPaletteTable;
+	struct FResolvedSkeletalPaletteTable;
 	struct FPreparedTerrainView;
 	struct FResolvedTerrainView;
 
@@ -45,7 +45,7 @@ namespace Durin
 	auto ReduceSkeletalMeshTelemetry(
 		const FPreparedSkeletalMeshView& Prepared,
 		const FResolvedSkeletalMeshView& Resolved,
-		const FPreparedSkeletalPaletteTable& Palettes,
+		const FResolvedSkeletalPaletteTable& Palettes,
 		FViewRenderCounters& Counters) -> void;
 	auto ReduceTerrainTelemetry(
 		const FPreparedTerrainView& Prepared,

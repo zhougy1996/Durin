@@ -6,12 +6,28 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <string_view>
 #include <vector>
 
 namespace Durin
 {
 	class FRendererResourceCoordinator;
+
+	enum class ERendererTransientTargetGroup : uint8
+	{
+		Scene,
+		GBuffer,
+		GroundTruthAmbientOcclusion,
+		ContactFragment,
+		ContactCompute,
+		VolumetricCloudShadowFragment,
+		VolumetricCloudShadowCompute,
+		DeferredDirectional,
+		GBufferDebug,
+		VolumetricCloudFragment,
+		VolumetricCloudCompute,
+		VolumetricCloudComposite,
+		Count,
+	};
 
 	class RENDERER_API FRendererTransientTargetPool final
 	{
@@ -33,10 +49,11 @@ namespace Durin
 		~FRendererTransientTargetPool();
 
 		auto AcquireBundle_RenderThread(
-			std::string_view Group,
+			ERendererTransientTargetGroup Group,
 			std::span<const FRHITextureCreateDesc> Descriptions,
 			uint64 MaximumRetainedBytes) -> std::optional<FLease>;
-		auto GetRetainedBytes_RenderThread(std::string_view Group) const -> uint64;
+		auto GetRetainedBytes_RenderThread(
+			ERendererTransientTargetGroup Group) const -> uint64;
 		auto GetTotalRetainedBytes_RenderThread() const -> uint64;
 		auto Release_RenderThread() -> void;
 

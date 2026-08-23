@@ -2,7 +2,6 @@
 
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneVisibility.h"
-#include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
@@ -10,6 +9,7 @@
 #include "Renderers/VolumetricCloudRenderer.h"
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
+#include "IRendererModule.h"
 #include "Renderers/ForwardLighting.h"
 #include "IScene.h"
 #include "SceneView.h"
@@ -38,12 +38,10 @@ namespace Durin
 		FMeshDrawSortKey SortKey;
 	};
 
-	// Owns the fitted view and transactional temporal inputs for one command.
+	// Owns the fitted logical view for one command.
 	struct FPreparedViewContext
 	{
 		FSceneView View;
-		FSceneViewTemporalContext TemporalContext;
-		FSceneViewState* ViewState = nullptr;
 	};
 
 	// Represents one complete optional sky/environment input.
@@ -53,10 +51,15 @@ namespace Durin
 		FRHITexture* Texture = nullptr;
 	};
 
-	// Owns selected lights and their command-local packed uniform upload.
+	// Owns selected lights without per-submission GPU allocation state.
 	struct FPreparedLighting
 	{
 		FPreparedLightView Lights;
+	};
+
+	// Owns the command-local packed lighting upload resolved for execution.
+	struct FResolvedLighting
+	{
 		FRHIUniformBufferRange UniformBuffer;
 	};
 
@@ -86,6 +89,7 @@ namespace Durin
 	// Owns receiver execution resources separately from immutable logical preparation.
 	struct FResolvedReceiverGeometry
 	{
+		FResolvedSkeletalPaletteTable SkeletalPalettes;
 		FResolvedStaticMeshView StaticMeshes;
 		FResolvedSkeletalMeshView SkeletalMeshes;
 		FResolvedTerrainView Terrains;
@@ -94,6 +98,7 @@ namespace Durin
 	// Owns per-cascade execution resources separately from shadow membership.
 	struct FResolvedDirectionalShadow
 	{
+		bool bEnabled = false;
 		std::array<FResolvedStaticMeshView,
 			DirectionalShadowCascadeCount> StaticMeshes;
 		std::array<FResolvedSkeletalMeshView,
@@ -102,34 +107,41 @@ namespace Durin
 			DirectionalShadowCascadeCount> Terrains;
 	};
 
-	// Narrows development qualification to cloud route policy only.
-	struct FVolumetricCloudQualificationOptions
-	{
-		bool bForceFragment = false;
-	};
-
 	// Represents one complete optional cloud preparation.
 	struct FPreparedVolumetricCloud
 	{
 		FVolumetricCloudRenderer::FParameters Parameters;
 		FVolumetricCloudRenderer::FTextureBindings Textures;
 		uint64 HistoryKey = 0;
-		bool bForceFragmentForQualification = false;
 	};
 
-	// Command-local owner of all feature-bounded frame preparation.
+	// Owns cloud bindings that require Renderer resource resolution.
+	struct FResolvedVolumetricCloud
+	{
+		FVolumetricCloudRenderer::FTextureBindings Textures;
+	};
+
+	// Command-local owner of immutable feature-bounded logical preparation.
 	struct FSceneRenderPlan
 	{
 		FPreparedViewContext Context;
 		std::optional<FPreparedEnvironment> Environment;
 		FPreparedLighting Lighting;
 		FPreparedReceiverGeometry Receiver;
-		FResolvedReceiverGeometry ResolvedReceiver;
 		std::optional<FPreparedDirectionalShadow> DirectionalShadow;
-		std::optional<FResolvedDirectionalShadow> ResolvedDirectionalShadow;
 		std::optional<FPreparedVolumetricCloud> VolumetricCloud;
-		FRHITexture* VolumetricCloudShadowVisibility = nullptr;
-		FSceneRenderTelemetry Telemetry;
+	};
+
+	// Publishes either one complete logical plan or its preparation failure.
+	struct FSceneFramePreparationResult
+	{
+		ERenderViewResult Result = ERenderViewResult::Success;
+		std::optional<FSceneRenderPlan> Plan;
+
+		[[nodiscard]] auto IsSuccess() const -> bool
+		{
+			return Result == ERenderViewResult::Success && Plan.has_value();
+		}
 	};
 
 	inline auto PrepareCombinedTranslucentGeometry(

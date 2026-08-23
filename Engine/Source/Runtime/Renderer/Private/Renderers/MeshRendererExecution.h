@@ -125,21 +125,22 @@ namespace Durin::RendererPrivate
 		TResolvedView& ResolvedView
 	) -> FGeometryResolutionResult
 	{
-		ResolvedView.ResourcePreparationRejectedDraws =
-			ResolvedView.ResourcePreparationAttemptedDraws
-			- ResolvedView.ResourcePreparationSuccessfulDraws;
+		auto& Observations = ResolvedView.Observations;
+		Observations.ResourcePreparationRejectedDraws =
+			Observations.ResourcePreparationAttemptedDraws
+			- Observations.ResourcePreparationSuccessfulDraws;
 		check(
-			ResolvedView.ResourcePreparationAttemptedDraws
-			== ResolvedView.ResourcePreparationSuccessfulDraws
-				   + ResolvedView.ResourcePreparationRejectedDraws
+			Observations.ResourcePreparationAttemptedDraws
+			== Observations.ResourcePreparationSuccessfulDraws
+				   + Observations.ResourcePreparationRejectedDraws
 		);
 		return {
-			.Status = ResolvedView.ResourcePreparationRejectedDraws == 0
+			.Status = Observations.ResourcePreparationRejectedDraws == 0
 				? EGeometryResolutionStatus::Complete
 				: EGeometryResolutionStatus::Partial,
-			.AttemptedDraws = ResolvedView.ResourcePreparationAttemptedDraws,
-			.ResolvedDraws = ResolvedView.ResourcePreparationSuccessfulDraws,
-			.RejectedDraws = ResolvedView.ResourcePreparationRejectedDraws
+			.AttemptedDraws = Observations.ResourcePreparationAttemptedDraws,
+			.ResolvedDraws = Observations.ResourcePreparationSuccessfulDraws,
+			.RejectedDraws = Observations.ResourcePreparationRejectedDraws
 		};
 	}
 
@@ -150,11 +151,12 @@ namespace Durin::RendererPrivate
 		bool bExpectAllDraws = true
 	) -> void
 	{
+		const auto& Observations = ResolvedView.Observations;
 		check(
-			ResolvedView.AttemptedDraws
-			== ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws
+			Observations.AttemptedDraws
+			== Observations.SuccessfulDraws + Observations.RejectedDraws
 		);
-		check(!bExpectAllDraws || ResolvedView.AttemptedDraws == ExpectedDraws);
+		check(!bExpectAllDraws || Observations.AttemptedDraws == ExpectedDraws);
 	}
 
 } // namespace Durin::RendererPrivate

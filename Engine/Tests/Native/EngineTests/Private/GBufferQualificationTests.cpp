@@ -599,14 +599,14 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				View.Settings.Mode.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				View.Settings.Mode.bEnableSpecularAA = bEnableSpecularAA;
-				Durin::FSceneViewRenderOptions Options;
-				Options.bEnableGBufferQualification = true;
+				Durin::FScopedRendererQualificationPolicy Qualification({
+					.bEnableGBuffer = true});
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				EXPECT_EQ(
 					Renderer.RenderView(
 						CommandList, &SpecularAAScene, View, Target, false,
-						Options),
+						{}),
 					Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
@@ -826,15 +826,15 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				Durin::EDirectionalShadowCandidate::SingleMap;
 			View.Settings.DirectionalShadow.FilterQuality =
 				Durin::EDirectionalShadowFilterQuality::Medium;
-			Durin::FSceneViewRenderOptions Options;
-			Options.bEnableGBufferQualification = true;
-			Options.bEnableDeferredDirectionalQualification = true;
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGBuffer = true,
+				.bEnableDeferredDirectional = true});
 			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, Options), Durin::ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
 		}
@@ -978,14 +978,14 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.AmbientOcclusion.Quality =
 				Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
-			Durin::FSceneViewRenderOptions Options;
-			Options.bEnableGroundTruthAmbientOcclusionQualification = true;
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGroundTruthAmbientOcclusion = true});
 			for (uint32 Frame = 0;
 				 Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, Options), Durin::ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
 		}
@@ -1136,11 +1136,11 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				View.Settings.AmbientOcclusion.Quality =
 					Durin::EGroundTruthAmbientOcclusionQuality::FullResolution;
-				Durin::FSceneViewRenderOptions Options;
-				Options.bEnableGroundTruthAmbientOcclusionQualification = true;
+				Durin::FScopedRendererQualificationPolicy Qualification({
+					.bEnableGroundTruthAmbientOcclusion = true});
 				++Durin::GRenderFrameCounterRenderThread;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, Options), Durin::ERenderViewResult::Success);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
 		);
@@ -1341,14 +1341,14 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 					bEnableProductionContactShadows;
 				View.Settings.AmbientOcclusion.Quality =
 					ProductionAmbientOcclusionQuality;
-				Durin::FSceneViewRenderOptions Options;
-				Options.bForceFragmentContactVisibility =
-					bForceProductionFragmentContact;
+				Durin::FScopedRendererQualificationPolicy Qualification({
+					.bForceFragmentContactVisibility =
+						bForceProductionFragmentContact});
 				for (uint32 Frame = 0; Frame < FrameCount; ++Frame)
 				{
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-					EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, Options), Durin::ERenderViewResult::Success);
+					EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				}
 			}

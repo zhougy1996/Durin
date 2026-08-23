@@ -334,6 +334,8 @@ namespace Durin
 		});
 		BuildTerrainBatches(Result.Opaque, Result.OpaqueBatches, View.Settings.Terrain.bDisableBatching);
 		BuildTerrainBatches(Result.Masked, Result.MaskedBatches, View.Settings.Terrain.bDisableBatching);
+		AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
+		AssignResolvedIndices(Result.OpaqueBatches, Result.MaskedBatches);
 		Result.PreparedBatches = Result.OpaqueBatches.size() + Result.MaskedBatches.size();
 		Result.BatchChunks = Result.PreparedBatches;
 		for (const auto* Batches : {&Result.OpaqueBatches, &Result.MaskedBatches})
@@ -433,13 +435,13 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.Texture, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, Payload->Width, Payload->Height),
 				Payload->Width * sizeof(uint16), std::as_bytes(std::span(Payload->Samples)));
-			ResolvedView.HeightUploadBytes += Payload->GetSampleBytes();
-			++ResolvedView.HeightUploads;
+			ResolvedView.Observations.HeightUploadBytes += Payload->GetSampleBytes();
+			++ResolvedView.Observations.HeightUploads;
 			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;
 		}
 		else
-			++ResolvedView.HeightReuses;
-		ResolvedView.HeightPreparationNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.Observations.HeightReuses;
+		ResolvedView.Observations.HeightPreparationNanoseconds += std::chrono::duration_cast<
 												 std::chrono::nanoseconds>(
 												 std::chrono::steady_clock::now() - HeightBegin
 		)
@@ -470,14 +472,14 @@ namespace Durin
 				|| !Candidate->VertexFactory.Initialize(Candidate->Vertices, static_cast<uint32>(TopologyData.Vertices.size()))) return false;
 			Candidate->VertexFactory.InitResource(CommandList);
 			if (!Candidate->VertexFactory.IsReady()) return false;
-			ResolvedView.TopologyBytes += TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])
+			ResolvedView.Observations.TopologyBytes += TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])
 								  + TopologyData.Indices.size() * sizeof(uint16);
-			++ResolvedView.TopologyCreations;
+			++ResolvedView.Observations.TopologyCreations;
 			TopologyIt = State->Topologies.emplace(TopologyKey, std::move(Candidate)).first;
 		}
 		else
-			++ResolvedView.TopologyReuses;
-		ResolvedView.TopologyPreparationNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.Observations.TopologyReuses;
+		ResolvedView.Observations.TopologyPreparationNanoseconds += std::chrono::duration_cast<
 												   std::chrono::nanoseconds>(
 												   std::chrono::steady_clock::now() - TopologyBegin
 		)
@@ -492,7 +494,7 @@ namespace Durin
 			);
 			using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
 			bool bShaderCreated = false;
-			++ResolvedView.ShaderLookups;
+			++ResolvedView.Observations.ShaderLookups;
 			auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(), [this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
 				bShaderCreated = true;
 				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
@@ -563,8 +565,8 @@ namespace Durin
 						OpaqueShadowFragment, Candidate.Map.get()};
 				return FShaderResult::Success(std::move(Candidate)); }, ReportRendererResourceCreateDiagnostic);
 			if (!Shader) return false;
-			bShaderCreated ? ++ResolvedView.ShaderCreations : ++ResolvedView.ShaderReuses;
-			ResolvedView.ShaderPreparationNanoseconds += std::chrono::duration_cast<
+			bShaderCreated ? ++ResolvedView.Observations.ShaderCreations : ++ResolvedView.Observations.ShaderReuses;
+			ResolvedView.Observations.ShaderPreparationNanoseconds += std::chrono::duration_cast<
 													 std::chrono::nanoseconds>(
 													 std::chrono::steady_clock::now() - ShaderBegin
 			)
@@ -581,7 +583,7 @@ namespace Durin
 			FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
 			Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
 			bool bPipelineCreated = false;
-			++ResolvedView.PipelineLookups;
+			++ResolvedView.Observations.PipelineLookups;
 			auto* Pipeline = PipelineEntry.Slot.Resolve(Generation, [&EffectivePipelineKey, &PipelineEntry, Shader, &TopologyIt, bShadowDepth, &bPipelineCreated]() -> FPipelineResult {
 				bPipelineCreated = true;
 				FState::FPipelinePayload Candidate;
@@ -621,8 +623,8 @@ namespace Durin
 				return Candidate.Pipeline ? FPipelineResult::Success(std::move(Candidate))
 					: FPipelineResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "TerrainPipeline", "terrain", "Pipeline creation returned null.", ERenderResourceGenerationDependency::Device)); }, ReportRendererResourceCreateDiagnostic);
 			if (!Pipeline) return false;
-			bPipelineCreated ? ++ResolvedView.PipelineCreations : ++ResolvedView.PipelineReuses;
-			ResolvedView.PipelinePreparationNanoseconds += std::chrono::duration_cast<
+			bPipelineCreated ? ++ResolvedView.Observations.PipelineCreations : ++ResolvedView.Observations.PipelineReuses;
+			ResolvedView.Observations.PipelinePreparationNanoseconds += std::chrono::duration_cast<
 													   std::chrono::nanoseconds>(
 													   std::chrono::steady_clock::now() - PipelineBegin
 			)
@@ -644,14 +646,16 @@ namespace Durin
 	) -> FGeometryResolutionResult
 	{
 		const auto Begin = std::chrono::steady_clock::now();
-		ResolvedView.PreparedBatches = View.PreparedBatches;
-		ResolvedView.BatchChunks = View.BatchChunks;
-		ResolvedView.InstanceCount = View.InstanceCount;
-		ResolvedView.ResourceAttemptedDraws = View.GetNumDraws();
+		ResolvedView.Draws.resize(View.GetNumDraws());
+		ResolvedView.ReadyBatches.resize(View.PreparedBatches);
+		ResolvedView.Observations.PreparedBatches = View.PreparedBatches;
+		ResolvedView.Observations.BatchChunks = View.BatchChunks;
+		ResolvedView.Observations.InstanceCount = View.InstanceCount;
+		ResolvedView.Observations.ResourceAttemptedDraws = View.GetNumDraws();
 		for (auto [Draws, Batches] : {std::pair{&View.Opaque, &View.OpaqueBatches}, std::pair{&View.Masked, &View.MaskedBatches}})
 			for (const auto& Batch : *Batches)
 			{
-				++ResolvedView.ResourceAttemptedBatches;
+				++ResolvedView.Observations.ResourceAttemptedBatches;
 				if (Batch.DrawIndices.empty()) continue;
 				const FPreparedTerrainDraw& FirstDraw =
 					(*Draws)[Batch.DrawIndices.front()];
@@ -660,8 +664,11 @@ namespace Durin
 						FirstDraw.Material, MaterialBinding,
 						"TerrainMaterialBinding"))
 					continue;
-				ResolvedView.MaterialBindings.emplace(
-					&FirstDraw, std::move(MaterialBinding));
+				for (uint32 DrawIndex : Batch.DrawIndices)
+				{
+					ResolvedView.Draws[(*Draws)[DrawIndex].ResolvedIndex]
+						.MaterialBinding = MaterialBinding;
+				}
 				const bool bPrepareForwardPipeline =
 					bPrepareLitOpaqueForward
 					|| FirstDraw.Material.PipelineIdentity.ShaderMap.ShadingModel
@@ -672,11 +679,12 @@ namespace Durin
 				);
 				if (bReady)
 				{
-					ResolvedView.ReadyBatches.insert(&Batch);
+					ResolvedView.ReadyBatches[Batch.ResolvedIndex] = true;
 					for (uint32 DrawIndex : Batch.DrawIndices)
-						ResolvedView.ReadyDraws.insert(&(*Draws)[DrawIndex]);
-					++ResolvedView.ResourceSuccessfulBatches;
-					ResolvedView.ResourceSuccessfulDraws += Batch.DrawIndices.size();
+						ResolvedView.Draws[(*Draws)[DrawIndex].ResolvedIndex]
+							.bReady = true;
+					++ResolvedView.Observations.ResourceSuccessfulBatches;
+					ResolvedView.Observations.ResourceSuccessfulDraws += Batch.DrawIndices.size();
 				}
 			}
 		for (const auto& Draw : View.Translucent)
@@ -686,26 +694,26 @@ namespace Durin
 					Draw.Material, MaterialBinding,
 					"TerrainMaterialBinding"))
 				continue;
-			ResolvedView.MaterialBindings.emplace(
-				&Draw, std::move(MaterialBinding));
+			ResolvedView.Draws[Draw.ResolvedIndex].MaterialBinding =
+				std::move(MaterialBinding);
 			const bool bReady = EnsureDrawResources_RenderThread(
 				CommandList, Draw, ResolvedView);
-			if (bReady) ResolvedView.ReadyDraws.insert(&Draw);
-			ResolvedView.ResourceSuccessfulDraws += bReady ? 1u : 0u;
+			ResolvedView.Draws[Draw.ResolvedIndex].bReady = bReady;
+			ResolvedView.Observations.ResourceSuccessfulDraws += bReady ? 1u : 0u;
 		}
-		ResolvedView.ResourceRejectedBatches =
-			ResolvedView.ResourceAttemptedBatches - ResolvedView.ResourceSuccessfulBatches;
-		ResolvedView.ResourceRejectedDraws = ResolvedView.ResourceAttemptedDraws - ResolvedView.ResourceSuccessfulDraws;
-		ResolvedView.ResourcePreparationNanoseconds = std::chrono::duration_cast<
+		ResolvedView.Observations.ResourceRejectedBatches =
+			ResolvedView.Observations.ResourceAttemptedBatches - ResolvedView.Observations.ResourceSuccessfulBatches;
+		ResolvedView.Observations.ResourceRejectedDraws = ResolvedView.Observations.ResourceAttemptedDraws - ResolvedView.Observations.ResourceSuccessfulDraws;
+		ResolvedView.Observations.ResourcePreparationNanoseconds = std::chrono::duration_cast<
 												  std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												  .count();
 		return {
-			.Status = ResolvedView.ResourceRejectedDraws == 0
+			.Status = ResolvedView.Observations.ResourceRejectedDraws == 0
 				? EGeometryResolutionStatus::Complete
 				: EGeometryResolutionStatus::Partial,
-			.AttemptedDraws = ResolvedView.ResourceAttemptedDraws,
-			.ResolvedDraws = ResolvedView.ResourceSuccessfulDraws,
-			.RejectedDraws = ResolvedView.ResourceRejectedDraws
+			.AttemptedDraws = ResolvedView.Observations.ResourceAttemptedDraws,
+			.ResolvedDraws = ResolvedView.Observations.ResourceSuccessfulDraws,
+			.RejectedDraws = ResolvedView.Observations.ResourceRejectedDraws
 		};
 	}
 
@@ -745,14 +753,16 @@ namespace Durin
 	{
 		const auto Begin = std::chrono::steady_clock::now();
 		check(View.Translucent.empty());
-		ResolvedView.PreparedBatches = View.PreparedBatches;
-		ResolvedView.BatchChunks = View.BatchChunks;
-		ResolvedView.InstanceCount = View.InstanceCount;
-		ResolvedView.ResourceAttemptedDraws = View.GetNumDraws();
+		ResolvedView.Draws.resize(View.GetNumDraws());
+		ResolvedView.ReadyBatches.resize(View.PreparedBatches);
+		ResolvedView.Observations.PreparedBatches = View.PreparedBatches;
+		ResolvedView.Observations.BatchChunks = View.BatchChunks;
+		ResolvedView.Observations.InstanceCount = View.InstanceCount;
+		ResolvedView.Observations.ResourceAttemptedDraws = View.GetNumDraws();
 		for (auto [Draws, Batches] : {std::pair{&View.Opaque, &View.OpaqueBatches}, std::pair{&View.Masked, &View.MaskedBatches}})
 			for (const auto& Batch : *Batches)
 			{
-				++ResolvedView.ResourceAttemptedBatches;
+				++ResolvedView.Observations.ResourceAttemptedBatches;
 				if (Batch.DrawIndices.empty()) continue;
 				const FPreparedTerrainDraw& FirstDraw =
 					(*Draws)[Batch.DrawIndices.front()];
@@ -761,34 +771,38 @@ namespace Durin
 						FirstDraw.Material, MaterialBinding,
 						"TerrainShadowMaterialBinding"))
 					continue;
-				ResolvedView.MaterialBindings.emplace(
-					&FirstDraw, std::move(MaterialBinding));
+				for (uint32 DrawIndex : Batch.DrawIndices)
+				{
+					ResolvedView.Draws[(*Draws)[DrawIndex].ResolvedIndex]
+						.MaterialBinding = MaterialBinding;
+				}
 				const bool bReady = EnsureDrawResources_RenderThread(
 					CommandList, FirstDraw, ResolvedView, true
 				);
 				if (bReady)
 				{
-					ResolvedView.ReadyBatches.insert(&Batch);
+					ResolvedView.ReadyBatches[Batch.ResolvedIndex] = true;
 					for (uint32 DrawIndex : Batch.DrawIndices)
-						ResolvedView.ReadyDraws.insert(&(*Draws)[DrawIndex]);
-					++ResolvedView.ResourceSuccessfulBatches;
-					ResolvedView.ResourceSuccessfulDraws += Batch.DrawIndices.size();
+						ResolvedView.Draws[(*Draws)[DrawIndex].ResolvedIndex]
+							.bReady = true;
+					++ResolvedView.Observations.ResourceSuccessfulBatches;
+					ResolvedView.Observations.ResourceSuccessfulDraws += Batch.DrawIndices.size();
 				}
 			}
-		ResolvedView.ResourceRejectedBatches =
-			ResolvedView.ResourceAttemptedBatches - ResolvedView.ResourceSuccessfulBatches;
-		ResolvedView.ResourceRejectedDraws =
-			ResolvedView.ResourceAttemptedDraws - ResolvedView.ResourceSuccessfulDraws;
-		ResolvedView.ResourcePreparationNanoseconds = std::chrono::duration_cast<
+		ResolvedView.Observations.ResourceRejectedBatches =
+			ResolvedView.Observations.ResourceAttemptedBatches - ResolvedView.Observations.ResourceSuccessfulBatches;
+		ResolvedView.Observations.ResourceRejectedDraws =
+			ResolvedView.Observations.ResourceAttemptedDraws - ResolvedView.Observations.ResourceSuccessfulDraws;
+		ResolvedView.Observations.ResourcePreparationNanoseconds = std::chrono::duration_cast<
 												  std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												  .count();
 		return {
-			.Status = ResolvedView.ResourceRejectedDraws == 0
+			.Status = ResolvedView.Observations.ResourceRejectedDraws == 0
 				? EGeometryResolutionStatus::Complete
 				: EGeometryResolutionStatus::Partial,
-			.AttemptedDraws = ResolvedView.ResourceAttemptedDraws,
-			.ResolvedDraws = ResolvedView.ResourceSuccessfulDraws,
-			.RejectedDraws = ResolvedView.ResourceRejectedDraws
+			.AttemptedDraws = ResolvedView.Observations.ResourceAttemptedDraws,
+			.ResolvedDraws = ResolvedView.Observations.ResourceSuccessfulDraws,
+			.RejectedDraws = ResolvedView.Observations.ResourceRejectedDraws
 		};
 	}
 
@@ -806,29 +820,29 @@ namespace Durin
 			for (const auto& Batch : *Batches)
 			{
 				const auto Begin = std::chrono::steady_clock::now();
-				++ResolvedView.AttemptedDraws;
-				++ResolvedView.InstanceAllocations;
-				ResolvedView.InstanceBytes += Batch.DrawIndices.size()
+				++ResolvedView.Observations.AttemptedDraws;
+				++ResolvedView.Observations.InstanceAllocations;
+				ResolvedView.Observations.InstanceBytes += Batch.DrawIndices.size()
 									  * sizeof(FTerrainInstanceData);
 				uint64 DynamicNanoseconds = 0;
 				if (DrawBatch_RenderThread(CommandList, ShadowView,
 					FallbackLighting, ERenderMode::Unlit, *Draws, Batch,
 					ResolvedView, true, &DynamicNanoseconds))
 				{
-					++ResolvedView.SuccessfulDraws;
-					ResolvedView.SubmittedLogicalPatches += Batch.DrawIndices.size();
+					++ResolvedView.Observations.SuccessfulDraws;
+					ResolvedView.Observations.SubmittedLogicalPatches += Batch.DrawIndices.size();
 				}
 				else
 				{
 					bComplete = false;
-					++ResolvedView.RejectedDraws;
+					++ResolvedView.Observations.RejectedDraws;
 				}
-				ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
-				ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
+				ResolvedView.Observations.DynamicAllocationNanoseconds += DynamicNanoseconds;
+				ResolvedView.Observations.CommandRecordingNanoseconds += std::chrono::duration_cast<
 														std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 														.count();
 			}
-		check(ResolvedView.AttemptedDraws == ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws);
+		check(ResolvedView.Observations.AttemptedDraws == ResolvedView.Observations.SuccessfulDraws + ResolvedView.Observations.RejectedDraws);
 		return bComplete;
 	}
 
@@ -1030,23 +1044,23 @@ namespace Durin
 	) -> void
 	{
 		const auto Begin = std::chrono::steady_clock::now();
-		++ResolvedView.AttemptedDraws;
-		++ResolvedView.ScalarTranslucentDraws;
-		++ResolvedView.InstanceAllocations;
-		++ResolvedView.InstanceCount;
-		ResolvedView.InstanceBytes += sizeof(FTerrainInstanceData);
+		++ResolvedView.Observations.AttemptedDraws;
+		++ResolvedView.Observations.ScalarTranslucentDraws;
+		++ResolvedView.Observations.InstanceAllocations;
+		++ResolvedView.Observations.InstanceCount;
+		ResolvedView.Observations.InstanceBytes += sizeof(FTerrainInstanceData);
 		uint64 DynamicNanoseconds = 0;
 		if (Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode,
 			Draw, ResolvedView, false, {}, &DynamicNanoseconds, nullptr,
 			bHybridRetained))
 		{
-			++ResolvedView.SuccessfulDraws;
-			++ResolvedView.SubmittedLogicalPatches;
+			++ResolvedView.Observations.SuccessfulDraws;
+			++ResolvedView.Observations.SubmittedLogicalPatches;
 		}
 		else
-			++ResolvedView.RejectedDraws;
-		ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
-		ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.Observations.RejectedDraws;
+		ResolvedView.Observations.DynamicAllocationNanoseconds += DynamicNanoseconds;
+		ResolvedView.Observations.CommandRecordingNanoseconds += std::chrono::duration_cast<
 												std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												.count();
 	}
@@ -1060,21 +1074,21 @@ namespace Durin
 		for (const auto& Batch : Batches)
 		{
 			const auto Begin = std::chrono::steady_clock::now();
-			++ResolvedView.AttemptedDraws;
-			++ResolvedView.InstanceAllocations;
-			ResolvedView.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceData);
+			++ResolvedView.Observations.AttemptedDraws;
+			++ResolvedView.Observations.InstanceAllocations;
+			ResolvedView.Observations.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceData);
 			uint64 DynamicNanoseconds = 0;
 			if (DrawBatch_RenderThread(CommandList, SceneView, Lighting,
 				RenderMode, Draws, Batch, ResolvedView, false,
 				&DynamicNanoseconds))
 			{
-				++ResolvedView.SuccessfulDraws;
-				ResolvedView.SubmittedLogicalPatches += Batch.DrawIndices.size();
+				++ResolvedView.Observations.SuccessfulDraws;
+				ResolvedView.Observations.SubmittedLogicalPatches += Batch.DrawIndices.size();
 			}
 			else
-				++ResolvedView.RejectedDraws;
-			ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
-			ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
+				++ResolvedView.Observations.RejectedDraws;
+			ResolvedView.Observations.DynamicAllocationNanoseconds += DynamicNanoseconds;
+			ResolvedView.Observations.CommandRecordingNanoseconds += std::chrono::duration_cast<
 													std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 													.count();
 		}
@@ -1091,7 +1105,7 @@ namespace Durin
 		check(CommandList.IsInsideRenderPass());
 		bool bComplete = true;
 		bool bRenderedGeometry = false;
-		ResolvedView.GBufferSkippedDraws += View.Translucent.size();
+		ResolvedView.Observations.GBufferSkippedDraws += View.Translucent.size();
 		for (auto [Draws, Batches] : {
 				 std::pair{&View.Opaque, &View.OpaqueBatches},
 				 std::pair{&View.Masked, &View.MaskedBatches}
@@ -1103,8 +1117,8 @@ namespace Durin
 					|| Batch.DrawIndices.front() >= Draws->size())
 				{
 					bComplete = false;
-					++ResolvedView.GBufferAttemptedDraws;
-					++ResolvedView.GBufferRejectedDraws;
+					++ResolvedView.Observations.GBufferAttemptedDraws;
+					++ResolvedView.Observations.GBufferRejectedDraws;
 					continue;
 				}
 				const FPreparedTerrainDraw& Draw =
@@ -1112,10 +1126,10 @@ namespace Durin
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
-					++ResolvedView.GBufferSkippedDraws;
+					++ResolvedView.Observations.GBufferSkippedDraws;
 					continue;
 				}
-				++ResolvedView.GBufferAttemptedDraws;
+				++ResolvedView.Observations.GBufferAttemptedDraws;
 				if (DrawBatch_RenderThread(
 						CommandList,
 						SceneView,
@@ -1130,27 +1144,27 @@ namespace Durin
 					))
 				{
 					bRenderedGeometry = true;
-					++ResolvedView.GBufferSuccessfulDraws;
+					++ResolvedView.Observations.GBufferSuccessfulDraws;
 				}
 				else
 				{
 					bComplete = false;
-					++ResolvedView.GBufferRejectedDraws;
+					++ResolvedView.Observations.GBufferRejectedDraws;
 				}
 			}
 		}
-		check(ResolvedView.GBufferAttemptedDraws == ResolvedView.GBufferSuccessfulDraws + ResolvedView.GBufferRejectedDraws);
+		check(ResolvedView.Observations.GBufferAttemptedDraws == ResolvedView.Observations.GBufferSuccessfulDraws + ResolvedView.Observations.GBufferRejectedDraws);
 		return {bComplete, bRenderedGeometry,
-			ResolvedView.GBufferAttemptedDraws,
-			ResolvedView.GBufferSuccessfulDraws,
-			ResolvedView.GBufferRejectedDraws,
-			ResolvedView.GBufferSkippedDraws};
+			ResolvedView.Observations.GBufferAttemptedDraws,
+			ResolvedView.Observations.GBufferSuccessfulDraws,
+			ResolvedView.Observations.GBufferRejectedDraws,
+			ResolvedView.Observations.GBufferSkippedDraws};
 	}
 
 	auto FTerrainRenderer::FinalizeExecution_RenderThread(
 		FResolvedTerrainView& ResolvedView) -> void
 	{
-		check(ResolvedView.AttemptedDraws == ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws);
+		check(ResolvedView.Observations.AttemptedDraws == ResolvedView.Observations.SuccessfulDraws + ResolvedView.Observations.RejectedDraws);
 	}
 
 	auto FTerrainRenderer::ReleaseResources_RenderThread() -> void

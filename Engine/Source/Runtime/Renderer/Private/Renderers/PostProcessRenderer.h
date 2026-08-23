@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -49,7 +50,7 @@ namespace Durin
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList) -> bool;
 		auto EnsureSceneTargets_RenderThread(uint32 Width, uint32 Height)
-			-> FSceneTargets*;
+			-> std::optional<FSceneTargets>;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,

@@ -57,9 +57,10 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
 		FTerrainRenderer& Terrains,
-		FPreparedDirectionalShadow& Shadow,
+		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
-		FPreparedSkeletalPaletteTable& Palettes,
+		const FPreparedSkeletalPaletteTable& PreparedPalettes,
+		FResolvedSkeletalPaletteTable& ResolvedPalettes,
 		FViewRenderCounters& Counters) -> bool
 	{
 		check(IsInRenderingThread());
@@ -132,12 +133,12 @@ namespace Durin
 				CommandList.TransitionTextures(InitialTransition);
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
+		ResolvedShadow.bEnabled = false;
 		if (!Shadow.View.bEnabled) return false;
 		++Counters.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
 			++Counters.ShadowResourceFailures;
-			Shadow.View.bEnabled = false;
 			return false;
 		}
 		++Counters.ShadowResourceSuccesses;
@@ -156,7 +157,7 @@ namespace Durin
 				CommandList, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
 			bReady = SkeletalMeshes.PrepareShadowResources_RenderThread(
-				CommandList, Palettes,
+				CommandList, PreparedPalettes, ResolvedPalettes,
 				Shadow.SkeletalMeshes[Cascade],
 				ResolvedShadow.SkeletalMeshes[Cascade]) && bReady;
 			bReady = Terrains.PrepareShadowResources_RenderThread(
@@ -166,8 +167,8 @@ namespace Durin
 		if (!bReady)
 		{
 			++Counters.ShadowPreparationFailures;
-			Shadow.View.bEnabled = false;
 		}
+		ResolvedShadow.bEnabled = bReady;
 		return bReady;
 	}
 
@@ -176,13 +177,13 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
 		FTerrainRenderer& Terrains,
-		FPreparedDirectionalShadow& Shadow,
+		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
 		FViewRenderCounters& Counters) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
 		FState::FResources* Resources = State->Resources.GetPayload();
-		if (!Shadow.View.bEnabled || Resources == nullptr
+		if (!ResolvedShadow.bEnabled || Resources == nullptr
 			|| Resources->Target == nullptr) return false;
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
@@ -226,13 +227,13 @@ namespace Durin
 			CommandList.EndRenderPass();
 			auto& CascadeCounters = Counters.ShadowCascades[CascadeIndex];
 			CascadeCounters.AttemptedDraws =
-				ResolvedShadow.StaticMeshes[CascadeIndex].AttemptedDraws
-				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].AttemptedDraws
-					+ ResolvedShadow.Terrains[CascadeIndex].AttemptedDraws;
+				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws
+				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.AttemptedDraws
+					+ ResolvedShadow.Terrains[CascadeIndex].Observations.AttemptedDraws;
 			CascadeCounters.SuccessfulDraws =
-				ResolvedShadow.StaticMeshes[CascadeIndex].SuccessfulDraws
-				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].SuccessfulDraws
-					+ ResolvedShadow.Terrains[CascadeIndex].SuccessfulDraws;
+				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.SuccessfulDraws
+				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.SuccessfulDraws
+					+ ResolvedShadow.Terrains[CascadeIndex].Observations.SuccessfulDraws;
 			CascadeCounters.RejectedDraws =
 				CascadeCounters.AttemptedDraws
 					- CascadeCounters.SuccessfulDraws;

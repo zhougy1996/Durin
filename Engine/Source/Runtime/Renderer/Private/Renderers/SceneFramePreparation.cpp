@@ -1,6 +1,5 @@
-#include "Renderers/SceneFramePreparation.h"
+#include "Renderers/FixedSceneFrameExecutor.h"
 
-#include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Engine/TerrainSceneProxy.h"
@@ -17,28 +16,14 @@
 
 namespace Durin
 {
-	auto FSceneFramePreparation::Prepare_RenderThread(
-		FSceneRenderer& Renderer,
-		FRHICommandListImmediate& CommandList,
-		FScene* Scene,
-		FSceneView& View,
-		const FSceneViewRenderOptions& Options,
-		FSceneRenderPlan& Plan
-	) const -> ERenderViewResult
-	{
-		return Renderer.PrepareView_RenderThread(
-			CommandList, Scene, View, Options, Plan
-		);
-	}
-
-	auto FSceneRenderer::PrepareView_RenderThread(
+	auto FFixedSceneFrameExecutor::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		FSceneView& RenderView,
-		const FSceneViewRenderOptions& Options,
-		FSceneRenderPlan& PreparedView
-	) -> ERenderViewResult
+		const FSceneViewRenderOptions& Options
+	) -> FSceneFramePreparationResult
 	{
+		FSceneRenderPlan PreparedView;
 		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
 		{
@@ -47,7 +32,8 @@ namespace Durin
 			if (Texture == nullptr
 				|| Texture->GetDimension() != ETextureDimension::TextureCube)
 			{
-				return ERenderViewResult::RequiredEnvironmentUnavailable;
+				return {
+					.Result = ERenderViewResult::RequiredEnvironmentUnavailable};
 			}
 			PreparedView.Environment.emplace();
 			PreparedView.Environment->SkyBox.TextureReference =
@@ -60,7 +46,7 @@ namespace Durin
 		if (Scene != nullptr)
 		{
 			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
-				*Scene, RenderView, PreparedView.Telemetry.Counters
+				*Scene, RenderView, Telemetry.Counters
 			);
 			const FSkyBoxSceneInfo* SkyBoxInfo =
 				Scene->GetActiveSkyBoxSceneInfo_RenderThread();
@@ -70,77 +56,76 @@ namespace Durin
 					.SkyBox = SkyBoxInfo->GetProxy().GetData()};
 			}
 			PreparedView.Lighting.Lights = PrepareLightView_RenderThread(
-				*Scene, RenderView, PreparedView.Telemetry.Counters
+				*Scene, RenderView, Telemetry.Counters
 			);
 			if (!PreparedView.Lighting.Lights.Directional.empty())
 			{
-				++PreparedView.Telemetry.Counters.ShadowSelectedLights;
+				++Telemetry.Counters.ShadowSelectedLights;
 				const FPreparedDirectionalLight& Selected =
 					PreparedView.Lighting.Lights.Directional.front();
 				const auto ShadowPreparationStart =
 					std::chrono::steady_clock::now();
 				PreparedView.DirectionalShadow.emplace();
-				PreparedView.ResolvedDirectionalShadow.emplace();
 				if (TryPrepareDirectionalShadowView(
 						RenderView, Selected.Id, Selected.Data,
 						PreparedView.DirectionalShadow->View
 					))
 				{
-					++PreparedView.Telemetry.Counters.ShadowValidReceiverViews;
+					++Telemetry.Counters.ShadowValidReceiverViews;
 					const size_t DiagnosticIndex = static_cast<size_t>(
 						PreparedView.DirectionalShadow->View.DiagnosticMode
 					);
 					if (DiagnosticIndex
-						< PreparedView.Telemetry.Counters.ShadowDiagnosticViews.size())
-						++PreparedView.Telemetry.Counters.ShadowDiagnosticViews[DiagnosticIndex];
-					PreparedView.Telemetry.Counters.ShadowCandidate =
+						< Telemetry.Counters.ShadowDiagnosticViews.size())
+						++Telemetry.Counters.ShadowDiagnosticViews[DiagnosticIndex];
+					Telemetry.Counters.ShadowCandidate =
 						PreparedView.DirectionalShadow->View.Candidate;
-					PreparedView.Telemetry.Counters.ShadowCascadeCount =
+					Telemetry.Counters.ShadowCascadeCount =
 						PreparedView.DirectionalShadow->View.CascadeCount;
 					const FDirectionalShadowFilter& Filter =
 						PreparedView.DirectionalShadow->View.Cascades[0].Filter;
 					const size_t QualityIndex = static_cast<size_t>(Filter.Quality);
-					if (QualityIndex < PreparedView.Telemetry.Counters.ShadowQualityViews.size())
-						++PreparedView.Telemetry.Counters.ShadowQualityViews[QualityIndex];
-					PreparedView.Telemetry.Counters.ShadowComparisonOperations +=
+					if (QualityIndex < Telemetry.Counters.ShadowQualityViews.size())
+						++Telemetry.Counters.ShadowQualityViews[QualityIndex];
+					Telemetry.Counters.ShadowComparisonOperations +=
 						Filter.ComparisonOperations;
-					PreparedView.Telemetry.Counters.ShadowTransitionComparisonOperations +=
+					Telemetry.Counters.ShadowTransitionComparisonOperations +=
 						PreparedView.DirectionalShadow->View.CascadeCount > 1 ? 2u * Filter.ComparisonOperations : Filter.ComparisonOperations;
-					PreparedView.Telemetry.Counters.ShadowGuardTexels +=
+					Telemetry.Counters.ShadowGuardTexels +=
 						Filter.GuardTexels;
-					PreparedView.Telemetry.Counters.ShadowInvalidQualityFallbacks +=
+					Telemetry.Counters.ShadowInvalidQualityFallbacks +=
 						Filter.bUsedInvalidQualityFallback ? 1u : 0u;
 					const auto DiscoveryStart = std::chrono::steady_clock::now();
 					PreparedView.DirectionalShadow->Casters =
 						PrepareDirectionalShadowCasterTable(
 							*Scene, PreparedView.DirectionalShadow->View
 						);
-					PreparedView.Telemetry.Counters.ShadowDiscoveryMembershipNanoseconds =
+					Telemetry.Counters.ShadowDiscoveryMembershipNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now() - DiscoveryStart
 						)
 												.count());
 					const auto& CasterTable = PreparedView.DirectionalShadow->Casters;
-					PreparedView.Telemetry.Counters.ShadowSceneTraversals =
+					Telemetry.Counters.ShadowSceneTraversals =
 						CasterTable.SceneTraversals;
-					PreparedView.Telemetry.Counters.ShadowUniqueSubmittedCasters =
+					Telemetry.Counters.ShadowUniqueSubmittedCasters =
 						CasterTable.UniqueSubmitted;
-					PreparedView.Telemetry.Counters.ShadowUniqueHiddenCasters =
+					Telemetry.Counters.ShadowUniqueHiddenCasters =
 						CasterTable.UniqueHidden;
-					PreparedView.Telemetry.Counters.ShadowUniqueEligibleStaticMeshCasters =
+					Telemetry.Counters.ShadowUniqueEligibleStaticMeshCasters =
 						CasterTable.UniqueEligibleStaticMeshes;
-					PreparedView.Telemetry.Counters.ShadowUniqueEligibleSplineMeshCasters =
+					Telemetry.Counters.ShadowUniqueEligibleSplineMeshCasters =
 						CasterTable.UniqueEligibleSplineMeshes;
-					PreparedView.Telemetry.Counters.ShadowUniqueEligibleSkeletalMeshCasters =
+					Telemetry.Counters.ShadowUniqueEligibleSkeletalMeshCasters =
 						CasterTable.UniqueEligibleSkeletalMeshes;
-					PreparedView.Telemetry.Counters.ShadowUniqueEligibleTerrainCasters =
+					Telemetry.Counters.ShadowUniqueEligibleTerrainCasters =
 						CasterTable.UniqueEligibleTerrains;
-					PreparedView.Telemetry.Counters.ShadowCascadeClassificationTests =
+					Telemetry.Counters.ShadowCascadeClassificationTests =
 						CasterTable.CascadeClassificationTests;
-					PreparedView.Telemetry.Counters.ShadowMembershipPopcount =
+					Telemetry.Counters.ShadowMembershipPopcount =
 						CasterTable.MembershipPopcount;
-					PreparedView.Telemetry.Counters.ShadowTemporaryBytes =
+					Telemetry.Counters.ShadowTemporaryBytes =
 						CasterTable.TemporaryBytes;
 					for (uint32 CascadeIndex = 0;
 						 CascadeIndex < PreparedView.DirectionalShadow->View.CascadeCount;
@@ -149,7 +134,7 @@ namespace Durin
 						const auto& Cascade =
 							PreparedView.DirectionalShadow->View.Cascades[CascadeIndex];
 						auto& CascadeCounters =
-							PreparedView.Telemetry.Counters.ShadowCascades[CascadeIndex];
+							Telemetry.Counters.ShadowCascades[CascadeIndex];
 						CascadeCounters.NearDepth = Cascade.NearDepth;
 						CascadeCounters.FarDepth = Cascade.FarDepth;
 						CascadeCounters.TransitionStartDepth =
@@ -159,9 +144,9 @@ namespace Durin
 						CascadeCounters.ComparisonOperations =
 							Cascade.Filter.ComparisonOperations;
 						CascadeCounters.GuardTexels = Cascade.Filter.GuardTexels;
-						PreparedView.Telemetry.Counters.ShadowBiasFallbacks +=
+						Telemetry.Counters.ShadowBiasFallbacks +=
 							Cascade.Bias.bUsedFallback ? 1u : 0u;
-						PreparedView.Telemetry.Counters.ShadowBiasClamps +=
+						Telemetry.Counters.ShadowBiasClamps +=
 							Cascade.Bias.bTotalClamped ? 1u : 0u;
 						const FDirectionalShadowCasterCandidates& Casters =
 							CasterTable.Cascades[CascadeIndex];
@@ -170,10 +155,10 @@ namespace Durin
 						CascadeCounters.CulledCasters = Casters.Culled;
 						CascadeCounters.InvalidBoundsFallbacks =
 							Casters.InvalidBoundsFallbacks;
-						PreparedView.Telemetry.Counters.ShadowSubmittedCasters += Casters.Submitted;
-						PreparedView.Telemetry.Counters.ShadowHiddenCasters += Casters.Hidden;
-						PreparedView.Telemetry.Counters.ShadowCulledCasters += Casters.Culled;
-						PreparedView.Telemetry.Counters.ShadowInvalidBoundsFallbacks +=
+						Telemetry.Counters.ShadowSubmittedCasters += Casters.Submitted;
+						Telemetry.Counters.ShadowHiddenCasters += Casters.Hidden;
+						Telemetry.Counters.ShadowCulledCasters += Casters.Culled;
+						Telemetry.Counters.ShadowInvalidBoundsFallbacks +=
 							Casters.InvalidBoundsFallbacks;
 						auto& StaticMeshes =
 							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
@@ -187,7 +172,7 @@ namespace Durin
 							ERasterMode::Solid, Casters.SplineMeshes,
 							ERenderPreparationMode::ShadowDepth
 						);
-						PreparedView.Telemetry.Counters.ShadowStaticSplinePreparationNanoseconds +=
+						Telemetry.Counters.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now()
@@ -200,7 +185,7 @@ namespace Durin
 							ERasterMode::Solid, PreparedView.Receiver.SkeletalPalettes,
 							ERenderPreparationMode::ShadowDepth
 						);
-						PreparedView.Telemetry.Counters.ShadowSkeletalPreparationNanoseconds +=
+						Telemetry.Counters.ShadowSkeletalPreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now() - SkeletalStart
@@ -211,49 +196,49 @@ namespace Durin
 							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid,
 							ERenderPreparationMode::ShadowDepth
 						);
-						PreparedView.Telemetry.Counters.ShadowTerrainLogicalPreparationNanoseconds +=
+						Telemetry.Counters.ShadowTerrainLogicalPreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now() - TerrainStart
 							)
 													.count());
-						PreparedView.Telemetry.Counters.ShadowSortingBatchingNanoseconds +=
+						Telemetry.Counters.ShadowSortingBatchingNanoseconds +=
 							StaticMeshes.SortingNanoseconds
 							+ SkeletalMeshes.SortingNanoseconds
 							+ Terrains.BatchConstructionNanoseconds;
-						PreparedView.Telemetry.Counters.
+						Telemetry.Counters.
 							ShadowStaticSplinePrimitiveFactBuilds +=
 							StaticMeshes.SharedPrimitiveFactBuilds;
-						PreparedView.Telemetry.Counters.
+						Telemetry.Counters.
 							ShadowStaticSplinePrimitiveFactReuses +=
 							StaticMeshes.SharedPrimitiveFactReuses;
-						PreparedView.Telemetry.Counters.ShadowSelectedLODFactBuilds +=
+						Telemetry.Counters.ShadowSelectedLODFactBuilds +=
 							StaticMeshes.SelectedLODFactBuilds;
-						PreparedView.Telemetry.Counters.ShadowSelectedLODFactReuses +=
+						Telemetry.Counters.ShadowSelectedLODFactReuses +=
 							StaticMeshes.SelectedLODFactReuses;
-						PreparedView.Telemetry.Counters.
+						Telemetry.Counters.
 							ShadowStaticSplineSectionFactBuilds +=
 							StaticMeshes.SharedSectionFactBuilds;
-						PreparedView.Telemetry.Counters.
+						Telemetry.Counters.
 							ShadowStaticSplineSectionFactReuses +=
 							StaticMeshes.SharedSectionFactReuses;
-						PreparedView.Telemetry.Counters.ShadowSkeletalPrimitiveFactBuilds +=
+						Telemetry.Counters.ShadowSkeletalPrimitiveFactBuilds +=
 							SkeletalMeshes.SharedPrimitiveFactBuilds;
-						PreparedView.Telemetry.Counters.ShadowSkeletalPrimitiveFactReuses +=
+						Telemetry.Counters.ShadowSkeletalPrimitiveFactReuses +=
 							SkeletalMeshes.SharedPrimitiveFactReuses;
-						PreparedView.Telemetry.Counters.ShadowSkeletalSectionFactBuilds +=
+						Telemetry.Counters.ShadowSkeletalSectionFactBuilds +=
 							SkeletalMeshes.SharedSectionFactBuilds;
-						PreparedView.Telemetry.Counters.ShadowSkeletalSectionFactReuses +=
+						Telemetry.Counters.ShadowSkeletalSectionFactReuses +=
 							SkeletalMeshes.SharedSectionFactReuses;
-						PreparedView.Telemetry.Counters.ShadowTerrainPrimitiveFactBuilds +=
+						Telemetry.Counters.ShadowTerrainPrimitiveFactBuilds +=
 							Terrains.SharedPrimitiveFactBuilds;
-						PreparedView.Telemetry.Counters.ShadowTerrainPrimitiveFactReuses +=
+						Telemetry.Counters.ShadowTerrainPrimitiveFactReuses +=
 							Terrains.SharedPrimitiveFactReuses;
-						PreparedView.Telemetry.Counters.ShadowTerrainPatchFactBuilds +=
+						Telemetry.Counters.ShadowTerrainPatchFactBuilds +=
 							Terrains.SharedPatchFactBuilds;
-						PreparedView.Telemetry.Counters.ShadowTerrainPatchFactReuses +=
+						Telemetry.Counters.ShadowTerrainPatchFactReuses +=
 							Terrains.SharedPatchFactReuses;
-						PreparedView.Telemetry.Counters.
+						Telemetry.Counters.
 							ShadowTerrainPatchClassificationTests +=
 							Terrains.PatchClassificationTests;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
@@ -288,18 +273,18 @@ namespace Durin
 						CascadeCounters.PreparedTriangles =
 							StaticMeshes.SelectedTriangles
 							+ SkeletalMeshes.SelectedTriangles + TerrainShadowTriangles;
-						PreparedView.Telemetry.Counters.ShadowPreparedStaticMeshCasters +=
+						Telemetry.Counters.ShadowPreparedStaticMeshCasters +=
 							CascadeCounters.PreparedStaticMeshCasters;
-						PreparedView.Telemetry.Counters.ShadowPreparedSplineMeshCasters +=
+						Telemetry.Counters.ShadowPreparedSplineMeshCasters +=
 							CascadeCounters.PreparedSplineMeshCasters;
-						PreparedView.Telemetry.Counters.ShadowPreparedSkeletalMeshCasters +=
+						Telemetry.Counters.ShadowPreparedSkeletalMeshCasters +=
 							CascadeCounters.PreparedSkeletalMeshCasters;
-						PreparedView.Telemetry.Counters.ShadowPreparedTerrainCasters +=
+						Telemetry.Counters.ShadowPreparedTerrainCasters +=
 							CascadeCounters.PreparedTerrainCasters;
-						PreparedView.Telemetry.Counters.ShadowPreparedTriangles +=
+						Telemetry.Counters.ShadowPreparedTriangles +=
 							CascadeCounters.PreparedTriangles;
 					}
-					PreparedView.Telemetry.Counters.ShadowLogicalPreparationNanoseconds =
+					Telemetry.Counters.ShadowLogicalPreparationNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now()
@@ -309,8 +294,8 @@ namespace Durin
 				}
 				else if (Selected.Data.bCastShadows)
 				{
-					++PreparedView.Telemetry.Counters.ShadowInvalidReceiverViews;
-					PreparedView.Telemetry.Counters.ShadowLogicalPreparationNanoseconds =
+					++Telemetry.Counters.ShadowInvalidReceiverViews;
+					Telemetry.Counters.ShadowLogicalPreparationNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now()
@@ -318,12 +303,10 @@ namespace Durin
 						)
 												.count());
 					PreparedView.DirectionalShadow.reset();
-					PreparedView.ResolvedDirectionalShadow.reset();
 				}
 				else
 				{
 					PreparedView.DirectionalShadow.reset();
-					PreparedView.ResolvedDirectionalShadow.reset();
 				}
 			}
 			PreparedView.Receiver.StaticMeshes = PrepareStaticMeshView_RenderThread(
@@ -371,77 +354,9 @@ namespace Durin
 						AddTerrainDrawOverlay(Draw);
 			}
 		}
-		const bool bRequiresDeferredOpaque =
-			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
-			&& RenderView.Settings.Mode.RasterMode == ERasterMode::Solid;
-		StaticMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.StaticMeshes,
-			PreparedView.ResolvedReceiver.StaticMeshes,
-			!bRequiresDeferredOpaque
-		);
-		SkeletalMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.SkeletalPalettes,
-			PreparedView.Receiver.SkeletalMeshes,
-			PreparedView.ResolvedReceiver.SkeletalMeshes,
-			!bRequiresDeferredOpaque
-		);
-		TerrainRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.Terrains,
-			PreparedView.ResolvedReceiver.Terrains,
-			!bRequiresDeferredOpaque
-		);
-		if (PreparedView.DirectionalShadow)
-			DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
-				TerrainRenderer, *PreparedView.DirectionalShadow,
-				*PreparedView.ResolvedDirectionalShadow,
-				PreparedView.Receiver.SkeletalPalettes, PreparedView.Telemetry.Counters
-			);
-		FRHITexture* DirectionalShadowTexture =
-			DirectionalShadowRenderer.GetTexture_RenderThread();
-		FRHISampler* DirectionalShadowSampler =
-			DirectionalShadowRenderer.GetSampler_RenderThread();
-		PreparedView.ResolvedReceiver.StaticMeshes.DirectionalShadowTexture =
-			DirectionalShadowTexture;
-		PreparedView.ResolvedReceiver.StaticMeshes.DirectionalShadowSampler =
-			DirectionalShadowSampler;
-		PreparedView.ResolvedReceiver.SkeletalMeshes.DirectionalShadowTexture =
-			DirectionalShadowTexture;
-		PreparedView.ResolvedReceiver.SkeletalMeshes.DirectionalShadowSampler =
-			DirectionalShadowSampler;
-		PreparedView.ResolvedReceiver.Terrains.DirectionalShadowTexture =
-			DirectionalShadowTexture;
-		PreparedView.ResolvedReceiver.Terrains.DirectionalShadowSampler =
-			DirectionalShadowSampler;
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
-		PreparedView.Telemetry.Counters.CombinedTranslucentGeometryDraws =
+		Telemetry.Counters.CombinedTranslucentGeometryDraws =
 			PreparedView.Receiver.TranslucentGeometry.size();
-		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
-			PreparedView.Lighting.Lights, RenderView,
-			PreparedView.DirectionalShadow
-					&& PreparedView.DirectionalShadow->View.bEnabled
-					&& DirectionalShadowTexture != nullptr
-					&& DirectionalShadowSampler != nullptr ?
-				&PreparedView.DirectionalShadow->View :
-				nullptr
-		);
-		PreparedView.Telemetry.Counters.PackedLightBytes = sizeof(Lighting);
-		PreparedView.Lighting.UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
-		if (PreparedView.Lighting.UniformBuffer.Buffer == nullptr
-			|| PreparedView.Lighting.UniformBuffer.Size != sizeof(Lighting))
-		{
-			return ERenderViewResult::RendererResourcesUnavailable;
-		}
-
-		// Every enabled view regenerates the shared fixed target before Scene Color.
-		if (PreparedView.DirectionalShadow)
-			DirectionalShadowRenderer.Render_RenderThread(
-				CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
-				TerrainRenderer, *PreparedView.DirectionalShadow,
-				*PreparedView.ResolvedDirectionalShadow,
-				PreparedView.Telemetry.Counters
-			);
 		if (Scene != nullptr)
 		{
 			FVolumetricCloudSceneData Cloud;
@@ -470,22 +385,242 @@ namespace Durin
 				PreparedView.VolumetricCloud->Textures.Weather = ResolveDimension(
 					Cloud.WeatherTexture, ETextureDimension::Texture2D
 				);
-				PreparedView.VolumetricCloud->Textures.DensitySampler =
-					VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
 			}
 		}
-		const FVolumetricCloudPreparationSink CloudPreparationSink =
-			GetVolumetricCloudPreparationSink();
-		if (CloudPreparationSink != nullptr && PreparedView.VolumetricCloud)
+		return {
+			.Result = ERenderViewResult::Success,
+			.Plan = std::move(PreparedView)};
+	}
+
+	auto FFixedSceneFrameExecutor::ResolveFrameResources_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView
+	) -> ERenderViewResult
+	{
+		const FSceneView& View = PreparedView.Context.View;
+		const bool bRequiresDeferredOpaque =
+			View.Settings.Mode.RenderMode == ERenderMode::Lit
+			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
+		StaticMeshRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.Receiver.StaticMeshes,
+			ResolvedFrame.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
+		SkeletalMeshRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.Receiver.SkeletalPalettes,
+			ResolvedFrame.Receiver.SkeletalPalettes,
+			PreparedView.Receiver.SkeletalMeshes,
+			ResolvedFrame.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
+		TerrainRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.Receiver.Terrains,
+			ResolvedFrame.Receiver.Terrains, !bRequiresDeferredOpaque);
+
+		if (PreparedView.DirectionalShadow)
 		{
-			FVolumetricCloudQualificationOptions Qualification;
-			CloudPreparationSink(Qualification);
-			PreparedView.VolumetricCloud->bForceFragmentForQualification =
-				Qualification.bForceFragment;
+			ResolvedFrame.DirectionalShadow.emplace();
+			DirectionalShadowRenderer.PrepareResources_RenderThread(
+				CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
+				TerrainRenderer, *PreparedView.DirectionalShadow,
+				*ResolvedFrame.DirectionalShadow,
+				PreparedView.Receiver.SkeletalPalettes,
+				ResolvedFrame.Receiver.SkeletalPalettes, Telemetry.Counters);
 		}
 
+		const bool bShadowReady = ResolvedFrame.DirectionalShadow
+			&& ResolvedFrame.DirectionalShadow->bEnabled;
+		FRHITexture* DirectionalShadowTexture =
+			DirectionalShadowRenderer.GetTexture_RenderThread();
+		FRHISampler* DirectionalShadowSampler =
+			DirectionalShadowRenderer.GetSampler_RenderThread();
+		ResolvedFrame.Receiver.StaticMeshes.DirectionalShadowTexture =
+			DirectionalShadowTexture;
+		ResolvedFrame.Receiver.StaticMeshes.DirectionalShadowSampler =
+			DirectionalShadowSampler;
+		ResolvedFrame.Receiver.SkeletalMeshes.DirectionalShadowTexture =
+			DirectionalShadowTexture;
+		ResolvedFrame.Receiver.SkeletalMeshes.DirectionalShadowSampler =
+			DirectionalShadowSampler;
+		ResolvedFrame.Receiver.Terrains.DirectionalShadowTexture =
+			DirectionalShadowTexture;
+		ResolvedFrame.Receiver.Terrains.DirectionalShadowSampler =
+			DirectionalShadowSampler;
+
+		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
+			PreparedView.Lighting.Lights, View,
+			bShadowReady && DirectionalShadowTexture != nullptr
+				&& DirectionalShadowSampler != nullptr
+				? &PreparedView.DirectionalShadow->View : nullptr);
+		Telemetry.Counters.PackedLightBytes = sizeof(Lighting);
+		ResolvedFrame.Lighting.UniformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
+		if (ResolvedFrame.Lighting.UniformBuffer.Buffer == nullptr
+			|| ResolvedFrame.Lighting.UniformBuffer.Size != sizeof(Lighting))
+			return ERenderViewResult::RendererResourcesUnavailable;
+
+		if (PreparedView.VolumetricCloud)
+		{
+			ResolvedFrame.VolumetricCloud.emplace();
+			ResolvedFrame.VolumetricCloud->Textures =
+				PreparedView.VolumetricCloud->Textures;
+			ResolvedFrame.VolumetricCloud->Textures.DensitySampler =
+				VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
+		}
 		return ERenderViewResult::Success;
 	}
 
+	auto FFixedSceneFrameExecutor::BuildFrameRequirements(
+		const FSceneRenderPlan& PreparedView,
+		const FSceneViewRenderOptions& Options,
+		uint32 Width,
+		uint32 Height
+	) const -> FSceneFrameRequirements
+	{
+		const FSceneView& View = PreparedView.Context.View;
+		const bool bProductionDeferred =
+			View.Settings.Mode.RenderMode == ERenderMode::Lit
+			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
+		const bool bIsolatedDeferred =
+			Qualification.bEnableDeferredDirectional
+			|| Options.DeferredDirectionalDebugMode
+				!= EDeferredDirectionalDebugMode::Disabled
+			|| Options.GroundTruthAmbientOcclusionDebugMode
+				!= EGroundTruthAmbientOcclusionDebugMode::Disabled;
+		const bool bAmbientOcclusion =
+			Qualification.bEnableGroundTruthAmbientOcclusion
+			|| Options.GroundTruthAmbientOcclusionDebugMode
+				!= EGroundTruthAmbientOcclusionDebugMode::Disabled
+			|| (bProductionDeferred
+				&& View.Settings.AmbientOcclusion.bEnabled);
+		const bool bGBuffer = Qualification.bEnableGBuffer
+			|| Options.GBufferDebugMode != EGBufferDebugMode::Disabled
+			|| bIsolatedDeferred || bProductionDeferred || bAmbientOcclusion;
+		const bool bContact = bProductionDeferred
+			&& View.Settings.DirectionalShadow.bEnableContactShadows
+			&& PreparedView.DirectionalShadow
+			&& PreparedView.DirectionalShadow->View.bEnabled;
+		const bool bForceContactFragment =
+			Qualification.bForceFragmentContactVisibility
+			|| View.Settings.DirectionalShadow.ContactRoutePreference
+				== EContactShadowRoutePreference::Fragment;
+		const bool bForceContactCompute =
+			!Qualification.bForceFragmentContactVisibility
+			&& View.Settings.DirectionalShadow.ContactRoutePreference
+				== EContactShadowRoutePreference::Compute;
+		const bool bCloudShadow = bProductionDeferred
+			&& PreparedView.VolumetricCloud
+			&& !PreparedView.Lighting.Lights.Directional.empty();
+		const bool bCloudInputs = PreparedView.VolumetricCloud
+			&& PreparedView.VolumetricCloud->Textures.BaseDensity
+			&& PreparedView.VolumetricCloud->Textures.DetailDensity;
+		const auto CloudQuality = View.Settings.VolumetricCloud.Quality
+			< EVolumetricCloudQuality::Count
+			? View.Settings.VolumetricCloud.Quality
+			: EVolumetricCloudQuality::High;
+		const auto CloudPolicy =
+			FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(CloudQuality);
+		const auto CloudExtent =
+			FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
+				Width, Height, CloudPolicy);
+		const bool bForceCloudFragment = PreparedView.VolumetricCloud
+			&& Qualification.bForceFragmentVolumetricCloud;
+		return {
+			.Width = Width,
+			.Height = Height,
+			.bGBuffer = bGBuffer,
+			.bGroundTruthAmbientOcclusion = bAmbientOcclusion,
+			.bContactFragment = bContact && !bForceContactCompute,
+			.bContactCompute = bContact && !bForceContactFragment,
+			.bVolumetricCloudShadowFragment = bCloudShadow,
+			.bVolumetricCloudShadowCompute =
+				bCloudShadow && !bForceCloudFragment,
+			.bIsolatedDeferred = bIsolatedDeferred,
+			.bGBufferDebug =
+				Options.GBufferDebugMode != EGBufferDebugMode::Disabled,
+			.bVolumetricCloudFragment = bCloudInputs,
+			.bVolumetricCloudCompute = bCloudInputs && !bForceCloudFragment,
+			.bVolumetricCloudComposite = bCloudInputs,
+			.AmbientOcclusionQuality = View.Settings.AmbientOcclusion.Quality,
+			.VolumetricCloudExtent = {
+				static_cast<int32>(CloudExtent.Width),
+				static_cast<int32>(CloudExtent.Height)}};
+	}
+
+	auto FFixedSceneFrameExecutor::ResolveFrameTargets_RenderThread(
+		const FSceneFrameRequirements& Requirements
+	) -> ERenderViewResult
+	{
+		auto& Targets = ResolvedFrame.Targets;
+		Targets.Scene = PostProcessRenderer.EnsureSceneTargets_RenderThread(
+			Requirements.Width, Requirements.Height);
+		if (!Targets.Scene || !Targets.Scene->Color || !Targets.Scene->Depth)
+			return ERenderViewResult::RendererResourcesUnavailable;
+		if (Requirements.bGBuffer)
+			Targets.GBuffer = GBufferRenderer.EnsureTargets_RenderThread(
+				Requirements.Width, Requirements.Height);
+		if (Requirements.bGroundTruthAmbientOcclusion)
+			Targets.GroundTruthAmbientOcclusion =
+				GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
+					Requirements.Width, Requirements.Height,
+					Requirements.AmbientOcclusionQuality);
+		if (Requirements.bContactFragment)
+			Targets.ContactFragment = ContactShadowRenderer.EnsureTargets_RenderThread(
+				Requirements.Width, Requirements.Height);
+		if (Requirements.bContactCompute)
+			Targets.ContactCompute =
+				ContactShadowRenderer.EnsureComputeTargets_RenderThread(
+					Requirements.Width, Requirements.Height);
+		if (Requirements.bVolumetricCloudShadowFragment)
+			Targets.VolumetricCloudShadowFragment =
+				VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(
+					Requirements.Width, Requirements.Height);
+		if (Requirements.bVolumetricCloudShadowCompute)
+			Targets.VolumetricCloudShadowCompute =
+				VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(
+					Requirements.Width, Requirements.Height);
+		if (Requirements.bIsolatedDeferred)
+			Targets.IsolatedDeferred =
+				DeferredDirectionalLightingRenderer.EnsureTargets_RenderThread(
+					Requirements.Width, Requirements.Height);
+		if (Requirements.bGBufferDebug)
+			Targets.GBufferDebug = GBufferDebugRenderer.EnsureTargets_RenderThread(
+				Requirements.Width, Requirements.Height);
+		const uint32 CloudWidth = static_cast<uint32>(
+			std::max(Requirements.VolumetricCloudExtent.x, 0));
+		const uint32 CloudHeight = static_cast<uint32>(
+			std::max(Requirements.VolumetricCloudExtent.y, 0));
+		if (Requirements.bVolumetricCloudFragment)
+			Targets.VolumetricCloudFragment =
+				VolumetricCloudRenderer.EnsureTargets_RenderThread(
+					CloudWidth, CloudHeight);
+		if (Requirements.bVolumetricCloudCompute)
+			Targets.VolumetricCloudCompute =
+				VolumetricCloudRenderer.EnsureComputeTargets_RenderThread(
+					CloudWidth, CloudHeight);
+		if (Requirements.bVolumetricCloudComposite)
+			Targets.VolumetricCloudComposite =
+				VolumetricCloudRenderer.EnsureCompositeTargets_RenderThread(
+					Requirements.Width, Requirements.Height);
+		return ERenderViewResult::Success;
+	}
+
+	auto FFixedSceneFrameExecutor::RenderDirectionalShadow_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView
+	) -> FDirectionalShadowPassResult
+	{
+		if (!PreparedView.DirectionalShadow
+			|| !ResolvedFrame.DirectionalShadow
+			|| !ResolvedFrame.DirectionalShadow->bEnabled)
+			return {};
+		DirectionalShadowRenderer.Render_RenderThread(
+			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
+			TerrainRenderer, *PreparedView.DirectionalShadow,
+			*ResolvedFrame.DirectionalShadow, Telemetry.Counters);
+		FRHITexture* Texture =
+			DirectionalShadowRenderer.GetTexture_RenderThread();
+		return {
+			.Status = Texture != nullptr
+				? EScenePassStatus::Complete : EScenePassStatus::Failed,
+			.Texture = Texture,
+			.Sampler = DirectionalShadowRenderer.GetSampler_RenderThread()};
+	}
 
 } // namespace Durin

@@ -16,6 +16,7 @@ namespace Durin
 	struct FPreparedSkeletalMeshDraw;
 	struct FPreparedSkeletalMeshPrimitive;
 	struct FPreparedSkeletalPaletteTable;
+	struct FResolvedSkeletalPaletteTable;
 	struct FMaterialRenderBinding;
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
@@ -36,7 +37,8 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedSkeletalPaletteTable& PaletteTable,
+			const FPreparedSkeletalPaletteTable& PreparedPalettes,
+			FResolvedSkeletalPaletteTable& ResolvedPalettes,
 			const FPreparedSkeletalMeshView& PreparedView,
 			FResolvedSkeletalMeshView& ResolvedView,
 			bool bPrepareLitOpaqueForward
@@ -47,7 +49,8 @@ namespace Durin
 		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedSkeletalPaletteTable& PaletteTable,
+			const FPreparedSkeletalPaletteTable& PreparedPalettes,
+			FResolvedSkeletalPaletteTable& ResolvedPalettes,
 			const FPreparedSkeletalMeshView& PreparedView,
 			FResolvedSkeletalMeshView& ResolvedView
 		) -> FGeometryResolutionResult;

@@ -17,7 +17,6 @@ namespace Durin
 	{
 		struct FTextureKey
 		{
-			std::string Group;
 			std::string Name;
 			ETextureDimension Dimension = ETextureDimension::Texture2D;
 			ETextureCreateFlags Flags = ETextureCreateFlags::None;
@@ -34,11 +33,9 @@ namespace Durin
 			auto operator==(const FTextureKey&) const -> bool = default;
 		};
 
-		auto MakeKey(std::string_view Group,
-			const FRHITextureCreateDesc& Desc) -> FTextureKey
+		auto MakeKey(const FRHITextureCreateDesc& Desc) -> FTextureKey
 		{
 			FTextureKey Key{
-				.Group = std::string(Group),
 				.Name = Desc.DebugName != nullptr ? Desc.DebugName : "Transient",
 				.Dimension = Desc.Dimension,
 				.Flags = Desc.Flags,
@@ -108,7 +105,8 @@ namespace Durin
 			TRenderResourceCreationSlot<FTextureRHIRef> Slot;
 		};
 
-		std::vector<FEntry> Entries;
+		std::array<std::vector<FEntry>,
+			static_cast<size_t>(ERendererTransientTargetGroup::Count)> Groups;
 		uint64 NextSequence = 0;
 	};
 
@@ -121,24 +119,49 @@ namespace Durin
 	FRendererTransientTargetPool::~FRendererTransientTargetPool() = default;
 
 	auto FRendererTransientTargetPool::AcquireBundle_RenderThread(
-		std::string_view Group,
+		ERendererTransientTargetGroup Group,
 		std::span<const FRHITextureCreateDesc> Descriptions,
 		uint64 MaximumRetainedBytes) -> std::optional<FLease>
 	{
 		check(IsInRenderingThread());
+		check(Group < ERendererTransientTargetGroup::Count);
 		if (Descriptions.empty()) return FLease{};
+		if (std::ranges::any_of(Descriptions, [](const auto& Desc) {
+			return Desc.Extent.x <= 0 || Desc.Extent.y <= 0;
+		})) return std::nullopt;
+		auto& Entries = State->Groups[static_cast<size_t>(Group)];
 		FLease Lease;
 		Lease.Textures.reserve(Descriptions.size());
 		std::vector<FTextureKey> ActiveKeys;
 		ActiveKeys.reserve(Descriptions.size());
+		std::vector<FTextureKey> NewKeys;
+		NewKeys.reserve(Descriptions.size());
+		auto EnforceBudget = [&](std::span<const FTextureKey> ProtectedKeys) {
+			while (MaximumRetainedBytes != 0
+				&& GetRetainedBytes_RenderThread(Group) > MaximumRetainedBytes)
+			{
+				auto Oldest = Entries.end();
+				for (auto It = Entries.begin(); It != Entries.end(); ++It)
+				{
+					if (std::ranges::find(ProtectedKeys, It->Key)
+						!= ProtectedKeys.end()) continue;
+					if (Oldest == Entries.end()
+						|| It->Sequence < Oldest->Sequence) Oldest = It;
+				}
+				if (Oldest == Entries.end()) break;
+				Entries.erase(Oldest);
+			}
+		};
 		for (const FRHITextureCreateDesc& Desc : Descriptions)
 		{
-			if (Desc.Extent.x <= 0 || Desc.Extent.y <= 0) return std::nullopt;
-			FTextureKey Key = MakeKey(Group, Desc);
-			auto It = std::ranges::find(State->Entries, Key, &FState::FEntry::Key);
-			if (It == State->Entries.end())
-				It = State->Entries.emplace(State->Entries.end(), Key,
+			FTextureKey Key = MakeKey(Desc);
+			auto It = std::ranges::find(Entries, Key, &FState::FEntry::Key);
+			if (It == Entries.end())
+			{
+				It = Entries.emplace(Entries.end(), Key,
 					State->NextSequence++, GetLogicalTextureBytes(Desc));
+				NewKeys.push_back(Key);
+			}
 			using FResult = TRenderResourceCreateResult<FTextureRHIRef>;
 			FTextureRHIRef* Texture = It->Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
@@ -152,38 +175,33 @@ namespace Durin
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}, ReportRendererResourceCreateDiagnostic);
-			if (Texture == nullptr || !*Texture) return std::nullopt;
+			if (Texture == nullptr || !*Texture)
+			{
+				std::erase_if(Entries, [&NewKeys, &Key](const FState::FEntry& Entry) {
+					return Entry.Key != Key
+						&& std::ranges::find(NewKeys, Entry.Key) != NewKeys.end();
+				});
+				EnforceBudget({});
+				return std::nullopt;
+			}
 			Lease.ActiveBytes = AddSaturated(
 				Lease.ActiveBytes, It->LogicalBytes);
 			Lease.Textures.push_back(*Texture);
 			ActiveKeys.push_back(std::move(Key));
 		}
 
-		while (MaximumRetainedBytes != 0
-			&& GetRetainedBytes_RenderThread(Group) > MaximumRetainedBytes)
-		{
-			auto Oldest = State->Entries.end();
-			for (auto It = State->Entries.begin(); It != State->Entries.end(); ++It)
-			{
-				if (It->Key.Group != Group
-					|| std::ranges::find(ActiveKeys, It->Key) != ActiveKeys.end())
-					continue;
-				if (Oldest == State->Entries.end()
-					|| It->Sequence < Oldest->Sequence) Oldest = It;
-			}
-			if (Oldest == State->Entries.end()) break;
-			State->Entries.erase(Oldest);
-		}
+		EnforceBudget(ActiveKeys);
 		return Lease;
 	}
 
 	auto FRendererTransientTargetPool::GetRetainedBytes_RenderThread(
-		std::string_view Group) const -> uint64
+		ERendererTransientTargetGroup Group) const -> uint64
 	{
+		check(Group < ERendererTransientTargetGroup::Count);
 		uint64 Total = 0;
-		for (const FState::FEntry& Entry : State->Entries)
+		for (const FState::FEntry& Entry :
+			State->Groups[static_cast<size_t>(Group)])
 		{
-			if (Entry.Key.Group != Group) continue;
 			const FTextureRHIRef* Texture = Entry.Slot.GetPayload();
 			if (Texture != nullptr && *Texture)
 				Total = AddSaturated(Total, Entry.LogicalBytes);
@@ -195,19 +213,20 @@ namespace Durin
 		-> uint64
 	{
 		uint64 Total = 0;
-		for (const FState::FEntry& Entry : State->Entries)
-		{
-			const FTextureRHIRef* Texture = Entry.Slot.GetPayload();
-			if (Texture != nullptr && *Texture)
-				Total = AddSaturated(Total, Entry.LogicalBytes);
-		}
+		for (const auto& Entries : State->Groups)
+			for (const FState::FEntry& Entry : Entries)
+			{
+				const FTextureRHIRef* Texture = Entry.Slot.GetPayload();
+				if (Texture != nullptr && *Texture)
+					Total = AddSaturated(Total, Entry.LogicalBytes);
+			}
 		return Total;
 	}
 
 	auto FRendererTransientTargetPool::Release_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->Entries.clear();
+		for (auto& Entries : State->Groups) Entries.clear();
 		State->NextSequence = 0;
 	}
 } // namespace Durin

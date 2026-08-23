@@ -1,8 +1,5 @@
 #include "Renderers/FixedSceneFrameExecutor.h"
 
-#include "Renderers/SceneRenderer.h"
-#include "Renderers/SceneFrameFinalization.h"
-#include "Renderers/SceneFramePreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -81,24 +78,32 @@ namespace Durin
 		}
 	} // namespace
 
-	auto FFixedSceneFrameExecutor::Execute_RenderThread(
-		FSceneRenderer& Renderer,
-		FRHICommandListImmediate& CommandList,
-		FScene* Scene,
-		const FSceneView& View,
-		FRHITexture* OutputTarget,
-		bool bPresentOutput,
-		const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics
-	) const -> ERenderViewResult
+	FFixedSceneFrameExecutor::FFixedSceneFrameExecutor(FSceneRenderer& Renderer)
+		: DefaultTextures(Renderer.DefaultTextures)
+		, EnvironmentLighting(Renderer.EnvironmentLighting)
+		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)
+		, GBufferRenderer(Renderer.GBufferRenderer)
+		, GBufferDebugRenderer(Renderer.GBufferDebugRenderer)
+		, DeferredDirectionalLightingRenderer(
+			Renderer.DeferredDirectionalLightingRenderer)
+		, GroundTruthAmbientOcclusionRenderer(
+			Renderer.GroundTruthAmbientOcclusionRenderer)
+		, StaticMeshRenderer(Renderer.StaticMeshRenderer)
+		, TerrainRenderer(Renderer.TerrainRenderer)
+		, SkeletalMeshRenderer(Renderer.SkeletalMeshRenderer)
+		, SkyBoxRenderer(Renderer.SkyBoxRenderer)
+		, PostProcessRenderer(Renderer.PostProcessRenderer)
+		, ContactShadowRenderer(Renderer.ContactShadowRenderer)
+		, VolumetricCloudRenderer(Renderer.VolumetricCloudRenderer)
+		, VolumetricCloudShadowRenderer(Renderer.VolumetricCloudShadowRenderer)
+		, EditorAssistanceRenderer(Renderer.EditorAssistanceRenderer)
+		, ViewStates(Renderer.ViewStates)
+		, RenderSubmissionSerial(Renderer.RenderSubmissionSerial)
+		, Qualification(GetRendererQualificationPolicy())
 	{
-		return Renderer.ExecuteFixedFrame_RenderThread(
-			CommandList, Scene, View, OutputTarget, bPresentOutput, Options,
-			OutStatistics
-		);
 	}
 
-	auto FSceneRenderer::ExecuteFixedFrame_RenderThread(
+	auto FFixedSceneFrameExecutor::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -110,15 +115,18 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
+		Telemetry = {};
+		ResolvedFrame = {};
+		TemporalContext = {};
+		ViewState = nullptr;
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++RenderSubmissionSerial;
-		FSceneRenderPlan PreparedView;
-		PreparedView.Telemetry.Counters.VolumetricCloudQuality =
+		Telemetry.Counters.VolumetricCloudQuality =
 			CanonicalizeFixedFrameCloudQuality(View.Settings.VolumetricCloud.Quality);
-		PreparedView.Telemetry.Counters.VolumetricCloudDebugMode =
+		Telemetry.Counters.VolumetricCloudDebugMode =
 			CanonicalizeFixedFrameCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
 		FSceneTelemetryPublication TelemetryPublication(
-			PreparedView.Telemetry, OutStatistics
+			Telemetry, OutStatistics
 		);
 		const uint32 Width =
 			OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
@@ -144,26 +152,18 @@ namespace Durin
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		FPostProcessRenderer::FSceneTargets* SceneTargets =
-			PostProcessRenderer.EnsureSceneTargets_RenderThread(Width, Height);
-		if (SceneTargets == nullptr || SceneTargets->Color == nullptr
-			|| SceneTargets->Depth == nullptr)
-		{
-			return ERenderViewResult::RendererResourcesUnavailable;
-		}
-		FRHITexture* SceneColor = SceneTargets->Color;
-
-		FSceneView RenderView = FitViewToOutput(View, Width, Height);
-		FSceneViewState* ViewState = ViewStates.Find(RenderView.ViewStateId);
+		FSceneView RenderView = FSceneRenderer::FitViewToOutput(
+			View, Width, Height);
+		ViewState = ViewStates.Find(RenderView.ViewStateId);
 		if (ViewState != nullptr && ViewState->IsSubmissionActive())
 		{
-			PreparedView.Context.TemporalContext.Current =
+			TemporalContext.Current =
 				BuildSceneViewTemporalMetadata(
 					RenderView, Scene, Width, Height
 				);
-			PreparedView.Context.TemporalContext.SubmissionSerial =
+			TemporalContext.SubmissionSerial =
 				RenderSubmissionSerial;
-			PreparedView.Context.TemporalContext.Discontinuities =
+			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::DuplicateSubmission;
 			ReportFixedFrameRejectedViewState(
 				"an interleaved submission for",
@@ -174,23 +174,23 @@ namespace Durin
 		FFixedFrameViewStateSubmission ViewStateSubmission(ViewState);
 		if (ViewState != nullptr)
 		{
-			PreparedView.Context.TemporalContext = ViewState->Begin(
+			TemporalContext = ViewState->Begin(
 				BuildSceneViewTemporalMetadata(
 					RenderView, Scene, Width, Height
 				),
 				RenderSubmissionSerial, RenderView.bDiscardHistory
 			);
 		}
-		else if (PreparedView.Context.TemporalContext.Discontinuities
+		else if (TemporalContext.Discontinuities
 				 != ESceneViewDiscontinuity::DuplicateSubmission)
 		{
-			PreparedView.Context.TemporalContext.Current =
+			TemporalContext.Current =
 				BuildSceneViewTemporalMetadata(
 					RenderView, Scene, Width, Height
 				);
-			PreparedView.Context.TemporalContext.SubmissionSerial =
+			TemporalContext.SubmissionSerial =
 				RenderSubmissionSerial;
-			PreparedView.Context.TemporalContext.Discontinuities =
+			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::MissingState;
 			if (RenderView.ViewStateId.IsValid())
 			{
@@ -200,29 +200,35 @@ namespace Durin
 				);
 			}
 		}
-		PreparedView.Context.ViewState = ViewState;
-		const ERenderViewResult PreparationResult = FSceneFramePreparation{}.Prepare_RenderThread(*this,
-			CommandList, Scene, RenderView, Options, PreparedView
-		);
-		if (PreparationResult != ERenderViewResult::Success)
-			return PreparationResult;
-		FRHITexture* DirectionalShadowTexture =
-			DirectionalShadowRenderer.GetTexture_RenderThread();
-		FRHISampler* DirectionalShadowSampler =
-			DirectionalShadowRenderer.GetSampler_RenderThread();
-
-		FGBufferRenderer::FTargets* GBufferTargets = nullptr;
+		FSceneFramePreparationResult Preparation = PrepareView_RenderThread(
+			CommandList, Scene, RenderView, Options);
+		if (!Preparation.IsSuccess()) return Preparation.Result;
+		const FSceneRenderPlan PreparedView = std::move(*Preparation.Plan);
+		const ERenderViewResult ResolutionResult =
+			ResolveFrameResources_RenderThread(CommandList, PreparedView);
+		if (ResolutionResult != ERenderViewResult::Success)
+			return ResolutionResult;
+		const FSceneFrameRequirements Requirements = BuildFrameRequirements(
+			PreparedView, Options, Width, Height);
+		const ERenderViewResult TargetResolutionResult =
+			ResolveFrameTargets_RenderThread(Requirements);
+		if (TargetResolutionResult != ERenderViewResult::Success)
+			return TargetResolutionResult;
+		const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+		FSceneFrameOutcome Outcome;
+		Outcome.DirectionalShadow = RenderDirectionalShadow_RenderThread(
+			CommandList, PreparedView);
 		const bool bRequiresDeferredOpaque =
 			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& RenderView.Settings.Mode.RasterMode == ERasterMode::Solid;
 		const bool bWantsIsolatedDeferred =
-			Options.bEnableDeferredDirectionalQualification
+			Qualification.bEnableDeferredDirectional
 			|| Options.DeferredDirectionalDebugMode
 				   != EDeferredDirectionalDebugMode::Disabled
 			|| Options.GroundTruthAmbientOcclusionDebugMode
 				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		const bool bWantsIsolatedGroundTruthAmbientOcclusion =
-			Options.bEnableGroundTruthAmbientOcclusionQualification
+			Qualification.bEnableGroundTruthAmbientOcclusion
 			|| Options.GroundTruthAmbientOcclusionDebugMode
 				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		const bool bWantsProductionDeferred = bRequiresDeferredOpaque;
@@ -239,161 +245,111 @@ namespace Durin
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.StaticMeshes,
-					PreparedView.ResolvedReceiver.StaticMeshes
+					ResolvedFrame.Receiver.StaticMeshes
 				)
 				&& SkeletalMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.SkeletalMeshes,
-					PreparedView.ResolvedReceiver.SkeletalMeshes
+					ResolvedFrame.Receiver.SkeletalMeshes
 				)
 				&& TerrainRenderer.PrepareHybridRetainedResources_RenderThread(
 					CommandList, PreparedView.Receiver.Terrains,
-					PreparedView.ResolvedReceiver.Terrains
+					ResolvedFrame.Receiver.Terrains
 				));
-		const bool bNeedsGBuffer = Options.bEnableGBufferQualification
+		const bool bNeedsGBuffer = Qualification.bEnableGBuffer
 								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 								   || bWantsDeferredInputs;
-		const FGBufferPassResult GBufferResult = RenderGBuffer_RenderThread(
+		Outcome.GBuffer = RenderGBuffer_RenderThread(
 			CommandList, PreparedView, SceneTargets, Options, Width, Height,
 			bNeedsGBuffer, bWantsIsolatedDeferred
 		);
-		GBufferTargets = GBufferResult.Targets;
-
-		const bool bGBufferComplete = GBufferResult.IsComplete();
-		FDeferredDirectionalLightingRenderer::FRenderParameters DeferredParameters;
-		FRHITexture* GroundTruthAmbientOcclusionFallback =
-			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
-		FRHITexture* ContactVisibilityFallback =
-			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
-		FRHITexture* GroundTruthAmbientOcclusionDebugOutput = nullptr;
-		if (bWantsDeferredInputs && GBufferTargets != nullptr)
+		const auto* GBufferTargets = Outcome.GBuffer.Targets;
+		const bool bGBufferComplete = Outcome.GBuffer.IsComplete();
+		Outcome.AmbientOcclusion =
+			RenderGroundTruthAmbientOcclusion_RenderThread(
+				CommandList, PreparedView, GBufferTargets, SceneTargets,
+				Options, Width, Height,
+				bWantsGroundTruthAmbientOcclusion, bGBufferComplete);
+		Outcome.ContactShadow = RenderContactShadows_RenderThread(
+			CommandList, PreparedView, GBufferTargets, SceneTargets,
+			Options, Width, Height, bWantsProductionDeferred,
+			bGBufferComplete, Outcome.GBuffer.bRenderedGeometry);
+		Outcome.VolumetricCloudShadow =
+			RenderVolumetricCloudShadows_RenderThread(
+				CommandList, PreparedView, SceneTargets,
+				Width, Height, bWantsProductionDeferred, bGBufferComplete);
+		const auto DeferredParameters = bWantsDeferredInputs
+			? BuildDeferredParameters(
+				PreparedView, Outcome.DirectionalShadow, Outcome.GBuffer,
+				Outcome.AmbientOcclusion, Outcome.ContactShadow,
+				Outcome.VolumetricCloudShadow, SceneTargets, Options)
+			: std::nullopt;
+		if (DeferredParameters)
 		{
-			if (bGBufferComplete)
-			{
-				FRHITexture* EnvironmentIrradiance =
-					EnvironmentLighting.GetIrradiance_RenderThread();
-				FRHITexture* EnvironmentPrefiltered =
-					EnvironmentLighting.GetPrefiltered_RenderThread();
-				FRHITexture* EnvironmentBrdfLut =
-					EnvironmentLighting.GetBrdfLut_RenderThread();
-				FRHISampler* EnvironmentSampler =
-					EnvironmentLighting.GetSampler_RenderThread();
-				if (EnvironmentIrradiance == nullptr
-					|| EnvironmentPrefiltered == nullptr
-					|| EnvironmentBrdfLut == nullptr
-					|| EnvironmentSampler == nullptr)
-				{
-					EnvironmentIrradiance = DefaultTextures.GetCube_RenderThread();
-					EnvironmentPrefiltered = DefaultTextures.GetCube_RenderThread();
-					EnvironmentBrdfLut = DefaultTextures.Get_RenderThread(
-						EDefaultTexture::Black
-					);
-					EnvironmentSampler = nullptr;
-				}
-				DeferredParameters = {
-					.Material = GBufferTargets->Material,
-					.Normals = GBufferTargets->Normals,
-					.Surface = GBufferTargets->Surface,
-					.Emissive = GBufferTargets->Emissive,
-					.Depth = SceneTargets->Depth,
-					.EnvironmentIrradiance = EnvironmentIrradiance,
-					.EnvironmentPrefiltered = EnvironmentPrefiltered,
-					.EnvironmentBrdfLut = EnvironmentBrdfLut,
-					.EnvironmentSampler = EnvironmentSampler,
-					.DirectionalShadowTexture = DirectionalShadowTexture != nullptr ? DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread(),
-					.DirectionalShadowSampler = DirectionalShadowSampler,
-					.GroundTruthAmbientOcclusionRaw =
-						GroundTruthAmbientOcclusionFallback,
-					.GroundTruthAmbientOcclusionFiltered =
-						GroundTruthAmbientOcclusionFallback,
-					.GroundTruthAmbientOcclusionResolved =
-						GroundTruthAmbientOcclusionFallback,
-					.GroundTruthAmbientOcclusionSelector =
-						GroundTruthAmbientOcclusionFallback,
-					.ContactVisibility = ContactVisibilityFallback,
-					.VolumetricCloudVisibility = DefaultTextures.Get_RenderThread(
-						EDefaultTexture::White
-					),
-					.Lighting = PreparedView.Lighting.UniformBuffer,
-					.View = &RenderView,
-					.DiagnosticMode = static_cast<uint32>(
-						Options.DeferredDirectionalDebugMode
-					)
-				};
-			}
-		}
-
-		RenderGroundTruthAmbientOcclusion_RenderThread(
-			CommandList, PreparedView, GBufferTargets, SceneTargets,
-			DeferredParameters, Options, Width, Height,
-			bWantsGroundTruthAmbientOcclusion, bGBufferComplete,
-			GroundTruthAmbientOcclusionFallback
-		);
-
-		RenderContactShadows_RenderThread(
-			CommandList, PreparedView, GBufferTargets, SceneTargets,
-			DeferredParameters, Options, Width, Height,
-			bWantsProductionDeferred, bGBufferComplete,
-			GBufferResult.bRenderedGeometry
-		);
-		RenderVolumetricCloudShadows_RenderThread(
-			CommandList, PreparedView, SceneTargets, DeferredParameters,
-			Width, Height, bWantsProductionDeferred, bGBufferComplete
-		);
-
-		GroundTruthAmbientOcclusionDebugOutput =
-			RenderIsolatedDeferred_RenderThread(
-				CommandList, PreparedView, DeferredParameters, Options,
-				Width, Height, bWantsIsolatedDeferred, bGBufferComplete
+			Outcome.IsolatedDeferred = RenderIsolatedDeferred_RenderThread(
+				CommandList, *DeferredParameters, Options,
+				Width, Height, bWantsIsolatedDeferred
 			);
+		}
+		else if (bWantsIsolatedDeferred)
+		{
+			Outcome.IsolatedDeferred.Status = EScenePassStatus::Failed;
+			++Telemetry.Counters.DeferredDirectionalUnavailableViews;
+		}
 
 		const bool bProductionResourcesReady =
 			!bWantsProductionDeferred
-			|| (bGBufferComplete && bHybridRetainedResourcesReady);
-		if (bWantsProductionDeferred)
-			DeferredParameters.DiagnosticMode = 0;
+			|| (bGBufferComplete && bHybridRetainedResourcesReady
+				&& DeferredParameters.has_value());
+		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
+			ProductionDeferredParameters;
+		if (bWantsProductionDeferred && bProductionResourcesReady)
+		{
+			ProductionDeferredParameters = *DeferredParameters;
+			ProductionDeferredParameters->DiagnosticMode = 0;
+		}
 		const FSceneColorTimingQuerySink SceneColorTimingSink =
 			GetSceneColorTimingQuerySink();
 		TScopedRendererGPUTimingQuery SceneColorTiming(
 			CommandList, SceneColorTimingSink
 		);
-		const ERenderViewResult SceneResult = RenderScene_RenderThread(
-			CommandList, PreparedView, SceneColor, SceneTargets->Depth,
-			bWantsProductionDeferred && bProductionResourcesReady ? &DeferredParameters : nullptr
+		Outcome.SceneColor = RenderScene_RenderThread(
+			CommandList, PreparedView, SceneTargets.Color, SceneTargets.Depth,
+			ProductionDeferredParameters ? &*ProductionDeferredParameters : nullptr,
+			Outcome.VolumetricCloudShadow.Visibility
 		);
 		SceneColorTiming.Commit();
-		if (SceneResult != ERenderViewResult::Success)
-			return SceneResult;
+		if (!Outcome.SceneColor.IsSuccess()) return Outcome.SceneColor.Result;
 		ReduceStaticMeshTelemetry(
 			PreparedView.Receiver.StaticMeshes,
-			PreparedView.ResolvedReceiver.StaticMeshes, PreparedView.Telemetry.Counters
+			ResolvedFrame.Receiver.StaticMeshes, Telemetry.Counters
 		);
 		ReduceSkeletalMeshTelemetry(
 			PreparedView.Receiver.SkeletalMeshes,
-			PreparedView.ResolvedReceiver.SkeletalMeshes,
-			PreparedView.Receiver.SkeletalPalettes,
-			PreparedView.Telemetry.Counters
+			ResolvedFrame.Receiver.SkeletalMeshes,
+			ResolvedFrame.Receiver.SkeletalPalettes,
+			Telemetry.Counters
 		);
 		ReduceTerrainTelemetry(PreparedView.Receiver.Terrains,
-			PreparedView.ResolvedReceiver.Terrains, PreparedView.Telemetry.Counters);
+			ResolvedFrame.Receiver.Terrains, Telemetry.Counters);
 
-		const ERenderViewResult Result = FSceneFrameFinalization{}.Finalize_RenderThread(
-			*this, CommandList, PreparedView, View, OutputTarget, bPresentOutput,
-			Options, SceneTargets, GBufferTargets, SceneColor,
-			GroundTruthAmbientOcclusionDebugOutput
+		Outcome.PostProcess = RenderPostProcess_RenderThread(
+			CommandList, PreparedView, View, OutputTarget, bPresentOutput,
+			Options, SceneTargets, GBufferTargets, Outcome.SceneColor.SceneColor,
+			Outcome.IsolatedDeferred.Output
 		);
-		if (Result == ERenderViewResult::Success)
+		if (Outcome.PostProcess.Result == ERenderViewResult::Success)
 		{
 			ViewStateSubmission.Commit();
 			TelemetryPublication.Commit();
 		}
-		return Result;
+		return Outcome.PostProcess.Result;
 	}
 
 
-	auto FSceneRenderer::RenderGBuffer_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FPostProcessRenderer::FSceneTargets* SceneTargets,
+		const FSceneRenderPlan& PreparedView,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
@@ -406,16 +362,16 @@ namespace Durin
 		FGBufferRenderer::FTargets* GBufferTargets = nullptr;
 		if (bNeedsGBuffer)
 		{
-			GBufferTargets =
-				GBufferRenderer.EnsureTargets_RenderThread(Width, Height);
+			GBufferTargets = ResolvedFrame.Targets.GBuffer
+				? &*ResolvedFrame.Targets.GBuffer : nullptr;
 			if (GBufferTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;
-				++PreparedView.Telemetry.Counters.GBufferUnavailableViews;
+				++Telemetry.Counters.GBufferUnavailableViews;
 				if (bWantsIsolatedDeferred)
-					++PreparedView.Telemetry.Counters.DeferredDirectionalUnavailableViews;
+					++Telemetry.Counters.DeferredDirectionalUnavailableViews;
 				if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled)
-					++PreparedView.Telemetry.Counters.GBufferDebugFailures;
+					++Telemetry.Counters.GBufferDebugFailures;
 			}
 			else
 			{
@@ -430,7 +386,7 @@ namespace Durin
 					GBufferTargets->Surface;
 				GBufferPassInfo.ColorRenderTargets[3] =
 					GBufferTargets->Emissive;
-				GBufferPassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
+				GBufferPassInfo.DepthStencilRenderTarget = SceneTargets.Depth;
 				for (uint32 Index = 0; Index < 4; ++Index)
 				{
 					GBufferPassInfo.ColorClearValues[Index] =
@@ -465,17 +421,17 @@ namespace Durin
 				const FGeometryExecutionResult StaticResult = StaticMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					PreparedView.Receiver.StaticMeshes,
-					PreparedView.ResolvedReceiver.StaticMeshes
+					ResolvedFrame.Receiver.StaticMeshes
 				);
 				const FGeometryExecutionResult SkeletalResult = SkeletalMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					PreparedView.Receiver.SkeletalMeshes,
-					PreparedView.ResolvedReceiver.SkeletalMeshes
+					ResolvedFrame.Receiver.SkeletalMeshes
 				);
 				const FGeometryExecutionResult TerrainResult = TerrainRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					PreparedView.Receiver.Terrains,
-					PreparedView.ResolvedReceiver.Terrains
+					ResolvedFrame.Receiver.Terrains
 				);
 				CommandList.EndRenderPass();
 				Result.Targets = GBufferTargets;
@@ -497,93 +453,99 @@ namespace Durin
 						GBufferTargets->Normals,
 						GBufferTargets->Surface,
 						GBufferTargets->Emissive,
-						SceneTargets->Depth
+						SceneTargets.Depth
 					);
 				}
-				++PreparedView.Telemetry.Counters.GBufferEnabledViews;
-				PreparedView.Telemetry.Counters.GBufferAttachmentBytes =
+				++Telemetry.Counters.GBufferEnabledViews;
+				Telemetry.Counters.GBufferAttachmentBytes =
 					FGBufferRenderer::CalculateTargetBytes(Width, Height);
-				PreparedView.Telemetry.Counters.GBufferAttemptedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferAttemptedDraws
-					+ PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferAttemptedDraws
-					+ PreparedView.ResolvedReceiver.Terrains.GBufferAttemptedDraws;
-				PreparedView.Telemetry.Counters.GBufferSuccessfulDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSuccessfulDraws
-					+ PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferSuccessfulDraws
-					+ PreparedView.ResolvedReceiver.Terrains.GBufferSuccessfulDraws;
-				PreparedView.Telemetry.Counters.GBufferRejectedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferRejectedDraws
-					+ PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferRejectedDraws
-					+ PreparedView.ResolvedReceiver.Terrains.GBufferRejectedDraws;
-				PreparedView.Telemetry.Counters.GBufferSkippedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSkippedDraws
-					+ PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferSkippedDraws
-					+ PreparedView.ResolvedReceiver.Terrains.GBufferSkippedDraws;
-				PreparedView.Telemetry.Counters.GBufferStaticMeshAttemptedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferLocalAttemptedDraws;
-				PreparedView.Telemetry.Counters.GBufferStaticMeshSuccessfulDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferLocalSuccessfulDraws;
-				PreparedView.Telemetry.Counters.GBufferStaticMeshRejectedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferLocalRejectedDraws;
-				PreparedView.Telemetry.Counters.GBufferStaticMeshSkippedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferLocalSkippedDraws;
-				PreparedView.Telemetry.Counters.GBufferSplineMeshAttemptedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSplineAttemptedDraws;
-				PreparedView.Telemetry.Counters.GBufferSplineMeshSuccessfulDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSplineSuccessfulDraws;
-				PreparedView.Telemetry.Counters.GBufferSplineMeshRejectedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSplineRejectedDraws;
-				PreparedView.Telemetry.Counters.GBufferSplineMeshSkippedDraws =
-					PreparedView.ResolvedReceiver.StaticMeshes.GBufferSplineSkippedDraws;
-				PreparedView.Telemetry.Counters.GBufferSkeletalMeshAttemptedDraws =
-					PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferAttemptedDraws;
-				PreparedView.Telemetry.Counters.GBufferSkeletalMeshSuccessfulDraws =
-					PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferSuccessfulDraws;
-				PreparedView.Telemetry.Counters.GBufferSkeletalMeshRejectedDraws =
-					PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferRejectedDraws;
-				PreparedView.Telemetry.Counters.GBufferSkeletalMeshSkippedDraws =
-					PreparedView.ResolvedReceiver.SkeletalMeshes.GBufferSkippedDraws;
-				PreparedView.Telemetry.Counters.GBufferTerrainAttemptedDraws =
-					PreparedView.ResolvedReceiver.Terrains.GBufferAttemptedDraws;
-				PreparedView.Telemetry.Counters.GBufferTerrainSuccessfulDraws =
-					PreparedView.ResolvedReceiver.Terrains.GBufferSuccessfulDraws;
-				PreparedView.Telemetry.Counters.GBufferTerrainRejectedDraws =
-					PreparedView.ResolvedReceiver.Terrains.GBufferRejectedDraws;
-				PreparedView.Telemetry.Counters.GBufferTerrainSkippedDraws =
-					PreparedView.ResolvedReceiver.Terrains.GBufferSkippedDraws;
+				Telemetry.Counters.GBufferAttemptedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws
+					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws
+					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
+				Telemetry.Counters.GBufferSuccessfulDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSuccessfulDraws
+					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws
+					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
+				Telemetry.Counters.GBufferRejectedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferRejectedDraws
+					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws
+					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
+				Telemetry.Counters.GBufferSkippedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSkippedDraws
+					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws
+					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
+				Telemetry.Counters.GBufferStaticMeshAttemptedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalAttemptedDraws;
+				Telemetry.Counters.GBufferStaticMeshSuccessfulDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSuccessfulDraws;
+				Telemetry.Counters.GBufferStaticMeshRejectedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalRejectedDraws;
+				Telemetry.Counters.GBufferStaticMeshSkippedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSkippedDraws;
+				Telemetry.Counters.GBufferSplineMeshAttemptedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineAttemptedDraws;
+				Telemetry.Counters.GBufferSplineMeshSuccessfulDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSuccessfulDraws;
+				Telemetry.Counters.GBufferSplineMeshRejectedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineRejectedDraws;
+				Telemetry.Counters.GBufferSplineMeshSkippedDraws =
+					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSkippedDraws;
+				Telemetry.Counters.GBufferSkeletalMeshAttemptedDraws =
+					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws;
+				Telemetry.Counters.GBufferSkeletalMeshSuccessfulDraws =
+					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws;
+				Telemetry.Counters.GBufferSkeletalMeshRejectedDraws =
+					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
+				Telemetry.Counters.GBufferSkeletalMeshSkippedDraws =
+					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
+				Telemetry.Counters.GBufferTerrainAttemptedDraws =
+					ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
+				Telemetry.Counters.GBufferTerrainSuccessfulDraws =
+					ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
+				Telemetry.Counters.GBufferTerrainRejectedDraws =
+					ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
+				Telemetry.Counters.GBufferTerrainSkippedDraws =
+					ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
 			}
 		}
 		return Result;
 	}
 
-	auto FSceneRenderer::RenderGroundTruthAmbientOcclusion_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderGroundTruthAmbientOcclusion_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FGBufferRenderer::FTargets* GBufferTargets,
-		FPostProcessRenderer::FSceneTargets* SceneTargets,
-		FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+		const FSceneRenderPlan& PreparedView,
+		const FGBufferRenderer::FTargets* GBufferTargets,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
 		bool bWantsGroundTruthAmbientOcclusion,
-		bool bGBufferComplete,
-		FRHITexture* GroundTruthAmbientOcclusionFallback
-	) -> void
+		bool bGBufferComplete
+	) -> FGroundTruthAmbientOcclusionPassResult
 	{
+		FGroundTruthAmbientOcclusionPassResult Result;
 		const FSceneView& RenderView = PreparedView.Context.View;
 		if (bWantsGroundTruthAmbientOcclusion)
 		{
-			++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionAttemptedViews;
-			auto* AmbientOcclusionTargets = bGBufferComplete ? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
-																   Width, Height,
-																   RenderView.Settings.AmbientOcclusion.Quality
-															   ) :
-															   nullptr;
-			PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionRetainedBytes =
+			++Telemetry.Counters.GroundTruthAmbientOcclusionAttemptedViews;
+			std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
+				AmbientOcclusionTargetsStorage;
+			if (bGBufferComplete
+				&& ResolvedFrame.Targets.GroundTruthAmbientOcclusion
+			)
+			{
+				AmbientOcclusionTargetsStorage =
+					*ResolvedFrame.Targets.GroundTruthAmbientOcclusion;
+			}
+			auto* AmbientOcclusionTargets = AmbientOcclusionTargetsStorage
+				? &*AmbientOcclusionTargetsStorage : nullptr;
+			Telemetry.Counters.GroundTruthAmbientOcclusionRetainedBytes =
 				GroundTruthAmbientOcclusionRenderer.GetRetainedTargetBytes_RenderThread();
 			if (AmbientOcclusionTargets == nullptr)
 			{
-				++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionUnavailableViews;
+				Result.Status = EScenePassStatus::Failed;
+				++Telemetry.Counters.GroundTruthAmbientOcclusionUnavailableViews;
 			}
 			else
 			{
@@ -602,7 +564,7 @@ namespace Durin
 						GroundTruthAmbientOcclusionRenderer.RenderRaw_RenderThread(
 							CommandList, *AmbientOcclusionTargets,
 							GBufferTargets->Normals, GBufferTargets->Surface,
-							SceneTargets->Depth, RenderView
+							SceneTargets.Depth, RenderView
 						);
 					if (bRendered)
 						RawTiming.Commit();
@@ -626,7 +588,7 @@ namespace Durin
 						GroundTruthAmbientOcclusionRenderer.RenderFilter_RenderThread(
 							CommandList, *AmbientOcclusionTargets,
 							GBufferTargets->Normals, GBufferTargets->Surface,
-							SceneTargets->Depth, RenderView
+							SceneTargets.Depth, RenderView
 						);
 					FilterTiming.End();
 					const FGroundTruthAmbientOcclusionResolveTimingQuerySink
@@ -642,7 +604,7 @@ namespace Durin
 							GroundTruthAmbientOcclusionRenderer.RenderResolve_RenderThread(
 								CommandList, *AmbientOcclusionTargets,
 								GBufferTargets->Normals, GBufferTargets->Surface,
-								SceneTargets->Depth, RenderView
+								SceneTargets.Depth, RenderView
 							);
 						ResolveTiming.End();
 						FeatureTiming.End();
@@ -667,7 +629,7 @@ namespace Durin
 									CommandList, *AmbientOcclusionTargets,
 									GBufferTargets->Normals,
 									GBufferTargets->Surface,
-									SceneTargets->Depth, RenderView
+									SceneTargets.Depth, RenderView
 								);
 							std::swap(
 								AmbientOcclusionTargets->Raw,
@@ -677,34 +639,32 @@ namespace Durin
 								RawDiagnosticTexture =
 									AmbientOcclusionTargets->Scratch;
 						}
-						DeferredParameters.GroundTruthAmbientOcclusionRaw =
-							RawDiagnosticTexture;
-						DeferredParameters.GroundTruthAmbientOcclusionFiltered =
-							AmbientOcclusionTargets->Raw;
-						DeferredParameters.GroundTruthAmbientOcclusionResolved =
+						Result.Status = EScenePassStatus::Complete;
+						Result.Raw = RawDiagnosticTexture;
+						Result.Filtered = AmbientOcclusionTargets->Raw;
+						Result.Resolved =
 							AmbientOcclusionTargets->Quality
 									== EGroundTruthAmbientOcclusionQuality::HalfResolution ?
 								AmbientOcclusionTargets->Resolved.GetReference() :
 								AmbientOcclusionTargets->Raw.GetReference();
-						DeferredParameters.GroundTruthAmbientOcclusionSelector =
-							AmbientOcclusionTargets->Selector != nullptr ? AmbientOcclusionTargets->Selector.GetReference() : GroundTruthAmbientOcclusionFallback;
-						DeferredParameters.bGroundTruthAmbientOcclusionEnabled = true;
-						DeferredParameters.bGroundTruthAmbientOcclusionHalfResolution =
+						Result.Selector =
+							AmbientOcclusionTargets->Selector.GetReference();
+						Result.bHalfResolution =
 							AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-						++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionEnabledViews;
+						++Telemetry.Counters.GroundTruthAmbientOcclusionEnabledViews;
 						if (AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution)
-							++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionHalfResolutionViews;
+							++Telemetry.Counters.GroundTruthAmbientOcclusionHalfResolutionViews;
 						else
-							++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionFullResolutionViews;
-						PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionActiveBytes =
+							++Telemetry.Counters.GroundTruthAmbientOcclusionFullResolutionViews;
+						Telemetry.Counters.GroundTruthAmbientOcclusionActiveBytes =
 							FGroundTruthAmbientOcclusionRenderer::
 								CalculateTargetBytes(Width, Height, AmbientOcclusionTargets->Quality);
 						if (Options.GroundTruthAmbientOcclusionDebugMode
 							!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 						{
-							++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionDebugViews;
+							++Telemetry.Counters.GroundTruthAmbientOcclusionDebugViews;
 						}
 						FilterTiming.Commit();
 						if (CaptureSink != nullptr)
@@ -714,137 +674,155 @@ namespace Durin
 					}
 					else if (!bFiltered)
 					{
-						++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionFilterPassFailures;
+						Result.Status = EScenePassStatus::Failed;
+						++Telemetry.Counters.GroundTruthAmbientOcclusionFilterPassFailures;
 					}
 					else
 					{
-						++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionResolvePassFailures;
+						Result.Status = EScenePassStatus::Failed;
+						++Telemetry.Counters.GroundTruthAmbientOcclusionResolvePassFailures;
 					}
 				}
 				else
 				{
-					++PreparedView.Telemetry.Counters.GroundTruthAmbientOcclusionRawPassFailures;
+					Result.Status = EScenePassStatus::Failed;
+					++Telemetry.Counters.GroundTruthAmbientOcclusionRawPassFailures;
 				}
 			}
 		}
+		return Result;
 	}
 
-	auto FSceneRenderer::RenderContactShadows_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderContactShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FGBufferRenderer::FTargets* GBufferTargets,
-		FPostProcessRenderer::FSceneTargets* SceneTargets,
-		FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+		const FSceneRenderPlan& PreparedView,
+		const FGBufferRenderer::FTargets* GBufferTargets,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
 		bool bWantsProductionDeferred,
 		bool bGBufferComplete,
 		bool bGBufferHasGeometry
-	) -> void
+	) -> FContactShadowPassResult
 	{
+		FContactShadowPassResult PassResult;
 		const FSceneView& RenderView = PreparedView.Context.View;
 		const bool bWantsContactVisibility = bWantsProductionDeferred
 											 && RenderView.Settings.DirectionalShadow.bEnableContactShadows
 											 && PreparedView.DirectionalShadow
-											 && PreparedView.DirectionalShadow->View.bEnabled;
+											 && ResolvedFrame.DirectionalShadow
+											 && ResolvedFrame.DirectionalShadow->bEnabled;
+		if (!bWantsContactVisibility) return PassResult;
+		PassResult.Status = EScenePassStatus::Failed;
 		if (bWantsContactVisibility && bGBufferComplete
 			&& bGBufferHasGeometry)
 		{
 			const EContactShadowRoutePreference RoutePreference =
 				RenderView.Settings.DirectionalShadow.ContactRoutePreference;
-			const bool bForceFragment = Options.bForceFragmentContactVisibility
+			const bool bForceFragment = Qualification.bForceFragmentContactVisibility
 										|| RoutePreference == EContactShadowRoutePreference::Fragment;
-			const bool bForceCompute = !Options.bForceFragmentContactVisibility
+			const bool bForceCompute = !Qualification.bForceFragmentContactVisibility
 									   && RoutePreference == EContactShadowRoutePreference::Compute;
-			auto* FragmentContactTargets = bForceCompute ? nullptr : ContactShadowRenderer.EnsureTargets_RenderThread(Width, Height);
-			auto* ComputeContactTargets = bForceFragment ? nullptr : ContactShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
-			PreparedView.Telemetry.Counters.ContactShadowRetainedBytes =
+			auto* FragmentContactTargets = !bForceCompute
+				&& ResolvedFrame.Targets.ContactFragment
+				? &*ResolvedFrame.Targets.ContactFragment : nullptr;
+			auto* ComputeContactTargets = !bForceFragment
+				&& ResolvedFrame.Targets.ContactCompute
+				? &*ResolvedFrame.Targets.ContactCompute : nullptr;
+			Telemetry.Counters.ContactShadowRetainedBytes =
 				ContactShadowRenderer.GetRetainedTargetBytes_RenderThread();
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,
 				GBufferTargets->Material, GBufferTargets->Normals,
 				GBufferTargets->Surface, GBufferTargets->Emissive,
-				SceneTargets->Depth, RenderView,
+				SceneTargets.Depth, RenderView,
 				PreparedView.DirectionalShadow->View.LightDirection, Width, Height
 			);
 			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
-			if (ReasonIndex < PreparedView.Telemetry.Counters.ContactShadowRouteReasons.size())
-				++PreparedView.Telemetry.Counters.ContactShadowRouteReasons[ReasonIndex];
+			if (ReasonIndex < Telemetry.Counters.ContactShadowRouteReasons.size())
+				++Telemetry.Counters.ContactShadowRouteReasons[ReasonIndex];
 			if (ContactResult.Visibility != nullptr)
 			{
-				PreparedView.Telemetry.Counters.ContactShadowActiveBytes =
+				Telemetry.Counters.ContactShadowActiveBytes =
 					FContactShadowVisibilityRenderer::CalculateTargetBytes(Width, Height);
-				DeferredParameters.ContactVisibility = ContactResult.Visibility;
-				DeferredParameters.bContactVisibilityEnabled = true;
-				DeferredParameters.bContactVisibilityDebug =
+				PassResult.Status = EScenePassStatus::Complete;
+				PassResult.Visibility = ContactResult.Visibility;
+				PassResult.bDebug =
 					RenderView.Settings.DirectionalShadow.bShowContactDebug;
-				++PreparedView.Telemetry.Counters.ContactShadowEnabledViews;
+				++Telemetry.Counters.ContactShadowEnabledViews;
 				if (ContactResult.Route
 					== FContactShadowVisibilityRenderer::ERoute::Compute)
 				{
-					++PreparedView.Telemetry.Counters.ContactShadowComputeViews;
-					++PreparedView.Telemetry.Counters.ContactShadowDispatches;
+					++Telemetry.Counters.ContactShadowComputeViews;
+					++Telemetry.Counters.ContactShadowDispatches;
 				}
 				else
 				{
-					++PreparedView.Telemetry.Counters.ContactShadowFragmentViews;
-					++PreparedView.Telemetry.Counters.ContactShadowDraws;
+					++Telemetry.Counters.ContactShadowFragmentViews;
+					++Telemetry.Counters.ContactShadowDraws;
 				}
 			}
 			else
 			{
-				++PreparedView.Telemetry.Counters.ContactShadowPassFailures;
-				++PreparedView.Telemetry.Counters.ContactShadowFactorOneViews;
+				++Telemetry.Counters.ContactShadowPassFailures;
+				++Telemetry.Counters.ContactShadowFactorOneViews;
 			}
 		}
+		return PassResult;
 	}
 
-	auto FSceneRenderer::RenderVolumetricCloudShadows_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FPostProcessRenderer::FSceneTargets* SceneTargets,
-		FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+		const FSceneRenderPlan& PreparedView,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		uint32 Width,
 		uint32 Height,
 		bool bWantsProductionDeferred,
 		bool bGBufferComplete
-	) -> void
+	) -> FVolumetricCloudShadowPassResult
 	{
+		FVolumetricCloudShadowPassResult PassResult;
 		const FPreparedVolumetricCloud* Cloud = PreparedView.VolumetricCloud
 			? &*PreparedView.VolumetricCloud : nullptr;
+		const FResolvedVolumetricCloud* ResolvedCloud =
+			ResolvedFrame.VolumetricCloud
+				? &*ResolvedFrame.VolumetricCloud : nullptr;
 		const bool bRequested = bWantsProductionDeferred && bGBufferComplete
-								&& Cloud != nullptr
+								&& Cloud != nullptr && ResolvedCloud != nullptr
 								&& !PreparedView.Lighting.Lights.Directional.empty()
-								&& Cloud->Textures.BaseDensity
-								&& Cloud->Textures.DetailDensity
-								&& Cloud->Textures.DensitySampler
-								&& SceneTargets && SceneTargets->Depth;
-		if (!bRequested) return;
+								&& ResolvedCloud->Textures.BaseDensity
+								&& ResolvedCloud->Textures.DetailDensity
+								&& ResolvedCloud->Textures.DensitySampler
+								&& SceneTargets.Depth;
+		if (!bRequested) return PassResult;
+		PassResult.Status = EScenePassStatus::Failed;
 		const bool bForceFragment =
-			Cloud->bForceFragmentForQualification;
-		auto* FragmentTargets =
-			VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(Width, Height);
-		auto* ComputeTargets = bForceFragment ? nullptr : VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(Width, Height);
+			Qualification.bForceFragmentVolumetricCloud;
+		auto* FragmentTargets = ResolvedFrame.Targets.VolumetricCloudShadowFragment
+			? &*ResolvedFrame.Targets.VolumetricCloudShadowFragment : nullptr;
+		auto* ComputeTargets = !bForceFragment
+			&& ResolvedFrame.Targets.VolumetricCloudShadowCompute
+			? &*ResolvedFrame.Targets.VolumetricCloudShadowCompute : nullptr;
 		const auto QualityTier = CanonicalizeFixedFrameCloudQuality(
 			PreparedView.Context.View.Settings.VolumetricCloud.Quality);
-		FRHITexture* Weather = Cloud->Textures.Weather;
+		FRHITexture* Weather = ResolvedCloud->Textures.Weather;
 		if (!Weather) Weather = DefaultTextures.Get_RenderThread(EDefaultTexture::White);
 		const auto Result = VolumetricCloudShadowRenderer.Render_RenderThread(
 			CommandList, FragmentTargets, ComputeTargets,
 			{.bRequested = true,
-			 .BaseDensity = Cloud->Textures.BaseDensity,
-			 .DetailDensity = Cloud->Textures.DetailDensity,
+				 .BaseDensity = ResolvedCloud->Textures.BaseDensity,
+				 .DetailDensity = ResolvedCloud->Textures.DetailDensity,
 			 .Weather = Weather,
-			 .SceneDepth = SceneTargets->Depth,
-			 .DensitySampler = Cloud->Textures.DensitySampler,
+			 .SceneDepth = SceneTargets.Depth,
+				 .DensitySampler = ResolvedCloud->Textures.DensitySampler,
 			 .Parameters = Cloud->Parameters,
 			 .View = &PreparedView.Context.View,
 			 .QualityTier = QualityTier,
 			 .Width = Width,
 			 .Height = Height}
 		);
-		auto& Counters = PreparedView.Telemetry.Counters;
+		auto& Counters = Telemetry.Counters;
 		const size_t ReasonIndex = static_cast<size_t>(Result.Reason);
 		if (ReasonIndex < Counters.VolumetricCloudShadowRouteReasons.size())
 			++Counters.VolumetricCloudShadowRouteReasons[ReasonIndex];
@@ -853,11 +831,10 @@ namespace Durin
 		if (!Result.Visibility)
 		{
 			++Counters.VolumetricCloudShadowFactorOneViews;
-			return;
+			return PassResult;
 		}
-		DeferredParameters.VolumetricCloudVisibility = Result.Visibility;
-		PreparedView.VolumetricCloudShadowVisibility = Result.Visibility;
-		DeferredParameters.bVolumetricCloudVisibilityEnabled = true;
+		PassResult.Status = EScenePassStatus::Complete;
+		PassResult.Visibility = Result.Visibility;
 		Counters.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
 		Counters.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
 												* Height * Result.SampleCount;
@@ -872,31 +849,104 @@ namespace Durin
 			++Counters.VolumetricCloudShadowFragmentViews;
 			++Counters.VolumetricCloudShadowDraws;
 		}
+		return PassResult;
 	}
 
-	auto FSceneRenderer::RenderIsolatedDeferred_RenderThread(
+	auto FFixedSceneFrameExecutor::BuildDeferredParameters(
+		const FSceneRenderPlan& PreparedView,
+		const FDirectionalShadowPassResult& DirectionalShadow,
+		const FGBufferPassResult& GBuffer,
+		const FGroundTruthAmbientOcclusionPassResult& AmbientOcclusion,
+		const FContactShadowPassResult& ContactShadow,
+		const FVolumetricCloudShadowPassResult& CloudShadow,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		const FSceneViewRenderOptions& Options
+	) -> std::optional<
+		FDeferredDirectionalLightingRenderer::FRenderParameters>
+	{
+		if (!GBuffer.IsComplete()) return std::nullopt;
+		FRHITexture* EnvironmentIrradiance =
+			EnvironmentLighting.GetIrradiance_RenderThread();
+		FRHITexture* EnvironmentPrefiltered =
+			EnvironmentLighting.GetPrefiltered_RenderThread();
+		FRHITexture* EnvironmentBrdfLut =
+			EnvironmentLighting.GetBrdfLut_RenderThread();
+		FRHISampler* EnvironmentSampler =
+			EnvironmentLighting.GetSampler_RenderThread();
+		if (EnvironmentIrradiance == nullptr
+			|| EnvironmentPrefiltered == nullptr
+			|| EnvironmentBrdfLut == nullptr
+			|| EnvironmentSampler == nullptr)
+		{
+			EnvironmentIrradiance = DefaultTextures.GetCube_RenderThread();
+			EnvironmentPrefiltered = DefaultTextures.GetCube_RenderThread();
+			EnvironmentBrdfLut = DefaultTextures.Get_RenderThread(
+				EDefaultTexture::Black);
+			EnvironmentSampler = nullptr;
+		}
+		FRHITexture* White =
+			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		const auto& Targets = *GBuffer.Targets;
+		return FDeferredDirectionalLightingRenderer::FRenderParameters{
+			.Material = Targets.Material,
+			.Normals = Targets.Normals,
+			.Surface = Targets.Surface,
+			.Emissive = Targets.Emissive,
+			.Depth = SceneTargets.Depth,
+			.EnvironmentIrradiance = EnvironmentIrradiance,
+			.EnvironmentPrefiltered = EnvironmentPrefiltered,
+			.EnvironmentBrdfLut = EnvironmentBrdfLut,
+			.EnvironmentSampler = EnvironmentSampler,
+			.DirectionalShadowTexture = DirectionalShadow.IsComplete()
+				? DirectionalShadow.Texture
+				: DefaultTextures.GetArray_RenderThread(),
+			.DirectionalShadowSampler = DirectionalShadow.Sampler,
+			.GroundTruthAmbientOcclusionRaw = AmbientOcclusion.IsComplete()
+				? AmbientOcclusion.Raw : White,
+			.GroundTruthAmbientOcclusionFiltered =
+				AmbientOcclusion.IsComplete() ? AmbientOcclusion.Filtered : White,
+			.GroundTruthAmbientOcclusionResolved =
+				AmbientOcclusion.IsComplete() ? AmbientOcclusion.Resolved : White,
+			.GroundTruthAmbientOcclusionSelector =
+				AmbientOcclusion.IsComplete() && AmbientOcclusion.Selector != nullptr
+					? AmbientOcclusion.Selector : White,
+			.ContactVisibility = ContactShadow.IsComplete()
+				? ContactShadow.Visibility : White,
+			.VolumetricCloudVisibility = CloudShadow.IsComplete()
+				? CloudShadow.Visibility : White,
+			.Lighting = ResolvedFrame.Lighting.UniformBuffer,
+			.View = &PreparedView.Context.View,
+			.DiagnosticMode = static_cast<uint32>(
+				Options.DeferredDirectionalDebugMode),
+			.bGroundTruthAmbientOcclusionEnabled = AmbientOcclusion.IsComplete(),
+			.bGroundTruthAmbientOcclusionHalfResolution =
+				AmbientOcclusion.bHalfResolution,
+			.bContactVisibilityEnabled = ContactShadow.IsComplete(),
+			.bContactVisibilityDebug = ContactShadow.bDebug,
+			.bVolumetricCloudVisibilityEnabled = CloudShadow.IsComplete()};
+	}
+
+	auto FFixedSceneFrameExecutor::RenderIsolatedDeferred_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
+		const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
-		bool bWantsIsolatedDeferred,
-		bool bGBufferComplete
-	) -> FRHITexture*
+		bool bWantsIsolatedDeferred
+	) -> FIsolatedDeferredPassResult
 	{
-		FRHITexture* GroundTruthAmbientOcclusionDebugOutput = nullptr;
+		FIsolatedDeferredPassResult Result;
 		if (bWantsIsolatedDeferred)
 		{
-			auto* DeferredTargets = bGBufferComplete ? DeferredDirectionalLightingRenderer.EnsureTargets_RenderThread(
-														   Width, Height
-													   ) :
-													   nullptr;
+			Result.Status = EScenePassStatus::Failed;
+			auto* DeferredTargets = ResolvedFrame.Targets.IsolatedDeferred
+				? &*ResolvedFrame.Targets.IsolatedDeferred : nullptr;
 			if (DeferredTargets == nullptr)
-				++PreparedView.Telemetry.Counters.DeferredDirectionalUnavailableViews;
+				++Telemetry.Counters.DeferredDirectionalUnavailableViews;
 			else
 			{
-				DeferredParameters.GroundTruthAmbientOcclusionDebugMode =
+				auto Parameters = DeferredParameters;
+				Parameters.GroundTruthAmbientOcclusionDebugMode =
 					static_cast<uint32>(
 						Options.GroundTruthAmbientOcclusionDebugMode
 					);
@@ -907,19 +957,20 @@ namespace Durin
 				);
 				const bool bRendered =
 					DeferredDirectionalLightingRenderer.Render_RenderThread(
-						CommandList, *DeferredTargets, DeferredParameters
+						CommandList, *DeferredTargets, Parameters
 					);
 				DeferredTiming.End();
 				if (bRendered)
 				{
-					++PreparedView.Telemetry.Counters.DeferredDirectionalEnabledViews;
-					PreparedView.Telemetry.Counters.DeferredDirectionalOutputBytes =
+					Result.Status = EScenePassStatus::Complete;
+					++Telemetry.Counters.DeferredDirectionalEnabledViews;
+					Telemetry.Counters.DeferredDirectionalOutputBytes =
 						FDeferredDirectionalLightingRenderer::
 							CalculateTargetBytes(Width, Height);
 					if (Options.DeferredDirectionalDebugMode
 						!= EDeferredDirectionalDebugMode::Disabled)
 					{
-						++PreparedView.Telemetry.Counters.DeferredDirectionalDebugViews;
+						++Telemetry.Counters.DeferredDirectionalDebugViews;
 					}
 					DeferredTiming.Commit();
 					const FDeferredDirectionalCaptureSink CaptureSink =
@@ -929,31 +980,30 @@ namespace Durin
 					if (Options.GroundTruthAmbientOcclusionDebugMode
 						!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 					{
-						GroundTruthAmbientOcclusionDebugOutput =
-							DeferredTargets->Color;
+						Result.Output = DeferredTargets->Color;
 					}
 				}
 				else
 				{
-					++PreparedView.Telemetry.Counters.DeferredDirectionalPassFailures;
+					++Telemetry.Counters.DeferredDirectionalPassFailures;
 				}
 			}
 		}
-		return GroundTruthAmbientOcclusionDebugOutput;
+		return Result;
 	}
 
-	auto FSceneRenderer::RenderPostProcess_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderPostProcess_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
+		const FSceneRenderPlan& PreparedView,
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
-		FPostProcessRenderer::FSceneTargets* SceneTargets,
-		FGBufferRenderer::FTargets* GBufferTargets,
+		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		const FGBufferRenderer::FTargets* GBufferTargets,
 		FRHITexture* SceneColor,
 		FRHITexture* GroundTruthAmbientOcclusionDebugOutput
-	) -> ERenderViewResult
+	) -> FPostProcessPassResult
 	{
 		const FSceneView& RenderView = PreparedView.Context.View;
 		const uint32 Width = OutputTarget->GetSizeX();
@@ -964,8 +1014,8 @@ namespace Durin
 		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 			&& GBufferTargets != nullptr)
 		{
-			auto* DebugTargets =
-				GBufferDebugRenderer.EnsureTargets_RenderThread(Width, Height);
+			auto* DebugTargets = ResolvedFrame.Targets.GBufferDebug
+				? &*ResolvedFrame.Targets.GBufferDebug : nullptr;
 			if (DebugTargets != nullptr
 				&& GBufferDebugRenderer.Render_RenderThread(
 					CommandList,
@@ -973,7 +1023,7 @@ namespace Durin
 					GBufferTargets->Normals,
 					GBufferTargets->Surface,
 					GBufferTargets->Emissive,
-					SceneTargets->Depth,
+					SceneTargets.Depth,
 					DebugTargets->Color,
 					RenderView,
 					Options.GBufferDebugMode,
@@ -982,11 +1032,11 @@ namespace Durin
 				))
 			{
 				PostProcessInput = DebugTargets->Color;
-				++PreparedView.Telemetry.Counters.GBufferDebugViews;
+				++Telemetry.Counters.GBufferDebugViews;
 			}
 			else
 			{
-				++PreparedView.Telemetry.Counters.GBufferDebugFailures;
+				++Telemetry.Counters.GBufferDebugFailures;
 			}
 		}
 		else if (GroundTruthAmbientOcclusionDebugOutput != nullptr)
@@ -1047,7 +1097,9 @@ namespace Durin
 		PostProcessTiming.Commit();
 		if (!bHasEditorAssistance)
 		{
-			return ERenderViewResult::Success;
+			return {
+				.Result = ERenderViewResult::Success,
+				.Input = PostProcessInput};
 		}
 
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
@@ -1055,7 +1107,7 @@ namespace Durin
 			RenderTargetLayouts::MakeEditorAssistanceOutput(ViewportOutput);
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget =
-			SceneTargets->Depth;
+			SceneTargets.Depth;
 		CommandList.BeginRenderPass(
 			EditorAssistancePassInfo,
 			bPresentOutput ? "EditorAssistancePresentRenderPass" : "EditorAssistanceOffscreenRenderPass"
@@ -1066,12 +1118,19 @@ namespace Durin
 			PreparedEditorAssistance
 		);
 		CommandList.EndRenderPass();
-		return ERenderViewResult::Success;
+		return {
+			.Result = ERenderViewResult::Success,
+			.Input = PostProcessInput,
+			.bEditorAssistance = true};
 	}
 
-	auto FSceneRenderer::RenderVolumetricCloud_RenderThread(
-		FRHICommandListImmediate& CommandList, FSceneRenderPlan& PreparedView, FRHITexture* SceneColor, FRHITexture* Depth
-	) -> FRHITexture*
+	auto FFixedSceneFrameExecutor::RenderVolumetricCloud_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView,
+		FRHITexture* SceneColor,
+		FRHITexture* Depth,
+		FRHITexture* VolumetricCloudShadowVisibility
+	) -> FVolumetricCloudPassResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -1080,10 +1139,13 @@ namespace Durin
 		const uint32 Height = SceneColor != nullptr ? SceneColor->GetSizeY() : 0;
 		const FPreparedVolumetricCloud* Cloud = PreparedView.VolumetricCloud
 			? &*PreparedView.VolumetricCloud : nullptr;
-		const bool bInputsPresent = Cloud != nullptr
-									&& Cloud->Textures.BaseDensity != nullptr
-									&& Cloud->Textures.DetailDensity != nullptr
-									&& Cloud->Textures.DensitySampler != nullptr
+		const FResolvedVolumetricCloud* ResolvedCloud =
+			ResolvedFrame.VolumetricCloud
+				? &*ResolvedFrame.VolumetricCloud : nullptr;
+		const bool bInputsPresent = Cloud != nullptr && ResolvedCloud != nullptr
+									&& ResolvedCloud->Textures.BaseDensity != nullptr
+									&& ResolvedCloud->Textures.DetailDensity != nullptr
+									&& ResolvedCloud->Textures.DensitySampler != nullptr
 									&& Depth != nullptr;
 		const auto QualityTier = CanonicalizeFixedFrameCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
@@ -1093,22 +1155,20 @@ namespace Durin
 		const auto CloudExtent = FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
 			Width, Height, Quality
 		);
-		auto* FragmentTargets = bInputsPresent ? VolumetricCloudRenderer.EnsureTargets_RenderThread(
-																							   CloudExtent.Width, CloudExtent.Height
-																						   ) :
-																						   nullptr;
+		auto* FragmentTargets = bInputsPresent
+			&& ResolvedFrame.Targets.VolumetricCloudFragment
+			? &*ResolvedFrame.Targets.VolumetricCloudFragment : nullptr;
 		auto* ComputeTargets = bInputsPresent
-									   && !Cloud->bForceFragmentForQualification ?
-								   VolumetricCloudRenderer.EnsureComputeTargets_RenderThread(
-									   CloudExtent.Width, CloudExtent.Height
-								   ) :
-								   nullptr;
-		auto Textures = Cloud != nullptr
-			? Cloud->Textures : FVolumetricCloudRenderer::FTextureBindings{};
+			&& !Qualification.bForceFragmentVolumetricCloud
+			&& ResolvedFrame.Targets.VolumetricCloudCompute
+			? &*ResolvedFrame.Targets.VolumetricCloudCompute : nullptr;
+		auto Textures = ResolvedCloud != nullptr
+			? ResolvedCloud->Textures
+			: FVolumetricCloudRenderer::FTextureBindings{};
 		Textures.SceneDepth = Depth;
 		const FVolumetricCloudRenderer::FRenderResult Result =
-			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets, ComputeTargets, {.bRequested = Cloud != nullptr, .Textures = Textures, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .View = &View, .QualityTier = QualityTier, .SuccessfulSequence = PreparedView.Context.TemporalContext.SuccessfulSequence, .Width = CloudExtent.Width, .Height = CloudExtent.Height, .OutputWidth = Width, .OutputHeight = Height});
-		auto& Counters = PreparedView.Telemetry.Counters;
+			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets, ComputeTargets, {.bRequested = Cloud != nullptr, .Textures = Textures, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .View = &View, .QualityTier = QualityTier, .SuccessfulSequence = TemporalContext.SuccessfulSequence, .Width = CloudExtent.Width, .Height = CloudExtent.Height, .OutputWidth = Width, .OutputHeight = Height});
+		auto& Counters = Telemetry.Counters;
 		const auto RouteIndex = static_cast<size_t>(Result.Counters.Reason);
 		if (RouteIndex < Counters.VolumetricCloudRouteReasons.size())
 			++Counters.VolumetricCloudRouteReasons[RouteIndex];
@@ -1129,7 +1189,7 @@ namespace Durin
 			++Counters.VolumetricCloudDisabledViews;
 		const FVolumetricCloudRenderer::FTemporalReconstructionResult Temporal =
 			Result.Cloud != nullptr ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
-										  CommandList, {.CurrentCloud = Result.Cloud, .View = &View, .TemporalContext = &PreparedView.Context.TemporalContext, .ViewState = PreparedView.Context.ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
+										  CommandList, {.CurrentCloud = Result.Cloud, .View = &View, .TemporalContext = &TemporalContext, .ViewState = ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
 									  ) :
 									  FVolumetricCloudRenderer::FTemporalReconstructionResult{};
 		Counters.VolumetricCloudHistoryBytes = Temporal.HistoryBytes;
@@ -1139,38 +1199,47 @@ namespace Durin
 			++Counters.VolumetricCloudHistoryAccepted;
 		else if (Temporal.bCandidatePublished)
 			++Counters.VolumetricCloudHistoryRejected;
-		FRHITexture* Composite = Temporal.Cloud != nullptr ? VolumetricCloudRenderer.Composite_RenderThread(
-																 CommandList, SceneColor, Temporal.Cloud, Depth,
-																 PreparedView.VolumetricCloudShadowVisibility,
-																 Temporal.bCandidatePublished,
-																 Temporal.bHistoryAccepted, View
-															 ) :
-															 nullptr;
+		FRHITexture* Composite = Temporal.Cloud != nullptr
+			&& ResolvedFrame.Targets.VolumetricCloudComposite
+			? VolumetricCloudRenderer.Composite_RenderThread(
+				CommandList,
+				*ResolvedFrame.Targets.VolumetricCloudComposite,
+				SceneColor, Temporal.Cloud, Depth,
+				VolumetricCloudShadowVisibility,
+				Temporal.bCandidatePublished,
+				Temporal.bHistoryAccepted, View) :
+			nullptr;
 		Counters.VolumetricCloudRetainedBytes =
 			VolumetricCloudRenderer.GetRetainedTargetBytes_RenderThread();
 		if (Composite != nullptr)
 		{
 			++Counters.VolumetricCloudEnabledViews;
 			++Counters.VolumetricCloudCompositeDraws;
-			return Composite;
+			return {
+				.Status = EScenePassStatus::Complete,
+				.SceneColor = Composite};
 		}
-		return SceneColor;
+		return {
+			.Status = Cloud != nullptr
+				? EScenePassStatus::Failed : EScenePassStatus::NotRequested,
+			.SceneColor = SceneColor};
 	}
 
-	auto FSceneRenderer::RenderScene_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
-		FRHITexture*& SceneColor,
+		const FSceneRenderPlan& PreparedView,
+		FRHITexture* SceneColor,
 		FRHITexture* Depth,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters*
-			DeferredParameters
-	) -> ERenderViewResult
+			DeferredParameters,
+		FRHITexture* VolumetricCloudShadowVisibility
+	) -> FSceneColorPassResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView& View = PreparedView.Context.View;
 		if (SceneColor == nullptr || Depth == nullptr)
-			return ERenderViewResult::RendererResourcesUnavailable;
+			return {};
 		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
 			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
 		{
@@ -1192,12 +1261,15 @@ namespace Durin
 				CommandList, PreparedView, SceneColor
 			);
 			CommandList.EndRenderPass();
-			return bRendered ? ERenderViewResult::Success : ERenderViewResult::RequiredEnvironmentUnavailable;
+			return {
+				.Result = bRendered ? ERenderViewResult::Success
+					: ERenderViewResult::RequiredEnvironmentUnavailable,
+				.SceneColor = SceneColor};
 		}
 		if (DeferredParameters == nullptr)
 		{
-			++PreparedView.Telemetry.Counters.HybridDeferredUnavailableViews;
-			return ERenderViewResult::RendererResourcesUnavailable;
+			++Telemetry.Counters.HybridDeferredUnavailableViews;
+			return {};
 		}
 
 		auto SetViewRect = [&CommandList, &View]() {
@@ -1244,7 +1316,9 @@ namespace Durin
 		}
 		CommandList.EndRenderPass();
 		if (!bBootstrapRendered)
-			return ERenderViewResult::RequiredEnvironmentUnavailable;
+			return {
+				.Result = ERenderViewResult::RequiredEnvironmentUnavailable,
+				.SceneColor = SceneColor};
 
 		const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
 			GetDeferredDirectionalTimingQuerySink();
@@ -1258,8 +1332,8 @@ namespace Durin
 		DeferredTiming.Commit();
 		if (!bDeferredRendered)
 		{
-			++PreparedView.Telemetry.Counters.HybridDeferredUnavailableViews;
-			return ERenderViewResult::RendererResourcesUnavailable;
+			++Telemetry.Counters.HybridDeferredUnavailableViews;
+			return {};
 		}
 		const FRetainedOpaqueTimingQuerySink RetainedOpaqueTimingSink =
 			GetRetainedOpaqueTimingQuerySink();
@@ -1286,10 +1360,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, PreparedView.Lighting.UniformBuffer,
+						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Pass, Draw,
 						PreparedView.Receiver.StaticMeshes,
-						PreparedView.ResolvedReceiver.StaticMeshes, true
+						ResolvedFrame.Receiver.StaticMeshes, true
 					);
 				}
 			const auto& SkeletalDraws = Pass == EMeshBasePass::Opaque ? PreparedView.Receiver.SkeletalMeshes.Opaque : PreparedView.Receiver.SkeletalMeshes.Masked;
@@ -1298,10 +1372,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, PreparedView.Lighting.UniformBuffer,
+						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Pass, Draw,
 						PreparedView.Receiver.SkeletalMeshes,
-						PreparedView.ResolvedReceiver.SkeletalMeshes, true
+						ResolvedFrame.Receiver.SkeletalMeshes, true
 					);
 				}
 			const auto& TerrainDraws = Pass == EMeshBasePass::Opaque ? PreparedView.Receiver.Terrains.Opaque : PreparedView.Receiver.Terrains.Masked;
@@ -1310,10 +1384,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					TerrainRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, PreparedView.Lighting.UniformBuffer,
+						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Draw,
 						PreparedView.Receiver.Terrains,
-						PreparedView.ResolvedReceiver.Terrains,
+						ResolvedFrame.Receiver.Terrains,
 						true
 					);
 				}
@@ -1330,9 +1404,11 @@ namespace Durin
 		};
 		CommandList.TransitionTextures(CloudBoundaryTransitions);
 
-		SceneColor = RenderVolumetricCloud_RenderThread(
-			CommandList, PreparedView, SceneColor, Depth
-		);
+		const FVolumetricCloudPassResult CloudResult =
+			RenderVolumetricCloud_RenderThread(
+				CommandList, PreparedView, SceneColor, Depth,
+				VolumetricCloudShadowVisibility);
+		SceneColor = CloudResult.SceneColor;
 		const std::array SortedTranslucencyTransitions{
 			FRHITextureTransition::Whole(SceneColor, ERHIAccess::GraphicsShaderRead, ERHIAccess::ColorAttachmentReadWrite)
 		};
@@ -1358,27 +1434,27 @@ namespace Durin
 		{
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.StaticMeshes,
-					PreparedView.ResolvedReceiver.StaticMeshes, true
+					ResolvedFrame.Receiver.StaticMeshes, true
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.SkeletalMeshes,
-					PreparedView.ResolvedReceiver.SkeletalMeshes, true
+					ResolvedFrame.Receiver.SkeletalMeshes, true
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode,
 					PreparedView.Receiver.Terrains.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.Terrains,
-					PreparedView.ResolvedReceiver.Terrains, true
+					ResolvedFrame.Receiver.Terrains, true
 				);
 		}
 		CommandList.EndRenderPass();
@@ -1387,18 +1463,21 @@ namespace Durin
 		// lighting, so the retained-forward attempted count intentionally does not
 		// equal every prepared section as it does in the all-forward finalizer.
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.StaticMeshes);
+			ResolvedFrame.Receiver.StaticMeshes);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.SkeletalMeshes);
+			ResolvedFrame.Receiver.SkeletalMeshes);
 		TerrainRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.Terrains);
-		++PreparedView.Telemetry.Counters.HybridDeferredEnabledViews;
-		return ERenderViewResult::Success;
+			ResolvedFrame.Receiver.Terrains);
+		++Telemetry.Counters.HybridDeferredEnabledViews;
+		return {
+			.Result = ERenderViewResult::Success,
+			.SceneColor = SceneColor,
+			.VolumetricCloud = CloudResult};
 	}
 
-	auto FSceneRenderer::RenderSpecialForwardScene_RenderThread(
+	auto FFixedSceneFrameExecutor::RenderSpecialForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneRenderPlan& PreparedView,
+		const FSceneRenderPlan& PreparedView,
 		FRHITexture* RenderTarget
 	) -> bool
 	{
@@ -1455,22 +1534,22 @@ namespace Durin
 			 })
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, PreparedView.Lighting.UniformBuffer,
+				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				PreparedView.Receiver.StaticMeshes,
-				PreparedView.ResolvedReceiver.StaticMeshes
+				ResolvedFrame.Receiver.StaticMeshes
 			);
 			SkeletalMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, PreparedView.Lighting.UniformBuffer,
+				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				PreparedView.Receiver.SkeletalMeshes,
-				PreparedView.ResolvedReceiver.SkeletalMeshes
+				ResolvedFrame.Receiver.SkeletalMeshes
 			);
 			TerrainRenderer.ExecutePass_RenderThread(
-				CommandList, View, PreparedView.Lighting.UniformBuffer,
+				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				PreparedView.Receiver.Terrains,
-				PreparedView.ResolvedReceiver.Terrains
+				ResolvedFrame.Receiver.Terrains
 			);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -1478,37 +1557,37 @@ namespace Durin
 		{
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.StaticMeshes,
-					PreparedView.ResolvedReceiver.StaticMeshes
+					ResolvedFrame.Receiver.StaticMeshes
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					PreparedView.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.SkeletalMeshes,
-					PreparedView.ResolvedReceiver.SkeletalMeshes
+					ResolvedFrame.Receiver.SkeletalMeshes
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.Lighting.UniformBuffer,
+					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode,
 					PreparedView.Receiver.Terrains.Translucent[Draw.DrawIndex],
 					PreparedView.Receiver.Terrains,
-					PreparedView.ResolvedReceiver.Terrains
+					ResolvedFrame.Receiver.Terrains
 				);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.StaticMeshes
+			ResolvedFrame.Receiver.StaticMeshes
 		);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.SkeletalMeshes
+			ResolvedFrame.Receiver.SkeletalMeshes
 		);
 		TerrainRenderer.FinalizeExecution_RenderThread(
-			PreparedView.ResolvedReceiver.Terrains);
+			ResolvedFrame.Receiver.Terrains);
 		return true;
 	}
 } // namespace Durin

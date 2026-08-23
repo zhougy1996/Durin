@@ -3,6 +3,7 @@
 #include "RHIResources.h"
 
 #include <memory>
+#include <optional>
 
 namespace Durin
 {
@@ -22,7 +23,8 @@ namespace Durin
 			FFullscreenGeometryResources& InFullscreenGeometry,
 			FRendererTransientTargetPool& InTransientTargets);
 		~FGBufferDebugRenderer();
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
+		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
+			-> std::optional<FTargets>;
 
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,

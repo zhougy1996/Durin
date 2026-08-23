@@ -5,8 +5,6 @@
 #include "Scene.h"
 #include "SceneView.h"
 
-#include <unordered_map>
-#include <unordered_set>
 
 namespace Durin
 {
@@ -16,6 +14,7 @@ namespace Durin
 
 	struct FPreparedTerrainDraw
 	{
+		uint32 ResolvedIndex = 0;
 		const FPrimitiveSceneInfo* SceneInfo = nullptr;
 		const FTerrainPatchDescriptor* Patch = nullptr;
 		FMaterialRenderData Material;
@@ -34,6 +33,7 @@ namespace Durin
 	// stable patch identity for diagnostics and overlays.
 	struct FPreparedTerrainBatch
 	{
+		uint32 ResolvedIndex = 0;
 		std::vector<uint32> DrawIndices;
 	};
 
@@ -78,15 +78,8 @@ namespace Durin
 		}
 	};
 
-	// Owns fallible Terrain resources, batching resolution, and execution telemetry.
-	struct FResolvedTerrainView
+	struct FTerrainRenderObservations
 	{
-		std::unordered_set<const FPreparedTerrainDraw*> ReadyDraws;
-		std::unordered_map<const FPreparedTerrainDraw*,
-			FMaterialRenderBinding> MaterialBindings;
-		std::unordered_set<const FPreparedTerrainBatch*> ReadyBatches;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
 		size_t HeightUploadBytes = 0;
 		size_t HeightUploads = 0;
 		size_t HeightReuses = 0;
@@ -126,20 +119,33 @@ namespace Durin
 		size_t GBufferSuccessfulDraws = 0;
 		size_t GBufferRejectedDraws = 0;
 		size_t GBufferSkippedDraws = 0;
+	};
+
+	// Owns fallible Terrain resources separately from observations.
+	struct FResolvedTerrainView
+	{
+		std::vector<FResolvedMeshDrawRecord> Draws;
+		std::vector<uint8> ReadyBatches;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
+		FTerrainRenderObservations Observations;
 
 		auto IsReady(const FPreparedTerrainDraw& Draw) const -> bool
 		{
-			return ReadyDraws.contains(&Draw);
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].bReady;
 		}
 		auto GetMaterialBinding(const FPreparedTerrainDraw& Draw) const
 			-> const FMaterialRenderBinding*
 		{
-			const auto It = MaterialBindings.find(&Draw);
-			return It != MaterialBindings.end() ? &It->second : nullptr;
+			return Draw.ResolvedIndex < Draws.size()
+				&& Draws[Draw.ResolvedIndex].MaterialBinding
+				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
 		auto IsReady(const FPreparedTerrainBatch& Batch) const -> bool
 		{
-			return ReadyBatches.contains(&Batch);
+			return Batch.ResolvedIndex < ReadyBatches.size()
+				&& ReadyBatches[Batch.ResolvedIndex];
 		}
 	};
 

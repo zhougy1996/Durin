@@ -83,7 +83,6 @@ namespace Durin
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device
 		};
-		FTargets CurrentTargets;
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
@@ -246,9 +245,9 @@ namespace Durin
 	auto FDeferredDirectionalLightingRenderer::EnsureTargets_RenderThread(
 		uint32 Width,
 		uint32 Height
-	) -> FTargets*
+	) -> std::optional<FTargets>
 	{
-		if (Width == 0 || Height == 0) return nullptr;
+		if (Width == 0 || Height == 0) return std::nullopt;
 		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 											   "DeferredDirectionalColor", Width, Height,
 											   EPixelFormat::RGBA16_FLOAT
@@ -256,15 +255,15 @@ namespace Durin
 											   .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
 											   .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
 		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			"DeferredDirectional", std::span(&Desc, 1), MaximumRetainedBytes);
-		if (!Lease) return nullptr;
-		State->CurrentTargets.Color = Lease->Get(0);
-		return &State->CurrentTargets;
+			ERendererTransientTargetGroup::DeferredDirectional,
+			std::span(&Desc, 1), MaximumRetainedBytes);
+		if (!Lease) return std::nullopt;
+		return FTargets{.Color = Lease->Textures[0]};
 	}
 
 	auto FDeferredDirectionalLightingRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FTargets& Targets,
+		const FTargets& Targets,
 		const FRenderParameters& Parameters
 	) -> bool
 	{
@@ -435,7 +434,6 @@ namespace Durin
 	auto FDeferredDirectionalLightingRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
-		State->CurrentTargets = {};
 		State->Resources.Reset();
 	}
 } // namespace Durin

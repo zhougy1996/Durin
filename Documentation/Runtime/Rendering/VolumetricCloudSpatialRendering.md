@@ -97,14 +97,14 @@ NVIDIA GeForce RTX 3090 and Vulkan 1.4.325 identity; other devices emit
 explicit non-gating observations.
 
 P2 production views receive their input from the selected immutable Engine
-scene snapshot. `SetVolumetricCloudPreparationSink` remains a
-development-only qualification hook whose only cloud-specific use is forcing
-the fragment route for comparison; it is not a scene-authoring or shipping
-quality-policy contract. `VolumetricCloudSceneVulkanTests` uses real reflected
-actors and volume assets to prove exact no-cloud behavior, compute/fragment
-final SRGBA8 parity, offscreen output, window-backed Present, resize,
-post-process continuity, and clean shutdown through `RenderView` on both
-executors.
+scene snapshot. Tests force the fragment route through the feature-bounded
+Renderer-private `FScopedRendererQualificationPolicy`; the fixed executor
+snapshots this value without mutating cloud preparation. There is no cloud
+preparation callback or shipping option that can select the qualification
+route. `VolumetricCloudSceneVulkanTests` uses real reflected actors and volume
+assets to prove exact no-cloud behavior, compute/fragment final SRGBA8 parity,
+offscreen output, window-backed Present, resize, post-process continuity, and
+clean shutdown through the same `RenderView` scheduler.
 
 Run both executor lanes explicitly:
 

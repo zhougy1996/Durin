@@ -348,12 +348,14 @@ namespace Durin
 					FExtentProfile& Profile = (*Profiles)[ExtentIndex];
 					Profile.Extent = Extents[ExtentIndex];
 					const FExtentFixture& Extent = Profile.Extent;
-					auto* FragmentTargets = Clouds.EnsureTargets_RenderThread(
+					auto FragmentTargets = Clouds.EnsureTargets_RenderThread(
 						Extent.Width, Extent.Height
 					);
-					auto* ComputeTargets = Clouds.EnsureComputeTargets_RenderThread(
+					auto ComputeTargets = Clouds.EnsureComputeTargets_RenderThread(
 						Extent.Width, Extent.Height
 					);
+					auto CompositeTargets = Clouds.EnsureCompositeTargets_RenderThread(
+						Extent.Width, Extent.Height);
 					FTextureRHIRef Depth = GDynamicRHI->RHICreateTexture(
 						CommandList, FRHITextureCreateDesc::Create2D(
 										 "CloudQualificationDepth", Extent.Width, Extent.Height,
@@ -361,7 +363,8 @@ namespace Durin
 									 )
 										 .SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource)
 					);
-					if (!FragmentTargets || !ComputeTargets || !Depth) continue;
+					if (!FragmentTargets || !ComputeTargets || !CompositeTargets
+						|| !Depth) continue;
 
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FRHIRenderPassInfo DepthPass{};
@@ -421,7 +424,7 @@ namespace Durin
 							++GRenderFrameCounterRenderThread;
 							GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 							const auto Result = Clouds.Render_RenderThread(
-								CommandList, FragmentTargets, SelectedCompute, Input
+								CommandList, &*FragmentTargets, SelectedCompute, Input
 							);
 							Route.Counters = Result.Counters;
 							GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -437,7 +440,7 @@ namespace Durin
 					};
 
 					RunRoute(Profile.Fragment, nullptr);
-					RunRoute(Profile.Compute, ComputeTargets);
+					RunRoute(Profile.Compute, &*ComputeTargets);
 					Profile.bParity = Profile.Compute.Pixels.size()
 										  == Profile.Fragment.Pixels.size()
 									  && !Profile.Compute.Pixels.empty();
@@ -473,7 +476,9 @@ namespace Durin
 						);
 						CommandList.EndRenderPass();
 					}
-					FRHITexture* Composite = SceneColor ? Clouds.Composite_RenderThread(CommandList, SceneColor, ComputeTargets->Cloud, Depth, View) : nullptr;
+					FRHITexture* Composite = SceneColor
+						? Clouds.Composite_RenderThread(CommandList, *CompositeTargets,
+							SceneColor, ComputeTargets->Cloud, Depth, View) : nullptr;
 					if (ExtentIndex == 0 && SceneColor)
 					{
 						constexpr auto Tier =
@@ -484,10 +489,10 @@ namespace Durin
 							FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
 								Extent.Width, Extent.Height, Policy
 							);
-						auto* LowFragment = Clouds.EnsureTargets_RenderThread(
+						auto LowFragment = Clouds.EnsureTargets_RenderThread(
 							CloudExtent.Width, CloudExtent.Height
 						);
-						auto* LowCompute = Clouds.EnsureComputeTargets_RenderThread(
+						auto LowCompute = Clouds.EnsureComputeTargets_RenderThread(
 							CloudExtent.Width, CloudExtent.Height
 						);
 						FSceneViewState ViewState;
@@ -506,7 +511,7 @@ namespace Durin
 							LowInput.OutputWidth = Extent.Width;
 							LowInput.OutputHeight = Extent.Height;
 							const auto Spatial = Clouds.Render_RenderThread(
-								CommandList, LowFragment, LowCompute, LowInput
+								CommandList, &*LowFragment, &*LowCompute, LowInput
 							);
 							const auto Temporal = Clouds.ReconstructTemporal_RenderThread(
 								CommandList, {.CurrentCloud = Spatial.Cloud,
@@ -518,7 +523,9 @@ namespace Durin
 											  .CloudHistoryKey = 77}
 							);
 							FRHITexture* LowComposite =
-								Clouds.Composite_RenderThread(CommandList, SceneColor, Temporal.Cloud, Depth, View);
+								Clouds.Composite_RenderThread(CommandList,
+									*CompositeTargets, SceneColor, Temporal.Cloud,
+									Depth, View);
 							const bool bComplete = Spatial.Cloud != nullptr
 												   && Temporal.Cloud != nullptr
 												   && Temporal.bCandidatePublished
@@ -528,7 +535,7 @@ namespace Durin
 							return bComplete;
 						};
 						Profile.bLowResolutionTemporalComplete =
-							LowFragment != nullptr && LowCompute != nullptr
+							LowFragment && LowCompute
 							&& RunTemporalFrame(1) && RunTemporalFrame(2);
 					}
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -627,16 +634,19 @@ namespace Durin
 					FVolumetricCloudShadowRenderer TierShadows(
 						Coordinator, FullscreenGeometry, TransientTargets
 					);
-					auto* FragmentTargets = TierClouds.EnsureTargets_RenderThread(
+					auto FragmentTargets = TierClouds.EnsureTargets_RenderThread(
 						CloudExtent.Width, CloudExtent.Height
 					);
-					auto* ComputeTargets = TierClouds.EnsureComputeTargets_RenderThread(
+					auto ComputeTargets = TierClouds.EnsureComputeTargets_RenderThread(
 						CloudExtent.Width, CloudExtent.Height
 					);
-					auto* ShadowFragmentTargets = TierShadows.EnsureTargets_RenderThread(
+					auto CompositeTargets =
+						TierClouds.EnsureCompositeTargets_RenderThread(
+							OutputWidth, OutputHeight);
+					auto ShadowFragmentTargets = TierShadows.EnsureTargets_RenderThread(
 						OutputWidth, OutputHeight
 					);
-					auto* ShadowComputeTargets = TierShadows.EnsureComputeTargets_RenderThread(
+					auto ShadowComputeTargets = TierShadows.EnsureComputeTargets_RenderThread(
 						OutputWidth, OutputHeight
 					);
 					FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
@@ -648,7 +658,8 @@ namespace Durin
 					);
 					FSamplerRHIRef TierSampler = TierClouds.EnsureDensitySampler_RenderThread();
 					Profile.bComplete = QualificationDepth && ShadowDepth
-										&& FragmentTargets && ComputeTargets && ShadowFragmentTargets
+										&& FragmentTargets && ComputeTargets && CompositeTargets
+										&& ShadowFragmentTargets
 										&& ShadowComputeTargets && SceneColor && TierSampler;
 
 					auto ClearScene = [&]() {
@@ -677,11 +688,12 @@ namespace Durin
 						);
 						if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 						const auto Shadow = TierShadows.Render_RenderThread(
-							CommandList, ShadowFragmentTargets, ShadowComputeTargets,
+							CommandList, &*ShadowFragmentTargets,
+							&*ShadowComputeTargets,
 							{.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = ShadowDepth, .DensitySampler = TierSampler, .View = &View, .QualityTier = Profile.Tier, .Width = OutputWidth, .Height = OutputHeight}
 						);
 						const auto Spatial = TierClouds.Render_RenderThread(
-							CommandList, FragmentTargets, ComputeTargets,
+							CommandList, &*FragmentTargets, &*ComputeTargets,
 							{.bRequested = true,
 							 .Textures = {.BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = QualificationDepth, .DensitySampler = TierSampler},
 							 .View = &View,
@@ -702,7 +714,7 @@ namespace Durin
 							 .CloudHistoryKey = 0xC10D}
 						);
 						FRHITexture* Composite = TierClouds.Composite_RenderThread(
-							CommandList, SceneColor, Temporal.Cloud,
+							CommandList, *CompositeTargets, SceneColor, Temporal.Cloud,
 							QualificationDepth, View
 						);
 						if (TimingQuery) CommandList.EndGPUTimingQuery(TimingQuery);

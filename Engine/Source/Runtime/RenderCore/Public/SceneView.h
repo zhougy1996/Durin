@@ -225,21 +225,12 @@ namespace Durin
 	struct FSceneViewRenderOptions
 	{
 		std::optional<FViewEnvironmentOverride> Environment;
-		// Development-only A/B path. Writes opaque and masked geometry into the
-		// minimal GBuffer before the unchanged forward scene pass.
-		bool bEnableGBufferQualification = false;
+		// Supported development visualization written into HDR Scene Color.
 		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
-		// Development-only M3/M4 route. Produces an isolated deferred directional,
-		// local, shadow, environment, and emissive result before unchanged forward
-		// Scene Color.
-		bool bEnableDeferredDirectionalQualification = false;
+		// Supported isolated deferred component visualization.
 		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
 			EDeferredDirectionalDebugMode::Disabled;
-		// Development-only A/B path for contact visibility parity evidence.
-		bool bForceFragmentContactVisibility = false;
-		// Development-only M5 path. Produces isolated raw and filtered R8
-		// visibility from the qualified production depth/normal inputs.
-		bool bEnableGroundTruthAmbientOcclusionQualification = false;
+		// Supported isolated ambient-occlusion visualization.
 		EGroundTruthAmbientOcclusionDebugMode
 			GroundTruthAmbientOcclusionDebugMode =
 				EGroundTruthAmbientOcclusionDebugMode::Disabled;
