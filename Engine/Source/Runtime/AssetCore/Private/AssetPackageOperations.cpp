@@ -1219,7 +1219,7 @@ namespace Durin::Asset
 		return Reader.Offset == Payload.size();
 	}
 
-	auto FAssetPackageField::TryReadAuthoredBulkDescriptor(
+	auto FAssetPackageField::TryReadEditorBulkDataStorageDescriptor(
 		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
 	{
 		OutValue = {};
@@ -1240,11 +1240,50 @@ namespace Durin::Asset
 		OutValue.ContainerHash = {ContainerLow, ContainerHigh};
 		OutValue.StorageKind = StorageKind == 0
 			? EEditorBulkDataStorageKind::Inline : EEditorBulkDataStorageKind::External;
-		return OutValue.PayloadId.IsValid()
-			&& OutValue.LogicalByteCount == OutValue.StoredByteCount
-			&& (OutValue.StorageKind == EEditorBulkDataStorageKind::Inline
-				? OutValue.ContainerHash.IsZero()
-				: OutValue.ContainerHash.IsZero() == false && Reader.Offset == Payload.size());
+		if (!OutValue.PayloadId.IsValid()
+			|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
+		if (OutValue.StorageKind == EEditorBulkDataStorageKind::External)
+			return !OutValue.ContainerHash.IsZero() && Reader.Offset == Payload.size();
+		if (!OutValue.ContainerHash.IsZero()
+			|| Reader.Offset > Payload.size()
+			|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
+		return FXxHash128::HashBuffer(
+			std::span<const std::byte>(Payload).subspan(Reader.Offset))
+			== OutValue.ContentHash;
+	}
+
+	auto FAssetPackageField::TryInspectStructFields(
+		std::vector<FAssetPackageField>& OutFields) const -> bool
+	{
+		OutFields.clear();
+		if (Kind != DurinCodeGen::EPropertyGenFlags::Struct) return false;
+		FByteReader Reader{Payload};
+		std::string StructName;
+		uint64 FieldCount = 0;
+		if (!Reader.ReadString(StructName, MaximumPackageStringBytes)
+			|| !Reader.Read(FieldCount) || FieldCount > 100000) return false;
+		OutFields.reserve(static_cast<size_t>(FieldCount));
+		for (uint64 Index = 0; Index < FieldCount; ++Index)
+		{
+			FAssetPackageField Field;
+			uint8 FieldKind = 0;
+			uint64 PayloadSize = 0;
+			if (!Reader.ReadString(Field.DeclaringClass, MaximumPackageStringBytes)
+				|| !Reader.ReadString(Field.Name, MaximumPackageStringBytes)
+				|| !Reader.Read(FieldKind)
+				|| !Reader.ReadString(Field.TypeSignature, MaximumPackageStringBytes)
+				|| !Reader.Read(PayloadSize)
+				|| Reader.Offset > Reader.Bytes.size()
+				|| PayloadSize > Reader.Bytes.size() - Reader.Offset) return false;
+			Field.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind);
+			Field.SourceFormatVersion = SourceFormatVersion;
+			Field.Payload.resize(static_cast<size_t>(PayloadSize));
+			if (PayloadSize != 0
+				&& !Reader.ReadBytes(Field.Payload.data(), static_cast<size_t>(PayloadSize)))
+				return false;
+			OutFields.push_back(std::move(Field));
+		}
+		return Reader.Offset == Payload.size();
 	}
 
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
@@ -1283,6 +1322,7 @@ namespace Durin::Asset
 			FAssetPackageInspection Inspection;
 			Result = Codec->Inspect(Bytes, Inspection);
 			if (!Result) return Result;
+			Inspection.PhysicalPath = PhysicalPath;
 			Inspection.Fingerprint = OutInspection.Fingerprint;
 			OutInspection = std::move(Inspection);
 			return {};

@@ -298,6 +298,18 @@ checked against known values rather than inferred from editor startup.
 
 ## Editor Contract
 
+`TexturePayloadInspection.h` defines the texture-domain lifecycle summary used
+by Texture2D and VolumeTexture. Live summaries cover source, derived, cooked,
+decoded CPU, and GPU stages with schema version, texel count, logical/stored
+bytes, placement capability, provenance, state, diagnostic, and an explicit
+repair classification. Package summaries are construct-free and join reflected
+domain fields with AssetCore storage inspection; they do not open DDC or build
+runtime resources.
+
+Texture editors render this summary as a read-only Payload Lifecycle section.
+Buttons remain attached to existing explicit reimport, source repair, build,
+and save workflows; the summary itself performs no mutation.
+
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 
 - source virtual path, owning mount, availability/dependency/write diagnostics,

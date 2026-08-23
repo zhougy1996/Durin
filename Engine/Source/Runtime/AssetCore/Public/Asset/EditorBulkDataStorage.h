@@ -35,4 +35,13 @@ namespace Durin::Asset
 		const FAssetPackageInspection& Inspection,
 		std::vector<std::filesystem::path>& OutPaths,
 		std::string* OutError = nullptr) -> bool;
+	ASSETCORE_API auto InspectEditorBulkDataStorageDescriptors(
+		const FAssetPackageInspection& Inspection,
+		std::vector<FEditorBulkDataStorageDescriptor>& OutDescriptors,
+		std::string* OutError = nullptr) -> bool;
+	ASSETCORE_API auto InspectOrphanedEditorBulkDataCompanionPaths(
+		const std::filesystem::path& PackagePath,
+		const FAssetPackageInspection& Inspection,
+		std::vector<std::filesystem::path>& OutPaths,
+		std::string* OutError = nullptr) -> bool;
 }

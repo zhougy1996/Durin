@@ -4,8 +4,8 @@ Summary: Reframe large asset payloads as domain-owned schemas over untyped bulk 
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
@@ -44,11 +44,17 @@ Historical semantic slots remain readable and current DAST/DABK output writes
 canonical zeros without changing physical layouts. Focused workflow,
 aggregate, full-build, and documentation gates pass.
 
-The active ordered child is [Authority-Specific Payload Services](../Plans/AuthoritySpecificPayloadServices.md).
-Its entry gate is satisfied by the authored/derived/cooked overlap and
-divergence exposed by the pilot. Stage 0 keeps the proven multi-domain cooked
-service and domain build/session APIs, and selects removal of authored physical
-descriptor access from domain-facing values.
+**Authority-Specific Payload Services** is complete. UE-style
+`FEditorBulkData` owns only verified editor bytes; `EditorBulkDataStorage`, DDC
+domain builders, and cooked DBLK loading retain separate mutation, fallback,
+publication, and failure contracts.
+
+**Texture2D Payload Consumer Qualification** and **Domain Payload Inspection
+and Repair** are complete. Texture2D supplies a measured second consumer that
+already meets the architecture, and the texture-domain inspection surface joins
+package/source/DDC/cooked/decoded/GPU facts without a generic element registry
+or hidden mutation. Required milestones are complete; evidence-gated and
+optional tail work is explicitly dispositioned below.
 
 ## Outcome
 
@@ -224,10 +230,10 @@ or legacy APIs.
 | 2. VolumeTexture domain-schema pilot | Milestone 1 | Volume source and cooked metadata become the sole authority for voxel/pixel meaning; storage supplies opaque verified bytes only | Current VolumeTexture authored, DDC, Cook, runtime, reimport, and failure fixtures are green | Source save/reload and Cook/runtime round trips validate metadata plus bytes, preserve or explicitly version golden outputs, and contain no generic format translation | Completed |
 | 3. Authority-specific payload services | Milestones 1-2 | Final authored, DDC, and cooked service boundaries with shared mechanics only where demonstrated | The pilot exposes the exact overlap and divergence between source, cache, and deployment paths | Authored replacement/recovery, DDC miss/rebuild, and cooked hard-failure behavior are independently testable with no universal mutation or semantic descriptor | Completed |
 | 4. Consumer migration program | Milestones 1 and 3; domain prerequisites as needed | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | A consumer has measured structural/package/memory cost and a frozen compatibility baseline | Selected consumer uses domain metadata plus opaque storage, with canonical or explicitly platform-specific codecs and no oversized ordinary reflected arrays | Completed |
-| 5. Domain-qualified inspection and repair | Milestone 3 plus two production consumers | Inspection joins domain schema/version with storage location, integrity, provenance, and actionable repair/cleanup | Two consumers demonstrate reusable diagnostic questions | Tools trace authored, derived, and cooked payloads without a universal element registry or backend paths in domain callers | Proposed |
-| 6. Async IO and residency budgets | Milestones 3 and 5 | Request/cancel/wait primitives, range IO where layouts support it, accounting, eviction, and stale-result rejection | Profiling shows startup, latency, or peak-residency pressure and two authorities share a real request shape | Stress tests prove bounded memory, cancellation safety, unload/reload, priority behavior, transactional publication, and deterministic synchronous fallback | Evidence-gated |
-| 7. Authored payload virtualization | Milestones 3 and 5; optionally 6 | Content-addressed external authored storage with local/shared retrieval and durable fallback | Corpus and source-control telemetry show material checkout/storage cost | Offline, source-control, recovery, permission, cache-miss, and provenance workflows retain authored durability | Evidence-gated |
-| 8. Compression, deduplication, and package-container evolution | Milestone 5; optionally 6-7 | Authority-selected storage optimization and possible archive/IoStore-style cooked aggregation | Telemetry demonstrates material storage, patch, or transfer savings | Compatibility, recovery, security, staging, patching, and performance gates pass without changing domain schemas | Optional |
+| 5. Domain-qualified inspection and repair | Milestone 3 plus two production consumers | Inspection joins domain schema/version with storage location, integrity, provenance, and actionable repair/cleanup | Two consumers demonstrate reusable diagnostic questions | Tools trace authored, derived, and cooked payloads without a universal element registry or backend paths in domain callers | Completed |
+| 6. Async IO and residency budgets | Milestones 3 and 5 | Request/cancel/wait primitives, range IO where layouts support it, accounting, eviction, and stale-result rejection | Profiling shows startup, latency, or peak-residency pressure and two authorities share a real request shape | Stress tests prove bounded memory, cancellation safety, unload/reload, priority behavior, transactional publication, and deterministic synchronous fallback | Deferred: gate not met |
+| 7. Authored payload virtualization | Milestones 3 and 5; optionally 6 | Content-addressed external authored storage with local/shared retrieval and durable fallback | Corpus and source-control telemetry show material checkout/storage cost | Offline, source-control, recovery, permission, cache-miss, and provenance workflows retain authored durability | Deferred: gate not met |
+| 8. Compression, deduplication, and package-container evolution | Milestone 5; optionally 6-7 | Authority-selected storage optimization and possible archive/IoStore-style cooked aggregation | Telemetry demonstrates material storage, patch, or transfer savings | Compatibility, recovery, security, staging, patching, and performance gates pass without changing domain schemas | Dispositioned: no evidence |
 
 ## Child Plan Boundaries
 
@@ -242,13 +248,21 @@ or legacy APIs.
 | [Authority-Specific Payload Services](../Plans/AuthoritySpecificPayloadServices.md) | Completed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
 | [Texture2D Payload Consumer Qualification](../Plans/Texture2DPayloadConsumerQualification.md) | Completed | Texture2D metadata, codecs, compatibility, measured storage/structure, diagnostics, and end-to-end workflow | Changing the generic layer solely for local convenience |
 | Asset Payload Consumer Migration: `<Domain>` | Proposed per later consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |
-| [Domain Payload Inspection and Repair](../Plans/DomainPayloadInspectionAndRepair.md) | Active | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
+| [Domain Payload Inspection and Repair](../Plans/DomainPayloadInspectionAndRepair.md) | Completed | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
 | Payload IO and Residency | Evidence-gated | Async requests, cancellation, priorities, range IO, budgets, eviction, and mapping | Domain schema design or authored/cooked format unification |
 | Authored Payload Virtualization | Evidence-gated | External content-addressed source storage and durable retrieval policy | DDC/cooked authority merger or required remote-only operation |
 
 Completed plans above remain provenance for verified behavior and validation.
 When their architectural decisions conflict with this roadmap, this active
 roadmap governs new work and the realignment plan must record the replacement.
+
+The evidence-gated tail is dispositioned rather than implemented speculatively.
+There is no measured payload-IO startup/latency/residency pressure or shared
+cross-authority request shape for Milestone 6. The tracked authored corpus has
+two DABK companions of 2,097,312 and 262,304 bytes and no source-control or
+checkout telemetry demonstrating material virtualization savings for Milestone
+7. No storage, patch, transfer, or deduplication telemetry satisfies Milestone
+8. New evidence may reopen those milestones in a new roadmap/child plan.
 
 ## Program Validation Matrix
 

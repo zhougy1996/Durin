@@ -4,17 +4,23 @@ Summary: Join domain schema facts to editor, derived, and cooked payload state w
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Stage 0 is active. VolumeTexture and Texture2D now provide two production
-consumers with different source ownership: VolumeTexture stores normalized
-source voxels in `FEditorBulkData`, while Texture2D keeps mounted encoded source
-files and transient decoded pixels. Both use domain-owned DDC/TXPL contracts and
-the cooked DBLK service. Their shared diagnostic questions can now be extracted
-without merging descriptors or codecs.
+All stages are complete. `InspectTexturePayloadPackage` provides construct-free
+Texture2D and VolumeTexture summaries by combining domain field trees with
+read-only editor storage inspection. `InspectTexturePayloads` joins live source,
+DDC, cooked, decoded CPU, and GPU facts. The common texture-domain entry carries
+schema/count/size/placement/provenance/state/repair facts but no generic element
+schema, backend path, provider, or mutation callback.
+
+Focused fixtures prove mounted-source and external-DABK consumers, missing and
+corrupt companions, unsupported TXPL descriptors, orphan reporting, and live
+source/DDC/decoded state. Texture editors expose the read-only lifecycle; all
+reimport, rebuild, restore, recook, retry, resave, and cleanup actions remain
+explicit authority workflows.
 
 ## Goal
 
@@ -48,12 +54,12 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 
 ### Stage 0: Inventory reusable diagnostic questions
 
-- [ ] Map existing construct-free and live diagnostics for both consumers and
+- [x] Map existing construct-free and live diagnostics for both consumers and
   all three authorities.
-- [ ] Separate facts available from package/container bytes from facts requiring
+- [x] Separate facts available from package/container bytes from facts requiring
   a live domain object or source mount.
-- [ ] Define repair classifications and mutation authority boundaries.
-- [ ] Freeze missing, corrupt, stale, unsupported-schema, and orphan baselines.
+- [x] Define repair classifications and mutation authority boundaries.
+- [x] Freeze missing, corrupt, stale, unsupported-schema, and orphan baselines.
 
 #### Acceptance Gate
 
@@ -62,11 +68,11 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 
 ### Stage 1: Add domain-qualified inspection summaries
 
-- [ ] Introduce the narrow summary/hook surface selected by Stage 0.
-- [ ] Report domain/schema/count/size/integrity and authority-specific
+- [x] Introduce the narrow summary/hook surface selected by Stage 0.
+- [x] Report domain/schema/count/size/integrity and authority-specific
   placement/availability without a generic element schema.
-- [ ] Keep package inspection construct-free and live diagnostics transactional.
-- [ ] Add focused VolumeTexture and Texture2D inspection tests.
+- [x] Keep package inspection construct-free and live diagnostics transactional.
+- [x] Add focused VolumeTexture and Texture2D inspection tests.
 
 #### Acceptance Gate
 
@@ -75,11 +81,11 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 
 ### Stage 2: Add repair and cleanup guidance
 
-- [ ] Classify rebuild, reimport, restore companion, recook, remove orphan, and
+- [x] Classify rebuild, reimport, restore companion, recook, remove orphan, and
   unsupported-schema outcomes with explicit owning authority.
-- [ ] Preserve read-only inspection and require explicit mutation workflows.
-- [ ] Update editor presentation and lasting contracts.
-- [ ] Run focused workflows, aggregate build/tests, and docs validation.
+- [x] Preserve read-only inspection and require explicit mutation workflows.
+- [x] Update editor presentation and lasting contracts.
+- [x] Run focused workflows, aggregate build/tests, and docs validation.
 
 #### Acceptance Gate
 
@@ -101,4 +107,6 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 - `Engine/Source/Runtime/AssetCore/Public/Asset/CookedAsset.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
-- `Engine/Source/Editor/DurinEd/Private/Editor/PropertyView.cpp`
+- `Engine/Source/Runtime/Engine/Public/Texture/TexturePayloadInspection.h`
+- `Engine/Source/Editor/TextureEditor/Private/Widgets/MTextureEditor.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Widgets/MVolumeTextureEditor.cpp`

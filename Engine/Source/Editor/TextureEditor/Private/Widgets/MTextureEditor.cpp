@@ -19,6 +19,7 @@
 #include "Source/MountedSourceRelocation.h"
 #include "Source/TextureSourceReplacementOperation.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TexturePayloadInspection.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture2DSourceTranslation.h"
@@ -82,6 +83,51 @@ namespace Durin::Editor::Texture
 			case Asset::Build::ETexture2DBuildPhase::Cancelled: return "Cancelled";
 			default: return "Not Submitted";
 			}
+		}
+
+		auto PayloadStageName(ETexturePayloadStage Stage) -> const char*
+		{
+			switch (Stage)
+			{
+			case ETexturePayloadStage::Source: return "Source";
+			case ETexturePayloadStage::DerivedData: return "Derived";
+			case ETexturePayloadStage::Cooked: return "Cooked";
+			case ETexturePayloadStage::Decoded: return "Decoded";
+			case ETexturePayloadStage::RuntimeResource: return "GPU";
+			}
+			return "Unknown";
+		}
+
+		auto PayloadStateName(ETexturePayloadState State) -> const char*
+		{
+			switch (State)
+			{
+			case ETexturePayloadState::Unknown: return "Unknown";
+			case ETexturePayloadState::NotPresent: return "Not present";
+			case ETexturePayloadState::Available: return "Available";
+			case ETexturePayloadState::Missing: return "Missing";
+			case ETexturePayloadState::Stale: return "Stale";
+			case ETexturePayloadState::Corrupt: return "Corrupt";
+			case ETexturePayloadState::Unsupported: return "Unsupported";
+			case ETexturePayloadState::Failed: return "Failed";
+			}
+			return "Unknown";
+		}
+
+		auto PayloadRepairName(ETexturePayloadRepairAction Repair) -> const char*
+		{
+			switch (Repair)
+			{
+			case ETexturePayloadRepairAction::None: return "None";
+			case ETexturePayloadRepairAction::ReimportSource: return "Reimport source";
+			case ETexturePayloadRepairAction::RebuildDerivedData: return "Rebuild derived data";
+			case ETexturePayloadRepairAction::RestoreEditorCompanion: return "Restore editor companion";
+			case ETexturePayloadRepairAction::Recook: return "Recook";
+			case ETexturePayloadRepairAction::RetryRuntimeResource: return "Retry runtime resource";
+			case ETexturePayloadRepairAction::RemoveOrphan: return "Remove orphan";
+			case ETexturePayloadRepairAction::UpgradeOrResave: return "Upgrade or resave";
+			}
+			return "None";
 		}
 
 		auto DrawInfoRow(const char* Label, std::string_view Value) -> void
@@ -392,6 +438,8 @@ namespace Durin::Editor::Texture
 			ImGui::Separator();
 			DrawBuildReadiness(Texture);
 			DrawFailureState(Texture);
+			if (ImGui::CollapsingHeader("Payload Lifecycle", ImGuiTreeNodeFlags_DefaultOpen))
+				DrawPayloadLifecycle(Texture);
 			if (ImGui::CollapsingHeader("Build Settings", ImGuiTreeNodeFlags_DefaultOpen))
 				DrawBuildSettings(Texture);
 			if (ImGui::CollapsingHeader("Source Information", ImGuiTreeNodeFlags_DefaultOpen))
@@ -452,6 +500,22 @@ namespace Durin::Editor::Texture
 		ImGui::EndChild();
 		ImGui::PopStyleColor();
 		ImGui::Spacing();
+	}
+
+	auto MTextureEditor::DrawPayloadLifecycle(DTexture2D* Texture) -> void
+	{
+		if (!Texture || !MonaImGui::PropertyEdit::BeginTable("TexturePayloadLifecycle"))
+			return;
+		const FTexturePayloadInspection Inspection = InspectTexturePayloads(*Texture);
+		for (const FTexturePayloadInspectionEntry& Entry : Inspection.Entries)
+		{
+			DrawInfoRow(PayloadStageName(Entry.Stage), std::format(
+				"{} | {} | {} | repair: {}",
+				PayloadStateName(Entry.State), Entry.Placement,
+				FormatByteCount(Entry.LogicalByteCount), PayloadRepairName(Entry.Repair)));
+			if (!Entry.Diagnostic.empty()) DrawInfoRow("Diagnostic", Entry.Diagnostic);
+		}
+		MonaImGui::PropertyEdit::EndTable();
 	}
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void

@@ -627,6 +627,30 @@ graph; a prior resident package or texture resource is not partially mutated.
 Unload releases the shared allocation normally. Move/rename and deletion treat
 the package and descriptor-reachable companion set as one mutation participant.
 
+## Domain-qualified inspection and repair ownership
+
+Texture payload inspection reports source, derived, cooked, decoded CPU, and
+GPU stages without creating a shared authority descriptor. Construct-free
+inspection reads package field trees and storage descriptors; live inspection
+joins source mounts, DDC diagnostics, decoded data, and render-resource state.
+Placement labels are capability descriptions such as `MountedSource`,
+`EditorPackageCompanion`, `DerivedDataCache`, and `CookedPackageCompanion`, not
+backend paths supplied to domain callers.
+
+Repair classifications name the owning explicit workflow:
+
+| Finding | Action owner |
+| --- | --- |
+| Missing/changed/malformed mounted source | Reimport or source repair. |
+| Missing/corrupt editor companion | Restore the referenced DABK generation or reimport. |
+| Unreferenced editor companion | Explicit package cleanup; inspection never deletes it. |
+| Missing/corrupt/incompatible DDC | Domain rebuild; cache data is disposable. |
+| Missing/unsupported/failed cooked payload | Recook or upgrade/resave; runtime has no source fallback. |
+| Failed GPU publication | Retry the runtime resource after addressing the reported capability/upload failure. |
+
+Inspection is read-only. No status query invokes fallback, rebuild, reimport,
+recook, publication, cleanup, or deletion.
+
 ## Related Documentation
 
 - [Asset Packages](AssetPackages.md)

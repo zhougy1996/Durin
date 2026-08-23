@@ -707,6 +707,22 @@ converter.
 
 ## Authored bulk companions
 
+### Construct-free payload inspection
+
+`FAssetPackageInspection` records the inspected physical package path and can
+decode the tagged fields of a reflected struct through
+`FAssetPackageField::TryInspectStructFields` without constructing its C++ value
+or resolving nested storage. Editor bulk descriptors use the explicit
+`TryReadEditorBulkDataStorageDescriptor` name and validate inline size/hash as
+well as external identity. `EditorBulkDataStorage` can enumerate descriptors,
+referenced companions, and unreferenced same-package companions read-only.
+
+The texture domain composes these physical facts through
+`InspectTexturePayloadPackage`. AssetCore does not interpret dimensions, pixel
+formats, voxel counts, TXPL versions, or repair policy. Inspection may read and
+validate a referenced companion, but it never publishes, restores, removes, or
+rewrites a file; those remain explicit package/source/Cook workflows.
+
 DAST v4 gives authored bulk values their own `BulkData` opcode. The Value
 section contains payload id, 16+4 compatibility-reserved bytes, logical and
 stored byte counts, XXH3-128 content hash, placement, and container hash.

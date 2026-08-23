@@ -202,6 +202,7 @@ namespace Durin
 		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
+		auto GetSourceFileSize() const -> uint64 { return SourceFileSize; }
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
 		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
 		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }

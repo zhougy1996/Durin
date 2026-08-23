@@ -180,8 +180,13 @@ namespace Durin::Asset
 				{
 					if (Reader.Tell() != Payload.size() || Descriptor.ContainerHash.IsZero())
 						return Fail("External authored bulk descriptor has trailing bytes or no container hash.", OutError);
-					Out.push_back(Descriptor);
 				}
+				else if (!Descriptor.ContainerHash.IsZero()
+					|| Descriptor.StoredByteCount != Reader.GetRemainingPayloadBytes()
+					|| FXxHash128::HashBuffer(Payload.subspan(Reader.Tell()))
+						!= Descriptor.ContentHash)
+					return Fail("Inline authored bulk payload integrity is invalid.", OutError);
+				Out.push_back(Descriptor);
 				return true;
 			}
 			if (Kind != DurinCodeGen::EPropertyGenFlags::Struct) return true;
@@ -416,21 +421,70 @@ namespace Durin::Asset
 	{
 		OutPaths.clear();
 		std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
-		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
-			for (const FAssetPackageField& Field : Object.Fields)
-				if (!CollectDescriptors(Field.Kind, Field.Payload, Descriptors, 0, OutError))
-					return false;
+		if (!InspectEditorBulkDataStorageDescriptors(
+				Inspection, Descriptors, OutError)) return false;
 		std::ranges::sort(Descriptors, [](const auto& Left, const auto& Right) {
 			return std::pair(Left.ContainerHash.HashHigh, Left.ContainerHash.HashLow)
 				< std::pair(Right.ContainerHash.HashHigh, Right.ContainerHash.HashLow);
 		});
 		for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
 		{
+			if (Descriptor.StorageKind != EEditorBulkDataStorageKind::External) continue;
 			std::filesystem::path Path;
 			if (!ResolveEditorBulkDataCompanionPath(
 					PackagePath, Descriptor.ContainerHash, Path, OutError)) return false;
 			if (OutPaths.empty() || OutPaths.back() != Path) OutPaths.push_back(std::move(Path));
 		}
+		if (OutError) OutError->clear();
+		return true;
+	}
+
+	auto InspectEditorBulkDataStorageDescriptors(
+		const FAssetPackageInspection& Inspection,
+		std::vector<FEditorBulkDataStorageDescriptor>& OutDescriptors,
+		std::string* OutError) -> bool
+	{
+		OutDescriptors.clear();
+		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
+			for (const FAssetPackageField& Field : Object.Fields)
+				if (!CollectDescriptors(
+						Field.Kind, Field.Payload, OutDescriptors, 0, OutError))
+					return false;
+		if (OutError) OutError->clear();
+		return true;
+	}
+
+	auto InspectOrphanedEditorBulkDataCompanionPaths(
+		const std::filesystem::path& PackagePath,
+		const FAssetPackageInspection& Inspection,
+		std::vector<std::filesystem::path>& OutPaths,
+		std::string* OutError) -> bool
+	{
+		OutPaths.clear();
+		std::vector<std::filesystem::path> Referenced;
+		if (!InspectEditorBulkDataCompanionPaths(
+				PackagePath, Inspection, Referenced, OutError)) return false;
+		const std::filesystem::path Parent = PackagePath.parent_path();
+		const std::string Prefix = PackagePath.stem().string() + ".";
+		std::error_code ErrorCode;
+		for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
+			!ErrorCode && It != End; It.increment(ErrorCode))
+		{
+			const std::filesystem::path Candidate = It->path();
+			const std::string Name = Candidate.filename().string();
+			if (!It->is_regular_file(ErrorCode) || ErrorCode
+				|| !Name.starts_with(Prefix)
+				|| !Name.ends_with(EditorBulkDataCompanionSuffix))
+			{
+				ErrorCode.clear();
+				continue;
+			}
+			if (std::ranges::find(Referenced, Candidate) == Referenced.end())
+				OutPaths.push_back(Candidate);
+		}
+		if (ErrorCode)
+			return Fail("Editor bulk companion directory could not be inspected.", OutError);
+		std::ranges::sort(OutPaths);
 		if (OutError) OutError->clear();
 		return true;
 	}

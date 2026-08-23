@@ -1,4 +1,6 @@
 #include "TextureTestSupport.h"
+#include "Texture/TextureDerivedData.h"
+#include "Texture/TexturePayloadInspection.h"
 
 namespace
 {
@@ -52,8 +54,75 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ExpectPixelNear(DecodeFirstCompressedPixel(PlatformData->PixelFormat, PlatformData->Mips[1].Pixels),
 		{188, 0, 0, 128});
 
+	const Durin::FTexturePayloadInspection LiveInspection =
+		Durin::InspectTexturePayloads(*Result.Asset);
+	ASSERT_FALSE(LiveInspection.bConstructFree);
+	ASSERT_EQ(LiveInspection.Entries.size(), 5u);
+	const auto FindLiveStage = [&](Durin::ETexturePayloadStage Stage) {
+		return std::ranges::find(LiveInspection.Entries, Stage,
+			&Durin::FTexturePayloadInspectionEntry::Stage);
+	};
+	const auto LiveSource = FindLiveStage(Durin::ETexturePayloadStage::Source);
+	const auto LiveDerived = FindLiveStage(Durin::ETexturePayloadStage::DerivedData);
+	const auto LiveDecoded = FindLiveStage(Durin::ETexturePayloadStage::Decoded);
+	ASSERT_NE(LiveSource, LiveInspection.Entries.end());
+	ASSERT_NE(LiveDerived, LiveInspection.Entries.end());
+	ASSERT_NE(LiveDecoded, LiveInspection.Entries.end());
+	EXPECT_EQ(LiveSource->State, Durin::ETexturePayloadState::Available);
+	EXPECT_EQ(LiveSource->LogicalElementCount, 2u);
+	EXPECT_EQ(LiveSource->LogicalByteCount, 74u);
+	EXPECT_EQ(LiveDerived->State, Durin::ETexturePayloadState::Available);
+	EXPECT_EQ(LiveDecoded->State, Durin::ETexturePayloadState::Available);
+
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transparent", AssetPath));
+	const Durin::Asset::FAssetCatalogEntry AssetData =
+		Durin::Asset::FindAssetExact(AssetPath);
+	ASSERT_TRUE(AssetData);
+	Durin::Asset::FAssetPackageInspection PackageInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		AssetData->PhysicalPath, PackageInspection));
+	Durin::FTexturePayloadInspection ConstructFreeInspection;
+	std::string InspectionError;
+	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
+		PackageInspection, ConstructFreeInspection, &InspectionError))
+		<< InspectionError;
+	ASSERT_TRUE(ConstructFreeInspection.bConstructFree);
+	ASSERT_EQ(ConstructFreeInspection.Entries.size(), 3u);
+	EXPECT_EQ(ConstructFreeInspection.Entries.front().Domain, "Texture2D");
+	EXPECT_EQ(ConstructFreeInspection.Entries.front().LogicalElementCount, 2u);
+	EXPECT_EQ(ConstructFreeInspection.Entries.front().Placement, "MountedSource");
+	Durin::FProperty* CookedProperty = Result.Asset->GetClass()->FindPropertyByName(
+		"CookedPayload");
+	ASSERT_NE(CookedProperty, nullptr);
+	auto* CookedDescriptor = static_cast<Durin::Asset::FCookedPayloadDescriptor*>(
+		CookedProperty->GetValuePtr(Result.Asset));
+	ASSERT_NE(CookedDescriptor, nullptr);
+	const Durin::Asset::FCookedPayloadDescriptor SavedCookedDescriptor =
+		*CookedDescriptor;
+	*CookedDescriptor = {
+		.PayloadId = Durin::Texture2DPrimaryCookedPayloadId,
+		.LocationKind = static_cast<uint32>(
+			Durin::Asset::ECookedPayloadLocationKind::PackageCompanion),
+		.StoredSize = 16,
+		.UncompressedSize = 16,
+		.PayloadSchemaVersion = Durin::TexturePayloadSchemaVersion + 1};
+	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		AssetData->PhysicalPath, PackageInspection));
+	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
+		PackageInspection, ConstructFreeInspection, &InspectionError))
+		<< InspectionError;
+	const auto UnsupportedCooked = std::ranges::find(
+		ConstructFreeInspection.Entries, Durin::ETexturePayloadStage::Cooked,
+		&Durin::FTexturePayloadInspectionEntry::Stage);
+	ASSERT_NE(UnsupportedCooked, ConstructFreeInspection.Entries.end());
+	EXPECT_EQ(UnsupportedCooked->State, Durin::ETexturePayloadState::Unsupported);
+	EXPECT_EQ(UnsupportedCooked->Repair,
+		Durin::ETexturePayloadRepairAction::UpgradeOrResave);
+	*CookedDescriptor = SavedCookedDescriptor;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Asset->GetPackage()));
+
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::DTexture2D* Loaded = nullptr;

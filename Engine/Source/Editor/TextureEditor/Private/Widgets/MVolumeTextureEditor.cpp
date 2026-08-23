@@ -7,6 +7,7 @@
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaUIBackend.h"
+#include "Texture/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
 #include "Workspace/VolumeTextureEditorWorkspace.h"
 
@@ -28,6 +29,38 @@ namespace Durin::Editor::Texture
 			MonaImGui::PropertyEdit::BeginRow(Label, true);
 			ImGui::TextWrapped("%.*s", static_cast<int>(Value.size()), Value.data());
 			MonaImGui::PropertyEdit::EndRow(true);
+		}
+
+		auto PayloadStateText(ETexturePayloadState State) -> const char*
+		{
+			switch (State)
+			{
+			case ETexturePayloadState::Available: return "Available";
+			case ETexturePayloadState::NotPresent: return "Not present";
+			case ETexturePayloadState::Missing: return "Missing";
+			case ETexturePayloadState::Stale: return "Stale";
+			case ETexturePayloadState::Corrupt: return "Corrupt";
+			case ETexturePayloadState::Unsupported: return "Unsupported";
+			case ETexturePayloadState::Failed: return "Failed";
+			case ETexturePayloadState::Unknown: return "Unknown";
+			}
+			return "Unknown";
+		}
+
+		auto PayloadRepairText(ETexturePayloadRepairAction Repair) -> const char*
+		{
+			switch (Repair)
+			{
+			case ETexturePayloadRepairAction::None: return "None";
+			case ETexturePayloadRepairAction::ReimportSource: return "Reimport source";
+			case ETexturePayloadRepairAction::RebuildDerivedData: return "Rebuild derived data";
+			case ETexturePayloadRepairAction::RestoreEditorCompanion: return "Restore editor companion";
+			case ETexturePayloadRepairAction::Recook: return "Recook";
+			case ETexturePayloadRepairAction::RetryRuntimeResource: return "Retry runtime resource";
+			case ETexturePayloadRepairAction::RemoveOrphan: return "Remove orphan";
+			case ETexturePayloadRepairAction::UpgradeOrResave: return "Upgrade or resave";
+			}
+			return "None";
 		}
 
 		auto AxisSliceCount(const FVolumeTextureMipData& Mip,
@@ -288,6 +321,23 @@ namespace Durin::Editor::Texture
 				Import.SliceWidth, Import.SliceHeight, Import.TilesX, Import.TilesY, Import.Depth));
 		if (!Texture->GetLastBuildError().empty()) DrawFact("Diagnostic", Texture->GetLastBuildError());
 		MonaImGui::PropertyEdit::EndTable();
+		ImGui::Spacing();
+		if (MonaImGui::PropertyEdit::BeginTable("VolumeTexturePayloadLifecycle"))
+		{
+			const FTexturePayloadInspection Inspection = InspectTexturePayloads(*Texture);
+			for (const FTexturePayloadInspectionEntry& Entry : Inspection.Entries)
+			{
+				const char* Stage = Entry.Stage == ETexturePayloadStage::Source ? "Source payload"
+					: Entry.Stage == ETexturePayloadStage::DerivedData ? "Derived payload"
+					: Entry.Stage == ETexturePayloadStage::Cooked ? "Cooked payload"
+					: Entry.Stage == ETexturePayloadStage::Decoded ? "Decoded payload"
+					: "GPU resource";
+				DrawFact(Stage, std::format("{} | {} | {} | repair: {}",
+					PayloadStateText(Entry.State), Entry.Placement,
+					FormatBytes(Entry.LogicalByteCount), PayloadRepairText(Entry.Repair)));
+			}
+			MonaImGui::PropertyEdit::EndTable();
+		}
 		ImGui::Spacing();
 		ImGui::TextWrapped("Reimport and source repair remain available from the Content Browser import-record actions.");
 	}

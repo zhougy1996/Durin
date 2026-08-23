@@ -60,9 +60,13 @@ namespace Durin::Asset
 		ASSETCORE_API auto TryReadObjectReferenceArray(
 			std::vector<FAssetPackageObjectReference>& OutValues
 		) const -> bool;
-		ASSETCORE_API auto TryReadAuthoredBulkDescriptor(
+		ASSETCORE_API auto TryReadEditorBulkDataStorageDescriptor(
 			FEditorBulkDataStorageDescriptor& OutValue
 		) const -> bool;
+		// Decodes the tagged fields of one reflected struct without constructing its
+		// C++ value or resolving nested bulk storage.
+		ASSETCORE_API auto TryInspectStructFields(
+			std::vector<FAssetPackageField>& OutFields) const -> bool;
 
 		template<typename T>
 		auto TryReadScalar(T& OutValue) const -> bool
@@ -92,6 +96,7 @@ namespace Durin::Asset
 
 	struct FAssetPackageInspection
 	{
+		std::string PhysicalPath;
 		FAssetPackageHeader Header;
 		FAssetPackageFingerprint Fingerprint;
 		std::vector<FAssetPackageObjectInspection> Objects;

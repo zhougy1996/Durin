@@ -50,6 +50,7 @@ namespace Durin::Editor::Texture
 		auto DrawDetailsPanel(DTexture2D* Texture, float Height) -> void;
 		auto DrawBuildReadiness(DTexture2D* Texture) -> void;
 		auto DrawFailureState(DTexture2D* Texture) -> void;
+		auto DrawPayloadLifecycle(DTexture2D* Texture) -> void;
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto ReimportSource(DTexture2D* Texture) -> void;

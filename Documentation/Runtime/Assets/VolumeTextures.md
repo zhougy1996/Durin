@@ -132,6 +132,15 @@ unchanged.
 
 ## GPU resource and diagnostics
 
+VolumeTexture participates in the shared texture-domain inspection contract,
+not a generic bulk element registry. Construct-free inspection reads the nested
+source schema/dimensions and `FEditorBulkData` storage descriptor, validates a
+referenced DABK companion, and reports orphaned same-package generations without
+deleting them. Live inspection independently reports source, DDC/platform,
+cooked TXPL/DBLK, decoded CPU, and GPU stages. Missing/corrupt DABK maps to
+restore or reimport, DDC failure maps to rebuild, cooked failure maps to recook,
+and GPU failure maps to resource retry.
+
 `FVolumeTextureResource` creates a public `Texture3D` descriptor with sampled
 usage, qualifies the exact format/extent/mip set, and uploads every mip through
 `UpdateTexture3D` using its row and depth pitch. Publication uses the shared
