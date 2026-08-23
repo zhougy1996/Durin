@@ -92,7 +92,7 @@ namespace Durin
 
 	auto DStaticMeshComponent::GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*
 	{
-		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		const FMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
 		if (Slot == nullptr) return nullptr;
 		return ComponentMaterialOverride::Resolve(OverrideMaterials, SlotIndex, Slot->DefaultMaterial.Get());
 	}
@@ -100,7 +100,7 @@ namespace Durin
 	auto DStaticMeshComponent::SetMaterialByName(FName SlotName, DMaterialInterface* InMaterial) -> bool
 	{
 		if (StaticMesh == nullptr) return false;
-		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh->FindMaterialSlot(SlotName);
+		const FMeshMaterialSlotDefinition* Slot = StaticMesh->FindMaterialSlot(SlotName);
 		if (Slot == nullptr) return false;
 		return SetMaterial(static_cast<uint32>(Slot - StaticMesh->GetMaterialSlots().data()), InMaterial);
 	}
@@ -108,7 +108,7 @@ namespace Durin
 	auto DStaticMeshComponent::GetMaterialByName(FName SlotName) const -> DMaterialInterface*
 	{
 		if (StaticMesh == nullptr) return nullptr;
-		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh->FindMaterialSlot(SlotName);
+		const FMeshMaterialSlotDefinition* Slot = StaticMesh->FindMaterialSlot(SlotName);
 		return Slot != nullptr
 			? GetMaterial(static_cast<uint32>(Slot - StaticMesh->GetMaterialSlots().data()))
 			: nullptr;

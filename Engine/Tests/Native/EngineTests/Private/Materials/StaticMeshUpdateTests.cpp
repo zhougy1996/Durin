@@ -13,14 +13,14 @@ namespace
 		Durin::DStaticMesh* Candidate =
 			Durin::DStaticMesh::CreateDebugTriangle();
 		if (Candidate == nullptr) return false;
-		if (const Durin::FStaticMeshMaterialSlotDefinition* Slot =
+		if (const Durin::FMeshMaterialSlotDefinition* Slot =
 			Mesh->GetMaterialSlot(0))
 		{
 			auto* Slots = static_cast<Durin::FArrayProperty*>(
 				Candidate->GetClass()->FindPropertyByName(
 					"MaterialSlots"));
 			auto* CandidateSlot =
-				static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(
+				static_cast<Durin::FMeshMaterialSlotDefinition*>(
 					Slots->GetMutableElementPtr(Candidate, 0));
 			CandidateSlot->DefaultMaterial = Slot->DefaultMaterial;
 		}
@@ -39,7 +39,7 @@ namespace
 	{
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 		ASSERT_NE(Slots, nullptr);
-		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, SlotIndex));
+		auto* Slot = static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, SlotIndex));
 		ASSERT_NE(Slot, nullptr);
 		Slot->DefaultMaterial = Material;
 	}

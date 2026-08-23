@@ -43,7 +43,7 @@ namespace Durin
 	auto DSkeletalMeshComponent::GetMaterial(uint32 SlotIndex) const
 		-> DMaterialInterface*
 	{
-		const FSkeletalMeshMaterialSlotDefinition* Slot = SkeletalMesh
+		const FMeshMaterialSlotDefinition* Slot = SkeletalMesh
 			? SkeletalMesh->GetMaterialSlot(SlotIndex) : nullptr;
 		if (!Slot) return nullptr;
 		return ComponentMaterialOverride::Resolve(OverrideMaterials, SlotIndex, Slot->DefaultMaterial.Get());
@@ -238,7 +238,7 @@ namespace Durin
 	auto DSkeletalMeshComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (OverrideMaterials.size() > MaximumSkeletalMeshMaterialSlots)
+		if (OverrideMaterials.size() > MaximumMeshMaterialSlots)
 		{
 			OutError = "Skeletal-mesh component material override count exceeds the supported limit.";
 			return false;

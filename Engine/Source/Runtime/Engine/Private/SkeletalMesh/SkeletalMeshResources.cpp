@@ -258,7 +258,7 @@ namespace Durin
 		const FSkeletalMeshPayloadData& Payload,
 		const DSkeleton& Skeleton,
 		const FSkeletonTransform& MeshNodeBindTransform,
-		std::span<const FSkeletalMeshMaterialSlotDefinition> MaterialSlots,
+		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		std::unique_ptr<FSkeletalMeshRenderData>& OutRenderData,
 		std::string& OutError) -> bool
 	{
@@ -284,7 +284,7 @@ namespace Durin
 				Section.MinVertexIndex, Section.MaxVertexIndex, Section.MaterialSlotIndex,
 				Section.LocalBounds});
 		Candidate->MaterialSlots.reserve(MaterialSlots.size());
-		for (const FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
+		for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			Candidate->MaterialSlots.push_back(Slot.Name);
 		Candidate->PaletteBoneIndices = Payload.PaletteBoneIndices;
 		Candidate->InverseBindMatrices = Payload.InverseBindMatrices;

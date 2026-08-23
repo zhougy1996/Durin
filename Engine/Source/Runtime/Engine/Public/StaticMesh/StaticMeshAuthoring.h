@@ -20,7 +20,7 @@ namespace Durin
 	struct FStaticMeshAuthoringProduct
 	{
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		FStaticMeshSourceImportData SourceImportData;
 		std::string DerivedDataKey;
 		bool bSlotMetadataChanged = false;

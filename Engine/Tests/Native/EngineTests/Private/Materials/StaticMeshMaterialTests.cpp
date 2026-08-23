@@ -211,7 +211,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_TRUE(Durin::Asset::SavePackage(DefaultMaterial->GetPackage()));
 	auto* SlotsProperty = static_cast<Durin::FArrayProperty*>(Import.Asset->GetClass()->FindPropertyByName("MaterialSlots"));
 	ASSERT_NE(SlotsProperty, nullptr);
-	auto* FirstSlot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(SlotsProperty->GetMutableElementPtr(Import.Asset, 0));
+	auto* FirstSlot = static_cast<Durin::FMeshMaterialSlotDefinition*>(SlotsProperty->GetMutableElementPtr(Import.Asset, 0));
 	ASSERT_NE(FirstSlot, nullptr);
 	FirstSlot->DefaultMaterial = DefaultMaterial;
 	Import.Asset->MarkPackageDirty();
@@ -340,7 +340,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(BaseSource.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
-	const Durin::FStaticMeshMaterialSlotDefinition* RedSlot =
+	const Durin::FMeshMaterialSlotDefinition* RedSlot =
 		Import.Asset->FindMaterialSlot(Durin::FName("Red"));
 	ASSERT_NE(RedSlot, nullptr);
 	const uint32 RedIndex = static_cast<uint32>(

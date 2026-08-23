@@ -2,7 +2,29 @@
 
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/MathStructs.h"
+#include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+
+TEST(FMaterialTests, MeshAssetsShareOneReflectedMaterialSlotSchema)
+{
+	InitializeDObjectSystem();
+	const auto GetMaterialSlotStruct = [](Durin::DClass* MeshClass) {
+		auto* Slots = static_cast<Durin::FArrayProperty*>(
+			MeshClass->FindPropertyByName("MaterialSlots"));
+		if (!Slots || !Slots->GetInner()
+			|| Slots->GetInner()->GetKind()
+				!= Durin::DurinCodeGen::EPropertyGenFlags::Struct) return static_cast<Durin::DStruct*>(nullptr);
+		return static_cast<Durin::FStructProperty*>(Slots->GetInner())->GetStruct();
+	};
+
+	Durin::DStruct* StaticSlot = GetMaterialSlotStruct(Durin::DStaticMesh::StaticClass());
+	Durin::DStruct* SkeletalSlot = GetMaterialSlotStruct(Durin::DSkeletalMesh::StaticClass());
+	ASSERT_NE(StaticSlot, nullptr);
+	EXPECT_EQ(StaticSlot, SkeletalSlot);
+	EXPECT_EQ(StaticSlot, Durin::FMeshMaterialSlotDefinition::StaticStruct());
+	EXPECT_EQ(StaticSlot->GetQualifiedName().ToString(), "Durin::FMeshMaterialSlotDefinition");
+	EXPECT_EQ(Durin::MaximumMeshMaterialSlots, 4096u);
+}
 
 TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 {
@@ -232,7 +254,7 @@ TEST(FMaterialTests, PositionalMaterialOverridesResolveDefaultsAndSurviveMeshSwi
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(nullptr);
 	AddDebugMaterialSlot(Mesh, "Second");
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
-	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = First;
+	static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = First;
 	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "ReflectedSlotMeshComponent");
 	Component->SetStaticMesh(Mesh);
 
@@ -324,7 +346,7 @@ TEST(FMaterialTests, StaticMeshComponentValidatesPositionalOverrides)
 	EXPECT_FALSE(Component->PostLoad(Error));
 	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
 	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Material);
-	Overrides->Resize(Component, Durin::MaximumStaticMeshMaterialSlots + 1ull);
+	Overrides->Resize(Component, Durin::MaximumMeshMaterialSlots + 1ull);
 	EXPECT_FALSE(Component->PostLoad(Error));
 	EXPECT_NE(Error.find("exceeding the limit"), std::string::npos);
 	Overrides->Resize(Component, 2);

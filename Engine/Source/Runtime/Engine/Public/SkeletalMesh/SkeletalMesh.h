@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Math/Box.h"
+#include "Materials/MeshMaterialSlot.h"
 #include "RenderingThread.h"
 #include "SkeletalMesh/Skeleton.h"
 
@@ -11,7 +12,6 @@
 
 namespace Durin
 {
-	class DMaterialInterface;
 	struct FSkeletalPayloadSerializationContext;
 	struct FSkeletalMeshRenderData;
 
@@ -37,10 +37,9 @@ namespace Durin
 		}
 	};
 
-	inline constexpr uint32 MaximumSkeletalMeshMaterialSlots = 4'096;
-	inline constexpr uint32 MaximumSkeletalMeshSections = 65'536;
-	inline constexpr uint32 MaximumSkeletalMeshVertices = 100'000'000;
-	inline constexpr uint32 MaximumSkeletalMeshIndices = 300'000'000;
+	inline constexpr uint32 MaximumSkeletalMeshSections = 65536;
+	inline constexpr uint32 MaximumSkeletalMeshVertices = 100000000;
+	inline constexpr uint32 MaximumSkeletalMeshIndices = 300000000;
 	inline constexpr uint32 MaximumSkeletalMeshUVChannels = 4;
 	inline constexpr uint32 MaximumSkeletalMeshInfluences = 4;
 	inline constexpr uint64 MaximumSkeletalMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
@@ -63,26 +62,6 @@ namespace Durin
 		ENGINE_API auto ToBox() const -> FBox;
 		ENGINE_API static auto FromBox(const FBox& Box) -> FSkeletalMeshBounds;
 		auto operator==(const FSkeletalMeshBounds&) const -> bool = default;
-	};
-
-	DSTRUCT()
-	struct FSkeletalMeshMaterialSlotDefinition
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FName Name;
-
-		DPROPERTY(EditorOnly)
-		std::string SourceName;
-
-		DPROPERTY(EditorOnly)
-		uint32 SourceMaterialIndex = 0;
-
-		DPROPERTY()
-		TObjectPtr<DMaterialInterface> DefaultMaterial;
-
-		auto operator==(const FSkeletalMeshMaterialSlotDefinition&) const -> bool = default;
 	};
 
 	DSTRUCT()
@@ -177,7 +156,7 @@ namespace Durin
 		DSkeleton* ValidationSkeleton = nullptr;
 		std::string SkeletonCompatibilityIdentity;
 		FSkeletonTransform MeshNodeBindTransform;
-		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
 		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
@@ -208,12 +187,12 @@ namespace Durin
 		auto GetSkeleton() const -> DSkeleton* { return Skeleton.Get(); }
 		auto GetSkeletonCompatibilityIdentity() const -> const std::string& { return SkeletonCompatibilityIdentity; }
 		auto GetMeshNodeBindTransform() const -> const FSkeletonTransform& { return MeshNodeBindTransform; }
-		auto GetMaterialSlots() const -> std::span<const FSkeletalMeshMaterialSlotDefinition> { return MaterialSlots; }
+		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const
-			-> const FSkeletalMeshMaterialSlotDefinition*;
+			-> const FMeshMaterialSlotDefinition*;
 		ENGINE_API auto FindMaterialSlot(FName Name) const
-			-> const FSkeletalMeshMaterialSlotDefinition*;
+			-> const FMeshMaterialSlotDefinition*;
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData> { return PayloadData; }
@@ -259,7 +238,7 @@ namespace Durin
 		FSkeletonTransform MeshNodeBindTransform;
 
 		DPROPERTY()
-		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 
 		DPROPERTY()
 		FSkeletalMeshSummary Summary;

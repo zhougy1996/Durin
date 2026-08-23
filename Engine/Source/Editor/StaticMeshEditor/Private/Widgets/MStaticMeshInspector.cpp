@@ -325,7 +325,7 @@ namespace Durin::Editor::StaticMesh
 			ImGui::TableSetupColumn("Slot");
 			ImGui::TableSetupColumn("Default material");
 			ImGui::TableHeadersRow();
-			for (const FStaticMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
+			for (const FMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			{
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);

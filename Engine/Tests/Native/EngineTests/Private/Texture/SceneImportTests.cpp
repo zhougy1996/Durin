@@ -237,7 +237,7 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		EXPECT_EQ(Mesh->GetDerivedDataKey().size(), 32u);
 		EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("DDC key"), std::string::npos);
 		ASSERT_EQ(Mesh->GetMaterialSlots().size(), 2u);
-		for (const Durin::FSkeletalMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
+		for (const Durin::FMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			EXPECT_NE(Slot.DefaultMaterial.Get(), nullptr);
 		Error.clear();
 		EXPECT_TRUE(Mesh->Validate(Error)) << Error;

@@ -96,13 +96,13 @@ namespace
 		ASSERT_NE(MaterialSlotsProperty, nullptr);
 		auto* StoredDescriptor = static_cast<Durin::Asset::FCookedPayloadDescriptor*>(
 			DescriptorProperty->GetValuePtr(&Mesh));
-		auto* MaterialSlots = static_cast<std::vector<Durin::FStaticMeshMaterialSlotDefinition>*>(
+		auto* MaterialSlots = static_cast<std::vector<Durin::FMeshMaterialSlotDefinition>*>(
 			MaterialSlotsProperty->GetValuePtr(&Mesh));
 		const Durin::Asset::FCookedPayloadDescriptor SavedDescriptor = *StoredDescriptor;
 		const Durin::Asset::FCookedPayloadDescriptor SavedCollisionDescriptor = Mesh.GetBodySetup()
 			? Mesh.GetBodySetup()->GetCookedCollisionPayloadDescriptor()
 			: Durin::Asset::FCookedPayloadDescriptor{};
-		const std::vector<Durin::FStaticMeshMaterialSlotDefinition> SavedSlots = *MaterialSlots;
+		const std::vector<Durin::FMeshMaterialSlotDefinition> SavedSlots = *MaterialSlots;
 		*StoredDescriptor = Descriptor;
 		if (Mesh.GetBodySetup() && CollisionDescriptor)
 			Mesh.GetBodySetup()->SetCookedCollisionPayloadDescriptor(*CollisionDescriptor);

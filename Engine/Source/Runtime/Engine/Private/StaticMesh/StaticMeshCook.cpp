@@ -12,7 +12,7 @@ namespace Durin
 	namespace
 	{
 		auto RestoreStaticMeshRuntimeMetadata(
-			const std::vector<FStaticMeshMaterialSlotDefinition>& MaterialSlots,
+			const std::vector<FMeshMaterialSlotDefinition>& MaterialSlots,
 			FStaticMeshRenderData& RenderData,
 			std::string& OutError) -> bool
 		{
@@ -23,7 +23,7 @@ namespace Durin
 			}
 			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
 			{
-				const FStaticMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
+				const FMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
 				FStaticMeshMaterialSlot& Slot = RenderData.MaterialSlots[SlotIndex];
 				// Editable asset metadata is authoritative; the cached payload contributes
 				// only the compatible stable slot count and ordering.
@@ -41,7 +41,7 @@ namespace Durin
 
 		auto ValidateStaticMeshMaterialSlotMapping(
 			const FStaticMeshPayloadData& Payload,
-			const std::vector<FStaticMeshMaterialSlotDefinition>& MaterialSlots,
+			const std::vector<FMeshMaterialSlotDefinition>& MaterialSlots,
 			std::string& OutError) -> bool
 		{
 			if (Payload.MaterialSlotCount != MaterialSlots.size())
@@ -61,13 +61,13 @@ namespace Durin
 		DerivedDataDiagnostic = {};
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedRenderData(OutError);
-		if (MaterialSlots.size() > MaximumStaticMeshMaterialSlots)
+		if (MaterialSlots.size() > MaximumMeshMaterialSlots)
 		{
 			OutError = "Static mesh material-slot count is outside the supported range.";
 			return false;
 		}
 		std::unordered_set<FName> SlotNames;
-		for (const FStaticMeshMaterialSlotDefinition& Slot : MaterialSlots)
+		for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 		{
 			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
 			{

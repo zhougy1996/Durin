@@ -39,7 +39,7 @@ namespace Durin::Asset::Build
 	// Immutable GameThread capture consumed by pure StaticMesh recipe work.
 	struct FStaticMeshReconciliationSnapshot
 	{
-		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		std::string StableObjectPath;
 		FStaticMeshSourceImportData Provenance;

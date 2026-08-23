@@ -89,7 +89,7 @@ namespace Durin
 			return Fail("Skeletal-mesh payload index count is invalid.", &OutError);
 		if (Payload.Sections.empty() || Payload.Sections.size() > MaximumSkeletalMeshSections)
 			return Fail("Skeletal-mesh payload section count is outside the supported range.", &OutError);
-		if (MaterialSlotCount == 0 || MaterialSlotCount > MaximumSkeletalMeshMaterialSlots)
+		if (MaterialSlotCount == 0 || MaterialSlotCount > MaximumMeshMaterialSlots)
 			return Fail("Skeletal-mesh payload material-slot count is outside the supported range.", &OutError);
 		if (Payload.Normals.size() != VertexCount || Payload.Tangents.size() != VertexCount
 			|| Payload.Influences.size() != VertexCount)
@@ -221,16 +221,16 @@ namespace Durin
 	}
 
 	auto DSkeletalMesh::GetMaterialSlot(uint32 SlotIndex) const
-		-> const FSkeletalMeshMaterialSlotDefinition*
+		-> const FMeshMaterialSlotDefinition*
 	{
 		return SlotIndex < MaterialSlots.size() ? &MaterialSlots[SlotIndex] : nullptr;
 	}
 
 	auto DSkeletalMesh::FindMaterialSlot(FName Name) const
-		-> const FSkeletalMeshMaterialSlotDefinition*
+		-> const FMeshMaterialSlotDefinition*
 	{
 		const auto It = std::ranges::find(MaterialSlots, Name,
-			&FSkeletalMeshMaterialSlotDefinition::Name);
+			&FMeshMaterialSlotDefinition::Name);
 		return It != MaterialSlots.end() ? &*It : nullptr;
 	}
 
@@ -337,11 +337,11 @@ namespace Durin
 			OutError = std::format("Skeletal-mesh bind transform is invalid: {}", OutError);
 			return false;
 		}
-		if (InData.MaterialSlots.empty() || InData.MaterialSlots.size() > MaximumSkeletalMeshMaterialSlots)
+		if (InData.MaterialSlots.empty() || InData.MaterialSlots.size() > MaximumMeshMaterialSlots)
 			return Fail("Skeletal-mesh material-slot count is outside the supported range.", &OutError);
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
-		for (const FSkeletalMeshMaterialSlotDefinition& Slot : InData.MaterialSlots)
+		for (const FMeshMaterialSlotDefinition& Slot : InData.MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| !SourceIndices.insert(Slot.SourceMaterialIndex).second)
 				return Fail("Skeletal-mesh material slots require unique non-None names and source indices.", &OutError);
@@ -403,13 +403,13 @@ namespace Durin
 			OutError = std::format("SkeletalMesh bind transform is invalid: {}", OutError);
 			return false;
 		}
-		if (MaterialSlots.empty() || MaterialSlots.size() > MaximumSkeletalMeshMaterialSlots)
+		if (MaterialSlots.empty() || MaterialSlots.size() > MaximumMeshMaterialSlots)
 			return Fail("SkeletalMesh material-slot count is outside the supported range.", &OutError);
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
 		const bool bRequireSourceIndices =
 			Asset::GetAssetRuntimeConfiguration().AllowsSourceFallback();
-		for (const FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
+		for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| (bRequireSourceIndices
 					&& !SourceIndices.insert(Slot.SourceMaterialIndex).second))

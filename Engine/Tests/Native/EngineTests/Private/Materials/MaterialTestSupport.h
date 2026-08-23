@@ -431,7 +431,7 @@ namespace
 		EXPECT_NE(Slots, nullptr);
 		const uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
-		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
+		auto* Slot = static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<uint32>(Index);

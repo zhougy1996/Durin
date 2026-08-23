@@ -1099,7 +1099,7 @@ namespace Durin::Asset::Forge::Private
 					Payload->InverseBindMatrices.push_back(InverseByJoint[std::distance(Skin.Joints.begin(), It)]);
 				}
 				std::unordered_map<std::string, uint32> SlotNames;
-				std::vector<FSkeletalMeshMaterialSlotDefinition> Slots;
+				std::vector<FMeshMaterialSlotDefinition> Slots;
 				for (uint32 SourceMaterial : SourceMaterialOrder)
 				{
 					const FImportedMaterial& Material = Result.Scene.Materials[SourceMaterial];

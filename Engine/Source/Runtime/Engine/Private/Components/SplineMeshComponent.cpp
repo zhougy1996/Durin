@@ -245,7 +245,7 @@ namespace Durin
 
 	auto DSplineMeshComponent::GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*
 	{
-		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		const FMeshMaterialSlotDefinition* Slot = StaticMesh ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
 		if (!Slot) return nullptr;
 		return ComponentMaterialOverride::Resolve(OverrideMaterials, SlotIndex, Slot->DefaultMaterial.Get());
 	}

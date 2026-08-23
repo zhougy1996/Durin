@@ -568,7 +568,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::Asset::LoadAsset(MeshPath, ReloadedMesh);
 	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
 	ASSERT_FALSE(ReloadedMesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
-	const Durin::FStaticMeshMaterialSlotDefinition* Slot =
+	const Durin::FMeshMaterialSlotDefinition* Slot =
 		ReloadedMesh->GetMaterialSlot(0);
 	ASSERT_NE(Slot, nullptr);
 	auto* ReloadedMaterial =

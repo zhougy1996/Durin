@@ -49,7 +49,7 @@ TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
 	Durin::DMaterial* Orphan = Durin::NewObject<Durin::DMaterial>(nullptr, "DetachedOrphanOverride");
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
-	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Default;
+	static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Default;
 	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("DefaultDependencyComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->RegisterComponent();

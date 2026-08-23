@@ -27,7 +27,7 @@ namespace
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 		const uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
-		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
+		auto* Slot = static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<uint32>(Index);
@@ -52,7 +52,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 	auto* Default = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotDefault");
 	auto* Override = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotOverride");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	auto* FirstSlot = const_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Mesh->GetMaterialSlot(0));
+	auto* FirstSlot = const_cast<Durin::FMeshMaterialSlotDefinition*>(Mesh->GetMaterialSlot(0));
 	FirstSlot->Name = Durin::FName("Body");
 	FirstSlot->DefaultMaterial = Default;
 	const uint32 SecondIndex = AddSlot(Mesh, "Glass");

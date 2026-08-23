@@ -26,7 +26,7 @@ namespace Durin::Asset::Build
 		}
 
 		auto RestoreRuntimeMetadata(
-			std::span<const FStaticMeshMaterialSlotDefinition> MaterialSlots,
+			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			FStaticMeshRenderData& RenderData,
 			std::string& OutError) -> bool
 		{
@@ -52,8 +52,8 @@ namespace Durin::Asset::Build
 			return true;
 		}
 		auto SlotDefinitionsEqual(
-			std::span<const FStaticMeshMaterialSlotDefinition> A,
-			std::span<const FStaticMeshMaterialSlotDefinition> B) -> bool
+			std::span<const FMeshMaterialSlotDefinition> A,
+			std::span<const FMeshMaterialSlotDefinition> B) -> bool
 		{
 			if (A.size() != B.size()) return false;
 			for (size_t Index = 0; Index < A.size(); ++Index)
@@ -195,19 +195,19 @@ namespace Durin::Asset::Build
 		}
 
 		auto BuildRenderDataCandidate(
-		std::span<const FStaticMeshMaterialSlotDefinition> PreviousMaterialSlots,
+		std::span<const FMeshMaterialSlotDefinition> PreviousMaterialSlots,
 		float NormalizedSize,
 		std::string_view OwnerPath,
 		const FStaticMeshImportedData& ImportedData,
 		std::string_view SourceLabel,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
+		std::vector<FMeshMaterialSlotDefinition>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
 		std::string& OutError) -> bool
 	{
-		const std::vector<FStaticMeshMaterialSlotDefinition> PreviousSlots(
+		const std::vector<FMeshMaterialSlotDefinition> PreviousSlots(
 			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
-		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots = PreviousSlots;
+		std::vector<FMeshMaterialSlotDefinition> ReconciledSlots = PreviousSlots;
 		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
 		std::vector<bool> NewMatched(ImportedData.MaterialSlots.size(), false);
 		std::vector<uint32> ImportedToStableSlot(
@@ -216,9 +216,9 @@ namespace Durin::Asset::Build
 		std::unordered_map<std::string, uint32> NewNameCounts;
 		std::unordered_map<uint32, uint32> OldSourceIndexCounts;
 		std::unordered_map<uint32, uint32> NewSourceIndexCounts;
-		for (const FStaticMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
+		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
 		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewNameCounts[Slot.SourceName];
-		for (const FStaticMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
+		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
 		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
 
 		auto PreserveSlot = [&](size_t ImportedIndex, size_t OldIndex) {
@@ -235,7 +235,7 @@ namespace Durin::Asset::Build
 			const std::string& SourceName = ImportedData.MaterialSlots[NewIndex].SourceName;
 			if (SourceName.empty()) continue;
 			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
-			const auto It = std::ranges::find(PreviousSlots, SourceName, &FStaticMeshMaterialSlotDefinition::SourceName);
+			const auto It = std::ranges::find(PreviousSlots, SourceName, &FMeshMaterialSlotDefinition::SourceName);
 			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
 		}
 
@@ -247,7 +247,7 @@ namespace Durin::Asset::Build
 				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
 			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
 			{
-				const FStaticMeshMaterialSlotDefinition& Previous = PreviousSlots[OldIndex];
+				const FMeshMaterialSlotDefinition& Previous = PreviousSlots[OldIndex];
 				if (OldConsumed[OldIndex]
 					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
 				PreserveSlot(NewIndex, OldIndex);
@@ -260,7 +260,7 @@ namespace Durin::Asset::Build
 			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
 			FName Candidate(BaseName);
 			uint32 Suffix = 1;
-			while (std::ranges::find(ReconciledSlots, Candidate, &FStaticMeshMaterialSlotDefinition::Name)
+			while (std::ranges::find(ReconciledSlots, Candidate, &FMeshMaterialSlotDefinition::Name)
 				!= ReconciledSlots.end())
 			{
 				Candidate = FName(std::format("{}_{}", BaseName, Suffix++));
@@ -272,7 +272,7 @@ namespace Durin::Asset::Build
 		{
 			if (NewMatched[NewIndex]) continue;
 			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
-			FStaticMeshMaterialSlotDefinition& Definition = ReconciledSlots.emplace_back();
+			FMeshMaterialSlotDefinition& Definition = ReconciledSlots.emplace_back();
 			Definition.Name = MakeUniqueSlotName(Imported);
 			Definition.SourceName = Imported.SourceName;
 			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
@@ -289,7 +289,7 @@ namespace Durin::Asset::Build
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.reserve(ReconciledSlots.size());
-		for (const FStaticMeshMaterialSlotDefinition& Slot : ReconciledSlots)
+		for (const FMeshMaterialSlotDefinition& Slot : ReconciledSlots)
 		{
 			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
 		}
@@ -476,7 +476,7 @@ namespace Durin::Asset::Build
 	{
 		CheckGameThread();
 		return {
-			.MaterialSlots = std::vector<FStaticMeshMaterialSlotDefinition>(
+			.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
 				Mesh.MaterialSlots.begin(), Mesh.MaterialSlots.end()),
 			.NormalizedSize = Mesh.NormalizedSize,
 			.StableObjectPath = Mesh.GetObjectPath(),

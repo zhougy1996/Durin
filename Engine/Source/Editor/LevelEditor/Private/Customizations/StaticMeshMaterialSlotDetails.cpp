@@ -179,7 +179,7 @@ namespace Durin::Editor::Level
 		if (Mesh)
 		{
 			uint32 Index = 0;
-			for (const FStaticMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
+			for (const FMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			{
 				DMaterialInterface* Override = Component->GetMaterialOverride(Index);
 				DMaterialInterface* Resolved = Component->GetMaterial(Index);

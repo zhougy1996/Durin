@@ -11,10 +11,10 @@ namespace Durin
 		std::string_view ConsumerName,
 		std::string& OutError) -> bool
 	{
-		if (Overrides.size() > MaximumStaticMeshMaterialSlots)
+		if (Overrides.size() > MaximumMeshMaterialSlots)
 		{
 			OutError = std::format("A {} contains {} positional material entries, exceeding the limit of {}.",
-				ConsumerName, Overrides.size(), MaximumStaticMeshMaterialSlots);
+				ConsumerName, Overrides.size(), MaximumMeshMaterialSlots);
 			return false;
 		}
 		for (size_t Index = 0; Index < Overrides.size(); ++Index)

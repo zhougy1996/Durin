@@ -4,6 +4,7 @@
 #include "Asset/SourcePath.h"
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
+#include "Materials/MeshMaterialSlot.h"
 #include "RenderingThread.h"
 
 #include "StaticMesh.gen.h"
@@ -11,7 +12,6 @@
 namespace Durin
 {
 	namespace Asset::Build { class FStaticMeshBuildOperations; }
-	class DMaterialInterface;
 	class DBodySetup;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
@@ -183,26 +183,6 @@ namespace Durin
 		std::string Diagnostic;
 	};
 
-	// Preserves one stable positional material slot and its source-import provenance.
-	DSTRUCT()
-	struct FStaticMeshMaterialSlotDefinition
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FName Name;
-
-		DPROPERTY(EditorOnly)
-		std::string SourceName;
-
-		// Original importer index used only for source reconciliation.
-		DPROPERTY(EditorOnly)
-		uint32 SourceMaterialIndex = 0;
-
-		DPROPERTY()
-		TObjectPtr<DMaterialInterface> DefaultMaterial;
-	};
-
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
 	class DStaticMesh : public DObject
@@ -233,9 +213,9 @@ namespace Durin
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
-		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
-		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
-		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
+		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
+		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*;
+		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FMeshMaterialSlotDefinition*;
 		ENGINE_API auto GetMaterialIndex(FName Name) const -> std::optional<uint32>;
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
@@ -320,12 +300,12 @@ namespace Durin
 		auto ReleaseResources() -> void;
 		auto PublishRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			bool bSlotMetadataChanged,
 			std::string& OutError) -> bool;
 		auto CommitRenderDataCandidate(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FStaticMeshMaterialSlotDefinition>*
+			std::vector<FMeshMaterialSlotDefinition>*
 				InMaterialSlots,
 			std::string& OutError,
 			bool bBuildAuthoredCollision = true) -> bool;
@@ -350,7 +330,7 @@ namespace Durin
 		float NormalizedSize = 1.5f;
 
 		DPROPERTY()
-		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;

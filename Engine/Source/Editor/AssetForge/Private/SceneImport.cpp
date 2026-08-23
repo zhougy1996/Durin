@@ -665,7 +665,7 @@ namespace Durin::Asset::Forge
 					if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 						MaterialIndices.push_back(Slot.SourceMaterialIndex);
 				for (const FImportedSkeletalMeshData& Mesh : Data->Scene.SkeletalMeshes)
-					for (const FSkeletalMeshMaterialSlotDefinition& Slot : Mesh.MaterialSlots)
+					for (const FMeshMaterialSlotDefinition& Slot : Mesh.MaterialSlots)
 						if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 							MaterialIndices.push_back(Slot.SourceMaterialIndex);
 				std::unordered_map<std::string, uint32> MaterialNameCounts;
@@ -1926,8 +1926,8 @@ namespace Durin::Asset::Forge
 			if (!FinalSkeleton || !ProspectiveSkeleton || !Mesh
 				|| Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
 				return FailPrepared("Scene SkeletalMesh Skeleton relationship is invalid.");
-			std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots = Imported.MaterialSlots;
-			for (FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
+			std::vector<FMeshMaterialSlotDefinition> MaterialSlots = Imported.MaterialSlots;
+			for (FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			{
 				Slot.DefaultMaterial = FindMaterial(Slot.SourceMaterialIndex);
 				if (!Slot.DefaultMaterial)

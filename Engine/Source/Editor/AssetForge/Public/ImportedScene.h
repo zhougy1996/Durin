@@ -179,7 +179,7 @@ namespace Durin::Asset::Forge
 		uint32 SourceMeshIndex = 0;
 		uint32 SkeletonIndex = 0;
 		FSkeletonTransform MeshNodeBindTransform;
-		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
+		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
 	};
 

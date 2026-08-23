@@ -53,7 +53,7 @@ namespace Durin
 		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError) -> bool
 		{
 			if (!IsValidBounds(Payload.LocalBounds)) return Fail("Static-mesh payload bounds are invalid or not exactly representable as float32.", &OutError);
-			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumStaticMeshMaterialSlots)
+			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumMeshMaterialSlots)
 				return Fail("Static-mesh payload material-slot count is outside the supported range.", &OutError);
 			if (Payload.LODs.empty() || Payload.LODs.size() > MaximumStaticMeshLODs)
 				return Fail("Static-mesh payload LOD count is outside the supported range.", &OutError);
@@ -259,7 +259,7 @@ namespace Durin
 
 			FPayloadReader MaterialSlots(Chunks[1]);
 			uint32 MaterialSlotCount = 0;
-			if (!MaterialSlots.ReadU32(MaterialSlotCount) || MaterialSlotCount == 0 || MaterialSlotCount > MaximumStaticMeshMaterialSlots)
+			if (!MaterialSlots.ReadU32(MaterialSlotCount) || MaterialSlotCount == 0 || MaterialSlotCount > MaximumMeshMaterialSlots)
 				return Fail("Static-mesh material-slot chunk has an invalid count.", &OutError);
 			if (Chunks[1].size() != 4ull)
 				return Fail("Static-mesh material-slot chunk has an invalid size.", &OutError);

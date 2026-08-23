@@ -373,21 +373,21 @@ namespace Durin
 			});
 	}
 
-	auto DStaticMesh::GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*
+	auto DStaticMesh::GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*
 	{
 		return SlotIndex < MaterialSlots.size() ? &MaterialSlots[SlotIndex] : nullptr;
 	}
 
-	auto DStaticMesh::FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*
+	auto DStaticMesh::FindMaterialSlot(FName Name) const -> const FMeshMaterialSlotDefinition*
 	{
-		const auto It = std::ranges::find(MaterialSlots, Name, &FStaticMeshMaterialSlotDefinition::Name);
+		const auto It = std::ranges::find(MaterialSlots, Name, &FMeshMaterialSlotDefinition::Name);
 		return It == MaterialSlots.end() ? nullptr : &*It;
 	}
 
 	auto DStaticMesh::GetMaterialIndex(FName Name) const -> std::optional<uint32>
 	{
 		if (Name.IsNone()) return std::nullopt;
-		const auto It = std::ranges::find(MaterialSlots, Name, &FStaticMeshMaterialSlotDefinition::Name);
+		const auto It = std::ranges::find(MaterialSlots, Name, &FMeshMaterialSlotDefinition::Name);
 		if (It == MaterialSlots.end()) return std::nullopt;
 		return static_cast<uint32>(std::distance(MaterialSlots.begin(), It));
 	}
@@ -404,7 +404,7 @@ namespace Durin
 			OutError = "Static mesh material slot name cannot be None.";
 			return false;
 		}
-		const auto Existing = std::ranges::find(MaterialSlots, Name, &FStaticMeshMaterialSlotDefinition::Name);
+		const auto Existing = std::ranges::find(MaterialSlots, Name, &FMeshMaterialSlotDefinition::Name);
 		if (Existing != MaterialSlots.end() && Existing != MaterialSlots.begin() + SlotIndex)
 		{
 			OutError = std::format("Static mesh material slot name '{}' is already in use.", Name.ToString());
@@ -425,7 +425,7 @@ namespace Durin
 
 	auto DStaticMesh::CommitRenderDataCandidate(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FStaticMeshMaterialSlotDefinition>* InMaterialSlots,
+		std::vector<FMeshMaterialSlotDefinition>* InMaterialSlots,
 		std::string& OutError,
 		bool bBuildAuthoredCollision) -> bool
 	{
@@ -605,7 +605,7 @@ namespace Durin
 
 	auto DStaticMesh::PublishRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 		bool bSlotMetadataChanged,
 		std::string& OutError) -> bool
 	{
@@ -679,7 +679,7 @@ namespace Durin
 		const auto Slot = std::ranges::find(
 			MaterialSlots,
 			SourceMaterialIndex,
-			&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex);
+			&FMeshMaterialSlotDefinition::SourceMaterialIndex);
 		if (Slot == MaterialSlots.end())
 		{
 			OutError = std::format(
@@ -690,7 +690,7 @@ namespace Durin
 			std::next(Slot),
 			MaterialSlots.end(),
 			SourceMaterialIndex,
-			&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex) != MaterialSlots.end())
+			&FMeshMaterialSlotDefinition::SourceMaterialIndex) != MaterialSlots.end())
 		{
 			OutError = std::format(
 				"Static mesh has ambiguous slots for source material {}.", SourceMaterialIndex);

@@ -19,7 +19,6 @@ namespace Durin
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumStaticMeshPayloadChunks = 64;
 	inline constexpr uint32 MaximumStaticMeshLODs = 8;
-	inline constexpr uint32 MaximumStaticMeshMaterialSlots = 4096;
 	inline constexpr uint32 MaximumStaticMeshSectionsPerLOD = 65536;
 	inline constexpr uint32 MaximumStaticMeshVerticesPerLOD = 100'000'000;
 	inline constexpr uint32 MaximumStaticMeshIndicesPerLOD = 300'000'000;
