@@ -1,5 +1,6 @@
 #include "Texture/TextureCube.h"
 
+#include "Asset/MountedSource.h"
 #include "AssetCook.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -67,24 +68,11 @@ namespace Durin
 				return false;
 			}
 			auto ValidateSourcePath = [&](std::string_view SourcePath) -> bool {
-				const PathUtilities::FMountPolicyResult Dependency =
-					PathUtilities::CheckMountDependency(
-						Texture.GetPackage()->GetPackagePath(), SourcePath);
-				if (!Dependency)
-				{
-					OutError = Dependency.Message;
-					return false;
-				}
-				const PathUtilities::FSourcePathResult Resolved =
-					PathUtilities::ResolveSourcePath(
-						SourcePath, PathUtilities::EPathExistence::AllowMissing);
-				if (!Resolved
-					&& Resolved.Error != PathUtilities::EMountPathError::UnavailableRoot)
-				{
-					OutError = Resolved.Message;
-					return false;
-				}
-				return true;
+				Asset::FMountedSourceResolution Resolution;
+				return Asset::ResolveMountedSourceReference(
+					Texture.GetPackage()->GetPackagePath(), SourcePath,
+					Asset::EMountedSourceExistencePolicy::AllowMissing,
+					Resolution, OutError);
 			};
 			if (Provenance.DecoderId != TextureDecoderId
 				|| Provenance.DecoderVersion != TextureDecoderVersion

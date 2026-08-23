@@ -1,10 +1,86 @@
 #include <gtest/gtest.h>
 
+#include "Asset/MountedSource.h"
 #include "AssetTools.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 
 #include <fstream>
+
+TEST(FMountedSourceTests, ResolvesDiagnosticFactsWithoutAssetFamilyPolicy)
+{
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "AssetCoreMountedSourceResolution";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	const std::filesystem::path Existing =
+		Root / "Game" / "Content" / "Textures" / "Existing.bin";
+	std::filesystem::create_directories(Existing.parent_path());
+	{
+		std::ofstream Stream(Existing, std::ios::binary);
+		Stream << "mounted-source";
+	}
+	const std::array Mounts = {
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.Root = Root / "Game",
+			.ContentPath = "Content",
+			.Dependencies = {"/Offline/"}},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Offline/",
+			.Owner = Durin::PathUtilities::EMountOwner::ExternalSources,
+			.Root = Root / "Offline",
+			.ContentPath = "Content"}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+
+	Durin::Asset::FMountedSourceResolution Resolution;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::ResolveMountedSourceReference(
+		"/Game/Textures/Asset", "/Game/Textures/Existing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::AllowMissing,
+		Resolution, Error)) << Error;
+	EXPECT_TRUE(Resolution.bExists);
+	EXPECT_EQ(Resolution.SourcePath.Path, "/Game/Textures/Existing.bin");
+	EXPECT_EQ(Resolution.PhysicalPath, Existing);
+
+	ASSERT_TRUE(Durin::Asset::ResolveMountedSourceReference(
+		"/Game/Textures/Asset", "/Game/Textures/Missing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::AllowMissing,
+		Resolution, Error)) << Error;
+	EXPECT_FALSE(Resolution.bExists);
+	EXPECT_EQ(Resolution.SourcePath.Path, "/Game/Textures/Missing.bin");
+	EXPECT_EQ(Resolution.PhysicalPath,
+		Root / "Game" / "Content" / "Textures" / "Missing.bin");
+
+	ASSERT_TRUE(Durin::Asset::ResolveMountedSourceReference(
+		"/Game/Textures/Asset", "/Offline/Textures/Missing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::AllowMissing,
+		Resolution, Error)) << Error;
+	EXPECT_FALSE(Resolution.bExists);
+	EXPECT_EQ(Resolution.SourcePath.Path, "/Offline/Textures/Missing.bin");
+	EXPECT_EQ(Resolution.PhysicalPath,
+		Root / "Offline" / "Content" / "Textures" / "Missing.bin");
+
+	EXPECT_FALSE(Durin::Asset::ResolveMountedSourceReference(
+		"/Game/Textures/Asset", "/Game/Textures/Missing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::RequireFile,
+		Resolution, Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Resolution.SourcePath.Path.empty());
+
+	EXPECT_FALSE(Durin::Asset::ResolveMountedSourceReference(
+		"/Offline/Textures/Asset", "/Game/Textures/Existing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::AllowMissing,
+		Resolution, Error));
+	EXPECT_NE(Error.find("may not depend"), std::string::npos);
+
+	EXPECT_FALSE(Durin::Asset::ResolveMountedSourceReference(
+		"/Game/Textures/Asset", "Game/Textures/Existing.bin",
+		Durin::Asset::EMountedSourceExistencePolicy::AllowMissing,
+		Resolution, Error));
+	EXPECT_FALSE(Error.empty());
+}
 
 TEST(FMountedSourceTests, StagesCommitsAndRollsBackWithoutEngine)
 {

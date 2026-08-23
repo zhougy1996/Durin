@@ -1,10 +1,10 @@
 #include "Texture/Texture2D.h"
 
+#include "Asset/MountedSource.h"
 #include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
 #include "Serialization/Archive.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -46,7 +46,7 @@ namespace Durin
 
 		auto ResolveTextureSource(
 			const DTexture2D& Texture,
-			std::filesystem::path& OutPath,
+			Asset::FMountedSourceResolution& OutResolution,
 			std::string& OutError) -> bool
 		{
 			const FTexture2DSourceImportData& Provenance = Texture.GetSourceImportData();
@@ -65,27 +65,11 @@ namespace Durin
 					OutError = "Texture source cannot be resolved without an owning package.";
 					return false;
 				}
-				const PathUtilities::FMountPolicyResult Dependency =
-					PathUtilities::CheckMountDependency(
-						Texture.GetPackage()->GetPackagePath(),
-						Provenance.Source.SourcePath.Path);
-				if (!Dependency)
-				{
-					OutError = Dependency.Message;
-					return false;
-				}
-				const PathUtilities::FSourcePathResult Resolved =
-					PathUtilities::ResolveSourcePath(
-						Provenance.Source.SourcePath.Path,
-						PathUtilities::EPathExistence::AllowMissing);
-				if (!Resolved)
-				{
-					OutError = Resolved.Message;
-					return false;
-				}
-				OutPath = Resolved.PhysicalPath;
-				OutError.clear();
-				return true;
+				return Asset::ResolveMountedSourceReference(
+					Texture.GetPackage()->GetPackagePath(),
+					Provenance.Source.SourcePath.Path,
+					Asset::EMountedSourceExistencePolicy::AllowMissing,
+					OutResolution, OutError);
 			}
 			OutError = "Texture asset has no normalized mounted-source provenance.";
 			return false;
@@ -183,24 +167,24 @@ namespace Durin
 	{
 		if (!SourceImportData.HasSource())
 			return {};
-		std::filesystem::path PhysicalPath;
+		Asset::FMountedSourceResolution Resolution;
 		std::string Error;
-		if (!ResolveTextureSource(*this, PhysicalPath, Error))
+		if (!ResolveTextureSource(*this, Resolution, Error))
 			return {ETextureSourceStatus::Invalid, {}, std::move(Error)};
-		if (!std::filesystem::is_regular_file(PhysicalPath))
+		if (!Resolution.bExists)
 		{
 			return {
 				ETextureSourceStatus::Missing,
-				PhysicalPath.generic_string(),
+				Resolution.PhysicalPath.generic_string(),
 				std::format(
 					"Texture source is missing: {}. Use source-path repair to select its replacement.",
 					SourceImportData.Source.SourcePath.Path)};
 		}
 		FXxHash128 CurrentHash;
-		if (!HashTextureSource(PhysicalPath, CurrentHash, Error))
+		if (!HashTextureSource(Resolution.PhysicalPath, CurrentHash, Error))
 			return {
 				ETextureSourceStatus::Invalid,
-				PhysicalPath.generic_string(),
+				Resolution.PhysicalPath.generic_string(),
 				std::move(Error)};
 		if (SourceImportData.Source.HasContentHash()
 			&& (CurrentHash.HashLow
@@ -210,11 +194,11 @@ namespace Durin
 		{
 			return {
 				ETextureSourceStatus::Changed,
-				PhysicalPath.generic_string(),
+				Resolution.PhysicalPath.generic_string(),
 				"The mounted source bytes changed since this asset was last imported. "
 				"Reimport updates this asset from the persisted source."};
 		}
-		return {ETextureSourceStatus::Available, PhysicalPath.generic_string(), {}};
+		return {ETextureSourceStatus::Available, Resolution.PhysicalPath.generic_string(), {}};
 	}
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool

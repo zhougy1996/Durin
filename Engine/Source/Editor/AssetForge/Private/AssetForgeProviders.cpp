@@ -12,6 +12,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
+#include "Asset/MountedSource.h"
 #include "AssetImportCore.h"
 #include "AssetAuthoring.h"
 #include "DObject/ObjectLifecycle.h"
@@ -95,37 +96,6 @@ namespace Durin::Asset::Forge
 				return false;
 			}
 			OutPhysicalPath = Resolved.PhysicalPath;
-			return true;
-		}
-
-		auto ResolvePortableStaticMeshSource(
-			const DStaticMesh& Mesh,
-			std::filesystem::path& OutPath,
-			std::string& OutError) -> bool
-		{
-			const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
-			if (!Mesh.GetPackage())
-			{
-				OutError = "Static mesh source cannot be resolved without an owning package.";
-				return false;
-			}
-			const PathUtilities::FMountPolicyResult Dependency =
-				PathUtilities::CheckMountDependency(
-					Mesh.GetPackage()->GetPackagePath(), Source.SourcePath.Path);
-			if (!Dependency)
-			{
-				OutError = Dependency.Message;
-				return false;
-			}
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(
-					Source.SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
-			if (!Resolved)
-			{
-				OutError = Resolved.Message;
-				return false;
-			}
-			OutPath = Resolved.PhysicalPath;
 			return true;
 		}
 
@@ -1177,34 +1147,40 @@ namespace Durin::Asset::Forge
 		{
 			const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
 			if (!Source.HasSource()) return {};
-			std::filesystem::path PhysicalPath;
+			FMountedSourceResolution Resolution;
 			std::string Error;
-			if (!ResolvePortableStaticMeshSource(Mesh, PhysicalPath, Error))
+			if (!Mesh.GetPackage())
+				return {EStaticMeshSourceStatus::Invalid, {},
+					"Static mesh source cannot be resolved without an owning package."};
+			if (!ResolveMountedSourceReference(
+				Mesh.GetPackage()->GetPackagePath(), Source.SourcePath.Path,
+				EMountedSourceExistencePolicy::AllowMissing, Resolution, Error))
 				return {EStaticMeshSourceStatus::Invalid, {}, std::move(Error)};
-			if (!std::filesystem::is_regular_file(PhysicalPath))
+			if (!Resolution.bExists)
 			{
 				return {
 					EStaticMeshSourceStatus::Missing,
-					PhysicalPath.generic_string(),
+					Resolution.PhysicalPath.generic_string(),
 					std::format(
 						"Static mesh source is missing: {}. Use source-path repair to select its replacement.",
 						Source.SourcePath.Path)};
 			}
 			std::string CurrentHash;
-			if (!HashStaticMeshSource(PhysicalPath, CurrentHash, Error))
+			if (!HashStaticMeshSource(Resolution.PhysicalPath, CurrentHash, Error))
 				return {
 					EStaticMeshSourceStatus::Invalid,
-					PhysicalPath.generic_string(),
+					Resolution.PhysicalPath.generic_string(),
 					std::move(Error)};
 			if (!Source.SourceContentHash.empty()
 				&& CurrentHash != Source.SourceContentHash)
 			{
 				return {
 					EStaticMeshSourceStatus::Changed,
-					PhysicalPath.generic_string(),
+					Resolution.PhysicalPath.generic_string(),
 					"The mounted static-mesh source bytes changed since this asset was last imported."};
 			}
-			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
+			return {EStaticMeshSourceStatus::Available,
+				Resolution.PhysicalPath.generic_string(), {}};
 		}
 
 		auto ChangeStaticMeshSourceReference(

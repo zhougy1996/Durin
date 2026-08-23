@@ -78,14 +78,18 @@ namespace Durin::Asset
 	auto ResolveMountedSourceReference(
 		std::string_view ReferencingAssetPath,
 		std::string_view SourceVirtualPath,
-		FMountedSourceFile& OutSource,
+		EMountedSourceExistencePolicy ExistencePolicy,
+		FMountedSourceResolution& OutResolution,
 		std::string& OutError) -> bool
 	{
-		OutSource = {};
+		OutResolution = {};
 		const PathUtilities::FSourcePathResult Resolved =
 			PathUtilities::ResolveSourcePath(
-				SourceVirtualPath, PathUtilities::EPathExistence::RequireFile);
-		if (!Resolved)
+				SourceVirtualPath, PathUtilities::EPathExistence::AllowMissing);
+		const bool bUnavailableRoot =
+			Resolved.Error == PathUtilities::EMountPathError::UnavailableRoot
+			&& ExistencePolicy == EMountedSourceExistencePolicy::AllowMissing;
+		if (!Resolved && !bUnavailableRoot)
 		{
 			OutError = Resolved.Message;
 			return false;
@@ -98,10 +102,49 @@ namespace Durin::Asset
 			OutError = Dependency.Message;
 			return false;
 		}
-		OutSource.SourcePath.Path = Resolved.NormalizedVirtualPath;
-		OutSource.PhysicalPath = Resolved.PhysicalPath;
-		OutSource.Disposition = ESourceFileDisposition::ReferenceExisting;
+
+		const std::filesystem::path PhysicalPath = bUnavailableRoot
+			? (Resolved.Mount->GetContentDir() / Resolved.RelativePath).lexically_normal()
+			: Resolved.PhysicalPath;
+		std::error_code Error;
+		const bool bExists = !bUnavailableRoot
+			&& std::filesystem::is_regular_file(PhysicalPath, Error);
+		if (Error == std::errc::no_such_file_or_directory
+			|| Error == std::errc::not_a_directory)
+			Error.clear();
+		if (Error)
+		{
+			OutError = Error.message();
+			return false;
+		}
+		if (!bExists && ExistencePolicy == EMountedSourceExistencePolicy::RequireFile)
+		{
+			OutError = "The requested file does not exist.";
+			return false;
+		}
+
+		OutResolution.SourcePath.Path = Resolved.NormalizedVirtualPath;
+		OutResolution.PhysicalPath = PhysicalPath;
+		OutResolution.bExists = bExists;
 		OutError.clear();
+		return true;
+	}
+
+	auto ResolveMountedSourceReference(
+		std::string_view ReferencingAssetPath,
+		std::string_view SourceVirtualPath,
+		FMountedSourceFile& OutSource,
+		std::string& OutError) -> bool
+	{
+		OutSource = {};
+		FMountedSourceResolution Resolution;
+		if (!ResolveMountedSourceReference(
+			ReferencingAssetPath, SourceVirtualPath,
+			EMountedSourceExistencePolicy::RequireFile, Resolution, OutError))
+			return false;
+		OutSource.SourcePath = std::move(Resolution.SourcePath);
+		OutSource.PhysicalPath = std::move(Resolution.PhysicalPath);
+		OutSource.Disposition = ESourceFileDisposition::ReferenceExisting;
 		return true;
 	}
 

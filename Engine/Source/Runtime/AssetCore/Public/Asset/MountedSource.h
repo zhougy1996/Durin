@@ -18,6 +18,22 @@ namespace Durin::Asset
 		ReusedIdentical
 	};
 
+	// Selects whether read-only mounted-source resolution treats a missing file
+	// as a successful diagnostic fact or as an operation failure.
+	enum class EMountedSourceExistencePolicy : uint8
+	{
+		RequireFile,
+		AllowMissing
+	};
+
+	// Carries family-neutral facts about a validated mounted-source reference.
+	struct FMountedSourceResolution
+	{
+		FSourcePath SourcePath;
+		std::filesystem::path PhysicalPath;
+		bool bExists = false;
+	};
+
 	struct FMountedSourceFile
 	{
 		FSourcePath SourcePath;
@@ -68,8 +84,17 @@ namespace Durin::Asset
 		auto Reset() noexcept -> void;
 	};
 
-	// Resolves a persisted or user-selected virtual source reference without
-	// mutating source files.
+	// Resolves and dependency-validates a virtual source reference without
+	// mutating source files. AllowMissing reports absence through bExists while
+	// malformed paths, forbidden dependencies, and I/O failures still fail.
+	ASSETCORE_API auto ResolveMountedSourceReference(
+		std::string_view ReferencingAssetPath,
+		std::string_view SourceVirtualPath,
+		EMountedSourceExistencePolicy ExistencePolicy,
+		FMountedSourceResolution& OutResolution,
+		std::string& OutError) -> bool;
+
+	// Compatibility entry point for operations that require an existing file.
 	ASSETCORE_API auto ResolveMountedSourceReference(
 		std::string_view ReferencingAssetPath,
 		std::string_view SourceVirtualPath,
