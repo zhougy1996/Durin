@@ -55,12 +55,12 @@ namespace Durin
 
 		for (const FLightSceneInfo* Info : Scene.GetDirectionalLightSceneInfos())
 		{
-			++Counters.SubmittedDirectionalLights;
+			++Counters.Lighting.SubmittedDirectionalLights;
 			const auto& Data = Info->GetDirectionalProxy().GetData();
 			if (!IsValidDirection(Data.Direction) || !IsValidColor(Data.Color)
 				|| !IsEnabled(Data.Intensity))
 			{
-				++Counters.RejectedDirectionalLights;
+				++Counters.Lighting.RejectedDirectionalLights;
 				continue;
 			}
 			auto Copy = Data;
@@ -74,7 +74,7 @@ namespace Durin
 			Copy.Kind = Info.GetKind();
 			if (Info.GetKind() == ELightSceneProxyKind::Point)
 			{
-				++Counters.SubmittedPointLights;
+				++Counters.Lighting.SubmittedPointLights;
 				const auto& Data = Info.GetPointProxy().GetData();
 				Copy.Position = Data.Position;
 				Copy.Color = Data.Color;
@@ -83,7 +83,7 @@ namespace Durin
 			}
 			else
 			{
-				++Counters.SubmittedSpotLights;
+				++Counters.Lighting.SubmittedSpotLights;
 				const auto& Data = Info.GetSpotProxy().GetData();
 				Copy.Position = Data.Position;
 				Copy.Direction = Data.Direction;
@@ -106,15 +106,15 @@ namespace Durin
 			if (!bValid)
 			{
 				if (Copy.Kind == ELightSceneProxyKind::Point)
-					++Counters.RejectedPointLights;
-				else ++Counters.RejectedSpotLights;
+					++Counters.Lighting.RejectedPointLights;
+				else ++Counters.Lighting.RejectedSpotLights;
 				return;
 			}
 			if (!IsLocalVisible(Info, View, Frustum))
 			{
 				if (Copy.Kind == ELightSceneProxyKind::Point)
-					++Counters.FrustumCulledPointLights;
-				else ++Counters.FrustumCulledSpotLights;
+					++Counters.Lighting.FrustumCulledPointLights;
+				else ++Counters.Lighting.FrustumCulledSpotLights;
 				return;
 			}
 			if (Copy.Kind == ELightSceneProxyKind::Spot)
@@ -129,26 +129,26 @@ namespace Durin
 
 		const size_t DirectionalCount = std::min<size_t>(Directional.size(), MaxPreparedDirectionalLights);
 		Result.Directional.assign(Directional.begin(), Directional.begin() + DirectionalCount);
-		Counters.SelectedDirectionalLights = DirectionalCount;
-		Counters.OverflowDirectionalLights = Directional.size() - DirectionalCount;
+		Counters.Lighting.SelectedDirectionalLights = DirectionalCount;
+		Counters.Lighting.OverflowDirectionalLights = Directional.size() - DirectionalCount;
 		const size_t LocalCount = std::min<size_t>(Local.size(), MaxPreparedLocalLights);
 		Result.Local.assign(Local.begin(), Local.begin() + LocalCount);
 		for (size_t Index = 0; Index < Local.size(); ++Index)
 		{
 			const bool bSelected = Index < LocalCount;
 			if (Local[Index].Kind == ELightSceneProxyKind::Point)
-				(bSelected ? Counters.SelectedPointLights : Counters.OverflowPointLights)++;
-			else (bSelected ? Counters.SelectedSpotLights : Counters.OverflowSpotLights)++;
+				(bSelected ? Counters.Lighting.SelectedPointLights : Counters.Lighting.OverflowPointLights)++;
+			else (bSelected ? Counters.Lighting.SelectedSpotLights : Counters.Lighting.OverflowSpotLights)++;
 		}
-		Counters.PackedLightBytes = sizeof(FForwardLightingUniform);
-		check(Counters.SubmittedDirectionalLights == Counters.RejectedDirectionalLights
-			+ Counters.SelectedDirectionalLights + Counters.OverflowDirectionalLights);
-		check(Counters.SubmittedPointLights == Counters.RejectedPointLights
-			+ Counters.FrustumCulledPointLights + Counters.SelectedPointLights
-			+ Counters.OverflowPointLights);
-		check(Counters.SubmittedSpotLights == Counters.RejectedSpotLights
-			+ Counters.FrustumCulledSpotLights + Counters.SelectedSpotLights
-			+ Counters.OverflowSpotLights);
+		Counters.Lighting.PackedLightBytes = sizeof(FForwardLightingUniform);
+		check(Counters.Lighting.SubmittedDirectionalLights == Counters.Lighting.RejectedDirectionalLights
+			+ Counters.Lighting.SelectedDirectionalLights + Counters.Lighting.OverflowDirectionalLights);
+		check(Counters.Lighting.SubmittedPointLights == Counters.Lighting.RejectedPointLights
+			+ Counters.Lighting.FrustumCulledPointLights + Counters.Lighting.SelectedPointLights
+			+ Counters.Lighting.OverflowPointLights);
+		check(Counters.Lighting.SubmittedSpotLights == Counters.Lighting.RejectedSpotLights
+			+ Counters.Lighting.FrustumCulledSpotLights + Counters.Lighting.SelectedSpotLights
+			+ Counters.Lighting.OverflowSpotLights);
 		return Result;
 	}
 

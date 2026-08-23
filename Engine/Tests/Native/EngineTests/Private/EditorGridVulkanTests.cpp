@@ -484,8 +484,8 @@ namespace Durin
 			EXPECT_EQ(RoutePixels[Index].size(), static_cast<size_t>(ViewRouteCases[Index].Width) * ViewRouteCases[Index].Height * 4u);
 			ASSERT_GE(RoutePixels[Index].size(), 4u);
 			EXPECT_NEAR(std::to_integer<uint8>(RoutePixels[Index][3]), 128u, 1u);
-			EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
-			EXPECT_EQ(GLastViewCounters.HybridDeferredUnavailableViews, 0u);
+			EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
+			EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredUnavailableViews, 0u);
 		}
 		EXPECT_LT(RoutePixels[1][0], RoutePixels[0][0]);
 		EXPECT_GT(RoutePixels[2][2], RoutePixels[0][2]);
@@ -505,20 +505,20 @@ namespace Durin
 			const std::vector<std::byte> DebugPixels =
 				CaptureViewRoute(Route, true);
 			EXPECT_EQ(DebugPixels.size(), static_cast<size_t>(Route.Width) * Route.Height * 4u);
-			EXPECT_EQ(GLastViewCounters.GBufferEnabledViews, 1u);
-			EXPECT_EQ(GLastViewCounters.GBufferDebugViews, 1u);
-			EXPECT_EQ(GLastViewCounters.GBufferDebugFailures, 0u);
+			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferEnabledViews, 1u);
+			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferDebugViews, 1u);
+			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferDebugFailures, 0u);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalEnabledViews, 1u
+				GLastViewCounters.Deferred.DeferredDirectionalEnabledViews, 1u
 			);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalUnavailableViews, 0u
+				GLastViewCounters.Deferred.DeferredDirectionalUnavailableViews, 0u
 			);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalPassFailures, 0u
+				GLastViewCounters.Deferred.DeferredDirectionalPassFailures, 0u
 			);
-			EXPECT_EQ(GLastViewCounters.DeferredDirectionalOutputBytes, FDeferredDirectionalLightingRenderer::CalculateTargetBytes(Route.Width, Route.Height));
-			EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes, FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalOutputBytes, FDeferredDirectionalLightingRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferAttachmentBytes, FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
 			if (OrderIndex == 0u)
 				FirstThumbnailDebug = DebugPixels;
 			if (OrderIndex + 1u == GBufferRouteOrder.size())
@@ -603,8 +603,8 @@ namespace Durin
 		);
 		SetViewRenderCounterSink(nullptr);
 		EXPECT_EQ(TerrainHybridLit.size(), 129u * 129u * 4u);
-		EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.GBufferTerrainSkippedDraws, 1u);
+		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.GBuffer.GBufferTerrainSkippedDraws, 1u);
 
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
@@ -1439,14 +1439,14 @@ namespace Durin
 		FlushRenderingCommands();
 		SetViewRenderCounterSink(CaptureViewCounters);
 		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, false), ERenderViewResult::Success);
-		EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.HybridDeferredUnavailableViews, 0u);
+		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredUnavailableViews, 0u);
 		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true), ERenderViewResult::Success);
-		EXPECT_EQ(GLastViewCounters.DeferredDirectionalEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.DeferredDirectionalUnavailableViews, 0u);
-		EXPECT_EQ(GLastViewCounters.DeferredDirectionalPassFailures, 0u);
-		EXPECT_GT(GLastViewCounters.DeferredDirectionalOutputBytes, 0u);
-		EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes, GLastViewCounters.DeferredDirectionalOutputBytes * 2u);
+		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
+		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalPassFailures, 0u);
+		EXPECT_GT(GLastViewCounters.Deferred.DeferredDirectionalOutputBytes, 0u);
+		EXPECT_EQ(GLastViewCounters.GBuffer.GBufferAttachmentBytes, GLastViewCounters.Deferred.DeferredDirectionalOutputBytes * 2u);
 		SetViewRenderCounterSink(nullptr);
 
 		Viewport = nullptr;

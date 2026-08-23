@@ -700,25 +700,25 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		{
 			const Durin::FViewRenderCounters& Counters =
 				CounterSnapshots[Index];
-			EXPECT_EQ(Counters.VisibleStaticMeshCandidates, 1u);
-			EXPECT_EQ(Counters.PreparedStaticMeshPrimitives, 1u);
+			EXPECT_EQ(Counters.StaticMesh.VisibleStaticMeshCandidates, 1u);
+			EXPECT_EQ(Counters.StaticMesh.PreparedStaticMeshPrimitives, 1u);
 			EXPECT_EQ(
-				Counters.PreparedStaticMeshSections, ExpectedSections[Index]);
+				Counters.StaticMesh.PreparedStaticMeshSections, ExpectedSections[Index]);
 			EXPECT_EQ(
-				Counters.OpaqueStaticMeshSections, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.OpaqueStaticMeshStateGroups, 1u);
-			EXPECT_EQ(Counters.StaticMeshResourceAttemptedDraws,
+				Counters.StaticMesh.OpaqueStaticMeshSections, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.StaticMesh.OpaqueStaticMeshStateGroups, 1u);
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceAttemptedDraws,
 				ExpectedSections[Index]);
-			EXPECT_EQ(Counters.StaticMeshResourceSuccessfulDraws,
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceSuccessfulDraws,
 				ExpectedSections[Index]);
-			EXPECT_EQ(Counters.StaticMeshResourceRejectedDraws, 0u);
-			EXPECT_EQ(Counters.StaticMeshAttemptedDraws, 0u);
-			EXPECT_EQ(Counters.StaticMeshSuccessfulDraws, 0u);
-			EXPECT_EQ(Counters.StaticMeshRejectedDraws, 0u);
-			EXPECT_EQ(Counters.GBufferAttemptedDraws, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.GBufferSuccessfulDraws, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.GBufferRejectedDraws, 0u);
-			EXPECT_EQ(Counters.HybridDeferredEnabledViews, 1u);
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceRejectedDraws, 0u);
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshAttemptedDraws, 0u);
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshSuccessfulDraws, 0u);
+			EXPECT_EQ(Counters.StaticMesh.StaticMeshRejectedDraws, 0u);
+			EXPECT_EQ(Counters.GBuffer.GBufferAttemptedDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.GBuffer.GBufferSuccessfulDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.GBuffer.GBufferRejectedDraws, 0u);
+			EXPECT_EQ(Counters.Deferred.HybridDeferredEnabledViews, 1u);
 		}
 		struct FEndSceneImportFrame
 		{

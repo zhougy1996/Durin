@@ -498,23 +498,23 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	);
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Readback->size(), 33u * 33u * 4u);
-	EXPECT_EQ(GLastCounters.VisibleSkeletalMeshCandidates, 1u);
-	EXPECT_EQ(GLastCounters.PreparedSkeletalMeshPrimitives, 1u);
-	EXPECT_EQ(GLastCounters.PreparedSkeletalMeshSections, 3u);
-	EXPECT_EQ(GLastCounters.OpaqueSkeletalMeshSections, 1u);
-	EXPECT_EQ(GLastCounters.MaskedSkeletalMeshSections, 1u);
-	EXPECT_EQ(GLastCounters.TranslucentSkeletalMeshSections, 1u);
-	EXPECT_EQ(GLastCounters.PreparedSkeletalMeshTriangles, 3u);
-	EXPECT_EQ(GLastCounters.OpaqueSkeletalMeshStateGroups, 1u);
-	EXPECT_EQ(GLastCounters.MaskedSkeletalMeshStateGroups, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.VisibleSkeletalMeshCandidates, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.PreparedSkeletalMeshPrimitives, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.PreparedSkeletalMeshSections, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.OpaqueSkeletalMeshSections, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.MaskedSkeletalMeshSections, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.TranslucentSkeletalMeshSections, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.PreparedSkeletalMeshTriangles, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.OpaqueSkeletalMeshStateGroups, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.MaskedSkeletalMeshStateGroups, 1u);
 	EXPECT_EQ(GLastCounters.CombinedTranslucentGeometryDraws, 1u);
-	EXPECT_EQ(GLastCounters.RequestedSkeletalPaletteUploads, 1u);
-	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 1u);
-	EXPECT_EQ(GLastCounters.UploadedSkeletalPaletteMatrices, 2u);
-	EXPECT_EQ(GLastCounters.UploadedSkeletalPaletteBytes, 2u * sizeof(Durin::FMatrix4f));
-	EXPECT_EQ(GLastCounters.SkeletalMeshResourceAttemptedDraws, 3u);
-	EXPECT_EQ(GLastCounters.SkeletalMeshResourceSuccessfulDraws, 3u);
-	EXPECT_EQ(GLastCounters.SkeletalMeshSuccessfulDraws, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.RequestedSkeletalPaletteUploads, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.UploadedSkeletalPalettes, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.UploadedSkeletalPaletteMatrices, 2u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.UploadedSkeletalPaletteBytes, 2u * sizeof(Durin::FMatrix4f));
+	EXPECT_EQ(GLastCounters.SkeletalMesh.SkeletalMeshResourceAttemptedDraws, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.SkeletalMeshResourceSuccessfulDraws, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.SkeletalMeshSuccessfulDraws, 3u);
 	EXPECT_TRUE(std::ranges::any_of(*Readback,
 		[](std::byte Value) { return Value != std::byte{0}; }));
 	size_t RedPixels = 0;
@@ -586,18 +586,18 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	GGBufferPixels.fill(nullptr);
 	EXPECT_EQ(*GBufferReadback, *ZeroLightReadback);
 	ValidateCapturedGBuffer(SkeletalGBufferPixels);
-	EXPECT_EQ(GLastCounters.GBufferEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.GBufferAttemptedDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferSuccessfulDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferRejectedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBufferSkippedDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshAttemptedDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSuccessfulDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshRejectedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
-	EXPECT_EQ(GLastCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.DeferredDirectionalUnavailableViews, 0u);
-	EXPECT_EQ(GLastCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.0, 0.0, -1.0};
 	Directional.Color = {1.0f, 0.1f, 0.1f};
@@ -624,21 +624,21 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_NE(*ZeroLightReadback, *MixedLightReadback);
 	EXPECT_TRUE(std::ranges::any_of(*MixedLightReadback,
 		[](std::byte Value) { return Value != std::byte{0}; }));
-	EXPECT_EQ(GLastCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
-	EXPECT_EQ(GLastCounters.SelectedDirectionalLights, 1u);
-	EXPECT_EQ(GLastCounters.SelectedPointLights, 1u);
-	EXPECT_EQ(GLastCounters.SelectedSpotLights, 1u);
-	EXPECT_EQ(GLastCounters.ShadowSelectedLights, 1u);
-	EXPECT_EQ(GLastCounters.ShadowValidReceiverViews, 1u);
-	EXPECT_EQ(GLastCounters.ShadowResourceSuccesses, 1u);
-	EXPECT_EQ(GLastCounters.ShadowTargetLogicalBytes, Durin::DirectionalShadowLogicalBytes);
-	EXPECT_EQ(GLastCounters.ShadowPreparedSkeletalMeshCasters, 1u);
-	EXPECT_EQ(GLastCounters.ShadowAttemptedDraws, 2u);
-	EXPECT_EQ(GLastCounters.ShadowSuccessfulDraws, 2u);
-	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 1u);
-	EXPECT_EQ(GLastCounters.RequestedSkeletalPaletteUploads, 2u);
-	EXPECT_EQ(GLastCounters.ReusedSkeletalPalettes, 1u);
+	EXPECT_EQ(GLastCounters.Deferred.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.Lighting.SelectedDirectionalLights, 1u);
+	EXPECT_EQ(GLastCounters.Lighting.SelectedPointLights, 1u);
+	EXPECT_EQ(GLastCounters.Lighting.SelectedSpotLights, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowSelectedLights, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowValidReceiverViews, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowResourceSuccesses, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowTargetLogicalBytes, Durin::DirectionalShadowLogicalBytes);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowPreparedSkeletalMeshCasters, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.UploadedSkeletalPalettes, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.RequestedSkeletalPaletteUploads, 2u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.ReusedSkeletalPalettes, 1u);
 
 	auto OffscreenPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	Scene.UpdatePrimitiveTransform(
@@ -663,11 +663,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		MakePerspectiveProjection(90.0, 2.0, 1.0, 11.0)
 	);
 	EXPECT_FALSE(OffscreenCasterReadback->empty());
-	EXPECT_EQ(GLastCounters.PreparedSkeletalMeshPrimitives, 1u);
-	EXPECT_EQ(GLastCounters.ShadowPreparedSkeletalMeshCasters, 2u);
-	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 2u);
-	EXPECT_EQ(GLastCounters.RequestedSkeletalPaletteUploads, 3u);
-	EXPECT_EQ(GLastCounters.ReusedSkeletalPalettes, 1u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.PreparedSkeletalMeshPrimitives, 1u);
+	EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowPreparedSkeletalMeshCasters, 2u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.UploadedSkeletalPalettes, 2u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.RequestedSkeletalPaletteUploads, 3u);
+	EXPECT_EQ(GLastCounters.SkeletalMesh.ReusedSkeletalPalettes, 1u);
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
 	Scene.UpdatePrimitiveTransform(
 		Durin::FPrimitiveSceneId(1), Durin::FMatrix(1.0)
@@ -948,7 +948,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				  << LowShadow.second << " ns, combined-increment="
 				  << CombinedIncrement << " ns, logical-bytes="
 				  << Durin::DirectionalShadowLogicalBytes << ", backend-bytes="
-				  << GLastCounters.ShadowTargetBackendBytes
+				  << GLastCounters.DirectionalShadow.ShadowTargetBackendBytes
 				  << ", medium-scene=" << MediumShadow.first
 				  << " ns, medium-increment=" << MediumSceneIncrement
 				  << " ns, high-scene=" << HighShadow.first
@@ -1081,16 +1081,16 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Durin::SetGBufferCaptureSink(nullptr);
 	GGBufferPixels.fill(nullptr);
 	ValidateCapturedGBuffer(SplineGBufferPixels);
-	EXPECT_EQ(GLastCounters.VisibleSplineMeshCandidates, 1u);
-	EXPECT_EQ(GLastCounters.PreparedSplineMeshPrimitives, 1u);
-	EXPECT_EQ(GLastCounters.PreparedSplineMeshSections, 3u);
-	EXPECT_EQ(GLastCounters.PreparedSplineMeshTriangles, 3u);
-	EXPECT_EQ(GLastCounters.RetainedSplineMeshDeformationBytes, sizeof(Durin::FSplineMeshRenderDynamicData));
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshAttemptedDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 2u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshRejectedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshSkippedDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBufferStaticMeshAttemptedDraws, 0u);
+	EXPECT_EQ(GLastCounters.SplineMesh.VisibleSplineMeshCandidates, 1u);
+	EXPECT_EQ(GLastCounters.SplineMesh.PreparedSplineMeshPrimitives, 1u);
+	EXPECT_EQ(GLastCounters.SplineMesh.PreparedSplineMeshSections, 3u);
+	EXPECT_EQ(GLastCounters.SplineMesh.PreparedSplineMeshTriangles, 3u);
+	EXPECT_EQ(GLastCounters.SplineMesh.RetainedSplineMeshDeformationBytes, sizeof(Durin::FSplineMeshRenderDynamicData));
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferStaticMeshAttemptedDraws, 0u);
 	EXPECT_EQ(SplineReadback->size(), 33u * 33u * 4u);
 	EXPECT_TRUE(std::ranges::any_of(*SplineReadback,
 		[](std::byte Value) { return Value != std::byte{0}; }));
@@ -1130,10 +1130,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		"UnlitSplineGBufferColor", true
 	);
 	EXPECT_EQ(*UnlitGBufferReadback, *UnlitForwardReadback);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshAttemptedDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshRejectedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBufferSplineMeshSkippedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshAttemptedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSkippedDraws, 2u);
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	auto CpuSplineSource = MakeSplineSourceRenderData();
@@ -1186,7 +1186,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Scene.UpdateSplineMeshDynamicData(Durin::FPrimitiveSceneId(2), IdentityData);
 	Durin::FlushRenderingCommands();
 	const auto IdentitySplineReadback = CaptureSplineParity("IdentitySplineMeshColor");
-	EXPECT_EQ(GLastCounters.AcceptedSplineMeshDynamicUpdates, 1u);
+	EXPECT_EQ(GLastCounters.SplineMesh.AcceptedSplineMeshDynamicUpdates, 1u);
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	const auto StaticParityReadback = CaptureSplineParity("StaticMeshParityColor");

@@ -121,9 +121,9 @@ namespace Durin
 		ViewState = nullptr;
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++RenderSubmissionSerial;
-		Telemetry.Counters.VolumetricCloudQuality =
+		Telemetry.Counters.VolumetricCloud.VolumetricCloudQuality =
 			CanonicalizeFixedFrameCloudQuality(View.Settings.VolumetricCloud.Quality);
-		Telemetry.Counters.VolumetricCloudDebugMode =
+		Telemetry.Counters.VolumetricCloud.VolumetricCloudDebugMode =
 			CanonicalizeFixedFrameCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
 		FSceneTelemetryPublication TelemetryPublication(
 			Telemetry, OutStatistics
@@ -293,7 +293,7 @@ namespace Durin
 		else if (bWantsIsolatedDeferred)
 		{
 			Outcome.IsolatedDeferred.Status = EScenePassStatus::Failed;
-			++Telemetry.Counters.DeferredDirectionalUnavailableViews;
+			++Telemetry.Counters.Deferred.DeferredDirectionalUnavailableViews;
 		}
 
 		const bool bProductionResourcesReady =
@@ -367,11 +367,11 @@ namespace Durin
 			if (GBufferTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;
-				++Telemetry.Counters.GBufferUnavailableViews;
+				++Telemetry.Counters.GBuffer.GBufferUnavailableViews;
 				if (bWantsIsolatedDeferred)
-					++Telemetry.Counters.DeferredDirectionalUnavailableViews;
+					++Telemetry.Counters.Deferred.DeferredDirectionalUnavailableViews;
 				if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled)
-					++Telemetry.Counters.GBufferDebugFailures;
+					++Telemetry.Counters.GBuffer.GBufferDebugFailures;
 			}
 			else
 			{
@@ -456,56 +456,56 @@ namespace Durin
 						SceneTargets.Depth
 					);
 				}
-				++Telemetry.Counters.GBufferEnabledViews;
-				Telemetry.Counters.GBufferAttachmentBytes =
+				++Telemetry.Counters.GBuffer.GBufferEnabledViews;
+				Telemetry.Counters.GBuffer.GBufferAttachmentBytes =
 					FGBufferRenderer::CalculateTargetBytes(Width, Height);
-				Telemetry.Counters.GBufferAttemptedDraws =
+				Telemetry.Counters.GBuffer.GBufferAttemptedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws
 					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws
 					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
-				Telemetry.Counters.GBufferSuccessfulDraws =
+				Telemetry.Counters.GBuffer.GBufferSuccessfulDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSuccessfulDraws
 					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws
 					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
-				Telemetry.Counters.GBufferRejectedDraws =
+				Telemetry.Counters.GBuffer.GBufferRejectedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferRejectedDraws
 					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws
 					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
-				Telemetry.Counters.GBufferSkippedDraws =
+				Telemetry.Counters.GBuffer.GBufferSkippedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSkippedDraws
 					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws
 					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
-				Telemetry.Counters.GBufferStaticMeshAttemptedDraws =
+				Telemetry.Counters.GBuffer.GBufferStaticMeshAttemptedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalAttemptedDraws;
-				Telemetry.Counters.GBufferStaticMeshSuccessfulDraws =
+				Telemetry.Counters.GBuffer.GBufferStaticMeshSuccessfulDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSuccessfulDraws;
-				Telemetry.Counters.GBufferStaticMeshRejectedDraws =
+				Telemetry.Counters.GBuffer.GBufferStaticMeshRejectedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalRejectedDraws;
-				Telemetry.Counters.GBufferStaticMeshSkippedDraws =
+				Telemetry.Counters.GBuffer.GBufferStaticMeshSkippedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSkippedDraws;
-				Telemetry.Counters.GBufferSplineMeshAttemptedDraws =
+				Telemetry.Counters.GBuffer.GBufferSplineMeshAttemptedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineAttemptedDraws;
-				Telemetry.Counters.GBufferSplineMeshSuccessfulDraws =
+				Telemetry.Counters.GBuffer.GBufferSplineMeshSuccessfulDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSuccessfulDraws;
-				Telemetry.Counters.GBufferSplineMeshRejectedDraws =
+				Telemetry.Counters.GBuffer.GBufferSplineMeshRejectedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineRejectedDraws;
-				Telemetry.Counters.GBufferSplineMeshSkippedDraws =
+				Telemetry.Counters.GBuffer.GBufferSplineMeshSkippedDraws =
 					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSkippedDraws;
-				Telemetry.Counters.GBufferSkeletalMeshAttemptedDraws =
+				Telemetry.Counters.GBuffer.GBufferSkeletalMeshAttemptedDraws =
 					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws;
-				Telemetry.Counters.GBufferSkeletalMeshSuccessfulDraws =
+				Telemetry.Counters.GBuffer.GBufferSkeletalMeshSuccessfulDraws =
 					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws;
-				Telemetry.Counters.GBufferSkeletalMeshRejectedDraws =
+				Telemetry.Counters.GBuffer.GBufferSkeletalMeshRejectedDraws =
 					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
-				Telemetry.Counters.GBufferSkeletalMeshSkippedDraws =
+				Telemetry.Counters.GBuffer.GBufferSkeletalMeshSkippedDraws =
 					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
-				Telemetry.Counters.GBufferTerrainAttemptedDraws =
+				Telemetry.Counters.GBuffer.GBufferTerrainAttemptedDraws =
 					ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
-				Telemetry.Counters.GBufferTerrainSuccessfulDraws =
+				Telemetry.Counters.GBuffer.GBufferTerrainSuccessfulDraws =
 					ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
-				Telemetry.Counters.GBufferTerrainRejectedDraws =
+				Telemetry.Counters.GBuffer.GBufferTerrainRejectedDraws =
 					ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
-				Telemetry.Counters.GBufferTerrainSkippedDraws =
+				Telemetry.Counters.GBuffer.GBufferTerrainSkippedDraws =
 					ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
 			}
 		}
@@ -528,7 +528,7 @@ namespace Durin
 		const FSceneView& RenderView = PreparedView.Context.View;
 		if (bWantsGroundTruthAmbientOcclusion)
 		{
-			++Telemetry.Counters.GroundTruthAmbientOcclusionAttemptedViews;
+			++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews;
 			std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
 				AmbientOcclusionTargetsStorage;
 			if (bGBufferComplete
@@ -540,12 +540,12 @@ namespace Durin
 			}
 			auto* AmbientOcclusionTargets = AmbientOcclusionTargetsStorage
 				? &*AmbientOcclusionTargetsStorage : nullptr;
-			Telemetry.Counters.GroundTruthAmbientOcclusionRetainedBytes =
+			Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes =
 				GroundTruthAmbientOcclusionRenderer.GetRetainedTargetBytes_RenderThread();
 			if (AmbientOcclusionTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;
-				++Telemetry.Counters.GroundTruthAmbientOcclusionUnavailableViews;
+				++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews;
 			}
 			else
 			{
@@ -652,19 +652,19 @@ namespace Durin
 						Result.bHalfResolution =
 							AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-						++Telemetry.Counters.GroundTruthAmbientOcclusionEnabledViews;
+						++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews;
 						if (AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution)
-							++Telemetry.Counters.GroundTruthAmbientOcclusionHalfResolutionViews;
+							++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionHalfResolutionViews;
 						else
-							++Telemetry.Counters.GroundTruthAmbientOcclusionFullResolutionViews;
-						Telemetry.Counters.GroundTruthAmbientOcclusionActiveBytes =
+							++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionFullResolutionViews;
+						Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes =
 							FGroundTruthAmbientOcclusionRenderer::
 								CalculateTargetBytes(Width, Height, AmbientOcclusionTargets->Quality);
 						if (Options.GroundTruthAmbientOcclusionDebugMode
 							!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 						{
-							++Telemetry.Counters.GroundTruthAmbientOcclusionDebugViews;
+							++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionDebugViews;
 						}
 						FilterTiming.Commit();
 						if (CaptureSink != nullptr)
@@ -675,18 +675,18 @@ namespace Durin
 					else if (!bFiltered)
 					{
 						Result.Status = EScenePassStatus::Failed;
-						++Telemetry.Counters.GroundTruthAmbientOcclusionFilterPassFailures;
+						++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionFilterPassFailures;
 					}
 					else
 					{
 						Result.Status = EScenePassStatus::Failed;
-						++Telemetry.Counters.GroundTruthAmbientOcclusionResolvePassFailures;
+						++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionResolvePassFailures;
 					}
 				}
 				else
 				{
 					Result.Status = EScenePassStatus::Failed;
-					++Telemetry.Counters.GroundTruthAmbientOcclusionRawPassFailures;
+					++Telemetry.Counters.AmbientOcclusion.GroundTruthAmbientOcclusionRawPassFailures;
 				}
 			}
 		}
@@ -730,7 +730,7 @@ namespace Durin
 			auto* ComputeContactTargets = !bForceFragment
 				&& ResolvedFrame.Targets.ContactCompute
 				? &*ResolvedFrame.Targets.ContactCompute : nullptr;
-			Telemetry.Counters.ContactShadowRetainedBytes =
+			Telemetry.Counters.ContactShadow.ContactShadowRetainedBytes =
 				ContactShadowRenderer.GetRetainedTargetBytes_RenderThread();
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,
@@ -740,33 +740,33 @@ namespace Durin
 				PreparedView.DirectionalShadow->View.LightDirection, Width, Height
 			);
 			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
-			if (ReasonIndex < Telemetry.Counters.ContactShadowRouteReasons.size())
-				++Telemetry.Counters.ContactShadowRouteReasons[ReasonIndex];
+			if (ReasonIndex < Telemetry.Counters.ContactShadow.ContactShadowRouteReasons.size())
+				++Telemetry.Counters.ContactShadow.ContactShadowRouteReasons[ReasonIndex];
 			if (ContactResult.Visibility != nullptr)
 			{
-				Telemetry.Counters.ContactShadowActiveBytes =
+				Telemetry.Counters.ContactShadow.ContactShadowActiveBytes =
 					FContactShadowVisibilityRenderer::CalculateTargetBytes(Width, Height);
 				PassResult.Status = EScenePassStatus::Complete;
 				PassResult.Visibility = ContactResult.Visibility;
 				PassResult.bDebug =
 					RenderView.Settings.DirectionalShadow.bShowContactDebug;
-				++Telemetry.Counters.ContactShadowEnabledViews;
+				++Telemetry.Counters.ContactShadow.ContactShadowEnabledViews;
 				if (ContactResult.Route
 					== FContactShadowVisibilityRenderer::ERoute::Compute)
 				{
-					++Telemetry.Counters.ContactShadowComputeViews;
-					++Telemetry.Counters.ContactShadowDispatches;
+					++Telemetry.Counters.ContactShadow.ContactShadowComputeViews;
+					++Telemetry.Counters.ContactShadow.ContactShadowDispatches;
 				}
 				else
 				{
-					++Telemetry.Counters.ContactShadowFragmentViews;
-					++Telemetry.Counters.ContactShadowDraws;
+					++Telemetry.Counters.ContactShadow.ContactShadowFragmentViews;
+					++Telemetry.Counters.ContactShadow.ContactShadowDraws;
 				}
 			}
 			else
 			{
-				++Telemetry.Counters.ContactShadowPassFailures;
-				++Telemetry.Counters.ContactShadowFactorOneViews;
+				++Telemetry.Counters.ContactShadow.ContactShadowPassFailures;
+				++Telemetry.Counters.ContactShadow.ContactShadowFactorOneViews;
 			}
 		}
 		return PassResult;
@@ -824,30 +824,30 @@ namespace Durin
 		);
 		auto& Counters = Telemetry.Counters;
 		const size_t ReasonIndex = static_cast<size_t>(Result.Reason);
-		if (ReasonIndex < Counters.VolumetricCloudShadowRouteReasons.size())
-			++Counters.VolumetricCloudShadowRouteReasons[ReasonIndex];
-		Counters.VolumetricCloudShadowRetainedBytes =
+		if (ReasonIndex < Counters.VolumetricCloud.VolumetricCloudShadowRouteReasons.size())
+			++Counters.VolumetricCloud.VolumetricCloudShadowRouteReasons[ReasonIndex];
+		Counters.VolumetricCloud.VolumetricCloudShadowRetainedBytes =
 			VolumetricCloudShadowRenderer.GetRetainedTargetBytes_RenderThread();
 		if (!Result.Visibility)
 		{
-			++Counters.VolumetricCloudShadowFactorOneViews;
+			++Counters.VolumetricCloud.VolumetricCloudShadowFactorOneViews;
 			return PassResult;
 		}
 		PassResult.Status = EScenePassStatus::Complete;
 		PassResult.Visibility = Result.Visibility;
-		Counters.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
-		Counters.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
+		Counters.VolumetricCloud.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
+		Counters.VolumetricCloud.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
 												* Height * Result.SampleCount;
-		++Counters.VolumetricCloudShadowEnabledViews;
+		++Counters.VolumetricCloud.VolumetricCloudShadowEnabledViews;
 		if (Result.Route == FVolumetricCloudShadowRenderer::ERoute::Compute)
 		{
-			++Counters.VolumetricCloudShadowComputeViews;
-			++Counters.VolumetricCloudShadowDispatches;
+			++Counters.VolumetricCloud.VolumetricCloudShadowComputeViews;
+			++Counters.VolumetricCloud.VolumetricCloudShadowDispatches;
 		}
 		else
 		{
-			++Counters.VolumetricCloudShadowFragmentViews;
-			++Counters.VolumetricCloudShadowDraws;
+			++Counters.VolumetricCloud.VolumetricCloudShadowFragmentViews;
+			++Counters.VolumetricCloud.VolumetricCloudShadowDraws;
 		}
 		return PassResult;
 	}
@@ -942,7 +942,7 @@ namespace Durin
 			auto* DeferredTargets = ResolvedFrame.Targets.IsolatedDeferred
 				? &*ResolvedFrame.Targets.IsolatedDeferred : nullptr;
 			if (DeferredTargets == nullptr)
-				++Telemetry.Counters.DeferredDirectionalUnavailableViews;
+				++Telemetry.Counters.Deferred.DeferredDirectionalUnavailableViews;
 			else
 			{
 				auto Parameters = DeferredParameters;
@@ -963,14 +963,14 @@ namespace Durin
 				if (bRendered)
 				{
 					Result.Status = EScenePassStatus::Complete;
-					++Telemetry.Counters.DeferredDirectionalEnabledViews;
-					Telemetry.Counters.DeferredDirectionalOutputBytes =
+					++Telemetry.Counters.Deferred.DeferredDirectionalEnabledViews;
+					Telemetry.Counters.Deferred.DeferredDirectionalOutputBytes =
 						FDeferredDirectionalLightingRenderer::
 							CalculateTargetBytes(Width, Height);
 					if (Options.DeferredDirectionalDebugMode
 						!= EDeferredDirectionalDebugMode::Disabled)
 					{
-						++Telemetry.Counters.DeferredDirectionalDebugViews;
+						++Telemetry.Counters.Deferred.DeferredDirectionalDebugViews;
 					}
 					DeferredTiming.Commit();
 					const FDeferredDirectionalCaptureSink CaptureSink =
@@ -985,7 +985,7 @@ namespace Durin
 				}
 				else
 				{
-					++Telemetry.Counters.DeferredDirectionalPassFailures;
+					++Telemetry.Counters.Deferred.DeferredDirectionalPassFailures;
 				}
 			}
 		}
@@ -1032,11 +1032,11 @@ namespace Durin
 				))
 			{
 				PostProcessInput = DebugTargets->Color;
-				++Telemetry.Counters.GBufferDebugViews;
+				++Telemetry.Counters.GBuffer.GBufferDebugViews;
 			}
 			else
 			{
-				++Telemetry.Counters.GBufferDebugFailures;
+				++Telemetry.Counters.GBuffer.GBufferDebugFailures;
 			}
 		}
 		else if (GroundTruthAmbientOcclusionDebugOutput != nullptr)
@@ -1170,35 +1170,35 @@ namespace Durin
 			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets, ComputeTargets, {.bRequested = Cloud != nullptr, .Textures = Textures, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .View = &View, .QualityTier = QualityTier, .SuccessfulSequence = TemporalContext.SuccessfulSequence, .Width = CloudExtent.Width, .Height = CloudExtent.Height, .OutputWidth = Width, .OutputHeight = Height});
 		auto& Counters = Telemetry.Counters;
 		const auto RouteIndex = static_cast<size_t>(Result.Counters.Reason);
-		if (RouteIndex < Counters.VolumetricCloudRouteReasons.size())
-			++Counters.VolumetricCloudRouteReasons[RouteIndex];
-		Counters.VolumetricCloudDispatches += Result.Counters.Dispatches;
-		Counters.VolumetricCloudDraws += Result.Counters.Draws;
-		Counters.VolumetricCloudPrimarySamples += Result.Counters.PrimarySamples;
-		Counters.VolumetricCloudLightSamples += Result.Counters.LightSamples;
-		Counters.VolumetricCloudTargetWidth = Result.Counters.TargetWidth;
-		Counters.VolumetricCloudTargetHeight = Result.Counters.TargetHeight;
-		Counters.VolumetricCloudOutputWidth = Result.Counters.OutputWidth;
-		Counters.VolumetricCloudOutputHeight = Result.Counters.OutputHeight;
-		Counters.VolumetricCloudActiveBytes = Result.Counters.TargetBytes;
+		if (RouteIndex < Counters.VolumetricCloud.VolumetricCloudRouteReasons.size())
+			++Counters.VolumetricCloud.VolumetricCloudRouteReasons[RouteIndex];
+		Counters.VolumetricCloud.VolumetricCloudDispatches += Result.Counters.Dispatches;
+		Counters.VolumetricCloud.VolumetricCloudDraws += Result.Counters.Draws;
+		Counters.VolumetricCloud.VolumetricCloudPrimarySamples += Result.Counters.PrimarySamples;
+		Counters.VolumetricCloud.VolumetricCloudLightSamples += Result.Counters.LightSamples;
+		Counters.VolumetricCloud.VolumetricCloudTargetWidth = Result.Counters.TargetWidth;
+		Counters.VolumetricCloud.VolumetricCloudTargetHeight = Result.Counters.TargetHeight;
+		Counters.VolumetricCloud.VolumetricCloudOutputWidth = Result.Counters.OutputWidth;
+		Counters.VolumetricCloud.VolumetricCloudOutputHeight = Result.Counters.OutputHeight;
+		Counters.VolumetricCloud.VolumetricCloudActiveBytes = Result.Counters.TargetBytes;
 		if (Result.Counters.Route == FVolumetricCloudRenderer::ERoute::Compute)
-			++Counters.VolumetricCloudComputeViews;
+			++Counters.VolumetricCloud.VolumetricCloudComputeViews;
 		else if (Result.Counters.Route == FVolumetricCloudRenderer::ERoute::Fragment)
-			++Counters.VolumetricCloudFragmentViews;
+			++Counters.VolumetricCloud.VolumetricCloudFragmentViews;
 		else
-			++Counters.VolumetricCloudDisabledViews;
+			++Counters.VolumetricCloud.VolumetricCloudDisabledViews;
 		const FVolumetricCloudRenderer::FTemporalReconstructionResult Temporal =
 			Result.Cloud != nullptr ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
 										  CommandList, {.CurrentCloud = Result.Cloud, .View = &View, .TemporalContext = &TemporalContext, .ViewState = ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
 									  ) :
 									  FVolumetricCloudRenderer::FTemporalReconstructionResult{};
-		Counters.VolumetricCloudHistoryBytes = Temporal.HistoryBytes;
+		Counters.VolumetricCloud.VolumetricCloudHistoryBytes = Temporal.HistoryBytes;
 		if (Temporal.bCandidatePublished)
-			++Counters.VolumetricCloudTemporalDraws;
+			++Counters.VolumetricCloud.VolumetricCloudTemporalDraws;
 		if (Temporal.bHistoryAccepted)
-			++Counters.VolumetricCloudHistoryAccepted;
+			++Counters.VolumetricCloud.VolumetricCloudHistoryAccepted;
 		else if (Temporal.bCandidatePublished)
-			++Counters.VolumetricCloudHistoryRejected;
+			++Counters.VolumetricCloud.VolumetricCloudHistoryRejected;
 		FRHITexture* Composite = Temporal.Cloud != nullptr
 			&& ResolvedFrame.Targets.VolumetricCloudComposite
 			? VolumetricCloudRenderer.Composite_RenderThread(
@@ -1209,12 +1209,12 @@ namespace Durin
 				Temporal.bCandidatePublished,
 				Temporal.bHistoryAccepted, View) :
 			nullptr;
-		Counters.VolumetricCloudRetainedBytes =
+		Counters.VolumetricCloud.VolumetricCloudRetainedBytes =
 			VolumetricCloudRenderer.GetRetainedTargetBytes_RenderThread();
 		if (Composite != nullptr)
 		{
-			++Counters.VolumetricCloudEnabledViews;
-			++Counters.VolumetricCloudCompositeDraws;
+			++Counters.VolumetricCloud.VolumetricCloudEnabledViews;
+			++Counters.VolumetricCloud.VolumetricCloudCompositeDraws;
 			return {
 				.Status = EScenePassStatus::Complete,
 				.SceneColor = Composite};
@@ -1268,7 +1268,7 @@ namespace Durin
 		}
 		if (DeferredParameters == nullptr)
 		{
-			++Telemetry.Counters.HybridDeferredUnavailableViews;
+			++Telemetry.Counters.Deferred.HybridDeferredUnavailableViews;
 			return {};
 		}
 
@@ -1332,7 +1332,7 @@ namespace Durin
 		DeferredTiming.Commit();
 		if (!bDeferredRendered)
 		{
-			++Telemetry.Counters.HybridDeferredUnavailableViews;
+			++Telemetry.Counters.Deferred.HybridDeferredUnavailableViews;
 			return {};
 		}
 		const FRetainedOpaqueTimingQuerySink RetainedOpaqueTimingSink =
@@ -1468,7 +1468,7 @@ namespace Durin
 			ResolvedFrame.Receiver.SkeletalMeshes);
 		TerrainRenderer.FinalizeExecution_RenderThread(
 			ResolvedFrame.Receiver.Terrains);
-		++Telemetry.Counters.HybridDeferredEnabledViews;
+		++Telemetry.Counters.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,
 			.SceneColor = SceneColor,

@@ -531,9 +531,9 @@ namespace
 				   << std::setprecision(3) << Value.Mean[0] << ", " << Value.Mean[1]
 				   << ", " << Value.Mean[2] << ", " << Value.Mean[3]
 				   << "], \"shadow\": {\"selectedLights\": "
-				   << Value.Counters.ShadowSelectedLights << ", \"validViews\": "
-				   << Value.Counters.ShadowValidReceiverViews << ", \"draws\": "
-				   << Value.Counters.ShadowSuccessfulDraws << "}}"
+				   << Value.Counters.DirectionalShadow.ShadowSelectedLights << ", \"validViews\": "
+				   << Value.Counters.DirectionalShadow.ShadowValidReceiverViews << ", \"draws\": "
+				   << Value.Counters.DirectionalShadow.ShadowSuccessfulDraws << "}}"
 				   << (Index + 1 == Statistics.size() ? "\n" : ",\n");
 		}
 		Stream << "  ],\n  \"motionChangedPixelsAtTolerance2\": ["
@@ -946,41 +946,41 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		ASSERT_EQ(Pixels->size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 		if (Fixture.bCastShadows)
 		{
-			EXPECT_EQ(GLastCounters.ShadowSelectedLights, 1u);
-			EXPECT_EQ(GLastCounters.ShadowValidReceiverViews, 1u);
-			EXPECT_GT(GLastCounters.ShadowSuccessfulDraws, 0u);
-			EXPECT_EQ(GLastCounters.ShadowDiagnosticViews[static_cast<size_t>(Fixture.DiagnosticMode)], 1u);
-			EXPECT_EQ(GLastCounters.ShadowQualityViews[static_cast<size_t>(Fixture.FilterQuality)], 1u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowSelectedLights, 1u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowValidReceiverViews, 1u);
+			EXPECT_GT(GLastCounters.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowDiagnosticViews[static_cast<size_t>(Fixture.DiagnosticMode)], 1u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowQualityViews[static_cast<size_t>(Fixture.FilterQuality)], 1u);
 			const Durin::FDirectionalShadowFilter ExpectedFilter =
 				Durin::PrepareDirectionalShadowFilter(Fixture.FilterQuality);
-			EXPECT_EQ(GLastCounters.ShadowComparisonOperations, ExpectedFilter.ComparisonOperations);
-			EXPECT_EQ(GLastCounters.ShadowGuardTexels, ExpectedFilter.GuardTexels);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowComparisonOperations, ExpectedFilter.ComparisonOperations);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowGuardTexels, ExpectedFilter.GuardTexels);
 			if (Fixture.Candidate
 				== Durin::EDirectionalShadowCandidate::ThreeCascades)
 			{
-				EXPECT_EQ(GLastCounters.ShadowCandidate, Fixture.Candidate);
-				EXPECT_EQ(GLastCounters.ShadowCascadeCount, Durin::DirectionalShadowCascadeCount);
-				EXPECT_EQ(GLastCounters.ShadowComparisonOperations, 9u);
+				EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowCandidate, Fixture.Candidate);
+				EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowCascadeCount, Durin::DirectionalShadowCascadeCount);
+				EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowComparisonOperations, 9u);
 				EXPECT_EQ(
-					GLastCounters.ShadowTransitionComparisonOperations, 18u
+					GLastCounters.DirectionalShadow.ShadowTransitionComparisonOperations, 18u
 				);
-				EXPECT_EQ(GLastCounters.ShadowTargetLogicalBytes, Durin::DirectionalShadowLogicalBytes);
-				EXPECT_GE(GLastCounters.ShadowTargetBackendBytes, GLastCounters.ShadowTargetLogicalBytes);
-				EXPECT_LE(GLastCounters.ShadowTargetBackendBytes, 64ull * 1024 * 1024);
+				EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowTargetLogicalBytes, Durin::DirectionalShadowLogicalBytes);
+				EXPECT_GE(GLastCounters.DirectionalShadow.ShadowTargetBackendBytes, GLastCounters.DirectionalShadow.ShadowTargetLogicalBytes);
+				EXPECT_LE(GLastCounters.DirectionalShadow.ShadowTargetBackendBytes, 64ull * 1024 * 1024);
 				size_t CascadeAttempts = 0;
 				for (uint32 Cascade = 0;
 					 Cascade < Durin::DirectionalShadowCascadeCount; ++Cascade)
 					CascadeAttempts +=
-						GLastCounters.ShadowCascades[Cascade].AttemptedDraws;
-				EXPECT_EQ(CascadeAttempts, GLastCounters.ShadowAttemptedDraws);
+						GLastCounters.DirectionalShadow.ShadowCascades[Cascade].AttemptedDraws;
+				EXPECT_EQ(CascadeAttempts, GLastCounters.DirectionalShadow.ShadowAttemptedDraws);
 			}
 		}
 		else
 		{
-			EXPECT_EQ(GLastCounters.ShadowSelectedLights, 1u);
-			EXPECT_EQ(GLastCounters.ShadowValidReceiverViews, 0u);
-			EXPECT_EQ(GLastCounters.ShadowSuccessfulDraws, 0u);
-			for (const size_t DiagnosticViews : GLastCounters.ShadowDiagnosticViews)
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowSelectedLights, 1u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowValidReceiverViews, 0u);
+			EXPECT_EQ(GLastCounters.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+			for (const size_t DiagnosticViews : GLastCounters.DirectionalShadow.ShadowDiagnosticViews)
 				EXPECT_EQ(DiagnosticViews, 0u);
 		}
 		WritePpm(OutputDirectory / (Fixture.Name + ".ppm"), *Pixels);
@@ -1233,11 +1233,11 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 					if (Frame >= WarmupFrames)
 					{
 						Profile->Logical.push_back(
-							GLastCounters.ShadowLogicalPreparationNanoseconds);
+							GLastCounters.DirectionalShadow.ShadowLogicalPreparationNanoseconds);
 						Profile->Discovery.push_back(
-							GLastCounters.ShadowDiscoveryMembershipNanoseconds);
+							GLastCounters.DirectionalShadow.ShadowDiscoveryMembershipNanoseconds);
 						Profile->StaticSpline.push_back(
-							GLastCounters.ShadowStaticSplinePreparationNanoseconds);
+							GLastCounters.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds);
 					}
 				}
 				Profile->LastCounters = GLastCounters;
@@ -1259,37 +1259,37 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 
 	ASSERT_EQ(SingleMap.Logical.size(), MeasuredFrames);
 	ASSERT_EQ(ThreeCascades.Logical.size(), MeasuredFrames);
-	EXPECT_EQ(ThreeCascades.LastCounters.ShadowSceneTraversals, 1u);
+	EXPECT_EQ(ThreeCascades.LastCounters.DirectionalShadow.ShadowSceneTraversals, 1u);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowUniqueSubmittedCasters,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowUniqueSubmittedCasters,
 		PrimitiveCount);
 	const size_t UniqueEligible =
-		ThreeCascades.LastCounters.ShadowUniqueEligibleStaticMeshCasters
-		+ ThreeCascades.LastCounters.ShadowUniqueEligibleSplineMeshCasters
-		+ ThreeCascades.LastCounters.ShadowUniqueEligibleSkeletalMeshCasters
-		+ ThreeCascades.LastCounters.ShadowUniqueEligibleTerrainCasters;
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowUniqueEligibleStaticMeshCasters
+		+ ThreeCascades.LastCounters.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters
+		+ ThreeCascades.LastCounters.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters
+		+ ThreeCascades.LastCounters.DirectionalShadow.ShadowUniqueEligibleTerrainCasters;
 	EXPECT_EQ(UniqueEligible, PrimitiveCount);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowCascadeClassificationTests,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowCascadeClassificationTests,
 		UniqueEligible * Durin::DirectionalShadowCascadeCount);
 	EXPECT_GE(
-		ThreeCascades.LastCounters.ShadowMembershipPopcount * 2u,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowMembershipPopcount * 2u,
 		UniqueEligible * 3u);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowStaticSplinePrimitiveFactBuilds,
-		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowStaticSplinePrimitiveFactBuilds,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowMembershipPopcount);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowStaticSplinePrimitiveFactReuses, 0u);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowStaticSplinePrimitiveFactReuses, 0u);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowSelectedLODFactBuilds,
-		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowSelectedLODFactBuilds,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowMembershipPopcount);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowSelectedLODFactReuses, 0u);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowSelectedLODFactReuses, 0u);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowStaticSplineSectionFactBuilds,
-		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowStaticSplineSectionFactBuilds,
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowMembershipPopcount);
 	EXPECT_EQ(
-		ThreeCascades.LastCounters.ShadowStaticSplineSectionFactReuses, 0u);
+		ThreeCascades.LastCounters.DirectionalShadow.ShadowStaticSplineSectionFactReuses, 0u);
 	EXPECT_GT(SingleLogical.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeLogical.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeDiscovery.MedianNanoseconds, 0u);
@@ -1306,7 +1306,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		<< ",static_p95_ns=" << CascadeStatic.P95Nanoseconds
 		<< ",unique=" << UniqueEligible
 		<< ",membership="
-		<< ThreeCascades.LastCounters.ShadowMembershipPopcount << '\n';
+		<< ThreeCascades.LastCounters.DirectionalShadow.ShadowMembershipPopcount << '\n';
 
 	Durin::SetViewRenderCounterSink(nullptr);
 	RendererLifecycle.Shutdown();
@@ -1546,11 +1546,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	EXPECT_EQ(DeferredOutput, ForwardOnlyOutput);
 	EXPECT_EQ(DeferredForwardHDR, ForwardOnlyHDR);
-	EXPECT_EQ(DeferredCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(DeferredCounters.DeferredDirectionalUnavailableViews, 0u);
-	EXPECT_EQ(DeferredCounters.DeferredDirectionalPassFailures, 0u);
-	EXPECT_EQ(DeferredCounters.DeferredDirectionalDebugViews, 1u);
-	EXPECT_EQ(DeferredCounters.DeferredDirectionalOutputBytes, Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(CaptureWidth, CaptureHeight));
+	EXPECT_EQ(DeferredCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(DeferredCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(DeferredCounters.Deferred.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(DeferredCounters.Deferred.DeferredDirectionalDebugViews, 1u);
+	EXPECT_EQ(DeferredCounters.Deferred.DeferredDirectionalOutputBytes, Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(CaptureWidth, CaptureHeight));
 	ASSERT_EQ(DeferredHDR.size(), ForwardOnlyHDR.size());
 	ASSERT_EQ(DeferredHDR.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 8u);
 
@@ -1641,8 +1641,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
 	ExpectDeferredParity(ForwardOnlyHDR, HybridHDR, GBufferSurfacePixels);
-	EXPECT_EQ(HybridCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(HybridCounters.HybridDeferredUnavailableViews, 0u);
+	EXPECT_EQ(HybridCounters.Deferred.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(HybridCounters.Deferred.HybridDeferredUnavailableViews, 0u);
 
 	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent, {0.1, 0.8, 0.25}, Durin::EMaterialShadingModel::Lit, Durin::FVector3(0.0), 0.45);
 	auto MixedUnlit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.12, 0.18, 0.75}, Durin::EMaterialShadingModel::Unlit, {2.0, 0.25, 0.1});
@@ -1665,9 +1665,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
 	ExpectDeferredParity(MixedForwardHDR, MixedHybridHDR, MixedSurface, "retained-unlit-translucent");
-	EXPECT_EQ(MixedHybridCounters.GBufferAttemptedDraws, 1u);
-	EXPECT_EQ(MixedHybridCounters.GBufferSkippedDraws, 2u);
-	EXPECT_EQ(MixedHybridCounters.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(MixedHybridCounters.GBuffer.GBufferAttemptedDraws, 1u);
+	EXPECT_EQ(MixedHybridCounters.GBuffer.GBufferSkippedDraws, 2u);
+	EXPECT_EQ(MixedHybridCounters.Deferred.HybridDeferredEnabledViews, 1u);
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
@@ -1691,9 +1691,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
 			nullptr, nullptr, Durin::ERenderMode::Lit, true, Mode, &Image
 		);
-		EXPECT_EQ(Counters.DeferredDirectionalEnabledViews, 1u);
-		EXPECT_EQ(Counters.DeferredDirectionalDebugViews, 1u);
-		EXPECT_EQ(Counters.DeferredDirectionalPassFailures, 0u);
+		EXPECT_EQ(Counters.Deferred.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(Counters.Deferred.DeferredDirectionalDebugViews, 1u);
+		EXPECT_EQ(Counters.Deferred.DeferredDirectionalPassFailures, 0u);
 		EXPECT_EQ(Image.size(), DeferredHDR.size());
 		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) { return Value != std::byte{0}; }));
 	}
@@ -1704,8 +1704,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	std::vector<std::byte> DeferredPerspectiveSurface;
 	const Durin::FViewRenderCounters DeferredPerspectiveCounters =
 		RenderCapture(false, false, DeferredPerspectiveOutput, true, &DeferredPerspectiveForwardHDR, nullptr, false, nullptr, &DeferredPerspectiveSurface, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &DeferredPerspectiveHDR);
-	EXPECT_EQ(DeferredPerspectiveCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(DeferredPerspectiveCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(DeferredPerspectiveCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(DeferredPerspectiveCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 	EXPECT_EQ(DeferredPerspectiveHDR.size(), DeferredHDR.size());
 	ExpectDeferredParity(DeferredPerspectiveForwardHDR, DeferredPerspectiveHDR, DeferredPerspectiveSurface);
 
@@ -1724,8 +1724,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Low,
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 16.0f / 9.0f
 	);
-	EXPECT_EQ(ConstrainedCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(ConstrainedCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(ConstrainedCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(ConstrainedCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 	ExpectDeferredParity(
 		ConstrainedForwardHDR, ConstrainedDeferredHDR, ConstrainedSurface,
 		"constrained-aspect"
@@ -1752,8 +1752,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		std::vector<std::byte> ShadowDeferredHDR;
 		const Durin::FViewRenderCounters ShadowDeferredCounters =
 			RenderCapture(false, false, ShadowOutput, false, &ShadowForwardHDR, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &ShadowDeferredHDR, Durin::EDirectionalShadowCandidate::SingleMap, Quality);
-		EXPECT_EQ(ShadowDeferredCounters.DeferredDirectionalEnabledViews, 1u);
-		EXPECT_EQ(ShadowDeferredCounters.DeferredDirectionalPassFailures, 0u);
+		EXPECT_EQ(ShadowDeferredCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(ShadowDeferredCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 		ExpectDeferredParity(
 			ShadowForwardHDR, ShadowDeferredHDR, GBufferSurfacePixels
 		);
@@ -1778,9 +1778,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Medium,
 		Durin::EDirectionalShadowDiagnosticMode::CascadeIndex
 	);
-	EXPECT_EQ(CascadeCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(CascadeCounters.DeferredDirectionalPassFailures, 0u);
-	EXPECT_EQ(CascadeCounters.ShadowCascadeCount, Durin::DirectionalShadowCascadeCount);
+	EXPECT_EQ(CascadeCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(CascadeCounters.Deferred.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(CascadeCounters.DirectionalShadow.ShadowCascadeCount,
+		Durin::DirectionalShadowCascadeCount);
 	ExpectDeferredParity(
 		CascadeForwardHDR, CascadeDeferredHDR, CascadeSurface
 	);
@@ -1801,8 +1802,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			nullptr, nullptr, Durin::ERenderMode::Lit, true,
 			Durin::EDeferredDirectionalDebugMode::Final, &Deferred
 		);
-		EXPECT_EQ(Counters.DeferredDirectionalEnabledViews, 1u);
-		EXPECT_EQ(Counters.DeferredDirectionalPassFailures, 0u);
+		EXPECT_EQ(Counters.Deferred.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(Counters.Deferred.DeferredDirectionalPassFailures, 0u);
 		ExpectDeferredParity(Forward, Deferred, Surface);
 	};
 
@@ -1901,10 +1902,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	std::vector<std::byte> FourLocalSurface;
 	CaptureDeferredTerm(FourLocalForward, FourLocalDeferred, FourLocalSurface);
 	EXPECT_NE(FourLocalDeferred, PointOnlyDeferred);
-	EXPECT_EQ(GLastCounters.SelectedPointLights, 2u);
-	EXPECT_EQ(GLastCounters.SelectedSpotLights, 2u);
-	EXPECT_EQ(GLastCounters.OverflowPointLights, 1u);
-	EXPECT_EQ(GLastCounters.OverflowSpotLights, 0u);
+	EXPECT_EQ(GLastCounters.Lighting.SelectedPointLights, 2u);
+	EXPECT_EQ(GLastCounters.Lighting.SelectedSpotLights, 2u);
+	EXPECT_EQ(GLastCounters.Lighting.OverflowPointLights, 1u);
+	EXPECT_EQ(GLastCounters.Lighting.OverflowSpotLights, 0u);
 
 	auto InvalidPoint = Point;
 	InvalidPoint.Range = 0.0f;
@@ -1918,7 +1919,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	EXPECT_EQ(InvalidLocalForward, FourLocalForward);
 	EXPECT_EQ(InvalidLocalDeferred, FourLocalDeferred);
-	EXPECT_EQ(GLastCounters.RejectedPointLights, 1u);
+	EXPECT_EQ(GLastCounters.Lighting.RejectedPointLights, 1u);
 
 	std::vector<std::byte> LocalDiagnosticOutput;
 	std::vector<std::byte> LocalDiagnosticHDR;
@@ -1928,8 +1929,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		nullptr, nullptr, Durin::ERenderMode::Lit, true,
 		Durin::EDeferredDirectionalDebugMode::Local, &LocalDiagnosticHDR
 	);
-	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalDebugViews, 1u);
-	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(LocalDiagnosticCounters.Deferred.DeferredDirectionalDebugViews, 1u);
+	EXPECT_EQ(LocalDiagnosticCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 	EXPECT_TRUE(std::ranges::any_of(LocalDiagnosticHDR, [](std::byte Value) { return Value != std::byte{0}; }));
 	// This fixture has no directional, environment, or emissive term, so the
 	// isolated local component is exactly the final deferred result.
@@ -1971,48 +1972,48 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(ContactFragmentOutput, ContactHybridOutput);
 	EXPECT_EQ(ContactFragmentHDR, ContactHybridHDR);
 	ExpectDeferredParity(ContactForwardHDR, ContactHybridHDR, ContactHybridSurface, "production-contact-shadow");
-	EXPECT_EQ(ContactHybridCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowEnabledViews, 1u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowPassFailures, 0u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowComputeViews, 1u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowFragmentViews, 0u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowDispatches, 1u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowDraws, 0u);
-	EXPECT_EQ(ContactHybridCounters.ContactShadowActiveBytes,
+	EXPECT_EQ(ContactHybridCounters.Deferred.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowComputeViews, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowFragmentViews, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowDraws, 0u);
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowActiveBytes,
 		Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
 			CaptureWidth, CaptureHeight));
-	EXPECT_EQ(ContactHybridCounters.ContactShadowRetainedBytes,
+	EXPECT_EQ(ContactHybridCounters.ContactShadow.ContactShadowRetainedBytes,
 		2u * Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
 			CaptureWidth, CaptureHeight));
-	EXPECT_EQ(ContactFragmentCounters.ContactShadowComputeViews, 0u);
-	EXPECT_EQ(ContactFragmentCounters.ContactShadowFragmentViews, 1u);
-	EXPECT_EQ(ContactFragmentCounters.ContactShadowDispatches, 0u);
-	EXPECT_EQ(ContactFragmentCounters.ContactShadowDraws, 1u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadow.ContactShadowComputeViews, 0u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadow.ContactShadowFragmentViews, 1u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadow.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ContactFragmentCounters.ContactShadow.ContactShadowDraws, 1u);
 
 	// The pass must run exactly once when enabled, zero when disabled, and
 	// never report a resource/input failure.
-	EXPECT_EQ(CountersOff.ContactShadowEnabledViews, 0u);
-	EXPECT_EQ(CountersOff.ContactShadowDispatches, 0u);
-	EXPECT_EQ(CountersOff.ContactShadowDraws, 0u);
-	EXPECT_EQ(CountersOn.ContactShadowEnabledViews, 1u);
-	EXPECT_EQ(CountersOn.ContactShadowPassFailures, 0u);
-	EXPECT_EQ(CountersOn.ContactShadowComputeViews, 1u);
-	EXPECT_EQ(CountersOn.ContactShadowDispatches, 1u);
-	EXPECT_EQ(CountersOn.ContactShadowDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferEnabledViews, 1u);
-	EXPECT_EQ(GBufferCounters.GBufferUnavailableViews, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferAttachmentBytes, Durin::FGBufferRenderer::CalculateTargetBytes(CaptureWidth, CaptureHeight));
-	EXPECT_EQ(GBufferCounters.GBufferAttemptedDraws, 3u);
-	EXPECT_EQ(GBufferCounters.GBufferSuccessfulDraws, 3u);
-	EXPECT_EQ(GBufferCounters.GBufferRejectedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferSkippedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferStaticMeshAttemptedDraws, 3u);
-	EXPECT_EQ(GBufferCounters.GBufferStaticMeshSuccessfulDraws, 3u);
-	EXPECT_EQ(GBufferCounters.GBufferStaticMeshRejectedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferStaticMeshSkippedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferSplineMeshAttemptedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferSkeletalMeshAttemptedDraws, 0u);
-	EXPECT_EQ(GBufferCounters.GBufferTerrainAttemptedDraws, 0u);
+	EXPECT_EQ(CountersOff.ContactShadow.ContactShadowEnabledViews, 0u);
+	EXPECT_EQ(CountersOff.ContactShadow.ContactShadowDispatches, 0u);
+	EXPECT_EQ(CountersOff.ContactShadow.ContactShadowDraws, 0u);
+	EXPECT_EQ(CountersOn.ContactShadow.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(CountersOn.ContactShadow.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(CountersOn.ContactShadow.ContactShadowComputeViews, 1u);
+	EXPECT_EQ(CountersOn.ContactShadow.ContactShadowDispatches, 1u);
+	EXPECT_EQ(CountersOn.ContactShadow.ContactShadowDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferEnabledViews, 1u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferUnavailableViews, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferAttachmentBytes, Durin::FGBufferRenderer::CalculateTargetBytes(CaptureWidth, CaptureHeight));
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferAttemptedDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferSuccessfulDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferSkippedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferStaticMeshAttemptedDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferStaticMeshSuccessfulDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferStaticMeshRejectedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferStaticMeshSkippedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferSplineMeshAttemptedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferSkeletalMeshAttemptedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBuffer.GBufferTerrainAttemptedDraws, 0u);
 	EXPECT_EQ(GBufferPixels, PixelsOff);
 	ASSERT_EQ(GBufferMaterialPixels.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 	ASSERT_EQ(GBufferSurfacePixels.size(), GBufferMaterialPixels.size());
@@ -2097,9 +2098,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			false, false, Image, false, nullptr, nullptr, false,
 			nullptr, nullptr, Mode
 		);
-		EXPECT_EQ(DebugViewCounters.GBufferEnabledViews, 1u);
-		EXPECT_EQ(DebugViewCounters.GBufferDebugViews, 1u);
-		EXPECT_EQ(DebugViewCounters.GBufferDebugFailures, 0u);
+		EXPECT_EQ(DebugViewCounters.GBuffer.GBufferEnabledViews, 1u);
+		EXPECT_EQ(DebugViewCounters.GBuffer.GBufferDebugViews, 1u);
+		EXPECT_EQ(DebugViewCounters.GBuffer.GBufferDebugFailures, 0u);
 		EXPECT_NE(Image, PixelsOff);
 		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) {
 			return Value != std::byte{0};
@@ -2135,7 +2136,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EGBufferDebugMode::MaterialInputs, nullptr, nullptr,
 		Durin::ERenderMode::Unlit
 	);
-	EXPECT_EQ(MaterialABCounters.GBufferDebugViews, 1u);
+	EXPECT_EQ(MaterialABCounters.GBuffer.GBufferDebugViews, 1u);
 	ASSERT_EQ(DecodedMaterialInputs.size(), ForwardMaterialInputs.size());
 	for (size_t Offset = 0; Offset < DecodedMaterialInputs.size(); ++Offset)
 	{
@@ -2188,8 +2189,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Low,
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f, true);
 	EXPECT_EQ(FragmentDebugPixels, DebugPixels);
-	EXPECT_EQ(DebugCounters.ContactShadowEnabledViews, 1u);
-	EXPECT_EQ(DebugCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(DebugCounters.ContactShadow.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(DebugCounters.ContactShadow.ContactShadowPassFailures, 0u);
 	size_t DebugContributionPixels = 0;
 	for (size_t Pixel = 0; Pixel + 3 < DebugPixels.size(); Pixel += 4)
 	{
@@ -2211,8 +2212,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	RenderCapture(false, false, PerspectiveOff, true);
 	const Durin::FViewRenderCounters PerspectiveCounters =
 		RenderCapture(true, false, PerspectiveOn, true);
-	EXPECT_EQ(PerspectiveCounters.ContactShadowEnabledViews, 1u);
-	EXPECT_EQ(PerspectiveCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(PerspectiveCounters.ContactShadow.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(PerspectiveCounters.ContactShadow.ContactShadowPassFailures, 0u);
 	const size_t PerspectiveChangedPixels =
 		CountChangedPixels(PerspectiveOn, PerspectiveOff, 2);
 	EXPECT_GT(PerspectiveChangedPixels, 0u);
@@ -2285,8 +2286,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	RenderCapture(false, false, CoplanarOff);
 	const Durin::FViewRenderCounters CoplanarCounters =
 		RenderCapture(true, false, CoplanarOn);
-	EXPECT_EQ(CoplanarCounters.ContactShadowEnabledViews, 1u);
-	EXPECT_EQ(CoplanarCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(CoplanarCounters.ContactShadow.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(CoplanarCounters.ContactShadow.ContactShadowPassFailures, 0u);
 	EXPECT_EQ(CoplanarOn, CoplanarOff);
 
 	const FCaptureStatistics StatsOff =
@@ -2340,11 +2341,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	RenderCapture(false, false, UnlitOff);
 	const Durin::FViewRenderCounters UnlitCounters =
 		RenderCapture(true, false, UnlitOn, false, nullptr, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &UnlitDeferredHDR);
-	EXPECT_EQ(UnlitCounters.ContactShadowEnabledViews, 0u);
-	EXPECT_EQ(UnlitCounters.ContactShadowPassFailures, 0u);
-	EXPECT_EQ(UnlitCounters.GBufferAttemptedDraws, 0u);
-	EXPECT_EQ(UnlitCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(UnlitCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(UnlitCounters.ContactShadow.ContactShadowEnabledViews, 0u);
+	EXPECT_EQ(UnlitCounters.ContactShadow.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(UnlitCounters.GBuffer.GBufferAttemptedDraws, 0u);
+	EXPECT_EQ(UnlitCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(UnlitCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 	EXPECT_EQ(UnlitOn, UnlitOff);
 	ASSERT_EQ(UnlitDeferredHDR.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 8u);
 	for (size_t Offset = 8; Offset < UnlitDeferredHDR.size(); Offset += 8)

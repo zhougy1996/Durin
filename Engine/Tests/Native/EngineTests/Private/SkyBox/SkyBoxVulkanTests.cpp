@@ -509,8 +509,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Result->StatefulLetterboxedNoConsumer,
 			Result->Letterboxed);
 		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);
-		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredUnavailableViews, 0u);
+		EXPECT_EQ(Result->HybridSkyCounters.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(Result->HybridSkyCounters.Deferred.HybridDeferredUnavailableViews, 0u);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{
 			SCOPED_TRACE(std::format("principal face {}", FaceIndex));

@@ -7,32 +7,12 @@
 
 namespace Durin
 {
-	namespace
-	{
-		std::atomic<FViewRenderCounterSink> GViewRenderCounterSink = nullptr;
-	}
-
-	auto SetViewRenderCounterSink(FViewRenderCounterSink Sink) -> void
-	{
-		GViewRenderCounterSink.store(Sink, std::memory_order_release);
-	}
-
-	auto EmitViewRenderCounterSnapshot(
-		const FViewRenderCounters& Counters) -> void
-	{
-		if (const FViewRenderCounterSink Sink =
-			GViewRenderCounterSink.load(std::memory_order_acquire))
-		{
-			Sink(Counters);
-		}
-	}
-
 	auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
 		FViewRenderCounters& Counters) -> FSceneVisibilityResult
 	{
-		Counters = {};
+		Counters.Visibility = {};
 		FSceneVisibilityResult Result;
 		const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
 		Result.PrimitiveRecords.reserve(SceneInfos.size());
@@ -58,7 +38,7 @@ namespace Durin
 			const bool bFirstClassification =
 				ClassifiedIds.emplace(SceneInfo->GetId()).second;
 			check(bFirstClassification);
-			++Counters.SubmittedPrimitives;
+			++Counters.Visibility.SubmittedPrimitives;
 
 			EPrimitiveVisibilityClassification Classification =
 				EPrimitiveVisibilityClassification::Invalid;
@@ -66,7 +46,7 @@ namespace Durin
 			if (!SceneInfo->IsVisible())
 			{
 				Classification = EPrimitiveVisibilityClassification::Hidden;
-				++Counters.HiddenPrimitives;
+				++Counters.Visibility.HiddenPrimitives;
 			}
 			else if (!bCullingEnabled)
 			{
@@ -79,7 +59,7 @@ namespace Durin
 				Classification =
 					EPrimitiveVisibilityClassification::VisibleInvalidViewFallback;
 				bVisible = true;
-				++Counters.InvalidViewFallbacks;
+				++Counters.Visibility.InvalidViewFallbacks;
 			}
 			else
 			{
@@ -98,13 +78,13 @@ namespace Durin
 				case EViewBoundsClassification::Outside:
 					Classification =
 						EPrimitiveVisibilityClassification::FrustumCulled;
-					++Counters.FrustumCulledPrimitives;
+					++Counters.Visibility.FrustumCulledPrimitives;
 					break;
 				case EViewBoundsClassification::InvalidBounds:
 					Classification = EPrimitiveVisibilityClassification::
 						VisibleInvalidBoundsFallback;
 					bVisible = true;
-					++Counters.InvalidBoundsFallbacks;
+					++Counters.Visibility.InvalidBoundsFallbacks;
 					break;
 				}
 			}
@@ -118,7 +98,7 @@ namespace Durin
 			{
 				continue;
 			}
-			++Counters.VisiblePrimitives;
+			++Counters.Visibility.VisiblePrimitives;
 			switch (SceneInfo->GetKind())
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh:
@@ -126,25 +106,25 @@ namespace Durin
 				break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh:
 				Result.SkeletalMeshSceneInfos.push_back(SceneInfo);
-				++Counters.VisibleSkeletalMeshCandidates;
+				++Counters.SkeletalMesh.VisibleSkeletalMeshCandidates;
 				break;
 			case EPrimitiveSceneProxyKind::Terrain:
 				Result.TerrainSceneInfos.push_back(SceneInfo);
-				++Counters.VisibleTerrainCandidates;
+				++Counters.Terrain.VisibleTerrainCandidates;
 				break;
 			case EPrimitiveSceneProxyKind::SplineMesh:
 				Result.SplineMeshSceneInfos.push_back(SceneInfo);
-				++Counters.VisibleSplineMeshCandidates;
+				++Counters.SplineMesh.VisibleSplineMeshCandidates;
 				break;
 			}
 		}
 
-		const bool bCountersConserved = Counters.SubmittedPrimitives
-			== Counters.HiddenPrimitives + Counters.FrustumCulledPrimitives
-				+ Counters.VisiblePrimitives;
+		const bool bCountersConserved = Counters.Visibility.SubmittedPrimitives
+			== Counters.Visibility.HiddenPrimitives + Counters.Visibility.FrustumCulledPrimitives
+				+ Counters.Visibility.VisiblePrimitives;
 		check(bCountersConserved);
 		const bool bRecordCountMatches =
-			Result.PrimitiveRecords.size() == Counters.SubmittedPrimitives;
+			Result.PrimitiveRecords.size() == Counters.Visibility.SubmittedPrimitives;
 		check(bRecordCountMatches);
 		return Result;
 	}

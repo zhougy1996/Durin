@@ -250,22 +250,22 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_GT(GCounterSnapshots[0].TerrainPipelinePreparationNanoseconds, 0u);
 	EXPECT_EQ(GCounterSnapshots[0].RequestedTerrainLODHistogram,
 		(std::vector<size_t>{1u}));
-	EXPECT_EQ(GCounters.VisibleTerrainCandidates, 1u);
-	EXPECT_EQ(GCounters.TerrainPatchCandidates, 1u);
-	EXPECT_EQ(GCounters.VisibleTerrainPatches, 1u);
-	EXPECT_EQ(GCounters.PreparedTerrainTriangles, 2u);
-	EXPECT_EQ(GCounters.TerrainHeightReuses, 1u);
-	EXPECT_EQ(GCounters.RequestedTerrainLODHistogram,
+	EXPECT_EQ(GCounters.Terrain.VisibleTerrainCandidates, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainPatchCandidates, 1u);
+	EXPECT_EQ(GCounters.Terrain.VisibleTerrainPatches, 1u);
+	EXPECT_EQ(GCounters.Terrain.PreparedTerrainTriangles, 2u);
+	EXPECT_EQ(GCounters.Terrain.TerrainHeightReuses, 1u);
+	EXPECT_EQ(GCounters.Terrain.RequestedTerrainLODHistogram,
 		(std::vector<size_t>{0u, 1u}));
-	EXPECT_EQ(GCounters.ResolvedTerrainLODHistogram,
+	EXPECT_EQ(GCounters.Terrain.ResolvedTerrainLODHistogram,
 		(std::vector<size_t>{0u, 1u}));
-	EXPECT_EQ(GCounters.TerrainAttemptedDraws, 1u);
-	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
-	EXPECT_EQ(GCounters.TerrainRejectedDraws, 0u);
-	EXPECT_EQ(GCounters.TerrainShaderLookups,
-		GCounters.TerrainShaderCreations + GCounters.TerrainShaderReuses);
-	EXPECT_EQ(GCounters.TerrainPipelineLookups,
-		GCounters.TerrainPipelineCreations + GCounters.TerrainPipelineReuses);
+	EXPECT_EQ(GCounters.Terrain.TerrainAttemptedDraws, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainRejectedDraws, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainShaderLookups,
+		GCounters.Terrain.TerrainShaderCreations + GCounters.Terrain.TerrainShaderReuses);
+	EXPECT_EQ(GCounters.Terrain.TerrainPipelineLookups,
+		GCounters.Terrain.TerrainPipelineCreations + GCounters.Terrain.TerrainPipelineReuses);
 
 	// Closing and reopening the same immutable generation in one renderer lifetime
 	// must not repeat height, topology, shader, or pipeline creation.
@@ -299,14 +299,14 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GCounters.TerrainHeightUploads, 0u);
-	EXPECT_EQ(GCounters.TerrainHeightReuses, 1u);
-	EXPECT_EQ(GCounters.TerrainTopologyCreations, 0u);
-	EXPECT_EQ(GCounters.TerrainTopologyReuses, 1u);
-	EXPECT_EQ(GCounters.TerrainShaderCreations, 0u);
-	EXPECT_EQ(GCounters.TerrainShaderReuses, 1u);
-	EXPECT_EQ(GCounters.TerrainPipelineCreations, 0u);
-	EXPECT_EQ(GCounters.TerrainPipelineReuses, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainHeightUploads, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainHeightReuses, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainTopologyCreations, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainTopologyReuses, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainShaderCreations, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainShaderReuses, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainPipelineCreations, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainPipelineReuses, 1u);
 
 	// Device invalidation deliberately drops every dependent retained resource;
 	// the next draw reconstructs a complete set on demand.
@@ -336,11 +336,11 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GCounters.TerrainHeightUploads, 1u);
-	EXPECT_EQ(GCounters.TerrainTopologyCreations, 1u);
-	EXPECT_EQ(GCounters.TerrainShaderCreations, 1u);
-	EXPECT_EQ(GCounters.TerrainPipelineCreations, 1u);
-	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainHeightUploads, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainTopologyCreations, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainShaderCreations, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainPipelineCreations, 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainSuccessfulDraws, 1u);
 
 	const Durin::FVector3 LargeWorldOrigin{10000000.25, -10000000.5, 0.0};
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
@@ -384,12 +384,12 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 		});
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(*LargeCoordinateReadback, *Readback);
-	EXPECT_EQ(GCounters.GBufferTerrainAttemptedDraws, 1u);
-	EXPECT_EQ(GCounters.GBufferTerrainSuccessfulDraws, 1u);
-	EXPECT_EQ(GCounters.GBufferTerrainRejectedDraws, 0u);
-	EXPECT_EQ(GCounters.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(GCounters.DeferredDirectionalUnavailableViews, 0u);
-	EXPECT_EQ(GCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(GCounters.GBuffer.GBufferTerrainAttemptedDraws, 1u);
+	EXPECT_EQ(GCounters.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounters.GBuffer.GBufferTerrainRejectedDraws, 0u);
+	EXPECT_EQ(GCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GCounters.Deferred.DeferredDirectionalPassFailures, 0u);
 
 	const std::array<uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,
@@ -442,22 +442,22 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GCounters.PreparedTerrainTriangles, 9u);
-	EXPECT_EQ(GCounters.RequestedTerrainLODHistogram,
+	EXPECT_EQ(GCounters.Terrain.PreparedTerrainTriangles, 9u);
+	EXPECT_EQ(GCounters.Terrain.RequestedTerrainLODHistogram,
 		(std::vector<size_t>{1u, 1u}));
-	EXPECT_EQ(GCounters.ResolvedTerrainLODHistogram,
+	EXPECT_EQ(GCounters.Terrain.ResolvedTerrainLODHistogram,
 		(std::vector<size_t>{1u, 1u}));
-	EXPECT_EQ(GCounters.TerrainStitchMaskHistogram[0], 1u);
-	EXPECT_EQ(GCounters.TerrainStitchMaskHistogram[
+	EXPECT_EQ(GCounters.Terrain.TerrainStitchMaskHistogram[0], 1u);
+	EXPECT_EQ(GCounters.Terrain.TerrainStitchMaskHistogram[
 		static_cast<uint8>(Durin::ETerrainStitchEdge::West)], 1u);
-	EXPECT_EQ(GCounters.TerrainAdjacencyPromotions, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainAdjacencyPromotions, 0u);
 	// The preceding device invalidation cleared both topology keys; this mixed
 	// view rebuilds each exact key once.
-	EXPECT_EQ(GCounters.TerrainTopologyCreations, 2u);
-	EXPECT_EQ(GCounters.TerrainTopologyReuses, 0u);
-	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 2u);
-	EXPECT_EQ(GCounters.ShadowPreparedTerrainCasters, 6u);
-	EXPECT_EQ(GCounters.ShadowSuccessfulDraws, 6u);
+	EXPECT_EQ(GCounters.Terrain.TerrainTopologyCreations, 2u);
+	EXPECT_EQ(GCounters.Terrain.TerrainTopologyReuses, 0u);
+	EXPECT_EQ(GCounters.Terrain.TerrainSuccessfulDraws, 2u);
+	EXPECT_EQ(GCounters.DirectionalShadow.ShadowPreparedTerrainCasters, 6u);
+	EXPECT_EQ(GCounters.DirectionalShadow.ShadowSuccessfulDraws, 6u);
 
 	Scene.RemoveLight(Durin::FLightSceneId(10));
 	std::vector<uint16> MaskSamples(7u * 7u, 65535);
@@ -520,14 +520,14 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				View.Settings.Terrain.bDisableBatching = Mask == 0;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
-				EXPECT_GE(GCounters.TerrainStitchMaskHistogram[Mask], 1u);
-				EXPECT_EQ(GCounters.TerrainSuccessfulDraws,
-					GCounters.PreparedTerrainBatches);
-				EXPECT_EQ(GCounters.TerrainSubmittedLogicalPatches,
-					GCounters.VisibleTerrainPatches);
+				EXPECT_GE(GCounters.Terrain.TerrainStitchMaskHistogram[Mask], 1u);
+				EXPECT_EQ(GCounters.Terrain.TerrainSuccessfulDraws,
+					GCounters.Terrain.PreparedTerrainBatches);
+				EXPECT_EQ(GCounters.Terrain.TerrainSubmittedLogicalPatches,
+					GCounters.Terrain.VisibleTerrainPatches);
 				if (Mask == 0)
-					EXPECT_EQ(GCounters.PreparedTerrainBatches,
-						GCounters.VisibleTerrainPatches);
+					EXPECT_EQ(GCounters.Terrain.PreparedTerrainBatches,
+						GCounters.Terrain.VisibleTerrainPatches);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 	}
@@ -555,23 +555,23 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
-			const size_t SelectedAtFirstYaw = GCounters.VisibleTerrainPatches;
-			EXPECT_EQ(GCounters.RadialRejectedTerrainPatches, 0u);
-			EXPECT_GT(GCounters.TransitionTerrainPatches, 0u);
+			const size_t SelectedAtFirstYaw = GCounters.Terrain.VisibleTerrainPatches;
+			EXPECT_EQ(GCounters.Terrain.RadialRejectedTerrainPatches, 0u);
+			EXPECT_GT(GCounters.Terrain.TransitionTerrainPatches, 0u);
 			View.ViewMatrix = Durin::Math::RotationMatrix(
 				Durin::Math::MakeQuaternionFromAxisAngleRadians(
 					Durin::Math::Pi<double>(), Durin::FVectorConstants::Up));
 			View.ViewProjectionMatrix = View.ViewMatrix;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
-			EXPECT_EQ(GCounters.VisibleTerrainPatches, SelectedAtFirstYaw);
+			EXPECT_EQ(GCounters.Terrain.VisibleTerrainPatches, SelectedAtFirstYaw);
 			View.ViewLocation = {-10.0, 0.0, 0.0};
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
-			EXPECT_EQ(GCounters.VisibleTerrainPatches, 0u);
-			EXPECT_EQ(GCounters.RadialRejectedTerrainPatches,
-				GCounters.TerrainPatchCandidates);
-			EXPECT_EQ(GCounters.TerrainResourceAttemptedDraws, 0u);
+			EXPECT_EQ(GCounters.Terrain.VisibleTerrainPatches, 0u);
+			EXPECT_EQ(GCounters.Terrain.RadialRejectedTerrainPatches,
+				GCounters.Terrain.TerrainPatchCandidates);
+			EXPECT_EQ(GCounters.Terrain.TerrainResourceAttemptedDraws, 0u);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/SceneVisibility.h"
+#include "Renderers/ViewRenderCounters.h"
 
 namespace Durin
 {

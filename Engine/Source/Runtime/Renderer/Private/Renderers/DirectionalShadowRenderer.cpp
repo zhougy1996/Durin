@@ -77,7 +77,7 @@ namespace Durin
 						std::chrono::steady_clock::now() - Start).count());
 			}
 		} PreparationTimingScope{
-			PreparationStart, Counters.ShadowResourcePreparationNanoseconds};
+			PreparationStart, Counters.DirectionalShadow.ShadowResourcePreparationNanoseconds};
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
@@ -135,15 +135,15 @@ namespace Durin
 			}, ReportRendererResourceCreateDiagnostic);
 		ResolvedShadow.bEnabled = false;
 		if (!Shadow.View.bEnabled) return false;
-		++Counters.ShadowResourceAttempts;
+		++Counters.DirectionalShadow.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
-			++Counters.ShadowResourceFailures;
+			++Counters.DirectionalShadow.ShadowResourceFailures;
 			return false;
 		}
-		++Counters.ShadowResourceSuccesses;
-		Counters.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
-		Counters.ShadowTargetBackendBytes = static_cast<size_t>(
+		++Counters.DirectionalShadow.ShadowResourceSuccesses;
+		Counters.DirectionalShadow.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
+		Counters.DirectionalShadow.ShadowTargetBackendBytes = static_cast<size_t>(
 			Resources->Target->GetBackendAllocationBytes());
 
 		const FForwardLightingUniform FullyUnlit{};
@@ -166,7 +166,7 @@ namespace Durin
 		}
 		if (!bReady)
 		{
-			++Counters.ShadowPreparationFailures;
+			++Counters.DirectionalShadow.ShadowPreparationFailures;
 		}
 		ResolvedShadow.bEnabled = bReady;
 		return bReady;
@@ -225,7 +225,7 @@ namespace Durin
 				Shadow.Terrains[CascadeIndex],
 				ResolvedShadow.Terrains[CascadeIndex]);
 			CommandList.EndRenderPass();
-			auto& CascadeCounters = Counters.ShadowCascades[CascadeIndex];
+			auto& CascadeCounters = Counters.DirectionalShadow.ShadowCascades[CascadeIndex];
 			CascadeCounters.AttemptedDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws
 				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.AttemptedDraws
@@ -237,17 +237,17 @@ namespace Durin
 			CascadeCounters.RejectedDraws =
 				CascadeCounters.AttemptedDraws
 					- CascadeCounters.SuccessfulDraws;
-			Counters.ShadowAttemptedDraws += CascadeCounters.AttemptedDraws;
-			Counters.ShadowSuccessfulDraws += CascadeCounters.SuccessfulDraws;
+			Counters.DirectionalShadow.ShadowAttemptedDraws += CascadeCounters.AttemptedDraws;
+			Counters.DirectionalShadow.ShadowSuccessfulDraws += CascadeCounters.SuccessfulDraws;
 		}
 		if (TimingQuery)
 		{
 			CommandList.EndGPUTimingQuery(TimingQuery);
 			Sink(TimingQuery);
 		}
-		Counters.ShadowRejectedDraws =
-			Counters.ShadowAttemptedDraws
-				- Counters.ShadowSuccessfulDraws;
+		Counters.DirectionalShadow.ShadowRejectedDraws =
+			Counters.DirectionalShadow.ShadowAttemptedDraws
+				- Counters.DirectionalShadow.ShadowSuccessfulDraws;
 		return true;
 	}
 
