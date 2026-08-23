@@ -854,10 +854,8 @@ namespace Durin
 			ModalLoopTimerIdentity = 0;
 		}
 		ModalLoopOperation = Operation;
-		if (Operation == EModalLoopOperation::Undetermined) return;
+		if (Operation != EModalLoopOperation::Sizing) return;
 
-		// WM_TIMER is generated only after higher-priority input and positioning
-		// messages have drained, so move refreshes remain opportunistic.
 		const UINT_PTR Timer = ::SetTimer(
 			static_cast<HWND>(OSNativeWindowHandle),
 			RequestedModalLoopTimerIdentity,
@@ -889,7 +887,7 @@ namespace Durin
 				static_cast<UINT_PTR>(ModalLoopTimerIdentity));
 			ModalLoopTimerIdentity = 0;
 		}
-		RequestModalLoopTick(EModalLoopTickMode::Synchronized);
+		RequestModalLoopTick();
 #endif
 	}
 
@@ -900,9 +898,11 @@ namespace Durin
 		{
 			return false;
 		}
-		RequestModalLoopTick(ModalLoopOperation == EModalLoopOperation::Moving
-			? EModalLoopTickMode::Opportunistic
-			: EModalLoopTickMode::Synchronized);
+		if (ModalLoopOperation == EModalLoopOperation::Moving)
+		{
+			return true;
+		}
+		RequestModalLoopTick();
 		return true;
 #else
 		return false;

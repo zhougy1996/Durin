@@ -12,11 +12,11 @@ namespace Durin
 		GModalLoopTickCallback = Callback;
 	}
 
-	auto RequestModalLoopTick(EModalLoopTickMode Mode) -> void
+	auto RequestModalLoopTick() -> void
 	{
 		if (GModalLoopTickCallback != nullptr)
 		{
-			GModalLoopTickCallback(Mode);
+			GModalLoopTickCallback();
 		}
 	}
 }

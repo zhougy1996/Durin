@@ -187,23 +187,21 @@ window integration; MonaCore and Mona never depend on Engine or MonaImGui.
 On Windows, an operating-system window move/resize loop may remain inside the
 outer GLFW event pump while dispatching native messages. ApplicationCore
 subclasses every GLFW window before later viewport hooks. `WM_MOVING` classifies
-a pure move and starts a window-owned 16 ms continuation timer. Win32 generates
-`WM_TIMER` only after higher-priority input and positioning messages drain, so
-these frames refresh editor content opportunistically without taking priority
-over native movement. After each custom-frame `WM_MOVING` update,
-ApplicationCore flushes that calling window's queued DWM changes so visible
-movement is paced by desktop composition instead of graphics-driver delivery
-jitter. Repeated min/max
+a pure move and keeps the window-owned continuation timer disabled, leaving the
+UI thread and its native message queue available for pointer-driven position
+updates while DWM moves the last presented surface. After each custom-frame
+`WM_MOVING` update, ApplicationCore flushes that calling window's queued DWM
+changes so visible movement is paced by desktop composition instead of
+graphics-driver delivery jitter. Repeated min/max
 validation during that move also stays on the native fast path instead of
-querying shell app bars. `WM_SIZING` uses the same timer but requests a
-synchronized continuation. Launch accepts either non-owning callback only while
-the ordinary frame is in its platform-event phase, runs the same game, deferred
+querying shell app bars. `WM_SIZING` starts a 16 ms continuation timer that
+requests Launch work. Launch accepts that non-owning callback only while the
+ordinary frame is in its platform-event phase, runs the same game, deferred
 work, UI, rendering, garbage-collection, statistics, and profiling body without
 polling native events again, and rejects callbacks during that body or during
-shutdown. Moving continuations retain normal bounded end-frame synchronization;
-sizing and final continuations additionally drain render and RHI work because
+shutdown. Sizing and final continuations drain render and RHI work because
 Windows cannot advance the surface extent until the callback returns. The exit
-message stops the timer and requests one final synchronized continuation; window
+message stops any sizing timer and requests one final continuation; window
 destruction removes the timer and WndProc hook before GLFW destroys the native
 handle. Launch clears callback admission before consumer detachment.
 

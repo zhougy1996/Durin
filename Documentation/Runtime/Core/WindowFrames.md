@@ -72,10 +72,10 @@ behavior remain available where Windows provides them. During a native
 position-only modal loop, `WM_GETMINMAXINFO` chains through the original
 procedure because maximized bounds do not affect movement; this keeps repeated
 move validation free of synchronous shell app-bar queries.
-Pure movement uses a low-priority modal-loop timer to refresh editor content only
-after native input and positioning messages drain. Each custom-frame `WM_MOVING`
-update calls `DwmFlush` after native processing to pace visible position changes
-against desktop composition; timer refreshes do not issue a second DWM flush.
+Pure movement leaves the modal-loop continuation timer disabled so timer messages
+and engine frames cannot delay native pointer-driven positioning. Each
+custom-frame `WM_MOVING` update calls `DwmFlush` after native processing to pace
+visible position changes against desktop composition.
 
 If hook or frame setup fails, ApplicationCore restores the complete system frame,
 reports effective `System`, and logs one error before the window becomes visible.
@@ -109,27 +109,34 @@ could query four shell app-bar edges during repeated thick-frame move validation
 Removing either cost alone improved individual transitions but did not make
 continuous movement composition-paced.
 
+A later experiment restored editor refresh from a low-priority `WM_TIMER` during
+movement and omitted the sizing-only render/RHI drain. It still caused smaller
+but visible hitches. Timer priority controls when a frame callback begins; it
+cannot preempt that frame after it starts, so newly arriving `WM_MOVING` messages
+must wait for the game, UI, render-submission, and maintenance body to return.
+The final policy therefore freezes client rendering at the last presented frame
+for the duration of a pure move.
+
 The maintained solution has these invariants:
 
 1. Windows remains the only owner of drag position; Durin never follows the
    cursor with repeated `SetWindowPos` calls.
 2. A custom-frame `WM_MOVING` chains through GLFW/native processing first and
    then calls `DwmFlush` exactly once.
-3. The 16 ms window timer may refresh editor content during movement, but
-   `WM_TIMER` remains lower priority than native input and positioning messages.
-4. Moving continuations use normal bounded end-frame pacing. Only sizing and
-   final continuations perform the extra render/RHI drain required for surface
-   extent changes.
-5. Timer refreshes never call `DwmFlush`; double flushing movement and refresh
-   paths is avoided, particularly for Vulkan presentation.
+3. Pure movement keeps the continuation timer disabled and DWM moves the last
+   presented client surface without running engine frames in the WndProc.
+4. `WM_SIZING` alone starts the 16 ms continuation timer; sizing and final
+   continuations drain render/RHI work required for surface extent changes.
+5. Only `WM_MOVING` calls `DwmFlush`; sizing timer messages do not create a
+   second composition barrier, particularly for Vulkan presentation.
 6. Position-only `WM_GETMINMAXINFO` uses the original procedure and does not
    query shell app bars.
 
 If this symptom regresses, first compare stationary client animation with whole
 window motion. Smooth client animation plus uneven `HWND` movement points back
 to the native/DWM path; it is not evidence that Vulkan present mode or editor
-frame rate should be changed. Automated tests cover callback mode, timer lifetime,
-native-procedure chaining, and the min/max fast path, but perceived movement
+frame rate should be changed. Automated tests cover callback admission, timer
+lifetime, native-procedure chaining, and the min/max fast path, but perceived movement
 cadence still requires an interactive custom-frame check. If the invariants hold
 and movement remains uneven, capture the UI thread, DWM, and Vulkan present
 timeline before adding another synchronization mechanism.

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Application/ModalLoopTick.h"
 #include "Diagnostics/ApplicationDiagnostics.h"
 #include "Misc/Project.h"
 #include "EngineFramePhases.h"
@@ -50,7 +49,7 @@ namespace Durin
 
 	private:
 		auto TickPostEventFrame(bool bAllowMinimizedWait) -> void;
-		auto TickModalContinuation(EModalLoopTickMode Mode) -> void;
+		auto TickModalContinuation() -> void;
 
 		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;

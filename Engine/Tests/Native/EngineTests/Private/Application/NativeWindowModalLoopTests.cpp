@@ -66,18 +66,12 @@ namespace
 {
 	constexpr WPARAM ModalLoopTimerIdentity = 0x44555249;
 	int ModalTickCount = 0;
-	int OpportunisticModalTickCount = 0;
-	int SynchronizedModalTickCount = 0;
 	int LaterHookMessageCount = 0;
 	WNDPROC LaterHookPreviousWindowProc = nullptr;
 
-	auto CountModalTick(Durin::EModalLoopTickMode Mode) -> void
+	auto CountModalTick() -> void
 	{
 		++ModalTickCount;
-		if (Mode == Durin::EModalLoopTickMode::Opportunistic)
-			++OpportunisticModalTickCount;
-		else
-			++SynchronizedModalTickCount;
 	}
 
 	auto LaterWindowProc(HWND WindowHandle, UINT Message, WPARAM WParam, LPARAM LParam) -> LRESULT
@@ -123,8 +117,6 @@ namespace
 		auto SetUp() -> void override
 		{
 			ModalTickCount = 0;
-			OpportunisticModalTickCount = 0;
-			SynchronizedModalTickCount = 0;
 			LaterHookMessageCount = 0;
 			LaterHookPreviousWindowProc = nullptr;
 			Durin::SetModalLoopTickCallback(CountModalTick);
@@ -173,23 +165,17 @@ TEST_F(FNativeWindowModalLoopTests, PrioritizesNativeMovementButContinuesSizingF
 	::SendMessageW(WindowHandle, WM_MOVING, 0,
 		reinterpret_cast<LPARAM>(&ProposedBounds));
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
-	EXPECT_EQ(ModalTickCount, 1);
-	EXPECT_EQ(OpportunisticModalTickCount, 1);
-	EXPECT_EQ(SynchronizedModalTickCount, 0);
+	EXPECT_EQ(ModalTickCount, 0);
 	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
-	EXPECT_EQ(ModalTickCount, 2);
-	EXPECT_EQ(SynchronizedModalTickCount, 1);
+	EXPECT_EQ(ModalTickCount, 1);
 
 	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
 	::SendMessageW(WindowHandle, WM_SIZING, WMSZ_RIGHT,
 		reinterpret_cast<LPARAM>(&ProposedBounds));
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
-	EXPECT_EQ(ModalTickCount, 3);
-	EXPECT_EQ(OpportunisticModalTickCount, 1);
-	EXPECT_EQ(SynchronizedModalTickCount, 2);
+	EXPECT_EQ(ModalTickCount, 2);
 	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
-	EXPECT_EQ(ModalTickCount, 4);
-	EXPECT_EQ(SynchronizedModalTickCount, 3);
+	EXPECT_EQ(ModalTickCount, 3);
 }
 
 TEST_F(FNativeWindowModalLoopTests, CustomFrameMovementUsesNativeMinMaxFastPath)
@@ -260,7 +246,7 @@ TEST_F(FNativeWindowModalLoopTests, PreservesAWindowProcedureInstalledAfterTheDu
 TEST(FNativeWindowModalLoopTests, NonWindowsBuildHasPlatformNeutralCallbackBoundary)
 {
 	Durin::SetModalLoopTickCallback(nullptr);
-	Durin::RequestModalLoopTick(Durin::EModalLoopTickMode::Opportunistic);
+	Durin::RequestModalLoopTick();
 	SUCCEED();
 }
 #endif
