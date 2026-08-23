@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetAuthoring.h"
+#include "Asset/Load.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Editor::Level

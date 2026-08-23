@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetAuthoring.h"
+#include "Asset/MutationTypes.h"
 #include "Editor/Transaction.h"
 
 namespace Durin::Editor::Level

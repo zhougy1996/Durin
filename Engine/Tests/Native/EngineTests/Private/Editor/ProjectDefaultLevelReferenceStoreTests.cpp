@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Asset/Load.h"
 #include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"

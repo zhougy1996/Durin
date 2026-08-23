@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/Deletion.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserModel.h"

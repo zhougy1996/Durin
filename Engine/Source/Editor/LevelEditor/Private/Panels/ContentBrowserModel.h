@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetAuthoring.h"
+#include "Asset/Catalog.h"
 
 #include <filesystem>
 #include <unordered_map>

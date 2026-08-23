@@ -1,5 +1,6 @@
 #include "Panels/ContentBrowserItemView.h"
 
+#include "Asset/PackageInspection.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"

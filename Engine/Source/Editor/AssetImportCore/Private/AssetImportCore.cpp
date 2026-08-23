@@ -1,4 +1,5 @@
 #include "AssetImportCore.h"
+#include "Asset/Load.h"
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
 #include "AsyncImport.h"

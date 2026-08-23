@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/Load.h"
 #include "AssetCatalogStoreInternal.h"
 
 namespace Durin::Asset

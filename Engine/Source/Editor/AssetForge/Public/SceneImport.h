@@ -5,7 +5,7 @@
 #include "AsyncImport.h"
 #include "AssetForgeAPI.h"
 #include "StaticMesh/StaticMesh.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
 
 namespace Durin
 {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "AssetAuthoring.h"
 #include "AssetImportCore.h"
 #include "AssetForgeAPI.h"
 #include "CoreFwd.h"

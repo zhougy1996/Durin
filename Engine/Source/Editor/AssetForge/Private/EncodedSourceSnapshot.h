@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetAuthoring.h"
+#include "Asset/SourcePath.h"
 #include "AssetImportCore.h"
 #include "Hash/XxHash.h"
 

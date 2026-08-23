@@ -2,7 +2,7 @@
 
 #include "TextureBuildAPI.h"
 #include "Hash/XxHash.h"
-#include "AssetAuthoring.h"
+#include "Asset/SourcePath.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2D.h"
 
