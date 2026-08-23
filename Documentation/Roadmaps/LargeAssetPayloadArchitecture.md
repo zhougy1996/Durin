@@ -1,6 +1,6 @@
-# Large Asset Payload Architecture Roadmap
+# Domain-Owned Large Asset Payload Architecture Roadmap
 
-Summary: Evolve Durin from large reflected inline arrays toward one logical BulkData API with domain-specific authored, derived, and cooked storage.
+Summary: Reframe large asset payloads as domain-owned schemas over untyped bulk bytes with authority-specific storage, IO, and runtime resource lifecycles.
 
 Last reviewed: 2026-08-23
 
@@ -9,231 +9,300 @@ Completed:
 
 ## Current Status
 
-Durin now distinguishes ordinary Arrays, atomic byte Blobs, and authored bulk
-data. Core owns immutable shared bytes and the semantic Archive operation;
-AssetCore owns the descriptor, explicit synchronous residency, DAST opcode,
-deterministic DABK v1 companion, cross-file publication, relocation, deletion,
-inspection, and recovery. Normalized volume source is the production consumer:
-its real `128^3` workflow plans as one node and completes save/reload, failure
-recovery, reimport, and Cook with external verified authored bytes.
+The authored bulk-data foundation, common `FBulkData` experiment, compatibility
+retirement, and shared DABK/DBLK container mechanics are implemented and
+validated. They proved immutable shared bytes, bounded structural planning,
+transactional authored companions, deterministic cooked companions, corruption
+handling, and a production VolumeTexture source workflow.
 
-Milestones 1-2 are complete through
-[Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md).
-[Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) now provides the common
-logical descriptor, immutable owner/view, synchronous residency state, and
-provider boundary. `FAuthoredBulkData` delegates to the common value while
-retaining DAST/DABK authoring policy, and VolumeTexture cooked TXPL uses a DBLK
-provider adapter without changing Cook bytes. The completed
-[BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md)
-upgraded tracked assets, removed concrete ImportRecord aliases and historical
-VolumeTexture voxel schemas, and left `FBulkData` as the sole runtime residency
-API. [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md)
-completed the architectural-hardening child by extracting bounded binary IO,
-checked layout construction, and range validation shared by DABK/DBLK without
-merging their wires or authorities. Portable Typed Atomic Buffers remains the next ordered
-feature milestone but stays Proposed until two consumers require portable
-element metadata.
+The program direction has changed after reviewing the domain-owned pattern used
+by Unreal Engine. A single persistent logical descriptor should not own both
+payload semantics and storage/residency policy across authored, derived, and
+cooked domains. Payload meaning belongs to texture, mesh, animation, collision,
+or another owning schema. The generic bulk layer owns opaque bytes and their
+physical availability only. Derived-cache records, cooked runtime payloads, and
+authored source remain separate lifecycle products even when they reuse byte
+buffers and bounded container primitives.
+
+Consequently, the former Portable Typed Atomic Buffers milestone is cancelled.
+There will be no generic reflected typed-buffer value or registry intended to
+persist arbitrary C++ element types. Domain codecs may expose compile-time typed
+views or decoded arrays, but the durable contract is the owning domain schema
+plus explicitly encoded bytes.
+
+The next ordered child is **Bulk Payload Layer Realignment**. Its entry gate is
+satisfied: the current implementation and package corpus provide a compatibility
+baseline, the VolumeTexture source and cooked paths provide the pilot consumer,
+and incompatible experimental APIs may be removed. No child plan is active yet.
 
 ## Outcome
 
-Provide one long-lived logical `BulkData` API in which consumers use the same
-identity, immutable byte view, residency, synchronous load, and later async
-request operations regardless of physical placement. Ordinary reflected
-containers retain element-addressable semantics, while atomic typed buffers
-retain a portable element schema without consuming per-element planner nodes.
-Authored source, derived cache entries, and cooked runtime payloads remain
-distinct authority and transaction domains behind storage providers; unifying
-the API does not merge their files, wire formats, durability, or rebuild rules.
+Provide a durable large-payload architecture with three deliberately separate
+concerns:
+
+1. Asset domains own semantic metadata, payload schema versions, canonical
+   codecs, validation, and decoded or runtime representations.
+2. A small untyped bulk-byte layer owns immutable byte storage, byte counts,
+   integrity, placement, residency, and IO without interpreting elements.
+3. Authored source, derived cache entries, cooked deployment payloads, and GPU
+   resources retain distinct authorities, mutation rules, and lifetimes.
+
+This architecture keeps multi-million-element payloads atomic to reflection and
+structural planners without inventing one universal persistent element schema.
+It permits inline, companion, cache, container, or later virtualized placement
+without forcing those backends into one semantic descriptor or transaction
+model.
+
+## Reference Model
+
+The non-normative design reference is Unreal Engine's separation between:
+
+- `FBulkData`/`FEditorBulkData` for opaque payload storage and availability;
+- optional C++ typed access such as `TBulkData<T>` without treating native
+  memory layout as a universal asset schema;
+- domain metadata such as texture dimensions, source format, mip layout, or
+  vertex precision outside the bulk byte owner;
+- domain serializers and versioning for portable or platform-specific bytes;
+- authored virtualization, derived data, cooked package IO, and runtime render
+  resources as different lifecycle layers.
+
+Durin follows these boundaries rather than copying Unreal names, wire formats,
+or legacy APIs.
 
 ## Scope
 
-- An explicit authored bulk-data value and AssetCore storage boundary.
-- A unified logical bulk value, descriptor, residency/request API, and provider
-  contract used by authored and cooked payloads and reusable by DDC adapters.
-- Deterministic inline-versus-external placement without changing logical type.
-- Portable typed atomic buffers for concrete dense numeric/struct consumers.
-- Versioned migrations from large inline Array/Blob fields.
-- Common logical identity, hashes, bounds, diagnostics, and access semantics
-  across authoring, DDC, Cook, and runtime load, with domain-owned publication.
-- Synchronous residency first, followed by measured asynchronous loading,
-  cancellation, memory budgeting, and optional mapping.
-- Consumer plans for texture/volume source, mesh descriptions, terrain,
-  animation, collision, or later dense asset domains when evidence justifies
-  migration.
+- Refactor the current `FBulkData` experiment into a storage-only opaque byte
+  abstraction; exact public names are selected by the first child plan.
+- Remove semantic format identity and schema versioning from generic storage
+  descriptors and place them in domain-owned source/cooked metadata.
+- Retain one atomic reflected authored-byte property where useful, but give it
+  no authority to define texture, mesh, animation, or other element meaning.
+- Let authored, derived, and cooked owners select their own descriptor,
+  mutation, publication, rebuild, and failure contracts.
+- Preserve bounded structural planning: payload bytes and elements do not
+  become per-element reflection nodes.
+- Define canonical codecs and explicit schema versions per migrated consumer.
+- Keep physical placement independent from domain semantics, including inline
+  versus external authored data and loose versus packaged cooked data.
+- Preserve or version existing DAST, DABK, DBLK, DDC, Cook, and asset bytes
+  through explicit compatibility decisions.
+- Separate serialized payloads from decoded CPU structures, build products,
+  and RHI resources.
+- Add synchronous correctness first, then evidence-driven async IO, range
+  loading, residency budgets, and authored virtualization.
+- Migrate dense consumers through bounded domain plans with measured evidence.
 
 ## Non-Goals
 
-- Automatically changing an ordinary Array's meaning when its length crosses a
-  threshold.
-- Making every large payload reflected or editable at element granularity.
-- Persisting native C++ layout, padding, allocator state, pointers, GLM storage,
-  or platform endianness.
-- Replacing source-control files, DDC, Cook manifests, or runtime resource
-  streaming with one undifferentiated byte store.
-- Requiring DABK, DBLK, DDC records, and future IoStore-style containers to use
-  one physical wire format or one transaction coordinator.
-- Building remote content virtualization, global deduplication, compression,
-  encryption, or patch delivery before local ownership and recovery are proven.
-- Redesigning networking replication; replicated collection deltas require a
-  separate protocol and consumer.
+- A generic reflected `TTypedBulkData<T>` or `FTypedAtomicBuffer` persistent
+  schema.
+- Automatic conversion of `std::vector<T>` based on field name or element
+  count.
+- Persisting `sizeof(T)`, native struct layout, padding, pointers, allocator
+  state, GLM layout, or platform endianness as an implicit contract.
+- Teaching the storage layer about pixels, vertices, indices, keyframes,
+  collision records, or other domain semantics.
+- Requiring authored DABK, DDC records, cooked DBLK, and future package
+  containers to expose one provider interface or share one wire format.
+- Treating authored source, derived output, cooked deployment bytes, and GPU
+  buffers as equal merely because their content hashes or sizes match.
+- Providing generic mutable locks on package-owned payloads.
+- Building remote virtualization, global deduplication, compression, or patch
+  delivery before ownership, compatibility, and recovery are stable.
+- Broad consumer conversion in one change.
 
 ## Program Decisions and Invariants
 
-- Semantic type is explicit. `std::vector<T>` remains an ordinary reflected
-  Array unless its declaration uses a dedicated atomic/bulk value type; field
-  name and runtime size never select semantics.
-- Structural complexity and payload volume use separate budgets. An atomic
-  buffer or bulk handle contributes one logical field, while element count,
-  decoded bytes, stored bytes, allocation, package, and residency limits remain
-  independently enforced.
-- Logical representation and physical placement are separate. The same bulk
-  property may be inline or externally stored without changing its reflected
-  schema, authored override path, or consumer API.
-- `FBulkData` is the consumer-facing logical value. It owns a common descriptor,
-  immutable resident bytes, residency/failure state, and provider handle;
-  authored, derived, and cooked wrappers may add policy but must not expose a
-  second incompatible byte-access or request protocol.
-- The common descriptor freezes placement-independent payload id, semantic
-  format/version, logical and stored sizes, and strong content hash. Storage
-  domain, provider key, placement flags, compression, and container coordinates
-  are provider metadata and never change logical equality.
-- A storage provider resolves, verifies, and publishes bytes for one lifecycle
-  domain. Providers may use DABK, DBLK, DDC, loose files, or later container IO;
-  callers do not construct physical paths or interpret backend offsets.
-- Core owns portable byte buffers, Archive mechanics, hashes, and primitive
-  codecs. AssetCore owns authored/cooked package descriptors, locations,
-  publication, retention, and recovery. Engine and developer modules own
-  semantic codecs and asset-specific validation.
-- Typed buffers serialize an explicit stable element format. `FVector`,
-  `FColor`, float, half, index, and custom records never use `sizeof(T)` as a
-  persistent contract unless a named codec freezes every byte and alignment.
-- Bulk payloads contain no implicit object references. Durable dependencies
-  remain visible in package metadata so catalog, GC, Cook reachability, move,
-  and delete policy do not need to load opaque bytes.
-- Authored source, derived data, and cooked output have distinct authorities.
-  A DDC miss may rebuild; authored loss may not. Cooked `.dbulk` remains
-  manifest-owned deployable output and is not silently reused as authored
-  storage.
-- Mutation capability is domain-specific even though read access is unified.
-  Authored values support detached replacement through package publication;
-  derived values are replaced by cache production; cooked values are immutable
-  build outputs. A generic mutable lock is not part of the common API.
-- Publication is transactional across the logical package and its payload set.
-  A crash may leave an unreferenced candidate file, but never a published
-  package that references absent or unverified bytes; recovery and cleanup are
-  deterministic.
-- Payload identity includes format/version, logical size, and a strong content
-  hash. Hash equality is never allowed to make incompatible formats identical,
-  and integrity is verified before publication to a live consumer.
-- Loading is transactional and bounded. Decode or IO failure preserves the
-  prior live object/resource. Async work may not publish after cancellation,
-  unload, reimport, or revision replacement.
-- Synchronous correctness and corpus migration precede streaming optimization.
-  Mapping, compression, deduplication, and remote virtualization require
-  measurements and do not weaken the base API.
+- **Domains own meaning.** The owning texture, mesh, terrain, animation,
+  collision, or other type stores dimensions, counts, formats, strides,
+  channel/layout choices, semantic version, and any relationships required to
+  interpret its payload.
+- **Bulk storage is untyped.** A generic bulk value knows bytes, size,
+  integrity, placement/availability, and IO state. It does not carry a semantic
+  `FormatId`, codec registry key, component count, or element schema.
+- **Storage identity is not type identity.** Payload ids and content hashes may
+  locate, deduplicate, or verify bytes; they do not prove that two domains can
+  interpret those bytes the same way.
+- **No universal typed-buffer serialization.** A thin typed view is permitted
+  for local C++ ergonomics only when its owner has already validated a named
+  domain format. Such a view never serializes arbitrary `T` by ABI layout and
+  never becomes the reflected persistent contract.
+- **Domain codecs freeze durable bytes.** Every persistent scalar/record layout
+  defines byte order, component encoding, packing, bounds, malformed-input
+  behavior, and schema version in its owning module. Platform-specific cooked
+  layouts state that fact explicitly.
+- **Structural and byte budgets are separate.** A payload contributes one
+  logical property to reflection/planning, while encoded bytes, decoded bytes,
+  element counts, allocations, ranges, and residency remain independently
+  bounded.
+- **Authorities stay separate.** Authored data is irreplaceable source and
+  changes through asset publication; derived data is cacheable and rebuildable;
+  cooked data is immutable manifest-owned deployment output. Common byte
+  helpers do not grant cross-domain mutation.
+- **A universal provider is not required.** Authored package loading, DDC
+  lookup, cooked container IO, and future streaming may use authority-specific
+  services. Common IO request primitives should be extracted only from at
+  least two proven callers and must not erase their failure policies.
+- **Physical mechanics may be shared.** Bounded binary readers/writers, checked
+  layout arithmetic, range validation, hashing, immutable buffers, and async IO
+  handles may be reused without merging descriptors, files, or transactions.
+- **Placement is storage policy.** Inline versus external, loose versus
+  containerized, compressed versus uncompressed, and local versus virtualized
+  placement never changes a domain schema.
+- **Metadata and payload publish together.** A domain object is valid only when
+  its schema metadata and referenced bytes agree. Cross-file publication must
+  never expose metadata that names absent or unverified bytes.
+- **Decode is transactional and bounded.** Invalid counts, formats, offsets,
+  hashes, compression ratios, or cross-record references fail before changing
+  a live object or runtime resource.
+- **Runtime resources are downstream products.** CPU decoded data, RHI buffers,
+  textures, and streaming pages own their own lifetime and rebuild/release
+  policy; the serialized bulk owner is not a GPU resource abstraction.
+- **Compatibility is explicit, not accidental.** Each migrated domain selects
+  current-only resave, versioned migration, byte preservation, or an explicit
+  unsupported baseline based on the tracked corpus and release requirements.
+- **Existing experiments are disposable.** `FBulkDataDescriptor`,
+  `EBulkDataStorageDomain`, `IBulkDataProvider`, `FAuthoredBulkData`, and
+  `CreateCookedPackageBulkData` may be renamed, split, narrowed, or removed.
+  Landed behavior and compatibility evidence matter; current API shapes do not.
+- **Synchronous correctness precedes streaming.** Async requests, range IO,
+  cancellation, eviction, and memory budgets land only after domain ownership
+  and synchronous failure behavior are stable.
 
 ## Current Foundations and Gaps
 
-| Area | Foundation | Program gap |
+| Area | Reusable foundation | Required realignment or gap |
 | --- | --- | --- |
-| Reflection | Array, Blob, and authored `BulkData` are distinct atomic/logical identities. | No portable typed atomic buffer value. |
-| Archive | Immutable shared bytes and observable Inline/Skip/External bulk transfer are landed. | No provider-neutral request handle or async operation. |
-| Authored packages | `FAuthoredBulkData` exposes common access/residency only through `GetBulkData()`; DAST descriptors and DABK v1 publish and mutate transactionally. | Other authored consumers still migrate through separate bounded plans. |
-| Cooked packages | Descriptor-backed `.dbulk`, hashes, manifests, publication, and a common DBLK provider adapter exist; VolumeTexture uses it. | Other cooked consumers still use the low-level compatibility vocabulary. |
-| Derived data | DDC uses deterministic keys and validated asset-specific payloads. | No adapter exposes cached bytes through the common residency/request surface. |
-| Consumers | Volume source proves authored BulkData semantics; textures, meshes, terrain, animation, and collision already expose dense data. | Other consumers still use producer-specific ownership and access APIs. |
-| Residency | `FBulkData` unifies unloaded/resident/failed state, immutable bytes, and synchronous verified load for authored data and the first cooked consumer. | Async requests, cancellation, eviction, and budgets remain absent. |
+| Byte ownership | Core `FSharedByteBuffer` provides immutable shared bytes. | Add only storage-oriented ownership/access operations proven by callers. |
+| Archive and reflection | Bulk transfer is observable and authored payloads contribute one atomic node. | Reflection must not imply a generic element schema; domain metadata remains separately reflected. |
+| Authored storage | DAST descriptors, DABK companions, publication, recovery, relocation, deletion, and inspection are proven. | Remove duplicated semantic format/version from the generic byte holder; preserve authored lifecycle behavior through migration. |
+| Cooked storage | DBLK descriptors, hashes, manifest publication, compression metadata, and runtime failure behavior are proven. | Retire the provider-neutral cooked adapter if it duplicates DBLK ownership; consumers should decode through domain metadata and cooked storage services. |
+| Container mechanics | DABK/DBLK share bounded IO, checked layout construction, hashing, and range validation. | Keep the private mechanics while allowing each wire and descriptor to evolve independently. |
+| VolumeTexture source | Width, height, depth, format, import metadata, and authored voxel bytes already form a domain wrapper. | Make this wrapper the sole authority for voxel meaning; remove generic source format ids and validate metadata-plus-bytes together. |
+| VolumeTexture cooked | Domain platform data and a schema-versioned cooked descriptor exist. | Remove the synthetic common `FBulkDataDescriptor` translation and retain an explicit storage-to-domain decode boundary. |
+| Derived data | Deterministic keys and domain-validated payloads already exist. | Keep DDC behind builder/domain APIs; do not add a common BulkData adapter without a distinct proven benefit. |
+| Residency and IO | The common experiment proves immutable resident bytes and synchronous verified loading. | Decide which state belongs in a storage byte owner versus an authority service; async requests and budgets remain absent. |
+| Consumer breadth | Textures, meshes, terrain, animation, and collision contain dense data. | Each needs measured cost, a frozen domain schema, and its own migration decision. |
+| Diagnostics | Authored inspection and cooked validation expose physical facts. | Domain-qualified summaries must join schema metadata to storage state without inventing a universal element registry. |
+
+### Default Disposition of Landed Components
+
+| Component | Default disposition | Reason |
+| --- | --- | --- |
+| `FSharedByteBuffer` and Archive bulk operation | Keep | They express immutable bytes and bounded transfer without domain semantics. |
+| Private bulk-container reader/writer/layout utilities | Keep | They safely share physical mechanics without sharing lifecycle authority. |
+| DABK transactional publication and recovery behavior | Keep behavior; wire may version | Authored durability remains required. |
+| DBLK and Cook manifest publication behavior | Keep behavior; wire may version | Cooked deployment remains a separate consistency unit. |
+| `FBulkDataDescriptor::FormatId/FormatVersion` | Remove from generic storage | Semantic identity and schema version belong to the owning domain. |
+| `FBulkDataDescriptor::StoredByteCount` | Move to physical storage metadata where applicable | Compression and stored size describe placement, not logical payload meaning. |
+| `EBulkDataStorageDomain` on the common value | Remove or confine to diagnostics | The authority owner already determines authored, derived, or cooked policy. |
+| Public `IBulkDataProvider` common to all domains | Retire unless the first child proves a narrower IO role | A common provider currently hides materially different ownership and recovery rules. |
+| `FAuthoredBulkData` | Refactor into an untyped authored-byte holder or replace | It may own authored bytes and placement, but not consumer format semantics. |
+| `CreateCookedPackageBulkData` | Retire | It synthesizes a second descriptor instead of preserving the cooked storage/domain boundary. |
+| Generic Portable Typed Atomic Buffers | Cancel | Domain wrappers and codecs solve the requirement without a universal persistent type system. |
 
 ## Milestone Map
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 1. Authored bulk-data foundation | Reflected Blob and DAST v4 | Atomic bulk owner, descriptor, transactional authored companion, synchronous load, and one volume-source migration | Blob production regression and cooked bulk contracts are green | Current volume assets save, load, move, delete, reimport, and Cook with verified external authored bytes | Completed |
-| 2. Unified BulkData API | Milestone 1 plus existing cooked DBLK | Common `FBulkData`, logical descriptor, immutable view, sync residency, provider interface, authored policy wrapper, and cooked adapter | Authored and cooked implementations provide two proven contracts to compare | Volume authored source and one cooked runtime payload use one access/identity API while DABK/DBLK transactions and bytes remain unchanged | Completed |
-| 3. Portable typed atomic buffers | Milestone 2 | Stable codec boundary and reflected typed-buffer value over common BulkData for selected scalar/struct formats | At least two concrete consumers require element metadata without per-element editing | Codec identity, canonical bytes, comparison, migration, tooling summary, and bounds pass for selected formats | Proposed |
-| 4. Consumer migration program | Milestones 2-3 as required per consumer | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | Consumer has measured package/memory/planning cost and a frozen compatibility baseline | Selected consumers no longer retain oversized ordinary Arrays; DDC/Cook/runtime bytes remain compatible or versioned | Proposed |
-| 5. Unified lifecycle diagnostics and repair | Milestone 2 plus two migrated producers | Cross-provider inspection, audit, repair, provenance tracing, and orphan cleanup | Common API exposes stable provider/domain identity from real producers | Tools trace every payload through authored, derived, and cooked states without backend-specific caller logic | Proposed |
-| 6. Async residency and memory budgets | Milestones 2 and 5 | Common async request/cancel/publish API, residency accounting, eviction policy, and optional mapping | Synchronous profiling shows startup or peak-residency pressure | Stress tests prove bounded memory, cancellation safety, unload/reload, stale-result rejection, and deterministic fallback | Evidence-gated |
-| 7. Compression, deduplication, and virtualization | Milestone 5, optionally 6 | Provider-selected compression and local/remote content-addressed storage | Corpus telemetry demonstrates material storage or transfer savings | Recovery, source-control, patching, security, and offline workflows pass without weakening authored durability | Optional |
+| 1. Bulk payload layer realignment | Landed authored/common/cooked experiments | Storage-only byte owner and descriptor boundaries; removal of generic semantic fields and unjustified cross-domain provider APIs; frozen migration baseline | Current API/corpus inventory exists and incompatible experimental APIs are allowed to change | Focused and aggregate tests prove unchanged authored/cooked payload behavior, bounded planning, transactional failure, and explicit disposition of every compatibility route | Ready to select |
+| 2. VolumeTexture domain-schema pilot | Milestone 1 | Volume source and cooked metadata become the sole authority for voxel/pixel meaning; storage supplies opaque verified bytes only | Current VolumeTexture authored, DDC, Cook, runtime, reimport, and failure fixtures are green | Source save/reload and Cook/runtime round trips validate metadata plus bytes, preserve or explicitly version golden outputs, and contain no generic format translation | Proposed |
+| 3. Authority-specific payload services | Milestones 1-2 | Final authored, DDC, and cooked service boundaries with shared mechanics only where demonstrated | The pilot exposes the exact overlap and divergence between source, cache, and deployment paths | Authored replacement/recovery, DDC miss/rebuild, and cooked hard-failure behavior are independently testable with no universal mutation or semantic descriptor | Proposed |
+| 4. Consumer migration program | Milestones 1 and 3; domain prerequisites as needed | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | A consumer has measured structural/package/memory cost and a frozen compatibility baseline | Selected consumer uses domain metadata plus opaque storage, with canonical or explicitly platform-specific codecs and no oversized ordinary reflected arrays | Proposed |
+| 5. Domain-qualified inspection and repair | Milestone 3 plus two production consumers | Inspection joins domain schema/version with storage location, integrity, provenance, and actionable repair/cleanup | Two consumers demonstrate reusable diagnostic questions | Tools trace authored, derived, and cooked payloads without a universal element registry or backend paths in domain callers | Proposed |
+| 6. Async IO and residency budgets | Milestones 3 and 5 | Request/cancel/wait primitives, range IO where layouts support it, accounting, eviction, and stale-result rejection | Profiling shows startup, latency, or peak-residency pressure and two authorities share a real request shape | Stress tests prove bounded memory, cancellation safety, unload/reload, priority behavior, transactional publication, and deterministic synchronous fallback | Evidence-gated |
+| 7. Authored payload virtualization | Milestones 3 and 5; optionally 6 | Content-addressed external authored storage with local/shared retrieval and durable fallback | Corpus and source-control telemetry show material checkout/storage cost | Offline, source-control, recovery, permission, cache-miss, and provenance workflows retain authored durability | Evidence-gated |
+| 8. Compression, deduplication, and package-container evolution | Milestone 5; optionally 6-7 | Authority-selected storage optimization and possible archive/IoStore-style cooked aggregation | Telemetry demonstrates material storage, patch, or transfer savings | Compatibility, recovery, security, staging, patching, and performance gates pass without changing domain schemas | Optional |
 
 ## Child Plan Boundaries
 
-| Child plan | Owns | Must not own |
-| --- | --- | --- |
-| [Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md) | Authored bulk value, descriptor, local companion transaction, synchronous residency, Blob-to-bulk volume migration | Generic typed vector codecs, async streaming, global consumer conversion, remote storage |
-| [Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) (completed) | Common logical descriptor/value, immutable access, residency/failure semantics, provider contract, authored wrapper migration, one cooked adapter | Merging DABK and DBLK wires, changing DDC durability, async budgets, or broad consumer migration |
-| [BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) (completed) | Tracked asset canonicalization, concrete ImportRecord alias retirement, one authored runtime API, and current-only VolumeTexture voxels | Generic alias infrastructure, low-level cooked DBLK consumers, or wire-format changes |
-| [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) (completed) | AssetCore-private bounded codec, checked arithmetic/alignment, deterministic directory construction, hashing, and range validation shared by DABK/DBLK | Merging formats/suffixes, changing lifecycle ownership, public serialization API, streaming, or wire versions |
-| Portable Typed Atomic Buffers (proposed) | Codec identity, canonical scalar/record encoding, reflected atomic typed values over BulkData, editor summaries | Physical payload placement or package transaction |
-| Asset Payload Consumer Migrations (one plan per bounded domain) | Domain schema versions, exact byte compatibility, authoring and Cook workflow | Redefining common bulk APIs for one producer |
-| Payload Lifecycle Inspection and Repair (proposed) | Audit graph, diagnostics, orphan detection, repair and cleanup tooling | Runtime streaming policy |
-| Asset Payload Residency and Streaming (evidence-gated) | Async requests, cancellation, priorities, budgets, eviction and mapping on the common API | Authored/cooked format reinvention |
+| Child plan | State | Owns | Must not own |
+| --- | --- | --- | --- |
+| [Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md) | Completed historical evidence | Immutable bytes, authored companion transactions, initial VolumeTexture source migration | Future semantic/storage boundaries |
+| [Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) | Completed experiment, architecture superseded | Evidence for common immutable access and synchronous residency | A requirement to preserve its descriptor/provider API |
+| [BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) | Completed historical evidence | Corpus canonicalization and removal of obsolete aliases/routes | Protection of experimental common APIs from refactor |
+| [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) | Completed reusable foundation | Private bounded IO, layout, hashing, and range validation | Shared schema, suffix, provider, or transaction authority |
+| Bulk Payload Layer Realignment | Ready to select | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
+| VolumeTexture Domain Payload Pilot | Proposed | Source/cooked schema ownership, canonical voxel bytes, storage boundary, exact compatibility decision | Generic typed-buffer registry or redesign for unrelated consumers |
+| Authority-Specific Payload Services | Proposed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
+| Asset Payload Consumer Migration: `<Domain>` | Proposed per consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |
+| Domain Payload Inspection and Repair | Proposed | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
+| Payload IO and Residency | Evidence-gated | Async requests, cancellation, priorities, range IO, budgets, eviction, and mapping | Domain schema design or authored/cooked format unification |
+| Authored Payload Virtualization | Evidence-gated | External content-addressed source storage and durable retrieval policy | DDC/cooked authority merger or required remote-only operation |
 
-Unified BulkData API and its compatibility-retirement follow-up completed the
-common read/residency contract, current authored wrapper, and VolumeTexture
-cooked adapter while preserving the landed formats and separate transaction
-owners. Bulk Container Infrastructure hardened their shared physical mechanics
-while retaining separate schemas, providers, and transactions. Portable Typed Atomic
-Buffers remains unselected until its two-consumer entry gate is demonstrated.
+Completed plans above remain provenance for verified behavior and validation.
+When their architectural decisions conflict with this roadmap, this active
+roadmap governs new work and the realignment plan must record the replacement.
 
 ## Program Validation Matrix
 
 | Concern | Required program evidence |
 | --- | --- |
-| Semantic stability | Ordinary Arrays never change schema or override behavior because of size; atomic/bulk declarations are explicit. |
-| Unified API | Authored, derived, and cooked consumers observe one logical descriptor, immutable byte view, residency/failure model, and request contract without learning backend paths or offsets. |
-| Portable bytes | Golden vectors cover every admitted codec, endian rule, NaN policy, channel order, and malformed input. |
-| Structural planning | Multi-million-element atomic/bulk values contribute bounded logical nodes while byte/allocation ceilings still reject excess. |
-| Authored durability | Save, crash-window recovery, move, copy, rename, delete, source-control checkout, and canonical resave retain the exact payload set. |
-| Compatibility | Supported inline Array/Blob packages load transactionally and resave into the current representation. |
-| Derived and cooked identity | DDC keys, asset-specific payloads, Cook manifests, and runtime outputs remain identical or receive an explicit version migration. |
-| Residency | Sync and later async load, cancellation, eviction, unload, and stale completion cannot expose partial bytes or revive retired objects. |
-| Security and bounds | Counts, offsets, extents, hashes, decompression ratios, paths, and allocation limits reject before mutation. |
-| Tooling | Inspectors report owner, logical format, version, hash, size, storage state, residency, and actionable failure. |
-| Aggregate | Focused tests, full native aggregate, Debug Editor build, documentation validation, and editor workflow smokes remain green per child plan. |
+| Boundary ownership | Generic storage headers contain no texture/mesh/animation semantics or persistent arbitrary-element schema; domain metadata contains everything needed to interpret bytes. |
+| Storage neutrality | Inline/external or loose/container placement changes do not alter domain schema or decoded results. |
+| Canonical domain bytes | Golden vectors cover byte order, packing, enum/format rules, NaN policy where relevant, and malformed input for each portable codec. |
+| Platform-specific bytes | Cook target/profile and schema explicitly qualify any non-portable representation; no authored source silently depends on native layout. |
+| Structural planning | Multi-million-element payloads contribute bounded logical nodes while byte, element, allocation, decoded-size, and residency ceilings still reject excess. |
+| Authored durability | Save, crash-window recovery, move, copy, rename, delete, source-control checkout, and canonical resave retain the exact reachable payload set. |
+| Derived data | Cache keys include every domain/build input; misses rebuild safely and corrupt entries never mutate a live object. |
+| Cooked deployment | Manifests contain every required payload; runtime has no source/DDC fallback; target, schema, ranges, compression, and hashes validate before decode. |
+| Compatibility | Every tracked historical representation has a tested migration/resave or an explicit unsupported-baseline decision. |
+| Runtime resource separation | Serialized storage, decoded CPU state, and GPU resources can be independently released/rebuilt without dangling views or stale publication. |
+| Residency | Sync and later async load, cancellation, eviction, unload, and stale completion expose neither partial bytes nor retired objects. |
+| Diagnostics | Inspection reports the owning domain, domain schema/version, logical sizes/counts, integrity, placement, availability, and actionable failure. |
+| Aggregate | Focused tests, full native aggregate, Debug Editor build, corpus workflows, documentation validation, and editor smokes remain green as required by each child plan. |
 
 ## Risks and Control Gates
 
-- Cross-file publication can create dangling references or delete the last good
-  payload. Milestone 1 must freeze write order, fsync/rename expectations,
-  orphan tolerance, and cleanup only after successful package commit.
-- Content hashes can be mistaken for complete type identity. Descriptors always
-  include format/version and sizes, and loaded bytes are verified.
-- A unified API can accidentally unify storage authority. Provider capabilities
-  keep authored replacement, DDC regeneration, and cooked immutability distinct;
-  common callers receive no generic write lock or cross-domain publish method.
-- A lowest-common-denominator API can hide useful Cook or DDC behavior. The
-  common surface freezes identity, access, state, and requests only; typed
-  provider metadata and domain services remain available behind explicit
-  capability queries rather than leaking into every consumer.
-- A generic typed-buffer template can accidentally persist ABI layout. No codec
-  lands without golden canonical bytes and a named version.
-- Externalization can make common editor operations unexpectedly blocking.
-  Milestone 1 exposes residency explicitly; Milestone 5 starts only after sync
-  behavior and measurements are available.
-- Unknown-field retention can lose external payload reachability. DAST
-  compatibility and inspection must retain or deliberately reject every
-  referenced payload before the format is qualified.
-- Converting every producer at once would make regressions untraceable. Each
-  consumer migration remains a separate plan with exact old/new byte evidence.
+- Removing generic format ids can reduce low-level inspection quality. Domain
+  inspection hooks must provide schema-qualified summaries before generic
+  fields disappear from user-facing tools.
+- A storage-only abstraction can become too weak and cause duplicated unsafe IO.
+  Shared bounded primitives remain available, and a common request API may be
+  extracted after two real authorities demonstrate the same contract.
+- Domain-owned codecs can duplicate scalar encoding. Duplication is tolerated
+  until two stable consumers share identical durable rules; any later helper
+  centralizes codecs, not a generic reflected typed-buffer value.
+- Refactoring already-landed descriptors can strand authored companions or
+  cooked assets. Milestone 1 freezes the tracked corpus, exact golden bytes,
+  and rollback behavior before changing wires or metadata.
+- Metadata and payload can drift when they serialize separately. Every domain
+  validates expected counts/sizes and hashes transactionally, and publication
+  treats metadata plus reachable payloads as one consistency unit.
+- Thin typed views can accidentally bless ABI layout. They are created only
+  after codec validation and cannot serialize, resize, or reinterpret unknown
+  durable bytes by themselves.
+- Removing the universal provider can leak physical paths into consumers.
+  Authority services continue to resolve locations; domain callers receive
+  opaque byte results or requests, never construct companions or offsets.
+- Authored and cooked code paths may diverge enough to hide regressions.
+  Domain-level end-to-end fixtures compare source, DDC, Cook, reload, and
+  runtime results without requiring their storage descriptors to match.
+- Async or virtualization work can obscure basic correctness. Their entry gates
+  require stable synchronous behavior, diagnostics, and measurements.
+- Converting all dense producers together would make regressions untraceable.
+  Every consumer remains a separate plan with exact before/after evidence.
 
 ## Completion Criteria
 
-- Large authored payloads use explicit atomic or bulk types rather than
-  oversized ordinary reflected Arrays.
-- Authored, derived, and cooked payload lifecycles have stable owners,
-  providers, bounds, diagnostics, and domain-owned transactional publication.
-- Authored and cooked payloads use one consumer-facing BulkData identity,
-  immutable access, residency, failure, and request API without merging their
-  physical formats or durability rules.
-- Selected typed buffers use portable versioned codecs and never native-memory
-  persistence.
-- Every supported historical representation has a tested migration or an
-  explicit unsupported-baseline decision.
-- Required milestones pass their exit gates; evidence-gated and optional
-  milestones are completed or dispositioned from measurements.
-- Lasting contracts live in Core, Asset, and consumer documentation rather than
-  only in child plans.
+- Generic bulk storage owns opaque bytes, integrity, availability, placement,
+  and IO only; it owns no cross-domain element semantics or schema registry.
+- Every migrated dense asset owns explicit domain metadata, codec/version,
+  validation, decoded representation, and runtime resource handoff.
+- Authored, derived, and cooked payloads retain stable and independently tested
+  authorities, failure policies, and publication rules.
+- Ordinary reflected arrays remain element-addressable and are never silently
+  converted by size; dense opaque payloads remain structurally atomic.
+- No persistent path relies on arbitrary native C++ layout without a named,
+  explicitly qualified domain codec.
+- Current experimental common semantic/provider APIs are removed or narrowed
+  to roles justified by at least two production callers.
+- Every supported historical representation has a tested migration or explicit
+  unsupported-baseline decision.
+- Required milestones pass their exit gates; evidence-gated and optional work
+  is completed or dispositioned from measurements.
+- Lasting storage, asset-domain, Cook, and runtime-resource contracts live in
+  their owning documentation rather than only in child plans.
 
 ## Related Documentation
 
@@ -242,7 +311,6 @@ Buffers remains unselected until its two-consumer entry gate is demonstrated.
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Reflected Byte Blob Serialization Plan](../Plans/Archive/2026-08/ReflectedByteBlobSerialization.md)
 - [Testing](../Agents/Testing.md)
 - [Build and Run](../Agents/BuildAndRun.md)
 
@@ -252,6 +320,7 @@ Buffers remains unselected until its two-consumer entry gate is demonstrated.
 - `Engine/Source/Runtime/Core/Public/Serialization/SharedByteBuffer.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/DefaultDeltaPlan.h`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/BulkData.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkData.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkStorage.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/CookedAsset.h`
