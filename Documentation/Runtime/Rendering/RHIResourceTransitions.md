@@ -106,6 +106,10 @@ may still wait for its utility work to complete so CPU bytes are available;
 that completion wait is separate from the memory dependency expressed by the
 transition.
 
+The staged adoption of render-graph barrier synthesis, Renderer migration,
+transient allocation, and later queue scheduling is owned by the
+[Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md).
+
 ## Related Documentation
 
 - [RHI command execution](RHICommandExecution.md)
@@ -115,6 +119,7 @@ transition.
 - [Viewport rendering](ViewportRendering.md)
 - [Compute shader pipeline roadmap](../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI and Vulkan backend evolution roadmap](../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
+- [Render Graph architecture roadmap](../../Roadmaps/RenderGraphArchitecture.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 - [Native tests](../../Development/Build/NativeTests.md)
 

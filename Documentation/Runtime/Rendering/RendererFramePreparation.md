@@ -189,6 +189,10 @@ registry, or alternate feature interface. Physical aliasing, asynchronous
 compute, multiple queues, pass merging/culling, and PSO centralization remain
 separate measured decisions.
 
+The cross-plan sequencing, required migration milestones, and evidence gates
+for those conditional extensions are owned by the
+[Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md).
+
 ## Related Documentation
 
 - [Viewport Rendering](ViewportRendering.md)
@@ -198,3 +202,4 @@ separate measured decisions.
 - [RHI Resource Transitions](RHIResourceTransitions.md)
 - [Minimal GBuffer Contract](GBuffer.md)
 - [Volumetric Cloud Spatial Rendering](VolumetricCloudSpatialRendering.md)
+- [Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md)
