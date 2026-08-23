@@ -202,10 +202,10 @@ namespace Durin::Editor::Level
 					ContentBrowserPanel->RevealDirectory(DirectoryPath);
 			},
 			.ImportStarted = [this](
-				Asset::FAsyncImportPlanHandle Handle, std::string Title) {
+				Asset::FImportOperationHandle Handle, std::string Title) {
 				if (NotificationOverlay)
 					NotificationOverlay->RegisterImportOperation(
-						Handle.GetOperationHandle(), std::move(Title));
+						std::move(Handle), std::move(Title));
 			},
 		};
 		SceneImportDialog =
@@ -262,10 +262,10 @@ namespace Durin::Editor::Level
 				if (GEditor)
 					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 			},
-			[this](Asset::FAsyncImportPlanHandle Handle, std::string Title) {
+			[this](Asset::FImportOperationHandle Handle, std::string Title) {
 				if (NotificationOverlay)
 					NotificationOverlay->RegisterImportOperation(
-						Handle.GetOperationHandle(), std::move(Title));
+						std::move(Handle), std::move(Title));
 			},
 			MountedContentReconciliationState,
 			ThumbnailTaskScope

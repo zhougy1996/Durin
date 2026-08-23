@@ -1,10 +1,12 @@
 #include "AssetImportCore.h"
 #include "Asset/Load.h"
+#include "Interchange.h"
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
 #include "AsyncImport.h"
 
 #include "Misc/Paths.h"
+#include "Misc/FileTime.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::Asset
@@ -601,6 +603,16 @@ namespace Durin::Asset
 			}
 			SourcePath.Path = Resolved.NormalizedVirtualPath;
 			const std::string PhysicalIdentity = StablePhysicalIdentity(Resolved.PhysicalPath);
+			std::error_code MetadataError;
+			const auto CapturedLastWriteTime =
+				std::filesystem::last_write_time(Resolved.PhysicalPath, MetadataError);
+			if (MetadataError)
+			{
+				AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
+					EImportDiagnosticCategory::InvalidSource, "source-capture",
+					StableIdentity, MetadataError.message());
+				return false;
+			}
 			std::shared_ptr<const std::vector<std::byte>> Bytes;
 			if (const auto Existing = PhysicalBytes.find(PhysicalIdentity);
 				Existing != PhysicalBytes.end())
@@ -617,14 +629,6 @@ namespace Durin::Asset
 					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
 						EImportDiagnosticCategory::ResourceLimitExceeded, "source-capture",
 						StableIdentity, Error ? Error.message() : "Import source byte limit was exceeded.");
-					return false;
-				}
-				const auto LastWriteTime = std::filesystem::last_write_time(Resolved.PhysicalPath, Error);
-				if (Error)
-				{
-					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
-						EImportDiagnosticCategory::InvalidSource, "source-capture",
-						StableIdentity, Error.message());
 					return false;
 				}
 				auto MutableBytes = std::make_shared<std::vector<std::byte>>(
@@ -650,7 +654,7 @@ namespace Durin::Asset
 				}
 				const uint64 SizeAfter = std::filesystem::file_size(Resolved.PhysicalPath, Error);
 				const auto TimeAfter = std::filesystem::last_write_time(Resolved.PhysicalPath, Error);
-				if (Error || SizeAfter != FileSize || TimeAfter != LastWriteTime
+				if (Error || SizeAfter != FileSize || TimeAfter != CapturedLastWriteTime
 					|| MutableBytes->size() != FileSize)
 				{
 					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
@@ -685,6 +689,7 @@ namespace Durin::Asset
 				.DeclaringIdentity = std::move(DeclaringIdentity),
 				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
+				.LastWriteTime = FileTime::ToStableTicks(CapturedLastWriteTime),
 				.Depth = Depth,
 				.bEmbedded = false};
 			Entry.Bytes = std::move(Bytes);
@@ -869,6 +874,134 @@ namespace Durin::Asset
 						continue;
 					}
 					auto Bytes = std::make_shared<const std::vector<std::byte>>(std::move(Request.EmbeddedBytes));
+					FSourceSnapshotEntry Entry{
+						.StableIdentity = std::move(Request.StableIdentity),
+						.Role = std::move(Request.Role),
+						.DeclaringIdentity = Request.DeclaringIdentity,
+						.ContentHash = FXxHash128::HashBuffer(std::span<const std::byte>(*Bytes)),
+						.ByteCount = Bytes->size(),
+						.Depth = Depth,
+						.bEmbedded = true};
+					Entry.Bytes = std::move(Bytes);
+					Impl->AggregateBytes += Entry.ByteCount;
+					Impl->EmbeddedBytes += Entry.ByteCount;
+					Impl->SourceByIdentity.emplace(Entry.StableIdentity, Impl->Sources.size());
+					Impl->Sources.push_back(std::move(Entry));
+					bCapturedNewSource = true;
+					continue;
+				}
+
+				const std::filesystem::path Relative(Request.RelativePath);
+				if (Declaring.SourcePath.IsEmpty() || Relative.is_absolute()
+					|| Relative.has_root_name()
+					|| Request.RelativePath.find(':') != std::string::npos
+					|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+						EImportDiagnosticCategory::UnsafeDependency, "dependency-capture",
+						Request.StableIdentity, "Relative source dependency is unsafe.");
+					return false;
+				}
+				FSourcePath Source{
+					.Path = (std::filesystem::path(Declaring.SourcePath.Path).parent_path()
+						/ Relative).lexically_normal().generic_string()};
+				const size_t CountBefore = Impl->Sources.size();
+				if (!Impl->CaptureMounted(std::move(Request.StableIdentity), std::move(Request.Role),
+					std::move(Source), Request.DeclaringIdentity, Depth, Request.bOptional,
+					OutDiagnostics)) return false;
+				bCapturedNewSource = bCapturedNewSource || Impl->Sources.size() != CountBefore;
+			}
+			if (!bCapturedNewSource)
+			{
+				Impl->bDiscoveryComplete = true;
+				return true;
+			}
+		}
+		AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+			EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-discovery", {},
+			"Dependency discovery did not converge within the depth limit.");
+		return false;
+	}
+
+	auto FSourceSnapshotBuilder::DiscoverInterchangeDependencies(
+		const FInterchangeComponentLease& Translator,
+		std::vector<FImportDiagnostic>& OutDiagnostics) -> bool
+	{
+		if (!Impl->bRootCaptured || Impl->bDiscoveryComplete || Impl->bFrozen
+			|| !Translator || !Translator.GetTranslator())
+		{
+			AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+				EImportDiagnosticCategory::InvalidRequest, "dependency-discovery", {},
+				"Interchange dependency discovery was requested in an invalid state.");
+			return false;
+		}
+
+		for (uint32 Round = 0; Round <= Impl->Limits.MaximumDependencyDepth; ++Round)
+		{
+			std::vector<FDependencyRequest> Requests;
+			FDependencyRequestSink Sink(
+				Requests,
+				OutDiagnostics,
+				Impl->Limits.MaximumSourceCount,
+				Impl->Limits.MaximumBytesPerSource,
+				Impl->Limits.MaximumEmbeddedBytes - Impl->EmbeddedBytes);
+			auto Invocation = Translator.TryEnter();
+			if (!Invocation || !Translator.GetTranslator()->DiscoverDependencies(
+				Impl->Sources, Sink, OutDiagnostics) || HasError(OutDiagnostics)) return false;
+			bool bCapturedNewSource = false;
+			for (FDependencyRequest& Request : Requests)
+			{
+				const auto DeclaringIt = Impl->SourceByIdentity.find(Request.DeclaringIdentity);
+				if (DeclaringIt == Impl->SourceByIdentity.end())
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+						EImportDiagnosticCategory::InvalidRequest, "dependency-discovery",
+						Request.StableIdentity, "Dependency declaring source was not captured.");
+					return false;
+				}
+				const FSourceSnapshotEntry& Declaring = Impl->Sources[DeclaringIt->second];
+				const uint32 Depth = Declaring.Depth + 1;
+				if (Depth > Impl->Limits.MaximumDependencyDepth)
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+						EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-discovery",
+						Request.StableIdentity, "Import dependency depth limit was exceeded.");
+					return false;
+				}
+				const std::string RequestKey = std::format("{}|{}|{}|{}|{}|{}", Request.DeclaringIdentity,
+					Request.StableIdentity, Request.Role, Request.RelativePath, Request.bOptional,
+					FXxHash128::HashBuffer(std::span<const std::byte>(Request.EmbeddedBytes)).ToString());
+				if (!Impl->ProcessedRequests.insert(RequestKey).second) continue;
+
+				if (Request.IsEmbedded())
+				{
+					if (Impl->Sources.size() >= Impl->Limits.MaximumSourceCount
+						|| Request.EmbeddedBytes.size() > Impl->Limits.MaximumBytesPerSource
+						|| Request.EmbeddedBytes.size()
+							> Impl->Limits.MaximumAggregateBytes - Impl->AggregateBytes
+						|| Request.EmbeddedBytes.size()
+							> Impl->Limits.MaximumEmbeddedBytes - Impl->EmbeddedBytes)
+					{
+						AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+							EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-capture",
+							Request.StableIdentity, "Embedded source byte limit was exceeded.");
+						return false;
+					}
+					if (const auto Existing = Impl->SourceByIdentity.find(Request.StableIdentity);
+						Existing != Impl->SourceByIdentity.end())
+					{
+						if (!std::ranges::equal(
+							Impl->Sources[Existing->second].GetBytes(), Request.EmbeddedBytes))
+						{
+							AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
+								EImportDiagnosticCategory::DuplicateSource, "dependency-capture",
+								Request.StableIdentity, "Embedded stable identity changed bytes.");
+							return false;
+						}
+						continue;
+					}
+					auto Bytes = std::make_shared<const std::vector<std::byte>>(
+						std::move(Request.EmbeddedBytes));
 					FSourceSnapshotEntry Entry{
 						.StableIdentity = std::move(Request.StableIdentity),
 						.Role = std::move(Request.Role),

@@ -105,7 +105,10 @@ if(DURIN_WITH_EDITOR)
 		DOMAINS asset-import
 		MODULES asset-core asset-import-core
 		LIBRARIES AssetImportCore
-		SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
+		SOURCES
+			Private/AssetImportCoreTests.cpp
+			Private/ImportRecordTests.cpp
+			Private/InterchangeContractTests.cpp
 	)
 	target_include_directories(AssetImportCoreTests PRIVATE
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
@@ -117,5 +120,6 @@ else()
 			Private/AssetImportTests.cpp
 			Private/AssetImportCoreTests.cpp
 			Private/ImportRecordTests.cpp
+			Private/InterchangeContractTests.cpp
 	)
 endif()

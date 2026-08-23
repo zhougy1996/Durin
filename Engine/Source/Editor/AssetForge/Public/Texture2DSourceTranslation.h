@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetForgeAPI.h"
+#include "Interchange.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 
@@ -13,6 +14,29 @@ namespace Durin::Asset::Forge
 		std::span<const std::byte> EncodedBytes,
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
+
+	// Builds the generic framework request used by Texture2D import, preview,
+	// reimport, replacement, repair, and recovery entrypoints.
+	ASSETFORGE_API auto MakeTexture2DInterchangeRequest(
+		const FSourcePath& MountedSource,
+		const FAssetPath& Destination,
+		const FTexture2DImportSettings& Settings,
+		EInterchangeImportMode Mode,
+		FImportOperationOwner Owner,
+		std::optional<FInterchangeProvenance> ExistingProvenance,
+		FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto InspectTexture2DInterchangeProvenance(
+		const DTexture2D& Texture,
+		FInterchangeProvenance& OutProvenance,
+		std::string& OutError) -> bool;
+	// Ingests an external source and executes the generic request inline. The
+	// returned framework outcome is the UI-facing submission contract.
+	ASSETFORGE_API auto ImportTexture2DInterchange(
+		std::string_view FilePath,
+		std::string_view AssetPath,
+		const FTexture2DImportSettings& Settings = {},
+		bool bEngineAuthoringContext = false) -> FInterchangeImportResult;
 
 	// Standard image-provider adapter: translate, build a detached product, then
 	// publish it to a main-thread candidate object.

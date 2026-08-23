@@ -2,6 +2,7 @@
 #include "EncodedSourceSnapshot.h"
 #include "Texture2DBuildAdapter.h"
 #include "Texture2DPostLoad.h"
+#include "ImportService.h"
 
 #include "AssetAuthoring.h"
 #include "Hash/XxHash.h"
@@ -117,6 +118,99 @@ namespace Durin::Asset::Forge
 				.SourceLastWriteTime = Snapshot.LastWriteTime,
 				.Priority = Priority}, OutError, std::move(Completion));
 		}
+
+		auto ExecuteTexture2DInterchangeReplacement(
+			DTexture2D& Texture,
+			const FSourcePath& Source,
+			const Asset::Build::FTexture2DBuildSettings& BuildSettings,
+			EInterchangeImportMode Mode,
+			std::string& OutError,
+			Asset::Build::FAsyncBuildCompletion Completion = {}) -> bool
+		{
+			FAssetPath Destination;
+			if (!Texture.GetPackage() || !FAssetPath::TryCreate(
+				Texture.GetPackage()->GetPackagePath(), Destination, &OutError)) return false;
+			FInterchangeProvenance Existing;
+			std::optional<FInterchangeProvenance> ExistingValue;
+			std::string ProvenanceError;
+			if (InspectTexture2DInterchangeProvenance(
+				Texture, Existing, ProvenanceError)) ExistingValue = std::move(Existing);
+			FTexture2DImportSettings Settings{
+				.Usage = BuildSettings.Usage,
+				.CompressionQuality = BuildSettings.CompressionQuality,
+				.AlphaMipMode = BuildSettings.AlphaMipMode,
+				.AlphaCoverageThreshold = BuildSettings.AlphaCoverageThreshold,
+				.MaxResolution = BuildSettings.MaxResolution,
+				.bSRGB = BuildSettings.bSRGB};
+			FInterchangeImportRequest Request;
+			if (!MakeTexture2DInterchangeRequest(
+				Source, Destination, Settings, Mode,
+				{.OwnerId = std::format("Texture2D.Reimport:{}", Destination.ToString()),
+					.ConflictIdentities = {Destination.ToString()}},
+				std::move(ExistingValue), Request, OutError)) return false;
+			const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
+				Request, std::format("Reimport Texture2D {}", Destination.GetAssetName()));
+			const bool bSucceeded = Result.Outcome.State == EImportOperationState::Succeeded;
+			OutError = bSucceeded ? std::string{} : Result.Outcome.Diagnostic;
+			if (Completion)
+				Completion({
+					.Status = bSucceeded ? Asset::Build::EAsyncBuildStatus::Succeeded
+						: Result.Outcome.State == EImportOperationState::Canceled
+							? Asset::Build::EAsyncBuildStatus::Canceled
+							: Asset::Build::EAsyncBuildStatus::Failed,
+					.Diagnostic = OutError});
+			return bSucceeded;
+		}
+
+		auto SubmitTexture2DInterchangeReplacement(
+			DTexture2D& Texture,
+			const FSourcePath& Source,
+			const Asset::Build::FTexture2DBuildSettings& BuildSettings,
+			EInterchangeImportMode Mode,
+			std::string& OutError,
+			Asset::Build::FAsyncBuildCompletion Completion = {}) -> bool
+		{
+			FAssetPath Destination;
+			if (!Texture.GetPackage() || !FAssetPath::TryCreate(
+				Texture.GetPackage()->GetPackagePath(), Destination, &OutError)) return false;
+			FInterchangeProvenance Existing;
+			std::optional<FInterchangeProvenance> ExistingValue;
+			std::string ProvenanceError;
+			if (InspectTexture2DInterchangeProvenance(
+				Texture, Existing, ProvenanceError)) ExistingValue = std::move(Existing);
+			FTexture2DImportSettings Settings{
+				.Usage = BuildSettings.Usage,
+				.CompressionQuality = BuildSettings.CompressionQuality,
+				.AlphaMipMode = BuildSettings.AlphaMipMode,
+				.AlphaCoverageThreshold = BuildSettings.AlphaCoverageThreshold,
+				.MaxResolution = BuildSettings.MaxResolution,
+				.bSRGB = BuildSettings.bSRGB};
+			FInterchangeImportRequest Request;
+			if (!MakeTexture2DInterchangeRequest(
+				Source, Destination, Settings, Mode,
+				{.OwnerId = std::format("Texture2D.Reimport:{}", Destination.ToString()),
+					.ConflictIdentities = {Destination.ToString()}},
+				std::move(ExistingValue), Request, OutError)) return false;
+			auto Handle = GetImportService().SubmitInterchangeImport(
+				std::move(Request), std::format("Reimport Texture2D {}", Destination.GetAssetName()),
+				[Completion = std::move(Completion)](const FInterchangeImportResult& Result) {
+					if (!Completion) return;
+					Completion({
+						.Status = Result.Outcome.State == EImportOperationState::Succeeded
+							? Asset::Build::EAsyncBuildStatus::Succeeded
+							: Result.Outcome.State == EImportOperationState::Canceled
+								? Asset::Build::EAsyncBuildStatus::Canceled
+								: Asset::Build::EAsyncBuildStatus::Failed,
+						.Diagnostic = Result.Outcome.Diagnostic});
+				});
+			if (!Handle)
+			{
+				OutError = "Texture2D Interchange reimport could not be submitted.";
+				return false;
+			}
+			OutError.clear();
+			return true;
+		}
 	}
 
 	auto IsTexture2DSourceExtension(std::string_view Extension) -> bool
@@ -207,44 +301,49 @@ namespace Durin::Asset::Forge
 			.SourceLastWriteTime = Source.LastWriteTime}, OutError);
 	}
 
-	auto ImportTexture2DAsset(
+	auto ImportTexture2DInterchange(
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings,
-		bool bEngineAuthoringContext) -> FTexture2DImportResult
+		bool bEngineAuthoringContext) -> FInterchangeImportResult
 	{
+		auto Failed = [](std::string Message) {
+			FInterchangeImportResult Result;
+			Result.Outcome.State = EImportOperationState::Failed;
+			Result.Outcome.Diagnostic = std::move(Message);
+			return Result;
+		};
 		const std::filesystem::path Input =
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
-			return {false, "Source file does not exist.", nullptr};
+			return Failed("Source file does not exist.");
 		if (!IsTexture2DSourceExtension(Input.extension().generic_string()))
-			return {false, "Unsupported texture source format.", nullptr};
+			return Failed("Unsupported texture source format.");
 		if (Settings.Usage != ETextureUsage::Color
 			&& Settings.Usage != ETextureUsage::Normal
 			&& Settings.Usage != ETextureUsage::DataMask)
-			return {false, "Texture usage preset is invalid.", nullptr};
+			return Failed("Texture usage preset is invalid.");
 		if (Settings.CompressionQuality != ETextureCompressionQuality::Low
 			&& Settings.CompressionQuality != ETextureCompressionQuality::Normal
 			&& Settings.CompressionQuality != ETextureCompressionQuality::High)
-			return {false, "Texture compression quality is invalid.", nullptr};
+			return Failed("Texture compression quality is invalid.");
 		if (Settings.AlphaMipMode != ETextureAlphaMipMode::Average
 			&& Settings.AlphaMipMode != ETextureAlphaMipMode::PreserveCoverage)
-			return {false, "Texture alpha mip mode is invalid.", nullptr};
+			return Failed("Texture alpha mip mode is invalid.");
 		if (!std::isfinite(Settings.AlphaCoverageThreshold)
 			|| Settings.AlphaCoverageThreshold <= 0.0f
 			|| Settings.AlphaCoverageThreshold >= 1.0f)
-			return {false,
-				"Texture alpha coverage threshold must be greater than zero and less than one.",
-				nullptr};
+			return Failed(
+				"Texture alpha coverage threshold must be greater than zero and less than one.");
 
 		FAssetPath ParsedAssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
-			return {false, std::move(Error), nullptr};
+			return Failed(std::move(Error));
 		if (Asset::FindAssetExact(ParsedAssetPath)
 			|| Asset::FindResidentPackage(ParsedAssetPath))
-			return {false,
-				std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
+			return Failed(std::format(
+				"Asset {} already exists.", ParsedAssetPath.ToString()));
 
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(
@@ -252,7 +351,7 @@ namespace Durin::Asset::Forge
 			Input.extension().generic_string(),
 			Settings.SourceDestination,
 			StoredSourcePath,
-			Error)) return {false, std::move(Error), nullptr};
+			Error)) return Failed(std::move(Error));
 		FScopedMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(
 			Input,
@@ -263,38 +362,51 @@ namespace Durin::Asset::Forge
 			bEngineAuthoringContext
 				? EMountedSourceMutationContext::EngineAuthoring
 				: EMountedSourceMutationContext::DependencySafe))
-			return {false, std::move(Error), nullptr};
+			return Failed(std::move(Error));
 
-		FEncodedSourceSnapshot Snapshot;
-		if (!CaptureEncodedSource(
-			MountedSource.SourcePath, MountedSource.PhysicalPath, Snapshot, Error))
-		{
-			return {false, std::move(Error), nullptr};
-		}
-
-		DTexture2D* Texture = nullptr;
-		const Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!CreateResult)
-		{
-			return {false, CreateResult.Message, nullptr};
-		}
-		if (!BuildTexture2DCandidateFromSnapshot(
-			*Texture,
-			Snapshot,
-			Settings,
-			Error))
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, std::move(Error), nullptr};
-		}
-		const Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
-		if (!SaveResult)
-		{
-			Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return {false, SaveResult.Message, nullptr};
-		}
+		FInterchangeImportRequest Request;
+		if (!MakeTexture2DInterchangeRequest(
+			MountedSource.SourcePath, ParsedAssetPath, Settings,
+			EInterchangeImportMode::Import,
+			{.OwnerId = std::format("Texture2D.Import:{}", ParsedAssetPath.ToString()),
+				.ConflictIdentities = {ParsedAssetPath.ToString()}},
+			{}, Request, Error))
+			return Failed(std::move(Error));
+		FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
+			Request, std::format("Import Texture2D {}", ParsedAssetPath.GetAssetName()));
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return Imported;
+		DObject* ImportedObject = nullptr;
+		(void)Asset::LoadAsset(ParsedAssetPath, ImportedObject);
+		auto* Texture = Cast<DTexture2D>(ImportedObject);
+		if (!Texture)
+			return Failed("Texture2D Interchange import published no destination asset.");
 		MountedSource.Commit();
-		return {true, {}, Texture};
+		return Imported;
+	}
+
+	auto ImportTexture2DAsset(
+		std::string_view FilePath,
+		std::string_view AssetPath,
+		const FTexture2DImportSettings& Settings,
+		bool bEngineAuthoringContext) -> FTexture2DImportResult
+	{
+		const FInterchangeImportResult Imported = ImportTexture2DInterchange(
+			FilePath, AssetPath, Settings, bEngineAuthoringContext);
+		if (Imported.Outcome.State != EImportOperationState::Succeeded)
+			return {false, Imported.Outcome.Diagnostic.empty()
+				? "Texture2D Interchange import failed."
+				: Imported.Outcome.Diagnostic, nullptr};
+		FAssetPath ParsedAssetPath;
+		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath))
+			return {false, "Texture2D destination is invalid after import.", nullptr};
+		DObject* ImportedObject = nullptr;
+		(void)Asset::LoadAsset(ParsedAssetPath, ImportedObject);
+		auto* Texture = Cast<DTexture2D>(ImportedObject);
+		return Texture
+			? FTexture2DImportResult{true, {}, Texture}
+			: FTexture2DImportResult{false,
+				"Texture2D Interchange import published no destination asset.", nullptr};
 	}
 
 	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
@@ -360,9 +472,15 @@ namespace Durin::Asset::Forge
 				return false;
 			}
 		}
-		return RebuildTexture2DFromCurrentSource(
-			Texture, MakeTexture2DBuildSettings(Texture), OutError,
-			Asset::Build::ETexture2DBuildPriority::Interactive, std::move(Completion));
+		if (!Texture.GetSourceImportData().HasSource())
+		{
+			OutError = "Texture2D has no mounted source to reimport.";
+			return false;
+		}
+		return SubmitTexture2DInterchangeReplacement(
+			Texture, Texture.GetSourceImportData().Source.SourcePath,
+			MakeTexture2DBuildSettings(Texture), EInterchangeImportMode::Reimport,
+			OutError, std::move(Completion));
 	}
 
 	auto ChangeTexture2DSourceReference(
@@ -380,12 +498,9 @@ namespace Durin::Asset::Forge
 			Texture.GetPackage()->GetPackagePath(), SourceVirtualPath,
 			EMountedSourceExistencePolicy::RequireFile, Source, OutError))
 			return false;
-		return SubmitTexture2DFromMountedSource(
-			Texture,
-			Source,
-			MakeTexture2DBuildSettings(Texture),
-			OutError,
-			Asset::Build::ETexture2DBuildPriority::Interactive);
+		return ExecuteTexture2DInterchangeReplacement(
+			Texture, Source.SourcePath, MakeTexture2DBuildSettings(Texture),
+			EInterchangeImportMode::ReplaceSource, OutError);
 	}
 
 	auto IngestAndChangeTexture2DSource(
@@ -406,12 +521,9 @@ namespace Durin::Asset::Forge
 			TargetSourceVirtualPath,
 			Source,
 			OutError)) return false;
-		const bool bSubmitted = SubmitTexture2DFromMountedSource(
-			Texture,
-			Source,
-			MakeTexture2DBuildSettings(Texture),
-			OutError,
-			Asset::Build::ETexture2DBuildPriority::Interactive);
+		const bool bSubmitted = ExecuteTexture2DInterchangeReplacement(
+			Texture, Source.SourcePath, MakeTexture2DBuildSettings(Texture),
+			EInterchangeImportMode::ReplaceSource, OutError);
 		if (bSubmitted) Source.Commit();
 		return bSubmitted;
 	}
@@ -431,8 +543,18 @@ namespace Durin::Asset::Forge
 				"Use IngestAndChangeSource with an explicit destination for external files.";
 			return false;
 		}
-		return ChangeTexture2DSourceReference(
-			Texture, Classified.NormalizedVirtualPath, OutError);
+		if (!Texture.GetPackage())
+		{
+			OutError = "Only packaged textures can retain source provenance.";
+			return false;
+		}
+		FMountedSourceResolution Source;
+		if (!ResolveMountedSourceReference(
+			Texture.GetPackage()->GetPackagePath(), Classified.NormalizedVirtualPath,
+			EMountedSourceExistencePolicy::RequireFile, Source, OutError)) return false;
+		return ExecuteTexture2DInterchangeReplacement(
+			Texture, Source.SourcePath, MakeTexture2DBuildSettings(Texture),
+			EInterchangeImportMode::Repair, OutError);
 	}
 
 	auto ChangeTexture2DSourceLocation(
@@ -480,12 +602,9 @@ namespace Durin::Asset::Forge
 			.SourcePath = Relocation.DestinationSourcePath,
 			.PhysicalPath = Relocation.DestinationPhysicalPath,
 			.bExists = true};
-		const bool bSubmitted = SubmitTexture2DFromMountedSource(
-			Texture,
-			Source,
-			MakeTexture2DBuildSettings(Texture),
-			OutError,
-			Asset::Build::ETexture2DBuildPriority::Interactive);
+		const bool bSubmitted = ExecuteTexture2DInterchangeReplacement(
+			Texture, Source.SourcePath, MakeTexture2DBuildSettings(Texture),
+			EInterchangeImportMode::ReplaceSource, OutError);
 		if (!bSubmitted) RollbackMountedSourceRelocation(Relocation);
 		return bSubmitted;
 	}

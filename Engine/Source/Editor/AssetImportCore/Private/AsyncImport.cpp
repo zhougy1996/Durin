@@ -345,6 +345,7 @@ namespace Durin::Asset
 			if (State->Owner.OwnerId.empty())
 				State->Owner.OwnerId = std::format("job:{}", State->OperationId);
 			State->ProviderId = Job->GetProviderId();
+			const bool bRequiresLegacyProviderLease = Job->RequiresLegacyProviderLease();
 			State->Lifetime = Job->GetLifetime();
 			State->Scope = CreateTaskScope();
 			State->Progress = std::make_shared<FAsyncImportProgressState>();
@@ -359,7 +360,7 @@ namespace Durin::Asset
 				.SourceIdentity = "root",
 				.OutputIdentity = "request"};
 
-			if (!State->ProviderId.empty())
+			if (bRequiresLegacyProviderLease && !State->ProviderId.empty())
 				State->ProviderLease = GetImportService().FindImporter(State->ProviderId);
 			State->Job = std::move(Job);
 
@@ -369,7 +370,8 @@ namespace Durin::Asset
 				std::lock_guard Lock(Mutex);
 				bAccepted = bAdmissionOpen
 					&& !ClosedProviders.contains(State->ProviderId)
-					&& (State->ProviderId.empty() || State->ProviderLease);
+					&& (!bRequiresLegacyProviderLease
+						|| State->ProviderId.empty() || State->ProviderLease);
 				if (bAccepted && State->Lifetime == EImportOperationLifetime::EphemeralPreview)
 				{
 					if (const auto It = LatestPreviewByOwner.find(State->Owner.OwnerId);
@@ -417,12 +419,19 @@ namespace Durin::Asset
 					if (State->Outcome) continue;
 					if (State->bWorkerActive)
 					{
-						if (State->bCompletionRejected && State->WorkerTask.IsComplete())
+						if ((State->bCompletionRejected
+							|| State->Cancellation.IsCancellationRequested())
+							&& State->WorkerTask.IsComplete()
+							&& (!State->CompletionTask.IsValid()
+								|| State->CompletionTask.IsComplete()))
 						{
 							State->bWorkerActive = false;
 							State->WorkerResult.emplace(FImportJobWorkerResult{
 								.bSucceeded = false,
-								.Diagnostic = "The task scheduler rejected import completion publication."});
+								.bCanceled = State->Cancellation.IsCancellationRequested(),
+								.Diagnostic = State->Cancellation.IsCancellationRequested()
+									? "Import worker completion was canceled with its operation."
+									: "The task scheduler rejected import completion publication."});
 						}
 						else
 						{
@@ -453,6 +462,7 @@ namespace Durin::Asset
 			State->OperationId = NextOperationId.fetch_add(1, std::memory_order_relaxed);
 			State->Owner = Job->GetOwner();
 			State->ProviderId = Job->GetProviderId();
+			const bool bRequiresLegacyProviderLease = Job->RequiresLegacyProviderLease();
 			State->Lifetime = Job->GetLifetime();
 			State->Progress = std::make_shared<FAsyncImportProgressState>();
 			State->Progress->Snapshot = {
@@ -462,9 +472,10 @@ namespace Durin::Asset
 				.ProviderId = State->ProviderId,
 				.Title = Title.empty() ? "Inline asset import" : std::string(Title),
 				.State = EImportOperationState::Running};
-			if (!State->ProviderId.empty())
+			if (bRequiresLegacyProviderLease && !State->ProviderId.empty())
 				State->ProviderLease = GetImportService().FindImporter(State->ProviderId);
-			if (!State->ProviderId.empty() && !State->ProviderLease)
+			if (bRequiresLegacyProviderLease
+				&& !State->ProviderId.empty() && !State->ProviderLease)
 				return {.State = EImportOperationState::Rejected,
 					.Diagnostic = "Inline import provider is unavailable."};
 			State->Job = std::move(Job);
@@ -546,6 +557,15 @@ namespace Durin::Asset
 			CancelAndDrainMatching([OwnerId](const FImportJobOperationState& State) {
 				return State.Lifetime == EImportOperationLifetime::EphemeralPreview
 					&& State.Owner.OwnerId == OwnerId;
+			});
+		}
+
+		auto CancelAndDrain(const FImportOperationHandle& Handle) -> void
+		{
+			const std::shared_ptr<FImportJobOperationState> Target = Handle.JobState;
+			if (!Target) return;
+			CancelAndDrainMatching([&](const FImportJobOperationState& State) {
+				return &State == Target.get();
 			});
 		}
 
@@ -765,6 +785,7 @@ namespace Durin::Asset
 						.Diagnostic = "Asset import job was superseded."});
 				else QueueReady(State);
 			}
+			else QueueReady(State);
 			return true;
 		}
 
@@ -1527,6 +1548,12 @@ namespace Durin::Asset
 	auto FImportService::PumpImportOperations(uint32 MaximumEditorSteps) -> uint32
 	{
 		return GetImportJobRegistry().Pump(MaximumEditorSteps);
+	}
+
+	auto FImportService::CancelAndDrainImportOperation(
+		const FImportOperationHandle& Handle) -> void
+	{
+		GetImportJobRegistry().CancelAndDrain(Handle);
 	}
 
 	auto FImportService::RunImportJobInline(

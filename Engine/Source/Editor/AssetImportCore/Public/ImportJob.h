@@ -83,6 +83,7 @@ namespace Durin::Asset
 	public:
 		virtual ~IImportJob() = default;
 		virtual auto GetProviderId() const -> std::string_view = 0;
+		virtual auto RequiresLegacyProviderLease() const -> bool { return true; }
 		virtual auto GetOwner() const -> const FImportOperationOwner& = 0;
 		virtual auto GetLifetime() const -> EImportOperationLifetime = 0;
 		virtual auto AdvanceOnEditor(

@@ -113,7 +113,7 @@ TEST(FAssetForgeImageSourcePolicyTests, KeepsCodecCapabilitySeparateFromAssetAdm
 		static_cast<EImportedImageEncoding>(255)));
 }
 
-TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFails)
+TEST(FSingleAssetImportTests, Texture2DIsAdmittedOnlyByInterchange)
 {
 	InitializeSingleAssetImportTests();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -124,57 +124,25 @@ TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFa
 	Durin::FTexture2DImportResult Imported = Durin::Asset::Forge::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/Texture2D");
 	ASSERT_TRUE(Imported) << Imported.Message;
-	Durin::DTexture2D* Identity = Imported.Asset;
-	const std::string PriorKey = Identity->GetDerivedDataKey();
-	const Durin::FTexture2DSourceImportData PriorSource = Identity->GetSourceImportData();
-	ASSERT_FALSE(Identity->GetPackage()->IsDirty());
-
-	auto PlanResult = PlanCurrent(Identity);
-	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const auto Capabilities = Durin::Asset::GetImportService()
-		.QuerySingleAssetCapabilities(*Identity);
-	const auto* Capability = Capabilities.Find(
-		Durin::Asset::ESingleAssetImportCapability::ReimportCurrentSource);
-	ASSERT_NE(Capability, nullptr);
-	EXPECT_TRUE(Capability->bAvailable);
-	EXPECT_NE(Capability->ReplacedStateDescription.find("render resource"), std::string::npos);
-
-	const auto Failed = Durin::Asset::GetImportService().ExecuteSingleAssetImport(
-		PlanResult.Plan,
-		{.SaveOptions = {.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
-			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
-		}}});
-	EXPECT_FALSE(Failed);
-	EXPECT_EQ(Identity, Imported.Asset);
-	EXPECT_EQ(Identity->GetDerivedDataKey(), PriorKey);
-	EXPECT_EQ(Identity->GetSourceImportData(), PriorSource);
-	EXPECT_FALSE(Identity->GetPackage()->IsDirty());
-}
-
-TEST(FSingleAssetImportTests, RejectsStalePackageRevisionBeforeExchange)
-{
-	InitializeSingleAssetImportTests();
-	FScopedDerivedDataCacheRoot CacheRoot(
-		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStaleDdc");
-	const std::filesystem::path Source =
-		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStale.png";
-	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::Asset::Forge::ImportTexture2DAsset(
-		Source.generic_string(), "/SingleAssetStage2/StaleTexture");
-	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
-	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const std::string PriorKey = Imported.Asset->GetDerivedDataKey();
-	Imported.Asset->GetPackage()->MarkDirty();
-	const auto Result = Durin::Asset::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
-	EXPECT_FALSE(Result);
-	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), PriorKey);
-	EXPECT_TRUE(std::ranges::any_of(Result.Diagnostics, [](const auto& Diagnostic) {
-		return Diagnostic.Category == Durin::Asset::EImportDiagnosticCategory::StalePlan;
-	}));
+	EXPECT_FALSE(PlanResult);
+	const auto Capabilities = Durin::Asset::GetImportService()
+		.QuerySingleAssetCapabilities(*Imported.Asset);
+	const auto* LegacyReimport = Capabilities.Find(
+		Durin::Asset::ESingleAssetImportCapability::ReimportCurrentSource);
+	ASSERT_NE(LegacyReimport, nullptr);
+	EXPECT_FALSE(LegacyReimport->bAvailable);
+	Durin::Asset::FInterchangeProvenance Provenance;
+	std::string Error;
+	EXPECT_TRUE(Durin::Asset::Forge::InspectTexture2DInterchangeProvenance(
+		*Imported.Asset, Provenance, Error)) << Error;
+	EXPECT_EQ(Provenance.Translator.Id, "Durin.Image");
+	ASSERT_EQ(Provenance.PipelineStack.size(), 1u);
+	EXPECT_EQ(Provenance.PipelineStack.front().PipelineId,
+		"Durin.Texture2D.Default");
 }
 
-TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
+TEST(FSingleAssetImportTests, ReimportsGeometryOnlyThroughInterchange)
 {
 	InitializeSingleAssetImportTests();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -185,14 +153,29 @@ TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 		Source.generic_string(), "/SingleAssetStage2/Geometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
-	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	const auto Result = Durin::Asset::GetImportService().ExecuteSingleAssetImport(PlanResult.Plan);
-	EXPECT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Result.Asset, Imported.Asset);
+	EXPECT_FALSE(PlanResult);
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Imported.Asset->GetPackage()->GetPackagePath(), AssetPath));
+	Durin::Asset::FInterchangeProvenance Provenance;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Forge::InspectStaticMeshInterchangeProvenance(
+		*Imported.Asset, Provenance, Error)) << Error;
+	Durin::Asset::FInterchangeImportRequest Request;
+	ASSERT_TRUE(Durin::Asset::Forge::MakeStaticMeshInterchangeRequest(
+		Imported.Asset->GetSourceImportData().SourcePath, AssetPath,
+		Imported.Asset->GetImportSettings(), Durin::Asset::EInterchangeImportMode::Reimport,
+		{.OwnerId = "Tests.StaticMesh.InterchangeReimport"}, Provenance,
+		Request, Error)) << Error;
+	const Durin::Asset::FInterchangeImportResult Result =
+		Durin::Asset::GetImportService().RunInterchangeImportInline(
+			std::move(Request), "Reimport StaticMesh");
+	EXPECT_EQ(Result.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Result.Outcome.Diagnostic;
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
 }
 
-TEST(FSingleAssetImportTests, ReimportsGeometryThroughDetachedExecutionShell)
+TEST(FSingleAssetImportTests, ReimportsGeometryThroughScheduledInterchangeJob)
 {
 	InitializeSingleAssetImportTests();
 	FScopedSingleAssetTaskScheduler Scheduler;
@@ -204,36 +187,41 @@ TEST(FSingleAssetImportTests, ReimportsGeometryThroughDetachedExecutionShell)
 	Durin::FStaticMeshImportResult Imported = Durin::Asset::Forge::ImportStaticMeshAsset(
 		Source.generic_string(), "/SingleAssetStage2/AsyncGeometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
-	auto PlanHandle = Durin::Asset::GetImportService().BeginSingleAssetReimportPlan(
-		{.Asset = Imported.Asset});
-	ASSERT_TRUE(PlanHandle);
-	Durin::Asset::FSingleAssetPlanResult PlanResult;
-	ASSERT_EQ(WaitForSingleAssetPlan(PlanHandle, PlanResult),
-		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
-	ASSERT_TRUE(PlanResult) << PlanResult.Message;
-	ASSERT_TRUE(PlanResult.Plan.GetPreparation());
-
-	auto Handle = Durin::Asset::GetImportService().BeginSingleAssetImportExecution(
-		PlanResult.Plan);
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Imported.Asset->GetPackage()->GetPackagePath(), AssetPath));
+	Durin::Asset::FInterchangeProvenance Provenance;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Forge::InspectStaticMeshInterchangeProvenance(
+		*Imported.Asset, Provenance, Error)) << Error;
+	Durin::Asset::FInterchangeImportRequest Request;
+	ASSERT_TRUE(Durin::Asset::Forge::MakeStaticMeshInterchangeRequest(
+		Imported.Asset->GetSourceImportData().SourcePath, AssetPath,
+		Imported.Asset->GetImportSettings(), Durin::Asset::EInterchangeImportMode::Reimport,
+		{.OwnerId = "Tests.StaticMesh.ScheduledInterchange"}, Provenance,
+		Request, Error)) << Error;
+	auto Handle = Durin::Asset::GetImportService().SubmitInterchangeImport(
+		Request, "Scheduled StaticMesh reimport");
 	ASSERT_TRUE(Handle);
-	Durin::Asset::FSingleAssetExecutionResult Executed;
-	EXPECT_EQ(WaitForSingleAssetExecution(Handle, Executed),
-		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
-	EXPECT_TRUE(Executed) << Executed.Message;
-	EXPECT_EQ(Executed.Asset, Imported.Asset);
+	Durin::Asset::FInterchangeImportResult Executed;
+	for (uint32 Attempt = 0; Attempt < 10'000 && !Handle.TryGetResult(Executed); ++Attempt)
+	{
+		(void)Durin::Asset::GetImportService().PumpImportOperations();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	EXPECT_EQ(Executed.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		<< Executed.Outcome.Diagnostic;
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
 
-	auto CancelPlan = PlanCurrent(Imported.Asset);
-	ASSERT_TRUE(CancelPlan) << CancelPlan.Message;
-	auto CanceledHandle = Durin::Asset::GetImportService().BeginSingleAssetImportExecution(
-		CancelPlan.Plan, {.IsCancellationRequested = [] { return true; }});
-	Durin::Asset::FSingleAssetExecutionResult Canceled;
-	EXPECT_EQ(WaitForSingleAssetExecution(CanceledHandle, Canceled),
-		Durin::Asset::EAsyncImportPlanStatus::Canceled);
-	EXPECT_FALSE(Canceled);
-	EXPECT_TRUE(std::ranges::any_of(Canceled.Diagnostics, [](const auto& Diagnostic) {
-		return Diagnostic.Category == Durin::Asset::EImportDiagnosticCategory::Canceled;
-	}));
+	Request.Owner.OwnerId = "Tests.StaticMesh.CanceledInterchange";
+	auto CanceledHandle = Durin::Asset::GetImportService().SubmitInterchangeImport(
+		std::move(Request), "Canceled StaticMesh reimport");
+	ASSERT_TRUE(CanceledHandle.GetOperationHandle().RequestCancel());
+	Durin::Asset::GetImportService().CancelAndDrainImportOperation(
+		CanceledHandle.GetOperationHandle());
+	Durin::Asset::FInterchangeImportResult Canceled;
+	ASSERT_TRUE(CanceledHandle.TryGetResult(Canceled));
+	EXPECT_EQ(Canceled.Outcome.State, Durin::Asset::EImportOperationState::Canceled);
 }
 
 TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)

@@ -212,6 +212,10 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
+		auto GetInterchangeProvenance() const -> std::string_view
+		{
+			return InterchangeProvenance;
+		}
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*;
@@ -237,6 +241,8 @@ namespace Durin
 		ENGINE_API auto PublishImportedProduct(
 			FStaticMeshAuthoringProduct Product,
 			std::string& OutError) -> bool;
+		ENGINE_API auto PublishInterchangeProvenance(
+			std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto SetImportedDefaultMaterial(
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
@@ -325,6 +331,9 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		FStaticMeshSourceImportData SourceImportData;
+
+		DPROPERTY(EditorOnly)
+		std::string InterchangeProvenance;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;

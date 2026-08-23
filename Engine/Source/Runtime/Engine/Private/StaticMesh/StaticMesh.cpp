@@ -671,6 +671,20 @@ namespace Durin
 		return true;
 	}
 
+	auto DStaticMesh::PublishInterchangeProvenance(
+		std::vector<std::byte> Provenance) -> void
+	{
+		static constexpr char Hex[] = "0123456789abcdef";
+		InterchangeProvenance.resize(Provenance.size() * 2);
+		for (size_t Index = 0; Index < Provenance.size(); ++Index)
+		{
+			const uint8 Value = static_cast<uint8>(Provenance[Index]);
+			InterchangeProvenance[Index * 2] = Hex[Value >> 4];
+			InterchangeProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+		}
+		MarkPackageDirty();
+	}
+
 	auto DStaticMesh::SetImportedDefaultMaterial(
 		uint32 SourceMaterialIndex,
 		DMaterialInterface* Material,
@@ -764,7 +778,8 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> IncomingRenderData =
 				std::move(Other.RenderData);
 
-			std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(InterchangeProvenance, Other.InterchangeProvenance);
 			std::swap(NormalizedSize, Other.NormalizedSize);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);
@@ -791,9 +806,9 @@ namespace Durin
 		DStaticMesh& Candidate,
 		std::string& OutError) -> std::unique_ptr<FStaticMeshImportedStateExchange>
 	{
-		if (&Candidate == this || !RenderData || !Candidate.RenderData)
+		if (&Candidate == this || !Candidate.RenderData)
 		{
-			OutError = "Static-mesh imported-state exchange requires distinct assets with render data.";
+			OutError = "Static-mesh imported-state exchange requires a distinct candidate with render data.";
 			return nullptr;
 		}
 		CheckStaticMeshUpdateThread();

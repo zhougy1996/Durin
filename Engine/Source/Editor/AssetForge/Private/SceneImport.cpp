@@ -30,55 +30,6 @@ namespace Durin::Asset::Forge
 	namespace
 	{
 
-		enum class ESceneOutputKind : uint8
-		{
-			Skeleton,
-			SkeletalMesh,
-			AnimationClip,
-			StaticMesh,
-			MaterialInstance,
-			Texture2D
-		};
-
-		enum class ESceneTextureDerivation : uint8
-		{
-			None,
-			Red,
-			Green,
-			Blue,
-			Alpha,
-			ScaledNormal,
-			ScaledColor
-		};
-
-		struct FSceneMaterialTextureBinding
-		{
-			uint32 MaterialRole = 0;
-			std::string TextureIdentity;
-			FImportedTextureBinding Binding;
-		};
-
-		struct FSceneOutputData
-		{
-			std::string StableIdentity;
-			ESceneOutputKind Kind = ESceneOutputKind::StaticMesh;
-			uint32 SourceIndex = 0;
-			ETextureUsage TextureUsage = ETextureUsage::Color;
-			ESceneTextureDerivation TextureDerivation = ESceneTextureDerivation::None;
-			float TextureDerivationScale = 1.0f;
-			FVector3f TextureDerivationColorScale{1.0f};
-			std::vector<FSceneMaterialTextureBinding> TextureBindings;
-			std::string SkeletonIdentity;
-		};
-
-		struct FSceneProviderPlanData
-		{
-			FImportedSceneData Scene;
-			FStaticMeshImportSettings MeshSettings;
-			std::vector<FSceneOutputData> Outputs;
-			std::vector<std::string> Warnings;
-		};
-
 		struct FSceneDetachedTextureProduct
 		{
 			Asset::Build::FTexture2DBuildProduct Product;
@@ -1520,6 +1471,124 @@ namespace Durin::Asset::Forge
 	auto CreateSceneImportProvider() -> std::shared_ptr<IImportProvider>
 	{
 		return std::make_shared<FSceneProvider>();
+	}
+
+	auto DiscoverSceneInterchangeDependencies(
+		std::span<const FSourceSnapshotEntry> Sources,
+		FDependencyRequestSink& Sink,
+		std::vector<FImportDiagnostic>& OutDiagnostics) -> bool
+	{
+		const auto Root = std::ranges::find(
+			Sources, std::string_view("root"), &FSourceSnapshotEntry::StableIdentity);
+		if (Root == Sources.end()) return false;
+		const std::string Extension = FoldAscii(
+			std::filesystem::path(Root->SourcePath.Path).extension().generic_string());
+		if (Extension != ".gltf") return true;
+		if (DiscoverGltfUris(Root->GetBytes(), Sink)) return true;
+		AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::UnsafeDependency,
+			"dependency-discovery", "glTF contains an unsupported or unsafe URI.", "root");
+		return false;
+	}
+
+	auto DecodeSceneSnapshotForInterchange(
+		const FSourceSnapshot& Snapshot,
+		const FStaticMeshImportSettings& Settings,
+		FImportedSceneData& OutScene,
+		std::string& OutError) -> bool
+	{
+		return DecodeSceneSnapshot(Snapshot, Settings, OutScene, OutError);
+	}
+
+	auto BuildSceneInterchangePlanData(
+		const FSourceSnapshot& Snapshot,
+		const FAssetPath& DestinationDirectory,
+		const FStaticMeshImportSettings& Settings,
+		std::shared_ptr<const FSceneProviderPlanData>& OutData,
+		std::vector<FImportOutputPreview>& OutOutputs,
+		std::vector<FImportDiagnostic>& OutDiagnostics,
+		std::string& OutError) -> bool
+	{
+		FImportPayload Payload;
+		if (!MakeSceneSettings(DestinationDirectory, Settings, Payload, OutError))
+			return false;
+		FImportPlanBuilder Builder;
+		FSceneProvider Provider;
+		if (!Provider.Plan(Snapshot, Payload, Builder, OutDiagnostics))
+		{
+			if (OutError.empty()) OutError = "Scene Interchange translation failed.";
+			return false;
+		}
+		OutData = Builder.GetProviderData<FSceneProviderPlanData>();
+		OutOutputs.assign(Builder.GetOutputs().begin(), Builder.GetOutputs().end());
+		if (!OutData)
+		{
+			OutError = "Scene Interchange translation produced no immutable plan data.";
+			return false;
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto BuildSceneInterchangeTextureProduct(
+		const FSourceSnapshot& Snapshot,
+		const FSceneProviderPlanData& Data,
+		const FSceneOutputData& Descriptor,
+		const std::function<bool()>& IsCancellationRequested,
+		FSceneInterchangeTextureProduct& OutProduct,
+		std::string& OutError) -> bool
+	{
+		if (Descriptor.Kind != ESceneOutputKind::Texture2D
+			|| Descriptor.SourceIndex >= Data.Scene.Images.size())
+		{
+			OutError = "Scene texture product mapping is invalid.";
+			return false;
+		}
+		const FImportedImage& Image = Data.Scene.Images[Descriptor.SourceIndex];
+		std::span<const std::byte> Bytes;
+		FSourcePath Source;
+		if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding)
+			|| !FindSnapshotImageBytes(Snapshot, Data.Scene, Image, Bytes, Source))
+		{
+			OutError = "Scene image snapshot mapping is invalid.";
+			return false;
+		}
+		OutProduct = {};
+		if (Descriptor.TextureDerivation != ESceneTextureDerivation::None)
+		{
+			if (!BuildDerivedTextureBytes(Bytes, Descriptor.TextureDerivation,
+				Descriptor.TextureDerivationScale, Descriptor.TextureDerivationColorScale,
+				OutProduct.SourceBytesToMount, OutError)) return false;
+			Bytes = OutProduct.SourceBytesToMount;
+			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
+			if (!Root) { OutError = "Scene root source is unavailable."; return false; }
+			OutProduct.Source.Path = MakeDerivedImageSourcePath(
+				Root->SourcePath, Descriptor.StableIdentity, Bytes);
+		}
+		else if (!Image.EmbeddedEncodedBytes.empty())
+		{
+			OutProduct.SourceBytesToMount.assign(Bytes.begin(), Bytes.end());
+			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
+			if (!Root) { OutError = "Scene root source is unavailable."; return false; }
+			OutProduct.Source.Path = MakeEmbeddedImageSourcePath(
+				Root->SourcePath, Image, Descriptor.StableIdentity, Bytes);
+		}
+		else OutProduct.Source = Source;
+		OutProduct.SourceFileSize = Bytes.size();
+		FTextureSourceData SourceData;
+		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Bytes);
+		const Asset::Build::FTexture2DBuildExecutionControl Control{
+			.ShouldCancel = IsCancellationRequested};
+		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)
+			|| !Asset::Build::BuildTexture2D({
+				.SourceData = std::move(SourceData),
+				.SourceContentHashLow = SourceHash.HashLow,
+				.SourceContentHashHigh = SourceHash.HashHigh,
+				.Settings = {.Usage = Descriptor.TextureUsage,
+					.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color}},
+				OutProduct.Product, OutError, &Control))
+			return false;
+		OutError.clear();
+		return true;
 	}
 
 	auto RollbackSceneSourceBundle(FPreparedSceneSourceBundle& Bundle) -> void

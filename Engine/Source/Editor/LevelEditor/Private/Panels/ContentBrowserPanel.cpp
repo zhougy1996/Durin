@@ -1,4 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
+#include "Texture2DSourceTranslation.h"
+#include "StaticMeshSourceTranslation.h"
+#include "Texture/Texture2D.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetImportCore.h"
@@ -142,6 +145,12 @@ namespace Durin::Editor::Level
 	FContentBrowserPanel::~FContentBrowserPanel()
 	{
 		if (!PendingSingleAssetReimport) return;
+		if (PendingSingleAssetReimport->Interchange)
+		{
+			Asset::GetImportService().CancelAndDrainImportOperation(
+				PendingSingleAssetReimport->Interchange->GetOperationHandle());
+			return;
+		}
 		Asset::GetImportService().CancelAndDrainAsyncImport(
 			PendingSingleAssetReimport->Operation);
 		Asset::GetImportService().CancelAndDrainSingleAssetReimportPlan(
@@ -562,6 +571,104 @@ namespace Durin::Editor::Level
 			RevealAsset(Path.ToString());
 			return;
 		}
+		if (auto* Texture = Cast<DTexture2D>(AssetObject);
+			Texture && !bRecreateMissingAssets)
+		{
+			Asset::FInterchangeProvenance Existing;
+			std::string Error;
+			if (!Asset::Forge::InspectTexture2DInterchangeProvenance(
+				*Texture, Existing, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			const FTextureSourceDiagnostic Source = Texture->InspectSource();
+			if (Source.Status != ETextureSourceStatus::Available)
+			{
+				SetError(Source.Message.empty()
+					? "The Texture2D source is unavailable." : Source.Message);
+				return;
+			}
+			FTexture2DImportSettings Settings{
+				.Usage = Texture->GetUsage(),
+				.CompressionQuality = Texture->GetCompressionQuality(),
+				.AlphaMipMode = Texture->GetAlphaMipMode(),
+				.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
+				.MaxResolution = Texture->GetMaxResolution(),
+				.bSRGB = Texture->IsSRGB()};
+			Asset::FInterchangeImportRequest Request;
+			if (!Asset::Forge::MakeTexture2DInterchangeRequest(
+				Texture->GetSourceImportData().Source.SourcePath, Path, Settings,
+				Asset::EInterchangeImportMode::Reimport,
+				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+					.ConflictIdentities = {Path.ToString()}},
+				std::move(Existing), Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			Asset::FInterchangeImportHandle Handle =
+				Asset::GetImportService().SubmitInterchangeImport(
+					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
+			if (!Handle)
+			{
+				SetError("The Texture2D Interchange reimport could not be submitted.");
+				return;
+			}
+			LastReimportOrphans.clear();
+			if (NotifyImportStarted)
+				NotifyImportStarted(Handle.GetOperationHandle(),
+					std::format("Reimport {}", Path.GetAssetName()));
+			PendingSingleAssetReimport = FPendingSingleAssetReimport{
+				.Interchange = std::move(Handle), .AssetPath = Path};
+			return;
+		}
+		if (auto* Mesh = Cast<DStaticMesh>(AssetObject);
+			Mesh && !bRecreateMissingAssets)
+		{
+			Asset::FInterchangeProvenance Existing;
+			std::string Error;
+			if (!Asset::Forge::InspectStaticMeshInterchangeProvenance(
+				*Mesh, Existing, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			const FStaticMeshSourceDiagnostic Source =
+				Asset::Forge::InspectStaticMeshSource(*Mesh);
+			if (Source.Status != EStaticMeshSourceStatus::Available)
+			{
+				SetError(Source.Message.empty()
+					? "The StaticMesh source is unavailable." : Source.Message);
+				return;
+			}
+			Asset::FInterchangeImportRequest Request;
+			if (!Asset::Forge::MakeStaticMeshInterchangeRequest(
+				Mesh->GetSourceImportData().SourcePath, Path, Mesh->GetImportSettings(),
+				Asset::EInterchangeImportMode::Reimport,
+				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+					.ConflictIdentities = {Path.ToString()}},
+				std::move(Existing), Request, Error))
+			{
+				SetError(std::move(Error));
+				return;
+			}
+			Asset::FInterchangeImportHandle Handle =
+				Asset::GetImportService().SubmitInterchangeImport(
+					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
+			if (!Handle)
+			{
+				SetError("The StaticMesh Interchange reimport could not be submitted.");
+				return;
+			}
+			LastReimportOrphans.clear();
+			if (NotifyImportStarted)
+				NotifyImportStarted(Handle.GetOperationHandle(),
+					std::format("Reimport {}", Path.GetAssetName()));
+			PendingSingleAssetReimport = FPendingSingleAssetReimport{
+				.Interchange = std::move(Handle), .AssetPath = Path};
+			return;
+		}
 		const Asset::FSingleAssetCapabilitySet Capabilities =
 			Asset::GetImportService().QuerySingleAssetCapabilities(*AssetObject);
 		const Asset::FSingleAssetCapability* Reimport = Capabilities.Find(
@@ -601,7 +708,7 @@ namespace Durin::Editor::Level
 				.Planning = std::move(Planning),
 				.AssetPath = Path};
 			if (NotifyImportStarted)
-				NotifyImportStarted(std::move(Operation),
+				NotifyImportStarted(Operation.GetOperationHandle(),
 					std::format("Reimport {}", Path.GetAssetName()));
 			return;
 		}
@@ -616,6 +723,24 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::PollSingleAssetReimport() -> void
 	{
 		if (!PendingSingleAssetReimport) return;
+		if (PendingSingleAssetReimport->Interchange)
+		{
+			Asset::FInterchangeImportResult Result;
+			if (!PendingSingleAssetReimport->Interchange->TryGetResult(Result)) return;
+			const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
+			PendingSingleAssetReimport.reset();
+			if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+			{
+				if (Result.Outcome.State != Asset::EImportOperationState::Canceled)
+					SetError(Result.Outcome.Diagnostic.empty()
+						? "Texture2D Interchange reimport failed."
+						: Result.Outcome.Diagnostic);
+				return;
+			}
+			PublishMountedContentMutation();
+			RevealAsset(AssetPath.ToString());
+			return;
+		}
 		if (!PendingSingleAssetReimport->Execution)
 		{
 			Asset::FSingleAssetPlanResult Planned;

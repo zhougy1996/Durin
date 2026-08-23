@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ImportRecordIndex.h"
+#include "Interchange.h"
 #include "MultiOutputImport.h"
 #include "AsyncImport.h"
 #include "AssetForgeAPI.h"
@@ -35,6 +36,16 @@ namespace Durin::Asset::Forge
 		bool bRecreateMissingManagedOutputs = false;
 		IImportProgressReporter* Progress = nullptr;
 	};
+
+	ASSETFORGE_API auto MakeSceneInterchangeRequest(
+		const FSourcePath& MountedRootSource,
+		const FAssetPath& DestinationDirectory,
+		const FStaticMeshImportSettings& Settings,
+		EInterchangeImportMode Mode,
+		FImportOperationOwner Owner,
+		std::optional<FInterchangeProvenance> ExistingProvenance,
+		FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
 
 	struct FPreparedSceneSourceBundle
 	{

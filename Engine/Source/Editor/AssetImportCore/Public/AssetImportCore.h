@@ -152,6 +152,7 @@ namespace Durin::Asset
 		std::string DeclaringIdentity;
 		FXxHash128 ContentHash{};
 		uint64 ByteCount = 0;
+		int64 LastWriteTime = 0;
 		uint32 Depth = 0;
 		bool bEmbedded = false;
 
@@ -324,6 +325,7 @@ namespace Durin::Asset
 	};
 
 	class FProviderLease;
+	class FInterchangeComponentLease;
 	class FImporterStore;
 	class FImportPlanBuilder;
 	struct FImportPlanResult;
@@ -424,6 +426,9 @@ namespace Durin::Asset
 		auto DiscoverDependencies(
 			const FProviderLease& Provider,
 			std::vector<FImportDiagnostic>& OutDiagnostics) -> bool;
+		auto DiscoverInterchangeDependencies(
+			const FInterchangeComponentLease& Translator,
+			std::vector<FImportDiagnostic>& OutDiagnostics) -> bool;
 		auto Freeze(
 			std::vector<FImportDiagnostic>& OutDiagnostics) -> std::shared_ptr<const FSourceSnapshot>;
 		auto GetCapturedSources() const -> std::span<const FSourceSnapshotEntry>;
@@ -439,11 +444,18 @@ namespace Durin::Asset
 	public:
 		auto AddOutput(FImportOutputPreview Output) -> void;
 		auto AddTargetPrecondition(FImportTargetPrecondition Precondition) -> void;
+		auto GetOutputs() const -> std::span<const FImportOutputPreview> { return Outputs; }
 
 		template<typename T>
 		auto SetProviderData(std::shared_ptr<const T> Data) -> void
 		{
 			ProviderData = std::move(Data);
+		}
+
+		template<typename T>
+		auto GetProviderData() const -> std::shared_ptr<const T>
+		{
+			return std::static_pointer_cast<const T>(ProviderData);
 		}
 
 	private:

@@ -16,8 +16,19 @@ failure-atomic publication mechanics needed underneath the framework. The
 remaining architectural gap is a stable domain model between source decoding
 and asset construction.
 
-Stage 0 is selected next. No production path uses the new interchange
-contracts yet.
+Stages 0 through 4 completed on 2026-08-24. The immutable translated/factory graph,
+typed payload, component, request, inspection, result, and provenance
+contracts are frozen in `Interchange.h`. The three specialized registries,
+exact registrations, implementation leases, deterministic selection, ordered
+pipeline execution, and canonical provenance persistence are implemented and
+covered by contract tests. `FInterchangeImportJob` now drives source capture,
+dependency discovery, translation, pipelines, topological factory work,
+candidate validation, preview reuse, and failure-atomic publication through
+the shared scheduled/inline runner. Texture2D, single StaticMesh, and
+multi-output Scene import and reimport now use the shared Interchange job.
+Scene translation emits stable heterogeneous nodes and typed factories bind
+cross-output dependencies while persisted output mappings drive deterministic
+record reimport and reconciliation. Stage 5 remains unstarted.
 
 ## Goal
 
@@ -210,26 +221,99 @@ abandon, or synchronously drain accepted work.
 | Extension | Module owner gates and exact registration handles exist. | Apply one descriptor and lease model consistently to all three extension roles. |
 | Production UI | Progress presentation and background operation observation exist. | Replace format-specific submission and polling with one request/outcome API. |
 
+## Stage 0 Frozen Baseline
+
+### Production entrypoint inventory
+
+Every current authoring entrypoint maps to the future roles below. A migration
+may temporarily adapt the listed call, but it cannot retain the current
+workflow as a second execution route after its stage acceptance gate.
+
+| Current entrypoint | Translator | Pipeline | Factory outputs | Job/publication owner |
+| --- | --- | --- | --- | --- |
+| `TextureImportDialog.cpp` Texture2D import; `MTextureEditor` and `TextureSourceReplacementOperation` reimport, replacement, and source repair | `Durin.Image` | default Texture2D | Texture2D | Interchange job; AssetCore single-package transaction |
+| `TextureImportDialog.cpp` VolumeTexture atlas import and `VolumeTextureSourceTranslation` reimport/repair | `Durin.Image` | volume-atlas slicing | VolumeTexture | Interchange job; AssetCore single-package transaction |
+| `TextureImportDialogCube.cpp` face/panorama import, preview, and `TextureCubeSourceTranslation` reimport | `Durin.Image` | cube faces or panorama | TextureCube | supersedable preview or Interchange job; AssetCore single-package transaction |
+| `TerrainHeightmapImportDialog.cpp` and `TerrainHeightmapSourceTranslation` import/reimport | `Durin.Image` | terrain heightmap normalization | Terrain Heightmap | Interchange job; AssetCore single-package transaction |
+| `StaticMeshImportDialog.cpp` and Content Browser StaticMesh reimport/repair | Assimp geometry, glTF, GLB, or FBX | default static-asset | StaticMesh and required referenced dependencies | Interchange job; AssetCore bundle transaction |
+| `SceneImportDialog.cpp` source preparation, preview, import, and execution polling | glTF, GLB, or FBX | default Scene | StaticMesh, Texture2D, Material, Skeleton, SkeletalMesh, AnimationClip, import record | one multi-output Interchange job; AssetCore root-last bundle transaction |
+| `ContentBrowserPanel.cpp` record reimport, recreate-missing, and repair actions | provenance-selected Scene translator | persisted Scene stack | persisted managed output graph | one reconciliation-mode Interchange job; AssetCore bundle transaction |
+| Texture2D, TextureCube, StaticMesh, Terrain and skeletal missing-derived-data `PostLoad` features | provenance-selected translator | persisted recovery stack | affected typed factory output | `SessionCritical` Interchange recovery job; ordinary load remains observer |
+
+Dialogs own only form state and an operation handle after migration. Direct
+AssetForge functions, begin/poll pairs, post-load callbacks, and record actions
+listed above are migration sources, not additional framework roles.
+
+### Frozen graph and execution decisions
+
+- Stable component, node, output, schema, source, and diagnostic identities are
+  printable case-sensitive ASCII values no longer than 1,024 bytes. Contract
+  versions are non-zero `uint32` values. Exact persisted identities win over
+  recognition; no compatible implementation is silently substituted.
+- Both graphs sort nodes by stable identity. Source identities, translated
+  references, and dependency lists sort lexicographically. Duplicates, missing
+  references, invalid destinations, unknown schemas, incompatible versions,
+  cycles, and configured resource-limit excess fail graph finalization.
+- Graph fingerprints are XXH3-128 over a framework domain tag, framework
+  contract version, canonical node fields, payload schema/version/hash, and
+  canonical references. Factory fingerprints also include the translated graph
+  fingerprint. Pipeline stack order remains authored order and participates in
+  job/provenance fingerprints; pipeline entries are never sorted.
+- Default limits are 1,000,000 nodes, 4,000,000 dependency edges, 4,096
+  diagnostics, and 16 GiB aggregate payload bytes. A request may lower these
+  bounds but may not bypass them. Source-capture limits remain independently
+  enforced before translation.
+- Translation, worker-safe pipelines, and detached product construction may run
+  on workers. Object lookup/materialization, target revalidation, state
+  exchange, publication, save, reverse, and compensation remain editor-owned.
+- Factory dependencies determine deterministic materialization/publication
+  order. The complete graph validates before construction. Publication enters
+  one non-cancelable boundary, saves bundle dependencies before the root, and
+  reverses committed exchanges in strict reverse order after any failure.
+
+### Compatibility and authored-result baseline
+
+Existing `FSingleAssetProvenance` and `DImportRecord` payloads remain readable
+only as migration inputs. The first Interchange reimport/repair attempt maps
+known built-in identities (`DurinImage`, `Assimp`, and the Scene provider) to an
+explicit translator and default versioned pipeline stack before any candidate
+build. A successful atomic publication persists `FInterchangeProvenance` and
+removes the legacy-only reproduction dependency. An unknown provider, unknown
+settings version, ambiguous format, incomplete source set, or asset-family
+mapping without a lossless default is rejected before construction with an
+actionable compatibility diagnostic; it is never guessed from extension alone.
+
+The authored-value baseline is the existing focused fixture behavior in
+`SingleAssetImportTests.cpp`, `SceneImportTests.cpp`,
+`VolumeTextureSourceImportTests.cpp`, `TextureCubeTests.cpp`, terrain import
+tests, and `AssetImportCoreTests.cpp`: stable output paths and identities,
+source/settings hashes, diagnostics, unchanged-output preservation, explicit
+orphans/collisions, detached candidate validation, reverse exchange, root-last
+save, cancellation before finalization, one terminal outcome, and provider
+drain before value destruction must remain byte- or value-equivalent as
+applicable. New golden graph fixtures supplement rather than weaken those
+authored-result assertions.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze contracts and select the graph model
 
-- [ ] Inventory every production import, preview, reimport, record action, and
+- [x] Inventory every production import, preview, reimport, record action, and
   recovery entrypoint; map each to translator, pipeline, factory, job, and
   publication responsibilities.
-- [ ] Define stable IDs, schema/version rules, node and factory dependency
+- [x] Define stable IDs, schema/version rules, node and factory dependency
   rules, canonical ordering, fingerprints, resource limits, diagnostics, and
   typed payload access for both graphs.
-- [ ] Define translator, pipeline, factory, descriptor, registration, lease,
+- [x] Define translator, pipeline, factory, descriptor, registration, lease,
   request, provenance, result, and inspection contracts without retaining a
   second workflow-specific execution API.
-- [ ] Freeze representative authored outputs, output identities, provenance,
+- [x] Freeze representative authored outputs, output identities, provenance,
   diagnostics, cancellation behavior, rollback state, and provider-unload
   behavior for every in-scope asset family.
-- [ ] Select compatibility behavior for existing single-asset provenance and
+- [x] Select compatibility behavior for existing single-asset provenance and
   import records, including the exact point at which each is upgraded or
   rejected with an actionable diagnostic.
-- [ ] Add header-level and value-contract tests for graph validation,
+- [x] Add header-level and value-contract tests for graph validation,
   determinism, schema mismatch, ambiguity, dependency cycles, resource limits,
   registration retirement, and lease destruction order.
 
@@ -242,22 +326,22 @@ abandon, or synchronously drain accepted work.
 
 ### Stage 1: Implement Interchange Core and registries
 
-- [ ] Add immutable translated-node and factory-node graph builders,
+- [x] Add immutable translated-node and factory-node graph builders,
   finalization, canonical serialization, fingerprints, validation, bounded
   diagnostics, and typed schema access in AssetImportCore.
-- [ ] Add translator, pipeline, and factory interfaces plus immutable
+- [x] Add translator, pipeline, and factory interfaces plus immutable
   descriptors carrying stable identity, version, capabilities, and settings
   schema.
-- [ ] Add exact scoped registration, metadata-only enumeration, deterministic
+- [x] Add exact scoped registration, metadata-only enumeration, deterministic
   selection, ambiguity reporting, module gates, implementation leases, and
   retirement/drain integration for all three registries.
-- [ ] Add pipeline-stack configuration and validation with ordered execution,
+- [x] Add pipeline-stack configuration and validation with ordered execution,
   immutable intermediate views, settings capture, and settings migration
   diagnostics.
-- [ ] Add framework provenance values and serialization for translator,
+- [x] Add framework provenance values and serialization for translator,
   pipeline stack, sources, graph fingerprints, and output mappings without yet
   changing production asset packages.
-- [ ] Add focused tests for concurrent lookup/retirement, escaped graph values,
+- [x] Add focused tests for concurrent lookup/retirement, escaped graph values,
   registry revision changes, pipeline failure isolation, and deterministic
   graph output across repeated runs.
 
@@ -271,21 +355,21 @@ abandon, or synchronously drain accepted work.
 
 ### Stage 2: Implement the framework-owned import job
 
-- [ ] Implement `FInterchangeImportJob` over the shared operation runner with
+- [x] Implement `FInterchangeImportJob` over the shared operation runner with
   editor capture, worker translation/pipeline/product rounds, editor
   materialization, validation, finalization, compensation, and one terminal
   outcome.
-- [ ] Implement factory-graph topological scheduling, independent worker-safe
+- [x] Implement factory-graph topological scheduling, independent worker-safe
   product construction where permitted, deterministic editor materialization,
   and dependency-ordered publication.
-- [ ] Implement initial import, preview, reimport, source replacement, repair,
+- [x] Implement initial import, preview, reimport, source replacement, repair,
   and multi-output modes as request policy on the same job rather than
   separate job classes.
-- [ ] Implement scheduled and inline entrypoints through the same job, plus
+- [x] Implement scheduled and inline entrypoints through the same job, plus
   immutable inspection snapshots for configuration UI and previews.
-- [ ] Implement preview reuse with complete source/settings/stack/graph/target
+- [x] Implement preview reuse with complete source/settings/stack/graph/target
   fingerprint checks and bounded retained memory.
-- [ ] Add cancellation and failure injection at every worker/editor boundary,
+- [x] Add cancellation and failure injection at every worker/editor boundary,
   including translator failure, pipeline rejection, factory failure, stale
   target, save failure, reverse exchange, provider retirement, project drain,
   and shutdown.
@@ -301,18 +385,18 @@ abandon, or synchronously drain accepted work.
 
 ### Stage 3: Migrate the image and Texture2D vertical slice
 
-- [ ] Register one image translator that emits normalized image source nodes
+- [x] Register one image translator that emits normalized image source nodes
   and one default texture pipeline that emits a Texture2D factory node.
-- [ ] Adapt Texture2D detached build and candidate materialization behind a
+- [x] Adapt Texture2D detached build and candidate materialization behind a
   typed factory without duplicating decode, build, validation, or publication.
-- [ ] Route Texture2D import, preview where applicable, current-source
+- [x] Route Texture2D import, preview where applicable, current-source
   reimport, replacement-source reimport, and source repair through the
   framework job.
-- [ ] Persist and restore translator, pipeline, node, settings, source, and
+- [x] Persist and restore translator, pipeline, node, settings, source, and
   output provenance; qualify existing-asset compatibility behavior.
-- [ ] Replace Texture2D dialog and Content Browser submission with the generic
+- [x] Replace Texture2D dialog and Content Browser submission with the generic
   request and operation outcome APIs.
-- [ ] Add deterministic, cancellation, stale-source, stale-target, save
+- [x] Add deterministic, cancellation, stale-source, stale-target, save
   failure, rollback, inline/scheduled parity, module retirement, and reload
   tests for the complete vertical slice.
 
@@ -325,20 +409,20 @@ abandon, or synchronously drain accepted work.
 
 ### Stage 4: Migrate geometry and Scene graphs
 
-- [ ] Register glTF, GLB, FBX, and supported geometry translators that emit
+- [x] Register glTF, GLB, FBX, and supported geometry translators that emit
   stable mesh, material, texture, skeleton, skin, and animation source nodes
   with explicit dependencies.
-- [ ] Implement default static-asset and Scene pipeline stacks that select
+- [x] Implement default static-asset and Scene pipeline stacks that select
   outputs, destinations, settings, identities, collision policy, and factory
   dependencies without source-format branches in factories.
-- [ ] Adapt StaticMesh, Material, Skeleton, SkeletalMesh, AnimationClip, and
+- [x] Adapt StaticMesh, Material, Skeleton, SkeletalMesh, AnimationClip, and
   dependent Texture2D construction behind typed factories.
-- [ ] Route single StaticMesh import and multi-output Scene import through the
+- [x] Route single StaticMesh import and multi-output Scene import through the
   same framework job and factory graph executor.
-- [ ] Persist node-to-output mappings and migrate Scene reimport, unchanged
+- [x] Persist node-to-output mappings and migrate Scene reimport, unchanged
   output preservation, added/removed output reconciliation, orphan reporting,
   collision handling, record actions, and record repair.
-- [ ] Add golden translated-graph and factory-graph fixtures plus authored
+- [x] Add golden translated-graph and factory-graph fixtures plus authored
   parity, malformed input, unsupported feature, resource limit, dependency,
   cancellation, stale plan, rollback, and provider unload coverage.
 

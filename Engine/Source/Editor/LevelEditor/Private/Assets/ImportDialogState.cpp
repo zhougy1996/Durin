@@ -14,6 +14,12 @@ namespace Durin::Editor::Level
 	auto FImportDialogProgressModel::Begin(
 		Asset::FAsyncImportPlanHandle InHandle) -> void
 	{
+		Begin(InHandle.GetOperationHandle());
+	}
+
+	auto FImportDialogProgressModel::Begin(
+		Asset::FImportOperationHandle InHandle) -> void
+	{
 		Handle = std::move(InHandle);
 		Refresh();
 	}
@@ -26,7 +32,7 @@ namespace Durin::Editor::Level
 
 	auto FImportDialogProgressModel::Refresh() -> void
 	{
-		if (Handle) ApplySnapshot(Handle.GetOperationSnapshot());
+		if (Handle) ApplySnapshot(Handle.GetSnapshot());
 	}
 
 	auto FImportDialogProgressModel::Reset() -> void
@@ -38,7 +44,7 @@ namespace Durin::Editor::Level
 	auto FImportDialogProgressModel::RequestCancel() -> bool
 	{
 		if (!Handle || !CanCancel()) return false;
-		const bool bRequested = Asset::GetImportService().CancelAsyncImport(Handle);
+		const bool bRequested = Handle.RequestCancel();
 		Refresh();
 		return bRequested;
 	}
@@ -145,6 +151,12 @@ namespace Durin::Editor::Level
 
 	auto FImportDialogCallbacks::NotifyImportStarted(
 		Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void
+	{
+		NotifyImportStarted(Handle.GetOperationHandle(), Title);
+	}
+
+	auto FImportDialogCallbacks::NotifyImportStarted(
+		Asset::FImportOperationHandle Handle, std::string_view Title) const -> void
 	{
 		if (ImportStarted) ImportStarted(std::move(Handle), std::string(Title));
 	}

@@ -1,12 +1,26 @@
 #pragma once
 
 #include "AssetForgeAPI.h"
+#include "Interchange.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Asset::Forge
 {
 	ASSETFORGE_API auto InspectStaticMeshSource(
 		const DStaticMesh& Mesh) -> FStaticMeshSourceDiagnostic;
+	ASSETFORGE_API auto MakeStaticMeshInterchangeRequest(
+		const FSourcePath& MountedSource,
+		const FAssetPath& Destination,
+		const FStaticMeshImportSettings& Settings,
+		EInterchangeImportMode Mode,
+		FImportOperationOwner Owner,
+		std::optional<FInterchangeProvenance> ExistingProvenance,
+		FInterchangeImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGE_API auto InspectStaticMeshInterchangeProvenance(
+		const DStaticMesh& Mesh,
+		FInterchangeProvenance& OutProvenance,
+		std::string& OutError) -> bool;
 	ASSETFORGE_API auto ChangeStaticMeshSourceReference(
 		DStaticMesh& Mesh,
 		std::string_view SourceVirtualPath,

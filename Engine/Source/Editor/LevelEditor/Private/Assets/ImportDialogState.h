@@ -29,6 +29,7 @@ namespace Durin::Editor::Level
 	{
 	public:
 		auto Begin(Asset::FAsyncImportPlanHandle InHandle) -> void;
+		auto Begin(Asset::FImportOperationHandle InHandle) -> void;
 		auto ApplySnapshot(Asset::FImportOperationSnapshot InSnapshot) -> void;
 		auto Refresh() -> void;
 		auto Reset() -> void;
@@ -41,7 +42,7 @@ namespace Durin::Editor::Level
 		auto CanCancel() const -> bool { return Snapshot.bCancelable && !Snapshot.IsTerminal(); }
 
 	private:
-		Asset::FAsyncImportPlanHandle Handle;
+		Asset::FImportOperationHandle Handle;
 		Asset::FImportOperationSnapshot Snapshot;
 	};
 
@@ -52,7 +53,7 @@ namespace Durin::Editor::Level
 		std::function<void(std::string)> ReportError;
 		std::function<void(std::string)> Imported;
 		std::function<void(std::string)> ImportedDirectory;
-		std::function<void(Asset::FAsyncImportPlanHandle, std::string)> ImportStarted;
+		std::function<void(Asset::FImportOperationHandle, std::string)> ImportStarted;
 
 		auto Clear() const -> void;
 		auto Report(std::string Message) const -> void;
@@ -60,6 +61,8 @@ namespace Durin::Editor::Level
 		auto NotifyImportedDirectory(std::string_view DirectoryPath) const -> void;
 		auto NotifyImportStarted(
 			Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void;
+		auto NotifyImportStarted(
+			Asset::FImportOperationHandle Handle, std::string_view Title) const -> void;
 	};
 
 	// Owns editable asset-destination state and its suggestion and browse rules.

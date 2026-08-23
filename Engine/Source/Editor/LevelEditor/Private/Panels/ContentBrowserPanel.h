@@ -47,7 +47,7 @@ namespace Durin::Editor::Level
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FNotifyImportStarted = std::function<void(
-			Asset::FAsyncImportPlanHandle, std::string)>;
+			Asset::FImportOperationHandle, std::string)>;
 
 		FContentBrowserPanel(
 			FLevelEditorSessionSettings& InSessionSettings,
@@ -176,6 +176,7 @@ namespace Durin::Editor::Level
 			Asset::FAsyncImportPlanHandle Operation;
 			Asset::FSingleAssetAsyncPlanHandle Planning;
 			std::optional<Asset::FSingleAssetAsyncExecutionHandle> Execution;
+			std::optional<Asset::FInterchangeImportHandle> Interchange;
 			FAssetPath AssetPath;
 		};
 		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;

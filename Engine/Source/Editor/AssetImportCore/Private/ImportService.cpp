@@ -1,8 +1,60 @@
 #include "ImportService.h"
 #include "ImportRegistryInternal.h"
+#include "InterchangeRegistryInternal.h"
 
 namespace Durin::Asset
 {
+	FInterchangeRegistration::FInterchangeRegistration(
+		FImportService& InOwner,
+		std::weak_ptr<void> InOwnerLifetime,
+		EInterchangeComponentRole InRole,
+		std::string InId,
+		uint64 InIdentity)
+		: Owner(&InOwner), OwnerLifetime(std::move(InOwnerLifetime)),
+		Role(InRole), Id(std::move(InId)), Identity(InIdentity) {}
+
+	FInterchangeRegistration::~FInterchangeRegistration()
+	{
+		Reset();
+	}
+
+	FInterchangeRegistration::FInterchangeRegistration(
+		FInterchangeRegistration&& Other) noexcept
+		: Owner(std::exchange(Other.Owner, nullptr)),
+		OwnerLifetime(std::move(Other.OwnerLifetime)), Role(Other.Role),
+		Id(std::move(Other.Id)), Identity(std::exchange(Other.Identity, 0)) {}
+
+	auto FInterchangeRegistration::operator=(
+		FInterchangeRegistration&& Other) noexcept -> FInterchangeRegistration&
+	{
+		if (this == &Other) return *this;
+		Reset();
+		Owner = std::exchange(Other.Owner, nullptr);
+		OwnerLifetime = std::move(Other.OwnerLifetime);
+		Role = Other.Role;
+		Id = std::move(Other.Id);
+		Identity = std::exchange(Other.Identity, 0);
+		return *this;
+	}
+
+	auto FInterchangeRegistration::Reset() -> bool
+	{
+		if (!Owner) return false;
+		const std::shared_ptr<void> LifetimeGuard = OwnerLifetime.lock();
+		if (!LifetimeGuard)
+		{
+			Owner = nullptr;
+			Id.clear();
+			Identity = 0;
+			return false;
+		}
+		FImportService* Service = std::exchange(Owner, nullptr);
+		const uint64 RegistrationIdentity = std::exchange(Identity, 0);
+		const std::string RegistrationId = std::move(Id);
+		return Service->UnregisterInterchangeComponent(
+			Role, RegistrationId, RegistrationIdentity);
+	}
+
 FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		std::weak_ptr<void> InOwnerLifetime, std::string InProviderId, uint64 InIdentity)
 		: Owner(&InOwner), OwnerLifetime(std::move(InOwnerLifetime)),
@@ -106,6 +158,7 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 		FImporterStore Providers;
 		FSingleAssetHandlerRegistry SingleAssetHandlers;
 		FImportRecordHandlerRegistry RecordHandlers;
+		FInterchangeRegistryStore Interchange;
 		std::map<std::string, FRegistration, std::less<>> Registrations;
 		uint64 Revision = 1;
 		uint64 NextRegistrationIdentity = 1;
@@ -301,6 +354,116 @@ FImporterRegistration::FImporterRegistration(FImportService& InOwner,
 	auto FImportService::GetImporterRevision() const -> uint64
 	{
 		return Impl->Providers.GetRevision();
+	}
+
+	auto FImportService::RegisterTranslatorScoped(
+		FTranslatorRegistrationDescriptor Descriptor,
+		FModuleOwnedCallbackGate OwnerGate,
+		std::string& OutError) -> FInterchangeRegistration
+	{
+		const FInterchangeRegistryRegistration Registered =
+			Impl->Interchange.Register(std::move(Descriptor), std::move(OwnerGate), OutError);
+		if (Registered.Identity != 0) OpenAsyncImporterAdmission(Registered.Id);
+		return Registered.Identity == 0 ? FInterchangeRegistration{}
+			: FInterchangeRegistration(*this, Lifetime, Registered.Role,
+				Registered.Id, Registered.Identity);
+	}
+
+	auto FImportService::RegisterPipelineScoped(
+		FPipelineRegistrationDescriptor Descriptor,
+		FModuleOwnedCallbackGate OwnerGate,
+		std::string& OutError) -> FInterchangeRegistration
+	{
+		const FInterchangeRegistryRegistration Registered =
+			Impl->Interchange.Register(std::move(Descriptor), std::move(OwnerGate), OutError);
+		if (Registered.Identity != 0) OpenAsyncImporterAdmission(Registered.Id);
+		return Registered.Identity == 0 ? FInterchangeRegistration{}
+			: FInterchangeRegistration(*this, Lifetime, Registered.Role,
+				Registered.Id, Registered.Identity);
+	}
+
+	auto FImportService::RegisterFactoryScoped(
+		FFactoryRegistrationDescriptor Descriptor,
+		FModuleOwnedCallbackGate OwnerGate,
+		std::string& OutError) -> FInterchangeRegistration
+	{
+		const FInterchangeRegistryRegistration Registered =
+			Impl->Interchange.Register(std::move(Descriptor), std::move(OwnerGate), OutError);
+		if (Registered.Identity != 0) OpenAsyncImporterAdmission(Registered.Id);
+		return Registered.Identity == 0 ? FInterchangeRegistration{}
+			: FInterchangeRegistration(*this, Lifetime, Registered.Role,
+				Registered.Id, Registered.Identity);
+	}
+
+	auto FImportService::UnregisterInterchangeComponent(
+		EInterchangeComponentRole Role,
+		std::string_view Id,
+		uint64 Identity) -> bool
+	{
+		CancelAndDrainAsyncImportsForProvider(Id);
+		return Impl->Interchange.Unregister(Role, Id, Identity);
+	}
+
+	auto FImportService::FindInterchangeComponent(
+		EInterchangeComponentRole Role,
+		std::string_view Id,
+		uint32 ContractVersion) const -> FInterchangeComponentLease
+	{
+		return Impl->Interchange.Find(Role, Id, ContractVersion);
+	}
+
+	auto FImportService::SelectTranslator(
+		const FImportSourceRecognition& Source,
+		std::string_view PersistedId,
+		uint32 PersistedVersion) const -> FInterchangeSelectionResult
+	{
+		if (!PersistedId.empty())
+		{
+			FInterchangeComponentLease Lease = Impl->Interchange.Find(
+				EInterchangeComponentRole::Translator, PersistedId, PersistedVersion);
+			if (Lease) return {.Lease = std::move(Lease)};
+			return {.Diagnostics = {{
+				.Category = EImportDiagnosticCategory::ProviderUnavailable,
+				.Identity = "InterchangePersistedTranslatorUnavailable",
+				.Phase = "Selection",
+				.Message = std::format("Persisted translator '{}' version {} is unavailable.",
+					PersistedId, PersistedVersion)}}};
+		}
+		return Impl->Interchange.SelectTranslator(Source);
+	}
+
+	auto FImportService::SelectFactory(
+		std::string_view OutputClassName,
+		std::string_view PersistedId,
+		uint32 PersistedVersion) const -> FInterchangeSelectionResult
+	{
+		if (!PersistedId.empty())
+		{
+			FInterchangeComponentLease Lease = Impl->Interchange.Find(
+				EInterchangeComponentRole::Factory, PersistedId, PersistedVersion);
+			if (Lease && Lease.GetOutputClassName() == OutputClassName)
+				return {.Lease = std::move(Lease)};
+			return {.Diagnostics = {{
+				.Category = EImportDiagnosticCategory::ProviderUnavailable,
+				.Identity = "InterchangePersistedFactoryUnavailable",
+				.Phase = "Selection",
+				.Message = std::format(
+					"Persisted factory '{}' version {} is unavailable for output class '{}'.",
+					PersistedId, PersistedVersion, OutputClassName)}}};
+		}
+		return Impl->Interchange.SelectFactory(OutputClassName);
+	}
+
+	auto FImportService::EnumerateInterchangeComponents(
+		EInterchangeComponentRole Role) const
+		-> std::vector<FInterchangeComponentIdentity>
+	{
+		return Impl->Interchange.Enumerate(Role);
+	}
+
+	auto FImportService::GetInterchangeRevision() const -> uint64
+	{
+		return Impl->Interchange.GetRevision();
 	}
 
 	auto FImportService::CreateImportPlan(const FImportPlanRequest& Request)

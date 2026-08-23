@@ -444,14 +444,18 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 		*Result.Asset,
 		Replacement.generic_string(),
 		"/TextureImportTests/Textures/Texture.tga", Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Result.Asset, 10.0))
-		<< Durin::Asset::Build::GetTexture2DBuildDiagnostic(*Result.Asset).Message;
 	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath.Path,
 		"/TextureImportTests/Textures/Texture.tga");
 	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Available);
 	EXPECT_EQ(Result.Asset->GetSourceWidth(), 5u);
 	EXPECT_EQ(Result.Asset->GetSourceHeight(), 3u);
-	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
+	EXPECT_FALSE(Result.Asset->GetPackage()->IsDirty());
+	Durin::Asset::FInterchangeProvenance Provenance;
+	ASSERT_TRUE(Durin::Asset::Forge::InspectTexture2DInterchangeProvenance(
+		*Result.Asset, Provenance, Error)) << Error;
+	EXPECT_EQ(Provenance.Translator.Id, "Durin.Image");
+	ASSERT_EQ(Provenance.OutputMappings.size(), 1u);
+	EXPECT_EQ(Provenance.OutputMappings.front().OutputIdentity, "texture2d");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "Content" / "Textures" / "Texture.tga"));

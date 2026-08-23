@@ -525,10 +525,25 @@ namespace Durin
 		SourceLastWriteTime = LastWriteTime;
 	}
 
+	auto DTexture2D::PublishInterchangeProvenance(
+		std::vector<std::byte> Provenance) -> void
+	{
+		static constexpr char Hex[] = "0123456789abcdef";
+		InterchangeProvenance.resize(Provenance.size() * 2);
+		for (size_t Index = 0; Index < Provenance.size(); ++Index)
+		{
+			const uint8 Value = static_cast<uint8>(Provenance[Index]);
+			InterchangeProvenance[Index * 2] = Hex[Value >> 4];
+			InterchangeProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+		}
+		MarkPackageDirty();
+	}
+
 	auto DTexture2D::ExchangeImportedState(DTexture2D& Other) -> void
 	{
 		if (&Other == this) return;
 		std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(InterchangeProvenance, Other.InterchangeProvenance);
 		std::swap(SourceContentHash, Other.SourceContentHash);
 		std::swap(SourceFileSize, Other.SourceFileSize);
 		std::swap(SourceLastWriteTime, Other.SourceLastWriteTime);

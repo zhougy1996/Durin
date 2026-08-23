@@ -3,6 +3,8 @@
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
 #include "ImportJob.h"
+#include "Interchange.h"
+#include "InterchangeJob.h"
 #include "MultiOutputImport.h"
 
 namespace Durin::Asset
@@ -94,10 +96,38 @@ namespace Durin::Asset
 		auto FindImporter(std::string_view ProviderId) const -> FProviderLease;
 		auto GetOutstandingImporterLeaseCount(std::string_view ProviderId) const -> uint64;
 		auto GetImporterRevision() const -> uint64;
+		auto RegisterTranslatorScoped(FTranslatorRegistrationDescriptor Descriptor,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError)
+			-> FInterchangeRegistration;
+		auto RegisterPipelineScoped(FPipelineRegistrationDescriptor Descriptor,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError)
+			-> FInterchangeRegistration;
+		auto RegisterFactoryScoped(FFactoryRegistrationDescriptor Descriptor,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError)
+			-> FInterchangeRegistration;
+		auto FindInterchangeComponent(EInterchangeComponentRole Role,
+			std::string_view Id, uint32 ContractVersion = 0) const
+			-> FInterchangeComponentLease;
+		auto SelectTranslator(const FImportSourceRecognition& Source,
+			std::string_view PersistedId = {}, uint32 PersistedVersion = 0) const
+			-> FInterchangeSelectionResult;
+		auto SelectFactory(std::string_view OutputClassName,
+			std::string_view PersistedId = {}, uint32 PersistedVersion = 0) const
+			-> FInterchangeSelectionResult;
+		auto EnumerateInterchangeComponents(EInterchangeComponentRole Role) const
+			-> std::vector<FInterchangeComponentIdentity>;
+		auto GetInterchangeRevision() const -> uint64;
+		auto SubmitInterchangeImport(FInterchangeImportRequest Request,
+			std::string_view Title = {},
+			FInterchangeImportCompletion Completion = {}) -> FInterchangeImportHandle;
+		auto RunInterchangeImportInline(FInterchangeImportRequest Request,
+			std::string_view Title = {}) -> FInterchangeImportResult;
 		auto SubmitImportJob(std::unique_ptr<IImportJob> Job,
 			std::string_view Title) -> FImportOperationHandle;
 		// Called once from the central editor tick. It never waits for worker work.
 		auto PumpImportOperations(uint32 MaximumEditorSteps = 64) -> uint32;
+		auto CancelAndDrainImportOperation(
+			const FImportOperationHandle& Handle) -> void;
 		auto RunImportJobInline(std::unique_ptr<IImportJob> Job,
 			std::string_view Title = {}) -> FImportOutcome;
 		auto CancelImportOperation(const FImportOperationHandle& Handle) -> bool;
@@ -163,6 +193,7 @@ namespace Durin::Asset
 
 	private:
 		friend class FImporterRegistration;
+		friend class FInterchangeRegistration;
 		struct FImpl;
 		std::shared_ptr<void> Lifetime;
 		std::unique_ptr<FImpl> Impl;
@@ -173,6 +204,8 @@ namespace Durin::Asset
 			-> std::shared_ptr<const IImportRecordHandler>;
 		auto OpenAsyncImporterAdmission(std::string_view ProviderId) -> void;
 		auto UnregisterImporter(std::string_view ProviderId, uint64 Identity) -> bool;
+		auto UnregisterInterchangeComponent(EInterchangeComponentRole Role,
+			std::string_view Id, uint64 Identity) -> bool;
 		auto ExecuteSingleAssetImportPrepared(
 			const FSingleAssetImportPlan& Plan,
 			const FSingleAssetExecutionOptions& Options,

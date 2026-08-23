@@ -647,13 +647,15 @@ namespace Durin::Editor::Level
 		if (State.GetSourceMode() == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = Source.GetDestinationBuffer().data();
 		Settings.Usage = State.GetTexture2D().Usage;
-		const FTexture2DImportResult Result =
-			Asset::Forge::ImportTexture2DAsset(
+		const Asset::FInterchangeImportResult Result =
+			Asset::Forge::ImportTexture2DInterchange(
 				Source.GetSourcePathBuffer().data(), Destination.GetPath(), Settings,
 				IsEngineAuthoringDestination(Destination.GetPath()));
-		if (!Result)
+		if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
 		{
-			SetError(Result.Message);
+			SetError(Result.Outcome.Diagnostic.empty()
+				? "Texture2D Interchange import failed."
+				: Result.Outcome.Diagnostic);
 			return false;
 		}
 		return true;

@@ -606,7 +606,9 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(AssetPathString, AssetPath));
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 		Durin::DTexture2D* Loaded = nullptr;
-		ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+		const Durin::Asset::FAssetResult LoadResult =
+			Durin::Asset::LoadAsset(AssetPath, Loaded);
+		ASSERT_TRUE(LoadResult) << LoadResult.Message;
 		ASSERT_NE(Loaded, nullptr);
 		EXPECT_EQ(Loaded->GetUsage(), Preset.Usage);
 		EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Preset.PixelFormat);
