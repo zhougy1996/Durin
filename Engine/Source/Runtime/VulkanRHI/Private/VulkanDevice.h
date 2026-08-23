@@ -224,9 +224,9 @@ namespace Durin::VulkanRHI
 		auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
 		auto GetCurrentFrameIndex() const -> uint32;
-		auto GetGraphicsCacheStatistics() const -> const FRHIGraphicsCacheStatistics& { return GraphicsCacheStatistics; }
-		auto GetGraphicsCacheStatisticsMutable() -> FRHIGraphicsCacheStatistics& { return GraphicsCacheStatistics; }
-		auto ResetGraphicsCacheStatistics() -> void;
+		auto GetPipelineCacheStatistics() const -> const FRHIPipelineCacheStatistics& { return PipelineCacheStatistics; }
+		auto GetPipelineCacheStatisticsMutable() -> FRHIPipelineCacheStatistics& { return PipelineCacheStatistics; }
+		auto ResetPipelineCacheStatistics() -> void;
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 		auto NotifyDeleted_GraphicsPipeline(
@@ -269,7 +269,7 @@ namespace Durin::VulkanRHI
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;
 
-		FRHIGraphicsCacheStatistics GraphicsCacheStatistics;
+		FRHIPipelineCacheStatistics PipelineCacheStatistics;
 
 		FVulkanQueue* GraphicsQueue = nullptr;
 

@@ -65,7 +65,6 @@ namespace Durin
 		uint64 PersistentRejects = 0;
 		uint64 PersistentBytes = 0;
 	};
-	using FRHIGraphicsCacheStatistics = FRHIPipelineCacheStatistics;
 
 	enum class ERHIMemoryAllocationClass : uint8
 	{
@@ -175,7 +174,7 @@ namespace Durin
 	{
 		FRHIDiagnosticAvailability Availability;
 		FRHICommandListExecutorStats Executor;
-		FRHIGraphicsCacheStatistics GraphicsCache;
+		FRHIPipelineCacheStatistics PipelineCache;
 		FRHIMemoryStatistics Memory;
 		FRHICompletionDiagnosticStatistics Completion;
 		FRHIDiagnosticMessageStatistics Messages;
@@ -212,12 +211,9 @@ namespace Durin
 		virtual auto Shutdown() -> void = 0;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// Counters accumulate for the device lifetime until explicitly reset.
-		RHI_API virtual auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics;
-		// Clears accumulated counters while preserving capacities and live occupancy.
-		RHI_API virtual auto RHIResetGraphicsCacheStatistics() -> void;
-		// Pipeline-neutral cache snapshot; the graphics-named API remains a compatibility alias.
 		RHI_API virtual auto RHIGetPipelineCacheStatistics() const
 			-> FRHIPipelineCacheStatistics;
+		// Clears accumulated counters while preserving capacities and live occupancy.
 		RHI_API virtual auto RHIResetPipelineCacheStatistics() -> void;
 		RHI_API virtual auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics;
 		RHI_API virtual auto RHIResetMemoryStatistics() -> void;

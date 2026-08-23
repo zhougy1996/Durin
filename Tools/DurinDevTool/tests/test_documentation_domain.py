@@ -352,11 +352,8 @@ class TestUnifiedCommand:
             values = self._parse_values(['doc', 'roadmap', action])
             assert values['roadmap_action'] == action
             assert 'plan_action' not in values
-        archive = self._parse_values(
-            ['doc', 'roadmap', 'archive', '2026-07', '--apply']
-        )
+        archive = self._parse_values(['doc', 'roadmap', 'archive', '2026-07'])
         assert archive['roadmap_action'] == 'archive'
-        assert archive['apply'] is True
 
     def test_plan_names_are_case_insensitive_and_accept_slash_aliases(self) -> None:
         expected = self._parse_values(['doc', 'plan', 'list'])
@@ -499,20 +496,13 @@ class TestUnifiedCommand:
                 stderr=io.StringIO(),
             )
 
-    def test_archive_accepts_legacy_apply_and_rejects_conflicting_modes(self) -> None:
-        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--apply'])
+    def test_archive_applies_by_default(self) -> None:
+        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07'])
         with mock.patch.object(lifecycle_adapter, 'apply_lifecycle_archive') as apply:
             apply.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
         apply.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
-        with pytest.raises(DevToolError, match='cannot be combined'):
-            cli.run(
-                ['doc', 'plan', 'archive', '2026-07', '--apply', '--dry-run'],
-                repository_root=self.repository,
-                stdout=io.StringIO(),
-                stderr=io.StringIO(),
-            )
 
     def test_plan_context_returns_status_stage_handoff_and_related_code(self) -> None:
         (self.plans / 'Active.md').write_text(

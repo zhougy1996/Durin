@@ -897,10 +897,10 @@ namespace Durin::VulkanRHI
 			Before.Availability.bDebugUtilsActive);
 		EXPECT_EQ(After.Executor.RecordedCommandCount,
 			Before.Executor.RecordedCommandCount);
-		EXPECT_EQ(After.GraphicsCache.GraphicsPipelines.Capacity,
-			Before.GraphicsCache.GraphicsPipelines.Capacity);
-		EXPECT_EQ(After.GraphicsCache.GraphicsPipelines.Occupancy,
-			Before.GraphicsCache.GraphicsPipelines.Occupancy);
+		EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Capacity,
+			Before.PipelineCache.GraphicsPipelines.Capacity);
+		EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Occupancy,
+			Before.PipelineCache.GraphicsPipelines.Occupancy);
 		EXPECT_EQ(After.Completion.LastSubmittedToken,
 			Before.Completion.LastSubmittedToken);
 		EXPECT_EQ(After.Completion.PendingSubmissions,
@@ -972,8 +972,8 @@ namespace Durin::VulkanRHI
 			Snapshots[1].Timing.AllocatedPages);
 		EXPECT_EQ(Snapshots[0].Timing.LiveIntervals,
 			Snapshots[1].Timing.LiveIntervals);
-		EXPECT_EQ(Snapshots[0].GraphicsCache.GraphicsPipelines.Capacity,
-			Snapshots[1].GraphicsCache.GraphicsPipelines.Capacity);
+		EXPECT_EQ(Snapshots[0].PipelineCache.GraphicsPipelines.Capacity,
+			Snapshots[1].PipelineCache.GraphicsPipelines.Capacity);
 	}
 
 	TEST_F(FVulkanPublicRHIConformanceTests,
@@ -1146,13 +1146,13 @@ namespace Durin::VulkanRHI
 			EXPECT_GT(ModeSnapshots[ModeIndex].Naming.LabelBegins, 0u);
 			EXPECT_GT(ModeSnapshots[ModeIndex].Timing.ReadyResultCount, 0u);
 			EXPECT_EQ(ModeSnapshots[ModeIndex].Naming.ActiveRegionDepth, 0u);
-			EXPECT_EQ(ModeSnapshots[ModeIndex].GraphicsCache
+			EXPECT_EQ(ModeSnapshots[ModeIndex].PipelineCache
 				.DescriptorSnapshots.Occupancy, 512u);
-			EXPECT_EQ(ModeSnapshots[ModeIndex].GraphicsCache
+			EXPECT_EQ(ModeSnapshots[ModeIndex].PipelineCache
 				.DescriptorValueOccupancy, 1536u);
-			EXPECT_GE(ModeSnapshots[ModeIndex].GraphicsCache
+			EXPECT_GE(ModeSnapshots[ModeIndex].PipelineCache
 				.DescriptorSnapshots.Hits, 1u);
-			EXPECT_GE(ModeSnapshots[ModeIndex].GraphicsCache
+			EXPECT_GE(ModeSnapshots[ModeIndex].PipelineCache
 				.DescriptorSnapshots.Evictions, 1u);
 			const FVulkanHotPathWorkTestStats HotPathWork =
 				GetVulkanHotPathWorkTestStats();
@@ -1165,9 +1165,9 @@ namespace Durin::VulkanRHI
 				GDynamicRHI->RHIResetDiagnosticStatistics();
 				StatisticsReset = GDynamicRHI->RHIGetDiagnosticSnapshot();
 			});
-			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorSnapshots.Occupancy, 512u);
-			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorValueOccupancy, 1536u);
-			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorSnapshots.Hits, 0u);
+			EXPECT_EQ(StatisticsReset.PipelineCache.DescriptorSnapshots.Occupancy, 512u);
+			EXPECT_EQ(StatisticsReset.PipelineCache.DescriptorValueOccupancy, 1536u);
+			EXPECT_EQ(StatisticsReset.PipelineCache.DescriptorSnapshots.Hits, 0u);
 
 			Replacement = nullptr;
 			Timing = nullptr;
@@ -1464,8 +1464,8 @@ namespace Durin::VulkanRHI
 			GetVulkanGraphicsPipelineTestStats();
 		const FVulkanStructuralCacheTestStats StructuralStatsBefore =
 			GetVulkanStructuralCacheTestStats();
-		const FRHIGraphicsCacheStatistics CacheStatsBefore =
-			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		const FRHIPipelineCacheStatistics CacheStatsBefore =
+			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::RenderPass);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
 			PipelineName, Initializer));
@@ -1650,8 +1650,8 @@ namespace Durin::VulkanRHI
 			StructuralStatsBefore.DescriptorSetLayoutEntryCount + 2);
 		EXPECT_EQ(StatsAfterPipelineCreation.PipelineLayoutEntryCount,
 			StructuralStatsBefore.PipelineLayoutEntryCount + 2);
-		const FRHIGraphicsCacheStatistics CacheStatsAfterCreation =
-			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		const FRHIPipelineCacheStatistics CacheStatsAfterCreation =
+			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,
 			CacheStatsBefore.GraphicsPipelines.Hits + 1);
 		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.NativeCreations,
@@ -1848,9 +1848,9 @@ namespace Durin::VulkanRHI
 		MrtColor0 = nullptr;
 		Buffer = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-		GDynamicRHI->RHIResetGraphicsCacheStatistics();
-		const FRHIGraphicsCacheStatistics ResetCacheStats =
-			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		GDynamicRHI->RHIResetPipelineCacheStatistics();
+		const FRHIPipelineCacheStatistics ResetCacheStats =
+			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.Hits, 0u);
 		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.NativeCreations, 0u);
 		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.Occupancy,

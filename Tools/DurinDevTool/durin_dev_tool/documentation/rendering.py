@@ -208,7 +208,7 @@ def render_change_set(
     repository_root: Path,
     applied: bool,
     output_format: str,
-    preview_instruction: str = "Dry-run only; add --apply to perform the change.",
+    preview_instruction: str = "Dry-run only; remove --dry-run to perform the change.",
 ) -> str:
     def relative(path: Path | None) -> str | None:
         return (

@@ -345,11 +345,11 @@ namespace Durin::VulkanRHI
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
 		DynamicStorageBufferAllocator = new FVulkanDynamicStorageBufferAllocator(*this);
-		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
-		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
-		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
-		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
-		GraphicsCacheStatistics.ComputePipelines.Capacity = 2048;
+		PipelineCacheStatistics.DescriptorSnapshots.Capacity = 512;
+		PipelineCacheStatistics.DescriptorValueCapacity = 8192;
+		PipelineCacheStatistics.StructuralLayouts.Capacity = 256;
+		PipelineCacheStatistics.GraphicsPipelines.Capacity = 2048;
+		PipelineCacheStatistics.ComputePipelines.Capacity = 2048;
 
 		for (auto& Frame : Frames)
 		{
@@ -357,25 +357,25 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDevice::ResetGraphicsCacheStatistics() -> void
+	auto FVulkanDevice::ResetPipelineCacheStatistics() -> void
 	{
-		const uint64 DescriptorOccupancy = GraphicsCacheStatistics.DescriptorSnapshots.Occupancy;
-		const uint64 DescriptorValueOccupancy = GraphicsCacheStatistics.DescriptorValueOccupancy;
-		const uint64 LayoutOccupancy = GraphicsCacheStatistics.StructuralLayouts.Occupancy;
-		const uint64 PipelineOccupancy = GraphicsCacheStatistics.GraphicsPipelines.Occupancy;
+		const uint64 DescriptorOccupancy = PipelineCacheStatistics.DescriptorSnapshots.Occupancy;
+		const uint64 DescriptorValueOccupancy = PipelineCacheStatistics.DescriptorValueOccupancy;
+		const uint64 LayoutOccupancy = PipelineCacheStatistics.StructuralLayouts.Occupancy;
+		const uint64 PipelineOccupancy = PipelineCacheStatistics.GraphicsPipelines.Occupancy;
 		const uint64 ComputePipelineOccupancy =
-			GraphicsCacheStatistics.ComputePipelines.Occupancy;
-		GraphicsCacheStatistics = {};
-		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
-		GraphicsCacheStatistics.DescriptorSnapshots.Occupancy = DescriptorOccupancy;
-		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
-		GraphicsCacheStatistics.DescriptorValueOccupancy = DescriptorValueOccupancy;
-		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
-		GraphicsCacheStatistics.StructuralLayouts.Occupancy = LayoutOccupancy;
-		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
-		GraphicsCacheStatistics.GraphicsPipelines.Occupancy = PipelineOccupancy;
-		GraphicsCacheStatistics.ComputePipelines.Capacity = 2048;
-		GraphicsCacheStatistics.ComputePipelines.Occupancy =
+			PipelineCacheStatistics.ComputePipelines.Occupancy;
+		PipelineCacheStatistics = {};
+		PipelineCacheStatistics.DescriptorSnapshots.Capacity = 512;
+		PipelineCacheStatistics.DescriptorSnapshots.Occupancy = DescriptorOccupancy;
+		PipelineCacheStatistics.DescriptorValueCapacity = 8192;
+		PipelineCacheStatistics.DescriptorValueOccupancy = DescriptorValueOccupancy;
+		PipelineCacheStatistics.StructuralLayouts.Capacity = 256;
+		PipelineCacheStatistics.StructuralLayouts.Occupancy = LayoutOccupancy;
+		PipelineCacheStatistics.GraphicsPipelines.Capacity = 2048;
+		PipelineCacheStatistics.GraphicsPipelines.Occupancy = PipelineOccupancy;
+		PipelineCacheStatistics.ComputePipelines.Capacity = 2048;
+		PipelineCacheStatistics.ComputePipelines.Occupancy =
 			ComputePipelineOccupancy;
 	}
 

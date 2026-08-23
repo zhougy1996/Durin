@@ -146,8 +146,6 @@ def run(
         else:
             print(f"Validated {len(documents)} {namespace.scope} {config.document_label}s.", file=stdout)
         return 0
-    if namespace.apply and namespace.dry_run:
-        raise DevToolError("--apply and --dry-run cannot be combined")
     applied = not namespace.dry_run
     preview = (
         apply_lifecycle_archive(workspace.directory, namespace.month, config)

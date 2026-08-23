@@ -542,8 +542,8 @@ float4 FragmentMain() : SV_Target
 			*RenderPipeline(Recovered->Payload->PipelineState),
 			0,
 			255);
-		const FRHIGraphicsCacheStatistics CacheBeforeForcedReload =
-			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		const FRHIPipelineCacheStatistics CacheBeforeForcedReload =
+			GDynamicRHI->RHIGetPipelineCacheStatistics();
 
 		const FConsoleCommandResult ForcedAll =
 			FConsoleCommandRegistry::Get().Execute(
@@ -558,8 +558,8 @@ float4 FragmentMain() : SV_Target
 		EXPECT_EQ(Attempts, 4);
 		ASSERT_EQ(ForceFlags.size(), 4);
 		EXPECT_TRUE(ForceFlags.back());
-		const FRHIGraphicsCacheStatistics CacheAfterForcedReload =
-			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		const FRHIPipelineCacheStatistics CacheAfterForcedReload =
+			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_EQ(CacheAfterForcedReload.GraphicsPipelines.Hits,
 			CacheBeforeForcedReload.GraphicsPipelines.Hits + 1);
 		EXPECT_EQ(CacheAfterForcedReload.GraphicsPipelines.NativeCreations,

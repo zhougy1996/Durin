@@ -237,7 +237,7 @@ namespace Durin::VulkanRHI
 		if (bIsExpansion)
 		{
 			++Batch.ExpansionCount;
-			++Device.GetGraphicsCacheStatisticsMutable().DescriptorPoolExpansions;
+			++Device.GetPipelineCacheStatisticsMutable().DescriptorPoolExpansions;
 		}
 		DURIN_DEBUG("Created Vulkan descriptor pool: batch={}, poolCount={}, maxSets={}, expansions={}",
 			ActiveBatchIndex, Pools.size(), Pools.back()->GetMaxSets(),

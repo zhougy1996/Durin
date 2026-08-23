@@ -694,7 +694,7 @@ namespace Durin::VulkanRHI
 		-> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		CheckVulkanRHIThread();
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().GraphicsPipelines;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().GraphicsPipelines;
 		if (const auto It = GraphicsPipelineMap.find(Key); It != GraphicsPipelineMap.end())
 		{
 			++Stats.Hits;
@@ -737,7 +737,7 @@ namespace Durin::VulkanRHI
 		-> TRefCountPtr<FVulkanComputePipelineState>
 	{
 		CheckVulkanRHIThread();
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().ComputePipelines;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().ComputePipelines;
 		if (const auto It = ComputePipelineMap.find(Key);
 			It != ComputePipelineMap.end())
 		{
@@ -778,7 +778,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineManager::FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>
 	{
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().StructuralLayouts;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().StructuralLayouts;
 		const auto It = LayoutMap.find(LayoutInfo);
 		if (It != LayoutMap.end())
 		{
@@ -833,7 +833,7 @@ namespace Durin::VulkanRHI
 		GVulkanPipelineLayoutEntryCount.fetch_sub(1, std::memory_order_release);
 #endif
 		LayoutMap.erase(Victim);
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().StructuralLayouts;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().StructuralLayouts;
 		++Stats.Evictions;
 		Stats.Occupancy = LayoutMap.size();
 		return true;
@@ -850,7 +850,7 @@ namespace Durin::VulkanRHI
 		}
 		if (Victim == GraphicsPipelineMap.end()) return false;
 		GraphicsPipelineMap.erase(Victim);
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().GraphicsPipelines;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().GraphicsPipelines;
 		++Stats.Evictions;
 		Stats.Occupancy = GraphicsPipelineMap.size();
 		return true;
@@ -867,7 +867,7 @@ namespace Durin::VulkanRHI
 		}
 		if (Victim == ComputePipelineMap.end()) return false;
 		ComputePipelineMap.erase(Victim);
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().ComputePipelines;
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable().ComputePipelines;
 		++Stats.Evictions;
 		Stats.Occupancy = ComputePipelineMap.size();
 		return true;
@@ -897,7 +897,7 @@ namespace Durin::VulkanRHI
 	{
 		std::vector<std::byte> FileBytes;
 		std::span<const std::byte> InitialData;
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
 		const auto& Properties = Device.GetGpuProperties();
 		const std::filesystem::path Path = PipelineCachePath();
 		if (FFileHelper::FileExists(Path.generic_string()))
@@ -956,7 +956,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanPipelineManager::SaveDriverPipelineCache() -> void
 	{
 		if (!DriverPipelineCache) return;
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
 		try
 		{
 			const std::vector<uint8_t> Payload = Device.GetHandle().getPipelineCacheData(DriverPipelineCache);
@@ -1053,13 +1053,13 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	auto FVulkanDynamicRHI::RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics
+	auto FVulkanDynamicRHI::RHIGetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics
 	{
-		return Device ? Device->GetGraphicsCacheStatistics() : FRHIGraphicsCacheStatistics{};
+		return Device ? Device->GetPipelineCacheStatistics() : FRHIPipelineCacheStatistics{};
 	}
 
-	auto FVulkanDynamicRHI::RHIResetGraphicsCacheStatistics() -> void
+	auto FVulkanDynamicRHI::RHIResetPipelineCacheStatistics() -> void
 	{
-		if (Device) Device->ResetGraphicsCacheStatistics();
+		if (Device) Device->ResetPipelineCacheStatistics();
 	}
 } // namespace Durin::VulkanRHI

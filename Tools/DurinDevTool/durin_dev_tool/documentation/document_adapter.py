@@ -32,7 +32,6 @@ def run(
         if (limit := getattr(namespace, "document_limit", None)) is not None:
             documents = documents[:limit]
         if not documents:
-            from ..errors import DevToolError
             raise DevToolError("no documentation files matched the request")
         print(render_documents(documents, output_format=output_format(namespace, interactive=interactive)), file=stdout)
         return 0
@@ -67,8 +66,6 @@ def run(
             destination=DocumentRef.parse(namespace.destination_path),
         )
     )
-    if namespace.apply and namespace.dry_run:
-        raise DevToolError("--apply and --dry-run cannot be combined")
     applied = not namespace.dry_run
     if applied:
         workspace.apply(change_set)

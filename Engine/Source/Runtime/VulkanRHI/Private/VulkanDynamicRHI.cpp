@@ -250,7 +250,7 @@ namespace Durin::VulkanRHI
 				.bMessengerActive = DiagnosticAvailability.bMessengerActive,
 		};
 		if (!Device) return Result;
-		Result.GraphicsCache = Device->GetGraphicsCacheStatistics();
+		Result.PipelineCache = Device->GetPipelineCacheStatistics();
 		Result.Memory = GetRHIMemoryStatistics();
 		const auto& Completion = Device->GetCompletionTracker();
 		Result.Completion = {
@@ -314,7 +314,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		if (Device)
 		{
-			Device->ResetGraphicsCacheStatistics();
+			Device->ResetPipelineCacheStatistics();
 			ResetVulkanMemoryBaselineStatistics();
 			Device->GetGPUTimingManager().ResetStatistics();
 		}

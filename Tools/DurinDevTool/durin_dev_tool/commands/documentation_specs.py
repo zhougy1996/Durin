@@ -22,7 +22,6 @@ PLAN_VALIDATE_ARGUMENTS = (argument("--scope", choices=PLAN_SCOPES, default="all
 PLAN_ARCHIVE_ARGUMENTS = (
     argument("month", help="completion month in YYYY-MM form"),
     argument("--dry-run", action="store_true", help="preview without applying the archive"),
-    argument("--apply", action="store_true", help="compatibility flag; archives apply by default"),
 )
 PLAN_CREATE_ARGUMENTS = (
     argument("plan_path", metavar="PATH"),
@@ -134,7 +133,6 @@ COMMAND_SPEC = CommandSpec(
                 argument("document_path", metavar="PATH"), argument("--title", required=True),
                 argument("--summary", default=""),
                 argument("--dry-run", action="store_true"),
-                argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
                 DOCUMENT_OUTPUT,
             ),
             defaults=(("document_action", "create"),),
@@ -145,7 +143,6 @@ COMMAND_SPEC = CommandSpec(
                 argument("source_path", metavar="SOURCE"),
                 argument("destination_path", metavar="DESTINATION"),
                 argument("--dry-run", action="store_true"),
-                argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
                 DOCUMENT_OUTPUT,
             ),
             defaults=(("document_action", "move"),),
@@ -162,7 +159,6 @@ COMMAND_SPEC = CommandSpec(
                     arguments=(
                         argument("task_path", metavar="PATH"),
                         argument("--dry-run", action="store_true"),
-                        argument("--apply", action="store_true", help="compatibility flag; changes apply by default"),
                         DOCUMENT_OUTPUT,
                     ),
                     defaults=(("task_action", "remove"),),

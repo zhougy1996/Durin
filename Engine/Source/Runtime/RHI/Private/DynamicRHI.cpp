@@ -49,7 +49,7 @@ namespace Durin
 	{
 		FRHIDiagnosticSnapshot Result;
 		Result.Executor = GCommandListExecutor.GetStats();
-		Result.GraphicsCache = RHIGetGraphicsCacheStatistics();
+		Result.PipelineCache = RHIGetPipelineCacheStatistics();
 		Result.Memory = RHIGetMemoryStatistics();
 		Result.Completion.RetirementPendingCount =
 			Result.Memory.RetirementPendingCount;
@@ -66,7 +66,7 @@ namespace Durin
 
 	auto FDynamicRHI::RHIResetDiagnosticStatistics() -> void
 	{
-		RHIResetGraphicsCacheStatistics();
+		RHIResetPipelineCacheStatistics();
 		RHIResetMemoryStatistics();
 		FRHICommandListBase::ResetInvalidDiagnosticRegionCount();
 	}
@@ -117,24 +117,14 @@ namespace Durin
 		return nullptr;
 	}
 
-	auto FDynamicRHI::RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics
+	auto FDynamicRHI::RHIGetPipelineCacheStatistics() const
+		-> FRHIPipelineCacheStatistics
 	{
 		return {};
 	}
 
-	auto FDynamicRHI::RHIResetGraphicsCacheStatistics() -> void
-	{
-	}
-
-	auto FDynamicRHI::RHIGetPipelineCacheStatistics() const
-		-> FRHIPipelineCacheStatistics
-	{
-		return RHIGetGraphicsCacheStatistics();
-	}
-
 	auto FDynamicRHI::RHIResetPipelineCacheStatistics() -> void
 	{
-		RHIResetGraphicsCacheStatistics();
 	}
 
 	auto FDynamicRHI::RHIGetMemoryStatistics() const -> FRHIMemoryStatistics

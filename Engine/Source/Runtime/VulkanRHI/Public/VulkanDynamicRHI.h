@@ -67,8 +67,8 @@ namespace Durin::VulkanRHI
 		auto RHICreateGPUTimingQuery() -> TRefCountPtr<FRHIGPUTimingQuery> override;
 		auto RHIGetGPUTimingResult(const FRHIGPUTimingQuery* Query) const
 			-> FRHIGPUTimingResult override;
-		auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics override;
-		auto RHIResetGraphicsCacheStatistics() -> void override;
+		auto RHIGetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics override;
+		auto RHIResetPipelineCacheStatistics() -> void override;
 		auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics override;
 		auto RHIResetMemoryStatistics() -> void override;
 		auto RHIGetDiagnosticSnapshot() const -> FRHIDiagnosticSnapshot override;
