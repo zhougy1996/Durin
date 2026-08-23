@@ -70,6 +70,15 @@ from reflection_test_support import reflection_fixture
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionProperties:
+    @pytest.mark.parametrize("spelling", ["uint32", "::uint32", "Durin::uint32"])
+    def test_fixed_width_integer_spellings_use_global_canonical_type(self, spelling):
+        prop = _make_property_from_spelling("Value", spelling, None)
+
+        assert prop is not None
+        assert prop.kind == "UInt32"
+        assert prop.element_size == "sizeof(::uint32)"
+        assert property_parser._cpp_type_spelling(spelling, None) == "::uint32"
+
     def test_property_legacy_names_are_generated_as_first_class_descriptor_data(self):
         statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
         assert (
@@ -237,7 +246,7 @@ class TestReflectionProperties:
         )
         assert (
             'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit, 1, '
-            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Color)), '
+            'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Color)), '
             'Z_Construct_DStruct_Durin_FLinearColor, '
             'Z_Construct_DClass_Fixture_ASampleActor_Statics::NewProp_Color_MetaData, 1 };'
         ) in color_definition
@@ -318,6 +327,8 @@ class TestReflectionProperties:
         assert prop.deprecation.migrates_to == ["Value"]
         assert "FFixtureVersion::Guid" in self.generated_cpp
         assert "FFixtureVersion::LatestVersion" in self.generated_cpp
+        assert "static_cast<::int32>(FFixtureVersion::FloatValue)" in self.generated_cpp
+        assert "static_cast<::int32>(FFixtureVersion::LatestVersion)" in self.generated_cpp
         assert 'WithDeprecation(Durin::DurinCodeGen::FInt32PropertyParams' in self.generated_cpp
 
     @pytest.mark.parametrize(
@@ -343,7 +354,7 @@ class TestReflectionProperties:
         )
         assert definition.endswith(
             'NewProp_Identifier = { "Identifier", Durin::EPropertyFlags::Edit, 1, '
-            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Identifier)) };'
+            'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Identifier)) };'
         )
         assert "EPropertyGenFlags" not in definition
 
@@ -362,7 +373,7 @@ class TestReflectionProperties:
         )
         assert direct.endswith(
             'NewProp_PersistentId = { "PersistentId", Durin::EPropertyFlags::Edit, 1, '
-            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, PersistentId)) };'
+            'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, PersistentId)) };'
         )
         assert nested.endswith(
             'NewProp_RelatedIds_Inner = { "RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0 };'
@@ -380,27 +391,27 @@ class TestReflectionProperties:
         expected_suffixes = {
             "Value": (
                 'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value)) };'
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value)) };'
             ),
             "Weights": (
                 'NewProp_Weights = { "Weights", Durin::EPropertyFlags::None, 2, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Weights)) };'
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Weights)) };'
             ),
             "Mode": (
                 'NewProp_Mode = { "Mode", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Mode)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Mode)), '
                 'Z_Construct_DEnum_Fixture_EFixtureMode };'
             ),
             "RawReference": (
                 'NewProp_RawReference = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>('
                 '"RawReference", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, RawReference)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, RawReference)), '
                 'Z_Construct_DClass_Durin_DObject);'
             ),
             "StrongReference": (
                 'NewProp_StrongReference = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>('
                 '"StrongReference", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, StrongReference)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, StrongReference)), '
                 'Z_Construct_DClass_Durin_DObject);'
             ),
         }
@@ -414,7 +425,7 @@ class TestReflectionProperties:
                 assert "WithTypedMetadata(" in definition
                 assert (
                     '"Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly, 1, '
-                    'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value))'
+                    'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value))'
                 ) in definition
             else:
                 assert definition.endswith(suffix)
@@ -425,7 +436,7 @@ class TestReflectionProperties:
         )
         assert label.endswith(
             f'NewProp_Label = {{ "Label", Durin::EPropertyFlags::Edit, 1, '
-            f'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Label)), '
+            f'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Label)), '
             f'{statics}::NewProp_Label_MetaData, 1 }};'
         )
         object_inner = next(
@@ -467,32 +478,32 @@ class TestReflectionProperties:
         expected_definitions = {
             "Direct": (
                 'NewProp_Direct = { "Direct", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Direct)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Direct)), '
                 'Z_Construct_DStruct_Fixture_FTrivialOps };'
             ),
             "DeletedDefault": (
                 'NewProp_DeletedDefault = { "DeletedDefault", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedDefault)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedDefault)), '
                 'Z_Construct_DStruct_Fixture_FDeletedDefault };'
             ),
             "DeletedCopy": (
                 'NewProp_DeletedCopy = { "DeletedCopy", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedCopy)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedCopy)), '
                 'Z_Construct_DStruct_Fixture_FMoveOnly };'
             ),
             "NonTrivialDestructor": (
                 'NewProp_NonTrivialDestructor = { "NonTrivialDestructor", Durin::EPropertyFlags::None, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, NonTrivialDestructor)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, NonTrivialDestructor)), '
                 'Z_Construct_DStruct_Fixture_FNonTrivialDestructor };'
             ),
             "Metadata": (
                 'NewProp_Metadata = { "Metadata", Durin::EPropertyFlags::Edit, 1, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Metadata)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Metadata)), '
                 f'Z_Construct_DStruct_Fixture_FTrivialOps, {statics}::NewProp_Metadata_MetaData, 1 }};'
             ),
             "Fixed": (
                 'NewProp_Fixed = { "Fixed", Durin::EPropertyFlags::None, 3, '
-                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Fixed)), '
+                'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Fixed)), '
                 'Z_Construct_DStruct_Fixture_FTrivialOps };'
             ),
             "ArrayValues_Inner": (
@@ -689,7 +700,7 @@ class TestReflectionProperties:
             "Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<"
             "std::remove_extent_t<decltype(((Fixture::AContainerShapes*)0)->SoftReference)>>("
             '\"SoftReference\", Durin::EPropertyFlags::Edit, 1, '
-            "static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::AContainerShapes, SoftReference)), "
+            "static_cast<::uint16>(STRUCT_OFFSET(Fixture::AContainerShapes, SoftReference)), "
             "Z_Construct_DClass_Durin_DObject);"
         )
         nested_definition = next(

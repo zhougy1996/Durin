@@ -117,8 +117,8 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         content += (
             f"const Durin::FPropertyDeprecationParams {deprecation_name} = {{ "
             f"{deprecation.custom_version_type}::Guid, "
-            f"static_cast<Durin::int32>({deprecation.deprecated_before}), "
-            f"static_cast<Durin::int32>({deprecation.custom_version_type}::LatestVersion), "
+            f"static_cast<::int32>({deprecation.deprecated_before}), "
+            f"static_cast<::int32>({deprecation.custom_version_type}::LatestVersion), "
             f"{_cpp_string_literal(deprecation.historical_name)}, {targets_name}, "
             f"{len(deprecation.migrates_to)} }};\n"
         )
@@ -140,7 +140,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     property_flags = prop.flags
     if property_flags == "None":
         property_flags = "Durin::EPropertyFlags::None"
-    offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
+    offset = "0" if nested else f"static_cast<::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
     if prop.kind == "Struct":
         referenced_struct_helper = "nullptr"
         if prop.referenced_struct_type:

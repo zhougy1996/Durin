@@ -51,6 +51,22 @@ _PROPERTY_KIND_BY_TYPE = {
     "uint16": "UInt16",
     "uint32": "UInt32",
     "uint64": "UInt64",
+    "::int8": "Int8",
+    "::int16": "Int16",
+    "::int32": "Int32",
+    "::int64": "Int64",
+    "::uint8": "UInt8",
+    "::uint16": "UInt16",
+    "::uint32": "UInt32",
+    "::uint64": "UInt64",
+    "Durin::int8": "Int8",
+    "Durin::int16": "Int16",
+    "Durin::int32": "Int32",
+    "Durin::int64": "Int64",
+    "Durin::uint8": "UInt8",
+    "Durin::uint16": "UInt16",
+    "Durin::uint32": "UInt32",
+    "Durin::uint64": "UInt64",
     "float": "Float",
     "double": "Double",
     "bool": "Bool",
@@ -931,14 +947,10 @@ def _cpp_type_spelling(
 ) -> str:
     type_spelling = _normalize_type_spelling(type_spelling)
     primitive_types = {
-        "int8": "Durin::int8",
-        "int16": "Durin::int16",
-        "int32": "Durin::int32",
-        "int64": "Durin::int64",
-        "uint8": "Durin::uint8",
-        "uint16": "Durin::uint16",
-        "uint32": "Durin::uint32",
-        "uint64": "Durin::uint64",
+        spelling: f"::{name}"
+        for name in ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64")
+        for spelling in (name, f"::{name}", f"Durin::{name}")
+    } | {
         "bool": "bool",
         "float": "float",
         "double": "double",
@@ -1030,14 +1042,14 @@ def _make_property_from_spelling(
             )
         size_by_kind = {
             "Bool": "sizeof(bool)",
-            "Int8": "sizeof(Durin::int8)",
-            "Int16": "sizeof(Durin::int16)",
-            "Int32": "sizeof(Durin::int32)",
-            "Int64": "sizeof(Durin::int64)",
-            "UInt8": "sizeof(Durin::uint8)",
-            "UInt16": "sizeof(Durin::uint16)",
-            "UInt32": "sizeof(Durin::uint32)",
-            "UInt64": "sizeof(Durin::uint64)",
+            "Int8": "sizeof(::int8)",
+            "Int16": "sizeof(::int16)",
+            "Int32": "sizeof(::int32)",
+            "Int64": "sizeof(::int64)",
+            "UInt8": "sizeof(::uint8)",
+            "UInt16": "sizeof(::uint16)",
+            "UInt32": "sizeof(::uint32)",
+            "UInt64": "sizeof(::uint64)",
             "Float": "sizeof(float)",
             "Double": "sizeof(double)",
             "String": "sizeof(std::string)",
@@ -1313,6 +1325,14 @@ def _underlying_kind_from_type_spelling(type_spelling: str) -> str:
         "Durin::uint16": "UInt16",
         "Durin::uint32": "UInt32",
         "Durin::uint64": "UInt64",
+        "::int8": "Int8",
+        "::int16": "Int16",
+        "::int32": "Int32",
+        "::int64": "Int64",
+        "::uint8": "UInt8",
+        "::uint16": "UInt16",
+        "::uint32": "UInt32",
+        "::uint64": "UInt64",
     }
     return mapping.get(normalized, "Unknown")
 

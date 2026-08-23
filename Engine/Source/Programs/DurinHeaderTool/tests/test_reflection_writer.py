@@ -74,6 +74,7 @@ class TestReflectionSourceWriter:
             generated_helper_name="Z_Construct_DEnum_Durin_EValue",
             header="Value.h",
             api="CORE_API",
+            underlying_size=8,
             values=[
                 ReflectedEnumValueInfo(name="Negative", value=-1),
                 ReflectedEnumValueInfo(name="High", value=(1 << 64) - 1),
@@ -82,8 +83,9 @@ class TestReflectionSourceWriter:
 
         content = _enum_definitions(enum_info, "/Cpp/Core")
 
-        assert '{ "Negative", static_cast<Durin::uint64>(-1), nullptr },' in content
-        assert '{ "High", static_cast<Durin::uint64>(18446744073709551615), nullptr },' in content
+        assert '{ "Negative", static_cast<::uint64>(-1), nullptr },' in content
+        assert '{ "High", static_cast<::uint64>(18446744073709551615), nullptr },' in content
+        assert "static_cast<::uint16>(8)," in content
 
     def test_enum_display_metadata_is_escaped_and_transported(self):
         enum_info = ReflectedEnumInfo(
@@ -103,8 +105,8 @@ class TestReflectionSourceWriter:
         content = _enum_definitions(enum_info, "/Cpp/Core")
 
         assert r'"Editor \"Mode\"",' in content
-        assert r'{ "Path", static_cast<Durin::uint64>(1), "C:\\Mode" },' in content
-        assert '{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },' in content
+        assert r'{ "Path", static_cast<::uint64>(1), "C:\\Mode" },' in content
+        assert '{ "DefaultValue", static_cast<::uint64>(2), nullptr },' in content
 
 
 @pytest.mark.usefixtures("reflection_fixture")

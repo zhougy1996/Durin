@@ -287,7 +287,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
             display_name = _cpp_string_literal(value_info.display_name) if value_info.display_name else "nullptr"
             _append_line(
                 builder,
-                f"{{ {_cpp_string_literal(value_info.name)}, static_cast<Durin::uint64>({value_info.value}), {display_name} }},",
+                f"{{ {_cpp_string_literal(value_info.name)}, static_cast<::uint64>({value_info.value}), {display_name} }},",
                 1,
             )
         builder.append("};\n\n")
@@ -308,7 +308,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"{_cpp_string_literal(enum_info.display_name) if enum_info.display_name else 'nullptr'},", 1),
         (f"{_bool_literal(enum_info.is_scoped)},", 1),
         (f"Durin::DurinCodeGen::EEnumUnderlyingType::{enum_info.underlying_kind},", 1),
-        (f"static_cast<Durin::uint16>({enum_info.underlying_size}),", 1),
+        (f"static_cast<::uint16>({enum_info.underlying_size}),", 1),
         (f"{values_ref},", 1),
         (f"{len(enum_info.values)},", 1),
         (f"{legacy_names},", 1),

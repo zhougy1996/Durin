@@ -3,6 +3,12 @@
 
 #include <gtest/gtest.h>
 
+namespace GameTypeFixture
+{
+	constexpr uint32 Value = 32;
+	static_assert(sizeof(Value) == sizeof(Durin::uint32));
+}
+
 TEST(FCheckedArithmeticTests, EnforcesBoundsWithoutChangingRejectedOutputs)
 {
 	Durin::uint64 Value = 91;
