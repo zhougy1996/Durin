@@ -37,7 +37,7 @@ namespace Durin
 		if (Info.BlockSize != 1 || Info.BytesPerBlock == 0) return false;
 		const uint64 Texels = static_cast<uint64>(Width) * Height * Depth;
 		return Texels <= MaximumTexturePayloadBytes / Info.BytesPerBlock
-			&& Voxels.GetBulkData().IsResident()
+			&& Voxels.GetBulkData().HasPayload()
 			&& GetVoxelBytes().size() == Texels * Info.BytesPerBlock;
 	}
 
@@ -131,19 +131,14 @@ namespace Durin
 				Asset::ECookedPayloadCompression::None))
 			return FailCooked("required TXPL descriptor is missing or incompatible.");
 		if (!GetPackage()) return FailCooked("package companion path is unavailable.");
-		Asset::FBulkData Loaded;
-		if (!Asset::CreateCookedPackageBulkData(Asset::GetAssetRuntimeConfiguration(),
-				GetPackage()->GetPackagePath(), CookedPayload, VolumeTextureCookedFormatId,
+		Asset::FCookedPackagePayload Loaded;
+		if (!Asset::LoadCookedPackagePayload(Asset::GetAssetRuntimeConfiguration(),
+				GetPackage()->GetPackagePath(), CookedPayload,
 				Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-				Loaded, &OutError)
-			|| Loaded.GetDescriptor().PayloadId != VolumeTexturePrimaryCookedPayloadId
-			|| Loaded.GetDescriptor().FormatId != VolumeTextureCookedFormatId
-			|| Loaded.GetDescriptor().FormatVersion != TexturePayloadSchemaVersion
-			|| !Loaded.LoadSynchronous(OutError))
+				Loaded, &OutError))
 			return FailCooked(OutError);
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
-		const std::span<const std::byte> ResidentBytes = Loaded.GetResidentBytes();
-		FCanonicalMemoryReader Ar(ResidentBytes, EArchivePurpose::CookedPayload);
+		FCanonicalMemoryReader Ar(Loaded.Payload, EArchivePurpose::CookedPayload);
 		Candidate->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
 		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);

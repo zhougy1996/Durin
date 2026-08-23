@@ -91,9 +91,9 @@ words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`, format id words
 portable voxel format, and import provenance remain ordinary reflected fields.
 The source accessor never performs IO; build and import paths require verified
 resident bytes and replace the complete payload atomically. Consumers use
-`FAuthoredBulkData::GetBulkData()` for identity, residency, failure, immutable
-byte access, and synchronous loading; DAST/DABK placement and replacement
-remain authored-only capabilities.
+`FAuthoredBulkData::GetBulkData()` for storage identity and immutable byte
+access. The VolumeTexture fields define voxel meaning, while DAST/DABK
+placement and replacement remain authored-only capabilities.
 
 Current saves emit only the authored BulkData field. The 256 KiB authoring
 threshold changes placement,
@@ -102,6 +102,12 @@ bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
 2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.
 
 ## Payload and cook
+
+Cooked post-load validates the VolumeTexture payload id, TXPL schema version,
+compression, target, and profile from its domain and DBLK descriptors, then
+calls `LoadCookedPackagePayload` for an opaque verified byte view. It decodes
+that view transactionally into `FVolumeTexturePlatformData`; no common bulk
+descriptor or cross-authority provider translation participates.
 
 Volume data uses TXPL schema 1 with texture dimension value 3. Stable pixel
 format identifiers 8 through 12 were appended for the five portable formats;

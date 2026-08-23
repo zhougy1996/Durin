@@ -589,38 +589,26 @@ disposable while that build is running or installed.
 
 ## Authored bulk ownership and failure behavior
 
-`FBulkData` is the consumer-facing read and residency value across storage
-domains. Its logical descriptor contains payload id, semantic format id/version,
-logical and stored byte counts, and XXH3-128 content hash. Provider metadata
-contains the `Authored`, `Derived`, or `Cooked` domain and physical facts such
-as package path, placement, container identity, offsets, alignment,
-compression, target/profile, or a cache key; those facts do not change logical
-descriptor equality.
+`FBulkData` is a storage-neutral owner of verified immutable resident bytes. Its
+descriptor contains only payload id, logical byte count, and XXH3-128 content
+hash. It has no semantic format, schema version, stored size, authority enum,
+provider, mutable lock, or unloaded/failed residency state. Transactional
+creation verifies size and hash before replacing a destination value, and
+copies share the immutable `FSharedByteBuffer` allocation.
 
-An `IBulkDataProvider` is an immutable shared load capability for one domain.
-`FBulkData::LoadSynchronous` asks it for an immutable `FSharedByteBuffer`, then
-verifies logical size and content hash before changing `Unloaded` to
-`Resident`. A provider error or verification failure publishes no candidate
-bytes and leaves a stable `Failed` diagnostic. Copies share provider and byte
-ownership but retain independent residency transitions. The common surface has
-no mutable lock or publication operation: authored replacement, DDC production,
-and Cook publication remain lifecycle-owned capabilities.
+Authored DABK and cooked DBLK remain separate authority services and formats,
+even though their private implementations share bounded physical container
+primitives. Authored package loading resolves and verifies DABK bytes before
+constructing its common resident-byte value. Cooked consumers call
+`LoadCookedPackagePayload` and interpret the returned opaque view through their
+own reflected descriptor and codec. DDC misses and rebuilds continue to use the
+existing derived-data services. There is no cross-authority provider adapter.
 
-Authored DABK and cooked DBLK are separate providers and formats, not a common
-container, even though their private implementations share bounded physical
-container primitives.
-The cooked package adapter maps `FCookedPayloadDescriptor` fields into the
-logical descriptor while retaining package path, target/profile, compression,
-offset, and container handling internally. Existing low-level DBLK APIs remain
-available while consumers migrate; VolumeTexture is the first runtime cooked
-consumer. `Derived` is reserved for a later DDC adapter, so current cache misses
-and rebuilds still use the existing derived-data services.
-
-`FAuthoredBulkData` composes `FBulkData` plus the authored placement/container
-descriptor required by DAST and DABK. Replacement builds a detached verified
-candidate and never exposes writable resident memory. All runtime residency,
-failure, byte access, and synchronous IO go through `GetBulkData()`; authored
-package loading itself remains eager and publishes the object graph only after
+`FAuthoredBulkData` composes `FBulkData` plus the authored wire and
+placement/container descriptor required by DAST and DABK compatibility.
+Replacement builds a detached verified candidate and never exposes writable
+resident memory. Immutable byte access goes through `GetBulkData()`; authored
+package loading remains eager and publishes the object graph only after
 external DABK bytes have been resolved and verified.
 
 Asset package loading resolves external storage from the logical package path

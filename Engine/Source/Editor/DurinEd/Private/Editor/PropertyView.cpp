@@ -800,16 +800,11 @@ namespace Durin::Editor
 			const auto& Value = *static_cast<const Asset::FAuthoredBulkData*>(
 				Property->GetValuePtr(Container, ArrayIndex));
 			const auto& Descriptor = Value.GetDescriptor();
-			const Asset::FBulkData& BulkData = Value.GetBulkData();
 			const std::string_view Placement = Descriptor.StorageKind
 				== Asset::EAuthoredBulkStorageKind::External ? "external" : "inline";
-			const std::string_view Residency = BulkData.GetResidency()
-				== Asset::EBulkDataResidency::Resident ? "resident"
-				: BulkData.GetResidency() == Asset::EBulkDataResidency::Unloaded
-				? "unloaded" : "failed";
 			ImGui::TextDisabled("%s", std::format(
-				"{} bytes, {}, {}, format v{}, hash {}",
-				Descriptor.LogicalByteCount, Placement, Residency,
+				"{} bytes, {}, resident, format v{}, hash {}",
+				Descriptor.LogicalByteCount, Placement,
 				Descriptor.FormatVersion, Descriptor.ContentHash.ToString()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)

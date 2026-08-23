@@ -30,10 +30,15 @@ persist arbitrary C++ element types. Domain codecs may expose compile-time typed
 views or decoded arrays, but the durable contract is the owning domain schema
 plus explicitly encoded bytes.
 
-The next ordered child is **Bulk Payload Layer Realignment**. Its entry gate is
-satisfied: the current implementation and package corpus provide a compatibility
-baseline, the VolumeTexture source and cooked paths provide the pilot consumer,
-and incompatible experimental APIs may be removed. No child plan is active yet.
+**Bulk Payload Layer Realignment** is complete. Common bulk data now owns only
+opaque verified immutable bytes plus storage-neutral identity; the unproven
+cross-authority provider/residency API and cooked descriptor adapter are gone.
+DAST, DABK, DBLK, Cook manifest, and reflected package wires remain unchanged,
+and focused, aggregate, full-build, and documentation gates pass.
+
+The next ordered child is **VolumeTexture Domain Payload Pilot**. Its entry gate
+is satisfied by the preserved source/cooked corpus and the direct cooked
+authority boundary. No child plan is active yet.
 
 ## Outcome
 
@@ -205,7 +210,7 @@ or legacy APIs.
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 1. Bulk payload layer realignment | Landed authored/common/cooked experiments | Storage-only byte owner and descriptor boundaries; removal of generic semantic fields and unjustified cross-domain provider APIs; frozen migration baseline | Current API/corpus inventory exists and incompatible experimental APIs are allowed to change | Focused and aggregate tests prove unchanged authored/cooked payload behavior, bounded planning, transactional failure, and explicit disposition of every compatibility route | Ready to select |
+| 1. Bulk payload layer realignment | Landed authored/common/cooked experiments | Storage-only byte owner and descriptor boundaries; removal of generic semantic fields and unjustified cross-domain provider APIs; frozen migration baseline | Current API/corpus inventory exists and incompatible experimental APIs are allowed to change | Focused and aggregate tests prove unchanged authored/cooked payload behavior, bounded planning, transactional failure, and explicit disposition of every compatibility route | Completed |
 | 2. VolumeTexture domain-schema pilot | Milestone 1 | Volume source and cooked metadata become the sole authority for voxel/pixel meaning; storage supplies opaque verified bytes only | Current VolumeTexture authored, DDC, Cook, runtime, reimport, and failure fixtures are green | Source save/reload and Cook/runtime round trips validate metadata plus bytes, preserve or explicitly version golden outputs, and contain no generic format translation | Proposed |
 | 3. Authority-specific payload services | Milestones 1-2 | Final authored, DDC, and cooked service boundaries with shared mechanics only where demonstrated | The pilot exposes the exact overlap and divergence between source, cache, and deployment paths | Authored replacement/recovery, DDC miss/rebuild, and cooked hard-failure behavior are independently testable with no universal mutation or semantic descriptor | Proposed |
 | 4. Consumer migration program | Milestones 1 and 3; domain prerequisites as needed | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | A consumer has measured structural/package/memory cost and a frozen compatibility baseline | Selected consumer uses domain metadata plus opaque storage, with canonical or explicitly platform-specific codecs and no oversized ordinary reflected arrays | Proposed |
@@ -222,7 +227,7 @@ or legacy APIs.
 | [Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) | Completed experiment, architecture superseded | Evidence for common immutable access and synchronous residency | A requirement to preserve its descriptor/provider API |
 | [BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) | Completed historical evidence | Corpus canonicalization and removal of obsolete aliases/routes | Protection of experimental common APIs from refactor |
 | [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) | Completed reusable foundation | Private bounded IO, layout, hashing, and range validation | Shared schema, suffix, provider, or transaction authority |
-| Bulk Payload Layer Realignment | Ready to select | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
+| [Bulk Payload Layer Realignment](../Plans/BulkPayloadLayerRealignment.md) | Completed | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
 | VolumeTexture Domain Payload Pilot | Proposed | Source/cooked schema ownership, canonical voxel bytes, storage boundary, exact compatibility decision | Generic typed-buffer registry or redesign for unrelated consumers |
 | Authority-Specific Payload Services | Proposed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
 | Asset Payload Consumer Migration: `<Domain>` | Proposed per consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "Asset/BulkData.h"
 #include "Asset/Result.h"
 #include "DObject/CoreDObject.h"
 
@@ -188,18 +187,6 @@ namespace Durin::Asset
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FCookedPackagePayload& OutPayload,
-		std::string* OutError = nullptr
-	) -> bool;
-
-	// Adapts one reflected DBLK descriptor to the provider-neutral read/residency API.
-	ASSETCORE_API auto CreateCookedPackageBulkData(
-		const FAssetRuntimeConfiguration& RuntimeConfiguration,
-		std::string_view VirtualPackagePath,
-		const FCookedPayloadDescriptor& Descriptor,
-		FGuid FormatId,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FBulkData& OutBulkData,
 		std::string* OutError = nullptr
 	) -> bool;
 

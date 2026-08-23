@@ -15,8 +15,6 @@ namespace Durin
 	inline constexpr FGuid VolumeTextureSourceFormatId{
 		0x2854a7c1, 0x94cb4ab8, 0x8cd8be32, 0xc2f680b7};
 	inline constexpr uint32 VolumeTextureSourceFormatVersion = 1;
-	inline constexpr FGuid VolumeTextureCookedFormatId{
-		0xd26951ea, 0x547b4eef, 0x90c785f1, 0xaa566552};
 
 	// Selects one portable uncompressed voxel format admitted by volume assets.
 	DENUM()
@@ -76,7 +74,7 @@ namespace Durin
 		ENGINE_API auto IsValid() const -> bool;
 		auto GetVoxelBytes() const -> std::span<const std::byte>
 		{
-			return Voxels.GetBulkData().GetResidentBytes();
+			return Voxels.GetBulkData().GetBytes();
 		}
 		ENGINE_API auto SetVoxelBytes(std::span<const std::byte> Bytes) -> bool;
 	};

@@ -199,26 +199,12 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 		&Error));
 	EXPECT_EQ(Loaded.Payload.data(), Previous.data());
 
-	constexpr FGuid FormatId{10, 20, 30, 40};
-	FBulkData Common;
-	ASSERT_TRUE(CreateCookedPackageBulkData(Runtime, "/Game/Textures/T",
-		Descriptors[1], FormatId, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Common, &Error)) << Error;
-	EXPECT_EQ(Common.GetStorageDomain(), EBulkDataStorageDomain::Cooked);
-	EXPECT_EQ(Common.GetResidency(), EBulkDataResidency::Unloaded);
-	EXPECT_EQ(Common.GetDescriptor().FormatId, FormatId);
-	EXPECT_EQ(Common.GetDescriptor().FormatVersion,
-		Descriptors[1].PayloadSchemaVersion);
-	ASSERT_TRUE(Common.LoadSynchronous(Error)) << Error;
-	EXPECT_TRUE(std::ranges::equal(
-		Common.GetResidentBytes(), std::as_bytes(std::span(Loaded.Container.Payloads[1]))));
-	EXPECT_TRUE(Common.LoadSynchronous(Error));
-
 	FCookedPayloadDescriptor WrongTarget = Descriptors[1];
 	WrongTarget.TargetProfile = static_cast<uint32>(ECookTargetProfile::EditorValidation);
-	EXPECT_FALSE(CreateCookedPackageBulkData(Runtime, "/Game/Textures/T",
-		WrongTarget, FormatId, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Common, &Error));
+	FCookedPackagePayload Rejected;
+	EXPECT_FALSE(LoadCookedPackagePayload(Runtime, "/Game/Textures/T",
+		WrongTarget, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, Rejected, &Error));
 }
 
 TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)

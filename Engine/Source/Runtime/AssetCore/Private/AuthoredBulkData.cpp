@@ -11,10 +11,7 @@ namespace Durin::Asset
 		{
 			return {
 				.PayloadId = Descriptor.PayloadId,
-				.FormatId = Descriptor.FormatId,
-				.FormatVersion = Descriptor.FormatVersion,
 				.LogicalByteCount = Descriptor.LogicalByteCount,
-				.StoredByteCount = Descriptor.StoredByteCount,
 				.ContentHash = Descriptor.ContentHash};
 		}
 
@@ -66,9 +63,8 @@ namespace Durin::Asset
 			.ContainerHash = {},
 			.StorageKind = EAuthoredBulkStorageKind::Inline};
 		FBulkData CandidateData;
-		if (!FBulkData::TryCreateResident(ToBulkDescriptor(Candidate),
-				FSharedByteBuffer::Copy(Bytes), EBulkDataStorageDomain::Authored,
-				CandidateData))
+		if (!FBulkData::TryCreate(ToBulkDescriptor(Candidate),
+				FSharedByteBuffer::Copy(Bytes), CandidateData))
 			return false;
 		Descriptor = Candidate;
 		Data = std::move(CandidateData);
@@ -87,7 +83,7 @@ namespace Durin::Asset
 			.ContainerHash = Descriptor.ContainerHash,
 			.StorageKind = Descriptor.StorageKind == EAuthoredBulkStorageKind::Inline
 				? EArchiveBulkDataStorageKind::Inline : EArchiveBulkDataStorageKind::External,
-			.Buffer = Data.GetResidentBuffer()};
+			.Buffer = Data.GetBuffer()};
 		Ar.SerializeBulkData(Transfer);
 		if (!Ar.IsLoading() || Ar.HasError()
 			|| Ar.GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
@@ -108,9 +104,8 @@ namespace Durin::Asset
 			return;
 		}
 		FBulkData CandidateData;
-		if (!FBulkData::TryCreateResident(ToBulkDescriptor(Candidate),
-				std::move(Transfer.Buffer), EBulkDataStorageDomain::Authored,
-				CandidateData, &Error))
+		if (!FBulkData::TryCreate(ToBulkDescriptor(Candidate),
+				std::move(Transfer.Buffer), CandidateData, &Error))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
 				Error.empty() ? "Loaded authored bulk data is not verified and resident." : Error);
@@ -127,6 +122,6 @@ namespace Durin::Asset
 			|| Descriptor.LogicalByteCount != Other.Descriptor.LogicalByteCount
 			|| Descriptor.ContentHash != Other.Descriptor.ContentHash)
 			return false;
-		return Data.IsResident() && Other.Data.IsResident();
+		return true;
 	}
 }

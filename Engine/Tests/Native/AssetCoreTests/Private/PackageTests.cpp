@@ -1406,19 +1406,19 @@ TEST(FAuthoredBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	Durin::Asset::FAuthoredBulkData First(PayloadId, FormatId, 1);
 	ASSERT_TRUE(First.ReplaceBytes(Initial));
 	Durin::Asset::FAuthoredBulkData Shared = First;
-	ASSERT_EQ(First.GetBulkData().GetResidentBytes().data(),
-		Shared.GetBulkData().GetResidentBytes().data());
+	ASSERT_EQ(First.GetBulkData().GetBytes().data(),
+		Shared.GetBulkData().GetBytes().data());
 	EXPECT_TRUE(First.Identical(Shared));
 
 	const std::array Replacement{std::byte{9}, std::byte{8}};
 	ASSERT_TRUE(Shared.ReplaceBytes(Replacement));
-	EXPECT_NE(First.GetBulkData().GetResidentBytes().data(),
-		Shared.GetBulkData().GetResidentBytes().data());
-	EXPECT_TRUE(std::ranges::equal(First.GetBulkData().GetResidentBytes(), Initial));
-	EXPECT_TRUE(std::ranges::equal(Shared.GetBulkData().GetResidentBytes(), Replacement));
+	EXPECT_NE(First.GetBulkData().GetBytes().data(),
+		Shared.GetBulkData().GetBytes().data());
+	EXPECT_TRUE(std::ranges::equal(First.GetBulkData().GetBytes(), Initial));
+	EXPECT_TRUE(std::ranges::equal(Shared.GetBulkData().GetBytes(), Replacement));
 	EXPECT_FALSE(First.Identical(Shared));
 	EXPECT_FALSE(Shared.ReplaceBytes({}, {}, 0, Replacement));
-	EXPECT_TRUE(std::ranges::equal(Shared.GetBulkData().GetResidentBytes(), Replacement));
+	EXPECT_TRUE(std::ranges::equal(Shared.GetBulkData().GetBytes(), Replacement));
 }
 
 TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
