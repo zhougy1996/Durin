@@ -76,6 +76,29 @@ TEST(FNotificationManagerTests, RequestsCancellationOnlyOnce)
 	EXPECT_TRUE(Notification->bCancelRequested);
 }
 
+TEST(FNotificationManagerTests, DistinguishesCanceledProgressAndOmitsAggregateHistory)
+{
+	Durin::Editor::FNotificationManager Manager;
+	const Durin::Editor::FNotificationId OperationId = Manager.BeginProgress({
+		.Message = "Importing texture",
+		.Presentation = Durin::Editor::ENotificationPresentation::HistoryOnly});
+	const Durin::Editor::FNotificationId AggregateId = Manager.BeginProgress({
+		.Message = "Importing texture",
+		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+		.bRecordInHistory = false});
+	Manager.CancelProgress(OperationId, "Texture import canceled");
+	Manager.Tick(0.0f);
+
+	ASSERT_TRUE(Manager.GetStatusNotification().has_value());
+	EXPECT_EQ(Manager.GetStatusNotification()->Id, AggregateId);
+	ASSERT_EQ(Manager.GetHistory().size(), 1u);
+	EXPECT_EQ(Manager.GetHistory().front().Id, OperationId);
+	EXPECT_EQ(Manager.GetHistory().front().Type,
+		Durin::Editor::ENotificationType::Info);
+	EXPECT_EQ(Manager.GetHistory().front().Message, "Texture import canceled");
+	EXPECT_FALSE(Manager.GetHistory().front().Cancel);
+}
+
 TEST(FNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 {
 	Durin::Editor::FNotificationManager Manager;

@@ -3,6 +3,7 @@
 #include "Editor/Transaction.h"
 
 #include "AssetAuthoring.h"
+#include "ImportService.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"
@@ -198,10 +199,13 @@ namespace Durin
 			}
 		}
 		DEngine::Tick(DeltaSeconds, bIdleMode);
+		(void)Asset::GetImportService().PumpImportOperations();
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void
 	{
+		Asset::GetImportService().CloseAsyncAdmission();
+		Asset::GetImportService().CancelAndDrainAllAsyncImports();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 	}
 

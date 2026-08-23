@@ -284,6 +284,23 @@ namespace Durin::Asset::Build
 			}
 		}
 
+		// Preserved editor slots that no longer map to an imported material must
+		// not alias a current source index. Scene publication validates lookups by
+		// source index, and an old unmatched slot can otherwise become ambiguous
+		// after a reorder followed by removal.
+		std::unordered_set<uint32> AssignedSourceIndices;
+		for (const FStaticMeshImportedMaterialSlot& Imported : ImportedData.MaterialSlots)
+			AssignedSourceIndices.insert(Imported.SourceMaterialIndex);
+		uint32 RetiredSourceIndex = 0;
+		for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
+		{
+			if (OldConsumed[OldIndex]) continue;
+			while (AssignedSourceIndices.contains(RetiredSourceIndex))
+				++RetiredSourceIndex;
+			ReconciledSlots[OldIndex].SourceMaterialIndex = RetiredSourceIndex;
+			AssignedSourceIndices.insert(RetiredSourceIndex++);
+		}
+
 		const bool bSlotMetadataChanged =
 			!SlotDefinitionsEqual(PreviousMaterialSlots, ReconciledSlots);
 

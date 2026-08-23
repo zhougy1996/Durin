@@ -46,6 +46,41 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 	EXPECT_EQ(ImportedDirectory, "/Project/Scenes/Robot");
 }
 
+TEST(FImportDialogProgressModelTests, MapsOperationSnapshotsWithoutOwningAWidget)
+{
+	FImportDialogProgressModel Model;
+	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Editing);
+
+	Model.ApplySnapshot({
+		.OperationId = 7,
+		.Phase = Asset::EImportPhase::Parse,
+		.State = Asset::EImportOperationState::Pending,
+		.bCancelable = true});
+	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Preparing);
+	EXPECT_TRUE(Model.CanCancel());
+	EXPECT_FALSE(Model.GetSnapshot().Progress.has_value());
+
+	Model.ApplySnapshot({
+		.OperationId = 7,
+		.Phase = Asset::EImportPhase::Publication,
+		.State = Asset::EImportOperationState::Finalizing,
+		.bCancelable = false});
+	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Finalizing);
+	EXPECT_FALSE(Model.CanCancel());
+
+	Model.ApplySnapshot({
+		.OperationId = 7,
+		.State = Asset::EImportOperationState::Failed,
+		.bCancelable = false,
+		.Diagnostic = "Candidate validation failed."});
+	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Failed);
+	EXPECT_FALSE(Model.CanCancel());
+	EXPECT_EQ(Model.GetSnapshot().Diagnostic, "Candidate validation failed.");
+
+	Model.Reset();
+	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Editing);
+}
+
 TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
 {
 	FImportDialogDestinationModel Destination;

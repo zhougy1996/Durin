@@ -39,6 +39,7 @@ namespace Durin::Editor::Level
 	auto FSceneImportDialog::Draw() -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Scene Source");
+		const bool bImportFinished = PollImport();
 
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
@@ -48,13 +49,16 @@ namespace Durin::Editor::Level
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
 		))
 			return;
-		if (PollImport())
+		if (bImportFinished)
 		{
 			ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 			return;
 		}
-		const bool bImportPending = ImportRequest.has_value();
+		const bool bImportPending = SourceRequest.has_value()
+			|| ImportRequest.has_value()
+			|| ExecutionRequest.has_value();
+		if (ImportRequest || ExecutionRequest) ImportProgress.Refresh();
 		ImGui::BeginDisabled(bImportPending);
 
 		ImGui::TextUnformatted("Import the assets described by an FBX or glTF Scene source.");
@@ -182,22 +186,72 @@ namespace Durin::Editor::Level
 			ValidationMessage = "Preparing import preview...";
 		else if (Preview && !*Preview)
 			ValidationMessage = Preview->Message;
+		else if (SourceRequest)
+			ValidationMessage = "Capturing Scene sources in the background...";
 		else if (ImportRequest)
 			ValidationMessage = "Import preparation is running...";
+		else if (ExecutionRequest)
+			ValidationMessage = "Import products are building in the background...";
 
 		DrawImportDialogWarning(ValidationMessage);
 
 		ImGui::Spacing();
 		ImGui::Separator();
-		ImGui::BeginDisabled(!ValidationMessage.empty());
-		if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true))
+		if (bImportPending)
 		{
-			CancelRequests();
-			ImGui::CloseCurrentPopup();
+			if (SourceRequest)
+			{
+				ImGui::TextUnformatted("Capturing Scene sources");
+				const float Progress = static_cast<float>(
+					std::fmod(ImGui::GetTime() * 0.65, 1.0));
+				ImGui::ProgressBar(
+					Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f));
+				if (ImGui::Button("Run in Background")) ImGui::CloseCurrentPopup();
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel"))
+				{
+					Asset::Forge::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
+					SourceRequest.reset();
+					PendingImportDirectory.reset();
+				}
+				ImGui::EndPopup();
+				return;
+			}
+			const Asset::FImportOperationSnapshot& Snapshot = ImportProgress.GetSnapshot();
+			const std::string Overlay = Snapshot.Progress
+				? std::format("{}%", static_cast<int>(*Snapshot.Progress * 100.0f))
+				: std::string{};
+			ImGui::TextUnformatted(Asset::GetImportPhaseLabel(Snapshot.Phase).data());
+			if (!Snapshot.SourceIdentity.empty() && Snapshot.SourceIdentity != "root")
+				ImGui::TextDisabled("Current source: %s", Snapshot.SourceIdentity.c_str());
+			const float Progress = Snapshot.Progress.value_or(
+				static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
+			ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f),
+				Overlay.empty() ? nullptr : Overlay.c_str());
+			if (ImGui::Button("Run in Background"))
+			{
+				ImportProgress.RunInBackground();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			ImGui::BeginDisabled(!ImportProgress.CanCancel());
+			if (ImGui::Button(Snapshot.State == Asset::EImportOperationState::Canceling
+				? "Canceling..." : "Cancel")) ImportProgress.RequestCancel();
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			ImGui::BeginDisabled(!ValidationMessage.empty());
+			if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f))
+				&& Import()) ImGui::CloseCurrentPopup();
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (MonaImGui::DialogButton("Cancel", true))
+			{
+				CancelRequests();
+				ImGui::CloseCurrentPopup();
+			}
 		}
 		ImGui::EndPopup();
 	}
@@ -357,7 +411,7 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::Import() -> bool
 	{
-		if (ImportRequest) return false;
+		if (SourceRequest || ImportRequest || ExecutionRequest) return false;
 		Callbacks.Clear();
 		FAssetPath OutputDirectory;
 		std::string Error;
@@ -367,60 +421,133 @@ namespace Durin::Editor::Level
 			SetError(std::move(Error));
 			return false;
 		}
-		Asset::Forge::FPreparedSceneSourceBundle Sources;
-		if (!Asset::Forge::PrepareSceneSourceBundle(
+		PendingImportDirectory = OutputDirectory;
+		SourceRequest = Asset::Forge::BeginSceneSourceBundlePreparation(
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
-				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
-			Sources, Error, IsEngineAuthoringDestination(OutputDirectory.GetView())))
-		{
-			SetError(std::move(Error));
-			return false;
-		}
-		// Source ingestion is an explicit authoring operation and remains even if
-		// the subsequent asset publication is rejected or fails.
-		Asset::Forge::CommitSceneSourceBundle(Sources);
-		ImportRequest = Asset::Forge::BeginSceneImportPlan({
-			.RootSource = Sources.RootSource,
-			.DestinationDirectory = OutputDirectory,
-			.MeshSettings = Coordinates.GetSettings()},
-			"LevelEditor.SceneImportDialog.Execute");
+				? std::string(SourceDestinationBuffer.data()) : std::string{},
+			IsEngineAuthoringDestination(OutputDirectory.GetView()));
 		return false;
 	}
 
 	auto FSceneImportDialog::PollImport() -> bool
 	{
-		if (!ImportRequest) return false;
-		Asset::Forge::FSceneImportPlanResult Planned;
-		const Asset::EAsyncImportPlanStatus Status =
-			Asset::Forge::PollSceneImportPlan(*ImportRequest, Planned);
-		if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
-		ImportRequest.reset();
-		if (!Planned)
+		if (SourceRequest)
 		{
-			SetError(Planned.Message);
+			Asset::Forge::FPreparedSceneSourceBundle Sources;
+			std::string Error;
+			const Asset::EAsyncImportPlanStatus Status =
+				Asset::Forge::PollSceneSourceBundlePreparation(
+					*SourceRequest, Sources, Error);
+			if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
+			SourceRequest.reset();
+			if (Status != Asset::EAsyncImportPlanStatus::Succeeded
+				|| !PendingImportDirectory)
+			{
+				PendingImportDirectory.reset();
+				SetError(Error.empty()
+					? "Scene source preparation did not complete." : std::move(Error));
+				return false;
+			}
+			// Source ingestion is an explicit authoring operation and remains even if
+			// the subsequent asset publication is rejected or fails.
+			Asset::Forge::CommitSceneSourceBundle(Sources);
+			ImportRequest = Asset::Forge::BeginSceneImportPlan({
+				.RootSource = Sources.RootSource,
+				.DestinationDirectory = *PendingImportDirectory,
+				.MeshSettings = Coordinates.GetSettings()},
+				"LevelEditor.SceneImportDialog.Execute", true);
+			PendingImportDirectory.reset();
+			if (ImportRequest && ImportRequest->GetOperationHandle())
+			{
+				ImportProgress.Begin(ImportRequest->GetOperationHandle());
+				Callbacks.NotifyImportStarted(
+					ImportRequest->GetOperationHandle(), "Importing Scene");
+			}
 			return false;
 		}
-		const Asset::Forge::FSceneImportExecutionResult Result = Asset::Forge::ExecuteSceneImport(Planned.Plan);
+		if (ImportRequest)
+		{
+			Asset::Forge::FSceneImportPlanResult Planned;
+			const Asset::EAsyncImportPlanStatus Status =
+				Asset::Forge::PollSceneImportPlan(*ImportRequest, Planned);
+			if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
+			const Asset::FAsyncImportPlanHandle Operation =
+				ImportRequest->GetOperationHandle();
+			ImportRequest.reset();
+			if (!Planned)
+			{
+				Operation.CompleteOperation(
+					Asset::EImportOperationState::Failed, Planned.Message);
+				ImportProgress.Reset();
+				SetError(Planned.Message);
+				return false;
+			}
+			const std::shared_ptr<Asset::IImportProgressReporter> Progress =
+				Operation.CreateProgressReporter();
+			ActiveImportOperation = Operation;
+			ActiveImportPlan = Planned.Plan;
+			ExecutionRequest = Asset::Forge::BeginSceneImportExecution(
+				*ActiveImportPlan, {
+					.OwnedProgress = Progress,
+					.Progress = Progress.get(),
+					.IsCancellationRequested = [Operation] {
+						return Operation.IsCancellationRequested();
+					}}, Operation.GetOperationTaskScope());
+			return false;
+		}
+		if (!ExecutionRequest || !ActiveImportOperation || !ActiveImportPlan)
+			return false;
+		Asset::Forge::FSceneImportExecutionResult Result;
+		const Asset::EAsyncImportPlanStatus Status =
+			Asset::Forge::PollSceneImportExecution(*ExecutionRequest, Result);
+		if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
+		const Asset::FAsyncImportPlanHandle Operation = *ActiveImportOperation;
+		ExecutionRequest.reset();
+		ActiveImportOperation.reset();
+		ImportProgress.Reset();
 		if (!Result)
 		{
+			Operation.CompleteOperation(
+				Status == Asset::EAsyncImportPlanStatus::Canceled
+					|| Operation.IsCancellationRequested()
+					? Asset::EImportOperationState::Canceled
+					: Asset::EImportOperationState::Failed,
+				Result.Message);
+			ActiveImportPlan.reset();
 			SetError(Result.Message);
 			return false;
 		}
+		Operation.CompleteOperation(Asset::EImportOperationState::Succeeded);
 
 		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 		for (const Asset::FImportOutputPreview& Asset
-			: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
+			: ActiveImportPlan->GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 			Asset::UnloadPackage(Asset.AssetPath);
+		ActiveImportPlan.reset();
 		return true;
 	}
 
 	auto FSceneImportDialog::CancelRequests() -> void
 	{
 		if (PreviewRequest) Asset::Forge::CancelAndDrainSceneImportPlan(*PreviewRequest);
+		if (SourceRequest)
+			Asset::Forge::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
 		if (ImportRequest) Asset::Forge::CancelAndDrainSceneImportPlan(*ImportRequest);
+		if (ExecutionRequest)
+			Asset::Forge::CancelAndDrainSceneImportExecution(*ExecutionRequest);
+		if (ActiveImportOperation)
+			ActiveImportOperation->CompleteOperation(
+				Asset::EImportOperationState::Canceled,
+				"Scene import execution was canceled and drained.");
 		PreviewRequest.reset();
+		SourceRequest.reset();
+		PendingImportDirectory.reset();
 		ImportRequest.reset();
+		ExecutionRequest.reset();
+		ActiveImportPlan.reset();
+		ActiveImportOperation.reset();
+		ImportProgress.Reset();
 	}
 
 	auto FSceneImportDialog::SetError(std::string Message) const -> void

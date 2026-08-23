@@ -43,6 +43,7 @@ namespace Durin::Editor
 		float DurationSeconds = -1.0f;
 		std::optional<FNotificationAction> Action;
 		ENotificationPresentation Presentation = ENotificationPresentation::Toast;
+		bool bRecordInHistory = true;
 	};
 
 	// Describes a cancellable progress notification with optional progress.
@@ -53,6 +54,7 @@ namespace Durin::Editor
 		std::optional<FNotificationAction> Action;
 		std::function<void()> Cancel;
 		ENotificationPresentation Presentation = ENotificationPresentation::Toast;
+		bool bRecordInHistory = true;
 	};
 
 	// Stores game-thread notification state shared by overlays and history.
@@ -79,6 +81,7 @@ namespace Durin::Editor
 		DURINED_API auto UpdateProgress(FNotificationId Id, std::optional<float> Progress, std::string Message = {}) -> void;
 		DURINED_API auto CompleteProgress(FNotificationId Id, std::string Message = {}) -> void;
 		DURINED_API auto FailProgress(FNotificationId Id, std::string Message) -> void;
+		DURINED_API auto CancelProgress(FNotificationId Id, std::string Message = {}) -> void;
 		DURINED_API auto Dismiss(FNotificationId Id) -> void;
 
 		// Tick and interaction methods are game-thread owned. Producer methods above only enqueue commands.

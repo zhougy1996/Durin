@@ -109,6 +109,7 @@ namespace Durin::Asset
 		uint64 CompletedWork = 0,
 		uint64 TotalWork = 0,
 		std::string_view Message = {}) noexcept -> void;
+	ASSETIMPORTCORE_API auto GetImportPhaseLabel(EImportPhase Phase) -> std::string_view;
 
 	struct FImportSourcePreview
 	{
@@ -582,6 +583,8 @@ namespace Durin::Asset
 	struct FSingleAssetPlanResult;
 	struct FSingleAssetExecutionOptions;
 	struct FSingleAssetExecutionResult;
+	class ISingleAssetPreparedProduct;
+	class ISingleAssetPreparation;
 
 	class ASSETIMPORTCORE_API ISingleAssetCandidate
 	{
@@ -593,6 +596,26 @@ namespace Durin::Asset
 		virtual auto GetAuthoredFingerprint() const -> std::string = 0;
 		virtual auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool = 0;
 		virtual auto Abandon() noexcept -> void = 0;
+	};
+
+	class ASSETIMPORTCORE_API ISingleAssetPreparedProduct
+	{
+	public:
+		virtual ~ISingleAssetPreparedProduct() = default;
+	};
+
+	// Immutable editor-thread capture whose Build implementation may only create
+	// provider-owned value data. Materialization happens after returning to the
+	// editor thread through ISingleAssetImportHandler.
+	class ASSETIMPORTCORE_API ISingleAssetPreparation
+	{
+	public:
+		virtual ~ISingleAssetPreparation() = default;
+		virtual auto Build(
+			IImportProgressReporter* Progress,
+			const std::function<bool()>& IsCancellationRequested,
+			std::vector<FImportDiagnostic>& OutDiagnostics) const
+			-> std::unique_ptr<ISingleAssetPreparedProduct> = 0;
 	};
 
 	// All failable runtime work is completed before this token is returned.
@@ -623,6 +646,15 @@ namespace Durin::Asset
 			const FSingleAssetImportPlan& Plan,
 			std::vector<FImportDiagnostic>& OutDiagnostics) const
 			-> std::unique_ptr<ISingleAssetCandidate> = 0;
+		virtual auto CapturePreparation(
+			const FSingleAssetImportPlan&,
+			std::vector<FImportDiagnostic>&) const
+			-> std::shared_ptr<const ISingleAssetPreparation> { return {}; }
+		virtual auto MaterializeCandidate(
+			const FSingleAssetImportPlan&,
+			std::unique_ptr<ISingleAssetPreparedProduct>,
+			std::vector<FImportDiagnostic>&) const
+			-> std::unique_ptr<ISingleAssetCandidate> { return {}; }
 		virtual auto PrepareImportedStateExchange(
 			DObject& Target,
 			ISingleAssetCandidate& Candidate,
@@ -656,6 +688,11 @@ namespace Durin::Asset
 		auto GetPackageEditRevision() const -> uint64 { return PackageEditRevision; }
 		auto GetServiceRevision() const -> uint64 { return ServiceRevision; }
 		auto ReplacesSource() const -> bool { return bReplacesSource; }
+		auto GetPreparation() const
+			-> const std::shared_ptr<const ISingleAssetPreparation>&
+		{
+			return Preparation;
+		}
 
 	private:
 		DObject* Asset = nullptr;
@@ -666,6 +703,7 @@ namespace Durin::Asset
 		std::shared_ptr<const FSourceSnapshot> Snapshot;
 		FProviderLease Provider;
 		std::shared_ptr<const ISingleAssetImportHandler> Handler;
+		std::shared_ptr<const ISingleAssetPreparation> Preparation;
 		FImportService* Service = nullptr;
 		uint64 PackageEditRevision = 0;
 		uint64 ServiceRevision = 0;
@@ -684,10 +722,18 @@ namespace Durin::Asset
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	struct FSingleAssetAsyncPlanOptions
+	{
+		std::shared_ptr<IImportProgressReporter> OwnedProgress;
+		std::function<bool()> IsCancellationRequested;
+	};
+
 	struct FSingleAssetExecutionOptions
 	{
 		Asset::FAssetBundleSaveOptions SaveOptions;
 		IImportProgressReporter* Progress = nullptr;
+		std::shared_ptr<IImportProgressReporter> OwnedProgress;
+		std::function<bool()> IsCancellationRequested;
 	};
 
 	struct FSingleAssetExecutionResult

@@ -201,6 +201,12 @@ namespace Durin::Editor::Level
 				if (ContentBrowserPanel)
 					ContentBrowserPanel->RevealDirectory(DirectoryPath);
 			},
+			.ImportStarted = [this](
+				Asset::FAsyncImportPlanHandle Handle, std::string Title) {
+				if (NotificationOverlay)
+					NotificationOverlay->RegisterImportOperation(
+						Handle.GetOperationHandle(), std::move(Title));
+			},
 		};
 		SceneImportDialog =
 			MakeImportDialog<FSceneImportDialog>(ImportCallbacks);
@@ -255,6 +261,11 @@ namespace Durin::Editor::Level
 			[] {
 				if (GEditor)
 					GEditor->GetTransactionManager().NotifyMountedContentMutation();
+			},
+			[this](Asset::FAsyncImportPlanHandle Handle, std::string Title) {
+				if (NotificationOverlay)
+					NotificationOverlay->RegisterImportOperation(
+						Handle.GetOperationHandle(), std::move(Title));
 			},
 			MountedContentReconciliationState,
 			ThumbnailTaskScope

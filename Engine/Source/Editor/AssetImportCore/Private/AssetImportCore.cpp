@@ -5,6 +5,7 @@
 #include "AsyncImport.h"
 
 #include "Misc/Paths.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::Asset
 {
@@ -202,6 +203,21 @@ namespace Durin::Asset
 			.CompletedWork = CompletedWork,
 			.TotalWork = TotalWork,
 			.Message = std::string(Message)});
+	}
+
+	auto GetImportPhaseLabel(EImportPhase Phase) -> std::string_view
+	{
+		switch (Phase)
+		{
+		case EImportPhase::Snapshot: return "Capturing source";
+		case EImportPhase::Parse: return "Parsing source";
+		case EImportPhase::Plan: return "Planning outputs";
+		case EImportPhase::CandidateBuild: return "Building candidates";
+		case EImportPhase::Validation: return "Validating";
+		case EImportPhase::Publication: return "Publishing";
+		case EImportPhase::Restore: return "Restoring";
+		}
+		return "Importing";
 	}
 
 	auto FImportPayload::Finalize(std::string& OutError) -> bool
@@ -954,6 +970,7 @@ namespace Durin::Asset
 		std::span<const FImportDiagnostic> PriorDiagnostics,
 		IImportProgressReporter* Progress) -> FImportPlanResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.ParseAndPlan");
 		FImportPlanResult Result;
 		Result.Diagnostics.assign(PriorDiagnostics.begin(), PriorDiagnostics.end());
 		ReportImportProgress(Progress, EImportPhase::Parse, EImportProgressState::Started);
@@ -1111,6 +1128,7 @@ namespace Durin::Asset
 		const FImportPlanRequest& Request,
 		FImporterStore& Registry) -> FImportPlanResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.SourceCapture");
 		FImportPlanResult Result;
 		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
 			EImportProgressState::Started);
@@ -1429,6 +1447,8 @@ namespace Durin::Asset
 	auto FImportService::CreateSingleAssetReimportPlan(
 		const FSingleAssetReimportRequest& Request) -> FSingleAssetPlanResult
 	{
+		CheckImportEditorMutationAllowed("CreateSingleAssetReimportPlan");
+		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.SingleAsset.Plan");
 		FSingleAssetPlanResult Result;
 		FDiagnosticFinalizer DiagnosticFinalizer(
 			Result.Diagnostics, "single-asset-plan");
@@ -1550,6 +1570,13 @@ namespace Durin::Asset
 		Result.Plan.PackageEditRevision = Request.Asset->GetPackage()->GetEditRevision();
 		Result.Plan.ServiceRevision = GetRevision();
 		Result.Plan.bReplacesSource = bReplacement;
+		Result.Plan.Preparation = Handler->CapturePreparation(
+			Result.Plan, Result.Diagnostics);
+		if (HasError(Result.Diagnostics))
+		{
+			Result.Message = Result.Diagnostics.back().Message;
+			return Result;
+		}
 		Result.bSucceeded = true;
 		PlanProgress.Succeed();
 		FinalizeImportDiagnostics(Result.Diagnostics, "single-asset-plan",
@@ -1557,17 +1584,394 @@ namespace Durin::Asset
 		return Result;
 	}
 
+	struct FSingleAssetAsyncPlanSeed
+	{
+		DObject* Asset = nullptr;
+		FAssetPath AssetPath;
+		std::string AssetClassName;
+		FSingleAssetProvenance ObservedProvenance;
+		FProviderLease Provider;
+		std::shared_ptr<const ISingleAssetImportHandler> Handler;
+		FImportService* Service = nullptr;
+		uint64 PackageEditRevision = 0;
+		uint64 ServiceRevision = 0;
+		bool bReplacesSource = false;
+		std::vector<FSourcePath> Sources;
+		FSourceCaptureLimits Limits;
+	};
+
+	struct FSingleAssetAsyncPlanValue
+	{
+		FSingleAssetPlanResult Result;
+	};
+
+	struct FSingleAssetAsyncPlanState
+	{
+		FAsyncImportExecutionHandle Execution;
+		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
+		bool bConsumed = false;
+	};
+
+	auto FImportService::BeginSingleAssetReimportPlan(
+		const FSingleAssetReimportRequest& Request,
+		FSingleAssetAsyncPlanOptions Options,
+		FTaskScopeToken OperationScope) -> FSingleAssetAsyncPlanHandle
+	{
+		CheckImportEditorMutationAllowed("BeginSingleAssetReimportPlan");
+		auto State = std::make_shared<FSingleAssetAsyncPlanState>();
+		FSingleAssetAsyncPlanSeed Seed;
+		FSingleAssetPlanResult Preflight;
+		Seed.Asset = Request.Asset;
+		Seed.Limits = Request.Limits;
+		Seed.Service = this;
+		if (!Request.Asset || !Request.Asset->GetPackage())
+			Preflight.Message = "Single-asset reimport requires a packaged selected asset.";
+		if (Preflight.Message.empty())
+		{
+			Seed.AssetClassName = GetAssetClassName(*Request.Asset);
+			Seed.Handler = FindSingleAssetHandler(Seed.AssetClassName);
+			if (!Seed.Handler)
+				Preflight.Message = "No single-asset import handler is registered for the selected asset.";
+		}
+		if (Preflight.Message.empty()
+			&& (!Seed.Handler->InspectProvenance(
+				*Request.Asset, Seed.ObservedProvenance, Preflight.Diagnostics)
+				|| !Seed.ObservedProvenance.IsComplete()))
+			Preflight.Message = "The selected asset has incomplete import provenance.";
+		if (Preflight.Message.empty())
+		{
+			Seed.Provider = FindProvider(Seed.ObservedProvenance.ProviderId);
+			if (!Seed.Provider
+				|| Seed.Provider.GetContractVersion()
+					!= Seed.ObservedProvenance.ProviderContractVersion
+				|| Seed.Handler->GetProviderId() != Seed.ObservedProvenance.ProviderId)
+				Preflight.Message = "The persisted import provider is unavailable or incompatible.";
+		}
+		Seed.bReplacesSource = !Request.ReplacementSources.empty();
+		if (Preflight.Message.empty() && Seed.bReplacesSource
+			&& Request.ReplacementSources.size()
+				!= Seed.ObservedProvenance.Sources.size())
+			Preflight.Message = "Replacement source count does not match the asset provenance.";
+		if (Preflight.Message.empty()
+			&& !GetAssetPath(*Request.Asset, Seed.AssetPath))
+			Preflight.Message = "The selected asset package path is invalid.";
+		if (Preflight.Message.empty())
+		{
+			Seed.PackageEditRevision = Request.Asset->GetPackage()->GetEditRevision();
+			Seed.ServiceRevision = GetRevision();
+			Seed.Sources.reserve(Seed.ObservedProvenance.Sources.size());
+			for (size_t Index = 0; Index < Seed.ObservedProvenance.Sources.size(); ++Index)
+				Seed.Sources.push_back(Seed.bReplacesSource
+					? Request.ReplacementSources[Index]
+					: Seed.ObservedProvenance.Sources[Index].SourcePath);
+		}
+		if (!Preflight.Message.empty() && !HasError(Preflight.Diagnostics))
+			AddDiagnostic(Preflight.Diagnostics, EImportDiagnosticSeverity::Error,
+				EImportDiagnosticCategory::InvalidRequest,
+				"single-asset-plan", "root", Preflight.Message);
+
+		const std::shared_ptr<IImportProgressReporter> Progress = Options.OwnedProgress;
+		const std::function<bool()> ExternalCancellation =
+			std::move(Options.IsCancellationRequested);
+		static const FTaskAttribution Attribution =
+			RegisterTaskAttribution("AssetImport", "SingleAssetSnapshotAndPlan");
+		State->Execution = LaunchAsyncImportExecution({
+			.OperationScope = std::move(OperationScope),
+			.Attribution = Attribution,
+			.EstimatedResultBytes = 4ull * 1'024ull * 1'024ull,
+			.Build = [this, Seed = std::move(Seed),
+				Preflight = std::move(Preflight), Progress, ExternalCancellation](
+				const FTaskCancellationToken& Token) mutable {
+				auto Value = std::make_shared<FSingleAssetAsyncPlanValue>();
+				Value->Result = std::move(Preflight);
+				const auto IsCanceled = [&] {
+					return Token.IsCancellationRequested()
+						|| (ExternalCancellation && ExternalCancellation());
+				};
+				if (!Value->Result.Message.empty())
+					return FDetachedImportBuildResult{
+						.Message = Value->Result.Message, .Value = std::move(Value)};
+				if (IsCanceled())
+					return FDetachedImportBuildResult{.bCanceled = true,
+						.Message = "Single-asset planning was canceled."};
+				FImportProgressPhaseScope SnapshotProgress(
+					Progress.get(), EImportPhase::Snapshot);
+				FSourceSnapshotBuilder SnapshotBuilder(Seed.Limits);
+				for (size_t Index = 0; Index < Seed.Sources.size(); ++Index)
+				{
+					const FSingleAssetSourceProvenance& Source =
+						Seed.ObservedProvenance.Sources[Index];
+					const bool bCaptured = Index == 0
+						? SnapshotBuilder.CaptureRoot(
+							Seed.Sources[Index], Value->Result.Diagnostics)
+						: SnapshotBuilder.CaptureDeclaredSource(
+							Source.StableIdentity, Source.Role, Seed.Sources[Index],
+							Value->Result.Diagnostics);
+					if (!bCaptured || IsCanceled())
+					{
+						Value->Result.Message = IsCanceled()
+							? "Single-asset planning was canceled."
+							: Value->Result.Diagnostics.back().Message;
+						return FDetachedImportBuildResult{
+							.bCanceled = IsCanceled(), .Message = Value->Result.Message,
+							.Value = std::move(Value)};
+					}
+				}
+				if (!SnapshotBuilder.DiscoverDependencies(
+						Seed.Provider, Value->Result.Diagnostics))
+				{
+					Value->Result.Message = Value->Result.Diagnostics.back().Message;
+					return FDetachedImportBuildResult{
+						.Message = Value->Result.Message, .Value = std::move(Value)};
+				}
+				std::shared_ptr<const FSourceSnapshot> Snapshot =
+					SnapshotBuilder.Freeze(Value->Result.Diagnostics);
+				if (!Snapshot)
+				{
+					Value->Result.Message = Value->Result.Diagnostics.back().Message;
+					return FDetachedImportBuildResult{
+						.Message = Value->Result.Message, .Value = std::move(Value)};
+				}
+				SnapshotProgress.Succeed(
+					Snapshot->GetAggregateByteCount(), Snapshot->GetAggregateByteCount());
+				FImportProgressPhaseScope PlanProgress(Progress.get(), EImportPhase::Plan);
+				FSingleAssetProvenance Prospective = Seed.ObservedProvenance;
+				for (size_t Index = 0; Index < Prospective.Sources.size(); ++Index)
+				{
+					FSingleAssetSourceProvenance& Source = Prospective.Sources[Index];
+					const FSourceSnapshotEntry* Captured = Snapshot->FindSource(
+						Index == 0 ? "root" : Source.StableIdentity);
+					if (!Captured)
+					{
+						Value->Result.Message = "A declared source is absent from the frozen snapshot.";
+						return FDetachedImportBuildResult{
+							.Message = Value->Result.Message, .Value = std::move(Value)};
+					}
+					Source.SourcePath = Captured->SourcePath;
+					Source.ContentHash = Captured->ContentHash;
+					Source.ByteCount = Captured->ByteCount;
+				}
+				FSingleAssetImportPlan& Plan = Value->Result.Plan;
+				Plan.Asset = Seed.Asset;
+				Plan.AssetPath = Seed.AssetPath;
+				Plan.AssetClassName = Seed.AssetClassName;
+				Plan.Provenance = std::move(Prospective);
+				Plan.ObservedProvenance = Seed.ObservedProvenance;
+				Plan.Snapshot = std::move(Snapshot);
+				Plan.Provider = Seed.Provider;
+				Plan.Handler = Seed.Handler;
+				Plan.Service = Seed.Service;
+				Plan.PackageEditRevision = Seed.PackageEditRevision;
+				Plan.ServiceRevision = Seed.ServiceRevision;
+				Plan.bReplacesSource = Seed.bReplacesSource;
+				Value->Result.bSucceeded = true;
+				PlanProgress.Succeed();
+				return FDetachedImportBuildResult{
+					.bSucceeded = true, .Value = std::move(Value)};
+			}});
+		return FSingleAssetAsyncPlanHandle(std::move(State));
+	}
+
+	auto FImportService::PollSingleAssetReimportPlan(
+		FSingleAssetAsyncPlanHandle& Handle,
+		FSingleAssetPlanResult& OutResult) -> EAsyncImportPlanStatus
+	{
+		if (!Handle.State) return EAsyncImportPlanStatus::Invalid;
+		if (Handle.State->bConsumed) return Handle.State->Status;
+		FDetachedImportBuildResult Detached;
+		EAsyncImportPlanStatus Status =
+			PollAsyncImportExecution(Handle.State->Execution, Detached);
+		if (Status == EAsyncImportPlanStatus::Pending) return Status;
+		Handle.State->bConsumed = true;
+		auto Value = std::static_pointer_cast<FSingleAssetAsyncPlanValue>(
+			std::move(Detached.Value));
+		if (Value) OutResult = std::move(Value->Result);
+		if (Status == EAsyncImportPlanStatus::Succeeded && OutResult)
+		{
+			OutResult.Plan.Preparation = OutResult.Plan.Handler->CapturePreparation(
+				OutResult.Plan, OutResult.Diagnostics);
+			if (HasError(OutResult.Diagnostics))
+			{
+				OutResult.bSucceeded = false;
+				OutResult.Message = OutResult.Diagnostics.back().Message;
+				Status = EAsyncImportPlanStatus::Failed;
+			}
+		}
+		if (OutResult.Message.empty()) OutResult.Message = std::move(Detached.Message);
+		FinalizeImportDiagnostics(OutResult.Diagnostics, "single-asset-plan",
+			"root", OutResult.Plan.GetAssetPath().IsValid()
+				? OutResult.Plan.GetAssetPath().GetView() : std::string_view("request"));
+		Handle.State->Status = Status;
+		return Status;
+	}
+
+	auto FImportService::CancelAndDrainSingleAssetReimportPlan(
+		FSingleAssetAsyncPlanHandle& Handle) -> void
+	{
+		if (!Handle.State) return;
+		CancelAndDrainAsyncImportExecution(Handle.State->Execution);
+		Handle.State.reset();
+	}
+
 	auto FImportService::ExecuteSingleAssetImport(
 		const FSingleAssetImportPlan& Plan,
 		const FSingleAssetExecutionOptions& Options) -> FSingleAssetExecutionResult
 	{
+		std::vector<FImportDiagnostic> PreparationDiagnostics;
+		std::unique_ptr<ISingleAssetPreparedProduct> Prepared;
+		if (!Plan.Asset || !Plan.Asset->GetPackage() || !Plan.Handler || !Plan.Provider
+			|| Plan.Service != this || !Plan.Snapshot)
+			return ExecuteSingleAssetImportPrepared(
+				Plan, Options, {}, std::move(PreparationDiagnostics));
+		if (Plan.Preparation)
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.DetachedProductBuild");
+			IImportProgressReporter* Progress = Options.Progress
+				? Options.Progress : Options.OwnedProgress.get();
+			Prepared = Plan.Preparation->Build(
+				Progress, Options.IsCancellationRequested, PreparationDiagnostics);
+		}
+		return ExecuteSingleAssetImportPrepared(
+			Plan, Options, std::move(Prepared), std::move(PreparationDiagnostics));
+	}
+
+	struct FSingleAssetDetachedExecutionValue
+	{
+		std::unique_ptr<ISingleAssetPreparedProduct> Product;
+		std::vector<FImportDiagnostic> Diagnostics;
+	};
+
+	struct FSingleAssetAsyncExecutionState
+	{
+		FSingleAssetImportPlan Plan;
+		FSingleAssetExecutionOptions Options;
+		FAsyncImportExecutionHandle Execution;
+		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
+		bool bConsumed = false;
+	};
+
+	auto FImportService::BeginSingleAssetImportExecution(
+		const FSingleAssetImportPlan& Plan,
+		FSingleAssetExecutionOptions Options,
+		FTaskScopeToken OperationScope) -> FSingleAssetAsyncExecutionHandle
+	{
+		CheckImportEditorMutationAllowed("BeginSingleAssetImportExecution");
+		auto State = std::make_shared<FSingleAssetAsyncExecutionState>();
+		State->Plan = Plan;
+		State->Options = std::move(Options);
+		// An asynchronous operation never retains the caller's raw reporter.
+		State->Options.Progress = State->Options.OwnedProgress.get();
+		const std::shared_ptr<const ISingleAssetPreparation> Preparation =
+			State->Plan.Preparation;
+		const std::shared_ptr<IImportProgressReporter> OwnedProgress =
+			State->Options.OwnedProgress;
+		IImportProgressReporter* const Progress = State->Options.Progress;
+		const std::function<bool()> ExternalCancellation =
+			State->Options.IsCancellationRequested;
+		static const FTaskAttribution Attribution =
+			RegisterTaskAttribution("AssetImport", "SingleAssetDetachedProductBuild");
+		State->Execution = LaunchAsyncImportExecution({
+			.OperationScope = std::move(OperationScope),
+			.Attribution = Attribution,
+			.EstimatedResultBytes = 64ull * 1'024ull * 1'024ull,
+			.Build = [Preparation, OwnedProgress, Progress, ExternalCancellation](
+				const FTaskCancellationToken& Token) {
+				(void)OwnedProgress;
+				if (!Preparation)
+					return FDetachedImportBuildResult{
+						.Message = "The single-asset provider has no detached preparation."};
+				auto Value = std::make_shared<FSingleAssetDetachedExecutionValue>();
+				const std::function<bool()> IsCanceled = [&Token, ExternalCancellation] {
+					return Token.IsCancellationRequested()
+						|| (ExternalCancellation && ExternalCancellation());
+				};
+				FImportProgressPhaseScope CandidateProgress(
+					Progress, EImportPhase::CandidateBuild);
+				Value->Product = Preparation->Build(
+					Progress, IsCanceled, Value->Diagnostics);
+				const bool bSucceeded = Value->Product != nullptr;
+				const bool bCanceled = !bSucceeded && IsCanceled();
+				if (bSucceeded) CandidateProgress.Succeed();
+				return FDetachedImportBuildResult{
+					.bSucceeded = bSucceeded,
+					.bCanceled = bCanceled,
+					.Message = bSucceeded ? std::string{}
+						: bCanceled ? "Single-asset preparation was canceled."
+						: Value->Diagnostics.empty()
+							? "Single-asset detached preparation failed."
+							: Value->Diagnostics.back().Message,
+					.Value = std::move(Value)};
+			}});
+		return FSingleAssetAsyncExecutionHandle(std::move(State));
+	}
+
+	auto FImportService::PollSingleAssetImportExecution(
+		FSingleAssetAsyncExecutionHandle& Handle,
+		FSingleAssetExecutionResult& OutResult) -> EAsyncImportPlanStatus
+	{
+		if (!Handle.State) return EAsyncImportPlanStatus::Invalid;
+		if (Handle.State->bConsumed) return Handle.State->Status;
+		FDetachedImportBuildResult Detached;
+		const EAsyncImportPlanStatus Status =
+			PollAsyncImportExecution(Handle.State->Execution, Detached);
+		if (Status == EAsyncImportPlanStatus::Pending) return Status;
+		Handle.State->bConsumed = true;
+		Handle.State->Status = Status;
+		FSingleAssetImportPlan Plan = std::move(Handle.State->Plan);
+		Handle.State->Plan = {};
+		auto Value = std::static_pointer_cast<FSingleAssetDetachedExecutionValue>(
+			std::move(Detached.Value));
+		if (Status != EAsyncImportPlanStatus::Succeeded || !Value || !Value->Product)
+		{
+			OutResult.Message = Detached.Message.empty()
+				? "Single-asset detached preparation did not complete."
+				: std::move(Detached.Message);
+			if (Value) OutResult.Diagnostics = std::move(Value->Diagnostics);
+			AddExecutionDiagnostic(OutResult,
+				Status == EAsyncImportPlanStatus::Canceled
+					? EImportDiagnosticCategory::Canceled
+					: EImportDiagnosticCategory::CandidateFailure,
+				"detached-product-build", OutResult.Message);
+			Handle.State->Options = {};
+			return Status;
+		}
+		OutResult = ExecuteSingleAssetImportPrepared(
+			Plan, Handle.State->Options, std::move(Value->Product),
+			std::move(Value->Diagnostics));
+		Handle.State->Options = {};
+		Handle.State->Status = OutResult
+			? EAsyncImportPlanStatus::Succeeded : EAsyncImportPlanStatus::Failed;
+		return Handle.State->Status;
+	}
+
+	auto FImportService::CancelAndDrainSingleAssetImportExecution(
+		FSingleAssetAsyncExecutionHandle& Handle) -> void
+	{
+		if (!Handle.State) return;
+		CancelAndDrainAsyncImportExecution(Handle.State->Execution);
+		Handle.State->Plan = {};
+		Handle.State->Options = {};
+		Handle.State.reset();
+	}
+
+	auto FImportService::ExecuteSingleAssetImportPrepared(
+		const FSingleAssetImportPlan& Plan,
+		const FSingleAssetExecutionOptions& Options,
+		std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+		std::vector<FImportDiagnostic> PreparationDiagnostics)
+		-> FSingleAssetExecutionResult
+	{
+		CheckImportEditorMutationAllowed("ExecuteSingleAssetImport");
 		FSingleAssetExecutionResult Result;
+		Result.Diagnostics = std::move(PreparationDiagnostics);
 		FDiagnosticFinalizer DiagnosticFinalizer(
 			Result.Diagnostics, "single-asset-execution", "root",
 			Plan.AssetPath.IsValid() ? Plan.AssetPath.GetView() : std::string_view("request"));
 		Result.Provider = Plan.Provider;
+		IImportProgressReporter* Progress = Options.Progress
+			? Options.Progress : Options.OwnedProgress.get();
 		FImportProgressPhaseScope CandidateProgress(
-			Options.Progress, EImportPhase::CandidateBuild, "root",
+			Progress, EImportPhase::CandidateBuild, "root",
 			Plan.AssetPath.IsValid() ? Plan.AssetPath.GetView() : std::string_view("request"));
 		if (!Plan.Asset || !Plan.Asset->GetPackage() || !Plan.Handler || !Plan.Provider
 			|| Plan.Service != this || !Plan.Snapshot)
@@ -1577,8 +1981,15 @@ namespace Durin::Asset
 			return Result;
 		}
 
-		std::unique_ptr<ISingleAssetCandidate> Candidate =
-			Plan.Handler->BuildCandidate(Plan, Result.Diagnostics);
+		std::unique_ptr<ISingleAssetCandidate> Candidate;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.CandidateMaterialization");
+			if (Prepared)
+				Candidate = Plan.Handler->MaterializeCandidate(
+					Plan, std::move(Prepared), Result.Diagnostics);
+			else if (!Plan.Preparation)
+				Candidate = Plan.Handler->BuildCandidate(Plan, Result.Diagnostics);
+		}
 		if (!Candidate || !Candidate->GetAsset() || !Candidate->GetPackage())
 		{
 			AddExecutionDiagnostic(Result, EImportDiagnosticCategory::CandidateFailure,
@@ -1588,8 +1999,13 @@ namespace Durin::Asset
 		}
 		CandidateProgress.Succeed();
 		FImportProgressPhaseScope ValidationProgress(
-			Options.Progress, EImportPhase::Validation, "root", Plan.AssetPath.GetView());
-		if (!Candidate->Validate(Result.Diagnostics))
+			Progress, EImportPhase::Validation, "root", Plan.AssetPath.GetView());
+		bool bCandidateValid = false;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.Validation");
+			bCandidateValid = Candidate->Validate(Result.Diagnostics);
+		}
+		if (!bCandidateValid)
 		{
 			AddExecutionDiagnostic(Result, EImportDiagnosticCategory::ValidationFailure,
 				"candidate-validation", "The detached import candidate is invalid.");
@@ -1609,7 +2025,8 @@ namespace Durin::Asset
 		}
 		ValidationProgress.Succeed();
 		FImportProgressPhaseScope PublicationProgress(
-			Options.Progress, EImportPhase::Publication, "root", Plan.AssetPath.GetView());
+			Progress, EImportPhase::Publication, "root", Plan.AssetPath.GetView());
+		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.Publication");
 
 		std::lock_guard PublicationLock(GetImportPublicationMutex());
 		FSingleAssetProvenance CurrentProvenance;
@@ -1661,12 +2078,17 @@ namespace Durin::Asset
 			return Result;
 		}
 		Exchange->Commit();
-		const Asset::FAssetResult SaveResult = Asset::SavePackagesAtomically(
-			std::span<DPackage* const>(&Package, 1), Options.SaveOptions);
+		Asset::FAssetResult SaveResult;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.Save");
+			SaveResult = Asset::SavePackagesAtomically(
+				std::span<DPackage* const>(&Package, 1), Options.SaveOptions);
+		}
 		if (!SaveResult)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.Restore");
 			FImportProgressPhaseScope RestoreProgress(
-				Options.Progress, EImportPhase::Restore, "root", Plan.AssetPath.GetView());
+				Progress, EImportPhase::Restore, "root", Plan.AssetPath.GetView());
 			Exchange->Reverse();
 			if (!bPackageWasDirty) Package->ClearDirty();
 			std::vector<std::byte> RestoredBytes;

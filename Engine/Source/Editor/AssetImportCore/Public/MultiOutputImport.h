@@ -134,6 +134,9 @@ namespace Durin::Asset
 	struct FMultiOutputExecutionOptions
 	{
 		Asset::FAssetBundleSaveOptions SaveOptions;
+		// Retains an asynchronous reporter independently of the initiating UI.
+		// Progress remains the non-owning fast path used by synchronous callers.
+		std::shared_ptr<IImportProgressReporter> OwnedProgress;
 		IImportProgressReporter* Progress = nullptr;
 		// Called only on the editor thread between candidate preparation and
 		// validation boundaries. Publication ignores cancellation once started.

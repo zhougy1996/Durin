@@ -246,11 +246,43 @@ parsing, normalization, and CPU preparation. It does not create `DObject`
 instances or touch packages, the registry, editor models, render resources, or
 RHI state on a worker.
 
+`IsImportWorkerPreparation` is the testable worker marker installed by the
+coordinator. Mutation boundaries call `CheckImportEditorMutationAllowed`
+before single-asset planning/execution, Scene execution, or multi-output
+publication. A provider that accidentally re-enters those editor mutation
+paths from asynchronous preparation fails at the boundary before changing an
+object or package.
+
 Workers move value-only results into synchronized request state and publish a
 request serial to a mailbox. An editor-thread tick consumes only the current
 serial after its task handle is terminal. Dialog close, project switch,
 provider unload, and process shutdown cancel and drain their request scopes
 before releasing providers or editor state.
+
+Every accepted asynchronous request owns its progress reporter for the complete
+worker lifetime. The initiating reporter and Widget are not retained. A
+copyable handle observes immutable-by-copy `FImportOperationSnapshot` values
+containing the operation and owner identities, stable phase, work counts,
+optional determinate fraction, cancellation state, bounded diagnostic, and
+background-presentation flag. Unknown totals remain indeterminate. Repeated
+work updates for the same phase/source/output are coalesced and retained
+history is bounded by `MaximumAsyncImportProgressHistory`.
+
+Cancellation first publishes a non-cancelable `Canceling` snapshot. Terminal
+`Succeeded`, `Failed`, `Canceled`, `Superseded`, and `Rejected` snapshots are
+stable after result consumption and ignore late provider progress. Publication
+will use `Finalizing` to close the cooperative-cancellation boundary before any
+failure-atomic editor mutation begins. Phase labels come from
+`GetImportPhaseLabel`; presentation may localize them but providers do not
+invent a second phase vocabulary.
+
+An operation that ends with plan delivery becomes terminal when the plan
+mailbox is consumed. A caller that will execute the plan may request an
+extended lifetime: successful plan consumption leaves the snapshot active,
+`CreateProgressReporter` routes CandidateBuild through Restore into the same
+state, and `CompleteOperation` publishes exactly one final outcome. Entering
+Publication changes the snapshot to non-cancelable `Finalizing`. The result
+mailbox and operation terminal lifetime are therefore related but independent.
 
 ## Persistence, DDC, and cooking
 

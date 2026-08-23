@@ -539,6 +539,7 @@ namespace Durin::Asset
 		FImportRecordIndex& Index,
 		const FMultiOutputExecutionOptions& Options) -> FMultiOutputExecutionResult
 	{
+		CheckImportEditorMutationAllowed("ExecuteMultiOutputImport");
 		FMultiOutputExecutionResult Result;
 		FMultiDiagnosticFinalizer DiagnosticFinalizer(Result);
 		Result.Provider = Prepared.GetProvider()

@@ -84,6 +84,21 @@ For Texture2D shared-source replacement:
 Other asset families can reuse the terminal result and compensating operation
 without adopting Texture2D source or package policy.
 
+Import preparation uses the same ownership split. AssetImportCore handles
+publish immutable-by-copy operation snapshots; a LevelEditor presenter adapts
+those values to one `HistoryOnly` notification per operation and one aggregate
+`StatusBar` notification that is deliberately excluded from history. The
+status surface is determinate only for a single operation with a meaningful
+total; otherwise it uses an indeterminate indicator and reports the active
+operation count. Canceling, canceled, and failed remain distinct states.
+
+The initiating import dialog reads the same snapshot through
+`FImportDialogProgressModel`. Running in background closes only the modal and
+sets presentation state on the handle; the owner continues polling. The model
+retains no Widget and disables cancellation at `Finalizing` or any terminal
+state. Activity History remains the durable session surface for individual
+terminal results, while the aggregate entry never duplicates that history.
+
 ## Related Documentation
 
 - [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)

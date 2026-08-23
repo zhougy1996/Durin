@@ -1,5 +1,7 @@
 #include "Assets/ImportDialogState.h"
 
+#include "ImportService.h"
+
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -9,6 +11,69 @@
 
 namespace Durin::Editor::Level
 {
+	auto FImportDialogProgressModel::Begin(
+		Asset::FAsyncImportPlanHandle InHandle) -> void
+	{
+		Handle = std::move(InHandle);
+		Refresh();
+	}
+
+	auto FImportDialogProgressModel::ApplySnapshot(
+		Asset::FImportOperationSnapshot InSnapshot) -> void
+	{
+		Snapshot = std::move(InSnapshot);
+	}
+
+	auto FImportDialogProgressModel::Refresh() -> void
+	{
+		if (Handle) ApplySnapshot(Handle.GetOperationSnapshot());
+	}
+
+	auto FImportDialogProgressModel::Reset() -> void
+	{
+		Handle = {};
+		Snapshot = {};
+	}
+
+	auto FImportDialogProgressModel::RequestCancel() -> bool
+	{
+		if (!Handle || !CanCancel()) return false;
+		const bool bRequested = Asset::GetImportService().CancelAsyncImport(Handle);
+		Refresh();
+		return bRequested;
+	}
+
+	auto FImportDialogProgressModel::RunInBackground() -> bool
+	{
+		if (!Handle || Snapshot.IsTerminal()) return false;
+		const bool bBackgrounded = Handle.SetRunningInBackground();
+		Refresh();
+		return bBackgrounded;
+	}
+
+	auto FImportDialogProgressModel::GetState() const -> EImportDialogOperationState
+	{
+		switch (Snapshot.State)
+		{
+		case Asset::EImportOperationState::Finalizing:
+			return EImportDialogOperationState::Finalizing;
+		case Asset::EImportOperationState::Succeeded:
+			return EImportDialogOperationState::Succeeded;
+		case Asset::EImportOperationState::Failed:
+		case Asset::EImportOperationState::Rejected:
+			return EImportDialogOperationState::Failed;
+		case Asset::EImportOperationState::Canceled:
+		case Asset::EImportOperationState::Superseded:
+			return EImportDialogOperationState::Canceled;
+		case Asset::EImportOperationState::Pending:
+		case Asset::EImportOperationState::Canceling:
+			return (Handle || Snapshot.OperationId != 0)
+				? EImportDialogOperationState::Preparing
+				: EImportDialogOperationState::Editing;
+		}
+		return EImportDialogOperationState::Editing;
+	}
+
 	auto FTexture2DImportFormState::Reset() -> void
 	{
 		Source.Reset();
@@ -76,6 +141,12 @@ namespace Durin::Editor::Level
 		std::string_view DirectoryPath) const -> void
 	{
 		if (ImportedDirectory) ImportedDirectory(std::string(DirectoryPath));
+	}
+
+	auto FImportDialogCallbacks::NotifyImportStarted(
+		Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void
+	{
+		if (ImportStarted) ImportStarted(std::move(Handle), std::string(Title));
 	}
 
 	auto FImportDialogDestinationModel::Reset(std::string_view InPreferredDirectory)

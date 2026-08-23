@@ -94,6 +94,7 @@ namespace Durin::Editor::Level
 		FExecuteTransaction InExecuteTransaction,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
+		FNotifyImportStarted InNotifyImportStarted,
 		std::shared_ptr<FMountedContentReconciliationState>
 			InMountedContentReconciliationState,
 		FTaskScopeToken InThumbnailTaskScope)
@@ -106,6 +107,7 @@ namespace Durin::Editor::Level
 		, GetMountedContentMutationRevision(
 			std::move(InGetMountedContentMutationRevision))
 		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
+		, NotifyImportStarted(std::move(InNotifyImportStarted))
 		, RefreshCoordinator(
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
@@ -137,7 +139,17 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	FContentBrowserPanel::~FContentBrowserPanel() = default;
+	FContentBrowserPanel::~FContentBrowserPanel()
+	{
+		if (!PendingSingleAssetReimport) return;
+		Asset::GetImportService().CancelAndDrainAsyncImport(
+			PendingSingleAssetReimport->Operation);
+		Asset::GetImportService().CancelAndDrainSingleAssetReimportPlan(
+			PendingSingleAssetReimport->Planning);
+		if (PendingSingleAssetReimport->Execution)
+			Asset::GetImportService().CancelAndDrainSingleAssetImportExecution(
+				*PendingSingleAssetReimport->Execution);
+	}
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> void
 	{
@@ -350,6 +362,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::BeginRename(const FContentBrowserItem& Item) -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
 		std::memcpy(
@@ -362,6 +375,7 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::CommitRename(const FContentBrowserItem& Item)
 		-> bool
 	{
+		if (PendingSingleAssetReimport) return false;
 		const std::string NewName = RenameBuffer.data();
 		if (NewName == Item.Name)
 		{
@@ -388,6 +402,7 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::DuplicateAsset(
 		const FContentBrowserItem& Item) -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
 		if (!Result)
 		{
@@ -415,6 +430,7 @@ namespace Durin::Editor::Level
 	auto FContentBrowserPanel::PasteAsset(
 		std::string_view DestinationDirectory) -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		FAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return;
 		const std::string_view Directory = DestinationDirectory.empty()
@@ -508,6 +524,11 @@ namespace Durin::Editor::Level
 		const FContentBrowserItem& Item,
 		Asset::EImportRecordAction Action) -> void
 	{
+		if (PendingSingleAssetReimport)
+		{
+			SetError("Another single-asset reimport is already active in this Content Browser.");
+			return;
+		}
 		const bool bRecreateMissingAssets =
 			Action != Asset::EImportRecordAction::Reimport;
 		FAssetPath Path;
@@ -547,24 +568,41 @@ namespace Durin::Editor::Level
 			Asset::ESingleAssetImportCapability::ReimportCurrentSource);
 		if (Reimport && Reimport->bAvailable && !bRecreateMissingAssets)
 		{
-			const Asset::FSingleAssetPlanResult Planned =
-				Asset::GetImportService().CreateSingleAssetReimportPlan(
-					{.Asset = AssetObject});
-			if (!Planned)
+			Asset::FAsyncImportPlanHandle Operation =
+				Asset::GetImportService().BeginAsyncImportOperation(
+					std::format("ContentBrowser.Reimport:{}", Path.ToString()),
+					Capabilities.ProviderId,
+					std::format("Reimport {}", Path.GetAssetName()));
+			if (!Operation || Operation.GetOperationSnapshot().IsTerminal())
 			{
-				SetError(Planned.Message);
+				SetError(Operation ? Operation.GetOperationSnapshot().Diagnostic
+					: "The reimport operation could not be created.");
 				return;
 			}
-			const Asset::FSingleAssetExecutionResult Executed =
-				Asset::GetImportService().ExecuteSingleAssetImport(Planned.Plan);
-			if (!Executed)
+			const std::shared_ptr<Asset::IImportProgressReporter> Progress =
+				Operation.CreateProgressReporter();
+			Asset::FSingleAssetAsyncPlanHandle Planning =
+				Asset::GetImportService().BeginSingleAssetReimportPlan(
+					{.Asset = AssetObject}, {
+						.OwnedProgress = Progress,
+						.IsCancellationRequested = [Operation] {
+							return Operation.IsCancellationRequested();
+						}}, Operation.GetOperationTaskScope());
+			if (!Planning)
 			{
-				SetError(Executed.Message);
+				Operation.CompleteOperation(Asset::EImportOperationState::Rejected,
+					"The single-asset plan could not be created.");
+				SetError("The single-asset plan could not be created.");
 				return;
 			}
 			LastReimportOrphans.clear();
-			PublishMountedContentMutation();
-			RevealAsset(Path.ToString());
+			PendingSingleAssetReimport = FPendingSingleAssetReimport{
+				.Operation = Operation,
+				.Planning = std::move(Planning),
+				.AssetPath = Path};
+			if (NotifyImportStarted)
+				NotifyImportStarted(std::move(Operation),
+					std::format("Reimport {}", Path.GetAssetName()));
 			return;
 		}
 
@@ -573,6 +611,63 @@ namespace Durin::Editor::Level
 			: Inspection.Message.empty()
 				? "The selected asset has no available reimport capability."
 				: Inspection.Message);
+	}
+
+	auto FContentBrowserPanel::PollSingleAssetReimport() -> void
+	{
+		if (!PendingSingleAssetReimport) return;
+		if (!PendingSingleAssetReimport->Execution)
+		{
+			Asset::FSingleAssetPlanResult Planned;
+			const Asset::EAsyncImportPlanStatus PlanStatus =
+				Asset::GetImportService().PollSingleAssetReimportPlan(
+					PendingSingleAssetReimport->Planning, Planned);
+			if (PlanStatus == Asset::EAsyncImportPlanStatus::Pending) return;
+			if (PlanStatus != Asset::EAsyncImportPlanStatus::Succeeded || !Planned)
+			{
+				const Asset::FAsyncImportPlanHandle Operation =
+					PendingSingleAssetReimport->Operation;
+				PendingSingleAssetReimport.reset();
+				const bool bCanceled = PlanStatus
+					== Asset::EAsyncImportPlanStatus::Canceled;
+				Operation.CompleteOperation(bCanceled
+					? Asset::EImportOperationState::Canceled
+					: Asset::EImportOperationState::Failed, Planned.Message);
+				if (!bCanceled) SetError(Planned.Message);
+				return;
+			}
+			const Asset::FAsyncImportPlanHandle Operation =
+				PendingSingleAssetReimport->Operation;
+			PendingSingleAssetReimport->Execution =
+				Asset::GetImportService().BeginSingleAssetImportExecution(
+					Planned.Plan, {
+						.OwnedProgress = Operation.CreateProgressReporter(),
+						.IsCancellationRequested = [Operation] {
+							return Operation.IsCancellationRequested();
+						}}, Operation.GetOperationTaskScope());
+			return;
+		}
+		Asset::FSingleAssetExecutionResult Result;
+		const Asset::EAsyncImportPlanStatus Status =
+			Asset::GetImportService().PollSingleAssetImportExecution(
+				*PendingSingleAssetReimport->Execution, Result);
+		if (Status == Asset::EAsyncImportPlanStatus::Pending) return;
+		const Asset::FAsyncImportPlanHandle Operation =
+			PendingSingleAssetReimport->Operation;
+		const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
+		PendingSingleAssetReimport.reset();
+		if (Status != Asset::EAsyncImportPlanStatus::Succeeded || !Result)
+		{
+			const bool bCanceled = Status == Asset::EAsyncImportPlanStatus::Canceled;
+			Operation.CompleteOperation(bCanceled
+				? Asset::EImportOperationState::Canceled
+				: Asset::EImportOperationState::Failed, Result.Message);
+			if (!bCanceled) SetError(Result.Message);
+			return;
+		}
+		Operation.CompleteOperation(Asset::EImportOperationState::Succeeded);
+		PublishMountedContentMutation();
+		RevealAsset(AssetPath.ToString());
 	}
 
 	auto FContentBrowserPanel::FixUpRedirector(
@@ -669,6 +764,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		if (Selection.empty()) return;
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
 			Model.GetItems(), Selection);
@@ -678,6 +774,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		if (!PendingDeletionPlan || !ExecuteTransaction)
 		{
 			SetError("Content deletion is unavailable because editor history is not active.");

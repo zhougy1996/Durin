@@ -3,6 +3,7 @@
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
 #include "ImportService.h"
+#include "ImportJob.h"
 #include "AssetTools.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
@@ -165,6 +166,7 @@ namespace
 		std::condition_variable Condition;
 		bool bEntered = false;
 		bool bRelease = false;
+		bool bObservedWorkerPreparation = false;
 	};
 
 	class FBlockingGraphProvider final : public Durin::Asset::IImportProvider
@@ -201,6 +203,8 @@ namespace
 			{
 				std::lock_guard Lock(State->Mutex);
 				State->bEntered = true;
+				State->bObservedWorkerPreparation =
+					Durin::Asset::IsImportWorkerPreparation();
 			}
 			State->Condition.notify_all();
 			std::unique_lock Lock(State->Mutex);
@@ -233,6 +237,22 @@ namespace
 		{
 			(void)Durin::Asset::DrainAsyncImportCompletionMailbox();
 			const auto Status = Durin::Asset::TryTakeAsyncImportPlanResult(
+				Handle, OutResult);
+			if (Status != Durin::Asset::EAsyncImportPlanStatus::Pending)
+				return Status;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return Durin::Asset::EAsyncImportPlanStatus::Pending;
+	}
+
+	auto WaitForDetachedResult(
+		Durin::Asset::FAsyncImportExecutionHandle& Handle,
+		Durin::Asset::FDetachedImportBuildResult& OutResult)
+		-> Durin::Asset::EAsyncImportPlanStatus
+	{
+		for (uint32 Attempt = 0; Attempt < 5'000; ++Attempt)
+		{
+			const auto Status = Durin::Asset::PollAsyncImportExecution(
 				Handle, OutResult);
 			if (Status != Durin::Asset::EAsyncImportPlanStatus::Pending)
 				return Status;
@@ -732,6 +752,821 @@ TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
 		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
 	EXPECT_TRUE(SecondResult);
 	SecondResult = {};
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
+}
+
+TEST(FAssetImportCoreTests, ImportOperationContractRejectsInvalidTransitions)
+{
+	using Durin::Asset::EImportOperationState;
+	using Durin::Asset::IsImportOperationTransitionAllowed;
+
+	EXPECT_TRUE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Queued, EImportOperationState::Running));
+	EXPECT_TRUE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Running, EImportOperationState::Finalizing));
+	EXPECT_TRUE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Finalizing, EImportOperationState::Succeeded));
+	EXPECT_TRUE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Running, EImportOperationState::Canceling));
+	EXPECT_TRUE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Canceling, EImportOperationState::Canceled));
+	EXPECT_FALSE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Canceling, EImportOperationState::Finalizing));
+	EXPECT_FALSE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Succeeded, EImportOperationState::Failed));
+	EXPECT_FALSE(IsImportOperationTransitionAllowed(
+		EImportOperationState::Running, EImportOperationState::Running));
+}
+
+TEST(FAssetImportCoreTests, ImportJobValuesAreOwnedAndEditorAdvancesAreExplicit)
+{
+	struct FTrackedValue final : Durin::Asset::IImportJobValue
+	{
+		explicit FTrackedValue(bool& InDestroyed) : Destroyed(InDestroyed) {}
+		~FTrackedValue() override { Destroyed = true; }
+		bool& Destroyed;
+	};
+
+	static_assert(std::has_virtual_destructor_v<Durin::Asset::IImportJobValue>);
+	static_assert(!std::is_copy_constructible_v<Durin::Asset::FImportJobWorkerStep>);
+	bool bDestroyed = false;
+	Durin::Asset::FImportJobWorkerStep Step{
+		.Name = "Tests.TypedWorkerStep",
+		.Input = std::make_unique<FTrackedValue>(bDestroyed)};
+	auto Advance = Durin::Asset::FImportJobEditorAdvance::ContinueWith(std::move(Step));
+	EXPECT_TRUE(Advance.IsValid());
+	EXPECT_FALSE(bDestroyed);
+	Advance.Worker.reset();
+	EXPECT_TRUE(bDestroyed);
+	EXPECT_FALSE(Advance.IsValid());
+
+	auto Terminal = Durin::Asset::FImportJobEditorAdvance::Complete({
+		.State = Durin::Asset::EImportOperationState::Succeeded});
+	EXPECT_TRUE(Terminal.IsValid());
+}
+
+TEST(FAssetImportCoreTests, ServiceOwnedJobAlternatesWorkerAndEditorStepsWithoutDomainPolling)
+{
+	struct FRunState
+	{
+		std::vector<uint32> EditorValues;
+		std::atomic<uint32> WorkerSteps = 0;
+		std::atomic<bool> bJobDestroyed = false;
+		std::atomic<bool> bWorkersMarked = true;
+	};
+	struct FValue final : Durin::Asset::IImportJobValue
+	{
+		explicit FValue(uint32 InValue) : Value(InValue) {}
+		uint32 Value = 0;
+	};
+	class FAlternatingJob final : public Durin::Asset::IImportJob
+	{
+	public:
+		explicit FAlternatingJob(std::shared_ptr<FRunState> InRunState)
+			: RunState(std::move(InRunState))
+		{
+			Owner.OwnerId = "Tests.JobKernel.Alternating";
+			Owner.ConflictIdentities = {"asset:/Tests/Alternating"};
+		}
+		~FAlternatingJob() override { RunState->bJobDestroyed.store(true); }
+		auto GetProviderId() const -> std::string_view override { return {}; }
+		auto GetOwner() const -> const Durin::Asset::FImportOperationOwner& override
+		{
+			return Owner;
+		}
+		auto GetLifetime() const -> Durin::Asset::EImportOperationLifetime override
+		{
+			return Durin::Asset::EImportOperationLifetime::EditorOperation;
+		}
+		auto AdvanceOnEditor(
+			Durin::Asset::FImportJobEditorContext& Context,
+			std::unique_ptr<Durin::Asset::IImportJobValue> Previous)
+			-> Durin::Asset::FImportJobEditorAdvance override
+		{
+			if (Stage == 0)
+			{
+				++Stage;
+				return Durin::Asset::FImportJobEditorAdvance::ContinueWith({
+					.Name = "AssetImportTests.Alternating.First",
+					.Attribution = Durin::RegisterTaskAttribution(
+						"AssetImportTests", "JobKernel"),
+					.Input = std::make_unique<FValue>(2)});
+			}
+			const auto* Value = dynamic_cast<const FValue*>(Previous.get());
+			if (!Value)
+				return Durin::Asset::FImportJobEditorAdvance::Complete({
+					.State = Durin::Asset::EImportOperationState::Failed,
+					.Diagnostic = "Worker result type mismatch."});
+			RunState->EditorValues.push_back(Value->Value);
+			if (Stage++ == 1)
+				return Durin::Asset::FImportJobEditorAdvance::ContinueWith({
+					.Name = "AssetImportTests.Alternating.Second",
+					.Attribution = Durin::RegisterTaskAttribution(
+						"AssetImportTests", "JobKernel"),
+					.Input = std::make_unique<FValue>(3)});
+			if (!Context.EnterFinalization())
+				return Durin::Asset::FImportJobEditorAdvance::Complete({
+					.State = Durin::Asset::EImportOperationState::Canceled,
+					.Diagnostic = "Finalization was canceled."});
+			return Durin::Asset::FImportJobEditorAdvance::Complete({
+				.State = Durin::Asset::EImportOperationState::Succeeded,
+				.PublishedAssetIdentities = {"asset:/Tests/Alternating"},
+				.RevealIdentity = "asset:/Tests/Alternating"});
+		}
+		auto ExecuteWorkerStep(
+			Durin::Asset::FImportJobWorkerContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue> Input)
+			-> Durin::Asset::FImportJobWorkerResult override
+		{
+			RunState->WorkerSteps.fetch_add(1);
+			RunState->bWorkersMarked.store(
+				RunState->bWorkersMarked.load() && Durin::Asset::IsImportWorkerPreparation());
+			const auto* Value = dynamic_cast<const FValue*>(Input.get());
+			if (!Value) return {.bSucceeded = false, .Diagnostic = "Input type mismatch."};
+			return {.Value = std::make_unique<FValue>(Value->Value * 2)};
+		}
+	private:
+		std::shared_ptr<FRunState> RunState;
+		Durin::Asset::FImportOperationOwner Owner;
+		uint32 Stage = 0;
+	};
+
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	const auto RunState = std::make_shared<FRunState>();
+	const Durin::Asset::FImportOperationHandle Operation =
+		Durin::Asset::GetImportService().SubmitImportJob(
+			std::make_unique<FAlternatingJob>(RunState), "Alternating import job");
+	ASSERT_TRUE(Operation);
+	EXPECT_TRUE(Durin::Asset::GetImportService().HasActiveImportClaim(
+		"asset:/Tests/Alternating"));
+	for (uint32 Attempt = 0; Attempt < 10'000 && !Operation.GetSnapshot().IsTerminal(); ++Attempt)
+	{
+		(void)Durin::Asset::GetImportService().PumpImportOperations();
+		std::this_thread::yield();
+	}
+	ASSERT_TRUE(Operation.GetSnapshot().IsTerminal());
+	EXPECT_EQ(Operation.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Succeeded);
+	EXPECT_EQ(RunState->WorkerSteps.load(), 2u);
+	EXPECT_TRUE(RunState->bWorkersMarked.load());
+	EXPECT_EQ(RunState->EditorValues, (std::vector<uint32>{4, 6}));
+	EXPECT_TRUE(RunState->bJobDestroyed.load());
+	EXPECT_FALSE(Durin::Asset::GetImportService().HasActiveImportClaim(
+		"asset:/Tests/Alternating"));
+	Durin::Asset::FImportOutcome Outcome;
+	ASSERT_TRUE(Operation.TryGetOutcome(Outcome));
+	EXPECT_EQ(Outcome.PublishedAssetIdentities,
+		(std::vector<std::string>{"asset:/Tests/Alternating"}));
+	const auto InlineState = std::make_shared<FRunState>();
+	const Durin::Asset::FImportOutcome InlineOutcome =
+		Durin::Asset::GetImportService().RunImportJobInline(
+			std::make_unique<FAlternatingJob>(InlineState), "Inline alternating import job");
+	EXPECT_EQ(InlineOutcome, Outcome);
+	EXPECT_EQ(InlineState->WorkerSteps.load(), RunState->WorkerSteps.load());
+	EXPECT_EQ(InlineState->EditorValues, RunState->EditorValues);
+	EXPECT_TRUE(InlineState->bWorkersMarked.load());
+	EXPECT_TRUE(InlineState->bJobDestroyed.load());
+}
+
+TEST(FAssetImportCoreTests, JobKernelHandlesSupersessionAbandonedHandlesAndAdmissionFailures)
+{
+	class FKernelProbeJob final : public Durin::Asset::IImportJob
+	{
+	public:
+		FKernelProbeJob(std::string OwnerId,
+			Durin::Asset::EImportOperationLifetime InLifetime,
+			uint64 InEstimatedBytes,
+			std::shared_ptr<std::atomic_bool> InDestroyed)
+			: Lifetime(InLifetime), EstimatedBytes(InEstimatedBytes),
+			  Destroyed(std::move(InDestroyed))
+		{
+			Owner.OwnerId = std::move(OwnerId);
+		}
+		~FKernelProbeJob() override { Destroyed->store(true); }
+		auto GetProviderId() const -> std::string_view override { return {}; }
+		auto GetOwner() const -> const Durin::Asset::FImportOperationOwner& override
+		{
+			return Owner;
+		}
+		auto GetLifetime() const -> Durin::Asset::EImportOperationLifetime override
+		{
+			return Lifetime;
+		}
+		auto AdvanceOnEditor(
+			Durin::Asset::FImportJobEditorContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue>)
+			-> Durin::Asset::FImportJobEditorAdvance override
+		{
+			if (bWorkerSubmitted)
+				return Durin::Asset::FImportJobEditorAdvance::Complete({
+					.State = Durin::Asset::EImportOperationState::Succeeded});
+			bWorkerSubmitted = true;
+			return Durin::Asset::FImportJobEditorAdvance::ContinueWith({
+				.Name = "AssetImportTests.KernelProbe",
+				.EstimatedResultBytes = EstimatedBytes});
+		}
+		auto ExecuteWorkerStep(
+			Durin::Asset::FImportJobWorkerContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue>)
+			-> Durin::Asset::FImportJobWorkerResult override
+		{
+			return {};
+		}
+	private:
+		Durin::Asset::FImportOperationOwner Owner;
+		Durin::Asset::EImportOperationLifetime Lifetime;
+		uint64 EstimatedBytes = 0;
+		std::shared_ptr<std::atomic_bool> Destroyed;
+		bool bWorkerSubmitted = false;
+	};
+
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	auto& Service = Durin::Asset::GetImportService();
+	const auto FirstDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto SecondDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto First = Service.SubmitImportJob(std::make_unique<FKernelProbeJob>(
+		"Tests.Preview.Owner", Durin::Asset::EImportOperationLifetime::EphemeralPreview,
+		64, FirstDestroyed), "First preview");
+	const auto Second = Service.SubmitImportJob(std::make_unique<FKernelProbeJob>(
+		"Tests.Preview.Owner", Durin::Asset::EImportOperationLifetime::EphemeralPreview,
+		64, SecondDestroyed), "Second preview");
+	EXPECT_EQ(First.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Superseded);
+	EXPECT_TRUE(FirstDestroyed->load());
+	for (uint32 Attempt = 0; Attempt < 10'000 && !Second.GetSnapshot().IsTerminal(); ++Attempt)
+	{
+		(void)Service.PumpImportOperations();
+		std::this_thread::yield();
+	}
+	EXPECT_EQ(Second.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Succeeded);
+
+	const auto OversizedDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto Oversized = Service.SubmitImportJob(std::make_unique<FKernelProbeJob>(
+		"Tests.Oversized", Durin::Asset::EImportOperationLifetime::EditorOperation,
+		Durin::Asset::MaximumImportJobDetachedValueBytes + 1, OversizedDestroyed),
+		"Oversized job");
+	(void)Service.PumpImportOperations();
+	EXPECT_EQ(Oversized.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Rejected);
+	EXPECT_TRUE(OversizedDestroyed->load());
+
+	const auto AbandonedDestroyed = std::make_shared<std::atomic_bool>(false);
+	{
+		auto Abandoned = Service.SubmitImportJob(std::make_unique<FKernelProbeJob>(
+			"Tests.Abandoned", Durin::Asset::EImportOperationLifetime::EditorOperation,
+			64, AbandonedDestroyed), "Abandoned handle job");
+		ASSERT_TRUE(Abandoned);
+	}
+	for (uint32 Attempt = 0; Attempt < 10'000 && !AbandonedDestroyed->load(); ++Attempt)
+	{
+		(void)Service.PumpImportOperations();
+		std::this_thread::yield();
+	}
+	EXPECT_TRUE(AbandonedDestroyed->load());
+
+	Durin::ShutdownTaskScheduler(false);
+	const auto RejectedDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto Rejected = Service.SubmitImportJob(std::make_unique<FKernelProbeJob>(
+		"Tests.ScheduleRejected", Durin::Asset::EImportOperationLifetime::EditorOperation,
+		64, RejectedDestroyed), "Rejected job");
+	(void)Service.PumpImportOperations();
+	EXPECT_EQ(Rejected.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Rejected);
+	EXPECT_TRUE(RejectedDestroyed->load());
+}
+
+TEST(FAssetImportCoreTests, WorkerFailureReturnsToEditorForCompensationWithInlineParity)
+{
+	struct FCompensationState
+	{
+		bool bProvisionalMutation = false;
+		bool bCompensated = false;
+	};
+	class FCompensatingJob final : public Durin::Asset::IImportJob
+	{
+	public:
+		explicit FCompensatingJob(std::shared_ptr<FCompensationState> InState)
+			: State(std::move(InState)) { Owner.OwnerId = "Tests.Compensation"; }
+		auto GetProviderId() const -> std::string_view override { return {}; }
+		auto GetOwner() const -> const Durin::Asset::FImportOperationOwner& override
+		{
+			return Owner;
+		}
+		auto GetLifetime() const -> Durin::Asset::EImportOperationLifetime override
+		{
+			return Durin::Asset::EImportOperationLifetime::EditorOperation;
+		}
+		auto AdvanceOnEditor(
+			Durin::Asset::FImportJobEditorContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue>)
+			-> Durin::Asset::FImportJobEditorAdvance override
+		{
+			State->bProvisionalMutation = true;
+			return Durin::Asset::FImportJobEditorAdvance::ContinueWith({
+				.Name = "AssetImportTests.CompensationFailure"});
+		}
+		auto ExecuteWorkerStep(
+			Durin::Asset::FImportJobWorkerContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue>)
+			-> Durin::Asset::FImportJobWorkerResult override
+		{
+			return {.bSucceeded = false, .Diagnostic = "Injected worker failure."};
+		}
+		auto CompensateWorkerFailureOnEditor(
+			Durin::Asset::FImportJobEditorContext&,
+			Durin::Asset::FImportJobWorkerResult Result)
+			-> Durin::Asset::FImportOutcome override
+		{
+			if (Durin::Asset::IsImportWorkerPreparation())
+				return {.State = Durin::Asset::EImportOperationState::Failed,
+					.Diagnostic = "Compensation ran on a worker."};
+			State->bProvisionalMutation = false;
+			State->bCompensated = true;
+			return {.State = Durin::Asset::EImportOperationState::Failed,
+				.Diagnostic = std::move(Result.Diagnostic)};
+		}
+	private:
+		std::shared_ptr<FCompensationState> State;
+		Durin::Asset::FImportOperationOwner Owner;
+	};
+
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	auto& Service = Durin::Asset::GetImportService();
+	const auto ScheduledState = std::make_shared<FCompensationState>();
+	const auto Operation = Service.SubmitImportJob(
+		std::make_unique<FCompensatingJob>(ScheduledState), "Compensating job");
+	for (uint32 Attempt = 0; Attempt < 10'000 && !Operation.GetSnapshot().IsTerminal(); ++Attempt)
+	{
+		(void)Service.PumpImportOperations();
+		std::this_thread::yield();
+	}
+	Durin::Asset::FImportOutcome ScheduledOutcome;
+	ASSERT_TRUE(Operation.TryGetOutcome(ScheduledOutcome));
+	EXPECT_EQ(ScheduledOutcome.State, Durin::Asset::EImportOperationState::Failed);
+	EXPECT_TRUE(ScheduledState->bCompensated);
+	EXPECT_FALSE(ScheduledState->bProvisionalMutation);
+
+	const auto InlineState = std::make_shared<FCompensationState>();
+	const auto InlineOutcome = Service.RunImportJobInline(
+		std::make_unique<FCompensatingJob>(InlineState), "Inline compensating job");
+	EXPECT_EQ(InlineOutcome, ScheduledOutcome);
+	EXPECT_TRUE(InlineState->bCompensated);
+	EXPECT_FALSE(InlineState->bProvisionalMutation);
+}
+
+TEST(FAssetImportCoreTests, ProviderDrainDestroysJobValuesBeforeReleasingItsLease)
+{
+	struct FTrackedValue final : Durin::Asset::IImportJobValue
+	{
+		explicit FTrackedValue(std::shared_ptr<std::atomic_bool> InDestroyed)
+			: Destroyed(std::move(InDestroyed)) {}
+		~FTrackedValue() override { Destroyed->store(true); }
+		std::shared_ptr<std::atomic_bool> Destroyed;
+	};
+	class FBlockingJob final : public Durin::Asset::IImportJob
+	{
+	public:
+		FBlockingJob(std::string InProviderId,
+			std::shared_ptr<std::atomic_bool> InValueDestroyed,
+			std::shared_ptr<std::atomic_bool> InJobDestroyed,
+			std::shared_ptr<std::atomic_bool> InEntered)
+			: ProviderId(std::move(InProviderId)), ValueDestroyed(std::move(InValueDestroyed)),
+			  JobDestroyed(std::move(InJobDestroyed)), Entered(std::move(InEntered))
+		{
+			Owner.OwnerId = "Tests.JobKernel.ProviderDrain";
+		}
+		~FBlockingJob() override { JobDestroyed->store(true); }
+		auto GetProviderId() const -> std::string_view override { return ProviderId; }
+		auto GetOwner() const -> const Durin::Asset::FImportOperationOwner& override
+		{
+			return Owner;
+		}
+		auto GetLifetime() const -> Durin::Asset::EImportOperationLifetime override
+		{
+			return Durin::Asset::EImportOperationLifetime::EditorOperation;
+		}
+		auto AdvanceOnEditor(
+			Durin::Asset::FImportJobEditorContext&,
+			std::unique_ptr<Durin::Asset::IImportJobValue>)
+			-> Durin::Asset::FImportJobEditorAdvance override
+		{
+			return Durin::Asset::FImportJobEditorAdvance::ContinueWith({
+				.Name = "AssetImportTests.ProviderDrain",
+				.Input = std::make_unique<FTrackedValue>(ValueDestroyed)});
+		}
+		auto ExecuteWorkerStep(
+			Durin::Asset::FImportJobWorkerContext& Context,
+			std::unique_ptr<Durin::Asset::IImportJobValue> Input)
+			-> Durin::Asset::FImportJobWorkerResult override
+		{
+			Entered->store(true);
+			while (!Context.Cancellation.IsCancellationRequested()) std::this_thread::yield();
+			return {.bSucceeded = false, .bCanceled = true, .Value = std::move(Input)};
+		}
+	private:
+		std::string ProviderId;
+		Durin::Asset::FImportOperationOwner Owner;
+		std::shared_ptr<std::atomic_bool> ValueDestroyed;
+		std::shared_ptr<std::atomic_bool> JobDestroyed;
+		std::shared_ptr<std::atomic_bool> Entered;
+	};
+
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	auto& Service = Durin::Asset::GetImportService();
+	const std::string ProviderId = "Tests.JobKernel.Provider";
+	const auto ProviderDestroyed = std::make_shared<std::atomic_bool>(false);
+	std::string Error;
+	ASSERT_TRUE(Service.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>(ProviderId, true, ProviderDestroyed)},
+		GetImportRegistryTestGate(), Error)) << Error;
+	const auto ValueDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto JobDestroyed = std::make_shared<std::atomic_bool>(false);
+	const auto Entered = std::make_shared<std::atomic_bool>(false);
+	const auto Operation = Service.SubmitImportJob(std::make_unique<FBlockingJob>(
+		ProviderId, ValueDestroyed, JobDestroyed, Entered), "Provider drain job");
+	ASSERT_TRUE(Operation);
+	(void)Service.PumpImportOperations();
+	for (uint32 Attempt = 0; Attempt < 10'000 && !Entered->load(); ++Attempt)
+		std::this_thread::yield();
+	ASSERT_TRUE(Entered->load());
+	EXPECT_TRUE(Service.UnregisterImporter(ProviderId));
+	EXPECT_EQ(Operation.GetSnapshot().State,
+		Durin::Asset::EImportOperationState::Canceled);
+	EXPECT_TRUE(ValueDestroyed->load());
+	EXPECT_TRUE(JobDestroyed->load());
+	EXPECT_EQ(Service.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(ProviderDestroyed->load());
+}
+
+TEST(FAssetImportCoreTests, OperationHandleDetachesFromLegacyInitiatorAndRetainsOneOutcome)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	auto& Registry = Durin::Asset::GetImportService();
+	Durin::Asset::FAsyncImportPlanHandle Legacy = Registry.BeginAsyncImportOperation(
+		"Tests.Operation.DetachedOwner", "Tests.Operation.Provider", "Detached operation");
+	ASSERT_TRUE(Legacy);
+	const Durin::Asset::FImportOperationHandle Operation = Legacy.GetOperationHandle();
+	ASSERT_TRUE(Operation);
+	EXPECT_EQ(Operation.GetOperationId(), Legacy.GetSerial());
+	Legacy = {};
+
+	EXPECT_TRUE(Operation.RequestCancel());
+	Registry.CancelAndDrainAllAsyncImports();
+	const Durin::Asset::FImportOperationSnapshot Terminal = Operation.GetSnapshot();
+	EXPECT_EQ(Terminal.State, Durin::Asset::EImportOperationState::Canceled);
+	EXPECT_TRUE(Terminal.IsTerminal());
+
+	Durin::Asset::FImportOutcome Outcome;
+	ASSERT_TRUE(Operation.TryGetOutcome(Outcome));
+	EXPECT_EQ(Outcome.State, Durin::Asset::EImportOperationState::Canceled);
+	EXPECT_TRUE(Outcome.IsTerminal());
+	const Durin::Asset::FImportOutcome FirstOutcome = Outcome;
+	EXPECT_FALSE(Operation.RequestCancel());
+	ASSERT_TRUE(Operation.TryGetOutcome(Outcome));
+	EXPECT_EQ(Outcome, FirstOutcome);
+}
+
+TEST(FAssetImportCoreTests, ExtendedOperationCarriesExecutionProgressPastPlanResult)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreExtendedOperation");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::Asset::GetImportService();
+	const std::string ProviderId = "Tests.ExtendedOperation";
+	std::string Error;
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>(ProviderId)},
+		GetImportRegistryTestGate(), Error)) << Error;
+
+	const Durin::Asset::FAsyncImportPlanHandle Handle =
+		Registry.LaunchAsyncImportPlan({
+			.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+			.ProviderId = ProviderId},
+			"Tests.ExtendedOperation.Owner", true);
+	Durin::Asset::FImportPlanResult Plan;
+	ASSERT_EQ(WaitForAsyncResult(Handle, Plan),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	ASSERT_TRUE(Plan);
+	EXPECT_FALSE(Handle.GetOperationSnapshot().IsTerminal());
+
+	const std::shared_ptr<Durin::Asset::IImportProgressReporter> Progress =
+		Handle.CreateProgressReporter();
+	ASSERT_TRUE(Progress);
+	Progress->Report({
+		.Phase = Durin::Asset::EImportPhase::CandidateBuild,
+		.State = Durin::Asset::EImportProgressState::Started,
+		.SourceIdentity = "root",
+		.OutputIdentity = "mesh"});
+	EXPECT_FALSE(Handle.GetOperationSnapshot().Progress.has_value());
+	Progress->Report({
+		.Phase = Durin::Asset::EImportPhase::CandidateBuild,
+		.State = Durin::Asset::EImportProgressState::Succeeded,
+		.SourceIdentity = "root",
+		.OutputIdentity = "mesh",
+		.CompletedWork = 3,
+		.TotalWork = 3});
+	ASSERT_TRUE(Handle.GetOperationSnapshot().Progress.has_value());
+	EXPECT_FLOAT_EQ(*Handle.GetOperationSnapshot().Progress, 1.0f);
+	Progress->Report({
+		.Phase = Durin::Asset::EImportPhase::Publication,
+		.State = Durin::Asset::EImportProgressState::Started,
+		.SourceIdentity = "root",
+		.OutputIdentity = "request"});
+	EXPECT_EQ(Handle.GetOperationSnapshot().State,
+		Durin::Asset::EImportOperationState::Finalizing);
+	EXPECT_FALSE(Handle.GetOperationSnapshot().bCancelable);
+	EXPECT_TRUE(Handle.CompleteOperation(
+		Durin::Asset::EImportOperationState::Succeeded));
+	const Durin::Asset::FImportOperationSnapshot Terminal =
+		Handle.GetOperationSnapshot();
+	EXPECT_TRUE(Terminal.IsTerminal());
+	EXPECT_EQ(Terminal.State, Durin::Asset::EImportOperationState::Succeeded);
+	EXPECT_FALSE(Handle.CompleteOperation(
+		Durin::Asset::EImportOperationState::Failed, "late failure"));
+	EXPECT_EQ(Handle.GetOperationSnapshot(), Terminal);
+
+	Plan = {};
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
+}
+
+TEST(FAssetImportCoreTests, ProviderBarrierDrainsExtendedOperationTaskScope)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreExtendedUnload");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::Asset::GetImportService();
+	const std::string ProviderId = "Tests.ExtendedUnload";
+	std::string Error;
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FGraphProvider>(ProviderId)},
+		GetImportRegistryTestGate(), Error)) << Error;
+
+	const Durin::Asset::FAsyncImportPlanHandle Handle =
+		Registry.LaunchAsyncImportPlan({
+			.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+			.ProviderId = ProviderId},
+			"Tests.ExtendedUnload.Owner", true);
+	Durin::Asset::FImportPlanResult Plan;
+	ASSERT_EQ(WaitForAsyncResult(Handle, Plan),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	ASSERT_TRUE(Plan);
+	Plan = {};
+	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
+
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	bool bEntered = false;
+	bool bObservedCancellation = false;
+	Durin::FTaskLaunchOptions Options;
+	Options.Scope = Handle.GetOperationTaskScope();
+	const Durin::FTaskHandle ExecutionTask = Durin::LaunchCancelableTask(
+		"AssetImportCoreTests.ExtendedExecution",
+		[&](const Durin::FTaskCancellationToken& Token) {
+			{
+				std::lock_guard Lock(Mutex);
+				bEntered = true;
+			}
+			Condition.notify_all();
+			while (!Token.IsCancellationRequested())
+				std::this_thread::yield();
+			{
+				std::lock_guard Lock(Mutex);
+				bObservedCancellation = true;
+			}
+			Condition.notify_all();
+		}, Options);
+	ASSERT_TRUE(ExecutionTask.IsValid());
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Condition.wait_for(
+			Lock, std::chrono::seconds(5), [&] { return bEntered; }));
+	}
+
+	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
+	{
+		std::lock_guard Lock(Mutex);
+		EXPECT_TRUE(bObservedCancellation);
+	}
+	EXPECT_TRUE(ExecutionTask.IsComplete());
+	EXPECT_EQ(Handle.GetOperationSnapshot().State,
+		Durin::Asset::EImportOperationState::Canceled);
+	const Durin::FTaskSchedulerDiagnostics Diagnostics =
+		Durin::GetTaskSchedulerDiagnostics();
+	EXPECT_EQ(Diagnostics.OpenScopeCount, 0u);
+	EXPECT_EQ(Diagnostics.NonquiescentScopeCount, 0u);
+}
+
+TEST(FAssetImportCoreTests, DetachedExecutionShellTransfersWorkerValueOnce)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	std::atomic<bool> bBuiltOnPreparationWorker = false;
+	static const Durin::FTaskAttribution Attribution =
+		Durin::RegisterTaskAttribution("AssetImportTests", "DetachedExecution");
+	auto Handle = Durin::Asset::LaunchAsyncImportExecution({
+		.Attribution = Attribution,
+		.Build = [&bBuiltOnPreparationWorker](const Durin::FTaskCancellationToken&) {
+			bBuiltOnPreparationWorker.store(
+				Durin::Asset::IsImportWorkerPreparation(), std::memory_order_release);
+			return Durin::Asset::FDetachedImportBuildResult{
+				.bSucceeded = true,
+				.Value = std::make_shared<uint32>(42)};
+		}});
+	ASSERT_TRUE(Handle);
+	Durin::Asset::FDetachedImportBuildResult Result;
+	EXPECT_EQ(WaitForDetachedResult(Handle, Result),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_TRUE(bBuiltOnPreparationWorker.load(std::memory_order_acquire));
+	const auto Value = std::static_pointer_cast<uint32>(Result.Value);
+	ASSERT_TRUE(Value);
+	EXPECT_EQ(*Value, 42u);
+
+	Durin::Asset::FDetachedImportBuildResult Second;
+	EXPECT_EQ(Durin::Asset::PollAsyncImportExecution(Handle, Second),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_FALSE(Second.Value);
+}
+
+TEST(FAssetImportCoreTests, AcceptedExtendedOperationSharesProgressAndTaskScope)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	auto Operation = Durin::Asset::GetImportService().BeginAsyncImportOperation(
+		"Tests.ManualOperation.Owner", "Tests.ManualOperation.Provider",
+		"Manual import");
+	ASSERT_TRUE(Operation);
+	EXPECT_FALSE(Operation.GetOperationSnapshot().IsTerminal());
+	const auto Progress = Operation.CreateProgressReporter();
+	ASSERT_TRUE(Progress);
+	Progress->Report({
+		.Phase = Durin::Asset::EImportPhase::CandidateBuild,
+		.State = Durin::Asset::EImportProgressState::Started,
+		.CompletedWork = 1,
+		.TotalWork = 2});
+	static const Durin::FTaskAttribution Attribution =
+		Durin::RegisterTaskAttribution("AssetImportTests", "ManualOperation");
+	auto Execution = Durin::Asset::LaunchAsyncImportExecution({
+		.OperationScope = Operation.GetOperationTaskScope(),
+		.Attribution = Attribution,
+		.Build = [](const Durin::FTaskCancellationToken&) {
+			return Durin::Asset::FDetachedImportBuildResult{
+				.bSucceeded = true,
+				.Value = std::make_shared<uint32>(7)};
+		}});
+	Durin::Asset::FDetachedImportBuildResult Result;
+	ASSERT_EQ(WaitForDetachedResult(Execution, Result),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	Progress->Report({
+		.Phase = Durin::Asset::EImportPhase::Publication,
+		.State = Durin::Asset::EImportProgressState::Started});
+	EXPECT_EQ(Operation.GetOperationSnapshot().State,
+		Durin::Asset::EImportOperationState::Finalizing);
+	EXPECT_TRUE(Operation.CompleteOperation(
+		Durin::Asset::EImportOperationState::Succeeded));
+	EXPECT_TRUE(Operation.GetOperationSnapshot().IsTerminal());
+}
+
+TEST(FAssetImportCoreTests, DetachedExecutionShellCancelsAndDrainsOwnedScope)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	bool bEntered = false;
+	bool bObservedCancellation = false;
+	auto Handle = Durin::Asset::LaunchAsyncImportExecution({
+		.Build = [&](const Durin::FTaskCancellationToken& Token) {
+			{
+				std::lock_guard Lock(Mutex);
+				bEntered = true;
+			}
+			Condition.notify_all();
+			while (!Token.IsCancellationRequested()) std::this_thread::yield();
+			{
+				std::lock_guard Lock(Mutex);
+				bObservedCancellation = true;
+			}
+			Condition.notify_all();
+			return Durin::Asset::FDetachedImportBuildResult{
+				.bCanceled = true, .Message = "canceled"};
+		}});
+	ASSERT_TRUE(Handle);
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Condition.wait_for(
+			Lock, std::chrono::seconds(5), [&] { return bEntered; }));
+	}
+	Durin::Asset::CancelAndDrainAsyncImportExecution(Handle);
+	{
+		std::lock_guard Lock(Mutex);
+		EXPECT_TRUE(bObservedCancellation);
+	}
+	Durin::Asset::FDetachedImportBuildResult Result;
+	EXPECT_EQ(Durin::Asset::PollAsyncImportExecution(Handle, Result),
+		Durin::Asset::EAsyncImportPlanStatus::Canceled);
+	const Durin::FTaskSchedulerDiagnostics Diagnostics =
+		Durin::GetTaskSchedulerDiagnostics();
+	EXPECT_EQ(Diagnostics.OpenScopeCount, 0u);
+	EXPECT_EQ(Diagnostics.NonquiescentScopeCount, 0u);
+}
+
+TEST(FAssetImportCoreTests, AsyncProgressSnapshotOutlivesReporterAndStabilizesAtCancellation)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncProgress");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::Asset::GetImportService();
+	const std::string ProviderId = "Tests.AsyncProgress";
+	const std::string OwnerId = "Tests.AsyncProgress.Owner";
+	const auto BlockingState = std::make_shared<FBlockingProviderState>();
+	std::string Error;
+	ASSERT_TRUE(Registry.RegisterImporter({
+		.Provider = std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState)},
+		GetImportRegistryTestGate(), Error)) << Error;
+
+	Durin::Asset::FAsyncImportPlanHandle Handle;
+	{
+		FProgressRecorder InitiatingReporter;
+		Handle = Registry.LaunchAsyncImportPlan({
+			.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+			.ProviderId = ProviderId,
+			.Progress = &InitiatingReporter}, OwnerId);
+		ASSERT_TRUE(Handle);
+	}
+	{
+		std::unique_lock Lock(BlockingState->Mutex);
+		ASSERT_TRUE(BlockingState->Condition.wait_for(
+			Lock, std::chrono::seconds(5), [&] { return BlockingState->bEntered; }));
+	}
+
+	const Durin::Asset::FImportOperationSnapshot Running =
+		Handle.GetOperationSnapshot();
+	EXPECT_EQ(Running.OperationId, Handle.GetSerial());
+	EXPECT_EQ(Running.OwnerId, OwnerId);
+	EXPECT_EQ(Running.ProviderId, ProviderId);
+		EXPECT_EQ(Running.State, Durin::Asset::EImportOperationState::Pending);
+		EXPECT_TRUE(BlockingState->bObservedWorkerPreparation);
+		EXPECT_FALSE(Durin::Asset::IsImportWorkerPreparation());
+	EXPECT_TRUE(Running.bCancelable);
+	EXPECT_GE(static_cast<uint8>(Running.Phase),
+		static_cast<uint8>(Durin::Asset::EImportPhase::Snapshot));
+	EXPECT_TRUE(Handle.SetRunningInBackground());
+	EXPECT_TRUE(Handle.GetOperationSnapshot().bRunningInBackground);
+
+	EXPECT_TRUE(Registry.CancelAsyncImport(Handle));
+	const Durin::Asset::FImportOperationSnapshot Canceling =
+		Handle.GetOperationSnapshot();
+	EXPECT_EQ(Canceling.State, Durin::Asset::EImportOperationState::Canceling);
+	EXPECT_FALSE(Canceling.bCancelable);
+	EXPECT_GT(Canceling.Revision, Running.Revision);
+	EXPECT_EQ(Registry.CancelAndDrainAsyncImport(Handle),
+		Durin::Asset::EAsyncImportPlanStatus::Canceled);
+
+	const Durin::Asset::FImportOperationSnapshot Terminal =
+		Handle.GetOperationSnapshot();
+	EXPECT_TRUE(Terminal.IsTerminal());
+	EXPECT_EQ(Terminal.State, Durin::Asset::EImportOperationState::Canceled);
+	EXPECT_FALSE(Terminal.bCancelable);
+	EXPECT_FALSE(Handle.SetRunningInBackground(false));
+	EXPECT_EQ(Handle.GetOperationSnapshot(), Terminal);
+	const std::vector<Durin::Asset::FImportOperationSnapshot> History =
+		Handle.GetProgressHistory();
+	ASSERT_FALSE(History.empty());
+	EXPECT_LE(History.size(), Durin::Asset::MaximumAsyncImportProgressHistory);
+	for (size_t Index = 1; Index < History.size(); ++Index)
+		EXPECT_LT(History[Index - 1].Revision, History[Index].Revision);
+
 	EXPECT_EQ(Registry.GetOutstandingImporterLeaseCount(ProviderId), 0u);
 	EXPECT_TRUE(Registry.UnregisterImporter(ProviderId));
 }

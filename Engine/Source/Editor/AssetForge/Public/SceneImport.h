@@ -43,6 +43,8 @@ namespace Durin::Asset::Forge
 	};
 	struct FSceneImportPlanResult;
 	struct FSceneImportExecutionResult;
+	struct FSceneSourceBundleAsyncState;
+	struct FSceneImportAsyncExecutionState;
 
 	class FSceneImportPlan
 	{
@@ -103,6 +105,10 @@ namespace Durin::Asset::Forge
 		}
 		explicit operator bool() const { return IsValid(); }
 		auto GetStatus() const -> EAsyncImportPlanStatus;
+		auto GetOperationHandle() const -> FAsyncImportPlanHandle
+		{
+			return GenericHandle;
+		}
 
 	private:
 		FSceneImportRequest Request;
@@ -111,7 +117,7 @@ namespace Durin::Asset::Forge
 		bool bConsumed = false;
 
 		friend ASSETFORGE_API auto BeginSceneImportPlan(
-			const FSceneImportRequest&, std::string_view)
+			const FSceneImportRequest&, std::string_view, bool)
 			-> FSceneImportAsyncPlanHandle;
 		friend ASSETFORGE_API auto PollSceneImportPlan(
 			FSceneImportAsyncPlanHandle&, FSceneImportPlanResult&)
@@ -120,11 +126,59 @@ namespace Durin::Asset::Forge
 			FSceneImportAsyncPlanHandle&) -> void;
 	};
 
+	class FSceneImportAsyncExecutionHandle
+	{
+	public:
+		auto IsValid() const -> bool { return State != nullptr; }
+		explicit operator bool() const { return IsValid(); }
+
+	private:
+		std::shared_ptr<FSceneImportAsyncExecutionState> State;
+
+		explicit FSceneImportAsyncExecutionHandle(
+			std::shared_ptr<FSceneImportAsyncExecutionState> InState)
+			: State(std::move(InState)) {}
+
+		friend ASSETFORGE_API auto BeginSceneImportExecution(
+			const FSceneImportPlan&,
+			FMultiOutputExecutionOptions,
+			FTaskScopeToken) -> FSceneImportAsyncExecutionHandle;
+		friend ASSETFORGE_API auto PollSceneImportExecution(
+			FSceneImportAsyncExecutionHandle&,
+			FSceneImportExecutionResult&) -> EAsyncImportPlanStatus;
+		friend ASSETFORGE_API auto CancelAndDrainSceneImportExecution(
+			FSceneImportAsyncExecutionHandle&) -> void;
+	};
+
+	class FSceneSourceBundleAsyncHandle
+	{
+	public:
+		auto IsValid() const -> bool { return State != nullptr; }
+		explicit operator bool() const { return IsValid(); }
+
+	private:
+		std::shared_ptr<FSceneSourceBundleAsyncState> State;
+
+		explicit FSceneSourceBundleAsyncHandle(
+			std::shared_ptr<FSceneSourceBundleAsyncState> InState)
+			: State(std::move(InState)) {}
+
+		friend ASSETFORGE_API auto BeginSceneSourceBundlePreparation(
+			std::filesystem::path, std::string, std::string, bool)
+			-> FSceneSourceBundleAsyncHandle;
+		friend ASSETFORGE_API auto PollSceneSourceBundlePreparation(
+			FSceneSourceBundleAsyncHandle&, FPreparedSceneSourceBundle&,
+			std::string&) -> EAsyncImportPlanStatus;
+		friend ASSETFORGE_API auto CancelAndDrainSceneSourceBundlePreparation(
+			FSceneSourceBundleAsyncHandle&) -> void;
+	};
+
 	ASSETFORGE_API auto PlanSceneImport(
 		const FSceneImportRequest& Request) -> FSceneImportPlanResult;
 	ASSETFORGE_API auto BeginSceneImportPlan(
 		const FSceneImportRequest& Request,
-		std::string_view OwnerId) -> FSceneImportAsyncPlanHandle;
+		std::string_view OwnerId,
+		bool bKeepOperationOpenAfterPlan = false) -> FSceneImportAsyncPlanHandle;
 	ASSETFORGE_API auto PollSceneImportPlan(
 		FSceneImportAsyncPlanHandle& Handle,
 		FSceneImportPlanResult& OutResult)
@@ -138,6 +192,17 @@ namespace Durin::Asset::Forge
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError,
 		bool bEngineAuthoringContext = false) -> bool;
+	ASSETFORGE_API auto BeginSceneSourceBundlePreparation(
+		std::filesystem::path InputRoot,
+		std::string ReferencingContentPath,
+		std::string ExternalIngestDestination,
+		bool bEngineAuthoringContext = false) -> FSceneSourceBundleAsyncHandle;
+	ASSETFORGE_API auto PollSceneSourceBundlePreparation(
+		FSceneSourceBundleAsyncHandle& Handle,
+		FPreparedSceneSourceBundle& OutBundle,
+		std::string& OutError) -> EAsyncImportPlanStatus;
+	ASSETFORGE_API auto CancelAndDrainSceneSourceBundlePreparation(
+		FSceneSourceBundleAsyncHandle& Handle) -> void;
 	ASSETFORGE_API auto CommitSceneSourceBundle(
 		FPreparedSceneSourceBundle& Bundle) -> void;
 	ASSETFORGE_API auto RollbackSceneSourceBundle(
@@ -150,6 +215,16 @@ namespace Durin::Asset::Forge
 		const FSceneImportPlan& Plan,
 		const FMultiOutputExecutionOptions& Options = {})
 		-> FSceneImportExecutionResult;
+	ASSETFORGE_API auto BeginSceneImportExecution(
+		const FSceneImportPlan& Plan,
+		FMultiOutputExecutionOptions Options = {},
+		FTaskScopeToken OperationScope = {})
+		-> FSceneImportAsyncExecutionHandle;
+	ASSETFORGE_API auto PollSceneImportExecution(
+		FSceneImportAsyncExecutionHandle& Handle,
+		FSceneImportExecutionResult& OutResult) -> EAsyncImportPlanStatus;
+	ASSETFORGE_API auto CancelAndDrainSceneImportExecution(
+		FSceneImportAsyncExecutionHandle& Handle) -> void;
 	ASSETFORGE_API auto FindSceneImportRecordForOutput(
 		const DObject& Output,
 		std::string& OutError) -> DImportRecord*;

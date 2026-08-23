@@ -4,9 +4,11 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 #include "Editor/WorkspaceUI.h"
+#include "ImportService.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::Editor::Level
 {
@@ -97,6 +99,12 @@ namespace Durin::Editor::Level
 		}
 	}
 
+	FEditorNotificationOverlay::~FEditorNotificationOverlay()
+	{
+		if (ImportAggregateNotificationId && GEditor)
+			GEditor->GetNotificationManager().Dismiss(ImportAggregateNotificationId);
+	}
+
 	auto FEditorNotificationOverlay::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
@@ -107,8 +115,113 @@ namespace Durin::Editor::Level
 
 	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
 	{
+		UpdateImportOperations(Notifications);
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
+	}
+
+	auto FEditorNotificationOverlay::RegisterImportOperation(
+		Asset::FImportOperationHandle Handle, std::string Title) -> void
+	{
+		if (!Handle) return;
+		const uint64 OperationId = Handle.GetOperationId();
+		if (std::ranges::any_of(ImportOperations,
+			[OperationId](const FPresentedImportOperation& Operation) {
+				return Operation.Handle.GetOperationId() == OperationId;
+			})) return;
+		ImportOperations.push_back({
+			.Handle = std::move(Handle),
+			.Title = std::move(Title)});
+	}
+
+	auto FEditorNotificationOverlay::UpdateImportOperations(
+		::Durin::Editor::FNotificationManager& Notifications) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.NotificationProjection");
+		for (FPresentedImportOperation& Operation : ImportOperations)
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.UIPolling");
+			const Asset::FImportOperationSnapshot Snapshot =
+				Operation.Handle.GetSnapshot();
+			if (!Operation.NotificationId)
+			{
+				const Asset::FImportOperationHandle CancelHandle = Operation.Handle;
+				Operation.NotificationId = Notifications.BeginProgress({
+					.Message = std::format("{}: {}", Operation.Title,
+						Asset::GetImportPhaseLabel(Snapshot.Phase)),
+					.Progress = Snapshot.Progress,
+					.Cancel = [CancelHandle] { (void)CancelHandle.RequestCancel(); },
+					.Presentation = ::Durin::Editor::ENotificationPresentation::HistoryOnly});
+			}
+			if (Operation.LastRevision == Snapshot.Revision) continue;
+			Operation.LastRevision = Snapshot.Revision;
+			const std::string Message = std::format("{}: {}", Operation.Title,
+				Asset::GetImportPhaseLabel(Snapshot.Phase));
+			if (!Snapshot.IsTerminal())
+			{
+				Notifications.UpdateProgress(
+					Operation.NotificationId, Snapshot.Progress, Message);
+				continue;
+			}
+			switch (Snapshot.State)
+			{
+			case Asset::EImportOperationState::Succeeded:
+				Notifications.CompleteProgress(Operation.NotificationId,
+					std::format("{} completed", Operation.Title));
+				break;
+			case Asset::EImportOperationState::Canceled:
+			case Asset::EImportOperationState::Superseded:
+				Notifications.CancelProgress(Operation.NotificationId,
+					Snapshot.State == Asset::EImportOperationState::Superseded
+						? std::format("{} superseded", Operation.Title)
+						: std::format("{} canceled", Operation.Title));
+				break;
+			case Asset::EImportOperationState::Failed:
+			case Asset::EImportOperationState::Rejected:
+				Notifications.FailProgress(Operation.NotificationId,
+					Snapshot.Diagnostic.empty()
+						? std::format("{} failed", Operation.Title)
+						: Snapshot.Diagnostic);
+				break;
+			default: break;
+			}
+		}
+
+		std::erase_if(ImportOperations, [](const FPresentedImportOperation& Operation) {
+			return Operation.Handle.GetSnapshot().IsTerminal();
+		});
+		if (ImportOperations.empty())
+		{
+			if (ImportAggregateNotificationId)
+			{
+				Notifications.Dismiss(ImportAggregateNotificationId);
+				ImportAggregateNotificationId = 0;
+			}
+			return;
+		}
+
+		const Asset::FImportOperationSnapshot Primary =
+			ImportOperations.front().Handle.GetSnapshot();
+		const std::string AggregateMessage = ImportOperations.size() == 1
+			? std::format("{}: {}", ImportOperations.front().Title,
+				Asset::GetImportPhaseLabel(Primary.Phase))
+			: std::format("{}: {} ({} active)", ImportOperations.front().Title,
+				Asset::GetImportPhaseLabel(Primary.Phase), ImportOperations.size());
+		std::optional<float> AggregateProgress = Primary.Progress;
+		if (ImportOperations.size() > 1) AggregateProgress.reset();
+		if (!ImportAggregateNotificationId)
+		{
+			ImportAggregateNotificationId = Notifications.BeginProgress({
+				.Message = AggregateMessage,
+				.Progress = AggregateProgress,
+				.Action = ::Durin::Editor::FNotificationAction{
+					.Label = "Details",
+					.Invoke = [this] { OpenHistory(); }},
+				.Presentation = ::Durin::Editor::ENotificationPresentation::StatusBar,
+				.bRecordInHistory = false});
+		}
+		else Notifications.UpdateProgress(
+			ImportAggregateNotificationId, AggregateProgress, AggregateMessage);
 	}
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float
@@ -227,12 +340,38 @@ namespace Durin::Editor::Level
 				ImGui::TableNextColumn();
 				if (Status)
 				{
+					const ImVec2 ProgressMin = ImGui::GetCursorScreenPos();
+					const float ProgressWidth = ImGui::GetContentRegionAvail().x;
 					const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Status->Type));
 					ImGui::PushStyleColor(ImGuiCol_Text, Accent);
 					ImGui::TextUnformatted(TypeIcon(Status->Type));
 					ImGui::PopStyleColor();
 					ImGui::SameLine();
 					ImGui::TextUnformatted(Status->Message.c_str());
+					if (Status->Type == ::Durin::Editor::ENotificationType::Progress
+						&& ProgressWidth > 0.0f)
+					{
+						const float IndicatorHeight = MonaImGui::ScaleUI(2.0f);
+						const float IndicatorY = ProgressMin.y + ImGui::GetFrameHeight()
+							- IndicatorHeight;
+						ImGui::GetWindowDrawList()->AddRectFilled(
+							ImVec2(ProgressMin.x, IndicatorY),
+							ImVec2(ProgressMin.x + ProgressWidth, IndicatorY + IndicatorHeight),
+							ImGui::GetColorU32(ImGuiCol_FrameBg));
+						float Start = 0.0f;
+						float End = Status->Progress.value_or(0.0f);
+						if (!Status->Progress)
+						{
+							Start = static_cast<float>(std::fmod(ImGui::GetTime() * 0.55, 1.15));
+							End = std::min(Start + 0.28f, 1.0f);
+							Start = std::min(Start, 1.0f);
+						}
+						ImGui::GetWindowDrawList()->AddRectFilled(
+							ImVec2(ProgressMin.x + ProgressWidth * Start, IndicatorY),
+							ImVec2(ProgressMin.x + ProgressWidth * End,
+								IndicatorY + IndicatorHeight),
+							ImGui::ColorConvertFloat4ToU32(Accent));
+					}
 				}
 				else ImGui::TextDisabled("Ready");
 

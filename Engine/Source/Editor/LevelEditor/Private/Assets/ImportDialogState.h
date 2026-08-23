@@ -2,6 +2,7 @@
 
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
+#include "AsyncImport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 
@@ -13,6 +14,37 @@ namespace Durin
 
 namespace Durin::Editor::Level
 {
+	enum class EImportDialogOperationState : uint8
+	{
+		Editing,
+		Preparing,
+		Finalizing,
+		Succeeded,
+		Failed,
+		Canceled
+	};
+
+	// Adapts value-only import observation to dialog controls without retaining a Widget.
+	class FImportDialogProgressModel
+	{
+	public:
+		auto Begin(Asset::FAsyncImportPlanHandle InHandle) -> void;
+		auto ApplySnapshot(Asset::FImportOperationSnapshot InSnapshot) -> void;
+		auto Refresh() -> void;
+		auto Reset() -> void;
+		auto RequestCancel() -> bool;
+		auto RunInBackground() -> bool;
+
+		auto GetState() const -> EImportDialogOperationState;
+		auto GetSnapshot() const -> const Asset::FImportOperationSnapshot& { return Snapshot; }
+		auto HasOperation() const -> bool { return Handle.IsValid(); }
+		auto CanCancel() const -> bool { return Snapshot.bCancelable && !Snapshot.IsTerminal(); }
+
+	private:
+		Asset::FAsyncImportPlanHandle Handle;
+		Asset::FImportOperationSnapshot Snapshot;
+	};
+
 	// Routes import-dialog outcomes to the owning editor workspace.
 	struct FImportDialogCallbacks
 	{
@@ -20,11 +52,14 @@ namespace Durin::Editor::Level
 		std::function<void(std::string)> ReportError;
 		std::function<void(std::string)> Imported;
 		std::function<void(std::string)> ImportedDirectory;
+		std::function<void(Asset::FAsyncImportPlanHandle, std::string)> ImportStarted;
 
 		auto Clear() const -> void;
 		auto Report(std::string Message) const -> void;
 		auto NotifyImported(std::string_view AssetPath) const -> void;
 		auto NotifyImportedDirectory(std::string_view DirectoryPath) const -> void;
+		auto NotifyImportStarted(
+			Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void;
 	};
 
 	// Owns editable asset-destination state and its suggestion and browse rules.

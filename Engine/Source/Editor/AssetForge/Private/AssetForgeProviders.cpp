@@ -36,6 +36,7 @@
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/VolumeTexture.h"
+#include "Texture/VolumeTextureBuildOperations.h"
 #include "TextureCubeBuildAdapter.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -481,6 +482,313 @@ namespace Durin::Asset::Forge
 			return Result;
 		}
 
+		class FStaticMeshPreparedProduct final : public ISingleAssetPreparedProduct
+		{
+		public:
+			FAssetPath CandidatePath;
+			Asset::Build::FStaticMeshBuildProduct Product;
+		};
+
+		class FStaticMeshPreparation final : public ISingleAssetPreparation
+		{
+		public:
+			FAssetPath CandidatePath;
+			std::shared_ptr<const std::vector<std::byte>> Bytes;
+			std::string Extension;
+			FSourcePath SourcePath;
+			FStaticMeshSourceImportData Provenance;
+			FMeshImportOptions ImportOptions;
+			Asset::Build::FStaticMeshReconciliationSnapshot Reconciliation;
+
+			auto Build(
+				IImportProgressReporter*,
+				const std::function<bool()>& IsCancellationRequested,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetPreparedProduct> override
+			{
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				FImportedSceneData Scene;
+				if (!Bytes || !ImportGeometryFromMemory(
+					*Bytes, Extension, Scene, ImportOptions))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build",
+						.Message = "Captured geometry could not be decoded."});
+					return {};
+				}
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				auto Result = std::make_unique<FStaticMeshPreparedProduct>();
+				Result->CandidatePath = CandidatePath;
+				std::string Error;
+				if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					Reconciliation, MakeStaticMeshImportedData(Scene), Provenance,
+					SourcePath.Path, Result->Product, Error))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				return Result;
+			}
+		};
+
+		class FTexture2DPreparedProduct final : public ISingleAssetPreparedProduct
+		{
+		public:
+			FAssetPath CandidatePath;
+			Asset::Build::FTexture2DBuildProduct Product;
+			Asset::Build::FTexture2DPublicationContext Publication;
+		};
+
+		class FTexture2DPreparation final : public ISingleAssetPreparation
+		{
+		public:
+			FAssetPath CandidatePath;
+			FEncodedSourceSnapshot Source;
+			FTexture2DImportSettings Settings;
+
+			auto Build(IImportProgressReporter*,
+				const std::function<bool()>& IsCancellationRequested,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetPreparedProduct> override
+			{
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				FTextureSourceData SourceData;
+				std::string Error;
+				if (!TranslateTexture2DSource(Source.GetBytes(), SourceData, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				auto Result = std::make_unique<FTexture2DPreparedProduct>();
+				Result->CandidatePath = CandidatePath;
+				const Asset::Build::FTexture2DBuildExecutionControl Control{
+					.ShouldCancel = IsCancellationRequested};
+				if (!Asset::Build::BuildTexture2D({
+					.SourceData = std::move(SourceData),
+					.SourceContentHashLow = Source.ContentHash.HashLow,
+					.SourceContentHashHigh = Source.ContentHash.HashHigh,
+					.Settings = {
+						.Usage = Settings.Usage,
+						.CompressionQuality = Settings.CompressionQuality,
+						.AlphaMipMode = Settings.AlphaMipMode,
+						.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
+						.MaxResolution = Settings.MaxResolution,
+						.bSRGB = Settings.bSRGB}}, Result->Product, Error, &Control))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				Result->Publication = {
+					.SourcePath = Source.SourcePath,
+					.DecoderId = "DurinImage", .DecoderVersion = 1,
+					.SourceFileSize = Source.FileSize,
+					.SourceLastWriteTime = Source.LastWriteTime};
+				return Result;
+			}
+		};
+
+		class FVolumeTexturePreparedProduct final : public ISingleAssetPreparedProduct
+		{
+		public:
+			FAssetPath CandidatePath;
+			Asset::Build::FVolumeTextureBuildProduct Product;
+			FVolumeTextureSourceImportData Provenance;
+		};
+
+		class FVolumeTexturePreparation final : public ISingleAssetPreparation
+		{
+		public:
+			FAssetPath CandidatePath;
+			FEncodedSourceSnapshot Source;
+			FVolumeTextureImportSettings Settings;
+
+			auto Build(IImportProgressReporter*,
+				const std::function<bool()>& IsCancellationRequested,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetPreparedProduct> override
+			{
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				FVolumeTextureSourceData SourceData;
+				std::string Error;
+				const FVolumeTextureCapturedSource Captured{
+					.SourcePath = Source.SourcePath, .ContentHash = Source.ContentHash,
+					.Bytes = Source.GetBytes()};
+				if (!TranslateVolumeTextureAtlasSource(
+					Captured, Settings, SourceData, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				auto Result = std::make_unique<FVolumeTexturePreparedProduct>();
+				Result->CandidatePath = CandidatePath;
+				if (!Asset::Build::BuildVolumeTexture(
+					std::move(SourceData), {.OutputFormat = Settings.GetOutputFormat()},
+					Result->Product, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				Result->Provenance = {
+					.Source = {.SourcePath = Source.SourcePath,
+						.SourceContentHashLow = Source.ContentHash.HashLow,
+						.SourceContentHashHigh = Source.ContentHash.HashHigh},
+					.SourceFile = Source.SourcePath.Path,
+					.ImportFormat = Settings.ImportFormat, .Channels = Settings.Channels,
+					.SliceWidth = Settings.SliceWidth, .SliceHeight = Settings.SliceHeight,
+					.Depth = Settings.Depth, .TilesX = Settings.TilesX, .TilesY = Settings.TilesY,
+					.DecoderId = std::string(VolumeTextureSourceProviderId),
+					.DecoderVersion = VolumeTextureSourceProviderVersion};
+				return Result;
+			}
+		};
+
+		class FTerrainHeightmapPreparedProduct final : public ISingleAssetPreparedProduct
+		{
+		public:
+			FAssetPath CandidatePath;
+			Asset::Build::FTerrainHeightmapBuildProduct Product;
+			Asset::Build::FTerrainHeightmapPublicationContext Publication;
+		};
+
+		class FTerrainHeightmapPreparation final : public ISingleAssetPreparation
+		{
+		public:
+			FAssetPath CandidatePath;
+			FEncodedSourceSnapshot Source;
+
+			auto Build(IImportProgressReporter*,
+				const std::function<bool()>& IsCancellationRequested,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetPreparedProduct> override
+			{
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				FTerrainHeightmapSourceData SourceData;
+				std::string Error;
+				if (!TranslateTerrainHeightmapSource(
+					std::filesystem::path(Source.SourcePath.Path).extension().generic_string(),
+					Source.GetBytes(), SourceData, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				auto Result = std::make_unique<FTerrainHeightmapPreparedProduct>();
+				Result->CandidatePath = CandidatePath;
+				const std::string DecoderId = SourceData.DecoderId;
+				const uint32 DecoderVersion = SourceData.DecoderVersion;
+				const ETerrainHeightmapSourceFormat SourceFormat = SourceData.SourceFormat;
+				const uint32 SourceProfileVersion = SourceData.SourceProfileVersion;
+				if (!Asset::Build::BuildTerrainHeightmap({
+					.Samples = std::move(SourceData.Samples),
+					.Width = SourceData.Width, .Height = SourceData.Height,
+					.SourceContentHashLow = Source.ContentHash.HashLow,
+					.SourceContentHashHigh = Source.ContentHash.HashHigh,
+					.DecoderId = DecoderId, .DecoderVersion = DecoderVersion,
+					.SourceFormat = SourceFormat,
+					.SourceProfileVersion = SourceProfileVersion,
+					.ShouldCancel = IsCancellationRequested}, Result->Product, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				Result->Publication = {
+					.SourcePath = Source.SourcePath,
+					.DecoderId = DecoderId, .DecoderVersion = DecoderVersion,
+					.SourceFormat = SourceFormat,
+					.SourceProfileVersion = SourceProfileVersion,
+					.SourceFileSize = Source.FileSize,
+					.SourceLastWriteTime = Source.LastWriteTime};
+				return Result;
+			}
+		};
+
+		class FTextureCubePreparedProduct final : public ISingleAssetPreparedProduct
+		{
+		public:
+			FAssetPath CandidatePath;
+			Asset::Build::FTextureCubeBuildProduct Product;
+			Asset::Build::FTextureCubePublicationContext Publication;
+		};
+
+		class FTextureCubePreparation final : public ISingleAssetPreparation
+		{
+		public:
+			FAssetPath CandidatePath;
+			ETextureCubeSourceLayout Layout = ETextureCubeSourceLayout::SixFaces;
+			std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Sources;
+			FTextureCubePanoramaImportSettings PanoramaSettings;
+			FTextureCubeImportSettings FaceSettings;
+
+			auto Build(IImportProgressReporter*,
+				const std::function<bool()>& IsCancellationRequested,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetPreparedProduct> override
+			{
+				if (IsCancellationRequested && IsCancellationRequested()) return {};
+				auto Result = std::make_unique<FTextureCubePreparedProduct>();
+				Result->CandidatePath = CandidatePath;
+				std::string Error;
+				bool bBuilt = false;
+				if (Layout == ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					FTextureCubePanoramaSourceData Panorama;
+					if (TranslateTextureCubePanoramaSource(
+						Sources[0].GetBytes(), std::filesystem::path(
+							Sources[0].SourcePath.Path).extension().generic_string(),
+						Panorama, Error))
+						bBuilt = std::visit([&](auto&& Source) {
+							return Asset::Build::BuildTextureCubePanorama(
+								std::move(Source), Sources[0].ContentHash,
+								PanoramaSettings, Result->Product, Error);
+						}, std::move(Panorama));
+					Result->Publication.PanoramaHash = Sources[0].ContentHash;
+					Result->Publication.PanoramaPath = Sources[0].SourcePath;
+				}
+				else
+				{
+					std::array<std::span<const std::byte>, TextureCubeFaceCount> Encoded;
+					std::array<FXxHash128, TextureCubeFaceCount> Hashes;
+					for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+					{
+						Encoded[Index] = Sources[Index].GetBytes();
+						Hashes[Index] = Sources[Index].ContentHash;
+						Result->Publication.FaceHashes[Index] = Hashes[Index];
+						Result->Publication.FacePaths[Index] = Sources[Index].SourcePath;
+					}
+					FTextureCubeSourceData SourceData;
+					bBuilt = TranslateTextureCubeFaceSources(Encoded, SourceData, Error)
+						&& Asset::Build::BuildTextureCubeFaces(
+							std::move(SourceData), Hashes, FaceSettings,
+							Result->Product, Error);
+				}
+				if (!bBuilt)
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build", .Message = std::move(Error)});
+					return {};
+				}
+				return Result;
+			}
+		};
+
 		class FStaticMeshHandler final : public ISingleAssetImportHandler
 		{
 		public:
@@ -539,6 +847,67 @@ namespace Durin::Asset::Forge
 								.Category = EImportDiagnosticCategory::CapabilityUnavailable,
 								.Phase = "capability-query",
 								.Message = "This StaticMesh is the root of a legacy multi-output import; use its Scene reimport action until record migration."});
+				}
+				return Result;
+			}
+			auto CapturePreparation(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::shared_ptr<const ISingleAssetPreparation> override
+			{
+				auto* Target = Cast<DStaticMesh>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				if (!Target || !Root || !Root->Bytes
+					|| !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "preparation-capture",
+						.Message = "StaticMesh detached preparation could not be captured."});
+					return {};
+				}
+				auto Preparation = std::make_shared<FStaticMeshPreparation>();
+				Preparation->CandidatePath = CandidatePath;
+				Preparation->Bytes = Root->Bytes;
+				Preparation->Extension = std::filesystem::path(
+					Root->SourcePath.Path).extension().generic_string();
+				Preparation->SourcePath = Root->SourcePath;
+				Preparation->Provenance = {
+					.SourcePath = Root->SourcePath,
+					.SourceContentHash = Root->ContentHash.ToString(),
+					.ImporterId = Plan.GetProvenance().ProviderId,
+					.ImporterVersion = Plan.GetProvenance().ProviderContractVersion,
+					.ImportSettings = Target->GetImportSettings()};
+				Preparation->ImportOptions = MakeMeshImportOptions(
+					Target->GetImportSettings(), Root->SourcePath);
+				Preparation->Reconciliation = Asset::Build::FStaticMeshBuildOperations::
+					CaptureReconciliationSnapshot(*Target);
+				Preparation->Reconciliation.StableObjectPath = CandidatePath.ToString();
+				return Preparation;
+			}
+			auto MaterializeCandidate(const FSingleAssetImportPlan& Plan,
+				std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Target = Cast<DStaticMesh>(Plan.GetAsset());
+				auto* Product = static_cast<FStaticMeshPreparedProduct*>(Prepared.get());
+				DStaticMesh* Candidate = nullptr;
+				if (!Target || !Product
+					|| !Asset::CreateAsset(Product->CandidatePath, Candidate)) return {};
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				Candidate->SeedMaterialReconciliationFrom(*Target);
+				std::string Error;
+				if (!Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
+					*Candidate, std::move(Product->Product), Error))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-materialization", .Message = std::move(Error)});
+					Result->Abandon();
+					return {};
 				}
 				return Result;
 			}
@@ -644,6 +1013,55 @@ namespace Durin::Asset::Forge
 				return MakeCapabilities(std::string(GetAssetClassName()), "DurinImage", true,
 					"Replaces Texture2D decoded source, source provenance, import settings, mip/platform data, DDC identity, and render resource; object identity is retained.");
 			}
+			auto CapturePreparation(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::shared_ptr<const ISingleAssetPreparation> override
+			{
+				auto* Target = Cast<DTexture2D>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				if (!Target || !Root || !Root->Bytes
+					|| !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "preparation-capture",
+						.Message = "Texture2D detached preparation could not be captured."});
+					return {};
+				}
+				auto Preparation = std::make_shared<FTexture2DPreparation>();
+				Preparation->CandidatePath = CandidatePath;
+				UseCapturedSource(*Root, Preparation->Source);
+				Preparation->Settings = {
+					.Usage = Target->GetUsage(),
+					.CompressionQuality = Target->GetCompressionQuality(),
+					.AlphaMipMode = Target->GetAlphaMipMode(),
+					.AlphaCoverageThreshold = Target->GetAlphaCoverageThreshold(),
+					.MaxResolution = Target->GetMaxResolution(),
+					.bSRGB = Target->IsSRGB()};
+				return Preparation;
+			}
+			auto MaterializeCandidate(const FSingleAssetImportPlan&,
+				std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Product = static_cast<FTexture2DPreparedProduct*>(Prepared.get());
+				DTexture2D* Candidate = nullptr;
+				if (!Product || !Asset::CreateAsset(Product->CandidatePath, Candidate)) return {};
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				if (!Asset::Build::PublishTexture2DProduct(
+					*Candidate, std::move(Product->Product), Product->Publication, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-materialization", .Message = std::move(Error)});
+					Result->Abandon();
+					return {};
+				}
+				return Result;
+			}
 			auto BuildCandidate(const FSingleAssetImportPlan& Plan,
 				std::vector<FImportDiagnostic>& Diagnostics) const
 				-> std::unique_ptr<ISingleAssetCandidate> override
@@ -732,6 +1150,56 @@ namespace Durin::Asset::Forge
 				return MakeCapabilities(std::string(GetAssetClassName()),
 					std::string(VolumeTextureSourceProviderId), true,
 					"Replaces the ordered volume source, mip/platform data, DDC identity, and render resource; object identity is retained.");
+			}
+			auto CapturePreparation(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::shared_ptr<const ISingleAssetPreparation> override
+			{
+				auto* Target = Cast<DVolumeTexture>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				if (!Target || !Root || !Root->Bytes
+					|| !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "preparation-capture",
+						.Message = "VolumeTexture detached preparation could not be captured."});
+					return {};
+				}
+				auto Preparation = std::make_shared<FVolumeTexturePreparation>();
+				Preparation->CandidatePath = CandidatePath;
+				UseCapturedSource(*Root, Preparation->Source);
+				const auto& Imported = Target->GetSourceImportData();
+				Preparation->Settings = {
+					.ImportFormat = Imported.ImportFormat, .Channels = Imported.Channels,
+					.SliceWidth = Imported.SliceWidth, .SliceHeight = Imported.SliceHeight,
+					.Depth = Imported.Depth, .TilesX = Imported.TilesX,
+					.TilesY = Imported.TilesY};
+				return Preparation;
+			}
+			auto MaterializeCandidate(const FSingleAssetImportPlan&,
+				std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Product = static_cast<FVolumeTexturePreparedProduct*>(Prepared.get());
+				DVolumeTexture* Candidate = nullptr;
+				if (!Product || !Asset::CreateAsset(Product->CandidatePath, Candidate)) return {};
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				if (!Asset::Build::PublishVolumeTextureProduct(
+						*Candidate, std::move(Product->Product), Error)
+					|| !Candidate->PublishSourceImportData(
+						std::move(Product->Provenance), Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-materialization", .Message = std::move(Error)});
+					Result->Abandon();
+					return {};
+				}
+				return Result;
 			}
 			auto BuildCandidate(const FSingleAssetImportPlan& Plan,
 				std::vector<FImportDiagnostic>& Diagnostics) const
@@ -826,6 +1294,60 @@ namespace Durin::Asset::Forge
 			{
 				return MakeCapabilities(std::string(GetAssetClassName()), "DurinImage", true,
 					"Replaces all TextureCube source provenance, panorama projection or six-face settings, mip/platform data, DDC identity, and render resource; object identity is retained.");
+			}
+			auto CapturePreparation(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::shared_ptr<const ISingleAssetPreparation> override
+			{
+				auto* Target = Cast<DTextureCube>(Plan.GetAsset());
+				FAssetPath CandidatePath;
+				if (!Target || !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath))
+					return {};
+				auto Preparation = std::make_shared<FTextureCubePreparation>();
+				Preparation->CandidatePath = CandidatePath;
+				Preparation->Layout = Target->GetSourceLayout();
+				Preparation->PanoramaSettings = {
+					Target->GetPanoramaFaceDimension(), Target->GetPanoramaExposureEV()};
+				Preparation->FaceSettings = {Target->IsSRGB()};
+				const uint32 SourceCount = Preparation->Layout
+					== ETextureCubeSourceLayout::EquirectangularPanorama
+					? 1u : TextureCubeFaceCount;
+				for (uint32 Index = 0; Index < SourceCount; ++Index)
+				{
+					const FSourceSnapshotEntry* Entry = Plan.GetSnapshot().FindSource(
+						Index == 0 ? "root" : std::format("face-{}", Index));
+					if (!Entry || !Entry->Bytes)
+					{
+						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+							.Category = EImportDiagnosticCategory::CandidateFailure,
+							.Phase = "preparation-capture",
+							.Message = "TextureCube detached source capture is incomplete."});
+						return {};
+					}
+					UseCapturedSource(*Entry, Preparation->Sources[Index]);
+				}
+				return Preparation;
+			}
+			auto MaterializeCandidate(const FSingleAssetImportPlan&,
+				std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Product = static_cast<FTextureCubePreparedProduct*>(Prepared.get());
+				DTextureCube* Candidate = nullptr;
+				if (!Product || !Asset::CreateAsset(Product->CandidatePath, Candidate)) return {};
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				if (!Asset::Build::PublishTextureCubeProduct(
+					*Candidate, std::move(Product->Product), Product->Publication, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-materialization", .Message = std::move(Error)});
+					Result->Abandon();
+					return {};
+				}
+				return Result;
 			}
 			auto BuildCandidate(const FSingleAssetImportPlan& Plan,
 				std::vector<FImportDiagnostic>& Diagnostics) const
@@ -968,6 +1490,48 @@ namespace Durin::Asset::Forge
 			{
 				return MakeCapabilities(std::string(GetAssetClassName()), "DurinImage", true,
 					"Replaces exact height samples, hierarchy, source provenance, DDC identity, and revision while retaining object identity.");
+			}
+			auto CapturePreparation(const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::shared_ptr<const ISingleAssetPreparation> override
+			{
+				auto* Target = Cast<DTerrainHeightmap>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				if (!Target || !Root || !Root->Bytes
+					|| !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "preparation-capture",
+						.Message = "Terrain Heightmap detached preparation could not be captured."});
+					return {};
+				}
+				auto Preparation = std::make_shared<FTerrainHeightmapPreparation>();
+				Preparation->CandidatePath = CandidatePath;
+				UseCapturedSource(*Root, Preparation->Source);
+				return Preparation;
+			}
+			auto MaterializeCandidate(const FSingleAssetImportPlan&,
+				std::unique_ptr<ISingleAssetPreparedProduct> Prepared,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Product = static_cast<FTerrainHeightmapPreparedProduct*>(Prepared.get());
+				DTerrainHeightmap* Candidate = nullptr;
+				if (!Product || !Asset::CreateAsset(Product->CandidatePath, Candidate)) return {};
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				if (!Asset::Build::PublishTerrainHeightmapProduct(
+					*Candidate, std::move(Product->Product), Product->Publication, Error))
+				{
+					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-materialization", .Message = std::move(Error)});
+					Result->Abandon();
+					return {};
+				}
+				return Result;
 			}
 			auto BuildCandidate(
 				const FSingleAssetImportPlan& Plan,

@@ -15,6 +15,7 @@
 #include "Texture/TextureCube.h"
 #include "TextureTestSupport.h"
 #include "TerrainHeightmapSourceTranslation.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
 
@@ -43,6 +44,55 @@ namespace
 	{
 		return Durin::Asset::GetImportService().CreateSingleAssetReimportPlan(
 			{.Asset = Asset});
+	}
+
+	class FScopedSingleAssetTaskScheduler
+	{
+	public:
+		FScopedSingleAssetTaskScheduler()
+		{
+			Durin::ShutdownTaskScheduler(false);
+			bInitialized = Durin::InitializeTaskScheduler(2);
+		}
+		~FScopedSingleAssetTaskScheduler()
+		{
+			Durin::ShutdownTaskScheduler(false);
+		}
+		auto IsInitialized() const -> bool { return bInitialized; }
+	private:
+		bool bInitialized = false;
+	};
+
+	auto WaitForSingleAssetExecution(
+		Durin::Asset::FSingleAssetAsyncExecutionHandle& Handle,
+		Durin::Asset::FSingleAssetExecutionResult& OutResult)
+		-> Durin::Asset::EAsyncImportPlanStatus
+	{
+		for (uint32 Attempt = 0; Attempt < 10'000; ++Attempt)
+		{
+			const auto Status = Durin::Asset::GetImportService().
+				PollSingleAssetImportExecution(Handle, OutResult);
+			if (Status != Durin::Asset::EAsyncImportPlanStatus::Pending)
+				return Status;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return Durin::Asset::EAsyncImportPlanStatus::Pending;
+	}
+
+	auto WaitForSingleAssetPlan(
+		Durin::Asset::FSingleAssetAsyncPlanHandle& Handle,
+		Durin::Asset::FSingleAssetPlanResult& OutResult)
+		-> Durin::Asset::EAsyncImportPlanStatus
+	{
+		for (uint32 Attempt = 0; Attempt < 10'000; ++Attempt)
+		{
+			const auto Status = Durin::Asset::GetImportService().
+				PollSingleAssetReimportPlan(Handle, OutResult);
+			if (Status != Durin::Asset::EAsyncImportPlanStatus::Pending)
+				return Status;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return Durin::Asset::EAsyncImportPlanStatus::Pending;
 	}
 }
 
@@ -140,6 +190,50 @@ TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 	EXPECT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Asset, Imported.Asset);
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
+}
+
+TEST(FSingleAssetImportTests, ReimportsGeometryThroughDetachedExecutionShell)
+{
+	InitializeSingleAssetImportTests();
+	FScopedSingleAssetTaskScheduler Scheduler;
+	ASSERT_TRUE(Scheduler.IsInitialized());
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStaticMeshAsyncDdc");
+	const std::filesystem::path Source =
+		std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
+	Durin::FStaticMeshImportResult Imported = Durin::Asset::Forge::ImportStaticMeshAsset(
+		Source.generic_string(), "/SingleAssetStage2/AsyncGeometry");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	auto PlanHandle = Durin::Asset::GetImportService().BeginSingleAssetReimportPlan(
+		{.Asset = Imported.Asset});
+	ASSERT_TRUE(PlanHandle);
+	Durin::Asset::FSingleAssetPlanResult PlanResult;
+	ASSERT_EQ(WaitForSingleAssetPlan(PlanHandle, PlanResult),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	ASSERT_TRUE(PlanResult) << PlanResult.Message;
+	ASSERT_TRUE(PlanResult.Plan.GetPreparation());
+
+	auto Handle = Durin::Asset::GetImportService().BeginSingleAssetImportExecution(
+		PlanResult.Plan);
+	ASSERT_TRUE(Handle);
+	Durin::Asset::FSingleAssetExecutionResult Executed;
+	EXPECT_EQ(WaitForSingleAssetExecution(Handle, Executed),
+		Durin::Asset::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_TRUE(Executed) << Executed.Message;
+	EXPECT_EQ(Executed.Asset, Imported.Asset);
+	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
+
+	auto CancelPlan = PlanCurrent(Imported.Asset);
+	ASSERT_TRUE(CancelPlan) << CancelPlan.Message;
+	auto CanceledHandle = Durin::Asset::GetImportService().BeginSingleAssetImportExecution(
+		CancelPlan.Plan, {.IsCancellationRequested = [] { return true; }});
+	Durin::Asset::FSingleAssetExecutionResult Canceled;
+	EXPECT_EQ(WaitForSingleAssetExecution(CanceledHandle, Canceled),
+		Durin::Asset::EAsyncImportPlanStatus::Canceled);
+	EXPECT_FALSE(Canceled);
+	EXPECT_TRUE(std::ranges::any_of(Canceled.Diagnostics, [](const auto& Diagnostic) {
+		return Diagnostic.Category == Durin::Asset::EImportDiagnosticCategory::Canceled;
+	}));
 }
 
 TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)

@@ -106,6 +106,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
 	{
+		PollSingleAssetReimport();
 		// The Level Editor workspace is constructed before feature modules register
 		// their thumbnail providers. Rebuild the restored directory snapshot once
 		// those registrations have completed and the panel is first submitted.
@@ -1166,6 +1167,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::AcceptAssetDrop(std::string_view DestinationDirectory, bool bPhysicalDirectory) -> void
 	{
+		if (PendingSingleAssetReimport) return;
 		if (!ImGui::BeginDragDropTarget()) return;
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 		{

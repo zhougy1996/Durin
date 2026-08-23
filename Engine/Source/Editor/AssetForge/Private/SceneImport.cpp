@@ -23,6 +23,7 @@
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Threading/Task.h"
 
 namespace Durin::Asset::Forge
 {
@@ -76,6 +77,29 @@ namespace Durin::Asset::Forge
 			FStaticMeshImportSettings MeshSettings;
 			std::vector<FSceneOutputData> Outputs;
 			std::vector<std::string> Warnings;
+		};
+
+		struct FSceneDetachedTextureProduct
+		{
+			Asset::Build::FTexture2DBuildProduct Product;
+			FSourcePath Source;
+			std::vector<std::byte> SourceBytesToMount;
+			uint64 SourceFileSize = 0;
+		};
+
+		struct FSceneDetachedBuildProducts
+		{
+			std::unordered_map<std::string, FSceneDetachedTextureProduct> Textures;
+			std::unordered_map<std::string, Asset::Build::FSkeletalMeshBuildProduct> SkeletalMeshes;
+			std::unordered_map<std::string, Asset::Build::FAnimationClipBuildProduct> AnimationClips;
+			std::unordered_map<std::string, Asset::Build::FStaticMeshBuildProduct> StaticMeshes;
+		};
+
+		struct FSceneDetachedBuildResult
+		{
+			bool bSucceeded = false;
+			std::string Message;
+			FSceneDetachedBuildProducts Products;
 		};
 
 		struct FDecodedSceneSettings
@@ -1172,6 +1196,247 @@ namespace Durin::Asset::Forge
 					FXxHash128::HashBuffer(Bytes).ToString())).generic_string();
 		}
 
+		auto BuildSceneDetachedProducts(
+			const FSceneImportPlan& Plan,
+			const FSceneProviderPlanData& Data,
+			const FMultiOutputExecutionOptions& Options,
+			const std::unordered_map<std::string,
+				Asset::Build::FStaticMeshReconciliationSnapshot>* StaticMeshSnapshots = nullptr)
+			-> FSceneDetachedBuildResult
+		{
+			FSceneDetachedBuildResult Result;
+			const FImportPlan& GenericPlan = Plan.GetMultiOutputPlan().GetGenericPlan();
+			const FXxHash128 SourceClosureHash = ComputeSourceClosureHash(GenericPlan);
+			FXxHash128 ProviderStateHash;
+			ProviderStateHash.HashLow = Plan.GetMultiOutputPlan().GetProviderState().ContentHashLow;
+			ProviderStateHash.HashHigh = Plan.GetMultiOutputPlan().GetProviderState().ContentHashHigh;
+			auto MakeKeyInput = [&] (
+				std::string_view StableIdentity,
+				std::string_view CompatibilityIdentity) {
+				return Asset::Build::FSkeletalBuildKeyFields{
+					.ProviderIdentity = std::string(SceneImportProviderId),
+					.ProviderVersion = SceneImportProviderContractVersion,
+					.SourceClosureHash = SourceClosureHash,
+					.SettingsHash = GenericPlan.GetSettings().ContentHash,
+					.ProviderStateHash = ProviderStateHash,
+					.StableOutputIdentity = std::string(StableIdentity),
+					.SkeletonCompatibilityIdentity = std::string(CompatibilityIdentity),
+					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+			};
+			auto IsCanceled = [&] {
+				return Options.IsCancellationRequested
+					&& Options.IsCancellationRequested();
+			};
+			IImportProgressReporter* Progress = Options.Progress
+				? Options.Progress : Options.OwnedProgress.get();
+			auto RequiresProduct = [&](const FSceneOutputData& Output) {
+				const auto Reconciliation = std::ranges::find(
+					Plan.GetMultiOutputPlan().GetReconciliation(), Output.StableIdentity,
+					&FMultiOutputReconciliation::StableIdentity);
+				if (Reconciliation == Plan.GetMultiOutputPlan().GetReconciliation().end()
+					|| (Reconciliation->ProposedAction != EMultiOutputProposedAction::Create
+						&& Reconciliation->ProposedAction
+							!= EMultiOutputProposedAction::ReplaceManaged)) return false;
+				return Output.Kind == ESceneOutputKind::Texture2D
+					|| Output.Kind == ESceneOutputKind::SkeletalMesh
+					|| Output.Kind == ESceneOutputKind::AnimationClip
+					|| (Output.Kind == ESceneOutputKind::StaticMesh
+						&& StaticMeshSnapshots
+						&& StaticMeshSnapshots->contains(Output.StableIdentity));
+			};
+			const size_t BuildCount = std::ranges::count_if(
+				Data.Outputs, RequiresProduct);
+			size_t Completed = 0;
+			ReportImportProgress(Progress, EImportPhase::CandidateBuild,
+				EImportProgressState::Started, "root", "request", 0, BuildCount);
+
+			for (const FSceneOutputData& Descriptor : Data.Outputs)
+			{
+				if (!RequiresProduct(Descriptor)) continue;
+				if (IsCanceled())
+				{
+					Result.Message = "Scene detached product build was canceled.";
+					return Result;
+				}
+				std::string Error;
+				if (Descriptor.Kind == ESceneOutputKind::Texture2D)
+				{
+					if (Descriptor.SourceIndex >= Data.Scene.Images.size())
+					{
+						Result.Message = "Scene texture product mapping is invalid.";
+						return Result;
+					}
+					const FImportedImage& Image = Data.Scene.Images[Descriptor.SourceIndex];
+					std::span<const std::byte> Bytes;
+					FSourcePath Source;
+					if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding)
+						|| !FindSnapshotImageBytes(GenericPlan.GetSnapshot(), Data.Scene,
+							Image, Bytes, Source))
+					{
+						Result.Message = "Scene image snapshot mapping is invalid.";
+						return Result;
+					}
+					FSceneDetachedTextureProduct Detached;
+					if (Descriptor.TextureDerivation != ESceneTextureDerivation::None)
+					{
+						if (!BuildDerivedTextureBytes(Bytes, Descriptor.TextureDerivation,
+							Descriptor.TextureDerivationScale,
+							Descriptor.TextureDerivationColorScale,
+							Detached.SourceBytesToMount, Error))
+						{
+							Result.Message = Error.empty()
+								? "Scene derived texture generation failed." : std::move(Error);
+							return Result;
+						}
+						Bytes = Detached.SourceBytesToMount;
+						const FSourceSnapshotEntry* Root = GenericPlan.GetSnapshot().FindSource("root");
+						if (!Root)
+						{
+							Result.Message = "Scene root source is unavailable.";
+							return Result;
+						}
+						Detached.Source.Path = MakeDerivedImageSourcePath(
+							Root->SourcePath, Descriptor.StableIdentity, Bytes);
+					}
+					else if (!Image.EmbeddedEncodedBytes.empty())
+					{
+						Detached.SourceBytesToMount.assign(Bytes.begin(), Bytes.end());
+						const FSourceSnapshotEntry* Root = GenericPlan.GetSnapshot().FindSource("root");
+						if (!Root)
+						{
+							Result.Message = "Scene root source is unavailable.";
+							return Result;
+						}
+						Detached.Source.Path = MakeEmbeddedImageSourcePath(
+							Root->SourcePath, Image, Descriptor.StableIdentity, Bytes);
+					}
+					else Detached.Source = Source;
+					Detached.SourceFileSize = Bytes.size();
+					FTextureSourceData SourceData;
+					const FXxHash128 SourceHash = FXxHash128::HashBuffer(Bytes);
+					const Asset::Build::FTexture2DBuildExecutionControl ExecutionControl{
+						.ShouldCancel = IsCanceled};
+					if (!TranslateTexture2DSource(Bytes, SourceData, Error)
+						|| !Asset::Build::BuildTexture2D({
+							.SourceData = std::move(SourceData),
+							.SourceContentHashLow = SourceHash.HashLow,
+							.SourceContentHashHigh = SourceHash.HashHigh,
+							.Settings = {
+								.Usage = Descriptor.TextureUsage,
+								.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color}},
+							Detached.Product, Error, &ExecutionControl))
+					{
+						Result.Message = Error.empty()
+							? "Scene texture product build failed." : std::move(Error);
+						return Result;
+					}
+					Result.Products.Textures.emplace(
+						Descriptor.StableIdentity, std::move(Detached));
+				}
+				else if (Descriptor.Kind == ESceneOutputKind::SkeletalMesh)
+				{
+					if (Descriptor.SourceIndex >= Data.Scene.SkeletalMeshes.size())
+					{
+						Result.Message = "Scene SkeletalMesh product mapping is invalid.";
+						return Result;
+					}
+					const FImportedSkeletalMeshData& Imported =
+						Data.Scene.SkeletalMeshes[Descriptor.SourceIndex];
+					if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
+					{
+						Result.Message = "Scene SkeletalMesh Skeleton mapping is invalid.";
+						return Result;
+					}
+					const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
+					Asset::Build::FSkeletalMeshBuildKeyInput KeyInput;
+					static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
+						MakeKeyInput(Descriptor.StableIdentity, Skeleton.CompatibilityIdentity);
+					Asset::Build::FSkeletalMeshBuildProduct Product;
+					if (!Asset::Build::BuildSkeletalMeshProduct({
+							.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
+							.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
+							.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
+							.MaterialSlotCount = static_cast<uint32>(Imported.MaterialSlots.size()),
+							.Payload = Imported.Payload,
+							.KeyInput = std::move(KeyInput)}, Product, Error))
+					{
+						Result.Message = std::move(Error);
+						return Result;
+					}
+					Result.Products.SkeletalMeshes.emplace(
+						Descriptor.StableIdentity, std::move(Product));
+				}
+				else if (Descriptor.Kind == ESceneOutputKind::AnimationClip)
+				{
+					if (Descriptor.SourceIndex >= Data.Scene.AnimationClips.size())
+					{
+						Result.Message = "Scene AnimationClip product mapping is invalid.";
+						return Result;
+					}
+					const FImportedAnimationClipData& Imported =
+						Data.Scene.AnimationClips[Descriptor.SourceIndex];
+					if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
+					{
+						Result.Message = "Scene AnimationClip Skeleton mapping is invalid.";
+						return Result;
+					}
+					const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
+					Asset::Build::FAnimationClipBuildKeyInput KeyInput;
+					static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
+						MakeKeyInput(Descriptor.StableIdentity, Skeleton.CompatibilityIdentity);
+					Asset::Build::FAnimationClipBuildProduct Product;
+					if (!Asset::Build::BuildAnimationClipProduct({
+							.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
+							.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
+							.ClipName = FName(Imported.SuggestedName),
+							.Payload = Imported.Payload,
+							.KeyInput = std::move(KeyInput)}, Product, Error))
+					{
+						Result.Message = std::move(Error);
+						return Result;
+					}
+					Result.Products.AnimationClips.emplace(
+						Descriptor.StableIdentity, std::move(Product));
+				}
+				else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
+					&& StaticMeshSnapshots)
+				{
+					const auto Snapshot = StaticMeshSnapshots->find(Descriptor.StableIdentity);
+					const FSourceSnapshotEntry* Root = GenericPlan.GetSnapshot().FindSource("root");
+					if (Snapshot == StaticMeshSnapshots->end() || !Root)
+					{
+						Result.Message = "Scene StaticMesh build snapshot is unavailable.";
+						return Result;
+					}
+					Asset::Build::FStaticMeshBuildProduct Product;
+					if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+						Snapshot->second, MakeStaticMeshImportedData(Data.Scene), {
+							.SourcePath = Root->SourcePath,
+							.SourceContentHash = Root->ContentHash.ToString(),
+							.ImporterId = std::string(SceneImportProviderId),
+							.ImporterVersion = SceneImportProviderContractVersion,
+							.ImportSettings = Data.MeshSettings},
+						Root->SourcePath.Path, Product, Error))
+					{
+						Result.Message = Error.empty()
+							? "Scene StaticMesh product build failed." : std::move(Error);
+						return Result;
+					}
+					Result.Products.StaticMeshes.emplace(
+						Descriptor.StableIdentity, std::move(Product));
+				}
+				else continue;
+
+				++Completed;
+				ReportImportProgress(Progress, EImportPhase::CandidateBuild,
+					EImportProgressState::Started, "root", Descriptor.StableIdentity,
+					Completed, BuildCount);
+			}
+			Result.bSucceeded = true;
+			return Result;
+		}
+
 		auto CreateOrLoadTarget(
 			const FMultiOutputReconciliation& Entry,
 			DObject*& OutTarget,
@@ -1270,15 +1535,21 @@ namespace Durin::Asset::Forge
 			CommitMountedSourceFile(Source);
 	}
 
-	auto PrepareSceneSourceBundle(
+	auto PrepareSceneSourceBundleImpl(
 		const std::filesystem::path& InputRoot,
 		std::string_view ReferencingContentPath,
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError,
-		bool bEngineAuthoringContext) -> bool
+		bool bEngineAuthoringContext,
+		const std::function<bool()>& IsCancellationRequested) -> bool
 	{
 		OutBundle = {};
+		if (IsCancellationRequested && IsCancellationRequested())
+		{
+			OutError = "Scene source preparation was canceled.";
+			return false;
+		}
 		FScopedMountedSourceFile Root;
 		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
 			ExternalIngestDestination, Root, OutError,
@@ -1287,6 +1558,12 @@ namespace Durin::Asset::Forge
 				: EMountedSourceMutationContext::DependencySafe)) return false;
 		OutBundle.RootSource = Root.SourcePath;
 		OutBundle.Sources.push_back(std::move(Root));
+		if (IsCancellationRequested && IsCancellationRequested())
+		{
+			RollbackSceneSourceBundle(OutBundle);
+			OutError = "Scene source preparation was canceled.";
+			return false;
+		}
 		const std::string Extension = FoldAscii(
 			InputRoot.extension().generic_string());
 		if (Extension != ".gltf") return true;
@@ -1305,6 +1582,11 @@ namespace Durin::Asset::Forge
 			std::filesystem::path(OutBundle.RootSource.Path).parent_path();
 		const bool bVisited = VisitGltfUris(RootBytes,
 			[&](std::string_view Uri, uint32) {
+				if (IsCancellationRequested && IsCancellationRequested())
+				{
+					OutError = "Scene source preparation was canceled.";
+					return false;
+				}
 				const std::filesystem::path Relative =
 					std::filesystem::path(Uri).lexically_normal();
 				if (Relative.empty() || Relative.is_absolute()
@@ -1334,6 +1616,141 @@ namespace Durin::Asset::Forge
 			return false;
 		}
 		return true;
+	}
+
+	auto PrepareSceneSourceBundle(
+		const std::filesystem::path& InputRoot,
+		std::string_view ReferencingContentPath,
+		std::string_view ExternalIngestDestination,
+		FPreparedSceneSourceBundle& OutBundle,
+		std::string& OutError,
+		bool bEngineAuthoringContext) -> bool
+	{
+		return PrepareSceneSourceBundleImpl(
+			InputRoot, ReferencingContentPath, ExternalIngestDestination,
+			OutBundle, OutError, bEngineAuthoringContext, {});
+	}
+
+	struct FSceneSourceBundleAsyncState
+	{
+		struct FResult
+		{
+			bool bSucceeded = false;
+			FPreparedSceneSourceBundle Bundle;
+			std::string Error;
+		};
+
+		mutable std::mutex Mutex;
+		FTaskCancellationSource Cancellation;
+		FTaskScope Scope;
+		FTaskHandle Task;
+		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
+		std::optional<FResult> Result;
+		bool bConsumed = false;
+	};
+
+	auto BeginSceneSourceBundlePreparation(
+		std::filesystem::path InputRoot,
+		std::string ReferencingContentPath,
+		std::string ExternalIngestDestination,
+		bool bEngineAuthoringContext) -> FSceneSourceBundleAsyncHandle
+	{
+		auto State = std::make_shared<FSceneSourceBundleAsyncState>();
+		State->Scope = CreateTaskScope();
+		FTaskLaunchOptions LaunchOptions;
+		LaunchOptions.CancellationToken = State->Cancellation.GetToken();
+		LaunchOptions.Scope = State->Scope.GetToken();
+		static const FTaskAttribution Attribution =
+			RegisterTaskAttribution("AssetImport", "SceneSourceCapture");
+		LaunchOptions.Attribution = Attribution;
+		auto Producer = LaunchUniqueCancelableTask<FSceneSourceBundleAsyncState::FResult>(
+			"AssetImport.SceneSourceCapture",
+			[State, InputRoot = std::move(InputRoot),
+				ReferencingContentPath = std::move(ReferencingContentPath),
+				ExternalIngestDestination = std::move(ExternalIngestDestination),
+				bEngineAuthoringContext](const FTaskCancellationToken&) mutable {
+				const FScopedImportWorkerPreparation WorkerPreparation;
+				FSceneSourceBundleAsyncState::FResult Result;
+				Result.bSucceeded = PrepareSceneSourceBundleImpl(
+					InputRoot, ReferencingContentPath, ExternalIngestDestination,
+					Result.Bundle, Result.Error, bEngineAuthoringContext,
+					[State] { return State->Cancellation.IsCancellationRequested(); });
+				return Result;
+			}, LaunchOptions, 4ull * 1'024ull * 1'024ull);
+		if (!Producer.IsValid())
+		{
+			(void)State->Scope.Close(ETaskScopeCloseMode::Cancel);
+			State->Status = EAsyncImportPlanStatus::Rejected;
+			State->Result = FSceneSourceBundleAsyncState::FResult{
+				.Error = "The task scheduler rejected Scene source preparation."};
+			return FSceneSourceBundleAsyncHandle(std::move(State));
+		}
+		const FTaskHandle ProducerTask = Producer.GetTaskHandle();
+		State->Task = ConsumeThenOutcome(
+			std::move(Producer), "AssetImport.PublishSceneSourceCapture",
+			[State](FUniqueTaskOutcome<FSceneSourceBundleAsyncState::FResult>&& Outcome) {
+				std::lock_guard Lock(State->Mutex);
+				if (Outcome.State == ETaskState::Succeeded && Outcome.Result)
+				{
+					State->Result = std::move(*Outcome.Result);
+					State->Status = State->Result->bSucceeded
+						? EAsyncImportPlanStatus::Succeeded
+						: State->Cancellation.IsCancellationRequested()
+							? EAsyncImportPlanStatus::Canceled
+							: EAsyncImportPlanStatus::Failed;
+				}
+				else
+				{
+					State->Status = Outcome.State == ETaskState::Canceled
+						? EAsyncImportPlanStatus::Canceled : EAsyncImportPlanStatus::Failed;
+					State->Result = FSceneSourceBundleAsyncState::FResult{.Error =
+						Outcome.Diagnostic.empty()
+							? "Scene source preparation did not produce a result."
+							: std::move(Outcome.Diagnostic)};
+				}
+				(void)State->Scope.Close(ETaskScopeCloseMode::Drain);
+			});
+		if (!State->Task.IsValid())
+		{
+			State->Cancellation.RequestCancellation();
+			(void)CancelTask(ProducerTask);
+			(void)State->Scope.Close(ETaskScopeCloseMode::Cancel);
+			State->Status = EAsyncImportPlanStatus::Rejected;
+			State->Result = FSceneSourceBundleAsyncState::FResult{
+				.Error = "The task scheduler rejected Scene source result publication."};
+		}
+		return FSceneSourceBundleAsyncHandle(std::move(State));
+	}
+
+	auto PollSceneSourceBundlePreparation(
+		FSceneSourceBundleAsyncHandle& Handle,
+		FPreparedSceneSourceBundle& OutBundle,
+		std::string& OutError) -> EAsyncImportPlanStatus
+	{
+		if (!Handle.State) return EAsyncImportPlanStatus::Invalid;
+		std::lock_guard Lock(Handle.State->Mutex);
+		const EAsyncImportPlanStatus Status = Handle.State->Status;
+		if (Status == EAsyncImportPlanStatus::Pending || Handle.State->bConsumed)
+			return Status;
+		if (Handle.State->Result)
+		{
+			OutBundle = std::move(Handle.State->Result->Bundle);
+			OutError = std::move(Handle.State->Result->Error);
+		}
+		Handle.State->Result.reset();
+		Handle.State->bConsumed = true;
+		return Status;
+	}
+
+	auto CancelAndDrainSceneSourceBundlePreparation(
+		FSceneSourceBundleAsyncHandle& Handle) -> void
+	{
+		if (!Handle.State) return;
+		Handle.State->Cancellation.RequestCancellation();
+		if (Handle.State->Task.IsValid()) (void)CancelTask(Handle.State->Task);
+		(void)Handle.State->Scope.Close(ETaskScopeCloseMode::Cancel);
+		(void)Handle.State->Scope.Wait();
+		Handle.State.reset();
 	}
 
 	auto FinalizeSceneImportPlan(
@@ -1447,7 +1864,8 @@ namespace Durin::Asset::Forge
 
 	auto BeginSceneImportPlan(
 		const FSceneImportRequest& Request,
-		std::string_view OwnerId) -> FSceneImportAsyncPlanHandle
+		std::string_view OwnerId,
+		bool bKeepOperationOpenAfterPlan) -> FSceneImportAsyncPlanHandle
 	{
 		FSceneImportAsyncPlanHandle Handle;
 		Handle.Request = Request;
@@ -1477,7 +1895,7 @@ namespace Durin::Asset::Forge
 		Handle.GenericHandle = GetImportService().LaunchAsyncImportPlan({
 			.RootSource = Request.RootSource,
 			.ProviderId = std::string(SceneImportProviderId),
-			.Settings = std::move(Settings)}, OwnerId);
+			.Settings = std::move(Settings)}, OwnerId, bKeepOperationOpenAfterPlan);
 		return Handle;
 	}
 
@@ -1558,41 +1976,22 @@ namespace Durin::Asset::Forge
 			.Progress = Progress});
 	}
 
-	auto ExecuteSceneImport(
+	auto ExecuteSceneImportWithProducts(
 		const FSceneImportPlan& Plan,
-		const FMultiOutputExecutionOptions& Options) -> FSceneImportExecutionResult
+		const FMultiOutputExecutionOptions& Options,
+		FSceneDetachedBuildProducts DetachedProducts) -> FSceneImportExecutionResult
 	{
+		CheckImportEditorMutationAllowed("ExecuteSceneImport");
 		FSceneImportExecutionResult Result;
 		FSceneDiagnosticScope DiagnosticScope(
 			Result.bSucceeded, Result.Message, Result.Diagnostics, "scene-execution");
 		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
-			Plan.MultiOutputPlan.GetGenericPlan().GetProviderData());
+			Plan.GetMultiOutputPlan().GetGenericPlan().GetProviderData());
 		if (!Data)
 		{
 			Result.Message = "Scene provider plan data is unavailable.";
 			return Result;
 		}
-		const FImportPlan& GenericPlan = Plan.MultiOutputPlan.GetGenericPlan();
-		const FXxHash128 SourceClosureHash = ComputeSourceClosureHash(GenericPlan);
-		FXxHash128 ProviderStateHash;
-		ProviderStateHash.HashLow = Plan.MultiOutputPlan.GetProviderState().ContentHashLow;
-		ProviderStateHash.HashHigh = Plan.MultiOutputPlan.GetProviderState().ContentHashHigh;
-		auto MakeDerivedDataKeyInput = [&](
-			std::string_view StableIdentity,
-			std::string_view CompatibilityIdentity,
-			const FXxHash128& PayloadFingerprint) {
-			return Asset::Build::FSkeletalBuildKeyFields{
-				.ProviderIdentity = std::string(SceneImportProviderId),
-				.ProviderVersion = SceneImportProviderContractVersion,
-				.SourceClosureHash = SourceClosureHash,
-				.SettingsHash = GenericPlan.GetSettings().ContentHash,
-				.ProviderStateHash = ProviderStateHash,
-				.PayloadInputFingerprint = PayloadFingerprint,
-				.StableOutputIdentity = std::string(StableIdentity),
-				.SkeletonCompatibilityIdentity = std::string(CompatibilityIdentity),
-				.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-				.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-		};
 		std::string Error;
 		FAssetPath StandardMaterialPath;
 		DMaterial* StandardMaterial = nullptr;
@@ -1615,7 +2014,7 @@ namespace Durin::Asset::Forge
 		for (const FSceneOutputData& Output : Data->Outputs)
 			OutputData.emplace(Output.StableIdentity, &Output);
 		FPreparedMultiOutputImport Prepared(
-			Plan.MultiOutputPlan.GetGenericPlan().GetProvider());
+			Plan.GetMultiOutputPlan().GetGenericPlan().GetProvider());
 		ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
 			EImportProgressState::Started);
 		std::vector<FScopedMountedSourceFile> EmbeddedSources;
@@ -1644,7 +2043,7 @@ namespace Durin::Asset::Forge
 			return FailPrepared("Scene candidate preparation was canceled.");
 		};
 		for (const FMultiOutputReconciliation& Entry
-			: Plan.MultiOutputPlan.GetReconciliation())
+			: Plan.GetMultiOutputPlan().GetReconciliation())
 		{
 			if (IsCanceled()) return FailCanceled();
 			if (Entry.ProposedAction != EMultiOutputProposedAction::Reference) continue;
@@ -1659,7 +2058,7 @@ namespace Durin::Asset::Forge
 			ProspectiveObjects.emplace(Entry.StableIdentity, Referenced);
 		}
 		for (const FMultiOutputReconciliation& Entry
-			: Plan.MultiOutputPlan.GetReconciliation())
+			: Plan.GetMultiOutputPlan().GetReconciliation())
 		{
 			if (IsCanceled()) return FailCanceled();
 			if (Entry.ProposedAction != EMultiOutputProposedAction::Create
@@ -1729,65 +2128,31 @@ namespace Durin::Asset::Forge
 			{
 				return FailPrepared("Scene texture candidate mapping is invalid.");
 			}
-			const FImportedImage& Image = Data->Scene.Images[Descriptor->SourceIndex];
-			if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding))
-				return FailPrepared("Scene surface image encoding is unsupported.");
-			std::span<const std::byte> Bytes;
-			FSourcePath Source;
-			if (!FindSnapshotImageBytes(Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot(),
-				Data->Scene, Image, Bytes, Source))
+			auto ProductIt = DetachedProducts.Textures.find(Identity);
+			if (ProductIt == DetachedProducts.Textures.end())
+				return FailPrepared("Scene texture product is unavailable.");
+			FSceneDetachedTextureProduct& Detached = ProductIt->second;
+			FSourcePath PublishedSource = Detached.Source;
+			if (!Detached.SourceBytesToMount.empty())
 			{
-				return FailPrepared("Scene image snapshot mapping is invalid.");
-			}
-			std::vector<std::byte> DerivedBytes;
-			if (Descriptor->TextureDerivation != ESceneTextureDerivation::None)
-			{
-				if (!BuildDerivedTextureBytes(Bytes, Descriptor->TextureDerivation,
-					Descriptor->TextureDerivationScale,
-					Descriptor->TextureDerivationColorScale, DerivedBytes, Error))
+				FScopedMountedSourceFile MountedSource;
+				if (!PrepareMountedSourceBytes(
+					Detached.SourceBytesToMount,
+					Plan.GetMultiOutputPlan().GetRecordPath().ToString(),
+					Detached.Source.Path, MountedSource, Error))
 				{
 					return FailPrepared(Error.empty()
-						? "Scene derived texture generation failed." : std::move(Error));
+						? "Scene image source publication failed." : std::move(Error));
 				}
-				FScopedMountedSourceFile DerivedSource;
-				const FSourceSnapshotEntry* Root =
-					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
-				if (!Root || !PrepareMountedSourceBytes(
-					DerivedBytes,
-					Plan.MultiOutputPlan.GetRecordPath().ToString(),
-					MakeDerivedImageSourcePath(Root->SourcePath, Identity, DerivedBytes),
-					DerivedSource,
-					Error))
-				{
-					return FailPrepared(Error.empty()
-						? "Derived Scene image source publication failed." : std::move(Error));
-				}
-				Bytes = DerivedBytes;
-				Source = DerivedSource.SourcePath;
-				EmbeddedSources.push_back(std::move(DerivedSource));
+				PublishedSource = MountedSource.SourcePath;
+				EmbeddedSources.push_back(std::move(MountedSource));
 			}
-			else if (!Image.EmbeddedEncodedBytes.empty())
-			{
-				FScopedMountedSourceFile EmbeddedSource;
-				const FSourceSnapshotEntry* Root =
-					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
-				if (!Root || !PrepareMountedSourceBytes(
-					Bytes,
-					Plan.MultiOutputPlan.GetRecordPath().ToString(),
-					MakeEmbeddedImageSourcePath(Root->SourcePath, Image, Identity, Bytes),
-					EmbeddedSource,
-					Error))
-				{
-					return FailPrepared(
-						Error.empty() ? "Embedded Scene image source publication failed."
-							: std::move(Error));
-				}
-				Source = EmbeddedSource.SourcePath;
-				EmbeddedSources.push_back(std::move(EmbeddedSource));
-			}
-			if (!BuildTexture2DCandidateFromSource(*Texture, Bytes, Source,
-					{.Usage = Descriptor->TextureUsage,
-						.bSRGB = Descriptor->TextureUsage == ETextureUsage::Color}, Error))
+			if (!Asset::Build::PublishTexture2DProduct(
+					*Texture, std::move(Detached.Product), {
+						.SourcePath = PublishedSource,
+						.DecoderId = "DurinImage",
+						.DecoderVersion = 1,
+						.SourceFileSize = Detached.SourceFileSize}, Error))
 			{
 				return FailPrepared(
 					Error.empty() ? "Scene image candidate failed." : std::move(Error));
@@ -1935,19 +2300,10 @@ namespace Durin::Asset::Forge
 			}
 			const FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			Asset::Build::FSkeletalMeshBuildKeyInput KeyInput;
-			static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
-				MakeDerivedDataKeyInput(
-					Identity, ImportedSkeleton.CompatibilityIdentity, {});
-			Asset::Build::FSkeletalMeshBuildProduct Product;
-			if (!Asset::Build::BuildSkeletalMeshProduct({
-					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
-					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
-					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
-					.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
-					.Payload = Imported.Payload,
-					.KeyInput = std::move(KeyInput)}, Product, Error))
-				return FailPrepared(std::move(Error));
+			auto ProductIt = DetachedProducts.SkeletalMeshes.find(Identity);
+			if (ProductIt == DetachedProducts.SkeletalMeshes.end())
+				return FailPrepared("Scene SkeletalMesh product is unavailable.");
+			Asset::Build::FSkeletalMeshBuildProduct& Product = ProductIt->second;
 			if (!Mesh->PublishBuiltProduct({
 					.Skeleton = FinalSkeleton,
 					.ValidationSkeleton = ProspectiveSkeleton,
@@ -1994,18 +2350,10 @@ namespace Durin::Asset::Forge
 				return FailPrepared("Scene AnimationClip Skeleton relationship is invalid.");
 			const FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			Asset::Build::FAnimationClipBuildKeyInput KeyInput;
-			static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
-				MakeDerivedDataKeyInput(
-					Identity, ImportedSkeleton.CompatibilityIdentity, {});
-			Asset::Build::FAnimationClipBuildProduct Product;
-			if (!Asset::Build::BuildAnimationClipProduct({
-					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
-					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
-					.ClipName = FName(Imported.SuggestedName),
-					.Payload = Imported.Payload,
-					.KeyInput = std::move(KeyInput)}, Product, Error))
-				return FailPrepared(std::move(Error));
+			auto ProductIt = DetachedProducts.AnimationClips.find(Identity);
+			if (ProductIt == DetachedProducts.AnimationClips.end())
+				return FailPrepared("Scene AnimationClip product is unavailable.");
+			Asset::Build::FAnimationClipBuildProduct& Product = ProductIt->second;
 			if (!Clip->PublishBuiltProduct({
 					.Skeleton = FinalSkeleton,
 					.ValidationSkeleton = ProspectiveSkeleton,
@@ -2039,10 +2387,14 @@ namespace Durin::Asset::Forge
 			if (IsCanceled()) return FailCanceled();
 			auto* Mesh = Cast<DStaticMesh>(MeshOutput->Candidate->GetAsset());
 			const FSourceSnapshotEntry* Root =
-				Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
+				Plan.GetMultiOutputPlan().GetGenericPlan().GetSnapshot().FindSource("root");
 			Asset::Build::FStaticMeshBuildProduct Product;
-			if (!Mesh || !Root
-				|| !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+			auto Detached = DetachedProducts.StaticMeshes.find(
+				MeshDescriptor->StableIdentity);
+			const bool bBuilt = Detached != DetachedProducts.StaticMeshes.end()
+				? (Product = std::move(Detached->second), true)
+				: Mesh && Root
+					&& Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
 					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh),
 					MakeStaticMeshImportedData(Data->Scene),
 					{
@@ -2051,7 +2403,8 @@ namespace Durin::Asset::Forge
 					.ImporterId = std::string(SceneImportProviderId),
 					.ImporterVersion = SceneImportProviderContractVersion,
 					.ImportSettings = Data->MeshSettings},
-					Root->SourcePath.Path, Product, Error)
+					Root->SourcePath.Path, Product, Error);
+			if (!Mesh || !Root || !bBuilt
 				|| !Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
 					*Mesh, std::move(Product), Error))
 			{
@@ -2085,7 +2438,7 @@ namespace Durin::Asset::Forge
 			Prepared.Outputs.size(), Prepared.Outputs.size());
 		if (IsCanceled()) return FailCanceled();
 		FMultiOutputExecutionResult Executed = GetImportService().ExecuteMultiOutputImport(
-			Plan.MultiOutputPlan, std::move(Prepared), GetImportRecordIndex(), Options);
+			Plan.GetMultiOutputPlan(), std::move(Prepared), GetImportRecordIndex(), Options);
 		if (Executed)
 		{
 			for (FMountedSourceFile& Source : EmbeddedSources)
@@ -2116,6 +2469,197 @@ namespace Durin::Asset::Forge
 				Result.Textures.push_back(Texture);
 		}
 		return Result;
+	}
+
+	struct FSceneImportAsyncExecutionState
+	{
+		FSceneImportPlan Plan;
+		FMultiOutputExecutionOptions Options;
+		FAsyncImportExecutionHandle Execution;
+		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
+		bool bConsumed = false;
+	};
+
+	struct FSceneDetachedExecutionValue
+	{
+		FSceneDetachedBuildResult BuildResult;
+	};
+
+	auto ExecuteSceneImport(
+		const FSceneImportPlan& Plan,
+		const FMultiOutputExecutionOptions& InOptions) -> FSceneImportExecutionResult
+	{
+		FMultiOutputExecutionOptions Options = InOptions;
+		if (!Options.Progress) Options.Progress = Options.OwnedProgress.get();
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			Plan.GetMultiOutputPlan().GetGenericPlan().GetProviderData());
+		if (!Data)
+			return {.Message = "Scene provider plan data is unavailable."};
+		FSceneDetachedBuildResult Built = BuildSceneDetachedProducts(Plan, *Data, Options);
+		if (!Built.bSucceeded)
+		{
+			FSceneImportExecutionResult Failure{.Message = std::move(Built.Message)};
+			Failure.Diagnostics.push_back({
+				.Severity = EImportDiagnosticSeverity::Error,
+				.Category = Options.IsCancellationRequested
+					&& Options.IsCancellationRequested()
+						? EImportDiagnosticCategory::Canceled
+						: EImportDiagnosticCategory::CandidateFailure,
+				.Phase = "detached-product-build",
+				.SourceIdentity = "root",
+				.OutputIdentity = "request",
+				.Message = Failure.Message});
+			FinalizeImportDiagnostics(
+				Failure.Diagnostics, "detached-product-build", "root", "request");
+			return Failure;
+		}
+		return ExecuteSceneImportWithProducts(
+			Plan, Options, std::move(Built.Products));
+	}
+
+	auto BeginSceneImportExecution(
+		const FSceneImportPlan& Plan,
+		FMultiOutputExecutionOptions Options,
+		FTaskScopeToken OperationScope) -> FSceneImportAsyncExecutionHandle
+	{
+		CheckImportEditorMutationAllowed("BeginSceneImportExecution");
+		auto State = std::make_shared<FSceneImportAsyncExecutionState>();
+		State->Plan = Plan;
+		State->Options = std::move(Options);
+		if (!State->Options.Progress)
+			State->Options.Progress = State->Options.OwnedProgress.get();
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			State->Plan.GetMultiOutputPlan().GetGenericPlan().GetProviderData());
+		std::string PreflightError;
+		std::unordered_map<std::string,
+			Asset::Build::FStaticMeshReconciliationSnapshot> StaticMeshSnapshots;
+		if (!Data) PreflightError = "Scene provider plan data is unavailable.";
+		if (Data) for (const FSceneOutputData& Descriptor : Data->Outputs)
+		{
+			if (Descriptor.Kind != ESceneOutputKind::StaticMesh) continue;
+			const auto Reconciliation = std::ranges::find(
+				State->Plan.GetMultiOutputPlan().GetReconciliation(),
+				Descriptor.StableIdentity,
+				&FMultiOutputReconciliation::StableIdentity);
+			if (Reconciliation == State->Plan.GetMultiOutputPlan().GetReconciliation().end()
+				|| (Reconciliation->ProposedAction != EMultiOutputProposedAction::Create
+					&& Reconciliation->ProposedAction
+						!= EMultiOutputProposedAction::ReplaceManaged)) continue;
+			Asset::Build::FStaticMeshReconciliationSnapshot Snapshot;
+			Snapshot.StableObjectPath = Reconciliation->ResolvedAssetPath.ToString();
+			if (Reconciliation->ProposedAction == EMultiOutputProposedAction::ReplaceManaged)
+			{
+				DStaticMesh* Existing = nullptr;
+				const Asset::FAssetResult Loaded = Asset::LoadAsset(
+					Reconciliation->ResolvedAssetPath, Existing);
+				if (!Loaded || !Existing)
+				{
+					PreflightError = Loaded
+						? "Existing Scene StaticMesh is unavailable." : Loaded.Message;
+					break;
+				}
+				Snapshot = Asset::Build::FStaticMeshBuildOperations::
+					CaptureReconciliationSnapshot(*Existing);
+				Snapshot.NormalizedSize = 1.5f;
+				Snapshot.StableObjectPath = Reconciliation->ResolvedAssetPath.ToString();
+				for (FMeshMaterialSlotDefinition& Slot : Snapshot.MaterialSlots)
+					Slot.DefaultMaterial = nullptr;
+			}
+			StaticMeshSnapshots.emplace(
+				Descriptor.StableIdentity, std::move(Snapshot));
+		}
+
+		static const FTaskAttribution Attribution =
+			RegisterTaskAttribution("AssetImport", "SceneDetachedProductBuild");
+		FSceneImportPlan WorkerPlan = State->Plan;
+		FMultiOutputExecutionOptions WorkerOptions = State->Options;
+		State->Execution = LaunchAsyncImportExecution({
+			.OperationScope = std::move(OperationScope),
+			.Attribution = Attribution,
+			.EstimatedResultBytes = 64ull * 1'024ull * 1'024ull,
+			.Build = [Plan = std::move(WorkerPlan), Data,
+				Options = std::move(WorkerOptions),
+				Snapshots = std::move(StaticMeshSnapshots),
+				PreflightError = std::move(PreflightError)](
+				const FTaskCancellationToken& Token) mutable {
+				if (!PreflightError.empty())
+					return FDetachedImportBuildResult{.Message = PreflightError};
+				const std::function<bool()> ExternalCancellation =
+					Options.IsCancellationRequested;
+				Options.IsCancellationRequested = [&Token, ExternalCancellation] {
+					return Token.IsCancellationRequested()
+						|| (ExternalCancellation && ExternalCancellation());
+				};
+				FSceneDetachedBuildResult Built = BuildSceneDetachedProducts(
+					Plan, *Data, Options, &Snapshots);
+				const bool bSucceeded = Built.bSucceeded;
+				const bool bCanceled = !bSucceeded && Options.IsCancellationRequested
+					&& Options.IsCancellationRequested();
+				std::string Message = Built.Message;
+				return FDetachedImportBuildResult{
+					.bSucceeded = bSucceeded,
+					.bCanceled = bCanceled,
+					.Message = std::move(Message),
+					.Value = std::make_shared<FSceneDetachedExecutionValue>(
+						FSceneDetachedExecutionValue{std::move(Built)})};
+			}});
+		return FSceneImportAsyncExecutionHandle(std::move(State));
+	}
+
+	auto PollSceneImportExecution(
+		FSceneImportAsyncExecutionHandle& Handle,
+		FSceneImportExecutionResult& OutResult) -> EAsyncImportPlanStatus
+	{
+		if (!Handle.State) return EAsyncImportPlanStatus::Invalid;
+		if (Handle.State->bConsumed) return Handle.State->Status;
+		FDetachedImportBuildResult Detached;
+		const EAsyncImportPlanStatus Status =
+			PollAsyncImportExecution(Handle.State->Execution, Detached);
+		if (Status == EAsyncImportPlanStatus::Pending) return Status;
+		Handle.State->Status = Status;
+		Handle.State->bConsumed = true;
+		FSceneImportPlan Plan = std::move(Handle.State->Plan);
+		Handle.State->Plan = {};
+		auto Value = std::static_pointer_cast<FSceneDetachedExecutionValue>(
+			std::move(Detached.Value));
+		if (Status != EAsyncImportPlanStatus::Succeeded || !Value
+			|| !Value->BuildResult.bSucceeded)
+		{
+			OutResult.Message = !Detached.Message.empty() ? std::move(Detached.Message)
+				: Value ? std::move(Value->BuildResult.Message)
+				: "Scene detached product construction did not complete.";
+			OutResult.Diagnostics.push_back({
+				.Severity = EImportDiagnosticSeverity::Error,
+				.Category = Status == EAsyncImportPlanStatus::Canceled
+					? EImportDiagnosticCategory::Canceled
+					: EImportDiagnosticCategory::CandidateFailure,
+				.Phase = "detached-product-build",
+				.SourceIdentity = "root",
+				.OutputIdentity = "request",
+				.Message = OutResult.Message});
+			FinalizeImportDiagnostics(
+				OutResult.Diagnostics, "detached-product-build", "root", "request");
+			Handle.State->Options = {};
+			return Status;
+		}
+		OutResult = ExecuteSceneImportWithProducts(
+			Plan, Handle.State->Options, std::move(Value->BuildResult.Products));
+		Handle.State->Options = {};
+		Handle.State->Status = OutResult ? EAsyncImportPlanStatus::Succeeded
+			: EAsyncImportPlanStatus::Failed;
+		return Handle.State->Status;
+	}
+
+	auto CancelAndDrainSceneImportExecution(
+		FSceneImportAsyncExecutionHandle& Handle) -> void
+	{
+		if (!Handle.State) return;
+		CancelAndDrainAsyncImportExecution(Handle.State->Execution);
+		Handle.State->Plan = {};
+		Handle.State->Options = {};
+		Handle.State->Status = EAsyncImportPlanStatus::Canceled;
+		Handle.State->bConsumed = true;
+		Handle.State.reset();
 	}
 
 	auto FindSceneImportRecordForOutput(

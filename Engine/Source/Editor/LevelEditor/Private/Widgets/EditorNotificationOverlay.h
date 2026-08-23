@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AsyncImport.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 
@@ -29,6 +30,7 @@ namespace Durin::Editor::Level
 				ELevelEditorPanelRole::ActivityHistory))
 		{
 		}
+		~FEditorNotificationOverlay() override;
 		auto GetWindowName() const -> const char* override { return "Activity History"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
 		auto UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
@@ -39,11 +41,25 @@ namespace Durin::Editor::Level
 			uint32 ConsoleUnreadCount) -> EEditorStatusBarAction;
 		auto DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void;
 		auto OpenHistory() -> void;
+		auto RegisterImportOperation(
+			Asset::FImportOperationHandle Handle, std::string Title) -> void;
 
 	private:
+		struct FPresentedImportOperation
+		{
+			Asset::FImportOperationHandle Handle;
+			std::string Title;
+			uint64 LastRevision = 0;
+			uint64 NotificationId = 0;
+		};
+
+		auto UpdateImportOperations(
+			::Durin::Editor::FNotificationManager& Notifications) -> void;
 		static auto DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
 		static auto PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
 
 		bool bFocusHistoryRequested = false;
+		std::vector<FPresentedImportOperation> ImportOperations;
+		uint64 ImportAggregateNotificationId = 0;
 	};
 }

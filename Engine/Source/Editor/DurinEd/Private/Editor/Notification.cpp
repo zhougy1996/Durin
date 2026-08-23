@@ -19,7 +19,7 @@ namespace Durin::Editor
 			Notification.Details = std::move(Desc.Details);
 			Notification.RemainingSeconds = ResolveDuration(Notification.Type, Desc.DurationSeconds);
 			Notification.Action = std::move(Desc.Action);
-			History.emplace_back(Notification);
+			if (Desc.bRecordInHistory) History.emplace_back(Notification);
 			switch (Desc.Presentation)
 			{
 			case ENotificationPresentation::StatusBar: StatusNotification = std::move(Notification); break;
@@ -42,7 +42,7 @@ namespace Durin::Editor
 			if (Desc.Progress) Notification.Progress = std::clamp(*Desc.Progress, 0.0f, 1.0f);
 			Notification.Action = std::move(Desc.Action);
 			Notification.Cancel = std::move(Desc.Cancel);
-			History.emplace_back(Notification);
+			if (Desc.bRecordInHistory) History.emplace_back(Notification);
 			switch (Desc.Presentation)
 			{
 			case ENotificationPresentation::StatusBar: StatusNotification = std::move(Notification); break;
@@ -89,6 +89,20 @@ namespace Durin::Editor
 				Notification.RemainingSeconds.reset();
 				Notification.Cancel = {};
 				Notification.Message = Message;
+			});
+		});
+	}
+
+	auto FNotificationManager::CancelProgress(FNotificationId Id, std::string Message) -> void
+	{
+		Enqueue([this, Id, Message = std::move(Message)]() mutable {
+			UpdateAll(Id, [&](FNotification& Notification) {
+				if (Notification.Type != ENotificationType::Progress) return;
+				Notification.Type = ENotificationType::Info;
+				Notification.Progress.reset();
+				Notification.RemainingSeconds = DefaultInfoDuration;
+				Notification.Cancel = {};
+				if (!Message.empty()) Notification.Message = Message;
 			});
 		});
 	}

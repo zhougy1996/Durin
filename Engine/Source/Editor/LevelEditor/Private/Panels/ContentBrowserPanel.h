@@ -5,6 +5,7 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
+#include "ImportService.h"
 #include "Threading/Task.h"
 
 #include <array>
@@ -45,6 +46,8 @@ namespace Durin::Editor::Level
 			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
+		using FNotifyImportStarted = std::function<void(
+			Asset::FAsyncImportPlanHandle, std::string)>;
 
 		FContentBrowserPanel(
 			FLevelEditorSessionSettings& InSessionSettings,
@@ -54,6 +57,7 @@ namespace Durin::Editor::Level
 			FExecuteTransaction InExecuteTransaction,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
+			FNotifyImportStarted InNotifyImportStarted,
 			std::shared_ptr<FMountedContentReconciliationState>
 				InMountedContentReconciliationState,
 			FTaskScopeToken InThumbnailTaskScope);
@@ -117,6 +121,7 @@ namespace Durin::Editor::Level
 			const FContentBrowserItem& Item,
 			Asset::EImportRecordAction Action) -> void;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
+		auto PollSingleAssetReimport() -> void;
 		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
@@ -138,6 +143,7 @@ namespace Durin::Editor::Level
 		FExecuteTransaction ExecuteTransaction;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
+		FNotifyImportStarted NotifyImportStarted;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
 		FContentBrowserOperations Operations;
@@ -165,6 +171,14 @@ namespace Durin::Editor::Level
 		std::string ErrorMessage;
 		std::string WarningMessage;
 		std::vector<FAssetPath> LastReimportOrphans;
+		struct FPendingSingleAssetReimport
+		{
+			Asset::FAsyncImportPlanHandle Operation;
+			Asset::FSingleAssetAsyncPlanHandle Planning;
+			std::optional<Asset::FSingleAssetAsyncExecutionHandle> Execution;
+			FAssetPath AssetPath;
+		};
+		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
 		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*

@@ -41,6 +41,12 @@ namespace Durin::Editor::Level
 		std::string PreviewKey;
 		std::optional<Asset::Forge::FSceneImportPlanResult> Preview;
 		std::optional<Asset::Forge::FSceneImportAsyncPlanHandle> PreviewRequest;
+		std::optional<Asset::Forge::FSceneSourceBundleAsyncHandle> SourceRequest;
+		std::optional<FAssetPath> PendingImportDirectory;
 		std::optional<Asset::Forge::FSceneImportAsyncPlanHandle> ImportRequest;
+		std::optional<Asset::Forge::FSceneImportAsyncExecutionHandle> ExecutionRequest;
+		std::optional<Asset::Forge::FSceneImportPlan> ActiveImportPlan;
+		std::optional<Asset::FAsyncImportPlanHandle> ActiveImportOperation;
+		FImportDialogProgressModel ImportProgress;
 	};
 } // namespace Durin::Editor::Level
