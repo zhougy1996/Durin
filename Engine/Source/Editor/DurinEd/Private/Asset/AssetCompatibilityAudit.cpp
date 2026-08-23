@@ -6,6 +6,20 @@ namespace Durin::Editor
 {
 	namespace
 	{
+		auto LowerCopy(std::string_view Value) -> std::string
+		{
+			std::string Result(Value);
+			std::ranges::transform(Result, Result.begin(), [](char Character) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
+			});
+			return Result;
+		}
+
+		auto ContainsSearch(std::string_view Value, const std::string& LowerSearch) -> bool
+		{
+			return LowerCopy(Value).find(LowerSearch) != std::string::npos;
+		}
+
 		struct FNotice
 		{
 			uint64 Serial = 0;
@@ -60,6 +74,36 @@ namespace Durin::Editor
 		return true;
 	}
 
+	auto MatchesAssetCompatibilityAuditSearch(
+		const Asset::FAssetPackageCompatibilityRecord& Record,
+		std::string_view SearchText) -> bool
+	{
+		const std::string LowerSearch = LowerCopy(SearchText);
+		if (LowerSearch.empty()) return true;
+		if (ContainsSearch(Record.PackagePath.GetView(), LowerSearch)
+			|| ContainsSearch(Record.PhysicalPath, LowerSearch)) return true;
+		for (const auto& Finding : Record.Findings)
+			if (ContainsSearch(Asset::AssetCompatibilityFindingCodeName(Finding.Code), LowerSearch)
+				|| ContainsSearch(Finding.ObjectPath, LowerSearch)
+				|| ContainsSearch(Finding.ClassIdentity, LowerSearch)
+				|| ContainsSearch(Finding.DeclaringType, LowerSearch)
+				|| ContainsSearch(Finding.FieldName, LowerSearch)
+				|| ContainsSearch(Finding.Diagnostic, LowerSearch)) return true;
+		for (const auto& Evidence : Record.CanonicalizationEvidence)
+			if (ContainsSearch(Evidence.StoredIdentity, LowerSearch)
+				|| ContainsSearch(Evidence.CurrentIdentity, LowerSearch)
+				|| ContainsSearch(Evidence.LogicalPath, LowerSearch)) return true;
+		for (const auto& Evidence : Record.DeprecatedRouteEvidence)
+			if (ContainsSearch(Evidence.ObjectPath, LowerSearch)
+				|| ContainsSearch(Evidence.DeclaringType, LowerSearch)
+				|| ContainsSearch(Evidence.StoredFieldName, LowerSearch)
+				|| ContainsSearch(Evidence.DeprecatedPropertyName, LowerSearch)
+				|| std::ranges::any_of(Evidence.MigrationTargets, [&](const std::string& Target) {
+					return ContainsSearch(Target, LowerSearch);
+				})) return true;
+		return false;
+	}
+
 	auto CountAssetCompatibilityAuditRecords(
 		std::span<const Asset::FAssetPackageCompatibilityRecord> Records)
 		-> FAssetCompatibilityAuditCounts
@@ -105,7 +149,25 @@ namespace Durin::Editor
 			Record.Freshness == Asset::EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
 		for (const auto& Finding : Record.Findings)
 			Text += std::format("\n[{}] {}", Asset::AssetCompatibilityFindingCodeName(Finding.Code), Finding.Diagnostic);
+		for (const auto& Evidence : Record.CanonicalizationEvidence)
+			Text += std::format("\n[CanonicalResaveRecommended] {}: {} -> {}",
+				Evidence.LogicalPath, Evidence.StoredIdentity, Evidence.CurrentIdentity);
+		for (const auto& Evidence : Record.DeprecatedRouteEvidence)
+			Text += std::format("\n[CanonicalResaveRecommended] {}::{} uses deprecated route {}",
+				Evidence.DeclaringType, Evidence.StoredFieldName, Evidence.DeprecatedPropertyName);
 		return Text;
+	}
+
+	auto FormatAssetCompatibilityAuditReport(
+		std::span<const Asset::FAssetPackageCompatibilityRecord> Records) -> std::string
+	{
+		std::string Report;
+		for (const auto& Record : Records)
+		{
+			if (!Report.empty()) Report += "\n\n";
+			Report += FormatAssetCompatibilityAuditDiagnostics(Record);
+		}
+		return Report;
 	}
 
 	struct FAssetCompatibilityAuditModel::FMailbox

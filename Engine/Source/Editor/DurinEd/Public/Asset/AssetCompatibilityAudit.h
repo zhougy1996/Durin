@@ -45,11 +45,16 @@ namespace Durin::Editor
 	DURINED_API auto MatchesAssetCompatibilityAuditFilter(
 		const Asset::FAssetPackageCompatibilityRecord& Record,
 		EAssetCompatibilityAuditFilter Filter) -> bool;
+	DURINED_API auto MatchesAssetCompatibilityAuditSearch(
+		const Asset::FAssetPackageCompatibilityRecord& Record,
+		std::string_view SearchText) -> bool;
 	DURINED_API auto CountAssetCompatibilityAuditRecords(
 		std::span<const Asset::FAssetPackageCompatibilityRecord> Records)
 		-> FAssetCompatibilityAuditCounts;
 	DURINED_API auto FormatAssetCompatibilityAuditDiagnostics(
 		const Asset::FAssetPackageCompatibilityRecord& Record) -> std::string;
+	DURINED_API auto FormatAssetCompatibilityAuditReport(
+		std::span<const Asset::FAssetPackageCompatibilityRecord> Records) -> std::string;
 
 	using FAssetCompatibilityProbe = std::function<Asset::FAssetPackageCompatibilityProbeResult(
 		const Asset::FAssetPackageCompatibilityProbeInput&,

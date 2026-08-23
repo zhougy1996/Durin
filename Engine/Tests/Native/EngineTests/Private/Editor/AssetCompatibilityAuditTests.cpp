@@ -354,6 +354,44 @@ TEST_F(FAssetCompatibilityAuditTests, PresentationCountsFiltersAndCopiedDiagnost
 		"/AuditTests/Incompatible: Ready / Incompatible / Stale\n[UnknownField] Retired field is present.");
 }
 
+TEST_F(FAssetCompatibilityAuditTests, SearchAndReportIncludeFindingsAndCanonicalResaveEvidence)
+{
+	auto Record = *MakeCompletedRecord({
+		.PackagePath = MakePath("/AuditTests/SearchablePackage"),
+		.PhysicalPath = "SearchablePackage.dasset",
+		.ExpectedFileSize = 10,
+		.ExpectedLastWriteTimeTicks = 20}).Record;
+	Record.Findings.push_back({
+		.Code = Durin::Asset::EAssetCompatibilityFindingCode::UnknownField,
+		.ObjectPath = "Root.Material",
+		.DeclaringType = "Game::DSearchable",
+		.FieldName = "LegacyField",
+		.Diagnostic = "Retired field is present."});
+	Record.CanonicalizationEvidence.push_back({
+		.PackagePath = Record.PackagePath,
+		.StoredIdentity = "Legacy::DMaterial",
+		.CurrentIdentity = "Durin::DMaterial",
+		.LogicalPath = "Root.Material"});
+	Record.DeprecatedRouteEvidence.push_back({
+		.PackagePath = Record.PackagePath,
+		.ObjectPath = "Root.Material",
+		.DeclaringType = "Game::DSearchable",
+		.StoredFieldName = "OldRoughness",
+		.DeprecatedPropertyName = "Roughness_DEPRECATED",
+		.MigrationTargets = {"Roughness"}});
+
+	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "searchablepackage"));
+	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "legacyfield"));
+	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "LEGACY::DMATERIAL"));
+	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "oldroughness"));
+	EXPECT_FALSE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "missing diagnostic"));
+	EXPECT_EQ(Durin::Editor::FormatAssetCompatibilityAuditReport(std::array{Record}),
+		"/AuditTests/SearchablePackage: Ready / Compatible / Current"
+		"\n[UnknownField] Retired field is present."
+		"\n[CanonicalResaveRecommended] Root.Material: Legacy::DMaterial -> Durin::DMaterial"
+		"\n[CanonicalResaveRecommended] Game::DSearchable::OldRoughness uses deprecated route Roughness_DEPRECATED");
+}
+
 TEST_F(FAssetCompatibilityAuditTests, StreamsProgressBeforeTypedTerminalPublication)
 {
 	Durin::FThreadEvent SecondPackageStarted;
