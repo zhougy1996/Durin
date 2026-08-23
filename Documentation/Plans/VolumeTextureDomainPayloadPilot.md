@@ -10,7 +10,7 @@ Completed: 2026-08-23
 ## Current Status
 
 All stages are complete. The source and cooked caller inventory confirms
-VolumeTexture is the only production `FAuthoredBulkData` consumer. Source
+VolumeTexture is the only production `FEditorBulkData` consumer. Source
 dimensions and voxel format are already domain fields, while the source schema
 version is incorrectly carried only by the authored storage descriptor. Cooked
 TXPL already has a reflected domain schema and direct DBLK authority boundary.
@@ -40,7 +40,7 @@ format translation or schema identity owned by authored bulk storage.
 ## Scope
 
 - Remove semantic format id/version from `FArchiveBulkDataTransfer`,
-  `FAuthoredBulkDataDescriptor`, `FAuthoredBulkData`, and DABK inspection APIs.
+  `FEditorBulkDataStorageDescriptor`, `FEditorBulkData`, and DABK inspection APIs.
 - Preserve DAST v4 and DABK v1 physical layouts while accepting old semantic
   slot values and writing canonical zeros.
 - Add a reflected VolumeTexture source payload schema version and validate it
@@ -61,7 +61,7 @@ format translation or schema identity owned by authored bulk storage.
 
 ## Design Decisions and Invariants
 
-- `FAuthoredBulkData` accepts payload id plus opaque bytes only. Its public
+- `FEditorBulkData` accepts payload id plus opaque bytes only. Its public
   descriptor owns physical identity, logical/stored byte counts, hashes, and
   placement; it owns no format/schema identity.
 - The DAST/DABK slots previously named format id/version remain at the same
@@ -199,10 +199,10 @@ format translation or schema identity owned by authored bulk storage.
 ## Related Code
 
 - `Engine/Source/Runtime/Core/Public/Serialization/Archive.h`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkData.h`
-- `Engine/Source/Runtime/AssetCore/Private/AuthoredBulkData.cpp`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkData.h`
+- `Engine/Source/Runtime/AssetCore/Private/EditorBulkData.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetPackageV4ArchiveAdapter.cpp`
-- `Engine/Source/Runtime/AssetCore/Private/AuthoredBulkStorage.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/EditorBulkDataStorage.cpp`
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedData.cpp`

@@ -2,7 +2,7 @@
 #include "Editor/PropertyValueDraft.h"
 
 #include "AssetAuthoring.h"
-#include "Asset/AuthoredBulkData.h"
+#include "Asset/EditorBulkData.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
@@ -797,14 +797,12 @@ namespace Durin::Editor
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 		{
-			const auto& Value = *static_cast<const Asset::FAuthoredBulkData*>(
+			const auto& Value = *static_cast<const Asset::FEditorBulkData*>(
 				Property->GetValuePtr(Container, ArrayIndex));
-			const auto& Descriptor = Value.GetDescriptor();
-			const std::string_view Placement = Descriptor.StorageKind
-				== Asset::EAuthoredBulkStorageKind::External ? "external" : "inline";
+			const auto& Descriptor = Value.GetBulkData().GetDescriptor();
 			ImGui::TextDisabled("%s", std::format(
-				"{} bytes, {}, resident, hash {}",
-				Descriptor.LogicalByteCount, Placement,
+				"{} bytes, resident, hash {}",
+				Descriptor.LogicalByteCount,
 				Descriptor.ContentHash.ToString()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)

@@ -44,9 +44,11 @@ Historical semantic slots remain readable and current DAST/DABK output writes
 canonical zeros without changing physical layouts. Focused workflow,
 aggregate, full-build, and documentation gates pass.
 
-The next ordered child is **Authority-Specific Payload Services**. Its entry
-gate is satisfied by the authored/derived/cooked overlap and divergence exposed
-by the pilot. No child plan is active yet.
+The active ordered child is [Authority-Specific Payload Services](../Plans/AuthoritySpecificPayloadServices.md).
+Its entry gate is satisfied by the authored/derived/cooked overlap and
+divergence exposed by the pilot. Stage 0 keeps the proven multi-domain cooked
+service and domain build/session APIs, and selects removal of authored physical
+descriptor access from domain-facing values.
 
 ## Outcome
 
@@ -175,7 +177,7 @@ or legacy APIs.
   current-only resave, versioned migration, byte preservation, or an explicit
   unsupported baseline based on the tracked corpus and release requirements.
 - **Existing experiments are disposable.** `FBulkDataDescriptor`,
-  `EBulkDataStorageDomain`, `IBulkDataProvider`, `FAuthoredBulkData`, and
+  `EBulkDataStorageDomain`, `IBulkDataProvider`, `FEditorBulkData`, and
   `CreateCookedPackageBulkData` may be renamed, split, narrowed, or removed.
   Landed behavior and compatibility evidence matter; current API shapes do not.
 - **Synchronous correctness precedes streaming.** Async requests, range IO,
@@ -210,7 +212,7 @@ or legacy APIs.
 | `FBulkDataDescriptor::StoredByteCount` | Move to physical storage metadata where applicable | Compression and stored size describe placement, not logical payload meaning. |
 | `EBulkDataStorageDomain` on the common value | Remove or confine to diagnostics | The authority owner already determines authored, derived, or cooked policy. |
 | Public `IBulkDataProvider` common to all domains | Retire unless the first child proves a narrower IO role | A common provider currently hides materially different ownership and recovery rules. |
-| `FAuthoredBulkData` | Refactor into an untyped authored-byte holder or replace | It may own authored bytes and placement, but not consumer format semantics. |
+| `FEditorBulkData` | Retain as the UE-style untyped editor-byte holder | It owns verified editor/source bytes and atomic replacement, but no placement or consumer format semantics. |
 | `CreateCookedPackageBulkData` | Retire | It synthesizes a second descriptor instead of preserving the cooked storage/domain boundary. |
 | Generic Portable Typed Atomic Buffers | Cancel | Domain wrappers and codecs solve the requirement without a universal persistent type system. |
 
@@ -220,7 +222,7 @@ or legacy APIs.
 | --- | --- | --- | --- | --- | --- |
 | 1. Bulk payload layer realignment | Landed authored/common/cooked experiments | Storage-only byte owner and descriptor boundaries; removal of generic semantic fields and unjustified cross-domain provider APIs; frozen migration baseline | Current API/corpus inventory exists and incompatible experimental APIs are allowed to change | Focused and aggregate tests prove unchanged authored/cooked payload behavior, bounded planning, transactional failure, and explicit disposition of every compatibility route | Completed |
 | 2. VolumeTexture domain-schema pilot | Milestone 1 | Volume source and cooked metadata become the sole authority for voxel/pixel meaning; storage supplies opaque verified bytes only | Current VolumeTexture authored, DDC, Cook, runtime, reimport, and failure fixtures are green | Source save/reload and Cook/runtime round trips validate metadata plus bytes, preserve or explicitly version golden outputs, and contain no generic format translation | Completed |
-| 3. Authority-specific payload services | Milestones 1-2 | Final authored, DDC, and cooked service boundaries with shared mechanics only where demonstrated | The pilot exposes the exact overlap and divergence between source, cache, and deployment paths | Authored replacement/recovery, DDC miss/rebuild, and cooked hard-failure behavior are independently testable with no universal mutation or semantic descriptor | Proposed |
+| 3. Authority-specific payload services | Milestones 1-2 | Final authored, DDC, and cooked service boundaries with shared mechanics only where demonstrated | The pilot exposes the exact overlap and divergence between source, cache, and deployment paths | Authored replacement/recovery, DDC miss/rebuild, and cooked hard-failure behavior are independently testable with no universal mutation or semantic descriptor | Completed |
 | 4. Consumer migration program | Milestones 1 and 3; domain prerequisites as needed | Separate bounded plans for texture, mesh, terrain, animation, collision, or other dense sources | A consumer has measured structural/package/memory cost and a frozen compatibility baseline | Selected consumer uses domain metadata plus opaque storage, with canonical or explicitly platform-specific codecs and no oversized ordinary reflected arrays | Proposed |
 | 5. Domain-qualified inspection and repair | Milestone 3 plus two production consumers | Inspection joins domain schema/version with storage location, integrity, provenance, and actionable repair/cleanup | Two consumers demonstrate reusable diagnostic questions | Tools trace authored, derived, and cooked payloads without a universal element registry or backend paths in domain callers | Proposed |
 | 6. Async IO and residency budgets | Milestones 3 and 5 | Request/cancel/wait primitives, range IO where layouts support it, accounting, eviction, and stale-result rejection | Profiling shows startup, latency, or peak-residency pressure and two authorities share a real request shape | Stress tests prove bounded memory, cancellation safety, unload/reload, priority behavior, transactional publication, and deterministic synchronous fallback | Evidence-gated |
@@ -237,8 +239,9 @@ or legacy APIs.
 | [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) | Completed reusable foundation | Private bounded IO, layout, hashing, and range validation | Shared schema, suffix, provider, or transaction authority |
 | [Bulk Payload Layer Realignment](../Plans/BulkPayloadLayerRealignment.md) | Completed | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
 | [VolumeTexture Domain Payload Pilot](../Plans/VolumeTextureDomainPayloadPilot.md) | Completed | Source/cooked schema ownership, canonical voxel bytes, storage boundary, exact compatibility decision | Generic typed-buffer registry or redesign for unrelated consumers |
-| Authority-Specific Payload Services | Proposed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
-| Asset Payload Consumer Migration: `<Domain>` | Proposed per consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |
+| [Authority-Specific Payload Services](../Plans/AuthoritySpecificPayloadServices.md) | Completed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
+| [Texture2D Payload Consumer Qualification](../Plans/Texture2DPayloadConsumerQualification.md) | Active | Texture2D metadata, codecs, compatibility, measured storage/structure, diagnostics, and end-to-end workflow | Changing the generic layer solely for local convenience |
+| Asset Payload Consumer Migration: `<Domain>` | Proposed per later consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |
 | Domain Payload Inspection and Repair | Proposed | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
 | Payload IO and Residency | Evidence-gated | Async requests, cancellation, priorities, range IO, budgets, eviction, and mapping | Domain schema design or authored/cooked format unification |
 | Authored Payload Virtualization | Evidence-gated | External content-addressed source storage and durable retrieval policy | DDC/cooked authority merger or required remote-only operation |
@@ -334,8 +337,8 @@ roadmap governs new work and the realignment plan must record the replacement.
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/DefaultDeltaPlan.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/BulkData.h`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkData.h`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkStorage.h`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkData.h`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkDataStorage.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/CookedAsset.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/Cook.h`
 - `Engine/Source/Runtime/AssetCore/Private/AssetPackageV4ArchiveAdapter.cpp`

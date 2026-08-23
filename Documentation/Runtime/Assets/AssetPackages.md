@@ -716,13 +716,14 @@ resave is the supported migration without changing the opcode layout.
 Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
 values at or above 256 KiB carry no payload bytes in DAST.
 
-The reflected `FAuthoredBulkData` value composes AssetCore's storage-neutral
-`FBulkData` with authored replacement and placement policy. The common value
+The reflected UE-style `FEditorBulkData` value composes AssetCore's
+storage-neutral `FBulkData` with editor-side atomic replacement. The value
 contains only payload id, logical byte count, content hash, and immutable
-resident bytes; it has no semantic format, authority, provider, or residency
-state. Its authored descriptor adds stored size, placement, and container hash
-for DAST/DABK package transactions. Payload meaning and schema versions belong
-to the reflected owning domain.
+resident bytes; it has no semantic format, authority, provider, residency,
+placement, or container state. Package Archive capture creates the authored
+descriptor that adds stored size, placement, and container hash for the
+DAST/DABK transaction. Payload meaning and schema versions belong to the
+reflected owning domain.
 
 External authored bytes live beside the package as
 `<package-stem>.<container-hash>.dabulk`. This is distinct from cooked `.dbulk`.

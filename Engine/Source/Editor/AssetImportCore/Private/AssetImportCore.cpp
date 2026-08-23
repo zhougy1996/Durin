@@ -1645,10 +1645,10 @@ namespace Durin::Asset
 		DPackage* Package = Plan.Asset->GetPackage();
 		const bool bPackageWasDirty = Package->IsDirty();
 		std::vector<std::byte> BeforePublicationBytes;
-		std::vector<Asset::FAuthoredBulkPayload> BeforePublicationBulkPayloads;
+		std::vector<Asset::FEditorBulkDataStoragePayload> BeforePublicationBulkPayloads;
 		const Asset::FAssetResult BeforeSerialization =
 			Asset::SerializeAssetPackageBytes(Package, BeforePublicationBytes,
-				{.AuthoredBulkPayloads = &BeforePublicationBulkPayloads});
+				{.EditorBulkDataStoragePayloads = &BeforePublicationBulkPayloads});
 		if (!BeforeSerialization)
 		{
 			Exchange->Finalize();
@@ -1669,10 +1669,10 @@ namespace Durin::Asset
 			Exchange->Reverse();
 			if (!bPackageWasDirty) Package->ClearDirty();
 			std::vector<std::byte> RestoredBytes;
-			std::vector<Asset::FAuthoredBulkPayload> RestoredBulkPayloads;
+			std::vector<Asset::FEditorBulkDataStoragePayload> RestoredBulkPayloads;
 			const Asset::FAssetResult RestoredSerialization =
 				Asset::SerializeAssetPackageBytes(Package, RestoredBytes,
-					{.AuthoredBulkPayloads = &RestoredBulkPayloads});
+					{.EditorBulkDataStoragePayloads = &RestoredBulkPayloads});
 			const bool bRestored = RestoredSerialization
 				&& RestoredBytes == BeforePublicationBytes;
 			if (bRestored) RestoreProgress.Succeed();

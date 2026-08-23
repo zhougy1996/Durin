@@ -1,10 +1,10 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/Catalog.h"
 #include "Asset/PackageTypes.h"
 #include "Asset/Result.h"
-#include "Asset/AuthoredBulkData.h"
 #include "DObject/CoreDObject.h"
 
 namespace Durin::Asset
@@ -61,7 +61,7 @@ namespace Durin::Asset
 			std::vector<FAssetPackageObjectReference>& OutValues
 		) const -> bool;
 		ASSETCORE_API auto TryReadAuthoredBulkDescriptor(
-			FAuthoredBulkDataDescriptor& OutValue
+			FEditorBulkDataStorageDescriptor& OutValue
 		) const -> bool;
 
 		template<typename T>

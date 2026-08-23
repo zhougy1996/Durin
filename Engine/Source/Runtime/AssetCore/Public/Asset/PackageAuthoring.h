@@ -2,7 +2,8 @@
 
 #include "AssetCoreAPI.h"
 #include "Asset/Result.h"
-#include "Asset/AuthoredBulkData.h"
+#include "Asset/EditorBulkData.h"
+#include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"
 #include "DObject/CoreDObject.h"
@@ -166,7 +167,7 @@ namespace Durin::Asset
 		bool bRetainEditorOnlyData = false;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
-		std::vector<FAuthoredBulkPayload>* AuthoredBulkPayloads = nullptr;
+		std::vector<FEditorBulkDataStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
 	};
 
 	enum class EAssetBundleSavePhase : uint8

@@ -1,4 +1,4 @@
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkDataStorage.h"
 
 #include "BulkContainerInfrastructure.h"
 #include "Misc/FileHelper.h"
@@ -18,7 +18,7 @@ namespace Durin::Asset
 
 		struct FEntry
 		{
-			FAuthoredBulkDataDescriptor Descriptor;
+			FEditorBulkDataStorageDescriptor Descriptor;
 			uint64 Offset = 0;
 		};
 
@@ -101,14 +101,14 @@ namespace Durin::Asset
 			if (!Reader.IsValid()) return false;
 			Candidate.Entry.Descriptor.ContentHash = {HashLow, HashHigh};
 			Candidate.Entry.Descriptor.ContainerHash = ContainerHash;
-			Candidate.Entry.Descriptor.StorageKind = EAuthoredBulkStorageKind::External;
+			Candidate.Entry.Descriptor.StorageKind = EEditorBulkDataStorageKind::External;
 			OutEntry = Candidate;
 			return true;
 		}
 
 		auto WriteEntry(
 			BulkContainer::FBoundedWriter& Writer,
-			const FAuthoredBulkDataDescriptor& Descriptor,
+			const FEditorBulkDataStorageDescriptor& Descriptor,
 			uint64 Offset) -> bool
 		{
 			Writer.WriteGuid(Descriptor.PayloadId);
@@ -152,7 +152,7 @@ namespace Durin::Asset
 		auto CollectDescriptors(
 			DurinCodeGen::EPropertyGenFlags Kind,
 			std::span<const std::byte> Payload,
-			std::vector<FAuthoredBulkDataDescriptor>& Out,
+			std::vector<FEditorBulkDataStorageDescriptor>& Out,
 			uint32 Depth,
 			std::string* OutError) -> bool
 		{
@@ -161,7 +161,7 @@ namespace Durin::Asset
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
 				uint8 StorageKind = 0;
-				FAuthoredBulkDataDescriptor Descriptor;
+				FEditorBulkDataStorageDescriptor Descriptor;
 				FGuid ReservedIdentity;
 				uint32 ReservedVersion = 0;
 				uint64 HashLow = 0, HashHigh = 0, ContainerLow = 0, ContainerHigh = 0;
@@ -172,11 +172,11 @@ namespace Durin::Asset
 				Descriptor.ContentHash = {HashLow, HashHigh};
 				Descriptor.ContainerHash = {ContainerLow, ContainerHigh};
 				Descriptor.StorageKind = StorageKind == 0
-					? EAuthoredBulkStorageKind::Inline : EAuthoredBulkStorageKind::External;
+					? EEditorBulkDataStorageKind::Inline : EEditorBulkDataStorageKind::External;
 				if (Reader.HasError() || StorageKind > 1 || !Descriptor.PayloadId.IsValid()
 					|| Descriptor.LogicalByteCount != Descriptor.StoredByteCount)
 					return Fail("Inspected authored bulk descriptor is invalid.", OutError);
-				if (Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
+				if (Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
 				{
 					if (Reader.Tell() != Payload.size() || Descriptor.ContainerHash.IsZero())
 						return Fail("External authored bulk descriptor has trailing bytes or no container hash.", OutError);
@@ -281,7 +281,7 @@ namespace Durin::Asset
 		}
 	}
 
-	auto ResolveAuthoredBulkCompanionPath(
+	auto ResolveEditorBulkDataCompanionPath(
 		const std::filesystem::path& PackagePath, FXxHash128 ContainerHash,
 		std::filesystem::path& OutPath, std::string* OutError) -> bool
 	{
@@ -290,21 +290,21 @@ namespace Durin::Asset
 			return Fail("Authored bulk companion requires a .dasset path and valid container hash.", OutError);
 		OutPath = PackagePath.parent_path()
 			/ std::format("{}.{}{}", PackagePath.stem().string(),
-				ContainerHash.ToString(), AuthoredBulkCompanionSuffix);
+				ContainerHash.ToString(), EditorBulkDataCompanionSuffix);
 		if (OutError) OutError->clear();
 		return true;
 	}
 
-	auto BuildAuthoredBulkCompanion(
-		std::span<const FAuthoredBulkPayload> Payloads, FXxHash128 ContainerHash,
+	auto BuildEditorBulkDataCompanion(
+		std::span<const FEditorBulkDataStoragePayload> Payloads, FXxHash128 ContainerHash,
 		std::vector<std::byte>& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (Payloads.empty() || Payloads.size() > MaximumEntries || ContainerHash.IsZero())
 			return Fail("Authored bulk companion requires a bounded nonempty payload set and container hash.", OutError);
-		std::vector<const FAuthoredBulkPayload*> Sorted;
-		if (!BulkContainer::TryMakeSortedProjection<FAuthoredBulkPayload>(
-			Payloads, [](const FAuthoredBulkPayload& Payload) {
+		std::vector<const FEditorBulkDataStoragePayload*> Sorted;
+		if (!BulkContainer::TryMakeSortedProjection<FEditorBulkDataStoragePayload>(
+			Payloads, [](const FEditorBulkDataStoragePayload& Payload) {
 				return Payload.Descriptor.PayloadId;
 			}, Sorted))
 			return Fail("Authored bulk companion contains duplicate payload ids.", OutError);
@@ -316,11 +316,11 @@ namespace Durin::Asset
 			return Fail("Authored bulk companion exceeds the 1 GiB bound.", OutError);
 		std::vector<BulkContainer::FLayoutItem> LayoutItems;
 		LayoutItems.reserve(Sorted.size());
-		for (const FAuthoredBulkPayload* Payload : Sorted)
+		for (const FEditorBulkDataStoragePayload* Payload : Sorted)
 		{
 			const auto& Descriptor = Payload->Descriptor;
 			if (!Descriptor.PayloadId.IsValid()
-				|| Descriptor.StorageKind != EAuthoredBulkStorageKind::External
+				|| Descriptor.StorageKind != EEditorBulkDataStorageKind::External
 				|| Descriptor.ContainerHash != ContainerHash
 				|| Descriptor.LogicalByteCount != Payload->Buffer.GetSize()
 				|| Descriptor.StoredByteCount != Payload->Buffer.GetSize()
@@ -372,12 +372,12 @@ namespace Durin::Asset
 		std::vector<std::byte> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
 			return Fail("Authored bulk companion encoding failed.", OutError);
-		if (!ValidateAuthoredBulkCompanion(Candidate, ContainerHash, OutError)) return false;
+		if (!ValidateEditorBulkDataCompanion(Candidate, ContainerHash, OutError)) return false;
 		OutBytes = std::move(Candidate);
 		return true;
 	}
 
-	auto ValidateAuthoredBulkCompanion(
+	auto ValidateEditorBulkDataCompanion(
 		std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
 		std::string* OutError) -> bool
 	{
@@ -386,9 +386,9 @@ namespace Durin::Asset
 		return Parse(Bytes, ExpectedContainerHash, Entries, DataOffset, OutError);
 	}
 
-	auto LoadAuthoredBulkPayload(
+	auto LoadEditorBulkDataStoragePayload(
 		const std::filesystem::path& CompanionPath,
-		const FAuthoredBulkDataDescriptor& Descriptor,
+		const FEditorBulkDataStorageDescriptor& Descriptor,
 		FSharedByteBuffer& OutBuffer, std::string* OutError) -> bool
 	{
 		OutBuffer = {};
@@ -408,14 +408,14 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto InspectAuthoredBulkCompanionPaths(
+	auto InspectEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,
 		const FAssetPackageInspection& Inspection,
 		std::vector<std::filesystem::path>& OutPaths,
 		std::string* OutError) -> bool
 	{
 		OutPaths.clear();
-		std::vector<FAuthoredBulkDataDescriptor> Descriptors;
+		std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
 		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
 			for (const FAssetPackageField& Field : Object.Fields)
 				if (!CollectDescriptors(Field.Kind, Field.Payload, Descriptors, 0, OutError))
@@ -424,10 +424,10 @@ namespace Durin::Asset
 			return std::pair(Left.ContainerHash.HashHigh, Left.ContainerHash.HashLow)
 				< std::pair(Right.ContainerHash.HashHigh, Right.ContainerHash.HashLow);
 		});
-		for (const FAuthoredBulkDataDescriptor& Descriptor : Descriptors)
+		for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
 		{
 			std::filesystem::path Path;
-			if (!ResolveAuthoredBulkCompanionPath(
+			if (!ResolveEditorBulkDataCompanionPath(
 					PackagePath, Descriptor.ContainerHash, Path, OutError)) return false;
 			if (OutPaths.empty() || OutPaths.back() != Path) OutPaths.push_back(std::move(Path));
 		}

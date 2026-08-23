@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/Cook.h"
-#include "Asset/AuthoredBulkData.h"
+#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
@@ -55,7 +55,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FAuthoredBulkData Voxels;
+		Asset::FEditorBulkData Voxels;
 
 		DPROPERTY()
 		uint32 Width = 0;

@@ -85,14 +85,14 @@ Engine-to-TextureBuild dependency direction.
 
 ## Authored source bulk data
 
-Normalized source voxels use `Asset::FAuthoredBulkData` with stable storage
+Normalized source voxels use `Asset::FEditorBulkData` with stable storage
 payload id words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`. Source payload
 schema version 1, dimensions, portable voxel format, and import provenance are
 ordinary reflected VolumeTexture fields. Old packages that predate the schema
 field receive its v1 default; unsupported values fail domain validation.
 The source accessor never performs IO; build and import paths require verified
 resident bytes and replace the complete payload atomically. Consumers use
-`FAuthoredBulkData::GetBulkData()` for storage identity and immutable byte
+`FEditorBulkData::GetBulkData()` for storage identity and immutable byte
 access. The VolumeTexture fields define voxel meaning and require a tightly
 packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/DABK

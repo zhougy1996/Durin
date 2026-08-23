@@ -6,7 +6,7 @@
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTextureBuilder.h"
 #include "DObject/DefaultDeltaPlan.h"
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkDataStorage.h"
 
 TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 {
@@ -287,7 +287,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(SavedData->PhysicalPath, Inspection));
 	std::vector<std::filesystem::path> AuthoredBulkFiles;
-	ASSERT_TRUE(Durin::Asset::InspectAuthoredBulkCompanionPaths(
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
 		SavedData->PhysicalPath, Inspection, AuthoredBulkFiles, &Error)) << Error;
 	ASSERT_EQ(AuthoredBulkFiles.size(), 1u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(AuthoredBulkFiles.front()));

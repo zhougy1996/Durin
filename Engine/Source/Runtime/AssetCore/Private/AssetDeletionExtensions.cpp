@@ -1,6 +1,6 @@
 #include "AssetCatalogStoreInternal.h"
 #include "AssetDeletionInternal.h"
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkDataStorage.h"
 
 #include "DObject/Class.h"
 
@@ -45,7 +45,7 @@ namespace Durin::Asset
 		FAssetResult InspectionResult = InspectAssetPackage(Data.PhysicalPath, Inspection);
 		if (!InspectionResult) return InspectionResult;
 		std::string BulkError;
-		if (!InspectAuthoredBulkCompanionPaths(
+		if (!InspectEditorBulkDataCompanionPaths(
 				Data.PhysicalPath, Inspection, OutFiles, &BulkError))
 			return Error(EAssetError::CorruptFile, std::move(BulkError));
 		if (OutHasContributor && !OutFiles.empty()) *OutHasContributor = true;

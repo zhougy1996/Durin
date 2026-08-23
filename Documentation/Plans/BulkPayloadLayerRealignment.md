@@ -78,7 +78,7 @@ descriptors, loading, publication, and failure behavior.
 | Shared bytes | `FSharedByteBuffer` provides immutable shared ownership. | Keep. |
 | Common descriptor | Carries id, format, version, logical/stored sizes, hash. | Keep only id, logical size, hash. |
 | Common provider | One cooked implementation; no authored/DDC implementation. | Remove. |
-| Authored data | Resident `FAuthoredBulkData` plus transactional DAST/DABK lifecycle. | Preserve wire and publication behavior; use narrowed common bytes. |
+| Authored data | Resident `FEditorBulkData` plus transactional DAST/DABK lifecycle. | Preserve wire and publication behavior; use narrowed common bytes. |
 | Cooked data | DBLK descriptor/service plus a synthetic common adapter. | Keep DBLK service; remove adapter. |
 | VolumeTexture | Only production adapter caller. | Load opaque cooked bytes directly and retain domain validation. |
 
@@ -102,7 +102,7 @@ descriptors, loading, publication, and failure behavior.
 - [x] Reduce the common descriptor to payload id, logical byte count, and hash.
 - [x] Replace common provider/residency construction with transactional resident
   construction.
-- [x] Migrate `FAuthoredBulkData` to the narrowed common owner without changing
+- [x] Migrate the value now named `FEditorBulkData` to the narrowed common owner without changing
   archive transfers or authored descriptors.
 - [x] Rewrite focused common-byte tests around immutable sharing, integrity,
   invalid identity, and transactional replacement.
@@ -184,8 +184,8 @@ descriptors, loading, publication, and failure behavior.
 
 - `Engine/Source/Runtime/AssetCore/Public/Asset/BulkData.h`
 - `Engine/Source/Runtime/AssetCore/Private/BulkData.cpp`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/AuthoredBulkData.h`
-- `Engine/Source/Runtime/AssetCore/Private/AuthoredBulkData.cpp`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkData.h`
+- `Engine/Source/Runtime/AssetCore/Private/EditorBulkData.cpp`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/CookedAsset.h`
 - `Engine/Source/Runtime/AssetCore/Private/CookedAsset.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp`

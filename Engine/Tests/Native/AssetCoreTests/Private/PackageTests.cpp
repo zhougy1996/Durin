@@ -4,8 +4,8 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageV4Reader.h"
 #include "Asset/PackageV4Writer.h"
-#include "Asset/AuthoredBulkData.h"
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkData.h"
+#include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
@@ -1398,13 +1398,13 @@ TEST(FPackageAssetTests, RedirectorFixupRewritesHardSoftAndExternalOccurrencesBe
 	RunRedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletionTest();
 }
 
-TEST(FAuthoredBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
+TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 {
 	const Durin::FGuid PayloadId{1, 2, 3, 4};
 	const std::array Initial{std::byte{1}, std::byte{2}, std::byte{3}};
-	Durin::Asset::FAuthoredBulkData First(PayloadId);
+	Durin::Asset::FEditorBulkData First(PayloadId);
 	ASSERT_TRUE(First.ReplaceBytes(Initial));
-	Durin::Asset::FAuthoredBulkData Shared = First;
+	Durin::Asset::FEditorBulkData Shared = First;
 	ASSERT_EQ(First.GetBulkData().GetBytes().data(),
 		Shared.GetBulkData().GetBytes().data());
 	EXPECT_TRUE(First.Identical(Shared));
@@ -1420,11 +1420,11 @@ TEST(FAuthoredBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(std::ranges::equal(Shared.GetBulkData().GetBytes(), Replacement));
 }
 
-TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
+TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 {
 	const Durin::FXxHash128 ContainerHash{0x1122334455667788ull, 0x8877665544332211ull};
 	const auto MakePayload = [&](Durin::FGuid PayloadId, std::vector<std::byte> Bytes) {
-		Durin::Asset::FAuthoredBulkPayload Payload;
+		Durin::Asset::FEditorBulkDataStoragePayload Payload;
 		Payload.Buffer = Durin::FSharedByteBuffer::Take(std::move(Bytes));
 		Payload.Descriptor = {
 			.PayloadId = PayloadId,
@@ -1432,7 +1432,7 @@ TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 			.StoredByteCount = Payload.Buffer.GetSize(),
 			.ContentHash = Durin::FXxHash128::HashBuffer(Payload.Buffer.GetBytes()),
 			.ContainerHash = ContainerHash,
-			.StorageKind = Durin::Asset::EAuthoredBulkStorageKind::External};
+			.StorageKind = Durin::Asset::EEditorBulkDataStorageKind::External};
 		return Payload;
 	};
 	auto High = MakePayload({2, 0, 0, 0}, {std::byte{4}, std::byte{5}});
@@ -1440,10 +1440,10 @@ TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 	std::array Payloads{High, Low};
 	std::vector<std::byte> FirstBytes, SecondBytes;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::BuildAuthoredBulkCompanion(
+	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
 		Payloads, ContainerHash, FirstBytes, &Error)) << Error;
 	std::ranges::reverse(Payloads);
-	ASSERT_TRUE(Durin::Asset::BuildAuthoredBulkCompanion(
+	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
 		Payloads, ContainerHash, SecondBytes, &Error)) << Error;
 	EXPECT_EQ(FirstBytes, SecondBytes);
 	EXPECT_EQ(FirstBytes.size(), 274u);
@@ -1453,43 +1453,43 @@ TEST(FAuthoredBulkStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 	const Durin::FXxHash128 GoldenHash = Durin::FXxHash128::HashBuffer(FirstBytes);
 	EXPECT_EQ(GoldenHash.HashLow, 17664847411479251375ull);
 	EXPECT_EQ(GoldenHash.HashHigh, 17152355170962831719ull);
-	EXPECT_TRUE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		FirstBytes, ContainerHash, &Error)) << Error;
 	auto HistoricalSlots = FirstBytes;
 	HistoricalSlots[80] = std::byte{1};
 	HistoricalSlots[96] = std::byte{1};
-	EXPECT_TRUE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		HistoricalSlots, ContainerHash, &Error)) << Error;
 
 	const std::filesystem::path PackagePath =
 		Durin::Testing::GetTestWorkDirectory() / "AuthoredBulk/Fixture.dasset";
 	std::filesystem::create_directories(PackagePath.parent_path());
 	std::filesystem::path CompanionPath;
-	ASSERT_TRUE(Durin::Asset::ResolveAuthoredBulkCompanionPath(
+	ASSERT_TRUE(Durin::Asset::ResolveEditorBulkDataCompanionPath(
 		PackagePath, ContainerHash, CompanionPath, &Error)) << Error;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstBytes)), CompanionPath.generic_string()));
 	Durin::FSharedByteBuffer Loaded;
-	ASSERT_TRUE(Durin::Asset::LoadAuthoredBulkPayload(
+	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
 		CompanionPath, Low.Descriptor, Loaded, &Error)) << Error;
 	EXPECT_TRUE(std::ranges::equal(Loaded.GetBytes(), Low.Buffer.GetBytes()));
 
 	std::vector<std::byte> Truncated = FirstBytes;
 	Truncated.pop_back();
-	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		Truncated, ContainerHash, &Error));
 	std::vector<std::byte> Corrupt = FirstBytes;
 	Corrupt.back() ^= std::byte{1};
-	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		Corrupt, ContainerHash, &Error));
 	std::vector<std::byte> NonzeroPayloadPadding = FirstBytes;
 	NonzeroPayloadPadding[260] = std::byte{1};
-	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		NonzeroPayloadPadding, ContainerHash, &Error));
 	std::array Duplicate{Low, Low};
-	EXPECT_FALSE(Durin::Asset::BuildAuthoredBulkCompanion(
+	EXPECT_FALSE(Durin::Asset::BuildEditorBulkDataCompanion(
 		Duplicate, ContainerHash, Corrupt, &Error));
-	EXPECT_FALSE(Durin::Asset::ValidateAuthoredBulkCompanion(
+	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		FirstBytes, Durin::FXxHash128{1, 1}, &Error));
 }
 

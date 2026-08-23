@@ -636,7 +636,7 @@ class TestReflectionProperties:
         assert byte is not None and byte.kind == "Byte"
         assert blob is not None and blob.kind == "Blob" and blob.inner is None
         bulk = _make_property_from_spelling(
-            "Payload", "Durin::Asset::FAuthoredBulkData", symbols
+            "Payload", "Durin::Asset::FEditorBulkData", symbols
         )
         assert bulk is not None and bulk.kind == "BulkData" and bulk.inner is None
         assert _make_property_from_spelling(

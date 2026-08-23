@@ -2,7 +2,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageV4Writer.h"
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageValueCodec.h"
 
 #include "Asset/Redirector.h"
@@ -47,7 +47,7 @@ namespace Durin::Asset::Private
 		{
 			std::vector<FCapturedObject> Objects;
 			std::vector<FAssetPath> Dependencies;
-			std::vector<FAuthoredBulkPayload> BulkPayloads;
+			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
 		};
 
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
@@ -332,14 +332,14 @@ namespace Durin::Asset::Private
 					const std::filesystem::path PhysicalPackage = Resolved
 						? std::filesystem::path(Resolved.PhysicalPath.generic_string() + ".dasset")
 						: std::filesystem::path{};
-					const FAuthoredBulkDataDescriptor Descriptor{
+					const FEditorBulkDataStorageDescriptor Descriptor{
 						.PayloadId = PayloadId, .LogicalByteCount = LogicalSize,
 						.StoredByteCount = StoredSize, .ContentHash = ContentHash,
 						.ContainerHash = ContainerHash,
-						.StorageKind = EAuthoredBulkStorageKind::External};
-					if (!Resolved || !ResolveAuthoredBulkCompanionPath(
+						.StorageKind = EEditorBulkDataStorageKind::External};
+					if (!Resolved || !ResolveEditorBulkDataCompanionPath(
 							PhysicalPackage, ContainerHash, CompanionPath, &Error)
-						|| !LoadAuthoredBulkPayload(CompanionPath, Descriptor, Buffer, &Error))
+						|| !LoadEditorBulkDataStoragePayload(CompanionPath, Descriptor, Buffer, &Error))
 					{
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
 							Error.empty() ? "Authored bulk companion could not be resolved." : Error);
@@ -821,7 +821,7 @@ namespace Durin::Asset::Private
 					return;
 				}
 				if (std::ranges::find(Package.BulkPayloads, Value.PayloadId,
-						[](const FAuthoredBulkPayload& Payload) {
+						[](const FEditorBulkDataStoragePayload& Payload) {
 							return Payload.Descriptor.PayloadId;
 						}) != Package.BulkPayloads.end())
 				{
@@ -830,19 +830,19 @@ namespace Durin::Asset::Private
 					return;
 				}
 
-				const bool bExternal = Value.LogicalSize >= AuthoredBulkExternalThreshold;
+				const bool bExternal = Value.LogicalSize >= EditorBulkDataExternalThreshold;
 				Value.StorageKind = bExternal
 					? EArchiveBulkDataStorageKind::External
 					: EArchiveBulkDataStorageKind::Inline;
 				Value.ContainerHash = bExternal ? ContainerHash : FXxHash128{};
-				FAuthoredBulkDataDescriptor Descriptor{
+				FEditorBulkDataStorageDescriptor Descriptor{
 					.PayloadId = Value.PayloadId,
 					.LogicalByteCount = Value.LogicalSize,
 					.StoredByteCount = Value.StoredSize,
 					.ContentHash = Value.ContentHash,
 					.ContainerHash = Value.ContainerHash,
-					.StorageKind = bExternal ? EAuthoredBulkStorageKind::External
-						: EAuthoredBulkStorageKind::Inline};
+					.StorageKind = bExternal ? EEditorBulkDataStorageKind::External
+						: EEditorBulkDataStorageKind::Inline};
 				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
 
 				if (!bExternal)
@@ -1205,13 +1205,13 @@ namespace Durin::Asset::Private
 			return {};
 		}
 
-		auto ComputeContainerHash(std::span<const FAuthoredBulkPayload> Payloads) -> FXxHash128
+		auto ComputeContainerHash(std::span<const FEditorBulkDataStoragePayload> Payloads) -> FXxHash128
 		{
-			std::vector<const FAuthoredBulkPayload*> Sorted;
+			std::vector<const FEditorBulkDataStoragePayload*> Sorted;
 			for (const auto& Payload : Payloads)
-				if (Payload.Descriptor.LogicalByteCount >= AuthoredBulkExternalThreshold)
+				if (Payload.Descriptor.LogicalByteCount >= EditorBulkDataExternalThreshold)
 					Sorted.push_back(&Payload);
-			std::ranges::sort(Sorted, {}, [](const FAuthoredBulkPayload* Payload) {
+			std::ranges::sort(Sorted, {}, [](const FEditorBulkDataStoragePayload* Payload) {
 				return Payload->Descriptor.PayloadId;
 			});
 			if (Sorted.empty()) return {};
@@ -1219,7 +1219,7 @@ namespace Durin::Asset::Private
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::BulkData);
 			uint64 Count = Sorted.size();
 			Writer << Count;
-			for (const FAuthoredBulkPayload* Payload : Sorted)
+			for (const FEditorBulkDataStoragePayload* Payload : Sorted)
 			{
 				FGuid PayloadId = Payload->Descriptor.PayloadId;
 				FGuid ReservedIdentity;
@@ -1726,8 +1726,8 @@ namespace Durin::Asset::DastV4
 		}
 		const FXxHash128 ContainerHash = Private::ComputeContainerHash(Discovery.BulkPayloads);
 		if (!Discovery.BulkPayloads.empty()
-			&& std::ranges::any_of(Discovery.BulkPayloads, [](const FAuthoredBulkPayload& Payload) {
-				return Payload.Descriptor.LogicalByteCount >= AuthoredBulkExternalThreshold;
+			&& std::ranges::any_of(Discovery.BulkPayloads, [](const FEditorBulkDataStoragePayload& Payload) {
+				return Payload.Descriptor.LogicalByteCount >= EditorBulkDataExternalThreshold;
 			}) && ContainerHash.IsZero())
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {},
@@ -1741,21 +1741,21 @@ namespace Durin::Asset::DastV4
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
 		}
-		if (!Options.Serialization.AuthoredBulkPayloads
-			&& std::ranges::any_of(Captured.BulkPayloads, [](const FAuthoredBulkPayload& Payload) {
-				return Payload.Descriptor.StorageKind == EAuthoredBulkStorageKind::External;
+		if (!Options.Serialization.EditorBulkDataStoragePayloads
+			&& std::ranges::any_of(Captured.BulkPayloads, [](const FEditorBulkDataStoragePayload& Payload) {
+				return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
 			}))
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {},
 				"External authored bulk data requires a package publication payload collector."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		if (Options.Serialization.AuthoredBulkPayloads)
+		if (Options.Serialization.EditorBulkDataStoragePayloads)
 		{
-			Options.Serialization.AuthoredBulkPayloads->clear();
-			for (const FAuthoredBulkPayload& Payload : Captured.BulkPayloads)
-				if (Payload.Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
-					Options.Serialization.AuthoredBulkPayloads->push_back(Payload);
+			Options.Serialization.EditorBulkDataStoragePayloads->clear();
+			for (const FEditorBulkDataStoragePayload& Payload : Captured.BulkPayloads)
+				if (Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
+					Options.Serialization.EditorBulkDataStoragePayloads->push_back(Payload);
 		}
 		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects)
 			|| !Private::EqualManifest(Discovery, Captured))

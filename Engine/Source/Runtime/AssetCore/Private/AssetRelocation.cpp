@@ -4,7 +4,7 @@
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetRelocationExtensionsInternal.h"
-#include "Asset/AuthoredBulkStorage.h"
+#include "Asset/EditorBulkDataStorage.h"
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -383,9 +383,9 @@ namespace Durin::Asset
 			std::vector<std::filesystem::path> SourceBulkFiles;
 			std::vector<std::filesystem::path> DestinationBulkFiles;
 			std::string BulkError;
-			if (!InspectAuthoredBulkCompanionPaths(
+			if (!InspectEditorBulkDataCompanionPaths(
 					SourceFile, BulkInspection, SourceBulkFiles, &BulkError)
-				|| !InspectAuthoredBulkCompanionPaths(
+				|| !InspectEditorBulkDataCompanionPaths(
 					DestinationFile, BulkInspection, DestinationBulkFiles, &BulkError)
 				|| SourceBulkFiles.size() != DestinationBulkFiles.size())
 				return Error(EAssetError::CorruptFile,
