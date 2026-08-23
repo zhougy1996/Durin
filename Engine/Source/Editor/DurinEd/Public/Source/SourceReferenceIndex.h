@@ -5,31 +5,35 @@
 
 namespace Durin::Editor
 {
+	namespace Private { struct FSourceReferenceSnapshot; }
+
 	struct FSourceReference
 	{
 		FAssetPath AssetPath;
 		std::string AssetClassName;
 	};
 
-	// Builds a bounded reverse index from serialized source provenance without
-	// loading packages or invoking PostLoad. The snapshot is rebuilt only when
-	// the asset registry revision changes or an explicit invalidation is requested.
+	// Reads a process-shared immutable reverse index of serialized source provenance.
+	// UI callers request asynchronous revision-driven rebuilds; explicit authoring
+	// workflows may use Refresh when they must synchronously obtain a current snapshot.
 	class FSourceReferenceIndex
 	{
 	public:
+		DURINED_API auto RequestRefresh(size_t MaximumPackageInspections = 4096) -> void;
 		DURINED_API auto Refresh(size_t MaximumPackageInspections = 4096) -> void;
 		DURINED_API auto Invalidate() -> void;
 		DURINED_API auto FindReferences(std::string_view SourceVirtualPath) const
 			-> std::span<const FSourceReference>;
 
-		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
-		auto GetInspectedPackageCount() const -> size_t { return InspectedPackageCount; }
-		auto GetWarning() const -> const std::string& { return Warning; }
+		DURINED_API auto IsBuilding() const -> bool;
+		DURINED_API auto IsCurrent() const -> bool;
+		DURINED_API auto GetRegistryRevision() const -> uint64;
+		DURINED_API auto GetInspectedPackageCount() const -> size_t;
+		DURINED_API auto GetWarning() const -> const std::string&;
 
 	private:
-		std::unordered_map<std::string, std::vector<FSourceReference>> References;
-		uint64 RegistryRevision = 0;
-		size_t InspectedPackageCount = 0;
-		std::string Warning;
+		std::shared_ptr<const Private::FSourceReferenceSnapshot> Snapshot;
+		uint64 RequestedGeneration = 0;
+		size_t RequestedMaximumPackageInspections = 4096;
 	};
 } // namespace Durin::Editor

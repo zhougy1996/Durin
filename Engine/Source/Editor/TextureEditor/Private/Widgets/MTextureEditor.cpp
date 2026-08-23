@@ -710,7 +710,7 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawSourceData(DTexture2D* Texture) -> void
 	{
-		SourceReferenceIndex.Refresh();
+		SourceReferenceIndex.RequestRefresh();
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
 		DrawInfoRow("Asset Destination",
 			Texture->GetPackage() ? Texture->GetPackage()->GetPackagePath() : "");
@@ -748,9 +748,16 @@ namespace Durin::Editor::Texture
 					DescribeMountOwner(Resolved.Mount->Owner),
 					Resolved.Mount->bAuthoringWritable ? "writable" : "read-only"));
 			}
-			const std::span<const ::Durin::Editor::FSourceReference> References =
-				SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
-			DrawInfoRow("Shared References", std::format("{} asset(s)", References.size()));
+			if (SourceReferenceIndex.IsCurrent())
+			{
+				const std::span<const ::Durin::Editor::FSourceReference> References =
+					SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
+				DrawInfoRow("Shared References", std::format("{} asset(s)", References.size()));
+			}
+			else
+			{
+				DrawInfoRow("Shared References", "Building source reference index...");
+			}
 		}
 		if (!SourceDiagnostic.Message.empty())
 			DrawInfoRow("Diagnostic", SourceDiagnostic.Message);
@@ -814,8 +821,10 @@ namespace Durin::Editor::Texture
 		}
 		if (!Texture->GetSourceFile().empty())
 		{
+			ImGui::BeginDisabled(!SourceReferenceIndex.IsCurrent());
 			if (ImGui::Button("Replace Shared Source..."))
 				RequestSharedSourceReplacement(Texture);
+			ImGui::EndDisabled();
 			ImGui::SameLine();
 			if (ImGui::Button("Create Private Copy..."))
 				ChangeSourceLocation(Texture);
@@ -824,8 +833,10 @@ namespace Durin::Editor::Texture
 					"Copies the current source to a new mounted path and changes only this asset. "
 					"The old shared source remains in place.");
 			ImGui::SameLine();
+			ImGui::BeginDisabled(!SourceReferenceIndex.IsCurrent());
 			if (ImGui::Button("Relocate Shared Source..."))
 				RequestSharedSourceRelocation(Texture);
+			ImGui::EndDisabled();
 		}
 		DrawSharedSourceReplacementConfirmation(Texture);
 		DrawSharedSourceRelocationConfirmation(Texture);
@@ -987,7 +998,12 @@ namespace Durin::Editor::Texture
 			SetError(Result.ErrorMessage);
 			return;
 		}
-		SourceReferenceIndex.Refresh();
+		SourceReferenceIndex.RequestRefresh();
+		if (!SourceReferenceIndex.IsCurrent())
+		{
+			SetError("The shared source reference index is still building. Try again when the source details are ready.");
+			return;
+		}
 		const std::span<const ::Durin::Editor::FSourceReference> References =
 			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
 		PendingSourceReplacement = {
@@ -1114,7 +1130,12 @@ namespace Durin::Editor::Texture
 			SetError("Source relocation must preserve the file extension.");
 			return;
 		}
-		SourceReferenceIndex.Refresh();
+		SourceReferenceIndex.RequestRefresh();
+		if (!SourceReferenceIndex.IsCurrent())
+		{
+			SetError("The shared source reference index is still building. Try again when the source details are ready.");
+			return;
+		}
 		const std::span<const ::Durin::Editor::FSourceReference> References =
 			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
 		PendingSourceRelocation = {

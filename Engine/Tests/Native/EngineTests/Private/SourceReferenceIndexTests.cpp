@@ -59,4 +59,27 @@ TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 		EXPECT_FALSE(Index.GetWarning().empty());
 }
 
+TEST(FSourceReferenceIndexTests, PublishesOneSharedAsynchronousSnapshot)
+{
+	InitializeDObjectSystem();
+	Durin::Editor::FSourceReferenceIndex First;
+	First.Invalidate();
+	First.RequestRefresh();
+	EXPECT_FALSE(First.IsCurrent());
+
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!First.IsCurrent() && std::chrono::steady_clock::now() < Deadline)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		First.RequestRefresh();
+	}
+	ASSERT_TRUE(First.IsCurrent());
+
+	Durin::Editor::FSourceReferenceIndex Second;
+	Second.RequestRefresh();
+	EXPECT_TRUE(Second.IsCurrent());
+	EXPECT_EQ(Second.GetRegistryRevision(), First.GetRegistryRevision());
+	EXPECT_EQ(Second.GetInspectedPackageCount(), First.GetInspectedPackageCount());
+}
+
 #include "TextureAuthoringTestEnvironment.h"
