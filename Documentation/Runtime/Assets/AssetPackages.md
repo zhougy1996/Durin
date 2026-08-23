@@ -708,8 +708,11 @@ converter.
 ## Authored bulk companions
 
 DAST v4 gives authored bulk values their own `BulkData` opcode. The Value
-section always contains payload id, semantic format id/version, logical and
+section contains payload id, 16+4 compatibility-reserved bytes, logical and
 stored byte counts, XXH3-128 content hash, placement, and container hash.
+Readers accept historical nonzero reserved values from the superseded semantic
+descriptor experiment and ignore them; current writers emit zero. Canonical
+resave is the supported migration without changing the opcode layout.
 Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
 values at or above 256 KiB carry no payload bytes in DAST.
 
@@ -717,16 +720,17 @@ The reflected `FAuthoredBulkData` value composes AssetCore's storage-neutral
 `FBulkData` with authored replacement and placement policy. The common value
 contains only payload id, logical byte count, content hash, and immutable
 resident bytes; it has no semantic format, authority, provider, or residency
-state. Its authored descriptor retains the current semantic wire fields,
-placement, and container hash for DAST/DABK compatibility and package
-transactions. This implementation boundary does not change the `BulkData`
-opcode or any bytes described below.
+state. Its authored descriptor adds stored size, placement, and container hash
+for DAST/DABK package transactions. Payload meaning and schema versions belong
+to the reflected owning domain.
 
 External authored bytes live beside the package as
 `<package-stem>.<container-hash>.dabulk`. This is distinct from cooked `.dbulk`.
 The frozen DABK v1 format has a 64-byte header, sorted 96-byte entries, 16-byte
 payload alignment, at most 65,536 unique payload ids, and a 1 GiB file/payload
-ceiling. Readers reject invalid magic/version, duplicate or unordered ids,
+ceiling. Each entry retains the same 16+4 compatibility-reserved bytes and the
+same old-read/current-zero-write rule as DAST. Readers reject invalid
+magic/version, duplicate or unordered ids,
 misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
 mismatch, wrong container identity, and trailing bytes.
 

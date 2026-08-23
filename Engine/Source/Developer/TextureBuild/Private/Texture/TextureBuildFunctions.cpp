@@ -328,9 +328,10 @@ namespace Durin::Asset::Build::Private
 				FVolumeTextureSourceData Source;
 				FVolumeTextureBuildSettings Settings;
 				std::vector<std::byte> Voxels;
-				uint32 Format = 0, Filter = 0;
+				uint32 Schema = 0, Format = 0, Filter = 0;
 				uint64 ByteCount = 0;
-				if (!Reader.ReadU32(Source.Width) || !Reader.ReadU32(Source.Height)
+				if (!Reader.ReadU32(Schema)
+					|| !Reader.ReadU32(Source.Width) || !Reader.ReadU32(Source.Height)
 					|| !Reader.ReadU32(Source.Depth) || !Reader.ReadU32(Format)
 					|| !Reader.ReadU32(Filter) || !Reader.ReadU64(ByteCount)
 					|| ByteCount != Reader.GetRemainingBytes()
@@ -340,6 +341,7 @@ namespace Durin::Asset::Build::Private
 					OutError = "Volume texture local input is malformed.";
 					return false;
 				}
+				Source.PayloadSchemaVersion = Schema;
 				if (!Source.SetVoxelBytes(Voxels))
 				{
 					OutError = "Volume texture local input bulk publication failed.";
@@ -445,6 +447,7 @@ namespace Durin::Asset::Build::Private
 		const FVolumeTextureBuildSettings& Settings) -> std::vector<std::byte>
 	{
 		FBinaryWriter Writer;
+		Writer.WriteU32(SourceData.PayloadSchemaVersion);
 		Writer.WriteU32(SourceData.Width);
 		Writer.WriteU32(SourceData.Height);
 		Writer.WriteU32(SourceData.Depth);

@@ -27,7 +27,8 @@ namespace Durin
 
 	auto FVolumeTextureSourceData::IsValid() const -> bool
 	{
-		if (Width == 0 || Height == 0 || Depth == 0
+		if (PayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
+			|| Width == 0 || Height == 0 || Depth == 0
 			|| Width > MaximumVolumeTextureDimension
 			|| Height > MaximumVolumeTextureDimension
 			|| Depth > MaximumVolumeTextureDimension)
@@ -37,15 +38,13 @@ namespace Durin
 		if (Info.BlockSize != 1 || Info.BytesPerBlock == 0) return false;
 		const uint64 Texels = static_cast<uint64>(Width) * Height * Depth;
 		return Texels <= MaximumTexturePayloadBytes / Info.BytesPerBlock
-			&& Voxels.GetBulkData().HasPayload()
+			&& Voxels.GetBulkData().GetDescriptor().PayloadId == VolumeTextureSourcePayloadId
 			&& GetVoxelBytes().size() == Texels * Info.BytesPerBlock;
 	}
 
 	auto FVolumeTextureSourceData::SetVoxelBytes(std::span<const std::byte> Bytes) -> bool
 	{
-		return Voxels.ReplaceBytes(
-			VolumeTextureSourcePayloadId, VolumeTextureSourceFormatId,
-			VolumeTextureSourceFormatVersion, Bytes);
+		return Voxels.ReplaceBytes(VolumeTextureSourcePayloadId, Bytes);
 	}
 
 	auto FVolumeTextureMipData::IsValid(EPixelFormat PixelFormat) const -> bool

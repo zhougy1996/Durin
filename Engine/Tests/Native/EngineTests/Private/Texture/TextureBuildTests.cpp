@@ -42,6 +42,10 @@ TEST(FVolumeTextureTests, AuthoredVoxelsHaveDistinctAtomicReflectionIdentity)
 		->FindPropertyByName("Voxels", false);
 	ASSERT_NE(Property, nullptr);
 	EXPECT_EQ(Property->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::BulkData);
+	Durin::FProperty* SchemaProperty = Durin::FVolumeTextureSourceData::StaticStruct()
+		->FindPropertyByName("PayloadSchemaVersion", false);
+	ASSERT_NE(SchemaProperty, nullptr);
+	EXPECT_EQ(SchemaProperty->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::UInt32);
 }
 
 TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
@@ -103,6 +107,15 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	std::array Voxels{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
 		std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
+	EXPECT_TRUE(Source.IsValid());
+	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion + 1;
+	EXPECT_FALSE(Source.IsValid());
+	Durin::Asset::Build::FVolumeTextureBuildProduct Rejected;
+	std::string SchemaError;
+	EXPECT_FALSE(Durin::Asset::Build::BuildVolumeTexture(
+		Source, {}, Rejected, SchemaError));
+	EXPECT_FALSE(SchemaError.empty());
+	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion;
 	Durin::Asset::Build::FVolumeTextureBuildProduct First;
 	Durin::Asset::Build::FVolumeTextureBuildProduct Second;
 	std::string Error;

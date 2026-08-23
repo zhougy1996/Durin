@@ -16,6 +16,7 @@ namespace Durin::Asset::Build
 			|| Width > MaximumVolumeTextureDimension
 			|| Height > MaximumVolumeTextureDimension
 			|| Depth > MaximumVolumeTextureDimension
+			|| SourcePayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
 			|| TargetPlatform != Asset::ECookTargetPlatform::Win64
 			|| (TargetProfile != Asset::ECookTargetProfile::Game
 				&& TargetProfile != Asset::ECookTargetProfile::EditorValidation))
@@ -32,7 +33,7 @@ namespace Durin::Asset::Build
 		uint32 Profile = static_cast<uint32>(TargetProfile);
 		Ar << KeySchema << Dimension << SourceContentHash.HashLow
 			<< SourceContentHash.HashHigh << Width << Height << Depth
-			<< Format << Filter << BuilderVersion << PayloadSchemaVersion
+			<< Format << Filter << BuilderVersion << SourcePayloadSchemaVersion
 			<< Platform << Profile;
 	}
 

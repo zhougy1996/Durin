@@ -84,10 +84,12 @@ namespace Durin::Asset
 			FWireEntry& OutEntry) -> bool
 		{
 			FWireEntry Candidate;
+			FGuid ReservedIdentity;
+			uint32 ReservedVersion = 0;
 			uint64 HashLow = 0, HashHigh = 0;
 			Reader.ReadGuid(Candidate.Entry.Descriptor.PayloadId);
-			Reader.ReadGuid(Candidate.Entry.Descriptor.FormatId);
-			Reader.Read(Candidate.Entry.Descriptor.FormatVersion);
+			Reader.ReadGuid(ReservedIdentity);
+			Reader.Read(ReservedVersion);
 			Reader.Read(Candidate.Flags);
 			Reader.Read(Candidate.Entry.Descriptor.LogicalByteCount);
 			Reader.Read(Candidate.Entry.Descriptor.StoredByteCount);
@@ -110,8 +112,8 @@ namespace Durin::Asset
 			uint64 Offset) -> bool
 		{
 			Writer.WriteGuid(Descriptor.PayloadId);
-			Writer.WriteGuid(Descriptor.FormatId);
-			Writer.Write(Descriptor.FormatVersion);
+			Writer.WriteGuid(FGuid{});
+			Writer.Write(uint32{0});
 			Writer.Write(uint32{0});
 			Writer.Write(Descriptor.LogicalByteCount);
 			Writer.Write(Descriptor.StoredByteCount);
@@ -140,8 +142,7 @@ namespace Durin::Asset
 		{
 			const FEntry& Entry = WireEntry.Entry;
 			return Entry.Descriptor.PayloadId.IsValid()
-				&& Entry.Descriptor.FormatId.IsValid()
-				&& Entry.Descriptor.FormatVersion != 0 && WireEntry.Flags == 0
+				&& WireEntry.Flags == 0
 				&& Entry.Descriptor.LogicalByteCount == Entry.Descriptor.StoredByteCount
 				&& Entry.Descriptor.StoredByteCount <= MaximumBytes
 				&& Entry.Offset >= DataOffset && Entry.Offset % Alignment == 0
@@ -161,9 +162,11 @@ namespace Durin::Asset
 			{
 				uint8 StorageKind = 0;
 				FAuthoredBulkDataDescriptor Descriptor;
+				FGuid ReservedIdentity;
+				uint32 ReservedVersion = 0;
 				uint64 HashLow = 0, HashHigh = 0, ContainerLow = 0, ContainerHigh = 0;
-				Reader << StorageKind << Descriptor.PayloadId << Descriptor.FormatId
-					<< Descriptor.FormatVersion << Descriptor.LogicalByteCount
+				Reader << StorageKind << Descriptor.PayloadId << ReservedIdentity
+					<< ReservedVersion << Descriptor.LogicalByteCount
 					<< Descriptor.StoredByteCount << HashLow << HashHigh
 					<< ContainerLow << ContainerHigh;
 				Descriptor.ContentHash = {HashLow, HashHigh};
@@ -171,7 +174,6 @@ namespace Durin::Asset
 				Descriptor.StorageKind = StorageKind == 0
 					? EAuthoredBulkStorageKind::Inline : EAuthoredBulkStorageKind::External;
 				if (Reader.HasError() || StorageKind > 1 || !Descriptor.PayloadId.IsValid()
-					|| !Descriptor.FormatId.IsValid() || Descriptor.FormatVersion == 0
 					|| Descriptor.LogicalByteCount != Descriptor.StoredByteCount)
 					return Fail("Inspected authored bulk descriptor is invalid.", OutError);
 				if (Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
@@ -317,8 +319,7 @@ namespace Durin::Asset
 		for (const FAuthoredBulkPayload* Payload : Sorted)
 		{
 			const auto& Descriptor = Payload->Descriptor;
-			if (!Descriptor.PayloadId.IsValid() || !Descriptor.FormatId.IsValid()
-				|| Descriptor.FormatVersion == 0
+			if (!Descriptor.PayloadId.IsValid()
 				|| Descriptor.StorageKind != EAuthoredBulkStorageKind::External
 				|| Descriptor.ContainerHash != ContainerHash
 				|| Descriptor.LogicalByteCount != Payload->Buffer.GetSize()

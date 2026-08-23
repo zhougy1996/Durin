@@ -206,8 +206,7 @@ namespace Durin::Asset::Private
 			{
 				const auto& Left = A.BulkPayloads[Index].Descriptor;
 				const auto& Right = B.BulkPayloads[Index].Descriptor;
-				if (Left.PayloadId != Right.PayloadId || Left.FormatId != Right.FormatId
-					|| Left.FormatVersion != Right.FormatVersion
+				if (Left.PayloadId != Right.PayloadId
 					|| Left.LogicalByteCount != Right.LogicalByteCount
 					|| Left.StoredByteCount != Right.StoredByteCount
 					|| Left.ContentHash != Right.ContentHash) return false;
@@ -286,16 +285,16 @@ namespace Durin::Asset::Private
 			{
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				uint8 StorageKind = 0;
-				FGuid PayloadId, FormatId;
-				uint32 FormatVersion = 0;
+				FGuid PayloadId, ReservedIdentity;
+				uint32 ReservedVersion = 0;
 				uint64 LogicalSize = 0, StoredSize = 0;
 				uint64 HashLow = 0, HashHigh = 0, ContainerHashLow = 0, ContainerHashHigh = 0;
-				*this << StorageKind << PayloadId << FormatId << FormatVersion
+				*this << StorageKind << PayloadId << ReservedIdentity << ReservedVersion
 					<< LogicalSize << StoredSize << HashLow << HashHigh
 					<< ContainerHashLow << ContainerHashHigh;
 				if (HasError()) return;
 				if (StorageKind > static_cast<uint8>(EArchiveBulkDataStorageKind::External)
-					|| !PayloadId.IsValid() || !FormatId.IsValid() || FormatVersion == 0
+					|| !PayloadId.IsValid()
 					|| LogicalSize != StoredSize)
 				{
 					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
@@ -334,8 +333,7 @@ namespace Durin::Asset::Private
 						? std::filesystem::path(Resolved.PhysicalPath.generic_string() + ".dasset")
 						: std::filesystem::path{};
 					const FAuthoredBulkDataDescriptor Descriptor{
-						.PayloadId = PayloadId, .FormatId = FormatId,
-						.FormatVersion = FormatVersion, .LogicalByteCount = LogicalSize,
+						.PayloadId = PayloadId, .LogicalByteCount = LogicalSize,
 						.StoredByteCount = StoredSize, .ContentHash = ContentHash,
 						.ContainerHash = ContainerHash,
 						.StorageKind = EAuthoredBulkStorageKind::External};
@@ -355,8 +353,7 @@ namespace Durin::Asset::Private
 						"Authored bulk payload size or hash verification failed.");
 					return;
 				}
-				Value = {.PayloadId = PayloadId, .FormatId = FormatId,
-					.FormatVersion = FormatVersion, .LogicalSize = LogicalSize,
+				Value = {.PayloadId = PayloadId, .LogicalSize = LogicalSize,
 					.StoredSize = StoredSize, .ContentHash = ContentHash,
 					.ContainerHash = ContainerHash,
 					.StorageKind = StorageKind == 0 ? EArchiveBulkDataStorageKind::Inline
@@ -815,8 +812,7 @@ namespace Durin::Asset::Private
 			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
 			{
 				if (HasError() || SuppressedDepth != 0) return;
-				if (!Value.PayloadId.IsValid() || !Value.FormatId.IsValid()
-					|| Value.FormatVersion == 0 || Value.LogicalSize != Value.StoredSize
+				if (!Value.PayloadId.IsValid() || Value.LogicalSize != Value.StoredSize
 					|| Value.Buffer.GetSize() != Value.LogicalSize
 					|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)
 				{
@@ -841,8 +837,6 @@ namespace Durin::Asset::Private
 				Value.ContainerHash = bExternal ? ContainerHash : FXxHash128{};
 				FAuthoredBulkDataDescriptor Descriptor{
 					.PayloadId = Value.PayloadId,
-					.FormatId = Value.FormatId,
-					.FormatVersion = Value.FormatVersion,
 					.LogicalByteCount = Value.LogicalSize,
 					.StoredByteCount = Value.StoredSize,
 					.ContentHash = Value.ContentHash,
@@ -861,7 +855,9 @@ namespace Durin::Asset::Private
 				uint64 HashHigh = Value.ContentHash.HashHigh;
 				uint64 ContainerHashLow = Value.ContainerHash.HashLow;
 				uint64 ContainerHashHigh = Value.ContainerHash.HashHigh;
-				*this << StorageKind << Value.PayloadId << Value.FormatId << Value.FormatVersion
+				FGuid ReservedIdentity;
+				uint32 ReservedVersion = 0;
+				*this << StorageKind << Value.PayloadId << ReservedIdentity << ReservedVersion
 					<< Value.LogicalSize << Value.StoredSize << HashLow << HashHigh
 					<< ContainerHashLow << ContainerHashHigh;
 			}
@@ -1226,13 +1222,13 @@ namespace Durin::Asset::Private
 			for (const FAuthoredBulkPayload* Payload : Sorted)
 			{
 				FGuid PayloadId = Payload->Descriptor.PayloadId;
-				FGuid FormatId = Payload->Descriptor.FormatId;
-				uint32 FormatVersion = Payload->Descriptor.FormatVersion;
+				FGuid ReservedIdentity;
+				uint32 ReservedVersion = 0;
 				uint64 LogicalBytes = Payload->Descriptor.LogicalByteCount;
 				uint64 StoredBytes = Payload->Descriptor.StoredByteCount;
 				uint64 HashLow = Payload->Descriptor.ContentHash.HashLow;
 				uint64 HashHigh = Payload->Descriptor.ContentHash.HashHigh;
-				Writer << PayloadId << FormatId << FormatVersion << LogicalBytes
+				Writer << PayloadId << ReservedIdentity << ReservedVersion << LogicalBytes
 					<< StoredBytes << HashLow << HashHigh;
 			}
 			return Writer.HasError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);

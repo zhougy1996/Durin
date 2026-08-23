@@ -18,10 +18,9 @@ namespace Durin::Asset
 		auto ValidateDescriptor(const FAuthoredBulkDataDescriptor& Descriptor,
 			std::string* OutError) -> bool
 		{
-			if (!Descriptor.PayloadId.IsValid() || !Descriptor.FormatId.IsValid()
-				|| Descriptor.FormatVersion == 0)
+			if (!Descriptor.PayloadId.IsValid())
 			{
-				if (OutError) *OutError = "Authored bulk identity requires valid payload and format ids plus a nonzero format version.";
+				if (OutError) *OutError = "Authored bulk identity requires a valid payload id.";
 				return false;
 			}
 			if (Descriptor.LogicalByteCount > MaximumAuthoredBulkBytes
@@ -34,29 +33,23 @@ namespace Durin::Asset
 		}
 	}
 
-	FAuthoredBulkData::FAuthoredBulkData(
-		FGuid PayloadId, FGuid FormatId, uint32 FormatVersion)
+	FAuthoredBulkData::FAuthoredBulkData(FGuid PayloadId)
 	{
-		ReplaceBytes(PayloadId, FormatId, FormatVersion, {});
+		ReplaceBytes(PayloadId, {});
 	}
 
 	auto FAuthoredBulkData::ReplaceBytes(std::span<const std::byte> Bytes) -> bool
 	{
-		return ReplaceBytes(
-			Descriptor.PayloadId, Descriptor.FormatId, Descriptor.FormatVersion, Bytes);
+		return ReplaceBytes(Descriptor.PayloadId, Bytes);
 	}
 
 	auto FAuthoredBulkData::ReplaceBytes(
-		FGuid PayloadId, FGuid FormatId, uint32 FormatVersion,
-		std::span<const std::byte> Bytes) -> bool
+		FGuid PayloadId, std::span<const std::byte> Bytes) -> bool
 	{
-		if (Bytes.size() > MaximumAuthoredBulkBytes || !PayloadId.IsValid()
-			|| !FormatId.IsValid() || FormatVersion == 0)
+		if (Bytes.size() > MaximumAuthoredBulkBytes || !PayloadId.IsValid())
 			return false;
 		FAuthoredBulkDataDescriptor Candidate{
 			.PayloadId = PayloadId,
-			.FormatId = FormatId,
-			.FormatVersion = FormatVersion,
 			.LogicalByteCount = static_cast<uint64>(Bytes.size()),
 			.StoredByteCount = static_cast<uint64>(Bytes.size()),
 			.ContentHash = FXxHash128::HashBuffer(Bytes),
@@ -75,8 +68,6 @@ namespace Durin::Asset
 	{
 		FArchiveBulkDataTransfer Transfer{
 			.PayloadId = Descriptor.PayloadId,
-			.FormatId = Descriptor.FormatId,
-			.FormatVersion = Descriptor.FormatVersion,
 			.LogicalSize = Descriptor.LogicalByteCount,
 			.StoredSize = Descriptor.StoredByteCount,
 			.ContentHash = Descriptor.ContentHash,
@@ -89,8 +80,6 @@ namespace Durin::Asset
 			|| Ar.GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
 		FAuthoredBulkDataDescriptor Candidate{
 			.PayloadId = Transfer.PayloadId,
-			.FormatId = Transfer.FormatId,
-			.FormatVersion = Transfer.FormatVersion,
 			.LogicalByteCount = Transfer.LogicalSize,
 			.StoredByteCount = Transfer.StoredSize,
 			.ContentHash = Transfer.ContentHash,
@@ -117,9 +106,7 @@ namespace Durin::Asset
 
 	auto FAuthoredBulkData::Identical(const FAuthoredBulkData& Other) const -> bool
 	{
-		if (Descriptor.FormatId != Other.Descriptor.FormatId
-			|| Descriptor.FormatVersion != Other.Descriptor.FormatVersion
-			|| Descriptor.LogicalByteCount != Other.Descriptor.LogicalByteCount
+		if (Descriptor.LogicalByteCount != Other.Descriptor.LogicalByteCount
 			|| Descriptor.ContentHash != Other.Descriptor.ContentHash)
 			return false;
 		return true;

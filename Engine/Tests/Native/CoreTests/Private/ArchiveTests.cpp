@@ -177,8 +177,6 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 		std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
 	Durin::FArchiveBulkDataTransfer Source{
 		.PayloadId = {1, 2, 3, 4},
-		.FormatId = {5, 6, 7, 8},
-		.FormatVersion = 3,
 		.LogicalSize = Payload.size(),
 		.StoredSize = Payload.size(),
 		.ContentHash = Durin::FXxHash128::HashBuffer(Payload),
@@ -188,17 +186,29 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
 	Writer.SerializeBulkData(Source);
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_GE(Bytes.size(), 37u);
+	EXPECT_TRUE(std::ranges::all_of(
+		std::span(Bytes).subspan(17, 20), [](std::byte Byte) { return Byte == std::byte{0}; }));
 
 	Durin::FArchiveBulkDataTransfer Loaded;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::BulkData);
 	Reader.SerializeBulkData(Loaded);
 	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
 	EXPECT_EQ(Loaded.PayloadId, Source.PayloadId);
-	EXPECT_EQ(Loaded.FormatId, Source.FormatId);
-	EXPECT_EQ(Loaded.FormatVersion, Source.FormatVersion);
 	EXPECT_EQ(Loaded.ContentHash, Source.ContentHash);
 	EXPECT_TRUE(Loaded.ContainerHash.IsZero());
 	EXPECT_TRUE(std::ranges::equal(Loaded.Buffer.GetBytes(), Payload));
+
+	auto HistoricalSlots = Bytes;
+	HistoricalSlots[17] = std::byte{1};
+	HistoricalSlots[33] = std::byte{1};
+	Durin::FArchiveBulkDataTransfer Historical;
+	Durin::FCanonicalMemoryReader HistoricalReader(
+		HistoricalSlots, Durin::EArchivePurpose::BulkData);
+	HistoricalReader.SerializeBulkData(Historical);
+	ASSERT_TRUE(Durin::RequireArchiveEnd(HistoricalReader)) << HistoricalReader.GetError();
+	EXPECT_EQ(Historical.PayloadId, Source.PayloadId);
+	EXPECT_TRUE(std::ranges::equal(Historical.Buffer.GetBytes(), Payload));
 
 	Bytes.back() ^= std::byte{0xff};
 	Durin::FArchiveBulkDataTransfer Preserved = Loaded;
@@ -213,8 +223,6 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 {
 	Durin::FArchiveBulkDataTransfer Value{
 		.PayloadId = {1, 1, 1, 1},
-		.FormatId = {2, 2, 2, 2},
-		.FormatVersion = 1,
 		.StoredSize = 0};
 
 	Durin::FArchiveState SkipState;

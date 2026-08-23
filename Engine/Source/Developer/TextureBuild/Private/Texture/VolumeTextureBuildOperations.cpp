@@ -16,6 +16,7 @@ namespace Durin::Asset::Build
 			return {.SourceContentHash = FXxHash128::HashBuffer(Source.GetVoxelBytes()),
 				.Width = Source.Width, .Height = Source.Height, .Depth = Source.Depth,
 				.Settings = Settings,
+				.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 				.TargetProfile = Asset::ECookTargetProfile::Game};
 		}

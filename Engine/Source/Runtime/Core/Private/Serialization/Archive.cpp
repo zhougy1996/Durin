@@ -196,8 +196,8 @@ namespace Durin
 		}
 
 		FGuid PayloadId = Value.PayloadId;
-		FGuid FormatId = Value.FormatId;
-		uint32 FormatVersion = Value.FormatVersion;
+		FGuid ReservedIdentity;
+		uint32 ReservedVersion = 0;
 		uint64 LogicalSize = Value.LogicalSize;
 		uint64 StoredSize = Value.StoredSize;
 		uint64 HashLow = Value.ContentHash.HashLow;
@@ -205,7 +205,7 @@ namespace Durin
 		uint64 ContainerHashLow = 0;
 		uint64 ContainerHashHigh = 0;
 		uint8 StorageKind = static_cast<uint8>(EArchiveBulkDataStorageKind::Inline);
-		*this << StorageKind << PayloadId << FormatId << FormatVersion
+		*this << StorageKind << PayloadId << ReservedIdentity << ReservedVersion
 			<< LogicalSize << StoredSize << HashLow << HashHigh
 			<< ContainerHashLow << ContainerHashHigh;
 		if (HasError()) return;
@@ -243,8 +243,6 @@ namespace Durin
 		}
 		Value = {
 			.PayloadId = PayloadId,
-			.FormatId = FormatId,
-			.FormatVersion = FormatVersion,
 			.LogicalSize = LogicalSize,
 			.StoredSize = StoredSize,
 			.ContentHash = {HashLow, HashHigh},

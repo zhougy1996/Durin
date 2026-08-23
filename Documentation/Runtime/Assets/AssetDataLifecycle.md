@@ -604,12 +604,19 @@ constructing its common resident-byte value. Cooked consumers call
 own reflected descriptor and codec. DDC misses and rebuilds continue to use the
 existing derived-data services. There is no cross-authority provider adapter.
 
-`FAuthoredBulkData` composes `FBulkData` plus the authored wire and
-placement/container descriptor required by DAST and DABK compatibility.
+`FAuthoredBulkData` composes `FBulkData` plus the authored size/hash and
+placement/container descriptor required by DAST and DABK.
 Replacement builds a detached verified candidate and never exposes writable
 resident memory. Immutable byte access goes through `GetBulkData()`; authored
 package loading remains eager and publishes the object graph only after
 external DABK bytes have been resolved and verified.
+
+DAST v4 and DABK v1 retain the physical 16-byte identity and 4-byte version
+slots formerly used by the authored experiment. They are compatibility-reserved
+storage now: readers accept and ignore historical nonzero values, while current
+writers emit zero. Canonical resave is the supported migration and does not
+change the surrounding opcode or entry layout. Domain schema versions are
+reflected by the owning asset instead.
 
 Asset package loading resolves external storage from the logical package path
 and descriptor container hash, validates the complete DABK container and the

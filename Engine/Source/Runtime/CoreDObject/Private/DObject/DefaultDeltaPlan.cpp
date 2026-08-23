@@ -107,8 +107,6 @@ namespace Durin
 					const auto Bytes = std::as_bytes(std::span{&Part, 1});
 					Node->ByteValue.insert(Node->ByteValue.end(), Bytes.begin(), Bytes.end());
 				};
-				Append(Value.FormatId);
-				Append(Value.FormatVersion);
 				Append(Value.LogicalSize);
 				Append(Value.ContentHash);
 				Node->bHasAtomicValue = true;

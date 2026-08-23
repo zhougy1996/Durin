@@ -15,8 +15,6 @@ namespace Durin::Asset
 	struct FAuthoredBulkDataDescriptor
 	{
 		FGuid PayloadId;
-		FGuid FormatId;
-		uint32 FormatVersion = 0;
 		uint64 LogicalByteCount = 0;
 		uint64 StoredByteCount = 0;
 		FXxHash128 ContentHash;
@@ -33,19 +31,18 @@ namespace Durin::Asset
 		FSharedByteBuffer Buffer;
 	};
 
-	// Owns one atomic authored payload and exposes residency through the common BulkData API.
+	// Owns one atomic authored payload and exposes verified immutable bytes.
 	class FAuthoredBulkData
 	{
 	public:
 		FAuthoredBulkData() = default;
-		ASSETCORE_API FAuthoredBulkData(FGuid PayloadId, FGuid FormatId, uint32 FormatVersion);
+		ASSETCORE_API explicit FAuthoredBulkData(FGuid PayloadId);
 
 		auto GetDescriptor() const -> const FAuthoredBulkDataDescriptor& { return Descriptor; }
 		auto GetBulkData() const -> const FBulkData& { return Data; }
 		ASSETCORE_API auto ReplaceBytes(std::span<const std::byte> Bytes) -> bool;
 		ASSETCORE_API auto ReplaceBytes(
-			FGuid PayloadId, FGuid FormatId, uint32 FormatVersion,
-			std::span<const std::byte> Bytes) -> bool;
+			FGuid PayloadId, std::span<const std::byte> Bytes) -> bool;
 		ASSETCORE_API auto Serialize(FArchive& Ar) -> void;
 		ASSETCORE_API auto Identical(const FAuthoredBulkData& Other) const -> bool;
 

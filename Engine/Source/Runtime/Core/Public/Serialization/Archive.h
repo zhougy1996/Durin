@@ -76,8 +76,6 @@ namespace Durin
 	struct FArchiveBulkDataTransfer
 	{
 		FGuid PayloadId;
-		FGuid FormatId;
-		uint32 FormatVersion = 0;
 		uint64 LogicalSize = 0;
 		uint64 StoredSize = 0;
 		FXxHash128 ContentHash;

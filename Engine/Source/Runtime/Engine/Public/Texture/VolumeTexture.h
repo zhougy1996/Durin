@@ -12,9 +12,7 @@ namespace Durin
 {
 	inline constexpr FGuid VolumeTextureSourcePayloadId{
 		0x6fe21a38, 0x494340a7, 0xa304c2d5, 0x26f22931};
-	inline constexpr FGuid VolumeTextureSourceFormatId{
-		0x2854a7c1, 0x94cb4ab8, 0x8cd8be32, 0xc2f680b7};
-	inline constexpr uint32 VolumeTextureSourceFormatVersion = 1;
+	inline constexpr uint32 VolumeTextureSourcePayloadSchemaVersion = 1;
 
 	// Selects one portable uncompressed voxel format admitted by volume assets.
 	DENUM()
@@ -70,6 +68,9 @@ namespace Durin
 
 		DPROPERTY()
 		EVolumeTextureFormat Format = EVolumeTextureFormat::R8_UNORM;
+
+		DPROPERTY()
+		uint32 PayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 
 		ENGINE_API auto IsValid() const -> bool;
 		auto GetVoxelBytes() const -> std::span<const std::byte>

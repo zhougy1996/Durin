@@ -16,7 +16,7 @@ namespace Durin::Asset::Build
 		uint32 Depth = 0;
 		FVolumeTextureBuildSettings Settings;
 		uint32 BuilderVersion = VolumeTextureBuilderVersion;
-		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
+		uint32 SourcePayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
 		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
 

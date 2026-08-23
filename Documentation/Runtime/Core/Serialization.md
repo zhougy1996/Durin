@@ -90,13 +90,14 @@ not reinterpret the Blob contents or persist vector capacity/allocator state.
 
 `FSharedByteBuffer` is Core's immutable, copy-shareable byte owner. It exposes
 only a const span; replacement constructs a new allocation. `SerializeBulkData`
-transfers a placement-independent identity (payload and format ids, format
-version, logical/stored sizes, XXH3-128 content hash) plus verified bytes.
+transfers a placement-independent storage identity (payload id, logical/stored
+sizes, and XXH3-128 content hash) plus verified bytes.
 `Inline` writes the bounded descriptor and byte Blob, `Skip` performs no
 transfer, and base `External` fails before mutation unless an owning Archive
 adapter implements location and publication. Core never resolves asset paths or
-files for this operation. The transfer carries no unloaded/resident/failed
-state or provider diagnostic: those are runtime `Asset::FBulkData` concerns.
+files for this operation. The transfer carries no payload format/schema,
+authority, provider, or residency state; those belong to the owning domain and
+authority service.
 Every saving Archive therefore receives a complete immutable candidate, and a
 loading Archive publishes a transfer only after its bytes are verified.
 
@@ -132,8 +133,8 @@ field-count limits therefore count the field once; Archive, package-size, and
 allocation byte limits remain independent and authoritative.
 
 A reflected authored-bulk value is a distinct atomic logical `BulkData` node.
-Planning compares semantic format/version, logical size, and verified content
-identity, never physical placement or residency. Multi-megabyte values still
+Planning compares logical size and verified content identity, never domain
+schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
 AssetCore's private bounded container codec is not an Archive implementation.

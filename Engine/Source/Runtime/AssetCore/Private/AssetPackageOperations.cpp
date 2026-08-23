@@ -1226,10 +1226,12 @@ namespace Durin::Asset
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData) return false;
 		FByteReader Reader{Payload};
 		uint8 StorageKind = 0;
+		FGuid ReservedIdentity;
+		uint32 ReservedVersion = 0;
 		uint64 HashLow = 0, HashHigh = 0, ContainerLow = 0, ContainerHigh = 0;
 		if (!Reader.Read(StorageKind) || StorageKind > 1
-			|| !Reader.Read(OutValue.PayloadId) || !Reader.Read(OutValue.FormatId)
-			|| !Reader.Read(OutValue.FormatVersion)
+			|| !Reader.Read(OutValue.PayloadId) || !Reader.Read(ReservedIdentity)
+			|| !Reader.Read(ReservedVersion)
 			|| !Reader.Read(OutValue.LogicalByteCount)
 			|| !Reader.Read(OutValue.StoredByteCount)
 			|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
@@ -1238,8 +1240,7 @@ namespace Durin::Asset
 		OutValue.ContainerHash = {ContainerLow, ContainerHigh};
 		OutValue.StorageKind = StorageKind == 0
 			? EAuthoredBulkStorageKind::Inline : EAuthoredBulkStorageKind::External;
-		return OutValue.PayloadId.IsValid() && OutValue.FormatId.IsValid()
-			&& OutValue.FormatVersion != 0
+		return OutValue.PayloadId.IsValid()
 			&& OutValue.LogicalByteCount == OutValue.StoredByteCount
 			&& (OutValue.StorageKind == EAuthoredBulkStorageKind::Inline
 				? OutValue.ContainerHash.IsZero()

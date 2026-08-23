@@ -803,9 +803,9 @@ namespace Durin::Editor
 			const std::string_view Placement = Descriptor.StorageKind
 				== Asset::EAuthoredBulkStorageKind::External ? "external" : "inline";
 			ImGui::TextDisabled("%s", std::format(
-				"{} bytes, {}, resident, format v{}, hash {}",
+				"{} bytes, {}, resident, hash {}",
 				Descriptor.LogicalByteCount, Placement,
-				Descriptor.FormatVersion, Descriptor.ContentHash.ToString()).c_str());
+				Descriptor.ContentHash.ToString()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 		{
