@@ -76,17 +76,23 @@ namespace Durin::Editor
 		DURINED_API auto ProjectChanged() -> void;
 		DURINED_API auto Shutdown() -> void;
 
-		// Drains worker notices and reconciles paths/fingerprints against the live
-		// registry. It never scans the registry or reads package bytes.
+		// Drains worker notices without scanning the registry or reading package bytes.
+		DURINED_API auto Tick() -> void;
+		// Reconciles paths/fingerprints against a caller-owned catalog snapshot.
+		// Callers should use the catalog revision to avoid redundant reconciliation.
+		DURINED_API auto ReconcileAssetCatalog(
+			const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+		// Convenience path for callers that already own a changed catalog snapshot.
 		DURINED_API auto Tick(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
 		DURINED_API auto GetPresentationRecords() const
-			-> std::vector<Asset::FAssetPackageCompatibilityRecord>;
+			-> const std::vector<Asset::FAssetPackageCompatibilityRecord>&;
 		DURINED_API auto FindRecord(const FAssetPath& Path) const
 			-> const Asset::FAssetPackageCompatibilityRecord*;
 
 		auto GetState() const -> EAssetCompatibilityAuditState { return State; }
 		auto GetProgress() const -> FAssetCompatibilityAuditProgress { return Progress; }
 		auto GetRequestSerial() const -> uint64 { return RequestSerial; }
+		auto GetPresentationRevision() const -> uint64 { return PresentationRevision; }
 		auto GetFailure() const -> const std::string& { return Failure; }
 		auto GetWorkerTaskDiagnostics() const -> FTaskDiagnostics { return Task.GetDiagnostics(); }
 		auto GetTerminalTaskDiagnostics() const -> FTaskDiagnostics { return TerminalTask.GetDiagnostics(); }
@@ -96,6 +102,7 @@ namespace Durin::Editor
 		struct FPublicationLifetime;
 		auto DrainMailbox() -> void;
 		auto Reconcile(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+		auto InvalidatePresentation() -> void;
 
 		FAssetCompatibilityProbe Probe;
 		std::shared_ptr<FMailbox> Mailbox;
@@ -105,6 +112,9 @@ namespace Durin::Editor
 		FTaskGenerationSource Generation;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;
 		std::unordered_map<FAssetPath, Asset::FAssetPackageCompatibilityRecord> Records;
+		mutable std::vector<Asset::FAssetPackageCompatibilityRecord> PresentationRecords;
+		mutable uint64 CachedPresentationRevision = std::numeric_limits<uint64>::max();
+		uint64 PresentationRevision = 0;
 		FAssetCompatibilityAuditProgress Progress;
 		EAssetCompatibilityAuditState State = EAssetCompatibilityAuditState::Idle;
 		uint64 RequestSerial = 0;

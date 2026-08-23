@@ -172,6 +172,34 @@ TEST_F(FAssetCompatibilityAuditTests, CancellationPublishesNoPartialRecordForThe
 		<< '\n';
 }
 
+TEST_F(FAssetCompatibilityAuditTests, IdleTickKeepsPresentationCacheStableUntilCatalogDataChanges)
+{
+	Durin::Editor::FAssetCompatibilityAuditModel Model;
+	const auto Data = MakeData("/AuditTests/Cached");
+	const std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{
+		{Data.PackagePath, Data}};
+	Model.ReconcileAssetCatalog(Assets);
+
+	const auto& FirstPresentation = Model.GetPresentationRecords();
+	ASSERT_EQ(FirstPresentation.size(), 1u);
+	const auto* FirstStorage = FirstPresentation.data();
+	const uint64 FirstRevision = Model.GetPresentationRevision();
+	Model.Tick();
+	Model.ReconcileAssetCatalog(Assets);
+
+	EXPECT_EQ(Model.GetPresentationRevision(), FirstRevision);
+	EXPECT_EQ(Model.GetPresentationRecords().data(), FirstStorage);
+
+	auto Changed = Data;
+	++Changed.FileSize;
+	Model.ReconcileAssetCatalog({{Changed.PackagePath, Changed}});
+
+	EXPECT_GT(Model.GetPresentationRevision(), FirstRevision);
+	const auto& ChangedPresentation = Model.GetPresentationRecords();
+	ASSERT_EQ(ChangedPresentation.size(), 1u);
+	EXPECT_EQ(ChangedPresentation.front().Fingerprint.FileSize, Changed.FileSize);
+}
+
 TEST_F(FAssetCompatibilityAuditTests, RepresentativeCorpusMeasuresWorkerAndMailboxCosts)
 {
 	constexpr uint32 PackageCount = 32;

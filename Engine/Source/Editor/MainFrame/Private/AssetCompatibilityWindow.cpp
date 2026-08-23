@@ -68,7 +68,14 @@ namespace Durin::Editor::MainFrame
 		}
 
 		// Comparison only: this does not scan the registry or touch package bytes.
-		Audit.Tick(Asset::CaptureAssetCatalogSnapshot().Assets);
+		Audit.Tick();
+		const uint64 CatalogRevision = Asset::GetAssetCatalogRevision();
+		if (!ReconciledCatalogRevision || *ReconciledCatalogRevision != CatalogRevision)
+		{
+			const Asset::FAssetCatalogSnapshot Snapshot = Asset::CaptureAssetCatalogSnapshot();
+			Audit.ReconcileAssetCatalog(Snapshot.Assets);
+			ReconciledCatalogRevision = Snapshot.Revision;
+		}
 		TickCanonicalResave();
 		const auto State = Audit.GetState();
 		if (State == Editor::EAssetCompatibilityAuditState::Running)
@@ -92,14 +99,19 @@ namespace Durin::Editor::MainFrame
 			ImGui::ProgressBar(Fraction, ImVec2(MonaImGui::ScaleUI(220.0f), 0.0f), Overlay.c_str());
 		}
 
-		const auto Records = Audit.GetPresentationRecords();
-		const auto Counts = Editor::CountAssetCompatibilityAuditRecords(Records);
+		const auto& Records = Audit.GetPresentationRecords();
+		const uint64 PresentationRevision = Audit.GetPresentationRevision();
+		if (!SummaryPresentationRevision || *SummaryPresentationRevision != PresentationRevision)
+		{
+			PresentationCounts = Editor::CountAssetCompatibilityAuditRecords(Records);
+			CanonicalDebt = static_cast<size_t>(std::ranges::count_if(Records,
+				[](const auto& Record) { return !Record.CanonicalizationEvidence.empty(); }));
+			SummaryPresentationRevision = PresentationRevision;
+		}
 		ImGui::Text("Compatible %zu   Incompatible %zu   Unsupported %zu   Failed %zu   Stale %zu   Not checked %zu",
-			static_cast<size_t>(Counts.Compatible), static_cast<size_t>(Counts.Incompatible),
-			static_cast<size_t>(Counts.Unsupported), static_cast<size_t>(Counts.Failed),
-			static_cast<size_t>(Counts.Stale), static_cast<size_t>(Counts.NotChecked));
-		const size_t CanonicalDebt = static_cast<size_t>(std::ranges::count_if(Records,
-			[](const auto& Record) { return !Record.CanonicalizationEvidence.empty(); }));
+			static_cast<size_t>(PresentationCounts.Compatible), static_cast<size_t>(PresentationCounts.Incompatible),
+			static_cast<size_t>(PresentationCounts.Unsupported), static_cast<size_t>(PresentationCounts.Failed),
+			static_cast<size_t>(PresentationCounts.Stale), static_cast<size_t>(PresentationCounts.NotChecked));
 		ImGui::SameLine();
 		ImGui::Text("Canonical resave recommended %zu", CanonicalDebt);
 		if (State == Editor::EAssetCompatibilityAuditState::Completed && CanonicalDebt != 0)
@@ -132,6 +144,22 @@ namespace Durin::Editor::MainFrame
 			Filter = static_cast<Editor::EAssetCompatibilityAuditFilter>(FilterIndex);
 		ImGui::SameLine();
 		ImGui::Checkbox("Canonical resave recommended only", &bCanonicalDebtOnly);
+		if (!FilteredPresentationRevision || *FilteredPresentationRevision != PresentationRevision
+			|| CachedFilter != Filter || bCachedCanonicalDebtOnly != bCanonicalDebtOnly)
+		{
+			FilteredRecordIndices.clear();
+			FilteredRecordIndices.reserve(Records.size());
+			for (size_t Index = 0; Index < Records.size(); ++Index)
+			{
+				const auto& Record = Records[Index];
+				if (!Editor::MatchesAssetCompatibilityAuditFilter(Record, Filter)) continue;
+				if (bCanonicalDebtOnly && Record.CanonicalizationEvidence.empty()) continue;
+				FilteredRecordIndices.push_back(Index);
+			}
+			FilteredPresentationRevision = PresentationRevision;
+			CachedFilter = Filter;
+			bCachedCanonicalDebtOnly = bCanonicalDebtOnly;
+		}
 
 		if (State == Editor::EAssetCompatibilityAuditState::Idle)
 			ImGui::TextDisabled("Opening this window does not inspect packages. Select Run Audit to begin.");
@@ -152,20 +180,25 @@ namespace Durin::Editor::MainFrame
 			ImGui::TableSetupColumn("Freshness", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(75.0f));
 			ImGui::TableSetupColumn("Findings", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(65.0f));
 			ImGui::TableHeadersRow();
-			for (const auto& Record : Records)
+			ImGuiListClipper Clipper;
+			Clipper.Begin(static_cast<int>(std::min(
+				FilteredRecordIndices.size(), static_cast<size_t>(std::numeric_limits<int>::max()))));
+			while (Clipper.Step())
 			{
-				if (!Editor::MatchesAssetCompatibilityAuditFilter(Record, Filter)) continue;
-				if (bCanonicalDebtOnly && Record.CanonicalizationEvidence.empty()) continue;
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				if (ImGui::Selectable(Record.PackagePath.ToString().c_str(), Record.PackagePath == SelectedPath,
-					ImGuiSelectableFlags_SpanAllColumns)) SelectedPath = Record.PackagePath;
-				ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(InspectionName(Record.Inspection));
-				ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(CompatibilityName(Record.Compatibility));
-				ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(
-					Record.Freshness == Asset::EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
-				ImGui::TableSetColumnIndex(4); ImGui::Text("%zu + %zu resave", Record.Findings.size(),
-					Record.CanonicalizationEvidence.size());
+				for (int RowIndex = Clipper.DisplayStart; RowIndex < Clipper.DisplayEnd; ++RowIndex)
+				{
+					const auto& Record = Records[FilteredRecordIndices[static_cast<size_t>(RowIndex)]];
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					if (ImGui::Selectable(Record.PackagePath.ToString().c_str(), Record.PackagePath == SelectedPath,
+						ImGuiSelectableFlags_SpanAllColumns)) SelectedPath = Record.PackagePath;
+					ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(InspectionName(Record.Inspection));
+					ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(CompatibilityName(Record.Compatibility));
+					ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(
+						Record.Freshness == Asset::EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
+					ImGui::TableSetColumnIndex(4); ImGui::Text("%zu + %zu resave", Record.Findings.size(),
+						Record.CanonicalizationEvidence.size());
+				}
 			}
 			ImGui::EndTable();
 		}

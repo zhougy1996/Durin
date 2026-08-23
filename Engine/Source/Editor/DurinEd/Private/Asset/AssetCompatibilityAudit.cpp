@@ -173,6 +173,7 @@ namespace Durin::Editor
 		std::ranges::sort(Inputs, {}, [](const auto& Input) {
 			return Input.PackagePath.ToString();
 		});
+		InvalidatePresentation();
 
 		State = EAssetCompatibilityAuditState::Running;
 		Cancellation = FTaskCancellationSource{};
@@ -267,6 +268,7 @@ namespace Durin::Editor
 						? "The asset compatibility audit worker failed."
 						: Outcome.Diagnostic;
 				}
+				Model.InvalidatePresentation();
 			},
 			TerminalOptions
 		);
@@ -303,6 +305,7 @@ namespace Durin::Editor
 		if (State == EAssetCompatibilityAuditState::Running)
 		{
 			State = EAssetCompatibilityAuditState::Cancelled;
+			InvalidatePresentation();
 		}
 	}
 
@@ -315,6 +318,7 @@ namespace Durin::Editor
 		Progress = {};
 		Failure.clear();
 		State = EAssetCompatibilityAuditState::Idle;
+		InvalidatePresentation();
 	}
 
 	auto FAssetCompatibilityAuditModel::Shutdown() -> void
@@ -326,11 +330,22 @@ namespace Durin::Editor
 		if (PublicationLifetime) PublicationLifetime->Model = nullptr;
 	}
 
+	auto FAssetCompatibilityAuditModel::Tick() -> void
+	{
+		DrainMailbox();
+	}
+
+	auto FAssetCompatibilityAuditModel::ReconcileAssetCatalog(
+		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
+	{
+		Reconcile(Assets);
+	}
+
 	auto FAssetCompatibilityAuditModel::Tick(
 		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
 	{
-		DrainMailbox();
-		Reconcile(Assets);
+		Tick();
+		ReconcileAssetCatalog(Assets);
 	}
 
 	auto FAssetCompatibilityAuditModel::DrainMailbox() -> void
@@ -340,6 +355,7 @@ namespace Durin::Editor
 			std::lock_guard Lock(Mailbox->Mutex);
 			Notices.swap(Mailbox->Notices);
 		}
+		bool bPresentationChanged = false;
 		for (FNotice& Notice : Notices)
 		{
 			if (Notice.Serial != RequestSerial) continue;
@@ -347,8 +363,11 @@ namespace Durin::Editor
 			{
 				Records.insert_or_assign(Notice.Record->PackagePath, std::move(*Notice.Record));
 				Progress.Completed = std::min(Progress.Completed + 1, Progress.Total);
+				bPresentationChanged = true;
 			}
 		}
+		if (bPresentationChanged) InvalidatePresentation();
+		const EAssetCompatibilityAuditState PriorState = State;
 		if (State == EAssetCompatibilityAuditState::Running && TerminalTask.IsValid() && TerminalTask.IsComplete())
 		{
 			const FTaskDiagnostics Diagnostics = TerminalTask.GetDiagnostics();
@@ -371,18 +390,21 @@ namespace Durin::Editor
 				}
 			}
 		}
+		if (State != PriorState) InvalidatePresentation();
 	}
 
 	auto FAssetCompatibilityAuditModel::Reconcile(
 		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
 	{
-		std::erase_if(Records, [&](const auto& Entry) { return !Assets.contains(Entry.first); });
+		bool bPresentationChanged = std::erase_if(
+			Records, [&](const auto& Entry) { return !Assets.contains(Entry.first); }) != 0;
 		for (const auto& [Path, Data] : Assets)
 		{
 			auto It = Records.find(Path);
 			if (It == Records.end())
 			{
 				Records.emplace(Path, MakeNotCheckedRecord(Data));
+				bPresentationChanged = true;
 				continue;
 			}
 			auto& Record = It->second;
@@ -391,24 +413,44 @@ namespace Durin::Editor
 				if (Record.PhysicalPath != Data.PhysicalPath
 					|| Record.Fingerprint.FileSize != Data.FileSize
 					|| Record.Fingerprint.LastWriteTimeTicks != Data.LastWriteTimeTicks)
+				{
 					Record = MakeNotCheckedRecord(Data);
+					bPresentationChanged = true;
+				}
 				continue;
 			}
-			Record.Freshness = Asset::IsAssetPackageCompatibilityRecordCurrent(
+			const auto Freshness = Asset::IsAssetPackageCompatibilityRecordCurrent(
 				Record, Data.FileSize, Data.LastWriteTimeTicks)
 				? Asset::EAssetCompatibilityFreshness::Current
 				: Asset::EAssetCompatibilityFreshness::Stale;
+			if (Record.Freshness != Freshness)
+			{
+				Record.Freshness = Freshness;
+				bPresentationChanged = true;
+			}
 		}
+		if (bPresentationChanged) InvalidatePresentation();
 	}
 
 	auto FAssetCompatibilityAuditModel::GetPresentationRecords() const
-		-> std::vector<Asset::FAssetPackageCompatibilityRecord>
+		-> const std::vector<Asset::FAssetPackageCompatibilityRecord>&
 	{
-		std::vector<Asset::FAssetPackageCompatibilityRecord> Result;
-		Result.reserve(Records.size());
-		for (const auto& [Path, Record] : Records) Result.push_back(Record);
-		std::ranges::sort(Result, {}, [](const auto& Record) { return Record.PackagePath.ToString(); });
-		return Result;
+		if (CachedPresentationRevision != PresentationRevision)
+		{
+			PresentationRecords.clear();
+			PresentationRecords.reserve(Records.size());
+			for (const auto& [Path, Record] : Records) PresentationRecords.push_back(Record);
+			std::ranges::sort(PresentationRecords, {}, [](const auto& Record) {
+				return Record.PackagePath.GetView();
+			});
+			CachedPresentationRevision = PresentationRevision;
+		}
+		return PresentationRecords;
+	}
+
+	auto FAssetCompatibilityAuditModel::InvalidatePresentation() -> void
+	{
+		++PresentationRevision;
 	}
 
 	auto FAssetCompatibilityAuditModel::FindRecord(const FAssetPath& Path) const
