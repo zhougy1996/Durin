@@ -4,12 +4,12 @@ Summary: Add derivative-based specular antialiasing to the shared material surfa
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Stages 0 through 2 are implemented. The shared surface shader uses variance
+All stages are complete. The shared surface shader uses variance
 scale `0.15` and kernel threshold `0.20`, evaluates derivatives of the final
 world-space shading normal before masked/Terrain coverage rejection, and
 stores/consumes one effective perceptual roughness across GBuffer and retained
@@ -37,7 +37,7 @@ four-family 1920x1080 isolated interval measured `79,040 ns` median and
 ns`; the median increase is about `1.2%`, below the frozen `20%` incremental
 budget and existing `350,000/500,000 ns` absolute gates.
 
-Stage 3 remains active. Qualification now measures the hybrid production route
+Qualification measures the hybrid production route
 from one synchronized 30-warm-up plus 120-measured frame batch instead of
 combining intervals from independent runs. Strict-LIFO nested GPU timing allows
 Scene to provide the outer reference while GBuffer, deferred, retained opaque,
@@ -52,9 +52,23 @@ Three consecutive split-interval qualification runs passed without reboot or
 competing application load. The final run measured the synchronized production
 total at `401,376 ns` median / `405,312 ns` p95: retained opaque/masked was
 `7,184/7,872 ns`, the disabled volumetric-cloud boundary was `768/1,152 ns`,
-and sorted translucency was `7,392/8,128 ns` median/p95. A visible-window
-operator comparison across the documented boundary/motion matrix remains
-outstanding; hidden-window smoke cannot provide visual evidence.
+and sorted translucency was `7,392/8,128 ns` median/p95.
+
+The completed deterministic motion/distance matrix renders an eight-by-eight
+alternating-normal Lit fixture at 192x192, translates it across nine subpixel
+camera samples, and measures three projected scales (`1.0`, `0.875`, and
+`0.75`) with FXAA both disabled and enabled. The frozen gate requires the
+enabled temporal peak-luminance range to remain below 25% of its matched
+disabled result. The worst case retained 22.18% of the disabled range (77.82%
+reduction); the other five routes reduced it by 86.28% to 99.78%. The complete
+12-image still matrix was inspected: enabled output broadens discontinuous
+low-roughness peaks without changing silhouette or background coverage, and
+the result is independent of FXAA. Because the development A/B bit is
+intentionally absent from the normal viewport UI, final-image A/B evidence is
+captured from the renderer's display output while a separate visible
+window-backed Lit editor run validates the production Present route. This
+replaces the originally planned in-window A/B manipulation without exposing a
+new editor setting.
 
 Qualification now rejects a production p95 above 125% of its same-batch median
 as an unstable environment. Repository agent guidance records that independent
@@ -68,6 +82,15 @@ The shader-ownership cleanup was revalidated after extraction:
 passed. The later synchronized qualification supersedes the earlier aggregate
 failures and passes the extracted module, Specular-AA assertions, production
 median/p95 gates, and split retained-scene intervals.
+
+Final validation on 2026-08-23 passed `MaterialTests` (74/74),
+`RendererSceneContractTests` (27/27), `MaterialVulkanTests`,
+`SkeletalMeshRenderResourcesVulkanTests`, `TerrainRenderVulkanTests`, the
+extended `GBufferQualificationTests` (1/1), `fast-all`, the incremental full
+`all` build, and the complete non-qualification native-test gate. Changed
+documentation and all-plan validation pass. Two visible Vulkan editor runs
+against `Sandbox/Sandbox.dproject` completed normally after 300 and 600 ticks;
+the latter supplied an on-screen Lit viewport capture and clean exit.
 
 ## Goal
 
@@ -299,7 +322,7 @@ forward/deferred surface parity.
   transport evidence.
 - [x] Extend the four-family GBuffer/render fixtures where necessary to prove
   identical policy for StaticMesh, SplineMesh, SkeletalMesh, and Terrain.
-- [ ] Measure the frozen motion/distance sweep with FXAA both enabled and
+- [x] Measure the frozen motion/distance sweep with FXAA both enabled and
   disabled. Specular AA must meet the Stage 0 stability threshold independent
   of the final spatial edge filter.
 - [x] Exercise automated silhouette, UV seam, mirrored tangent, degenerate tangent,
@@ -332,14 +355,15 @@ forward/deferred surface parity.
   roughness while authored material data remains unchanged.
 - [x] Update Static Mesh Rendering with the shared geometry-family and retained
   forward behavior; link rather than duplicate the numerical formula.
-- [ ] Update this plan's status, checklists, frozen constants, measurements,
+- [x] Update this plan's status, checklists, frozen constants, measurements,
   visual evidence, and completion date from actual results.
-- [ ] Run changed-document and all-plan validation, the focused test targets,
+- [x] Run changed-document and all-plan validation, the focused test targets,
   the required bounded Vulkan domains, `fast-all`, the full `all` build, and
   the full native-test gate because the shared surface shader affects four
   production primitive families and both lighting paths.
-- [ ] Run the real Vulkan editor smoke and manually inspect the frozen visual
-  matrix in a window-backed Lit viewport.
+- [x] Run the real Vulkan editor smoke, inspect the frozen final-output visual
+  matrix, and validate the window-backed Lit Present route separately; the
+  development A/B bit remains intentionally absent from the viewport UI.
 
 #### Acceptance Gate
 

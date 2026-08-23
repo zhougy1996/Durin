@@ -10,6 +10,7 @@
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
+#include "NativeTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -32,6 +33,7 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <ranges>
 #include <thread>
@@ -70,6 +72,44 @@ namespace
 	std::vector<std::byte>* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
 	std::vector<std::byte>* GSpecularAASurfacePixels = nullptr;
 	Durin::FViewRenderCounters GLastCounters;
+
+	auto ReadColorTexture(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* Source,
+		std::vector<std::byte>& Pixels) -> void
+	{
+		const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+			"GBufferQualificationColorReadback", Source->GetSizeX(),
+			Source->GetSizeY(), Source->GetFormat())
+			.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+				| Durin::ETextureCreateFlags::CPUReadback
+				| Durin::ETextureCreateFlags::ShaderResource);
+		Durin::FTextureRHIRef Readback =
+			Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+		ASSERT_NE(Readback, nullptr);
+		const Durin::FRHITextureSubresourceRange Whole{
+			Durin::ERHITextureAspect::Color, 0, 1, 0, 1};
+		CommandList.TransitionTextures(std::array{
+			Durin::FRHITextureTransition{Source, Whole,
+				Durin::ERHIAccess::GraphicsShaderRead,
+				Durin::ERHIAccess::TransferRead},
+			Durin::FRHITextureTransition{Readback, Whole,
+				Durin::ERHIAccess::Discard,
+				Durin::ERHIAccess::TransferWrite}});
+		CommandList.CopyTexture(
+			Source, Readback,
+			std::array{Durin::FRHITextureCopyRegion{
+				.Extent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+		CommandList.TransitionTextures(std::array{
+			Durin::FRHITextureTransition{Source, Whole,
+				Durin::ERHIAccess::TransferRead,
+				Durin::ERHIAccess::GraphicsShaderRead},
+			Durin::FRHITextureTransition{Readback, Whole,
+				Durin::ERHIAccess::TransferWrite,
+				Durin::ERHIAccess::GraphicsShaderRead}});
+		ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+			CommandList, Readback, 0, 0, Pixels));
+	}
 
 	struct FGBufferQualificationCommand
 	{
@@ -278,20 +318,70 @@ namespace
 
 	auto MakeSpecularAAQuad() -> std::unique_ptr<Durin::FStaticMeshRenderData>
 	{
-		auto Data = MakeStaticQuad();
-		auto& Vertices = Data->LODResources[0].VertexBuffers;
-		Vertices.PositionVertexBuffer.Init({
-			{-0.25f, -0.25f, 0.0f}, {0.25f, -0.25f, 0.0f},
-			{0.25f, 0.25f, 0.0f}, {-0.25f, 0.25f, 0.0f}});
-		Vertices.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
-			{{0.0f, 0.0f, 1.0f}, {0.8f, 0.0f, 0.6f},
-			 {0.8f, 0.0f, 0.6f}, {0.0f, 0.0f, 1.0f}},
-			std::vector<Durin::FVector4f>(
-				4, {0.0f, 1.0f, 0.0f, 1.0f}));
-		Data->LODResources[0].Sections[0].LocalBounds =
-			Durin::FBox({-0.25, -0.25, 0.0}, {0.25, 0.25, 0.0});
-		Data->LODResources[0].LocalBounds =
-			Data->LODResources[0].Sections[0].LocalBounds;
+		constexpr Durin::uint32 QuadsPerAxis = 8;
+		constexpr Durin::uint32 VerticesPerAxis = QuadsPerAxis + 1;
+		constexpr float Extent = 0.25f;
+		auto Data = std::make_unique<Durin::FStaticMeshRenderData>();
+		Data->MaterialSlots = {{"Opaque", 0}};
+		auto& LOD = Data->LODResources.emplace_back();
+		std::vector<Durin::FVector3f> Positions;
+		std::vector<Durin::FVector3f> Normals;
+		std::vector<Durin::FVector4f> Tangents;
+		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels>
+			UVs;
+		Positions.reserve(VerticesPerAxis * VerticesPerAxis);
+		Normals.reserve(VerticesPerAxis * VerticesPerAxis);
+		Tangents.reserve(VerticesPerAxis * VerticesPerAxis);
+		UVs[0].reserve(VerticesPerAxis * VerticesPerAxis);
+		for (Durin::uint32 Y = 0; Y < VerticesPerAxis; ++Y)
+		{
+			for (Durin::uint32 X = 0; X < VerticesPerAxis; ++X)
+			{
+				const float U = static_cast<float>(X) / QuadsPerAxis;
+				const float V = static_cast<float>(Y) / QuadsPerAxis;
+				Positions.push_back({
+					-Extent + 2.0f * Extent * U,
+					-Extent + 2.0f * Extent * V, 0.0f});
+				const float NormalX = ((X + Y) & 1u) == 0u ? -0.8f : 0.8f;
+				Normals.push_back({NormalX, 0.0f, 0.6f});
+				Tangents.push_back({0.0f, 1.0f, 0.0f, 1.0f});
+				UVs[0].push_back({U, V});
+			}
+		}
+		std::vector<Durin::uint32> Indices;
+		Indices.reserve(QuadsPerAxis * QuadsPerAxis * 6u);
+		for (Durin::uint32 Y = 0; Y < QuadsPerAxis; ++Y)
+		{
+			for (Durin::uint32 X = 0; X < QuadsPerAxis; ++X)
+			{
+				const Durin::uint32 A = Y * VerticesPerAxis + X;
+				const Durin::uint32 B = A + 1u;
+				const Durin::uint32 C = A + VerticesPerAxis;
+				const Durin::uint32 D = C + 1u;
+				Indices.insert(Indices.end(), {A, B, D, A, D, C});
+			}
+		}
+		LOD.VertexBuffers.PositionVertexBuffer.Init(Positions);
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			Normals, Tangents);
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(
+			std::move(UVs), static_cast<Durin::uint32>(Positions.size()), 1);
+		LOD.VertexBuffers.ColorVertexBuffer.Init(
+			std::vector<Durin::FVector4f>(Positions.size(), Durin::FVector4f(1.0f)),
+			static_cast<Durin::uint32>(Positions.size()));
+		LOD.IndexBuffer.Init(Indices);
+		LOD.Sections.push_back({
+			.Name = "Opaque", .FirstIndex = 0,
+			.IndexCount = static_cast<Durin::uint32>(Indices.size()),
+			.MinVertexIndex = 0,
+			.MaxVertexIndex = static_cast<Durin::uint32>(Positions.size() - 1u),
+			.MaterialSlotIndex = 0,
+			.LocalBounds = Durin::FBox(
+				{-Extent, -Extent, 0.0}, {Extent, Extent, 0.0})});
+		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
+		LOD.NumTexCoords = 1;
+		LOD.bHasColorVertexData = true;
+		Data->LODVertexFactories.resize(1);
 		Data->RecalculateBounds();
 		return Data;
 	}
@@ -444,13 +534,45 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(23), std::make_unique<Durin::FSpotLightSceneProxy>(SpotB));
 	Durin::FlushRenderingCommands();
 
+	auto SpecularAAMaterial = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
+	Durin::FMaterialRenderProxyPublication SpecularAAPublication;
+	SpecularAAPublication.LocalVersion = 1;
+	SpecularAAPublication.LocalLayer.StaticProperties =
+		Durin::FMaterialStaticProperties{
+			.BlendMode = Durin::EMaterialBlendMode::Opaque,
+			.ShadingModel = Durin::EMaterialShadingModel::Lit,
+			.bTwoSided = true};
+	SpecularAAPublication.LocalLayer.Parameters.push_back({
+		.Id = Durin::MaterialParameters::BaseColorId,
+		.Type = Durin::EMaterialParameterType::Vector,
+		.VectorValue = {0.7, 0.4, 0.2}});
+	SpecularAAPublication.LocalLayer.Parameters.push_back({
+		.Id = Durin::MaterialParameters::MetallicId,
+		.Type = Durin::EMaterialParameterType::Scalar,
+		.ScalarValue = 0.8f});
+	SpecularAAPublication.LocalLayer.Parameters.push_back({
+		.Id = Durin::MaterialParameters::RoughnessId,
+		.Type = Durin::EMaterialParameterType::Scalar,
+		.ScalarValue = 0.045f});
+	ASSERT_TRUE(SpecularAAMaterial->QueuePublication_GameThread(
+		std::move(SpecularAAPublication)));
+	Durin::FlushRenderingCommands();
+
 	Durin::FScene SpecularAAScene;
 	SpecularAAScene.AddOrReplacePrimitive(
 		Durin::FPrimitiveSceneId(200),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			SpecularAAQuad.get(),
-			std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1),
+			std::vector<Durin::FMaterialRenderProxyRef>{SpecularAAMaterial}, 1),
 		Durin::FMatrix(1.0));
+	Durin::FDirectionalLightSceneData SpecularAADirectional;
+	SpecularAADirectional.Direction = {0.25, 0.0, -1.0};
+	SpecularAADirectional.Color = {1.0f, 1.0f, 1.0f};
+	SpecularAADirectional.Intensity = 6.0f;
+	SpecularAAScene.AddOrReplaceLight(
+		Durin::FLightSceneId(201),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(
+			SpecularAADirectional));
 	Durin::FlushRenderingCommands();
 	auto CaptureSpecularAASurface = [&Renderer, &SpecularAAScene](
 		bool bEnableSpecularAA, std::vector<std::byte>& Pixels) {
@@ -521,6 +643,159 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	}
 	EXPECT_GT(ValidPixels, 0u);
 	EXPECT_GT(BroadenedPixels, 0u);
+
+	// Measure the final display output so the spatial edge filter is part of the
+	// matrix. A fixed center ROI excludes the moving silhouette and isolates the
+	// varying-normal highlight while subpixel translations emulate camera motion.
+	struct FSpecularAAStabilityResult
+	{
+		double MeanAdjacentDifference = 0.0;
+		double MeanSignal = 0.0;
+		double FrameMeanRange = 0.0;
+		double FramePeakRange = 0.0;
+	};
+	auto MeasureSpecularAAStability = [&Renderer, &SpecularAAScene](
+		bool bEnableSpecularAA, bool bEnableFXAA, double Scale) {
+		constexpr Durin::uint32 Width = 192;
+		constexpr Durin::uint32 Height = 192;
+		constexpr std::array<double, 9> MotionPixels{
+			-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
+		std::array<std::vector<std::byte>, MotionPixels.size()> Frames;
+		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+			[&Renderer, &SpecularAAScene, bEnableSpecularAA, bEnableFXAA,
+			 Scale, &Frames, &MotionPixels](
+				Durin::FRHICommandListImmediate& CommandList) {
+				for (size_t FrameIndex = 0; FrameIndex < MotionPixels.size();
+					 ++FrameIndex)
+				{
+					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+						"SpecularAAStability", Width, Height,
+						Durin::EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+							| Durin::ETextureCreateFlags::ShaderResource
+							| Durin::ETextureCreateFlags::SourceCopy);
+					Durin::FTextureRHIRef Target =
+						Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+					ASSERT_NE(Target, nullptr);
+					Durin::FSceneView View;
+					const double Offset = 2.0 * MotionPixels[FrameIndex] / Width;
+					View.ViewProjectionMatrix =
+						Durin::Math::TranslationMatrix(
+							Durin::FVector3{Offset, 0.0, 0.0})
+						* Durin::Math::ScaleMatrix(
+							Durin::FVector3{Scale, Scale, 1.0});
+					View.ViewLocation = {0.0, 0.0, 1.0};
+					View.ViewportWidth = Width;
+					View.ViewportHeight = Height;
+					View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.Mode.VisibilityMode =
+						Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					View.Settings.Mode.bEnableSpecularAA = bEnableSpecularAA;
+					View.Settings.PostProcess.bEnableFXAA = bEnableFXAA;
+					++Durin::GRenderFrameCounterRenderThread;
+					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					EXPECT_EQ(
+						Renderer.RenderView(
+							CommandList, &SpecularAAScene, View, Target, false,
+							Durin::FSceneViewRenderOptions{}),
+						Durin::ERenderViewResult::Success);
+					ReadColorTexture(CommandList, Target, Frames[FrameIndex]);
+					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+				}
+			});
+		Durin::FlushRenderingCommands();
+		{
+			const std::string FileName = std::string("specular-aa-")
+				+ (bEnableSpecularAA ? "enabled" : "disabled") + "-fxaa-"
+				+ (bEnableFXAA ? "on" : "off") + "-scale-"
+				+ std::to_string(static_cast<int>(Scale * 100.0)) + ".ppm";
+			std::ofstream Capture(
+				Durin::Testing::GetTestWorkDirectory() / FileName,
+				std::ios::binary);
+			Capture << "P6\n" << Width << ' ' << Height << "\n255\n";
+			for (size_t Offset = 0; Offset < Frames[4].size(); Offset += 4)
+			{
+				Capture.put(static_cast<char>(Frames[4][Offset]));
+				Capture.put(static_cast<char>(Frames[4][Offset + 1]));
+				Capture.put(static_cast<char>(Frames[4][Offset + 2]));
+			}
+		}
+
+		double AdjacentDifference = 0.0;
+		double Signal = 0.0;
+		size_t Samples = 0;
+		std::array<double, MotionPixels.size()> FrameMeans{};
+		std::array<double, MotionPixels.size()> FramePeaks{};
+		const Durin::uint32 Radius = static_cast<Durin::uint32>(18.0 * Scale);
+		for (size_t FrameIndex = 0; FrameIndex < Frames.size(); ++FrameIndex)
+		{
+			EXPECT_EQ(Frames[FrameIndex].size(), Width * Height * 4u);
+			for (Durin::uint32 Y = Height / 2 - Radius;
+				 Y < Height / 2 + Radius; ++Y)
+			{
+				for (Durin::uint32 X = Width / 2 - Radius;
+					 X < Width / 2 + Radius; ++X)
+				{
+					const size_t Offset =
+						(static_cast<size_t>(Y) * Width + X) * 4u;
+					auto Luminance = [&Frames, Offset](size_t Index) {
+						const auto Channel = [&Frames, Offset, Index](size_t C) {
+							return std::to_integer<Durin::uint8>(
+								Frames[Index][Offset + C]) / 255.0;
+						};
+						return 0.2126 * Channel(0) + 0.7152 * Channel(1)
+							+ 0.0722 * Channel(2);
+					};
+					const double Current = Luminance(FrameIndex);
+					Signal += Current;
+					FrameMeans[FrameIndex] += Current;
+					FramePeaks[FrameIndex] =
+						std::max(FramePeaks[FrameIndex], Current);
+					if (FrameIndex > 0)
+						AdjacentDifference +=
+							std::abs(Current - Luminance(FrameIndex - 1));
+					++Samples;
+				}
+			}
+		}
+		const double PixelsPerFrame =
+			static_cast<double>((Radius * 2u) * (Radius * 2u));
+		for (double& Mean : FrameMeans) Mean /= PixelsPerFrame;
+		return FSpecularAAStabilityResult{
+			.MeanAdjacentDifference = AdjacentDifference
+				/ static_cast<double>(Samples - Samples / Frames.size()),
+			.MeanSignal = Signal / static_cast<double>(Samples),
+			.FrameMeanRange = *std::ranges::max_element(FrameMeans)
+				- *std::ranges::min_element(FrameMeans),
+			.FramePeakRange = *std::ranges::max_element(FramePeaks)
+				- *std::ranges::min_element(FramePeaks)};
+	};
+
+	for (const bool bEnableFXAA : {false, true})
+	{
+		for (const double Scale : {1.0, 0.875, 0.75})
+		{
+			const FSpecularAAStabilityResult Disabled =
+				MeasureSpecularAAStability(false, bEnableFXAA, Scale);
+			const FSpecularAAStabilityResult Enabled =
+				MeasureSpecularAAStability(true, bEnableFXAA, Scale);
+			std::cout << "Specular AA stability: fxaa=" << bEnableFXAA
+				<< ",scale=" << Scale
+				<< ",disabled_delta=" << Disabled.MeanAdjacentDifference
+				<< ",enabled_delta=" << Enabled.MeanAdjacentDifference
+				<< ",disabled_signal=" << Disabled.MeanSignal
+				<< ",enabled_signal=" << Enabled.MeanSignal
+				<< ",disabled_mean_range=" << Disabled.FrameMeanRange
+				<< ",enabled_mean_range=" << Enabled.FrameMeanRange
+				<< ",disabled_peak_range=" << Disabled.FramePeakRange
+				<< ",enabled_peak_range=" << Enabled.FramePeakRange << '\n';
+			EXPECT_GT(Disabled.MeanSignal, 0.01);
+			EXPECT_GT(Enabled.MeanSignal, 0.01);
+			EXPECT_LT(
+				Enabled.FramePeakRange,
+				Disabled.FramePeakRange * 0.25);
+		}
+	}
 
 	std::vector<Durin::FGPUTimingQueryRHIRef> GBufferQueries;
 	std::vector<Durin::FGPUTimingQueryRHIRef> DeferredQueries;
