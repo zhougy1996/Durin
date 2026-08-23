@@ -126,10 +126,10 @@ namespace Durin
 				Item.Material = Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex
 				);
-				if (!ResolveMaterialBinding(
-						Item.Material,
-						Item.MaterialBinding,
-						"SkeletalMeshMaterialBinding")) continue;
+				FMaterialRenderBinding LogicalBinding;
+				if (!ResolveMaterialBinding(Item.Material, LogicalBinding,
+						"SkeletalMeshMaterialSelection"))
+					continue;
 				Item.PrimitiveIndex = PrimitiveIndex;
 				Item.SectionIndex = SectionIndex;
 				Item.Section = &Section;
@@ -259,16 +259,17 @@ namespace Durin
 	FSkeletalMeshRenderer::~FSkeletalMeshRenderer() = default;
 
 	auto FSkeletalMeshRenderer::EnsureMaterialSamplers_RenderThread(
-		const FPreparedSkeletalMeshDraw& Item
+		const FMaterialRenderBinding& MaterialBinding
 	) -> bool
 	{
 		return SurfaceMaterials.Ensure_RenderThread(
-			Item.MaterialBinding, ESurfaceMaterialPass::GBuffer);
+			MaterialBinding, ESurfaceMaterialPass::GBuffer);
 	}
 
 	auto FSkeletalMeshRenderer::EnsureSectionResources_RenderThread(
 		const FPreparedSkeletalMeshPrimitive& Primitive,
 		const FPreparedSkeletalMeshDraw& Item,
+		const FMaterialRenderBinding& MaterialBinding,
 		bool bShadowDepth,
 		bool bHybridRetained
 	) -> bool
@@ -478,42 +479,53 @@ namespace Durin
 				: ESurfaceMaterialPass::OpaqueShadow)
 			: ESurfaceMaterialPass::Forward;
 		return SurfaceMaterials.Ensure_RenderThread(
-			Item.MaterialBinding, SurfacePass);
+			MaterialBinding, SurfacePass);
 	}
 
 	auto FSkeletalMeshRenderer::PrepareResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSkeletalPaletteTable& PaletteTable,
-		FPreparedSkeletalMeshView& PreparedView,
+		const FPreparedSkeletalMeshView& PreparedView,
+		FResolvedSkeletalMeshView& ResolvedView,
 		bool bPrepareLitOpaqueForward
-	) -> bool
+	) -> FGeometryResolutionResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
-		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
+		for (const FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
+			FRHIStorageBufferRange PaletteRange;
 			switch (ResolveSkeletalPalette_RenderThread(
-				CommandList, PaletteTable, Primitive
+				CommandList, PaletteTable, Primitive, PaletteRange
 			))
 			{
 			case ESkeletalPaletteResolveResult::Uploaded:
-				++PreparedView.UploadedPalettes;
-				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
-				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
+				++ResolvedView.UploadedPalettes;
+				ResolvedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
+				ResolvedView.UploadedPaletteBytes += PaletteRange.Size;
 				break;
 			case ESkeletalPaletteResolveResult::Reused:
-				++PreparedView.ReusedPalettes;
+				++ResolvedView.ReusedPalettes;
 				break;
 			case ESkeletalPaletteResolveResult::Rejected:
-				++PreparedView.RejectedPalettes;
+				++ResolvedView.RejectedPalettes;
 				break;
 			}
+			if (PaletteRange.Buffer != nullptr)
+				ResolvedView.PaletteRanges.emplace(
+					&Primitive, PaletteRange);
 		}
-		ForEachBasePassBucket(PreparedView, [&](auto& Bucket, EMeshBasePass Pass) {
-			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
+		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
+			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
-				++PreparedView.ResourcePreparationAttemptedDraws;
+				++ResolvedView.ResourcePreparationAttemptedDraws;
+				FMaterialRenderBinding MaterialBinding;
+				if (!ResolvePreparedMaterialBinding(Draw.Material, MaterialBinding,
+						"SkeletalMeshMaterialBinding"))
+					continue;
+				const FMaterialRenderBinding& StoredBinding =
+					ResolvedView.MaterialBindings.emplace(&Draw,
+						std::move(MaterialBinding)).first->second;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				const bool bNeedsForwardPipeline =
@@ -521,28 +533,30 @@ namespace Durin
 					|| bPrepareLitOpaqueForward
 					|| Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
-				Draw.bResourcesReady = Primitive != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
-									   && (bNeedsForwardPipeline ? EnsureSectionResources_RenderThread(*Primitive, Draw) : EnsureMaterialSamplers_RenderThread(Draw));
-				if (Draw.bResourcesReady)
-					++PreparedView.ResourcePreparationSuccessfulDraws;
+				const bool bReady = Primitive != nullptr
+									   && ResolvedView.GetPaletteRange(*Primitive).Buffer != nullptr
+									   && (bNeedsForwardPipeline ? EnsureSectionResources_RenderThread(*Primitive, Draw, StoredBinding) : EnsureMaterialSamplers_RenderThread(StoredBinding));
+				if (bReady)
+				{
+					ResolvedView.ReadyDraws.insert(&Draw);
+					++ResolvedView.ResourcePreparationSuccessfulDraws;
+				}
 			}
 		});
-		check(PreparedView.RequestedPaletteUploads == PreparedView.UploadedPalettes + PreparedView.ReusedPalettes + PreparedView.RejectedPalettes);
-		check(PreparedView.UploadedPaletteBytes == PreparedView.UploadedPaletteMatrices * sizeof(FMatrix4f));
-		return FinalizeResourcePreparation(
-			PreparedView, EPreparedSkeletalMeshPhase::ResourcesPrepared
-		);
+		check(PreparedView.RequestedPaletteUploads == ResolvedView.UploadedPalettes + ResolvedView.ReusedPalettes + ResolvedView.RejectedPalettes);
+		check(ResolvedView.UploadedPaletteBytes == ResolvedView.UploadedPaletteMatrices * sizeof(FMatrix4f));
+		return FinalizeResourcePreparation(ResolvedView);
 	}
 
 	auto FSkeletalMeshRenderer::PrepareHybridRetainedResources_RenderThread(
-		FPreparedSkeletalMeshView& PreparedView
+		const FPreparedSkeletalMeshView& PreparedView,
+		const FResolvedSkeletalMeshView& ResolvedView
 	) -> bool
 	{
 		check(IsInRenderingThread());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		bool bReady = true;
-		ForEachBasePassBucket(PreparedView, [this, &PreparedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
+		ForEachBasePassBucket(PreparedView, [this, &PreparedView,
+			&ResolvedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
 				if (Pass != EMeshBasePass::Translucent
@@ -551,9 +565,11 @@ namespace Durin
 					continue;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
-				bReady = Primitive != nullptr
+				const FMaterialRenderBinding* MaterialBinding =
+					ResolvedView.GetMaterialBinding(Draw);
+				bReady = Primitive != nullptr && MaterialBinding != nullptr
 						 && EnsureSectionResources_RenderThread(
-							 *Primitive, Draw, false, true
+							 *Primitive, Draw, *MaterialBinding, false, true
 						 )
 						 && bReady;
 			}
@@ -564,97 +580,108 @@ namespace Durin
 	auto FSkeletalMeshRenderer::PrepareShadowResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSkeletalPaletteTable& PaletteTable,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> bool
+		const FPreparedSkeletalMeshView& PreparedView,
+		FResolvedSkeletalMeshView& ResolvedView
+	) -> FGeometryResolutionResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
 		check(PreparedView.Translucent.empty());
-		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
+		for (const FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
 		{
+			FRHIStorageBufferRange PaletteRange;
 			switch (ResolveSkeletalPalette_RenderThread(
-				CommandList, PaletteTable, Primitive
+				CommandList, PaletteTable, Primitive, PaletteRange
 			))
 			{
 			case ESkeletalPaletteResolveResult::Uploaded:
-				++PreparedView.UploadedPalettes;
-				PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
-				PreparedView.UploadedPaletteBytes += Primitive.PaletteRange.Size;
+				++ResolvedView.UploadedPalettes;
+				ResolvedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
+				ResolvedView.UploadedPaletteBytes += PaletteRange.Size;
 				break;
 			case ESkeletalPaletteResolveResult::Reused:
-				++PreparedView.ReusedPalettes;
+				++ResolvedView.ReusedPalettes;
 				break;
 			case ESkeletalPaletteResolveResult::Rejected:
-				++PreparedView.RejectedPalettes;
+				++ResolvedView.RejectedPalettes;
 				break;
 			}
+			if (PaletteRange.Buffer != nullptr)
+				ResolvedView.PaletteRanges.emplace(
+					&Primitive, PaletteRange);
 		}
-		ForEachShadowBucket(PreparedView, [this, &PreparedView](auto& Bucket) {
-			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
+		ForEachShadowBucket(PreparedView, [this, &PreparedView, &ResolvedView](const auto& Bucket) {
+			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
-				++PreparedView.ResourcePreparationAttemptedDraws;
+				++ResolvedView.ResourcePreparationAttemptedDraws;
+				FMaterialRenderBinding MaterialBinding;
+				if (!ResolvePreparedMaterialBinding(Draw.Material, MaterialBinding,
+						"SkeletalMeshShadowMaterialBinding"))
+					continue;
+				const FMaterialRenderBinding& StoredBinding =
+					ResolvedView.MaterialBindings.emplace(&Draw,
+						std::move(MaterialBinding)).first->second;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
-				Draw.bResourcesReady = Primitive != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
-									   && EnsureSectionResources_RenderThread(*Primitive, Draw, true);
-				PreparedView.ResourcePreparationSuccessfulDraws +=
-					Draw.bResourcesReady ? 1u : 0u;
+				const bool bReady = Primitive != nullptr
+									   && ResolvedView.GetPaletteRange(*Primitive).Buffer != nullptr
+									   && EnsureSectionResources_RenderThread(*Primitive, Draw, StoredBinding, true);
+				if (bReady) ResolvedView.ReadyDraws.insert(&Draw);
+				ResolvedView.ResourcePreparationSuccessfulDraws +=
+					bReady ? 1u : 0u;
 			}
 		});
-		return FinalizeResourcePreparation(
-			PreparedView, EPreparedSkeletalMeshPhase::ResourcesPrepared
-		);
+		return FinalizeResourcePreparation(ResolvedView);
 	}
 
 	auto FSkeletalMeshRenderer::ExecuteShadow_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& ShadowView,
 		const FRHIUniformBufferRange& FallbackLighting,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> void
+		const FPreparedSkeletalMeshView& PreparedView,
+		FResolvedSkeletalMeshView& ResolvedView
+	) -> bool
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		ForEachShadowBucket(PreparedView, [this, &CommandList, &ShadowView, &FallbackLighting, &PreparedView](const auto& Bucket) {
+		bool bComplete = true;
+		ForEachShadowBucket(PreparedView, [this, &CommandList, &ShadowView,
+			&FallbackLighting, &PreparedView, &ResolvedView,
+			&bComplete](const auto& Bucket) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
-				++PreparedView.AttemptedDraws;
+				++ResolvedView.AttemptedDraws;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
-				if (Primitive != nullptr && Draw.bResourcesReady
+				if (Primitive != nullptr && ResolvedView.IsReady(Draw)
 					&& DrawSection_RenderThread(
 						CommandList, ShadowView, FallbackLighting,
-						ERenderMode::Unlit, *Primitive, Draw, true
+						ERenderMode::Unlit, *Primitive, Draw, ResolvedView, true
 					))
-					++PreparedView.SuccessfulDraws;
+					++ResolvedView.SuccessfulDraws;
 				else
-					++PreparedView.RejectedDraws;
+				{
+					bComplete = false;
+					++ResolvedView.RejectedDraws;
+				}
 			}
 		});
-		FinalizeExecution(
-			PreparedView, EPreparedSkeletalMeshPhase::Executed, false
-		);
+		FinalizeExecution(ResolvedView, PreparedView.GetNumSections(), false);
+		return bComplete;
 	}
 
 	auto FSkeletalMeshRenderer::Execute_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, FPreparedSkeletalMeshView& PreparedView
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedSkeletalMeshView& PreparedView, FResolvedSkeletalMeshView& ResolvedView
 	) -> void
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
-		{
-			PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
 			return;
-		}
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
-				++PreparedView.AttemptedDraws;
+				++ResolvedView.AttemptedDraws;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
 				const bool bComplete = Primitive != nullptr
@@ -662,114 +689,126 @@ namespace Durin
 									   && Primitive->RenderData != nullptr
 									   && Primitive->VertexFactory != nullptr
 									   && Primitive->Pose != nullptr
-									   && Primitive->PaletteRange.Buffer != nullptr
+									   && ResolvedView.GetPaletteRange(*Primitive).Buffer != nullptr
 									   && Draw.Section != nullptr && Draw.Pass == Pass
 									   && Draw.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
 									   && Draw.ShaderMapIdentity
 											  == Draw.Material.PipelineIdentity.ShaderMap;
-				if (!bComplete || !Draw.bResourcesReady)
+				if (!bComplete || !ResolvedView.IsReady(Draw))
 				{
-					++PreparedView.RejectedDraws;
+					++ResolvedView.RejectedDraws;
 					continue;
 				}
-				if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode, *Primitive, Draw))
-					++PreparedView.SuccessfulDraws;
+				if (DrawSection_RenderThread(CommandList, View, Lighting,
+					RenderMode, *Primitive, Draw, ResolvedView))
+					++ResolvedView.SuccessfulDraws;
 				else
-					++PreparedView.RejectedDraws;
+					++ResolvedView.RejectedDraws;
 			}
 		});
-		FinalizeExecution(PreparedView, EPreparedSkeletalMeshPhase::Executed);
+		FinalizeExecution(ResolvedView, PreparedView.GetNumSections());
 	}
 
 	auto FSkeletalMeshRenderer::ExecutePreparedDraw_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, const FPreparedSkeletalMeshView& PreparedView, FResolvedSkeletalMeshView& ResolvedView, bool bHybridRetained
 	) -> void
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		++PreparedView.AttemptedDraws;
+		++ResolvedView.AttemptedDraws;
 		const FPreparedSkeletalMeshPrimitive* Primitive =
 			PreparedView.GetPrimitive(Draw);
 		const bool bComplete = Primitive != nullptr
 							   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
 							   && Primitive->RenderData != nullptr
 							   && Primitive->VertexFactory != nullptr && Primitive->Pose != nullptr
-							   && Primitive->PaletteRange.Buffer != nullptr
+							   && ResolvedView.GetPaletteRange(*Primitive).Buffer != nullptr
 							   && Draw.Section != nullptr && Draw.Pass == Pass
 							   && Draw.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
 							   && Draw.ShaderMapIdentity == Draw.Material.PipelineIdentity.ShaderMap;
-		if (!bComplete || !Draw.bResourcesReady)
+		if (!bComplete || !ResolvedView.IsReady(Draw))
 		{
-			++PreparedView.RejectedDraws;
+			++ResolvedView.RejectedDraws;
 			return;
 		}
-		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode, *Primitive, Draw, false, bHybridRetained))
-			++PreparedView.SuccessfulDraws;
+		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode,
+			*Primitive, Draw, ResolvedView, false, bHybridRetained))
+			++ResolvedView.SuccessfulDraws;
 		else
-			++PreparedView.RejectedDraws;
+			++ResolvedView.RejectedDraws;
 	}
 
 	auto FSkeletalMeshRenderer::ExecutePass_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedSkeletalMeshView& PreparedView, FResolvedSkeletalMeshView& ResolvedView
 	) -> void
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
 		if (RenderMode != ERenderMode::Unlit && RenderMode != ERenderMode::Lit)
 			return;
 		const auto& Bucket = GetBasePassBucket(PreparedView, Pass);
 		for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
-			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting, RenderMode, Pass, Draw, PreparedView);
+			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting,
+				RenderMode, Pass, Draw, PreparedView, ResolvedView);
 	}
 
 	auto FSkeletalMeshRenderer::FinalizeExecution_RenderThread(
-		FPreparedSkeletalMeshView& PreparedView
+		FResolvedSkeletalMeshView& ResolvedView
 	) -> void
 	{
 		check(IsInRenderingThread());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		FinalizeExecution(PreparedView, EPreparedSkeletalMeshPhase::Executed);
+		FinalizeExecution(ResolvedView, ResolvedView.AttemptedDraws);
 	}
 
 	auto FSkeletalMeshRenderer::ExecuteGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
 		FGBufferRenderer& GBuffer,
-		FPreparedSkeletalMeshView& PreparedView
-	) -> void
+		const FPreparedSkeletalMeshView& PreparedView,
+		FResolvedSkeletalMeshView& ResolvedView
+	) -> FGeometryExecutionResult
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
-		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
-		PreparedView.GBufferSkippedDraws += PreparedView.Translucent.size();
-		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView](const auto& Bucket) {
+		bool bComplete = true;
+		bool bRenderedGeometry = false;
+		ResolvedView.GBufferSkippedDraws += PreparedView.Translucent.size();
+		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer,
+			&PreparedView, &ResolvedView, &bComplete,
+			&bRenderedGeometry](const auto& Bucket) {
 			for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
-					++PreparedView.GBufferSkippedDraws;
+					++ResolvedView.GBufferSkippedDraws;
 					continue;
 				}
-				++PreparedView.GBufferAttemptedDraws;
+				++ResolvedView.GBufferAttemptedDraws;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
-				if (Primitive != nullptr && Draw.bResourcesReady
+				if (Primitive != nullptr && ResolvedView.IsReady(Draw)
 					&& DrawGBufferSection_RenderThread(
-						CommandList, View, GBuffer, *Primitive, Draw
+						CommandList, View, GBuffer, *Primitive, Draw,
+						ResolvedView
 					))
 				{
-					++PreparedView.GBufferSuccessfulDraws;
+					bRenderedGeometry = true;
+					++ResolvedView.GBufferSuccessfulDraws;
 				}
 				else
 				{
-					++PreparedView.GBufferRejectedDraws;
+					bComplete = false;
+					++ResolvedView.GBufferRejectedDraws;
 				}
 			}
 		});
-		check(PreparedView.GBufferAttemptedDraws == PreparedView.GBufferSuccessfulDraws + PreparedView.GBufferRejectedDraws);
+		check(ResolvedView.GBufferAttemptedDraws == ResolvedView.GBufferSuccessfulDraws + ResolvedView.GBufferRejectedDraws);
+		return {bComplete, bRenderedGeometry,
+			ResolvedView.GBufferAttemptedDraws,
+			ResolvedView.GBufferSuccessfulDraws,
+			ResolvedView.GBufferRejectedDraws,
+			ResolvedView.GBufferSkippedDraws};
 	}
 
 	auto FSkeletalMeshRenderer::DrawGBufferSection_RenderThread(
@@ -777,7 +816,8 @@ namespace Durin
 		const FSceneView& View,
 		FGBufferRenderer& GBuffer,
 		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Item
+		const FPreparedSkeletalMeshDraw& Item,
+		const FResolvedSkeletalMeshView& ResolvedView
 	) -> bool
 	{
 		if (Primitive.RenderData == nullptr || Primitive.VertexFactory == nullptr
@@ -810,8 +850,10 @@ namespace Durin
 		const FRHIUniformBufferRange TransformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
 		FResolvedSurfaceMaterial SurfaceMaterial;
-		if (!SurfaceMaterials.Resolve_RenderThread(
-				Item.MaterialBinding, ESurfaceMaterialPass::GBuffer, true,
+		const FMaterialRenderBinding* MaterialBinding =
+			ResolvedView.GetMaterialBinding(Item);
+		if (MaterialBinding == nullptr || !SurfaceMaterials.Resolve_RenderThread(
+				*MaterialBinding, ESurfaceMaterialPass::GBuffer, true,
 				View.Settings.Mode.bEnableSpecularAA,
 				nullptr, nullptr, SurfaceMaterial)) return false;
 		const FSurfaceMaterialUniform& MaterialUniform = SurfaceMaterial.Uniform;
@@ -821,7 +863,7 @@ namespace Durin
 			);
 		const FGBufferRenderer::FVertexParameters VertexParameters{
 			.Transform = TransformBuffer,
-			.SkinPalette = Primitive.PaletteRange
+			.SkinPalette = ResolvedView.GetPaletteRange(Primitive)
 		};
 		FGBufferRenderer::FFragmentParameters FragmentParameters;
 		FragmentParameters.Material = MaterialBuffer;
@@ -842,14 +884,16 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshRenderer::DrawSection_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedSkeletalMeshPrimitive& Primitive, const FPreparedSkeletalMeshDraw& Item, bool bShadowDepth, bool bHybridRetained
+		FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedSkeletalMeshPrimitive& Primitive, const FPreparedSkeletalMeshDraw& Item, const FResolvedSkeletalMeshView& ResolvedView, bool bShadowDepth, bool bHybridRetained
 	) -> bool
 	{
 		const FSkeletalMeshRenderData& Data = *Primitive.RenderData;
 		const FSkeletalMeshRenderSection& Section = *Item.Section;
 		const FMatrix& LocalToWorld = Primitive.LocalToWorld;
 		const FMaterialRenderData& Material = Item.Material;
-		const FMaterialRenderBinding& Binding = Item.MaterialBinding;
+		const FMaterialRenderBinding* Binding =
+			ResolvedView.GetMaterialBinding(Item);
+		if (Binding == nullptr) return false;
 		FStaticMeshTransformUniform Transform;
 		Transform.LocalToClip = Math::TransposeToFloat(View.ViewProjectionMatrix * LocalToWorld);
 		Transform.LocalToWorld = Math::TransposeToFloat(LocalToWorld);
@@ -884,7 +928,7 @@ namespace Durin
 		}
 		FSkeletalMeshVertexShader::FParameters VertexParameters;
 		VertexParameters.Transform = TransformBuffer;
-		VertexParameters.SkinPalette = Primitive.PaletteRange;
+		VertexParameters.SkinPalette = ResolvedView.GetPaletteRange(Primitive);
 		SetShaderParameters(CommandList, Pipeline->VertexShader, VertexParameters);
 		if (bShadowDepth
 			&& Item.PipelineKey.Material.ShaderMap.BlendMode
@@ -902,14 +946,15 @@ namespace Durin
 				== EMaterialBlendMode::Masked;
 		FResolvedSurfaceMaterial SurfaceMaterial;
 		if (!SurfaceMaterials.Resolve_RenderThread(
-				Binding,
+				*Binding,
 				bMaskedShadow ? ESurfaceMaterialPass::MaskedShadow
 					: ESurfaceMaterialPass::Forward,
 				RenderMode == ERenderMode::Lit
 					&& Material.PipelineIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
 				View.Settings.Mode.bEnableSpecularAA,
-				Item.DirectionalShadowTexture, Item.DirectionalShadowSampler,
+				ResolvedView.DirectionalShadowTexture,
+				ResolvedView.DirectionalShadowSampler,
 				SurfaceMaterial)) return false;
 		const FRHIUniformBufferRange MaterialBuffer =
 			CommandList.AllocateDynamicUniformBuffer(

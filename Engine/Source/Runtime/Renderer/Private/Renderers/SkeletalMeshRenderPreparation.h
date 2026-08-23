@@ -9,6 +9,7 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Durin
 {
@@ -19,7 +20,6 @@ namespace Durin
 		const FSkeletalMeshVertexFactory* VertexFactory = nullptr;
 		std::shared_ptr<const FSkeletalPosePalette> Pose;
 		FMatrix LocalToWorld{1.0};
-		FRHIStorageBufferRange PaletteRange;
 	};
 
 	// One render-submission-local registry shared by the receiver view and every
@@ -53,22 +53,11 @@ namespace Durin
 		FVector3 SortCenter{0.0};
 		double TranslucentDistanceSquared = 0.0;
 		FMaterialRenderData Material;
-		FMaterialRenderBinding MaterialBinding;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
 		FEffectiveMeshPipelineKey PipelineKey;
 		FMeshDrawSortKey SortKey;
 		bool bCastsShadow = false;
-		bool bResourcesReady = false;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
-	};
-
-	enum class EPreparedSkeletalMeshPhase : uint8
-	{
-		Prepared,
-		ResourcesPrepared,
-		Executed,
 	};
 
 	struct FPreparedSkeletalMeshView
@@ -98,23 +87,8 @@ namespace Durin
 		size_t SharedPrimitiveFactReuses = 0;
 		size_t SharedSectionFactBuilds = 0;
 		size_t SharedSectionFactReuses = 0;
-		size_t ResourcePreparationAttemptedDraws = 0;
-		size_t ResourcePreparationSuccessfulDraws = 0;
-		size_t ResourcePreparationRejectedDraws = 0;
-		size_t AttemptedDraws = 0;
-		size_t SuccessfulDraws = 0;
-		size_t RejectedDraws = 0;
-		size_t GBufferAttemptedDraws = 0;
-		size_t GBufferSuccessfulDraws = 0;
-		size_t GBufferRejectedDraws = 0;
-		size_t GBufferSkippedDraws = 0;
 		size_t RequestedPaletteUploads = 0;
-		size_t UploadedPalettes = 0;
-		size_t ReusedPalettes = 0;
 		size_t RejectedPalettes = 0;
-		size_t UploadedPaletteMatrices = 0;
-		size_t UploadedPaletteBytes = 0;
-		EPreparedSkeletalMeshPhase Phase = EPreparedSkeletalMeshPhase::Prepared;
 
 		auto GetNumSections() const -> size_t
 		{
@@ -125,6 +99,52 @@ namespace Durin
 		{
 			return Draw.PrimitiveIndex < Primitives.size()
 				? &Primitives[Draw.PrimitiveIndex] : nullptr;
+		}
+	};
+
+	// Owns fallible SkeletalMesh resources and execution measurements.
+	struct FResolvedSkeletalMeshView
+	{
+		std::unordered_set<const FPreparedSkeletalMeshDraw*> ReadyDraws;
+		std::unordered_map<const FPreparedSkeletalMeshDraw*,
+			FMaterialRenderBinding> MaterialBindings;
+		std::unordered_map<const FPreparedSkeletalMeshPrimitive*,
+			FRHIStorageBufferRange> PaletteRanges;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
+		size_t ResourcePreparationAttemptedDraws = 0;
+		size_t ResourcePreparationSuccessfulDraws = 0;
+		size_t ResourcePreparationRejectedDraws = 0;
+		size_t AttemptedDraws = 0;
+		size_t SuccessfulDraws = 0;
+		size_t RejectedDraws = 0;
+		size_t GBufferAttemptedDraws = 0;
+		size_t GBufferSuccessfulDraws = 0;
+		size_t GBufferRejectedDraws = 0;
+		size_t GBufferSkippedDraws = 0;
+		size_t UploadedPalettes = 0;
+		size_t ReusedPalettes = 0;
+		size_t RejectedPalettes = 0;
+		size_t UploadedPaletteMatrices = 0;
+		size_t UploadedPaletteBytes = 0;
+
+		auto IsReady(const FPreparedSkeletalMeshDraw& Draw) const -> bool
+		{
+			return ReadyDraws.contains(&Draw);
+		}
+		auto GetMaterialBinding(const FPreparedSkeletalMeshDraw& Draw) const
+			-> const FMaterialRenderBinding*
+		{
+			const auto It = MaterialBindings.find(&Draw);
+			return It != MaterialBindings.end() ? &It->second : nullptr;
+		}
+		auto GetPaletteRange(
+			const FPreparedSkeletalMeshPrimitive& Primitive) const
+			-> FRHIStorageBufferRange
+		{
+			const auto It = PaletteRanges.find(&Primitive);
+			return It != PaletteRanges.end() ? It->second
+				: FRHIStorageBufferRange{};
 		}
 	};
 

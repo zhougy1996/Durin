@@ -1,7 +1,7 @@
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 
-#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -142,28 +142,19 @@ namespace Durin
 			FGraphicsPipelineStateRHIRef ResolvePipelineState;
 		};
 
-		struct FTargetKey
-		{
-			uint32 Width = 0;
-			uint32 Height = 0;
-			EGroundTruthAmbientOcclusionQuality Quality =
-				EGroundTruthAmbientOcclusionQuality::HalfResolution;
-
-			auto operator==(const FTargetKey&) const -> bool = default;
-		};
-
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<FTargetKey, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FTargets CurrentTargets;
 	};
 
 	FGroundTruthAmbientOcclusionRenderer::FGroundTruthAmbientOcclusionRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
+		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -397,7 +388,6 @@ namespace Durin
 		if (Width == 0 || Height == 0
 			|| Quality >= EGroundTruthAmbientOcclusionQuality::Count)
 			return nullptr;
-		const FState::FTargetKey Key{Width, Height, Quality};
 		const bool bHalf =
 			Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
 		const uint32 NativeWidth = bHalf ? CalculateHalfExtent(Width) : Width;
@@ -411,68 +401,38 @@ namespace Durin
 				| ETextureCreateFlags::ShaderResource
 				| ETextureCreateFlags::SourceCopy)
 			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[Key, Desc, bHalf, Width, Height]() -> FResult {
-				FTargets Candidate;
-				Candidate.Quality = Key.Quality;
-				Candidate.Raw = RHICreateTexture(Desc);
-				auto ScratchDesc = Desc;
-				ScratchDesc.DebugName = bHalf
-					? "GroundTruthAmbientOcclusionHalfScratch"
-					: "GroundTruthAmbientOcclusionScratch";
-				Candidate.Scratch = RHICreateTexture(ScratchDesc);
-				if (bHalf)
-				{
-					auto SelectorDesc = Desc;
-					SelectorDesc.DebugName =
-						"GroundTruthAmbientOcclusionRepresentativeSelector";
-					SelectorDesc.ClearValue =
-						FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
-					Candidate.Selector = RHICreateTexture(SelectorDesc);
-					auto ResolvedDesc = FRHITextureCreateDesc::Create2D(
-						"GroundTruthAmbientOcclusionResolved", Width, Height,
-						EPixelFormat::R8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable
-							| ETextureCreateFlags::ShaderResource
-							| ETextureCreateFlags::SourceCopy)
-						.SetClearValue(
-							FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
-					Candidate.Resolved = RHICreateTexture(ResolvedDesc);
-				}
-				if (Candidate.Raw == nullptr || Candidate.Scratch == nullptr
-					|| (bHalf && (Candidate.Selector == nullptr
-						|| Candidate.Resolved == nullptr)))
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GroundTruthAmbientOcclusionTarget",
-						std::to_string(Width) + "x" + std::to_string(Height),
-						"One or more R8_UNORM targets returned null.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		const bool bResolved = Targets != nullptr;
-		auto GetRetainedBytes = [this]() {
-			return State->TargetsBySize.GetRetainedPayloadWeight(
-				[](const FState::FTargetKey& TargetKey, const FTargets&) {
-					return CalculateTargetBytes(TargetKey.Width,
-						TargetKey.Height, TargetKey.Quality);
-				});
-		};
-		while (State->TargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedBytes)
+		auto ScratchDesc = Desc;
+		ScratchDesc.DebugName = bHalf
+			? "GroundTruthAmbientOcclusionHalfScratch"
+			: "GroundTruthAmbientOcclusionScratch";
+		std::vector<FRHITextureCreateDesc> Descriptions{Desc, ScratchDesc};
+		if (bHalf)
 		{
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
+			auto SelectorDesc = Desc;
+			SelectorDesc.DebugName =
+				"GroundTruthAmbientOcclusionRepresentativeSelector";
+			SelectorDesc.ClearValue =
+				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+			auto ResolvedDesc = FRHITextureCreateDesc::Create2D(
+				"GroundTruthAmbientOcclusionResolved", Width, Height,
+				EPixelFormat::R8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::SourceCopy)
+				.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
+			Descriptions.push_back(SelectorDesc);
+			Descriptions.push_back(ResolvedDesc);
 		}
-		if (!bResolved) return nullptr;
-		auto* Retained = State->TargetsBySize.Find(Key);
-		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
+		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"GroundTruthAmbientOcclusion", Descriptions, MaximumRetainedBytes);
+		if (!Lease) return nullptr;
+		State->CurrentTargets = {
+			.Raw = Lease->Textures[0],
+			.Scratch = Lease->Textures[1],
+			.Selector = bHalf ? Lease->Textures[2] : FTextureRHIRef{},
+			.Resolved = bHalf ? Lease->Textures[3] : FTextureRHIRef{},
+			.Quality = Quality};
+		return &State->CurrentTargets;
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::RenderRaw_RenderThread(
@@ -839,16 +799,14 @@ namespace Durin
 		GetRetainedTargetBytes_RenderThread() const -> uint64
 	{
 		check(IsInRenderingThread());
-		return State->TargetsBySize.GetRetainedPayloadWeight(
-			[](const FState::FTargetKey& Key, const FTargets&) {
-				return CalculateTargetBytes(Key.Width, Key.Height, Key.Quality);
-			});
+		return TransientTargets.GetRetainedBytes_RenderThread(
+			"GroundTruthAmbientOcclusion");
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
 		State->Resources.Reset();
-		State->TargetsBySize.Reset();
+		State->CurrentTargets = {};
 	}
 }

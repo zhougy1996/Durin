@@ -11,16 +11,12 @@
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
-	enum class EPreparedStaticMeshPhase : uint8
-	{
-		Prepared,
-		ResourcesPrepared,
-		Executed,
-	};
 
 	// Stores primitive/selected-LOD facts once for all of its prepared draws.
 	struct FPreparedStaticMeshPrimitive
@@ -44,14 +40,10 @@ namespace Durin
 		FVector3 SortCenter{0.0};
 		double TranslucentDistanceSquared = 0.0;
 		FMaterialRenderData Material;
-		FMaterialRenderBinding MaterialBinding;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
 		FEffectiveMeshPipelineKey PipelineKey;
 		FMeshDrawSortKey SortKey;
-		bool bResourcesReady = false;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
 	struct FPreparedStaticMeshView
@@ -98,6 +90,27 @@ namespace Durin
 		size_t SelectedLODFactReuses = 0;
 		size_t SharedSectionFactBuilds = 0;
 		size_t SharedSectionFactReuses = 0;
+
+		auto GetNumSections() const -> size_t
+		{
+			return Opaque.size() + Masked.size() + Translucent.size();
+		}
+
+		auto GetPrimitive(const FPreparedStaticMeshDraw& Draw) const
+			-> const FPreparedStaticMeshPrimitive*
+		{
+			return Draw.PrimitiveIndex < Primitives.size() ? &Primitives[Draw.PrimitiveIndex] : nullptr;
+		}
+	};
+
+	// Owns fallible bindings and execution measurements without mutating logical draws.
+	struct FResolvedStaticMeshView
+	{
+		std::unordered_set<const FPreparedStaticMeshDraw*> ReadyDraws;
+		std::unordered_map<const FPreparedStaticMeshDraw*,
+			FMaterialRenderBinding> MaterialBindings;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -116,17 +129,16 @@ namespace Durin
 		size_t GBufferSplineSuccessfulDraws = 0;
 		size_t GBufferSplineRejectedDraws = 0;
 		size_t GBufferSplineSkippedDraws = 0;
-		EPreparedStaticMeshPhase Phase = EPreparedStaticMeshPhase::Prepared;
 
-		auto GetNumSections() const -> size_t
+		auto IsReady(const FPreparedStaticMeshDraw& Draw) const -> bool
 		{
-			return Opaque.size() + Masked.size() + Translucent.size();
+			return ReadyDraws.contains(&Draw);
 		}
-
-		auto GetPrimitive(const FPreparedStaticMeshDraw& Draw) const
-			-> const FPreparedStaticMeshPrimitive*
+		auto GetMaterialBinding(const FPreparedStaticMeshDraw& Draw) const
+			-> const FMaterialRenderBinding*
 		{
-			return Draw.PrimitiveIndex < Primitives.size() ? &Primitives[Draw.PrimitiveIndex] : nullptr;
+			const auto It = MaterialBindings.find(&Draw);
+			return It != MaterialBindings.end() ? &It->second : nullptr;
 		}
 	};
 

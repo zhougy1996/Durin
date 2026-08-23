@@ -12,6 +12,7 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
+	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 
 	enum class EGBufferVertexDomain : uint8
@@ -76,7 +77,8 @@ namespace Durin
 			std::array<FRHISampler*, 8> Samplers{};
 		};
 
-		explicit FGBufferRenderer(FRendererResourceCoordinator& InCoordinator);
+		FGBufferRenderer(FRendererResourceCoordinator& InCoordinator,
+			FRendererTransientTargetPool& InTransientTargets);
 		~FGBufferRenderer();
 
 		FGBufferRenderer(const FGBufferRenderer&) = delete;
@@ -96,6 +98,7 @@ namespace Durin
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
+		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

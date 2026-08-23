@@ -19,7 +19,7 @@
 #include "RHICommandList.h"
 #include "RendererModule.h"
 #include "RenderingThread.h"
-#include "Renderers/PreparedSceneView.h"
+#include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "SceneViewProjection.h"
@@ -59,11 +59,11 @@ namespace Durin
 		FSceneCloudFixture* GSceneCloudFixture = nullptr;
 		FViewRenderCounters GSceneCloudCounters;
 
-		auto PrepareSceneCloud(FPreparedSceneView& PreparedView) -> void
+		auto PrepareSceneCloud(
+			FVolumetricCloudQualificationOptions& Options) -> void
 		{
 			if (GSceneCloudFixture == nullptr) return;
-			PreparedView.bVolumetricCloudForceFragmentForQualification =
-				GSceneCloudFixture->bForceFragment;
+			Options.bForceFragment = GSceneCloudFixture->bForceFragment;
 		}
 
 		auto CaptureSceneCloudCounters(const FViewRenderCounters& Counters) -> void

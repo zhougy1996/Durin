@@ -1,10 +1,10 @@
 #include "Renderers/ContactShadowRenderer.h"
 
-#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -92,16 +92,16 @@ namespace Durin
 		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FComputeTargets> ComputeTargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FTargets CurrentTargets;
+		FComputeTargets CurrentComputeTargets;
 	};
 
 	FContactShadowVisibilityRenderer::FContactShadowVisibilityRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
+		  TransientTargets(InTransientTargets),
 		  State(std::make_unique<FState>()) {}
 
 	FContactShadowVisibilityRenderer::~FContactShadowVisibilityRenderer() = default;
@@ -144,106 +144,45 @@ namespace Durin
 		uint32 Width, uint32 Height) -> FTargets*
 	{
 		check(IsInRenderingThread());
-		if (Width == 0 || Height == 0) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		const std::array Descriptions{FRHITextureCreateDesc::Create2D(
 			"DirectionalContactVisibility", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
-			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
-				FTargets Candidate;
-				Candidate.Visibility = RHICreateTexture(Desc);
-				if (Candidate.Visibility == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibilityTarget", std::to_string(Key),
-						"R8_UNORM visibility target creation returned null.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		const bool bResolved = Targets != nullptr;
-		auto GetRetainedBytes = [this]() {
-			return State->TargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FTargets&) {
-					return CalculateTargetBytes(static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
-				});
-		};
-		while (State->TargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedBytesPerRoute)
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
-		if (!bResolved) return nullptr;
-		auto* Retained = State->TargetsBySize.Find(Key);
-		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
+			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f))};
+		auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"ContactFragment", Descriptions, MaximumRetainedBytesPerRoute);
+		if (!Lease) return nullptr;
+		State->CurrentTargets = {.Visibility = Lease->Textures[0]};
+		return &State->CurrentTargets;
 	}
-
 	auto FContactShadowVisibilityRenderer::EnsureComputeTargets_RenderThread(
 		uint32 Width, uint32 Height) -> FComputeTargets*
 	{
 		check(IsInRenderingThread());
-		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		if (GDynamicRHI == nullptr) return nullptr;
+		const std::array Descriptions{FRHITextureCreateDesc::Create2D(
 			"DirectionalContactVisibilityCompute", Width, Height,
 			EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::Storage
 				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::SourceCopy);
-		using FResult = TRenderResourceCreateResult<FComputeTargets>;
-		auto& Entry = State->ComputeTargetsBySize.FindOrAdd(Key);
-		FComputeTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
-				if (!GDynamicRHI->RHIIsTextureSupported(Desc))
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibilityComputeTarget", std::to_string(Key),
-						"R8_UNORM sampled/storage target is unsupported.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				FComputeTargets Candidate;
-				Candidate.Visibility = RHICreateTexture(Desc);
-				if (Candidate.Visibility != nullptr)
-				{
-					Candidate.SampledView = GDynamicRHI->RHIGetOrCreateTextureView(
-						Candidate.Visibility,
-						MakeDefaultTextureViewDesc(*Candidate.Visibility,
-							ERHITextureViewUsage::Sampled));
-					Candidate.StorageView = GDynamicRHI->RHIGetOrCreateTextureView(
-						Candidate.Visibility,
-						MakeDefaultTextureViewDesc(*Candidate.Visibility,
-							ERHITextureViewUsage::Storage));
-				}
-				if (Candidate.Visibility == nullptr || Candidate.SampledView == nullptr
-					|| Candidate.StorageView == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibilityComputeTarget", std::to_string(Key),
-						"R8_UNORM sampled/storage target or canonical view creation returned null.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		const bool bResolved = Targets != nullptr;
-		auto GetRetainedBytes = [this]() {
-			return State->ComputeTargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FComputeTargets&) {
-					return CalculateTargetBytes(static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
-				});
-		};
-		while (State->ComputeTargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedBytesPerRoute)
-			if (!State->ComputeTargetsBySize.EvictOldestExcept(Key)) break;
-		if (!bResolved) return nullptr;
-		auto* Retained = State->ComputeTargetsBySize.Find(Key);
-		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
+				| ETextureCreateFlags::SourceCopy)};
+		if (!GDynamicRHI->RHIIsTextureSupported(Descriptions[0])) return nullptr;
+		auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"ContactCompute", Descriptions, MaximumRetainedBytesPerRoute);
+		if (!Lease) return nullptr;
+		State->CurrentComputeTargets = {.Visibility = Lease->Textures[0]};
+		State->CurrentComputeTargets.SampledView =
+			GDynamicRHI->RHIGetOrCreateTextureView(State->CurrentComputeTargets.Visibility,
+				MakeDefaultTextureViewDesc(*State->CurrentComputeTargets.Visibility,
+					ERHITextureViewUsage::Sampled));
+		State->CurrentComputeTargets.StorageView =
+			GDynamicRHI->RHIGetOrCreateTextureView(State->CurrentComputeTargets.Visibility,
+				MakeDefaultTextureViewDesc(*State->CurrentComputeTargets.Visibility,
+					ERHITextureViewUsage::Storage));
+		return State->CurrentComputeTargets.SampledView
+			&& State->CurrentComputeTargets.StorageView
+			? &State->CurrentComputeTargets : nullptr;
 	}
-
 	auto FContactShadowVisibilityRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList, bool bRequested,
 		FTargets* FragmentTargets, FComputeTargets* ComputeTargets,
@@ -556,24 +495,14 @@ namespace Durin
 		-> uint64
 	{
 		check(IsInRenderingThread());
-		const uint64 FragmentBytes = State->TargetsBySize.GetRetainedPayloadWeight(
-			[](uint64 Key, const FTargets&) {
-				return CalculateTargetBytes(static_cast<uint32>(Key >> 32),
-					static_cast<uint32>(Key));
-			});
-		const uint64 ComputeBytes =
-			State->ComputeTargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 Key, const FComputeTargets&) {
-					return CalculateTargetBytes(static_cast<uint32>(Key >> 32),
-						static_cast<uint32>(Key));
-				});
-		return FragmentBytes + ComputeBytes;
+		return TransientTargets.GetRetainedBytes_RenderThread("ContactFragment")
+			+ TransientTargets.GetRetainedBytes_RenderThread("ContactCompute");
 	}
 
 	auto FContactShadowVisibilityRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->TargetsBySize.Reset();
-		State->ComputeTargetsBySize.Reset();
+		State->CurrentTargets = {};
+		State->CurrentComputeTargets = {};
 		State->FragmentResources.Reset();
 		State->ComputeResources.Reset();
 	}

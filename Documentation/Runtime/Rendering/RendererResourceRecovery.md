@@ -42,10 +42,13 @@ payloads before replacement, so fallback never crosses a device generation.
 This seam coordinates reconstruction; it does not recover a lost Vulkan device
 or a failed RHI executor.
 
-Size-keyed scene color and depth targets use the same semantics. A failed pair
-publishes no cache tombstone, and repeated allocation is suppressed for the
-same device/manual generation. Device or manual invalidation, or byte-budget
-eviction, makes a later attempt eligible.
+Frame-transient targets use the Renderer-private provider described by
+[Renderer Frame Preparation and Fixed Execution](RendererFramePreparation.md).
+Each physical texture has the same generation-scoped failure suppression and
+retry semantics; complete typed bundles are returned only after every texture
+resolves. Device or manual invalidation and retained-byte eviction make later
+construction eligible without moving shaders, PSOs, samplers, or committed
+view history into transient ownership.
 
 ## Invalidation And Commands
 
@@ -81,4 +84,5 @@ through its own ordered shutdown.
 
 - [Viewport Rendering](ViewportRendering.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
+- [Renderer Frame Preparation and Fixed Execution](RendererFramePreparation.md)
 - [Runtime Lifecycle](../Core/RuntimeLifecycle.md)

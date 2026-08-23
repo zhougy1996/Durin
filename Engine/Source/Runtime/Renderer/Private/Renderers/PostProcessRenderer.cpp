@@ -1,11 +1,11 @@
 #include "Renderers/PostProcessRenderer.h"
 
-#include "RendererResourceSlotCache.h"
 #include "Renderers/DisplayMapping.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "CoreGlobals.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -114,15 +114,16 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FSceneTargets> SceneTargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FSceneTargets CurrentSceneTargets;
 	};
 
 	FPostProcessRenderer::FPostProcessRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
+		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -359,76 +360,26 @@ namespace Durin
 		uint32 Width,
 		uint32 Height) -> FSceneTargets*
 	{
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
-		FRHITextureCreateDesc SceneColorDesc =
-			FRHITextureCreateDesc::Create2D(
-				"SceneColor",
-				Width,
-				Height,
-				EPixelFormat::RGBA16_FLOAT);
-		SceneColorDesc.SetFlags(
-			ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::SourceCopy);
-		SceneColorDesc.SetClearValue(
-			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-		FRHITextureCreateDesc SceneDepthDesc =
-			FRHITextureCreateDesc::Create2D(
-				"SceneDepth",
-				Width,
-				Height,
-				EPixelFormat::D32);
-		SceneDepthDesc.SetFlags(
-			ETextureCreateFlags::DepthStencilTargetable
-				| ETextureCreateFlags::ShaderResource);
-		SceneDepthDesc.SetClearValue(FClearValueBinding(0.0f, 0u));
-		using FResult = TRenderResourceCreateResult<FSceneTargets>;
-		auto& Entry = State->SceneTargetsBySize.FindOrAdd(Key);
-		FSceneTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[Key, &SceneColorDesc, &SceneDepthDesc]() -> FResult {
-				FSceneTargets Candidate;
-				Candidate.Color = RHICreateTexture(SceneColorDesc);
-				if (Candidate.Color != nullptr)
-				{
-					Candidate.Depth = RHICreateTexture(SceneDepthDesc);
-				}
-				if (Candidate.Color == nullptr || Candidate.Depth == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"PostProcessSceneTargets",
-							std::to_string(Key),
-							"Scene color or depth texture creation returned null.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		const bool bResolved = Targets != nullptr;
-		// Retain common main and auxiliary extents under a fixed byte budget. RHI
-		// references captured by recorded commands keep evicted resources alive.
-		auto GetRetainedBytes = [this]() {
-			return State->SceneTargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FSceneTargets&) {
-					return CalculateSceneTargetBytes(
-						static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
-				});
-		};
-		while (State->SceneTargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedSceneTargetBytes)
-		{
-			State->SceneTargetsBySize.EvictOldestExcept(Key);
-		}
-		auto* StableEntry = State->SceneTargetsBySize.Find(Key);
-		return bResolved && StableEntry != nullptr
-			? StableEntry->Slot.GetPayload()
-			: nullptr;
+		if (Width == 0 || Height == 0) return nullptr;
+		const std::array Descriptions{
+			FRHITextureCreateDesc::Create2D("SceneColor", Width, Height,
+				EPixelFormat::RGBA16_FLOAT)
+				.SetFlags(ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::SourceCopy)
+				.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
+			FRHITextureCreateDesc::Create2D("SceneDepth", Width, Height,
+				EPixelFormat::D32)
+				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
+					| ETextureCreateFlags::ShaderResource)
+				.SetClearValue(FClearValueBinding(0.0f, 0u))};
+		auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"Scene", Descriptions, MaximumRetainedSceneTargetBytes);
+		if (!Lease) return nullptr;
+		State->CurrentSceneTargets = {
+			.Color = Lease->Textures[0], .Depth = Lease->Textures[1]};
+		return &State->CurrentSceneTargets;
 	}
-
 	auto FPostProcessRenderer::Draw_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor,
@@ -532,6 +483,6 @@ namespace Durin
 	auto FPostProcessRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Slot.Reset();
-		State->SceneTargetsBySize.Reset();
+		State->CurrentSceneTargets = {};
 	}
 } // namespace Durin

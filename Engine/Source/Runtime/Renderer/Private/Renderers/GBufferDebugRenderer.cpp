@@ -1,8 +1,8 @@
 #include "Renderers/GBufferDebugRenderer.h"
 
 #include "RenderResourceCreation.h"
-#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -66,15 +66,16 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FTargets CurrentTargets;
 	};
 
 	FGBufferDebugRenderer::FGBufferDebugRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
+		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -86,32 +87,17 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		if (Width == 0 || Height == 0) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"GBufferDebugColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
 			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
-				FTargets Candidate;
-				Candidate.Color = RHICreateTexture(Desc);
-				if (Candidate.Color == nullptr)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GBufferDebugTarget", std::to_string(Key),
-						"On-demand debug target creation returned null.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		if (Targets == nullptr) return nullptr;
-		while (State->TargetsBySize.Num() > 1)
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
-		auto* Retained = State->TargetsBySize.Find(Key);
-		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
+		const uint64 RetainedBudget = static_cast<uint64>(Width) * Height * 16;
+		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"GBufferDebug", std::span(&Desc, 1), RetainedBudget);
+		if (!Lease) return nullptr;
+		State->CurrentTargets.Color = Lease->Get(0);
+		return &State->CurrentTargets;
 	}
 
 	auto FGBufferDebugRenderer::Render_RenderThread(
@@ -300,6 +286,6 @@ namespace Durin
 	auto FGBufferDebugRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Slot.Reset();
-		State->TargetsBySize.Reset();
+		State->CurrentTargets = {};
 	}
 } // namespace Durin

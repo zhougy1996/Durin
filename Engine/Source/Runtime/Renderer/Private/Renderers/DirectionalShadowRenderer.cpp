@@ -3,7 +3,7 @@
 #include "RenderResourceCreation.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ForwardLighting.h"
-#include "Renderers/PreparedSceneView.h"
+#include "Renderers/SceneRenderPlan.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
@@ -57,7 +57,10 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
 		FTerrainRenderer& Terrains,
-		FPreparedSceneView& View) -> bool
+		FPreparedDirectionalShadow& Shadow,
+		FResolvedDirectionalShadow& ResolvedShadow,
+		FPreparedSkeletalPaletteTable& Palettes,
+		FViewRenderCounters& Counters) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -73,7 +76,7 @@ namespace Durin
 						std::chrono::steady_clock::now() - Start).count());
 			}
 		} PreparationTimingScope{
-			PreparationStart, View.Counters.ShadowResourcePreparationNanoseconds};
+			PreparationStart, Counters.ShadowResourcePreparationNanoseconds};
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
@@ -129,17 +132,17 @@ namespace Durin
 				CommandList.TransitionTextures(InitialTransition);
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
-		if (!View.DirectionalShadow.bEnabled) return false;
-		++View.Counters.ShadowResourceAttempts;
+		if (!Shadow.View.bEnabled) return false;
+		++Counters.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
-			++View.Counters.ShadowResourceFailures;
-			View.DirectionalShadow.bEnabled = false;
+			++Counters.ShadowResourceFailures;
+			Shadow.View.bEnabled = false;
 			return false;
 		}
-		++View.Counters.ShadowResourceSuccesses;
-		View.Counters.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
-		View.Counters.ShadowTargetBackendBytes = static_cast<size_t>(
+		++Counters.ShadowResourceSuccesses;
+		Counters.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
+		Counters.ShadowTargetBackendBytes = static_cast<size_t>(
 			Resources->Target->GetBackendAllocationBytes());
 
 		const FForwardLightingUniform FullyUnlit{};
@@ -147,20 +150,23 @@ namespace Durin
 			&FullyUnlit, sizeof(FullyUnlit));
 		bool bReady = State->FallbackLighting.Buffer != nullptr;
 		for (uint32 Cascade = 0;
-			Cascade < View.DirectionalShadow.CascadeCount; ++Cascade)
+			Cascade < Shadow.View.CascadeCount; ++Cascade)
 		{
 			bReady = StaticMeshes.PrepareShadowResources_RenderThread(
-				CommandList, View.ShadowStaticMeshes[Cascade]) && bReady;
+				CommandList, Shadow.StaticMeshes[Cascade],
+				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
 			bReady = SkeletalMeshes.PrepareShadowResources_RenderThread(
-				CommandList, View.SkeletalPalettes,
-				View.ShadowSkeletalMeshes[Cascade]) && bReady;
+				CommandList, Palettes,
+				Shadow.SkeletalMeshes[Cascade],
+				ResolvedShadow.SkeletalMeshes[Cascade]) && bReady;
 			bReady = Terrains.PrepareShadowResources_RenderThread(
-				CommandList, View.ShadowTerrains[Cascade]) && bReady;
+				CommandList, Shadow.Terrains[Cascade],
+				ResolvedShadow.Terrains[Cascade]) && bReady;
 		}
 		if (!bReady)
 		{
-			++View.Counters.ShadowPreparationFailures;
-			View.DirectionalShadow.bEnabled = false;
+			++Counters.ShadowPreparationFailures;
+			Shadow.View.bEnabled = false;
 		}
 		return bReady;
 	}
@@ -170,11 +176,13 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
 		FTerrainRenderer& Terrains,
-		FPreparedSceneView& View) -> bool
+		FPreparedDirectionalShadow& Shadow,
+		FResolvedDirectionalShadow& ResolvedShadow,
+		FViewRenderCounters& Counters) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
 		FState::FResources* Resources = State->Resources.GetPayload();
-		if (!View.DirectionalShadow.bEnabled || Resources == nullptr
+		if (!Shadow.View.bEnabled || Resources == nullptr
 			|| Resources->Target == nullptr) return false;
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
@@ -185,9 +193,9 @@ namespace Durin
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 		}
 		for (uint32 CascadeIndex = 0;
-			CascadeIndex < View.DirectionalShadow.CascadeCount; ++CascadeIndex)
+			CascadeIndex < Shadow.View.CascadeCount; ++CascadeIndex)
 		{
-			const auto& Cascade = View.DirectionalShadow.Cascades[CascadeIndex];
+			const auto& Cascade = Shadow.View.Cascades[CascadeIndex];
 			FRHIRenderPassInfo Pass{};
 			Pass.RenderTargetLayout =
 				RenderTargetLayouts::MakeDirectionalShadowDepth();
@@ -205,36 +213,40 @@ namespace Durin
 				static_cast<float>(DirectionalShadowResolution));
 			StaticMeshes.ExecuteShadow_RenderThread(
 				CommandList, Cascade.CasterView, State->FallbackLighting,
-				View.ShadowStaticMeshes[CascadeIndex]);
+				Shadow.StaticMeshes[CascadeIndex],
+				ResolvedShadow.StaticMeshes[CascadeIndex]);
 			SkeletalMeshes.ExecuteShadow_RenderThread(
 				CommandList, Cascade.CasterView, State->FallbackLighting,
-				View.ShadowSkeletalMeshes[CascadeIndex]);
+				Shadow.SkeletalMeshes[CascadeIndex],
+				ResolvedShadow.SkeletalMeshes[CascadeIndex]);
 			Terrains.ExecuteShadow_RenderThread(
 				CommandList, Cascade.CasterView, State->FallbackLighting,
-				View.ShadowTerrains[CascadeIndex]);
+				Shadow.Terrains[CascadeIndex],
+				ResolvedShadow.Terrains[CascadeIndex]);
 			CommandList.EndRenderPass();
-			auto& Counters = View.Counters.ShadowCascades[CascadeIndex];
-			Counters.AttemptedDraws =
-				View.ShadowStaticMeshes[CascadeIndex].AttemptedDraws
-				+ View.ShadowSkeletalMeshes[CascadeIndex].AttemptedDraws
-				+ View.ShadowTerrains[CascadeIndex].AttemptedDraws;
-			Counters.SuccessfulDraws =
-				View.ShadowStaticMeshes[CascadeIndex].SuccessfulDraws
-				+ View.ShadowSkeletalMeshes[CascadeIndex].SuccessfulDraws
-				+ View.ShadowTerrains[CascadeIndex].SuccessfulDraws;
-			Counters.RejectedDraws =
-				Counters.AttemptedDraws - Counters.SuccessfulDraws;
-			View.Counters.ShadowAttemptedDraws += Counters.AttemptedDraws;
-			View.Counters.ShadowSuccessfulDraws += Counters.SuccessfulDraws;
+			auto& CascadeCounters = Counters.ShadowCascades[CascadeIndex];
+			CascadeCounters.AttemptedDraws =
+				ResolvedShadow.StaticMeshes[CascadeIndex].AttemptedDraws
+				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].AttemptedDraws
+					+ ResolvedShadow.Terrains[CascadeIndex].AttemptedDraws;
+			CascadeCounters.SuccessfulDraws =
+				ResolvedShadow.StaticMeshes[CascadeIndex].SuccessfulDraws
+				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].SuccessfulDraws
+					+ ResolvedShadow.Terrains[CascadeIndex].SuccessfulDraws;
+			CascadeCounters.RejectedDraws =
+				CascadeCounters.AttemptedDraws
+					- CascadeCounters.SuccessfulDraws;
+			Counters.ShadowAttemptedDraws += CascadeCounters.AttemptedDraws;
+			Counters.ShadowSuccessfulDraws += CascadeCounters.SuccessfulDraws;
 		}
 		if (TimingQuery)
 		{
 			CommandList.EndGPUTimingQuery(TimingQuery);
 			Sink(TimingQuery);
 		}
-		View.Counters.ShadowRejectedDraws =
-			View.Counters.ShadowAttemptedDraws
-				- View.Counters.ShadowSuccessfulDraws;
+		Counters.ShadowRejectedDraws =
+			Counters.ShadowAttemptedDraws
+				- Counters.ShadowSuccessfulDraws;
 		return true;
 	}
 

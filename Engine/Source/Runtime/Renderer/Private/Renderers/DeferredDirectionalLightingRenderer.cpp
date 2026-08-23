@@ -1,10 +1,10 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 
-#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -83,17 +83,17 @@ namespace Durin
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device
 		};
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device
-		};
+		FTargets CurrentTargets;
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets
 	)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
+		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -249,53 +249,17 @@ namespace Durin
 	) -> FTargets*
 	{
 		if (Width == 0 || Height == 0) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 											   "DeferredDirectionalColor", Width, Height,
 											   EPixelFormat::RGBA16_FLOAT
 		)
 											   .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
 											   .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[Key, &Desc]() -> FResult {
-				FTargets Candidate;
-				Candidate.Color = RHICreateTexture(Desc);
-				if (Candidate.Color == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"DeferredDirectionalTarget", std::to_string(Key),
-						"RGBA16_FLOAT target creation returned null.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic
-		);
-		const bool bResolved = Targets != nullptr;
-		auto GetRetainedBytes = [this]() {
-			return State->TargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FTargets&) {
-					return CalculateTargetBytes(
-						static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey)
-					);
-				}
-			);
-		};
-		while (State->TargetsBySize.Num() > 1
-			   && GetRetainedBytes() > MaximumRetainedBytes)
-		{
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
-		}
-		if (!bResolved) return nullptr;
-		auto* Retained = State->TargetsBySize.Find(Key);
-		return Retained != nullptr ? Retained->Slot.GetPayload() : nullptr;
+		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"DeferredDirectional", std::span(&Desc, 1), MaximumRetainedBytes);
+		if (!Lease) return nullptr;
+		State->CurrentTargets.Color = Lease->Get(0);
+		return &State->CurrentTargets;
 	}
 
 	auto FDeferredDirectionalLightingRenderer::Render_RenderThread(
@@ -471,7 +435,7 @@ namespace Durin
 	auto FDeferredDirectionalLightingRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
-		State->TargetsBySize.Reset();
+		State->CurrentTargets = {};
 		State->Resources.Reset();
 	}
 } // namespace Durin

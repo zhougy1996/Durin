@@ -262,7 +262,8 @@ namespace Durin::RendererPrivate
 	inline auto ResolveSkeletalPalette_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSkeletalPaletteTable& Table,
-		FPreparedSkeletalMeshPrimitive& Primitive
+		const FPreparedSkeletalMeshPrimitive& Primitive,
+		FRHIStorageBufferRange& OutRange
 	) -> ESkeletalPaletteResolveResult
 	{
 		constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
@@ -289,7 +290,7 @@ namespace Durin::RendererPrivate
 		}
 		if (Entry.Range.Buffer != nullptr)
 		{
-			Primitive.PaletteRange = Entry.Range;
+			OutRange = Entry.Range;
 			++Table.ReusedPalettes;
 			return ESkeletalPaletteResolveResult::Reused;
 		}
@@ -320,7 +321,7 @@ namespace Durin::RendererPrivate
 			ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead
 		}};
 		CommandList.TransitionBuffers(Transition);
-		Primitive.PaletteRange = Entry.Range;
+		OutRange = Entry.Range;
 		Table.UploadedBytes += Bytes;
 		++Table.UploadedPalettes;
 		Table.UploadedMatrices += Primitive.Pose->Matrices.size();

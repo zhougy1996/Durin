@@ -2,12 +2,55 @@
 
 #include "RendererAPI.h"
 #include "RHIResources.h"
+#include "RHI.h"
+#include "RHICommandList.h"
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
-	struct FPreparedSceneView;
+	struct FVolumetricCloudQualificationOptions;
+
+	template<typename TimingQuerySink>
+	class TScopedRendererGPUTimingQuery final
+	{
+	public:
+		TScopedRendererGPUTimingQuery(
+			FRHICommandListImmediate& InCommandList, TimingQuerySink InSink)
+			: CommandList(InCommandList), Sink(InSink)
+		{
+			if (Sink == nullptr || GDynamicRHI == nullptr) return;
+			Query = GDynamicRHI->RHICreateGPUTimingQuery();
+			if (Query) CommandList.BeginGPUTimingQuery(Query);
+		}
+		~TScopedRendererGPUTimingQuery() { End(); }
+		TScopedRendererGPUTimingQuery(
+			const TScopedRendererGPUTimingQuery&) = delete;
+		auto operator=(const TScopedRendererGPUTimingQuery&)
+			-> TScopedRendererGPUTimingQuery& = delete;
+		auto End() -> void
+		{
+			if (Query && !bEnded)
+			{
+				CommandList.EndGPUTimingQuery(Query);
+				bEnded = true;
+			}
+		}
+		auto Commit() -> void
+		{
+			if (!Query || bCommitted) return;
+			End();
+			Sink(Query);
+			bCommitted = true;
+		}
+
+	private:
+		FRHICommandListImmediate& CommandList;
+		TimingQuerySink Sink;
+		FGPUTimingQueryRHIRef Query;
+		bool bEnded = false;
+		bool bCommitted = false;
+	};
 
 	using FSceneColorTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
@@ -50,7 +93,7 @@ namespace Durin
 		FRHITexture* Visibility,
 		bool bFiltered);
 	using FVolumetricCloudPreparationSink = void (*)(
-		FPreparedSceneView& PreparedView);
+		FVolumetricCloudQualificationOptions& Options);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -94,4 +137,31 @@ namespace Durin
 	// reflected scene snapshot that populates the same renderer-private input.
 	RENDERER_API auto SetVolumetricCloudPreparationSink(
 		FVolumetricCloudPreparationSink Sink) -> void;
+
+	// Renderer-private immutable snapshots of the current observer registrations.
+	auto GetSceneColorTimingQuerySink() -> FSceneColorTimingQuerySink;
+	auto GetPostProcessTimingQuerySink() -> FPostProcessTimingQuerySink;
+	auto GetGBufferTimingQuerySink() -> FGBufferTimingQuerySink;
+	auto GetDeferredDirectionalTimingQuerySink()
+		-> FDeferredDirectionalTimingQuerySink;
+	auto GetRetainedOpaqueTimingQuerySink() -> FRetainedOpaqueTimingQuerySink;
+	auto GetVolumetricCloudTimingQuerySink() -> FVolumetricCloudTimingQuerySink;
+	auto GetSortedTranslucencyTimingQuerySink()
+		-> FSortedTranslucencyTimingQuerySink;
+	auto GetGroundTruthAmbientOcclusionTimingQuerySink()
+		-> FGroundTruthAmbientOcclusionTimingQuerySink;
+	auto GetGroundTruthAmbientOcclusionFilterTimingQuerySink()
+		-> FGroundTruthAmbientOcclusionFilterTimingQuerySink;
+	auto GetGroundTruthAmbientOcclusionResolveTimingQuerySink()
+		-> FGroundTruthAmbientOcclusionResolveTimingQuerySink;
+	auto GetGroundTruthAmbientOcclusionFeatureTimingQuerySink()
+		-> FGroundTruthAmbientOcclusionFeatureTimingQuerySink;
+	auto GetHDRSceneColorCaptureSink() -> FHDRSceneColorCaptureSink;
+	auto GetGBufferCaptureSink() -> FGBufferCaptureSink;
+	auto GetDeferredDirectionalCaptureSink()
+		-> FDeferredDirectionalCaptureSink;
+	auto GetGroundTruthAmbientOcclusionCaptureSink()
+		-> FGroundTruthAmbientOcclusionCaptureSink;
+	auto GetVolumetricCloudPreparationSink()
+		-> FVolumetricCloudPreparationSink;
 }

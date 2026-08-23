@@ -12,7 +12,10 @@ namespace Durin
 	class FStaticMeshRenderer;
 	class FSkeletalMeshRenderer;
 	class FTerrainRenderer;
-	struct FPreparedSceneView;
+	struct FPreparedDirectionalShadow;
+	struct FResolvedDirectionalShadow;
+	struct FPreparedSkeletalPaletteTable;
+	struct FViewRenderCounters;
 
 	using FShadowDepthTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
@@ -32,13 +35,18 @@ namespace Durin
 			FStaticMeshRenderer& StaticMeshes,
 			FSkeletalMeshRenderer& SkeletalMeshes,
 			FTerrainRenderer& Terrains,
-			FPreparedSceneView& View) -> bool;
+			FPreparedDirectionalShadow& Shadow,
+			FResolvedDirectionalShadow& ResolvedShadow,
+			FPreparedSkeletalPaletteTable& Palettes,
+			FViewRenderCounters& Counters) -> bool;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FStaticMeshRenderer& StaticMeshes,
 			FSkeletalMeshRenderer& SkeletalMeshes,
 			FTerrainRenderer& Terrains,
-			FPreparedSceneView& View) -> bool;
+			FPreparedDirectionalShadow& Shadow,
+			FResolvedDirectionalShadow& ResolvedShadow,
+			FViewRenderCounters& Counters) -> bool;
 		auto GetTexture_RenderThread() const -> FRHITexture*;
 		auto GetSampledView_RenderThread() const -> FRHITextureView*;
 		auto GetSampler_RenderThread() const -> FRHISampler*;

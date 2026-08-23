@@ -11,6 +11,7 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FFullscreenGeometryResources;
+	class FRendererTransientTargetPool;
 	struct FSceneView;
 
 	class RENDERER_API FContactShadowVisibilityRenderer final
@@ -96,7 +97,8 @@ namespace Durin
 
 		FContactShadowVisibilityRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
+			FFullscreenGeometryResources& InFullscreenGeometry,
+			FRendererTransientTargetPool& InTransientTargets);
 		~FContactShadowVisibilityRenderer();
 		FContactShadowVisibilityRenderer(
 			const FContactShadowVisibilityRenderer&) = delete;
@@ -120,6 +122,7 @@ namespace Durin
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
+		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

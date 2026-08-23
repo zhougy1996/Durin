@@ -136,9 +136,7 @@ namespace Durin
 				   && A.Patch && B.Patch
 				   && A.Patch->CellCountX == B.Patch->CellCountX
 				   && A.Patch->CellCountY == B.Patch->CellCountY
-				   && A.LODStep == B.LODStep && A.StitchMask == B.StitchMask
-				   && A.DirectionalShadowTexture == B.DirectionalShadowTexture
-				   && A.DirectionalShadowSampler == B.DirectionalShadowSampler;
+				   && A.LODStep == B.LODStep && A.StitchMask == B.StitchMask;
 		}
 
 		auto BuildTerrainBatches(const std::vector<FPreparedTerrainDraw>& Draws, std::vector<FPreparedTerrainBatch>& OutBatches, bool bDisableBatching) -> void
@@ -189,10 +187,11 @@ namespace Durin
 			FPreparedTerrainDraw CommonDraw;
 			CommonDraw.SceneInfo = Info;
 			CommonDraw.Material = Proxy.ResolveMaterialRenderData_RenderThread();
+			FMaterialRenderBinding LogicalBinding;
 			if (!RendererPrivate::ResolveMaterialBinding(
-					CommonDraw.Material,
-					CommonDraw.MaterialBinding,
-					"TerrainMaterialBinding")) continue;
+					CommonDraw.Material, LogicalBinding,
+					"TerrainMaterialSelection"))
+				continue;
 			CommonDraw.PipelineKey.Material = CommonDraw.Material.PipelineIdentity;
 			CommonDraw.PipelineKey.Rasterizer.PolygonMode =
 				RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
@@ -408,9 +407,14 @@ namespace Durin
 	FTerrainRenderer::~FTerrainRenderer() = default;
 
 	auto FTerrainRenderer::EnsureDrawResources_RenderThread(
-		FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth, bool bHybridRetained, bool bPrepareForwardPipeline
+		FRHICommandListImmediate& CommandList, const FPreparedTerrainDraw& Draw,
+		FResolvedTerrainView& ResolvedView, bool bShadowDepth,
+		bool bHybridRetained, bool bPrepareForwardPipeline
 	) -> bool
 	{
+		const FMaterialRenderBinding* MaterialBinding =
+			ResolvedView.GetMaterialBinding(Draw);
+		if (MaterialBinding == nullptr) return false;
 		if (!Draw.SceneInfo || !Draw.Patch || GDynamicRHI == nullptr) return false;
 		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
 		const auto Payload = Proxy.GetPayload();
@@ -429,13 +433,13 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.Texture, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, Payload->Width, Payload->Height),
 				Payload->Width * sizeof(uint16), std::as_bytes(std::span(Payload->Samples)));
-			View.HeightUploadBytes += Payload->GetSampleBytes();
-			++View.HeightUploads;
+			ResolvedView.HeightUploadBytes += Payload->GetSampleBytes();
+			++ResolvedView.HeightUploads;
 			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;
 		}
 		else
-			++View.HeightReuses;
-		View.HeightPreparationNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.HeightReuses;
+		ResolvedView.HeightPreparationNanoseconds += std::chrono::duration_cast<
 												 std::chrono::nanoseconds>(
 												 std::chrono::steady_clock::now() - HeightBegin
 		)
@@ -466,14 +470,14 @@ namespace Durin
 				|| !Candidate->VertexFactory.Initialize(Candidate->Vertices, static_cast<uint32>(TopologyData.Vertices.size()))) return false;
 			Candidate->VertexFactory.InitResource(CommandList);
 			if (!Candidate->VertexFactory.IsReady()) return false;
-			View.TopologyBytes += TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])
+			ResolvedView.TopologyBytes += TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])
 								  + TopologyData.Indices.size() * sizeof(uint16);
-			++View.TopologyCreations;
+			++ResolvedView.TopologyCreations;
 			TopologyIt = State->Topologies.emplace(TopologyKey, std::move(Candidate)).first;
 		}
 		else
-			++View.TopologyReuses;
-		View.TopologyPreparationNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.TopologyReuses;
+		ResolvedView.TopologyPreparationNanoseconds += std::chrono::duration_cast<
 												   std::chrono::nanoseconds>(
 												   std::chrono::steady_clock::now() - TopologyBegin
 		)
@@ -488,7 +492,7 @@ namespace Durin
 			);
 			using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
 			bool bShaderCreated = false;
-			++View.ShaderLookups;
+			++ResolvedView.ShaderLookups;
 			auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(), [this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
 				bShaderCreated = true;
 				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
@@ -559,8 +563,8 @@ namespace Durin
 						OpaqueShadowFragment, Candidate.Map.get()};
 				return FShaderResult::Success(std::move(Candidate)); }, ReportRendererResourceCreateDiagnostic);
 			if (!Shader) return false;
-			bShaderCreated ? ++View.ShaderCreations : ++View.ShaderReuses;
-			View.ShaderPreparationNanoseconds += std::chrono::duration_cast<
+			bShaderCreated ? ++ResolvedView.ShaderCreations : ++ResolvedView.ShaderReuses;
+			ResolvedView.ShaderPreparationNanoseconds += std::chrono::duration_cast<
 													 std::chrono::nanoseconds>(
 													 std::chrono::steady_clock::now() - ShaderBegin
 			)
@@ -577,7 +581,7 @@ namespace Durin
 			FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
 			Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
 			bool bPipelineCreated = false;
-			++View.PipelineLookups;
+			++ResolvedView.PipelineLookups;
 			auto* Pipeline = PipelineEntry.Slot.Resolve(Generation, [&EffectivePipelineKey, &PipelineEntry, Shader, &TopologyIt, bShadowDepth, &bPipelineCreated]() -> FPipelineResult {
 				bPipelineCreated = true;
 				FState::FPipelinePayload Candidate;
@@ -617,8 +621,8 @@ namespace Durin
 				return Candidate.Pipeline ? FPipelineResult::Success(std::move(Candidate))
 					: FPipelineResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "TerrainPipeline", "terrain", "Pipeline creation returned null.", ERenderResourceGenerationDependency::Device)); }, ReportRendererResourceCreateDiagnostic);
 			if (!Pipeline) return false;
-			bPipelineCreated ? ++View.PipelineCreations : ++View.PipelineReuses;
-			View.PipelinePreparationNanoseconds += std::chrono::duration_cast<
+			bPipelineCreated ? ++ResolvedView.PipelineCreations : ++ResolvedView.PipelineReuses;
+			ResolvedView.PipelinePreparationNanoseconds += std::chrono::duration_cast<
 													   std::chrono::nanoseconds>(
 													   std::chrono::steady_clock::now() - PipelineBegin
 			)
@@ -631,74 +635,98 @@ namespace Durin
 				: ESurfaceMaterialPass::OpaqueShadow)
 			: ESurfaceMaterialPass::Forward;
 		return SurfaceMaterials.Ensure_RenderThread(
-			Draw.MaterialBinding, SurfacePass);
+			*MaterialBinding, SurfacePass);
 	}
 
 	auto FTerrainRenderer::PrepareResources_RenderThread(
-		FRHICommandListImmediate& CommandList, FPreparedTerrainView& View, bool bPrepareLitOpaqueForward
-	) -> bool
+		FRHICommandListImmediate& CommandList, const FPreparedTerrainView& View,
+		FResolvedTerrainView& ResolvedView, bool bPrepareLitOpaqueForward
+	) -> FGeometryResolutionResult
 	{
-		check(View.Phase == EPreparedTerrainPhase::Prepared);
 		const auto Begin = std::chrono::steady_clock::now();
-		View.ResourceAttemptedDraws = View.GetNumDraws();
+		ResolvedView.PreparedBatches = View.PreparedBatches;
+		ResolvedView.BatchChunks = View.BatchChunks;
+		ResolvedView.InstanceCount = View.InstanceCount;
+		ResolvedView.ResourceAttemptedDraws = View.GetNumDraws();
 		for (auto [Draws, Batches] : {std::pair{&View.Opaque, &View.OpaqueBatches}, std::pair{&View.Masked, &View.MaskedBatches}})
-			for (auto& Batch : *Batches)
+			for (const auto& Batch : *Batches)
 			{
-				++View.ResourceAttemptedBatches;
+				++ResolvedView.ResourceAttemptedBatches;
 				if (Batch.DrawIndices.empty()) continue;
-				FPreparedTerrainDraw& FirstDraw =
+				const FPreparedTerrainDraw& FirstDraw =
 					(*Draws)[Batch.DrawIndices.front()];
+				FMaterialRenderBinding MaterialBinding;
+				if (!RendererPrivate::ResolvePreparedMaterialBinding(
+						FirstDraw.Material, MaterialBinding,
+						"TerrainMaterialBinding"))
+					continue;
+				ResolvedView.MaterialBindings.emplace(
+					&FirstDraw, std::move(MaterialBinding));
 				const bool bPrepareForwardPipeline =
 					bPrepareLitOpaqueForward
 					|| FirstDraw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
-				Batch.bResourcesReady = EnsureDrawResources_RenderThread(
-					CommandList, FirstDraw, View, false, false,
+				const bool bReady = EnsureDrawResources_RenderThread(
+					CommandList, FirstDraw, ResolvedView, false, false,
 					bPrepareForwardPipeline
 				);
-				for (uint32 DrawIndex : Batch.DrawIndices)
-					(*Draws)[DrawIndex].bResourcesReady = Batch.bResourcesReady;
-				if (Batch.bResourcesReady)
+				if (bReady)
 				{
-					++View.ResourceSuccessfulBatches;
-					View.ResourceSuccessfulDraws += Batch.DrawIndices.size();
+					ResolvedView.ReadyBatches.insert(&Batch);
+					for (uint32 DrawIndex : Batch.DrawIndices)
+						ResolvedView.ReadyDraws.insert(&(*Draws)[DrawIndex]);
+					++ResolvedView.ResourceSuccessfulBatches;
+					ResolvedView.ResourceSuccessfulDraws += Batch.DrawIndices.size();
 				}
 			}
-		for (auto& Draw : View.Translucent)
+		for (const auto& Draw : View.Translucent)
 		{
-			Draw.bResourcesReady = EnsureDrawResources_RenderThread(CommandList, Draw, View);
-			View.ResourceSuccessfulDraws += Draw.bResourcesReady ? 1u : 0u;
+			FMaterialRenderBinding MaterialBinding;
+			if (!RendererPrivate::ResolvePreparedMaterialBinding(
+					Draw.Material, MaterialBinding,
+					"TerrainMaterialBinding"))
+				continue;
+			ResolvedView.MaterialBindings.emplace(
+				&Draw, std::move(MaterialBinding));
+			const bool bReady = EnsureDrawResources_RenderThread(
+				CommandList, Draw, ResolvedView);
+			if (bReady) ResolvedView.ReadyDraws.insert(&Draw);
+			ResolvedView.ResourceSuccessfulDraws += bReady ? 1u : 0u;
 		}
-		View.ResourceRejectedBatches =
-			View.ResourceAttemptedBatches - View.ResourceSuccessfulBatches;
-		View.ResourceRejectedDraws = View.ResourceAttemptedDraws - View.ResourceSuccessfulDraws;
-		View.Phase = EPreparedTerrainPhase::ResourcesPrepared;
-		View.ResourcePreparationNanoseconds = std::chrono::duration_cast<
+		ResolvedView.ResourceRejectedBatches =
+			ResolvedView.ResourceAttemptedBatches - ResolvedView.ResourceSuccessfulBatches;
+		ResolvedView.ResourceRejectedDraws = ResolvedView.ResourceAttemptedDraws - ResolvedView.ResourceSuccessfulDraws;
+		ResolvedView.ResourcePreparationNanoseconds = std::chrono::duration_cast<
 												  std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												  .count();
-		return std::ranges::all_of(View.Opaque, [](const auto& D) { return D.bResourcesReady; })
-			   && std::ranges::all_of(View.Masked, [](const auto& D) { return D.bResourcesReady; })
-			   && std::ranges::all_of(View.Translucent, [](const auto& D) { return D.bResourcesReady; });
+		return {
+			.Status = ResolvedView.ResourceRejectedDraws == 0
+				? EGeometryResolutionStatus::Complete
+				: EGeometryResolutionStatus::Partial,
+			.AttemptedDraws = ResolvedView.ResourceAttemptedDraws,
+			.ResolvedDraws = ResolvedView.ResourceSuccessfulDraws,
+			.RejectedDraws = ResolvedView.ResourceRejectedDraws
+		};
 	}
 
 	auto FTerrainRenderer::PrepareHybridRetainedResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPreparedTerrainView& View
+		const FPreparedTerrainView& View,
+		FResolvedTerrainView& ResolvedView
 	) -> bool
 	{
-		check(View.Phase == EPreparedTerrainPhase::ResourcesPrepared);
 		bool bReady = true;
-		auto PrepareBucket = [this, &CommandList, &View, &bReady](
-								 auto& Bucket, bool bAllMaterials
+		auto PrepareBucket = [this, &CommandList, &ResolvedView, &bReady](
+								 const auto& Bucket, bool bAllMaterials
 							 ) {
-			for (FPreparedTerrainDraw& Draw : Bucket)
+			for (const FPreparedTerrainDraw& Draw : Bucket)
 			{
 				if (!bAllMaterials
 					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
 				bReady = EnsureDrawResources_RenderThread(
-							 CommandList, Draw, View, false, true
+							 CommandList, Draw, ResolvedView, false, true
 						 )
 						 && bReady;
 			}
@@ -711,77 +739,106 @@ namespace Durin
 
 	auto FTerrainRenderer::PrepareShadowResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPreparedTerrainView& View
-	) -> bool
+		const FPreparedTerrainView& View,
+		FResolvedTerrainView& ResolvedView
+	) -> FGeometryResolutionResult
 	{
-		check(View.Phase == EPreparedTerrainPhase::Prepared);
 		const auto Begin = std::chrono::steady_clock::now();
 		check(View.Translucent.empty());
-		View.ResourceAttemptedDraws = View.GetNumDraws();
+		ResolvedView.PreparedBatches = View.PreparedBatches;
+		ResolvedView.BatchChunks = View.BatchChunks;
+		ResolvedView.InstanceCount = View.InstanceCount;
+		ResolvedView.ResourceAttemptedDraws = View.GetNumDraws();
 		for (auto [Draws, Batches] : {std::pair{&View.Opaque, &View.OpaqueBatches}, std::pair{&View.Masked, &View.MaskedBatches}})
-			for (auto& Batch : *Batches)
+			for (const auto& Batch : *Batches)
 			{
-				++View.ResourceAttemptedBatches;
+				++ResolvedView.ResourceAttemptedBatches;
 				if (Batch.DrawIndices.empty()) continue;
-				Batch.bResourcesReady = EnsureDrawResources_RenderThread(
-					CommandList, (*Draws)[Batch.DrawIndices.front()], View, true
+				const FPreparedTerrainDraw& FirstDraw =
+					(*Draws)[Batch.DrawIndices.front()];
+				FMaterialRenderBinding MaterialBinding;
+				if (!RendererPrivate::ResolvePreparedMaterialBinding(
+						FirstDraw.Material, MaterialBinding,
+						"TerrainShadowMaterialBinding"))
+					continue;
+				ResolvedView.MaterialBindings.emplace(
+					&FirstDraw, std::move(MaterialBinding));
+				const bool bReady = EnsureDrawResources_RenderThread(
+					CommandList, FirstDraw, ResolvedView, true
 				);
-				for (uint32 DrawIndex : Batch.DrawIndices)
-					(*Draws)[DrawIndex].bResourcesReady = Batch.bResourcesReady;
-				if (Batch.bResourcesReady)
+				if (bReady)
 				{
-					++View.ResourceSuccessfulBatches;
-					View.ResourceSuccessfulDraws += Batch.DrawIndices.size();
+					ResolvedView.ReadyBatches.insert(&Batch);
+					for (uint32 DrawIndex : Batch.DrawIndices)
+						ResolvedView.ReadyDraws.insert(&(*Draws)[DrawIndex]);
+					++ResolvedView.ResourceSuccessfulBatches;
+					ResolvedView.ResourceSuccessfulDraws += Batch.DrawIndices.size();
 				}
 			}
-		View.ResourceRejectedBatches =
-			View.ResourceAttemptedBatches - View.ResourceSuccessfulBatches;
-		View.ResourceRejectedDraws =
-			View.ResourceAttemptedDraws - View.ResourceSuccessfulDraws;
-		View.Phase = EPreparedTerrainPhase::ResourcesPrepared;
-		View.ResourcePreparationNanoseconds = std::chrono::duration_cast<
+		ResolvedView.ResourceRejectedBatches =
+			ResolvedView.ResourceAttemptedBatches - ResolvedView.ResourceSuccessfulBatches;
+		ResolvedView.ResourceRejectedDraws =
+			ResolvedView.ResourceAttemptedDraws - ResolvedView.ResourceSuccessfulDraws;
+		ResolvedView.ResourcePreparationNanoseconds = std::chrono::duration_cast<
 												  std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												  .count();
-		return View.ResourceRejectedDraws == 0;
+		return {
+			.Status = ResolvedView.ResourceRejectedDraws == 0
+				? EGeometryResolutionStatus::Complete
+				: EGeometryResolutionStatus::Partial,
+			.AttemptedDraws = ResolvedView.ResourceAttemptedDraws,
+			.ResolvedDraws = ResolvedView.ResourceSuccessfulDraws,
+			.RejectedDraws = ResolvedView.ResourceRejectedDraws
+		};
 	}
 
 	auto FTerrainRenderer::ExecuteShadow_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& ShadowView,
 		const FRHIUniformBufferRange& FallbackLighting,
-		FPreparedTerrainView& View
-	) -> void
+		const FPreparedTerrainView& View,
+		FResolvedTerrainView& ResolvedView
+	) -> bool
 	{
 		check(CommandList.IsInsideRenderPass());
-		check(View.Phase == EPreparedTerrainPhase::ResourcesPrepared);
+		bool bComplete = true;
 		for (auto [Draws, Batches] : {std::pair{&View.Opaque, &View.OpaqueBatches}, std::pair{&View.Masked, &View.MaskedBatches}})
 			for (const auto& Batch : *Batches)
 			{
 				const auto Begin = std::chrono::steady_clock::now();
-				++View.AttemptedDraws;
-				++View.InstanceAllocations;
-				View.InstanceBytes += Batch.DrawIndices.size()
+				++ResolvedView.AttemptedDraws;
+				++ResolvedView.InstanceAllocations;
+				ResolvedView.InstanceBytes += Batch.DrawIndices.size()
 									  * sizeof(FTerrainInstanceData);
 				uint64 DynamicNanoseconds = 0;
-				if (DrawBatch_RenderThread(CommandList, ShadowView, FallbackLighting, ERenderMode::Unlit, *Draws, Batch, true, &DynamicNanoseconds))
+				if (DrawBatch_RenderThread(CommandList, ShadowView,
+					FallbackLighting, ERenderMode::Unlit, *Draws, Batch,
+					ResolvedView, true, &DynamicNanoseconds))
 				{
-					++View.SuccessfulDraws;
-					View.SubmittedLogicalPatches += Batch.DrawIndices.size();
+					++ResolvedView.SuccessfulDraws;
+					ResolvedView.SubmittedLogicalPatches += Batch.DrawIndices.size();
 				}
 				else
-					++View.RejectedDraws;
-				View.DynamicAllocationNanoseconds += DynamicNanoseconds;
-				View.CommandRecordingNanoseconds += std::chrono::duration_cast<
+				{
+					bComplete = false;
+					++ResolvedView.RejectedDraws;
+				}
+				ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
+				ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
 														std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 														.count();
 			}
-		View.Phase = EPreparedTerrainPhase::Executed;
-		check(View.AttemptedDraws == View.SuccessfulDraws + View.RejectedDraws);
+		check(ResolvedView.AttemptedDraws == ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws);
+		return bComplete;
 	}
 
-	auto FTerrainRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, bool bShadowDepth, std::span<const std::array<uint32, 2>> InstanceOrigins, uint64* OutDynamicAllocationNanoseconds, FGBufferRenderer* GBuffer, bool bHybridRetained) -> bool
+	auto FTerrainRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, const FResolvedTerrainView& ResolvedView, bool bShadowDepth, std::span<const std::array<uint32, 2>> InstanceOrigins, uint64* OutDynamicAllocationNanoseconds, FGBufferRenderer* GBuffer, bool bHybridRetained) -> bool
 	{
-		if (!Draw.bResourcesReady || !Draw.SceneInfo || !Draw.Patch) return false;
+		if (!ResolvedView.IsReady(Draw) || !Draw.SceneInfo || !Draw.Patch)
+			return false;
+		const FMaterialRenderBinding* MaterialBinding =
+			ResolvedView.GetMaterialBinding(Draw);
+		if (MaterialBinding == nullptr) return false;
 		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
 		const auto Payload = Proxy.GetPayload();
 		auto HeightIt = State->Heights.find(Payload.get());
@@ -897,12 +954,13 @@ namespace Durin
 				: ESurfaceMaterialPass::Forward);
 		FResolvedSurfaceMaterial SurfaceMaterial;
 		if (!SurfaceMaterials.Resolve_RenderThread(
-				Draw.MaterialBinding, SurfacePass,
+				*MaterialBinding, SurfacePass,
 				RenderMode == ERenderMode::Lit
 					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
 				SceneView.Settings.Mode.bEnableSpecularAA,
-				Draw.DirectionalShadowTexture, Draw.DirectionalShadowSampler,
+				ResolvedView.DirectionalShadowTexture,
+				ResolvedView.DirectionalShadowSampler,
 				SurfaceMaterial)) return false;
 		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(
 			&SurfaceMaterial.Uniform, sizeof(SurfaceMaterial.Uniform));
@@ -947,10 +1005,10 @@ namespace Durin
 	}
 
 	auto FTerrainRenderer::DrawBatch_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws, const FPreparedTerrainBatch& Batch, bool bShadowDepth, uint64* OutDynamicAllocationNanoseconds, FGBufferRenderer* GBuffer
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws, const FPreparedTerrainBatch& Batch, const FResolvedTerrainView& ResolvedView, bool bShadowDepth, uint64* OutDynamicAllocationNanoseconds, FGBufferRenderer* GBuffer
 	) -> bool
 	{
-		if (!Batch.bResourcesReady || Batch.DrawIndices.empty()
+		if (!ResolvedView.IsReady(Batch) || Batch.DrawIndices.empty()
 			|| Batch.DrawIndices.size() > MaximumTerrainInstancesPerChunk)
 			return false;
 		const FPreparedTerrainDraw& First = Draws[Batch.DrawIndices.front()];
@@ -962,35 +1020,39 @@ namespace Durin
 				|| !AreTerrainDrawsBatchCompatible(First, Draws[DrawIndex])) return false;
 			Origins.push_back({Draws[DrawIndex].Patch->OriginX, Draws[DrawIndex].Patch->OriginY});
 		}
-		return Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode, First, bShadowDepth, Origins, OutDynamicAllocationNanoseconds, GBuffer);
+		return Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode,
+			First, ResolvedView, bShadowDepth, Origins,
+			OutDynamicAllocationNanoseconds, GBuffer);
 	}
 
 	auto FTerrainRenderer::ExecutePreparedDraw_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bHybridRetained
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, const FPreparedTerrainView& View, FResolvedTerrainView& ResolvedView, bool bHybridRetained
 	) -> void
 	{
 		const auto Begin = std::chrono::steady_clock::now();
-		++View.AttemptedDraws;
-		++View.ScalarTranslucentDraws;
-		++View.InstanceAllocations;
-		++View.InstanceCount;
-		View.InstanceBytes += sizeof(FTerrainInstanceData);
+		++ResolvedView.AttemptedDraws;
+		++ResolvedView.ScalarTranslucentDraws;
+		++ResolvedView.InstanceAllocations;
+		++ResolvedView.InstanceCount;
+		ResolvedView.InstanceBytes += sizeof(FTerrainInstanceData);
 		uint64 DynamicNanoseconds = 0;
-		if (Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode, Draw, false, {}, &DynamicNanoseconds, nullptr, bHybridRetained))
+		if (Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode,
+			Draw, ResolvedView, false, {}, &DynamicNanoseconds, nullptr,
+			bHybridRetained))
 		{
-			++View.SuccessfulDraws;
-			++View.SubmittedLogicalPatches;
+			++ResolvedView.SuccessfulDraws;
+			++ResolvedView.SubmittedLogicalPatches;
 		}
 		else
-			++View.RejectedDraws;
-		View.DynamicAllocationNanoseconds += DynamicNanoseconds;
-		View.CommandRecordingNanoseconds += std::chrono::duration_cast<
+			++ResolvedView.RejectedDraws;
+		ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
+		ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
 												std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 												.count();
 	}
 
 	auto FTerrainRenderer::ExecutePass_RenderThread(
-		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedTerrainView& View
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedTerrainView& View, FResolvedTerrainView& ResolvedView
 	) -> void
 	{
 		const auto& Draws = Pass == EMeshBasePass::Opaque ? View.Opaque : View.Masked;
@@ -998,19 +1060,21 @@ namespace Durin
 		for (const auto& Batch : Batches)
 		{
 			const auto Begin = std::chrono::steady_clock::now();
-			++View.AttemptedDraws;
-			++View.InstanceAllocations;
-			View.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceData);
+			++ResolvedView.AttemptedDraws;
+			++ResolvedView.InstanceAllocations;
+			ResolvedView.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceData);
 			uint64 DynamicNanoseconds = 0;
-			if (DrawBatch_RenderThread(CommandList, SceneView, Lighting, RenderMode, Draws, Batch, false, &DynamicNanoseconds))
+			if (DrawBatch_RenderThread(CommandList, SceneView, Lighting,
+				RenderMode, Draws, Batch, ResolvedView, false,
+				&DynamicNanoseconds))
 			{
-				++View.SuccessfulDraws;
-				View.SubmittedLogicalPatches += Batch.DrawIndices.size();
+				++ResolvedView.SuccessfulDraws;
+				ResolvedView.SubmittedLogicalPatches += Batch.DrawIndices.size();
 			}
 			else
-				++View.RejectedDraws;
-			View.DynamicAllocationNanoseconds += DynamicNanoseconds;
-			View.CommandRecordingNanoseconds += std::chrono::duration_cast<
+				++ResolvedView.RejectedDraws;
+			ResolvedView.DynamicAllocationNanoseconds += DynamicNanoseconds;
+			ResolvedView.CommandRecordingNanoseconds += std::chrono::duration_cast<
 													std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin)
 													.count();
 		}
@@ -1020,12 +1084,14 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& SceneView,
 		FGBufferRenderer& GBuffer,
-		FPreparedTerrainView& View
-	) -> void
+		const FPreparedTerrainView& View,
+		FResolvedTerrainView& ResolvedView
+	) -> FGeometryExecutionResult
 	{
 		check(CommandList.IsInsideRenderPass());
-		check(View.Phase == EPreparedTerrainPhase::ResourcesPrepared);
-		View.GBufferSkippedDraws += View.Translucent.size();
+		bool bComplete = true;
+		bool bRenderedGeometry = false;
+		ResolvedView.GBufferSkippedDraws += View.Translucent.size();
 		for (auto [Draws, Batches] : {
 				 std::pair{&View.Opaque, &View.OpaqueBatches},
 				 std::pair{&View.Masked, &View.MaskedBatches}
@@ -1036,8 +1102,9 @@ namespace Durin
 				if (Batch.DrawIndices.empty()
 					|| Batch.DrawIndices.front() >= Draws->size())
 				{
-					++View.GBufferAttemptedDraws;
-					++View.GBufferRejectedDraws;
+					bComplete = false;
+					++ResolvedView.GBufferAttemptedDraws;
+					++ResolvedView.GBufferRejectedDraws;
 					continue;
 				}
 				const FPreparedTerrainDraw& Draw =
@@ -1045,10 +1112,10 @@ namespace Durin
 				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
-					++View.GBufferSkippedDraws;
+					++ResolvedView.GBufferSkippedDraws;
 					continue;
 				}
-				++View.GBufferAttemptedDraws;
+				++ResolvedView.GBufferAttemptedDraws;
 				if (DrawBatch_RenderThread(
 						CommandList,
 						SceneView,
@@ -1056,27 +1123,34 @@ namespace Durin
 						ERenderMode::Lit,
 						*Draws,
 						Batch,
+						ResolvedView,
 						false,
 						nullptr,
 						&GBuffer
 					))
 				{
-					++View.GBufferSuccessfulDraws;
+					bRenderedGeometry = true;
+					++ResolvedView.GBufferSuccessfulDraws;
 				}
 				else
 				{
-					++View.GBufferRejectedDraws;
+					bComplete = false;
+					++ResolvedView.GBufferRejectedDraws;
 				}
 			}
 		}
-		check(View.GBufferAttemptedDraws == View.GBufferSuccessfulDraws + View.GBufferRejectedDraws);
+		check(ResolvedView.GBufferAttemptedDraws == ResolvedView.GBufferSuccessfulDraws + ResolvedView.GBufferRejectedDraws);
+		return {bComplete, bRenderedGeometry,
+			ResolvedView.GBufferAttemptedDraws,
+			ResolvedView.GBufferSuccessfulDraws,
+			ResolvedView.GBufferRejectedDraws,
+			ResolvedView.GBufferSkippedDraws};
 	}
 
-	auto FTerrainRenderer::FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void
+	auto FTerrainRenderer::FinalizeExecution_RenderThread(
+		FResolvedTerrainView& ResolvedView) -> void
 	{
-		View.Phase = EPreparedTerrainPhase::Executed;
-		check(View.AttemptedDraws == View.SuccessfulDraws + View.RejectedDraws);
-		check(View.AttemptedDraws == View.GetNumHardwareDraws());
+		check(ResolvedView.AttemptedDraws == ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws);
 	}
 
 	auto FTerrainRenderer::ReleaseResources_RenderThread() -> void

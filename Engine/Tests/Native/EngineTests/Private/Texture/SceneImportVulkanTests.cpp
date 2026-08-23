@@ -693,7 +693,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Capture(ReloadedMesh, FailedResourceMaterial, false,
 				Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedResourcePixels.empty());
-		ASSERT_EQ(CounterSnapshots.size(), 6u);
+		// Failed views publish neither public statistics nor a private snapshot.
+		ASSERT_EQ(CounterSnapshots.size(), 5u);
 		const std::array<size_t, 5> ExpectedSections{1u, 1u, 1u, 1u, 4u};
 		for (size_t Index = 0; Index < ExpectedSections.size(); ++Index)
 		{
@@ -719,23 +720,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			EXPECT_EQ(Counters.GBufferRejectedDraws, 0u);
 			EXPECT_EQ(Counters.HybridDeferredEnabledViews, 1u);
 		}
-		const Durin::FViewRenderCounters& FailedResourceCounters =
-			CounterSnapshots.back();
-		EXPECT_EQ(FailedResourceCounters.PreparedStaticMeshSections, 1u);
-		EXPECT_EQ(
-			FailedResourceCounters.StaticMeshResourceAttemptedDraws, 1u);
-		EXPECT_EQ(
-			FailedResourceCounters.StaticMeshResourceSuccessfulDraws, 0u);
-		EXPECT_EQ(
-			FailedResourceCounters.StaticMeshResourceRejectedDraws, 1u);
-		EXPECT_EQ(FailedResourceCounters.StaticMeshAttemptedDraws, 0u);
-		EXPECT_EQ(FailedResourceCounters.StaticMeshSuccessfulDraws, 0u);
-		EXPECT_EQ(FailedResourceCounters.StaticMeshRejectedDraws, 0u);
-		EXPECT_EQ(FailedResourceCounters.GBufferAttemptedDraws, 1u);
-		EXPECT_EQ(FailedResourceCounters.GBufferSuccessfulDraws, 0u);
-		EXPECT_EQ(FailedResourceCounters.GBufferRejectedDraws, 1u);
-		EXPECT_EQ(FailedResourceCounters.HybridDeferredUnavailableViews, 1u);
-
 		struct FEndSceneImportFrame
 		{
 			static constexpr auto GetName() -> const char* { return "EndSceneImportFrame"; }

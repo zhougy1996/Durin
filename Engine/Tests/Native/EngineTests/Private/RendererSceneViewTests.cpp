@@ -3,13 +3,47 @@
 #include "GBufferContract.h"
 #include "Renderers/DisplayMapping.h"
 #include "Renderers/SceneRenderer.h"
-#include "Renderers/PreparedSceneView.h"
+#include "Renderers/SceneRenderPlan.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "SceneViewProjection.h"
 
 namespace Durin
 {
+	namespace
+	{
+		template <typename T>
+		concept CHasResourcesReady = requires(T Value) { Value.bResourcesReady; };
+		template <typename T>
+		concept CHasExecutionPhase = requires(T Value) { Value.Phase; };
+		template <typename T>
+		concept CHasShadowTarget = requires(T Value) {
+			Value.DirectionalShadowTexture;
+		};
+		template <typename T>
+		concept CHasExecutionCounter = requires(T Value) { Value.AttemptedDraws; };
+		template <typename T>
+		concept CHasMaterialBinding = requires(T Value) { Value.MaterialBinding; };
+
+		static_assert(!CHasResourcesReady<FPreparedStaticMeshDraw>);
+		static_assert(!CHasResourcesReady<FPreparedSkeletalMeshDraw>);
+		static_assert(!CHasResourcesReady<FPreparedTerrainDraw>);
+		static_assert(!CHasExecutionPhase<FPreparedStaticMeshView>);
+		static_assert(!CHasExecutionPhase<FPreparedSkeletalMeshView>);
+		static_assert(!CHasExecutionPhase<FPreparedTerrainView>);
+		static_assert(!CHasShadowTarget<FPreparedStaticMeshDraw>);
+		static_assert(!CHasShadowTarget<FPreparedSkeletalMeshDraw>);
+		static_assert(!CHasShadowTarget<FPreparedTerrainDraw>);
+		static_assert(!CHasExecutionCounter<FPreparedStaticMeshView>);
+		static_assert(!CHasExecutionCounter<FPreparedSkeletalMeshView>);
+		static_assert(!CHasExecutionCounter<FPreparedTerrainView>);
+		static_assert(!CHasMaterialBinding<FPreparedStaticMeshDraw>);
+		static_assert(!CHasMaterialBinding<FPreparedSkeletalMeshDraw>);
+		static_assert(!CHasMaterialBinding<FPreparedTerrainDraw>);
+		static_assert(std::is_same_v<
+			decltype(FGBufferPassResult{}.IsComplete()), bool>);
+	} // namespace
+
 	TEST(FDisplayMappingTests, ACESGoldensAreFiniteMonotonicAndClamped)
 	{
 		const std::array<float, 5> Inputs{0.0f, 0.18f, 1.0f, 4.0f, 64.0f};
@@ -284,7 +318,7 @@ namespace Durin
 	TEST(FRendererSceneViewTests,
 		CombinedTranslucencyOrdersDistanceThenCompleteStableTies)
 	{
-		FPreparedSceneView Prepared;
+		FPreparedReceiverGeometry Prepared;
 		FPreparedStaticMeshDraw StaticNear;
 		StaticNear.TranslucentDistanceSquared = 10.0;
 		StaticNear.SortKey.PrimitiveId = 20;

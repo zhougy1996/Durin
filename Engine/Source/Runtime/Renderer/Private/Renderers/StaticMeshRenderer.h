@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Misc/CoreTypes.h"
+#include "Renderers/MeshRendererExecution.h"
 
 #include <memory>
 
@@ -11,8 +12,10 @@ namespace Durin
 	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
 	struct FPreparedStaticMeshView;
+	struct FResolvedStaticMeshView;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
+	struct FMaterialRenderBinding;
 	enum class ERasterMode : uint8;
 	enum class ERenderMode : uint8;
 	struct FRHIUniformBufferRange;
@@ -35,43 +38,49 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedStaticMeshView& PreparedView,
+			const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView,
 			bool bPrepareLitOpaqueForward
-		) -> bool;
+		) -> FGeometryResolutionResult;
 		auto PrepareHybridRetainedResources_RenderThread(
-			FPreparedStaticMeshView& PreparedView
+			const FPreparedStaticMeshView& PreparedView,
+			const FResolvedStaticMeshView& ResolvedView
 		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedStaticMeshView& PreparedView
-		) -> bool;
+			const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView
+		) -> FGeometryResolutionResult;
 		auto ExecuteShadow_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& ShadowView,
 			const FRHIUniformBufferRange& FallbackLighting,
-			FPreparedStaticMeshView& PreparedView
-		) -> void;
+			const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView
+		) -> bool;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
-			FPreparedStaticMeshView& PreparedView
+			const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView
 		) -> void;
 		auto ExecutePass_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, FPreparedStaticMeshView& PreparedView
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView
 		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, FPreparedStaticMeshView& PreparedView, bool bHybridRetained = false
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained = false
 		) -> void;
-		auto FinalizeExecution_RenderThread(FPreparedStaticMeshView& PreparedView)
+		auto FinalizeExecution_RenderThread(FResolvedStaticMeshView& ResolvedView)
 			-> void;
 		auto ExecuteGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			FGBufferRenderer& GBuffer,
-			FPreparedStaticMeshView& PreparedView
-		) -> void;
+			const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView
+		) -> FGeometryExecutionResult;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -82,15 +91,17 @@ namespace Durin
 			ERenderMode RenderMode,
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
+			const FResolvedStaticMeshView& ResolvedView,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
 		) -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
-			const FPreparedStaticMeshDraw& Item
+			const FMaterialRenderBinding& MaterialBinding
 		) -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
+			const FMaterialRenderBinding& MaterialBinding,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
 		) -> bool;
@@ -99,7 +110,8 @@ namespace Durin
 			const FSceneView& View,
 			FGBufferRenderer& GBuffer,
 			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item
+			const FPreparedStaticMeshDraw& Item,
+			const FResolvedStaticMeshView& ResolvedView
 		) -> bool;
 		struct FState;
 

@@ -42,18 +42,18 @@ namespace
 	constexpr uint32 CaptureWidth = 257;
 	constexpr uint32 CaptureHeight = 257;
 
-	constexpr auto ByteValue(std::byte Value) -> Durin::uint8
+	constexpr auto ByteValue(std::byte Value) -> uint8
 	{
-		return std::to_integer<Durin::uint8>(Value);
+		return std::to_integer<uint8>(Value);
 	}
 
 	struct FTimingSummary
 	{
-		Durin::uint64 MedianNanoseconds = 0;
-		Durin::uint64 P95Nanoseconds = 0;
+		uint64 MedianNanoseconds = 0;
+		uint64 P95Nanoseconds = 0;
 	};
 
-	auto SummarizeTimings(std::vector<Durin::uint64> Samples)
+	auto SummarizeTimings(std::vector<uint64> Samples)
 		-> FTimingSummary
 	{
 		if (Samples.empty()) return {};
@@ -342,7 +342,7 @@ namespace
 			Result.BrightPixels += Luminance >= 160u ? 1u : 0u;
 			for (size_t Channel = 0; Channel < 4; ++Channel)
 			{
-				const Durin::uint8 Value = ByteValue(Pixels[Offset + Channel]);
+				const uint8 Value = ByteValue(Pixels[Offset + Channel]);
 				Result.Minimum[Channel] = std::min(
 					Result.Minimum[Channel], Value
 				);
@@ -1181,9 +1181,9 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 
 	struct FProfile
 	{
-		std::vector<Durin::uint64> Logical;
-		std::vector<Durin::uint64> Discovery;
-		std::vector<Durin::uint64> StaticSpline;
+		std::vector<uint64> Logical;
+		std::vector<uint64> Discovery;
+		std::vector<uint64> StaticSpline;
 		Durin::FViewRenderCounters LastCounters;
 	};
 	auto ProfileCandidate = [&](Durin::EDirectionalShadowCandidate Candidate) {

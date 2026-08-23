@@ -8,6 +8,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Renderers/VolumetricCloudRenderer.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/SceneViewState.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -178,10 +179,10 @@ namespace Durin
 			return View;
 		}
 
-		auto DecodeHalf(const uint8* Bytes) -> float
+		auto DecodeHalf(const std::byte* Bytes) -> float
 		{
-			const uint16 Bits = static_cast<uint16>(Bytes[0])
-								| (static_cast<uint16>(Bytes[1]) << 8u);
+			const uint16 Bits = std::to_integer<uint16>(Bytes[0])
+								| (std::to_integer<uint16>(Bytes[1]) << 8u);
 			const uint32 Sign = static_cast<uint32>(Bits & 0x8000u) << 16u;
 			const uint32 Exponent = (Bits >> 10u) & 0x1fu;
 			uint32 Mantissa = Bits & 0x03ffu;
@@ -227,7 +228,8 @@ namespace Durin
 				for (uint32 Y = 0; Y < Height; ++Y)
 					for (uint32 X = 0; X < Width; ++X)
 					{
-						Bytes[(static_cast<size_t>(Z) * Height + Y) * Width + X] = static_cast<uint8>(Seed + X * 3u + Y * 5u + Z * 7u);
+						Bytes[(static_cast<size_t>(Z) * Height + Y) * Width + X] =
+							static_cast<std::byte>(Seed + X * 3u + Y * 5u + Z * 7u);
 					}
 			return Bytes;
 		}
@@ -293,14 +295,17 @@ namespace Durin
 		const std::string ExecutionMode = Execution != nullptr ? Execution : "default";
 
 		FRendererResourceCoordinator Coordinator;
+		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
-		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
+		FVolumetricCloudRenderer Clouds(
+			Coordinator, FullscreenGeometry, TransientTargets);
 		auto Profiles = std::make_shared<std::array<FExtentProfile, Extents.size()>>();
 		auto TierProfiles =
 			std::make_shared<std::array<FTierProfile, QualityTiers.size()>>();
 
 		EnqueueRenderCommand<FProfileVolumetricCloud>(
-			[&Clouds, &Coordinator, &FullscreenGeometry, Profiles, TierProfiles](
+			[&Clouds, &Coordinator, &TransientTargets, &FullscreenGeometry,
+				Profiles, TierProfiles](
 				FRHICommandListImmediate& CommandList
 			) {
 				auto MakeVolume = [&CommandList](const char* Name, uint32 Size, uint8 Seed) {
@@ -315,7 +320,7 @@ namespace Durin
 					);
 					if (Texture)
 					{
-						GDynamicRHI->RHIUpdateTexture3D(CommandList, Texture, 0, FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, Size, Size, Size), Size, Size * Size, Bytes.data());
+						GDynamicRHI->RHIUpdateTexture3D(CommandList, Texture, 0, FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, Size, Size, Size), Size, Size * Size, Bytes);
 					}
 					return Texture;
 				};
@@ -333,7 +338,7 @@ namespace Durin
 				);
 				if (Weather)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64, WeatherBytes.data());
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64, WeatherBytes);
 				}
 				FSamplerRHIRef Sampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
 				if (!Base || !Detail || !Weather || !Sampler) return;
@@ -617,10 +622,10 @@ namespace Durin
 							OutputWidth, OutputHeight, Policy
 						);
 					FVolumetricCloudRenderer TierClouds(
-						Coordinator, FullscreenGeometry
+						Coordinator, FullscreenGeometry, TransientTargets
 					);
 					FVolumetricCloudShadowRenderer TierShadows(
-						Coordinator, FullscreenGeometry
+						Coordinator, FullscreenGeometry, TransientTargets
 					);
 					auto* FragmentTargets = TierClouds.EnsureTargets_RenderThread(
 						CloudExtent.Width, CloudExtent.Height
@@ -828,6 +833,7 @@ namespace Durin
 					TierClouds.ReleaseResources_RenderThread();
 					TierShadows.ReleaseResources_RenderThread();
 				}
+				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);

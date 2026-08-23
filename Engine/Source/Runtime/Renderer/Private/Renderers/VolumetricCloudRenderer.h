@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
+	class FRendererTransientTargetPool;
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
@@ -84,7 +85,9 @@ namespace Durin
 			bool bCandidatePublished = false;
 		};
 
-		FVolumetricCloudRenderer(FRendererResourceCoordinator& InCoordinator, FFullscreenGeometryResources& InFullscreenGeometry);
+		FVolumetricCloudRenderer(FRendererResourceCoordinator& InCoordinator,
+			FFullscreenGeometryResources& InFullscreenGeometry,
+			FRendererTransientTargetPool& InTransientTargets);
 		~FVolumetricCloudRenderer();
 		FVolumetricCloudRenderer(const FVolumetricCloudRenderer&) = delete;
 		auto operator=(const FVolumetricCloudRenderer&)
@@ -121,6 +124,7 @@ namespace Durin
 			-> FTargets*;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
+		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

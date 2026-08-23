@@ -4,6 +4,27 @@
 
 namespace Durin::RendererPrivate
 {
+	auto ResolvePreparedMaterialBinding(
+		const FMaterialRenderData& Material,
+		FMaterialRenderBinding& OutBinding,
+		std::string_view DiagnosticResource
+	) -> bool
+	{
+		FMaterialRenderValidationDiagnostic Diagnostic;
+		if (TryGetMaterialRenderBinding(
+				Material.Representation, OutBinding, Diagnostic))
+			return true;
+
+		FRenderResourceCreateDiagnostic ResourceDiagnostic;
+		ResourceDiagnostic.Error = MakeRendererResourceCreateError(
+			ERenderResourceCreateErrorCategory::ShaderBinding,
+			std::string(DiagnosticResource), "prepared-material",
+			Diagnostic.Message,
+			ERenderResourceGenerationDependency::Manual);
+		ReportRendererResourceCreateDiagnostic(ResourceDiagnostic);
+		return false;
+	}
+
 	auto ResolveMaterialBinding(
 		FMaterialRenderData& Material,
 		FMaterialRenderBinding& OutBinding,

@@ -9,6 +9,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneViewState.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -117,15 +118,19 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
+		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
-		FVolumetricCloudRenderer Clouds(Coordinator, FullscreenGeometry);
-		FVolumetricCloudShadowRenderer CloudShadows(Coordinator, FullscreenGeometry);
+		FVolumetricCloudRenderer Clouds(
+			Coordinator, FullscreenGeometry, TransientTargets);
+		FVolumetricCloudShadowRenderer CloudShadows(
+			Coordinator, FullscreenGeometry, TransientTargets);
 		auto Results = std::make_shared<std::array<bool, 41>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
 		EnqueueRenderCommand<FVolumetricCloudTargetLifecycle>(
-			[&Coordinator, &Clouds, &CloudShadows, &FullscreenGeometry, Results](
+			[&Coordinator, &TransientTargets, &Clouds, &CloudShadows,
+				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList
 			) {
 				(*Results)[0] = Clouds.EnsureTargets_RenderThread(64, 32) == nullptr;
@@ -599,6 +604,7 @@ namespace Durin
 								 && Compute4K->Cloud->GetSizeY() == 2'160;
 				Clouds.ReleaseResources_RenderThread();
 				CloudShadows.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				(*Results)[35] = CloudShadows.GetRetainedTargetBytes_RenderThread() == 0;
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}

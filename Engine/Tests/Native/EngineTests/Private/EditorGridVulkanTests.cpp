@@ -18,6 +18,7 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -39,10 +40,12 @@ namespace Durin
 	{
 		std::vector<FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
 		FViewRenderCounters GLastViewCounters;
+		size_t GViewCounterCaptureCount = 0;
 
 		auto CaptureViewCounters(const FViewRenderCounters& Counters) -> void
 		{
 			GLastViewCounters = Counters;
+			++GViewCounterCaptureCount;
 		}
 
 		auto CapturePostProcessTiming(
@@ -623,7 +626,8 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
-		FGBufferRenderer GBuffer(Coordinator);
+		FRendererTransientTargetPool TransientTargets(Coordinator);
+		FGBufferRenderer GBuffer(Coordinator, TransientTargets);
 		auto bFailed = std::make_shared<bool>(false);
 		auto bSuppressed = std::make_shared<bool>(false);
 		auto RecoveredTargets =
@@ -642,7 +646,7 @@ namespace Durin
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Coordinator, &GBuffer, bFailed, bSuppressed,
+			[&Coordinator, &TransientTargets, &GBuffer, bFailed, bSuppressed,
 			 RecoveredTargets, AlternateTargets, PipelineResults](
 				FRHICommandListImmediate&
 			) {
@@ -738,6 +742,7 @@ namespace Durin
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeRelease = DeviceTargets != nullptr ? DeviceTargets->Material.GetReference() : nullptr;
 				GBuffer.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				const auto* ReleasedTargets =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
 				(*PipelineResults)[11] = ReleasedTargets != nullptr
@@ -770,10 +775,11 @@ namespace Durin
 			EXPECT_TRUE((*PipelineResults)[Index]) << Index;
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-			[&GBuffer, RecoveredTargets, AlternateTargets](
+			[&TransientTargets, &GBuffer, RecoveredTargets, AlternateTargets](
 				FRHICommandListImmediate&
 			) {
 				GBuffer.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				*RecoveredTargets = {};
 				*AlternateTargets = {};
 			}
@@ -798,9 +804,10 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
+		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
 		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(
-			Coordinator, FullscreenGeometry
+			Coordinator, FullscreenGeometry, TransientTargets
 		);
 		auto Results = std::make_shared<std::array<bool, 14>>();
 		VulkanRHI::ArmVulkanCreateFailure(
@@ -813,7 +820,8 @@ namespace Durin
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Coordinator, &AmbientOcclusion, &FullscreenGeometry, Results](
+			[&Coordinator, &TransientTargets, &AmbientOcclusion,
+				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList
 			) {
 				(*Results)[0] =
@@ -851,6 +859,7 @@ namespace Durin
 								&& DeviceTargets->Raw.GetReference() != RecoveredRaw;
 				FRHITexture* DeviceRaw = DeviceTargets != nullptr ? DeviceTargets->Raw.GetReference() : nullptr;
 				AmbientOcclusion.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				auto* ReleasedTargets =
 					AmbientOcclusion.EnsureTargets_RenderThread(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
@@ -925,6 +934,7 @@ namespace Durin
 					&& HalfTargets->Resolved->GetSizeY() == 33;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				AmbientOcclusion.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);
@@ -951,14 +961,16 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
+		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
 		FContactShadowVisibilityRenderer ContactVisibility(
-			Coordinator, FullscreenGeometry);
+			Coordinator, FullscreenGeometry, TransientTargets);
 		auto Results = std::make_shared<std::array<bool, 18>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image);
 		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
-			[&Coordinator, &ContactVisibility, &FullscreenGeometry, Results](
+			[&Coordinator, &TransientTargets, &ContactVisibility,
+				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32) == nullptr;
@@ -989,6 +1001,7 @@ namespace Durin
 				FRHITexture* DeviceTexture = DeviceTargets != nullptr
 					? DeviceTargets->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				auto* Released =
 					ContactVisibility.EnsureTargets_RenderThread(64, 32);
 				(*Results)[5] = Released != nullptr
@@ -1025,6 +1038,7 @@ namespace Durin
 				FRHITexture* RecreatedComputeTexture = RecreatedCompute != nullptr
 					? RecreatedCompute->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				auto* ReleasedCompute =
 					ContactVisibility.EnsureComputeTargets_RenderThread(65, 33);
 				(*Results)[12] = ReleasedCompute != nullptr
@@ -1100,6 +1114,7 @@ namespace Durin
 					== FailureComputeTargets->Visibility.GetReference();
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				ContactVisibility.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			});
 		FlushRenderingCommands();
@@ -1130,10 +1145,9 @@ namespace Durin
 		auto Output = std::make_shared<FTextureRHIRef>();
 		auto ForwardResult = std::make_shared<ERenderViewResult>();
 		auto RequiredResult = std::make_shared<ERenderViewResult>();
-		auto RequiredCounters = std::make_shared<FViewRenderCounters>();
+		const size_t CaptureCountBefore = GViewCounterCaptureCount;
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-			[&Renderer, Output, ForwardResult, RequiredResult,
-			 RequiredCounters](
+			[&Renderer, Output, ForwardResult, RequiredResult](
 				FRHICommandListImmediate& CommandList
 			) {
 				++GRenderFrameCounterRenderThread;
@@ -1162,7 +1176,6 @@ namespace Durin
 				*RequiredResult = Renderer.RenderView(
 					CommandList, nullptr, View, *Output, false, {}
 				);
-				*RequiredCounters = GLastViewCounters;
 				SetViewRenderCounterSink(nullptr);
 				VulkanRHI::ResetVulkanCreateFailures();
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -1172,8 +1185,7 @@ namespace Durin
 
 		EXPECT_EQ(*ForwardResult, ERenderViewResult::Success);
 		EXPECT_EQ(*RequiredResult, ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ(RequiredCounters->HybridDeferredEnabledViews, 0u);
-		EXPECT_EQ(RequiredCounters->HybridDeferredUnavailableViews, 1u);
+		EXPECT_EQ(GViewCounterCaptureCount, CaptureCountBefore);
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[Output](FRHICommandListImmediate&) { *Output = nullptr; }
@@ -1200,9 +1212,10 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
+		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
 		FDeferredDirectionalLightingRenderer Deferred(
-			Coordinator, FullscreenGeometry
+			Coordinator, FullscreenGeometry, TransientTargets
 		);
 		auto Results = std::make_shared<std::array<bool, 16>>();
 		auto FirstTarget = std::make_shared<
@@ -1219,7 +1232,7 @@ namespace Durin
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Coordinator, &FullscreenGeometry, &Deferred, Results,
+			[&Coordinator, &TransientTargets, &FullscreenGeometry, &Deferred, Results,
 			 FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
 					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
@@ -1271,6 +1284,7 @@ namespace Durin
 
 				FRHITexture* BeforeRelease = DeviceTarget != nullptr ? DeviceTarget->Color.GetReference() : nullptr;
 				Deferred.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 				const auto* ReleasedTarget =
 					Deferred.EnsureTargets_RenderThread(64, 32);
@@ -1296,10 +1310,12 @@ namespace Durin
 		EXPECT_EQ(AlternateTarget->Color->GetSizeY(), 16u);
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-			[&Deferred, &FullscreenGeometry, FirstTarget, AlternateTarget](
+			[&TransientTargets, &Deferred, &FullscreenGeometry,
+				FirstTarget, AlternateTarget](
 				FRHICommandListImmediate&
 			) {
 				Deferred.ReleaseResources_RenderThread();
+				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 				*FirstTarget = {};
 				*AlternateTarget = {};

@@ -5,6 +5,9 @@
 #include "Scene.h"
 #include "SceneView.h"
 
+#include <unordered_map>
+#include <unordered_set>
+
 namespace Durin
 {
 	inline constexpr size_t TerrainInstanceDataBytes = 48;
@@ -16,7 +19,6 @@ namespace Durin
 		const FPrimitiveSceneInfo* SceneInfo = nullptr;
 		const FTerrainPatchDescriptor* Patch = nullptr;
 		FMaterialRenderData Material;
-		FMaterialRenderBinding MaterialBinding;
 		FEffectiveMeshPipelineKey PipelineKey;
 		FMeshDrawSortKey SortKey;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
@@ -26,9 +28,6 @@ namespace Durin
 		uint8 StitchMask = 0;
 		size_t TriangleCount = 0;
 		double TranslucentDistanceSquared = 0.0;
-		bool bResourcesReady = false;
-		FRHITexture* DirectionalShadowTexture = nullptr;
-		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
 	// Execution-only grouping of compatible logical patches. DrawIndices retain
@@ -36,10 +35,7 @@ namespace Durin
 	struct FPreparedTerrainBatch
 	{
 		std::vector<uint32> DrawIndices;
-		bool bResourcesReady = false;
 	};
-
-	enum class EPreparedTerrainPhase : uint8 { Prepared, ResourcesPrepared, Executed };
 
 	struct FPreparedTerrainView
 	{
@@ -69,6 +65,28 @@ namespace Durin
 		std::vector<size_t> ResolvedLODHistogram;
 		std::array<size_t, 16> StitchMaskHistogram{};
 		size_t Triangles = 0;
+		size_t PreparedBatches = 0;
+		size_t BatchChunks = 0;
+		size_t InstanceCount = 0;
+		uint64 LogicalPreparationNanoseconds = 0;
+		uint64 BatchConstructionNanoseconds = 0;
+
+		auto GetNumDraws() const -> size_t { return Opaque.size() + Masked.size() + Translucent.size(); }
+		auto GetNumHardwareDraws() const -> size_t
+		{
+			return OpaqueBatches.size() + MaskedBatches.size() + Translucent.size();
+		}
+	};
+
+	// Owns fallible Terrain resources, batching resolution, and execution telemetry.
+	struct FResolvedTerrainView
+	{
+		std::unordered_set<const FPreparedTerrainDraw*> ReadyDraws;
+		std::unordered_map<const FPreparedTerrainDraw*,
+			FMaterialRenderBinding> MaterialBindings;
+		std::unordered_set<const FPreparedTerrainBatch*> ReadyBatches;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
 		size_t HeightUploadBytes = 0;
 		size_t HeightUploads = 0;
 		size_t HeightReuses = 0;
@@ -94,8 +112,6 @@ namespace Durin
 		size_t ResourceRejectedBatches = 0;
 		size_t SubmittedLogicalPatches = 0;
 		size_t ScalarTranslucentDraws = 0;
-		uint64 LogicalPreparationNanoseconds = 0;
-		uint64 BatchConstructionNanoseconds = 0;
 		uint64 ResourcePreparationNanoseconds = 0;
 		uint64 HeightPreparationNanoseconds = 0;
 		uint64 TopologyPreparationNanoseconds = 0;
@@ -110,12 +126,20 @@ namespace Durin
 		size_t GBufferSuccessfulDraws = 0;
 		size_t GBufferRejectedDraws = 0;
 		size_t GBufferSkippedDraws = 0;
-		EPreparedTerrainPhase Phase = EPreparedTerrainPhase::Prepared;
 
-		auto GetNumDraws() const -> size_t { return Opaque.size() + Masked.size() + Translucent.size(); }
-		auto GetNumHardwareDraws() const -> size_t
+		auto IsReady(const FPreparedTerrainDraw& Draw) const -> bool
 		{
-			return OpaqueBatches.size() + MaskedBatches.size() + Translucent.size();
+			return ReadyDraws.contains(&Draw);
+		}
+		auto GetMaterialBinding(const FPreparedTerrainDraw& Draw) const
+			-> const FMaterialRenderBinding*
+		{
+			const auto It = MaterialBindings.find(&Draw);
+			return It != MaterialBindings.end() ? &It->second : nullptr;
+		}
+		auto IsReady(const FPreparedTerrainBatch& Batch) const -> bool
+		{
+			return ReadyBatches.contains(&Batch);
 		}
 	};
 

@@ -7,6 +7,38 @@
 #include <functional>
 #include <utility>
 
+namespace Durin
+{
+	enum class EGeometryResolutionStatus : uint8
+	{
+		Complete,
+		Partial
+	};
+
+	struct FGeometryResolutionResult
+	{
+		EGeometryResolutionStatus Status = EGeometryResolutionStatus::Complete;
+		size_t AttemptedDraws = 0;
+		size_t ResolvedDraws = 0;
+		size_t RejectedDraws = 0;
+
+		operator bool() const
+		{
+			return Status == EGeometryResolutionStatus::Complete;
+		}
+	};
+
+	struct FGeometryExecutionResult
+	{
+		bool bComplete = true;
+		bool bRenderedGeometry = false;
+		size_t AttemptedDraws = 0;
+		size_t SuccessfulDraws = 0;
+		size_t RejectedDraws = 0;
+		size_t SkippedDraws = 0;
+	};
+}
+
 namespace Durin::RendererPrivate
 {
 	template <typename TForwardShaderRef, typename TMaskedShadowShaderRef,
@@ -88,36 +120,41 @@ namespace Durin::RendererPrivate
 		std::invoke(Function, PreparedView.Masked);
 	}
 
-	template<typename TPreparedView, typename TPhase>
+	template<typename TResolvedView>
 	auto FinalizeResourcePreparation(
-		TPreparedView& PreparedView,
-		TPhase ResourcesPreparedPhase
-	) -> bool
+		TResolvedView& ResolvedView
+	) -> FGeometryResolutionResult
 	{
-		PreparedView.ResourcePreparationRejectedDraws =
-			PreparedView.ResourcePreparationAttemptedDraws
-			- PreparedView.ResourcePreparationSuccessfulDraws;
-		PreparedView.Phase = ResourcesPreparedPhase;
+		ResolvedView.ResourcePreparationRejectedDraws =
+			ResolvedView.ResourcePreparationAttemptedDraws
+			- ResolvedView.ResourcePreparationSuccessfulDraws;
 		check(
-			PreparedView.ResourcePreparationAttemptedDraws
-			== PreparedView.ResourcePreparationSuccessfulDraws
-				   + PreparedView.ResourcePreparationRejectedDraws
+			ResolvedView.ResourcePreparationAttemptedDraws
+			== ResolvedView.ResourcePreparationSuccessfulDraws
+				   + ResolvedView.ResourcePreparationRejectedDraws
 		);
-		return PreparedView.ResourcePreparationRejectedDraws == 0;
+		return {
+			.Status = ResolvedView.ResourcePreparationRejectedDraws == 0
+				? EGeometryResolutionStatus::Complete
+				: EGeometryResolutionStatus::Partial,
+			.AttemptedDraws = ResolvedView.ResourcePreparationAttemptedDraws,
+			.ResolvedDraws = ResolvedView.ResourcePreparationSuccessfulDraws,
+			.RejectedDraws = ResolvedView.ResourcePreparationRejectedDraws
+		};
 	}
 
-	template<typename TPreparedView, typename TPhase>
+	template<typename TResolvedView>
 	auto FinalizeExecution(
-		TPreparedView& PreparedView,
-		TPhase ExecutedPhase,
+		TResolvedView& ResolvedView,
+		size_t ExpectedDraws,
 		bool bExpectAllDraws = true
 	) -> void
 	{
-		PreparedView.Phase = ExecutedPhase;
 		check(
-			PreparedView.AttemptedDraws
-			== PreparedView.SuccessfulDraws + PreparedView.RejectedDraws
+			ResolvedView.AttemptedDraws
+			== ResolvedView.SuccessfulDraws + ResolvedView.RejectedDraws
 		);
-		check(!bExpectAllDraws || PreparedView.AttemptedDraws == PreparedView.GetNumSections());
+		check(!bExpectAllDraws || ResolvedView.AttemptedDraws == ExpectedDraws);
 	}
+
 } // namespace Durin::RendererPrivate

@@ -9,6 +9,7 @@ namespace Durin
 {
 	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
+	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 
 	// Owns post-process shaders, output pipelines, and size-keyed scene targets.
@@ -37,7 +38,8 @@ namespace Durin
 
 		FPostProcessRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
+			FFullscreenGeometryResources& InFullscreenGeometry,
+			FRendererTransientTargetPool& InTransientTargets);
 		~FPostProcessRenderer();
 
 		FPostProcessRenderer(const FPostProcessRenderer&) = delete;
@@ -64,6 +66,7 @@ namespace Durin
 
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
+		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

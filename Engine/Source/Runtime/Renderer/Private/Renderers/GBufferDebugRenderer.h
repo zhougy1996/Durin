@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
+	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 	class FFullscreenGeometryResources;
 	struct FSceneView;
@@ -18,7 +19,8 @@ namespace Durin
 		struct FTargets { FTextureRHIRef Color; };
 		FGBufferDebugRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
+			FFullscreenGeometryResources& InFullscreenGeometry,
+			FRendererTransientTargetPool& InTransientTargets);
 		~FGBufferDebugRenderer();
 		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
 
@@ -40,6 +42,7 @@ namespace Durin
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
+		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

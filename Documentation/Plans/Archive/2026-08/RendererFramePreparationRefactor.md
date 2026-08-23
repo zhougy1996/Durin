@@ -4,8 +4,8 @@ Summary: Separate immutable per-view preparation, typed pass outcomes, telemetry
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-24
 
 ## Current Status
 
@@ -34,9 +34,30 @@ retirement, render-thread scene snapshots, and transactional persistent view
 state. The selected path therefore restructures Renderer without changing the
 RHI executor or introducing a Render Graph in this plan.
 
-No implementation stage has started. Stage 0 first freezes the current frame
-schedule, field ownership, target lifetime, failure behavior, statistics, image
-references, and performance baseline.
+All stages are complete. The renderer now owns one command-local
+`FSceneRenderPlan` with view, optional environment, lighting, receiver,
+optional directional-shadow, and optional cloud partitions. Logical geometry
+is immutable after preparation; material, pipeline, geometry, palette,
+terrain, and shadow resources are recorded in family-specific resolved values.
+GBuffer completeness and rendered-geometry state come from typed pass results
+rather than telemetry, and compile-time tests exclude readiness, phase, target,
+binding, and execution fields from logical draw/view types. Feature sources are
+reduced once by `SceneRenderTelemetry`; registration lives in the profiling
+owner, rendering policy does not read telemetry, and aborted views publish no
+counter snapshot or public statistics. A Renderer-private transient target
+pool now owns Scene, GBuffer, GTAO, contact/cloud visibility, isolated
+deferred/debug, and cloud spatial/composite textures with full-description
+keys, bounded retention, generation retry, and deterministic release. Feature
+pass execution consumes resolved targets without owning physical extent
+caches. Frame preparation, the readable fixed pass sequence, telemetry, and
+final output selection now have explicit private owners; `SceneRenderer.cpp`
+contains renderer composition, lifetime/invalidation, and the narrow frame
+entry rather than feature orchestration. Focused and aggregate Renderer/RHI/
+Vulkan validation, inline and threaded execution, qualification images and
+measurements, the full build and test suite, Editor smoke, resource recovery,
+and documentation validation pass. The GBuffer performance qualification was
+rerun in a quiet lane after two noisy samples and passed without changing its
+frozen thresholds.
 
 ## Goal
 
@@ -233,32 +254,115 @@ public rendering behavior again.
 | Statistics and diagnostics | Bounded private counters, public statistics reduction, GPU queries, capture seams | Counters can drive correctness decisions and one qualification sink can mutate prepared state. |
 | Testing | Renderer scene, GBuffer, shadow, cloud, viewport, RHI, Vulkan, resource-recovery, and image qualification already exist | Structural ownership, constness, typed-result conservation, and target-provider failure need focused coverage. |
 
+## Stage 0 Frozen Baseline
+
+### Prepared-view ownership map
+
+| Existing fields | Frozen destination | Writer and lifetime | Failure contract |
+| --- | --- | --- | --- |
+| `View`, `TemporalContext`, `ViewState` | `FPreparedViewContext` | Fixed frame preparation; command-local, with borrowed registry state | Duplicate/missing state records a discontinuity; only a successful view commits. |
+| `SkyBox`, `bHasSkyBox`, `ViewEnvironmentTexture`, `bHasViewEnvironment` | Optional `FPreparedEnvironment` | Environment override or render-thread scene snapshot | An invalid required override is view-fatal; an absent scene sky is valid. |
+| `Lights`, `LightingUniformBuffer` | `FPreparedLighting` | Visibility/light preparation and one dynamic uniform upload | A missing upload is view-fatal; asset IBL may use the complete default set. |
+| `StaticMeshes`, `SkeletalMeshes`, `Terrains`, `TranslucentGeometry` | `FPreparedReceiverGeometry` | Receiver logical preparation followed by separate resolution | Empty geometry is valid; combined translucency is distance-descending, then complete stable key/family order. |
+| `SkeletalPalettes` | `FPreparedSkeletalPaletteTable` owned by receiver geometry | One submission-local table shared by receiver and every shadow cascade | Individual rejected palettes reject their dependent draws without duplicating uploads. |
+| `DirectionalShadow`, caster table, and three cascade geometry arrays | Optional `FPreparedDirectionalShadow` | Selected directional light, caster classification, and cascade preparation | Invalid receiver or target disables shadow contribution and retains the documented fallback. |
+| Cloud requested/force flag, parameters, textures, history key, shadow visibility | Optional `FPreparedVolumetricCloud`, immutable qualification input, and typed shadow result | Scene snapshot or development fixture; command-local except committed view-state history | Missing optional inputs disable the feature; compute failure may select fragment; no partial output is published. |
+| `Counters` | `FSceneRenderTelemetry` with feature-owned sources and one final reducer | Preparation/resolution/execution observations during one command | Rendering policy and success may not read telemetry; failed views publish no partial public statistics. |
+
+The outer frozen type name is `FSceneRenderPlan`. Only fixed orchestration may
+observe it. The selected private files are `SceneRenderPlan.h` for immutable
+partitions, `SceneRenderResults.h` for pass status/output values,
+`SceneRenderTelemetry.{h,cpp}` for observation and reduction,
+`RendererTransientTargetPool.{h,cpp}` for frame leases, and
+`FixedSceneFrameExecutor.{h,cpp}` for the explicit scheduler. Feature-specific
+resolved draw types remain beside their owning mesh renderer.
+
+### Fixed pass and access order
+
+The production schedule is frozen as: validate output/resources; acquire Scene
+Color/depth; begin temporal state; prepare view/environment/visibility/lights,
+receiver and shadow logical draws; resolve geometry and shadow resources;
+render directional-shadow cascades; acquire and render GBuffer when requested;
+prepare deferred inputs; run GTAO, contact visibility, and cloud-shadow
+visibility; run optional isolated deferred/debug branches; bootstrap Scene
+Color; production deferred lighting; retained unlit opaque/masked geometry;
+transition depth to shader read; render/reconstruct/composite clouds; transition
+Scene Color to attachment write; render combined sorted translucency; select
+debug or Scene Color output; post process; editor assistance; restore output
+viewport/scissor; transition the external output to `Present` or
+`ShaderReadOnly`; then publish telemetry and commit temporal state.
+
+Qualification paths reuse the same GBuffer/deferred/GTAO inputs and occur
+before production Scene Color. The manual transition authority remains the RHI
+command list. Imported output starts in its caller-provided state and finishes
+in `Present` for window-backed views or `ShaderReadOnly` for offscreen views.
+Any early return leaves the temporal scope to abort and does not publish a
+partial successful statistic.
+
+### Resource classes and budgets
+
+| Class | Frozen resources and owner | Key, retry, and release |
+| --- | --- | --- |
+| Imported | External output; asset/default/environment textures; material geometry and buffers | External or persistent owner defines lifetime; pass inputs declare required access and fallback. |
+| Persistent/history | Shader maps, PSOs, samplers, geometry/topology caches, renderer-generation state, dynamic allocator backing, and committed cloud history | Existing feature/coordinator generation and GPU-safe retirement remain authoritative; view-state removal/invalidation releases history. |
+| Frame-transient | Scene Color/depth; GBuffer material/normals/surface/emissive; GTAO raw/filter/resolve; contact and cloud-shadow visibility; isolated deferred/debug color; cloud spatial/composite targets | Full texture description plus extent is the key. Current complete-or-null caches and last-known-good retry behavior define the replacement budget; coordinator invalidation and renderer shutdown release every retained reference. |
+
+At 1920x1080, the frozen qualification reports 33,177,600 GBuffer bytes,
+16,588,800 isolated deferred bytes, 4,147,200 GTAO active bytes, 69,984,000
+hybrid active bytes, 120,315,648 active bytes with shadow, and a 268,435,456
+retained ceiling. The centralized provider may not retain more than the summed
+replaced-owner ceiling and performs no aliasing in this plan.
+
+### Correctness and performance references
+
+The configured baseline is Windows MSVC x64, Debug `DurinEditor`, Vulkan on an
+NVIDIA GeForce RTX 3090 (driver 591.86, Vulkan 1.4.325), validation enabled.
+Focused results on 2026-08-23 were `EditorRenderingTests` 77/77,
+`RendererSceneContractTests` 27/27, `VolumetricCloudSceneContractTests` 6/6,
+and `RHIResourceTransitionValidationTests` 7/7. `GBufferQualificationTests`
+passed at 1920x1080 with 30 warm-up frames and 120 measured frames.
+
+Frozen GPU medians/p95 values in nanoseconds are: GBuffer 71,904/72,864,
+Scene Color 255,104/257,504, production deferred 223,872/224,896, retained
+opaque 7,120/7,744, sorted translucency 7,344/8,096, FXAA 61,328/62,176,
+directional shadow 10,816/11,968, contact compute 320,528/323,040, and total
+399,024/402,784. Full-resolution GTAO feature is 690,016/1,128,448 and
+half-resolution GTAO is 402,160/865,088. The reference run was performed
+without a competing build/test process; browser/desktop GPU exclusivity was
+not externally enforceable, so the values are acceptance references only when
+rerun in an equally quiet lane.
+
+The comparison gates remain median render-thread regression <=5%, p95 <=10%,
+unchanged GPU-pass median regression <=5%, identical image/draw/dispatch and
+temporal outcomes, and retained bytes no greater than the frozen replacement
+budget.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the frame, ownership, and measurement baseline
 
-- [ ] Inventory every `FPreparedSceneView` field, writer, reader, lifetime,
+- [x] Inventory every `FPreparedSceneView` field, writer, reader, lifetime,
   failure behavior, and selected destination partition. Include the development
   cloud preparation seam and every whole-view API.
-- [ ] Record the exact production and qualification pass sequence, each pass's
+- [x] Record the exact production and qualification pass sequence, each pass's
   resource reads/writes, manual access transitions, target acquisition, output
   fallback, viewport/scissor contract, and final external-resource state.
-- [ ] Classify every renderer target and upload as imported, persistent/history,
+- [x] Classify every renderer target and upload as imported, persistent/history,
   or frame-transient. Record description, active bytes, retained budget, extent
   key, creation/retry owner, invalidation generation, and release path.
-- [ ] Freeze the semantic type/file layout for fitted view/temporal context,
+- [x] Freeze the semantic type/file layout for fitted view/temporal context,
   environment, lighting, receiver geometry, directional shadow, volumetric
   cloud, resolved execution resources, pass results, and telemetry. Resolve any
   remaining naming or shared-palette ownership question here.
-- [ ] Add or select focused structural tests for const logical preparation,
+- [x] Add or select focused structural tests for const logical preparation,
   combined translucency, shadow cascade membership, resource-result
   conservation, GBuffer completeness, temporal abort/commit, and immutable
   diagnostics observation before deleting old seams.
-- [ ] Capture the existing focused/aggregate test baseline, representative
+- [x] Capture the existing focused/aggregate test baseline, representative
   inline/threaded rendered images, draw/dispatch identities, pass GPU timings,
   render-thread median/p95, active/retained target bytes, resize churn, and
   resource-failure/retry behavior following the repository workflows.
-- [ ] Freeze the quiet-lane measurement host, scene fixtures, resolutions,
+- [x] Freeze the quiet-lane measurement host, scene fixtures, resolutions,
   warm-up/sample policy, and comparison gates. Unless Stage 0 evidence selects
   a stricter bound, median render-thread time may regress by at most 5%, p95 by
   at most 10%, individual unchanged GPU pass medians by at most 5%, and retained
@@ -273,21 +377,21 @@ public rendering behavior again.
 
 ### Stage 1: Publish immutable feature-bounded frame preparation
 
-- [ ] Introduce the selected command-local frame-plan partitions and builders
+- [x] Introduce the selected command-local frame-plan partitions and builders
   without changing visibility, LOD, sort, shadow, light, environment, cloud, or
   temporal policy.
-- [ ] Move receiver geometry, directional-shadow cascade preparation,
+- [x] Move receiver geometry, directional-shadow cascade preparation,
   environment, lighting, and volumetric-cloud inputs into their owning values;
   retain one submission-local Skeletal palette owner shared by all required
   views.
-- [ ] Change preparation and policy consumers to accept only the exact typed
+- [x] Change preparation and policy consumers to accept only the exact typed
   inputs they require. Only orchestration may receive the outer frame plan.
-- [ ] Represent optional environment and cloud inputs as complete optional
+- [x] Represent optional environment and cloud inputs as complete optional
   values and remove independent requested/valid pointer-Boolean combinations.
-- [ ] Replace the mutable volumetric-cloud preparation sink with a typed scene
+- [x] Replace the mutable volumetric-cloud preparation sink with a typed scene
   fixture or immutable feature-input seam that cannot modify unrelated frame
   state.
-- [ ] Retire `FPreparedSceneView` and its include fan-out after all consumers
+- [x] Retire `FPreparedSceneView` and its include fan-out after all consumers
   use the new boundaries; update focused preparation tests to construct only
   the smallest owning value.
 
@@ -299,21 +403,21 @@ public rendering behavior again.
 
 ### Stage 2: Separate logical draws from resolved execution resources
 
-- [ ] Remove readiness, execution phase, directional-shadow target/sampler,
+- [x] Remove readiness, execution phase, directional-shadow target/sampler,
   and execution counters from StaticMesh, SkeletalMesh, and Terrain logical
   draw/view values.
-- [ ] Introduce family/pass-specific resolved execution values that reference
+- [x] Introduce family/pass-specific resolved execution values that reference
   immutable logical draws and own fallible material, pipeline, geometry,
   dynamic-upload, palette, height/topology, and batching results.
-- [ ] Make resource preparation return complete resolved values or typed
+- [x] Make resource preparation return complete resolved values or typed
   failure/fallback results rather than partially mutating a logical view.
-- [ ] Pass lighting, directional-shadow, GBuffer, depth, and other pass products
+- [x] Pass lighting, directional-shadow, GBuffer, depth, and other pass products
   explicitly into draw execution/material binding instead of copying them into
   each draw.
-- [ ] Make all geometry execution paths consume logical and resolved data as
+- [x] Make all geometry execution paths consume logical and resolved data as
   `const`; move exactly-once sequencing to the frame executor and remove the
   three prepared/resources-prepared/executed phase enums.
-- [ ] Introduce typed results for GBuffer and geometry execution. Establish
+- [x] Introduce typed results for GBuffer and geometry execution. Establish
   completeness directly from execution outcomes and test conservation against
   attempted, successful, rejected, skipped, batched, section/patch, triangle,
   and hardware-draw measurements.
@@ -327,21 +431,21 @@ public rendering behavior again.
 
 ### Stage 3: Isolate feature telemetry and diagnostics
 
-- [ ] Split the flat private counter aggregate into feature-owned preparation,
+- [x] Split the flat private counter aggregate into feature-owned preparation,
   resource, execution, memory, and timing telemetry values with explicit
   conservation equations.
-- [ ] Return or record telemetry beside typed pass results without allowing a
+- [x] Return or record telemetry beside typed pass results without allowing a
   pass to read it as policy or success state.
-- [ ] Reduce feature telemetry exactly once after command recording into the
+- [x] Reduce feature telemetry exactly once after command recording into the
   existing public `FSceneViewStatistics`; remove repeated counter-copy passes
   and preserve saturated arithmetic and unavailable-view semantics.
-- [ ] Replace pass-specific global mutation/capture seams with immutable
+- [x] Replace pass-specific global mutation/capture seams with immutable
   observers over named pass results/resources. Retain nonblocking GPU timing
   query ownership and the current development-only registration lifetime.
-- [ ] Move statistics reduction, profiling scope, sink registration, and
+- [x] Move statistics reduction, profiling scope, sink registration, and
   capture adaptation out of `SceneRenderer.cpp` into explicit diagnostics
   owners.
-- [ ] Add tests proving failed views publish no partial statistics, observers
+- [x] Add tests proving failed views publish no partial statistics, observers
   cannot mutate frame data, route/quality policy does not originate in
   telemetry, and public statistics remain identical for successful views.
 
@@ -353,23 +457,23 @@ public rendering behavior again.
 
 ### Stage 4: Establish frame-transient target ownership
 
-- [ ] Introduce the selected Renderer-private transient-target provider with
+- [x] Introduce the selected Renderer-private transient-target provider with
   complete texture descriptions, typed leases, extent/budget accounting,
   generation-aware retry, and deterministic release.
-- [ ] Move Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, isolated
+- [x] Move Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, isolated
   deferred/debug, and cloud spatial/composite target acquisition from feature
   pass executors to frame setup. Preserve committed cloud history under view
   state rather than treating it as transient.
-- [ ] Keep shaders, PSOs, samplers, material/geometry caches, default textures,
+- [x] Keep shaders, PSOs, samplers, material/geometry caches, default textures,
   environment resources, and other persistent payloads with their existing
   feature/shared owners; update coordinator invalidation fan-out explicitly.
-- [ ] Give every pass a typed input/output resource structure. Execution must
+- [x] Give every pass a typed input/output resource structure. Execution must
   not create or look up its output target, and it must declare the expected
   imported/persistent resources needed for fallback.
-- [ ] Preserve current manual access transitions and exact render-pass
+- [x] Preserve current manual access transitions and exact render-pass
   attachment load/store/initial/final contracts while centralizing target
   acquisition; add range/access validation for every typed resource boundary.
-- [ ] Cover extent reuse/eviction, multi-view interleaving, resize, allocation
+- [x] Cover extent reuse/eviction, multi-view interleaving, resize, allocation
   failure, retry, shader/device invalidation, RHI reference retention, release,
   and shutdown with inline and threaded executors.
 
@@ -382,23 +486,23 @@ public rendering behavior again.
 
 ### Stage 5: Decompose and narrow fixed frame orchestration
 
-- [ ] Separate frame preparation, fixed pass execution, telemetry/finalization,
+- [x] Separate frame preparation, fixed pass execution, telemetry/finalization,
   and `FSceneRenderer` composition into matching private types/files. Keep
   feature shader/pipeline/render bodies in their existing feature renderers.
-- [ ] Reduce `RenderView_RenderThread` to output validation, temporal scope,
+- [x] Reduce `RenderView_RenderThread` to output validation, temporal scope,
   preparation, transient acquisition, fixed execution, telemetry publication,
   and commit/abort; remove feature-specific counter copying and target creation
   from that function.
-- [ ] Express the fixed sequence through typed pass calls whose signatures show
+- [x] Express the fixed sequence through typed pass calls whose signatures show
   exact preparation and resource dependencies. Do not add a generic graph node,
   blackboard, runtime registry, or callback scheduler.
-- [ ] Preserve qualification-only paths as explicit optional branches over the
+- [x] Preserve qualification-only paths as explicit optional branches over the
   same typed GBuffer/deferred/GTAO resources rather than a second preparation or
   execution architecture.
-- [ ] Centralize final Scene Color selection, debug-output selection,
+- [x] Centralize final Scene Color selection, debug-output selection,
   post-process input, editor-assistance demand, and Present/ShaderReadOnly
   finalization so every successful route reaches one audited output boundary.
-- [ ] Add structural tests or compile-time assertions preventing whole-plan
+- [x] Add structural tests or compile-time assertions preventing whole-plan
   feature access, mutable logical execution inputs, telemetry-driven policy,
   and pass-local transient acquisition from returning.
 
@@ -412,27 +516,27 @@ public rendering behavior again.
 
 ### Stage 6: Integrate, qualify, document, and hand off RDG readiness
 
-- [ ] Run focused Renderer preparation, visibility, material, geometry,
+- [x] Run focused Renderer preparation, visibility, material, geometry,
   shadow, GBuffer, deferred, GTAO, cloud, temporal, viewport, statistics,
   resource-recovery, RHI-transition, and Vulkan tests following the agent
   testing workflow.
-- [ ] Run the affected aggregate, required Renderer/RHI/Vulkan builds,
+- [x] Run the affected aggregate, required Renderer/RHI/Vulkan builds,
   inline/threaded runtime matrices, validation layers, resize/multi-view cases,
   full `all` build, and verified Editor smoke following the build/run workflow.
-- [ ] Compare fixed/moving image references, pass/draw/dispatch identities,
+- [x] Compare fixed/moving image references, pass/draw/dispatch identities,
   temporal history outcomes, target active/retained bytes, creation/eviction,
   render-thread median/p95, and GPU pass timings against the frozen Stage 0
   gates. Remove rejected compatibility/scaffolding paths rather than retaining
   two architectures.
-- [ ] Publish the implemented immutable preparation, resolved execution,
+- [x] Publish the implemented immutable preparation, resolved execution,
   transient target, fixed scheduling, telemetry, failure, temporal, and output
   contracts under Runtime Rendering and update direct owners without
   duplicating RHI or viewport documentation.
-- [ ] Record the final pass/resource/lifetime/transition inventory and the
+- [x] Record the final pass/resource/lifetime/transition inventory and the
   measured entry evidence for the bounded Render Graph follow-up. Reevaluate
   the existing PSO-cache investigation without selecting a cache absent its
   required evidence.
-- [ ] Complete this plan only after no retired prepared-view, phase/readiness,
+- [x] Complete this plan only after no retired prepared-view, phase/readiness,
   pass-local transient cache, mutable diagnostic seam, or duplicate production
   path remains and all required validation passes.
 
@@ -508,23 +612,23 @@ public rendering behavior again.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [PSO Cache for Render-Graph Expansion](../Investigations/PSOCacheForRenderGraphExpansion.md)
-- [Renderer Modularization Plan](Archive/2026-07/RendererModularization.md)
-- [RHI and Vulkan Evolution Roadmap](../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [PSO Cache for Render-Graph Expansion](../../../Investigations/PSOCacheForRenderGraphExpansion.md)
+- [Renderer Modularization Plan](../2026-07/RendererModularization.md)
+- [RHI and Vulkan Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- `Engine/Source/Runtime/Renderer/Private/Renderers/PreparedSceneView.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderPlan.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRendererProfiling.h`

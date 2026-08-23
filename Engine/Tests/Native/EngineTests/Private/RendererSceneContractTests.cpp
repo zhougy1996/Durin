@@ -10,6 +10,10 @@
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/FixedSceneFrameExecutor.h"
+#include "Renderers/SceneFrameFinalization.h"
+#include "Renderers/SceneFramePreparation.h"
+#include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SurfaceMaterial.h"
@@ -32,6 +36,12 @@ static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
+static_assert(std::is_final_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(std::is_empty_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(std::is_final_v<Durin::FSceneFramePreparation>);
+static_assert(std::is_empty_v<Durin::FSceneFramePreparation>);
+static_assert(std::is_final_v<Durin::FSceneFrameFinalization>);
+static_assert(std::is_empty_v<Durin::FSceneFrameFinalization>);
 
 TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)
 {
@@ -667,6 +677,29 @@ TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)
 	ASSERT_EQ(Snapshots.size(), 1u);
 	EXPECT_EQ(Snapshots.front().SubmittedPrimitives, 3u);
 	EXPECT_EQ(Snapshots.front().StaticMeshAttemptedDraws, 2u);
+}
+
+TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
+{
+	std::vector<Durin::FViewRenderCounters> Snapshots;
+	GObservedViewCounterSnapshots = &Snapshots;
+	Durin::SetViewRenderCounterSink(ObserveViewCounterSnapshot);
+	Durin::FSceneRenderTelemetry Telemetry;
+	Telemetry.Counters.SubmittedPrimitives = 4;
+	Durin::FSceneViewStatistics Statistics;
+	{
+		Durin::FSceneTelemetryPublication Aborted(Telemetry, &Statistics);
+	}
+	EXPECT_TRUE(Snapshots.empty());
+	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 0u);
+	Durin::FSceneTelemetryPublication Completed(Telemetry, &Statistics);
+	Completed.Commit();
+	Completed.Commit();
+	Durin::SetViewRenderCounterSink(nullptr);
+	GObservedViewCounterSnapshots = nullptr;
+	ASSERT_EQ(Snapshots.size(), 1u);
+	EXPECT_EQ(Snapshots.front().SubmittedPrimitives, 4u);
+	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 4u);
 }
 
 TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLOD)

@@ -1,8 +1,8 @@
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 
 #include "Math/Operations.h"
-#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -103,16 +103,16 @@ namespace Durin
 		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
 			ERenderResourceGenerationDependency::Shader
 			| ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
-		TRendererResourceSlotCache<uint64, FComputeTargets> ComputeTargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FTargets CurrentFragmentTargets;
+		FComputeTargets CurrentComputeTargets;
 	};
 
 	FVolumetricCloudShadowRenderer::FVolumetricCloudShadowRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
+		  TransientTargets(InTransientTargets),
 		  State(std::make_unique<FState>()) {}
 	FVolumetricCloudShadowRenderer::~FVolumetricCloudShadowRenderer() = default;
 	auto FVolumetricCloudShadowRenderer::SetTimingQuerySink(FTimingQuerySink Sink) -> void
@@ -131,33 +131,18 @@ namespace Durin
 		if (Width == 0 || Height == 0
 			|| CalculateTargetBytes(Width, Height) > MaximumRetainedBytesPerRoute)
 			return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudVisibility", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy
 				| ETextureCreateFlags::CPUReadback)
 			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Result = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
-				FTargets Candidate{.Visibility = RHICreateTexture(Desc)};
-				if (!Candidate.Visibility)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowTarget",
-						std::to_string(Key).c_str(), "R8_UNORM target creation returned null.",
-						ERenderResourceCreateErrorCategory::RHIResource));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		while (State->TargetsBySize.Num() > 1
-			&& State->TargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 K, const FTargets&) { return CalculateTargetBytes(
-					static_cast<uint32>(K >> 32), static_cast<uint32>(K)); })
-				> MaximumRetainedBytesPerRoute)
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
-		if (!Result) return nullptr;
-		auto* Retained = State->TargetsBySize.Find(Key);
-		return Retained ? Retained->Slot.GetPayload() : nullptr;
+		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"VolumetricCloudShadowFragment", std::span(&Desc, 1),
+			MaximumRetainedBytesPerRoute);
+		if (!Lease) return nullptr;
+		State->CurrentFragmentTargets.Visibility = Lease->Get(0);
+		return &State->CurrentFragmentTargets;
 	}
 
 	auto FVolumetricCloudShadowRenderer::EnsureComputeTargets_RenderThread(
@@ -167,45 +152,28 @@ namespace Durin
 		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr
 			|| CalculateTargetBytes(Width, Height) > MaximumRetainedBytesPerRoute)
 			return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const auto Desc = FRHITextureCreateDesc::Create2D(
 			"VolumetricCloudVisibilityCompute", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::ShaderResource
 				| ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback);
-		using FResult = TRenderResourceCreateResult<FComputeTargets>;
-		auto& Entry = State->ComputeTargetsBySize.FindOrAdd(Key);
-		FComputeTargets* Result = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [Key, &Desc]() -> FResult {
-				if (!GDynamicRHI->RHIIsTextureSupported(Desc))
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowComputeTarget",
-						std::to_string(Key).c_str(), "R8_UNORM storage target is unsupported.",
-						ERenderResourceCreateErrorCategory::RHIResource));
-				FComputeTargets Candidate;
-				Candidate.Visibility = RHICreateTexture(Desc);
-				if (Candidate.Visibility)
-				{
-					Candidate.SampledView = GDynamicRHI->RHIGetOrCreateTextureView(
-						Candidate.Visibility, MakeDefaultTextureViewDesc(*Candidate.Visibility,
-							ERHITextureViewUsage::Sampled));
-					Candidate.StorageView = GDynamicRHI->RHIGetOrCreateTextureView(
-						Candidate.Visibility, MakeDefaultTextureViewDesc(*Candidate.Visibility,
-							ERHITextureViewUsage::Storage));
-				}
-				if (!Candidate.Visibility || !Candidate.SampledView || !Candidate.StorageView)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowComputeTarget",
-						std::to_string(Key).c_str(), "Target or canonical view creation returned null.",
-						ERenderResourceCreateErrorCategory::RHIResource));
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		while (State->ComputeTargetsBySize.Num() > 1
-			&& State->ComputeTargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 K, const FComputeTargets&) { return CalculateTargetBytes(
-					static_cast<uint32>(K >> 32), static_cast<uint32>(K)); })
-				> MaximumRetainedBytesPerRoute)
-			if (!State->ComputeTargetsBySize.EvictOldestExcept(Key)) break;
-		if (!Result) return nullptr;
-		auto* Retained = State->ComputeTargetsBySize.Find(Key);
-		return Retained ? Retained->Slot.GetPayload() : nullptr;
+		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return nullptr;
+		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"VolumetricCloudShadowCompute", std::span(&Desc, 1),
+			MaximumRetainedBytesPerRoute);
+		if (!Lease) return nullptr;
+		State->CurrentComputeTargets = {};
+		State->CurrentComputeTargets.Visibility = Lease->Textures[0];
+		State->CurrentComputeTargets.SampledView =
+			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
+				MakeDefaultTextureViewDesc(*Lease->Textures[0],
+					ERHITextureViewUsage::Sampled));
+		State->CurrentComputeTargets.StorageView =
+			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
+				MakeDefaultTextureViewDesc(*Lease->Textures[0],
+					ERHITextureViewUsage::Storage));
+		return State->CurrentComputeTargets.SampledView
+			&& State->CurrentComputeTargets.StorageView
+			? &State->CurrentComputeTargets : nullptr;
 	}
 
 	auto FVolumetricCloudShadowRenderer::Render_RenderThread(
@@ -462,20 +430,18 @@ namespace Durin
 	auto FVolumetricCloudShadowRenderer::GetRetainedTargetBytes_RenderThread() const -> uint64
 	{
 		check(IsInRenderingThread());
-		const uint64 Fragment = State->TargetsBySize.GetRetainedPayloadWeight(
-			[](uint64 K, const FTargets&) { return CalculateTargetBytes(
-				static_cast<uint32>(K >> 32), static_cast<uint32>(K)); });
-		const uint64 Compute = State->ComputeTargetsBySize.GetRetainedPayloadWeight(
-			[](uint64 K, const FComputeTargets&) { return CalculateTargetBytes(
-				static_cast<uint32>(K >> 32), static_cast<uint32>(K)); });
+		const uint64 Fragment = TransientTargets.GetRetainedBytes_RenderThread(
+			"VolumetricCloudShadowFragment");
+		const uint64 Compute = TransientTargets.GetRetainedBytes_RenderThread(
+			"VolumetricCloudShadowCompute");
 		return Fragment + Compute;
 	}
 
 	auto FVolumetricCloudShadowRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->TargetsBySize.Reset();
-		State->ComputeTargetsBySize.Reset();
+		State->CurrentFragmentTargets = {};
+		State->CurrentComputeTargets = {};
 		State->FragmentResources.Reset();
 		State->ComputeResources.Reset();
 	}

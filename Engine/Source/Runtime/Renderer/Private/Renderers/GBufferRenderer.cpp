@@ -4,6 +4,7 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/RendererTransientTargetPool.h"
 #include "RHI.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -145,8 +146,7 @@ namespace Durin
 			TShaderRef<FGBufferFragmentShader> Fragment;
 		};
 
-		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+		FTargets CurrentTargets;
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<FGBufferPipelineKey, std::unique_ptr<FPipeline>>
@@ -155,8 +155,10 @@ namespace Durin
 	};
 
 	FGBufferRenderer::FGBufferRenderer(
-		FRendererResourceCoordinator& InCoordinator)
+		FRendererResourceCoordinator& InCoordinator,
+		FRendererTransientTargetPool& InTransientTargets)
 		: Coordinator(InCoordinator)
+		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -168,76 +170,28 @@ namespace Durin
 		uint32 Height) -> FTargets*
 	{
 		if (Width == 0 || Height == 0) return nullptr;
-		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
-		auto MakeDesc = [Width, Height](
-			const char* Name,
-			EPixelFormat Format) {
+		auto MakeDesc = [Width, Height](const char* Name, EPixelFormat Format) {
 			return FRHITextureCreateDesc::Create2D(Name, Width, Height, Format)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
 					| ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::SourceCopy)
 				.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
 		};
-		const FRHITextureCreateDesc MaterialDesc =
-			MakeDesc("GBufferMaterial", EPixelFormat::RGBA8_UNORM);
-		const FRHITextureCreateDesc NormalsDesc =
-			MakeDesc("GBufferNormals", EPixelFormat::RGBA8_UNORM);
-		const FRHITextureCreateDesc SurfaceDesc =
-			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM);
-		const FRHITextureCreateDesc EmissiveDesc =
-			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT);
-
-		using FResult = TRenderResourceCreateResult<FTargets>;
-		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
-		FTargets* Targets = Entry.Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[Key, &MaterialDesc, &NormalsDesc, &SurfaceDesc,
-			 &EmissiveDesc]() -> FResult {
-				FTargets Candidate;
-				Candidate.Material = RHICreateTexture(MaterialDesc);
-				if (Candidate.Material != nullptr)
-				{
-					Candidate.Normals = RHICreateTexture(NormalsDesc);
-					Candidate.Surface = RHICreateTexture(SurfaceDesc);
-					Candidate.Emissive = RHICreateTexture(EmissiveDesc);
-				}
-				if (Candidate.Material == nullptr || Candidate.Normals == nullptr
-					|| Candidate.Surface == nullptr
-					|| Candidate.Emissive == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"GBufferTargets",
-							std::to_string(Key),
-							"One or more GBuffer attachment creations returned null.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		const bool bResolved = Targets != nullptr;
-		auto GetRetainedBytes = [this]() {
-			return State->TargetsBySize.GetRetainedPayloadWeight(
-				[](uint64 SizeKey, const FTargets&) {
-					return CalculateTargetBytes(
-						static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
-				});
-		};
-		while (State->TargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedBytes)
-		{
-			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
-		}
-		if (!bResolved) return nullptr;
-		auto* RetainedEntry = State->TargetsBySize.Find(Key);
-		return RetainedEntry != nullptr
-			? RetainedEntry->Slot.GetPayload()
-			: nullptr;
+		const std::array Descriptions{
+			MakeDesc("GBufferMaterial", EPixelFormat::RGBA8_UNORM),
+			MakeDesc("GBufferNormals", EPixelFormat::RGBA8_UNORM),
+			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM),
+			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT)};
+		auto Lease = TransientTargets.AcquireBundle_RenderThread(
+			"GBuffer", Descriptions, MaximumRetainedBytes);
+		if (!Lease) return nullptr;
+		State->CurrentTargets = {
+			.Material = Lease->Textures[0],
+			.Normals = Lease->Textures[1],
+			.Surface = Lease->Textures[2],
+			.Emissive = Lease->Textures[3]};
+		return &State->CurrentTargets;
 	}
-
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> FPipeline*
 	{
@@ -561,7 +515,7 @@ namespace Durin
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->TargetsBySize.Reset();
+		State->CurrentTargets = {};
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
 	}
