@@ -321,7 +321,7 @@ gates passed.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
 - [Volumetric cloud temporal reconstruction](../../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)

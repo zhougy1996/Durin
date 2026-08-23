@@ -401,7 +401,7 @@ for the P2 scene/component plan.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Volumetric cloud spatial rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
 - [Synchronous Compute Pipelines](../../../Runtime/Rendering/SynchronousComputePipelines.md)
 - [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)

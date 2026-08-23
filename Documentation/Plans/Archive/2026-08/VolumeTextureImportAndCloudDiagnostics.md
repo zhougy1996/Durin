@@ -308,7 +308,7 @@ is not eligible to render.
 
 ## Related Documentation
 
-- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
 - [Volumetric cloud scene authoring](../../../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
 - [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)

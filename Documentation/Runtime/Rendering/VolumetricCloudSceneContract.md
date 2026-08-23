@@ -80,4 +80,4 @@ cloud panels and previews remain deferred.
 
 - [Volumetric cloud spatial rendering](VolumetricCloudSpatialRendering.md)
 - [Volume textures](../Assets/VolumeTextures.md)
-- [Volumetric Cloud Rendering roadmap](../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)

@@ -147,4 +147,4 @@ diagnostic; the bounded gate permits at most 5%/1%/0.5% of RGB components above
 - [Volumetric cloud spatial rendering](VolumetricCloudSpatialRendering.md)
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
 - [Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md)
-- [Volumetric Cloud Rendering roadmap](../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)

@@ -115,4 +115,4 @@ fallback, retry, invalidation, release, both executors, and the named 4K gate.
 - [Volumetric cloud scene contract](VolumetricCloudSceneContract.md)
 - [Deferred directional lighting](DeferredDirectionalLighting.md)
 - [Directional shadows](DirectionalShadows.md)
-- [Volumetric Cloud Rendering roadmap](../../Roadmaps/VolumetricCloudRendering.md)
+- [Volumetric Cloud Rendering roadmap](../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
