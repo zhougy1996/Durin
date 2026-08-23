@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "Renderers/ViewRenderCounters.h"
+#include "Renderers/ViewRenderTelemetry.h"
 
 #include "SceneView.h"
 
@@ -44,6 +44,6 @@ namespace Durin
 	RENDERER_API auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderCounters& Counters
+		FViewRenderTelemetry& Telemetry
 	) -> FSceneVisibilityResult;
 } // namespace Durin

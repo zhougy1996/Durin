@@ -44,7 +44,7 @@ namespace Durin
 	auto PrepareLightView_RenderThread(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderCounters& Counters) -> FPreparedLightView
+		FViewRenderTelemetry& Telemetry) -> FPreparedLightView
 	{
 		FPreparedLightView Result;
 		std::vector<FPreparedDirectionalLight> Directional;
@@ -55,12 +55,12 @@ namespace Durin
 
 		for (const FLightSceneInfo* Info : Scene.GetDirectionalLightSceneInfos())
 		{
-			++Counters.Lighting.SubmittedDirectionalLights;
+			++Telemetry.Lighting.SubmittedDirectionalLights;
 			const auto& Data = Info->GetDirectionalProxy().GetData();
 			if (!IsValidDirection(Data.Direction) || !IsValidColor(Data.Color)
 				|| !IsEnabled(Data.Intensity))
 			{
-				++Counters.Lighting.RejectedDirectionalLights;
+				++Telemetry.Lighting.RejectedDirectionalLights;
 				continue;
 			}
 			auto Copy = Data;
@@ -74,7 +74,7 @@ namespace Durin
 			Copy.Kind = Info.GetKind();
 			if (Info.GetKind() == ELightSceneProxyKind::Point)
 			{
-				++Counters.Lighting.SubmittedPointLights;
+				++Telemetry.Lighting.SubmittedPointLights;
 				const auto& Data = Info.GetPointProxy().GetData();
 				Copy.Position = Data.Position;
 				Copy.Color = Data.Color;
@@ -83,7 +83,7 @@ namespace Durin
 			}
 			else
 			{
-				++Counters.Lighting.SubmittedSpotLights;
+				++Telemetry.Lighting.SubmittedSpotLights;
 				const auto& Data = Info.GetSpotProxy().GetData();
 				Copy.Position = Data.Position;
 				Copy.Direction = Data.Direction;
@@ -106,15 +106,15 @@ namespace Durin
 			if (!bValid)
 			{
 				if (Copy.Kind == ELightSceneProxyKind::Point)
-					++Counters.Lighting.RejectedPointLights;
-				else ++Counters.Lighting.RejectedSpotLights;
+					++Telemetry.Lighting.RejectedPointLights;
+				else ++Telemetry.Lighting.RejectedSpotLights;
 				return;
 			}
 			if (!IsLocalVisible(Info, View, Frustum))
 			{
 				if (Copy.Kind == ELightSceneProxyKind::Point)
-					++Counters.Lighting.FrustumCulledPointLights;
-				else ++Counters.Lighting.FrustumCulledSpotLights;
+					++Telemetry.Lighting.FrustumCulledPointLights;
+				else ++Telemetry.Lighting.FrustumCulledSpotLights;
 				return;
 			}
 			if (Copy.Kind == ELightSceneProxyKind::Spot)
@@ -129,26 +129,26 @@ namespace Durin
 
 		const size_t DirectionalCount = std::min<size_t>(Directional.size(), MaxPreparedDirectionalLights);
 		Result.Directional.assign(Directional.begin(), Directional.begin() + DirectionalCount);
-		Counters.Lighting.SelectedDirectionalLights = DirectionalCount;
-		Counters.Lighting.OverflowDirectionalLights = Directional.size() - DirectionalCount;
+		Telemetry.Lighting.SelectedDirectionalLights = DirectionalCount;
+		Telemetry.Lighting.OverflowDirectionalLights = Directional.size() - DirectionalCount;
 		const size_t LocalCount = std::min<size_t>(Local.size(), MaxPreparedLocalLights);
 		Result.Local.assign(Local.begin(), Local.begin() + LocalCount);
 		for (size_t Index = 0; Index < Local.size(); ++Index)
 		{
 			const bool bSelected = Index < LocalCount;
 			if (Local[Index].Kind == ELightSceneProxyKind::Point)
-				(bSelected ? Counters.Lighting.SelectedPointLights : Counters.Lighting.OverflowPointLights)++;
-			else (bSelected ? Counters.Lighting.SelectedSpotLights : Counters.Lighting.OverflowSpotLights)++;
+				(bSelected ? Telemetry.Lighting.SelectedPointLights : Telemetry.Lighting.OverflowPointLights)++;
+			else (bSelected ? Telemetry.Lighting.SelectedSpotLights : Telemetry.Lighting.OverflowSpotLights)++;
 		}
-		Counters.Lighting.PackedLightBytes = sizeof(FForwardLightingUniform);
-		check(Counters.Lighting.SubmittedDirectionalLights == Counters.Lighting.RejectedDirectionalLights
-			+ Counters.Lighting.SelectedDirectionalLights + Counters.Lighting.OverflowDirectionalLights);
-		check(Counters.Lighting.SubmittedPointLights == Counters.Lighting.RejectedPointLights
-			+ Counters.Lighting.FrustumCulledPointLights + Counters.Lighting.SelectedPointLights
-			+ Counters.Lighting.OverflowPointLights);
-		check(Counters.Lighting.SubmittedSpotLights == Counters.Lighting.RejectedSpotLights
-			+ Counters.Lighting.FrustumCulledSpotLights + Counters.Lighting.SelectedSpotLights
-			+ Counters.Lighting.OverflowSpotLights);
+		Telemetry.Lighting.PackedLightBytes = sizeof(FForwardLightingUniform);
+		check(Telemetry.Lighting.SubmittedDirectionalLights == Telemetry.Lighting.RejectedDirectionalLights
+			+ Telemetry.Lighting.SelectedDirectionalLights + Telemetry.Lighting.OverflowDirectionalLights);
+		check(Telemetry.Lighting.SubmittedPointLights == Telemetry.Lighting.RejectedPointLights
+			+ Telemetry.Lighting.FrustumCulledPointLights + Telemetry.Lighting.SelectedPointLights
+			+ Telemetry.Lighting.OverflowPointLights);
+		check(Telemetry.Lighting.SubmittedSpotLights == Telemetry.Lighting.RejectedSpotLights
+			+ Telemetry.Lighting.FrustumCulledSpotLights + Telemetry.Lighting.SelectedSpotLights
+			+ Telemetry.Lighting.OverflowSpotLights);
 		return Result;
 	}
 

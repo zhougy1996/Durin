@@ -39,31 +39,31 @@
 
 namespace
 {
-	std::vector<Durin::FViewRenderCounters>* GSceneImportCounterSnapshots = nullptr;
+	std::vector<Durin::FViewRenderTelemetry>* GSceneImportTelemetrySnapshots = nullptr;
 
-	auto CaptureSceneImportCounterSnapshot(
-		const Durin::FViewRenderCounters& Counters) -> void
+	auto CaptureSceneImportTelemetrySnapshot(
+		const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
-		if (GSceneImportCounterSnapshots != nullptr)
+		if (GSceneImportTelemetrySnapshots != nullptr)
 		{
-			GSceneImportCounterSnapshots->push_back(Counters);
+			GSceneImportTelemetrySnapshots->push_back(Telemetry);
 		}
 	}
 
-	class FScopedSceneImportCounterSink final
+	class FScopedSceneImportTelemetrySink final
 	{
 	public:
-		explicit FScopedSceneImportCounterSink(
-			std::vector<Durin::FViewRenderCounters>& Snapshots)
+		explicit FScopedSceneImportTelemetrySink(
+			std::vector<Durin::FViewRenderTelemetry>& Snapshots)
 		{
-			GSceneImportCounterSnapshots = &Snapshots;
-			Durin::SetViewRenderCounterSink(CaptureSceneImportCounterSnapshot);
+			GSceneImportTelemetrySnapshots = &Snapshots;
+			Durin::SetViewRenderTelemetrySink(CaptureSceneImportTelemetrySnapshot);
 		}
 
-		~FScopedSceneImportCounterSink()
+		~FScopedSceneImportTelemetrySink()
 		{
-			Durin::SetViewRenderCounterSink(nullptr);
-			GSceneImportCounterSnapshots = nullptr;
+			Durin::SetViewRenderTelemetrySink(nullptr);
+			GSceneImportTelemetrySnapshots = nullptr;
 		}
 	};
 
@@ -633,8 +633,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	{
 		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
-		std::vector<Durin::FViewRenderCounters> CounterSnapshots;
-		FScopedSceneImportCounterSink CounterSink(CounterSnapshots);
+		std::vector<Durin::FViewRenderTelemetry> TelemetrySnapshots;
+		FScopedSceneImportTelemetrySink TelemetrySink(TelemetrySnapshots);
 		auto Capture = [&](
 			Durin::DStaticMesh* Mesh,
 			Durin::DMaterialInterface* Material,
@@ -694,31 +694,31 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 				Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedResourcePixels.empty());
 		// Failed views publish neither public statistics nor a private snapshot.
-		ASSERT_EQ(CounterSnapshots.size(), 5u);
+		ASSERT_EQ(TelemetrySnapshots.size(), 5u);
 		const std::array<size_t, 5> ExpectedSections{1u, 1u, 1u, 1u, 4u};
 		for (size_t Index = 0; Index < ExpectedSections.size(); ++Index)
 		{
-			const Durin::FViewRenderCounters& Counters =
-				CounterSnapshots[Index];
-			EXPECT_EQ(Counters.StaticMesh.VisibleStaticMeshCandidates, 1u);
-			EXPECT_EQ(Counters.StaticMesh.PreparedStaticMeshPrimitives, 1u);
+			const Durin::FViewRenderTelemetry& Telemetry =
+				TelemetrySnapshots[Index];
+			EXPECT_EQ(Telemetry.StaticMesh.VisibleStaticMeshCandidates, 1u);
+			EXPECT_EQ(Telemetry.StaticMesh.PreparedStaticMeshPrimitives, 1u);
 			EXPECT_EQ(
-				Counters.StaticMesh.PreparedStaticMeshSections, ExpectedSections[Index]);
+				Telemetry.StaticMesh.PreparedStaticMeshSections, ExpectedSections[Index]);
 			EXPECT_EQ(
-				Counters.StaticMesh.OpaqueStaticMeshSections, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.StaticMesh.OpaqueStaticMeshStateGroups, 1u);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceAttemptedDraws,
+				Telemetry.StaticMesh.OpaqueStaticMeshSections, ExpectedSections[Index]);
+			EXPECT_EQ(Telemetry.StaticMesh.OpaqueStaticMeshStateGroups, 1u);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshResourceAttemptedDraws,
 				ExpectedSections[Index]);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceSuccessfulDraws,
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshResourceSuccessfulDraws,
 				ExpectedSections[Index]);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshResourceRejectedDraws, 0u);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshAttemptedDraws, 0u);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshSuccessfulDraws, 0u);
-			EXPECT_EQ(Counters.StaticMesh.StaticMeshRejectedDraws, 0u);
-			EXPECT_EQ(Counters.GBuffer.GBufferAttemptedDraws, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.GBuffer.GBufferSuccessfulDraws, ExpectedSections[Index]);
-			EXPECT_EQ(Counters.GBuffer.GBufferRejectedDraws, 0u);
-			EXPECT_EQ(Counters.Deferred.HybridDeferredEnabledViews, 1u);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshResourceRejectedDraws, 0u);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshAttemptedDraws, 0u);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshRejectedDraws, 0u);
+			EXPECT_EQ(Telemetry.GBuffer.GBufferAttemptedDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Telemetry.GBuffer.GBufferRejectedDraws, 0u);
+			EXPECT_EQ(Telemetry.Deferred.HybridDeferredEnabledViews, 1u);
 		}
 		struct FEndSceneImportFrame
 		{

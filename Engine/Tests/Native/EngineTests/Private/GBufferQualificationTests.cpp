@@ -71,7 +71,7 @@ namespace
 	std::vector<std::byte>* GGroundTruthAmbientOcclusionPixels = nullptr;
 	std::vector<std::byte>* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
 	std::vector<std::byte>* GSpecularAASurfacePixels = nullptr;
-	Durin::FViewRenderCounters GLastCounters;
+	Durin::FViewRenderTelemetry GLastTelemetry;
 
 	auto ReadColorTexture(
 		Durin::FRHICommandListImmediate& CommandList,
@@ -242,9 +242,9 @@ namespace
 		));
 	}
 
-	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
+	auto CaptureTelemetry(const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
-		GLastCounters = Counters;
+		GLastTelemetry = Telemetry;
 	}
 
 	auto CaptureSpecularAAGBuffer(
@@ -438,7 +438,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::FRendererModule Renderer;
 	Durin::FModuleTestHarness RendererLifecycle("GBufferQualificationTest");
 	RendererLifecycle.Start(Renderer);
-	Durin::SetViewRenderCounterSink(CaptureCounters);
+	Durin::SetViewRenderTelemetrySink(CaptureTelemetry);
 
 	auto StaticQuad = MakeStaticQuad();
 	auto SpecularAAQuad = MakeSpecularAAQuad();
@@ -911,26 +911,26 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_LE(DeferredP95, 650'000u);
 	EXPECT_LE(CombinedMedian, 800'000u);
 	EXPECT_LE(CombinedP95, 1'000'000u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferAttemptedDraws, 4u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSuccessfulDraws, 4u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferRejectedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkippedDraws, 0u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.Lighting.SelectedDirectionalLights, 1u);
-	EXPECT_EQ(GLastCounters.Lighting.SelectedPointLights, 2u);
-	EXPECT_EQ(GLastCounters.Lighting.SelectedSpotLights, 2u);
-	EXPECT_EQ(GLastCounters.Lighting.OverflowPointLights, 0u);
-	EXPECT_EQ(GLastCounters.Lighting.OverflowSpotLights, 0u);
-	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
-	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalPassFailures, 0u);
-	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalOutputBytes, Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(TimingWidth, TimingHeight));
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferAttemptedDraws, 4u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSuccessfulDraws, 4u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSkippedDraws, 0u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.Lighting.SelectedDirectionalLights, 1u);
+	EXPECT_EQ(GLastTelemetry.Lighting.SelectedPointLights, 2u);
+	EXPECT_EQ(GLastTelemetry.Lighting.SelectedSpotLights, 2u);
+	EXPECT_EQ(GLastTelemetry.Lighting.OverflowPointLights, 0u);
+	EXPECT_EQ(GLastTelemetry.Lighting.OverflowSpotLights, 0u);
+	EXPECT_EQ(GLastTelemetry.Deferred.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.Deferred.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GLastTelemetry.Deferred.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(GLastTelemetry.Deferred.DeferredDirectionalOutputBytes, Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(TimingWidth, TimingHeight));
 	const uint64 AttachmentBytes =
 		Durin::FGBufferRenderer::CalculateTargetBytes(TimingWidth, TimingHeight);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferAttachmentBytes, AttachmentBytes);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferAttachmentBytes, AttachmentBytes);
 	EXPECT_LE(AttachmentBytes, Durin::FGBufferRenderer::MaximumRetainedBytes);
 	std::cout << "Deferred lighting qualification: adapter=NVIDIA GeForce RTX 3090, "
 			  << "resolution=1920x1080, warmup=" << WarmupFrames
@@ -943,7 +943,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			  << ", combined_p95_ns=" << CombinedP95
 			  << ", gbuffer_bytes=" << AttachmentBytes
 			  << ", deferred_bytes="
-			  << GLastCounters.Deferred.DeferredDirectionalOutputBytes
+			  << GLastTelemetry.Deferred.DeferredDirectionalOutputBytes
 			  << ", active_route_bytes="
 			  << 107'827'200u << "\n";
 	GBufferQueries.clear();
@@ -1059,14 +1059,14 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_GT(AmbientOcclusionFilterMedian, 0u);
 	EXPECT_LE(AmbientOcclusionFilterMedian, 250'000u);
 	EXPECT_LE(AmbientOcclusionCombinedMedian, 850'000u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews, 0u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionRawPassFailures, 0u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionFilterPassFailures, 0u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionResolvePassFailures, 0u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionFullResolutionViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 4'147'200u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews, 0u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionRawPassFailures, 0u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionFilterPassFailures, 0u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionResolvePassFailures, 0u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionFullResolutionViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 4'147'200u);
 	std::cout << "GTAO_RAW_QUALIFICATION gpu=NVIDIA_GeForce_RTX_3090"
 			  << ",driver=591.86,vulkan=1.4.325"
 			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
@@ -1079,7 +1079,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			  << ",combined_median_ns=" << AmbientOcclusionCombinedMedian
 			  << ",combined_p95_ns=" << AmbientOcclusionCombinedP95
 			  << ",active_bytes="
-			  << GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes << '\n';
+			  << GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes << '\n';
 	AmbientOcclusionQueries.clear();
 	AmbientOcclusionFilterQueries.clear();
 
@@ -1190,7 +1190,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_GE(FilteredPixelAt(240, 45), 250u);
 	EXPECT_GE(FilteredPixelAt(80, 135), 250u);
 	EXPECT_GE(FilteredPixelAt(240, 135), 250u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 2u * CaptureWidth * CaptureHeight);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 2u * CaptureWidth * CaptureHeight);
 
 	Durin::FMatrix RaisedTransform = Durin::Math::TranslationMatrix(
 		Durin::FVector3{-0.25, -0.25, 0.25}
@@ -1491,7 +1491,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	// Capture nested production intervals from the same frames before the
 	// feature-isolation sweeps change GPU clock and thermal state.
 	ProfileProductionRoute();
-	const Durin::FViewRenderCounters ProductionRouteCounters = GLastCounters;
+	const Durin::FViewRenderTelemetry ProductionRouteTelemetry = GLastTelemetry;
 	bEnableProductionAmbientOcclusion = false;
 	ProfileProductionInterval(
 		ProductionDeferredQueries, ProductionDeferredWithoutAODurations,
@@ -1535,8 +1535,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		ProductionComputeContactDurations, GContactTimingQueries,
 		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
 		CaptureContactTiming);
-	const Durin::FViewRenderCounters ProductionComputeContactCounters =
-		GLastCounters;
+	const Durin::FViewRenderTelemetry ProductionComputeContactTelemetry =
+		GLastTelemetry;
 	bForceProductionFragmentContact = true;
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
@@ -1544,8 +1544,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		ProductionFragmentContactDurations, GContactTimingQueries,
 		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
 		CaptureContactTiming);
-	const Durin::FViewRenderCounters ProductionFragmentContactCounters =
-		GLastCounters;
+	const Durin::FViewRenderTelemetry ProductionFragmentContactTelemetry =
+		GLastTelemetry;
 	ProductionWidth = 1919;
 	ProductionHeight = 1079;
 	ProductionViewportX = 137;
@@ -1559,8 +1559,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		ConstrainedComputeContactDurations, GContactTimingQueries,
 		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
 		CaptureContactTiming);
-	const Durin::FViewRenderCounters ConstrainedComputeContactCounters =
-		GLastCounters;
+	const Durin::FViewRenderTelemetry ConstrainedComputeContactTelemetry =
+		GLastTelemetry;
 	bForceProductionFragmentContact = true;
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
@@ -1568,8 +1568,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		ConstrainedFragmentContactDurations, GContactTimingQueries,
 		Durin::FContactShadowVisibilityRenderer::SetTimingQuerySink,
 		CaptureContactTiming);
-	const Durin::FViewRenderCounters ConstrainedFragmentContactCounters =
-		GLastCounters;
+	const Durin::FViewRenderTelemetry ConstrainedFragmentContactTelemetry =
+		GLastTelemetry;
 	ProductionWidth = TimingWidth;
 	ProductionHeight = TimingHeight;
 	ProductionViewportX = 0;
@@ -1711,14 +1711,14 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		ConstrainedFragmentContactMedian + 300'000u);
 	EXPECT_LE(ConstrainedComputeContactMedian * 100u,
 		ConstrainedFragmentContactMedian * 110u);
-	EXPECT_EQ(ProductionComputeContactCounters.ContactShadow.ContactShadowDispatches, 1u);
-	EXPECT_EQ(ProductionComputeContactCounters.ContactShadow.ContactShadowDraws, 0u);
-	EXPECT_EQ(ProductionFragmentContactCounters.ContactShadow.ContactShadowDispatches, 0u);
-	EXPECT_EQ(ProductionFragmentContactCounters.ContactShadow.ContactShadowDraws, 1u);
-	EXPECT_EQ(ConstrainedComputeContactCounters.ContactShadow.ContactShadowDispatches, 1u);
-	EXPECT_EQ(ConstrainedComputeContactCounters.ContactShadow.ContactShadowDraws, 0u);
-	EXPECT_EQ(ConstrainedFragmentContactCounters.ContactShadow.ContactShadowDispatches, 0u);
-	EXPECT_EQ(ConstrainedFragmentContactCounters.ContactShadow.ContactShadowDraws, 1u);
+	EXPECT_EQ(ProductionComputeContactTelemetry.ContactShadow.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ProductionComputeContactTelemetry.ContactShadow.ContactShadowDraws, 0u);
+	EXPECT_EQ(ProductionFragmentContactTelemetry.ContactShadow.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ProductionFragmentContactTelemetry.ContactShadow.ContactShadowDraws, 1u);
+	EXPECT_EQ(ConstrainedComputeContactTelemetry.ContactShadow.ContactShadowDispatches, 1u);
+	EXPECT_EQ(ConstrainedComputeContactTelemetry.ContactShadow.ContactShadowDraws, 0u);
+	EXPECT_EQ(ConstrainedFragmentContactTelemetry.ContactShadow.ContactShadowDispatches, 0u);
+	EXPECT_EQ(ConstrainedFragmentContactTelemetry.ContactShadow.ContactShadowDraws, 1u);
 	// Isolated feature sweeps retain p95 as characterization output only. Their
 	// batches run under validation and do not share a frame-level clock or
 	// scheduling reference, so cross-batch tails are not regression evidence.
@@ -1771,28 +1771,28 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_EQ(ProductionActiveBytes, 69'984'000u);
 	EXPECT_EQ(ProductionActiveBytes + ShadowBytes, 120'315'648u);
 	EXPECT_EQ(ProductionRetainedCeiling, 256u * 1024u * 1024u);
-	EXPECT_EQ(ProductionRouteCounters.Deferred.DeferredDirectionalOutputBytes, 0u);
+	EXPECT_EQ(ProductionRouteTelemetry.Deferred.DeferredDirectionalOutputBytes, 0u);
 	EXPECT_EQ(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
 	EXPECT_EQ(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
 	EXPECT_EQ(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionHalfResolutionViews,
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionHalfResolutionViews,
 		1u);
 	EXPECT_EQ(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews, 0u);
-	EXPECT_EQ(ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews, 0u);
+	EXPECT_EQ(ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
 		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
 			TimingWidth, TimingHeight,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution));
 	EXPECT_GE(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes,
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes);
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes,
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes);
 	EXPECT_LE(
-		ProductionRouteCounters.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes,
+		ProductionRouteTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes,
 		Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes);
-	EXPECT_EQ(ProductionRouteCounters.VolumetricCloud.VolumetricCloudEnabledViews, 0u);
-	EXPECT_EQ(ProductionRouteCounters.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
+	EXPECT_EQ(ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 0u);
+	EXPECT_EQ(ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
 	std::cout << "HYBRID_PRODUCTION_QUALIFICATION"
 			  << " gpu=NVIDIA_GeForce_RTX_3090,driver=591.86,vulkan=1.4.325"
 			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
@@ -1815,7 +1815,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			  << ProductionVolumetricCloudMedian
 			  << ",volumetric_cloud_p95_ns=" << ProductionVolumetricCloudP95
 			  << ",volumetric_cloud_enabled_views="
-			  << ProductionRouteCounters.VolumetricCloud.VolumetricCloudEnabledViews
+			  << ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudEnabledViews
 			  << ",sorted_translucency_median_ns="
 			  << ProductionSortedTranslucencyMedian
 			  << ",sorted_translucency_p95_ns="
@@ -1886,15 +1886,15 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		}
 	);
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GLastCounters.Deferred.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.Deferred.HybridDeferredUnavailableViews, 0u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
+	EXPECT_EQ(GLastTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.Deferred.HybridDeferredUnavailableViews, 0u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
 		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
 			320, 180,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution));
@@ -1924,10 +1924,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, Options), Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			EXPECT_EQ(
-				GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 0u
+				GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 0u
 			);
 			EXPECT_EQ(
-				GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 0u
+				GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 0u
 			);
 
 			View.Settings.AmbientOcclusion.bEnabled = true;
@@ -1947,11 +1947,11 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		}
 	);
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionDebugViews, 1u);
-	EXPECT_EQ(GLastCounters.Deferred.DeferredDirectionalDebugViews, 0u);
-	EXPECT_EQ(GLastCounters.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionDebugViews, 1u);
+	EXPECT_EQ(GLastTelemetry.Deferred.DeferredDirectionalDebugViews, 0u);
+	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,
 		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
 			384, 216,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution));
@@ -1999,8 +1999,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		}
 	);
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(GLastCounters.Deferred.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.GBuffer.GBufferSuccessfulDraws, 4u);
+	EXPECT_EQ(GLastTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSuccessfulDraws, 4u);
 	GBufferQueries.clear();
 	DeferredQueries.clear();
 
@@ -2021,7 +2021,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	);
 	Durin::FlushRenderingCommands();
 	RendererLifecycle.Shutdown();
-	Durin::SetViewRenderCounterSink(nullptr);
+	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 }

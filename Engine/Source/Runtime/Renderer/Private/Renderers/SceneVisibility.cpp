@@ -10,9 +10,9 @@ namespace Durin
 	auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderCounters& Counters) -> FSceneVisibilityResult
+		FViewRenderTelemetry& Telemetry) -> FSceneVisibilityResult
 	{
-		Counters.Visibility = {};
+		Telemetry.Visibility = {};
 		FSceneVisibilityResult Result;
 		const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
 		Result.PrimitiveRecords.reserve(SceneInfos.size());
@@ -38,7 +38,7 @@ namespace Durin
 			const bool bFirstClassification =
 				ClassifiedIds.emplace(SceneInfo->GetId()).second;
 			check(bFirstClassification);
-			++Counters.Visibility.SubmittedPrimitives;
+			++Telemetry.Visibility.SubmittedPrimitives;
 
 			EPrimitiveVisibilityClassification Classification =
 				EPrimitiveVisibilityClassification::Invalid;
@@ -46,7 +46,7 @@ namespace Durin
 			if (!SceneInfo->IsVisible())
 			{
 				Classification = EPrimitiveVisibilityClassification::Hidden;
-				++Counters.Visibility.HiddenPrimitives;
+				++Telemetry.Visibility.HiddenPrimitives;
 			}
 			else if (!bCullingEnabled)
 			{
@@ -59,7 +59,7 @@ namespace Durin
 				Classification =
 					EPrimitiveVisibilityClassification::VisibleInvalidViewFallback;
 				bVisible = true;
-				++Counters.Visibility.InvalidViewFallbacks;
+				++Telemetry.Visibility.InvalidViewFallbacks;
 			}
 			else
 			{
@@ -78,13 +78,13 @@ namespace Durin
 				case EViewBoundsClassification::Outside:
 					Classification =
 						EPrimitiveVisibilityClassification::FrustumCulled;
-					++Counters.Visibility.FrustumCulledPrimitives;
+					++Telemetry.Visibility.FrustumCulledPrimitives;
 					break;
 				case EViewBoundsClassification::InvalidBounds:
 					Classification = EPrimitiveVisibilityClassification::
 						VisibleInvalidBoundsFallback;
 					bVisible = true;
-					++Counters.Visibility.InvalidBoundsFallbacks;
+					++Telemetry.Visibility.InvalidBoundsFallbacks;
 					break;
 				}
 			}
@@ -98,7 +98,7 @@ namespace Durin
 			{
 				continue;
 			}
-			++Counters.Visibility.VisiblePrimitives;
+			++Telemetry.Visibility.VisiblePrimitives;
 			switch (SceneInfo->GetKind())
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh:
@@ -106,25 +106,25 @@ namespace Durin
 				break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh:
 				Result.SkeletalMeshSceneInfos.push_back(SceneInfo);
-				++Counters.SkeletalMesh.VisibleSkeletalMeshCandidates;
+				++Telemetry.SkeletalMesh.VisibleSkeletalMeshCandidates;
 				break;
 			case EPrimitiveSceneProxyKind::Terrain:
 				Result.TerrainSceneInfos.push_back(SceneInfo);
-				++Counters.Terrain.VisibleTerrainCandidates;
+				++Telemetry.Terrain.VisibleTerrainCandidates;
 				break;
 			case EPrimitiveSceneProxyKind::SplineMesh:
 				Result.SplineMeshSceneInfos.push_back(SceneInfo);
-				++Counters.SplineMesh.VisibleSplineMeshCandidates;
+				++Telemetry.SplineMesh.VisibleSplineMeshCandidates;
 				break;
 			}
 		}
 
-		const bool bCountersConserved = Counters.Visibility.SubmittedPrimitives
-			== Counters.Visibility.HiddenPrimitives + Counters.Visibility.FrustumCulledPrimitives
-				+ Counters.Visibility.VisiblePrimitives;
+		const bool bCountersConserved = Telemetry.Visibility.SubmittedPrimitives
+			== Telemetry.Visibility.HiddenPrimitives + Telemetry.Visibility.FrustumCulledPrimitives
+				+ Telemetry.Visibility.VisiblePrimitives;
 		check(bCountersConserved);
 		const bool bRecordCountMatches =
-			Result.PrimitiveRecords.size() == Counters.Visibility.SubmittedPrimitives;
+			Result.PrimitiveRecords.size() == Telemetry.Visibility.SubmittedPrimitives;
 		check(bRecordCountMatches);
 		return Result;
 	}

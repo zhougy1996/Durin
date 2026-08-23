@@ -12,7 +12,7 @@ namespace Durin
 	struct FPreparedDirectionalShadowView;
 	class FScene;
 	struct FSceneView;
-	struct FViewRenderCounters;
+	struct FViewRenderTelemetry;
 
 	inline constexpr uint32 MaxPreparedDirectionalLights = 1;
 	inline constexpr uint32 MaxPreparedLocalLights = 4;
@@ -112,7 +112,7 @@ namespace Durin
 	RENDERER_API auto PrepareLightView_RenderThread(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderCounters& Counters) -> FPreparedLightView;
+		FViewRenderTelemetry& Telemetry) -> FPreparedLightView;
 	RENDERER_API auto BuildForwardLightingUniform(
 		const FPreparedLightView& Lights,
 		const FSceneView& View,

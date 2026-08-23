@@ -13,7 +13,7 @@
 
 namespace Durin
 {
-	struct FVisibilityRenderCounters
+	struct FVisibilityRenderTelemetry
 	{
 		size_t SubmittedPrimitives = 0;
 		size_t HiddenPrimitives = 0;
@@ -24,7 +24,7 @@ namespace Durin
 	};
 
 	// Reconciles one cascade's independent caster, draw, and fitting outcomes.
-	struct FDirectionalShadowCascadeCounters
+	struct FDirectionalShadowCascadeTelemetry
 	{
 		double NearDepth = 0.0;
 		double FarDepth = 0.0;
@@ -47,7 +47,7 @@ namespace Durin
 		size_t GuardTexels = 0;
 	};
 
-	struct FStaticMeshRenderCounters
+	struct FStaticMeshRenderTelemetry
 	{
 		size_t VisibleStaticMeshCandidates = 0;
 		size_t PreparedStaticMeshPrimitives = 0;
@@ -80,7 +80,7 @@ namespace Durin
 		size_t StaticMeshRejectedDraws = 0;
 	};
 
-	struct FSplineMeshRenderCounters
+	struct FSplineMeshRenderTelemetry
 	{
 		size_t VisibleSplineMeshCandidates = 0;
 		size_t PreparedSplineMeshPrimitives = 0;
@@ -91,7 +91,7 @@ namespace Durin
 		size_t AcceptedSplineMeshDynamicUpdates = 0;
 	};
 
-	struct FSkeletalMeshRenderCounters
+	struct FSkeletalMeshRenderTelemetry
 	{
 		size_t VisibleSkeletalMeshCandidates = 0;
 		size_t PreparedSkeletalMeshPrimitives = 0;
@@ -124,7 +124,7 @@ namespace Durin
 		size_t UploadedSkeletalPaletteBytes = 0;
 	};
 
-	struct FTerrainRenderCounters
+	struct FTerrainRenderTelemetry
 	{
 		size_t VisibleTerrainCandidates = 0;
 		size_t TerrainPatchCandidates = 0;
@@ -185,7 +185,7 @@ namespace Durin
 		size_t TerrainPipelineReuses = 0;
 	};
 
-	struct FLightingRenderCounters
+	struct FLightingRenderTelemetry
 	{
 		size_t SubmittedDirectionalLights = 0;
 		size_t RejectedDirectionalLights = 0;
@@ -204,13 +204,13 @@ namespace Durin
 		size_t PackedLightBytes = 0;
 	};
 
-	struct FDirectionalShadowRenderCounters
+	struct FDirectionalShadowRenderTelemetry
 	{
 		size_t ShadowSelectedLights = 0;
 		EDirectionalShadowCandidate ShadowCandidate =
 			EDirectionalShadowCandidate::SingleMap;
 		size_t ShadowCascadeCount = 0;
-		std::array<FDirectionalShadowCascadeCounters, 3> ShadowCascades{};
+		std::array<FDirectionalShadowCascadeTelemetry, 3> ShadowCascades{};
 		size_t ShadowValidReceiverViews = 0;
 		size_t ShadowInvalidReceiverViews = 0;
 		size_t ShadowSubmittedCasters = 0;
@@ -275,7 +275,7 @@ namespace Durin
 		size_t ShadowBiasClamps = 0;
 	};
 
-	struct FContactShadowRenderCounters
+	struct FContactShadowRenderTelemetry
 	{
 		size_t ContactShadowEnabledViews = 0;
 		size_t ContactShadowPassFailures = 0;
@@ -289,7 +289,7 @@ namespace Durin
 		std::array<size_t, 8> ContactShadowRouteReasons{};
 	};
 
-	struct FGBufferRenderCounters
+	struct FGBufferRenderTelemetry
 	{
 		size_t GBufferEnabledViews = 0;
 		size_t GBufferUnavailableViews = 0;
@@ -318,7 +318,7 @@ namespace Durin
 		size_t GBufferTerrainSkippedDraws = 0;
 	};
 
-	struct FDeferredRenderCounters
+	struct FDeferredRenderTelemetry
 	{
 		size_t DeferredDirectionalEnabledViews = 0;
 		size_t DeferredDirectionalUnavailableViews = 0;
@@ -329,7 +329,7 @@ namespace Durin
 		size_t HybridDeferredUnavailableViews = 0;
 	};
 
-	struct FAmbientOcclusionRenderCounters
+	struct FAmbientOcclusionRenderTelemetry
 	{
 		size_t GroundTruthAmbientOcclusionAttemptedViews = 0;
 		size_t GroundTruthAmbientOcclusionEnabledViews = 0;
@@ -344,7 +344,7 @@ namespace Durin
 		size_t GroundTruthAmbientOcclusionRetainedBytes = 0;
 	};
 
-	struct FVolumetricCloudRenderCounters
+	struct FVolumetricCloudRenderTelemetry
 	{
 		size_t VolumetricCloudEnabledViews = 0;
 		size_t VolumetricCloudComputeViews = 0;
@@ -384,33 +384,33 @@ namespace Durin
 			VolumetricCloudRouteReasons{};
 	};
 
-	struct FViewRenderCounters
+	struct FViewRenderTelemetry
 	{
-		FVisibilityRenderCounters Visibility;
-		FStaticMeshRenderCounters StaticMesh;
-		FSplineMeshRenderCounters SplineMesh;
-		FSkeletalMeshRenderCounters SkeletalMesh;
-		FTerrainRenderCounters Terrain;
-		FLightingRenderCounters Lighting;
-		FDirectionalShadowRenderCounters DirectionalShadow;
-		FContactShadowRenderCounters ContactShadow;
-		FGBufferRenderCounters GBuffer;
-		FDeferredRenderCounters Deferred;
-		FAmbientOcclusionRenderCounters AmbientOcclusion;
-		FVolumetricCloudRenderCounters VolumetricCloud;
+		FVisibilityRenderTelemetry Visibility;
+		FStaticMeshRenderTelemetry StaticMesh;
+		FSplineMeshRenderTelemetry SplineMesh;
+		FSkeletalMeshRenderTelemetry SkeletalMesh;
+		FTerrainRenderTelemetry Terrain;
+		FLightingRenderTelemetry Lighting;
+		FDirectionalShadowRenderTelemetry DirectionalShadow;
+		FContactShadowRenderTelemetry ContactShadow;
+		FGBufferRenderTelemetry GBuffer;
+		FDeferredRenderTelemetry Deferred;
+		FAmbientOcclusionRenderTelemetry AmbientOcclusion;
+		FVolumetricCloudRenderTelemetry VolumetricCloud;
 		size_t CombinedTranslucentGeometryDraws = 0;
 	};
 
-	using FViewRenderCounterSink = void (*)(const FViewRenderCounters&);
+	using FViewRenderTelemetrySink = void (*)(const FViewRenderTelemetry&);
 
 	// Development/profiling seam. The command-local snapshot is delivered once
 	// per successful RenderView invocation and is never retained by Renderer.
-	RENDERER_API auto SetViewRenderCounterSink(FViewRenderCounterSink Sink) -> void;
-	RENDERER_API auto EmitViewRenderCounterSnapshot(
-		const FViewRenderCounters& Counters
+	RENDERER_API auto SetViewRenderTelemetrySink(FViewRenderTelemetrySink Sink) -> void;
+	RENDERER_API auto EmitViewRenderTelemetrySnapshot(
+		const FViewRenderTelemetry& Telemetry
 	) -> void;
-	// Reduces Renderer-private counters to the stable editor-facing summary.
+	// Reduces Renderer-private telemetry to the stable editor-facing summary.
 	RENDERER_API auto BuildSceneViewStatistics(
-		const FViewRenderCounters& Counters
+		const FViewRenderTelemetry& Telemetry
 	) -> FSceneViewStatistics;
 } // namespace Durin

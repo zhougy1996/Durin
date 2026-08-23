@@ -46,7 +46,7 @@ namespace Durin
 		if (Scene != nullptr)
 		{
 			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
-				*Scene, RenderView, Telemetry.Counters
+				*Scene, RenderView, Telemetry.View
 			);
 			const FSkyBoxSceneInfo* SkyBoxInfo =
 				Scene->GetActiveSkyBoxSceneInfo_RenderThread();
@@ -56,11 +56,11 @@ namespace Durin
 					.SkyBox = SkyBoxInfo->GetProxy().GetData()};
 			}
 			PreparedView.Lighting.Lights = PrepareLightView_RenderThread(
-				*Scene, RenderView, Telemetry.Counters
+				*Scene, RenderView, Telemetry.View
 			);
 			if (!PreparedView.Lighting.Lights.Directional.empty())
 			{
-				++Telemetry.Counters.DirectionalShadow.ShadowSelectedLights;
+				++Telemetry.View.DirectionalShadow.ShadowSelectedLights;
 				const FPreparedDirectionalLight& Selected =
 					PreparedView.Lighting.Lights.Directional.front();
 				const auto ShadowPreparationStart =
@@ -71,61 +71,61 @@ namespace Durin
 						PreparedView.DirectionalShadow->View
 					))
 				{
-					++Telemetry.Counters.DirectionalShadow.ShadowValidReceiverViews;
+					++Telemetry.View.DirectionalShadow.ShadowValidReceiverViews;
 					const size_t DiagnosticIndex = static_cast<size_t>(
 						PreparedView.DirectionalShadow->View.DiagnosticMode
 					);
 					if (DiagnosticIndex
-						< Telemetry.Counters.DirectionalShadow.ShadowDiagnosticViews.size())
-						++Telemetry.Counters.DirectionalShadow.ShadowDiagnosticViews[DiagnosticIndex];
-					Telemetry.Counters.DirectionalShadow.ShadowCandidate =
+						< Telemetry.View.DirectionalShadow.ShadowDiagnosticViews.size())
+						++Telemetry.View.DirectionalShadow.ShadowDiagnosticViews[DiagnosticIndex];
+					Telemetry.View.DirectionalShadow.ShadowCandidate =
 						PreparedView.DirectionalShadow->View.Candidate;
-					Telemetry.Counters.DirectionalShadow.ShadowCascadeCount =
+					Telemetry.View.DirectionalShadow.ShadowCascadeCount =
 						PreparedView.DirectionalShadow->View.CascadeCount;
 					const FDirectionalShadowFilter& Filter =
 						PreparedView.DirectionalShadow->View.Cascades[0].Filter;
 					const size_t QualityIndex = static_cast<size_t>(Filter.Quality);
-					if (QualityIndex < Telemetry.Counters.DirectionalShadow.ShadowQualityViews.size())
-						++Telemetry.Counters.DirectionalShadow.ShadowQualityViews[QualityIndex];
-					Telemetry.Counters.DirectionalShadow.ShadowComparisonOperations +=
+					if (QualityIndex < Telemetry.View.DirectionalShadow.ShadowQualityViews.size())
+						++Telemetry.View.DirectionalShadow.ShadowQualityViews[QualityIndex];
+					Telemetry.View.DirectionalShadow.ShadowComparisonOperations +=
 						Filter.ComparisonOperations;
-					Telemetry.Counters.DirectionalShadow.ShadowTransitionComparisonOperations +=
+					Telemetry.View.DirectionalShadow.ShadowTransitionComparisonOperations +=
 						PreparedView.DirectionalShadow->View.CascadeCount > 1 ? 2u * Filter.ComparisonOperations : Filter.ComparisonOperations;
-					Telemetry.Counters.DirectionalShadow.ShadowGuardTexels +=
+					Telemetry.View.DirectionalShadow.ShadowGuardTexels +=
 						Filter.GuardTexels;
-					Telemetry.Counters.DirectionalShadow.ShadowInvalidQualityFallbacks +=
+					Telemetry.View.DirectionalShadow.ShadowInvalidQualityFallbacks +=
 						Filter.bUsedInvalidQualityFallback ? 1u : 0u;
 					const auto DiscoveryStart = std::chrono::steady_clock::now();
 					PreparedView.DirectionalShadow->Casters =
 						PrepareDirectionalShadowCasterTable(
 							*Scene, PreparedView.DirectionalShadow->View
 						);
-					Telemetry.Counters.DirectionalShadow.ShadowDiscoveryMembershipNanoseconds =
+					Telemetry.View.DirectionalShadow.ShadowDiscoveryMembershipNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now() - DiscoveryStart
 						)
 												.count());
 					const auto& CasterTable = PreparedView.DirectionalShadow->Casters;
-					Telemetry.Counters.DirectionalShadow.ShadowSceneTraversals =
+					Telemetry.View.DirectionalShadow.ShadowSceneTraversals =
 						CasterTable.SceneTraversals;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueSubmittedCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueSubmittedCasters =
 						CasterTable.UniqueSubmitted;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueHiddenCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueHiddenCasters =
 						CasterTable.UniqueHidden;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueEligibleStaticMeshCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleStaticMeshCasters =
 						CasterTable.UniqueEligibleStaticMeshes;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters =
 						CasterTable.UniqueEligibleSplineMeshes;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters =
 						CasterTable.UniqueEligibleSkeletalMeshes;
-					Telemetry.Counters.DirectionalShadow.ShadowUniqueEligibleTerrainCasters =
+					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleTerrainCasters =
 						CasterTable.UniqueEligibleTerrains;
-					Telemetry.Counters.DirectionalShadow.ShadowCascadeClassificationTests =
+					Telemetry.View.DirectionalShadow.ShadowCascadeClassificationTests =
 						CasterTable.CascadeClassificationTests;
-					Telemetry.Counters.DirectionalShadow.ShadowMembershipPopcount =
+					Telemetry.View.DirectionalShadow.ShadowMembershipPopcount =
 						CasterTable.MembershipPopcount;
-					Telemetry.Counters.DirectionalShadow.ShadowTemporaryBytes =
+					Telemetry.View.DirectionalShadow.ShadowTemporaryBytes =
 						CasterTable.TemporaryBytes;
 					for (uint32 CascadeIndex = 0;
 						 CascadeIndex < PreparedView.DirectionalShadow->View.CascadeCount;
@@ -133,32 +133,32 @@ namespace Durin
 					{
 						const auto& Cascade =
 							PreparedView.DirectionalShadow->View.Cascades[CascadeIndex];
-						auto& CascadeCounters =
-							Telemetry.Counters.DirectionalShadow.ShadowCascades[CascadeIndex];
-						CascadeCounters.NearDepth = Cascade.NearDepth;
-						CascadeCounters.FarDepth = Cascade.FarDepth;
-						CascadeCounters.TransitionStartDepth =
+						auto& CascadeTelemetry =
+							Telemetry.View.DirectionalShadow.ShadowCascades[CascadeIndex];
+						CascadeTelemetry.NearDepth = Cascade.NearDepth;
+						CascadeTelemetry.FarDepth = Cascade.FarDepth;
+						CascadeTelemetry.TransitionStartDepth =
 							Cascade.TransitionStartDepth;
-						CascadeCounters.TexelWorldSizeX = Cascade.TexelWorldSize.x;
-						CascadeCounters.TexelWorldSizeY = Cascade.TexelWorldSize.y;
-						CascadeCounters.ComparisonOperations =
+						CascadeTelemetry.TexelWorldSizeX = Cascade.TexelWorldSize.x;
+						CascadeTelemetry.TexelWorldSizeY = Cascade.TexelWorldSize.y;
+						CascadeTelemetry.ComparisonOperations =
 							Cascade.Filter.ComparisonOperations;
-						CascadeCounters.GuardTexels = Cascade.Filter.GuardTexels;
-						Telemetry.Counters.DirectionalShadow.ShadowBiasFallbacks +=
+						CascadeTelemetry.GuardTexels = Cascade.Filter.GuardTexels;
+						Telemetry.View.DirectionalShadow.ShadowBiasFallbacks +=
 							Cascade.Bias.bUsedFallback ? 1u : 0u;
-						Telemetry.Counters.DirectionalShadow.ShadowBiasClamps +=
+						Telemetry.View.DirectionalShadow.ShadowBiasClamps +=
 							Cascade.Bias.bTotalClamped ? 1u : 0u;
 						const FDirectionalShadowCasterCandidates& Casters =
 							CasterTable.Cascades[CascadeIndex];
-						CascadeCounters.SubmittedCasters = Casters.Submitted;
-						CascadeCounters.HiddenCasters = Casters.Hidden;
-						CascadeCounters.CulledCasters = Casters.Culled;
-						CascadeCounters.InvalidBoundsFallbacks =
+						CascadeTelemetry.SubmittedCasters = Casters.Submitted;
+						CascadeTelemetry.HiddenCasters = Casters.Hidden;
+						CascadeTelemetry.CulledCasters = Casters.Culled;
+						CascadeTelemetry.InvalidBoundsFallbacks =
 							Casters.InvalidBoundsFallbacks;
-						Telemetry.Counters.DirectionalShadow.ShadowSubmittedCasters += Casters.Submitted;
-						Telemetry.Counters.DirectionalShadow.ShadowHiddenCasters += Casters.Hidden;
-						Telemetry.Counters.DirectionalShadow.ShadowCulledCasters += Casters.Culled;
-						Telemetry.Counters.DirectionalShadow.ShadowInvalidBoundsFallbacks +=
+						Telemetry.View.DirectionalShadow.ShadowSubmittedCasters += Casters.Submitted;
+						Telemetry.View.DirectionalShadow.ShadowHiddenCasters += Casters.Hidden;
+						Telemetry.View.DirectionalShadow.ShadowCulledCasters += Casters.Culled;
+						Telemetry.View.DirectionalShadow.ShadowInvalidBoundsFallbacks +=
 							Casters.InvalidBoundsFallbacks;
 						auto& StaticMeshes =
 							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
@@ -172,7 +172,7 @@ namespace Durin
 							ERasterMode::Solid, Casters.SplineMeshes,
 							ERenderPreparationMode::ShadowDepth
 						);
-						Telemetry.Counters.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
+						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now()
@@ -185,7 +185,7 @@ namespace Durin
 							ERasterMode::Solid, PreparedView.Receiver.SkeletalPalettes,
 							ERenderPreparationMode::ShadowDepth
 						);
-						Telemetry.Counters.DirectionalShadow.ShadowSkeletalPreparationNanoseconds +=
+						Telemetry.View.DirectionalShadow.ShadowSkeletalPreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now() - SkeletalStart
@@ -196,49 +196,49 @@ namespace Durin
 							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid,
 							ERenderPreparationMode::ShadowDepth
 						);
-						Telemetry.Counters.DirectionalShadow.ShadowTerrainLogicalPreparationNanoseconds +=
+						Telemetry.View.DirectionalShadow.ShadowTerrainLogicalPreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
 													std::chrono::steady_clock::now() - TerrainStart
 							)
 													.count());
-						Telemetry.Counters.DirectionalShadow.ShadowSortingBatchingNanoseconds +=
+						Telemetry.View.DirectionalShadow.ShadowSortingBatchingNanoseconds +=
 							StaticMeshes.SortingNanoseconds
 							+ SkeletalMeshes.SortingNanoseconds
 							+ Terrains.BatchConstructionNanoseconds;
-						Telemetry.Counters.
+						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplinePrimitiveFactBuilds +=
 							StaticMeshes.SharedPrimitiveFactBuilds;
-						Telemetry.Counters.
+						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplinePrimitiveFactReuses +=
 							StaticMeshes.SharedPrimitiveFactReuses;
-						Telemetry.Counters.DirectionalShadow.ShadowSelectedLODFactBuilds +=
+						Telemetry.View.DirectionalShadow.ShadowSelectedLODFactBuilds +=
 							StaticMeshes.SelectedLODFactBuilds;
-						Telemetry.Counters.DirectionalShadow.ShadowSelectedLODFactReuses +=
+						Telemetry.View.DirectionalShadow.ShadowSelectedLODFactReuses +=
 							StaticMeshes.SelectedLODFactReuses;
-						Telemetry.Counters.
+						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplineSectionFactBuilds +=
 							StaticMeshes.SharedSectionFactBuilds;
-						Telemetry.Counters.
+						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplineSectionFactReuses +=
 							StaticMeshes.SharedSectionFactReuses;
-						Telemetry.Counters.DirectionalShadow.ShadowSkeletalPrimitiveFactBuilds +=
+						Telemetry.View.DirectionalShadow.ShadowSkeletalPrimitiveFactBuilds +=
 							SkeletalMeshes.SharedPrimitiveFactBuilds;
-						Telemetry.Counters.DirectionalShadow.ShadowSkeletalPrimitiveFactReuses +=
+						Telemetry.View.DirectionalShadow.ShadowSkeletalPrimitiveFactReuses +=
 							SkeletalMeshes.SharedPrimitiveFactReuses;
-						Telemetry.Counters.DirectionalShadow.ShadowSkeletalSectionFactBuilds +=
+						Telemetry.View.DirectionalShadow.ShadowSkeletalSectionFactBuilds +=
 							SkeletalMeshes.SharedSectionFactBuilds;
-						Telemetry.Counters.DirectionalShadow.ShadowSkeletalSectionFactReuses +=
+						Telemetry.View.DirectionalShadow.ShadowSkeletalSectionFactReuses +=
 							SkeletalMeshes.SharedSectionFactReuses;
-						Telemetry.Counters.DirectionalShadow.ShadowTerrainPrimitiveFactBuilds +=
+						Telemetry.View.DirectionalShadow.ShadowTerrainPrimitiveFactBuilds +=
 							Terrains.SharedPrimitiveFactBuilds;
-						Telemetry.Counters.DirectionalShadow.ShadowTerrainPrimitiveFactReuses +=
+						Telemetry.View.DirectionalShadow.ShadowTerrainPrimitiveFactReuses +=
 							Terrains.SharedPrimitiveFactReuses;
-						Telemetry.Counters.DirectionalShadow.ShadowTerrainPatchFactBuilds +=
+						Telemetry.View.DirectionalShadow.ShadowTerrainPatchFactBuilds +=
 							Terrains.SharedPatchFactBuilds;
-						Telemetry.Counters.DirectionalShadow.ShadowTerrainPatchFactReuses +=
+						Telemetry.View.DirectionalShadow.ShadowTerrainPatchFactReuses +=
 							Terrains.SharedPatchFactReuses;
-						Telemetry.Counters.
+						Telemetry.View.DirectionalShadow.
 							ShadowTerrainPatchClassificationTests +=
 							Terrains.PatchClassificationTests;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
@@ -258,33 +258,33 @@ namespace Durin
 						ApplyRasterBias(StaticMeshes);
 						ApplyRasterBias(SkeletalMeshes);
 						ApplyRasterBias(Terrains);
-						CascadeCounters.PreparedStaticMeshCasters =
+						CascadeTelemetry.PreparedStaticMeshCasters =
 							StaticMeshes.PreparedLocalPrimitives;
-						CascadeCounters.PreparedSplineMeshCasters =
+						CascadeTelemetry.PreparedSplineMeshCasters =
 							StaticMeshes.PreparedSplinePrimitives;
-						CascadeCounters.PreparedSkeletalMeshCasters =
+						CascadeTelemetry.PreparedSkeletalMeshCasters =
 							SkeletalMeshes.Primitives.size();
-						CascadeCounters.PreparedTerrainCasters =
+						CascadeTelemetry.PreparedTerrainCasters =
 							Terrains.Opaque.size() + Terrains.Masked.size();
 						size_t TerrainShadowTriangles = 0;
 						for (const auto* Bucket : {&Terrains.Opaque, &Terrains.Masked})
 							for (const FPreparedTerrainDraw& Draw : *Bucket)
 								TerrainShadowTriangles += Draw.TriangleCount;
-						CascadeCounters.PreparedTriangles =
+						CascadeTelemetry.PreparedTriangles =
 							StaticMeshes.SelectedTriangles
 							+ SkeletalMeshes.SelectedTriangles + TerrainShadowTriangles;
-						Telemetry.Counters.DirectionalShadow.ShadowPreparedStaticMeshCasters +=
-							CascadeCounters.PreparedStaticMeshCasters;
-						Telemetry.Counters.DirectionalShadow.ShadowPreparedSplineMeshCasters +=
-							CascadeCounters.PreparedSplineMeshCasters;
-						Telemetry.Counters.DirectionalShadow.ShadowPreparedSkeletalMeshCasters +=
-							CascadeCounters.PreparedSkeletalMeshCasters;
-						Telemetry.Counters.DirectionalShadow.ShadowPreparedTerrainCasters +=
-							CascadeCounters.PreparedTerrainCasters;
-						Telemetry.Counters.DirectionalShadow.ShadowPreparedTriangles +=
-							CascadeCounters.PreparedTriangles;
+						Telemetry.View.DirectionalShadow.ShadowPreparedStaticMeshCasters +=
+							CascadeTelemetry.PreparedStaticMeshCasters;
+						Telemetry.View.DirectionalShadow.ShadowPreparedSplineMeshCasters +=
+							CascadeTelemetry.PreparedSplineMeshCasters;
+						Telemetry.View.DirectionalShadow.ShadowPreparedSkeletalMeshCasters +=
+							CascadeTelemetry.PreparedSkeletalMeshCasters;
+						Telemetry.View.DirectionalShadow.ShadowPreparedTerrainCasters +=
+							CascadeTelemetry.PreparedTerrainCasters;
+						Telemetry.View.DirectionalShadow.ShadowPreparedTriangles +=
+							CascadeTelemetry.PreparedTriangles;
 					}
-					Telemetry.Counters.DirectionalShadow.ShadowLogicalPreparationNanoseconds =
+					Telemetry.View.DirectionalShadow.ShadowLogicalPreparationNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now()
@@ -294,8 +294,8 @@ namespace Durin
 				}
 				else if (Selected.Data.bCastShadows)
 				{
-					++Telemetry.Counters.DirectionalShadow.ShadowInvalidReceiverViews;
-					Telemetry.Counters.DirectionalShadow.ShadowLogicalPreparationNanoseconds =
+					++Telemetry.View.DirectionalShadow.ShadowInvalidReceiverViews;
+					Telemetry.View.DirectionalShadow.ShadowLogicalPreparationNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
 												std::chrono::nanoseconds>(
 												std::chrono::steady_clock::now()
@@ -355,7 +355,7 @@ namespace Durin
 			}
 		}
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
-		Telemetry.Counters.CombinedTranslucentGeometryDraws =
+		Telemetry.View.CombinedTranslucentGeometryDraws =
 			PreparedView.Receiver.TranslucentGeometry.size();
 		if (Scene != nullptr)
 		{
@@ -421,7 +421,7 @@ namespace Durin
 				TerrainRenderer, *PreparedView.DirectionalShadow,
 				*ResolvedFrame.DirectionalShadow,
 				PreparedView.Receiver.SkeletalPalettes,
-				ResolvedFrame.Receiver.SkeletalPalettes, Telemetry.Counters);
+				ResolvedFrame.Receiver.SkeletalPalettes, Telemetry.View);
 		}
 
 		const bool bShadowReady = ResolvedFrame.DirectionalShadow
@@ -448,7 +448,7 @@ namespace Durin
 			bShadowReady && DirectionalShadowTexture != nullptr
 				&& DirectionalShadowSampler != nullptr
 				? &PreparedView.DirectionalShadow->View : nullptr);
-		Telemetry.Counters.Lighting.PackedLightBytes = sizeof(Lighting);
+		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
 		ResolvedFrame.Lighting.UniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
 		if (ResolvedFrame.Lighting.UniformBuffer.Buffer == nullptr
@@ -613,7 +613,7 @@ namespace Durin
 		DirectionalShadowRenderer.Render_RenderThread(
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, *PreparedView.DirectionalShadow,
-			*ResolvedFrame.DirectionalShadow, Telemetry.Counters);
+			*ResolvedFrame.DirectionalShadow, Telemetry.View);
 		FRHITexture* Texture =
 			DirectionalShadowRenderer.GetTexture_RenderThread();
 		return {

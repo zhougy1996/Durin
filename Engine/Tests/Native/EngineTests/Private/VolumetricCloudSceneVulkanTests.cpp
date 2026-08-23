@@ -51,11 +51,11 @@ namespace Durin
 			auto ResetScene() -> void { MainScene.reset(); }
 		};
 
-		FViewRenderCounters GSceneCloudCounters;
+		FViewRenderTelemetry GSceneCloudTelemetry;
 
-		auto CaptureSceneCloudCounters(const FViewRenderCounters& Counters) -> void
+		auto CaptureSceneCloudTelemetry(const FViewRenderTelemetry& Telemetry) -> void
 		{
-			GSceneCloudCounters = Counters;
+			GSceneCloudTelemetry = Telemetry;
 		}
 
 		auto BuildViewMatrix(const FVector3& Location, const FVector3& Forward)
@@ -197,7 +197,7 @@ namespace Durin
 		ASSERT_NE(BaseAsset->GetTextureReferenceRHI(), nullptr);
 		ASSERT_NE(DetailAsset->GetTextureReferenceRHI(), nullptr);
 
-		SetViewRenderCounterSink(CaptureSceneCloudCounters);
+		SetViewRenderTelemetrySink(CaptureSceneCloudTelemetry);
 		auto RenderOffscreen = [&Renderer, Scene](
 								   bool bForceFragment
 							   ) {
@@ -241,31 +241,31 @@ namespace Durin
 
 		Component->SetEnabled(false);
 		const auto Disabled = RenderOffscreen(false);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
 		Component->SetEnabled(true);
 		Component->SetBaseDensityTexture(nullptr);
 		const auto InvalidRequiredInput = RenderOffscreen(false);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudEnabledViews, 0u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 0u);
 		EXPECT_EQ(*InvalidRequiredInput, *Disabled);
 		Component->SetBaseDensityTexture(BaseAsset);
 		const auto Compute = RenderOffscreen(false);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudEnabledViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudComputeViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudDispatches, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudCompositeDraws, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowEnabledViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowComputeViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowDispatches, 1u);
-		EXPECT_GT(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowSamples, 0u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudComputeViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDispatches, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudCompositeDraws, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowComputeViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowDispatches, 1u);
+		EXPECT_GT(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowSamples, 0u);
 		const auto Fragment = RenderOffscreen(true);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudEnabledViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudDraws, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudCompositeDraws, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowEnabledViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowFragmentViews, 1u);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudShadowDraws, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDraws, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudCompositeDraws, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowEnabledViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowFragmentViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudShadowDraws, 1u);
 		ASSERT_EQ(Compute->size(), Fragment->size());
 		ASSERT_EQ(Disabled->size(), Compute->size());
 		bool bDiffersFromDisabled = false;
@@ -309,13 +309,13 @@ namespace Durin
 		};
 
 		EXPECT_EQ(RenderPresent(96, 64, false), ERenderViewResult::Success);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudComputeViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudComputeViews, 1u);
 		GDynamicRHI->RHIResizeViewport(Viewport, 128, 72, false);
 		FlushRenderingCommands();
 		EXPECT_EQ(RenderPresent(128, 72, true), ERenderViewResult::Success);
-		EXPECT_EQ(GSceneCloudCounters.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
 
-		SetViewRenderCounterSink(nullptr);
+		SetViewRenderTelemetrySink(nullptr);
 		Viewport = nullptr;
 		Component->UnregisterComponent();
 		Engine.SetWorld(nullptr);

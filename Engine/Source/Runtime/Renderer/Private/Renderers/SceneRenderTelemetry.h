@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/ViewRenderCounters.h"
+#include "Renderers/ViewRenderTelemetry.h"
 
 namespace Durin
 {
@@ -17,7 +17,7 @@ namespace Durin
 	// only reduced/published after a successful frame transaction.
 	struct FSceneRenderTelemetry
 	{
-		FViewRenderCounters Counters;
+		FViewRenderTelemetry View;
 	};
 
 	class RENDERER_API FSceneTelemetryPublication final
@@ -41,14 +41,14 @@ namespace Durin
 	auto ReduceStaticMeshTelemetry(
 		const FPreparedStaticMeshView& Prepared,
 		const FResolvedStaticMeshView& Resolved,
-		FViewRenderCounters& Counters) -> void;
+		FViewRenderTelemetry& Telemetry) -> void;
 	auto ReduceSkeletalMeshTelemetry(
 		const FPreparedSkeletalMeshView& Prepared,
 		const FResolvedSkeletalMeshView& Resolved,
 		const FResolvedSkeletalPaletteTable& Palettes,
-		FViewRenderCounters& Counters) -> void;
+		FViewRenderTelemetry& Telemetry) -> void;
 	auto ReduceTerrainTelemetry(
 		const FPreparedTerrainView& Prepared,
 		const FResolvedTerrainView& Resolved,
-		FViewRenderCounters& Counters) -> void;
+		FViewRenderTelemetry& Telemetry) -> void;
 } // namespace Durin

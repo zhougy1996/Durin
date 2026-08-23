@@ -289,14 +289,14 @@ namespace
 		uint32 CreateCount = 0;
 	};
 
-	std::vector<Durin::FViewRenderCounters>* GObservedViewCounterSnapshots = nullptr;
+	std::vector<Durin::FViewRenderTelemetry>* GObservedViewTelemetrySnapshots = nullptr;
 
-	auto ObserveViewCounterSnapshot(
-		const Durin::FViewRenderCounters& Counters) -> void
+	auto ObserveViewTelemetrySnapshot(
+		const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
-		if (GObservedViewCounterSnapshots != nullptr)
+		if (GObservedViewTelemetrySnapshots != nullptr)
 		{
-			GObservedViewCounterSnapshots->push_back(Counters);
+			GObservedViewTelemetrySnapshots->push_back(Telemetry);
 		}
 	}
 
@@ -784,18 +784,18 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 	}
 }
 
-TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)
+TEST(FRendererSceneContractTests, TelemetrySnapshotSeamDeliversOneImmutableValue)
 {
-	std::vector<Durin::FViewRenderCounters> Snapshots;
-	GObservedViewCounterSnapshots = &Snapshots;
-	Durin::SetViewRenderCounterSink(ObserveViewCounterSnapshot);
-	Durin::FViewRenderCounters Counters;
-	Counters.Visibility.SubmittedPrimitives = 3;
-	Counters.StaticMesh.StaticMeshAttemptedDraws = 2;
-	Durin::EmitViewRenderCounterSnapshot(Counters);
-	Counters.Visibility.SubmittedPrimitives = 9;
-	Durin::SetViewRenderCounterSink(nullptr);
-	GObservedViewCounterSnapshots = nullptr;
+	std::vector<Durin::FViewRenderTelemetry> Snapshots;
+	GObservedViewTelemetrySnapshots = &Snapshots;
+	Durin::SetViewRenderTelemetrySink(ObserveViewTelemetrySnapshot);
+	Durin::FViewRenderTelemetry Telemetry;
+	Telemetry.Visibility.SubmittedPrimitives = 3;
+	Telemetry.StaticMesh.StaticMeshAttemptedDraws = 2;
+	Durin::EmitViewRenderTelemetrySnapshot(Telemetry);
+	Telemetry.Visibility.SubmittedPrimitives = 9;
+	Durin::SetViewRenderTelemetrySink(nullptr);
+	GObservedViewTelemetrySnapshots = nullptr;
 	ASSERT_EQ(Snapshots.size(), 1u);
 	EXPECT_EQ(Snapshots.front().Visibility.SubmittedPrimitives, 3u);
 	EXPECT_EQ(Snapshots.front().StaticMesh.StaticMeshAttemptedDraws, 2u);
@@ -803,11 +803,11 @@ TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
 {
-	std::vector<Durin::FViewRenderCounters> Snapshots;
-	GObservedViewCounterSnapshots = &Snapshots;
-	Durin::SetViewRenderCounterSink(ObserveViewCounterSnapshot);
+	std::vector<Durin::FViewRenderTelemetry> Snapshots;
+	GObservedViewTelemetrySnapshots = &Snapshots;
+	Durin::SetViewRenderTelemetrySink(ObserveViewTelemetrySnapshot);
 	Durin::FSceneRenderTelemetry Telemetry;
-	Telemetry.Counters.Visibility.SubmittedPrimitives = 4;
+	Telemetry.View.Visibility.SubmittedPrimitives = 4;
 	Durin::FSceneViewStatistics Statistics;
 	{
 		Durin::FSceneTelemetryPublication Aborted(Telemetry, &Statistics);
@@ -817,8 +817,8 @@ TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
 	Durin::FSceneTelemetryPublication Completed(Telemetry, &Statistics);
 	Completed.Commit();
 	Completed.Commit();
-	Durin::SetViewRenderCounterSink(nullptr);
-	GObservedViewCounterSnapshots = nullptr;
+	Durin::SetViewRenderTelemetrySink(nullptr);
+	GObservedViewTelemetrySnapshots = nullptr;
 	ASSERT_EQ(Snapshots.size(), 1u);
 	EXPECT_EQ(Snapshots.front().Visibility.SubmittedPrimitives, 4u);
 	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 4u);
@@ -872,47 +872,47 @@ TEST(FRendererSceneContractTests, ViewStatisticsDefaultToAnEmptyBoundedSummary)
 
 TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 {
-	Durin::FViewRenderCounters Counters;
-	Counters.Visibility.SubmittedPrimitives = 13;
-	Counters.Visibility.VisiblePrimitives = 8;
-	Counters.StaticMesh.PreparedStaticMeshPrimitives = 4;
-	Counters.SplineMesh.PreparedSplineMeshPrimitives = 1;
-	Counters.SkeletalMesh.PreparedSkeletalMeshPrimitives = 2;
-	Counters.Terrain.VisibleTerrainPatches = 3;
-	Counters.StaticMesh.PreparedStaticMeshTriangles = 120;
-	Counters.SplineMesh.PreparedSplineMeshTriangles = 20;
-	Counters.SkeletalMesh.PreparedSkeletalMeshTriangles = 40;
-	Counters.Terrain.PreparedTerrainTriangles = 60;
-	Counters.DirectionalShadow.ShadowPreparedTriangles = 500;
-	Counters.StaticMesh.StaticMeshSuccessfulDraws = 5;
-	Counters.SkeletalMesh.SkeletalMeshSuccessfulDraws = 2;
-	Counters.Terrain.TerrainSuccessfulDraws = 1;
-	Counters.DirectionalShadow.ShadowSuccessfulDraws = 7;
-	Counters.Lighting.SelectedDirectionalLights = 1;
-	Counters.Lighting.SelectedPointLights = 3;
-	Counters.Lighting.SelectedSpotLights = 2;
-	Counters.DirectionalShadow.ShadowValidReceiverViews = 1;
-	Counters.DirectionalShadow.ShadowCascadeCount = 3;
-	Counters.ContactShadow.ContactShadowEnabledViews = 1;
-	Counters.ContactShadow.ContactShadowComputeViews = 1;
-	Counters.VolumetricCloud.VolumetricCloudQuality = Durin::EVolumetricCloudQuality::Epic;
-	Counters.VolumetricCloud.VolumetricCloudDebugMode = Durin::EVolumetricCloudDebugMode::Transmittance;
-	Counters.VolumetricCloud.VolumetricCloudComputeViews = 1;
-	Counters.VolumetricCloud.VolumetricCloudEnabledViews = 1;
-	Counters.VolumetricCloud.VolumetricCloudTargetWidth = 960;
-	Counters.VolumetricCloud.VolumetricCloudTargetHeight = 540;
-	Counters.VolumetricCloud.VolumetricCloudOutputWidth = 1920;
-	Counters.VolumetricCloud.VolumetricCloudOutputHeight = 1080;
-	Counters.VolumetricCloud.VolumetricCloudPrimarySamples = 1000;
-	Counters.VolumetricCloud.VolumetricCloudLightSamples = 2000;
-	Counters.VolumetricCloud.VolumetricCloudHistoryAccepted = 1;
-	Counters.VolumetricCloud.VolumetricCloudTemporalDraws = 1;
-	Counters.VolumetricCloud.VolumetricCloudRetainedBytes = 4096;
-	Counters.VolumetricCloud.VolumetricCloudRouteReasons[
+	Durin::FViewRenderTelemetry Telemetry;
+	Telemetry.Visibility.SubmittedPrimitives = 13;
+	Telemetry.Visibility.VisiblePrimitives = 8;
+	Telemetry.StaticMesh.PreparedStaticMeshPrimitives = 4;
+	Telemetry.SplineMesh.PreparedSplineMeshPrimitives = 1;
+	Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives = 2;
+	Telemetry.Terrain.VisibleTerrainPatches = 3;
+	Telemetry.StaticMesh.PreparedStaticMeshTriangles = 120;
+	Telemetry.SplineMesh.PreparedSplineMeshTriangles = 20;
+	Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles = 40;
+	Telemetry.Terrain.PreparedTerrainTriangles = 60;
+	Telemetry.DirectionalShadow.ShadowPreparedTriangles = 500;
+	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 5;
+	Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws = 2;
+	Telemetry.Terrain.TerrainSuccessfulDraws = 1;
+	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 7;
+	Telemetry.Lighting.SelectedDirectionalLights = 1;
+	Telemetry.Lighting.SelectedPointLights = 3;
+	Telemetry.Lighting.SelectedSpotLights = 2;
+	Telemetry.DirectionalShadow.ShadowValidReceiverViews = 1;
+	Telemetry.DirectionalShadow.ShadowCascadeCount = 3;
+	Telemetry.ContactShadow.ContactShadowEnabledViews = 1;
+	Telemetry.ContactShadow.ContactShadowComputeViews = 1;
+	Telemetry.VolumetricCloud.VolumetricCloudQuality = Durin::EVolumetricCloudQuality::Epic;
+	Telemetry.VolumetricCloud.VolumetricCloudDebugMode = Durin::EVolumetricCloudDebugMode::Transmittance;
+	Telemetry.VolumetricCloud.VolumetricCloudComputeViews = 1;
+	Telemetry.VolumetricCloud.VolumetricCloudEnabledViews = 1;
+	Telemetry.VolumetricCloud.VolumetricCloudTargetWidth = 960;
+	Telemetry.VolumetricCloud.VolumetricCloudTargetHeight = 540;
+	Telemetry.VolumetricCloud.VolumetricCloudOutputWidth = 1920;
+	Telemetry.VolumetricCloud.VolumetricCloudOutputHeight = 1080;
+	Telemetry.VolumetricCloud.VolumetricCloudPrimarySamples = 1000;
+	Telemetry.VolumetricCloud.VolumetricCloudLightSamples = 2000;
+	Telemetry.VolumetricCloud.VolumetricCloudHistoryAccepted = 1;
+	Telemetry.VolumetricCloud.VolumetricCloudTemporalDraws = 1;
+	Telemetry.VolumetricCloud.VolumetricCloudRetainedBytes = 4096;
+	Telemetry.VolumetricCloud.VolumetricCloudRouteReasons[
 		static_cast<size_t>(Durin::FVolumetricCloudSpatialRenderer::ERouteReason::Compute)] = 1;
 
 	const Durin::FSceneViewStatistics Statistics =
-		Durin::BuildSceneViewStatistics(Counters);
+		Durin::BuildSceneViewStatistics(Telemetry);
 	EXPECT_EQ(Statistics.Visibility.SubmittedPrimitives, 13u);
 	EXPECT_EQ(Statistics.Visibility.VisiblePrimitives, 8u);
 	EXPECT_EQ(Statistics.StaticMesh.Primitives, 4u);
@@ -952,10 +952,10 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_TRUE(Statistics.VolumetricCloud.bHistoryAccepted);
 	EXPECT_FALSE(Statistics.VolumetricCloud.bGPUTimingAvailable);
 
-	Counters.ContactShadow.ContactShadowComputeViews = 0;
-	Counters.ContactShadow.ContactShadowFragmentViews = 1;
+	Telemetry.ContactShadow.ContactShadowComputeViews = 0;
+	Telemetry.ContactShadow.ContactShadowFragmentViews = 1;
 	const Durin::FSceneViewStatistics FragmentStatistics =
-		Durin::BuildSceneViewStatistics(Counters);
+		Durin::BuildSceneViewStatistics(Telemetry);
 	EXPECT_EQ(FragmentStatistics.Shadow.ContactRoute,
 		Durin::EContactShadowExecutionRoute::Fragment);
 }
@@ -1101,9 +1101,9 @@ TEST(FRendererSceneContractTests,
 		Durin::EDirectionalShadowCandidate::SingleMap;
 	View.ViewportWidth = 1920;
 	View.ViewportHeight = 1080;
-	Durin::FViewRenderCounters CameraCounters;
+	Durin::FViewRenderTelemetry CameraTelemetry;
 	const Durin::FSceneVisibilityResult Camera =
-		Durin::PrepareSceneVisibility(Scene, View, CameraCounters);
+		Durin::PrepareSceneVisibility(Scene, View, CameraTelemetry);
 	ASSERT_EQ(Camera.StaticMeshSceneInfos.size(), 1u);
 	EXPECT_EQ(Camera.StaticMeshSceneInfos.front()->GetId().Value, 1u);
 
@@ -1270,44 +1270,44 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	Durin::FSceneView View;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
-	Durin::FViewRenderCounters Counters;
-	Counters.Visibility.SubmittedPrimitives = 99;
-	Counters.Lighting.SelectedPointLights = 7;
-	Counters.VolumetricCloud.VolumetricCloudQuality =
+	Durin::FViewRenderTelemetry Telemetry;
+	Telemetry.Visibility.SubmittedPrimitives = 99;
+	Telemetry.Lighting.SelectedPointLights = 7;
+	Telemetry.VolumetricCloud.VolumetricCloudQuality =
 		Durin::EVolumetricCloudQuality::Epic;
 	const Durin::FSceneVisibilityResult Visibility =
-		Durin::PrepareSceneVisibility(Scene, View, Counters);
+		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
 	EXPECT_EQ(Visibility.PrimitiveRecords.size(), 4u);
-	EXPECT_EQ(Counters.Visibility.SubmittedPrimitives, 4u);
-	EXPECT_EQ(Counters.Visibility.HiddenPrimitives, 1u);
-	EXPECT_EQ(Counters.Visibility.FrustumCulledPrimitives, 1u);
-	EXPECT_EQ(Counters.Visibility.VisiblePrimitives, 2u);
-	EXPECT_EQ(Counters.Visibility.InvalidBoundsFallbacks, 1u);
-	EXPECT_EQ(Counters.Visibility.InvalidViewFallbacks, 0u);
-	EXPECT_EQ(Counters.Lighting.SelectedPointLights, 7u);
-	EXPECT_EQ(Counters.VolumetricCloud.VolumetricCloudQuality,
+	EXPECT_EQ(Telemetry.Visibility.SubmittedPrimitives, 4u);
+	EXPECT_EQ(Telemetry.Visibility.HiddenPrimitives, 1u);
+	EXPECT_EQ(Telemetry.Visibility.FrustumCulledPrimitives, 1u);
+	EXPECT_EQ(Telemetry.Visibility.VisiblePrimitives, 2u);
+	EXPECT_EQ(Telemetry.Visibility.InvalidBoundsFallbacks, 1u);
+	EXPECT_EQ(Telemetry.Visibility.InvalidViewFallbacks, 0u);
+	EXPECT_EQ(Telemetry.Lighting.SelectedPointLights, 7u);
+	EXPECT_EQ(Telemetry.VolumetricCloud.VolumetricCloudQuality,
 		Durin::EVolumetricCloudQuality::Epic);
 	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
 
 	View.Settings.Mode.VisibilityMode =
 		Durin::EViewVisibilityMode::FrustumCullingDisabled;
-	Durin::FViewRenderCounters DisabledCounters;
+	Durin::FViewRenderTelemetry DisabledTelemetry;
 	const Durin::FSceneVisibilityResult Disabled =
-		Durin::PrepareSceneVisibility(Scene, View, DisabledCounters);
-	EXPECT_EQ(DisabledCounters.Visibility.HiddenPrimitives, 1u);
-	EXPECT_EQ(DisabledCounters.Visibility.FrustumCulledPrimitives, 0u);
-	EXPECT_EQ(DisabledCounters.Visibility.VisiblePrimitives, 3u);
+		Durin::PrepareSceneVisibility(Scene, View, DisabledTelemetry);
+	EXPECT_EQ(DisabledTelemetry.Visibility.HiddenPrimitives, 1u);
+	EXPECT_EQ(DisabledTelemetry.Visibility.FrustumCulledPrimitives, 0u);
+	EXPECT_EQ(DisabledTelemetry.Visibility.VisiblePrimitives, 3u);
 	EXPECT_EQ(Disabled.StaticMeshSceneInfos.size(), 3u);
 
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::Normal;
 	View.ProjectionMatrix[0][0] =
 		std::numeric_limits<double>::quiet_NaN();
-	Durin::FViewRenderCounters InvalidViewCounters;
+	Durin::FViewRenderTelemetry InvalidViewTelemetry;
 	const Durin::FSceneVisibilityResult InvalidView =
-		Durin::PrepareSceneVisibility(Scene, View, InvalidViewCounters);
-	EXPECT_EQ(InvalidViewCounters.Visibility.HiddenPrimitives, 1u);
-	EXPECT_EQ(InvalidViewCounters.Visibility.VisiblePrimitives, 3u);
-	EXPECT_EQ(InvalidViewCounters.Visibility.InvalidViewFallbacks, 3u);
+		Durin::PrepareSceneVisibility(Scene, View, InvalidViewTelemetry);
+	EXPECT_EQ(InvalidViewTelemetry.Visibility.HiddenPrimitives, 1u);
+	EXPECT_EQ(InvalidViewTelemetry.Visibility.VisiblePrimitives, 3u);
+	EXPECT_EQ(InvalidViewTelemetry.Visibility.InvalidViewFallbacks, 3u);
 	EXPECT_EQ(InvalidView.StaticMeshSceneInfos.size(), 3u);
 
 }
@@ -1333,18 +1333,18 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	AuxiliaryView.ViewProjectionMatrix = AuxiliaryView.ProjectionMatrix
 		* Durin::Math::TranslationMatrix(Durin::FVector3(0.0, -20.0, 0.0));
 
-	Durin::FViewRenderCounters MainCounters;
-	Durin::FViewRenderCounters AuxiliaryCounters;
+	Durin::FViewRenderTelemetry MainTelemetry;
+	Durin::FViewRenderTelemetry AuxiliaryTelemetry;
 	EXPECT_EQ(
-		Durin::PrepareSceneVisibility(Scene, MainView, MainCounters)
+		Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry)
 			.StaticMeshSceneInfos.size(),
 		1u);
 	EXPECT_TRUE(
-		Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryCounters)
+		Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry)
 			.StaticMeshSceneInfos.empty());
-	Durin::FViewRenderCounters RepeatedMainCounters;
+	Durin::FViewRenderTelemetry RepeatedMainTelemetry;
 	EXPECT_EQ(
-		Durin::PrepareSceneVisibility(Scene, MainView, RepeatedMainCounters)
+		Durin::PrepareSceneVisibility(Scene, MainView, RepeatedMainTelemetry)
 			.StaticMeshSceneInfos.size(),
 		1u);
 
@@ -1457,7 +1457,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	struct FObservedPreparation
 	{
 		Durin::FPreparedLightView Lights;
-		Durin::FViewRenderCounters Counters;
+		Durin::FViewRenderTelemetry Telemetry;
 	};
 	auto Observed = std::make_shared<FObservedPreparation>();
 	Durin::FSceneView View;
@@ -1469,7 +1469,7 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
 		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
 			Observed->Lights = Durin::PrepareLightView_RenderThread(
-				Scene, View, Observed->Counters);
+				Scene, View, Observed->Telemetry);
 		});
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Observed->Lights.Directional.size(), 1u);
@@ -1477,12 +1477,12 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	ASSERT_EQ(Observed->Lights.Local.size(), 4u);
 	for (size_t Index = 0; Index < Observed->Lights.Local.size(); ++Index)
 		EXPECT_EQ(Observed->Lights.Local[Index].Id.Value, Index + 1);
-	EXPECT_EQ(Observed->Counters.Lighting.OverflowDirectionalLights, 1u);
-	EXPECT_EQ(Observed->Counters.Lighting.SelectedPointLights, 2u);
-	EXPECT_EQ(Observed->Counters.Lighting.SelectedSpotLights, 2u);
-	EXPECT_EQ(Observed->Counters.Lighting.OverflowPointLights, 3u);
-	EXPECT_EQ(Observed->Counters.Lighting.OverflowSpotLights, 3u);
-	EXPECT_EQ(Observed->Counters.Lighting.PackedLightBytes,
+	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowDirectionalLights, 1u);
+	EXPECT_EQ(Observed->Telemetry.Lighting.SelectedPointLights, 2u);
+	EXPECT_EQ(Observed->Telemetry.Lighting.SelectedSpotLights, 2u);
+	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowPointLights, 3u);
+	EXPECT_EQ(Observed->Telemetry.Lighting.OverflowSpotLights, 3u);
+	EXPECT_EQ(Observed->Telemetry.Lighting.PackedLightBytes,
 		sizeof(Durin::FForwardLightingUniform));
 }
 
@@ -1502,7 +1502,7 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	AddPoint(2, {3.0, 20.0, 0.0});
 	Durin::FlushRenderingCommands();
 	auto Observed = std::make_shared<std::pair<
-		Durin::FPreparedLightView, Durin::FViewRenderCounters>>();
+		Durin::FPreparedLightView, Durin::FViewRenderTelemetry>>();
 	Durin::FSceneView View;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
@@ -1550,13 +1550,13 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 2u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
-	Durin::FViewRenderCounters Counters;
+	Durin::FViewRenderTelemetry Telemetry;
 	Durin::FSceneView View;
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	const Durin::FSceneVisibilityResult Visibility =
-		Durin::PrepareSceneVisibility(Scene, View, Counters);
+		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
 	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
-	EXPECT_EQ(Counters.SkeletalMesh.VisibleSkeletalMeshCandidates, 1u);
+	EXPECT_EQ(Telemetry.SkeletalMesh.VisibleSkeletalMeshCandidates, 1u);
 }
 
 TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTypedMembership)
@@ -1600,11 +1600,11 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
 
-	Durin::FViewRenderCounters Counters;
+	Durin::FViewRenderTelemetry Telemetry;
 	Durin::FSceneView View;
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	const Durin::FSceneVisibilityResult Visibility =
-		Durin::PrepareSceneVisibility(Scene, View, Counters);
+		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
 	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);
-	EXPECT_EQ(Counters.SplineMesh.VisibleSplineMeshCandidates, 1u);
+	EXPECT_EQ(Telemetry.SplineMesh.VisibleSplineMeshCandidates, 1u);
 }

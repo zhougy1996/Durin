@@ -269,7 +269,7 @@ graphics-state, and sort facts. Execution resolves the index and binds the
 selected vertex factory, index buffer, and section without rescanning scene
 membership, resolving material identity, or reading an implicit LOD 0.
 
-View-local counters conserve visible candidates against prepared plus rejected
+View-local telemetry conserves visible candidates against prepared plus rejected
 primitives. Requested and selected LOD histograms each sum to prepared
 primitives, while selected section and triangle totals reconcile with their
 Opaque, Masked, and Translucent pass totals. Resource preparation and execution
@@ -277,9 +277,9 @@ separately conserve attempted draws against successful plus rejected draws, so a
 failed shader, pipeline, sampler, or incomplete command remains attributable to
 its rejection phase. Opaque/Masked input and final state-group counts plus
 pipeline, material, vertex-factory, and geometry transitions describe the effective
-ordering. Renderer emits one immutable `FViewRenderCounters` value through the
-development counter-snapshot sink for every `RenderView` invocation; it retains
-no view, target-size, or temporal counter cache.
+ordering. Renderer emits one immutable `FViewRenderTelemetry` value through the
+development telemetry-snapshot sink for every `RenderView` invocation; it retains
+no view, target-size, or temporal telemetry cache.
 
 Opaque and Masked execute first after deterministic value-based grouping. Their
 keys compare effective pass and pipeline state, material/shader identity and

@@ -61,7 +61,7 @@ namespace Durin
 		FResolvedDirectionalShadow& ResolvedShadow,
 		const FPreparedSkeletalPaletteTable& PreparedPalettes,
 		FResolvedSkeletalPaletteTable& ResolvedPalettes,
-		FViewRenderCounters& Counters) -> bool
+		FViewRenderTelemetry& Telemetry) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -77,7 +77,7 @@ namespace Durin
 						std::chrono::steady_clock::now() - Start).count());
 			}
 		} PreparationTimingScope{
-			PreparationStart, Counters.DirectionalShadow.ShadowResourcePreparationNanoseconds};
+			PreparationStart, Telemetry.DirectionalShadow.ShadowResourcePreparationNanoseconds};
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
@@ -135,15 +135,15 @@ namespace Durin
 			}, ReportRendererResourceCreateDiagnostic);
 		ResolvedShadow.bEnabled = false;
 		if (!Shadow.View.bEnabled) return false;
-		++Counters.DirectionalShadow.ShadowResourceAttempts;
+		++Telemetry.DirectionalShadow.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
-			++Counters.DirectionalShadow.ShadowResourceFailures;
+			++Telemetry.DirectionalShadow.ShadowResourceFailures;
 			return false;
 		}
-		++Counters.DirectionalShadow.ShadowResourceSuccesses;
-		Counters.DirectionalShadow.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
-		Counters.DirectionalShadow.ShadowTargetBackendBytes = static_cast<size_t>(
+		++Telemetry.DirectionalShadow.ShadowResourceSuccesses;
+		Telemetry.DirectionalShadow.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
+		Telemetry.DirectionalShadow.ShadowTargetBackendBytes = static_cast<size_t>(
 			Resources->Target->GetBackendAllocationBytes());
 
 		const FForwardLightingUniform FullyUnlit{};
@@ -166,7 +166,7 @@ namespace Durin
 		}
 		if (!bReady)
 		{
-			++Counters.DirectionalShadow.ShadowPreparationFailures;
+			++Telemetry.DirectionalShadow.ShadowPreparationFailures;
 		}
 		ResolvedShadow.bEnabled = bReady;
 		return bReady;
@@ -179,7 +179,7 @@ namespace Durin
 		FTerrainRenderer& Terrains,
 		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
-		FViewRenderCounters& Counters) -> bool
+		FViewRenderTelemetry& Telemetry) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
 		FState::FResources* Resources = State->Resources.GetPayload();
@@ -225,29 +225,29 @@ namespace Durin
 				Shadow.Terrains[CascadeIndex],
 				ResolvedShadow.Terrains[CascadeIndex]);
 			CommandList.EndRenderPass();
-			auto& CascadeCounters = Counters.DirectionalShadow.ShadowCascades[CascadeIndex];
-			CascadeCounters.AttemptedDraws =
+			auto& CascadeTelemetry = Telemetry.DirectionalShadow.ShadowCascades[CascadeIndex];
+			CascadeTelemetry.AttemptedDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws
 				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.AttemptedDraws
 					+ ResolvedShadow.Terrains[CascadeIndex].Observations.AttemptedDraws;
-			CascadeCounters.SuccessfulDraws =
+			CascadeTelemetry.SuccessfulDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.SuccessfulDraws
 				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.SuccessfulDraws
 					+ ResolvedShadow.Terrains[CascadeIndex].Observations.SuccessfulDraws;
-			CascadeCounters.RejectedDraws =
-				CascadeCounters.AttemptedDraws
-					- CascadeCounters.SuccessfulDraws;
-			Counters.DirectionalShadow.ShadowAttemptedDraws += CascadeCounters.AttemptedDraws;
-			Counters.DirectionalShadow.ShadowSuccessfulDraws += CascadeCounters.SuccessfulDraws;
+			CascadeTelemetry.RejectedDraws =
+				CascadeTelemetry.AttemptedDraws
+					- CascadeTelemetry.SuccessfulDraws;
+			Telemetry.DirectionalShadow.ShadowAttemptedDraws += CascadeTelemetry.AttemptedDraws;
+			Telemetry.DirectionalShadow.ShadowSuccessfulDraws += CascadeTelemetry.SuccessfulDraws;
 		}
 		if (TimingQuery)
 		{
 			CommandList.EndGPUTimingQuery(TimingQuery);
 			Sink(TimingQuery);
 		}
-		Counters.DirectionalShadow.ShadowRejectedDraws =
-			Counters.DirectionalShadow.ShadowAttemptedDraws
-				- Counters.DirectionalShadow.ShadowSuccessfulDraws;
+		Telemetry.DirectionalShadow.ShadowRejectedDraws =
+			Telemetry.DirectionalShadow.ShadowAttemptedDraws
+				- Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
 		return true;
 	}
 

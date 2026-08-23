@@ -7,13 +7,13 @@
 
 namespace
 {
-	Durin::FViewRenderCounters GHybridSkyCounters;
+	Durin::FViewRenderTelemetry GHybridSkyTelemetry;
 
-	auto CaptureHybridSkyCounters(
-		const Durin::FViewRenderCounters& Counters
+	auto CaptureHybridSkyTelemetry(
+		const Durin::FViewRenderTelemetry& Telemetry
 	) -> void
 	{
-		GHybridSkyCounters = Counters;
+		GHybridSkyTelemetry = Telemetry;
 	}
 } // namespace
 
@@ -220,7 +220,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::vector<std::byte> Occluded;
 		std::vector<std::byte> ForwardLitSky;
 		std::vector<std::byte> HybridLitSky;
-		Durin::FViewRenderCounters HybridSkyCounters;
+		Durin::FViewRenderTelemetry HybridSkyTelemetry;
 		Durin::ERenderViewResult InvalidOutputResult =
 			Durin::ERenderViewResult::Success;
 		Durin::ERenderViewResult MissingEnvironmentResult =
@@ -463,10 +463,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					StatefulHybridSkyView, Result->StatefulLitNoConsumer,
 					{}, Durin::ERenderMode::Lit)) return;
 			Durin::FSceneViewRenderOptions HybridSkyOptions;
-			Durin::SetViewRenderCounterSink(CaptureHybridSkyCounters);
+			Durin::SetViewRenderTelemetrySink(CaptureHybridSkyTelemetry);
 			const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit);
-			Result->HybridSkyCounters = GHybridSkyCounters;
-			Durin::SetViewRenderCounterSink(nullptr);
+			Result->HybridSkyTelemetry = GHybridSkyTelemetry;
+			Durin::SetViewRenderTelemetrySink(nullptr);
 			if (!bRenderedHybridSky) return;
 			Durin::FMatrix OccluderTransform = glm::translate(
 				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
@@ -509,8 +509,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Result->StatefulLetterboxedNoConsumer,
 			Result->Letterboxed);
 		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);
-		EXPECT_EQ(Result->HybridSkyCounters.Deferred.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(Result->HybridSkyCounters.Deferred.HybridDeferredUnavailableViews, 0u);
+		EXPECT_EQ(Result->HybridSkyTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(Result->HybridSkyTelemetry.Deferred.HybridDeferredUnavailableViews, 0u);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{
 			SCOPED_TRACE(std::format("principal face {}", FaceIndex));

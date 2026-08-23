@@ -39,13 +39,13 @@ namespace Durin
 	namespace
 	{
 		std::vector<FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
-		FViewRenderCounters GLastViewCounters;
-		size_t GViewCounterCaptureCount = 0;
+		FViewRenderTelemetry GLastViewTelemetry;
+		size_t GViewTelemetryCaptureCount = 0;
 
-		auto CaptureViewCounters(const FViewRenderCounters& Counters) -> void
+		auto CaptureViewTelemetry(const FViewRenderTelemetry& Telemetry) -> void
 		{
-			GLastViewCounters = Counters;
-			++GViewCounterCaptureCount;
+			GLastViewTelemetry = Telemetry;
+			++GViewTelemetryCaptureCount;
 		}
 
 		auto CapturePostProcessTiming(
@@ -476,7 +476,7 @@ namespace Durin
 			FlushRenderingCommands();
 			return std::move(*Pixels);
 		};
-		SetViewRenderCounterSink(CaptureViewCounters);
+		SetViewRenderTelemetrySink(CaptureViewTelemetry);
 		std::array<std::vector<std::byte>, 4> RoutePixels;
 		for (size_t Index = 0; Index < ViewRouteCases.size(); ++Index)
 		{
@@ -484,8 +484,8 @@ namespace Durin
 			EXPECT_EQ(RoutePixels[Index].size(), static_cast<size_t>(ViewRouteCases[Index].Width) * ViewRouteCases[Index].Height * 4u);
 			ASSERT_GE(RoutePixels[Index].size(), 4u);
 			EXPECT_NEAR(std::to_integer<uint8>(RoutePixels[Index][3]), 128u, 1u);
-			EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
-			EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredUnavailableViews, 0u);
+			EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+			EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredUnavailableViews, 0u);
 		}
 		EXPECT_LT(RoutePixels[1][0], RoutePixels[0][0]);
 		EXPECT_GT(RoutePixels[2][2], RoutePixels[0][2]);
@@ -505,26 +505,26 @@ namespace Durin
 			const std::vector<std::byte> DebugPixels =
 				CaptureViewRoute(Route, true);
 			EXPECT_EQ(DebugPixels.size(), static_cast<size_t>(Route.Width) * Route.Height * 4u);
-			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferEnabledViews, 1u);
-			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferDebugViews, 1u);
-			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferDebugFailures, 0u);
+			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferEnabledViews, 1u);
+			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferDebugViews, 1u);
+			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferDebugFailures, 0u);
 			EXPECT_EQ(
-				GLastViewCounters.Deferred.DeferredDirectionalEnabledViews, 1u
+				GLastViewTelemetry.Deferred.DeferredDirectionalEnabledViews, 1u
 			);
 			EXPECT_EQ(
-				GLastViewCounters.Deferred.DeferredDirectionalUnavailableViews, 0u
+				GLastViewTelemetry.Deferred.DeferredDirectionalUnavailableViews, 0u
 			);
 			EXPECT_EQ(
-				GLastViewCounters.Deferred.DeferredDirectionalPassFailures, 0u
+				GLastViewTelemetry.Deferred.DeferredDirectionalPassFailures, 0u
 			);
-			EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalOutputBytes, FDeferredDirectionalLightingRenderer::CalculateTargetBytes(Route.Width, Route.Height));
-			EXPECT_EQ(GLastViewCounters.GBuffer.GBufferAttachmentBytes, FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes, FDeferredDirectionalLightingRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferAttachmentBytes, FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
 			if (OrderIndex == 0u)
 				FirstThumbnailDebug = DebugPixels;
 			if (OrderIndex + 1u == GBufferRouteOrder.size())
 				EXPECT_EQ(DebugPixels, FirstThumbnailDebug);
 		}
-		SetViewRenderCounterSink(nullptr);
+		SetViewRenderTelemetrySink(nullptr);
 
 		const std::array<uint16, 9> Samples{};
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
@@ -597,14 +597,14 @@ namespace Durin
 			Renderer, &OccluderScene, CameraDirections.front()
 		);
 		EXPECT_EQ(CountVisiblePixels(OccludedPixels), 0u);
-		SetViewRenderCounterSink(CaptureViewCounters);
+		SetViewRenderTelemetrySink(CaptureViewTelemetry);
 		const std::vector<std::byte> TerrainHybridLit = RenderGridCapture(
 			Renderer, &Scene, CameraDirections.front(), true
 		);
-		SetViewRenderCounterSink(nullptr);
+		SetViewRenderTelemetrySink(nullptr);
 		EXPECT_EQ(TerrainHybridLit.size(), 129u * 129u * 4u);
-		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.GBuffer.GBufferTerrainSkippedDraws, 1u);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferTerrainSkippedDraws, 1u);
 
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
@@ -1145,7 +1145,7 @@ namespace Durin
 		auto Output = std::make_shared<FTextureRHIRef>();
 		auto ForwardResult = std::make_shared<ERenderViewResult>();
 		auto RequiredResult = std::make_shared<ERenderViewResult>();
-		const size_t CaptureCountBefore = GViewCounterCaptureCount;
+		const size_t CaptureCountBefore = GViewTelemetryCaptureCount;
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[&Renderer, Output, ForwardResult, RequiredResult](
 				FRHICommandListImmediate& CommandList
@@ -1172,11 +1172,11 @@ namespace Durin
 				VulkanRHI::ArmVulkanCreateFailure(
 					VulkanRHI::EVulkanCreateFailurePoint::Image
 				);
-				SetViewRenderCounterSink(CaptureViewCounters);
+				SetViewRenderTelemetrySink(CaptureViewTelemetry);
 				*RequiredResult = Renderer.RenderView(
 					CommandList, nullptr, View, *Output, false, {}
 				);
-				SetViewRenderCounterSink(nullptr);
+				SetViewRenderTelemetrySink(nullptr);
 				VulkanRHI::ResetVulkanCreateFailures();
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			}
@@ -1185,7 +1185,7 @@ namespace Durin
 
 		EXPECT_EQ(*ForwardResult, ERenderViewResult::Success);
 		EXPECT_EQ(*RequiredResult, ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ(GViewCounterCaptureCount, CaptureCountBefore);
+		EXPECT_EQ(GViewTelemetryCaptureCount, CaptureCountBefore);
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[Output](FRHICommandListImmediate&) { *Output = nullptr; }
@@ -1437,17 +1437,17 @@ namespace Durin
 		EXPECT_EQ(RenderPresent(96, 64, 1.0f, false, false, false), ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 129, 129, false);
 		FlushRenderingCommands();
-		SetViewRenderCounterSink(CaptureViewCounters);
+		SetViewRenderTelemetrySink(CaptureViewTelemetry);
 		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, false), ERenderViewResult::Success);
-		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.Deferred.HybridDeferredUnavailableViews, 0u);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredUnavailableViews, 0u);
 		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true), ERenderViewResult::Success);
-		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalEnabledViews, 1u);
-		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalUnavailableViews, 0u);
-		EXPECT_EQ(GLastViewCounters.Deferred.DeferredDirectionalPassFailures, 0u);
-		EXPECT_GT(GLastViewCounters.Deferred.DeferredDirectionalOutputBytes, 0u);
-		EXPECT_EQ(GLastViewCounters.GBuffer.GBufferAttachmentBytes, GLastViewCounters.Deferred.DeferredDirectionalOutputBytes * 2u);
-		SetViewRenderCounterSink(nullptr);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalUnavailableViews, 0u);
+		EXPECT_EQ(GLastViewTelemetry.Deferred.DeferredDirectionalPassFailures, 0u);
+		EXPECT_GT(GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes, 0u);
+		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferAttachmentBytes, GLastViewTelemetry.Deferred.DeferredDirectionalOutputBytes * 2u);
+		SetViewRenderTelemetrySink(nullptr);
 
 		Viewport = nullptr;
 		ViewStateOwner.Reset();

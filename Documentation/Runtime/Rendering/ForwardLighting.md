@@ -65,7 +65,7 @@ the combined point/spot candidate list are each ordered by ascending
 lights; point and spot lights compete in the same local budget. Sequential
 views prepare independently and do not retain `FLightSceneInfo` pointers.
 
-`FViewRenderCounters` records submitted, invalid/disabled, frustum-culled,
+`FViewRenderTelemetry` records submitted, invalid/disabled, frustum-culled,
 selected, and overflow values by family plus packed bytes. Preparation asserts:
 
 ```text
