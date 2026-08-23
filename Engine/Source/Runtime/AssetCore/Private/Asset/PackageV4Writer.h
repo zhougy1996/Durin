@@ -176,6 +176,7 @@ namespace Durin::Asset::DastV4
 	{
 		EDefaultDeltaMode DeltaMode = EDefaultDeltaMode::Enabled;
 		FAssetPackageSerializationOptions Serialization;
+		bool bVerifyRepeatedEncoding = false;
 	};
 
 	// Production integration boundary shared by ordinary serialization, saves,

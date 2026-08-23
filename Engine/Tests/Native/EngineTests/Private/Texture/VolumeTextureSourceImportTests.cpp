@@ -303,6 +303,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_NE(ImportProperty, nullptr);
 	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::Edit));
 	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::ReadOnly));
+	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::EditorOnly));
 	FProperty* SourceFileProperty = FVolumeTextureSourceImportData::StaticStruct()
 		->FindPropertyByName("SourceFile", false);
 	ASSERT_NE(SourceFileProperty, nullptr);

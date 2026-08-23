@@ -318,9 +318,11 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = EnvironmentLightingPayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
@@ -330,11 +332,24 @@ namespace Durin
 					if (Error) *Error = "Environment-lighting cook produced an invalid descriptor.";
 					return false;
 				}
-				const Asset::FCookedPayloadDescriptor Saved = CookedPayload;
-				CookedPayload = Descriptors.front();
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
+				{
+					if (Error) *Error = "EnvironmentLighting CookedPayload reflection is unavailable.";
+					return false;
+				}
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Result =
-					Asset::SerializeAssetPackageBytes(GetPackage(), OutPackageBytes);
-				CookedPayload = Saved;
+					Asset::SerializeAssetPackageBytes(GetPackage(), OutPackageBytes, Options);
 				if (!Result)
 				{
 					if (Error) *Error = Result.Message;

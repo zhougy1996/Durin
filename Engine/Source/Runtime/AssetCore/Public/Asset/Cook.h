@@ -4,6 +4,7 @@
 
 namespace Durin::Asset
 {
+	struct FAssetPackageSerializationOptions;
 	struct FCookedBulkPayload
 	{
 		FGuid PayloadId;
@@ -71,7 +72,8 @@ namespace Durin::Asset
 		ASSETCORE_API FCookContext(
 			std::filesystem::path InCookRoot,
 			ECookTargetPlatform InTargetPlatform,
-			ECookTargetProfile InTargetProfile
+			ECookTargetProfile InTargetProfile,
+			bool bInRetainEditorOnlyData = false
 		);
 		ASSETCORE_API auto AddPackage(
 			std::string VirtualPackagePath,
@@ -88,6 +90,9 @@ namespace Durin::Asset
 		ASSETCORE_API auto Publish(std::string* OutError = nullptr) -> bool;
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
+		auto IsRetainingEditorOnlyData() const -> bool { return bRetainEditorOnlyData; }
+		ASSETCORE_API auto MakePackageSerializationOptions() const
+			-> FAssetPackageSerializationOptions;
 
 	private:
 		struct FPendingPackage
@@ -100,6 +105,7 @@ namespace Durin::Asset
 		std::filesystem::path CookRoot;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		bool bRetainEditorOnlyData = false;
 		std::vector<FPendingPackage> Packages;
 	};
 } // namespace Durin::Asset

@@ -301,8 +301,7 @@ namespace Durin
 	auto DAnimationClip::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
-		std::string& OutError,
-		bool bRetainDiagnosticEditorMetadata) -> bool
+		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
@@ -324,9 +323,11 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = SkeletalPayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, bRetainDiagnosticEditorMetadata](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
@@ -336,19 +337,24 @@ namespace Durin
 					if (Error) *Error = "AnimationClip cook did not produce its required descriptor.";
 					return false;
 				}
-				const Asset::FCookedPayloadDescriptor SavedDescriptor = CookedPayload;
-				const std::string SavedKey = DerivedDataKey;
-				CookedPayload = Descriptors.front();
-				if (!bRetainDiagnosticEditorMetadata) DerivedDataKey.clear();
-				Asset::FAssetPackageSerializationOptions Options;
-				if (!bRetainDiagnosticEditorMetadata)
-					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						return Object != this || Property->NamePrivate != FName("DerivedDataKey");
-					};
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
+				{
+					if (Error) *Error = "AnimationClip CookedPayload reflection is unavailable.";
+					return false;
+				}
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, Options);
-				CookedPayload = SavedDescriptor;
-				DerivedDataKey = SavedKey;
 				if (!Serialized)
 				{
 					if (Error) *Error = Serialized.Message;

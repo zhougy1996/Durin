@@ -1156,6 +1156,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		if (Relative.extension() == ".dasset")
 		{
 			EXPECT_FALSE(ContainsText(FirstBytes, "DerivedDataKey"));
+			EXPECT_FALSE(ContainsText(FirstBytes, "SourceName"));
+			EXPECT_FALSE(ContainsText(FirstBytes, "SourceMaterialIndex"));
 			EXPECT_FALSE(ContainsText(FirstBytes, "cook-mesh"));
 			EXPECT_FALSE(ContainsText(FirstBytes, "cook-clip"));
 		}

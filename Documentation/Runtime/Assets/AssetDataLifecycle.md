@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -342,6 +342,25 @@ identities; their logical payload descriptors select fixed type payload IDs in
 the package companion. Import-record packages are not cook inputs, and runtime
 targets do not deploy `AssetImportCore`, `AssetForge`, Assimp, or
 editor image decoders.
+
+Cook package construction is a read-only projection of the authored object
+graph. Stable source provenance and editor diagnostics are declared
+`DPROPERTY(EditorOnly)` and are recursively filtered by the cooked Archive.
+Generated `CookedPayload` values, including StaticMesh BodySetup collision
+metadata, remain runtime properties and are supplied as owned per-save
+replacements. Texture2D, TextureCube, VolumeTexture, TerrainHeightmap,
+StaticMesh, SkeletalMesh, AnimationClip, and EnvironmentLighting do not install
+those descriptors or clear and restore source fields on their live objects.
+Success and failure therefore preserve reflected values, package dirty state,
+build revisions, and diagnostics.
+
+`FCookContext` owns the target platform/profile and the single editor-only-data
+policy for all contributing asset families. Production contexts filter by
+default; a diagnostic context may retain the same editor-only field set across
+families. Asset APIs do not expose per-family retention switches. Graph
+discovery and value capture run on the asset-owning thread and freeze an owned,
+immutable package value; DAST encoding and publication consume that value and
+must not read the live graph after capture.
 
 The initial loose-file convention is at most one companion bulk container per
 package:

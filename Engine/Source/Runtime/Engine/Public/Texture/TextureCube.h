@@ -118,8 +118,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticSourceMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
 		// Atomically accepts a complete, validated authoring candidate. Engine owns
@@ -156,7 +155,7 @@ namespace Durin
 		DPROPERTY(DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FTextureCubeSourceImportData SourceImportData;
 
 		DPROPERTY(DisplayName = "Panorama Face Dimension")

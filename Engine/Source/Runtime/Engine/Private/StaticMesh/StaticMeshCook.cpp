@@ -198,8 +198,7 @@ namespace Durin
 	auto DStaticMesh::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
-		std::string& OutError,
-		bool bRetainDiagnosticSourceMetadata) -> bool
+		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
@@ -246,27 +245,27 @@ namespace Durin
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
 		if (bHasAuthoredCollision)
 		{
-			FCollisionGeometryRef CollisionGeometry;
-			bool bHasGeometry = BodySetup->GetCollisionSourceMode()
-				== EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-				? BodySetup->BuildSimpleGeometry(CollisionGeometry)
-				: BodySetup->BuildComplexGeometry(CollisionGeometry);
-			if (!bHasGeometry && !RebuildCollision(OutError))
+			FCollisionGeometryRef Simple;
+			FCollisionGeometryRef Complex;
+			EBodySetupCollisionBuildStatus BuildStatus;
+			std::string DerivedDataKey;
+			std::string Diagnostic;
+			uint64 CollisionPayloadBytes = 0;
+			if (!BuildCollisionCandidate(
+				*RenderData, BodySetup->GetCollisionSourceMode(),
+				BodySetup->GetCollisionQueryPolicy(), Simple, Complex,
+				BuildStatus, DerivedDataKey, Diagnostic, CollisionPayloadBytes, OutError))
 			{
 				OutError = std::format("Failed to cook static-mesh collision '{}': {}", GetObjectPath(), OutError);
 				return false;
 			}
-			if (!bHasGeometry)
+			const FCollisionGeometryRef& CollisionGeometry =
+				BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+					? Simple : Complex;
+			if (!CollisionGeometry)
 			{
-				bHasGeometry = BodySetup->GetCollisionSourceMode()
-					== EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-					? BodySetup->BuildSimpleGeometry(CollisionGeometry)
-					: BodySetup->BuildComplexGeometry(CollisionGeometry);
-				if (!bHasGeometry)
-				{
-					OutError = "Rebuilt collision did not publish its required geometry.";
-					return false;
-				}
+				OutError = "The detached collision build did not produce its required geometry.";
+				return false;
 			}
 			FStaticMeshCollisionPayloadData CollisionPayload;
 			std::vector<std::byte> CollisionBytes;
@@ -294,11 +293,13 @@ namespace Durin
 				.Alignment = StaticMeshCollisionPayloadAlignment,
 				.Bytes = std::move(CollisionBytes)});
 		}
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 
 		return Context.AddPackage(
 			std::string(VirtualPackagePath),
 			std::move(BulkPayloads),
-			[this, bRetainDiagnosticSourceMetadata](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
@@ -318,45 +319,39 @@ namespace Durin
 					return false;
 				}
 
-				const FStaticMeshSourceImportData SavedSourceImportData = SourceImportData;
-				const std::vector<FStaticMeshMaterialSlotDefinition> SavedMaterialSlots = MaterialSlots;
-				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
-				const Asset::FCookedPayloadDescriptor SavedCollisionPayload = BodySetup
-					? BodySetup->GetCookedCollisionPayloadDescriptor()
-					: Asset::FCookedPayloadDescriptor{};
-				CookedPayload = *RenderDescriptor;
-				if (BodySetup)
-					BodySetup->SetCookedCollisionPayloadDescriptor(
-						bRequiresCollision ? *CollisionDescriptor : Asset::FCookedPayloadDescriptor{});
-				if (!bRetainDiagnosticSourceMetadata)
+				FProperty* RenderProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!RenderProperty)
 				{
-					SourceImportData = {};
-					for (FStaticMeshMaterialSlotDefinition& Slot : MaterialSlots)
+					if (Error) *Error = "StaticMesh CookedPayload reflection is unavailable.";
+					return false;
+				}
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *RenderProperty, *RenderDescriptor, &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				if (BodySetup)
+				{
+					FProperty* CollisionProperty =
+						BodySetup->GetClass()->FindPropertyByName("CookedCollisionPayload");
+					const Asset::FCookedPayloadDescriptor EffectiveCollision = bRequiresCollision
+						? *CollisionDescriptor : Asset::FCookedPayloadDescriptor{};
+					if (!CollisionProperty || !Overrides->AddPropertyValue(
+						*BodySetup, *CollisionProperty, EffectiveCollision, &OverrideError))
 					{
-						Slot.SourceName.clear();
-						Slot.SourceMaterialIndex = 0;
+						if (Error) *Error = CollisionProperty
+							? OverrideError
+							: "BodySetup CookedCollisionPayload reflection is unavailable.";
+						return false;
 					}
 				}
-
-				Asset::FAssetPackageSerializationOptions SerializationOptions;
-				SerializationOptions.PropertyFilter = [this, bRetainDiagnosticSourceMetadata](
-					const DObject* Object, const FProperty* Property) {
-						const FName Name = Property->NamePrivate;
-						if (Object == this)
-							return bRetainDiagnosticSourceMetadata
-								|| Name != FName("SourceImportData");
-						if (Object == BodySetup)
-							return Name != FName("CollisionBuildRevision")
-								&& Name != FName("CollisionBuildStatus");
-						return true;
-					};
+				Asset::FAssetPackageSerializationOptions SerializationOptions = CookPackageOptions;
+				SerializationOptions.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, SerializationOptions);
-				SourceImportData = SavedSourceImportData;
-				MaterialSlots = SavedMaterialSlots;
-				CookedPayload = SavedCookedPayload;
-				if (BodySetup)
-					BodySetup->SetCookedCollisionPayloadDescriptor(SavedCollisionPayload);
 				if (!Result)
 				{
 					if (Error) *Error = Result.Message;

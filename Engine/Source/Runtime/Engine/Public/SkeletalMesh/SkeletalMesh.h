@@ -73,10 +73,10 @@ namespace Durin
 		DPROPERTY()
 		FName Name;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		std::string SourceName;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceMaterialIndex = 0;
 
 		DPROPERTY()
@@ -236,8 +236,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticEditorMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 		ENGINE_API auto PrepareImportedStateExchange(
 			DSkeletalMesh& Candidate,
 			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
@@ -268,7 +267,7 @@ namespace Durin
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;
 
 		std::shared_ptr<const FSkeletalMeshPayloadData> PayloadData;

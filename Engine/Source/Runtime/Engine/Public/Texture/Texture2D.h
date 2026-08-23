@@ -225,8 +225,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticSourceMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto RefreshBuildStatus() -> void;
@@ -261,30 +260,30 @@ protected:
 	private:
 		auto InvalidatePlatformData() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FTexture2DSourceImportData SourceImportData;
 
 		// Imported content identity and lightweight diagnostics remain in the package
 		// so a warm derived-data load does not need to decode the source image.
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		std::string SourceContentHash;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint64 SourceFileSize = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		int64 SourceLastWriteTime = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceWidth = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceHeight = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint8 SourceChannelCount = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		bool bSourceHasTransparency = false;
 
 		DPROPERTY()

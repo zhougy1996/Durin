@@ -126,8 +126,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticEditorMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 		ENGINE_API auto PrepareImportedStateExchange(
 			DAnimationClip& Candidate,
 			std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>;
@@ -152,7 +151,7 @@ namespace Durin
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;
 
 		std::shared_ptr<const FAnimationClipPayloadData> PayloadData;

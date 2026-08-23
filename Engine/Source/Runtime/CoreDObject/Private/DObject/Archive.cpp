@@ -48,6 +48,32 @@ namespace Durin
 			return ContainsWeak(Property);
 		}
 
+		auto ShouldSerializeReflectedProperty(const FArchive& Ar, const FProperty* Property) -> bool
+		{
+			if (!Property) return false;
+			if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
+				&& !ShouldSerializeTransientWeakProperty(Ar, Property)) return false;
+			if (Ar.IsSaving() && Property->IsDeprecated()) return false;
+			return !Ar.IsFilterEditorOnly()
+				|| !Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
+		}
+
+		auto ResolvePropertySaveValue(
+			FArchive& Ar,
+			FProperty& Property,
+			const void* Container,
+			uint32 ArrayIndex,
+			FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition
+		{
+			OutValue = {Container, ArrayIndex};
+			if (!Ar.IsSaving()) return EArchivePropertySaveDisposition::LiveValue;
+			auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar);
+			return ObjectArchive
+				? ObjectArchive->ResolvePropertySaveValue(
+					Property, Container, ArrayIndex, OutValue)
+				: EArchivePropertySaveDisposition::LiveValue;
+		}
+
 		auto MakeLogicalTypeDescriptor(FProperty* Property) -> FArchiveLogicalTypeDescriptor
 		{
 			if (!Property) return FArchiveLogicalTypeDescriptor::Bytes();
@@ -373,6 +399,20 @@ namespace Durin
 				auto SerializeStructValue = [&](void* StructValue) {
 					if (Struct->HasSerializer())
 					{
+						if (Ar.IsFilterEditorOnly())
+						{
+							bool bContainsEditorOnly = false;
+							Struct->ForEachProperty([&](FProperty* Field) {
+								bContainsEditorOnly = bContainsEditorOnly || (Field
+									&& Field->HasAnyPropertyFlags(EPropertyFlags::EditorOnly));
+							}, false);
+							if (bContainsEditorOnly)
+							{
+								Ar.Fail(EArchiveFailureCode::MalformedSerializer,
+									"CustomStructEditorOnlyFilterRequired: a custom struct serializer bypasses automatic EditorOnly filtering.");
+								return;
+							}
+						}
 						Struct->GetOps().Serialize(Ar, StructValue);
 						return;
 					}
@@ -384,17 +424,29 @@ namespace Durin
 						return;
 					}
 					Struct->ForEachProperty([&](FProperty* Field) {
-						if (Ar.HasError() || !Field
-							|| (Field->HasAnyPropertyFlags(EPropertyFlags::Transient) && !ShouldSerializeTransientWeakProperty(Ar, Field))
-							|| (Ar.IsSaving() && Field->IsDeprecated())) return;
+						if (Ar.HasError() || !ShouldSerializeReflectedProperty(Ar, Field)) return;
+						FArchivePropertySaveValue EffectiveValue;
+						const EArchivePropertySaveDisposition Disposition = ResolvePropertySaveValue(
+							Ar, *Field, StructValue, 0, EffectiveValue);
+						if (Disposition == EArchivePropertySaveDisposition::Omit) return;
 						auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(
 							Field, Struct->GetQualifiedName()));
 						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.HasError(); ++Index)
 						{
+							EffectiveValue = {StructValue, Index};
+							const EArchivePropertySaveDisposition ElementDisposition = ResolvePropertySaveValue(
+								Ar, *Field, StructValue, Index, EffectiveValue);
+							if (ElementDisposition == EArchivePropertySaveDisposition::Omit)
+							{
+								Ar.Fail(EArchiveFailureCode::MalformedSerializer,
+									"A reflected fixed-array property cannot be partially omitted.");
+								return;
+							}
 							auto FixedScope = Field->GetArrayDim() > 1
 								? EnterArchiveFixedArrayElement(Ar, Index) : FArchivePathScope();
 							SerializePropertyValue(
-								Ar, Field, StructValue, Index, bIncludeRawObjectReferences);
+								Ar, Field, const_cast<void*>(EffectiveValue.Container),
+								EffectiveValue.ArrayIndex, bIncludeRawObjectReferences);
 						}
 					}, false);
 				};
@@ -1107,6 +1159,19 @@ namespace Durin
 	auto FObjectArchive::OnCanonicalMapKey(uint64, std::span<const std::byte>) -> void {}
 	auto FObjectArchive::OnLeavePath() -> void {}
 	auto FObjectArchive::OnReflectedPropertyValue(FProperty&, const void*, uint32) -> void {}
+	auto FObjectArchive::OnResolvePropertySaveValue(
+		FProperty&, const void* Container, uint32 ArrayIndex,
+		FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition
+	{
+		OutValue = {Container, ArrayIndex};
+		return EArchivePropertySaveDisposition::LiveValue;
+	}
+	auto FObjectArchive::ResolvePropertySaveValue(
+		FProperty& Property, const void* Container, uint32 ArrayIndex,
+		FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition
+	{
+		return OnResolvePropertySaveValue(Property, Container, ArrayIndex, OutValue);
+	}
 	auto FObjectArchive::NotifyReflectedPropertyValue(
 		FProperty& Property, const void* Container, uint32 ArrayIndex) -> void
 	{
@@ -1519,8 +1584,7 @@ namespace Durin
 		auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(&Property));
 		auto FixedScope = Property.GetArrayDim() > 1
 			? EnterArchiveFixedArrayElement(Ar, ArrayIndex) : FArchivePathScope();
-		SerializePropertyValue(
-			Ar, &Property, Container, ArrayIndex, bIncludeRawObjectReferences);
+		SerializePropertyValue(Ar, &Property, Container, ArrayIndex, bIncludeRawObjectReferences);
 	}
 
 	auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void
@@ -1534,19 +1598,32 @@ namespace Durin
 		Object.GetClass()->ForEachProperty(
 			[&](FProperty* Property)
 			{
-				if (!Property || (Property->HasAnyPropertyFlags(EPropertyFlags::Transient) && !ShouldSerializeTransientWeakProperty(Ar, Property))
-					|| (Ar.IsSaving() && Property->IsDeprecated()))
+				if (!ShouldSerializeReflectedProperty(Ar, Property))
 				{
 					return;
 				}
+				FArchivePropertySaveValue EffectiveValue;
+				const EArchivePropertySaveDisposition Disposition = ResolvePropertySaveValue(
+					Ar, *Property, &Object, 0, EffectiveValue);
+				if (Disposition == EArchivePropertySaveDisposition::Omit) return;
 
 				auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(
 					Property, Object.GetClass()->GetQualifiedName()));
 				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
+					EffectiveValue = {&Object, Index};
+					const EArchivePropertySaveDisposition ElementDisposition = ResolvePropertySaveValue(
+						Ar, *Property, &Object, Index, EffectiveValue);
+					if (ElementDisposition == EArchivePropertySaveDisposition::Omit)
+					{
+						Ar.Fail(EArchiveFailureCode::MalformedSerializer,
+							"A reflected fixed-array property cannot be partially omitted.");
+						return;
+					}
 					auto FixedScope = Property->GetArrayDim() > 1
 						? EnterArchiveFixedArrayElement(Ar, Index) : FArchivePathScope();
-					SerializePropertyValue(Ar, Property, &Object, Index, false);
+					SerializePropertyValue(Ar, Property,
+						const_cast<void*>(EffectiveValue.Container), EffectiveValue.ArrayIndex, false);
 				}
 			},
 			true

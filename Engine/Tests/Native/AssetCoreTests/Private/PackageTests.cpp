@@ -1873,6 +1873,126 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 		Durin::Asset::EAssetError::UnsupportedVersion);
 }
 
+TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SaveOverrides", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Value = 17;
+	Asset->Label = "LiveLabel";
+	const bool bDirtyBefore = Asset->GetPackage()->IsDirty();
+	Durin::FAssetPath ForeignPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/ForeignSaveOverride", ForeignPath));
+	DPackageAssetForTest* Foreign = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(ForeignPath, Foreign));
+
+	Durin::FProperty* ValueProperty = Asset->GetClass()->FindPropertyByName("Value");
+	Durin::FProperty* LabelProperty = Asset->GetClass()->FindPropertyByName("Label");
+	Durin::FProperty* ChildProperty = Asset->GetClass()->FindPropertyByName("DefaultChild");
+	Durin::FProperty* ExternalProperty =
+		Asset->GetClass()->FindPropertyByName("ExternalReference");
+	ASSERT_NE(ValueProperty, nullptr);
+	ASSERT_NE(LabelProperty, nullptr);
+	ASSERT_NE(ChildProperty, nullptr);
+	ASSERT_NE(ExternalProperty, nullptr);
+	const int32 Replacement = 91;
+	Durin::TObjectPtr<Durin::DObject> ReplacementExternal = Foreign;
+	auto Overrides = std::make_shared<Durin::Asset::FObjectSaveOverrides>();
+	std::string Error;
+	ASSERT_TRUE(Overrides->AddPropertyValue(
+		*Asset, *ValueProperty, Replacement, &Error)) << Error;
+	ASSERT_TRUE(Overrides->AddPropertyOmission(
+		*Asset, *LabelProperty, &Error)) << Error;
+	ASSERT_TRUE(Overrides->AddPropertyOmission(
+		*Asset, *ChildProperty, &Error)) << Error;
+	ASSERT_TRUE(Overrides->AddPropertyValue(
+		*Asset, *ExternalProperty, ReplacementExternal, &Error)) << Error;
+	ASSERT_TRUE(Overrides->AddObjectOmission(
+		*Asset->DefaultChild.Get(), &Error)) << Error;
+	EXPECT_FALSE(Overrides->AddPropertyOmission(
+		*Asset, *ValueProperty, &Error));
+	const uint64 WrongType = 91;
+	Durin::Asset::FObjectSaveOverrides TypeMismatchOverrides;
+	EXPECT_FALSE(TypeMismatchOverrides.AddPropertyValue(
+		*Asset, *ValueProperty, WrongType, &Error));
+	const uint32 SameSizeWrongType = 91;
+	EXPECT_FALSE(TypeMismatchOverrides.AddPropertyValue(
+		*Asset, *ValueProperty, SameSizeWrongType, &Error));
+
+	Durin::Asset::FAssetPackageSerializationOptions Options;
+	Options.SaveOverrides = Overrides;
+	std::vector<std::byte> FirstBytes;
+	std::vector<std::byte> SecondBytes;
+	const Durin::Asset::FAssetResult FirstResult = Durin::Asset::DastV4::WriteAssetPackage(
+		Asset->GetPackage(), FirstBytes,
+		{.DeltaMode = Durin::EDefaultDeltaMode::Enabled,
+			.Serialization = Options,
+			.bVerifyRepeatedEncoding = true});
+	ASSERT_TRUE(FirstResult) << FirstResult.Message;
+	const Durin::Asset::FAssetResult SecondResult = Durin::Asset::SerializeAssetPackageBytes(
+		Asset->GetPackage(), SecondBytes, Options);
+	ASSERT_TRUE(SecondResult) << SecondResult.Message;
+	EXPECT_EQ(FirstBytes, SecondBytes);
+	EXPECT_EQ(Asset->Value, 17);
+	EXPECT_EQ(Asset->Label, "LiveLabel");
+	EXPECT_EQ(Asset->ExternalReference.Get(), nullptr);
+	EXPECT_EQ(Asset->GetPackage()->IsDirty(), bDirtyBefore);
+
+	const std::filesystem::path File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "SaveOverrides.dasset";
+	WriteTestBytes(File, FirstBytes);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
+	ASSERT_EQ(Inspection.Objects.size(), 1u);
+	ASSERT_EQ(Inspection.Header.Dependencies.size(), 1u);
+	EXPECT_EQ(Inspection.Header.Dependencies.front(), ForeignPath);
+	const Durin::Asset::FAssetPackageField* ValueField = Inspection.FindField("Value");
+	ASSERT_NE(ValueField, nullptr);
+	int32 SavedValue = 0;
+	ASSERT_TRUE(ValueField->TryReadScalar(SavedValue));
+	EXPECT_EQ(SavedValue, Replacement);
+	EXPECT_EQ(Inspection.FindField("Label"), nullptr);
+
+	Durin::FProperty* ForeignValueProperty = Foreign->GetClass()->FindPropertyByName("Value");
+	ASSERT_NE(ForeignValueProperty, nullptr);
+	auto ForeignOverrides = std::make_shared<Durin::Asset::FObjectSaveOverrides>();
+	ASSERT_TRUE(ForeignOverrides->AddPropertyValue(
+		*Foreign, *ForeignValueProperty, Replacement, &Error));
+	Durin::Asset::FAssetPackageSerializationOptions ForeignOptions;
+	ForeignOptions.SaveOverrides = std::move(ForeignOverrides);
+	std::vector<std::byte> Sentinel{std::byte{1}, std::byte{2}};
+	const Durin::Asset::FAssetResult ForeignResult =
+		Durin::Asset::SerializeAssetPackageBytes(Asset->GetPackage(), Sentinel, ForeignOptions);
+	EXPECT_FALSE(ForeignResult);
+	EXPECT_EQ(Sentinel, (std::vector<std::byte>{std::byte{1}, std::byte{2}}));
+	EXPECT_EQ(Asset->Value, 17);
+	EXPECT_EQ(Asset->Label, "LiveLabel");
+	EXPECT_EQ(Asset->GetPackage()->IsDirty(), bDirtyBefore);
+
+	Durin::FAssetPath SoftOwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftSaveOverride", SoftOwnerPath));
+	DSoftPackageAssetForTest* SoftOwner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SoftOwnerPath, SoftOwner));
+	Durin::FProperty* DirectProperty = SoftOwner->GetClass()->FindPropertyByName("Direct");
+	ASSERT_NE(DirectProperty, nullptr);
+	DSoftPackageAssetForTest::FSoftReference ReplacementSoft(ForeignPath);
+	auto SoftOverrides = std::make_shared<Durin::Asset::FObjectSaveOverrides>();
+	ASSERT_TRUE(SoftOverrides->AddPropertyValue(
+		*SoftOwner, *DirectProperty, ReplacementSoft, &Error)) << Error;
+	Durin::Asset::FAssetPackageSerializationOptions SoftOptions;
+	SoftOptions.SaveOverrides = std::move(SoftOverrides);
+	std::vector<std::byte> SoftBytes;
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
+		SoftOwner->GetPackage(), SoftBytes, SoftOptions));
+	EXPECT_TRUE(SoftOwner->Direct.IsNull());
+	const std::span<const std::byte> ForeignPathBytes =
+		std::as_bytes(std::span{ForeignPath.GetView().data(), ForeignPath.GetView().size()});
+	EXPECT_NE(std::search(SoftBytes.begin(), SoftBytes.end(),
+		ForeignPathBytes.begin(), ForeignPathBytes.end()), SoftBytes.end());
+}
+
 TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 {
 	InitializeAssetTests();

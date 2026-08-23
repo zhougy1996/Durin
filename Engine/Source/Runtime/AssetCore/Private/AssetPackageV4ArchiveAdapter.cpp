@@ -42,6 +42,7 @@ namespace Durin::Asset::Private
 			std::vector<FCapturedNode> Fields;
 		};
 
+		// Owns every value and dependency needed after live package capture ends.
 		struct FCapturedPackage
 		{
 			std::vector<FCapturedObject> Objects;
@@ -778,9 +779,7 @@ namespace Durin::Asset::Private
 				bool bInCapturePayload,
 				uint32 TargetFormatVersion,
 				FXxHash128 InContainerHash)
-				: FObjectArchive({EArchiveDirection::Save,
-					bInCapturePayload ? EArchivePurpose::AuthoredPackage : EArchivePurpose::Discovery,
-					EArchiveCapability::None}, FArchiveVersionContext{
+				: FObjectArchive(MakeArchiveState(InOptions, bInCapturePayload), FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), TargetFormatVersion}}, {}})
 				, ObjectIds(InObjectIds), Options(InOptions), bCapturePayload(bInCapturePayload)
 				, ContainerHash(InContainerHash)
@@ -924,6 +923,49 @@ namespace Durin::Asset::Private
 			}
 
 		protected:
+			auto OnResolvePropertySaveValue(
+				FProperty& Property,
+				const void* Container,
+				uint32 ArrayIndex,
+				FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition override
+			{
+				OutValue = {Container, ArrayIndex};
+				if (!CurrentDObject || !Options.SaveOverrides)
+					return EArchivePropertySaveDisposition::LiveValue;
+				const FObjectSaveOverride* ObjectOverride =
+					Options.SaveOverrides->FindObject(*CurrentDObject);
+				if (!ObjectOverride) return EArchivePropertySaveDisposition::LiveValue;
+				auto It = std::ranges::find(
+					ObjectOverride->Properties, &Property, &FPropertySaveOverride::Property);
+				if (It == ObjectOverride->Properties.end())
+					return EArchivePropertySaveDisposition::LiveValue;
+				if (It->Kind == EPropertySaveOverrideKind::Omit)
+					return EArchivePropertySaveDisposition::Omit;
+
+				auto StorageIt = std::ranges::find_if(ReplacementValues,
+					[&](const FResolvedReplacement& Value) {
+						return Value.Object == CurrentDObject && Value.Property == &Property;
+					});
+				if (StorageIt == ReplacementValues.end())
+				{
+					FResolvedReplacement& Value = ReplacementValues.emplace_back();
+					Value.Object = CurrentDObject;
+					Value.Property = &Property;
+					std::string Error;
+					if (!Value.Storage.DefaultConstruct(&Property, ArrayIndex, &Error)
+						|| !RestorePropertyValue(
+							&Property, Value.Storage.GetContainer(), ArrayIndex,
+							It->Replacement, &Error))
+					{
+						SetError(Error.empty() ? "The save override replacement could not be materialized." : Error);
+						return EArchivePropertySaveDisposition::Omit;
+					}
+					StorageIt = std::prev(ReplacementValues.end());
+				}
+				OutValue = {StorageIt->Storage.GetContainer(), StorageIt->Storage.GetArrayIndex()};
+				return EArchivePropertySaveDisposition::ReplacementValue;
+			}
+
 			auto OnEnterObject(DObject& Object) -> void override
 			{
 				auto It = ObjectIds.find(&Object);
@@ -1003,6 +1045,46 @@ namespace Durin::Asset::Private
 			}
 
 		private:
+			static auto MakeArchiveState(
+				const FAssetPackageSerializationOptions& InOptions,
+				bool bInCapturePayload) -> FArchiveState
+			{
+				const bool bCooked = InOptions.Domain == EAssetPackageSaveDomain::Cooked;
+				auto PlatformName = [](ECookTargetPlatform Platform) -> std::string {
+					switch (Platform)
+					{
+					case ECookTargetPlatform::Win64: return "Win64";
+					default: return {};
+					}
+				};
+				auto ProfileName = [](ECookTargetProfile Profile) -> std::string {
+					switch (Profile)
+					{
+					case ECookTargetProfile::Game: return "Game";
+					case ECookTargetProfile::EditorValidation: return "EditorValidation";
+					default: return {};
+					}
+				};
+				return {
+					.Direction = EArchiveDirection::Save,
+					.Purpose = bCooked ? EArchivePurpose::CookedPackage
+						: (bInCapturePayload ? EArchivePurpose::AuthoredPackage
+							: EArchivePurpose::Discovery),
+					.Capabilities = EArchiveCapability::None,
+					.bPersistent = bCooked,
+					.bCooking = bCooked,
+					.bFilterEditorOnly = bCooked && !InOptions.bRetainEditorOnlyData,
+					.Target = {PlatformName(InOptions.TargetPlatform),
+						ProfileName(InOptions.TargetProfile)}};
+			}
+
+			struct FResolvedReplacement
+			{
+				const DObject* Object = nullptr;
+				const FProperty* Property = nullptr;
+				FReflectedValueStorage Storage;
+			};
+
 			template<typename T> auto Append(const T& Value) -> void
 			{
 				if (!bCapturePayload || SuppressedDepth != 0) return;
@@ -1049,6 +1131,7 @@ namespace Durin::Asset::Private
 			uint32 SuppressedDepth = 0;
 			std::unordered_set<FAssetPath> Dependencies;
 			std::vector<FAssetPath> ExternalPaths;
+			std::vector<FResolvedReplacement> ReplacementValues;
 			FXxHash128 ContainerHash;
 
 		public:
@@ -1087,6 +1170,19 @@ namespace Durin::Asset::Private
 			std::vector<DObject*> Current;
 			GatherObjects(Root, Current);
 			return std::ranges::equal(Current, Frozen);
+		}
+
+		auto IsObjectOmitted(
+			const DObject* Object,
+			const FObjectSaveOverrides* Overrides) -> bool
+		{
+			for (const DObject* Candidate = Object; Candidate; Candidate = Candidate->GetOuter())
+			{
+				const FObjectSaveOverride* Override = Overrides
+					? Overrides->FindObject(*Candidate) : nullptr;
+				if (Override && Override->bOmitObject) return true;
+			}
+			return false;
 		}
 
 		auto CapturePackage(
@@ -1411,6 +1507,7 @@ namespace Durin::Asset::Private
 
 		auto BuildV4Input(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
+			std::span<const DastV4::FCustomVersion> CustomVersions,
 			DastV4::FPackageInput& Out, DastV4::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			DastV4::FPackageInput Input;
@@ -1418,7 +1515,7 @@ namespace Durin::Asset::Private
 			Input.EntryKind = Summary.EntryKind;
 			Input.RedirectDestination = Summary.RedirectDestination.GetView();
 			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
-			if (!GatherDeprecationCustomVersions(Objects, Input, Diagnostic)) return false;
+			Input.CustomVersions.assign(CustomVersions.begin(), CustomVersions.end());
 			std::vector<std::string> Paths(Captured.Objects.size());
 			for (const auto& Object : Captured.Objects)
 			{
@@ -1481,6 +1578,22 @@ namespace Durin::Asset::Private
 				Input.ObjectValues.push_back(std::move(Values));
 			}
 			Out = std::move(Input); return true;
+		}
+
+		auto EncodeCapturedPackage(
+			const FCapturedPackage& Captured,
+			const FAuthoredPackageSummary& Summary,
+			std::span<DObject* const> ObjectIdentities,
+			const FDefaultDeltaPlan& DeltaPlan,
+			std::span<const DastV4::FCustomVersion> CustomVersions,
+			std::vector<std::byte>& OutBytes,
+			DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		{
+			DastV4::FPackageInput Input;
+			if (!BuildV4Input(
+				Captured, Summary, ObjectIdentities, DeltaPlan, CustomVersions,
+				Input, Diagnostic)) return false;
+			return DastV4::WritePackage(Input, OutBytes, &Diagnostic);
 		}
 	}
 
@@ -1559,6 +1672,14 @@ namespace Durin::Asset::DastV4
 			Diagnostic = {EWriterFailure::InvalidTopology, {}, "Package has no main asset."};
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
+		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
+			&& (Options.Serialization.TargetPlatform == ECookTargetPlatform::Invalid
+				|| Options.Serialization.TargetProfile == ECookTargetProfile::Invalid))
+		{
+			Diagnostic = {EWriterFailure::InvalidInput, {},
+				"Cooked package serialization requires an explicit target platform and profile."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
 		FAssetPath PackagePath;
 		if (!FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
 		{
@@ -1566,8 +1687,33 @@ namespace Durin::Asset::DastV4
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
 
+		std::vector<DObject*> FrozenObjects;
+		Private::GatherObjects(Package->GetAsset(), FrozenObjects);
+		if (Options.Serialization.SaveOverrides)
+		{
+			for (const FObjectSaveOverride& Override : Options.Serialization.SaveOverrides->GetObjects())
+			{
+				if (!Override.Object
+					|| std::ranges::find(FrozenObjects, Override.Object) == FrozenObjects.end())
+				{
+					Diagnostic = {EWriterFailure::InvalidInput, {},
+						"A save override targets an object outside the frozen package graph."};
+					return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+				}
+			}
+			const FObjectSaveOverride* RootOverride =
+				Options.Serialization.SaveOverrides->FindObject(*Package->GetAsset());
+			if (RootOverride && RootOverride->bOmitObject)
+			{
+				Diagnostic = {EWriterFailure::InvalidInput, {},
+					"The package main asset cannot be omitted from its own save."};
+				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+			}
+		}
 		std::vector<DObject*> Objects;
-		Private::GatherObjects(Package->GetAsset(), Objects);
+		for (DObject* Object : FrozenObjects)
+			if (!Private::IsObjectOmitted(Object, Options.Serialization.SaveOverrides.get()))
+				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		Private::FCapturedPackage Discovery;
@@ -1577,7 +1723,7 @@ namespace Durin::Asset::DastV4
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
 		}
-		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), Objects))
+		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects))
 		{
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
@@ -1615,7 +1761,7 @@ namespace Durin::Asset::DastV4
 				if (Payload.Descriptor.StorageKind == EAuthoredBulkStorageKind::External)
 					Options.Serialization.AuthoredBulkPayloads->push_back(Payload);
 		}
-		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), Objects)
+		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects)
 			|| !Private::EqualManifest(Discovery, Captured))
 		{
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
@@ -1641,7 +1787,11 @@ namespace Durin::Asset::DastV4
 
 		FDefaultDeltaPlan DeltaPlan;
 		FDefaultDeltaDiagnostic DeltaDiagnostic;
-		if (!BuildDefaultDeltaPlan(Package->GetAsset(), Options.DeltaMode, DeltaPlan, &DeltaDiagnostic))
+		const EDefaultDeltaMode DeltaMode =
+			Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
+				|| (Options.Serialization.SaveOverrides && !Options.Serialization.SaveOverrides->IsEmpty())
+			? EDefaultDeltaMode::NoDelta : Options.DeltaMode;
+		if (!BuildDefaultDeltaPlan(Package->GetAsset(), DeltaMode, DeltaPlan, &DeltaDiagnostic))
 		{
 			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
 				switch (Reason)
@@ -1673,12 +1823,31 @@ namespace Durin::Asset::DastV4
 				std::move(Message)};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		FPackageInput Input;
-		if (!Private::BuildV4Input(Captured, Summary, Objects, DeltaPlan, Input, Diagnostic))
+		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
+			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
+		});
+		FPackageInput SchemaMetadata;
+		if (!Private::GatherDeprecationCustomVersions(Objects, SchemaMetadata, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		std::vector<std::byte> Bytes;
-		if (!WritePackage(Input, Bytes, &Diagnostic))
+		if (!Private::EncodeCapturedPackage(
+			Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
+			Bytes, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		if (Options.bVerifyRepeatedEncoding)
+		{
+			std::vector<std::byte> RepeatedBytes;
+			if (!Private::EncodeCapturedPackage(
+				Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
+				RepeatedBytes, Diagnostic))
+				return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+			if (RepeatedBytes != Bytes)
+			{
+				Diagnostic = {EWriterFailure::ManifestMismatch, {},
+					"Repeated encoding of one captured package produced different bytes."};
+				return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+			}
+		}
 		OutBytes = std::move(Bytes);
 		Diagnostic.Reset();
 		return Finish({});

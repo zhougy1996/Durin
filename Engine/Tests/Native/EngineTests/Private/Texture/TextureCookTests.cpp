@@ -122,6 +122,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const std::filesystem::path ContentRoot = Root / "Content";
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Root / "CookSecond");
+	const std::filesystem::path DiagnosticCookRoot =
+		std::filesystem::absolute(Root / "CookDiagnostic");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(ContentRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
@@ -138,6 +140,12 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const Durin::FTexturePlatformData ExpectedPlatformData = *Import.Asset->GetPlatformData();
 	const Durin::FTextureDerivedDataDiagnostic DiagnosticBeforeCook =
 		Import.Asset->GetDerivedDataDiagnostic();
+	const Durin::FTexture2DSourceImportData SourceBeforeCook =
+		Import.Asset->GetSourceImportData();
+	const std::string SourceHashBeforeCook = Import.Asset->GetSourceContentHash();
+	const Durin::Asset::FCookedPayloadDescriptor DescriptorBeforeCook =
+		Import.Asset->GetCookedPayloadDescriptor();
+	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
 
 	std::string Error;
 	Durin::Asset::FCookContext First(
@@ -157,10 +165,23 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Import.Asset->AddToCook(Second, "/Game/CookedTexture", Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
+	Durin::Asset::FCookContext Diagnostic(
+		DiagnosticCookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game,
+		true);
+	ASSERT_TRUE(Import.Asset->AddToCook(Diagnostic, "/Game/CookedTexture", Error)) << Error;
+	ASSERT_TRUE(Diagnostic.Publish(&Error)) << Error;
+	EXPECT_EQ(Import.Asset->GetSourceImportData(), SourceBeforeCook);
+	EXPECT_EQ(Import.Asset->GetSourceContentHash(), SourceHashBeforeCook);
+	EXPECT_EQ(Import.Asset->GetCookedPayloadDescriptor(), DescriptorBeforeCook);
+	EXPECT_EQ(Import.Asset->GetPackage()->IsDirty(), bPackageDirtyBeforeCook);
+
 	std::vector<std::byte> FirstPackage;
 	std::vector<std::byte> SecondPackage;
 	std::vector<std::byte> FirstBulk;
 	std::vector<std::byte> SecondBulk;
+	std::vector<std::byte> DiagnosticPackage;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (CookRoot / "Game/CookedTexture.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -169,12 +190,16 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		FirstBulk, (CookRoot / "Game/CookedTexture.dbulk")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondBulk, (SecondCookRoot / "Game/CookedTexture.dbulk")));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		DiagnosticPackage, (DiagnosticCookRoot / "Game/CookedTexture.dasset")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceContentHash"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceWidth"));
+	EXPECT_TRUE(ContainsText(DiagnosticPackage, "SourceImportData"));
+	EXPECT_TRUE(ContainsText(DiagnosticPackage, "SourceContentHash"));
 
 	Durin::Asset::FCookedBulkContainer DecodedBulk;
 	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(

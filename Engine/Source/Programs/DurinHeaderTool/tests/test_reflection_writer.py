@@ -178,7 +178,7 @@ class TestReflectionWriterIntegration:
     def test_class_display_and_default_object_name_metadata(self):
         assert '"Fixture::ASampleActor",' in self.generated_cpp
         assert '"ASampleActor",' in self.generated_cpp
-        assert '12,\n\t"Sample Actor",' in self.generated_cpp
+        assert '13,\n\t"Sample Actor",' in self.generated_cpp
         assert '"Sample Actor",' in self.generated_cpp
         assert '"SampleActor"' in self.generated_cpp
 

@@ -109,10 +109,10 @@ namespace Durin
 		DPROPERTY(Edit)
 		EBodySetupCollisionQueryPolicy CollisionQueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint64 CollisionBuildRevision = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		EBodySetupCollisionBuildStatus CollisionBuildStatus = EBodySetupCollisionBuildStatus::None;
 
 		DPROPERTY()

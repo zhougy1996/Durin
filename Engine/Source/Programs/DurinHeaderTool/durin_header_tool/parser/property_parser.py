@@ -78,6 +78,7 @@ _PROPERTY_FLAG_BY_SPECIFIER = {
     "Transient": "Transient",
     "ReadOnly": "ReadOnly",
     "Deprecated": "Deprecated",
+    "EditorOnly": "EditorOnly",
 }
 
 _TYPED_METADATA_KEYS = {
@@ -127,6 +128,23 @@ def _property_flags_from_annotation(annotation: str) -> str:
         if flag:
             flags.append(f"Durin::EPropertyFlags::{flag}")
     return " | ".join(flags) if flags else "None"
+
+
+def _validate_property_specifiers(annotation: str, location: str) -> None:
+    seen: set[str] = set()
+    for raw_specifier in _annotation_entries(annotation):
+        specifier = raw_specifier.strip()
+        if "=" in specifier:
+            continue
+        if specifier not in _PROPERTY_FLAG_BY_SPECIFIER:
+            raise ValueError(
+                f"[DHT-PROP001] {location}: unknown property specifier '{specifier}'"
+            )
+        if specifier in seen:
+            raise ValueError(
+                f"[DHT-PROP002] {location}: duplicate property specifier '{specifier}'"
+            )
+        seen.add(specifier)
 
 
 def _string_metadata_from_annotation(annotation: str, key: str) -> str:
@@ -356,6 +374,7 @@ def _deprecation_from_annotation(
 def _apply_property_annotation(
     prop: ReflectedPropertyInfo | None, annotation: str, location: str = "DPROPERTY"
 ) -> ReflectedPropertyInfo | None:
+    _validate_property_specifiers(annotation, location)
     if prop:
         prop.metadata = _property_metadata_from_annotation(annotation)
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")

@@ -192,11 +192,11 @@ namespace Durin
 		DPROPERTY()
 		FName Name;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		std::string SourceName;
 
 		// Original importer index used only for source reconciliation.
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceMaterialIndex = 0;
 
 		DPROPERTY()
@@ -247,8 +247,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticSourceMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
 		// Seeds a detached candidate with only the slot state required by the
@@ -344,7 +343,7 @@ namespace Durin
 			uint64& OutPayloadBytes,
 			std::string& OutError) const -> bool;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FStaticMeshSourceImportData SourceImportData;
 
 		DPROPERTY()

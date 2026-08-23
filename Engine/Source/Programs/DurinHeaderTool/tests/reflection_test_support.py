@@ -130,6 +130,9 @@ namespace Fixture
         DPROPERTY(Edit, ReadOnly, DisplayName = "Scalar Value", ToolTip = "Authored scalar", Category = "Numbers", Units = "Percent", Step = "1", Precision = 3, ClampMin = "-100", ClampMax = "100", UIMin = "-50", UIMax = "50")
         float Value = 0.0f;
 
+        DPROPERTY(EditorOnly)
+        int32 EditorDiagnostic = 0;
+
         DPROPERTY(Deprecated, CustomVersion = FFixtureVersion, DeprecatedBefore = FFixtureVersion::FloatValue, MigratesTo = "Value")
         int32 Value_DEPRECATED = 0;
 

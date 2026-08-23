@@ -1496,6 +1496,129 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		return Struct;
 	}
 
+	struct FEditorOnlyNestedForTest
+	{
+		int32 RuntimeValue = 0;
+		int32 EditorValue = 0;
+	};
+
+	auto GetEditorOnlyNestedStructForTest() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = [] {
+			static Durin::FDStructOps Ops;
+			Ops.Flags = Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+			static const Durin::DurinCodeGen::FInt32PropertyParams RuntimeValue = {
+				"RuntimeValue", Durin::EPropertyFlags::None, 1,
+				static_cast<uint16>(offsetof(FEditorOnlyNestedForTest, RuntimeValue))};
+			static const Durin::DurinCodeGen::FInt32PropertyParams EditorValue = {
+				"EditorValue", Durin::EPropertyFlags::EditorOnly, 1,
+				static_cast<uint16>(offsetof(FEditorOnlyNestedForTest, EditorValue))};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+				&RuntimeValue, &EditorValue};
+			static Durin::DStruct* RawStruct = nullptr;
+			auto NoRegister = []() -> Durin::DStruct* {
+				if (!RawStruct)
+				{
+					RawStruct = new Durin::DStruct(
+						Durin::EC_StaticConstructor, "FEditorOnlyNestedForTest",
+						"FEditorOnlyNestedForTest", sizeof(FEditorOnlyNestedForTest),
+						alignof(FEditorOnlyNestedForTest), Durin::EObjectFlags::NoFlags);
+					RawStruct->Register(
+						Durin::DStruct::StaticClass, "", "FEditorOnlyNestedForTest");
+				}
+				return RawStruct;
+			};
+			static const Durin::DurinCodeGen::FStructParams Params = {
+				NoRegister, "FEditorOnlyNestedForTest", "FEditorOnlyNestedForTest",
+				sizeof(FEditorOnlyNestedForTest), alignof(FEditorOnlyNestedForTest),
+				Properties, std::size(Properties), &Ops};
+			return Durin::DurinCodeGen::ConstructDStruct(Params);
+		}();
+		return Struct;
+	}
+
+	class DEditorOnlyArchiveOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DEditorOnlyArchiveOwnerForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DEditorOnlyArchiveOwnerForTest(X);
+		}
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DEditorOnlyArchiveOwnerForTest",
+					sizeof(DEditorOnlyArchiveOwnerForTest),
+					alignof(DEditorOnlyArchiveOwnerForTest), Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None, Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DEditorOnlyArchiveOwnerForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(
+					Durin::DClass::StaticClass, "", "DEditorOnlyArchiveOwnerForTest");
+			}
+			return Class;
+		}
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = [] {
+				static const Durin::DurinCodeGen::FInt32PropertyParams RuntimeTop = {
+					"RuntimeTop", Durin::EPropertyFlags::None, 1,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, RuntimeTop))};
+				static const Durin::DurinCodeGen::FInt32PropertyParams EditorTop = {
+					"EditorTop", Durin::EPropertyFlags::EditorOnly, 1,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, EditorTop))};
+				static const Durin::DurinCodeGen::FStructPropertyParams Nested = {
+					"Nested", Durin::EPropertyFlags::None, 1,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, Nested)),
+					&GetEditorOnlyNestedStructForTest};
+				static const Durin::DurinCodeGen::FStructPropertyParams Fixed = {
+					"Fixed", Durin::EPropertyFlags::None, 2,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, Fixed)),
+					&GetEditorOnlyNestedStructForTest};
+				static const Durin::DurinCodeGen::FStructPropertyParams ArrayInner = {
+					"Array_Inner", Durin::EPropertyFlags::None, 1, 0,
+					&GetEditorOnlyNestedStructForTest};
+				static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
+					"Array", Durin::EPropertyFlags::None, 1,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, Array)),
+					&ArrayInner, &GVectorPropertyHelper<FEditorOnlyNestedForTest>};
+				static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
+					"Map_Key", Durin::EPropertyFlags::None, 1, 0};
+				static const Durin::DurinCodeGen::FStructPropertyParams MapValue = {
+					"Map_Value", Durin::EPropertyFlags::None, 1, 0,
+					&GetEditorOnlyNestedStructForTest};
+				static const Durin::DurinCodeGen::FMapPropertyParams Map = {
+					"Map", Durin::EPropertyFlags::None, 1,
+					static_cast<uint16>(offsetof(DEditorOnlyArchiveOwnerForTest, Map)),
+					&MapKey, &MapValue,
+					&GMapPropertyHelper<std::string, FEditorOnlyNestedForTest>};
+				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+					&RuntimeTop, &EditorTop, &Nested, &Fixed, &Array, &Map};
+				static const Durin::DurinCodeGen::FClassParams Params = {
+					&StaticClassNoRegister, "DEditorOnlyArchiveOwnerForTest",
+					"DEditorOnlyArchiveOwnerForTest", Properties, std::size(Properties)};
+				return Durin::DurinCodeGen::ConstructDClass(Params);
+			}();
+			return Class;
+		}
+
+		int32 RuntimeTop = 1;
+		int32 EditorTop = 2;
+		FEditorOnlyNestedForTest Nested{3, 4};
+		FEditorOnlyNestedForTest Fixed[2]{{5, 6}, {7, 8}};
+		std::vector<FEditorOnlyNestedForTest> Array{{9, 10}};
+		TTestMap<std::string, FEditorOnlyNestedForTest> Map{{"Value", {11, 12}}};
+	};
+
 	class DGCReferenceSchemaBaseForTest : public Durin::DObject
 	{
 	public:
@@ -3748,6 +3871,49 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::MarkAsGarbage(Owner);
 		Durin::MarkAsGarbage(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, EditorOnlyFilteringRecursesThroughStructContainers)
+	{
+		EnsureDObjectInitialized();
+		class FFieldRecordingArchive final : public Durin::FObjectArchive
+		{
+		public:
+			explicit FFieldRecordingArchive(bool bFilterEditorOnly)
+				: FObjectArchive({
+					.Direction = Durin::EArchiveDirection::Save,
+					.Purpose = Durin::EArchivePurpose::AuthoredPackage,
+					.bFilterEditorOnly = bFilterEditorOnly})
+			{
+			}
+			auto SerializeRawBytes(std::span<std::byte>) -> void override {}
+			std::vector<Durin::FName> Fields;
+		protected:
+			auto OnEnterField(const Durin::FArchiveFieldDescriptor& Field) -> void override
+			{
+				Fields.push_back(Field.Name);
+			}
+		};
+
+		auto* Owner = Durin::NewObject<DEditorOnlyArchiveOwnerForTest>(
+			nullptr, "EditorOnlyArchiveOwner");
+		auto Serialize = [&](FFieldRecordingArchive& Archive) {
+			auto Scope = Archive.EnterObject(*Owner);
+			Owner->Serialize(Archive);
+			ASSERT_FALSE(Archive.HasError()) << Archive.GetError();
+		};
+		FFieldRecordingArchive Authored(false);
+		Serialize(Authored);
+		FFieldRecordingArchive Filtered(true);
+		Serialize(Filtered);
+
+		EXPECT_EQ(std::ranges::count(Authored.Fields, Durin::FName("EditorTop")), 1u);
+		EXPECT_EQ(std::ranges::count(Filtered.Fields, Durin::FName("EditorTop")), 0u);
+		EXPECT_EQ(std::ranges::count(Authored.Fields, Durin::FName("EditorValue")), 5u);
+		EXPECT_EQ(std::ranges::count(Filtered.Fields, Durin::FName("EditorValue")), 0u);
+		EXPECT_EQ(std::ranges::count(Authored.Fields, Durin::FName("RuntimeValue")), 5u);
+		EXPECT_EQ(std::ranges::count(Filtered.Fields, Durin::FName("RuntimeValue")), 5u);
+		Durin::MarkAsGarbage(Owner);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)

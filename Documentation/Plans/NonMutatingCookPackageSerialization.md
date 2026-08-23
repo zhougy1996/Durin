@@ -4,24 +4,34 @@ Summary: Replace live-asset Cook mutation with recursive EditorOnly filtering an
 
 Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-The implementation path is selected and no production code has changed. Stage 0
-confirmed that Cook package builders currently save, replace, clear, serialize,
-and restore live reflected state in Texture2D, TextureCube, VolumeTexture,
-TerrainHeightmap, StaticMesh, SkeletalMesh, AnimationClip, and
-EnvironmentLighting. StaticMesh also mutates nested material-slot provenance and
-the BodySetup cooked-collision descriptor.
+Implementation is complete. CoreDObject now applies one recursive reflected
+save predicate for `Transient`, deprecated, and `EditorOnly` fields. AssetCore
+owns authored/cooked save domains, exact Cook target state, owned object/property
+save overrides, frozen-graph validation, and an explicit captured-package to
+DAST-encoding boundary. The repeated-encode contract test encodes one capture
+twice without returning to reflected field traversal.
 
-Core already exposes `EArchivePurpose::CookedPackage`, `FArchiveState::bCooking`,
-and `FArchiveState::bFilterEditorOnly`, but the ordinary package capture path
-does not propagate those semantics. `EPropertyFlags` has no `EditorOnly` flag,
-the public package option exposes only a top-level `PropertyFilter`, and Cook
-has no owned per-save value-override table. Stage 1 is the first implementation
-stage.
+Texture2D, TextureCube, VolumeTexture, TerrainHeightmap, StaticMesh,
+SkeletalMesh, AnimationClip, and EnvironmentLighting now build Cook packages
+through `FCookContext` policy and owned descriptor replacements. Stable source
+provenance and diagnostics are `EditorOnly`; StaticMesh collision is built into
+a detached candidate and both mesh and BodySetup descriptors are overridden
+without live writes. Source audit finds none of the migrated retention booleans,
+Cook `PropertyFilter` lambdas, descriptor setters, or save/clear/restore blocks.
+
+Validation on Win64-Debug-DurinEditor passed: full `all` build;
+DurinHeaderTool pytest 197/197; CoreObjectTests 80/80;
+AssetPackageTests 108/108; AssetCookTests 13/13;
+AssetBulkContainerTests 11/11; TextureTests 80/80; StaticMeshTests 73/73;
+SkeletalAssetTests 34/34; TerrainHeightmapCookTests 1/1;
+EnvironmentLightingTests 3/3; TextureCookIntegrationTests 1/1; `fast-all`
+58/58 targets; and the repository-wide native gate 78/78 targets. Serialization,
+Asset Packages, and Asset Data Lifecycle own the lasting contracts.
 
 ## Goal
 
@@ -216,22 +226,22 @@ Adopt Unreal-compatible terminology and behavior:
 
 ### Stage 1: Implement recursive EditorOnly archive semantics
 
-- [ ] Add `EPropertyFlags::EditorOnly` and update DurinHeaderTool parsing,
+- [x] Add `EPropertyFlags::EditorOnly` and update DurinHeaderTool parsing,
   generated registration, diagnostics, and parser/writer tests for
   `DPROPERTY(EditorOnly)`.
-- [ ] Introduce one CoreDObject property-selection helper that preserves current
+- [x] Introduce one CoreDObject property-selection helper that preserves current
   transient/deprecation behavior and additionally skips `EditorOnly` when the
   archive filters editor-only data.
-- [ ] Apply the helper to `SerializeDObjectProperties` and reflected struct
+- [x] Apply the helper to `SerializeDObjectProperties` and reflected struct
   fallback serialization at every container depth.
-- [ ] Add CoreObjectTests coverage proving ordinary archives include
+- [x] Add CoreObjectTests coverage proving ordinary archives include
   editor-only values while filtering archives omit top-level and nested values.
-- [ ] Extend AssetCore package serialization options with an explicit save
+- [x] Extend AssetCore package serialization options with an explicit save
   domain and target state; retain authored semantics as the default.
-- [ ] Make cooked capture use `EArchivePurpose::CookedPackage`, persistent Cook
+- [x] Make cooked capture use `EArchivePurpose::CookedPackage`, persistent Cook
   state, target facts, and the selected editor-only policy in both discovery and
   payload passes.
-- [ ] Add AssetPackageTests coverage for authored round trip, cooked omission,
+- [x] Add AssetPackageTests coverage for authored round trip, cooked omission,
   nested struct omission, deterministic repeated capture, and missing-field
   defaulting on load.
 
@@ -243,22 +253,22 @@ Adopt Unreal-compatible terminology and behavior:
 
 ### Stage 2: Add non-mutating per-save overrides
 
-- [ ] Add AssetCore `FObjectSaveOverride`-style public types for per-object
+- [x] Add AssetCore `FObjectSaveOverride`-style public types for per-object
   omission and per-property omission/value replacement, using exact reflected
   identities and owned replacement storage.
-- [ ] Provide a type-safe registration helper that copies replacement values,
+- [x] Provide a type-safe registration helper that copies replacement values,
   retains reference roots where required, and reports duplicate, foreign-object,
   foreign-property, and type-mismatch failures.
-- [ ] Apply overrides during graph discovery and value capture without changing
+- [x] Apply overrides during graph discovery and value capture without changing
   the source container pointer or property storage.
-- [ ] Ensure override values participate in dependency collection, default-delta
+- [x] Ensure override values participate in dependency collection, default-delta
   decisions, deterministic map ordering, manifest equality, and package
   validation exactly like live values.
-- [ ] Define and test precedence: object omission, explicit property omission,
+- [x] Define and test precedence: object omission, explicit property omission,
   `EditorOnly` filtering, value override, then ordinary live value.
-- [ ] Add failure-injection coverage proving invalid overrides and capture/encode
+- [x] Add failure-injection coverage proving invalid overrides and capture/encode
   failures leave the entire live package unchanged.
-- [ ] Add CorePropertyValueSnapshotTests or a narrower new contract target only
+- [x] Add CorePropertyValueSnapshotTests or a narrower new contract target only
   if the owned reflected-value machinery requires new registration or fixture
   ownership.
 
@@ -271,33 +281,33 @@ Adopt Unreal-compatible terminology and behavior:
 
 ### Stage 3: Migrate Cook asset families
 
-- [ ] Mark Texture2D source import data, source hash/fingerprint, dimensions,
+- [x] Mark Texture2D source import data, source hash/fingerprint, dimensions,
   channel count, and transparency provenance `EditorOnly`; replace its
   `CookedPayload` swap with a value override.
-- [ ] Mark TextureCube source import data `EditorOnly` and override its cooked
+- [x] Mark TextureCube source import data `EditorOnly` and override its cooked
   descriptor without mutation.
-- [ ] Mark VolumeTexture retained source/source-import data `EditorOnly` and
+- [x] Mark VolumeTexture retained source/source-import data `EditorOnly` and
   override its cooked descriptor without mutation.
-- [ ] Mark TerrainHeightmap source import data and source file/format diagnostics
+- [x] Mark TerrainHeightmap source import data and source file/format diagnostics
   `EditorOnly` and override its cooked descriptor without mutation.
-- [ ] Mark StaticMesh source import data plus nested material-slot `SourceName`
+- [x] Mark StaticMesh source import data plus nested material-slot `SourceName`
   and `SourceMaterialIndex` fields `EditorOnly`; override render and BodySetup
   collision descriptors without mutation.
-- [ ] Mark SkeletalMesh derived-data key and nested material-slot source fields
+- [x] Mark SkeletalMesh derived-data key and nested material-slot source fields
   `EditorOnly`; override its cooked descriptor without mutation.
-- [ ] Mark AnimationClip derived-data key `EditorOnly` and override its cooked
+- [x] Mark AnimationClip derived-data key `EditorOnly` and override its cooked
   descriptor without mutation.
-- [ ] Override EnvironmentLighting's cooked descriptor without mutation.
-- [ ] Classify `DBodySetup::CollisionBuildRevision` and
+- [x] Override EnvironmentLighting's cooked descriptor without mutation.
+- [x] Classify `DBodySetup::CollisionBuildRevision` and
   `CollisionBuildStatus` under the shared editor-only/transient rule selected by
   their authored persistence requirement; remove the Cook name filter.
-- [ ] Replace family-specific `bRetainDiagnosticSourceMetadata`,
+- [x] Replace family-specific `bRetainDiagnosticSourceMetadata`,
   `bRetainDiagnosticSourceData`, and `bRetainDiagnosticEditorMetadata` parameters
   with the `FCookContext` editor-only-data policy.
-- [ ] Delete the migrated save/clear/restore blocks and Cook-specific
+- [x] Delete the migrated save/clear/restore blocks and Cook-specific
   `PropertyFilter` lambdas; add a source audit that rejects recurrence in the
   migrated families.
-- [ ] For every migrated family, capture all affected live properties, package
+- [x] For every migrated family, capture all affected live properties, package
   dirty state, and relevant revisions before Cook and compare them after both a
   successful package build and an injected failure.
 
@@ -309,19 +319,19 @@ Adopt Unreal-compatible terminology and behavior:
 
 ### Stage 4: Enforce the immutable capture/encode boundary
 
-- [ ] Separate live graph capture from DAST byte encoding around the existing
+- [x] Separate live graph capture from DAST byte encoding around the existing
   captured-package representation without exposing AssetCore-private wire
   structures to Engine.
-- [ ] Make the captured representation own all effective override values,
+- [x] Make the captured representation own all effective override values,
   strings, reference identities, dependencies, and authored bulk transfers.
-- [ ] Add assertions or API constraints that live-object access ends when
+- [x] Add assertions or API constraints that live-object access ends when
   capture completes and that encoding consumes only the immutable captured
   representation.
-- [ ] Preserve the frozen-graph check and ensure object creation/removal during
+- [x] Preserve the frozen-graph check and ensure object creation/removal during
   capture fails without publishing partial bytes.
-- [ ] Add a deterministic encode test that captures once, encodes repeatedly,
+- [x] Add a deterministic encode test that captures once, encodes repeatedly,
   and receives identical bytes without revisiting the live graph.
-- [ ] Document the thread contract: capture remains on the asset-owning thread;
+- [x] Document the thread contract: capture remains on the asset-owning thread;
   a future Cooker may schedule encode/publication off-thread only after capture.
 
 #### Acceptance Gate
@@ -332,19 +342,19 @@ Adopt Unreal-compatible terminology and behavior:
 
 ### Stage 5: Complete validation and publish lasting contracts
 
-- [ ] Run the smallest affected contract and feature targets throughout the
+- [x] Run the smallest affected contract and feature targets throughout the
   implementation, then the bounded Cook integration targets in the validation
   matrix.
-- [ ] Run `fast-all`, followed by the repository-wide native-test gate because
+- [x] Run `fast-all`, followed by the repository-wide native-test gate because
   the change alters shared CoreDObject reflection and package serialization.
-- [ ] Confirm production Cook defaults to filtering editor-only data and that an
+- [x] Confirm production Cook defaults to filtering editor-only data and that an
   explicit diagnostic policy retains it consistently across migrated families.
-- [ ] Verify existing authored packages load without resave and repeated Cook
+- [x] Verify existing authored packages load without resave and repeated Cook
   output remains deterministic.
-- [ ] Update Serialization, Asset Packages, and Asset Data Lifecycle with the
+- [x] Update Serialization, Asset Packages, and Asset Data Lifecycle with the
   implemented property, override, capture, and thread contracts; avoid leaving
   the completed plan as the only authority.
-- [ ] Remove or narrow obsolete Cook helper APIs and verify no migrated Cook path
+- [x] Remove or narrow obsolete Cook helper APIs and verify no migrated Cook path
   installs temporary descriptors or clears reflected source metadata.
 
 #### Acceptance Gate

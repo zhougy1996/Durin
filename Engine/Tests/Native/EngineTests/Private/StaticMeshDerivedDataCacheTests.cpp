@@ -449,6 +449,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	};
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
+	EXPECT_FALSE(ContainsText(FirstPackage, "SourceName"));
+	EXPECT_FALSE(ContainsText(FirstPackage, "SourceMaterialIndex"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "Assimp"));
 
 	Durin::Asset::FCookedBulkContainer DecodedBulk;

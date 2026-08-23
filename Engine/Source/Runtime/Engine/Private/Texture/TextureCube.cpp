@@ -358,8 +358,7 @@ namespace Durin
 	auto DTextureCube::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
-		std::string& OutError,
-		bool bRetainDiagnosticSourceMetadata) -> bool
+		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
@@ -398,9 +397,11 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = TexturePayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, bRetainDiagnosticSourceMetadata](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes, std::string* Error) {
 				if (Descriptors.size() != 1
@@ -409,26 +410,24 @@ namespace Durin
 					if (Error) *Error = "TextureCube cook did not produce its required descriptor.";
 					return false;
 				}
-				const FTextureCubeSourceImportData SavedSourceImportData = SourceImportData;
-				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
-				CookedPayload = Descriptors.front();
-				if (!bRetainDiagnosticSourceMetadata)
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
 				{
-					SourceImportData = {};
+					if (Error) *Error = "TextureCube CookedPayload reflection is unavailable.";
+					return false;
 				}
-				Asset::FAssetPackageSerializationOptions Options;
-				if (!bRetainDiagnosticSourceMetadata)
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
 				{
-					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						if (Object != this) return true;
-						const FName Name = Property->NamePrivate;
-						return Name != FName("SourceImportData");
-					};
+					if (Error) *Error = OverrideError;
+					return false;
 				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Result =
 					Asset::SerializeAssetPackageBytes(GetPackage(), OutPackageBytes, Options);
-				SourceImportData = SavedSourceImportData;
-				CookedPayload = SavedCookedPayload;
 				if (!Result)
 				{
 					if (Error) *Error = Result.Message;

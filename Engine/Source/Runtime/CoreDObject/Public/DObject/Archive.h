@@ -63,6 +63,20 @@ namespace Durin
 		EPropertyFlags PropertyFlags = EPropertyFlags::None;
 	};
 
+	// Selects the effective source for one reflected field during a save.
+	enum class EArchivePropertySaveDisposition : uint8
+	{
+		LiveValue,
+		Omit,
+		ReplacementValue,
+	};
+
+	struct FArchivePropertySaveValue
+	{
+		const void* Container = nullptr;
+		uint32 ArrayIndex = 0;
+	};
+
 	class FObjectArchive;
 	class FArchivePathScope
 	{
@@ -128,6 +142,11 @@ namespace Durin
 			FProperty& Property,
 			const void* Container,
 			uint32 ArrayIndex) -> void;
+		COREDOBJECT_API auto ResolvePropertySaveValue(
+			FProperty& Property,
+			const void* Container,
+			uint32 ArrayIndex,
+			FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition;
 
 		virtual COREDOBJECT_API auto SerializeObjectReference(DObject*& Value) -> void;
 		virtual COREDOBJECT_API auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void;
@@ -149,6 +168,11 @@ namespace Durin
 			FProperty& Property,
 			const void* Container,
 			uint32 ArrayIndex) -> void;
+		virtual COREDOBJECT_API auto OnResolvePropertySaveValue(
+			FProperty& Property,
+			const void* Container,
+			uint32 ArrayIndex,
+			FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition;
 
 	private:
 		struct FObjectScopeState

@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## Archive And Object Serialization
 
@@ -42,12 +42,23 @@ not contain a second primitive serializer.
 
 `DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
 Its base implementation calls `SerializeDObjectProperties(...)`, which enters
-stable reflected-field scopes and walks supported non-`Transient` properties.
+stable reflected-field scopes and walks supported save-selected properties.
 A derived override calls its superclass implementation exactly once and may add
 native state only through explicitly named `FArchiveFieldDescriptor` scopes and
 semantic value operations. Missing or duplicate base calls, duplicate field
 identities, nested object entry, and unbalanced scopes are deterministic
 Archive failures.
+
+The shared save-selection predicate always omits `Transient` fields and
+deprecated fields outside their migration window. It additionally omits a
+reflected `DPROPERTY(EditorOnly)` when `Ar.IsFilterEditorOnly()` is true.
+`EditorOnly` is persistence policy, not layout or behavior compilation: ordinary
+authored packages, duplication, editable copy, snapshots, and transactions keep
+the field unless their Archive explicitly selects filtering. The same predicate
+is applied at object fields and at every reflected Struct fallback field, so a
+Struct nested in a fixed array, Array, or Map value cannot bypass the policy.
+The owning container field selects whether its complete value participates;
+container elements do not carry a separate policy.
 
 Purpose selects Discovery, ObjectGraph, Duplicate, PropertySnapshot,
 EditableCopy, AuthoredPackage, DerivedDataKey, DerivedDataPayload,
@@ -177,7 +188,7 @@ pointer-free tokens, object destruction releases the snapshot, and class/Struct
 default teardown cannot invalidate it. Current DAST v3 load creates no ledger
 and current v3 save never queries one.
 
-Structs use the reflected non-`Transient` field walk by default. A declared
+Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk
 for every Archive purpose and is invoked exactly once per value. Loading always
 decodes into default-constructed managed storage. After the complete field walk
@@ -185,7 +196,11 @@ or custom serializer succeeds, an optional `PostDeserialize` callback receives
 the Archive purpose and source format version. Only successful repair is
 copy-assigned into the live destination, so truncation, missing capabilities,
 or `PostDeserializeRejected` leaves the prior value unchanged. Hidden GC
-references remain the separate responsibility of `CollectReferences`.
+references remain the separate responsibility of `CollectReferences`. A custom
+Struct serializer whose reflected schema contains an `EditorOnly` field cannot
+claim automatic editor-only filtering; a filtering Archive rejects that bypass
+until the serializer honors `IsFilterEditorOnly()` itself or the Struct returns
+to complete reflected traversal.
 
 ### Transient Object Graphs and Duplication
 

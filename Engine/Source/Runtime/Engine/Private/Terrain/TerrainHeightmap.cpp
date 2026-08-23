@@ -452,8 +452,7 @@ namespace Durin
 	auto DTerrainHeightmap::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
-		std::string& OutError,
-		bool bRetainDiagnosticSourceMetadata) -> bool
+		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game
@@ -479,9 +478,11 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = TerrainHeightmapPayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), {std::move(Bulk)},
-			[this, bRetainDiagnosticSourceMetadata](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
@@ -491,40 +492,24 @@ namespace Durin
 					if (Error) *Error = "Terrain heightmap cook did not produce its required descriptor.";
 					return false;
 				}
-				const FTerrainHeightmapSourceImportData SavedSource = SourceImportData;
-				const uint64 SavedSize = SourceFileSize;
-				const int64 SavedTime = SourceLastWriteTime;
-				const uint32 SavedBits = SourceBitDepth;
-				const uint32 SavedChannels = SourceChannelCount;
-				const Asset::FCookedPayloadDescriptor SavedCooked = CookedPayload;
-				CookedPayload = Descriptors.front();
-				if (!bRetainDiagnosticSourceMetadata)
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
 				{
-					SourceImportData = {};
-					SourceFileSize = 0;
-					SourceLastWriteTime = 0;
-					SourceBitDepth = 0;
-					SourceChannelCount = 0;
+					if (Error) *Error = "TerrainHeightmap CookedPayload reflection is unavailable.";
+					return false;
 				}
-				Asset::FAssetPackageSerializationOptions Options;
-				if (!bRetainDiagnosticSourceMetadata)
-					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						if (Object != this) return true;
-						const FName Name = Property->NamePrivate;
-						return Name != FName("SourceImportData")
-							&& Name != FName("SourceFileSize")
-							&& Name != FName("SourceLastWriteTime")
-							&& Name != FName("SourceBitDepth")
-							&& Name != FName("SourceChannelCount");
-					};
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, Options);
-				SourceImportData = SavedSource;
-				SourceFileSize = SavedSize;
-				SourceLastWriteTime = SavedTime;
-				SourceBitDepth = SavedBits;
-				SourceChannelCount = SavedChannels;
-				CookedPayload = SavedCooked;
 				if (!Result && Error) *Error = Result.Message;
 				return static_cast<bool>(Result);
 			}, &OutError);

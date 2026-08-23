@@ -542,8 +542,7 @@ namespace Durin
 	auto DSkeletalMesh::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
-		std::string& OutError,
-		bool bRetainDiagnosticEditorMetadata) -> bool
+		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
@@ -566,9 +565,11 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = SkeletalPayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, bRetainDiagnosticEditorMetadata](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes,
 				std::string* Error) {
@@ -578,29 +579,24 @@ namespace Durin
 					if (Error) *Error = "SkeletalMesh cook did not produce its required descriptor.";
 					return false;
 				}
-				const Asset::FCookedPayloadDescriptor SavedDescriptor = CookedPayload;
-				const std::string SavedKey = DerivedDataKey;
-				const std::vector<FSkeletalMeshMaterialSlotDefinition> SavedSlots = MaterialSlots;
-				CookedPayload = Descriptors.front();
-				if (!bRetainDiagnosticEditorMetadata)
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
 				{
-					DerivedDataKey.clear();
-					for (FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
-					{
-						Slot.SourceName.clear();
-						Slot.SourceMaterialIndex = 0;
-					}
+					if (Error) *Error = "SkeletalMesh CookedPayload reflection is unavailable.";
+					return false;
 				}
-				Asset::FAssetPackageSerializationOptions Options;
-				if (!bRetainDiagnosticEditorMetadata)
-					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						return Object != this || Property->NamePrivate != FName("DerivedDataKey");
-					};
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, Options);
-				CookedPayload = SavedDescriptor;
-				DerivedDataKey = SavedKey;
-				MaterialSlots = SavedSlots;
 				if (!Serialized)
 				{
 					if (Error) *Error = Serialized.Message;

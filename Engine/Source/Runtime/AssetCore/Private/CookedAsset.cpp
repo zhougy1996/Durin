@@ -1,4 +1,5 @@
 #include "Asset/Cook.h"
+#include "Asset/PackageAuthoring.h"
 
 #include "AssetCatalogStoreInternal.h"
 #include "BulkContainerInfrastructure.h"
@@ -948,11 +949,23 @@ namespace Durin::Asset
 	FCookContext::FCookContext(
 		std::filesystem::path InCookRoot,
 		ECookTargetPlatform InTargetPlatform,
-		ECookTargetProfile InTargetProfile)
+		ECookTargetProfile InTargetProfile,
+		bool bInRetainEditorOnlyData)
 		: CookRoot(InCookRoot.lexically_normal())
 		, TargetPlatform(InTargetPlatform)
 		, TargetProfile(InTargetProfile)
+		, bRetainEditorOnlyData(bInRetainEditorOnlyData)
 	{
+	}
+
+	auto FCookContext::MakePackageSerializationOptions() const
+		-> FAssetPackageSerializationOptions
+	{
+		return {
+			.Domain = EAssetPackageSaveDomain::Cooked,
+			.TargetPlatform = TargetPlatform,
+			.TargetProfile = TargetProfile,
+			.bRetainEditorOnlyData = bRetainEditorOnlyData};
 	}
 
 	auto FCookContext::AddPackage(

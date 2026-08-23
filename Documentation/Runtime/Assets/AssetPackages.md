@@ -325,6 +325,39 @@ Fix Up, and cook canonicalization decode the existing v4 model, apply their
 bounded rewrite, and canonically re-encode it. Inspection and loading remain
 read-only.
 
+Package serialization options select an explicit `Authored` or `Cooked` save
+domain. Authored is the compatibility-preserving default. Cooked capture sets
+the Archive purpose to `CookedPackage`, marks it persistent and cooking, carries
+the exact target platform/profile through both discovery and value capture, and
+filters `EditorOnly` fields unless the Cook context requests diagnostic
+retention. The old top-level property filter remains available to audited
+authored clients; Cook paths do not use it to duplicate reflected field policy.
+
+An optional owned per-save override table changes the effective save view
+without changing a live object. Entries use exact object and reflected-property
+identity and may omit an object, omit one property, or provide a copied
+replacement value. Registration rejects conflicting entries, foreign
+properties, incompatible value type/size/alignment, and—after the package graph
+is frozen—objects outside that graph. Owned reflected snapshots retain hard
+reference roots for the complete operation. Effective precedence is object
+omission, property omission and archive selection (including `EditorOnly`),
+then replacement value, then the live value. Discovery and capture therefore
+observe the same references, dependencies, fields, and logical codecs. An
+omitted object must not remain reachable through a non-omitted hard reference,
+and the package root cannot be omitted.
+
+Live graph discovery, override validation, and logical value capture end at an
+AssetCore-private captured-package boundary. That value owns the object
+topology, effective field nodes, strings, descriptors, references,
+dependencies, retained unknown values, custom versions, and default-delta plan
+needed by DAST encoding. Encoding receives only that captured state plus frozen
+identity metadata; it does not dereference the source package graph. The graph
+and field manifests are checked across discovery and capture, and late object,
+field, reference, or version changes fail before destination bytes are
+published. Capture remains on the asset-owning thread under the existing
+no-concurrent-edit rule. Encoding may move to a worker only after a future owner
+provides task lifetime and publication scheduling for the captured value.
+
 Retained provenance `02` inputs keep their descriptor closure and payload as
 separate exact byte spans. Before publication, the writer parses all closure
 framing, canonical Name/Type/Schema tables, descriptor references and cycles,

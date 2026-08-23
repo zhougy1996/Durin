@@ -254,6 +254,11 @@ class TestReflectionProperties:
         assert "alignof(" not in color_definition
         assert "EPropertyGenFlags::Struct" not in color_definition
         assert "InitializePropertyValue" not in color_definition
+
+        assert (
+            '"EditorDiagnostic", Durin::EPropertyFlags::EditorOnly, 1,'
+            in self.generated_cpp
+        )
         assert "DestroyPropertyValue" not in color_definition
         assert "nullptr" not in color_definition
 
@@ -296,6 +301,21 @@ class TestReflectionProperties:
             prop.flags = "None"
         with pytest.raises(ValueError, match=re.escape(diagnostic)):
             property_parser._apply_property_annotation(prop, annotation, "DPROPERTY 'Value' at line 7")
+
+
+    @pytest.mark.parametrize(
+        ("annotation", "diagnostic"),
+        [
+            ("DPROPERTY, Editoronly", "unknown property specifier 'Editoronly'"),
+            ("DPROPERTY, EditorOnly, EditorOnly", "duplicate property specifier 'EditorOnly'"),
+        ],
+    )
+    def test_invalid_property_specifiers_have_stable_diagnostics(self, annotation, diagnostic):
+        prop = ReflectedPropertyInfo("Value", "float", "Float")
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            property_parser._apply_property_annotation(
+                prop, annotation, "DPROPERTY 'Value' at line 8"
+            )
 
 
     def test_integer_metadata_preserves_full_uint64_range(self):

@@ -186,8 +186,7 @@ namespace Durin
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto AddToCook(Asset::FCookContext& Context,
-			std::string_view VirtualPackagePath, std::string& OutError,
-			bool bRetainDiagnosticSourceData = false) -> bool;
+			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
 		ENGINE_API auto PublishBuiltData(FVolumeTextureSourceData InSourceData,
 			FVolumeTextureBuildSettings InBuildSettings,
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
@@ -212,10 +211,10 @@ namespace Durin
 			-> std::unique_ptr<FTextureAssetResource> override;
 
 	private:
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FVolumeTextureSourceData SourceData;
 
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Import")
+		DPROPERTY(Edit, ReadOnly, EditorOnly, DisplayName = "Import")
 		FVolumeTextureSourceImportData SourceImportData;
 
 		DPROPERTY()

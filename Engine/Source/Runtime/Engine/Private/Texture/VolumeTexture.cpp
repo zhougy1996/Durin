@@ -157,8 +157,7 @@ namespace Durin
 	}
 
 	auto DVolumeTexture::AddToCook(Asset::FCookContext& Context,
-		std::string_view VirtualPackagePath, std::string& OutError,
-		bool bRetainDiagnosticSourceData) -> bool
+		std::string_view VirtualPackagePath, std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
@@ -184,8 +183,10 @@ namespace Durin
 			.Flags = 1, .PayloadSchemaVersion = TexturePayloadSchemaVersion,
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = TexturePayloadAlignment, .Bytes = std::move(PayloadBytes)};
+		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
+			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(std::string(VirtualPackagePath), {std::move(Bulk)},
-			[this, bRetainDiagnosticSourceData](
+			[this, CookPackageOptions](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<std::byte>& OutPackageBytes, std::string* Error) {
 				if (Descriptors.size() != 1
@@ -194,20 +195,24 @@ namespace Durin
 					if (Error) *Error = "Volume texture cook did not produce its descriptor.";
 					return false;
 				}
-				const FVolumeTextureSourceData SavedSource = SourceData;
-				const Asset::FCookedPayloadDescriptor SavedPayload = CookedPayload;
-				CookedPayload = Descriptors.front();
-				if (!bRetainDiagnosticSourceData) SourceData = {};
-				Asset::FAssetPackageSerializationOptions Options;
-				if (!bRetainDiagnosticSourceData)
-				Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						return Object != this || (Property->NamePrivate != FName("SourceData")
-							&& Property->NamePrivate != FName("SourceImportData"));
-					};
+				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
+				if (!DescriptorProperty)
+				{
+					if (Error) *Error = "VolumeTexture CookedPayload reflection is unavailable.";
+					return false;
+				}
+				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
+				std::string OverrideError;
+				if (!Overrides->AddPropertyValue(
+					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
+				{
+					if (Error) *Error = OverrideError;
+					return false;
+				}
+				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
+				Options.SaveOverrides = std::move(Overrides);
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, Options);
-				SourceData = SavedSource;
-				CookedPayload = SavedPayload;
 				if (!Result && Error) *Error = Result.Message;
 				return static_cast<bool>(Result);
 			}, &OutError);

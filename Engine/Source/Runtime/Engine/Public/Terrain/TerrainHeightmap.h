@@ -189,8 +189,7 @@ namespace Durin
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
-			std::string& OutError,
-			bool bRetainDiagnosticSourceMetadata = false) -> bool;
+			std::string& OutError) -> bool;
 
 	private:
 		friend class FTerrainHeightmapRenderStateRecreateContext;
@@ -199,19 +198,19 @@ namespace Durin
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 			bool bAdvanceRevision) -> void;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FTerrainHeightmapSourceImportData SourceImportData;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint64 SourceFileSize = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		int64 SourceLastWriteTime = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceBitDepth = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 SourceChannelCount = 0;
 
 		DPROPERTY()
