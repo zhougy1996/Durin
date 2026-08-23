@@ -68,10 +68,71 @@ rendered title bar even when the reported client extent is correct.
 `WM_GETMINMAXINFO` use the nearest monitor work area. When an app bar on that
 monitor is auto-hidden, the client expands through its otherwise reserved band
 while retaining a one-physical-pixel shell activation edge. DWM shadow and corner
-behavior remain available where Windows provides them.
+behavior remain available where Windows provides them. During a native
+position-only modal loop, `WM_GETMINMAXINFO` chains through the original
+procedure because maximized bounds do not affect movement; this keeps repeated
+move validation free of synchronous shell app-bar queries.
+Pure movement uses a low-priority modal-loop timer to refresh editor content only
+after native input and positioning messages drain. Each custom-frame `WM_MOVING`
+update calls `DwmFlush` after native processing to pace visible position changes
+against desktop composition; timer refreshes do not issue a second DWM flush.
 
 If hook or frame setup fails, ApplicationCore restores the complete system frame,
 reports effective `System`, and logs one error before the window becomes visible.
+Custom activation forwards minimized windows through the original procedure.
+For visible windows it invokes the original procedure with non-client repaint
+suppressed, preserving default activation bookkeeping without restoring native
+caption pixels over the custom frame.
+
+## Windows Movement Pacing
+
+The resolved custom-frame failure had a distinctive split symptom: editor and
+viewport animation remained smooth while the window was stationary, but the
+entire `HWND` advanced in uneven steps during a native title-bar drag. That split
+distinguishes desktop-composition pacing from engine render throughput. Hit
+testing already returned `HTCAPTION`, and Windows—not Durin—remained responsible
+for calculating and applying the window position.
+
+The primary cause on the affected Windows graphics-driver path was that native
+`WM_MOVING` position updates and the Vulkan-backed client surface reached DWM
+without a composition barrier owned by the custom-frame path. Windows could
+therefore display position changes with uneven delivery cadence even though the
+surface itself rendered smoothly. Calling `DwmFlush` after chained native
+processing fixed the cadence because it waits for the calling application's
+queued desktop-composition changes to become visible before the next move update
+continues.
+
+Two synchronous hot-path costs amplified the symptom but were not the primary
+cause. A full render/RHI drain from every modal-loop continuation could hold the
+WndProc while pointer updates waited, and custom `WM_GETMINMAXINFO` handling
+could query four shell app-bar edges during repeated thick-frame move validation.
+Removing either cost alone improved individual transitions but did not make
+continuous movement composition-paced.
+
+The maintained solution has these invariants:
+
+1. Windows remains the only owner of drag position; Durin never follows the
+   cursor with repeated `SetWindowPos` calls.
+2. A custom-frame `WM_MOVING` chains through GLFW/native processing first and
+   then calls `DwmFlush` exactly once.
+3. The 16 ms window timer may refresh editor content during movement, but
+   `WM_TIMER` remains lower priority than native input and positioning messages.
+4. Moving continuations use normal bounded end-frame pacing. Only sizing and
+   final continuations perform the extra render/RHI drain required for surface
+   extent changes.
+5. Timer refreshes never call `DwmFlush`; double flushing movement and refresh
+   paths is avoided, particularly for Vulkan presentation.
+6. Position-only `WM_GETMINMAXINFO` uses the original procedure and does not
+   query shell app bars.
+
+If this symptom regresses, first compare stationary client animation with whole
+window motion. Smooth client animation plus uneven `HWND` movement points back
+to the native/DWM path; it is not evidence that Vulkan present mode or editor
+frame rate should be changed. Automated tests cover callback mode, timer lifetime,
+native-procedure chaining, and the min/max fast path, but perceived movement
+cadence still requires an interactive custom-frame check. If the invariants hold
+and movement remains uneven, capture the UI thread, DWM, and Vulkan present
+timeline before adding another synchronization mechanism.
 
 ## Title-Bar Layout and Hit Testing
 

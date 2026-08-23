@@ -19,6 +19,8 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+		constexpr size_t MaxRetiredSwapchainGenerations = 3;
+
 		auto ToRHISwapchainPixelFormat(vk::Format Format) -> EPixelFormat
 		{
 			switch (Format)
@@ -143,6 +145,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		WaitForSwapchainIdle();
 		DestroySwapchain();
+		CollectRetiredSwapchains(true);
 
 		if (Surface != VK_NULL_HANDLE)
 		{
@@ -177,6 +180,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::BeginDrawing() -> void
 	{
 		CheckVulkanRHIThread();
+		CollectRetiredSwapchains(false);
 		PrepareSwapchain();
 	}
 
@@ -338,10 +342,27 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::TryCreateSwapchain(uint32 TargetSizeX, uint32 TargetSizeY) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.TryCreateSwapchain");
 		CheckVulkanRHIThread();
+		CollectRetiredSwapchains(false);
+		const bool bDeferCurrentSwapchainDestruction =
+			CanDeferCurrentSwapchainDestruction();
+		if (!bDeferCurrentSwapchainDestruction)
+		{
+			WaitForSwapchainIdle();
+		}
+		else if (RetiredSwapchainGenerations.size()
+			>= MaxRetiredSwapchainGenerations)
+		{
+			FVulkanRetiredSwapchainGeneration& OldestGeneration =
+				RetiredSwapchainGenerations.front();
+			check(IsRetiredSwapchainReady(OldestGeneration, true));
+			DestroySwapchainGeneration(OldestGeneration);
+			RetiredSwapchainGenerations.erase(
+				RetiredSwapchainGenerations.begin());
+		}
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
-		WaitForSwapchainIdle();
 
 		std::unique_ptr<FVulkanSwapchain> CandidateSwapchain;
 		std::vector<vk::Image> CandidateImages;
@@ -446,6 +467,7 @@ namespace Durin::VulkanRHI
 			}
 			if (bNativeSwapchainCreated)
 			{
+				WaitForSwapchainIdle();
 				SetOutputUnavailable();
 			}
 			return false;
@@ -455,12 +477,20 @@ namespace Durin::VulkanRHI
 			DestroyCandidateResources();
 			if (bNativeSwapchainCreated)
 			{
+				WaitForSwapchainIdle();
 				SetOutputUnavailable();
 			}
 			throw;
 		}
 
-		DestroySwapchain();
+		if (bDeferCurrentSwapchainDestruction)
+		{
+			RetireCurrentSwapchain();
+		}
+		else
+		{
+			DestroySwapchain();
+		}
 		Swapchain = CandidateSwapchain.release();
 		BackBufferImages = std::move(CandidateImages);
 		TextureViews = std::move(CandidateViews);
@@ -493,7 +523,7 @@ namespace Durin::VulkanRHI
 			Device.GetHandle().destroyImageView(View.ImageView);
 		}
 		TextureViews.clear();
-		DestroyFrameResources();
+		DestroyFrameResources(FrameResources);
 		if (Swapchain != nullptr)
 		{
 			const std::vector<vk::Image>& OldImages = Swapchain->GetImages();
@@ -511,6 +541,94 @@ namespace Durin::VulkanRHI
 		BackBufferImages.clear();
 	}
 
+	auto FVulkanViewport::CanDeferCurrentSwapchainDestruction() const -> bool
+	{
+		if (Swapchain == nullptr || !Device.SupportsSwapchainMaintenance1()
+			|| AcquiredBackBufferIndex >= 0 || AcquiredSemaphore != nullptr)
+		{
+			return false;
+		}
+		return std::ranges::none_of(FrameResources, [](const auto& Resource) {
+			return Resource.State == EVulkanPresentResourceState::Retired;
+		});
+	}
+
+	auto FVulkanViewport::RetireCurrentSwapchain() -> void
+	{
+		check(Swapchain != nullptr);
+		FVulkanRetiredSwapchainGeneration& Generation =
+			RetiredSwapchainGenerations.emplace_back();
+		Generation.Swapchain = std::exchange(Swapchain, nullptr);
+		Generation.BackBufferImages = std::move(BackBufferImages);
+		Generation.TextureViews = std::move(TextureViews);
+		Generation.FrameResources = std::move(FrameResources);
+	}
+
+	auto FVulkanViewport::CollectRetiredSwapchains(
+		const bool bWaitForCompletion) -> void
+	{
+		for (auto It = RetiredSwapchainGenerations.begin();
+			It != RetiredSwapchainGenerations.end();)
+		{
+			if (!IsRetiredSwapchainReady(*It, bWaitForCompletion))
+			{
+				++It;
+				continue;
+			}
+			DestroySwapchainGeneration(*It);
+			It = RetiredSwapchainGenerations.erase(It);
+		}
+	}
+
+	auto FVulkanViewport::IsRetiredSwapchainReady(
+		FVulkanRetiredSwapchainGeneration& Generation,
+		const bool bWaitForCompletion) -> bool
+	{
+		for (FVulkanViewportFrameResources& Resource : Generation.FrameResources)
+		{
+			check(Resource.State != EVulkanPresentResourceState::Retired);
+			if (Resource.State != EVulkanPresentResourceState::PresentPending)
+			{
+				continue;
+			}
+			if (bWaitForCompletion)
+			{
+				WaitForFrameResource(Resource);
+				continue;
+			}
+			const vk::Result FenceStatus =
+				Device.GetHandle().getFenceStatus(Resource.PresentFence);
+			if (FenceStatus == vk::Result::eNotReady)
+			{
+				return false;
+			}
+			check(FenceStatus == vk::Result::eSuccess);
+			Resource.State = EVulkanPresentResourceState::Available;
+		}
+		return true;
+	}
+
+	auto FVulkanViewport::DestroySwapchainGeneration(
+		FVulkanRetiredSwapchainGeneration& Generation) -> void
+	{
+		for (const FVulkanView& View : Generation.TextureViews)
+		{
+			Device.GetHandle().destroyImageView(View.ImageView);
+		}
+		Generation.TextureViews.clear();
+		DestroyFrameResources(Generation.FrameResources);
+		if (Generation.Swapchain != nullptr)
+		{
+			for (const vk::Image Image : Generation.BackBufferImages)
+			{
+				Device.NotifyDeleted_Image(Image);
+			}
+			delete Generation.Swapchain;
+			Generation.Swapchain = nullptr;
+		}
+		Generation.BackBufferImages.clear();
+	}
+
 	auto FVulkanViewport::SetOutputUnavailable() -> void
 	{
 		CheckVulkanRHIThread();
@@ -521,10 +639,11 @@ namespace Durin::VulkanRHI
 		DestroySwapchain();
 	}
 
-	auto FVulkanViewport::DestroyFrameResources() -> void
+	auto FVulkanViewport::DestroyFrameResources(
+		std::vector<FVulkanViewportFrameResources>& Resources) -> void
 	{
 		CheckVulkanRHIThread();
-		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
+		for (FVulkanViewportFrameResources& FrameResource : Resources)
 		{
 			check(FrameResource.State != EVulkanPresentResourceState::PresentPending);
 			FrameResource.RenderingDoneSemaphore->DestroyImmediately();
@@ -536,7 +655,7 @@ namespace Durin::VulkanRHI
 				FrameResource.PresentFence = VK_NULL_HANDLE;
 			}
 		}
-		FrameResources.clear();
+		Resources.clear();
 	}
 
 	auto FVulkanViewport::WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void

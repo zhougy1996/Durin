@@ -2093,6 +2093,17 @@ namespace Durin::VulkanRHI
 		bool bMainPresentRecorded = false;
 		RenderAndPresent(Viewport, bMainPresentRecorded);
 		EXPECT_TRUE(bMainPresentRecorded);
+		for (uint32 Generation = 0; Generation < 5; ++Generation)
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [VulkanViewport]() {
+				VulkanViewport->RecreateSwapchain();
+				EXPECT_TRUE(VulkanViewport->HasAvailableOutput());
+			});
+		}
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [VulkanViewport]() {
+			VulkanViewport->BeginDrawing();
+			EXPECT_TRUE(VulkanViewport->HasAvailableOutput());
+		});
 
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::SwapchainSemaphore);
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [VulkanViewport]() {

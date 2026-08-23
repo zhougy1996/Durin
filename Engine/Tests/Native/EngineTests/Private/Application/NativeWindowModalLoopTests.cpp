@@ -66,12 +66,18 @@ namespace
 {
 	constexpr WPARAM ModalLoopTimerIdentity = 0x44555249;
 	int ModalTickCount = 0;
+	int OpportunisticModalTickCount = 0;
+	int SynchronizedModalTickCount = 0;
 	int LaterHookMessageCount = 0;
 	WNDPROC LaterHookPreviousWindowProc = nullptr;
 
-	auto CountModalTick() -> void
+	auto CountModalTick(Durin::EModalLoopTickMode Mode) -> void
 	{
 		++ModalTickCount;
+		if (Mode == Durin::EModalLoopTickMode::Opportunistic)
+			++OpportunisticModalTickCount;
+		else
+			++SynchronizedModalTickCount;
 	}
 
 	auto LaterWindowProc(HWND WindowHandle, UINT Message, WPARAM WParam, LPARAM LParam) -> LRESULT
@@ -83,7 +89,10 @@ namespace
 		return ::CallWindowProcW(LaterHookPreviousWindowProc, WindowHandle, Message, WParam, LParam);
 	}
 
-	auto MakeHiddenWindow() -> std::shared_ptr<Durin::FGenericWindow>
+	auto MakeHiddenWindow(
+		Durin::EWindowDecorationMode DecorationMode =
+			Durin::EWindowDecorationMode::System)
+		-> std::shared_ptr<Durin::FGenericWindow>
 	{
 		auto Window = Durin::MakePlatformWindow();
 		auto Definition = std::make_shared<Durin::FGenericWindowDefinition>();
@@ -92,6 +101,7 @@ namespace
 		Definition->WidthDesiredOnScreen = 320.0f;
 		Definition->HeightDesiredOnScreen = 200.0f;
 		Definition->Title = "Native modal-loop test";
+		Definition->DecorationMode = DecorationMode;
 		Window->Initialize(Definition);
 		return Window;
 	}
@@ -113,6 +123,8 @@ namespace
 		auto SetUp() -> void override
 		{
 			ModalTickCount = 0;
+			OpportunisticModalTickCount = 0;
+			SynchronizedModalTickCount = 0;
 			LaterHookMessageCount = 0;
 			LaterHookPreviousWindowProc = nullptr;
 			Durin::SetModalLoopTickCallback(CountModalTick);
@@ -129,11 +141,14 @@ TEST_F(FNativeWindowModalLoopTests, BoundsTimerRequestsToModalLifetimeAndIdentit
 {
 	auto Window = MakeHiddenWindow();
 	const HWND WindowHandle = static_cast<HWND>(Window->GetOSNativeWindowHandle());
+	RECT ProposedBounds{0, 0, 320, 200};
 
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
 	EXPECT_EQ(ModalTickCount, 0);
 	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
 	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
+	::SendMessageW(WindowHandle, WM_SIZING, WMSZ_RIGHT,
+		reinterpret_cast<LPARAM>(&ProposedBounds));
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity + 1, 0);
 	EXPECT_EQ(ModalTickCount, 0);
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
@@ -144,6 +159,62 @@ TEST_F(FNativeWindowModalLoopTests, BoundsTimerRequestsToModalLifetimeAndIdentit
 	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
 	EXPECT_EQ(ModalTickCount, 2);
+}
+
+TEST_F(FNativeWindowModalLoopTests, PrioritizesNativeMovementButContinuesSizingFrames)
+{
+	auto Window = MakeHiddenWindow();
+	const HWND WindowHandle = static_cast<HWND>(Window->GetOSNativeWindowHandle());
+	RECT ProposedBounds{0, 0, 320, 200};
+
+	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
+	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
+	EXPECT_EQ(ModalTickCount, 0);
+	::SendMessageW(WindowHandle, WM_MOVING, 0,
+		reinterpret_cast<LPARAM>(&ProposedBounds));
+	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
+	EXPECT_EQ(ModalTickCount, 1);
+	EXPECT_EQ(OpportunisticModalTickCount, 1);
+	EXPECT_EQ(SynchronizedModalTickCount, 0);
+	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
+	EXPECT_EQ(ModalTickCount, 2);
+	EXPECT_EQ(SynchronizedModalTickCount, 1);
+
+	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
+	::SendMessageW(WindowHandle, WM_SIZING, WMSZ_RIGHT,
+		reinterpret_cast<LPARAM>(&ProposedBounds));
+	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
+	EXPECT_EQ(ModalTickCount, 3);
+	EXPECT_EQ(OpportunisticModalTickCount, 1);
+	EXPECT_EQ(SynchronizedModalTickCount, 2);
+	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
+	EXPECT_EQ(ModalTickCount, 4);
+	EXPECT_EQ(SynchronizedModalTickCount, 3);
+}
+
+TEST_F(FNativeWindowModalLoopTests, CustomFrameMovementUsesNativeMinMaxFastPath)
+{
+	auto Window = MakeHiddenWindow(Durin::EWindowDecorationMode::CustomTitleBar);
+	const HWND WindowHandle = static_cast<HWND>(Window->GetOSNativeWindowHandle());
+	ASSERT_EQ(Window->GetEffectiveWindowDecorationMode(),
+		Durin::EWindowDecorationMode::CustomTitleBar);
+
+	MINMAXINFO CustomFrameInfo{};
+	::SendMessageW(WindowHandle, WM_GETMINMAXINFO, 0,
+		reinterpret_cast<LPARAM>(&CustomFrameInfo));
+	EXPECT_GE(CustomFrameInfo.ptMinTrackSize.x,
+		::MulDiv(640, static_cast<int>(::GetDpiForWindow(WindowHandle)),
+			USER_DEFAULT_SCREEN_DPI));
+
+	RECT ProposedBounds{0, 0, 320, 200};
+	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
+	::SendMessageW(WindowHandle, WM_MOVING, 0,
+		reinterpret_cast<LPARAM>(&ProposedBounds));
+	MINMAXINFO MovingInfo{};
+	::SendMessageW(WindowHandle, WM_GETMINMAXINFO, 0,
+		reinterpret_cast<LPARAM>(&MovingInfo));
+	EXPECT_LT(MovingInfo.ptMinTrackSize.x, CustomFrameInfo.ptMinTrackSize.x);
+	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
 }
 
 TEST_F(FNativeWindowModalLoopTests, MissingCallbackAndWindowDestructionAreSafe)
@@ -171,6 +242,9 @@ TEST_F(FNativeWindowModalLoopTests, PreservesAWindowProcedureInstalledAfterTheDu
 
 	::SendMessageW(WindowHandle, WM_APP + 1, 0, 0);
 	::SendMessageW(WindowHandle, WM_ENTERSIZEMOVE, 0, 0);
+	RECT ProposedBounds{0, 0, 320, 200};
+	::SendMessageW(WindowHandle, WM_SIZING, WMSZ_RIGHT,
+		reinterpret_cast<LPARAM>(&ProposedBounds));
 	::SendMessageW(WindowHandle, WM_TIMER, ModalLoopTimerIdentity, 0);
 	::SendMessageW(WindowHandle, WM_EXITSIZEMOVE, 0, 0);
 	EXPECT_EQ(LaterHookMessageCount, 1);
@@ -186,7 +260,7 @@ TEST_F(FNativeWindowModalLoopTests, PreservesAWindowProcedureInstalledAfterTheDu
 TEST(FNativeWindowModalLoopTests, NonWindowsBuildHasPlatformNeutralCallbackBoundary)
 {
 	Durin::SetModalLoopTickCallback(nullptr);
-	Durin::RequestModalLoopTick();
+	Durin::RequestModalLoopTick(Durin::EModalLoopTickMode::Opportunistic);
 	SUCCEED();
 }
 #endif

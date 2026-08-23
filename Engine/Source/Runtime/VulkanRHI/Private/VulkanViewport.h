@@ -30,6 +30,16 @@ namespace Durin::VulkanRHI
 		EVulkanPresentResourceState State = EVulkanPresentResourceState::Available;
 	};
 
+	// Retains one replaced presentation generation until its present fences prove
+	// that the presentation engine no longer owns any of its resources.
+	struct FVulkanRetiredSwapchainGeneration
+	{
+		FVulkanSwapchain* Swapchain = nullptr;
+		std::vector<vk::Image> BackBufferImages;
+		std::vector<FVulkanView> TextureViews;
+		std::vector<FVulkanViewportFrameResources> FrameResources;
+	};
+
 	class FVulkanViewport;
 
 	// Presents the current swapchain image through the stable RHI back-buffer object.
@@ -105,7 +115,21 @@ namespace Durin::VulkanRHI
 
 		auto SetOutputUnavailable() -> void;
 
-		auto DestroyFrameResources() -> void;
+		auto CanDeferCurrentSwapchainDestruction() const -> bool;
+
+		auto RetireCurrentSwapchain() -> void;
+
+		auto CollectRetiredSwapchains(bool bWaitForCompletion) -> void;
+
+		auto IsRetiredSwapchainReady(
+			FVulkanRetiredSwapchainGeneration& Generation,
+			bool bWaitForCompletion) -> bool;
+
+		auto DestroySwapchainGeneration(
+			FVulkanRetiredSwapchainGeneration& Generation) -> void;
+
+		auto DestroyFrameResources(
+			std::vector<FVulkanViewportFrameResources>& Resources) -> void;
 
 		auto WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void;
 
@@ -127,6 +151,8 @@ namespace Durin::VulkanRHI
 		std::vector<FVulkanView> TextureViews;
 
 		std::vector<FVulkanViewportFrameResources> FrameResources;
+
+		std::vector<FVulkanRetiredSwapchainGeneration> RetiredSwapchainGenerations;
 
 		TRefCountPtr<FVulkanBackBuffer> RHIBackBuffer;
 

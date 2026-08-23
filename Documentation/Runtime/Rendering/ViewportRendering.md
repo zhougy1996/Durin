@@ -404,8 +404,11 @@ backend phase after all earlier recorded work; no game or rendering thread may
 mutate the swapchain directly.
 
 Windows native move and resize share the ApplicationCore modal-loop lifetime,
-but only framebuffer-size notifications request viewport resize. Position-only
-messages update the cached window position and never schedule swapchain work.
+but pure movement prioritizes native message dispatch and does not run modal
+continuation frames. DWM moves the last presented surface until the terminal
+continuation after `WM_EXITSIZEMOVE`. Only framebuffer-size notifications
+request viewport resize. Position-only messages update the cached window
+position and never schedule swapchain work.
 Resize requests retain only the latest non-zero extent, and each accepted
 event-free continuation frame can consume that retained request at most once
 when the viewport is acquired for drawing. The continuation requested after
@@ -421,6 +424,16 @@ does the viewport atomically commit the candidate. Failure before native
 swapchain creation may retain the old complete output when Vulkan still permits
 its use. Failure after native replacement has retired that old output exposes an
 explicitly unavailable viewport with no backbuffer.
+
+When swapchain maintenance present fences are available and no acquired or
+failed-to-enqueue frame remains, resize commits the new candidate without first
+draining the graphics or present queue. The replaced swapchain, image views,
+semaphores, fences, and frame state move together into a retired generation.
+Each frame polls the generation's present fences and destroys it only after the
+presentation engine releases every pending resource. Retired generations are
+bounded; sustained resize waits for the oldest generation at the bound rather
+than allowing unbounded presentation memory growth. Unsupported devices and
+ambiguous acquire or failed-present states retain the synchronous idle fallback.
 
 Each candidate first revalidates the startup-provisioned queue family against
 its concrete surface, then queries one fresh capabilities/formats/present-modes

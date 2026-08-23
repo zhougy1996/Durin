@@ -514,6 +514,14 @@ namespace Durin
 		{
 			Window->EnterModalLoop();
 		}
+		else if (Message == WM_MOVING)
+		{
+			Window->SetModalLoopOperation(FGlfwWindow::EModalLoopOperation::Moving);
+		}
+		else if (Message == WM_SIZING)
+		{
+			Window->SetModalLoopOperation(FGlfwWindow::EModalLoopOperation::Sizing);
+		}
 		else if (Message == WM_TIMER && Window->HandleModalLoopTimer(static_cast<uint64>(WParam)))
 		{
 			return 0;
@@ -522,6 +530,14 @@ namespace Durin
 		const LRESULT Result = PreviousWindowProc != nullptr
 			? ::CallWindowProcW(PreviousWindowProc, WindowHandle, Message, WParam, LParam)
 			: ::DefWindowProcW(WindowHandle, Message, WParam, LParam);
+		if (Message == WM_MOVING
+			&& Window->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
+		{
+			// Pace native position updates against desktop composition. This avoids
+			// uneven DWM delivery on affected Windows graphics-driver paths while the
+			// engine is intentionally not presenting from inside the move loop.
+			::DwmFlush();
+		}
 		if (Message == WM_EXITSIZEMOVE)
 		{
 			Window->ExitModalLoop();
@@ -822,6 +838,26 @@ namespace Durin
 #if defined(_WIN32)
 		if (bInModalLoop || OSNativeWindowHandle == nullptr) return;
 		bInModalLoop = true;
+		ModalLoopOperation = EModalLoopOperation::Undetermined;
+#endif
+	}
+
+#if defined(_WIN32)
+	auto FGlfwWindow::SetModalLoopOperation(EModalLoopOperation Operation) -> void
+	{
+		if (!bInModalLoop || ModalLoopOperation == Operation) return;
+		if (ModalLoopTimerIdentity != 0)
+		{
+			::KillTimer(
+				static_cast<HWND>(OSNativeWindowHandle),
+				static_cast<UINT_PTR>(ModalLoopTimerIdentity));
+			ModalLoopTimerIdentity = 0;
+		}
+		ModalLoopOperation = Operation;
+		if (Operation == EModalLoopOperation::Undetermined) return;
+
+		// WM_TIMER is generated only after higher-priority input and positioning
+		// messages have drained, so move refreshes remain opportunistic.
 		const UINT_PTR Timer = ::SetTimer(
 			static_cast<HWND>(OSNativeWindowHandle),
 			RequestedModalLoopTimerIdentity,
@@ -837,14 +873,15 @@ namespace Durin
 			return;
 		}
 		ModalLoopTimerIdentity = static_cast<uint64>(Timer);
-#endif
 	}
+#endif
 
 	auto FGlfwWindow::ExitModalLoop() -> void
 	{
 #if defined(_WIN32)
 		if (!bInModalLoop) return;
 		bInModalLoop = false;
+		ModalLoopOperation = EModalLoopOperation::Undetermined;
 		if (ModalLoopTimerIdentity != 0)
 		{
 			::KillTimer(
@@ -852,7 +889,7 @@ namespace Durin
 				static_cast<UINT_PTR>(ModalLoopTimerIdentity));
 			ModalLoopTimerIdentity = 0;
 		}
-		RequestModalLoopTick();
+		RequestModalLoopTick(EModalLoopTickMode::Synchronized);
 #endif
 	}
 
@@ -863,7 +900,9 @@ namespace Durin
 		{
 			return false;
 		}
-		RequestModalLoopTick();
+		RequestModalLoopTick(ModalLoopOperation == EModalLoopOperation::Moving
+			? EModalLoopTickMode::Opportunistic
+			: EModalLoopTickMode::Synchronized);
 		return true;
 #else
 		return false;
@@ -1272,6 +1311,13 @@ namespace Durin
 
 		case WM_GETMINMAXINFO:
 		{
+			// DefWindowProc requests min/max information repeatedly while moving a
+			// thick-frame window. Maximized bounds do not affect a position-only
+			// operation, so avoid synchronous shell app-bar queries on that hot path.
+			if (bInModalLoop && ModalLoopOperation == EModalLoopOperation::Moving)
+			{
+				return CallPrevious();
+			}
 			MONITORINFO MonitorInfo{};
 			const RECT MaximizedRect = GetWindowsMaximizedClientRect(WindowHandle, MonitorInfo);
 			if (MonitorInfo.cbSize != 0)
@@ -1372,7 +1418,10 @@ namespace Durin
 		case WM_NCACTIVATE:
 			TitleBarInteractionState.bFocused = WParam != 0;
 			bHandled = true;
-			return 1;
+			if (IsIconic(WindowHandle)) return CallPrevious();
+			return CallWindowProcW(
+				reinterpret_cast<WNDPROC>(PreviousWindowsProcedure),
+				WindowHandle, Message, WParam, -1);
 
 		case WM_NCPAINT:
 			bHandled = true;

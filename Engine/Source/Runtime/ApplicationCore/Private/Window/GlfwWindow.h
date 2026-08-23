@@ -103,11 +103,23 @@ namespace Durin
 	private:
 		friend struct FWindowsModalLoopBridge;
 
+#if defined(_WIN32)
+		enum class EModalLoopOperation : uint8
+		{
+			Undetermined,
+			Moving,
+			Sizing
+		};
+#endif
+
 		FGlfwWindow();
 		auto ApplyCursorMode(ECursorMode InCursorMode) -> void override;
 		auto InstallModalLoopHook() -> void;
 		auto RemoveModalLoopHook() -> void;
 		auto EnterModalLoop() -> void;
+#if defined(_WIN32)
+		auto SetModalLoopOperation(EModalLoopOperation Operation) -> void;
+#endif
 		auto ExitModalLoop() -> void;
 		auto HandleModalLoopTimer(uint64 TimerIdentity) -> bool;
 		auto InstallWindowsMessageBridge() -> bool;
@@ -122,6 +134,9 @@ namespace Durin
 		void* PreviousWindowsProcedure = nullptr;
 		uint64 ModalLoopTimerIdentity = 0;
 		bool bInModalLoop = false;
+#if defined(_WIN32)
+		EModalLoopOperation ModalLoopOperation = EModalLoopOperation::Undetermined;
+#endif
 		bool bWindowsMessageBridgeInstalled = false;
 		bool bLoggedInvalidTitleBarLayout = false;
 		bool bLoggedStaleTitleBarLayout = false;

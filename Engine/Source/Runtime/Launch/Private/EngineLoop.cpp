@@ -246,10 +246,10 @@ namespace Durin
 		Diagnostics.AfterEngineInitialized();
 		State = EEngineLoopState::Running;
 		GModalLoopFrameOwner = this;
-		SetModalLoopTickCallback([]() {
+		SetModalLoopTickCallback([](EModalLoopTickMode Mode) {
 			if (GModalLoopFrameOwner != nullptr)
 			{
-				GModalLoopFrameOwner->TickModalContinuation();
+				GModalLoopFrameOwner->TickModalContinuation(Mode);
 			}
 		});
 		return true;
@@ -313,17 +313,20 @@ namespace Durin
 		DURIN_PROFILE_FRAME_MARK();
 	}
 
-	auto FEngineLoop::TickModalContinuation() -> void
+	auto FEngineLoop::TickModalContinuation(EModalLoopTickMode Mode) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ModalContinuation");
 		TryRunModalContinuationFrame(
 			FrameState,
 			State == EEngineLoopState::Running && !GIsRequestingExit,
-			[this]() {
+			[this, Mode]() {
 				TickPostEventFrame(false);
-				// Keep resize and draw commands inside the current native callback.
-				// Windows cannot advance the surface extent until this callback returns.
-				FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
+				if (Mode == EModalLoopTickMode::Synchronized)
+				{
+					// Keep resize and draw commands inside the current native callback.
+					// Windows cannot advance the surface extent until this callback returns.
+					FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
+				}
 			});
 	}
 
