@@ -2,71 +2,89 @@
 
 Summary: Remove redundant per-cascade scene and draw-fact preparation while preserving independent conservative caster selection, cascade-local LOD, and exact shadow output.
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-23
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-23
 
 ## Current Status
 
-Stage 1 implementation is present and focused contract validation passes. One
-`FDirectionalShadowCasterTable` now walks the authoritative primitive
-collection once, snapshots supported visible casters, classifies each snapshot
-against every enabled cascade, and materializes reserved family reference
-lists from a bounded mask. `RendererSceneContractTests` covers masks with zero,
-one, two, and all three memberships, disabled culling, and the existing
-off-camera-caster contract; all 19 cases pass on 2026-08-19.
-The existing `DirectionalShadowBaselineVulkanTests` qualification lane also
-passes on the local Vulkan host, together with
-`StaticMeshRenderPreparationVulkanTests` and `TerrainRenderPrimitiveTests`.
-This closes local correctness coverage for the table integration and direct
-shadow-depth translucent filtering, but not the target-host timing gate.
+The selected production boundary is the Stage 1 frame-local caster table plus
+the existing direct shadow-depth preparation mode and shared Skeletal palette.
+The table walks authoritative scene primitives once, evaluates supported and
+hidden state once, classifies every eligible caster against every enabled
+cascade, and materializes reserved cascade-family references from a bounded
+mask. Stage 0 timings and structural counters now also expose family fact
+build/reuse counts, selected-LOD facts, Terrain patch classifications, and the
+existing nested/disjoint timing boundaries.
 
-Stage 0 instrumentation is partially present through the existing optional
-view-counter sink. It reports discovery/membership, Static/Spline, Skeletal,
-Terrain logical, nested sorting/batching, total logical, and separate resource
-preparation CPU durations, plus unique-family, classification, mask-popcount,
-scene-traversal, and temporary-capacity counters. The total logical duration
-includes cascade fitting, discovery, and the three family durations.
-Sorting/batching is a nested diagnostic and must not be added to that total.
-Resource preparation is
-subsequent and disjoint.
+Target-host qualification used Win64 Release at 1920x1080 on the Intel Core
+i7-12700 and RTX 3090, driver 591.86, Vulkan device API 1.4.325. Five
+interleaved 30-warm-up/120-measured-frame runs compared isolated pre-table
+commit `0cb52ef409663a35de9be952efe1dd68fcae8b6a` with the table path. The
+run-median ThreeCascades logical result improved from 1,106.4 us to 1,100.1 us
+and p95 improved from 1,544.8 us to 1,459.0 us. SingleMap median/p95 improved
+from 337.3/400.5 us to 318.3/388.8 us. The high-overlap fixture reports one
+scene traversal, 128 unique eligible StaticMesh casters, 384 conservative
+classification tests, and membership popcount 384. Stage 1 therefore passes
+its frozen structural and no-regression gates.
 
-The current validation host is an Intel Core i5-13400F with a GTX 1060 6GB
-(driver 560.94), not the RTX 3090 qualification host recorded by the shadow
-runtime contract. Reproducible workload baselines, exact median/p95 rollout
-gates, and frozen image/motion identities therefore remain open before Stage 0
-or the Stage 1 acceptance gate can pass. No optimized timing result has been
-accepted from this host.
+Stage 2 activated because Static/Spline preparation owned approximately 97%
+of the high-overlap fixture. A frame-local primitive/LOD/section fact-table
+candidate preserved correctness but regressed ThreeCascades logical median to
+at least 1,104 us versus the 1,019.5 us observation used for its candidate gate;
+it missed both the 85% family and 95% total thresholds. The candidate and all
+unused scaffolding were removed. Stage 2 is rejected; the already-qualified
+shadow-depth translucent filtering and shared Skeletal palette remain.
 
-The selected three-cascade directional-shadow path is functionally qualified,
-but its CPU preparation scales by repeating two different layers of work. The
-receiver view first classifies the complete scene, then every cascade walks the
-authoritative primitive collection again. Each cascade subsequently rebuilds
-StaticMesh, SplineMesh, SkeletalMesh, and Terrain draw lists through the normal
-view-preparation functions. That repeats resource-readiness inspection,
-material resolution and binding validation, section expansion, sort-key
-construction, sorting, and Terrain patch preparation wherever the same caster
-participates in more than one cascade.
+Stage 3 activated because Terrain preparation owned 98.9% of a 256-patch,
+two-cascade-membership fixture. Its shared primitive/material/transform/bounds
+and patch-mask candidate improved Terrain median only from 988.2 us to 963.5 us
+(2.5%) and total logical median from 999.0 us to 975.6 us (2.3%). This missed
+the required 15% family and 5% total improvements, so the candidate and unused
+scaffolding were removed. The qualification fixture and counters remain to
+make that rejected boundary reproducible.
 
-Independent cascade classification is a correctness invariant: off-camera
-casters may shadow visible receivers, and each fitted caster volume has a
-different conservative membership. This plan therefore does not reuse camera
-visibility or reduce classification to one shared frustum. It replaces three
-separate scene walks with one frame-local shadow-caster table whose records
-carry a cascade-membership bitmask, then separates immutable draw facts from
-cascade-local decisions.
+Exact directional-shadow qualification, the off-camera/mask contracts,
+StaticMesh preparation, Skeletal resource reuse, and Terrain qualification
+pass on the target host. The lasting runtime contract documents the selected
+single-traversal table, cascade-local draw preparation, timing boundaries, and
+frame-local palette ownership. Persistent cross-frame caching remains deferred.
 
-Stage 0 is ready. It first records render-thread CPU cost and structural work so
-that the deeper draw-fact and Terrain changes have frozen activation and
-acceptance gates. The one-pass caster table in Stage 1 proceeds independently
-because it removes known duplicate traversal while retaining the same three
-bounds tests. Persistent cross-frame shadow caching is not selected.
+### Frozen Stage 0 measurement policy
 
-Independent change `ca20846c` established a frame-local SkeletalMesh palette
-table shared by the receiver view and directional-shadow cascades. This is now
-a foundation of the plan: later shared-fact work must retain that ownership and
-must not reintroduce per-view or per-cascade palette uploads.
+- The target lane is Win64 Release on the Intel Core i7-12700, RTX 3090,
+  driver 591.86, and Vulkan device API 1.4.325 at 1920x1080. Each scenario uses
+  30 warm-up frames followed by 120 measured frames. Inline and threaded
+  executors use identical scene, view, light, candidate, and sample identities.
+- The comparison revisions are pre-table commit `0cb52ef409663a35de9be952efe1dd68fcae8b6a`
+  and table commit `d863734fdb067ce67d584d8ee226d7b3fe3ac45b`.
+  Historical comparison builds use an isolated worktree and never add a second
+  production traversal path to the active implementation.
+- Stage 1 passes when the high-overlap fixture performs exactly one scene
+  traversal, exactly `eligible casters x enabled cascades` conservative tests,
+  preserves membership/counter/image identities, has a logical-preparation
+  median no greater than the pre-table reference, and has p95 no greater than
+  105% of the reference. Sparse SingleMap and ThreeCascades medians may regress
+  by at most 5% and p95 by at most 10%.
+- Stage 2 activates only when Static/Spline or Skeletal logical preparation is
+  at least 20% of total logical shadow preparation in its owning fixture and
+  membership popcount is at least 1.5 times unique eligible casters. It passes
+  when the owning-family median is at most 85% of its Stage 0 baseline, total
+  logical median is at most 95%, and sparse median/p95 regressions remain within
+  5%/10%.
+- Stage 3 activates only when Terrain logical preparation is at least 20% of
+  total logical shadow preparation and Terrain patch classification or
+  immutable patch-fact work repeats in at least two cascades. It uses the same
+  85% owning-family, 95% total, and 5%/10% sparse median/p95 gates as Stage 2.
+- Existing exact Q0/Q1 hashes, Q0/Q1 motion limits, Q2 cascade identities, and
+  the off-camera-caster contract are the frozen rendering references. New
+  preparation fixtures must conserve submitted, hidden, culled, invalid,
+  membership, prepared family, draw, triangle, palette, patch, batch, and
+  temporary-capacity identities between compared candidates.
+- Timing and structural evidence remains in the existing optional view-counter
+  sink. Sorting/batching stays nested, resource preparation stays disjoint, and
+  neither is added twice to total logical preparation.
 
 ## Goal
 
@@ -213,26 +231,26 @@ scenes with overlapping cascade casters.
 
 ### Stage 0: Freeze CPU evidence and structural contracts
 
-- [ ] Add scoped render-thread CPU timings for total directional-shadow logical
+- [x] Add scoped render-thread CPU timings for total directional-shadow logical
   preparation, authoritative discovery/membership, Static/Spline preparation,
   Skeletal preparation, Terrain logical preparation, sorting/batching, and
   shadow resource preparation. Ensure nested timings have documented inclusion
   boundaries and do not double-count in the reported total.
-- [ ] Add structural counters for unique submitted primitives, unique eligible
+- [x] Add structural counters for unique submitted primitives, unique eligible
   primitives by family, cascade classification tests, membership-mask popcount,
   per-family shared-fact builds/reuses, selected `(primitive, LOD)` facts,
   Terrain patch classifications, and temporary bytes or high-water counts.
-- [ ] Define deterministic camera-visible, off-camera-caster, high-overlap,
+- [x] Define deterministic camera-visible, off-camera-caster, high-overlap,
   sparse-cascade, Static/Spline-heavy, animated-Skeletal, and Terrain-heavy
   fixtures. Record SingleMap and ThreeCascades baselines with identical scene,
   view, light, executor, build, warm-up, and sample counts.
-- [ ] Before observing optimized results, record the target machine and exact
+- [x] Before observing optimized results, record the target machine and exact
   median/p95 rollout gates for total render-thread shadow preparation and each
   stage's allowed regression. Record a structural Stage 1 gate of one scene
   traversal per prepared shadow view and exactly `eligible primitives x enabled
   cascades` conservative classification opportunities, excluding early
   unsupported/hidden rejection.
-- [ ] Record exact counter identities and image/motion hashes that subsequent
+- [x] Record exact counter identities and image/motion hashes that subsequent
   stages must preserve. Resolve whether timing publication belongs in existing
   view counters or a dedicated optional profiling sink before Stage 1.
 
@@ -270,74 +288,82 @@ scenes with overlapping cascade casters.
 
 ### Stage 2: Share mesh and material facts within the prepared view
 
-- [ ] Split Static/Spline preparation into immutable primitive/LOD/section facts
+- [x] Rejected after target-host measurement: splitting Static/Spline
+  preparation into immutable primitive/LOD/section facts
   and view-local draw instances. Memoize eligible facts once per frame and once
   per actually selected LOD without changing LOD resolution fallback.
-- [ ] Split Skeletal preparation into immutable geometry/material facts and
-  view-local primitive/draw instances. Retain the existing submission-local
-  palette table and its one-pose/one-range ownership.
+- [x] Not selected after the Static/Spline owner failed the Stage 2 gate:
+  splitting Skeletal preparation into additional immutable geometry/material
+  facts and view-local primitive/draw instances. The existing submission-local
+  palette table retains its one-pose/one-range ownership.
 - [x] Introduce an explicit shadow-depth preparation mode that admits only
   Opaque and Masked sections and builds the correct shadow pipeline keys
   directly. Remove the post-preparation translucent erase/accounting repair.
-- [ ] Share material binding validation and stable state-key components between
+- [x] Rejected after target-host measurement: sharing material binding
+  validation and stable state-key components between
   the receiver and cascades where inputs match. Keep projection size, LOD,
   primitive indices, bias, resource readiness outcome, and execution counters
   in their existing view/cascade owners.
-- [ ] Prove deterministic opaque/masked order, mirrored winding, two-sided and
+- [x] Proved candidate correctness for deterministic opaque/masked order,
+  mirrored winding, two-sided and
   masked parity, Spline deformation, Skeletal pose/palette reuse, resource
   invalidation, and error-material fallback.
 
 #### Acceptance Gate
 
-- Every identical frame-local material/section fact is built at most once per
-  applicable `(primitive, LOD)`; palette uploads remain at most once per
-  primitive pose per submission; no translucent shadow draw is constructed;
-  all frozen correctness references pass and mesh-heavy CPU timings satisfy
-  the Stage 0 rollout gates.
+- Rejected. The fact-table candidate preserved frozen correctness references
+  and palette ownership but did not meet the 85% family or 95% total CPU gate.
+  No translucent shadow draw is constructed, and the rejected cache has no
+  remaining production or compatibility path.
 
 ### Stage 3: Share Terrain facts and classify patches once
 
-- [ ] Extract frame-local Terrain primitive material/transform facts and patch
+- [x] Rejected after target-host measurement: extracting frame-local Terrain
+  primitive material/transform facts and patch
   world-bounds/topology facts without changing proxy or payload ownership.
-- [ ] Compute a bounded cascade mask for each valid patch in one traversal and
+- [x] Rejected with the Stage 3 candidate: computing a bounded cascade mask for
+  each valid patch in one traversal and
   feed cascade-local LOD/adjacency preparation from those records. Retain any
   neighbor data needed to reproduce existing adjacency promotions and stitch
   masks exactly.
-- [ ] Avoid repeated material binding, bounds transformation, topology-key base
+- [x] Rejected with the Stage 3 candidate: avoiding repeated material binding,
+  bounds transformation, topology-key base
   construction, and immutable sort-key work. Keep resolved LOD, stitch mask,
   final topology key, draw membership, sort, and batches cascade-local.
-- [ ] Reconcile primitive membership, patch membership, culled/radial rejected,
+- [x] Reconciled candidate primitive membership, patch membership,
+  culled/radial rejected,
   LOD fallback, adjacency, stitch histogram, triangle, batch, instance, height,
   topology, resource, and draw counters for every cascade.
-- [ ] Qualify boundary patches, invalid bounds, mixed cascade membership,
+- [x] Qualified the candidate through the frozen Terrain and directional-shadow
+  references, including boundary patches, invalid bounds, mixed membership,
   Terrain-heavy camera/light motion, disabled batching, height replacement,
   shader reload, device invalidation, and sequential views.
 
 #### Acceptance Gate
 
-- Patch bounds and immutable facts are built once per prepared shadow view;
-  cascade-local LOD, adjacency, stitch, batches, triangles, and rendered output
-  match the baseline; Terrain-heavy CPU median/p95 satisfy the frozen rollout
-  gates without increasing shadow-depth GPU work.
+- Rejected. The candidate preserved cascade-local LOD, adjacency, stitch,
+  batches, triangles, counters, and rendered output, but its 2.5% Terrain and
+  2.3% total median improvements did not meet the 15%/5% rollout gate. No
+  shared Terrain fact or patch-mask scaffolding remains in production.
 
 ### Stage 4: Integrate, qualify, and publish the selected boundary
 
-- [ ] Remove obsolete duplicate preparation APIs, temporary compatibility
+- [x] Remove obsolete duplicate preparation APIs, temporary compatibility
   fields, redundant allocations, and counters whose replacements have passed
   reconciliation. Keep public surface area private to Renderer unless another
   existing module already owns the shared fact type.
-- [ ] Run focused caster, visibility, preparation, material, deformation,
+- [x] Run focused caster, visibility, preparation, material, deformation,
   Terrain, resource recovery, counter, and multi-view native tests following
   the repository testing workflow.
-- [ ] Run the required Renderer/RHI/Vulkan builds and runtime validation,
+- [x] Run the required Renderer/RHI/Vulkan builds and runtime validation,
   fixed/moving image comparisons, threaded and inline executor cases, shader
   reload, resize, retry, device invalidation, editor smoke, and target-machine
   CPU/GPU timing matrix following repository build/run guidance.
-- [ ] Update the directional-shadow runtime contract with the implemented
+- [x] Update the directional-shadow runtime contract with the implemented
   frame-local table, shared-fact boundary, cascade-local decisions, counter
   meanings, failure behavior, and measured result. Record any rejected deeper
   cache candidate rather than leaving two active implementations.
-- [ ] Complete this plan only when every selected stage passes. If Stage 0
+- [x] Complete this plan only when every selected stage passes. If Stage 0
   evidence rejects Stage 2 or Stage 3, record that disposition, remove unused
   scaffolding, and narrow the Definition of Done before marking completion.
 
@@ -368,8 +394,9 @@ scenes with overlapping cascade casters.
 
 - Directional-shadow discovery traverses authoritative scene primitives once
   per prepared view and records one tested cascade mask per eligible caster.
-- No production cascade independently rechecks shared hidden/kind eligibility
-  or rebuilds an identical immutable material/geometry fact.
+- No production cascade independently rechecks shared hidden/kind eligibility.
+  Deeper immutable material/geometry reuse remains intentionally unselected
+  because both measured candidates missed their rollout gates.
 - Static/Spline LOD and fallback, Terrain LOD/adjacency/stitch, raster bias,
   ordering, counters, and execution remain cascade-local where correctness
   requires them.

@@ -185,6 +185,7 @@ namespace Durin
 			if (!Math::IsFinite(Transform)) continue;
 			const double Determinant = Math::LinearDeterminant(Transform);
 			if (!std::isfinite(Determinant)) continue;
+			++Result.SharedPrimitiveFactBuilds;
 			FPreparedTerrainDraw CommonDraw;
 			CommonDraw.SceneInfo = Info;
 			CommonDraw.Material = Proxy.ResolveMaterialRenderData_RenderThread();
@@ -247,6 +248,7 @@ namespace Durin
 			{
 				const FTerrainPatchDescriptor& Patch = Patches[PatchIndex];
 				++Result.PatchCandidates;
+				++Result.SharedPatchFactBuilds;
 				const FBox WorldBounds = TransformBounds(Patch.LocalBounds, Transform);
 				if (bApplyDistance && WorldBounds.bIsValid
 					&& Math::IsFinite(WorldBounds.Min)
@@ -263,6 +265,7 @@ namespace Durin
 				}
 				if (bCull && bValidView)
 				{
+					++Result.PatchClassificationTests;
 					const auto Classification = ClassifyWorldBounds(Frustum, WorldBounds);
 					if (Classification == EViewBoundsClassification::Outside)
 					{

@@ -48,6 +48,11 @@ namespace Durin
 		std::vector<FPreparedTerrainBatch> OpaqueBatches;
 		std::vector<FPreparedTerrainBatch> MaskedBatches;
 		size_t PatchCandidates = 0;
+		size_t PatchClassificationTests = 0;
+		size_t SharedPrimitiveFactBuilds = 0;
+		size_t SharedPrimitiveFactReuses = 0;
+		size_t SharedPatchFactBuilds = 0;
+		size_t SharedPatchFactReuses = 0;
 		size_t VisiblePatches = 0;
 		size_t CulledPatches = 0;
 		size_t InnerPatches = 0;

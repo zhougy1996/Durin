@@ -147,6 +147,12 @@ namespace Durin
 		size_t VertexFactoryTransitions = 0;
 		size_t GeometryTransitions = 0;
 		uint64 SortingNanoseconds = 0;
+		size_t SharedPrimitiveFactBuilds = 0;
+		size_t SharedPrimitiveFactReuses = 0;
+		size_t SelectedLODFactBuilds = 0;
+		size_t SelectedLODFactReuses = 0;
+		size_t SharedSectionFactBuilds = 0;
+		size_t SharedSectionFactReuses = 0;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;

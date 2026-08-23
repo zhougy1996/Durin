@@ -977,6 +977,41 @@ namespace Durin
 							StaticMeshes.SortingNanoseconds
 							+ SkeletalMeshes.SortingNanoseconds
 							+ Terrains.BatchConstructionNanoseconds;
+						PreparedView.Counters.
+							ShadowStaticSplinePrimitiveFactBuilds +=
+							StaticMeshes.SharedPrimitiveFactBuilds;
+						PreparedView.Counters.
+							ShadowStaticSplinePrimitiveFactReuses +=
+							StaticMeshes.SharedPrimitiveFactReuses;
+						PreparedView.Counters.ShadowSelectedLODFactBuilds +=
+							StaticMeshes.SelectedLODFactBuilds;
+						PreparedView.Counters.ShadowSelectedLODFactReuses +=
+							StaticMeshes.SelectedLODFactReuses;
+						PreparedView.Counters.
+							ShadowStaticSplineSectionFactBuilds +=
+							StaticMeshes.SharedSectionFactBuilds;
+						PreparedView.Counters.
+							ShadowStaticSplineSectionFactReuses +=
+							StaticMeshes.SharedSectionFactReuses;
+						PreparedView.Counters.ShadowSkeletalPrimitiveFactBuilds +=
+							SkeletalMeshes.SharedPrimitiveFactBuilds;
+						PreparedView.Counters.ShadowSkeletalPrimitiveFactReuses +=
+							SkeletalMeshes.SharedPrimitiveFactReuses;
+						PreparedView.Counters.ShadowSkeletalSectionFactBuilds +=
+							SkeletalMeshes.SharedSectionFactBuilds;
+						PreparedView.Counters.ShadowSkeletalSectionFactReuses +=
+							SkeletalMeshes.SharedSectionFactReuses;
+						PreparedView.Counters.ShadowTerrainPrimitiveFactBuilds +=
+							Terrains.SharedPrimitiveFactBuilds;
+						PreparedView.Counters.ShadowTerrainPrimitiveFactReuses +=
+							Terrains.SharedPrimitiveFactReuses;
+						PreparedView.Counters.ShadowTerrainPatchFactBuilds +=
+							Terrains.SharedPatchFactBuilds;
+						PreparedView.Counters.ShadowTerrainPatchFactReuses +=
+							Terrains.SharedPatchFactReuses;
+						PreparedView.Counters.
+							ShadowTerrainPatchClassificationTests +=
+							Terrains.PatchClassificationTests;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)

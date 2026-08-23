@@ -42,6 +42,30 @@ namespace
 	constexpr uint32 CaptureWidth = 257;
 	constexpr uint32 CaptureHeight = 257;
 
+	constexpr auto ByteValue(std::byte Value) -> Durin::uint8
+	{
+		return std::to_integer<Durin::uint8>(Value);
+	}
+
+	struct FTimingSummary
+	{
+		Durin::uint64 MedianNanoseconds = 0;
+		Durin::uint64 P95Nanoseconds = 0;
+	};
+
+	auto SummarizeTimings(std::vector<Durin::uint64> Samples)
+		-> FTimingSummary
+	{
+		if (Samples.empty()) return {};
+		std::ranges::sort(Samples);
+		return {
+			.MedianNanoseconds = Samples[Samples.size() / 2u],
+			.P95Nanoseconds = Samples[std::min(
+				Samples.size() - 1u,
+				static_cast<size_t>(std::ceil(
+					static_cast<double>(Samples.size()) * 0.95)) - 1u)]};
+	}
+
 	struct FShadowBaselineCommand
 	{
 		static constexpr auto GetName() -> const char*
@@ -309,22 +333,23 @@ namespace
 		for (size_t Offset = 0; Offset + 3 < Pixels.size(); Offset += 4)
 		{
 			const unsigned Luminance =
-				(static_cast<unsigned>(Pixels[Offset]) * 54u
-				 + static_cast<unsigned>(Pixels[Offset + 1]) * 183u
-				 + static_cast<unsigned>(Pixels[Offset + 2]) * 19u)
+				(static_cast<unsigned>(ByteValue(Pixels[Offset])) * 54u
+				 + static_cast<unsigned>(ByteValue(Pixels[Offset + 1])) * 183u
+				 + static_cast<unsigned>(ByteValue(Pixels[Offset + 2])) * 19u)
 				/ 256u;
 			Result.DarkPixels += Luminance < 48u ? 1u : 0u;
 			Result.MidPixels += Luminance >= 48u && Luminance < 160u ? 1u : 0u;
 			Result.BrightPixels += Luminance >= 160u ? 1u : 0u;
 			for (size_t Channel = 0; Channel < 4; ++Channel)
 			{
+				const Durin::uint8 Value = ByteValue(Pixels[Offset + Channel]);
 				Result.Minimum[Channel] = std::min(
-					Result.Minimum[Channel], Pixels[Offset + Channel]
+					Result.Minimum[Channel], Value
 				);
 				Result.Maximum[Channel] = std::max(
-					Result.Maximum[Channel], Pixels[Offset + Channel]
+					Result.Maximum[Channel], Value
 				);
-				Result.Mean[Channel] += Pixels[Offset + Channel];
+				Result.Mean[Channel] += Value;
 			}
 		}
 		const double PixelCount = static_cast<double>(Pixels.size() / 4u);
@@ -343,8 +368,8 @@ namespace
 			bool bChanged = false;
 			for (size_t Channel = 0; Channel < 3; ++Channel)
 			{
-				const int Difference = static_cast<int>(First[Offset + Channel])
-									   - static_cast<int>(Second[Offset + Channel]);
+				const int Difference = static_cast<int>(ByteValue(First[Offset + Channel]))
+									   - static_cast<int>(ByteValue(Second[Offset + Channel]));
 				bChanged |= std::abs(Difference) > ChannelTolerance;
 			}
 			Changed += bChanged ? 1u : 0u;
@@ -355,7 +380,7 @@ namespace
 	auto LuminanceAt(const std::vector<std::byte>& Pixels, uint32 X, uint32 Y) -> int
 	{
 		const size_t Offset = (static_cast<size_t>(Y) * CaptureWidth + X) * 4u;
-		return static_cast<int>((static_cast<unsigned>(Pixels[Offset]) * 54u + static_cast<unsigned>(Pixels[Offset + 1]) * 183u + static_cast<unsigned>(Pixels[Offset + 2]) * 19u) / 256u);
+		return static_cast<int>((static_cast<unsigned>(ByteValue(Pixels[Offset])) * 54u + static_cast<unsigned>(ByteValue(Pixels[Offset + 1])) * 183u + static_cast<unsigned>(ByteValue(Pixels[Offset + 2])) * 19u) / 256u);
 	}
 
 	auto MaximumTransitionWidth(
@@ -1101,6 +1126,197 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	Durin::RHIExit();
 }
 
+TEST(FDirectionalShadowBaselineVulkanTests,
+	ProfilesFrozenHighOverlapPreparationFixture)
+{
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+	Durin::FRendererModule Renderer;
+	Durin::FModuleTestHarness RendererLifecycle(
+		"DirectionalShadowPreparationQualification");
+	RendererLifecycle.Start(Renderer);
+	Durin::SetViewRenderCounterSink(CaptureCounters);
+
+	auto Quad = MakeQuadRenderData();
+	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		[&](Durin::FRHICommandListImmediate& CommandList) {
+			ASSERT_TRUE(Quad->InitResources(CommandList));
+		});
+	Durin::FlushRenderingCommands();
+	auto Opaque = MakeMaterial(
+		Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72});
+
+	constexpr size_t PrimitiveCount = 128u;
+	constexpr size_t WarmupFrames = 30u;
+	constexpr size_t MeasuredFrames = 120u;
+	Durin::FScene Scene;
+	for (size_t Index = 0; Index < PrimitiveCount; ++Index)
+	{
+		const double Offset = static_cast<double>(Index % 8u) * 0.0001;
+		Scene.AddOrReplacePrimitive(
+			Durin::FPrimitiveSceneId(Index + 1u),
+			std::make_unique<Durin::FStaticMeshSceneProxy>(
+				Quad.get(),
+				std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+			MakeTransform({.Translation = {100.0, Offset, 0.0},
+				.Scale = {100.0, 100.0, 1.0}}));
+	}
+	Durin::FDirectionalLightSceneData Directional;
+	Directional.Direction = {-1.0, 0.2, -0.25};
+	Directional.Color = {1.0f, 1.0f, 1.0f};
+	Directional.Intensity = 3.0f;
+	Directional.bCastShadows = true;
+	Scene.AddOrReplaceLight(
+		Durin::FLightSceneId(100),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Durin::FlushRenderingCommands();
+
+	struct FProfile
+	{
+		std::vector<Durin::uint64> Logical;
+		std::vector<Durin::uint64> Discovery;
+		std::vector<Durin::uint64> StaticSpline;
+		Durin::FViewRenderCounters LastCounters;
+	};
+	auto ProfileCandidate = [&](Durin::EDirectionalShadowCandidate Candidate) {
+		auto Profile = std::make_shared<FProfile>();
+		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+			[&Renderer, &Scene, Candidate, Profile](
+				Durin::FRHICommandListImmediate& CommandList) {
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					"DirectionalShadowPreparationQualificationTarget",
+					1920, 1080, Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource);
+				Durin::FTextureRHIRef Target =
+					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(Target, nullptr);
+				for (size_t Frame = 0;
+					 Frame < WarmupFrames + MeasuredFrames; ++Frame)
+				{
+					++Durin::GRenderFrameCounterRenderThread;
+					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					Durin::FSceneView View;
+					constexpr double NearClip = 1.0;
+					constexpr double FarClip = 300.0;
+					const double YScale = 1.0 / std::tan(
+						Durin::Math::DegreesToRadians(60.0) * 0.5);
+					View.ProjectionMatrix = Durin::FMatrix(0.0);
+					View.ProjectionMatrix[1][0] = YScale;
+					View.ProjectionMatrix[2][1] = -YScale;
+					View.ProjectionMatrix[0][2] =
+						FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[3][2] =
+						-NearClip * FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[0][3] = 1.0;
+					View.ViewProjectionMatrix = View.ProjectionMatrix;
+					View.ViewportWidth = 1920;
+					View.ViewportHeight = 1080;
+					View.Settings.Mode.VisibilityMode =
+						Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					View.Settings.DirectionalShadow.Candidate = Candidate;
+					View.Settings.DirectionalShadow.FilterQuality =
+						Durin::EDirectionalShadowFilterQuality::Medium;
+					View.Settings.DirectionalShadow.bEnableContactShadows = false;
+					ASSERT_EQ(Renderer.RenderView(
+						CommandList, &Scene, View, Target, false, {}),
+						Durin::ERenderViewResult::Success);
+					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					if (Frame >= WarmupFrames)
+					{
+						Profile->Logical.push_back(
+							GLastCounters.ShadowLogicalPreparationNanoseconds);
+						Profile->Discovery.push_back(
+							GLastCounters.ShadowDiscoveryMembershipNanoseconds);
+						Profile->StaticSpline.push_back(
+							GLastCounters.ShadowStaticSplinePreparationNanoseconds);
+					}
+				}
+				Profile->LastCounters = GLastCounters;
+			});
+		Durin::FlushRenderingCommands();
+		return *Profile;
+	};
+
+	const FProfile SingleMap = ProfileCandidate(
+		Durin::EDirectionalShadowCandidate::SingleMap);
+	const FProfile ThreeCascades = ProfileCandidate(
+		Durin::EDirectionalShadowCandidate::ThreeCascades);
+	const FTimingSummary SingleLogical = SummarizeTimings(SingleMap.Logical);
+	const FTimingSummary CascadeLogical = SummarizeTimings(ThreeCascades.Logical);
+	const FTimingSummary CascadeDiscovery =
+		SummarizeTimings(ThreeCascades.Discovery);
+	const FTimingSummary CascadeStatic =
+		SummarizeTimings(ThreeCascades.StaticSpline);
+
+	ASSERT_EQ(SingleMap.Logical.size(), MeasuredFrames);
+	ASSERT_EQ(ThreeCascades.Logical.size(), MeasuredFrames);
+	EXPECT_EQ(ThreeCascades.LastCounters.ShadowSceneTraversals, 1u);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowUniqueSubmittedCasters,
+		PrimitiveCount);
+	const size_t UniqueEligible =
+		ThreeCascades.LastCounters.ShadowUniqueEligibleStaticMeshCasters
+		+ ThreeCascades.LastCounters.ShadowUniqueEligibleSplineMeshCasters
+		+ ThreeCascades.LastCounters.ShadowUniqueEligibleSkeletalMeshCasters
+		+ ThreeCascades.LastCounters.ShadowUniqueEligibleTerrainCasters;
+	EXPECT_EQ(UniqueEligible, PrimitiveCount);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowCascadeClassificationTests,
+		UniqueEligible * Durin::DirectionalShadowCascadeCount);
+	EXPECT_GE(
+		ThreeCascades.LastCounters.ShadowMembershipPopcount * 2u,
+		UniqueEligible * 3u);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowStaticSplinePrimitiveFactBuilds,
+		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowStaticSplinePrimitiveFactReuses, 0u);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowSelectedLODFactBuilds,
+		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowSelectedLODFactReuses, 0u);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowStaticSplineSectionFactBuilds,
+		ThreeCascades.LastCounters.ShadowMembershipPopcount);
+	EXPECT_EQ(
+		ThreeCascades.LastCounters.ShadowStaticSplineSectionFactReuses, 0u);
+	EXPECT_GT(SingleLogical.MedianNanoseconds, 0u);
+	EXPECT_GT(CascadeLogical.MedianNanoseconds, 0u);
+	EXPECT_GT(CascadeDiscovery.MedianNanoseconds, 0u);
+	EXPECT_GT(CascadeStatic.MedianNanoseconds, 0u);
+	std::cout
+		<< "Directional shadow preparation qualification: single_median_ns="
+		<< SingleLogical.MedianNanoseconds
+		<< ",single_p95_ns=" << SingleLogical.P95Nanoseconds
+		<< ",cascade_median_ns=" << CascadeLogical.MedianNanoseconds
+		<< ",cascade_p95_ns=" << CascadeLogical.P95Nanoseconds
+		<< ",discovery_median_ns=" << CascadeDiscovery.MedianNanoseconds
+		<< ",discovery_p95_ns=" << CascadeDiscovery.P95Nanoseconds
+		<< ",static_median_ns=" << CascadeStatic.MedianNanoseconds
+		<< ",static_p95_ns=" << CascadeStatic.P95Nanoseconds
+		<< ",unique=" << UniqueEligible
+		<< ",membership="
+		<< ThreeCascades.LastCounters.ShadowMembershipPopcount << '\n';
+
+	Durin::SetViewRenderCounterSink(nullptr);
+	RendererLifecycle.Shutdown();
+	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	Durin::FlushRenderingCommands();
+	Durin::ShutdownRenderingThread();
+	Durin::RHIExit();
+}
+
 TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearFieldBounded)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -1337,9 +1553,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	ASSERT_EQ(DeferredHDR.size(), ForwardOnlyHDR.size());
 	ASSERT_EQ(DeferredHDR.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 8u);
 
-	auto DecodeHalf = [](const uint8* Bytes) {
-		const uint16 Bits = static_cast<uint16>(Bytes[0])
-								   | static_cast<uint16>(Bytes[1] << 8);
+	auto DecodeHalf = [](const std::byte* Bytes) {
+		const uint16 Bits = static_cast<uint16>(ByteValue(Bytes[0]))
+								   | static_cast<uint16>(ByteValue(Bytes[1]) << 8);
 		const bool bNegative = (Bits & 0x8000u) != 0;
 		const uint32 Exponent = (Bits >> 10) & 0x1fu;
 		const uint32 Mantissa = Bits & 0x3ffu;
@@ -1380,7 +1596,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			 Pixel < Surface.size() / 4u; ++Pixel)
 		{
 			const bool bValid =
-				Surface[Pixel * 4u + 3u] != 0u;
+				Surface[Pixel * 4u + 3u] != std::byte{0};
 			const size_t HDROffset = Pixel * 8u;
 			if (!bValid)
 			{
@@ -1478,7 +1694,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_EQ(Counters.DeferredDirectionalDebugViews, 1u);
 		EXPECT_EQ(Counters.DeferredDirectionalPassFailures, 0u);
 		EXPECT_EQ(Image.size(), DeferredHDR.size());
-		EXPECT_TRUE(std::ranges::any_of(Image, [](uint8 Value) { return Value != 0u; }));
+		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) { return Value != std::byte{0}; }));
 	}
 	EXPECT_NE(DeferredDebugImages.front(), DeferredDebugImages.back());
 	std::vector<std::byte> DeferredPerspectiveOutput;
@@ -1713,7 +1929,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalDebugViews, 1u);
 	EXPECT_EQ(LocalDiagnosticCounters.DeferredDirectionalPassFailures, 0u);
-	EXPECT_TRUE(std::ranges::any_of(LocalDiagnosticHDR, [](uint8 Value) { return Value != 0u; }));
+	EXPECT_TRUE(std::ranges::any_of(LocalDiagnosticHDR, [](std::byte Value) { return Value != std::byte{0}; }));
 	// This fixture has no directional, environment, or emissive term, so the
 	// isolated local component is exactly the final deferred result.
 	EXPECT_EQ(LocalDiagnosticHDR, InvalidLocalDeferred);
@@ -1807,23 +2023,23 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	{
 		uint32 PackedEmissive = 0;
 		std::memcpy(&PackedEmissive, GBufferEmissivePixels.data() + Offset, sizeof(PackedEmissive));
-		if (GBufferSurfacePixels[Offset + 3] == 0u)
+		if (GBufferSurfacePixels[Offset + 3] == std::byte{0})
 		{
 			++BackgroundGBufferPixels;
-			EXPECT_EQ(GBufferMaterialPixels[Offset], 0u);
-			EXPECT_EQ(GBufferMaterialPixels[Offset + 1], 0u);
-			EXPECT_EQ(GBufferMaterialPixels[Offset + 2], 0u);
-			EXPECT_EQ(GBufferMaterialPixels[Offset + 3], 0u);
-			EXPECT_EQ(GBufferNormalsPixels[Offset], 0u);
-			EXPECT_EQ(GBufferNormalsPixels[Offset + 1], 0u);
-			EXPECT_EQ(GBufferNormalsPixels[Offset + 2], 0u);
-			EXPECT_EQ(GBufferNormalsPixels[Offset + 3], 0u);
+			EXPECT_EQ(GBufferMaterialPixels[Offset], std::byte{0});
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 1], std::byte{0});
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 2], std::byte{0});
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 3], std::byte{0});
+			EXPECT_EQ(GBufferNormalsPixels[Offset], std::byte{0});
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 1], std::byte{0});
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 2], std::byte{0});
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 3], std::byte{0});
 			EXPECT_EQ(PackedEmissive, 0u);
 			continue;
 		}
 		++ValidGBufferPixels;
-		const auto ToUNorm = [](uint8 Value) {
-			return static_cast<float>(Value) / 255.0f;
+		const auto ToUNorm = [](std::byte Value) {
+			return static_cast<float>(ByteValue(Value)) / 255.0f;
 		};
 		const Durin::GBufferContract::FDecodedRecord Record =
 			Durin::GBufferContract::DecodeRecord(
@@ -1884,16 +2100,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_EQ(DebugViewCounters.GBufferDebugViews, 1u);
 		EXPECT_EQ(DebugViewCounters.GBufferDebugFailures, 0u);
 		EXPECT_NE(Image, PixelsOff);
-		EXPECT_TRUE(std::ranges::any_of(Image, [](uint8 Value) {
-			return Value != 0u;
+		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) {
+			return Value != std::byte{0};
 		}));
 	}
 	EXPECT_NE(GBufferDebugImages.front(), GBufferDebugImages.back());
 	size_t SampledDepthPixels = 0;
 	for (size_t Offset = 0; Offset < GBufferDebugImages[6].size(); Offset += 4)
 	{
-		if (GBufferDebugImages[6][Offset] > 0u
-			&& GBufferDebugImages[6][Offset] < 255u)
+		if (ByteValue(GBufferDebugImages[6][Offset]) > 0u
+			&& ByteValue(GBufferDebugImages[6][Offset]) < 255u)
 		{
 			++SampledDepthPixels;
 			EXPECT_EQ(GBufferDebugImages[6][Offset], GBufferDebugImages[6][Offset + 1]);
@@ -1939,9 +2155,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			{
 				const size_t ChannelOffset = Offset + Channel * 2;
 				const uint16 Bits =
-					static_cast<uint16>(Pixels[ChannelOffset])
+					static_cast<uint16>(ByteValue(Pixels[ChannelOffset]))
 					| static_cast<uint16>(
-						Pixels[ChannelOffset + 1] << 8
+						ByteValue(Pixels[ChannelOffset + 1]) << 8
 					);
 				if (Bits > 0x3c00u && Bits < 0x7c00u) return true;
 			}
@@ -1976,11 +2192,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	size_t DebugContributionPixels = 0;
 	for (size_t Pixel = 0; Pixel + 3 < DebugPixels.size(); Pixel += 4)
 	{
-		if (DebugPixels[Pixel] > 2)
+		if (ByteValue(DebugPixels[Pixel]) > 2)
 		{
 			++DebugContributionPixels;
-			EXPECT_LE(DebugPixels[Pixel + 1], 2u);
-			EXPECT_LE(DebugPixels[Pixel + 2], 2u);
+			EXPECT_LE(ByteValue(DebugPixels[Pixel + 1]), 2u);
+			EXPECT_LE(ByteValue(DebugPixels[Pixel + 2]), 2u);
 		}
 	}
 	EXPECT_GT(DebugContributionPixels, 0u);
@@ -2016,7 +2232,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	RenderCapture(true, true, CloseContactDebug);
 	size_t CloseContactContributionPixels = 0;
 	for (size_t Pixel = 0; Pixel + 3 < CloseContactDebug.size(); Pixel += 4)
-		if (CloseContactDebug[Pixel] > 2u)
+		if (ByteValue(CloseContactDebug[Pixel]) > 2u)
 			++CloseContactContributionPixels;
 	EXPECT_GT(CloseContactContributionPixels, 0u);
 
@@ -2058,7 +2274,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	uint8 ShallowContactPeak = 0u;
 	for (size_t Pixel = 0; Pixel + 3 < ShallowContactDebug.size(); Pixel += 4)
 		ShallowContactPeak = std::max(
-			ShallowContactPeak, ShallowContactDebug[Pixel]);
+			ShallowContactPeak, ByteValue(ShallowContactDebug[Pixel]));
 	EXPECT_GT(ShallowContactPeak, 96u);
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));

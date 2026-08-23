@@ -89,6 +89,7 @@ namespace Durin
 			const FStaticMeshSceneProxy* StaticProxy = bSplineMesh ? nullptr : &SceneInfo->GetStaticMeshProxy();
 			const FSplineMeshSceneProxy* SplineProxy = bSplineMesh ? &SceneInfo->GetSplineMeshProxy() : nullptr;
 			const FStaticMeshRenderData* RenderData = bSplineMesh ? SplineProxy->GetRenderData() : StaticProxy->GetRenderData();
+			++Result.SharedPrimitiveFactBuilds;
 			if (RenderData == nullptr || RenderData->LODResources.empty()
 				|| RenderData->LODVertexFactories.size()
 					   != RenderData->LODResources.size())
@@ -134,6 +135,7 @@ namespace Durin
 			}
 			const FStaticMeshLODResources& LOD =
 				RenderData->LODResources[SelectedLODIndex];
+			++Result.SelectedLODFactBuilds;
 			const FLocalVertexFactory& VertexFactory =
 				RenderData->LODVertexFactories[SelectedLODIndex].VertexFactory;
 			const auto& Indices = LOD.IndexBuffer.GetIndices();
@@ -167,6 +169,7 @@ namespace Durin
 				{
 					continue;
 				}
+				++Result.SharedSectionFactBuilds;
 
 				const FMaterialRenderData& ResolvedMaterial = bSplineMesh ? SplineProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex) : StaticProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex);
 				FPreparedStaticMeshDraw Item;

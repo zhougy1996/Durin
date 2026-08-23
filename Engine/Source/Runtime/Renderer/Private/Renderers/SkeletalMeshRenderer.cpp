@@ -64,6 +64,7 @@ namespace Durin
 				continue;
 			}
 			check(SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SkeletalMesh);
+			++Result.SharedPrimitiveFactBuilds;
 			const FSkeletalMeshSceneProxy& Proxy =
 				SceneInfo->GetSkeletalMeshProxy();
 			const FSkeletalMeshRenderData* RenderData = Proxy.GetRenderData();
@@ -120,6 +121,7 @@ namespace Durin
 				if (Section.IndexCount == 0
 					|| static_cast<uint64>(Section.FirstIndex) + Section.IndexCount
 						   > Indices.size()) continue;
+				++Result.SharedSectionFactBuilds;
 				FPreparedSkeletalMeshDraw Item;
 				Item.Material = Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex

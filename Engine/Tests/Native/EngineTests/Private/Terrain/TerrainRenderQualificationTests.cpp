@@ -8,6 +8,7 @@
 #include "RHICommandList.h"
 #include "RHI.h"
 #include "RendererModule.h"
+#include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -292,6 +293,134 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	std::cout << "[ TERRAIN ] 1025x1025 automatic flat: cpu="
 		<< AutomaticCpuMilliseconds << "ms; triangles="
 		<< GCounters.PreparedTerrainTriangles << "\n";
+
+	Durin::FDirectionalLightSceneData Directional;
+	Directional.Direction = {0.35, 0.2, -1.0};
+	Directional.Color = {1.0f, 1.0f, 1.0f};
+	Directional.Intensity = 3.0f;
+	Directional.bCastShadows = true;
+	Scene.AddOrReplaceLight(
+		Durin::FLightSceneId(100),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Scene.UpdatePrimitiveTransform(
+		Durin::FPrimitiveSceneId(91),
+		Durin::Math::TranslationMatrix(Durin::FVector3(24.0, 0.0, 0.0)));
+	Durin::FlushRenderingCommands();
+	constexpr size_t ShadowWarmupFrames = 30u;
+	constexpr size_t ShadowMeasuredFrames = 120u;
+	struct FShadowProfile
+	{
+		std::vector<Durin::uint64> Logical;
+		std::vector<Durin::uint64> Terrain;
+		Durin::FViewRenderCounters Counters;
+	};
+	auto ProfileShadowCandidate = [&Renderer, &Scene](
+		Durin::EDirectionalShadowCandidate Candidate,
+		const char* TargetName) {
+		auto Profile = std::make_shared<FShadowProfile>();
+		Durin::EnqueueRenderCommand<FTerrainQualificationCommand>(
+			[&Renderer, &Scene, Candidate, TargetName, Profile](
+				Durin::FRHICommandListImmediate& CommandList) {
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					TargetName, 1920, 1080,
+					Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource);
+				Durin::FTextureRHIRef Target =
+					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(Target, nullptr);
+				Durin::FSceneView View;
+				constexpr double NearClip = 1.0;
+				constexpr double FarClip = 300.0;
+				const double YScale = 1.0 / std::tan(
+					Durin::Math::DegreesToRadians(60.0) * 0.5);
+				View.ProjectionMatrix = Durin::FMatrix(0.0);
+				View.ProjectionMatrix[1][0] = YScale;
+				View.ProjectionMatrix[2][1] = -YScale;
+				View.ProjectionMatrix[0][2] =
+					FarClip / (FarClip - NearClip);
+				View.ProjectionMatrix[3][2] =
+					-NearClip * FarClip / (FarClip - NearClip);
+				View.ProjectionMatrix[0][3] = 1.0;
+				View.ViewProjectionMatrix = View.ProjectionMatrix;
+				View.ViewportWidth = 1920;
+				View.ViewportHeight = 1080;
+				View.Settings.Mode.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.Mode.VisibilityMode =
+					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.DirectionalShadow.Candidate = Candidate;
+				View.Settings.DirectionalShadow.FilterQuality =
+					Durin::EDirectionalShadowFilterQuality::Medium;
+				View.Settings.DirectionalShadow.bEnableContactShadows = false;
+				for (size_t Frame = 0;
+					 Frame < ShadowWarmupFrames + ShadowMeasuredFrames; ++Frame)
+				{
+					++Durin::GRenderFrameCounterRenderThread;
+					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+					ASSERT_EQ(Renderer.RenderView(
+						CommandList, &Scene, View, Target, false, {}),
+						Durin::ERenderViewResult::Success);
+					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					if (Frame >= ShadowWarmupFrames)
+					{
+						Profile->Logical.push_back(
+							GCounters.ShadowLogicalPreparationNanoseconds);
+						Profile->Terrain.push_back(
+							GCounters.ShadowTerrainLogicalPreparationNanoseconds);
+					}
+				}
+				Profile->Counters = GCounters;
+			});
+		Durin::FlushRenderingCommands();
+		return *Profile;
+	};
+	const FShadowProfile SingleMap = ProfileShadowCandidate(
+		Durin::EDirectionalShadowCandidate::SingleMap,
+		"MaximumTerrainSingleShadowQualification");
+	const FShadowProfile ThreeCascades = ProfileShadowCandidate(
+		Durin::EDirectionalShadowCandidate::ThreeCascades,
+		"MaximumTerrainCascadeShadowQualification");
+	auto Summarize = [](std::vector<Durin::uint64> Values) {
+		std::ranges::sort(Values);
+		const size_t P95 = std::min(
+			Values.size() - 1u,
+			static_cast<size_t>(std::ceil(
+				static_cast<double>(Values.size()) * 0.95)) - 1u);
+		return std::pair{Values[Values.size() / 2u], Values[P95]};
+	};
+	ASSERT_EQ(SingleMap.Logical.size(), ShadowMeasuredFrames);
+	ASSERT_EQ(ThreeCascades.Logical.size(), ShadowMeasuredFrames);
+	const auto SingleLogical = Summarize(SingleMap.Logical);
+	const auto CascadeLogical = Summarize(ThreeCascades.Logical);
+	const auto CascadeTerrain = Summarize(ThreeCascades.Terrain);
+	EXPECT_EQ(ThreeCascades.Counters.ShadowSceneTraversals, 1u);
+	EXPECT_EQ(
+		ThreeCascades.Counters.ShadowUniqueEligibleTerrainCasters, 1u);
+	EXPECT_EQ(
+		ThreeCascades.Counters.ShadowCascadeClassificationTests,
+		Durin::DirectionalShadowCascadeCount);
+	EXPECT_GE(ThreeCascades.Counters.ShadowMembershipPopcount, 2u);
+	EXPECT_EQ(
+		ThreeCascades.Counters.ShadowTerrainPrimitiveFactBuilds,
+		ThreeCascades.Counters.ShadowMembershipPopcount);
+	EXPECT_EQ(ThreeCascades.Counters.ShadowTerrainPrimitiveFactReuses, 0u);
+	EXPECT_EQ(
+		ThreeCascades.Counters.ShadowTerrainPatchFactBuilds,
+		ThreeCascades.Counters.ShadowMembershipPopcount * 256u);
+	EXPECT_EQ(ThreeCascades.Counters.ShadowTerrainPatchFactReuses, 0u);
+	EXPECT_EQ(
+		ThreeCascades.Counters.ShadowTerrainPatchClassificationTests,
+		ThreeCascades.Counters.ShadowMembershipPopcount * 256u);
+	EXPECT_GT(CascadeTerrain.first, 0u);
+	std::cout << "[ TERRAIN SHADOW ] single_median_ns="
+		<< SingleLogical.first << ",single_p95_ns=" << SingleLogical.second
+		<< ",cascade_median_ns=" << CascadeLogical.first
+		<< ",cascade_p95_ns=" << CascadeLogical.second
+		<< ",terrain_median_ns=" << CascadeTerrain.first
+		<< ",terrain_p95_ns=" << CascadeTerrain.second
+		<< ",membership=" << ThreeCascades.Counters.ShadowMembershipPopcount
+		<< ",patch_classifications="
+		<< ThreeCascades.Counters.ShadowTerrainPatchClassificationTests << "\n";
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();

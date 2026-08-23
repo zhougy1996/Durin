@@ -266,7 +266,29 @@ additional total component. Shadow resource preparation is measured afterward
 as a disjoint duration. Structural counters distinguish unique submitted and
 eligible casters, per-cascade aggregate submissions, conservative
 classification tests, membership-mask popcount, one scene traversal, and
-frame-local temporary capacity.
+frame-local temporary capacity. Family diagnostics also report primitive,
+selected-LOD, section, and Terrain patch fact builds/reuses plus Terrain patch
+classification tests. A build means the current cascade preparation performed
+that logical work; a reuse means a selected frame-local shared owner supplied
+it. Zero reuse is therefore meaningful and does not imply a missing sample.
+
+The selected optimization boundary was qualified on the Intel Core i7-12700
+and RTX 3090 host with driver 591.86 and Vulkan 1.4.325. Across five
+interleaved Win64 Release runs of 30 warm-up and 120 measured frames, the
+single-traversal table changed the high-overlap ThreeCascades logical
+run-median from 1,106.4 us to 1,100.1 us and p95 from 1,544.8 us to 1,459.0 us;
+SingleMap changed from 337.3/400.5 us to 318.3/388.8 us. The fixture owns 128
+unique eligible casters, 384 conservative classifications, membership popcount
+384, and one authoritative scene traversal.
+
+Two deeper frame-local cache candidates were rejected and removed. A
+StaticMesh primitive/LOD/section fact table missed the required 15% family and
+5% total improvements. A 256-patch Terrain primitive/bounds/patch-mask table
+improved Terrain median from 988.2 us to 963.5 us and total logical median from
+999.0 us to 975.6 us, also below those gates. Production therefore retains
+cascade-local mesh and Terrain logical draw preparation; the submission-local
+Skeletal palette remains the only shared draw-resource fact beyond caster
+membership.
 
 ## Q0 qualification
 
