@@ -23,10 +23,13 @@ namespace Durin::Asset::Forge
 		const FTexture2DImportSettings& Settings = {},
 		bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
 
+	// Submits a rebuild from retained source; completion runs on the game thread
+	// after the candidate state is either published or rejected.
 	ASSETFORGE_API auto ReimportTexture2DSource(
 		DTexture2D& Texture,
 		std::string_view FilePath,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool;
 	// Rebuilds one packaged texture from its retained mounted source without
 	// publishing the proposed settings until asynchronous preparation succeeds.
 	ASSETFORGE_API auto RebuildTexture2DFromCurrentSource(

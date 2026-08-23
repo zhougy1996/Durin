@@ -38,7 +38,7 @@ durin_add_engine_functional_test(EditorPropertyTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES durin-ed level-editor
+	MODULES durin-ed level-editor texture-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -51,6 +51,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		Private/Editor/ContentBrowserItemViewTests.cpp
 		Private/Editor/ContentBrowserModelTests.cpp
 		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
+		Private/Editor/SharedSourceReplacementWorkflowTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
@@ -63,7 +64,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForge bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForge TextureEditor bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

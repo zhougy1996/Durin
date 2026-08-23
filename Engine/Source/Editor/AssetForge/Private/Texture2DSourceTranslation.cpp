@@ -337,7 +337,8 @@ namespace Durin::Asset::Forge
 	auto ReimportTexture2DSource(
 		DTexture2D& Texture,
 		std::string_view FilePath,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		Asset::Build::FTexture2DAuthoringCompletion Completion) -> bool
 	{
 		const FTextureSourceDiagnostic Source = Texture.InspectSource();
 		if (!FilePath.empty())
@@ -356,7 +357,8 @@ namespace Durin::Asset::Forge
 			}
 		}
 		return RebuildTexture2DFromCurrentSource(
-			Texture, MakeTexture2DBuildSettings(Texture), OutError);
+			Texture, MakeTexture2DBuildSettings(Texture), OutError,
+			Asset::Build::ETexture2DBuildPriority::Interactive, std::move(Completion));
 	}
 
 	auto ChangeTexture2DSourceReference(
