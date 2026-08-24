@@ -182,8 +182,10 @@ namespace Durin::Asset
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (Record->FormatVersion != LatestAssetPackageWriterVersion)
-				Package.Diagnostics.push_back("NonCurrentFormat: canonical resave accepts only the current package format.");
+			if (Record->FormatVersion != LatestAssetPackageWriterVersion
+				&& Record->FormatVersion != AssetPackageV5FormatVersion)
+				Package.Diagnostics.push_back(
+					"NonCurrentFormat: canonical resave has no supported rollback route for this package format.");
 			if (Record->EntryKind != EAssetRegistryEntryKind::Asset)
 				Package.Diagnostics.push_back("NonAuthorablePackage: redirectors cannot be canonically resaved.");
 			const PathUtilities::FMountLookupResult Mount =
@@ -314,6 +316,7 @@ namespace Durin::Asset
 			}
 			DPackage* Unit[] = {Package};
 			FAssetBundleSaveOptions SaveOptions;
+			SaveOptions.WriterSelection = EAssetPackageWriterSelection::DastV4;
 			SaveOptions.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
 				if (!Options.ShouldFail) return false;
 				if (Phase == EAssetBundleSavePhase::StagePackage)

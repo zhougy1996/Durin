@@ -4,18 +4,19 @@ Summary: Implement DAST v5 dual-read loading and failure-atomic opt-in publicati
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-[Authored Package Trailer Foundation](AuthoredPackageTrailerFoundation.md)
-qualified the separately versioned EOF trailer/footer and the sole
-`ExternalDabkV1` placement without enabling production v5. DAST v4/DABK v1 is
-still the ordinary writer and complete rollback route. This plan activates a
-reader-complete DAST v5 codec and an explicit opt-in writer while preserving
-companion-first publication, full-file atomic package replacement, and the
-existing Git/LFS boundary.
+DAST v5 dual-read and explicit opt-in publication are implemented and
+qualified. The codec validates the mandatory EOF trailer against the complete
+compatibility descriptor mirror before inspection, mutation, or live loading.
+Single and bundle publication remain companion-first and use full-file atomic
+replacement; relocation preserves v5, catalog failure restores prior bytes,
+and canonical resave rolls v5 back to v4. DAST v4 remains the ordinary writer
+and the Git/LFS split is unchanged. The next active plan is
+[VolumeTexture Trailer Migration](VolumeTextureTrailerMigration.md).
 
 ## Goal
 
@@ -32,8 +33,9 @@ writer or any domain schema.
   inspection, references, compatibility, load, relocation, and redirectors.
 - Add an explicit per-operation opt-in v5 writer route; retain v4 as the
   ordinary/default writer and canonical rollback target.
-- Move external physical placement facts to the v5 trailer while preserving
-  logical payload identity and verifying exact agreement at codec boundaries.
+- Make the v5 trailer mandatory for external physical placement while retaining
+  a compatibility descriptor mirror for the initial rollout and requiring
+  exact agreement at every codec boundary.
 - Reuse DABK v1 generation-named companions, `.dabulk` Git LFS policy,
   companion-first staging, whole-file atomic package replacement, cleanup, and
   catalog publication.
@@ -55,10 +57,11 @@ writer or any domain schema.
 - V5 reuses the proven v4 logical tables and tagged value semantics. The
   section directory's final extent equals `TrailerOffset`, not physical EOF;
   the trailer foundation exclusively owns all later bytes.
-- External v5 `BulkData` values retain payload id and logical authored facts
-  but do not independently select a companion generation. Trailer lookup is
-  mandatory and duplicate/missing/disagreeing identities fail before bytes are
-  exposed. Inline values remain in the object stream and have no trailer entry.
+- External v5 `BulkData` values retain the v4 descriptor as a compatibility
+  mirror. Trailer lookup is mandatory and the complete derived descriptor set
+  must equal the trailer set; duplicate, missing, extra, or disagreeing
+  identities fail before bytes are exposed. Inline values remain in the object
+  stream and have no trailer entry.
 - The v5 codec is reader-complete before its writer is callable. The opt-in is
   explicit in package-authoring options and cannot be inferred from an
   existing file, domain type, file size, or environment variable.
@@ -88,11 +91,11 @@ writer or any domain schema.
 
 ### Stage 0: Freeze v5 body and opt-in contracts
 
-- [ ] Freeze v5 preamble, bounded body extent, bulk-descriptor/trailer binding,
+- [x] Freeze v5 preamble, bounded body extent, bulk-descriptor/trailer binding,
   codec capabilities, diagnostics, and v5-to-v4 rollback behavior.
-- [ ] Add an explicit authoring selection that defaults to v4 and propagates
+- [x] Add an explicit authoring selection that defaults to v4 and propagates
   through single and bundle staging without ambient policy.
-- [ ] Record the compatibility and failure matrix before registering the v5
+- [x] Record the compatibility and failure matrix before registering the v5
   writer.
 
 #### Acceptance Gate
@@ -102,11 +105,11 @@ writer or any domain schema.
 
 ### Stage 1: Implement reader-complete DAST v5
 
-- [ ] Factor the v4 logical reader so a caller-supplied bounded object-stream
+- [x] Factor the v4 logical reader so a caller-supplied bounded object-stream
   extent can be decoded without relaxing v4 EOF rules.
-- [ ] Register v5 header, validation, inspection, reference, compatibility,
+- [x] Register v5 header, validation, inspection, reference, compatibility,
   load, relocation, and redirector behavior with mandatory trailer validation.
-- [ ] Resolve every external descriptor through a unique matching trailer
+- [x] Resolve every external descriptor through a unique matching trailer
   entry and validate the referenced DABK v1 generation before exposure.
 
 #### Acceptance Gate
@@ -116,12 +119,12 @@ writer or any domain schema.
 
 ### Stage 2: Implement opt-in companion-first publication
 
-- [ ] Extend detached package capture/build to emit canonical v5 object-stream
+- [x] Extend detached package capture/build to emit canonical v5 object-stream
   and trailer bytes only when explicitly selected.
-- [ ] Reuse DABK v1 candidate validation, immutable publication, atomic package
+- [x] Reuse DABK v1 candidate validation, immutable publication, atomic package
   replacement, catalog publication, and reachability cleanup in the required
   order.
-- [ ] Add failure hooks at companion staging/publication, trailer build,
+- [x] Add failure hooks at companion staging/publication, trailer build,
   package validation/replacement, catalog publication, and cleanup boundaries.
 
 #### Acceptance Gate
@@ -131,11 +134,11 @@ writer or any domain schema.
 
 ### Stage 3: Integrate package operations and rollback
 
-- [ ] Preserve explicit v5 intent through bundle save, move/rename, copy,
+- [x] Preserve explicit v5 intent through bundle save, move/rename, copy,
   delete, Fix Up, redirectors, inspection/repair, and reference projection.
-- [ ] Add canonical v5-to-v4 resave that publishes v4/DABK first and deletes no
+- [x] Add canonical v5-to-v4 resave that publishes v4/DABK first and deletes no
   reachable generation before package and catalog publication succeed.
-- [ ] Prove interrupted operations and catalog refresh recover from physical
+- [x] Prove interrupted operations and catalog refresh recover from physical
   package facts without DDC or object construction.
 
 #### Acceptance Gate
@@ -145,12 +148,12 @@ writer or any domain schema.
 
 ### Stage 4: Qualify and hand off the VolumeTexture pilot
 
-- [ ] Add exact v5 wire/closure goldens, corruption fixtures, source-control
+- [x] Add exact v5 wire/closure goldens, corruption fixtures, source-control
   closure checks, and selected native/regression coverage.
-- [ ] Document production-supported v5 read and opt-in write boundaries in the
+- [x] Document production-supported v5 read and opt-in write boundaries in the
   owning package, lifecycle, version-control, serialization, and File IO
   contracts.
-- [ ] Update roadmap Milestone 2 and activate exactly one VolumeTexture trailer
+- [x] Update roadmap Milestone 2 and activate exactly one VolumeTexture trailer
   migration plan only after code, tests, and documentation validation pass.
 
 #### Acceptance Gate

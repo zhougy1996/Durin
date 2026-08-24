@@ -4,6 +4,8 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageV4Reader.h"
 #include "Asset/PackageV4Writer.h"
+#include "Asset/PackageTrailer.h"
+#include "Asset/CanonicalResave.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Testing.h"
@@ -133,13 +135,16 @@ namespace
 		Durin::Asset::AssetPackageV4FormatVersion);
 	static_assert(Durin::Asset::SupportedAssetPackageReaderVersions ==
 		decltype(Durin::Asset::SupportedAssetPackageReaderVersions){
-			Durin::Asset::AssetPackageV4FormatVersion});
+			Durin::Asset::AssetPackageV4FormatVersion,
+			Durin::Asset::AssetPackageV5FormatVersion});
 	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		Durin::Asset::AssetPackageV4FormatVersion));
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		Durin::Asset::AssetPackageV4FormatVersion - 1));
+	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
+		Durin::Asset::AssetPackageV5FormatVersion));
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
-		Durin::Asset::AssetPackageV4FormatVersion + 1));
+		Durin::Asset::AssetPackageV5FormatVersion + 1));
 
 	auto RelocateAssetsForTest(
 		std::span<const Durin::Asset::FAssetRelocationMapping> Mappings
@@ -438,6 +443,58 @@ namespace
 		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
+	};
+
+	class DBulkPackageAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DBulkPackageAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer), Payload(Durin::FGuid{0x55112233, 0x44556677,
+				0x8899aabb, 0xccddeeff})
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DBulkPackageAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(Durin::EC_StaticConstructor,
+					"DBulkPackageAssetForTest", sizeof(DBulkPackageAssetForTest),
+					alignof(DBulkPackageAssetForTest), Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None, Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DBulkPackageAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "",
+					"DBulkPackageAssetForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static const Durin::DurinCodeGen::FBulkDataPropertyParams PayloadProp =
+				Durin::DurinCodeGen::FBulkDataPropertyParams::Create<
+					Durin::Asset::FEditorBulkData>(
+						"Payload", Durin::EPropertyFlags::None, 1,
+						static_cast<uint16>(offsetof(DBulkPackageAssetForTest, Payload)));
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
+				&PayloadProp};
+			static const Durin::DurinCodeGen::FClassParams Params = {
+				&StaticClassNoRegister, "Tests::DBulkPackageAssetForTest",
+				"DBulkPackageAssetForTest", Properties, std::size(Properties)};
+			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
+			return Class;
+		}
+
+		Durin::Asset::FEditorBulkData Payload;
 	};
 
 	struct FSchemaMigrationVersion
@@ -1136,6 +1193,7 @@ namespace
 		static const bool Initialized = [] {
 			Durin::Testing::InitializeDObjectSystemForTests();
 			(void)DPackageAssetForTest::StaticClass();
+			(void)DBulkPackageAssetForTest::StaticClass();
 			(void)DAuthoredArchiveAssetForTest::StaticClass();
 			(void)DSoftPackageAssetForTest::StaticClass();
 			(void)DCodecSourceAsset::StaticClass();
@@ -1493,6 +1551,155 @@ TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 		FirstBytes, Durin::FXxHash128{1, 1}, &Error));
 }
 
+TEST(FPackageAssetTests, V5OptInPublishesLoadsAndRollsBackExternalClosure)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V5ExternalClosure", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	std::vector<std::byte> Payload(
+		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 17),
+		std::byte{0x5a});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+
+	const Durin::Asset::FAssetResult V5Save = Durin::Asset::SavePackage(
+		Asset->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5});
+	ASSERT_TRUE(V5Save) << V5Save.Message;
+	const Durin::Asset::FAssetCatalogEntry V5Data =
+		Durin::Asset::FindAssetExact(Path);
+	ASSERT_TRUE(V5Data);
+	EXPECT_EQ(V5Data->FormatVersion, Durin::Asset::AssetPackageV5FormatVersion);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(V5Data->PhysicalPath, Inspection));
+	EXPECT_EQ(Inspection.Header.FormatVersion,
+		Durin::Asset::AssetPackageV5FormatVersion);
+	std::vector<Durin::Asset::FEditorBulkDataStorageDescriptor> Descriptors;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataStorageDescriptors(
+		Inspection, Descriptors, &Error)) << Error;
+	ASSERT_EQ(Descriptors.size(), 1u);
+	EXPECT_EQ(Descriptors.front().StorageKind,
+		Durin::Asset::EEditorBulkDataStorageKind::External);
+	std::vector<std::filesystem::path> Companions;
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
+		V5Data->PhysicalPath, Inspection, Companions, &Error)) << Error;
+	ASSERT_EQ(Companions.size(), 1u);
+	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
+
+	Durin::FSharedByteBuffer LoadedPayload;
+	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+		Companions.front(), Descriptors.front(), LoadedPayload, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(
+		LoadedPayload.GetBytes(), Payload));
+	EXPECT_EQ(Durin::Asset::SavePackage(Asset->GetPackage()).Error,
+		Durin::Asset::EAssetError::UnsupportedVersion);
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4}));
+	const Durin::Asset::FAssetCatalogEntry V4Data =
+		Durin::Asset::FindAssetExact(Path);
+	ASSERT_TRUE(V4Data);
+	EXPECT_EQ(V4Data->FormatVersion, Durin::Asset::AssetPackageV4FormatVersion);
+	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
+	std::vector<std::byte> BeforeFailedUpgrade;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		BeforeFailedUpgrade, V4Data->PhysicalPath));
+	std::ranges::fill(Payload, std::byte{0x6b});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	Durin::DPackage* FailedUnit[] = {Asset->GetPackage()};
+	const Durin::Asset::FAssetResult FailedUpgrade =
+		Durin::Asset::SavePackagesAtomically(FailedUnit,
+			{.RootPackage = Asset->GetPackage(),
+				.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5,
+				.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
+					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
+				}});
+	EXPECT_EQ(FailedUpgrade.Error, Durin::Asset::EAssetError::IoError);
+	std::vector<std::byte> AfterFailedUpgrade;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		AfterFailedUpgrade, V4Data->PhysicalPath));
+	EXPECT_EQ(AfterFailedUpgrade, BeforeFailedUpgrade);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Path)->FormatVersion,
+		Durin::Asset::AssetPackageV4FormatVersion);
+
+	Durin::FAssetPath LivePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V5LiveLoad", LivePath));
+	DPackageAssetForTest* LiveAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LivePath, LiveAsset));
+	LiveAsset->Value = 73;
+	ASSERT_TRUE(Durin::Asset::SavePackage(LiveAsset->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LivePath));
+	DPackageAssetForTest* Reloaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LivePath, Reloaded));
+	EXPECT_EQ(Reloaded->Value, 73);
+	const Durin::Asset::FAssetCatalogEntry LiveData =
+		Durin::Asset::FindAssetExact(LivePath);
+	ASSERT_TRUE(LiveData);
+	const Durin::Asset::FReflectionCompatibilityCatalog CompatibilityCatalog =
+		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const Durin::Asset::FAssetPackageCompatibilityProbeResult Probe =
+		Durin::Asset::ProbeAssetPackageCompatibility(
+			MakeCompatibilityProbeInput(LivePath, LiveData->PhysicalPath),
+			CompatibilityCatalog);
+	ASSERT_TRUE(Probe.Record.has_value());
+	const std::array Records{*Probe.Record};
+	Durin::Asset::FAssetCanonicalResavePlan ResavePlan =
+		Durin::Asset::PlanAssetCanonicalResaves(Records,
+			{.Packages = {LivePath}, .bAllowPlainResave = true});
+	ASSERT_EQ(ResavePlan.Packages.size(), 1u);
+	EXPECT_EQ(ResavePlan.Packages.front().Status,
+		Durin::Asset::EAssetCanonicalResavePackageStatus::Ready);
+	const Durin::Asset::FAssetCanonicalResaveApplyResult Resave =
+		Durin::Asset::ApplyAssetCanonicalResaves(
+			std::move(ResavePlan), CompatibilityCatalog);
+	EXPECT_EQ(Resave.Status,
+		Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
+		<< Resave.Diagnostic;
+	EXPECT_EQ(Durin::Asset::FindAssetExact(LivePath)->FormatVersion,
+		Durin::Asset::AssetPackageV4FormatVersion);
+}
+
+TEST(FPackageAssetTests, V5BundleAndRelocationPreserveExplicitFormat)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath DestinationPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/V5MoveSource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/V5MoveDestination", DestinationPath));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
+	Asset->Value = 91;
+	Durin::DPackage* Packages[] = {Asset->GetPackage()};
+	ASSERT_TRUE(Durin::Asset::SavePackagesAtomically(Packages,
+		{.RootPackage = Asset->GetPackage(),
+			.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+	ASSERT_EQ(Durin::Asset::FindAssetExact(SourcePath)->FormatVersion,
+		Durin::Asset::AssetPackageV5FormatVersion);
+
+	const Durin::Asset::FAssetRelocationMapping Mapping{
+		SourcePath, DestinationPath};
+	ASSERT_TRUE(RelocateAssetsForTest(std::span(&Mapping, 1)));
+	const Durin::Asset::FAssetCatalogEntry Redirector =
+		Durin::Asset::FindAssetExact(SourcePath);
+	const Durin::Asset::FAssetCatalogEntry Moved =
+		Durin::Asset::FindAssetExact(DestinationPath);
+	ASSERT_TRUE(Redirector);
+	ASSERT_TRUE(Moved);
+	EXPECT_EQ(Redirector->FormatVersion,
+		Durin::Asset::AssetPackageV5FormatVersion);
+	EXPECT_EQ(Moved->FormatVersion, Durin::Asset::AssetPackageV5FormatVersion);
+	EXPECT_EQ(Redirector->EntryKind,
+		Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	DPackageAssetForTest* Resolved = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(SourcePath, Resolved));
+	EXPECT_EQ(Resolved->Value, 91);
+}
+
 TEST(FPackageAssetTests, RedirectorFixupVerificationFailureRestoresPackagesStoresAndAlias)
 {
 	RunRedirectorFixupVerificationFailureRestoresPackagesStoresAndAliasTest();
@@ -1636,7 +1843,7 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	WriteTestBytes(CorruptFile, Corrupt);
 	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(CorruptFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
 
-	for (const uint32 Version : {3u, 5u})
+	for (const uint32 Version : {3u, 6u})
 	{
 		auto Unsupported = Valid;
 		std::memcpy(Unsupported.data() + sizeof(uint32), &Version, sizeof(Version));

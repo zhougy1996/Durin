@@ -48,6 +48,14 @@ namespace Durin::Asset::Forge
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	// Selects the package envelope for one VolumeTexture authoring operation.
+	// This is intentionally operation-local and is never persisted on the asset.
+	struct FVolumeTextureAuthoringOptions
+	{
+		Asset::EAssetPackageWriterSelection WriterSelection =
+			Asset::EAssetPackageWriterSelection::Ordinary;
+	};
+
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection
 	{
@@ -80,11 +88,14 @@ namespace Durin::Asset::Forge
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FVolumeTextureImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false) -> FVolumeTextureImportResult;
+		bool bEngineAuthoringContext = false,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
+		-> FVolumeTextureImportResult;
 	ASSETFORGE_API auto RepairVolumeTextureSource(
 		DVolumeTexture& Texture,
 		std::string_view SourcePath,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions = {}) -> bool;
 	ASSETFORGE_API auto MakeVolumeTextureInterchangeRequest(
 		const FSourcePath& MountedSource,
 		const FAssetPath& Destination,
@@ -93,7 +104,8 @@ namespace Durin::Asset::Forge
 		Asset::FImportOperationOwner Owner,
 		std::optional<Asset::FInterchangeProvenance> ExistingProvenance,
 		Asset::FInterchangeImportRequest& OutRequest,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions = {}) -> bool;
 	ASSETFORGE_API auto InspectVolumeTextureInterchangeProvenance(
 		const DVolumeTexture& Texture,
 		Asset::FInterchangeProvenance& OutProvenance,
@@ -102,5 +114,7 @@ namespace Durin::Asset::Forge
 		std::string_view FilePath, const FAssetPath& Destination,
 		const FVolumeTextureImportSettings& Settings, bool bEngineAuthoringContext,
 		Asset::FInterchangeImportCompletion Completion,
-		std::string& OutError) -> Asset::FInterchangeImportHandle;
+		std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
+		-> Asset::FInterchangeImportHandle;
 }

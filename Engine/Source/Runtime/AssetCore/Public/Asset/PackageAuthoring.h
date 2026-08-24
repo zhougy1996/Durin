@@ -150,8 +150,17 @@ namespace Durin::Asset
 		std::vector<FObjectSaveOverride> Objects;
 	};
 
+	enum class EAssetPackageWriterSelection : uint8
+	{
+		Ordinary,
+		DastV4,
+		DastV5,
+	};
+
 	struct FAssetPackageSaveOptions
 	{
+		EAssetPackageWriterSelection WriterSelection =
+			EAssetPackageWriterSelection::Ordinary;
 	};
 
 	ASSETCORE_API auto CanonicalizeAssetPackageForCook(
@@ -161,6 +170,8 @@ namespace Durin::Asset
 
 	struct FAssetPackageSerializationOptions
 	{
+		EAssetPackageWriterSelection WriterSelection =
+			EAssetPackageWriterSelection::Ordinary;
 		EAssetPackageSaveDomain Domain = EAssetPackageSaveDomain::Authored;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -173,6 +184,7 @@ namespace Durin::Asset
 	enum class EAssetBundleSavePhase : uint8
 	{
 		CreateDirectories,
+		PublishCompanion,
 		StagePackage,
 		PublishPackage,
 		PublishRootPackage,
@@ -182,6 +194,8 @@ namespace Durin::Asset
 	struct FAssetBundleSaveOptions
 	{
 		DPackage* RootPackage = nullptr;
+		EAssetPackageWriterSelection WriterSelection =
+			EAssetPackageWriterSelection::Ordinary;
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
 	};
 

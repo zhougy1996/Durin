@@ -119,8 +119,9 @@ and transactional relocation are defined by
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. DAST v4 is the sole authored package reader,
-ordinary writer, and repository baseline. Unsupported versions fail before
+same DAST object-package envelope. DAST v4 is the ordinary writer and repository
+baseline; production readers accept v4 and the explicitly published v5
+trailer route. Unsupported versions fail before
 header-specific interpretation, object construction, mutation, or publication.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
@@ -149,17 +150,26 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
-### DAST v5 Trailer Foundation (Not Production)
+### DAST v5 Trailer-Indexed Opt-In Route
 
-AssetCore implements a private, detached foundation for a future DAST v5
-package boundary. It does not register a v5 package codec, construct objects,
-load v5 packages, or write production assets. DAST v4 remains the sole
-production reader and writer, and its unsupported-version dispatch rejects a
-v5 preamble. The foundation exists so later dual-read and opt-in publication
-work can build on one tested wire contract rather than inventing it inside a
-save path.
+AssetCore registers a reader-complete DAST v5 codec and an explicitly selected
+writer. Ordinary single-package and bundle saves still select v4. A caller must
+choose `EAssetPackageWriterSelection::DastV5` for each publication; an existing
+file, asset type, payload size, environment value, or previous v5 save never
+changes that default implicitly. Ordinary save refuses an existing v5 package
+rather than silently rolling it back. Explicit `DastV4` selection is the
+canonical rollback boundary.
 
-The future composite is `ObjectStream || TrailerV1 || FooterV1` with no gaps,
+The v5 object stream reuses canonical v4 logical table, tagged-value, Archive,
+and section encoding with a v5 preamble. Its last section ends at the trailer
+offset instead of physical EOF. The compatibility descriptor inside the object
+stream still mirrors the external DABK identity during this rollout, but it is
+not independently trusted: validation derives the complete external descriptor
+set construct-free and requires exact equality with the sorted trailer entries
+before inspection, reference tooling, compatibility probing, mutation, or live
+loading can expose the package.
+
+The composite is `ObjectStream || TrailerV1 || FooterV1` with no gaps,
 overlap, or trailing bytes. `ObjectStream` is an opaque prefix of at most 256
 MiB; the whole package is at most 1 GiB; the trailer contains at most 65,536
 entries. The detached builder receives the absolute object-stream end and

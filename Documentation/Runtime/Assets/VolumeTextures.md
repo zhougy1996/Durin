@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, RHI, VulkanRHI
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-24
 
 ## Asset boundary
 
@@ -98,8 +98,18 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/DABK
 placement and replacement remain authored-only capabilities.
 
-Current saves emit only the authored BulkData field. The 256 KiB authoring
-threshold changes placement,
+Ordinary saves emit DAST v4 and only the authored BulkData field. A bounded
+VolumeTexture authoring operation can explicitly select DAST v5; the selection
+travels on that Interchange request and is never persisted on the domain
+object. V5 retains the same reflected fields and requires its EOF trailer to
+agree exactly with every external descriptor in the object stream. Small
+inline voxel payloads produce no external trailer entry. External voxel
+payloads produce one matching trailer entry and generation-named DABK v1
+companion. Reimport and repair preserve v5 only when their individual operation
+selects it; no global or ambient preference exists. Canonical or explicit v4
+resave is the rollback route.
+
+The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload
 bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
 2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.

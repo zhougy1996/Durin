@@ -3,6 +3,7 @@
 #include "Asset/PackageV4Reader.h"
 #include "Asset/PackageV4Writer.h"
 #include "Asset/PackageVersionPolicy.h"
+#include "AssetPackageV5Codec.h"
 
 namespace Durin::Asset::Private
 {
@@ -104,7 +105,7 @@ namespace Durin::Asset::Private
 				{.DeltaMode = DeltaMode, .Serialization = Serialization}, &Diagnostic);
 		}
 
-		constexpr std::array Codecs{
+		const std::array Codecs{
 			FAssetPackageCodec{
 				.CodecId = "dast-v4",
 				.FormatVersion = DastV4::Version,
@@ -120,7 +121,8 @@ namespace Durin::Asset::Private
 				.Write = &WriteV4,
 				.RewriteReferences = &DastV4::RewriteReferences,
 				.Relocate = &DastV4::RelocatePackage,
-				.WriteRedirector = &DastV4::WriteRedirectorPackage}};
+				.WriteRedirector = &DastV4::WriteRedirectorPackage},
+			DastV5::GetCodec()};
 
 	}
 

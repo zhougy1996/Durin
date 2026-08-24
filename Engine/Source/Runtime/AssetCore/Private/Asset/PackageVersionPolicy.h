@@ -8,15 +8,17 @@ namespace Durin::Asset
 {
 	inline constexpr uint32 DastPackageMagic = 0x54534144;
 	inline constexpr uint32 AssetPackageV4FormatVersion = 4;
+	inline constexpr uint32 AssetPackageV5FormatVersion = 5;
 
 	inline constexpr std::array SupportedAssetPackageReaderVersions{
-		AssetPackageV4FormatVersion};
+		AssetPackageV4FormatVersion,
+		AssetPackageV5FormatVersion};
 
 	inline constexpr uint32 LatestAssetPackageWriterVersion = AssetPackageV4FormatVersion;
 	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = LatestAssetPackageWriterVersion;
 	// Persisted read-only caches use an explicit policy generation rather than a
 	// wire version so different supported-reader sets cannot alias.
-	inline constexpr uint32 AssetPackageReaderPolicyFingerprint = 0x41504301;
+	inline constexpr uint32 AssetPackageReaderPolicyFingerprint = 0x41504302;
 
 	constexpr auto IsSupportedAssetPackageReaderVersion(uint32 Version) -> bool
 	{

@@ -181,11 +181,16 @@ namespace Durin::Asset
 					if (Reader.Tell() != Payload.size() || Descriptor.ContainerHash.IsZero())
 						return Fail("External authored bulk descriptor has trailing bytes or no container hash.", OutError);
 				}
-				else if (!Descriptor.ContainerHash.IsZero()
-					|| Descriptor.StoredByteCount != Reader.GetRemainingPayloadBytes()
-					|| FXxHash128::HashBuffer(Payload.subspan(Reader.Tell()))
-						!= Descriptor.ContentHash)
-					return Fail("Inline authored bulk payload integrity is invalid.", OutError);
+				else
+				{
+					std::vector<std::byte> InlineBytes;
+					Reader.SerializeByteBlob(InlineBytes);
+					if (Reader.HasError() || Reader.Tell() != Payload.size()
+						|| !Descriptor.ContainerHash.IsZero()
+						|| Descriptor.StoredByteCount != InlineBytes.size()
+						|| FXxHash128::HashBuffer(InlineBytes) != Descriptor.ContentHash)
+						return Fail("Inline authored bulk payload integrity is invalid.", OutError);
+				}
 				Out.push_back(Descriptor);
 				return true;
 			}

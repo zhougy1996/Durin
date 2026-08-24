@@ -1101,7 +1101,8 @@ namespace Durin::Asset::Forge
 		const FAssetPath& Destination, const FVolumeTextureImportSettings& Settings,
 		EInterchangeImportMode Mode, FImportOperationOwner Owner,
 		std::optional<FInterchangeProvenance> ExistingProvenance,
-		FInterchangeImportRequest& OutRequest, std::string& OutError) -> bool
+		FInterchangeImportRequest& OutRequest, std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions) -> bool
 	{
 		if (MountedSource.IsEmpty() || Destination.ToString().empty() || !Settings.IsValid(&OutError)) return false;
 		if (Owner.OwnerId.empty()) Owner.OwnerId = "VolumeTexture.Interchange";
@@ -1112,6 +1113,7 @@ namespace Durin::Asset::Forge
 			.PipelineStack = {{.PipelineId = std::string(VolumePipelineId), .ContractVersion = 1,
 				.Settings = EncodeVolumePlan({.Destination = Destination, .Policy = PolicyFor(Mode),
 					.Settings = Settings})}}, .Destination = Destination, .Owner = std::move(Owner),
+			.SaveOptions = {.WriterSelection = AuthoringOptions.WriterSelection},
 			.ExistingProvenance = std::move(ExistingProvenance)};
 		OutError.clear();
 		return true;

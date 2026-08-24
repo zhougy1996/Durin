@@ -341,7 +341,9 @@ namespace Durin::Asset::Forge
 
 	auto ImportVolumeTextureAsset(std::string_view FilePath,
 		std::string_view AssetPath, const FVolumeTextureImportSettings& Settings,
-		bool bEngineAuthoringContext) -> FVolumeTextureImportResult
+		bool bEngineAuthoringContext,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions)
+		-> FVolumeTextureImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
@@ -371,7 +373,7 @@ namespace Durin::Asset::Forge
 		if (!MakeVolumeTextureInterchangeRequest(MountedSource.SourcePath, ParsedAssetPath,
 			Settings, EInterchangeImportMode::Import,
 			{.OwnerId = std::format("VolumeTexture.Import:{}", ParsedAssetPath.ToString())},
-			{}, Request, Error)) return {false, std::move(Error), nullptr};
+			{}, Request, Error, AuthoringOptions)) return {false, std::move(Error), nullptr};
 		const FInterchangeImportResult Imported = GetImportService().RunInterchangeImportInline(
 			std::move(Request), std::format("Import VolumeTexture {}", ParsedAssetPath.GetAssetName()));
 		if (Imported.Outcome.State != EImportOperationState::Succeeded)
@@ -387,7 +389,9 @@ namespace Durin::Asset::Forge
 	auto SubmitVolumeTextureInterchangeImport(std::string_view FilePath,
 		const FAssetPath& Destination, const FVolumeTextureImportSettings& Settings,
 		bool bEngineAuthoringContext, FInterchangeImportCompletion Completion,
-		std::string& OutError) -> FInterchangeImportHandle
+		std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions)
+		-> FInterchangeImportHandle
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input)
@@ -409,7 +413,8 @@ namespace Durin::Asset::Forge
 		if (!MakeVolumeTextureInterchangeRequest(Mounted->SourcePath, Destination, Settings,
 			EInterchangeImportMode::Import,
 			{.OwnerId = std::format("VolumeTexture.Import:{}", Destination.ToString()),
-				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
+				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError,
+			AuthoringOptions)) return {};
 		OutError.clear();
 		return GetImportService().SubmitInterchangeImport(std::move(Request),
 			std::format("Import VolumeTexture {}", Destination.GetAssetName()),
@@ -420,7 +425,8 @@ namespace Durin::Asset::Forge
 	}
 
 	auto RepairVolumeTextureSource(DVolumeTexture& Texture,
-		std::string_view SourcePath, std::string& OutError) -> bool
+		std::string_view SourcePath, std::string& OutError,
+		const FVolumeTextureAuthoringOptions& AuthoringOptions) -> bool
 	{
 		if (!Texture.GetPackage())
 		{
@@ -443,7 +449,7 @@ namespace Durin::Asset::Forge
 		if (!MakeVolumeTextureInterchangeRequest(MountedSource.SourcePath, Destination,
 			MakeImportSettings(Texture.GetSourceImportData()), EInterchangeImportMode::Repair,
 			{.OwnerId = std::format("VolumeTexture.Repair:{}", Destination.ToString())},
-			std::move(Existing), Request, OutError)) return false;
+			std::move(Existing), Request, OutError, AuthoringOptions)) return false;
 		const FInterchangeImportResult Result = GetImportService().RunInterchangeImportInline(
 			std::move(Request), std::format("Repair VolumeTexture {}", Destination.GetAssetName()));
 		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;

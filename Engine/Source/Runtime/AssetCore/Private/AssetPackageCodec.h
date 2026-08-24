@@ -50,8 +50,10 @@ namespace Durin::Asset::Private
 
 	auto ReadAssetPackagePreamble(
 		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult;
-	auto FindAssetPackageReader(uint32 FormatVersion) -> const FAssetPackageCodec*;
-	auto FindAssetPackageWriter(uint32 FormatVersion) -> const FAssetPackageCodec*;
+	ASSETCORE_API auto FindAssetPackageReader(
+		uint32 FormatVersion) -> const FAssetPackageCodec*;
+	ASSETCORE_API auto FindAssetPackageWriter(
+		uint32 FormatVersion) -> const FAssetPackageCodec*;
 	auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		FAssetPackagePreamble* OutPreamble = nullptr) -> FAssetResult;

@@ -624,6 +624,16 @@ never exposes writable resident memory. Immutable byte access goes through
 `GetBulkData()`; authored package loading remains eager and publishes the object
 graph only after external DABK bytes have been resolved and verified.
 
+DAST v5 is a production-readable, explicit opt-in authored route. It retains
+the canonical v4 logical Archive encoding inside a v5 object-stream preamble
+and requires a validated EOF trailer. During this compatibility cut, external
+DABK facts remain mirrored in the object-stream descriptor, but the reader
+derives both complete sets construct-free and rejects any missing, extra, or
+disagreeing payload id, size, content hash, container hash, or placement before
+live construction. Ordinary saves remain v4; explicit v5 publication and
+explicit v4 rollback both publish companions first and replace the complete
+package file atomically.
+
 DAST v4 and DABK v1 retain the physical 16-byte identity and 4-byte version
 slots formerly used by the authored experiment. They are compatibility-reserved
 storage now: readers accept and ignore historical nonzero values, while current
@@ -637,7 +647,8 @@ selected entry, and only then publishes the decoded object graph. Missing,
 truncated, stale, excessive, or corrupt companion data retires the candidate
 graph; a prior resident package or texture resource is not partially mutated.
 Unload releases the shared allocation normally. Move/rename and deletion treat
-the package and descriptor-reachable companion set as one mutation participant.
+the package and validated trailer/descriptor companion closure as one mutation
+participant.
 
 ## Domain-qualified inspection and repair ownership
 

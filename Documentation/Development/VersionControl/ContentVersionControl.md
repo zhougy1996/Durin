@@ -7,6 +7,7 @@ Durin keeps authored content reproducible alongside the source revision that con
 | Content | Storage | Reason |
 | --- | --- | --- |
 | `.dasset` packages and levels | Git | Runtime asset identity and object state must match the code revision. The files are marked binary. |
+| Authored `.dabulk` companions | Git LFS | Immutable generation-named authored payload bytes remain outside the ordinary Git object database. |
 | Models, textures, audio, and fonts | Git LFS | These files are commonly large, binary, or produce noisy diffs. LFS avoids copying every revision into the main Git object database. |
 | Small text metadata and import settings | Git | They are reviewable and should evolve with their assets. |
 | `DerivedDataCache`, `Cooked`, and `Saved` | Ignored | These directories contain rebuildable or machine-local output. |
@@ -156,7 +157,13 @@ git status
 
 When a new large asset extension is introduced, add an explicit LFS rule to `.gitattributes` in the same change as the first asset. Prefer extension-based policy over individual file rules so every project behaves consistently.
 
-Do not place `.dasset` under LFS by default. Packages are currently compact, and keeping them in normal Git makes ordinary engine and level changes self-contained. Revisit that decision if package payloads begin embedding large render data.
+Do not place `.dasset` under LFS by default. Packages are currently compact,
+and keeping them in normal Git makes ordinary engine and level changes
+self-contained. Explicit DAST v5 packages retain external DABK v1 companions,
+so the route does not change this split: `.dasset` remains ordinary Git and
+`.dabulk` remains LFS. A submit must include the package and every newly
+referenced companion generation. Revisit `.dasset` LFS only if a separately
+qualified route begins embedding large render data.
 
 ## Existing Repository Files
 

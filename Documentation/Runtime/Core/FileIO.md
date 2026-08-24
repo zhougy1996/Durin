@@ -50,6 +50,13 @@ Publication has these invariants:
 
 This API publishes one file. Multi-file transactions, asset move/delete
 rollback, and cook ordering retain their owning subsystem's coordination rules.
+DAST v5 authored publication uses the same primitive for a complete package;
+it does not rewrite a tail in place. AssetCore publishes and validates the
+immutable DABK v1 companion first, stages the complete
+`ObjectStream || Trailer || Footer` package second, atomically replaces the
+package, then publishes catalog state. Failure before catalog publication
+restores the previous package bytes; a newly unreferenced immutable companion
+is safe for later reachability cleanup.
 
 ## Diagnostics
 

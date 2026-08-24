@@ -137,6 +137,14 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
+DAST v5 does not introduce a second logical Archive dialect. Its object stream
+uses the canonical v4 table and tagged-value encoding with a v5 package
+preamble, followed by an AssetCore-owned trailer/footer. Archive continues to
+encode the compatibility bulk descriptor; package validation must match every
+external descriptor exactly to one trailer entry before any logical value is
+decoded or constructed. Trailer offsets, placement, and container generation
+therefore remain physical package concerns rather than reflected semantics.
+
 AssetCore's private bounded container codec is not an Archive implementation.
 It serializes only explicit little-endian fixed-width integers, GUID words, and
 exact byte spans for DABK, DBLK, and CMNF physical framing. Archive continues to

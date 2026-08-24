@@ -84,10 +84,9 @@ namespace Durin::Asset
 			if (FAssetResult Result = Private::ResolveAssetPackageReader(
 				SourceBytes, Codec); !Result)
 				return Result;
-			if (!Codec->bCanMutate
-				|| Codec->FormatVersion != OrdinaryAssetPackageWriterVersion)
+			if (!Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
-					"Relocation requires the ordinary-format mutation capability.");
+					"Relocation requires package mutation capability.");
 			if (FAssetResult Result = Codec->Relocate(
 				SourceBytes, DestinationPath, OutBytes); !Result)
 				return Result;
@@ -97,14 +96,14 @@ namespace Durin::Asset
 		auto BuildRedirectorPackageBytes(
 			const FAssetPath& SourcePath,
 			const FAssetPath& DestinationPath,
+			uint32 FormatVersion,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			const Private::FAssetPackageCodec* Codec =
-				Private::FindAssetPackageWriter(
-					OrdinaryAssetPackageWriterVersion);
+				Private::FindAssetPackageWriter(FormatVersion);
 			if (!Codec || !Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
-					"Redirector creation requires the ordinary-format mutation capability.");
+					"Redirector creation requires package mutation capability.");
 			return Codec->WriteRedirector(
 				SourcePath, DestinationPath, OutBytes);
 		}
@@ -357,6 +356,7 @@ namespace Durin::Asset
 			std::vector<std::byte> SourceRedirectorBytes;
 			Result = BuildRedirectorPackageBytes(
 				Mapping.SourcePath, Mapping.DestinationPath,
+				SourceData->FormatVersion,
 				SourceRedirectorBytes);
 			if (!Result) return Result;
 
@@ -419,7 +419,7 @@ namespace Durin::Asset
 				.AssetClassName = std::string(RedirectorClassName),
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = Mapping.DestinationPath,
-				.FormatVersion = OrdinaryAssetPackageWriterVersion,
+				.FormatVersion = SourceData->FormatVersion,
 				.Dependencies = {Mapping.DestinationPath}});
 
 			for (const auto& [AliasPath, AliasData] : State->PreAssets)
@@ -441,7 +441,8 @@ namespace Durin::Asset
 				if (!Result) return Result;
 				std::vector<std::byte> AliasPostBytes;
 				Result = BuildRedirectorPackageBytes(
-					AliasPath, Mapping.DestinationPath, AliasPostBytes);
+					AliasPath, Mapping.DestinationPath,
+					AliasData.FormatVersion, AliasPostBytes);
 				if (!Result) return Result;
 				Result = AddFileEntry(
 					AliasData.PhysicalPath,

@@ -859,9 +859,9 @@ namespace Durin::Asset
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
-		if (!Codec->bCanMutate || Codec->FormatVersion != OrdinaryAssetPackageWriterVersion)
+		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
-				"Reference rewrite requires the ordinary-format mutation capability.");
+				"Reference rewrite requires package mutation capability.");
 		return Codec->RewriteReferences(Bytes, Mappings, ExpectedRewriteCount, OutBytes);
 	}
 
