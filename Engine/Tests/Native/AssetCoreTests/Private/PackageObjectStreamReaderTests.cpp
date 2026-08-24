@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Asset/PackageObjectStreamReader.h"
-#include "AssetPackageV5Codec.h"
+#include "AssetPackageV6Codec.h"
 #include "Asset/Testing.h"
 #include "AssetTools.h"
 #include "CoreGlobals.h"
@@ -346,13 +346,13 @@ TEST(FPackageObjectStreamReaderTests, CompatibilityMatchesKnownAndRetainedLiveSc
 		Durin::Asset::EAssetCompatibilityFindingCode::IncompatibleFieldSignature);
 }
 
-TEST(FPackageObjectStreamReaderTests, OrdinaryValidationUsesTheV5Envelope)
+TEST(FPackageObjectStreamReaderTests, OrdinaryValidationUsesTheV6Envelope)
 {
 	const std::vector<std::byte> ObjectStream = BuildPackage();
 	Production::FDecodedPackage Package;
 	ASSERT_TRUE(Production::DecodePackage(ObjectStream, Package));
 	std::vector<std::byte> Bytes;
-	ASSERT_TRUE(Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+	ASSERT_TRUE(Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
 		ObjectStream, Bytes));
 	const Durin::Asset::FAssetResult Ordinary = Durin::Asset::ValidateAssetPackageBytes(Bytes);
 	EXPECT_TRUE(Ordinary) << Ordinary.Message;

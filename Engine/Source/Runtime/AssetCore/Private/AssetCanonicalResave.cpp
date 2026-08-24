@@ -93,7 +93,7 @@ namespace Durin::Asset
 		{
 			switch (Selection)
 			{
-			case EAssetPackageWriterSelection::DastV5: return AssetPackageV5FormatVersion;
+			case EAssetPackageWriterSelection::DastV6: return AssetPackageV6FormatVersion;
 			case EAssetPackageWriterSelection::Ordinary: return 0;
 			}
 			return 0;
@@ -201,9 +201,9 @@ namespace Durin::Asset
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (Record->FormatVersion != AssetPackageV5FormatVersion)
+			if (Record->FormatVersion != AssetPackageV6FormatVersion)
 				Package.Diagnostics.push_back(
-					"NonCurrentFormat: canonical resave accepts only DAST v5 packages.");
+					"NonCurrentFormat: canonical resave accepts only DAST v6 packages.");
 			const PathUtilities::FMountLookupResult Mount =
 				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bAuthoringWritable)

@@ -441,6 +441,9 @@ namespace Durin
 
 				const std::filesystem::path ProjectRoot =
 					std::filesystem::path(FPaths::ProjectFile()).parent_path();
+				if (std::filesystem::weakly_canonical(ProjectRoot)
+					== std::filesystem::weakly_canonical(EngineRoot))
+					return ParseProjectMounts(Definitions, OutError);
 				Definitions.push_back({
 					.VirtualRoot = std::string(ProjectContentMountRoot),
 					.Owner = EMountOwner::ActiveProject,

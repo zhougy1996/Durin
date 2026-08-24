@@ -119,7 +119,7 @@ namespace
 		bool bProjectScope = false;
 		bool bApply = false;
 		Durin::Asset::EAssetPackageWriterSelection TargetWriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV5;
+			Durin::Asset::EAssetPackageWriterSelection::DastV6;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
@@ -229,11 +229,11 @@ namespace
 				if (!MarkOptionOnce(OutOptions, EOption::Apply, OutError)) return false;
 				OutOptions.bApply = true;
 			}
-			else if (Argument == "--target=v5")
+			else if (Argument == "--target=v6")
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Target, OutError)) return false;
 				OutOptions.TargetWriterSelection =
-					Durin::Asset::EAssetPackageWriterSelection::DastV5;
+					Durin::Asset::EAssetPackageWriterSelection::DastV6;
 			}
 			else if (Argument.starts_with("--mount="))
 			{
@@ -603,6 +603,10 @@ int main(int ArgC, char** ArgV)
 	// Project initialization configures logging. From this point stdout is the
 	// machine-readable report channel consumed by DurinDevTool.
 	Durin::LoggerInit();
+	struct FScopedLoggerShutdown final
+	{
+		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
+	} ScopedLoggerShutdown;
 	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
 	if (!Durin::PathUtilities::InitDefaultMountPoints(&Error))
 	{

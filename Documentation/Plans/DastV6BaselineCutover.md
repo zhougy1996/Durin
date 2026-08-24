@@ -4,16 +4,15 @@ Summary: Freeze and convert the complete tracked DAST corpus to v6, switch packa
 
 Last reviewed: 2026-08-25
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-25
 
 ## Current Status
 
-This is the active M3 child of the
-[Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md).
-M1 and M2 are complete. DAST v6 has full detached capability parity, but v5 is
-still the supported repository baseline and ordinary writer. Stage 0 must
-regenerate and freeze the exact Git manifest before any binary conversion.
+This completed M3 child of the
+[Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
+converted the frozen corpus, made DAST v6 the sole production package route,
+qualified Engine and Sandbox, and removed v5 plus the temporary converter.
 
 ## Goal
 
@@ -62,12 +61,12 @@ replacement, complete project qualification, and legacy deletion.
 
 ### Stage 0: Freeze manifest and cutover evidence
 
-- [ ] Freeze every tracked package, fixture, companion closure, size, v5 prefix,
+- [x] Freeze every tracked package, fixture, companion closure, size, v5 prefix,
   and SHA-256 in a plan-owned manifest/report.
-- [ ] Verify no unrelated tracked binary edits overlap the cutover window.
-- [ ] Define valid-package conversion and each corrupt/incompatible fixture's
+- [x] Verify no unrelated tracked binary edits overlap the cutover window.
+- [x] Define valid-package conversion and each corrupt/incompatible fixture's
   named v6 regeneration strategy.
-- [ ] Capture Engine/Sandbox baseline, package, Cook, bulk, and documentation
+- [x] Capture Engine/Sandbox baseline, package, Cook, bulk, and documentation
   pre-cutover results.
 
 #### Acceptance Gate
@@ -77,13 +76,13 @@ replacement, complete project qualification, and legacy deletion.
 
 ### Stage 1: Implement and prove the temporary converter
 
-- [ ] Add a bounded offline command that dry-runs exact v5-to-v6 conversion and
+- [x] Add a bounded offline command that dry-runs exact v5-to-v6 conversion and
   reports source/destination hashes plus semantic equality.
-- [ ] Prove deterministic repeated conversion, refusal of non-v5/corrupt input,
+- [x] Prove deterministic repeated conversion, refusal of non-v5/corrupt input,
   and package-plus-companion closure equality.
-- [ ] Switch production policy and ordinary write paths to v6 behind the same
+- [x] Switch production policy and ordinary write paths to v6 behind the same
   change set while retaining the temporary v5 input converter only offline.
-- [ ] Update or replace v5-specific tests with v6 contract coverage.
+- [x] Update or replace v5-specific tests with v6 contract coverage.
 
 #### Acceptance Gate
 
@@ -92,13 +91,13 @@ replacement, complete project qualification, and legacy deletion.
 
 ### Stage 2: Convert packages and fixtures
 
-- [ ] Convert every valid tracked `.dasset` atomically and verify semantic,
+- [x] Convert every valid tracked `.dasset` atomically and verify semantic,
   descriptor, source-path, and deterministic-byte equality.
-- [ ] Regenerate seven compatibility fixtures with preserved named intent under
+- [x] Regenerate seven compatibility fixtures with preserved named intent under
   v6 and update fixture expectations.
-- [ ] Verify companions are unchanged and every manifest destination begins
+- [x] Verify companions are unchanged and every manifest destination begins
   with `DURF`/DAST v6 with no DTRF footer.
-- [ ] Run Engine and Sandbox `asset baseline` validation.
+- [x] Run Engine and Sandbox `asset baseline` validation.
 
 #### Acceptance Gate
 
@@ -107,13 +106,13 @@ replacement, complete project qualification, and legacy deletion.
 
 ### Stage 3: Remove legacy authority and qualify
 
-- [ ] Delete the temporary converter, v5 codec, DTRL/DTRF trailer/footer code,
+- [x] Delete the temporary converter, v5 codec, DTRL/DTRF trailer/footer code,
   and obsolete v5-only tests/policy names.
-- [ ] Prove zero residual v5 prefix, converter symbol, DTRL/DTRF authority, and
+- [x] Prove zero residual v5 prefix, converter symbol, DTRL/DTRF authority, and
   unsupported dual-format reader path.
-- [ ] Run Core, package, Cook, bulk, catalog/mutation, Engine, Sandbox, and
+- [x] Run Core, package, Cook, bulk, catalog/mutation, Engine, Sandbox, and
   required broad validation after legacy removal.
-- [ ] Update lasting package, lifecycle, versioning, serialization, and content
+- [x] Update lasting package, lifecycle, versioning, serialization, and content
   version-control contracts to v6-only authority.
 
 #### Acceptance Gate
@@ -123,11 +122,39 @@ replacement, complete project qualification, and legacy deletion.
 
 ### Stage 4: Close the roadmap
 
-- [ ] Record exact manifest, conversions, tests, project baselines, residual
+- [x] Record exact manifest, conversions, tests, project baselines, residual
   searches, and binary diff evidence in this plan.
-- [ ] Mark M3 and the parent roadmap completed and validate changed/all plans,
+- [x] Mark M3 and the parent roadmap completed and validate changed/all plans,
   roadmaps, and documentation.
-- [ ] Commit the isolated cutover with plan/stage provenance.
+- [x] Commit the isolated cutover with plan/stage provenance.
+
+## Completion Evidence
+
+- The manifest was frozen immediately after M2 commit `b9f995cf`: 27 valid v5
+  packages, seven historical compatibility fixtures, and two DABK companions.
+  No tracked binary had an overlapping pre-cutover edit.
+- The temporary converter dry-ran all 27 packages, reported source and
+  destination XXH3-128 identities, proved repeat-output equality and exact
+  v6-to-logical-v5 semantic round trips, and refused a `.dabulk` non-v5 input.
+  Atomic apply then converted the same 27-path manifest.
+- All 27 tracked `.dasset` files now begin `DURF`. The seven fixtures were
+  regenerated from a valid v6 package with named current, corrupt-magic,
+  truncated, unknown-class, unknown-field, incompatible-signature, and
+  invalid-object-graph mutations; fixture tests verify each intent.
+- The two companions have no binary diff and retain SHA-256
+  `fbfc0dbce4f7888b0e73f4e9ebd80df9b994d7e773ffe0fc0b246033bcfb64d2`
+  and `0d7a7142d06ac2aefcd502d11f82e24fb1c8ac46ebdabe06101b91f244e7d7a3`.
+- `DevTool asset baseline` reports 6 current v6 packages for Engine and 27 for
+  Sandbox. Focused results are AssetPackage 122/122, CoreFileSystem 41/41,
+  AssetCook 13/13, AssetBulkContainer 11/11, Material 84/84, Texture 86/86,
+  and StaticMesh 74/74. The post-removal `fast-all` gate built and passed all
+  61 selected contract, feature, and infrastructure targets.
+- Production/source searches find no v5 codec, package-trailer, DTRL/DTRF,
+  converter, or `EncodeV5ObjectStream` symbol. The temporary converter target
+  and source, v5 codec, trailer/footer implementation, and obsolete trailer
+  tests were deleted before final validation.
+- Lasting package, lifecycle, versioning, serialization, and content-version
+  control contracts now define v6 as the sole supported/emitted authority.
 
 ## Validation Matrix
 
@@ -160,6 +187,7 @@ replacement, complete project qualification, and legacy deletion.
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../Runtime/Assets/Versioning.md)
 - [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Frozen Cutover Manifest](DastV6BaselineCutoverManifest.txt)
 
 ## Related Code
 

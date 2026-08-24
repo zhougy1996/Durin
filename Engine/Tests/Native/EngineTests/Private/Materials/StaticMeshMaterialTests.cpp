@@ -516,7 +516,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
 
 	const auto ComponentData = Durin::Asset::FindAssetExact(ComponentPath);
 	ASSERT_NE(ComponentData, nullptr);
@@ -668,7 +668,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::Asset::SavePackage(
 		Material->GetPackage(),
 		{.WriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+			Durin::Asset::EAssetPackageWriterSelection::DastV6}));
 
 	std::vector<std::byte> FirstSerialization;
 	std::vector<std::byte> SecondSerialization;
@@ -729,7 +729,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::Asset::SavePackage(
 		LegacyLoaded->GetPackage(),
 		{.WriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+			Durin::Asset::EAssetPackageWriterSelection::DastV6}));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DMaterial* Rejected = nullptr;
 	const Durin::Asset::FAssetResult RejectedResult =
@@ -758,14 +758,14 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
 
 	Durin::DMaterialInstance* Instance = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.25f));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 

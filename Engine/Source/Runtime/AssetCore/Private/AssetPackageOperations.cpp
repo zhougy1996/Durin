@@ -5,14 +5,15 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageObjectStreamReader.h"
-#include "Asset/PackageTrailer.h"
 #include "AssetPackageCodec.h"
+#include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
 #include "Profiling/Profiling.h"
+#include "Serialization/BinaryFormat.h"
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -903,8 +904,8 @@ namespace Durin::Asset
 			const uint32 WriterVersion = [&] {
 				switch (Options.WriterSelection)
 				{
-				case EAssetPackageWriterSelection::DastV5:
-					return AssetPackageV5FormatVersion;
+				case EAssetPackageWriterSelection::DastV6:
+					return AssetPackageV6FormatVersion;
 				case EAssetPackageWriterSelection::Ordinary:
 				default:
 					return OrdinaryAssetPackageWriterVersion;
@@ -1005,11 +1006,11 @@ namespace Durin::Asset
 		if (!Reader.IsOpen())
 			return Error(EAssetError::IoError,
 				std::format("Failed to open asset package {}.", PhysicalPath));
-		if (Reader.FileSize > PackageTrailer::MaximumPackageBytes)
+		if (Reader.FileSize > Private::DastV6::MaximumFileBytes)
 			return Error(EAssetError::CorruptFile,
 				"Asset package exceeds the supported byte bound.");
-		const uint64 ReadSize = std::min(
-			Reader.FileSize, PackageObjectStream::MaximumHeaderBytes);
+		uint64 ReadSize = std::min<uint64>(
+			Reader.FileSize, BinaryEnvelopePreambleBytes);
 		std::vector<std::byte> Bytes(static_cast<size_t>(ReadSize));
 		if (ReadSize != 0)
 		{
@@ -1020,8 +1021,34 @@ namespace Durin::Asset
 				return Error(EAssetError::IoError,
 					std::format("Failed to read asset package {}.", PhysicalPath));
 		}
+		uint32 Magic = 0;
+		if (Bytes.size() >= sizeof(Magic))
+			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
+		constexpr uint32 DurfMagic = 0x46525544;
+		if (Magic == DurfMagic && Bytes.size() >= BinaryEnvelopePreambleBytes)
+		{
+			uint64 DeclaredHeaderBytes = 0;
+			if (!ReadLittleEndianAt(Bytes, 32, DeclaredHeaderBytes)
+				|| DeclaredHeaderBytes < BinaryEnvelopePreambleBytes
+				|| DeclaredHeaderBytes > Private::DastV6::MaximumHeaderBytes
+				|| DeclaredHeaderBytes > Reader.FileSize)
+				return Error(EAssetError::CorruptFile,
+					"Asset package declares an invalid front-matter extent.");
+			if (DeclaredHeaderBytes > Bytes.size())
+			{
+				const size_t PreviousSize = Bytes.size();
+				Bytes.resize(static_cast<size_t>(DeclaredHeaderBytes));
+				Reader.Stream.read(reinterpret_cast<char*>(Bytes.data() + PreviousSize),
+					static_cast<std::streamsize>(Bytes.size() - PreviousSize));
+				if (!Reader.Stream)
+					return Error(EAssetError::IoError,
+						std::format("Failed to read asset package {}.", PhysicalPath));
+			}
+			ReadSize = DeclaredHeaderBytes;
+		}
 		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(
+				Bytes, Codec, nullptr, Reader.FileSize); !Result)
 			return Result;
 		FAssetResult Result = Codec->ReadHeader(Bytes, Reader.FileSize, OutHeader);
 		if (Result) OutHeader.FileBytesRead = ReadSize;

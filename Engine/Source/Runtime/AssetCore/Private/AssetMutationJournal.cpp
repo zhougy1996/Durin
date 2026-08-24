@@ -1,4 +1,5 @@
 #include "AssetMutationJournalInternal.h"
+#include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 
 #include "Misc/FileTime.h"
@@ -58,17 +59,22 @@ namespace Durin::Asset::Private
 			return Error(EAssetError::IoError, std::format(
 				"Failed to read the last-write time for asset package {}.", PhysicalPath));
 		uint32 Magic = 0;
-		uint32 Version = 0;
-		if (Bytes.size() >= sizeof(Magic) + sizeof(Version))
-		{
+		if (Bytes.size() >= sizeof(Magic))
 			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-			std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
+		constexpr uint32 DurfMagic = 0x46525544;
+		uint32 ReaderVersion = 0;
+		if (Magic == DastPackageMagic || Magic == DurfMagic)
+		{
+			FAssetPackagePreamble Preamble;
+			const FAssetResult PreambleResult = ReadAssetPackagePreamble(Bytes, Preamble);
+			if (!PreambleResult) return PreambleResult;
+			ReaderVersion = Preamble.FormatVersion;
 		}
 		OutFingerprint = {
 			.FileSize = Bytes.size(),
 			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime),
 			.ContentHash = FXxHash128::HashBuffer(Bytes),
-			.ReaderVersion = Magic == DastPackageMagic ? Version : 0};
+			.ReaderVersion = ReaderVersion};
 		return {};
 	}
 

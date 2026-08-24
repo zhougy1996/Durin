@@ -1,14 +1,13 @@
 #include "AssetPackageCodec.h"
 
 #include "Asset/PackageVersionPolicy.h"
-#include "AssetPackageV5Codec.h"
 #include "AssetPackageV6Codec.h"
 
 namespace Durin::Asset::Private
 {
 	namespace
 	{
-		const std::array Codecs{DastV5::GetCodec(), DastV6::GetCodec()};
+		const std::array Codecs{DastV6::GetCodec()};
 		constexpr FBinaryEnvelopeLimits PackageEnvelopeLimits{
 			16ull * 1024ull * 1024ull,
 			1024ull * 1024ull * 1024ull};
@@ -43,7 +42,8 @@ namespace Durin::Asset::Private
 	}
 
 	auto ReadAssetPackagePreamble(
-		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult
+		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble,
+		uint64 PhysicalFileBytes) -> FAssetResult
 	{
 		if (Bytes.size() < sizeof(uint32))
 			return {EAssetError::CorruptFile, "Truncated asset header."};
@@ -67,14 +67,15 @@ namespace Durin::Asset::Private
 			return {EAssetError::CorruptFile, "Invalid asset magic."};
 		FBinaryEnvelopePreamble EnvelopePreamble;
 		FBinaryEnvelopeDiagnostic Diagnostic;
+		const uint64 FileBytes = PhysicalFileBytes == 0 ? Bytes.size() : PhysicalFileBytes;
 		if (!ParseBinaryEnvelopePrefix(
-			Bytes, Bytes.size(), PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
+			Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
 			return EnvelopeError(Diagnostic);
 		if (EnvelopePreamble.HeaderBytes > Bytes.size())
 			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
 		FValidatedBinaryEnvelope Envelope;
 		if (!ValidateBinaryEnvelopeHeader(
-			Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), Bytes.size(),
+			Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes,
 			PackageEnvelopeLimits, GetPackageFormatRegistry(), Envelope, &Diagnostic))
 			return EnvelopeError(Diagnostic);
 		OutPreamble = {
@@ -104,11 +105,12 @@ namespace Durin::Asset::Private
 
 	auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
-		FAssetPackagePreamble* OutPreamble) -> FAssetResult
+		FAssetPackagePreamble* OutPreamble, uint64 PhysicalFileBytes) -> FAssetResult
 	{
 		OutCodec = nullptr;
 		FAssetPackagePreamble Preamble;
-		if (FAssetResult Result = ReadAssetPackagePreamble(Bytes, Preamble); !Result)
+		if (FAssetResult Result = ReadAssetPackagePreamble(
+				Bytes, Preamble, PhysicalFileBytes); !Result)
 			return Result;
 		if (Preamble.FormatId != DastBinaryFormatId
 			|| !IsSupportedAssetPackageReaderVersion(Preamble.FormatVersion))

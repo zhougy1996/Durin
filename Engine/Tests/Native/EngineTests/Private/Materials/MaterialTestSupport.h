@@ -3,9 +3,8 @@
 #include "StaticMeshTestAccess.h"
 
 #include "AssetTools.h"
-#include "AssetPackageV5Codec.h"
+#include "AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamReader.h"
-#include "Asset/PackageTrailer.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -59,11 +58,9 @@ namespace
 		std::string_view LegacyName
 	) -> bool
 	{
-		Durin::Asset::PackageTrailer::FInspection Trailer;
-		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
-			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
-		std::vector<std::byte> ObjectStream(
-			Bytes.begin(), Bytes.begin() + static_cast<size_t>(Trailer.ObjectStreamEnd));
+		std::vector<std::byte> ObjectStream;
+		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(ObjectStream, Package)) return false;
 
@@ -115,18 +112,18 @@ namespace
 			|| !Durin::Asset::PackageObjectStream::ReencodePackage(Package, ObjectStream))
 			return false;
 		return static_cast<bool>(
-			Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+			Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
 				ObjectStream, Bytes));
 	}
 
 	auto ContainsSerializedField(std::span<const std::byte> Bytes, std::string_view Name) -> bool
 	{
-		Durin::Asset::PackageTrailer::FInspection Trailer;
-		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
-			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
+		std::vector<std::byte> ObjectStream;
+		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(
-			Bytes.first(static_cast<size_t>(Trailer.ObjectStreamEnd)), Package)) return false;
+			ObjectStream, Package)) return false;
 		for (const auto& Schema : Package.Schemas)
 		{
 			if (std::ranges::any_of(
@@ -140,12 +137,9 @@ namespace
 		std::vector<std::byte>& Bytes,
 		std::string_view Name) -> bool
 	{
-		Durin::Asset::PackageTrailer::FInspection Trailer;
-		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
-			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
-		std::vector<std::byte> ObjectStream(
-			Bytes.begin(), Bytes.begin()
-				+ static_cast<size_t>(Trailer.ObjectStreamEnd));
+		std::vector<std::byte> ObjectStream;
+		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(
 			ObjectStream, Package)) return false;
@@ -186,7 +180,7 @@ namespace
 		if (!Durin::Asset::PackageObjectStream::ReencodePackage(
 			Package, ObjectStream)) return false;
 		return static_cast<bool>(
-			Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+			Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
 				ObjectStream, Bytes));
 	}
 

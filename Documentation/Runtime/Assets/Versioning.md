@@ -25,8 +25,8 @@ Changing the engine release version alone must not rewrite assets or invalidate 
 
 `FArchiveVersionContext` carries named format versions separately from optional
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored-package Archives report the actual source format, currently DAST v5.
-Ordinary and bundle saves report and emit v5. Property snapshots are
+authored-package Archives report the actual source format, currently DAST v6.
+Ordinary and bundle saves report and emit v6. Property snapshots are
 process-local and unversioned. Struct
 `PostDeserialize` receives the Archive purpose and source format version instead
 of deriving compatibility from the engine release number. During authored
@@ -34,7 +34,7 @@ loading it also receives the complete source custom-version context, allowing a
 detached reflected struct to perform the same bounded conversion as an
 object's pre-publication `PostLoad`.
 
-The DAST v5 object stream owns the package-local custom-version table, canonical GUID ordering,
+The DAST logical object stream inside v6 owns the package-local custom-version table, canonical GUID ordering,
 discovery freeze, reader bounds, unknown-version rejection, and exact retained
 closure/payload semantics.
 
@@ -57,24 +57,21 @@ publication.
 Supported readers and the ordinary writer are separate policies backed by one
 private, statically composed codec table. Each codec has an immutable string
 identity, permanent nonzero `FormatId`, wire version, and complete reader,
-writer, and mutation capability set. Shared code parses the magic/version
-preamble once, maps legacy DAST bytes to the permanent DAST identity, and
-resolves the `(FormatId, FormatVersion)` codec key. A `DURF` preamble instead
-uses Core's bounded two-phase envelope validation and AssetCore's explicit
-immutable descriptor registry. Both paths fail closed before codec parsing when
-no reader exists. Header reads, validation, inspection, compatibility probes,
+writer, and mutation capability set. Shared code validates the `DURF` preamble
+through Core's bounded two-phase envelope validation and AssetCore's explicit
+immutable descriptor registry, then resolves the `(FormatId, FormatVersion)`
+codec key. It fails closed before codec parsing when no reader exists. Header
+reads, validation, inspection, compatibility probes,
 reference projection, live loading, serialization, relocation, reference
 rewrite, redirector creation, and cook canonicalization do not branch on a
-version enum. The repository currently registers only the bounded production
-v5 codec; read-only entrypoints never select a writer or dirty authored content.
-A DAST v4 preamble is unsupported and fails before object-stream parsing or
-publication. A detached DAST v6 codec implements the complete capability set
-for explicit qualification, but v6 is not in the supported-reader policy and
-is not the ordinary writer. Ordinary and explicit production saves remain
-byte-exact v5 until the separately gated baseline cutover.
+version enum. The repository registers only the bounded production v6 codec;
+read-only entrypoints never select a writer or dirty authored content. Legacy
+DAST prefixes, including v4 and v5, are unsupported and fail before
+object-stream parsing or publication. DAST v6 is both the supported reader and
+the ordinary writer.
 
 A frozen writer constructs its Archive context from its own codec identity.
-The v5 writer therefore always reports DAST v5 to serializers and emits v5. The
+The v6 writer therefore always reports DAST v6 to serializers and emits v6. The
 reader-policy cache identity is an explicit generation, not a wire-version
 alias; changing the supported-reader contract requires changing that identity.
 

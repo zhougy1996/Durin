@@ -624,14 +624,14 @@ never exposes writable resident memory. Immutable byte access goes through
 `GetBulkData()`; authored package loading remains eager and publishes the object
 graph only after external DABK bytes have been resolved and verified.
 
-DAST v5 is the ordinary authored route. It retains
-the canonical logical Archive encoding inside a v5 object-stream preamble
-and requires a validated EOF trailer. During this compatibility cut, external
-DABK facts remain mirrored in the object-stream descriptor, but the reader
-derives both complete sets construct-free and rejects any missing, extra, or
-disagreeing payload id, size, content hash, container hash, or placement before
-live construction. All publication uses v5, publishes companions first, and
-replaces the complete package file atomically. No legacy rollback route exists.
+DAST v6 under `DURF` v1 is the ordinary authored route. It retains the canonical
+logical Archive encoding as bounded sections and records external DABK facts in
+the front-directory-owned Payload Directory; there is no EOF trailer or footer.
+The reader derives the complete descriptor set construct-free and rejects any
+missing, extra, or disagreeing payload id, size, content hash, container hash,
+or placement before live construction. All publication uses v6, publishes
+companions first, and replaces the complete package file atomically. No legacy
+rollback route exists.
 
 DABK v1 retains the physical 16-byte identity and 4-byte version slots used by
 authored external storage. Readers accept and ignore historical nonzero values,
@@ -647,7 +647,7 @@ hash; construct-free inspection never performs that mutation. Missing,
 truncated, stale, excessive, or corrupt final-and-backup state retires the
 candidate graph; a prior resident package or texture resource is not partially
 mutated. Unload releases the shared allocation normally. Move/rename and
-deletion treat the package and validated trailer/descriptor companion closure
+deletion treat the package and validated descriptor companion closure
 as one mutation participant.
 
 ## Domain-qualified inspection and repair ownership

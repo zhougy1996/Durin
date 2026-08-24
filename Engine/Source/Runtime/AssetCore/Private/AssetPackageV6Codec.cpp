@@ -1,7 +1,8 @@
 #include "AssetPackageV6Codec.h"
 
+#include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageObjectStreamReader.h"
-#include "AssetPackageV5Codec.h"
+#include "Asset/PackageObjectStreamWriter.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::Private::DastV6
@@ -217,7 +218,7 @@ namespace Durin::Asset::Private::DastV6
 		}
 
 		auto EncodePayloadDirectory(
-			std::span<const PackageTrailer::FEntry> Entries,
+			std::span<const FPayloadEntry> Entries,
 			std::vector<std::byte>& OutBytes) -> bool
 		{
 			if (Entries.size() > MaximumPayloadCount) return false;
@@ -225,7 +226,7 @@ namespace Durin::Asset::Private::DastV6
 			Writer.Fixed(PayloadDirectoryVersion);
 			Writer.Fixed(PayloadEntryBytes);
 			Writer.Fixed(static_cast<uint64>(Entries.size()));
-			for (const PackageTrailer::FEntry& Entry : Entries)
+			for (const FPayloadEntry& Entry : Entries)
 			{
 				Writer.Guid(Entry.PayloadId);
 				Writer.Fixed(static_cast<uint32>(Entry.Placement));
@@ -307,7 +308,7 @@ namespace Durin::Asset::Private::DastV6
 				return Fail("DAST v6 Payload Directory header is malformed.", OutError);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
-				PackageTrailer::FEntry Entry;
+				FPayloadEntry Entry;
 				uint32 Placement = 0;
 				uint32 Flags = 0;
 				uint64 Reserved = 0;
@@ -318,9 +319,9 @@ namespace Durin::Asset::Private::DastV6
 					|| !Reader.Hash(Entry.ContentHash) || !Reader.Hash(Entry.ContainerHash)
 					|| !Reader.Fixed(Reserved) || Reserved != 0)
 					return Fail("DAST v6 Payload Directory entry is malformed.", OutError);
-				Entry.Placement = static_cast<PackageTrailer::EPlacement>(Placement);
+				Entry.Placement = static_cast<EPayloadPlacement>(Placement);
 				if (!Entry.PayloadId.IsValid()
-					|| Entry.Placement != PackageTrailer::EPlacement::ExternalDabkV1
+					|| Entry.Placement != EPayloadPlacement::ExternalDabkV1
 					|| Entry.LogicalByteCount != Entry.StoredByteCount
 					|| Entry.ContentHash.IsZero() || Entry.ContainerHash.IsZero()
 					|| (!Out.PayloadEntries.empty()
@@ -331,7 +332,7 @@ namespace Durin::Asset::Private::DastV6
 			return Reader.AtEnd() || Fail("DAST v6 Payload Directory has trailing bytes.", OutError);
 		}
 
-		auto EncodeV5ObjectStream(
+		auto EncodeLogicalObjectStream(
 			const FParsedPackage& Package,
 			std::vector<std::byte>& OutBytes) -> bool
 		{
@@ -356,7 +357,7 @@ namespace Durin::Asset::Private::DastV6
 
 			FWriter Writer;
 			Writer.Fixed(DastPackageMagic);
-			Writer.Fixed(AssetPackageV5FormatVersion);
+			Writer.Fixed(AssetPackageObjectStreamVersion);
 			Writer.Fixed(static_cast<uint32>(Summary.View().size()));
 			Writer.Fixed(static_cast<uint8>(Sections.size()));
 			Writer.Append(Summary.View());
@@ -373,28 +374,64 @@ namespace Durin::Asset::Private::DastV6
 			return true;
 		}
 
-		auto BuildV5Package(const FParsedPackage& Package,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+		auto MakePayloadEntries(const FAssetPackageInspection& Inspection,
+			std::vector<FPayloadEntry>& OutEntries) -> FAssetResult
 		{
-			std::vector<std::byte> ObjectStream;
-			if (!EncodeV5ObjectStream(Package, ObjectStream))
-				return Error("DAST v6 logical sections cannot form a bounded v5 adapter.");
-			std::vector<std::byte> Trailer;
-			std::string TrailerError;
-			if (!PackageTrailer::Build(
-				Package.PayloadEntries, ObjectStream.size(), Trailer, &TrailerError))
-				return Error(std::move(TrailerError));
-			ObjectStream.insert(ObjectStream.end(), Trailer.begin(), Trailer.end());
-			if (FAssetResult Result = DastV5::GetCodec().Validate(ObjectStream); !Result)
+			OutEntries.clear();
+			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+			std::string DescriptorError;
+			if (!InspectEditorBulkDataStorageDescriptors(
+					Inspection, Descriptors, &DescriptorError))
+				return Error(std::move(DescriptorError));
+			for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
+			{
+				if (Descriptor.StorageKind != EEditorBulkDataStorageKind::External) continue;
+				OutEntries.push_back({
+					.PayloadId = Descriptor.PayloadId,
+					.Placement = EPayloadPlacement::ExternalDabkV1,
+					.LogicalByteCount = Descriptor.LogicalByteCount,
+					.StoredByteCount = Descriptor.StoredByteCount,
+					.ContentHash = Descriptor.ContentHash,
+					.ContainerHash = Descriptor.ContainerHash});
+			}
+			std::ranges::sort(OutEntries, {}, &FPayloadEntry::PayloadId);
+			for (size_t Index = 1; Index < OutEntries.size(); ++Index)
+				if (OutEntries[Index - 1].PayloadId == OutEntries[Index].PayloadId)
+					return Error("DAST v6 object stream contains duplicate external payload ids.");
+			return {};
+		}
+
+		auto PrepareObjectStream(const FParsedPackage& Package,
+			std::vector<std::byte>& OutBytes,
+			FAssetPackageInspection* OutInspection = nullptr) -> FAssetResult
+		{
+			if (!EncodeLogicalObjectStream(Package, OutBytes))
+				return Error("DAST v6 logical sections cannot form a bounded object stream.");
+			FAssetPackageInspection Inspection;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			if (FAssetResult Result = PackageObjectStream::InspectPackage(
+					OutBytes, Inspection, {}, &Diagnostic); !Result)
+				return Error(std::format("{} (DAST v6 imports: {})", Result.Message,
+					std::accumulate(Package.Imports.begin(), Package.Imports.end(),
+						std::string{}, [](std::string Value, const std::string& Import) {
+							if (!Value.empty()) Value += ", ";
+							Value += Import;
+							return Value;
+						})));
+			std::vector<FPayloadEntry> Expected;
+			if (FAssetResult Result = MakePayloadEntries(Inspection, Expected); !Result)
 				return Result;
-			OutBytes = std::move(ObjectStream);
+			if (Expected != Package.PayloadEntries)
+				return Error(
+					"DAST v6 Payload Directory disagrees with object-stream bulk descriptors.");
+			if (OutInspection) *OutInspection = std::move(Inspection);
 			return {};
 		}
 
 		auto BuildV6Package(
 			const PackageObjectStream::FValidatedHeader& Header,
 			const std::array<std::span<const std::byte>, 5>& V5Sections,
-			std::span<const PackageTrailer::FEntry> PayloadEntries,
+			std::span<const FPayloadEntry> PayloadEntries,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			std::array<std::vector<std::byte>, RequiredSectionCount> Owned;
@@ -648,15 +685,43 @@ namespace Durin::Asset::Private::DastV6
 			return true;
 		}
 
-		auto MakeV5(std::span<const std::byte> Bytes,
-			std::vector<std::byte>& OutV5, bool bAllowUnknown) -> FAssetResult
+		auto MakeObjectStream(std::span<const std::byte> Bytes,
+			std::vector<std::byte>& OutObjectStream, bool bAllowUnknown,
+			FParsedPackage* OutParsed = nullptr,
+			FAssetPackageInspection* OutInspection = nullptr) -> FAssetResult
 		{
 			FParsedPackage Parsed;
 			std::string ParseError;
 			if (!ParseWire(Bytes, Parsed, &ParseError)) return Error(std::move(ParseError));
 			if (Parsed.bHasUnknownSkippableSections && !bAllowUnknown)
 				return Error("DAST v6 mutation cannot preserve unknown skippable sections.");
-			return BuildV5Package(Parsed, OutV5);
+			if (FAssetResult Result = PrepareObjectStream(
+					Parsed, OutObjectStream, OutInspection); !Result)
+				return Result;
+			if (OutParsed) *OutParsed = std::move(Parsed);
+			return {};
+		}
+
+		auto BuildV6FromObjectStream(std::span<const std::byte> ObjectStream,
+			std::vector<std::byte>& OutBytes) -> FAssetResult
+		{
+			PackageObjectStream::FValidatedHeader Header;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			if (!PackageObjectStream::ReadHeader(
+					ObjectStream, Header, {}, &Diagnostic, ObjectStream.size()))
+				return Error(Diagnostic.Message);
+			FAssetPackageInspection Inspection;
+			if (FAssetResult Result = PackageObjectStream::InspectPackage(
+					ObjectStream, Inspection, {}, &Diagnostic); !Result)
+				return Result;
+			std::vector<FPayloadEntry> Entries;
+			if (FAssetResult Result = MakePayloadEntries(Inspection, Entries); !Result)
+				return Result;
+			std::array<std::span<const std::byte>, 5> Sections;
+			for (size_t Index = 0; Index < Sections.size(); ++Index)
+				Sections[Index] = ObjectStream.subspan(
+					Header.Sections[Index].Offset, Header.Sections[Index].Length);
+			return BuildV6Package(Header, Sections, Entries, OutBytes);
 		}
 
 		auto ReadHeader(std::span<const std::byte> Bytes, uint64 PackageSize,
@@ -688,17 +753,18 @@ namespace Durin::Asset::Private::DastV6
 
 		auto Validate(std::span<const std::byte> Bytes) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			return MakeV5(Bytes, V5, true);
+			std::vector<std::byte> ObjectStream;
+			return MakeObjectStream(Bytes, ObjectStream, true);
 		}
 
 		auto Inspect(std::span<const std::byte> Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, true); !Result) return Result;
 			FAssetPackageInspection Inspection;
-			if (FAssetResult Result = DastV5::GetCodec().Inspect(V5, Inspection); !Result) return Result;
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(
+					Bytes, ObjectStream, true, nullptr, &Inspection); !Result)
+				return Result;
 			Inspection.Header.FormatVersion = Version;
 			Inspection.Fingerprint = {
 				.FileSize = Bytes.size(),
@@ -711,9 +777,12 @@ namespace Durin::Asset::Private::DastV6
 		auto ExtractReferences(std::span<const std::byte> Bytes,
 			const FAssetPath& Source, std::vector<FAssetReferenceEdge>& Out) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, true); !Result) return Result;
-			return DastV5::GetCodec().ExtractReferences(V5, Source, Out);
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true); !Result)
+				return Result;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			return PackageObjectStream::ExtractReferences(
+				ObjectStream, Source, Out, {}, &Diagnostic);
 		}
 
 		auto ProbeCompatibility(std::span<const std::byte> Bytes,
@@ -721,10 +790,12 @@ namespace Durin::Asset::Private::DastV6
 			FAssetPackageCompatibilityRecord& OutRecord,
 			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, true); !Result) return Result;
-			FAssetResult Result = DastV5::GetCodec().ProbeCompatibility(
-				V5, Path, Catalog, OutRecord, OutStats);
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true); !Result)
+				return Result;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			FAssetResult Result = PackageObjectStream::ProbeCompatibility(
+				ObjectStream, Path, Catalog, OutRecord, OutStats, {}, &Diagnostic);
 			if (Result)
 			{
 				OutRecord.FormatVersion = Version;
@@ -740,52 +811,69 @@ namespace Durin::Asset::Private::DastV6
 			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
 			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, true); !Result) return Result;
-			return DastV5::GetCodec().Load(
-				V5, Path, OutPackage, OutReport, OnSkeletonReady, OnSkeletonRollback);
+			OutPackage = nullptr;
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true); !Result)
+				return Result;
+			PackageObjectStream::FLoadedAssetPackage Loaded;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			FAssetResult Result = PackageObjectStream::LoadAssetPackage(
+				ObjectStream, Path, Loaded, OutReport,
+				{.OnSkeletonReady = OnSkeletonReady,
+					.OnSkeletonRollback = OnSkeletonRollback}, {}, &Diagnostic);
+			if (!Result) return Result;
+			OutPackage = Loaded.Release();
+			return {};
 		}
 
 		auto Write(DPackage* Package, std::vector<std::byte>& OutBytes,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Options) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = DastV5::GetCodec().Write(Package, V5, DeltaMode, Options); !Result)
+			std::vector<std::byte> ObjectStream;
+			PackageObjectStream::FWriterDiagnostic Diagnostic;
+			if (FAssetResult Result = PackageObjectStream::WriteAssetPackage(
+					Package, ObjectStream,
+					{.DeltaMode = DeltaMode, .Serialization = Options}, &Diagnostic); !Result)
 				return Result;
-			return ConvertV5Package(V5, OutBytes);
+			return BuildV6FromObjectStream(ObjectStream, OutBytes);
 		}
 
 		auto RewriteReferences(std::span<const std::byte> Bytes,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedCount, std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, false); !Result) return Result;
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, false); !Result)
+				return Result;
 			std::vector<std::byte> Rewritten;
-			if (FAssetResult Result = DastV5::GetCodec().RewriteReferences(
-				V5, Mappings, ExpectedCount, Rewritten); !Result) return Result;
-			return ConvertV5Package(Rewritten, OutBytes);
+			if (FAssetResult Result = PackageObjectStream::RewriteReferences(
+					ObjectStream, Mappings, ExpectedCount, Rewritten); !Result)
+				return Result;
+			return BuildV6FromObjectStream(Rewritten, OutBytes);
 		}
 
 		auto Relocate(std::span<const std::byte> Bytes, const FAssetPath& Destination,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = MakeV5(Bytes, V5, false); !Result) return Result;
-			std::vector<std::byte> Relocated;
-			if (FAssetResult Result = DastV5::GetCodec().Relocate(V5, Destination, Relocated); !Result)
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, false); !Result)
 				return Result;
-			return ConvertV5Package(Relocated, OutBytes);
+			std::vector<std::byte> Relocated;
+			if (FAssetResult Result = PackageObjectStream::RelocatePackage(
+					ObjectStream, Destination, Relocated); !Result)
+				return Result;
+			return BuildV6FromObjectStream(Relocated, OutBytes);
 		}
 
 		auto WriteRedirector(const FAssetPath& Source, const FAssetPath& Destination,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			std::vector<std::byte> V5;
-			if (FAssetResult Result = DastV5::GetCodec().WriteRedirector(Source, Destination, V5); !Result)
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PackageObjectStream::WriteRedirectorPackage(
+					Source, Destination, ObjectStream); !Result)
 				return Result;
-			return ConvertV5Package(V5, OutBytes);
+			return BuildV6FromObjectStream(ObjectStream, OutBytes);
 		}
 	}
 
@@ -794,46 +882,23 @@ namespace Durin::Asset::Private::DastV6
 	{
 		FParsedPackage Parsed;
 		if (!ParseWire(Bytes, Parsed, OutError)) return false;
-		std::vector<std::byte> V5;
-		if (FAssetResult Result = BuildV5Package(Parsed, V5); !Result)
+		std::vector<std::byte> ObjectStream;
+		if (FAssetResult Result = PrepareObjectStream(Parsed, ObjectStream); !Result)
 			return Fail(Result.Message, OutError);
 		OutPackage = std::move(Parsed);
 		return true;
 	}
 
-	auto ConvertV5Package(std::span<const std::byte> V5Bytes,
+	auto BuildPackageFromObjectStream(std::span<const std::byte> ObjectStreamBytes,
 		std::vector<std::byte>& OutV6Bytes) -> FAssetResult
 	{
-		if (FAssetResult Result = DastV5::GetCodec().Validate(V5Bytes); !Result) return Result;
-		PackageTrailer::FInspection Trailer;
-		std::string TrailerError;
-		if (!PackageTrailer::Inspect(V5Bytes, Trailer, &TrailerError))
-			return Error(std::move(TrailerError));
-		const std::span<const std::byte> ObjectStream = V5Bytes.first(
-			static_cast<size_t>(Trailer.ObjectStreamEnd));
-		PackageObjectStream::FValidatedHeader Header;
-		PackageObjectStream::FReaderDiagnostic Diagnostic;
-		if (!PackageObjectStream::ReadHeader(
-			ObjectStream, Header, {}, &Diagnostic, ObjectStream.size()))
-			return Error(Diagnostic.Message);
-		std::array<std::span<const std::byte>, 5> Sections;
-		for (size_t Index = 0; Index < Sections.size(); ++Index)
-			Sections[Index] = ObjectStream.subspan(
-				Header.Sections[Index].Offset, Header.Sections[Index].Length);
-		std::vector<std::byte> Candidate;
-		if (FAssetResult Result = BuildV6Package(
-			Header, Sections, Trailer.Entries, Candidate); !Result) return Result;
-		FParsedPackage Parsed;
-		std::string ParseError;
-		if (!ParsePackage(Candidate, Parsed, &ParseError)) return Error(std::move(ParseError));
-		OutV6Bytes = std::move(Candidate);
-		return {};
+		return BuildV6FromObjectStream(ObjectStreamBytes, OutV6Bytes);
 	}
 
-	auto ConvertV6PackageToV5(std::span<const std::byte> V6Bytes,
-		std::vector<std::byte>& OutV5Bytes, bool bAllowUnknownSkippableSections) -> FAssetResult
+	auto ExtractObjectStream(std::span<const std::byte> V6Bytes,
+		std::vector<std::byte>& OutObjectStream) -> FAssetResult
 	{
-		return MakeV5(V6Bytes, OutV5Bytes, bAllowUnknownSkippableSections);
+		return MakeObjectStream(V6Bytes, OutObjectStream, true);
 	}
 
 	auto GetCodec() -> const FAssetPackageCodec&

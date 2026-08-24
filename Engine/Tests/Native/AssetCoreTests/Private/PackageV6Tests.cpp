@@ -1,6 +1,6 @@
-#include "AssetPackageV5Codec.h"
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
+#include "Misc/FileHelper.h"
 
 #include <gtest/gtest.h>
 
@@ -48,7 +48,7 @@ namespace
 		RehashEnvelope(Bytes);
 	}
 
-	auto MakeV5(std::vector<std::byte>& OutBytes) -> bool
+	auto MakeV6(std::vector<std::byte>& OutBytes) -> bool
 	{
 		PackageObjectStream::FPackageInput Input{
 			.AssetClass = "Example::Asset",
@@ -61,7 +61,7 @@ namespace
 			ADD_FAILURE() << Diagnostic.Message;
 			return false;
 		}
-		const FAssetResult Result = DastV5::BuildPackageFromObjectStream(ObjectStream, OutBytes);
+		const FAssetResult Result = DastV6::BuildPackageFromObjectStream(ObjectStream, OutBytes);
 		if (!Result) ADD_FAILURE() << Result.Message;
 		return Result.Succeeded();
 	}
@@ -134,23 +134,39 @@ namespace
 		RehashEnvelope(Result);
 		return Result;
 	}
+
+	auto ReadFixture(std::string_view Name) -> std::vector<std::byte>
+	{
+		std::string Hex;
+		std::ifstream Stream(std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ std::format("{}.dasset.hex", Name));
+		EXPECT_TRUE(Stream.is_open());
+		Stream >> Hex;
+		std::vector<std::byte> Bytes(Hex.size() / 2);
+		auto Nibble = [](char Value) -> uint8 {
+			if (Value >= '0' && Value <= '9') return Value - '0';
+			if (Value >= 'a' && Value <= 'f') return Value - 'a' + 10;
+			return Value - 'A' + 10;
+		};
+		for (size_t Index = 0; Index < Bytes.size(); ++Index)
+			Bytes[Index] = static_cast<std::byte>(
+				(Nibble(Hex[Index * 2]) << 4) | Nibble(Hex[Index * 2 + 1]));
+		return Bytes;
+	}
 }
 
 TEST(FDastV6WireTests, ExactDetachedConversionRoundTripsAndAgreesWithIndependentParser)
 {
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	EXPECT_TRUE(ReferenceValidate(V6));
 	EXPECT_EQ(Read<uint32>(V6, 64), 0);
 	EXPECT_EQ(Read<uint32>(V6, 80), 8);
-	EXPECT_NE(Read<uint32>(std::span(V6).last(4), 0), PackageTrailer::FooterMagic);
 	EXPECT_EQ(FXxHash128::HashBuffer(V6).ToString(),
 		"1262496184075ce9227c5b2864562f71");
 	EXPECT_EQ(V6.size(), 600u);
 	std::vector<std::byte> Repeated;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, Repeated));
+	ASSERT_TRUE(MakeV6(Repeated));
 	EXPECT_EQ(Repeated, V6);
 
 	DastV6::FParsedPackage Parsed;
@@ -163,17 +179,12 @@ TEST(FDastV6WireTests, ExactDetachedConversionRoundTripsAndAgreesWithIndependent
 	EXPECT_TRUE(Parsed.PayloadEntries.empty());
 	EXPECT_FALSE(Parsed.bHasUnknownSkippableSections);
 
-	std::vector<std::byte> Reconstructed;
-	ASSERT_TRUE(DastV6::ConvertV6PackageToV5(V6, Reconstructed));
-	EXPECT_EQ(Reconstructed, V5);
 }
 
 TEST(FDastV6WireTests, DirectorySectionAndEnvelopeCorruptionFailDeterministically)
 {
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	DastV6::FParsedPackage Output;
 	std::string Error;
 
@@ -212,7 +223,7 @@ TEST(FDastV6WireTests, DirectorySectionAndEnvelopeCorruptionFailDeterministicall
 	ExpectFailure(std::move(Trailing), "gaps, trailing bytes");
 }
 
-TEST(FDastV6WireTests, DetachedCodecIsCompleteButOrdinaryPolicyStillRejectsV6)
+TEST(FDastV6WireTests, DetachedCodecIsTheSoleOrdinaryPolicy)
 {
 	const FAssetPackageCodec& Codec = DastV6::GetCodec();
 	EXPECT_EQ(Codec.FormatId, DastBinaryFormatId);
@@ -223,24 +234,33 @@ TEST(FDastV6WireTests, DetachedCodecIsCompleteButOrdinaryPolicyStillRejectsV6)
 	std::string PolicyError;
 	EXPECT_TRUE(ValidateAssetPackageVersionPolicy(PolicyError)) << PolicyError;
 
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	const FAssetPackageCodec* Resolved = reinterpret_cast<const FAssetPackageCodec*>(1);
 	const FAssetResult Result = ResolveAssetPackageReader(V6, Resolved);
-	EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion);
-	EXPECT_EQ(Resolved, nullptr);
+	EXPECT_TRUE(Result);
+	ASSERT_NE(Resolved, nullptr);
+	EXPECT_EQ(Resolved->CodecId, Codec.CodecId);
 	EXPECT_EQ(FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion)->FormatVersion,
-		AssetPackageV5FormatVersion);
+		AssetPackageV6FormatVersion);
+}
+
+TEST(FDastV6WireTests, TrackedCompatibilityFixturesPreserveNamedV6Intent)
+{
+	const auto Current = ReadFixture("current");
+	EXPECT_TRUE(DastV6::GetCodec().Validate(Current));
+	EXPECT_FALSE(DastV6::GetCodec().Validate(ReadFixture("corrupt")));
+	EXPECT_FALSE(DastV6::GetCodec().Validate(ReadFixture("truncated")));
+	EXPECT_FALSE(DastV6::GetCodec().Validate(ReadFixture("invalid_object_graph")));
+	EXPECT_TRUE(DastV6::GetCodec().Validate(ReadFixture("unknown_class")));
+	EXPECT_TRUE(DastV6::GetCodec().Validate(ReadFixture("unknown_field")));
+	EXPECT_TRUE(DastV6::GetCodec().Validate(ReadFixture("incompatible_signature")));
 }
 
 TEST(FDastV6WireTests, UnknownSkippableDataValidatesButMutationRejectsWithoutLoss)
 {
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	const std::vector<std::byte> Extended = AddUnknownSection(V6, 0);
 	DastV6::FParsedPackage Parsed;
 	std::string Error;
@@ -259,10 +279,8 @@ TEST(FDastV6WireTests, UnknownSkippableDataValidatesButMutationRejectsWithoutLos
 
 TEST(FDastV6WireTests, CountsIndexesAndEveryHeaderDirectoryByteFailClosed)
 {
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	DastV6::FParsedPackage Output;
 	std::string FirstError;
 	std::string SecondError;
@@ -307,10 +325,8 @@ TEST(FDastV6WireTests, CountsIndexesAndEveryHeaderDirectoryByteFailClosed)
 
 TEST(FDastV6WireTests, HeaderOnlyAndFullValidationCostsStayWithinMeasuredBudgets)
 {
-	std::vector<std::byte> V5;
-	ASSERT_TRUE(MakeV5(V5));
 	std::vector<std::byte> V6;
-	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	ASSERT_TRUE(MakeV6(V6));
 	const uint64 HeaderBytes = Read<uint64>(V6, 32);
 	const auto Header = std::span(V6).first(static_cast<size_t>(HeaderBytes));
 	constexpr size_t Iterations = 1000;

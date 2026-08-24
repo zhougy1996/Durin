@@ -6,6 +6,7 @@ else()
     set(DURIN_WITH_EDITOR 0)
 endif()
 add_executable(DurinAssetTool "Private/AssetToolMain.cpp")
+
 durin_target_enable_windows_long_paths(DurinAssetTool)
 durin_target_apply_common_definitions(DurinAssetTool "DurinAssetTool")
 target_link_libraries(DurinAssetTool PRIVATE AssetCore Engine AssetForge)

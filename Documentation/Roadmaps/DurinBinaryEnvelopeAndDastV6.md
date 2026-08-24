@@ -4,29 +4,18 @@ Summary: Introduce the reusable DURF envelope, ship DAST v6, and replace the tra
 
 Last reviewed: 2026-08-25
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-25
 
 ## Current Status
 
-DAST v5 remains the only supported authored package format and the ordinary
-writer. Its codec table, construct-free inspection, transactional load and
-mutation paths, object-stream golden model, DTRL payload trailer, and DTRF
-footer are production foundations rather than transitional stubs.
-
-The binary-envelope investigation has now been selected for implementation as
-DAST v6. Milestones M1 and M2 are complete: Core owns the common `DURF` v1
-foundation and AssetCore owns the permanent DAST identity plus a detached,
-capability-complete v6 codec. Legacy v5 remains the only supported reader and
-ordinary writer until the active M3 cutover. No tracked package, fixture, or
-companion changed during M1 or M2.
-
-The current repository conversion surface is bounded and observable: Git
-tracks 30 `.dasset` packages, two `.dabulk` companions, and seven
-`.dasset.hex` compatibility fixtures across the Engine and Sandbox projects.
-This inventory is an initial planning fact, not the migration manifest; the
-cutover plan must regenerate and freeze the complete manifest immediately
-before conversion.
+All three milestones are complete. Core owns the reusable `DURF` v1 envelope,
+AssetCore owns the permanent DAST identity and capability-complete v6 codec,
+and DAST v6 is the sole supported reader and ordinary writer. The frozen M3
+manifest converted all 27 tracked packages, regenerated seven compatibility
+fixtures, preserved both DABK companions byte-exactly, and qualified the Engine
+and Sandbox baselines. The v5 codec, DTRL/DTRF authority, obsolete tests, and
+temporary converter have been removed.
 
 ## Outcome
 
@@ -124,9 +113,9 @@ the cutover.
   converter and obsolete v5 reader in the same child plan. There is no long-
   lived dual-format baseline.
 
-## Current Foundations and Gaps
+## Baseline at Selection
 
-### Landed foundations
+### Foundations entering the roadmap
 
 - A statically composed AssetCore package codec table with complete capability
   validation and a single ordinary-writer policy.
@@ -140,7 +129,7 @@ the cutover.
 - Read-only compatibility audit and `DevTool asset baseline` workflows for
   repository projects.
 
-### Remaining gaps
+### Gaps closed by this roadmap
 
 - Core has no shared Durin binary preamble or explicit 128-bit format registry;
   AssetCore dispatch currently keys DAST only by the legacy magic and version.
@@ -161,7 +150,7 @@ the cutover.
 | --- | --- | --- | --- | --- | --- |
 | 1. DURF envelope foundation | Completed | Selected binary-envelope investigation | Core-neutral `DURF` v1 parsing/finalization, explicit immutable registry validation, permanent DAST identity, independent golden parser, bounded mutation/fuzz coverage, and dormant AssetCore envelope dispatch | DAST v6 is selected as the first format and current DAST v5 behavior is characterized | Exact golden bytes agree with the independent parser; duplicate, unknown, unsupported, malformed, overflow, feature, size, and hash cases fail deterministically; current v5 bytes and ordinary-writer behavior remain unchanged |
 | 2. DAST v6 package codec | Completed | M1 | A detached DAST v6 codec with the complete AssetCore read/write/mutate/inspect capability set, Import/Export model, front Payload Directory, and no footer | M1 freezes the preamble, DAST identity, registry API, diagnostics, and bounded header contract | Production and independent bytes agree; header-only, full decode, reference, compatibility, mutation, redirector, companion, and failure-atomic tests pass; measured front-header size/cost is accepted; the ordinary writer still emits v5 |
-| 3. DAST v6 baseline cutover | Active | M2 | One bounded conversion plan that freezes the corpus, uses an exact offline v5 converter, switches all policy to v6, converts tracked packages and fixtures, validates both projects, and deletes v5 plus the converter | M2 proves lossless v5 mapping and all v6 capabilities; the conversion manifest includes every tracked package/fixture and package-companion closure; no unrelated binary edits overlap the cutover | Every tracked `.dasset` and supported fixture is v6; Engine and Sandbox baselines plus affected package/Cook workflows pass; no v5 codec, DTRL/DTRF authority, or converter remains; lasting contracts describe v6 as the sole baseline |
+| 3. DAST v6 baseline cutover | Completed | M2 | One bounded conversion plan that freezes the corpus, uses an exact offline v5 converter, switches all policy to v6, converts tracked packages and fixtures, validates both projects, and deletes v5 plus the converter | M2 proves lossless v5 mapping and all v6 capabilities; the conversion manifest includes every tracked package/fixture and package-companion closure; no unrelated binary edits overlap the cutover | Every tracked `.dasset` and supported fixture is v6; Engine and Sandbox baselines plus affected package/Cook workflows pass; no v5 codec, DTRL/DTRF authority, or converter remains; lasting contracts describe v6 as the sole baseline |
 
 ## Child Plan Boundaries
 
@@ -169,12 +158,12 @@ the cutover.
 | --- | --- | --- | --- |
 | [Durin Binary Envelope Foundation](../Plans/DurinBinaryEnvelopeFoundation.md) | M1 | Common envelope and registry foundation, independent test oracle, permanent DAST identity, and fail-closed dispatch seam; excludes the DAST v6 section codec and asset conversion | Completed 2026-08-25; exit evidence recorded |
 | [DAST v6 Package Codec](../Plans/DastV6PackageCodec.md) | M2 | Complete detached v6 package codec and capability parity; excludes changing the ordinary writer and tracked files | Completed 2026-08-25; exit evidence recorded |
-| [DAST v6 Baseline Cutover](../Plans/DastV6BaselineCutover.md) | M3 | Exact temporary converter, frozen corpus conversion, writer/reader policy switch, project baseline qualification, and removal of all v5/converter code | Active; begin at Stage 0 |
+| [DAST v6 Baseline Cutover](../Plans/DastV6BaselineCutover.md) | M3 | Exact temporary converter, frozen corpus conversion, writer/reader policy switch, project baseline qualification, and removal of all v5/converter code | Completed 2026-08-25; exit evidence recorded |
 
-M2 must not opportunistically switch the ordinary writer. M3 is deliberately
-one child plan because the repository compatibility contract requires the
-converter, corpus rewrite, baseline validation, and obsolete-reader removal to
-remain one bounded transition rather than independent long-lived states.
+The staged delivery kept M2 from switching the ordinary writer. M3 remained one
+child plan so the converter, corpus rewrite, baseline validation, and
+obsolete-reader removal formed one bounded transition rather than independent
+long-lived states.
 
 ## Program Validation Matrix
 
@@ -250,13 +239,12 @@ budgets, and recorded evidence.
 - `Engine/Source/Runtime/Core/Public/Misc/Guid.h`
 - `Engine/Source/Runtime/Core/Public/Hash/XxHash.h`
 - `Engine/Source/Runtime/AssetCore/Private/AssetPackageCodec.h`
-- `Engine/Source/Runtime/AssetCore/Private/AssetPackageV5Codec.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/Asset/PackageVersionPolicy.h`
-- `Engine/Source/Runtime/AssetCore/Private/Asset/PackageTrailer.h`
+- `Engine/Source/Runtime/AssetCore/Private/AssetPackageV6Codec.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/Asset/PackageObjectStreamReader.h`
 - `Engine/Source/Runtime/AssetCore/Private/Asset/PackageObjectStreamWriter.h`
 - `Engine/Tests/Native/CoreTests/Private/BinaryFormatTests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/PackageObjectStreamWireContractTests.cpp`
-- `Engine/Tests/Native/AssetCoreTests/Private/PackageTrailerTests.cpp`
+- `Engine/Tests/Native/AssetCoreTests/Private/PackageV6Tests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp`
 - `Engine/Source/Programs/DurinAssetTool`

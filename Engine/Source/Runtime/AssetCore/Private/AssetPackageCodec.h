@@ -54,7 +54,8 @@ namespace Durin::Asset::Private
 	};
 
 	ASSETCORE_API auto ReadAssetPackagePreamble(
-		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult;
+		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble,
+		uint64 PhysicalFileBytes = 0) -> FAssetResult;
 	ASSETCORE_API auto FindAssetPackageReader(
 		const FGuid& FormatId, uint32 FormatVersion) -> const FAssetPackageCodec*;
 	ASSETCORE_API auto FindAssetPackageWriter(
@@ -69,7 +70,8 @@ namespace Durin::Asset::Private
 	}
 	auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
-		FAssetPackagePreamble* OutPreamble = nullptr) -> FAssetResult;
+		FAssetPackagePreamble* OutPreamble = nullptr,
+		uint64 PhysicalFileBytes = 0) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ASSETCORE_API auto ValidateAssetPackageCodecTable(
 		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;

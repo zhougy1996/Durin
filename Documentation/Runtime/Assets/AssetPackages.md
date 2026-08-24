@@ -119,18 +119,16 @@ and transactional relocation are defined by
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. DAST v5 is the ordinary writer and repository
-baseline and the only supported authored package version. Unsupported versions fail before
+same DAST object-package envelope. DAST v6 under `DURF` v1 is the ordinary
+writer, repository baseline, and only supported authored package version. Unsupported versions fail before
 header-specific interpretation, object construction, mutation, or publication.
 DAST has the permanent nonzero format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56` and canonical diagnostic name
 `Durin.BinaryFormat.DAST`. The private codec key is `(FormatId, FormatVersion)`;
-legacy `DAST` v5 bytes synthesize that identity without changing their wire
-prefix. AssetCore can also validate the common `DURF` front envelope through an
-explicit immutable registry, but no v6 codec is registered yet: valid DAST v6,
-unknown `DURF` identities, unsupported required features, and corrupt envelopes
-fail before any package codec is called. This dormant dispatch seam does not
-authorize v6 reading or writing and does not rewrite content.
+the `DURF` front envelope carries that identity directly. AssetCore validates
+the common envelope through an explicit immutable registry; unknown identities,
+unsupported required features, legacy DAST prefixes, and corrupt envelopes fail
+before any package codec is called.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
 version, main asset class, bounded registry-entry kind, redirect destination,
@@ -158,10 +156,10 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
-### Detached DAST v6 Qualification Route
+### DAST v6 Envelope Route
 
-AssetCore implements DAST v6 under `DURF` v1 as a detached, capability-complete
-codec while the repository baseline remains v5. Its 32-byte format header
+AssetCore implements DAST v6 under `DURF` v1 as its capability-complete
+production codec. Its 32-byte format header
 records package kind, zero flags, absolute directory offset, section count,
 48-byte entry size, and zero reserved word. The canonical required sections are
 Public Summary, Import, Name, Type, Schema, Export, Value, and Payload
@@ -174,11 +172,11 @@ Public Summary selects one-based `MainExportIndex` 1 and freezes Import,
 Export, and payload counts plus class/redirect metadata. Import paths are
 canonical sorted unique dependencies. Existing Name, Type, Schema, and Value
 bytes are reused exactly; v5 Object bytes become Export after topology
-validation, dependency IDs become one-based Import indexes, and trailer entries
-become the front-directory-owned Payload Directory. Soft paths remain paths.
-The detached adapter may reconstruct canonical v5 logical bytes internally to
-reuse the qualified semantic engine, but those bytes are never v6 wire
-authority or published output.
+validation, dependency IDs become one-based Import indexes, and payload
+descriptors become the front-directory-owned Payload Directory. Soft paths
+remain paths. The codec reconstructs an internal canonical logical object
+stream to reuse the semantic engine, but that internal form is never package
+wire authority or published output.
 
 Header-only inspection validates the complete common front matter, directory
 extents, and Public Summary/Import section hashes without reading later
@@ -187,62 +185,25 @@ topology, payload descriptor equality, and canonical reconstruction before any
 codec capability exposes data. Unknown required sections fail. Unknown
 skippable sections are extent/hash validated for read-only validation, but save
 or mutation rejects before output unless byte-exact canonical retention is
-available. M2 does not register v6 in the supported-reader set or select it as
-the ordinary writer; baseline cutover is separately gated.
+available. V6 is the supported-reader route and ordinary writer.
 
-### DAST v5 Trailer-Indexed Ordinary Route
+### DAST v6 Ordinary Route
 
-AssetCore registers one reader-, writer-, and mutation-complete DAST v5 codec
-and selects it for ordinary single-package and bundle saves. A caller may spell
-the selection as ordinary or explicit `DastV5`; both produce v5. An existing
-file, asset type, payload size, or environment value never changes that policy.
-DAST v4 is unsupported and has no read, write, migration, or rollback route.
-The ordinary v5 prefix remains the exact bytes `44 41 53 54 05 00 00 00`.
+AssetCore registers one reader-, writer-, and mutation-complete DAST v6 codec
+and selects it for ordinary single-package and bundle saves. Existing file,
+asset type, payload size, or environment values never change that policy.
+Legacy DAST prefixes have no production reader, writer, migration, or rollback
+route. External payload authority is the required front-directory Payload
+Directory; v6 has no EOF trailer or footer.
 
-The v5 object stream reuses canonical object-stream logical table, tagged-value, Archive,
-and section encoding with a v5 preamble. Its last section ends at the trailer
-offset instead of physical EOF. The compatibility descriptor inside the object
-stream still mirrors the external DABK identity during this rollout, but it is
-not independently trusted: validation derives the complete external descriptor
-set construct-free and requires exact equality with the sorted trailer entries
-before inspection, reference tooling, compatibility probing, mutation, or live
-loading can expose the package.
+### DAST Logical Object-Stream Wire Contract
 
-The composite is `ObjectStream || TrailerV1 || FooterV1` with no gaps,
-overlap, or trailing bytes. `ObjectStream` is an opaque prefix of at most 256
-MiB; the whole package is at most 1 GiB; the trailer contains at most 65,536
-entries. The detached builder receives the absolute object-stream end and
-logical entries, produces only `TrailerV1 || FooterV1`, and never writes a
-file. EOF inspection operates only on a byte span and leaves outputs empty on
-failure.
-
-Trailer v1 begins with a 64-byte little-endian header: `DTRL`, version 1,
-header size 64, entry size 80, `uint64` entry count, directory offset 64,
-absolute object-stream end/trailer offset, XXH3-128 of the exact directory
-bytes, and a zero `uint64` reserved field. Its size is exactly
-`64 + EntryCount * 80`. Entries are strictly GUID-sorted and unique. Each
-80-byte entry contains payload GUID, `uint32` placement, zero `uint32` flags,
-logical and stored `uint64` sizes, content XXH3-128, DABK v1 container
-XXH3-128, and a zero `uint64` reserved field. Placement 1,
-`ExternalDabkV1`, is the only supported state; both hashes and the GUID are
-nonzero, and stored size equals logical size.
-
-Footer v1 is exactly 64 bytes at physical EOF: `DTRF`, version 1, footer size
-64, zero flags, absolute trailer offset, trailer size, object-stream end equal
-to the trailer offset, XXH3-128 of the exact trailer header plus directory, and
-a zero `uint64` reserved field. Discovery validates footer identity and bounds
-before projecting the trailer, then validates the whole-trailer and directory
-hashes, exact extents, canonical order, and complete consumption. XXH3-128 is
-an integrity check only, not a persistent content-addressed key. Unknown
-versions, placements, flags, reserved fields, duplicates, size disagreements,
-bad hashes, overflow, truncation, gaps, overlap, and trailing bytes fail.
-
-### DAST v5 Object-Stream Wire Contract
-
-The DAST v5 object stream is the current authored logical format. AssetCore
-exposes production-owned low-level writer and reader boundaries, and package
-policy routes header, inspection, compatibility, reference, registry/cache,
-and live-load operations only through v5.
+The logical object stream is an internal canonical grammar carried by DAST v6
+sections. AssetCore exposes production-owned low-level writer and reader
+boundaries, while package policy routes header, inspection, compatibility,
+reference, registry/cache, and live-load operations only through v6. Its
+internal grammar version is 5 and does not identify a supported standalone
+package format.
 The layout below is frozen: later format changes must use a new version rather
 than altering these bytes or semantics. Any required corpus conversion is a
 separately planned, temporary offline tool, not a permanent runtime facility.
@@ -393,7 +354,7 @@ also qualify the production writer byte-for-byte against the independent
 reference codec. The same production codec owns ordinary object-stream package
 saves and bounded v5 reads.
 
-### DAST v5 Object-Stream Writer Boundary
+### DAST Logical Object-Stream Writer Boundary
 
 `Durin::Asset::PackageObjectStream::WritePackage` consumes only owned logical package input:
 public summary values, structural type and schema descriptors, custom versions,
@@ -452,7 +413,7 @@ framing, canonical Name/Type/Schema tables, descriptor references and cycles,
 root schema/field resolution, bounds, and trailing-byte state. Package table
 reordering never remaps or rebuilds those bytes.
 
-### DAST v5 Object-Stream Reader Boundary
+### DAST Logical Object-Stream Reader Boundary
 
 `Durin::Asset::PackageObjectStream::ReadHeader` validates the bounded public summary and
 five-entry directory without parsing or allocating body tables.
@@ -522,7 +483,7 @@ rejects it before residency.
 
 The package policy routes bounded header, validation, inspection, reference,
 compatibility, and ordinary live-load reads through these entries when the
-preamble declares v5. Reads never write or dirty a package. Unsupported versions
+envelope declares DAST v6. Reads never write or dirty a package. Unsupported versions
 fail before version-specific parsing. Saves invoke the object-stream writer only after
 compatibility and stale-input checks succeed.
 
@@ -536,7 +497,7 @@ process-local ABI property. Missing fields retain constructor defaults. Unknown
 classes, invalid Outer hierarchies, malformed references, truncation, and
 unsupported versions fail the complete load.
 
-DAST v5 object stream save and load are purpose-specific `FArchive` adapters. Saving runs a
+DAST logical object-stream save and load are purpose-specific `FArchive` adapters. Saving runs a
 discovery pass through each live object's virtual `DObject::Serialize(...)`,
 freezes object ids, fields, dependencies, logical types, and version use, then
 calls the same entry for emission. A derived serializer must call its base once
@@ -569,15 +530,15 @@ across the complete dependency closure; it is structured bounded telemetry, not
 a cache or a per-package log.
 
 An ordinary single-package or atomic-bundle save may update an existing package
-only when its registered format equals the ordinary v5 writer. A stale or
+only when its registered format equals the ordinary v6 writer. A stale or
 unsupported registry version is rejected before serialization, staging, file
 publication, registry publication, or dirty-state clearing. New packages use
 the same ordinary writer. A non-current format is not an ordinary save input.
 
 Current-format byte mutations resolve the source codec before decoding and
 require its declared mutation capability. Reference fixup and relocation
-accept and preserve only source v5; new redirectors and ordinary authored saves
-use v5. Unsupported formats are rejected before output bytes change.
+accept and preserve only source v6; new redirectors and ordinary authored saves
+use v6. Unsupported formats are rejected before output bytes change.
 Version-specific decoded packages remain inside their
 codec adapter; shared transactions consume neutral headers, inspections,
 reference edges, load handles, and byte results.
@@ -621,7 +582,7 @@ claim project-wide atomicity.
 `DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
 uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
 writes, `--format=human` selects a compact human report, and the default is a
-deterministic JSON report. Canonical resave targets v5; `--target=v5` is an
+deterministic JSON report. Canonical resave targets v6; `--target=v6` is an
 optional explicit spelling and no legacy rollback target exists.
 The plan records the target format and rejects stale fingerprints before each
 atomic unit. `--ci` is read-only, cannot be combined with apply,
@@ -822,7 +783,7 @@ formats, voxel counts, TXPL versions, or repair policy. Inspection may read and
 validate a referenced companion, but it never publishes, restores, removes, or
 rewrites a file; those remain explicit package/source/Cook workflows.
 
-DAST v5 object stream gives authored bulk values their own `BulkData` opcode. The Value
+The DAST logical object stream gives authored bulk values their own `BulkData` opcode. The Value
 section contains payload id, 16+4 compatibility-reserved bytes, logical and
 stored byte counts, XXH3-128 content hash, placement, and container hash.
 Readers accept historical nonzero reserved values from the superseded semantic
@@ -842,7 +803,7 @@ reflected owning domain.
 
 External authored bytes live beside the package as
 `<package-stem>.dabulk`. The stable filename is discovery only: the package
-descriptor and trailer remain authoritative for the container hash. This is
+descriptor and v6 Payload Directory remain authoritative for the container hash. This is
 distinct from cooked `.dbulk`.
 The frozen DABK v1 format has a 64-byte header, sorted 96-byte entries, 16-byte
 payload alignment, at most 65,536 unique payload ids, and a 1 GiB file/payload

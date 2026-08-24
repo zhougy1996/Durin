@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetTools.h"
-#include "AssetPackageV5Codec.h"
+#include "AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
@@ -54,7 +54,7 @@ namespace
 		EXPECT_TRUE(Asset::PackageObjectStream::WritePackage(Input, ObjectStream, &Diagnostic))
 			<< Diagnostic.Message;
 		std::vector<std::byte> Bytes;
-		EXPECT_TRUE(Asset::Private::DastV5::BuildPackageFromObjectStream(
+		EXPECT_TRUE(Asset::Private::DastV6::BuildPackageFromObjectStream(
 			ObjectStream, Bytes));
 		return Bytes;
 	}

@@ -370,19 +370,19 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 
 	const FVolumeTextureImportResult Detail = ImportVolumeTextureAsset(
 		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings,
-		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5});
+		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
 	ASSERT_TRUE(Detail) << Detail.Message;
 	FAssetPath BaseAssetPath;
 	FAssetPath DetailAssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(Asset::FindAssetExact(BaseAssetPath)->FormatVersion,
-		5u);
-	const Asset::FAssetCatalogEntry InlineV5 = Asset::FindAssetExact(DetailAssetPath);
-	ASSERT_TRUE(InlineV5);
-	ASSERT_EQ(InlineV5->FormatVersion, 5u);
+		6u);
+	const Asset::FAssetCatalogEntry InlineV6 = Asset::FindAssetExact(DetailAssetPath);
+	ASSERT_TRUE(InlineV6);
+	ASSERT_EQ(InlineV6->FormatVersion, 6u);
 	Asset::FAssetPackageInspection InlineInspection;
-	ASSERT_TRUE(Asset::InspectAssetPackage(InlineV5->PhysicalPath, InlineInspection));
+	ASSERT_TRUE(Asset::InspectAssetPackage(InlineV6->PhysicalPath, InlineInspection));
 	std::vector<Asset::FEditorBulkDataStorageDescriptor> InlineDescriptors;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataStorageDescriptors(
 		InlineInspection, InlineDescriptors, &RepairError)) << RepairError;
@@ -439,7 +439,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		.TilesX = 128, .TilesY = 1};
 	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
 		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings,
-		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5});
+		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
 	ASSERT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);
@@ -447,33 +447,33 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		EXPECT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes()[Slice * 128ull * 128],
 			static_cast<std::byte>(Slice));
 
-	const std::string V5DerivedDataKey = Imported.Asset->GetDerivedDataKey();
-	const std::vector<std::byte> V5SourceBytes(
+	const std::string V6DerivedDataKey = Imported.Asset->GetDerivedDataKey();
+	const std::vector<std::byte> V6SourceBytes(
 		Imported.Asset->GetSourceData().GetVoxelBytes().begin(),
 		Imported.Asset->GetSourceData().GetVoxelBytes().end());
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
-	const Asset::FAssetCatalogEntry V5Entry = Asset::FindAssetExact(AssetPath);
-	ASSERT_TRUE(V5Entry);
-	ASSERT_EQ(V5Entry->FormatVersion, 5u);
-	Asset::FAssetPackageInspection V5Inspection;
-	ASSERT_TRUE(Asset::InspectAssetPackage(V5Entry->PhysicalPath, V5Inspection));
-	std::vector<Asset::FEditorBulkDataStorageDescriptor> V5Descriptors;
+	const Asset::FAssetCatalogEntry V6Entry = Asset::FindAssetExact(AssetPath);
+	ASSERT_TRUE(V6Entry);
+	ASSERT_EQ(V6Entry->FormatVersion, 6u);
+	Asset::FAssetPackageInspection V6Inspection;
+	ASSERT_TRUE(Asset::InspectAssetPackage(V6Entry->PhysicalPath, V6Inspection));
+	std::vector<Asset::FEditorBulkDataStorageDescriptor> V6Descriptors;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataStorageDescriptors(
-		V5Inspection, V5Descriptors, &Error)) << Error;
-	ASSERT_EQ(V5Descriptors.size(), 1u);
-	EXPECT_EQ(V5Descriptors.front().StorageKind,
+		V6Inspection, V6Descriptors, &Error)) << Error;
+	ASSERT_EQ(V6Descriptors.size(), 1u);
+	EXPECT_EQ(V6Descriptors.front().StorageKind,
 		Asset::EEditorBulkDataStorageKind::External);
-	std::vector<std::filesystem::path> V5Companions;
+	std::vector<std::filesystem::path> V6Companions;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataCompanionPaths(
-		V5Entry->PhysicalPath, V5Inspection, V5Companions, &Error)) << Error;
-	ASSERT_EQ(V5Companions.size(), 1u);
+		V6Entry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
+	ASSERT_EQ(V6Companions.size(), 1u);
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings,
-		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5});
+		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
 	ASSERT_EQ(Reimported.Outcome.State, AssetForge::EImportOperationState::Succeeded)
 		<< Reimported.Outcome.Diagnostic;
-	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), V5DerivedDataKey);
+	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), V6DerivedDataKey);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasCook");
@@ -484,36 +484,36 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
-	std::vector<std::byte> V5CookedPackage;
-	std::vector<std::byte> V5CookedBulk;
+	std::vector<std::byte> V6CookedPackage;
+	std::vector<std::byte> V6CookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V5CookedPackage, CookRoot / "Game/ProductionVolume.dasset"));
+		V6CookedPackage, CookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V5CookedBulk, CookRoot / "Game/ProductionVolume.dbulk"));
+		V6CookedBulk, CookRoot / "Game/ProductionVolume.dbulk"));
 
 	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
 	std::vector<std::byte> CompanionBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, V5Companions.front()));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, V6Companions.front()));
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V5Companions.front()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
 	DVolumeTexture* CorruptLoad = nullptr;
 	EXPECT_FALSE(Asset::LoadAsset(AssetPath, CorruptLoad));
 	CompanionBytes.back() ^= std::byte{1};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V5Companions.front()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
 	DVolumeTexture* Reloaded = nullptr;
 	const Asset::FAssetResult Loaded = Asset::LoadAsset(AssetPath, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);
 	EXPECT_TRUE(std::ranges::equal(
-		Reloaded->GetSourceData().GetVoxelBytes(), V5SourceBytes));
-	EXPECT_EQ(Reloaded->GetDerivedDataKey(), V5DerivedDataKey);
+		Reloaded->GetSourceData().GetVoxelBytes(), V6SourceBytes));
+	EXPECT_EQ(Reloaded->GetDerivedDataKey(), V6DerivedDataKey);
 	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage(),
-		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5}));
+		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6}));
 	ASSERT_EQ(Asset::FindAssetExact(AssetPath)->FormatVersion,
-		5u);
-	EXPECT_TRUE(std::filesystem::is_regular_file(V5Companions.front()));
+		6u);
+	EXPECT_TRUE(std::filesystem::is_regular_file(V6Companions.front()));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasRollbackCook");
@@ -523,15 +523,15 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Reloaded->AddToCook(
 		RollbackCook, "/Game/ProductionVolume", Error)) << Error;
 	ASSERT_TRUE(RollbackCook.Publish(&Error)) << Error;
-	std::vector<std::byte> V4CookedPackage;
-	std::vector<std::byte> V4CookedBulk;
+	std::vector<std::byte> RepeatedCookedPackage;
+	std::vector<std::byte> RepeatedCookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V4CookedPackage, RollbackCookRoot / "Game/ProductionVolume.dasset"));
+		RepeatedCookedPackage, RollbackCookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V4CookedBulk, RollbackCookRoot / "Game/ProductionVolume.dbulk"));
-	EXPECT_EQ(V4CookedPackage, V5CookedPackage);
-	EXPECT_EQ(V4CookedBulk, V5CookedBulk);
+		RepeatedCookedBulk, RollbackCookRoot / "Game/ProductionVolume.dbulk"));
+	EXPECT_EQ(RepeatedCookedPackage, V6CookedPackage);
+	EXPECT_EQ(RepeatedCookedBulk, V6CookedBulk);
 	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
-	EXPECT_FALSE(std::filesystem::exists(V5Companions.front()));
+	EXPECT_FALSE(std::filesystem::exists(V6Companions.front()));
 }

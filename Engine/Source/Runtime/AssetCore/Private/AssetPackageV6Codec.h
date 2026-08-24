@@ -1,7 +1,6 @@
 #pragma once
 
 #include "AssetPackageCodec.h"
-#include "Asset/PackageTrailer.h"
 
 namespace Durin::Asset::Private::DastV6
 {
@@ -30,6 +29,23 @@ namespace Durin::Asset::Private::DastV6
 
 	inline constexpr uint32 RequiredSectionFlag = 1;
 
+	enum class EPayloadPlacement : uint32
+	{
+		ExternalDabkV1 = 1,
+	};
+
+	struct FPayloadEntry
+	{
+		FGuid PayloadId;
+		EPayloadPlacement Placement = EPayloadPlacement::ExternalDabkV1;
+		uint64 LogicalByteCount = 0;
+		uint64 StoredByteCount = 0;
+		FXxHash128 ContentHash;
+		FXxHash128 ContainerHash;
+
+		auto operator==(const FPayloadEntry&) const -> bool = default;
+	};
+
 	struct FSectionEntry
 	{
 		uint32 Kind = 0;
@@ -47,7 +63,7 @@ namespace Durin::Asset::Private::DastV6
 		std::string RedirectDestination;
 		std::vector<std::string> Imports;
 		uint64 ExportCount = 0;
-		std::vector<PackageTrailer::FEntry> PayloadEntries;
+		std::vector<FPayloadEntry> PayloadEntries;
 		uint64 ExpectedImportCount = 0;
 		uint64 ExpectedPayloadCount = 0;
 		std::array<FSectionEntry, RequiredSectionCount> RequiredEntries;
@@ -61,14 +77,12 @@ namespace Durin::Asset::Private::DastV6
 		FParsedPackage& OutPackage,
 		std::string* OutError = nullptr) -> bool;
 
-	ASSETCORE_API auto ConvertV5Package(
-		std::span<const std::byte> V5Bytes,
+	ASSETCORE_API auto BuildPackageFromObjectStream(
+		std::span<const std::byte> ObjectStreamBytes,
 		std::vector<std::byte>& OutV6Bytes) -> FAssetResult;
-
-	ASSETCORE_API auto ConvertV6PackageToV5(
+	ASSETCORE_API auto ExtractObjectStream(
 		std::span<const std::byte> V6Bytes,
-		std::vector<std::byte>& OutV5Bytes,
-		bool bAllowUnknownSkippableSections = false) -> FAssetResult;
+		std::vector<std::byte>& OutObjectStream) -> FAssetResult;
 
 	auto GetCodec() -> const FAssetPackageCodec&;
 }

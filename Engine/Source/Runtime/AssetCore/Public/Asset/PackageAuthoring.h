@@ -153,7 +153,7 @@ namespace Durin::Asset
 	enum class EAssetPackageWriterSelection : uint8
 	{
 		Ordinary,
-		DastV5,
+		DastV6,
 	};
 
 	struct FAssetPackageSaveOptions

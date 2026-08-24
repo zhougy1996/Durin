@@ -646,20 +646,22 @@ namespace Durin::Asset
 		bool bUsedCodec = false;
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
-		uint32 Magic = 0, Version = 0;
-		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != DastPackageMagic)
-			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (!Private::FindAssetPackageReader(Version))
-			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
-				std::format("Unsupported asset package format version {}.", Version));
-		else if (const Private::FAssetPackageCodec* Codec =
-			Private::FindAssetPackageReader(Version))
+		std::vector<std::byte> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
+			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
+				std::format("Failed to open asset package {}.", Input.PhysicalPath));
+		else
 		{
-			bUsedCodec = true;
-			std::vector<std::byte> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
-				AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-					std::format("Failed to open asset package {}.", Input.PhysicalPath));
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			Private::FAssetPackagePreamble Preamble;
+			const FAssetResult ResolveResult =
+				Private::ResolveAssetPackageReader(Bytes, Codec, &Preamble);
+			if (!ResolveResult)
+				AddTerminalFailure(Record,
+					ResolveResult.Error == EAssetError::UnsupportedVersion
+						? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
+						: EAssetCompatibilityFindingCode::CorruptPackage,
+					ResolveResult.Message);
 			else if (IsCancelled())
 			{
 				Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
@@ -667,6 +669,7 @@ namespace Durin::Asset
 			}
 			else
 			{
+				bUsedCodec = true;
 				FAssetPackageCompatibilityRecord CodecRecord;
 				FAssetResult ProbeResult = Codec->ProbeCompatibility(
 					Bytes, Input.PackagePath, Catalog, CodecRecord, &Result.Stats);
@@ -679,7 +682,7 @@ namespace Durin::Asset
 					CodecRecord.Fingerprint.FileSize = Record.Fingerprint.FileSize;
 					CodecRecord.Fingerprint.LastWriteTimeTicks = Record.Fingerprint.LastWriteTimeTicks;
 					CodecRecord.Fingerprint.ContentHash = Record.Fingerprint.ContentHash;
-					CodecRecord.Fingerprint.ReaderVersion = Version;
+					CodecRecord.Fingerprint.ReaderVersion = Preamble.FormatVersion;
 					CodecRecord.ReportContentHash = Input.ExpectedReportContentHash;
 					Record = std::move(CodecRecord);
 				}
