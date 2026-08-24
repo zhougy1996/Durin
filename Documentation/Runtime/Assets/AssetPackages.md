@@ -149,6 +149,45 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
+### DAST v5 Trailer Foundation (Not Production)
+
+AssetCore implements a private, detached foundation for a future DAST v5
+package boundary. It does not register a v5 package codec, construct objects,
+load v5 packages, or write production assets. DAST v4 remains the sole
+production reader and writer, and its unsupported-version dispatch rejects a
+v5 preamble. The foundation exists so later dual-read and opt-in publication
+work can build on one tested wire contract rather than inventing it inside a
+save path.
+
+The future composite is `ObjectStream || TrailerV1 || FooterV1` with no gaps,
+overlap, or trailing bytes. `ObjectStream` is an opaque prefix of at most 256
+MiB; the whole package is at most 1 GiB; the trailer contains at most 65,536
+entries. The detached builder receives the absolute object-stream end and
+logical entries, produces only `TrailerV1 || FooterV1`, and never writes a
+file. EOF inspection operates only on a byte span and leaves outputs empty on
+failure.
+
+Trailer v1 begins with a 64-byte little-endian header: `DTRL`, version 1,
+header size 64, entry size 80, `uint64` entry count, directory offset 64,
+absolute object-stream end/trailer offset, XXH3-128 of the exact directory
+bytes, and a zero `uint64` reserved field. Its size is exactly
+`64 + EntryCount * 80`. Entries are strictly GUID-sorted and unique. Each
+80-byte entry contains payload GUID, `uint32` placement, zero `uint32` flags,
+logical and stored `uint64` sizes, content XXH3-128, DABK v1 container
+XXH3-128, and a zero `uint64` reserved field. Placement 1,
+`ExternalDabkV1`, is the only supported state; both hashes and the GUID are
+nonzero, and stored size equals logical size.
+
+Footer v1 is exactly 64 bytes at physical EOF: `DTRF`, version 1, footer size
+64, zero flags, absolute trailer offset, trailer size, object-stream end equal
+to the trailer offset, XXH3-128 of the exact trailer header plus directory, and
+a zero `uint64` reserved field. Discovery validates footer identity and bounds
+before projecting the trailer, then validates the whole-trailer and directory
+hashes, exact extents, canonical order, and complete consumption. XXH3-128 is
+an integrity check only, not a persistent content-addressed key. Unknown
+versions, placements, flags, reserved fields, duplicates, size disagreements,
+bad hashes, overflow, truncation, gaps, overlap, and trailing bytes fail.
+
 ### Frozen DAST v4 Wire Contract
 
 DAST v4 is the qualified authored format. AssetCore exposes production-owned

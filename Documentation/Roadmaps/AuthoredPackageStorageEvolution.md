@@ -46,9 +46,18 @@ pay its compatibility and migration cost.
 DAST v4/DABK v1, companion-first publication, and the current Git/LFS split
 therefore remain authoritative. Current-computer timings are recorded as
 diagnostic only because this is not the designated performance reference
-machine. Milestones 1-7 remain inactive. Milestone 0 reopens only when a
-recorded corpus, transfer, consumer, publication, or reference-machine
-inspection trigger fires; reopening qualification is not a Proceed decision.
+machine. The subsequent user directive to generate and execute plans until this
+roadmap is complete is recorded separately by
+[Authored Package Storage Strategic Activation](../Plans/AuthoredPackageStorageStrategicActivation.md).
+It preserves the Retain evidence but authorizes strategic Proceed, selects DAST
+v5 with a versioned EOF trailer/footer and external DABK v1 placement, and
+activated and completed the
+[Authored Package Trailer Foundation](../Plans/AuthoredPackageTrailerFoundation.md).
+Its detached v1 trailer/footer codec, EOF inspection, golden wires, and
+corruption contracts are qualified without registering production DAST v5.
+Milestone 2 is now active through
+[Selected Local Authored Payload Publication](../Plans/SelectedLocalAuthoredPayloadPublication.md);
+Milestones 3-7 remain inactive until their own gates pass.
 
 ## Outcome
 
@@ -245,27 +254,29 @@ an initial assumption.
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
 | 0. Qualification and wire decision | Current DAST/DABK contracts and representative corpus | Measured corpus/source-control baseline, UE-reference analysis, alternatives record, compatibility matrix, and a recorded Proceed, Defer, or Retain decision; Proceed also selects the package/descriptor boundary and next child plan | Roadmap accepted and the qualification plan activated | Reproducible evidence covers payload counts/sizes/change rates, save and checkout costs, Git/LFS effects, supported-filesystem crash windows, identity/hash policy, and candidate layouts; Proceed proves benefit over DABK, while Defer or Retain records measurable revisit triggers and activates no production-format plan | Completed — Retain 2026-08-24 |
-| 1. Package trailer foundation | Milestone 0 | Bounded versioned trailer/footer model, detached builder/reader, only the selected entry vocabulary, construct-free inspection, golden bytes, and corruption fixtures | Milestone 0 records Proceed and selects a trailer/object-stream boundary without changing domain schemas | Focused tests prove canonical ordering, backward discovery by the new reader, all structural bounds, unsupported-state rejection, duplicate/range/trailing rejection, and no object construction; no production writer uses the format yet | Qualification-gated |
-| 2. Selected local authored payload publication | Milestone 1 | Dual-read package loading, failure-atomic publication for the selected package-local or companion-local placement, recovery/compaction policy, package operations integration, and opt-in writer | The selected placement shows measured or operational benefit, has an explicit Git/LFS policy, and preserves the prior generation under every injected failure | Save/reload, bundle, move, copy, delete, Fix Up, canonical resave, crash recovery, and catalog failure tests pass while DAST v4/DABK v1 remain readable | Qualification-gated |
+| 0.5 Strategic activation and boundary selection | Milestone 0 Retain evidence plus explicit user completion directive | Truthful strategic Proceed record selecting DAST v5, versioned EOF trailer/footer, external DABK v1 in Git LFS, full-file package replacement, and canonical v4 rollback | User explicitly directs completion of the full roadmap while accepting pre-threshold investment | Retain evidence remains intact; one boundary/placement is selected; no later evidence gate is waived; exactly one foundation plan is activated | Completed — Strategic Proceed 2026-08-24 |
+| 1. Package trailer foundation | Milestone 0.5 | Bounded versioned trailer/footer model, detached builder/reader, only `ExternalDabkV1`, construct-free inspection, golden bytes, and corruption fixtures | Strategic activation records Proceed and selects DAST v5 plus trailer-indexed DABK v1 without changing domain schemas | Focused tests prove canonical ordering, EOF discovery, all structural bounds, unsupported-state rejection, duplicate/range/trailing rejection, and no object construction; no production writer uses the format yet | Completed 2026-08-24 |
+| 2. Selected local authored payload publication | Milestone 1 | Dual-read package loading, failure-atomic publication for the selected package-local or companion-local placement, recovery/compaction policy, package operations integration, and opt-in writer | The selected placement shows measured or operational benefit, has an explicit Git/LFS policy, and preserves the prior generation under every injected failure | Save/reload, bundle, move, copy, delete, Fix Up, canonical resave, crash recovery, and catalog failure tests pass while DAST v4/DABK v1 remain readable | Active |
 | 3. VolumeTexture migration pilot | Milestone 2 | One production asset route writes through the selected trailer-indexed authored-voxel placement without domain-schema change and can roll back to DAST v4/DABK v1 during qualification | Selected local publication is qualified and VolumeTexture golden/source/DDC/Cook fixtures are green | Editor save/reload, reimport, DDC miss/rebuild, Cook/runtime, inspection/repair, source control, canonical resave, and rollback pass with exact disposition of legacy companions | Qualification-gated |
 | 4. Corpus migration and default writer | Milestone 3 plus representative repository telemetry | Canonical corpus conversion, submit validation, cleanup, compatibility policy, default placement selection, and lasting contracts | The pilot has operated through representative edits and source-control workflows without unresolved durability or performance regressions | Every tracked package is classified, migrated packages have no unreachable required payloads, old readers fail explicitly where required, rollback assets exist, and default-writer policy is documented | Qualification-gated |
 | 5. Persistent authored virtualization | Milestone 3 or 4 | Content-addressed persistent backend, optional cache hierarchy, hydration, offline prefetch/failure policy, permissions, submit integration, provenance, repair, and garbage collection | Telemetry demonstrates material checkout/storage/transfer benefit; at least two authored consumers share the need; a durable backend and ownership model are selected | Prefetched and never-hydrated offline cases, cache miss, backend outage, permission, partial submit, concurrent edit, recovery, retention, and GC tests prove that no reachable authored payload depends solely on disposable cache state | Evidence-gated |
 | 6. Trailer and backend optimization | Milestones 4-5 as applicable | Compression, cross-package deduplication, range IO, compaction scheduling, or package-container aggregation selected independently from measurements | Profiling identifies a specific storage, latency, memory, patch, or transfer budget violation | The selected optimization meets a frozen budget without weakening compatibility, durability, diagnostics, or domain ownership | Evidence-gated |
 | 7. Legacy DABK write retirement | Milestone 4 and, if adopted, Milestone 5 | Removal of default DABK writes and explicit long-term legacy-read disposition | All supported branches/corpora are migrated or have a documented compatibility route and rollback window has elapsed | No production workflow writes new DABK, legacy fixtures remain intentionally supported or are removed by an approved format-break policy, and orphan cleanup cannot delete reachable historical data | Conditional |
 
-Milestone 0 is the required qualification. Milestones 1-4 become required only
-after a Proceed decision activates the local trailer-indexed route. Milestones
-5-6 remain evidence-gated and Milestone 7 remains conditional; a Defer or Retain
-decision leaves them inactive and records the telemetry that can reopen the
-program.
+Milestone 0 remains the required measured qualification and its Retain result is
+not rewritten. Milestone 0.5 records the later strategic Proceed directive.
+Milestones 1-4 therefore become required in order. Milestones 5-6 remain
+evidence-gated and Milestone 7 remains conditional; strategic activation does
+not waive their separate entry gates.
 
 ## Child Plan Boundaries
 
 | Child plan | Activation condition | Owns | Must not own |
 | --- | --- | --- | --- |
 | [Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md) | Completed 2026-08-24 with Retain | Measurements, UE comparison, format/placement alternatives, identity and hash policy, compatibility matrix, and Proceed/Defer/Retain decision | Production wire changes, source-control migration, or corpus mutation |
-| Authored Package Trailer Foundation | Milestone 0 records Proceed | Selected trailer/footer codec, builder/reader, inspection model, golden and corruption fixtures | Unselected placement states, asset-domain codecs, production default writer, or virtualization backend |
-| Local Authored Trailer Publication | Milestone 1 exit gate | Atomic/tail/append publication choice, recovery, compaction, package operation integration, dual-read and opt-in write | Remote backend or broad consumer migration |
+| [Authored Package Storage Strategic Activation](../Plans/AuthoredPackageStorageStrategicActivation.md) | Completed 2026-08-24 from explicit user completion directive | Strategic Proceed authority, DAST v5 boundary selection, external DABK v1 placement, compatibility/rollback selection, and foundation activation | Rewriting qualification measurements or waiving later evidence gates |
+| [Authored Package Trailer Foundation](../Plans/AuthoredPackageTrailerFoundation.md) | Completed 2026-08-24 | Trailer/footer codec, detached builder/reader, construct-free inspection, golden and corruption fixtures | Production package codec registration, unselected placements, default writer, or virtualization backend |
+| [Selected Local Authored Payload Publication](../Plans/SelectedLocalAuthoredPayloadPublication.md) | Milestone 1 completed 2026-08-24 | Atomic whole-file publication, recovery, package operation integration, dual-read and opt-in write | Remote backend or broad consumer migration |
 | VolumeTexture Trailer Migration | Milestone 2 exit gate | VolumeTexture pilot, source/DDC/Cook equivalence, rollback, inspection/repair evidence | Generic texture schema redesign or unrelated consumer conversion |
 | Authored Trailer Corpus Migration | Milestone 3 exit gate | Canonical resave, source-control submit checks, cleanup, default writer, compatibility disposition | Persistent backend implementation unless separately activated |
 | Authored Payload Virtualization | Milestone 5 entry gate | Persistent/cache backend hierarchy, hydration, offline behavior, permissions, provenance, retention and GC | Making DDC authoritative or changing domain semantics |
