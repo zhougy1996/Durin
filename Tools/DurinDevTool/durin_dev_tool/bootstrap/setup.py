@@ -31,8 +31,7 @@ from .agent_config import (
     ensure_agent_config,
     save_toolchain_config,
 )
-from .models import BootstrapError, DependencyRequest
-from .dependency_service import prepare_dependencies
+from .models import BootstrapError
 from .preflight import PreflightError, validate_prerequisites
 from .toolchain_selection import (
     DEFAULT_ENVIRONMENT_ARGUMENTS,
@@ -443,17 +442,6 @@ def setup_repository(
             raise BootstrapError(str(exc)) from exc
         ensure_vscode_configuration(repository, command_io)
         python = ensure_python_environment(repository, command_io)
-        prepare_dependencies(
-            repository,
-            DependencyRequest(
-                use_all=True,
-                with_tests=True,
-                with_development=True,
-                cmake_command=selection.cmake_command,
-            ),
-            command_io=command_io,
-            environment=selection.environment,
-        )
     except OSError as exc:
         raise BootstrapError(str(exc)) from exc
     command_io.out("Durin setup completed successfully.")

@@ -303,7 +303,7 @@ class TestCore:
         preset = self.make_preset()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'prepare_configure_dependencies') as prepare, mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
             context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.CONFIGURE, options=request_fixtures.BuildActionOptions()), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
             build_core.perform_action(context, output)
             assert run.call_args.args[0] == ['cmake', '--preset', 'debug']
@@ -324,13 +324,14 @@ class TestCore:
                 '-DDURIN_ENABLE_APPLICATION_TESTS=ON',
                 '-DDURIN_DHT_WORKERS=4',
             ]
+            assert prepare.call_count == 3
     def test_configure_recovers_an_unusable_existing_cache_with_fresh(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         cache = Path(directory) / 'CMakeCache.txt'
         cache.write_text('CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n', encoding='utf-8')
-        with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'prepare_configure_dependencies'), mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
             context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.CONFIGURE, options=request_fixtures.BuildActionOptions()), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
             build_core.perform_action(context, output)
         assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']

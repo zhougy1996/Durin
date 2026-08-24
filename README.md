@@ -10,8 +10,8 @@ dependencies, worktrees, builds, tests, running, and cleanup.
 ## Prerequisites
 
 Both platforms require Git, CMake 3.24 or newer, Python 3.10 or newer with
-`venv`, the LunarG Vulkan SDK, and network access to GitHub and the Python
-Package Index during setup.
+`venv`, the LunarG Vulkan SDK, network access to the Python Package Index during
+setup, and GitHub access when the first build prepares third-party dependencies.
 
 ### Windows
 
@@ -35,7 +35,7 @@ usually needed.
 Source the Vulkan SDK's `setup-env.sh` before the initial setup so
 `VULKAN_SDK` points to its `macOS` directory. DurinDevTool validates Xcode,
 Apple Clang, the macOS SDK, and the arm64 Vulkan/MoltenVK libraries before
-preparing dependencies. See [Build and Run](Documentation/Development/Build/BuildAndRun.md#macos-prerequisites)
+recording the environment. See [Build and Run](Documentation/Development/Build/BuildAndRun.md#macos-prerequisites)
 for the qualified tool versions and full SDK layout.
 
 ## First-Time Setup
@@ -58,18 +58,19 @@ source /path/to/VulkanSDK/setup-env.sh
 ```
 
 Setup checks the prerequisites, confirms the detected CMake and host toolchain,
-creates the repository-local `.venv`, installs the pinned Python packages, and
-prepares the repository-managed third-party dependencies. It also
-creates missing machine-local configuration from the tracked templates:
+creates the repository-local `.venv`, and installs the pinned Python packages.
+Third-party dependencies are prepared lazily for the selected configuration by
+the first configure or build. Setup also creates missing machine-local
+configuration from the tracked templates:
 
 - `.agents/DevTool.user.json` for toolchain and build-profile overrides;
 - `.vscode/settings.json`, `.vscode/extensions.json`, and a generated
   `.vscode/launch.json` for local editor integration.
 
 Existing local configuration is preserved. Setup is idempotent, so after fixing
-a prerequisite or interrupted download, rerun the same command. Scripts and CI
-can use `setup --non-interactive` after valid settings are already available or
-can be detected automatically.
+a prerequisite or interrupted Python-package installation, rerun the same
+command. Scripts and CI can use `setup --non-interactive` after valid settings
+are already available or can be detected automatically.
 
 ## Build and Run
 

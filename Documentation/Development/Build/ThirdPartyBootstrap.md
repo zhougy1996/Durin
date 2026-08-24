@@ -27,12 +27,16 @@ On macOS, use the same command surface through the POSIX launcher:
 
 For a fresh clone, use `.\DevTool.bat setup` on Windows or `./DevTool setup` on
 macOS. It creates `.venv`, installs
-`requirements.txt`, and prepares test and development dependencies through the
+`requirements.txt`, and records the selected toolchain. The first configure or
+build prepares the dependencies required by its selected preset through the
 same dependency service.
 
 ## Worktree Sharing
 
 - `DevTool worktree prepare` links a linked worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
+- Dependency preparation is serialized through a lock inside the resolved shared
+  `Engine/External` store, so first-time configures in linked worktrees cannot
+  publish the same package concurrently.
 - The same command links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
 - When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
 - On Windows, all three shared directories use directory junctions by default; `.agents/DevTool.user.json` remains a regular file in the source worktree and is reached through that shared directory.
@@ -164,16 +168,19 @@ architecture, install names, and runtime behavior have been verified.
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
 - `--all` skips development-only dependencies unless `--with-development` is
   supplied. Explicit `--libs <name>` selection remains available.
-- `DevTool setup` prepares all ordinary dependencies and supplies the test and
-  development selections so a fully prepared checkout includes both dependency
-  classes by default.
+- `DevTool setup` does not acquire repository-managed third-party dependencies.
+  The first configure for a preset prepares ordinary dependencies only for its
+  effective Debug or Release configuration and includes test dependencies when
+  `BUILD_TESTING` is enabled. Shipping maps to the Release install tree.
 - `googletest` is test-only.
 - Tracy `v0.13.1` source and matching Win64 host tools are development-only and
-  licensed under BSD-3-Clause. Setup prepares both by default; use
-  `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair
-  them together. On macOS the Tracy client remains available, while the
+  licensed under BSD-3-Clause. Profiling presets prepare only the Tracy client
+  source before their first configure. Use
+  `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair the
+  client and optional tools together. On macOS the Tracy client remains
+  available, while the
   explicitly unsupported Win64-only Tracy tool package is skipped without
-  blocking ordinary setup.
+  blocking ordinary dependency preparation.
   The upstream binary archive does not include its license file; the prepared
   Tracy source retains `Engine/External/Source/tracy/LICENSE`, and repository
   documentation accompanying the managed download retains the license and

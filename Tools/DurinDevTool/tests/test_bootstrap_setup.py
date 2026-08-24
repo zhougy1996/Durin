@@ -205,9 +205,9 @@ class TestSetupOrchestration:
         events: list[str] = []
         python = root / '.venv' / 'Scripts' / 'python.exe'
         selection = toolchain_selection.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda *_args, **_kwargs: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda *_args, **_kwargs: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda *_args, **_kwargs: events.append('python') or python), mock.patch.object(setup, 'prepare_dependencies', side_effect=lambda *_args, **_kwargs: events.append('dependencies')):
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda *_args, **_kwargs: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda *_args, **_kwargs: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda *_args, **_kwargs: events.append('python') or python):
             assert setup.setup_repository(root) == python
-        assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python', 'dependencies']
+        assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python']
 
     def test_linked_worktree_setup_points_only_to_unified_prepare(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -217,19 +217,14 @@ class TestSetupOrchestration:
             setup.setup_repository(root)
         assert 'WorktreeTool' not in str(raised.value)
 
-    def test_setup_uses_complete_dependency_selection(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+    def test_setup_does_not_prepare_third_party_dependencies(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         python = root / '.venv' / 'Scripts' / 'python.exe'
         selection = toolchain_selection.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'prepare_dependencies') as prepare:
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python):
             setup.setup_repository(root)
-        request = prepare.call_args.args[1]
-        assert request.use_all
-        assert request.with_tests
-        assert request.with_development
-        assert request.cmake_command == 'cmake.exe'
-        assert prepare.call_args.kwargs['environment'] == {'PATH': 'ready'}
+        assert not hasattr(setup, 'prepare_dependencies')
 
     def test_worktree_preparation_uses_shared_python_preflight(self) -> None:
         target = Path('C:/repo-feature')

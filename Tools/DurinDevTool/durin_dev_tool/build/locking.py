@@ -208,10 +208,12 @@ class BuildToolLock:
         metadata: Mapping[str, Any],
         *,
         cwd: Path | None = None,
+        scope: str = "checkout",
     ):
         self.path = path
         self.metadata = dict(metadata)
         self.cwd = cwd
+        self.scope = scope
         self.handle: Any = None
 
     def __enter__(self) -> "BuildToolLock":
@@ -234,7 +236,7 @@ class BuildToolLock:
             self.handle.close()
             self.handle = None
             raise BuildToolError(
-                "Another DurinDevTool operation already owns this checkout. "
+                f"Another DurinDevTool operation already owns this {self.scope}. "
                 + read_state_description(self.path, locked=True)
             ) from exc
         normalize_windows_lock_acl(self.path, cwd=self.cwd)

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Mapping
 
 from ..build.config import load_local_config
+from ..build.locking import BuildToolLock
 from ..context import CommandIO, RepositoryContext
 from . import installer, manifests
 from .models import BootstrapError, DependencyRequest
@@ -64,14 +66,27 @@ def prepare_dependencies(
                 effective_environment or os.environ,
             )
     cmake_command = cmake_command or configured_cmake_command(repository)
-    for manifest in selected:
-        installer.prepare_manifest(
-            manifest,
-            platform_name=platform,
-            configurations=manifests.configurations(request.config),
-            cmake_command=cmake_command,
-            repository=repository,
-            command_io=command_io,
-            environment=effective_environment,
-        )
+    external_root = repository.resolve(repository.config.worktrees.external_directory).resolve()
+    lock_path = external_root / ".agent-locks" / "dependencies.lock"
+    with BuildToolLock(
+        lock_path,
+        {
+            "pid": os.getpid(),
+            "action": "dependency-prepare",
+            "target": ",".join(manifest["name"] for manifest in selected),
+            "startedAt": datetime.now(timezone.utc).isoformat(),
+        },
+        cwd=repository.root,
+        scope="shared dependency store",
+    ):
+        for manifest in selected:
+            installer.prepare_manifest(
+                manifest,
+                platform_name=platform,
+                configurations=manifests.configurations(request.config),
+                cmake_command=cmake_command,
+                repository=repository,
+                command_io=command_io,
+                environment=effective_environment,
+            )
     return tuple(manifest["name"] for manifest in selected)

@@ -6,8 +6,9 @@ workflows do not require or link Tracy.
 
 ## Preparation And Presets
 
-`DevTool setup` prepares the pinned Tracy `v0.13.1` source by default. To
-prepare or repair Tracy without running the full setup flow:
+The first configure or build using a profiling preset prepares the pinned Tracy
+`v0.13.1` client source. It does not download the optional host tools. To
+prepare or repair both explicitly:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools
@@ -38,9 +39,8 @@ match the pinned Tracy `v0.13.1` client.
 
 ## Editor Tool Workflow
 
-Root setup installs the matching Tracy host tools at
-`Engine/External/Packages/tracy-tools/0.13.1/Win64/`. Repair both Tracy client
-source and host tools with:
+Install the matching Tracy host tools explicitly at
+`Engine/External/Packages/tracy-tools/0.13.1/Win64/` with:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools

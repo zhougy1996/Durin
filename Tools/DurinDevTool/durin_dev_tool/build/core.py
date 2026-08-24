@@ -51,6 +51,7 @@ from .native_test_registry import (
     resolve_selection,
 )
 from .toolchain_context import prepare_toolchain_context
+from .dependencies import prepare_configure_dependencies
 
 ALL_NATIVE_TESTS_TARGET = "DurinNativeTests"
 
@@ -253,6 +254,8 @@ def perform_action(
             command.append("--fresh")
         command.extend(["--preset", context.preset.name])
         command.extend(f"-D{definition}" for definition in request.defines)
+        with output.stage("Dependencies"):
+            prepare_configure_dependencies(context, output)
         with output.stage("Configure"):
             run_command(
                 command,
@@ -293,6 +296,8 @@ def perform_action(
                 )
         else:
             output.warning(f'Skipping clean because the build tree is unconfigured: "{build_directory}"')
+        with output.stage("Dependencies"):
+            prepare_configure_dependencies(context, output)
         with output.stage("Configure"):
             run_command(
                 [context.cmake, "--fresh", "--preset", context.preset.name],
@@ -315,6 +320,8 @@ def perform_action(
         if cache_file.exists():
             command.append("--fresh")
         command.extend(["--preset", context.preset.name])
+        with output.stage("Dependencies"):
+            prepare_configure_dependencies(context, output)
         with output.stage("Configure"):
             run_command(
                 command,

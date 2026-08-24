@@ -44,8 +44,9 @@ yet a declared minimum-version support matrix.
   directory and contain Vulkan headers, VMA, an arm64 Vulkan loader, and arm64
   MoltenVK libraries. Source the SDK's `setup-env.sh` before setup, or record
   that script as the optional machine-local environment override.
-- Do not install Slang separately for Durin. Setup downloads and validates the
-  pinned official macOS arm64 Slang package in `Engine/External/Packages`.
+- Do not install Slang separately for Durin. The first configure or build
+  downloads and validates the pinned official macOS arm64 Slang package in
+  `Engine/External/Packages`.
 
 Durin's macOS setup preflight validates native arm64 execution, selected Xcode,
 Apple Clang and SDK discovery, CMake, Ninja, Python, Git, and the Vulkan SDK
@@ -83,15 +84,21 @@ Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --plain` and `NO_COLOR` disable that styling as usual.
 
-In a normal checkout, `DevTool setup` creates `.venv`, installs the pinned
+In a normal checkout, `DevTool setup` creates `.venv` and installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
-bindings and native `libclang` library), and prepares all repository-managed
-third-party libraries, including development-only dependencies such as Tracy.
+bindings and native `libclang` library). It does not download or compile
+repository-managed third-party dependencies. The first command that must
+configure a CMake tree prepares the ordinary and test dependencies required by
+that preset, and builds shared-install packages only for its effective Debug or
+Release configuration. Shipping reuses Release packages. A profiling preset
+also prepares the pinned Tracy client source, but never downloads the optional
+Tracy host tools.
+
 The confirmed Windows Visual Studio environment or validated macOS inherited
-environment is passed to every third-party CMake configure and build subprocess;
-later `DevTool dependency prepare` calls recreate the saved selection.
-The operation is idempotent and can be rerun after a failed prerequisite check
-or interrupted download. `DevTool worktree prepare` owns linked-worktree
+environment is passed to every lazy third-party CMake configure and build
+subprocess; explicit `DevTool dependency prepare` calls recreate the saved
+selection. Both flows are idempotent and can be rerun after an interrupted
+download or build. `DevTool worktree prepare` owns linked-worktree
 preparation: it links `.agents`, `.vscode`, `Engine/External`, and `.venv` from
 the prepared source worktree before running preflight. If a linked worktree
 already has a non-empty local `.agents` or `.vscode` directory, preparation
