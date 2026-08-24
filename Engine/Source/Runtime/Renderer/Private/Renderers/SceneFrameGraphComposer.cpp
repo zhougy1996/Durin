@@ -45,9 +45,13 @@ namespace Durin
 		auto& GraphResources = Composition.Resources;
 		auto& Channels = Composition.Channels;
 		constexpr FRenderGraphBudget SceneFrameBudget{
-			.MaxPasses = 12,
-			.MaxDependencies = 28,
-			.MaxTextureTransitions = 20,
+			.MaxPasses = 256,
+			.MaxDependencies = 4096,
+			.MaxBufferTransitions = 4096,
+			.MaxTextureTransitions = 4096,
+			.RegressionMaxPasses = 12,
+			.RegressionMaxDependencies = 28,
+			.RegressionMaxTextureTransitions = 32,
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};

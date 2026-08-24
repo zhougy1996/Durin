@@ -40,6 +40,24 @@ namespace Durin
 				CompiledGraph.Error);
 			return ESceneFrameGraphExecutionStatus::CompileFailed;
 		}
+		const FRenderGraphStatistics Statistics =
+			CompiledGraph.Graph->GetStatistics();
+		if (Statistics.IsStructuralRegressionBudgetExceeded()
+			&& !bReportedRegressionOverage)
+		{
+			const FRenderGraphBudget& Budget = CompiledGraph.Graph->GetBudget();
+			DURIN_WARN(
+				"Scene frame graph regression budget exceeded: passes={}/{} "
+				"dependencies={}/{} buffer-transitions={}/{} "
+				"texture-transitions={}/{}",
+				Statistics.DeclaredPasses, Budget.RegressionMaxPasses,
+				Statistics.Dependencies, Budget.RegressionMaxDependencies,
+				Statistics.BufferTransitions,
+				Budget.RegressionMaxBufferTransitions,
+				Statistics.TextureTransitions,
+				Budget.RegressionMaxTextureTransitions);
+			bReportedRegressionOverage = true;
+		}
 		std::string ExecutionError;
 		const bool Executed =
 			CompiledGraph.Graph->Execute(CommandList, &ExecutionError);

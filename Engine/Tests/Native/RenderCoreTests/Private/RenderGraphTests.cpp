@@ -469,7 +469,24 @@ namespace Durin
 		auto Result = Builder.Compile();
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_EQ(Result.Error,
-			"render graph budget exceeded: passes actual=2 limit=1");
+			"render graph safety limit exceeded: passes actual=2 limit=1");
+	}
+
+	TEST(FRenderGraphTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
+	{
+		FRenderGraphBuilder Builder;
+		Builder.SetBudget({
+			.MaxPasses = 8,
+			.RegressionMaxPasses = 1,
+		});
+		Builder.AddPass("First", ERenderGraphPassType::Graphics);
+		Builder.AddPass("Second", ERenderGraphPassType::Graphics);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const FRenderGraphStatistics Statistics = Result.Graph->GetStatistics();
+		EXPECT_TRUE(Statistics.bPassRegressionBudgetExceeded);
+		EXPECT_TRUE(Statistics.IsStructuralRegressionBudgetExceeded());
+		EXPECT_EQ(Result.Graph->Capture().Budget.RegressionMaxPasses, 1u);
 	}
 
 	TEST(FRenderGraphTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)

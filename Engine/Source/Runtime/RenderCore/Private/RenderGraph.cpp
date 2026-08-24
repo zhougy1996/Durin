@@ -579,7 +579,7 @@ namespace Durin
 
 		const uint32 PassCount = static_cast<uint32>(State->Passes.size());
 		if (PassCount > State->Budget.MaxPasses)
-			return Fail("render graph budget exceeded: passes actual="
+			return Fail("render graph safety limit exceeded: passes actual="
 				+ std::to_string(PassCount) + " limit=" + std::to_string(State->Budget.MaxPasses));
 		std::vector<std::vector<uint32>> Outgoing(PassCount);
 		std::vector<uint32> Indegree(PassCount, 0);
@@ -1010,7 +1010,7 @@ namespace Durin
 		}
 		auto CheckLimit = [&](std::string_view Name, uint32 Actual, uint32 Limit)
 			-> FRenderGraphCompileResult {
-			return Fail("render graph budget exceeded: " + std::string(Name)
+			return Fail("render graph safety limit exceeded: " + std::string(Name)
 				+ " actual=" + std::to_string(Actual) + " limit="
 				+ std::to_string(Limit));
 		};
@@ -1061,6 +1061,11 @@ namespace Durin
 		return State->CompileMicroseconds;
 	}
 
+	auto FCompiledRenderGraph::GetBudget() const -> const FRenderGraphBudget&
+	{
+		return State->Budget;
+	}
+
 	auto FCompiledRenderGraph::GetStatistics() const -> FRenderGraphStatistics
 	{
 		FRenderGraphStatistics Result;
@@ -1080,6 +1085,14 @@ namespace Durin
 		Result.CompileMicroseconds = State->CompileMicroseconds;
 		Result.ExecuteMicroseconds =
 			State->ExecuteMicroseconds.load(std::memory_order_relaxed);
+		Result.bPassRegressionBudgetExceeded = Result.DeclaredPasses
+			> State->Budget.RegressionMaxPasses;
+		Result.bDependencyRegressionBudgetExceeded = Result.Dependencies
+			> State->Budget.RegressionMaxDependencies;
+		Result.bBufferTransitionRegressionBudgetExceeded = Result.BufferTransitions
+			> State->Budget.RegressionMaxBufferTransitions;
+		Result.bTextureTransitionRegressionBudgetExceeded = Result.TextureTransitions
+			> State->Budget.RegressionMaxTextureTransitions;
 		Result.bCompileBudgetExceeded = Result.CompileMicroseconds
 			> State->Budget.MaxCompileMicroseconds;
 		Result.bExecuteBudgetExceeded = Result.ExecuteMicroseconds
@@ -1090,6 +1103,7 @@ namespace Durin
 	auto FCompiledRenderGraph::Capture() const -> FRenderGraphCapture
 	{
 		FRenderGraphCapture Result;
+		Result.Budget = State->Budget;
 		Result.Statistics = GetStatistics();
 		Result.Resources = State->ResourceCaptures;
 		Result.Uses = State->UseCaptures;

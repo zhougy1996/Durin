@@ -267,13 +267,19 @@ namespace Durin
 		std::string Reason;
 	};
 
-	// Freezes deterministic graph-shape gates and observational CPU thresholds.
+	// Separates catastrophic graph-shape safety limits from observational budgets.
 	struct FRenderGraphBudget final
 	{
 		uint32 MaxPasses = std::numeric_limits<uint32>::max();
 		uint32 MaxDependencies = std::numeric_limits<uint32>::max();
 		uint32 MaxBufferTransitions = std::numeric_limits<uint32>::max();
 		uint32 MaxTextureTransitions = std::numeric_limits<uint32>::max();
+		uint32 RegressionMaxPasses = std::numeric_limits<uint32>::max();
+		uint32 RegressionMaxDependencies = std::numeric_limits<uint32>::max();
+		uint32 RegressionMaxBufferTransitions =
+			std::numeric_limits<uint32>::max();
+		uint32 RegressionMaxTextureTransitions =
+			std::numeric_limits<uint32>::max();
 		uint64 MaxCompileMicroseconds = std::numeric_limits<uint64>::max();
 		uint64 MaxExecuteMicroseconds = std::numeric_limits<uint64>::max();
 	};
@@ -289,8 +295,20 @@ namespace Durin
 		uint32 TextureTransitions = 0;
 		uint64 CompileMicroseconds = 0;
 		uint64 ExecuteMicroseconds = 0;
+		bool bPassRegressionBudgetExceeded = false;
+		bool bDependencyRegressionBudgetExceeded = false;
+		bool bBufferTransitionRegressionBudgetExceeded = false;
+		bool bTextureTransitionRegressionBudgetExceeded = false;
 		bool bCompileBudgetExceeded = false;
 		bool bExecuteBudgetExceeded = false;
+
+		auto IsStructuralRegressionBudgetExceeded() const -> bool
+		{
+			return bPassRegressionBudgetExceeded
+				|| bDependencyRegressionBudgetExceeded
+				|| bBufferTransitionRegressionBudgetExceeded
+				|| bTextureTransitionRegressionBudgetExceeded;
+		}
 	};
 
 	// Pointer-free pass record suitable for persistence and tooling.
@@ -306,6 +324,7 @@ namespace Durin
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
 	struct FRenderGraphCapture final
 	{
+		FRenderGraphBudget Budget;
 		FRenderGraphStatistics Statistics;
 		std::vector<FRenderGraphPassCapture> Passes;
 		std::vector<FRenderGraphResourceCapture> Resources;
@@ -351,6 +370,7 @@ namespace Durin
 		auto GetFinalTextureTransitions() const
 			-> std::span<const FRHITextureTransition>;
 		auto GetCompileMicroseconds() const -> uint64;
+		auto GetBudget() const -> const FRenderGraphBudget&;
 		auto GetStatistics() const -> FRenderGraphStatistics;
 		auto Capture() const -> FRenderGraphCapture;
 		auto Dump() const -> std::string;

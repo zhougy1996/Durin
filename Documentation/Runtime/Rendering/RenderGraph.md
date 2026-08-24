@@ -108,11 +108,15 @@ equal declarations produce equal text. `Capture()` copies that dump plus
 pointer-free pass/resource/use/transition records, dependencies, lifetimes, culling decisions, and
 statistics into an owning value that remains valid after graph destruction.
 
-`FRenderGraphBudget` freezes pass, dependency, and transition ceilings as
-deterministic compile gates. Errors name the exceeded dimension and include
-actual and limit values. Compile and execute CPU thresholds are different:
-statistics report whether they were exceeded, but wall-clock observation never
-rejects compilation, aborts execution, or changes renderer correctness.
+`FRenderGraphBudget` separates structural safety limits from regression budgets.
+The `Max*` structural limits are deliberately broad deterministic compile gates
+that protect graph construction from catastrophic growth. Errors name the
+exceeded dimension and include actual and limit values. `RegressionMax*`
+thresholds describe the expected shape of a named production graph: statistics
+report individual overages, captures preserve the selected budget, and a graph
+remains executable when one is exceeded. Compile and execute CPU thresholds are
+also observational; wall-clock or regression-budget observation never rejects
+compilation, aborts execution, or changes renderer correctness.
 
 The foundation regression gate compiles a 128-pass same-range hazard chain
 under 250 milliseconds in a Debug native test. Renderer migration plans must
@@ -129,9 +133,10 @@ New renderer work that crosses pass boundaries must use the graph path:
   capture, publication, and timestamps as explicit roots when culling is on.
 - Put graph-created resource acquisition in the retained-backing resolver; do
   not lazily allocate inside pass callbacks.
-- Set a named structural and CPU budget beside every production graph authoring
-  site. Raising a structural limit requires explaining the new pass/resource
-  relationship and extending its contract coverage.
+- Set named safety limits, structural regression budgets, and CPU budgets beside
+  every production graph authoring site. Raising a regression budget requires
+  explaining the new pass/resource relationship and extending its contract
+  coverage; safety limits change only when the supported graph scale changes.
 - Keep manual transitions out of migrated edges. A feature-owned render pass
   may describe attachment layout, but its graph declarations own the outer
   access handoff.

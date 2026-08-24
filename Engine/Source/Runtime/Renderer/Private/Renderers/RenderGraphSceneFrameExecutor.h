@@ -35,5 +35,6 @@ namespace Durin
 		) -> ESceneFrameGraphExecutionStatus;
 
 		FSceneFrameExecutionPipeline Pipeline;
+		bool bReportedRegressionOverage = false;
 	};
 } // namespace Durin
