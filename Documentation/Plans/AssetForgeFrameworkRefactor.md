@@ -4,8 +4,8 @@ Summary: Reframe AssetForge as the asset-import framework, separate built-in imp
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
@@ -34,6 +34,23 @@ zero canonicalization or deprecated-route evidence; canonical-resave CI is a
 zero-work no-op. `AssetForgeTests` (18), `AssetImportTests` (17), and
 `SceneImportTests` (5) pass after removing all migration aliases and retired
 provider reconstruction.
+
+Stage 5 is complete. The complete `asset-import` domain passed all five targets:
+`AssetForgeTests` (18), `AssetImportTests` (17), `SceneImportTests` (5),
+`SceneImportVulkanTests` (1), and `SkeletalSceneLifecycleTests` (1). The focused
+asset-family and concurrency targets also passed: `TextureTests` (86),
+`StaticMeshTests` (73), `TerrainHeightmapTests` (11), and
+`CoreConcurrencyTests` (141). The complete `asset-cook` domain passed its four
+targets, covering bulk containers, generic cook, Terrain cook, and Vulkan
+texture cook integration. The strict authored baseline reports all 30 packages
+as current DAST v5. `Win64-Debug-DurinEditor/all` and a newly configured
+`Win64-Debug-DurinGame/all` both build; the latter compiled the runtime closure
+without either editor import module. Lasting import, async-operation,
+asset-lifecycle, mounted-source, CubeTexture, VolumeTexture, Terrain, skeletal,
+runtime-startup, and module-ownership documentation now describes the final
+AssetForge/AssetForgeBuiltins contracts. Qualification also found and repaired
+one stale StaticMesh test include/namespace, one missing non-editor test-source
+exclusion, and one null-unsafe Scene Vulkan cleanup assertion.
 
 ## Goal
 
@@ -504,19 +521,19 @@ Dependencies: Stage 3 establishes final C++ ownership and vocabulary.
 
 Dependencies: Stages 1 through 4 complete.
 
-- [ ] Run the focused framework, record, texture, static-mesh, Terrain, Scene,
+- [x] Run the focused framework, record, texture, static-mesh, Terrain, Scene,
   skeletal, concurrency, shutdown, failure-injection, DDC, cook, and runtime
   deployment suites selected through the repository test workflow.
-- [ ] Build the complete affected editor, game, tool, and native-test target
+- [x] Build the complete affected editor, game, tool, and native-test target
   closure according to the repository build workflow.
-- [ ] Exercise representative Texture2D, TextureCube, VolumeTexture,
+- [x] Exercise representative Texture2D, TextureCube, VolumeTexture,
   StaticMesh, Terrain Heightmap, and heterogeneous Scene import, preview,
   reimport, repair/recovery, save, reload, and cancellation workflows.
-- [ ] Update lasting architecture, async-operation, asset-lifecycle, module,
+- [x] Update lasting architecture, async-operation, asset-lifecycle, module,
   rendering/asset-family, and mounted-source documents to the final module and
   vocabulary contracts; remove superseded plan-language references from active
   documentation.
-- [ ] Record final evidence and exact module/API ownership in this plan, mark
+- [x] Record final evidence and exact module/API ownership in this plan, mark
   it completed only after every gate passes, and leave physical archival to
   the normal monthly workflow.
 

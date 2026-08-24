@@ -745,7 +745,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_GT(
 		LODContractMesh->GetRenderData()->GetNumInitializedResources(),
 		0u);
-	EXPECT_EQ(Sphere->GetRenderData()->GetNumInitializedResources(), 0u);
+	EXPECT_TRUE(Sphere->GetRenderData() == nullptr
+		|| Sphere->GetRenderData()->GetNumInitializedResources() == 0u);
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
 	Durin::MarkAsGarbage(FailedResourceMaterial);

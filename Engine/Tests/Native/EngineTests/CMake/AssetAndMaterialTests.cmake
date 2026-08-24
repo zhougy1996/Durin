@@ -265,7 +265,7 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	KIND integration
 	DOMAINS asset-import skeletal-mesh
-	MODULES engine skeletal-mesh-editor asset-forge
+	MODULES engine skeletal-mesh-editor asset-forge asset-forge-builtins
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."

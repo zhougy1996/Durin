@@ -9,7 +9,7 @@ Last reviewed: 2026-08-11
 `SkeletalMeshEditor` owns one read-only workspace and exact asset routes for
 `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip`. `DurinEd` continues to own
 workspace hosting, preview scenes, auxiliary viewports, and the bounded rendered
-thumbnail service. `AssetImportCore` remains the only owner of import records,
+thumbnail service. `AssetForge` remains the only owner of import records,
 record-local peer discovery, reimport, reconciliation, and publication.
 
 Documents are keyed by the workspace manager's class-qualified document key and

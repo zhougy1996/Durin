@@ -19,7 +19,7 @@ durin_add_engine_functional_test(RendererSceneContractTests
 durin_add_engine_functional_test(SceneImportVulkanTests
 	KIND integration
 	DOMAINS asset-import
-	MODULES engine renderer asset-forge vulkan-rhi
+	MODULES engine renderer asset-forge asset-forge-builtins vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU

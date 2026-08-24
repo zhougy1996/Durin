@@ -32,13 +32,13 @@ bounded owner collection and commit only after the dependent build, publication,
 and package save have succeeded. Replacement and relocation keep their separate
 publish/restore transactions because they have different commit semantics.
 
-Import captures the selected source and its provider-declared dependency
+Import captures the selected source and its translator-declared dependency
 closure into one immutable snapshot. A single-output import stores lightweight
 provenance on that asset. A multi-output import publishes peer assets plus an
 editor-only `DImportRecord`; selecting an output does not make it the owner of
 the others. See [Asset Import Framework](../Architecture/AssetImportFramework.md).
 
-After confirmation, every import dialog submits one Interchange operation.
+After confirmation, every import dialog submits one AssetForge import operation.
 Closing the dialog or choosing background mode does not abandon accepted work;
 the status bar and Activity History observe the same operation. Cancellation
 remains available until final publication begins, when the operation becomes

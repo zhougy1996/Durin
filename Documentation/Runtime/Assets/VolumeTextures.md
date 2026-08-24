@@ -3,7 +3,7 @@
 Summary: Define source import, normalized data, deterministic build, TXPL cook,
 and revisioned GPU-resource contracts for package-backed volume textures.
 
-Modules: Engine, TextureBuild, RHI, VulkanRHI
+Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
 Last reviewed: 2026-08-24
 
@@ -52,7 +52,7 @@ External single-PNG imports default to the flat mounted path
 `Sources/VolumeTextures/<source>.png`; they do not create a redundant
 asset-named source directory. Imports copy the PNG beneath the selected mounted
 source location, save the `.dasset`, and only then commit the source copy. The shared `DurinImage`
-provider supplies immutable snapshots, reimport, and source repair. A missing or
+source translator supplies immutable snapshots, reimport, and source repair. A missing or
 malformed PNG, extent mismatch, build failure, stale publication, or save failure
 leaves the previous asset and render resource intact. Cook excludes normalized
 authoring source and provenance by default and never loads a PNG decoder at
@@ -195,6 +195,6 @@ for every exact format and usage combination.
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureRenderResource.cpp`
 - `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuilder.cpp`
-- `Engine/Source/Editor/AssetForge/Private/VolumeTextureSourceTranslation.cpp`
+- `Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImportProvider.cpp`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`

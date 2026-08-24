@@ -32,7 +32,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS asset-workflow texture
-		MODULES engine texture-build asset-forge texture-editor
+		MODULES engine texture-build asset-forge asset-forge-builtins texture-editor
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -56,7 +56,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(SceneImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES asset-import-core engine asset-forge
+		MODULES engine asset-forge asset-forge-builtins
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -68,6 +68,7 @@ else()
 			Private/Texture/TextureImportAndCacheTests.cpp
 			Private/Texture/TextureDerivedDataTests.cpp
 			Private/Texture/TextureBuildTests.cpp
+			Private/Texture/VolumeTextureSourceImportTests.cpp
 			Private/Texture/Texture2DBuildCoordinatorTests.cpp
 			Private/Texture/TextureFailureTests.cpp
 			Private/Texture/TextureSourceRelocationTests.cpp
@@ -81,7 +82,7 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES engine geometry-build asset-forge
+	MODULES engine geometry-build asset-forge asset-forge-builtins
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
@@ -92,7 +93,7 @@ durin_add_engine_functional_test(TerrainHeightmapTests
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine geometry-build asset-forge
+	MODULES engine geometry-build asset-forge asset-forge-builtins
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600

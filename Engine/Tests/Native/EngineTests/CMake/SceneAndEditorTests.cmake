@@ -36,7 +36,7 @@ durin_add_engine_functional_test(SplineQualificationTests
 durin_add_engine_functional_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
-	MODULES engine geometry-build level-editor renderer asset-forge
+	MODULES engine geometry-build level-editor renderer asset-forge asset-forge-builtins
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -57,7 +57,7 @@ durin_add_engine_functional_test(SkyBoxTests
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	KIND integration
 	DOMAINS sky-box
-	MODULES engine geometry-build renderer asset-forge
+	MODULES engine geometry-build renderer asset-forge asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -306,7 +306,7 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	KIND integration
 	DOMAINS asset-cook texture
-	MODULES engine geometry-build renderer asset-forge
+	MODULES engine geometry-build renderer asset-forge asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	EDITOR_ONLY

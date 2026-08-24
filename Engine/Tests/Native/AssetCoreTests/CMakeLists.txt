@@ -104,7 +104,7 @@ if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES asset-core asset-import-core asset-forge
+		MODULES asset-core asset-forge asset-forge-builtins
 		IMPORT_RUNTIME
 		TIMEOUT 600
 		SOURCES Private/AssetImportTests.cpp
@@ -113,7 +113,7 @@ if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetForgeTests
 		KIND contract
 		DOMAINS asset-import
-		MODULES asset-core asset-import-core
+		MODULES asset-core asset-forge
 		LIBRARIES AssetForge
 		SOURCES
 			Private/AssetForgeContractTests.cpp

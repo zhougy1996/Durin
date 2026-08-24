@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge
+Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
 Last reviewed: 2026-08-24
 
@@ -17,7 +17,7 @@ direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
 Developer `TextureBuild` and `GeometryBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
-`AssetForge` adapts standard concrete source formats into those
+`AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `AssetBuildCore` provides family-neutral cache policy over
 the opaque store; its physical ObjectStore adapter is private implementation,
 and recipe modules reach cache query/store only through `FBuildSession`.
@@ -48,7 +48,7 @@ collision, TXPL, DSKM, DANM, and terrain keys, cache roots, value bytes, and
 codecs remain family-owned and unchanged.
 TextureBuild's coordinator calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
-publication ownership. AssetForge likewise retains TextureCube source
+publication ownership. AssetForgeBuiltins likewise retains TextureCube source
 normalization, scene parsing, Terrain source decoding/coalescing, and GameThread
 publication. Shader and other unrelated DDC paths remain direct family clients.
 
@@ -145,20 +145,20 @@ packages, `.dbulk` companions, or `CookManifest.bin`.
 
 Multi-output import also creates an editor-only `DImportRecord` companion.
 Outputs remain independent runtime assets; the record stores management and
-reconciliation state and is explicitly excluded from cooking. Provider state,
-accepted editor diagnostics, record indexes, and provider-module identities do
+reconciliation state and is explicitly excluded from cooking. Built-in implementation state,
+accepted editor diagnostics, record indexes, and extension-module identities do
 not enter cooked runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
-Editor import extensions register translators, ordered pipelines, and typed
-factories with AssetImportCore's `FImportService`. One
-`FInterchangeImportRequest` and framework-owned job serve initial import,
+Editor import extensions register source translators, ordered planning passes, and typed
+asset builders with AssetForge's `FImportService`. One
+`FImportRequest` and framework-owned job serve initial import,
 preview, reimport, repair, multi-output reconciliation, and implemented editor
 recovery. Callers never coordinate a parallel provider, single-asset-handler,
 or record-handler workflow.
 
-The translator graph records source semantics and explicit dependencies. The
-factory graph records output class, destination, reconciliation policy, and
+The source graph records source semantics and explicit dependencies. The
+build graph records output class, destination, reconciliation policy, and
 cross-output dependencies. Both are immutable, bounded, canonically ordered,
 and fingerprinted. Detached products remain ordinary CPU-owned values until
 the editor thread materializes candidates and enters failure-atomic package
@@ -194,7 +194,7 @@ visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
-`AssetForge` owns the static-mesh, texture, and Terrain authoring
+`AssetForgeBuiltins` owns the static-mesh, texture, and Terrain authoring
 providers. `GeometryBuild` owns collision construction and skeletal/animation
 derived-data loading. Each module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
@@ -202,7 +202,7 @@ and waits for admitted visitors before provider state is destroyed.
 
 Terrain post-load is the asynchronous exception to the otherwise synchronous
 boundary. Its coalesced workers and Game Thread publishers belong to the
-AssetForge-owned `TerrainAuthoringLoads` operation group before the
+AssetForgeBuiltins-owned `TerrainAuthoringLoads` operation group before the
 feature visitor returns. Source-reference mutation cancels only superseded
 per-asset publication and an unshared worker; module retirement closes the
 whole group with module-shutdown cancellation. Unload may proceed only after
@@ -237,7 +237,7 @@ handle, playback clock, evaluated pose, or palette state.
 Authored editor packages may retain a content-addressed rebuild key and compact
 source/import metadata. A loaded package first attempts a validated DDC object.
 Where an editor recovery policy exists, missing disposable data reconstructs a
-`SessionCritical` Interchange request from persisted provenance or the managing
+`SessionCritical` AssetForge request from persisted provenance or the managing
 Scene record; it does not enter a separate decoder or publication path. Scene
 replacement target loading may tolerate missing disposable skeletal payloads
 while preserving the published object identity that the recovery transaction
@@ -321,7 +321,7 @@ builds query/build/store; explicit non-persisting builds disable both query and
 store. Authored load first performs one cache-only session request. Only after
 a miss or invalid value does its existing worker capture and decode source and
 issue a query-disabled build request. The worker adapts its cancellation token
-to the session while AssetForge retains coalescing, admission,
+to the session while AssetForgeBuiltins retains coalescing, admission,
 generation checks, and deferred GameThread publication. Diagnostics map the
 session's cache-query and cached-validation phase durations and never expose a
 physical DDC path.
@@ -360,7 +360,7 @@ import source provenance, rebuild keys, and editor diagnostics. SkeletalMesh
 and AnimationClip retain exact hard Skeleton dependencies and compatibility
 identities; their logical payload descriptors select fixed type payload IDs in
 the package companion. Import-record packages are not cook inputs, and runtime
-targets do not deploy `AssetImportCore`, `AssetForge`, Assimp, or
+targets do not deploy `AssetForge`, `AssetForgeBuiltins`, Assimp, or
 editor image decoders.
 
 Cook package construction is a read-only projection of the authored object

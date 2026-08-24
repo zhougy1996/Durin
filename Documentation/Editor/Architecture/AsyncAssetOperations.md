@@ -2,7 +2,7 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: AssetBuildCore, TextureBuild, AssetImportCore, AssetForge, DurinEd, TextureEditor, AssetCore
+Modules: AssetBuildCore, TextureBuild, AssetForge, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
 
 Last reviewed: 2026-08-24
 
@@ -18,9 +18,9 @@ Asynchronous asset work crosses three independent concerns:
 
 Typed build services retain their own workers, priorities, cancellation, and
 metrics. Asset import is the exception at the authoring-workflow layer:
-`AssetImportCore` owns one `FInterchangeImportJob` and runs both scheduled and
+`AssetForge` owns one `FImportJob` and runs both scheduled and
 inline requests through the same worker/editor phase machine. Asset families
-contribute translator, pipeline, and factory work rather than another import
+contribute source-translator, planning-pass, and asset-builder work rather than another import
 scheduler.
 
 ## Build Completion Contract
@@ -75,7 +75,7 @@ retain a reflected object implicitly.
 For Texture2D shared-source replacement:
 
 - AssetCore stages and owns rollback for replacement source bytes.
-- TextureBuild and AssetForge rebuild and publish the Texture2D candidate.
+- TextureBuild and AssetForgeBuiltins rebuild and publish the Texture2D candidate.
 - TextureEditor saves the package before committing the mounted-source
   replacement.
 - A build or save failure restores the source bytes, then asynchronously
@@ -86,15 +86,15 @@ For Texture2D shared-source replacement:
 Other asset families can reuse the terminal result and compensating operation
 without adopting Texture2D source or package policy.
 
-Interchange uses the same ownership split. Worker rounds capture/hash sources,
-discover dependencies, translate, execute worker-safe pipelines, and build
+AssetForge import uses the same ownership split. Worker rounds capture/hash sources,
+discover dependencies, translate, execute worker-safe planning passes, and build
 detached products. Editor rounds materialize candidates, resolve dependencies,
 revalidate, publish, save, and reverse failure. Preview can cache a detached
 product only under complete source/settings/stack/graph/destination/target
-fingerprints; factory component leases remain alive until cached products are
+fingerprints; asset-builder component leases remain alive until cached products are
 destroyed.
 
-AssetImportCore publishes immutable-by-copy operation snapshots; a LevelEditor presenter adapts
+AssetForge publishes immutable-by-copy operation snapshots; a LevelEditor presenter adapts
 those values to one `HistoryOnly` notification per operation and one aggregate
 `StatusBar` notification that is deliberately excluded from history. The
 status surface is determinate only for a single operation with a meaningful
@@ -107,7 +107,7 @@ sets presentation state on the handle; the central editor owner continues the
 operation. The model retains no Widget and disables cancellation at
 `Finalizing` or any terminal state. Activity History remains the durable
 session surface for individual terminal results, while the aggregate entry
-never duplicates that history. Project switch, workspace teardown, provider
+never duplicates that history. Project switch, workspace teardown, component
 retirement, and process shutdown close admission and cancel or drain through
 the same operation ownership boundary.
 
