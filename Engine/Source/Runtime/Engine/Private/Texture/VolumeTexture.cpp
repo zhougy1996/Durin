@@ -140,7 +140,10 @@ namespace Durin
 		FCanonicalMemoryReader Ar(Loaded.Payload, EArchivePurpose::CookedPayload);
 		Candidate->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
-		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);
+		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+			return FailCooked(std::string(Ar.GetError()));
+		if (!Candidate->IsValid())
+			return FailCooked("platform data is invalid.");
 		PlatformData = std::move(Candidate);
 		DerivedDataKey.clear();
 		BuildStatus = ETextureBuildStatus::Ready;
@@ -303,8 +306,14 @@ namespace Durin
 		std::swap(DerivedDataKey, Other.DerivedDataKey);
 		std::swap(BuildStatus, Other.BuildStatus);
 		std::swap(LastBuildError, Other.LastBuildError);
-		QueueRenderResourceBuild();
-		Other.QueueRenderResourceBuild();
+		auto RefreshRenderResource = [](DVolumeTexture& Texture) {
+			if (Texture.PlatformData && Texture.PlatformData->IsValid())
+				Texture.QueueRenderResourceBuild();
+			else
+				Texture.InvalidateRenderResource();
+		};
+		RefreshRenderResource(*this);
+		RefreshRenderResource(Other);
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
 	}
