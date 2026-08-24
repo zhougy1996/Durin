@@ -6,22 +6,91 @@
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Class.h"
 #include "EngineAssetServices.h"
 #include "Engine/Level.h"
-#include "GenericPlatform/GenericPlatformMisc.h"
+#include "ImportService.h"
+#include "HAL/PlatformMisc.h"
 #include "Logging/Logger.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
+#include "Modules/ModuleManager.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "Threading/Task.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 
 #include <chrono>
 #include <csignal>
+#include <thread>
 
 namespace
 {
 	std::atomic_bool GCancelled = false;
+	constexpr auto CanonicalResaveRecoveryTimeout = std::chrono::seconds(60);
 
 	auto HandleInterrupt(int) -> void { GCancelled.store(true, std::memory_order_relaxed); }
+
+	auto ValidateCanonicalResaveAssetReadiness(Durin::DObject* Asset)
+		-> Durin::Asset::FAssetResult
+	{
+		if (!Asset)
+			return {Durin::Asset::EAssetError::InvalidObjectGraph,
+				"Loaded package has no main asset."};
+		auto NotReady = [&](std::string_view Domain) {
+			return Durin::Asset::FAssetResult{
+				Durin::Asset::EAssetError::StaleData,
+				std::format("{} post-load recovery did not publish domain-ready data.", Domain)};
+		};
+		if (const auto* Mesh = Durin::Cast<Durin::DStaticMesh>(Asset);
+			Mesh && !Mesh->GetRenderData()) return NotReady("StaticMesh");
+		if (const auto* Mesh = Durin::Cast<Durin::DSkeletalMesh>(Asset);
+			Mesh && !Mesh->GetRenderData()) return NotReady("SkeletalMesh");
+		if (const auto* Texture = Durin::Cast<Durin::DTexture2D>(Asset);
+			Texture && (!Texture->GetPlatformData()
+				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
+			return NotReady("Texture2D");
+		if (const auto* Texture = Durin::Cast<Durin::DTextureCube>(Asset);
+			Texture && (!Texture->GetPlatformData()
+				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
+			return NotReady("TextureCube");
+		if (const auto* Texture = Durin::Cast<Durin::DVolumeTexture>(Asset);
+			Texture && (!Texture->GetPlatformData()
+				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
+			return NotReady("VolumeTexture");
+		if (const auto* Heightmap = Durin::Cast<Durin::DTerrainHeightmap>(Asset);
+			Heightmap && (!Heightmap->GetPayload()
+				|| Heightmap->GetStatus() != Durin::ETerrainHeightmapStatus::Ready))
+			return NotReady("TerrainHeightmap");
+		return {};
+	}
+
+	auto PrepareCanonicalResaveAsset(
+		const Durin::FAssetPath& Path, Durin::DObject* Asset)
+		-> Durin::Asset::FAssetResult
+	{
+		auto& Service = Durin::Asset::GetImportService();
+		const auto Deadline = std::chrono::steady_clock::now()
+			+ CanonicalResaveRecoveryTimeout;
+		while (Service.HasActiveImportClaim(Path.ToString()))
+		{
+			if (GCancelled.load(std::memory_order_relaxed))
+				return {Durin::Asset::EAssetError::ShuttingDown,
+					"Canonical resave was cancelled while waiting for post-load recovery."};
+			if (std::chrono::steady_clock::now() >= Deadline)
+				return {Durin::Asset::EAssetError::StaleData,
+					std::format("Timed out waiting for post-load recovery of {}.",
+						Path.ToString())};
+			(void)Service.PumpImportOperations();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		(void)Service.PumpImportOperations();
+		return ValidateCanonicalResaveAssetReadiness(Asset);
+	}
 
 	struct FOptions
 	{
@@ -32,6 +101,9 @@ namespace
 		bool bProjectScope = false;
 		bool bHuman = false;
 		bool bApply = false;
+		bool bTargetSpecified = false;
+		Durin::Asset::EAssetPackageWriterSelection TargetWriterSelection =
+			Durin::Asset::EAssetPackageWriterSelection::DastV4;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
@@ -57,6 +129,18 @@ namespace
 			else if (Argument == "--ci") OutOptions.bCi = true;
 			else if (Argument == "--project-scope") OutOptions.bProjectScope = true;
 			else if (Argument == "--apply") OutOptions.bApply = true;
+			else if (Argument == "--target=v4")
+			{
+				OutOptions.bTargetSpecified = true;
+				OutOptions.TargetWriterSelection =
+					Durin::Asset::EAssetPackageWriterSelection::DastV4;
+			}
+			else if (Argument == "--target=v5")
+			{
+				OutOptions.bTargetSpecified = true;
+				OutOptions.TargetWriterSelection =
+					Durin::Asset::EAssetPackageWriterSelection::DastV5;
+			}
 			else if (Argument.starts_with("--mount=")) OutOptions.Mounts.emplace_back(Argument.substr(std::string_view("--mount=").size()));
 			else if (Argument.starts_with("--folder=")) OutOptions.Folders.emplace_back(Argument.substr(std::string_view("--folder=").size()));
 			else if (Argument.starts_with("--package=")) OutOptions.Packages.emplace_back(Argument.substr(std::string_view("--package=").size()));
@@ -75,6 +159,11 @@ namespace
 		if (OutOptions.bApply && !OutOptions.bCanonicalResave)
 		{
 			OutError = "--apply requires --operation=canonical-resave.";
+			return false;
+		}
+		if (OutOptions.bTargetSpecified && !OutOptions.bCanonicalResave)
+		{
+			OutError = "--target requires --operation=canonical-resave.";
 			return false;
 		}
 		if (OutOptions.bCi && !OutOptions.bCanonicalResave)
@@ -231,18 +320,19 @@ namespace
 			}
 		}
 
-		std::string Json = "{\"schemaVersion\":1,\"inspectionRepeatCount\":5,\"packages\":[";
+		std::string Json = "{\"schemaVersion\":2,\"inspectionRepeatCount\":5,\"packages\":[";
 		for (size_t PackageIndex = 0; PackageIndex < Packages.size(); ++PackageIndex)
 		{
 			if (PackageIndex != 0) Json += ',';
 			const FPackage& Package = Packages[PackageIndex];
 			Json += std::format(
 				"{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"fileSize\":{},"
-				"\"inspection\":\"{}\",\"diagnostic\":\"{}\",\"fileBytesRead\":{},"
+				"\"inspection\":\"{}\",\"diagnostic\":\"{}\",\"formatVersion\":{},\"fileBytesRead\":{},"
 				"\"inspectionNanoseconds\":[",
 				JsonEscape(Package.Input->PackagePath.GetView()), JsonEscape(Package.Input->PhysicalPath),
 				Package.Input->ExpectedFileSize, Package.Result ? "Ready" : "Failed",
-				JsonEscape(Package.Result.Message), Package.Input->ExpectedFileSize);
+				JsonEscape(Package.Result.Message), Package.Inspection.Header.FormatVersion,
+				Package.Input->ExpectedFileSize);
 			for (size_t Index = 0; Index < Package.InspectionNanoseconds.size(); ++Index)
 			{
 				if (Index != 0) Json += ',';
@@ -301,6 +391,9 @@ int main(int ArgC, char** ArgV)
 		std::cerr << "Error: " << Error << '\n';
 		return 1;
 	}
+	Durin::FPlatformMisc::EnableUserBinaryDirectoriesSearch();
+	Durin::FPlatformMisc::AddRuntimeBinaryDirectory(
+		Durin::FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 	// Project initialization configures logging. From this point stdout is the
 	// machine-readable report channel consumed by DurinDevTool.
 	Durin::LoggerInit();
@@ -312,6 +405,18 @@ int main(int ArgC, char** ArgV)
 	}
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
+	if (Options.bCanonicalResave && Options.bApply)
+	{
+		if (!Durin::InitializeTaskScheduler(2)
+			|| !Durin::InitializeGameThreadDeferredExecutor())
+		{
+			std::cerr << "Error: canonical-resave apply could not initialize task services.\n";
+			return 1;
+		}
+		Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
+	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	(void)Durin::Asset::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
@@ -416,17 +521,22 @@ int main(int ArgC, char** ArgV)
 				return 1;
 			}
 		Selection.bWholeProject = Options.bProjectScope;
+		Selection.bAllowPlainResave = true;
+		Selection.TargetWriterSelection = Options.TargetWriterSelection;
 		const auto Plan = Durin::Asset::PlanAssetCanonicalResaves(
 			Records, Selection, [] { return GCancelled.load(std::memory_order_relaxed); });
 		if (Plan.Status == Durin::Asset::EAssetCanonicalResavePlanStatus::Cancelled) return 130;
 		if (Options.bApply)
 		{
 			auto Applied = Durin::Asset::ApplyAssetCanonicalResaves(
-				Plan, Catalog, {}, [] { return GCancelled.load(std::memory_order_relaxed); });
+				Plan, Catalog,
+				{.PrepareLoadedAsset = PrepareCanonicalResaveAsset},
+				[] { return GCancelled.load(std::memory_order_relaxed); });
 			if (Options.bHuman)
 				std::cout << "canonical-resave apply: " << Applied.ChangedPaths.size()
 					<< " package(s) resaved; " << Applied.Diagnostic << '\n';
 			else std::cout << Durin::Asset::SerializeAssetCanonicalResaveApplyReport(Applied) << '\n';
+			std::cout.flush();
 			if (Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Cancelled) return 130;
 			return Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded ? 0 : 1;
 		}

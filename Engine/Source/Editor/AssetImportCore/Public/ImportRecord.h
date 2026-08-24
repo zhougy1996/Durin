@@ -30,6 +30,18 @@ namespace Durin::Asset
 	inline constexpr uint32 MaximumImportRecordDetachedTombstones = 1024;
 	inline constexpr uint32 MaximumImportRecordAcceptedDiagnostics = 1024;
 
+	struct FImportRecordSerializationVersion
+	{
+		inline static constexpr FGuid Guid{
+			0x86b18d5e, 0xd75c42c2, 0x9ad23d7f, 0xa6901f16};
+		enum Type : int32
+		{
+			BeforeCustomVersionWasAdded = -1,
+			BytePayloadBlob = 1,
+			LatestVersion = BytePayloadBlob,
+		};
+	};
+
 	DSTRUCT()
 	struct FImportRecordPayload
 	{
@@ -43,6 +55,13 @@ namespace Durin::Asset
 
 		DPROPERTY()
 		std::vector<std::byte> Bytes;
+
+		DPROPERTY(Deprecated,
+			CustomVersion = Durin::Asset::FImportRecordSerializationVersion,
+			DeprecatedBefore = Durin::Asset::FImportRecordSerializationVersion::BytePayloadBlob,
+			DeprecatedName = "Bytes",
+			MigratesTo = "Bytes")
+		std::vector<uint8> Bytes_DEPRECATED;
 
 		DPROPERTY()
 		uint64 ContentHashLow = 0;
@@ -276,6 +295,35 @@ namespace Durin::Asset
 
 namespace Durin
 {
+	template<>
+	struct TDStructOpsTraits<Asset::FImportRecordPayload>
+		: TDStructOpsTraitsBase<Asset::FImportRecordPayload>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto PostDeserialize(
+			Asset::FImportRecordPayload& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			const FArchiveCustomVersion* Version = Context.VersionContext
+				? Context.VersionContext->FindCustom(
+					Asset::FImportRecordSerializationVersion::Guid)
+				: nullptr;
+			if ((!Version
+					? Asset::FImportRecordSerializationVersion::BeforeCustomVersionWasAdded
+					: Version->Version)
+				< Asset::FImportRecordSerializationVersion::BytePayloadBlob
+				&& !Value.Bytes_DEPRECATED.empty())
+			{
+				Value.Bytes.resize(Value.Bytes_DEPRECATED.size());
+				std::ranges::transform(Value.Bytes_DEPRECATED, Value.Bytes.begin(),
+					[](uint8 Byte) { return static_cast<std::byte>(Byte); });
+				Value.Bytes_DEPRECATED.clear();
+			}
+			return true;
+		}
+	};
+
 	template<>
 	struct TDStructOpsTraits<Asset::FImportRecordOutput>
 		: TDStructOpsTraitsBase<Asset::FImportRecordOutput>

@@ -15,7 +15,7 @@ namespace Durin::Asset
 		AssetPackageV5FormatVersion};
 
 	inline constexpr uint32 LatestAssetPackageWriterVersion = AssetPackageV4FormatVersion;
-	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = LatestAssetPackageWriterVersion;
+	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = AssetPackageV5FormatVersion;
 	// Persisted read-only caches use an explicit policy generation rather than a
 	// wire version so different supported-reader sets cannot alias.
 	inline constexpr uint32 AssetPackageReaderPolicyFingerprint = 0x41504302;

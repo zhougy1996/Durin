@@ -1,10 +1,11 @@
 #pragma once
 
 #include "Asset/Compatibility.h"
+#include "Asset/PackageAuthoring.h"
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 AssetCanonicalResaveReportSchemaVersion = 2;
+	inline constexpr uint32 AssetCanonicalResaveReportSchemaVersion = 3;
 	inline constexpr size_t MaximumCanonicalResaveBatchPackages = 32;
 
 	enum class EAssetCanonicalResavePackageStatus : uint8
@@ -41,6 +42,9 @@ namespace Durin::Asset
 		std::vector<FAssetPath> Packages;
 		bool bWholeProject = false;
 		bool bAllowPlainResave = false;
+		// Canonical rollback remains DAST v4. Corpus migration must opt into v5.
+		EAssetPackageWriterSelection TargetWriterSelection =
+			EAssetPackageWriterSelection::DastV4;
 	};
 
 	enum class EAssetCanonicalResavePlanStatus : uint8 { Completed, Cancelled };
@@ -48,6 +52,9 @@ namespace Durin::Asset
 	{
 		EAssetCanonicalResavePlanStatus Status = EAssetCanonicalResavePlanStatus::Completed;
 		uint64 RegistryRevision = 0;
+		EAssetPackageWriterSelection TargetWriterSelection =
+			EAssetPackageWriterSelection::DastV4;
+		uint32 TargetFormatVersion = 4;
 		std::vector<FAssetCanonicalResavePackagePlan> Packages;
 	};
 
@@ -77,6 +84,9 @@ namespace Durin::Asset
 	{
 		size_t MaximumPackagesPerBatch = MaximumCanonicalResaveBatchPackages;
 		std::function<bool(EAssetCanonicalResaveApplyPhase, size_t)> ShouldFail;
+		// Tool hosts may wait for editor-only post-load recovery and reject an
+		// asset that has not reached its domain-ready state before serialization.
+		std::function<FAssetResult(const FAssetPath&, DObject*)> PrepareLoadedAsset;
 	};
 
 	struct FAssetCanonicalResaveApplyResult

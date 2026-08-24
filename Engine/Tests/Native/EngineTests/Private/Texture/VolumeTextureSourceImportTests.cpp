@@ -377,7 +377,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(Asset::FindAssetExact(BaseAssetPath)->FormatVersion,
-		4u);
+		5u);
 	const Asset::FAssetCatalogEntry InlineV5 = Asset::FindAssetExact(DetailAssetPath);
 	ASSERT_TRUE(InlineV5);
 	ASSERT_EQ(InlineV5->FormatVersion, 5u);

@@ -624,15 +624,15 @@ never exposes writable resident memory. Immutable byte access goes through
 `GetBulkData()`; authored package loading remains eager and publishes the object
 graph only after external DABK bytes have been resolved and verified.
 
-DAST v5 is a production-readable, explicit opt-in authored route. It retains
+DAST v5 is the ordinary authored route. It retains
 the canonical v4 logical Archive encoding inside a v5 object-stream preamble
 and requires a validated EOF trailer. During this compatibility cut, external
 DABK facts remain mirrored in the object-stream descriptor, but the reader
 derives both complete sets construct-free and rejects any missing, extra, or
 disagreeing payload id, size, content hash, container hash, or placement before
-live construction. Ordinary saves remain v4; explicit v5 publication and
-explicit v4 rollback both publish companions first and replace the complete
-package file atomically.
+live construction. Ordinary saves and explicit v5 publication use v5; explicit
+v4 canonical rollback remains available. Both routes publish companions first
+and replace the complete package file atomically.
 
 DAST v4 and DABK v1 retain the physical 16-byte identity and 4-byte version
 slots formerly used by the authored experiment. They are compatibility-reserved

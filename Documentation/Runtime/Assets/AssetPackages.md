@@ -119,9 +119,9 @@ and transactional relocation are defined by
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. DAST v4 is the ordinary writer and repository
-baseline; production readers accept v4 and the explicitly published v5
-trailer route. Unsupported versions fail before
+same DAST object-package envelope. DAST v5 is the ordinary writer and repository
+baseline; production readers accept v4 rollback/legacy packages and v5 trailer
+packages. Unsupported versions fail before
 header-specific interpretation, object construction, mutation, or publication.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
@@ -150,13 +150,15 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
-### DAST v5 Trailer-Indexed Opt-In Route
+### DAST v5 Trailer-Indexed Ordinary Route
 
-AssetCore registers a reader-complete DAST v5 codec and an explicitly selected
-writer. Ordinary single-package and bundle saves still select v4. A caller must
-choose `EAssetPackageWriterSelection::DastV5` for each publication; an existing
-file, asset type, payload size, environment value, or previous v5 save never
-changes that default implicitly. Ordinary save refuses an existing v5 package
+AssetCore registers a reader-complete DAST v5 codec and selects it for ordinary
+single-package and bundle saves. A caller may choose
+`EAssetPackageWriterSelection::DastV4` for canonical rollback or select v5
+explicitly for operation-local policy. An existing file, asset type, payload
+size, or environment value never changes that process-wide default. Ordinary
+save refuses an existing v4 package until it is explicitly migrated or rolled
+forward
 rather than silently rolling it back. Explicit `DastV4` selection is the
 canonical rollback boundary.
 
@@ -200,10 +202,10 @@ bad hashes, overflow, truncation, gaps, overlap, and trailing bytes fail.
 
 ### Frozen DAST v4 Wire Contract
 
-DAST v4 is the qualified authored format. AssetCore exposes production-owned
+DAST v4 is the frozen rollback and legacy authored format. AssetCore exposes production-owned
 low-level writer and reader boundaries, and package policy routes header,
 inspection, compatibility, reference, registry/cache, and live-load operations
-only to v4. Ordinary and bundle saves use the v4 live writer in no-delta mode.
+for both v4 and v5. Explicit rollback uses the v4 live writer in no-delta mode.
 The layout below is frozen: later format changes must use a new version rather
 than altering these bytes or semantics. Any required corpus conversion is a
 separately planned, temporary offline tool, not a permanent runtime facility.
@@ -530,23 +532,23 @@ across the complete dependency closure; it is structured bounded telemetry, not
 a cache or a per-package log.
 
 An ordinary single-package or atomic-bundle save may update an existing package
-only when its registered format equals the ordinary v4 writer. A stale or
+only when its registered format equals the ordinary v5 writer. A stale or
 unsupported registry version is rejected before serialization, staging, file
 publication, registry publication, or dirty-state clearing. New packages use
 the same ordinary writer. A non-current format is not an ordinary save input.
 
 Current-format byte mutations resolve the source codec before decoding and
-require its declared mutation capability plus an exact match with the ordinary
-writer format. Reference fixup, relocation, redirector creation, and cook
-canonicalization therefore reject a supported non-ordinary format before
-changing output bytes. Version-specific decoded packages remain inside their
+require its declared mutation capability. Reference fixup and relocation
+preserve the source v4 or v5 format; new redirectors and ordinary authored
+saves use v5. Unsupported formats are rejected before output bytes change.
+Version-specific decoded packages remain inside their
 codec adapter; shared transactions consume neutral headers, inspections,
 reference edges, load handles, and byte results.
 
 ### Canonical Reflected-Identity Resave
 
-Canonical resave is current-format package maintenance, not format conversion
-or reimport. The v4 metadata probe records every registered legacy
+Canonical resave is planned package maintenance and optional explicit format
+conversion, not reimport. The metadata probe records every registered legacy
 class, struct, or enum identity in the package header, object records, schemas,
 and recursive type descriptors. Each finding carries the package, stored and
 current identity, reflected kind, stable location, and logical path. The same
@@ -574,7 +576,10 @@ project-wide atomicity.
 `DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
 uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
 writes, `--format=human` selects a compact human report, and the default is a
-deterministic JSON report. `--ci` is read-only, cannot be combined with apply,
+deterministic JSON report. `--target=v4` selects canonical rollback and is the
+default maintenance target; `--target=v5` plans or applies corpus migration.
+The plan records the target format and rejects stale fingerprints before each
+atomic unit. `--ci` is read-only, cannot be combined with apply,
 and fails when selected compatible content still has registered legacy
 identities.
 

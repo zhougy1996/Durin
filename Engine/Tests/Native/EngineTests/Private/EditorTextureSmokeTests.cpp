@@ -45,7 +45,7 @@ namespace Durin
 	}
 
 	TEST(FEditorTextureSmokeTests,
-		OrdinaryV4GraphRendersReloadsAndResavesDeterministically)
+		OrdinaryGraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
 		ASSERT_TRUE(Tests::InstallAssetForgeAuthoringFeatures());
@@ -106,7 +106,7 @@ namespace Durin
 				Asset::FindAssetExact(Path);
 			ASSERT_NE(Data, nullptr);
 			EXPECT_EQ(Data->FormatVersion,
-				Asset::AssetPackageV4FormatVersion);
+				Asset::OrdinaryAssetPackageWriterVersion);
 		}
 
 		auto LoadRenderableGraph = [&]() {
@@ -201,7 +201,7 @@ namespace Durin
 			AfterSave, MaterialFile));
 		EXPECT_EQ(AfterSave, BeforeSave);
 		EXPECT_EQ(Asset::FindAssetExact(MaterialPath)
-			->FormatVersion, Asset::AssetPackageV4FormatVersion);
+			->FormatVersion, Asset::OrdinaryAssetPackageWriterVersion);
 
 		ShutdownRenderingThread();
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);

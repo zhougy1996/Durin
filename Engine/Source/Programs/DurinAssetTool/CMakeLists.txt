@@ -9,6 +9,11 @@ add_executable(DurinAssetTool "Private/AssetToolMain.cpp")
 durin_target_enable_windows_long_paths(DurinAssetTool)
 durin_target_apply_common_definitions(DurinAssetTool "DurinAssetTool")
 target_link_libraries(DurinAssetTool PRIVATE AssetCore Engine AssetImportCore)
+if(DURIN_WITH_EDITOR)
+    # Canonical-resave apply loads AssetForge dynamically so uncooked assets can
+    # run their authoring post-load policy without expanding read-only audits.
+    add_dependencies(DurinAssetTool GeometryBuild TextureBuild AssetForge)
+endif()
 if(DURIN_ENABLE_PCH)
     target_precompile_headers(DurinAssetTool REUSE_FROM SharedPCH_Core)
 else()

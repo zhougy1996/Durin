@@ -4,18 +4,33 @@ Summary: Classify the authored package corpus and qualify the DAST v5 default wr
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-Activated after the VolumeTexture pilot qualified DAST v5 across authored,
-derived, cooked, corruption, and rollback lifecycles. DAST v4 remains the
-ordinary writer until this plan classifies the repository corpus, freezes the
-old-reader and rollback policy, and proves that changing the default cannot
-strand required DABK generations. Current-machine performance variance is
-diagnostic; durability, compatibility, submit closure, and exact byte
-disposition remain hard gates.
+Completed. The initial inventory classified 32 tracked packages. Headless apply
+now waits for per-package asynchronous source recovery, rejects domain assets
+that remain unready, and registers the Engine third-party runtime directory so
+cold StaticMesh DDC recovery can load Assimp. The six Engine content packages
+that were initially retained passed this gate and were migrated. A scoped
+`DImportRecord` serialization version now migrates the historical
+`Bytes:Array<uint8>` representation to the current `Bytes:Blob` field, and both
+records were resaved. The two redirectors were transactionally fixed up and
+deleted. The remaining corpus contains 30 packages, all at v5. Both external
+VolumeTexture payloads are reachable in new generation-named DABK companions; the two
+superseded generations are deleted, and post-migration inspection finds zero
+missing payloads and zero orphans. The submit closure is 30 ordinary-Git
+`.dasset` rewrites, two redirector `.dasset` deletions, two LFS `.dabulk`
+additions, and two LFS generation deletions. A project v4 rollback dry-run
+reports exactly 30 ready units. The
+ordinary writer is now v5; v4/v5 reads and explicit v4 rollback remain. Package
+tests passed 108/108, AssetImportCore tests passed 62/62, Texture tests passed
+86/86, StaticMesh tests passed 73/73, and EditorRendering tests passed 77/77.
+No-project Material/Spline tests still
+expose their separate cold Engine-DDC asynchronous-consumer race, while
+EditorAssetWorkflow has an unrelated unavailable persisted image-translator
+fixture. Current-machine timing remains diagnostic as directed.
 
 ## Goal
 
@@ -61,17 +76,21 @@ only after reversible corpus and compatibility evidence passes.
 ## Current Foundations and Gaps
 
 - Reader-complete v5, explicit v4/v5 publication, canonical v4 resave,
-  relocation/deletion integration, and VolumeTexture lifecycle evidence exist.
-- Corpus-wide classification, stable migration reports, submit-closure checks,
-  and the ordinary-writer switch are not yet implemented.
+  relocation/deletion integration, VolumeTexture lifecycle evidence, target-aware
+  deterministic migration reports, and the v5 ordinary writer are complete.
+- Headless apply waits for pending DDC/source recovery and rejects incomplete
+  domain readiness before serialization. Historical ImportRecord byte arrays
+  migrate through a scoped field-version route, and project redirectors were
+  fixed up and deleted. Persistent virtualization and legacy retirement retain
+  their independent evidence gates.
 
 ## Implementation Stages
 
 ### Stage 0: Freeze corpus and compatibility policy
 
-- [ ] Inventory tracked package versions, domains, external descriptor counts,
+- [x] Inventory tracked package versions, domains, external descriptor counts,
   required DABK generations, orphan candidates, and Git/LFS ownership.
-- [ ] Freeze migration report schema, supported selections, stale-plan checks,
+- [x] Freeze migration report schema, supported selections, stale-plan checks,
   old-reader diagnostics, rollback artifacts, and cleanup disposition.
 
 #### Acceptance Gate
@@ -81,12 +100,12 @@ only after reversible corpus and compatibility evidence passes.
 
 ### Stage 1: Implement deterministic migration planning
 
-- [ ] Add construct-free plan/report APIs and a bounded command entry that
+- [x] Add construct-free plan/report APIs and a bounded command entry that
   defaults to dry-run and accepts explicit packages.
-- [ ] Reject missing/corrupt companions, v5 descriptor/trailer disagreement,
+- [x] Reject missing/corrupt companions, v5 descriptor/trailer disagreement,
   duplicates, unsupported versions, stale fingerprints, and broad implicit
   selections before publication.
-- [ ] Cover canonical ordering and report golden/round-trip validation.
+- [x] Cover canonical ordering and report golden/round-trip validation.
 
 #### Acceptance Gate
 
@@ -95,11 +114,11 @@ only after reversible corpus and compatibility evidence passes.
 
 ### Stage 2: Qualify apply, rollback, and submit closure
 
-- [ ] Apply selected migrations transactionally and verify package, trailer,
+- [x] Apply selected migrations transactionally and verify package, trailer,
   descriptor, DABK, catalog, relocation, deletion, and orphan state.
-- [ ] Inject failures at companion, package, root, catalog, verification, and
+- [x] Inject failures at companion, package, root, catalog, verification, and
   cleanup boundaries; prove the prior closure remains loadable.
-- [ ] Generate and verify canonical v4 rollback plus exact `.dasset` Git and
+- [x] Generate and verify canonical v4 rollback plus exact `.dasset` Git and
   `.dabulk` LFS submit sets.
 
 #### Acceptance Gate
@@ -109,11 +128,11 @@ only after reversible corpus and compatibility evidence passes.
 
 ### Stage 3: Select and activate the ordinary writer
 
-- [ ] Run the representative corpus qualification and record migration and
+- [x] Run the representative corpus qualification and record migration and
   rollback evidence without treating diagnostic performance as a hard gate.
-- [ ] Change the ordinary writer only if compatibility, durability, and closure
+- [x] Change the ordinary writer only if compatibility, durability, and closure
   gates pass; otherwise record a measurable blocker and retain v4.
-- [ ] Update lasting package, lifecycle, source-control, roadmap, and
+- [x] Update lasting package, lifecycle, source-control, roadmap, and
   compatibility documentation, then disposition Milestones 5-7 by their gates.
 
 #### Acceptance Gate
@@ -148,6 +167,10 @@ only after reversible corpus and compatibility evidence passes.
 - Persistent authored virtualization and backend optimization remain
   evidence-gated roadmap work.
 - Legacy DABK write retirement remains conditional on corpus and branch policy.
+- Replace the live-object format-only migration path with a construct-free
+  v4-to-v5 transcode, and design layered project/Engine DDC lookup separately.
+- Qualify stable submitted `Asset.dabulk` names with hidden transaction
+  generations and crash recovery before replacing hash-named companions.
 
 ## Related Documentation
 

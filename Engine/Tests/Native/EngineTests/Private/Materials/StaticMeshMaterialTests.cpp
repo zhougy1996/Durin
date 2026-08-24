@@ -515,7 +515,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Component->SetStaticMesh(MeshImport.Asset);
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4}));
 
 	const auto ComponentData = Durin::Asset::FindAssetExact(ComponentPath);
 	ASSERT_NE(ComponentData, nullptr);
@@ -658,13 +659,15 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4}));
 
 	Durin::DMaterialInstance* Instance = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.25f));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4}));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 

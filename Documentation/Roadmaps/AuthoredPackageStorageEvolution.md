@@ -4,17 +4,18 @@ Summary: Evolve authored bulk storage from generation-named DABK companions towa
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-Durin currently publishes authored bulk bytes as either inline DAST v4 values
-or immutable generation-named DABK v1 companions. The package stores enough
-physical identity to resolve and verify each external companion, and save,
+Durin currently publishes authored bulk bytes through DAST v5 packages as
+either inline trailer-indexed values or immutable generation-named DABK v1
+companions, while retaining DAST v4 reads and canonical rollback. The package
+stores enough physical identity to resolve and verify each external companion, and save,
 bundle publication, relocation, deletion, inspection, repair, and canonical
 resave treat the package plus all reachable companions as one consistency unit.
-This behavior is implemented and remains the production baseline.
+This behavior is implemented and is the production baseline.
 
 The completed
 [Domain-Owned Large Asset Payload Architecture](LargeAssetPayloadArchitecture.md)
@@ -57,15 +58,32 @@ Its detached v1 trailer/footer codec, EOF inspection, golden wires, and
 corruption contracts are qualified without registering production DAST v5.
 Milestone 2 completed through
 [Selected Local Authored Payload Publication](../Plans/SelectedLocalAuthoredPayloadPublication.md).
-DAST v5 is reader-complete and explicitly publishable with external DABK v1,
-while v4 remains the ordinary writer and canonical rollback. Milestone 3
+DAST v5 became reader-complete and explicitly publishable with external DABK v1,
+while v4 remained the ordinary writer and canonical rollback at that gate. Milestone 3
 completed through
 [VolumeTexture Trailer Migration](../Plans/VolumeTextureTrailerMigration.md):
 the explicit VolumeTexture pilot qualified inline/external source, DDC, Cook,
 corruption recovery, deletion, and v4 rollback without schema change.
-Milestone 4 is now active through
-[Authored Trailer Corpus Migration](../Plans/AuthoredTrailerCorpusMigration.md);
-Milestones 5-7 remain inactive until their own gates pass.
+Milestone 4 completed through
+[Authored Trailer Corpus Migration](../Plans/AuthoredTrailerCorpusMigration.md).
+The ordinary writer is v5, and all 30 remaining tracked packages use v5.
+Headless apply now waits for asynchronous
+source recovery, validates domain readiness, and exposes Engine third-party
+runtime DLLs for cold StaticMesh DDC reconstruction. A scoped ImportRecord field
+version converts the historical byte-array payload representation to the
+current Blob representation. The two redirectors were transactionally fixed up
+and deleted. Two reachable external companions were
+republished as new LFS generations with no missing payload or orphan. Canonical
+v4 rollback remains available for all 30 packages.
+
+The roadmap is complete because its strategically required Milestones 1-4 are
+done and every later conditional gate is dispositioned. Milestone 5 is not
+activated: the corpus still has only one dense authored consumer and 2.36 MiB
+of reachable external bytes, so virtualization entry evidence is absent.
+Milestone 6 is not activated because no reference-machine budget violation is
+recorded. Milestone 7 is retained as conditional: v4 rollback remains required
+until its compatibility window elapses. Those milestones require a new roadmap
+activation if their evidence gates later pass.
 
 ## Outcome
 
@@ -266,10 +284,10 @@ an initial assumption.
 | 1. Package trailer foundation | Milestone 0.5 | Bounded versioned trailer/footer model, detached builder/reader, only `ExternalDabkV1`, construct-free inspection, golden bytes, and corruption fixtures | Strategic activation records Proceed and selects DAST v5 plus trailer-indexed DABK v1 without changing domain schemas | Focused tests prove canonical ordering, EOF discovery, all structural bounds, unsupported-state rejection, duplicate/range/trailing rejection, and no object construction; no production writer uses the format yet | Completed 2026-08-24 |
 | 2. Selected local authored payload publication | Milestone 1 | Dual-read package loading, failure-atomic publication for the selected package-local or companion-local placement, recovery/compaction policy, package operations integration, and opt-in writer | The selected placement shows measured or operational benefit, has an explicit Git/LFS policy, and preserves the prior generation under every injected failure | Save/reload, bundle, move, copy, delete, Fix Up, canonical resave, crash recovery, and catalog failure tests pass while DAST v4/DABK v1 remain readable | Completed 2026-08-24 |
 | 3. VolumeTexture migration pilot | Milestone 2 | One production asset route writes through the selected trailer-indexed authored-voxel placement without domain-schema change and can roll back to DAST v4/DABK v1 during qualification | Selected local publication is qualified and VolumeTexture golden/source/DDC/Cook fixtures are green | Editor save/reload, reimport, DDC miss/rebuild, Cook/runtime, inspection/repair, source control, canonical resave, and rollback pass with exact disposition of legacy companions | Completed 2026-08-24 |
-| 4. Corpus migration and default writer | Milestone 3 plus representative repository telemetry | Canonical corpus conversion, submit validation, cleanup, compatibility policy, default placement selection, and lasting contracts | The pilot has operated through representative edits and source-control workflows without unresolved durability regressions; current-machine performance remains diagnostic rather than blocking | Every tracked package is classified, migrated packages have no unreachable required payloads, old readers fail explicitly where required, rollback assets exist, and default-writer policy is documented | Active |
-| 5. Persistent authored virtualization | Milestone 3 or 4 | Content-addressed persistent backend, optional cache hierarchy, hydration, offline prefetch/failure policy, permissions, submit integration, provenance, repair, and garbage collection | Telemetry demonstrates material checkout/storage/transfer benefit; at least two authored consumers share the need; a durable backend and ownership model are selected | Prefetched and never-hydrated offline cases, cache miss, backend outage, permission, partial submit, concurrent edit, recovery, retention, and GC tests prove that no reachable authored payload depends solely on disposable cache state | Evidence-gated |
-| 6. Trailer and backend optimization | Milestones 4-5 as applicable | Compression, cross-package deduplication, range IO, compaction scheduling, or package-container aggregation selected independently from measurements | Profiling identifies a specific storage, latency, memory, patch, or transfer budget violation | The selected optimization meets a frozen budget without weakening compatibility, durability, diagnostics, or domain ownership | Evidence-gated |
-| 7. Legacy DABK write retirement | Milestone 4 and, if adopted, Milestone 5 | Removal of default DABK writes and explicit long-term legacy-read disposition | All supported branches/corpora are migrated or have a documented compatibility route and rollback window has elapsed | No production workflow writes new DABK, legacy fixtures remain intentionally supported or are removed by an approved format-break policy, and orphan cleanup cannot delete reachable historical data | Conditional |
+| 4. Corpus migration and default writer | Milestone 3 plus representative repository telemetry | Canonical corpus conversion, submit validation, cleanup, compatibility policy, default placement selection, and lasting contracts | The pilot has operated through representative edits and source-control workflows without unresolved durability regressions; current-machine performance remains diagnostic rather than blocking | Every tracked package is classified, migrated packages have no unreachable required payloads, old readers fail explicitly where required, rollback assets exist, and default-writer policy is documented | Completed 2026-08-24 |
+| 5. Persistent authored virtualization | Milestone 3 or 4 | Content-addressed persistent backend, optional cache hierarchy, hydration, offline prefetch/failure policy, permissions, submit integration, provenance, repair, and garbage collection | Telemetry demonstrates material checkout/storage/transfer benefit; at least two authored consumers share the need; a durable backend and ownership model are selected | Prefetched and never-hydrated offline cases, cache miss, backend outage, permission, partial submit, concurrent edit, recovery, retention, and GC tests prove that no reachable authored payload depends solely on disposable cache state | Not activated — evidence gate unmet 2026-08-24 |
+| 6. Trailer and backend optimization | Milestones 4-5 as applicable | Compression, cross-package deduplication, range IO, compaction scheduling, or package-container aggregation selected independently from measurements | Profiling identifies a specific storage, latency, memory, patch, or transfer budget violation | The selected optimization meets a frozen budget without weakening compatibility, durability, diagnostics, or domain ownership | Not activated — no reference budget violation 2026-08-24 |
+| 7. Legacy DABK write retirement | Milestone 4 and, if adopted, Milestone 5 | Removal of default DABK writes and explicit long-term legacy-read disposition | All supported branches/corpora are migrated or have a documented compatibility route and rollback window has elapsed | No production workflow writes new DABK, legacy fixtures remain intentionally supported or are removed by an approved format-break policy, and orphan cleanup cannot delete reachable historical data | Retained conditional — rollback window remains 2026-08-24 |
 
 Milestone 0 remains the required measured qualification and its Retain result is
 not rewritten. Milestone 0.5 records the later strategic Proceed directive.

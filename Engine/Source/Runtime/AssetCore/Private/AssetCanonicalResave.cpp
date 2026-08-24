@@ -89,6 +89,17 @@ namespace Durin::Asset
 			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
 
+		auto TargetFormatVersion(EAssetPackageWriterSelection Selection) -> uint32
+		{
+			switch (Selection)
+			{
+			case EAssetPackageWriterSelection::DastV4: return AssetPackageV4FormatVersion;
+			case EAssetPackageWriterSelection::DastV5: return AssetPackageV5FormatVersion;
+			case EAssetPackageWriterSelection::Ordinary: return 0;
+			}
+			return 0;
+		}
+
 		auto FingerprintMatches(const FAssetPackageFingerprint& Fingerprint,
 			std::span<const std::byte> Bytes, std::string_view PhysicalPath) -> bool
 		{
@@ -151,6 +162,8 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogStore().GetRevision();
+		Plan.TargetWriterSelection = Selection.TargetWriterSelection;
+		Plan.TargetFormatVersion = TargetFormatVersion(Selection.TargetWriterSelection);
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -173,21 +186,26 @@ namespace Durin::Asset
 			Package.EntryKind = Record->EntryKind;
 			Package.bLoaded = Loaded != nullptr;
 			Package.bDirty = Loaded && Loaded->IsDirty();
-			Package.bPlainResaveRequested = Selection.bAllowPlainResave
-				&& std::ranges::find(Selection.Packages, Record->PackagePath) != Selection.Packages.end();
+			Package.bPlainResaveRequested = Record->EntryKind
+				== EAssetRegistryEntryKind::Asset
+				&& (Record->FormatVersion != Plan.TargetFormatVersion
+					|| (Selection.bAllowPlainResave
+						&& std::ranges::find(Selection.Packages, Record->PackagePath)
+							!= Selection.Packages.end()));
 			Package.Evidence = Record->CanonicalizationEvidence;
 			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
+			if (Plan.TargetFormatVersion == 0)
+				Package.Diagnostics.push_back(
+					"TargetWriterInvalid: migration and rollback plans require an explicit writer.");
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready
 				|| Record->Compatibility != EAssetPackageCompatibility::Compatible)
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (Record->FormatVersion != LatestAssetPackageWriterVersion
+			if (Record->FormatVersion != AssetPackageV4FormatVersion
 				&& Record->FormatVersion != AssetPackageV5FormatVersion)
 				Package.Diagnostics.push_back(
 					"NonCurrentFormat: canonical resave has no supported rollback route for this package format.");
-			if (Record->EntryKind != EAssetRegistryEntryKind::Asset)
-				Package.Diagnostics.push_back("NonAuthorablePackage: redirectors cannot be canonically resaved.");
 			const PathUtilities::FMountLookupResult Mount =
 				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bAuthoringWritable)
@@ -296,6 +314,23 @@ namespace Durin::Asset
 					return Result;
 				}
 			}
+			if (Options.PrepareLoadedAsset)
+			{
+				const FAssetResult Prepared = Options.PrepareLoadedAsset(
+					PackagePlan.PackagePath, Package->GetAsset());
+				if (!Prepared)
+				{
+					if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
+					PackagePlan.Diagnostics.push_back(std::format(
+						"CanonicalResavePrepareRejected: {}", Prepared.Message));
+					Result.Status = Completed
+						? EAssetCanonicalResaveApplyStatus::Partial
+						: EAssetCanonicalResaveApplyStatus::Failed;
+					Result.Diagnostic = PackagePlan.Diagnostics.back();
+					return Result;
+				}
+			}
 			if (Package->IsDirty())
 			{
 				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
@@ -316,7 +351,7 @@ namespace Durin::Asset
 			}
 			DPackage* Unit[] = {Package};
 			FAssetBundleSaveOptions SaveOptions;
-			SaveOptions.WriterSelection = EAssetPackageWriterSelection::DastV4;
+			SaveOptions.WriterSelection = Result.Plan.TargetWriterSelection;
 			SaveOptions.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
 				if (!Options.ShouldFail) return false;
 				if (Phase == EAssetBundleSavePhase::StagePackage)
@@ -344,11 +379,25 @@ namespace Durin::Asset
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);
-			FAssetResult Verify = LoadBytes(PackagePlan.PhysicalPath, AfterBytes)
-				? DastV4::ProbeCompatibility(AfterBytes, PackagePlan.PackagePath, Catalog, Verification)
-				: FAssetResult{EAssetError::IoError, "Published package could not be reread."};
+			FAssetResult Verify = {EAssetError::IoError,
+				"Published package could not be reread."};
+			if (LoadBytes(PackagePlan.PhysicalPath, AfterBytes))
+			{
+				if (Result.Plan.TargetFormatVersion == AssetPackageV4FormatVersion)
+					Verify = DastV4::ProbeCompatibility(
+						AfterBytes, PackagePlan.PackagePath, Catalog, Verification);
+				else
+				{
+					FAssetPackageInspection Inspection;
+					Verify = InspectAssetPackage(PackagePlan.PhysicalPath, Inspection);
+					Verification.FormatVersion = Inspection.Header.FormatVersion;
+					Verification.Compatibility = Verify
+						? EAssetPackageCompatibility::Compatible
+						: EAssetPackageCompatibility::Incompatible;
+				}
+			}
 			if (bInjectedVerificationFailure || !Verify
-				|| Verification.FormatVersion != LatestAssetPackageWriterVersion
+				|| Verification.FormatVersion != Result.Plan.TargetFormatVersion
 				|| Verification.Compatibility != EAssetPackageCompatibility::Compatible
 				|| !Verification.CanonicalizationEvidence.empty()
 				|| !Verification.DeprecatedRouteEvidence.empty())
@@ -409,10 +458,10 @@ namespace Durin::Asset
 
 	auto SerializeAssetCanonicalResavePlanReport(const FAssetCanonicalResavePlan& Plan) -> std::string
 	{
-		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"plan\",\"status\":\"{}\",\"registryRevision\":{},\"packages\":{}}}",
+		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"plan\",\"status\":\"{}\",\"registryRevision\":{},\"targetFormatVersion\":{},\"packages\":{}}}",
 			AssetCanonicalResaveReportSchemaVersion,
 			Plan.Status == EAssetCanonicalResavePlanStatus::Completed ? "Completed" : "Cancelled",
-			Plan.RegistryRevision, SerializePackages(Plan));
+			Plan.RegistryRevision, Plan.TargetFormatVersion, SerializePackages(Plan));
 	}
 
 	auto SerializeAssetCanonicalResaveApplyReport(const FAssetCanonicalResaveApplyResult& Result) -> std::string
@@ -429,8 +478,9 @@ namespace Durin::Asset
 			}
 			return "Failed";
 		};
-		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"apply\",\"status\":\"{}\",\"diagnostic\":\"{}\",\"packages\":{}}}",
+		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"apply\",\"status\":\"{}\",\"diagnostic\":\"{}\",\"targetFormatVersion\":{},\"packages\":{}}}",
 			AssetCanonicalResaveReportSchemaVersion, ApplyStatusName(Result.Status),
-			JsonEscape(Result.Diagnostic), SerializePackages(Result.Plan));
+			JsonEscape(Result.Diagnostic), Result.Plan.TargetFormatVersion,
+			SerializePackages(Result.Plan));
 	}
 }

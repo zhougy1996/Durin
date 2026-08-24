@@ -159,11 +159,17 @@ When a new large asset extension is introduced, add an explicit LFS rule to `.gi
 
 Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
-self-contained. Explicit DAST v5 packages retain external DABK v1 companions,
+self-contained. Ordinary DAST v5 packages retain external DABK v1 companions,
 so the route does not change this split: `.dasset` remains ordinary Git and
 `.dabulk` remains LFS. A submit must include the package and every newly
 referenced companion generation. Revisit `.dasset` LFS only if a separately
 qualified route begins embedding large render data.
+
+Corpus migration can replace a generation-named DABK even when its logical
+payload bytes are unchanged because the current canonical container identity
+is part of the closure. Review the migration report and submit the `.dasset`,
+new LFS-backed `.dabulk`, and deletion of the superseded generation together.
+Never submit only the package or only one companion side.
 
 ## Existing Repository Files
 

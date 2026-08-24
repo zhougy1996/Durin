@@ -98,16 +98,16 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/DABK
 placement and replacement remain authored-only capabilities.
 
-Ordinary saves emit DAST v4 and only the authored BulkData field. A bounded
-VolumeTexture authoring operation can explicitly select DAST v5; the selection
-travels on that Interchange request and is never persisted on the domain
-object. V5 retains the same reflected fields and requires its EOF trailer to
+Ordinary saves emit DAST v5 and only the authored BulkData field. A bounded
+VolumeTexture authoring operation may still explicitly select v4 rollback or
+v5; the selection travels on that Interchange request and is never persisted
+on the domain object. V5 retains the same reflected fields and requires its EOF trailer to
 agree exactly with every external descriptor in the object stream. Small
 inline voxel payloads produce no external trailer entry. External voxel
 payloads produce one matching trailer entry and generation-named DABK v1
-companion. Reimport and repair preserve v5 only when their individual operation
-selects it; no global or ambient preference exists. Canonical or explicit v4
-resave is the rollback route.
+companion. Reimport and repair use the ordinary v5 writer unless their
+individual operation selects an explicit rollback. Canonical or explicit v4
+resave is the rollback route; the domain object stores no ambient preference.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload

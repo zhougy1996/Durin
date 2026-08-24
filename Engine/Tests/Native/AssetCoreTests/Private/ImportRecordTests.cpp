@@ -521,6 +521,36 @@ TEST(FImportRecordFrameworkTests, StructRepairRestoresOutputAndTombstonePaths)
 	EXPECT_FALSE(Error.empty());
 }
 
+TEST(FImportRecordFrameworkTests, MigratesLegacyByteArrayPayloadToBlob)
+{
+	InitializeImportRecordTests();
+	Durin::Asset::FImportRecordPayload Payload;
+	Payload.Bytes_DEPRECATED = {0x00, 0x7f, 0xff};
+	std::string Error;
+	Durin::FDStructPostDeserializeContext Context{
+		.Source = Durin::EDStructDeserializeSource::AuthoredAsset,
+		.SourceVersion = 4,
+		.Error = &Error};
+	auto& Ops = Durin::Asset::FImportRecordPayload::StaticStruct()->GetOps();
+	ASSERT_NE(Ops.PostDeserialize, nullptr);
+	ASSERT_TRUE(Ops.PostDeserialize(&Payload, Context)) << Error;
+	EXPECT_EQ(Payload.Bytes,
+		(std::vector<std::byte>{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}}));
+	EXPECT_TRUE(Payload.Bytes_DEPRECATED.empty());
+	Payload.Bytes = {std::byte{0x24}};
+	ASSERT_TRUE(Ops.PostDeserialize(&Payload, Context)) << Error;
+	EXPECT_EQ(Payload.Bytes, (std::vector<std::byte>{std::byte{0x24}}));
+
+	Durin::FArchiveVersionContext CurrentVersions{
+		.CustomVersions = {{Durin::Asset::FImportRecordSerializationVersion::Guid,
+			Durin::Asset::FImportRecordSerializationVersion::BytePayloadBlob}}};
+	Payload.Bytes = {std::byte{0x42}};
+	Payload.Bytes_DEPRECATED = {0x11};
+	Context.VersionContext = &CurrentVersions;
+	ASSERT_TRUE(Ops.PostDeserialize(&Payload, Context)) << Error;
+	EXPECT_EQ(Payload.Bytes, (std::vector<std::byte>{std::byte{0x42}}));
+}
+
 TEST(FImportRecordFrameworkTests, UsesOnlyCurrentSerializedIdentity)
 {
 	InitializeImportRecordTests();

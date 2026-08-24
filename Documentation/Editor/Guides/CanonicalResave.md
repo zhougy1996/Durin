@@ -1,13 +1,13 @@
 # Canonical Resave
 
-Summary: Upgrade legacy reflected type names in current asset packages without reimporting source data.
+Summary: Canonicalize reflected identities or explicitly migrate package format without reimporting source data.
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-24
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
-it is separate from unsaved authored changes, package-format migration, and
-reimport.
+it is separate from unsaved authored changes and reimport. The same bounded
+plan/apply machinery also accepts an explicit package-format target.
 
 For one asset, open its Content Browser context menu and choose **Resave
 Package**. **Save Package** is reserved for loaded assets with ordinary authored
@@ -26,10 +26,13 @@ The command-line host is dry-run by default:
 ```text
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --mount=/Game --format=human
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --package=/Game/Example --apply
+DurinAssetTool --project=<project.dproject> --operation=canonical-resave --project-scope --target=v5
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --project-scope --ci
 ```
 
 Selection must name packages, folders, mounts, or the explicit project scope.
+The default `--target=v4` is canonical rollback; `--target=v5` is the explicit
+trailer migration route. Redirectors remain at their existing supported format.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.
