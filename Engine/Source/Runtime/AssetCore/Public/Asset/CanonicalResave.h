@@ -42,9 +42,8 @@ namespace Durin::Asset
 		std::vector<FAssetPath> Packages;
 		bool bWholeProject = false;
 		bool bAllowPlainResave = false;
-		// Canonical rollback remains DAST v4. Corpus migration must opt into v5.
 		EAssetPackageWriterSelection TargetWriterSelection =
-			EAssetPackageWriterSelection::DastV4;
+			EAssetPackageWriterSelection::DastV5;
 	};
 
 	enum class EAssetCanonicalResavePlanStatus : uint8 { Completed, Cancelled };
@@ -53,8 +52,8 @@ namespace Durin::Asset
 		EAssetCanonicalResavePlanStatus Status = EAssetCanonicalResavePlanStatus::Completed;
 		uint64 RegistryRevision = 0;
 		EAssetPackageWriterSelection TargetWriterSelection =
-			EAssetPackageWriterSelection::DastV4;
-		uint32 TargetFormatVersion = 4;
+			EAssetPackageWriterSelection::DastV5;
+		uint32 TargetFormatVersion = 5;
 		std::vector<FAssetCanonicalResavePackagePlan> Packages;
 	};
 

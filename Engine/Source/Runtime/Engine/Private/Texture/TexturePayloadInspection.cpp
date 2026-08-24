@@ -240,8 +240,7 @@ namespace Durin
 				std::string StorageError;
 				if (Package.PhysicalPath.empty()
 					|| !Asset::ResolveEditorBulkDataCompanionPath(
-						Package.PhysicalPath, Descriptor.ContainerHash,
-						CompanionPath, &StorageError)
+						Package.PhysicalPath, CompanionPath, &StorageError)
 					|| !FFileHelper::LoadFileToArray(CompanionBytes, CompanionPath))
 				{
 					SourceState = ETexturePayloadState::Missing;

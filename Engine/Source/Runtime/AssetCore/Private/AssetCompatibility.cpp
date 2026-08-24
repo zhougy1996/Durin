@@ -1,5 +1,5 @@
 #include "Asset/Compatibility.h"
-#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageObjectStreamReader.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 

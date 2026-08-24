@@ -1,13 +1,13 @@
 #pragma once
 
-#include "PackageV4WireContract.h"
+#include "PackageObjectStreamWireContract.h"
 
 #include <compare>
 #include <memory>
 #include <optional>
 #include <set>
 
-namespace Durin::Testing::DastV4
+namespace Durin::Testing::PackageObjectStream
 {
 	constexpr uint64 MaximumTableEntries = 1048575;
 	constexpr uint64 MaximumSchemaFields = 65535;

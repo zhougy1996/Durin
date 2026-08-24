@@ -103,7 +103,7 @@ namespace
 		bool bApply = false;
 		bool bTargetSpecified = false;
 		Durin::Asset::EAssetPackageWriterSelection TargetWriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV4;
+			Durin::Asset::EAssetPackageWriterSelection::DastV5;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
@@ -129,12 +129,6 @@ namespace
 			else if (Argument == "--ci") OutOptions.bCi = true;
 			else if (Argument == "--project-scope") OutOptions.bProjectScope = true;
 			else if (Argument == "--apply") OutOptions.bApply = true;
-			else if (Argument == "--target=v4")
-			{
-				OutOptions.bTargetSpecified = true;
-				OutOptions.TargetWriterSelection =
-					Durin::Asset::EAssetPackageWriterSelection::DastV4;
-			}
 			else if (Argument == "--target=v5")
 			{
 				OutOptions.bTargetSpecified = true;
@@ -281,9 +275,8 @@ namespace
 						if (Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
 						{
 							if (!ResolveEditorBulkDataCompanionPath(
-									Input.PhysicalPath, Descriptor.ContainerHash,
-									Item.CompanionPath, &Item.Diagnostic)
-								|| !LoadEditorBulkDataStoragePayload(
+									Input.PhysicalPath, Item.CompanionPath, &Item.Diagnostic)
+								|| !ReadEditorBulkDataStoragePayload(
 									Item.CompanionPath, Descriptor, Item.ExternalBytes,
 									&Item.Diagnostic))
 								Item.bReachable = false;

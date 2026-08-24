@@ -1,10 +1,10 @@
-#include "PackageV4WireContract.h"
+#include "PackageObjectStreamWireContract.h"
 
 #include <algorithm>
 #include <bit>
 #include <limits>
 
-namespace Durin::Testing::DastV4
+namespace Durin::Testing::PackageObjectStream
 {
 	namespace
 	{

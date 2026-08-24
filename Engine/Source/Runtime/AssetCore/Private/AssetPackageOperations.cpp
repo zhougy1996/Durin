@@ -4,7 +4,7 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
-#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageTrailer.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -334,7 +334,8 @@ namespace Durin::Asset
 			const std::filesystem::path& KeepPath = {}) -> void
 		{
 			const std::filesystem::path Parent = PackagePath.parent_path();
-			const std::string Prefix = PackagePath.stem().string() + ".";
+			const std::string Stem = PackagePath.stem().string();
+			const std::string StableName = Stem + std::string(EditorBulkDataCompanionSuffix);
 			std::error_code ErrorCode;
 			for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
 				!ErrorCode && It != End; It.increment(ErrorCode))
@@ -342,8 +343,7 @@ namespace Durin::Asset
 				const std::filesystem::path Candidate = It->path();
 				const std::string Name = Candidate.filename().string();
 				if (!It->is_regular_file(ErrorCode) || ErrorCode
-					|| !Name.starts_with(Prefix)
-					|| !Name.ends_with(EditorBulkDataCompanionSuffix)
+					|| Name != StableName
 					|| (!KeepPath.empty() && Candidate == KeepPath))
 				{
 					ErrorCode.clear();
@@ -352,6 +352,181 @@ namespace Durin::Asset
 				std::filesystem::remove(Candidate, ErrorCode);
 				ErrorCode.clear();
 			}
+		}
+
+		struct FEditorBulkDataCompanionTransaction
+		{
+			std::filesystem::path FinalPath;
+			std::filesystem::path BackupPath;
+			FXxHash128 ContainerHash;
+			bool bHadFinal = false;
+			bool bPublished = false;
+		};
+
+		auto PrepareEditorBulkDataCompanionState(
+			const std::filesystem::path& PackagePath,
+			std::string& OutError) -> bool
+		{
+			std::filesystem::path FinalPath;
+			if (!ResolveEditorBulkDataCompanionPath(PackagePath, FinalPath, &OutError))
+				return false;
+			std::filesystem::path BackupPath = FinalPath;
+			BackupPath += EditorBulkDataCompanionBackupSuffix;
+			std::error_code ErrorCode;
+			if (!std::filesystem::exists(BackupPath, ErrorCode))
+			{
+				if (ErrorCode && !IsMissingPathError(ErrorCode))
+				{
+					OutError = std::format("Failed to inspect authored bulk backup {}: {}",
+						BackupPath.generic_string(), ErrorCode.message());
+					return false;
+				}
+				OutError.clear();
+				return true;
+			}
+
+			FAssetPackageInspection Inspection;
+			const FAssetResult InspectionResult = InspectAssetPackage(
+				PackagePath.generic_string(), Inspection);
+			if (!InspectionResult)
+			{
+				OutError = std::format(
+					"Cannot resolve authored bulk backup without a readable published package: {}",
+					InspectionResult.Message);
+				return false;
+			}
+			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+			if (!InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors, &OutError))
+				return false;
+			const auto External = std::ranges::find_if(Descriptors, [](const auto& Descriptor) {
+				return Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
+			});
+			if (External == Descriptors.end())
+			{
+				std::filesystem::remove(BackupPath, ErrorCode);
+				if (ErrorCode)
+				{
+					OutError = std::format("Failed to remove stale authored bulk backup {}: {}",
+						BackupPath.generic_string(), ErrorCode.message());
+					return false;
+				}
+				OutError.clear();
+				return true;
+			}
+			FSharedByteBuffer Recovered;
+			return LoadEditorBulkDataStoragePayload(
+				FinalPath, *External, Recovered, &OutError);
+		}
+
+		auto PublishEditorBulkDataCompanion(
+			const std::filesystem::path& PackagePath,
+			FXxHash128 ContainerHash,
+			std::span<const std::byte> Bytes,
+			FEditorBulkDataCompanionTransaction& OutTransaction,
+			std::string& OutError) -> bool
+		{
+			OutTransaction = {};
+			if (!PrepareEditorBulkDataCompanionState(PackagePath, OutError)
+				|| !ResolveEditorBulkDataCompanionPath(
+					PackagePath, OutTransaction.FinalPath, &OutError)) return false;
+			OutTransaction.BackupPath = OutTransaction.FinalPath;
+			OutTransaction.BackupPath += EditorBulkDataCompanionBackupSuffix;
+			OutTransaction.ContainerHash = ContainerHash;
+
+			std::error_code ErrorCode;
+			OutTransaction.bHadFinal =
+				std::filesystem::is_regular_file(OutTransaction.FinalPath, ErrorCode);
+			if (ErrorCode && !IsMissingPathError(ErrorCode))
+			{
+				OutError = std::format("Failed to inspect authored bulk companion {}: {}",
+					OutTransaction.FinalPath.generic_string(), ErrorCode.message());
+				return false;
+			}
+			if (OutTransaction.bHadFinal)
+			{
+				std::vector<std::byte> PriorBytes;
+				if (!FFileHelper::LoadFileToArray(PriorBytes, OutTransaction.FinalPath))
+				{
+					OutError = "Prior authored bulk companion is unreadable.";
+					return false;
+				}
+				FFileHelper::FAtomicFileError BackupError;
+				if (!FFileHelper::SaveArrayToFileAtomically(
+						PriorBytes, OutTransaction.BackupPath, &BackupError))
+				{
+					OutError = BackupError.ToString();
+					return false;
+				}
+			}
+			FFileHelper::FAtomicFileError PublicationError;
+			if (!FFileHelper::SaveArrayToFileAtomically(
+					Bytes, OutTransaction.FinalPath, &PublicationError))
+			{
+				std::filesystem::remove(OutTransaction.BackupPath, ErrorCode);
+				OutError = PublicationError.ToString();
+				return false;
+			}
+			OutTransaction.bPublished = true;
+			OutError.clear();
+			return true;
+		}
+
+		auto RollbackEditorBulkDataCompanion(
+			FEditorBulkDataCompanionTransaction& Transaction,
+			std::string& OutError) -> bool
+		{
+			if (!Transaction.bPublished) return true;
+			std::error_code ErrorCode;
+			if (!Transaction.bHadFinal)
+			{
+				std::filesystem::remove(Transaction.FinalPath, ErrorCode);
+				if (!ErrorCode) std::filesystem::remove(Transaction.BackupPath, ErrorCode);
+			}
+			else
+			{
+				std::vector<std::byte> PriorBytes;
+				if (!FFileHelper::LoadFileToArray(PriorBytes, Transaction.BackupPath))
+				{
+					OutError = "Authored bulk rollback backup is missing or unreadable.";
+					return false;
+				}
+				FFileHelper::FAtomicFileError PublicationError;
+				if (!FFileHelper::SaveArrayToFileAtomically(
+						PriorBytes, Transaction.FinalPath, &PublicationError))
+				{
+					OutError = PublicationError.ToString();
+					return false;
+				}
+				std::filesystem::remove(Transaction.BackupPath, ErrorCode);
+			}
+			if (ErrorCode)
+			{
+				OutError = std::format("Authored bulk rollback cleanup failed: {}",
+					ErrorCode.message());
+				return false;
+			}
+			Transaction.bPublished = false;
+			OutError.clear();
+			return true;
+		}
+
+		auto VerifyEditorBulkDataCompanion(
+			const FEditorBulkDataCompanionTransaction& Transaction,
+			std::string& OutError) -> bool
+		{
+			if (!Transaction.bPublished) return true;
+			std::vector<std::byte> Bytes;
+			return FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
+				&& ValidateEditorBulkDataCompanion(
+					Bytes, Transaction.ContainerHash, &OutError);
+		}
+
+		auto CommitEditorBulkDataCompanion(
+			FEditorBulkDataCompanionTransaction& Transaction) -> void
+		{
+			std::error_code ErrorCode;
+			std::filesystem::remove(Transaction.BackupPath, ErrorCode);
+			Transaction.bPublished = false;
 		}
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
@@ -386,7 +561,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = LatestAssetPackageWriterVersion) -> FAssetResult
+			uint32 SourceVersion = AssetPackageObjectStreamVersion) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -728,8 +903,6 @@ namespace Durin::Asset
 			const uint32 WriterVersion = [&] {
 				switch (Options.WriterSelection)
 				{
-				case EAssetPackageWriterSelection::DastV4:
-					return AssetPackageV4FormatVersion;
 				case EAssetPackageWriterSelection::DastV5:
 					return AssetPackageV5FormatVersion;
 				case EAssetPackageWriterSelection::Ordinary:
@@ -836,7 +1009,7 @@ namespace Durin::Asset
 			return Error(EAssetError::CorruptFile,
 				"Asset package exceeds the supported byte bound.");
 		const uint64 ReadSize = std::min(
-			Reader.FileSize, DastV4::MaximumHeaderBytes);
+			Reader.FileSize, PackageObjectStream::MaximumHeaderBytes);
 		std::vector<std::byte> Bytes(static_cast<size_t>(ReadSize));
 		if (ReadSize != 0)
 		{
@@ -893,6 +1066,7 @@ namespace Durin::Asset
 			std::filesystem::path Staged;
 			std::filesystem::path Backup;
 			std::filesystem::path PublishedCompanion;
+			FEditorBulkDataCompanionTransaction CompanionTransaction;
 			uintmax_t PublishedFileSize = 0;
 			std::filesystem::file_time_type PublishedLastWriteTime{};
 			bool bHadDestination = false;
@@ -970,6 +1144,15 @@ namespace Durin::Asset
 				std::filesystem::remove(Staged.Staged, Ec);
 			}
 		};
+		auto RollbackCompanions = [&] {
+			std::string IgnoredError;
+			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
+				RollbackEditorBulkDataCompanion(It->CompanionTransaction, IgnoredError);
+		};
+		auto AbortStaging = [&] {
+			CleanupStaging();
+			RollbackCompanions();
+		};
 		auto RollbackPublication = [&] {
 			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
 			{
@@ -982,6 +1165,7 @@ namespace Durin::Asset
 				}
 				std::filesystem::remove(It->Staged, Ec);
 			}
+			RollbackCompanions();
 		};
 
 		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
@@ -989,14 +1173,14 @@ namespace Durin::Asset
 			FStagedPackage& Staged = StagedPackages[Index];
 			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::CreateDirectories, Index))
 			{
-				CleanupStaging();
+				AbortStaging();
 				return Error(EAssetError::IoError, "Injected asset-bundle directory creation failure.");
 			}
 			std::error_code Ec;
 			std::filesystem::create_directories(Staged.Destination.parent_path(), Ec);
 			if (Ec)
 			{
-				CleanupStaging();
+				AbortStaging();
 				return Error(EAssetError::IoError, std::format(
 					"Failed to create package directory {}: {}",
 					Staged.Destination.parent_path().generic_string(), Ec.message()));
@@ -1006,7 +1190,7 @@ namespace Durin::Asset
 				if (Options.ShouldFail
 					&& Options.ShouldFail(EAssetBundleSavePhase::PublishCompanion, Index))
 				{
-					CleanupStaging();
+					AbortStaging();
 					return Error(EAssetError::IoError,
 						"Injected asset-bundle companion publication failure.");
 				}
@@ -1022,25 +1206,32 @@ namespace Durin::Asset
 					|| !BuildEditorBulkDataCompanion(Staged.File.BulkPayloads,
 						ContainerHash, CompanionBytes, &CompanionError)
 					|| !ResolveEditorBulkDataCompanionPath(Staged.Destination,
-						ContainerHash, Staged.PublishedCompanion, &CompanionError))
+						Staged.PublishedCompanion, &CompanionError))
 				{
-					CleanupStaging();
+					AbortStaging();
 					return Error(EAssetError::CorruptFile, std::move(CompanionError));
 				}
-				FFileHelper::FAtomicFileError CompanionPublicationError;
-				if (!FFileHelper::SaveArrayToFileAtomically(
-						std::span{reinterpret_cast<const std::byte*>(CompanionBytes.data()),
-							CompanionBytes.size()}, Staged.PublishedCompanion,
-						&CompanionPublicationError))
+				if (!PublishEditorBulkDataCompanion(
+						Staged.Destination, ContainerHash, CompanionBytes,
+						Staged.CompanionTransaction, CompanionError))
 				{
-					CleanupStaging();
-					return Error(EAssetError::IoError,
-						CompanionPublicationError.ToString());
+					AbortStaging();
+					return Error(EAssetError::IoError, std::move(CompanionError));
+				}
+			}
+			else
+			{
+				std::string CompanionError;
+				if (!PrepareEditorBulkDataCompanionState(
+						Staged.Destination, CompanionError))
+				{
+					AbortStaging();
+					return Error(EAssetError::IoError, std::move(CompanionError));
 				}
 			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::StagePackage, Index))
 			{
-				CleanupStaging();
+				AbortStaging();
 				return Error(EAssetError::IoError, "Injected asset-bundle package staging failure.");
 			}
 			FFileHelper::FAtomicFileError PublicationError;
@@ -1049,7 +1240,7 @@ namespace Durin::Asset
 				Staged.Staged,
 				&PublicationError))
 			{
-				CleanupStaging();
+				AbortStaging();
 				return Error(EAssetError::IoError, PublicationError.ToString());
 			}
 		}
@@ -1109,6 +1300,19 @@ namespace Durin::Asset
 					Staged.Path.ToString(), Ec.message()));
 			}
 		}
+		for (FStagedPackage& Staged : StagedPackages)
+		{
+			std::string CompanionError;
+			if (!VerifyEditorBulkDataCompanion(
+					Staged.CompanionTransaction, CompanionError))
+			{
+				RollbackPublication();
+				return Error(EAssetError::CorruptFile,
+					CompanionError.empty()
+						? "Published authored bulk companion failed verification."
+						: std::move(CompanionError));
+			}
+		}
 		if (Options.ShouldFail
 			&& Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, StagedPackages.size()))
 		{
@@ -1138,6 +1342,7 @@ namespace Durin::Asset
 			Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
+			CommitEditorBulkDataCompanion(Staged.CompanionTransaction);
 			CleanupStaleEditorBulkDataCompanions(
 				Staged.Destination, Staged.PublishedCompanion);
 		}
@@ -1328,7 +1533,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? LatestAssetPackageWriterVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? AssetPackageObjectStreamVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -1465,8 +1670,23 @@ namespace Durin::Asset
 		FAssetResult SerializationResult = BuildPackageBytes(
 			Package, Bytes, &File, Serialization);
 		if (!SerializationResult) return SerializationResult;
+		std::string CompanionStateError;
+		if (!PrepareEditorBulkDataCompanionState(Destination, CompanionStateError))
+			return Error(EAssetError::IoError, std::move(CompanionStateError));
+		std::vector<std::byte> PriorPackageBytes;
+		std::error_code PackageErrorCode;
+		const bool bHadPriorPackage =
+			std::filesystem::is_regular_file(Destination, PackageErrorCode);
+		if (PackageErrorCode && !IsMissingPathError(PackageErrorCode))
+			return Error(EAssetError::IoError, std::format(
+				"Failed to inspect package destination {}: {}",
+				Destination.generic_string(), PackageErrorCode.message()));
+		if (bHadPriorPackage
+			&& !FFileHelper::LoadFileToArray(PriorPackageBytes, Destination))
+			return Error(EAssetError::IoError, "Prior package is unreadable.");
 		FFileHelper::FAtomicFileError PublicationError;
 		std::filesystem::path PublishedCompanion;
+		FEditorBulkDataCompanionTransaction CompanionTransaction;
 		if (!File.BulkPayloads.empty())
 		{
 			const FXxHash128 ContainerHash = File.BulkPayloads.front().Descriptor.ContainerHash;
@@ -1481,12 +1701,12 @@ namespace Durin::Asset
 			if (!BuildEditorBulkDataCompanion(
 					File.BulkPayloads, ContainerHash, CompanionBytes, &CompanionError)
 				|| !ResolveEditorBulkDataCompanionPath(
-					Destination, ContainerHash, PublishedCompanion, &CompanionError))
+					Destination, PublishedCompanion, &CompanionError))
 				return Error(EAssetError::CorruptFile, std::move(CompanionError));
-			if (!FFileHelper::SaveArrayToFileAtomically(
-					std::span{reinterpret_cast<const std::byte*>(CompanionBytes.data()),
-						CompanionBytes.size()}, PublishedCompanion, &PublicationError))
-				return Error(EAssetError::IoError, PublicationError.ToString());
+			if (!PublishEditorBulkDataCompanion(
+					Destination, ContainerHash, CompanionBytes,
+					CompanionTransaction, CompanionError))
+				return Error(EAssetError::IoError, std::move(CompanionError));
 		}
 		if (!FFileHelper::SaveArrayToFileAtomically(
 			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
@@ -1494,7 +1714,25 @@ namespace Durin::Asset
 			&PublicationError
 		))
 		{
+			std::string RollbackError;
+			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
 			return Error(EAssetError::IoError, PublicationError.ToString());
+		}
+		std::string CompanionVerificationError;
+		if (!VerifyEditorBulkDataCompanion(
+				CompanionTransaction, CompanionVerificationError))
+		{
+			if (bHadPriorPackage)
+				FFileHelper::SaveArrayToFileAtomically(
+					PriorPackageBytes, Destination, nullptr);
+			else
+				std::filesystem::remove(Destination, PackageErrorCode);
+			std::string RollbackError;
+			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
+			return Error(EAssetError::CorruptFile,
+				CompanionVerificationError.empty()
+					? "Published authored bulk companion failed verification."
+					: std::move(CompanionVerificationError));
 		}
 		Package->ClearDirty();
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
@@ -1514,6 +1752,7 @@ namespace Durin::Asset
 			&& Resident->second.Package == Package)
 			Resident->second.PublicationState =
 				EAssetPackagePublicationState::Published;
+		CommitEditorBulkDataCompanion(CompanionTransaction);
 		CleanupStaleEditorBulkDataCompanions(Destination, PublishedCompanion);
 		return {};
 	}

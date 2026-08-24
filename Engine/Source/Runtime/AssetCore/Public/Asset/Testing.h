@@ -5,11 +5,11 @@
 
 namespace Durin::Asset
 {
-	namespace DastV4
+	namespace PackageObjectStream
 	{
 		ASSETCORE_API auto ResetAssetPackageReencodeCountForTesting() -> void;
 		ASSETCORE_API auto GetAssetPackageReencodeCountForTesting() -> uint64;
-	} // namespace DastV4
+	} // namespace PackageObjectStream
 	ASSETCORE_API auto CreateAssetRedirectorForTesting(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,

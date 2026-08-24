@@ -47,12 +47,12 @@ durin_add_asset_functional_test(AssetPackageTests
 	SOURCES
 		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
-		Private/PackageV4WireContract.cpp
-		Private/PackageV4WireContractTests.cpp
-		Private/PackageV4ReferenceModel.cpp
-		Private/PackageV4ReferenceModelTests.cpp
-		Private/PackageV4WriterTests.cpp
-		Private/PackageV4ReaderTests.cpp
+		Private/PackageObjectStreamWireContract.cpp
+		Private/PackageObjectStreamWireContractTests.cpp
+		Private/PackageObjectStreamReferenceModel.cpp
+		Private/PackageObjectStreamReferenceModelTests.cpp
+		Private/PackageObjectStreamWriterTests.cpp
+		Private/PackageObjectStreamReaderTests.cpp
 )
 target_include_directories(AssetPackageTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private

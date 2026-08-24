@@ -9,10 +9,10 @@
 #include <memory>
 #include <optional>
 
-namespace Durin::Asset::DastV4
+namespace Durin::Asset::PackageObjectStream
 {
 	inline constexpr uint32 Magic = DastPackageMagic;
-	inline constexpr uint32 Version = AssetPackageV4FormatVersion;
+	inline constexpr uint32 Version = AssetPackageObjectStreamVersion;
 	inline constexpr uint64 MaximumPackageBytes = 256ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaximumStringBytes = 1024ull * 1024ull;
 	inline constexpr uint64 MaximumTableEntries = 1'048'575;

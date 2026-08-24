@@ -373,7 +373,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					LatestAssetPackageWriterVersion);
+					AssetPackageObjectStreamVersion);
 				if (!KeyResult)
 				{
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
@@ -778,7 +778,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					LatestAssetPackageWriterVersion);
+					AssetPackageObjectStreamVersion);
 				if (!Result) return Result;
 				Writer.WriteBytes(Reader.Bytes.subspan(KeyOffset, Reader.Offset - KeyOffset));
 				Result = RewriteSerializedReferenceValue(

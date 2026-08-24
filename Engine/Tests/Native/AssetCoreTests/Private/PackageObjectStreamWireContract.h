@@ -8,10 +8,10 @@
 #include <string_view>
 #include <vector>
 
-namespace Durin::Testing::DastV4
+namespace Durin::Testing::PackageObjectStream
 {
 	constexpr uint32 Magic = 0x54534144;
-	constexpr uint32 Version = 4;
+	constexpr uint32 Version = 5;
 	constexpr uint64 MaximumPackageBytes = 256ull * 1024ull * 1024ull;
 	constexpr uint64 MaximumStringBytes = 1024ull * 1024ull;
 	constexpr uint32 MaximumSummaryBytes = 65535;

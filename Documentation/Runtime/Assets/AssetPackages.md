@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-24
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -120,8 +120,7 @@ and transactional relocation are defined by
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
 same DAST object-package envelope. DAST v5 is the ordinary writer and repository
-baseline; production readers accept v4 rollback/legacy packages and v5 trailer
-packages. Unsupported versions fail before
+baseline and the only supported authored package version. Unsupported versions fail before
 header-specific interpretation, object construction, mutation, or publication.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
@@ -152,17 +151,13 @@ references it still begins with DAST.
 
 ### DAST v5 Trailer-Indexed Ordinary Route
 
-AssetCore registers a reader-complete DAST v5 codec and selects it for ordinary
-single-package and bundle saves. A caller may choose
-`EAssetPackageWriterSelection::DastV4` for canonical rollback or select v5
-explicitly for operation-local policy. An existing file, asset type, payload
-size, or environment value never changes that process-wide default. Ordinary
-save refuses an existing v4 package until it is explicitly migrated or rolled
-forward
-rather than silently rolling it back. Explicit `DastV4` selection is the
-canonical rollback boundary.
+AssetCore registers one reader-, writer-, and mutation-complete DAST v5 codec
+and selects it for ordinary single-package and bundle saves. A caller may spell
+the selection as ordinary or explicit `DastV5`; both produce v5. An existing
+file, asset type, payload size, or environment value never changes that policy.
+DAST v4 is unsupported and has no read, write, migration, or rollback route.
 
-The v5 object stream reuses canonical v4 logical table, tagged-value, Archive,
+The v5 object stream reuses canonical object-stream logical table, tagged-value, Archive,
 and section encoding with a v5 preamble. Its last section ends at the trailer
 offset instead of physical EOF. The compatibility descriptor inside the object
 stream still mirrors the external DABK identity during this rollout, but it is
@@ -200,18 +195,18 @@ an integrity check only, not a persistent content-addressed key. Unknown
 versions, placements, flags, reserved fields, duplicates, size disagreements,
 bad hashes, overflow, truncation, gaps, overlap, and trailing bytes fail.
 
-### Frozen DAST v4 Wire Contract
+### DAST v5 Object-Stream Wire Contract
 
-DAST v4 is the frozen rollback and legacy authored format. AssetCore exposes production-owned
-low-level writer and reader boundaries, and package policy routes header,
-inspection, compatibility, reference, registry/cache, and live-load operations
-for both v4 and v5. Explicit rollback uses the v4 live writer in no-delta mode.
+The DAST v5 object stream is the current authored logical format. AssetCore
+exposes production-owned low-level writer and reader boundaries, and package
+policy routes header, inspection, compatibility, reference, registry/cache,
+and live-load operations only through v5.
 The layout below is frozen: later format changes must use a new version rather
 than altering these bytes or semantics. Any required corpus conversion is a
 separately planned, temporary offline tool, not a permanent runtime facility.
 
-A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
-little-endian version 4), a little-endian `uint32` public-summary byte length,
+A object-stream package starts with bytes `44 41 53 54`, then `05 00 00 00` (`uint32`
+little-endian version 5), a little-endian `uint32` public-summary byte length,
 and `uint8(5)` section count. The summary is followed by exactly five 9-byte
 directory entries: `uint8 kind`, little-endian absolute `uint32 offset`, and
 little-endian `uint32 length`. Directory kinds and order are Name `0x01`, Type
@@ -265,7 +260,7 @@ tables are:
   `uint32`-domain VarUInt value. Schemas then sort by qualified-type UTF-8 bytes.
   Each length-delimited schema is qualified-name id, field count, then fields
   sorted by field-name bytes, type descriptor bytes, and authored flags. A field
-  is field-name id, type id, and authored-flags VarUInt. The only v4 authored
+  is field-name id, type id, and authored-flags VarUInt. The only current authored
   flags value is zero; field ids are one-based positions in the canonical
   schema.
 - Object is object count followed by length-delimited
@@ -312,7 +307,7 @@ payload, so values do not repeat opcodes:
 An omitted object field means the current immutable class default. A struct
 field may be omitted only when registered operations provide deterministic
 construction and logical equality. Missing operations or an authored custom
-serializer without a proven v4 codec fail closed. A loaded explicit field keeps
+serializer without a proven object-stream codec fail closed. A loaded explicit field keeps
 provenance `00` even when equal to today's default; provenance `01` records a
 serializer-forced override and equality never removes it.
 
@@ -353,12 +348,12 @@ reverse-discovery packages are byte-identical. Loaded-explicit and forced ledger
 fixtures exercise provenance `00` and `01`, while unknown-retention fixtures
 keep `02`; clearing the ledger restores the same baseline bytes. These values
 also qualify the production writer byte-for-byte against the independent
-reference codec. The same production codec now owns ordinary v4 package saves
-and bounded v4 reads.
+reference codec. The same production codec owns ordinary object-stream package
+saves and bounded v5 reads.
 
-### Explicit DAST v4 Writer Boundary
+### DAST v5 Object-Stream Writer Boundary
 
-`Durin::Asset::DastV4::WritePackage` consumes only owned logical package input:
+`Durin::Asset::PackageObjectStream::WritePackage` consumes only owned logical package input:
 public summary values, structural type and schema descriptors, custom versions,
 object topology, completed known overrides, and exact retained unknown closure
 and payload bytes. It closes and canonicalizes the package-local tables before
@@ -367,12 +362,12 @@ closures, limits, and discovery mismatches with a stable typed diagnostic, and
 replaces the caller's destination only after the complete bounded package has
 been assembled.
 
-`Durin::Asset::DastV4::WriteAssetPackage` is the sole live-object integration
+`Durin::Asset::PackageObjectStream::WriteAssetPackage` is the sole live-object integration
 entry. It performs Archive discovery/emission manifest checks, consumes
 `BuildDefaultDeltaPlan` in enabled or no-delta mode, and then delegates to the
 low-level writer. Ordinary and atomic-bundle saves select no-delta mode so a
-loaded canonical v4 package resaves byte-identically. Relocation, redirector
-Fix Up, and cook canonicalization decode the existing v4 model, apply their
+loaded canonical object-stream package resaves byte-identically. Relocation, redirector
+Fix Up, and cook canonicalization decode the existing object-stream model, apply their
 bounded rewrite, and canonically re-encode it. Inspection and loading remain
 read-only.
 
@@ -415,9 +410,9 @@ framing, canonical Name/Type/Schema tables, descriptor references and cycles,
 root schema/field resolution, bounds, and trailing-byte state. Package table
 reordering never remaps or rebuilds those bytes.
 
-### Explicit DAST v4 Reader Boundary
+### DAST v5 Object-Stream Reader Boundary
 
-`Durin::Asset::DastV4::ReadHeader` validates the bounded public summary and
+`Durin::Asset::PackageObjectStream::ReadHeader` validates the bounded public summary and
 five-entry directory without parsing or allocating body tables.
 `DecodePackageStructure` owns a temporary pointer-free logical model containing immutable
 one-based ids, decoded values, raw payload locations, and separate exact
@@ -485,8 +480,8 @@ rejects it before residency.
 
 The package policy routes bounded header, validation, inspection, reference,
 compatibility, and ordinary live-load reads through these entries when the
-preamble declares v4. Reads never write or dirty a package. Unsupported versions
-fail before version-specific parsing. Saves invoke the v4 writer only after
+preamble declares v5. Reads never write or dirty a package. Unsupported versions
+fail before version-specific parsing. Saves invoke the object-stream writer only after
 compatibility and stale-input checks succeed.
 
 ### Production Save and Load
@@ -499,7 +494,7 @@ process-local ABI property. Missing fields retain constructor defaults. Unknown
 classes, invalid Outer hierarchies, malformed references, truncation, and
 unsupported versions fail the complete load.
 
-DAST v4 save and load are purpose-specific `FArchive` adapters. Saving runs a
+DAST v5 object stream save and load are purpose-specific `FArchive` adapters. Saving runs a
 discovery pass through each live object's virtual `DObject::Serialize(...)`,
 freezes object ids, fields, dependencies, logical types, and version use, then
 calls the same entry for emission. A derived serializer must call its base once
@@ -539,8 +534,8 @@ the same ordinary writer. A non-current format is not an ordinary save input.
 
 Current-format byte mutations resolve the source codec before decoding and
 require its declared mutation capability. Reference fixup and relocation
-preserve the source v4 or v5 format; new redirectors and ordinary authored
-saves use v5. Unsupported formats are rejected before output bytes change.
+accept and preserve only source v5; new redirectors and ordinary authored saves
+use v5. Unsupported formats are rejected before output bytes change.
 Version-specific decoded packages remain inside their
 codec adapter; shared transactions consume neutral headers, inspections,
 reference edges, load handles, and byte results.
@@ -576,8 +571,8 @@ project-wide atomicity.
 `DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
 uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
 writes, `--format=human` selects a compact human report, and the default is a
-deterministic JSON report. `--target=v4` selects canonical rollback and is the
-default maintenance target; `--target=v5` plans or applies corpus migration.
+deterministic JSON report. Canonical resave targets v5; `--target=v5` is an
+optional explicit spelling and no legacy rollback target exists.
 The plan records the target format and rejects stale fingerprints before each
 atomic unit. `--ci` is read-only, cannot be combined with apply,
 and fails when selected compatible content still has registered legacy
@@ -777,7 +772,7 @@ formats, voxel counts, TXPL versions, or repair policy. Inspection may read and
 validate a referenced companion, but it never publishes, restores, removes, or
 rewrites a file; those remain explicit package/source/Cook workflows.
 
-DAST v4 gives authored bulk values their own `BulkData` opcode. The Value
+DAST v5 object stream gives authored bulk values their own `BulkData` opcode. The Value
 section contains payload id, 16+4 compatibility-reserved bytes, logical and
 stored byte counts, XXH3-128 content hash, placement, and container hash.
 Readers accept historical nonzero reserved values from the superseded semantic
@@ -796,7 +791,9 @@ DAST/DABK transaction. Payload meaning and schema versions belong to the
 reflected owning domain.
 
 External authored bytes live beside the package as
-`<package-stem>.<container-hash>.dabulk`. This is distinct from cooked `.dbulk`.
+`<package-stem>.dabulk`. The stable filename is discovery only: the package
+descriptor and trailer remain authoritative for the container hash. This is
+distinct from cooked `.dbulk`.
 The frozen DABK v1 format has a 64-byte header, sorted 96-byte entries, 16-byte
 payload alignment, at most 65,536 unique payload ids, and a 1 GiB file/payload
 ceiling. Each entry retains the same 16+4 compatibility-reserved bytes and the
@@ -811,14 +808,20 @@ checked arithmetic and alignment, detached canonical ordering, zero padding,
 safe byte-range projection, and layout validation; it does not know DABK magic,
 descriptors, suffixes, providers, package paths, or publication transactions.
 
-Save constructs and validates the generation-named companion before atomically
-publishing a package that references it. A failed package publication can leave
-an unreferenced candidate but cannot invalidate the previous pair. Cleanup runs
-only after package and catalog publication. Bundle saves use the same ordering;
-relocation journals companion files as owned payloads, and deletion discovers
-them from package descriptors. Referenced `.dabulk` files are authored source
-and must be submitted with their `.dasset`; repositories must not ignore the
-suffix wholesale.
+Save constructs and validates the replacement companion, copies any prior
+stable companion to `<package-stem>.dabulk.durin-backup`, and publishes the
+companion before the package. A synchronous package or bundle failure restores
+the prior companion before returning. Live payload load validates the stable
+file against the package descriptor; on mismatch it may restore only a complete
+backup with the exact expected container hash. A matching stable file commits
+recovery and removes a stale backup. Construct-free inspection is read-only and
+internal backup and atomic temporary files never enter orphan or submit closure.
+Cleanup runs only after package, companion, and catalog publication verify.
+Relocation journals the stable companion as owned payload, and deletion
+discovers it from package descriptors. Generation-named authored companions are
+unsupported after corpus migration. Referenced `.dabulk` files are authored
+source and must be submitted with their `.dasset`; repositories must not ignore
+the suffix wholesale.
 
 ## Related Asset Data Contracts
 

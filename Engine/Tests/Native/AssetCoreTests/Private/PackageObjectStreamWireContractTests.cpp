@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "PackageV4WireContract.h"
+#include "PackageObjectStreamWireContract.h"
 
 #include <array>
 #include <bit>
@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Testing::DastV4;
+	using namespace Durin::Testing::PackageObjectStream;
 
 	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
@@ -67,7 +67,7 @@ namespace
 	}
 }
 
-TEST(FPackageV4WireContractTests, WritesEveryPrimitiveAsExactGoldenBytes)
+TEST(FPackageObjectStreamWireContractTests, WritesEveryPrimitiveAsExactGoldenBytes)
 {
 	FWireWriter Writer;
 	Writer.WriteU8(0x7f);
@@ -129,7 +129,7 @@ TEST(FPackageV4WireContractTests, WritesEveryPrimitiveAsExactGoldenBytes)
 	EXPECT_TRUE(Reader.RequireEnd(Error));
 }
 
-TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedBytes)
+TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedBytes)
 {
 	for (const std::vector<std::byte>& Invalid : {
 		Bytes({0x80, 0x00}),
@@ -169,7 +169,7 @@ TEST(FPackageV4WireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedByt
 	EXPECT_FALSE(Reader.RequireEnd(Error));
 }
 
-TEST(FPackageV4WireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
+TEST(FPackageObjectStreamWireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
 {
 	const std::array<std::pair<int64, std::vector<std::byte>>, 5> Cases = {{
 		{std::numeric_limits<int64>::min(), Bytes({
@@ -194,7 +194,7 @@ TEST(FPackageV4WireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
 	}
 }
 
-TEST(FPackageV4WireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
+TEST(FPackageObjectStreamWireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
 {
 	std::array<std::vector<std::byte>, SectionCount> Sections;
 	std::vector<std::byte> Encoded;
@@ -202,7 +202,7 @@ TEST(FPackageV4WireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 
 	const std::vector<std::byte> Golden = Bytes({
-		0x44, 0x41, 0x53, 0x54, 0x04, 0x00, 0x00, 0x00,
+		0x44, 0x41, 0x53, 0x54, 0x05, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
 		0x01, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -224,7 +224,7 @@ TEST(FPackageV4WireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
 	}
 }
 
-TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAndRoundTripsDeterministically)
+TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAndRoundTripsDeterministically)
 {
 	const FPublicSummary Summary = {
 		.AssetClass = "Durin::Material",
@@ -261,7 +261,7 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAndRoundTripsDeterminis
 	EXPECT_EQ(uint64(Header.Sections[4].Offset) + Header.Sections[4].Length, First.size());
 }
 
-TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
+TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 {
 	const std::array<std::vector<std::byte>, SectionCount> Sections = {
 		Bytes({0xaa}), Bytes({0xbb, 0xcc}), Bytes({}), Bytes({0xdd}), Bytes({0xee, 0xff, 0x11}),
@@ -270,7 +270,7 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 	const std::vector<std::byte> Golden = Bytes({
-		0x44, 0x41, 0x53, 0x54, 0x04, 0x00, 0x00, 0x00,
+		0x44, 0x41, 0x53, 0x54, 0x05, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
 		0x01, 0x40, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
@@ -283,7 +283,7 @@ TEST(FPackageV4WireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 	EXPECT_EQ(Encoded, Golden);
 }
 
-TEST(FPackageV4WireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBodies)
+TEST(FPackageObjectStreamWireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBodies)
 {
 	std::array<std::vector<std::byte>, SectionCount> Sections = {
 		Bytes({0xff, 0xff}), Bytes({0x80}), Bytes({0x00, 0xff}), Bytes({0xfe}), Bytes({0x80, 0x00}),
@@ -295,7 +295,7 @@ TEST(FPackageV4WireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBod
 	EXPECT_TRUE(DecodeHeader(Encoded, Header, Error)) << Error;
 }
 
-TEST(FPackageV4WireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
+TEST(FPackageObjectStreamWireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 {
 	std::array<std::vector<std::byte>, SectionCount> Sections;
 	std::vector<std::byte> Valid;
@@ -367,7 +367,7 @@ TEST(FPackageV4WireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 	ExpectHeaderFailure(Mutated, "trailing");
 }
 
-TEST(FPackageV4WireContractTests, RejectsNoncanonicalSummaryModelsBeforePublication)
+TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalSummaryModelsBeforePublication)
 {
 	std::array<std::vector<std::byte>, SectionCount> Sections;
 	std::vector<std::byte> Encoded = Bytes({0xaa});

@@ -1,6 +1,6 @@
 #include "Asset/CanonicalResave.h"
 
-#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageObjectStreamReader.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
@@ -93,7 +93,6 @@ namespace Durin::Asset
 		{
 			switch (Selection)
 			{
-			case EAssetPackageWriterSelection::DastV4: return AssetPackageV4FormatVersion;
 			case EAssetPackageWriterSelection::DastV5: return AssetPackageV5FormatVersion;
 			case EAssetPackageWriterSelection::Ordinary: return 0;
 			}
@@ -202,10 +201,9 @@ namespace Durin::Asset
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (Record->FormatVersion != AssetPackageV4FormatVersion
-				&& Record->FormatVersion != AssetPackageV5FormatVersion)
+			if (Record->FormatVersion != AssetPackageV5FormatVersion)
 				Package.Diagnostics.push_back(
-					"NonCurrentFormat: canonical resave has no supported rollback route for this package format.");
+					"NonCurrentFormat: canonical resave accepts only DAST v5 packages.");
 			const PathUtilities::FMountLookupResult Mount =
 				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bAuthoringWritable)
@@ -383,18 +381,12 @@ namespace Durin::Asset
 				"Published package could not be reread."};
 			if (LoadBytes(PackagePlan.PhysicalPath, AfterBytes))
 			{
-				if (Result.Plan.TargetFormatVersion == AssetPackageV4FormatVersion)
-					Verify = DastV4::ProbeCompatibility(
-						AfterBytes, PackagePlan.PackagePath, Catalog, Verification);
-				else
-				{
-					FAssetPackageInspection Inspection;
-					Verify = InspectAssetPackage(PackagePlan.PhysicalPath, Inspection);
-					Verification.FormatVersion = Inspection.Header.FormatVersion;
-					Verification.Compatibility = Verify
-						? EAssetPackageCompatibility::Compatible
-						: EAssetPackageCompatibility::Incompatible;
-				}
+				FAssetPackageInspection Inspection;
+				Verify = InspectAssetPackage(PackagePlan.PhysicalPath, Inspection);
+				Verification.FormatVersion = Inspection.Header.FormatVersion;
+				Verification.Compatibility = Verify
+					? EAssetPackageCompatibility::Compatible
+					: EAssetPackageCompatibility::Incompatible;
 			}
 			if (bInjectedVerificationFailure || !Verify
 				|| Verification.FormatVersion != Result.Plan.TargetFormatVersion

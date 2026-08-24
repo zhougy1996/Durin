@@ -31,6 +31,7 @@ from .runtime_program import (
 
 
 REPORT_VERSION = 1
+NATIVE_INVENTORY_VERSION = 2
 PROGRAM = ExecutableDescription(
     "Authored package storage qualification", "DurinAssetTool", "DurinAssetTool"
 )
@@ -136,7 +137,7 @@ def _native_inventory(
         report = json.loads(output)
     except json.JSONDecodeError as error:
         raise DevToolError(f"Native qualification inventory returned invalid JSON: {error}") from error
-    if report.get("schemaVersion") != REPORT_VERSION:
+    if report.get("schemaVersion") != NATIVE_INVENTORY_VERSION:
         raise DevToolError("Native qualification inventory schema version is unsupported.")
     return report
 
@@ -606,7 +607,7 @@ def _decision(
     rationale = (
         "A decision-bearing construct-free inspection p95 exceeds its frozen budget, but no new "
         "boundary has measured benefit sufficient to justify production format and migration "
-        "cost. Keep DAST v4/DABK v1 authoritative and repeat the exact inspection workload in "
+        "cost. Keep DAST v5/DABK v1 authoritative and repeat the exact inspection workload in "
         "a quiet Release lane; reopen candidate qualification only if the breach persists."
         if result == "Defer"
         else "The current corpus passes integrity, durability, storage, and source-control "
@@ -616,7 +617,7 @@ def _decision(
     )
     return {
         "result": result,
-        "selectedBoundary": "None; DAST v4 remains the authoritative production baseline during deferral.",
+        "selectedBoundary": "None; DAST v5 remains the authoritative production baseline during deferral.",
         "selectedPlacement": "None; generation-named DABK v1 in Git LFS remains the production baseline.",
         "selectedPublication": "None; current companion-first publication and atomic package replacement remain authoritative.",
         "rationale": rationale,

@@ -1,4 +1,4 @@
-#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageObjectStreamReader.h"
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
@@ -11,7 +11,7 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 
-namespace Durin::Asset::DastV4
+namespace Durin::Asset::PackageObjectStream
 {
 	namespace
 	{
@@ -200,13 +200,13 @@ namespace Durin::Asset::DastV4
 				|| !Reader.Fixed(SummaryLength, Diagnostic) || !Reader.U8(SectionCount, Diagnostic)) return false;
 			if (ReadMagic != Magic || ReadVersion != Version)
 				return Fail(Diagnostic, EReaderFailure::InvalidHeader,
-					"Package magic or explicit v4 version is invalid.");
+					"Package magic or object-stream version is invalid.");
 			if (SummaryLength > MaximumSummaryBytes)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded,
 					"Public summary exceeds the frozen bound.", 8);
 			if (SectionCount != RequiredSectionCount)
 				return Fail(Diagnostic, EReaderFailure::InvalidDirectory,
-					"DAST v4 requires exactly five sections.", 12);
+					"the package object stream requires exactly five sections.", 12);
 			std::span<const std::byte> SummaryBytes;
 			if (!Reader.BytesSpan(SummaryLength, SummaryBytes, Diagnostic)) return false;
 			FWireReader Summary(SummaryBytes, 13);
@@ -1743,7 +1743,7 @@ namespace Durin::Asset::DastV4
 		if (!std::ranges::equal(Bytes, Canonical))
 		{
 			Fail(Diagnostic, EReaderFailure::NonCanonical,
-				"Decoded package does not match canonical v4 re-emission.");
+				"Decoded package does not match canonical object-stream re-emission.");
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
 		OutPackage = std::move(Result);
@@ -1793,7 +1793,7 @@ namespace Durin::Asset::DastV4
 		};
 		if (!PackagePath.IsValid())
 		{
-			Fail(Diagnostic, EReaderFailure::PublicationFailure, "Live v4 load requires a validated package path.");
+			Fail(Diagnostic, EReaderFailure::PublicationFailure, "Live object-stream load requires a validated package path.");
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
 		if (FindPackage(PackagePath.GetView()))

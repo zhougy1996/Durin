@@ -1,8 +1,8 @@
 #include "Asset/PackageTrailer.h"
 
 #include "Asset/PackageInspection.h"
-#include "Asset/PackageV4Reader.h"
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageObjectStreamWriter.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageV5Codec.h"
 
@@ -315,16 +315,16 @@ TEST(FPackageTrailerWireTests, RejectsInvalidBuildInputsAndPreservesV4Policy)
 
 TEST(FPackageTrailerWireTests, V5CodecReadsMutatesAndRejectsTrailerDisagreement)
 {
-	DastV4::FPackageInput Input{
+	PackageObjectStream::FPackageInput Input{
 		.AssetClass = "Example::Asset",
 		.Objects = {{"Root", {}, "Example::Asset", "Root"}},
 		.ObjectValues = {{"Root", {}}}};
 	std::vector<std::byte> V4;
-	DastV4::FWriterDiagnostic WriterDiagnostic;
-	ASSERT_TRUE(DastV4::WritePackage(Input, V4, &WriterDiagnostic))
+	PackageObjectStream::FWriterDiagnostic WriterDiagnostic;
+	ASSERT_TRUE(PackageObjectStream::WritePackage(Input, V4, &WriterDiagnostic))
 		<< WriterDiagnostic.Message;
 	std::vector<std::byte> V5;
-	ASSERT_TRUE(Durin::Asset::Private::DastV5::ConvertV4Package(V4, V5));
+	ASSERT_TRUE(Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(V4, V5));
 	EXPECT_EQ(ReadU32(V5, 4), AssetPackageV5FormatVersion);
 	EXPECT_EQ(FXxHash128::HashBuffer(V5).ToString(),
 		"527c1a520e7122bec12f8141d6eb638c");
@@ -340,8 +340,8 @@ TEST(FPackageTrailerWireTests, V5CodecReadsMutatesAndRejectsTrailerDisagreement)
 	ASSERT_TRUE(Reader->Inspect(V5, Inspection));
 	EXPECT_EQ(Inspection.Header.FormatVersion, AssetPackageV5FormatVersion);
 	EXPECT_EQ(Inspection.Header.EntryKind, EAssetRegistryEntryKind::Asset);
-	DastV4::FDecodedPackage OldReaderOutput;
-	EXPECT_FALSE(DastV4::DecodePackage(V5, OldReaderOutput));
+	PackageObjectStream::FDecodedPackage OldReaderOutput;
+	EXPECT_FALSE(PackageObjectStream::DecodePackage(V5, OldReaderOutput));
 
 	FInspection Trailer;
 	ASSERT_TRUE(Inspect(V5, Trailer));

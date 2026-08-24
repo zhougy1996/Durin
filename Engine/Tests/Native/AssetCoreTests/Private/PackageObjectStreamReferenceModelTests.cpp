@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "PackageV4ReferenceModel.h"
+#include "PackageObjectStreamReferenceModel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Testing::DastV4;
+	using namespace Durin::Testing::PackageObjectStream;
 
 	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
@@ -102,7 +102,7 @@ namespace
 	}
 }
 
-TEST(FPackageV4ReferenceModelTests, MinimalCanonicalTablesHaveExactGoldenBytes)
+TEST(FPackageObjectStreamReferenceModelTests, MinimalCanonicalTablesHaveExactGoldenBytes)
 {
 	const FTypePtr Bool = Scalar(ETypeOpcode::Bool);
 	FTableInput Input;
@@ -124,7 +124,7 @@ TEST(FPackageV4ReferenceModelTests, MinimalCanonicalTablesHaveExactGoldenBytes)
 	EXPECT_EQ(Reencoded, Sections);
 }
 
-TEST(FPackageV4ReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
+TEST(FPackageObjectStreamReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
 {
 	FTableInput Forward = MakeComprehensiveInput();
 	FTableInput Reverse = Forward;
@@ -168,7 +168,7 @@ TEST(FPackageV4ReferenceModelTests, DiscoveryOrderCannotChangeTablesOrIds)
 	EXPECT_NE(Error.find("late discovery"), std::string::npos);
 }
 
-TEST(FPackageV4ReferenceModelTests, ScalarsEnumsNamesGuidAndNaNsUseCanonicalPayloads)
+TEST(FPackageObjectStreamReferenceModelTests, ScalarsEnumsNamesGuidAndNaNsUseCanonicalPayloads)
 {
 	const FFrozenTables Tables = Freeze(MakeComprehensiveInput());
 	struct FCase { FTypePtr Type; FValue Value; std::vector<std::byte> Golden; };
@@ -220,7 +220,7 @@ TEST(FPackageV4ReferenceModelTests, ScalarsEnumsNamesGuidAndNaNsUseCanonicalPayl
 	ExpectDecodeFailure(Scalar(ETypeOpcode::F32), Bytes({0x01, 0x00, 0xc0, 0x7f}), Tables, "noncanonical");
 }
 
-TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoundTripCanonically)
+TEST(FPackageObjectStreamReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoundTripCanonically)
 {
 	const FFrozenTables Tables = Freeze(MakeComprehensiveInput());
 	std::string Error;
@@ -313,7 +313,7 @@ TEST(FPackageV4ReferenceModelTests, IntrinsicsContainersStructsAndReferencesRoun
 		Bytes({0x03, 0xaa, 0xbb, 0xcc}));
 }
 
-TEST(FPackageV4ReferenceModelTests, DefaultsExplicitAndForcedOverridesPreserveIntent)
+TEST(FPackageObjectStreamReferenceModelTests, DefaultsExplicitAndForcedOverridesPreserveIntent)
 {
 	const FFrozenTables Tables = Freeze(MakeComprehensiveInput());
 	FOverrideCandidate Candidate{
@@ -372,7 +372,7 @@ TEST(FPackageV4ReferenceModelTests, DefaultsExplicitAndForcedOverridesPreserveIn
 	}
 }
 
-TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAndUnknownRecords)
+TEST(FPackageObjectStreamReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAndUnknownRecords)
 {
 	const FFrozenTables Tables = Freeze(MakeComprehensiveInput());
 	FOverrideCandidate Changed{
@@ -438,7 +438,7 @@ TEST(FPackageV4ReferenceModelTests, ValueSectionOrdersObjectsAndValidatesKnownAn
 	EXPECT_NE(Error.find("unconsumed"), std::string::npos);
 }
 
-TEST(FPackageV4ReferenceModelTests, UnknownPayloadAndDescriptorClosureRemainByteExact)
+TEST(FPackageObjectStreamReferenceModelTests, UnknownPayloadAndDescriptorClosureRemainByteExact)
 {
 	const FTypePtr I32 = Scalar(ETypeOpcode::I32);
 	FTableInput MiniInput;
@@ -482,7 +482,7 @@ TEST(FPackageV4ReferenceModelTests, UnknownPayloadAndDescriptorClosureRemainByte
 	EXPECT_NE(Error.find("unconsumed"), std::string::npos);
 }
 
-TEST(FPackageV4ReferenceModelTests, CustomVersionsSortRetainAndFailClosed)
+TEST(FPackageObjectStreamReferenceModelTests, CustomVersionsSortRetainAndFailClosed)
 {
 	FTableInput Input;
 	Input.CustomVersions = {
@@ -537,7 +537,7 @@ TEST(FPackageV4ReferenceModelTests, CustomVersionsSortRetainAndFailClosed)
 	EXPECT_NE(Error.find("uint32"), std::string::npos) << Error;
 }
 
-TEST(FPackageV4ReferenceModelTests, MalformedTablesValuesCyclesAndDepthFailByCategory)
+TEST(FPackageObjectStreamReferenceModelTests, MalformedTablesValuesCyclesAndDepthFailByCategory)
 {
 	const FTypePtr Bool = Scalar(ETypeOpcode::Bool);
 	FTableInput Minimal;

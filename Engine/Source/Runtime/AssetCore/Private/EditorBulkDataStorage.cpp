@@ -292,15 +292,15 @@ namespace Durin::Asset
 	}
 
 	auto ResolveEditorBulkDataCompanionPath(
-		const std::filesystem::path& PackagePath, FXxHash128 ContainerHash,
+		const std::filesystem::path& PackagePath,
 		std::filesystem::path& OutPath, std::string* OutError) -> bool
 	{
 		OutPath.clear();
-		if (PackagePath.extension() != ".dasset" || ContainerHash.IsZero())
-			return Fail("Authored bulk companion requires a .dasset path and valid container hash.", OutError);
+		if (PackagePath.extension() != ".dasset")
+			return Fail("Authored bulk companion requires a .dasset path.", OutError);
 		OutPath = PackagePath.parent_path()
-			/ std::format("{}.{}{}", PackagePath.stem().string(),
-				ContainerHash.ToString(), EditorBulkDataCompanionSuffix);
+			/ std::format("{}{}", PackagePath.stem().string(),
+				EditorBulkDataCompanionSuffix);
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -396,7 +396,7 @@ namespace Durin::Asset
 		return Parse(Bytes, ExpectedContainerHash, Entries, DataOffset, OutError);
 	}
 
-	auto LoadEditorBulkDataStoragePayload(
+	auto ReadEditorBulkDataStoragePayload(
 		const std::filesystem::path& CompanionPath,
 		const FEditorBulkDataStorageDescriptor& Descriptor,
 		FSharedByteBuffer& OutBuffer, std::string* OutError) -> bool
@@ -418,6 +418,68 @@ namespace Durin::Asset
 		return true;
 	}
 
+	auto LoadEditorBulkDataStoragePayload(
+		const std::filesystem::path& CompanionPath,
+		const FEditorBulkDataStorageDescriptor& Descriptor,
+		FSharedByteBuffer& OutBuffer, std::string* OutError) -> bool
+	{
+		std::string FinalError;
+		if (ReadEditorBulkDataStoragePayload(
+				CompanionPath, Descriptor, OutBuffer, &FinalError))
+		{
+			std::filesystem::path BackupPath = CompanionPath;
+			BackupPath += EditorBulkDataCompanionBackupSuffix;
+			std::error_code ErrorCode;
+			std::filesystem::remove(BackupPath, ErrorCode);
+			if (ErrorCode)
+			{
+				OutBuffer = {};
+				return Fail(std::format(
+					"Authored bulk backup cleanup failed: {}", ErrorCode.message()), OutError);
+			}
+			if (OutError) OutError->clear();
+			return true;
+		}
+
+		std::filesystem::path BackupPath = CompanionPath;
+		BackupPath += EditorBulkDataCompanionBackupSuffix;
+		FSharedByteBuffer BackupBuffer;
+		std::string BackupError;
+		if (!ReadEditorBulkDataStoragePayload(
+				BackupPath, Descriptor, BackupBuffer, &BackupError))
+		{
+			OutBuffer = {};
+			return Fail(std::format(
+				"Authored bulk companion and backup do not match the published package. Final: {} Backup: {}",
+				FinalError, BackupError), OutError);
+		}
+
+		std::vector<std::byte> BackupBytes;
+		if (!FFileHelper::LoadFileToArray(BackupBytes, BackupPath))
+		{
+			OutBuffer = {};
+			return Fail("Authored bulk backup became unreadable during recovery.", OutError);
+		}
+		FFileHelper::FAtomicFileError PublicationError;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+				BackupBytes, CompanionPath, &PublicationError))
+		{
+			OutBuffer = {};
+			return Fail(std::format("Authored bulk backup recovery failed: {}",
+				PublicationError.ToString()), OutError);
+		}
+		std::error_code ErrorCode;
+		if (!std::filesystem::remove(BackupPath, ErrorCode) || ErrorCode)
+		{
+			OutBuffer = {};
+			return Fail(std::format(
+				"Authored bulk backup cleanup failed after recovery: {}", ErrorCode.message()), OutError);
+		}
+		OutBuffer = std::move(BackupBuffer);
+		if (OutError) OutError->clear();
+		return true;
+	}
+
 	auto InspectEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,
 		const FAssetPackageInspection& Inspection,
@@ -428,16 +490,11 @@ namespace Durin::Asset
 		std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
 		if (!InspectEditorBulkDataStorageDescriptors(
 				Inspection, Descriptors, OutError)) return false;
-		std::ranges::sort(Descriptors, [](const auto& Left, const auto& Right) {
-			return std::pair(Left.ContainerHash.HashHigh, Left.ContainerHash.HashLow)
-				< std::pair(Right.ContainerHash.HashHigh, Right.ContainerHash.HashLow);
-		});
 		for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
 		{
 			if (Descriptor.StorageKind != EEditorBulkDataStorageKind::External) continue;
 			std::filesystem::path Path;
-			if (!ResolveEditorBulkDataCompanionPath(
-					PackagePath, Descriptor.ContainerHash, Path, OutError)) return false;
+			if (!ResolveEditorBulkDataCompanionPath(PackagePath, Path, OutError)) return false;
 			if (OutPaths.empty() || OutPaths.back() != Path) OutPaths.push_back(std::move(Path));
 		}
 		if (OutError) OutError->clear();
@@ -470,7 +527,8 @@ namespace Durin::Asset
 		if (!InspectEditorBulkDataCompanionPaths(
 				PackagePath, Inspection, Referenced, OutError)) return false;
 		const std::filesystem::path Parent = PackagePath.parent_path();
-		const std::string Prefix = PackagePath.stem().string() + ".";
+		const std::string Stem = PackagePath.stem().string();
+		const std::string StableName = Stem + std::string(EditorBulkDataCompanionSuffix);
 		std::error_code ErrorCode;
 		for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
 			!ErrorCode && It != End; It.increment(ErrorCode))
@@ -478,8 +536,7 @@ namespace Durin::Asset
 			const std::filesystem::path Candidate = It->path();
 			const std::string Name = Candidate.filename().string();
 			if (!It->is_regular_file(ErrorCode) || ErrorCode
-				|| !Name.starts_with(Prefix)
-				|| !Name.ends_with(EditorBulkDataCompanionSuffix))
+				|| Name != StableName)
 			{
 				ErrorCode.clear();
 				continue;

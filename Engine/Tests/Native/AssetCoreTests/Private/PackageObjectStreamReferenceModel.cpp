@@ -1,4 +1,4 @@
-#include "PackageV4ReferenceModel.h"
+#include "PackageObjectStreamReferenceModel.h"
 
 #include <algorithm>
 #include <bit>
@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace Durin::Testing::DastV4
+namespace Durin::Testing::PackageObjectStream
 {
 	namespace
 	{
@@ -907,7 +907,7 @@ namespace Durin::Testing::DastV4
 			case ETypeOpcode::Struct:
 			{
 				if (Type.HasCustomSerializer)
-					return Fail(OutError, "struct custom serializer has no v4 codec");
+					return Fail(OutError, "struct custom serializer has no object-stream codec");
 				if (!Type.HasDeterministicStructOperations)
 					return Fail(OutError, "struct operations are unavailable");
 				const uint64 SchemaId = Tables.SchemaId(Type.QualifiedName);
@@ -1140,7 +1140,7 @@ namespace Durin::Testing::DastV4
 			case ETypeOpcode::Struct:
 			{
 				if (Type.HasCustomSerializer)
-					return Fail(OutError, "struct custom serializer has no v4 codec");
+					return Fail(OutError, "struct custom serializer has no object-stream codec");
 				if (!Type.HasDeterministicStructOperations)
 					return Fail(OutError, "struct operations are unavailable");
 				const uint64 SchemaId = Tables.SchemaId(Type.QualifiedName);
@@ -1319,7 +1319,7 @@ namespace Durin::Testing::DastV4
 			if (Type->Opcode == ETypeOpcode::Struct)
 			{
 				if (Type->HasCustomSerializer)
-					return Fail(OutError, "struct custom serializer has no v4 codec");
+					return Fail(OutError, "struct custom serializer has no object-stream codec");
 				if (!Type->HasDeterministicStructOperations)
 					return Fail(OutError, "struct operations are unavailable");
 			}

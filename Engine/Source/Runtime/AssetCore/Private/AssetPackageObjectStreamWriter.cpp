@@ -1,6 +1,6 @@
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamWriter.h"
 
-namespace Durin::Asset::DastV4
+namespace Durin::Asset::PackageObjectStream
 {
 	namespace
 	{
@@ -181,7 +181,7 @@ namespace Durin::Asset::DastV4
 				"A required name is empty.", std::string(Path));
 			if (Name.size() > MaximumStringBytes)
 				return Fail(Diagnostic, EWriterFailure::LimitExceeded,
-					"A name exceeds the DAST v4 string bound.", std::string(Path));
+					"A name exceeds the the package object stream string bound.", std::string(Path));
 			if (!IsValidUtf8(Name)) return Fail(Diagnostic, EWriterFailure::InvalidUtf8,
 				"A name is not shortest-form UTF-8 or contains NUL.", std::string(Path));
 			return true;
@@ -286,7 +286,7 @@ namespace Durin::Asset::DastV4
 			FFrozenTables Result;
 			Result.DependencyCount = Input.Dependencies.size();
 			if (Result.DependencyCount > MaximumDependencies)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Dependency count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Dependency count exceeds the the package object stream bound.");
 			std::vector<std::string> Names = Input.AdditionalNames;
 			auto AddName = [&](std::string_view Name, std::string_view Path = {}) -> bool {
 				if (!ValidateName(Name, Diagnostic, Path)) return false;
@@ -311,17 +311,17 @@ namespace Durin::Asset::DastV4
 
 			Result.Schemas = Input.Schemas;
 			if (Result.Schemas.size() > MaximumTableEntries)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Schema count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Schema count exceeds the the package object stream bound.");
 			for (auto& Schema : Result.Schemas)
 			{
 				if (!AddName(Schema.QualifiedName, Schema.QualifiedName)) return false;
 				if (Schema.Fields.size() > MaximumSchemaFields)
-					return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Schema field count exceeds the DAST v4 bound.", Schema.QualifiedName);
+					return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Schema field count exceeds the the package object stream bound.", Schema.QualifiedName);
 				for (auto& Field : Schema.Fields)
 				{
 					if (!AddName(Field.Name, Schema.QualifiedName + "::" + Field.Name) || !DiscoverType(Field.Type)) return false;
 					if (Field.AuthoredFlags != 0)
-						return Fail(Diagnostic, EWriterFailure::UnsupportedType, "DAST v4 supports no authored field flags.", Schema.QualifiedName + "::" + Field.Name);
+						return Fail(Diagnostic, EWriterFailure::UnsupportedType, "the package object stream supports no authored field flags.", Schema.QualifiedName + "::" + Field.Name);
 				}
 				std::ranges::sort(Schema.Fields, [&](const auto& A, const auto& B) {
 					if (A.Name != B.Name) return ByteLess(A.Name, B.Name);
@@ -346,12 +346,12 @@ namespace Durin::Asset::DastV4
 					Result.Types.push_back({Type, std::move(Key)});
 			}
 			if (Result.Types.size() > MaximumTableEntries)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Type count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Type count exceeds the the package object stream bound.");
 			std::ranges::sort(Result.Types, [](const auto& A, const auto& B) { return ByteLess(A.Key, B.Key); });
 
 			Result.CustomVersions = Input.CustomVersions;
 			if (Result.CustomVersions.size() > MaximumCustomVersions)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Custom version count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Custom version count exceeds the the package object stream bound.");
 			std::ranges::sort(Result.CustomVersions, [](const auto& A, const auto& B) {
 				return std::tie(A.Guid.A, A.Guid.B, A.Guid.C, A.Guid.D)
 					< std::tie(B.Guid.A, B.Guid.B, B.Guid.C, B.Guid.D);
@@ -372,7 +372,7 @@ namespace Durin::Asset::DastV4
 			Result.Objects = Input.Objects;
 			if (Result.Objects.empty()) return Fail(Diagnostic, EWriterFailure::InvalidTopology, "A package root object is required.");
 			if (Result.Objects.size() > MaximumTableEntries)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Object count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Object count exceeds the the package object stream bound.");
 			for (const auto& Object : Result.Objects)
 				if (!ValidateName(Object.Path, Diagnostic, Object.Path) || !AddName(Object.ClassName, Object.Path)
 					|| !AddName(Object.ObjectName, Object.Path)) return false;
@@ -402,7 +402,7 @@ namespace Durin::Asset::DastV4
 			std::ranges::sort(Names, [](const auto& A, const auto& B) { return ByteLess(A, B); });
 			Names.erase(std::unique(Names.begin(), Names.end()), Names.end());
 			if (Names.size() > MaximumTableEntries)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Name count exceeds the DAST v4 bound.");
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Name count exceeds the the package object stream bound.");
 			Result.Names = std::move(Names);
 			Out = std::move(Result); return true;
 		}
@@ -471,7 +471,7 @@ namespace Durin::Asset::DastV4
 			FWriterDiagnostic& Diagnostic, std::string_view Path) -> bool
 		{
 			if (Depth > MaximumValueDepth)
-				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Value nesting exceeds the DAST v4 bound.", std::string(Path));
+				return Fail(Diagnostic, EWriterFailure::LimitExceeded, "Value nesting exceeds the the package object stream bound.", std::string(Path));
 			switch (Type.Opcode)
 			{
 			case ETypeOpcode::Bool: Writer.U8(Value.Bool ? 1 : 0); return true;
@@ -533,7 +533,7 @@ namespace Durin::Asset::DastV4
 			}
 			case ETypeOpcode::Struct:
 			{
-				if (Type.bHasCustomSerializer) return Fail(Diagnostic, EWriterFailure::UnsupportedType, "A Struct custom serializer has no DAST v4 codec.", std::string(Path));
+				if (Type.bHasCustomSerializer) return Fail(Diagnostic, EWriterFailure::UnsupportedType, "A Struct custom serializer has no the package object stream codec.", std::string(Path));
 				if (!Type.bHasDeterministicStructOperations) return Fail(Diagnostic, EWriterFailure::UnsupportedType, "Deterministic Struct operations are unavailable.", std::string(Path));
 				const uint64 Schema = Tables.SchemaId(Type.QualifiedName);
 				if (Schema == 0) return Fail(Diagnostic, EWriterFailure::MissingDiscovery, "A Struct schema was not discovered.", std::string(Path));
@@ -791,7 +791,7 @@ namespace Durin::Asset::DastV4
 		std::vector<std::string> Dependencies = Input.Dependencies;
 		if (Dependencies.size() > MaximumDependencies)
 			return Finish(Fail(Diagnostic, EWriterFailure::LimitExceeded,
-				"Dependency count exceeds the DAST v4 bound."));
+				"Dependency count exceeds the the package object stream bound."));
 		for (const auto& Dependency : Dependencies) if (!ValidateName(Dependency, Diagnostic, Dependency)) return Finish(false);
 		std::ranges::sort(Dependencies, [](const auto& A, const auto& B) { return ByteLess(A, B); });
 		if (std::adjacent_find(Dependencies.begin(), Dependencies.end()) != Dependencies.end())
@@ -813,12 +813,12 @@ namespace Durin::Asset::DastV4
 		for (const auto& Dependency : Dependencies) Summary.String(Dependency);
 		Summary.VarUInt(Tables.Objects.size());
 		if (Summary.View().size() > MaximumSummaryBytes)
-			return Finish(Fail(Diagnostic, EWriterFailure::LimitExceeded, "Public summary exceeds the DAST v4 bound."));
+			return Finish(Fail(Diagnostic, EWriterFailure::LimitExceeded, "Public summary exceeds the the package object stream bound."));
 		uint64 Total = 4 + 4 + 4 + 1 + Summary.View().size() + SectionCount * 9;
 		for (const auto& Section : Sections)
 		{
 			if (Section.size() > std::numeric_limits<uint32>::max() || Total > MaximumPackageBytes - Section.size())
-				return Finish(Fail(Diagnostic, EWriterFailure::PackageTooLarge, "DAST v4 package exceeds its bound."));
+				return Finish(Fail(Diagnostic, EWriterFailure::PackageTooLarge, "the package object stream package exceeds its bound."));
 			Total += Section.size();
 		}
 		FWireWriter Result; Result.U32(Magic); Result.U32(Version); Result.U32(uint32(Summary.View().size()));

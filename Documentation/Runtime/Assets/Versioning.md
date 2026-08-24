@@ -25,8 +25,8 @@ Changing the engine release version alone must not rewrite assets or invalidate 
 
 `FArchiveVersionContext` carries named format versions separately from optional
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored-package Archives report the actual source format, currently DAST v4.
-Ordinary and bundle saves report and emit v4. Property snapshots are
+authored-package Archives report the actual source format, currently DAST v5.
+Ordinary and bundle saves report and emit v5. Property snapshots are
 process-local and unversioned. Struct
 `PostDeserialize` receives the Archive purpose and source format version instead
 of deriving compatibility from the engine release number. During authored
@@ -34,7 +34,7 @@ loading it also receives the complete source custom-version context, allowing a
 detached reflected struct to perform the same bounded conversion as an
 object's pre-publication `PostLoad`.
 
-DAST v4 owns the package-local custom-version table, canonical GUID ordering,
+The DAST v5 object stream owns the package-local custom-version table, canonical GUID ordering,
 discovery freeze, reader bounds, unknown-version rejection, and exact retained
 closure/payload semantics.
 
@@ -63,10 +63,12 @@ reader exists. Header reads, validation, inspection, compatibility probes,
 reference projection, live loading, serialization, relocation, reference
 rewrite, redirector creation, and cook canonicalization do not branch on a
 version enum. The repository currently registers only the bounded production
-v4 codec; read-only entrypoints never select a writer or dirty authored content.
+v5 codec; read-only entrypoints never select a writer or dirty authored content.
+A DAST v4 preamble is unsupported and fails before object-stream parsing or
+publication.
 
 A frozen writer constructs its Archive context from its own codec identity.
-The v4 writer therefore always reports DAST v4 to serializers and emits v4. The
+The v5 writer therefore always reports DAST v5 to serializers and emits v5. The
 reader-policy cache identity is an explicit generation, not a wire-version
 alias; changing the supported-reader contract requires changing that identity.
 

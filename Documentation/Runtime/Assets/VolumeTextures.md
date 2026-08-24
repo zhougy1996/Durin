@@ -98,16 +98,14 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/DABK
 placement and replacement remain authored-only capabilities.
 
-Ordinary saves emit DAST v5 and only the authored BulkData field. A bounded
-VolumeTexture authoring operation may still explicitly select v4 rollback or
-v5; the selection travels on that Interchange request and is never persisted
-on the domain object. V5 retains the same reflected fields and requires its EOF trailer to
+Ordinary and explicit VolumeTexture saves emit DAST v5 and only the authored
+BulkData field. The writer selection is never persisted on the domain object.
+V5 retains the same reflected fields and requires its EOF trailer to
 agree exactly with every external descriptor in the object stream. Small
 inline voxel payloads produce no external trailer entry. External voxel
-payloads produce one matching trailer entry and generation-named DABK v1
-companion. Reimport and repair use the ordinary v5 writer unless their
-individual operation selects an explicit rollback. Canonical or explicit v4
-resave is the rollback route; the domain object stores no ambient preference.
+payloads produce one matching trailer entry and stable
+`<package-stem>.dabulk` DABK v1 companion. Reimport, repair, and canonical
+resave all use the v5 writer; there is no legacy rollback route.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload
@@ -144,9 +142,10 @@ unchanged.
 
 VolumeTexture participates in the shared texture-domain inspection contract,
 not a generic bulk element registry. Construct-free inspection reads the nested
-source schema/dimensions and `FEditorBulkData` storage descriptor, validates a
-referenced DABK companion, and reports orphaned same-package generations without
-deleting them. Live inspection independently reports source, DDC/platform,
+source schema/dimensions and `FEditorBulkData` storage descriptor, and validates
+the referenced stable DABK companion without modifying recovery state.
+Generation-named companions are not a supported production route. Live
+inspection independently reports source, DDC/platform,
 cooked TXPL/DBLK, decoded CPU, and GPU stages. Missing/corrupt DABK maps to
 restore or reimport, DDC failure maps to rebuild, cooked failure maps to recook,
 and GPU failure maps to resource retry.

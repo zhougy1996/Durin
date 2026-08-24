@@ -1,7 +1,5 @@
 #include "AssetPackageCodec.h"
 
-#include "Asset/PackageV4Reader.h"
-#include "Asset/PackageV4Writer.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageV5Codec.h"
 
@@ -9,120 +7,7 @@ namespace Durin::Asset::Private
 {
 	namespace
 	{
-		auto ReadV4Header(
-			std::span<const std::byte> Bytes,
-			uint64 PackageSize,
-			FAssetPackageHeader& OutHeader)
-			-> FAssetResult
-		{
-			DastV4::FValidatedHeader Header;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::ReadHeader(
-				Bytes, Header, {}, &Diagnostic, PackageSize))
-				return {EAssetError::CorruptFile, Diagnostic.Message};
-
-			FAssetPackageHeader Result{
-				.AssetClassName = std::move(Header.AssetClass),
-				.EntryKind = Header.EntryKind,
-				.FormatVersion = DastV4::Version,
-				.ObjectCount = Header.ObjectCount,
-				.BytesRead = Header.BytesRead};
-			if (!Header.RedirectDestination.empty()
-				&& !FAssetPath::TryCreate(Header.RedirectDestination, Result.RedirectDestination))
-				return {EAssetError::CorruptFile, "The redirect destination path is invalid."};
-			for (const std::string& DependencyString : Header.Dependencies)
-			{
-				FAssetPath Dependency;
-				if (!FAssetPath::TryCreate(DependencyString, Dependency))
-					return {EAssetError::CorruptFile, "A dependency path is invalid."};
-				Result.Dependencies.push_back(std::move(Dependency));
-			}
-			OutHeader = std::move(Result);
-			return {};
-		}
-
-		auto ValidateV4(std::span<const std::byte> Bytes) -> FAssetResult
-		{
-			DastV4::FDecodedPackage Package;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::DecodePackage(Bytes, Package, {}, &Diagnostic))
-				return {EAssetError::CorruptFile, Diagnostic.Message};
-			return {};
-		}
-
-		auto InspectV4(std::span<const std::byte> Bytes, FAssetPackageInspection& OutInspection)
-			-> FAssetResult
-		{
-			DastV4::FReaderDiagnostic Diagnostic;
-			return DastV4::InspectPackage(Bytes, OutInspection, {}, &Diagnostic);
-		}
-
-		auto ExtractV4References(
-			std::span<const std::byte> Bytes, const FAssetPath& SourcePackage,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
-		{
-			DastV4::FReaderDiagnostic Diagnostic;
-			return DastV4::ExtractReferences(
-				Bytes, SourcePackage, OutReferences, {}, &Diagnostic);
-		}
-
-		auto ProbeV4Compatibility(
-			std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
-			const FReflectionCompatibilityCatalog& Catalog,
-			FAssetPackageCompatibilityRecord& OutRecord,
-			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
-		{
-			DastV4::FReaderDiagnostic Diagnostic;
-			return DastV4::ProbeCompatibility(
-				Bytes, PackagePath, Catalog, OutRecord, OutStats, {}, &Diagnostic);
-		}
-
-		auto LoadV4(
-			std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
-			DPackage*& OutPackage, FAssetLoadReport* OutReport,
-			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
-			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
-		{
-			OutPackage = nullptr;
-			DastV4::FLoadedAssetPackage Loaded;
-			DastV4::FReaderDiagnostic Diagnostic;
-			FAssetResult Result = DastV4::LoadAssetPackage(
-				Bytes, PackagePath, Loaded, OutReport,
-				{.OnSkeletonReady = OnSkeletonReady,
-					.OnSkeletonRollback = OnSkeletonRollback}, {}, &Diagnostic);
-			if (!Result) return Result;
-			OutPackage = Loaded.Release();
-			return {};
-		}
-
-		auto WriteV4(
-			DPackage* Package, std::vector<std::byte>& OutBytes,
-			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Serialization) -> FAssetResult
-		{
-			DastV4::FWriterDiagnostic Diagnostic;
-			return DastV4::WriteAssetPackage(Package, OutBytes,
-				{.DeltaMode = DeltaMode, .Serialization = Serialization}, &Diagnostic);
-		}
-
-		const std::array Codecs{
-			FAssetPackageCodec{
-				.CodecId = "dast-v4",
-				.FormatVersion = DastV4::Version,
-				.bCanRead = true,
-				.bCanWrite = true,
-				.bCanMutate = true,
-				.ReadHeader = &ReadV4Header,
-				.Validate = &ValidateV4,
-				.Inspect = &InspectV4,
-				.ExtractReferences = &ExtractV4References,
-				.ProbeCompatibility = &ProbeV4Compatibility,
-				.Load = &LoadV4,
-				.Write = &WriteV4,
-				.RewriteReferences = &DastV4::RewriteReferences,
-				.Relocate = &DastV4::RelocatePackage,
-				.WriteRedirector = &DastV4::WriteRedirectorPackage},
-			DastV5::GetCodec()};
+		const std::array Codecs{DastV5::GetCodec()};
 
 	}
 

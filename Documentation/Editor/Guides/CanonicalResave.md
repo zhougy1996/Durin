@@ -31,8 +31,9 @@ DurinAssetTool --project=<project.dproject> --operation=canonical-resave --proje
 ```
 
 Selection must name packages, folders, mounts, or the explicit project scope.
-The default `--target=v4` is canonical rollback; `--target=v5` is the explicit
-trailer migration route. Redirectors remain at their existing supported format.
+Canonical resave always writes DAST v5. `--target=v5` is accepted as an explicit
+spelling of the only supported target; no rollback or legacy-format target exists.
+Redirectors are rewritten as DAST v5.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.

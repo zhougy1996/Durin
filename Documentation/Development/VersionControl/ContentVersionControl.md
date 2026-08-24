@@ -7,7 +7,7 @@ Durin keeps authored content reproducible alongside the source revision that con
 | Content | Storage | Reason |
 | --- | --- | --- |
 | `.dasset` packages and levels | Git | Runtime asset identity and object state must match the code revision. The files are marked binary. |
-| Authored `.dabulk` companions | Git LFS | Immutable generation-named authored payload bytes remain outside the ordinary Git object database. |
+| Authored `.dabulk` companions | Git LFS | Stable-name authored payload containers remain outside the ordinary Git object database. |
 | Models, textures, audio, and fonts | Git LFS | These files are commonly large, binary, or produce noisy diffs. LFS avoids copying every revision into the main Git object database. |
 | Small text metadata and import settings | Git | They are reviewable and should evolve with their assets. |
 | `DerivedDataCache`, `Cooked`, and `Saved` | Ignored | These directories contain rebuildable or machine-local output. |
@@ -162,14 +162,15 @@ and keeping them in normal Git makes ordinary engine and level changes
 self-contained. Ordinary DAST v5 packages retain external DABK v1 companions,
 so the route does not change this split: `.dasset` remains ordinary Git and
 `.dabulk` remains LFS. A submit must include the package and every newly
-referenced companion generation. Revisit `.dasset` LFS only if a separately
-qualified route begins embedding large render data.
+referenced stable companion. Hidden `.dabulk.durin-backup` files and atomic
+temporaries are transaction state and must never be submitted. Revisit
+`.dasset` LFS only if a separately qualified route begins embedding large
+render data.
 
-Corpus migration can replace a generation-named DABK even when its logical
-payload bytes are unchanged because the current canonical container identity
-is part of the closure. Review the migration report and submit the `.dasset`,
-new LFS-backed `.dabulk`, and deletion of the superseded generation together.
-Never submit only the package or only one companion side.
+The package descriptor and trailer, not the stable companion filename, carry
+the canonical container identity. Review migration or resave reports and submit
+the `.dasset` and LFS-backed `.dabulk` closure together whenever either changes.
+Never submit only the package or only the companion side.
 
 ## Existing Repository Files
 

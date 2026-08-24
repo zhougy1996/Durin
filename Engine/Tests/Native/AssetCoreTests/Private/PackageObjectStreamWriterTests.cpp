@@ -1,16 +1,16 @@
 #include <gtest/gtest.h>
 
-#include "Asset/PackageV4Writer.h"
-#include "Asset/PackageV4Reader.h"
-#include "PackageV4ReferenceModel.h"
+#include "Asset/PackageObjectStreamWriter.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "PackageObjectStreamReferenceModel.h"
 
 #include <algorithm>
 #include <bit>
 
 namespace
 {
-	namespace Production = Durin::Asset::DastV4;
-	namespace Reference = Durin::Testing::DastV4;
+	namespace Production = Durin::Asset::PackageObjectStream;
+	namespace Reference = Durin::Testing::PackageObjectStream;
 	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result;
@@ -145,7 +145,7 @@ namespace
 	}
 }
 
-TEST(FPackageV4WriterTests, ProductionBytesMatchIndependentReferenceAndDiscoveryOrder)
+TEST(FPackageObjectStreamWriterTests, ProductionBytesMatchIndependentReferenceAndDiscoveryOrder)
 {
 	const std::vector<std::byte> Expected = BuildReferencePackage(false);
 	EXPECT_EQ(Expected, BuildReferencePackage(true));
@@ -160,7 +160,7 @@ TEST(FPackageV4WriterTests, ProductionBytesMatchIndependentReferenceAndDiscovery
 	EXPECT_EQ(Reverse, Expected);
 }
 
-TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
+TEST(FPackageObjectStreamWriterTests, MalformedInputAndLimitsPreserveDestination)
 {
 	auto Input = BuildProductionInput(false);
 	Input.Schemas.front().Fields.push_back(Input.Schemas.front().Fields.front());
@@ -208,7 +208,7 @@ TEST(FPackageV4WriterTests, MalformedInputAndLimitsPreserveDestination)
 	EXPECT_EQ(Destination, Bytes({0xde, 0xad}));
 }
 
-TEST(FPackageV4WriterTests, RetainedUnknownClosureAndPayloadAreExactAndValidated)
+TEST(FPackageObjectStreamWriterTests, RetainedUnknownClosureAndPayloadAreExactAndValidated)
 {
 	auto I32 = Reference::MakeType(Reference::ETypeOpcode::I32);
 	Reference::FTableInput ClosureInput;
@@ -239,7 +239,7 @@ TEST(FPackageV4WriterTests, RetainedUnknownClosureAndPayloadAreExactAndValidated
 	EXPECT_EQ(Bytes, Before);
 }
 
-TEST(FPackageV4WriterTests, EverySupportedValueOpcodeMatchesIndependentReference)
+TEST(FPackageObjectStreamWriterTests, EverySupportedValueOpcodeMatchesIndependentReference)
 {
 	auto Expect = [&](const Reference::FTypePtr& ReferenceType, const Reference::FValue& ReferenceValue,
 		const Production::FTypePtr& ProductionType, const Production::FValue& ProductionValue,

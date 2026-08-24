@@ -69,10 +69,11 @@ Milestone 4 completed through
 The ordinary writer is v5, and all 30 remaining tracked packages use v5.
 Headless apply now waits for asynchronous
 source recovery, validates domain readiness, and exposes Engine third-party
-runtime DLLs for cold StaticMesh DDC reconstruction. A scoped ImportRecord field
-version converts the historical byte-array payload representation to the
-current Blob representation. The two redirectors were transactionally fixed up
-and deleted. Two reachable external companions were
+runtime DLLs for cold StaticMesh DDC reconstruction. The two supported
+ImportRecords were converted from the historical byte-array payload
+representation to the current Blob representation, then the one-time field
+compatibility route was retired. The two redirectors were transactionally fixed
+up and deleted. Two reachable external companions were
 republished as new LFS generations with no missing payload or orphan. Canonical
 v4 rollback remains available for all 30 packages.
 

@@ -26,7 +26,7 @@ from .runtime_program import (
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
-CURRENT_ASSET_FORMAT_VERSION = 4
+CURRENT_ASSET_FORMAT_VERSION = 5
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 
 
@@ -197,9 +197,9 @@ def run(
     elif is_baseline:
         if _baseline_failed(report):
             _render_human(report, stdout)
-            print("\nAsset baseline rejected: every package must be current DAST v4 with no schema findings.", file=stdout)
+            print("\nAsset baseline rejected: every package must be current DAST v5 with no schema findings.", file=stdout)
         else:
-            print(f"Asset baseline: {len(report['packages'])} current DAST v4 package(s).", file=stdout)
+            print(f"Asset baseline: {len(report['packages'])} current DAST v5 package(s).", file=stdout)
     else:
         _render_human(report, stdout)
     if is_baseline:

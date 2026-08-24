@@ -3,7 +3,9 @@
 #include "StaticMeshTestAccess.h"
 
 #include "AssetTools.h"
-#include "Asset/PackageV4Reader.h"
+#include "AssetPackageV5Codec.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageTrailer.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -57,8 +59,13 @@ namespace
 		std::string_view LegacyName
 	) -> bool
 	{
-		Durin::Asset::DastV4::FDecodedPackage Package;
-		if (!Durin::Asset::DastV4::DecodePackage(Bytes, Package)) return false;
+		Durin::Asset::PackageTrailer::FInspection Trailer;
+		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
+			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
+		std::vector<std::byte> ObjectStream(
+			Bytes.begin(), Bytes.begin() + static_cast<size_t>(Trailer.ObjectStreamEnd));
+		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
+		if (!Durin::Asset::PackageObjectStream::DecodePackage(ObjectStream, Package)) return false;
 
 		size_t SchemaIndex = std::string::npos;
 		size_t FieldIndex = std::string::npos;
@@ -79,7 +86,7 @@ namespace
 		}
 		if (SchemaIndex == std::string::npos) return false;
 
-		using Durin::Asset::DastV4::ETypeOpcode;
+		using Durin::Asset::PackageObjectStream::ETypeOpcode;
 		const uint64 KeyTypeId = Package.Types.size() + 1;
 		Package.Types.push_back({.Opcode = ETypeOpcode::String});
 		const uint64 ValueTypeId = Package.Types.size() + 1;
@@ -104,14 +111,22 @@ namespace
 				++RewrittenOverrides;
 			}
 		}
-		return RewrittenOverrides > 0
-			&& Durin::Asset::DastV4::ReencodePackage(Package, Bytes);
+		if (RewrittenOverrides == 0
+			|| !Durin::Asset::PackageObjectStream::ReencodePackage(Package, ObjectStream))
+			return false;
+		return static_cast<bool>(
+			Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+				ObjectStream, Bytes));
 	}
 
 	auto ContainsSerializedField(std::span<const std::byte> Bytes, std::string_view Name) -> bool
 	{
-		Durin::Asset::DastV4::FDecodedPackage Package;
-		if (!Durin::Asset::DastV4::DecodePackage(Bytes, Package)) return false;
+		Durin::Asset::PackageTrailer::FInspection Trailer;
+		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
+			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
+		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
+		if (!Durin::Asset::PackageObjectStream::DecodePackage(
+			Bytes.first(static_cast<size_t>(Trailer.ObjectStreamEnd)), Package)) return false;
 		for (const auto& Schema : Package.Schemas)
 		{
 			if (std::ranges::any_of(

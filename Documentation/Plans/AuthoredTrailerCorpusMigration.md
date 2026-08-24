@@ -14,9 +14,11 @@ now waits for per-package asynchronous source recovery, rejects domain assets
 that remain unready, and registers the Engine third-party runtime directory so
 cold StaticMesh DDC recovery can load Assimp. The six Engine content packages
 that were initially retained passed this gate and were migrated. A scoped
-`DImportRecord` serialization version now migrates the historical
+`DImportRecord` serialization version migrated the historical
 `Bytes:Array<uint8>` representation to the current `Bytes:Blob` field, and both
-records were resaved. The two redirectors were transactionally fixed up and
+records were resaved. After confirming they are the complete supported
+ImportRecord corpus, the one-time deprecated field and migration hook were
+removed. The two redirectors were transactionally fixed up and
 deleted. The remaining corpus contains 30 packages, all at v5. Both external
 VolumeTexture payloads are reachable in new generation-named DABK companions; the two
 superseded generations are deleted, and post-migration inspection finds zero
@@ -79,9 +81,10 @@ only after reversible corpus and compatibility evidence passes.
   relocation/deletion integration, VolumeTexture lifecycle evidence, target-aware
   deterministic migration reports, and the v5 ordinary writer are complete.
 - Headless apply waits for pending DDC/source recovery and rejects incomplete
-  domain readiness before serialization. Historical ImportRecord byte arrays
-  migrate through a scoped field-version route, and project redirectors were
-  fixed up and deleted. Persistent virtualization and legacy retirement retain
+  domain readiness before serialization. The complete ImportRecord corpus now
+  uses the current Blob field and its one-time byte-array compatibility route
+  has been retired; project redirectors were fixed up and deleted. Persistent
+  virtualization and package-format legacy retirement retain
   their independent evidence gates.
 
 ## Implementation Stages

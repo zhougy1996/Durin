@@ -2,12 +2,12 @@
 
 #include "Asset/Compatibility.h"
 #include "Asset/Mutation.h"
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamWriter.h"
 
 #include <array>
 #include <utility>
 
-namespace Durin::Asset::DastV4
+namespace Durin::Asset::PackageObjectStream
 {
 	inline constexpr uint32 MaximumSummaryBytes = 65'535;
 	inline constexpr uint8 RequiredSectionCount = 5;
@@ -161,7 +161,7 @@ namespace Durin::Asset::DastV4
 		uint64 PackageSize = 0) -> bool;
 
 	// Reconstructs the complete immutable logical package. Canonical validation
-	// includes byte-for-byte re-emission through the production v4 writer.
+	// includes byte-for-byte re-emission through the production object-stream writer.
 	ASSETCORE_API auto DecodePackage(
 		std::span<const std::byte> Bytes,
 		FDecodedPackage& OutPackage,
@@ -220,7 +220,7 @@ namespace Durin::Asset::DastV4
 			FReaderDiagnostic*) -> FAssetResult;
 	};
 
-	// Explicit bytes-only v4 live-load boundary. The returned handle owns the
+	// Explicit bytes-only object-stream live-load boundary. The returned handle owns the
 	// rooted graph and is replaced only after dependencies, values, ledgers, and
 	// PostLoad all succeed. It does not publish registry or ordinary-load policy.
 	ASSETCORE_API auto LoadAssetPackage(

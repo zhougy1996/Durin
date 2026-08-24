@@ -2,8 +2,8 @@
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageTrailer.h"
-#include "Asset/PackageV4Reader.h"
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageObjectStreamWriter.h"
 
 namespace Durin::Asset::Private::DastV5
 {
@@ -15,13 +15,6 @@ namespace Durin::Asset::Private::DastV5
 		auto Error(std::string Message) -> FAssetResult
 		{
 			return {EAssetError::CorruptFile, std::move(Message)};
-		}
-
-		auto SetVersion(std::vector<std::byte>& Bytes, uint32 Value) -> bool
-		{
-			if (Bytes.size() < sizeof(uint32) * 2) return false;
-			std::memcpy(Bytes.data() + sizeof(uint32), &Value, sizeof(Value));
-			return true;
 		}
 
 		auto MakeEntries(
@@ -52,27 +45,27 @@ namespace Durin::Asset::Private::DastV5
 			return {};
 		}
 
-		auto PrepareV4(
+		auto PrepareObjectStream(
 			std::span<const std::byte> Bytes,
-			std::vector<std::byte>& OutV4,
+			std::vector<std::byte>& OutObjectStream,
 			FAssetPackageInspection* OutInspection = nullptr) -> FAssetResult
 		{
-			OutV4.clear();
+			OutObjectStream.clear();
 			FInspection Trailer;
 			std::string TrailerError;
 			if (!PackageTrailer::Inspect(Bytes, Trailer, &TrailerError))
 				return Error(std::move(TrailerError));
 			if (Trailer.ObjectStreamEnd > Bytes.size())
 				return Error("DAST v5 object-stream extent is invalid.");
-			OutV4.assign(
+			OutObjectStream.assign(
 				Bytes.begin(), Bytes.begin() + static_cast<size_t>(Trailer.ObjectStreamEnd));
-			if (!SetVersion(OutV4, DastV4::Version))
+			if (OutObjectStream.size() < sizeof(uint32) * 2)
 				return Error("DAST v5 object-stream preamble is truncated.");
 
 			FAssetPackageInspection Inspection;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (FAssetResult Result = DastV4::InspectPackage(
-					OutV4, Inspection, {}, &Diagnostic); !Result)
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			if (FAssetResult Result = PackageObjectStream::InspectPackage(
+					OutObjectStream, Inspection, {}, &Diagnostic); !Result)
 				return Result;
 			std::vector<FEntry> Expected;
 			if (FAssetResult Result = MakeEntries(Inspection, Expected); !Result)
@@ -93,8 +86,8 @@ namespace Durin::Asset::Private::DastV5
 			if (Bytes.size() < 13) return false;
 			uint32 SummaryBytes = 0;
 			std::memcpy(&SummaryBytes, Bytes.data() + 8, sizeof(SummaryBytes));
-			if (SummaryBytes > DastV4::MaximumSummaryBytes
-				|| std::to_integer<uint8>(Bytes[12]) != DastV4::RequiredSectionCount)
+			if (SummaryBytes > PackageObjectStream::MaximumSummaryBytes
+				|| std::to_integer<uint8>(Bytes[12]) != PackageObjectStream::RequiredSectionCount)
 				return false;
 			const uint64 LastEntry = 13ull + SummaryBytes + 4ull * 9ull;
 			if (LastEntry + 9 > Bytes.size()) return false;
@@ -122,10 +115,9 @@ namespace Durin::Asset::Private::DastV5
 				std::min<uint64>(Bytes.size(), ObjectStreamEnd));
 			std::vector<std::byte> HeaderBytes(
 				Bytes.begin(), Bytes.begin() + HeaderByteCount);
-			SetVersion(HeaderBytes, DastV4::Version);
-			DastV4::FValidatedHeader Header;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::ReadHeader(
+			PackageObjectStream::FValidatedHeader Header;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			if (!PackageObjectStream::ReadHeader(
 					HeaderBytes, Header, {}, &Diagnostic, ObjectStreamEnd))
 				return Error(Diagnostic.Message);
 			FAssetPackageHeader Result{
@@ -151,8 +143,8 @@ namespace Durin::Asset::Private::DastV5
 
 		auto Validate(std::span<const std::byte> Bytes) -> FAssetResult
 		{
-			std::vector<std::byte> V4;
-			return PrepareV4(Bytes, V4);
+			std::vector<std::byte> ObjectStream;
+			return PrepareObjectStream(Bytes, ObjectStream);
 		}
 
 		auto Inspect(
@@ -160,9 +152,9 @@ namespace Durin::Asset::Private::DastV5
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
 			OutInspection = {};
-			std::vector<std::byte> V4;
+			std::vector<std::byte> ObjectStream;
 			FAssetPackageInspection Inspection;
-			if (FAssetResult Result = PrepareV4(Bytes, V4, &Inspection); !Result)
+			if (FAssetResult Result = PrepareObjectStream(Bytes, ObjectStream, &Inspection); !Result)
 				return Result;
 			Inspection.Header.FormatVersion = Version;
 			Inspection.Fingerprint = {
@@ -178,11 +170,11 @@ namespace Durin::Asset::Private::DastV5
 			const FAssetPath& SourcePackage,
 			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 		{
-			std::vector<std::byte> V4;
-			if (FAssetResult Result = PrepareV4(Bytes, V4); !Result) return Result;
-			DastV4::FReaderDiagnostic Diagnostic;
-			return DastV4::ExtractReferences(
-				V4, SourcePackage, OutReferences, {}, &Diagnostic);
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PrepareObjectStream(Bytes, ObjectStream); !Result) return Result;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			return PackageObjectStream::ExtractReferences(
+				ObjectStream, SourcePackage, OutReferences, {}, &Diagnostic);
 		}
 
 		auto ProbeCompatibility(
@@ -192,11 +184,11 @@ namespace Durin::Asset::Private::DastV5
 			FAssetPackageCompatibilityRecord& OutRecord,
 			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
 		{
-			std::vector<std::byte> V4;
-			if (FAssetResult Result = PrepareV4(Bytes, V4); !Result) return Result;
-			DastV4::FReaderDiagnostic Diagnostic;
-			FAssetResult Result = DastV4::ProbeCompatibility(
-				V4, PackagePath, Catalog, OutRecord, OutStats, {}, &Diagnostic);
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PrepareObjectStream(Bytes, ObjectStream); !Result) return Result;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			FAssetResult Result = PackageObjectStream::ProbeCompatibility(
+				ObjectStream, PackagePath, Catalog, OutRecord, OutStats, {}, &Diagnostic);
 			if (Result)
 			{
 				OutRecord.FormatVersion = Version;
@@ -217,12 +209,12 @@ namespace Durin::Asset::Private::DastV5
 			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
 		{
 			OutPackage = nullptr;
-			std::vector<std::byte> V4;
-			if (FAssetResult Result = PrepareV4(Bytes, V4); !Result) return Result;
-			DastV4::FLoadedAssetPackage Loaded;
-			DastV4::FReaderDiagnostic Diagnostic;
-			FAssetResult Result = DastV4::LoadAssetPackage(
-				V4, PackagePath, Loaded, OutReport,
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PrepareObjectStream(Bytes, ObjectStream); !Result) return Result;
+			PackageObjectStream::FLoadedAssetPackage Loaded;
+			PackageObjectStream::FReaderDiagnostic Diagnostic;
+			FAssetResult Result = PackageObjectStream::LoadAssetPackage(
+				ObjectStream, PackagePath, Loaded, OutReport,
 				{.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback}, {}, &Diagnostic);
 			if (!Result) return Result;
@@ -236,14 +228,14 @@ namespace Durin::Asset::Private::DastV5
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Serialization) -> FAssetResult
 		{
-			std::vector<std::byte> V4;
-			DastV4::FWriterDiagnostic Diagnostic;
-			if (FAssetResult Result = DastV4::WriteAssetPackage(
-					Package, V4,
+			std::vector<std::byte> ObjectStream;
+			PackageObjectStream::FWriterDiagnostic Diagnostic;
+			if (FAssetResult Result = PackageObjectStream::WriteAssetPackage(
+					Package, ObjectStream,
 					{.DeltaMode = DeltaMode, .Serialization = Serialization},
 					&Diagnostic); !Result)
 				return Result;
-			return ConvertV4Package(V4, OutBytes);
+			return BuildPackageFromObjectStream(ObjectStream, OutBytes);
 		}
 
 		template<typename Operation>
@@ -253,11 +245,11 @@ namespace Durin::Asset::Private::DastV5
 			Operation&& Apply) -> FAssetResult
 		{
 			OutBytes.clear();
-			std::vector<std::byte> V4;
-			if (FAssetResult Result = PrepareV4(Bytes, V4); !Result) return Result;
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PrepareObjectStream(Bytes, ObjectStream); !Result) return Result;
 			std::vector<std::byte> Rewritten;
-			if (FAssetResult Result = Apply(V4, Rewritten); !Result) return Result;
-			return ConvertV4Package(Rewritten, OutBytes);
+			if (FAssetResult Result = Apply(ObjectStream, Rewritten); !Result) return Result;
+			return BuildPackageFromObjectStream(Rewritten, OutBytes);
 		}
 
 		auto RewriteReferences(
@@ -266,9 +258,9 @@ namespace Durin::Asset::Private::DastV5
 			uint64 ExpectedRewriteCount,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			return Rewrite(Bytes, OutBytes, [&](auto V4, auto& Rewritten) {
-				return DastV4::RewriteReferences(
-					V4, Mappings, ExpectedRewriteCount, Rewritten);
+			return Rewrite(Bytes, OutBytes, [&](auto ObjectStream, auto& Rewritten) {
+				return PackageObjectStream::RewriteReferences(
+					ObjectStream, Mappings, ExpectedRewriteCount, Rewritten);
 			});
 		}
 
@@ -277,8 +269,8 @@ namespace Durin::Asset::Private::DastV5
 			const FAssetPath& DestinationPath,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			return Rewrite(Bytes, OutBytes, [&](auto V4, auto& Rewritten) {
-				return DastV4::RelocatePackage(V4, DestinationPath, Rewritten);
+			return Rewrite(Bytes, OutBytes, [&](auto ObjectStream, auto& Rewritten) {
+				return PackageObjectStream::RelocatePackage(ObjectStream, DestinationPath, Rewritten);
 			});
 		}
 
@@ -287,23 +279,23 @@ namespace Durin::Asset::Private::DastV5
 			const FAssetPath& DestinationPath,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
-			std::vector<std::byte> V4;
-			if (FAssetResult Result = DastV4::WriteRedirectorPackage(
-					SourcePath, DestinationPath, V4); !Result)
+			std::vector<std::byte> ObjectStream;
+			if (FAssetResult Result = PackageObjectStream::WriteRedirectorPackage(
+					SourcePath, DestinationPath, ObjectStream); !Result)
 				return Result;
-			return ConvertV4Package(V4, OutBytes);
+			return BuildPackageFromObjectStream(ObjectStream, OutBytes);
 		}
 	}
 
-	auto ConvertV4Package(
-		std::span<const std::byte> V4Bytes,
+	auto BuildPackageFromObjectStream(
+		std::span<const std::byte> ObjectStreamBytes,
 		std::vector<std::byte>& OutV5Bytes) -> FAssetResult
 	{
 		OutV5Bytes.clear();
 		FAssetPackageInspection Inspection;
-		DastV4::FReaderDiagnostic Diagnostic;
-		if (FAssetResult Result = DastV4::InspectPackage(
-				V4Bytes, Inspection, {}, &Diagnostic); !Result)
+		PackageObjectStream::FReaderDiagnostic Diagnostic;
+		if (FAssetResult Result = PackageObjectStream::InspectPackage(
+				ObjectStreamBytes, Inspection, {}, &Diagnostic); !Result)
 			return Result;
 		std::vector<FEntry> Entries;
 		if (FAssetResult Result = MakeEntries(Inspection, Entries); !Result)
@@ -311,11 +303,9 @@ namespace Durin::Asset::Private::DastV5
 		std::vector<std::byte> Detached;
 		std::string TrailerError;
 		if (!PackageTrailer::Build(
-				Entries, V4Bytes.size(), Detached, &TrailerError))
+				Entries, ObjectStreamBytes.size(), Detached, &TrailerError))
 			return Error(std::move(TrailerError));
-		std::vector<std::byte> Candidate(V4Bytes.begin(), V4Bytes.end());
-		if (!SetVersion(Candidate, Version))
-			return Error("DAST v4 source preamble is truncated.");
+		std::vector<std::byte> Candidate(ObjectStreamBytes.begin(), ObjectStreamBytes.end());
 		Candidate.insert(Candidate.end(), Detached.begin(), Detached.end());
 		if (FAssetResult Result = Validate(Candidate); !Result) return Result;
 		OutV5Bytes = std::move(Candidate);

@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-24
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -625,30 +625,30 @@ never exposes writable resident memory. Immutable byte access goes through
 graph only after external DABK bytes have been resolved and verified.
 
 DAST v5 is the ordinary authored route. It retains
-the canonical v4 logical Archive encoding inside a v5 object-stream preamble
+the canonical logical Archive encoding inside a v5 object-stream preamble
 and requires a validated EOF trailer. During this compatibility cut, external
 DABK facts remain mirrored in the object-stream descriptor, but the reader
 derives both complete sets construct-free and rejects any missing, extra, or
 disagreeing payload id, size, content hash, container hash, or placement before
-live construction. Ordinary saves and explicit v5 publication use v5; explicit
-v4 canonical rollback remains available. Both routes publish companions first
-and replace the complete package file atomically.
+live construction. All publication uses v5, publishes companions first, and
+replaces the complete package file atomically. No legacy rollback route exists.
 
-DAST v4 and DABK v1 retain the physical 16-byte identity and 4-byte version
-slots formerly used by the authored experiment. They are compatibility-reserved
-storage now: readers accept and ignore historical nonzero values, while current
-writers emit zero. Canonical resave is the supported migration and does not
-change the surrounding opcode or entry layout. Domain schema versions are
-reflected by the owning asset instead.
+DABK v1 retains the physical 16-byte identity and 4-byte version slots used by
+authored external storage. Readers accept and ignore historical nonzero values,
+while current writers emit zero. Domain schema versions are reflected by the
+owning asset instead.
 
-Asset package loading resolves external storage from the logical package path
-and descriptor container hash, validates the complete DABK container and the
-selected entry, and only then publishes the decoded object graph. Missing,
-truncated, stale, excessive, or corrupt companion data retires the candidate
-graph; a prior resident package or texture resource is not partially mutated.
-Unload releases the shared allocation normally. Move/rename and deletion treat
-the package and validated trailer/descriptor companion closure as one mutation
-participant.
+Asset package loading resolves external storage to the stable sibling
+`<package-stem>.dabulk`, then validates the complete DABK container and selected
+entry against the descriptor container and content hashes before publishing the
+decoded object graph. If the stable file does not match, live load may recover
+only from `<package-stem>.dabulk.durin-backup` with the exact expected container
+hash; construct-free inspection never performs that mutation. Missing,
+truncated, stale, excessive, or corrupt final-and-backup state retires the
+candidate graph; a prior resident package or texture resource is not partially
+mutated. Unload releases the shared allocation normally. Move/rename and
+deletion treat the package and validated trailer/descriptor companion closure
+as one mutation participant.
 
 ## Domain-qualified inspection and repair ownership
 
@@ -665,7 +665,7 @@ Repair classifications name the owning explicit workflow:
 | Finding | Action owner |
 | --- | --- |
 | Missing/changed/malformed mounted source | Reimport or source repair. |
-| Missing/corrupt editor companion | Restore the referenced DABK generation or reimport. |
+| Missing/corrupt editor companion | Restore the descriptor-matching stable DABK or reimport. |
 | Unreferenced editor companion | Explicit package cleanup; inspection never deletes it. |
 | Missing/corrupt/incompatible DDC | Domain rebuild; cache data is disposable. |
 | Missing/unsupported/failed cooked payload | Recook or upgrade/resave; runtime has no source fallback. |

@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "AssetTools.h"
+#include "AssetPackageV5Codec.h"
 #include "Asset/PackageVersionPolicy.h"
-#include "Asset/PackageV4Reader.h"
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageObjectStreamWriter.h"
 #include "Asset/PackageTrailer.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/EditorBulkData.h"
@@ -129,18 +130,15 @@ namespace Durin
 
 namespace
 {
-	static_assert(Durin::Asset::LatestAssetPackageWriterVersion ==
-		Durin::Asset::AssetPackageV4FormatVersion);
+	static_assert(Durin::Asset::AssetPackageObjectStreamVersion ==
+		Durin::Asset::AssetPackageV5FormatVersion);
 	static_assert(Durin::Asset::OrdinaryAssetPackageWriterVersion ==
 		Durin::Asset::AssetPackageV5FormatVersion);
 	static_assert(Durin::Asset::SupportedAssetPackageReaderVersions ==
 		decltype(Durin::Asset::SupportedAssetPackageReaderVersions){
-			Durin::Asset::AssetPackageV4FormatVersion,
 			Durin::Asset::AssetPackageV5FormatVersion});
-	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
-		Durin::Asset::AssetPackageV4FormatVersion));
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
-		Durin::Asset::AssetPackageV4FormatVersion - 1));
+		4));
 	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		Durin::Asset::AssetPackageV5FormatVersion));
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
@@ -828,7 +826,7 @@ namespace
 			}
 			if (bUnsupportedCustomVersion)
 				Ar.Fail(Durin::EArchiveFailureCode::UnsupportedVersion,
-					"DAST v4 cannot persist the requested authored custom version.");
+					"The package object stream cannot persist the requested authored custom version.");
 		}
 
 		auto PostLoad(std::string& OutError) -> bool override
@@ -1524,11 +1522,11 @@ TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 	std::filesystem::create_directories(PackagePath.parent_path());
 	std::filesystem::path CompanionPath;
 	ASSERT_TRUE(Durin::Asset::ResolveEditorBulkDataCompanionPath(
-		PackagePath, ContainerHash, CompanionPath, &Error)) << Error;
+		PackagePath, CompanionPath, &Error)) << Error;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstBytes)), CompanionPath.generic_string()));
 	Durin::FSharedByteBuffer Loaded;
-	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+	ASSERT_TRUE(Durin::Asset::ReadEditorBulkDataStoragePayload(
 		CompanionPath, Low.Descriptor, Loaded, &Error)) << Error;
 	EXPECT_TRUE(std::ranges::equal(Loaded.GetBytes(), Low.Buffer.GetBytes()));
 
@@ -1549,6 +1547,102 @@ TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 		Duplicate, ContainerHash, Corrupt, &Error));
 	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		FirstBytes, Durin::FXxHash128{1, 1}, &Error));
+}
+
+TEST(FEditorBulkDataStorageTests, LiveLoadRecoversStableCompanionByDescriptorHash)
+{
+	const Durin::FXxHash128 OldHash{11, 12};
+	const Durin::FXxHash128 NewHash{21, 22};
+	const Durin::FGuid PayloadId{1, 2, 3, 4};
+	const auto MakePayload = [&](Durin::FXxHash128 ContainerHash, std::byte Value) {
+		Durin::Asset::FEditorBulkDataStoragePayload Payload;
+		Payload.Buffer = Durin::FSharedByteBuffer::Take(
+			std::vector<std::byte>{Value, Value});
+		Payload.Descriptor = {
+			.PayloadId = PayloadId,
+			.LogicalByteCount = Payload.Buffer.GetSize(),
+			.StoredByteCount = Payload.Buffer.GetSize(),
+			.ContentHash = Durin::FXxHash128::HashBuffer(Payload.Buffer.GetBytes()),
+			.ContainerHash = ContainerHash,
+			.StorageKind = Durin::Asset::EEditorBulkDataStorageKind::External};
+		return Payload;
+	};
+	const auto OldPayload = MakePayload(OldHash, std::byte{0x31});
+	const auto NewPayload = MakePayload(NewHash, std::byte{0x42});
+	std::vector<std::byte> OldBytes;
+	std::vector<std::byte> NewBytes;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
+		std::span{&OldPayload, 1}, OldHash, OldBytes, &Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
+		std::span{&NewPayload, 1}, NewHash, NewBytes, &Error)) << Error;
+
+	const std::filesystem::path PackagePath =
+		Durin::Testing::GetTestWorkDirectory() / "AuthoredBulk/Recovery.dasset";
+	std::filesystem::create_directories(PackagePath.parent_path());
+	std::filesystem::path CompanionPath;
+	ASSERT_TRUE(Durin::Asset::ResolveEditorBulkDataCompanionPath(
+		PackagePath, CompanionPath, &Error)) << Error;
+	EXPECT_EQ(CompanionPath.filename(), "Recovery.dabulk");
+	std::filesystem::path BackupPath = CompanionPath;
+	BackupPath += Durin::Asset::EditorBulkDataCompanionBackupSuffix;
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, CompanionPath.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OldBytes, BackupPath.generic_string()));
+
+	Durin::FSharedByteBuffer Loaded;
+	EXPECT_FALSE(Durin::Asset::ReadEditorBulkDataStoragePayload(
+		CompanionPath, OldPayload.Descriptor, Loaded, &Error));
+	EXPECT_TRUE(std::filesystem::is_regular_file(BackupPath));
+	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+		CompanionPath, OldPayload.Descriptor, Loaded, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(Loaded.GetBytes(), OldPayload.Buffer.GetBytes()));
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+	std::vector<std::byte> RecoveredBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RecoveredBytes, CompanionPath));
+	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
+		RecoveredBytes, OldHash, &Error)) << Error;
+
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, BackupPath.generic_string()));
+	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+		CompanionPath, OldPayload.Descriptor, Loaded, &Error)) << Error;
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+
+	NewBytes.back() ^= std::byte{1};
+	OldBytes.back() ^= std::byte{1};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, CompanionPath.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OldBytes, BackupPath.generic_string()));
+	EXPECT_FALSE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+		CompanionPath, OldPayload.Descriptor, Loaded, &Error));
+	EXPECT_TRUE(std::filesystem::is_regular_file(CompanionPath));
+	EXPECT_TRUE(std::filesystem::is_regular_file(BackupPath));
+}
+
+TEST(FPackageAssetTests, V5FirstBundleFailureRemovesUncommittedStableCompanion)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V5FirstFailure", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	std::vector<std::byte> Payload(
+		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 1),
+		std::byte{0x51});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	Durin::DPackage* Packages[] = {Asset->GetPackage()};
+	const Durin::Asset::FAssetResult Result = Durin::Asset::SavePackagesAtomically(
+		Packages,
+		{.RootPackage = Asset->GetPackage(),
+			.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5,
+			.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
+				return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
+			}});
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError);
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "Assets";
+	EXPECT_FALSE(std::filesystem::exists(Root / "V5FirstFailure.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "V5FirstFailure.dabulk"));
+	EXPECT_FALSE(std::filesystem::exists(
+		Root / "V5FirstFailure.dabulk.durin-backup"));
 }
 
 TEST(FPackageAssetTests, V5OptInPublishesLoadsAndRollsBackExternalClosure)
@@ -1587,41 +1681,58 @@ TEST(FPackageAssetTests, V5OptInPublishesLoadsAndRollsBackExternalClosure)
 		V5Data->PhysicalPath, Inspection, Companions, &Error)) << Error;
 	ASSERT_EQ(Companions.size(), 1u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
+	EXPECT_EQ(Companions.front().filename(), "V5ExternalClosure.dabulk");
+	std::filesystem::path BackupPath = Companions.front();
+	BackupPath += Durin::Asset::EditorBulkDataCompanionBackupSuffix;
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+	const std::filesystem::path LegacyCompanion =
+		Companions.front().parent_path() / "V5ExternalClosure.legacy.dabulk";
+	std::filesystem::copy_file(
+		Companions.front(), LegacyCompanion,
+		std::filesystem::copy_options::overwrite_existing);
+	std::filesystem::copy_file(
+		Companions.front(), BackupPath,
+		std::filesystem::copy_options::overwrite_existing);
+	std::vector<std::filesystem::path> Orphans;
+	ASSERT_TRUE(Durin::Asset::InspectOrphanedEditorBulkDataCompanionPaths(
+		V5Data->PhysicalPath, Inspection, Orphans, &Error)) << Error;
+	EXPECT_TRUE(Orphans.empty());
+	EXPECT_TRUE(std::filesystem::remove(LegacyCompanion));
 
 	Durin::FSharedByteBuffer LoadedPayload;
-	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
+	ASSERT_TRUE(Durin::Asset::ReadEditorBulkDataStoragePayload(
 		Companions.front(), Descriptors.front(), LoadedPayload, &Error)) << Error;
 	EXPECT_TRUE(std::ranges::equal(
 		LoadedPayload.GetBytes(), Payload));
 	EXPECT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
 
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4}));
-	const Durin::Asset::FAssetCatalogEntry V4Data =
-		Durin::Asset::FindAssetExact(Path);
-	ASSERT_TRUE(V4Data);
-	EXPECT_EQ(V4Data->FormatVersion, Durin::Asset::AssetPackageV4FormatVersion);
-	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
-	std::vector<std::byte> BeforeFailedUpgrade;
+	std::vector<std::byte> BeforeFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		BeforeFailedUpgrade, V4Data->PhysicalPath));
-	std::ranges::fill(Payload, std::byte{0x6b});
+		BeforeFailedReplacement, Companions.front()));
+	std::ranges::fill(Payload, std::byte{0x63});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
-	Durin::DPackage* FailedUnit[] = {Asset->GetPackage()};
-	const Durin::Asset::FAssetResult FailedUpgrade =
-		Durin::Asset::SavePackagesAtomically(FailedUnit,
+	Durin::DPackage* ReplacementUnit[] = {Asset->GetPackage()};
+	const Durin::Asset::FAssetResult FailedReplacement =
+		Durin::Asset::SavePackagesAtomically(ReplacementUnit,
 			{.RootPackage = Asset->GetPackage(),
 				.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5,
 				.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
 				}});
-	EXPECT_EQ(FailedUpgrade.Error, Durin::Asset::EAssetError::IoError);
-	std::vector<std::byte> AfterFailedUpgrade;
+	EXPECT_EQ(FailedReplacement.Error, Durin::Asset::EAssetError::IoError);
+	std::vector<std::byte> AfterFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		AfterFailedUpgrade, V4Data->PhysicalPath));
-	EXPECT_EQ(AfterFailedUpgrade, BeforeFailedUpgrade);
-	EXPECT_EQ(Durin::Asset::FindAssetExact(Path)->FormatVersion,
-		Durin::Asset::AssetPackageV4FormatVersion);
+		AfterFailedReplacement, Companions.front()));
+	EXPECT_EQ(AfterFailedReplacement, BeforeFailedReplacement);
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+	std::vector<std::byte> AfterCommittedReplacement;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		AfterCommittedReplacement, Companions.front()));
+	EXPECT_NE(AfterCommittedReplacement, BeforeFailedReplacement);
+	EXPECT_FALSE(std::filesystem::exists(BackupPath));
 
 	Durin::FAssetPath LivePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V5LiveLoad", LivePath));
@@ -1657,50 +1768,6 @@ TEST(FPackageAssetTests, V5OptInPublishesLoadsAndRollsBackExternalClosure)
 	EXPECT_EQ(Resave.Status,
 		Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
 		<< Resave.Diagnostic;
-	EXPECT_EQ(Durin::Asset::FindAssetExact(LivePath)->FormatVersion,
-		Durin::Asset::AssetPackageV4FormatVersion);
-
-	const Durin::Asset::FAssetCatalogEntry RolledBack =
-		Durin::Asset::FindAssetExact(LivePath);
-	ASSERT_TRUE(RolledBack);
-	const Durin::Asset::FAssetPackageCompatibilityProbeResult MigrationProbe =
-		Durin::Asset::ProbeAssetPackageCompatibility(
-			MakeCompatibilityProbeInput(LivePath, RolledBack->PhysicalPath),
-			CompatibilityCatalog);
-	ASSERT_TRUE(MigrationProbe.Record.has_value());
-	const std::array MigrationRecords{*MigrationProbe.Record};
-	Durin::Asset::FAssetCanonicalResavePlan MigrationPlan =
-		Durin::Asset::PlanAssetCanonicalResaves(MigrationRecords,
-			{.Packages = {LivePath}, .bAllowPlainResave = true,
-				.TargetWriterSelection =
-					Durin::Asset::EAssetPackageWriterSelection::DastV5});
-	ASSERT_EQ(MigrationPlan.TargetFormatVersion,
-		Durin::Asset::AssetPackageV5FormatVersion);
-	ASSERT_EQ(MigrationPlan.Packages.size(), 1u);
-	EXPECT_EQ(MigrationPlan.Packages.front().Status,
-		Durin::Asset::EAssetCanonicalResavePackageStatus::Ready);
-	const std::string FirstMigrationReport =
-		Durin::Asset::SerializeAssetCanonicalResavePlanReport(MigrationPlan);
-	EXPECT_EQ(FirstMigrationReport,
-		Durin::Asset::SerializeAssetCanonicalResavePlanReport(MigrationPlan));
-	size_t PreparedAssets = 0;
-	const Durin::Asset::FAssetCanonicalResaveApplyResult Migration =
-		Durin::Asset::ApplyAssetCanonicalResaves(
-			std::move(MigrationPlan), CompatibilityCatalog,
-			{.PrepareLoadedAsset = [&](const Durin::FAssetPath& PreparedPath,
-				Durin::DObject* PreparedAsset) -> Durin::Asset::FAssetResult {
-				++PreparedAssets;
-				EXPECT_EQ(PreparedPath, LivePath);
-				EXPECT_NE(PreparedAsset, nullptr);
-				if (PreparedAsset)
-					EXPECT_EQ(PreparedAsset->GetPackage()->GetPackagePath(),
-						LivePath.ToString());
-				return Durin::Asset::FAssetResult{};
-			}});
-	EXPECT_EQ(Migration.Status,
-		Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
-		<< Migration.Diagnostic;
-	EXPECT_EQ(PreparedAssets, 1u);
 	EXPECT_EQ(Durin::Asset::FindAssetExact(LivePath)->FormatVersion,
 		Durin::Asset::AssetPackageV5FormatVersion);
 
@@ -1773,6 +1840,38 @@ TEST(FPackageAssetTests, V5BundleAndRelocationPreserveExplicitFormat)
 	DPackageAssetForTest* Resolved = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(SourcePath, Resolved));
 	EXPECT_EQ(Resolved->Value, 91);
+}
+
+TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath DestinationPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/StableBulkMoveSource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/StableBulkMoveDestination", DestinationPath));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
+	std::vector<std::byte> Payload(
+		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 3),
+		std::byte{0x71});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
+		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "Assets";
+	const std::filesystem::path SourceCompanion =
+		Root / "StableBulkMoveSource.dabulk";
+	const std::filesystem::path DestinationCompanion =
+		Root / "StableBulkMoveDestination.dabulk";
+	ASSERT_TRUE(std::filesystem::is_regular_file(SourceCompanion));
+	ASSERT_TRUE(RelocateAssetForTest(SourcePath, DestinationPath));
+	EXPECT_FALSE(std::filesystem::exists(SourceCompanion));
+	EXPECT_TRUE(std::filesystem::is_regular_file(DestinationCompanion));
+	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, DestinationPath}));
+	EXPECT_FALSE(std::filesystem::exists(DestinationCompanion));
 }
 
 TEST(FPackageAssetTests, RedirectorFixupVerificationFailureRestoresPackagesStoresAndAlias)
@@ -1853,7 +1952,7 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	EXPECT_FALSE(Header.RedirectDestination.IsValid());
 	EXPECT_EQ(Header.ObjectCount, 2u);
 	EXPECT_LT(Header.BytesRead, 1024u);
-	EXPECT_EQ(Header.FileBytesRead, Durin::Asset::DastV4::MaximumHeaderBytes);
+	EXPECT_EQ(Header.FileBytesRead, Durin::Asset::PackageObjectStream::MaximumHeaderBytes);
 	EXPECT_LT(Header.FileBytesRead, std::filesystem::file_size(File));
 }
 
@@ -1861,13 +1960,13 @@ TEST(FPackageAssetTests, OrdinaryWriterEmitsVersionFivePrefix)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/VersionFourPrefix", Path));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/VersionFivePrefix", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 
 	const auto File =
-		Durin::Testing::GetTestWorkDirectory() / "Assets" / "VersionFourPrefix.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "VersionFivePrefix.dasset";
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
 	constexpr std::array<std::byte, 8> ExpectedPrefix = {
@@ -1888,7 +1987,7 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	std::string Error;
 	EXPECT_TRUE(Durin::Asset::ValidateAssetPackageVersionPolicy(Error)) << Error;
 	EXPECT_NE(Durin::Asset::AssetPackageReaderPolicyFingerprint,
-		Durin::Asset::AssetPackageV4FormatVersion);
+		Durin::Asset::AssetPackageV5FormatVersion);
 }
 
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
@@ -1918,7 +2017,7 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	WriteTestBytes(CorruptFile, Corrupt);
 	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(CorruptFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
 
-	for (const uint32 Version : {3u, 6u})
+	for (const uint32 Version : {3u, 4u, 6u})
 	{
 		auto Unsupported = Valid;
 		std::memcpy(Unsupported.data() + sizeof(uint32), &Version, sizeof(Version));
@@ -2110,7 +2209,7 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::Discovery), 4);
 	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::AuthoredPackage), 4);
 	EXPECT_TRUE(std::ranges::all_of(GAuthoredArchiveFormatVersions, [](uint32 Version) {
-		return Version == Durin::Asset::AssetPackageV4FormatVersion;
+		return Version == Durin::Asset::AssetPackageV5FormatVersion;
 	}));
 
 	const auto File = Durin::Testing::GetTestWorkDirectory()
@@ -2210,16 +2309,19 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 		*Asset, *ValueProperty, SameSizeWrongType, &Error));
 
 	Durin::Asset::FAssetPackageSerializationOptions Options;
-	Options.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV4;
+	Options.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV5;
 	Options.SaveOverrides = Overrides;
+	std::vector<std::byte> ObjectStream;
 	std::vector<std::byte> FirstBytes;
 	std::vector<std::byte> SecondBytes;
-	const Durin::Asset::FAssetResult FirstResult = Durin::Asset::DastV4::WriteAssetPackage(
-		Asset->GetPackage(), FirstBytes,
+	const Durin::Asset::FAssetResult FirstResult = Durin::Asset::PackageObjectStream::WriteAssetPackage(
+		Asset->GetPackage(), ObjectStream,
 		{.DeltaMode = Durin::EDefaultDeltaMode::Enabled,
 			.Serialization = Options,
 			.bVerifyRepeatedEncoding = true});
 	ASSERT_TRUE(FirstResult) << FirstResult.Message;
+	ASSERT_TRUE(Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+		ObjectStream, FirstBytes));
 	const Durin::Asset::FAssetResult SecondResult = Durin::Asset::SerializeAssetPackageBytes(
 		Asset->GetPackage(), SecondBytes, Options);
 	ASSERT_TRUE(SecondResult) << SecondResult.Message;
@@ -3892,7 +3994,7 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_TRUE(FloatMatrixStruct->HasCompleteAuthoredFields());
 }
 
-TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughDastV4)
+TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageObjectStream)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -4049,15 +4151,15 @@ TEST(FPackageAssetTests, V4NoDeltaWriterAssociatesObjectPlansIndependentOfDiscov
 	Asset->DefaultChild = ZetaChild;
 
 	std::vector<std::byte> Bytes;
-	DastV4::FAssetPackageWriteOptions Options;
+	PackageObjectStream::FAssetPackageWriteOptions Options;
 	Options.DeltaMode = Durin::EDefaultDeltaMode::NoDelta;
-	DastV4::FWriterDiagnostic Diagnostic;
-	EXPECT_TRUE(DastV4::WriteAssetPackage(Asset->GetPackage(), Bytes, Options, &Diagnostic))
+	PackageObjectStream::FWriterDiagnostic Diagnostic;
+	EXPECT_TRUE(PackageObjectStream::WriteAssetPackage(Asset->GetPackage(), Bytes, Options, &Diagnostic))
 		<< Diagnostic.Message;
 	EXPECT_FALSE(Bytes.empty());
-	DastV4::FDecodedPackage Decoded;
-	DastV4::FReaderDiagnostic ReaderDiagnostic;
-	ASSERT_TRUE(DastV4::DecodePackage(Bytes, Decoded, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage Decoded;
+	PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(Bytes, Decoded, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	ASSERT_FALSE(Decoded.ObjectValues.empty());
 	const auto& RootValues = Decoded.ObjectValues.front();
@@ -4086,28 +4188,28 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
 	Source->Value = 417;
 
-	DastV4::FAssetPackageWriteOptions Options;
+	PackageObjectStream::FAssetPackageWriteOptions Options;
 	Options.DeltaMode = Durin::EDefaultDeltaMode::NoDelta;
-	DastV4::FWriterDiagnostic WriterDiagnostic;
+	PackageObjectStream::FWriterDiagnostic WriterDiagnostic;
 	std::vector<std::byte> CurrentBytes;
-	ASSERT_TRUE(DastV4::WriteAssetPackage(
+	ASSERT_TRUE(PackageObjectStream::WriteAssetPackage(
 		Source->GetPackage(), CurrentBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
 
-	DastV4::FDecodedPackage LegacyPackage;
-	DastV4::FReaderDiagnostic ReaderDiagnostic;
-	ASSERT_TRUE(DastV4::DecodePackage(CurrentBytes, LegacyPackage, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage LegacyPackage;
+	PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(CurrentBytes, LegacyPackage, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	auto Schema = std::ranges::find(
 		LegacyPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(Schema, LegacyPackage.Schemas.end());
 	auto ValueField = std::ranges::find(
-		Schema->Fields, std::string("Value"), &DastV4::FDecodedField::Name);
+		Schema->Fields, std::string("Value"), &PackageObjectStream::FDecodedField::Name);
 	ASSERT_NE(ValueField, Schema->Fields.end());
 	ValueField->Name = "LegacyValue";
 
 	std::vector<std::byte> LegacyBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
 	const FReflectionSerializedPropertyAlias* Alias =
@@ -4116,7 +4218,7 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	EXPECT_EQ(Alias->CurrentName, "Value");
 
 	FAssetPackageCompatibilityRecord Compatibility;
-	ASSERT_TRUE(DastV4::ProbeCompatibility(
+	ASSERT_TRUE(PackageObjectStream::ProbeCompatibility(
 		LegacyBytes, LoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
@@ -4126,9 +4228,9 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 			&& Evidence.CurrentIdentity == "Value";
 	}));
 
-	DastV4::FLoadedAssetPackage Loaded;
+	PackageObjectStream::FLoadedAssetPackage Loaded;
 	FAssetLoadReport LoadReport;
-	const FAssetResult Load = DastV4::LoadAssetPackage(
+	const FAssetResult Load = PackageObjectStream::LoadAssetPackage(
 		LegacyBytes, LoadPath, Loaded, &LoadReport, {}, {}, &ReaderDiagnostic);
 	ASSERT_TRUE(Load) << Load.Message << ": " << ReaderDiagnostic.Message;
 	ASSERT_NE(Loaded.GetPackage(), nullptr);
@@ -4141,39 +4243,39 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	}));
 
 	std::vector<std::byte> CanonicalBytes;
-	ASSERT_TRUE(DastV4::WriteAssetPackage(
+	ASSERT_TRUE(PackageObjectStream::WriteAssetPackage(
 		Loaded.GetPackage(), CanonicalBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
-	DastV4::FDecodedPackage CanonicalPackage;
-	ASSERT_TRUE(DastV4::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage CanonicalPackage;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	const auto CanonicalSchema = std::ranges::find(
 		CanonicalPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(CanonicalSchema, CanonicalPackage.Schemas.end());
 	EXPECT_NE(std::ranges::find(
-		CanonicalSchema->Fields, std::string("Value"), &DastV4::FDecodedField::Name),
+		CanonicalSchema->Fields, std::string("Value"), &PackageObjectStream::FDecodedField::Name),
 		CanonicalSchema->Fields.end());
 	EXPECT_EQ(std::ranges::find(
-		CanonicalSchema->Fields, std::string("LegacyValue"), &DastV4::FDecodedField::Name),
+		CanonicalSchema->Fields, std::string("LegacyValue"), &PackageObjectStream::FDecodedField::Name),
 		CanonicalSchema->Fields.end());
 
-	DastV4::FDecodedPackage CollisionPackage = LegacyPackage;
+	PackageObjectStream::FDecodedPackage CollisionPackage = LegacyPackage;
 	auto CollisionSchema = std::ranges::find(
 		CollisionPackage.Schemas, std::string("Tests::DPackageAssetForTest"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(CollisionSchema, CollisionPackage.Schemas.end());
 	auto LabelField = std::ranges::find(
-		CollisionSchema->Fields, std::string("Label"), &DastV4::FDecodedField::Name);
+		CollisionSchema->Fields, std::string("Label"), &PackageObjectStream::FDecodedField::Name);
 	ASSERT_NE(LabelField, CollisionSchema->Fields.end());
 	LabelField->Name = "Value";
 	std::vector<std::byte> CollisionBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(CollisionPackage, CollisionBytes, &ReaderDiagnostic))
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(CollisionPackage, CollisionBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	FAssetPackageCompatibilityRecord CollisionCompatibility;
-	const FAssetResult CollisionProbe = DastV4::ProbeCompatibility(
+	const FAssetResult CollisionProbe = PackageObjectStream::ProbeCompatibility(
 		CollisionBytes, LoadPath, Catalog, CollisionCompatibility, nullptr, {}, &ReaderDiagnostic);
 	EXPECT_EQ(CollisionProbe.Error, EAssetError::CorruptFile);
-	EXPECT_EQ(ReaderDiagnostic.Failure, DastV4::EReaderFailure::InvalidTable);
+	EXPECT_EQ(ReaderDiagnostic.Failure, PackageObjectStream::EReaderFailure::InvalidTable);
 	Loaded.Reset();
 }
 
@@ -4190,33 +4292,33 @@ TEST(FPackageAssetTests, V4ContainerNestedDeprecatedRoutesEmitAndValidateCustomV
 	ASSERT_TRUE(CreateAsset(SourcePath, Source));
 	Source->Values.push_back({.Value = 12.0f});
 
-	DastV4::FAssetPackageWriteOptions Options;
+	PackageObjectStream::FAssetPackageWriteOptions Options;
 	Options.DeltaMode = EDefaultDeltaMode::NoDelta;
-	DastV4::FWriterDiagnostic WriterDiagnostic;
+	PackageObjectStream::FWriterDiagnostic WriterDiagnostic;
 	std::vector<std::byte> Bytes;
-	ASSERT_TRUE(DastV4::WriteAssetPackage(
+	ASSERT_TRUE(PackageObjectStream::WriteAssetPackage(
 		Source->GetPackage(), Bytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
-	DastV4::FDecodedPackage Decoded;
-	DastV4::FReaderDiagnostic ReaderDiagnostic;
-	ASSERT_TRUE(DastV4::DecodePackage(Bytes, Decoded, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage Decoded;
+	PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(Bytes, Decoded, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	auto Version = std::ranges::find(
 		Decoded.CustomVersions, AssetStructTest::FStructMigrationVersion::Guid,
-		&DastV4::FCustomVersion::Guid);
+		&PackageObjectStream::FCustomVersion::Guid);
 	ASSERT_NE(Version, Decoded.CustomVersions.end());
 	EXPECT_EQ(Version->Value, AssetStructTest::FStructMigrationVersion::LatestVersion);
 
 	Version->Value = AssetStructTest::FStructMigrationVersion::LatestVersion + 1;
 	std::vector<std::byte> FutureBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(Decoded, FutureBytes, &ReaderDiagnostic))
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(Decoded, FutureBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	DastV4::FLoadedAssetPackage Loaded;
-	EXPECT_FALSE(DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage Loaded;
+	EXPECT_FALSE(PackageObjectStream::LoadAssetPackage(
 		FutureBytes, FuturePath, Loaded, nullptr, {}, {}, &ReaderDiagnostic));
 	EXPECT_EQ(FindResidentPackage(FuturePath), nullptr);
 }
 
-TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredIntent)
+TEST(FPackageAssetTests, DeprecatedRoutesMigrateVersionedFieldsAndAuthoredIntent)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4238,28 +4340,28 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	Source->Anchor = 25;
 	Source->StructData.Value = 26.0f;
 
-	DastV4::FAssetPackageWriteOptions Options;
+	PackageObjectStream::FAssetPackageWriteOptions Options;
 	Options.DeltaMode = EDefaultDeltaMode::NoDelta;
-	DastV4::FWriterDiagnostic WriterDiagnostic;
+	PackageObjectStream::FWriterDiagnostic WriterDiagnostic;
 	std::vector<std::byte> CurrentBytes;
-	ASSERT_TRUE(DastV4::WriteAssetPackage(
+	ASSERT_TRUE(PackageObjectStream::WriteAssetPackage(
 		Source->GetPackage(), CurrentBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
-	DastV4::FDecodedPackage CurrentPackage;
-	DastV4::FReaderDiagnostic ReaderDiagnostic;
-	ASSERT_TRUE(DastV4::DecodePackage(CurrentBytes, CurrentPackage, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage CurrentPackage;
+	PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(CurrentBytes, CurrentPackage, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	const auto CurrentVersion = std::ranges::find(
 		CurrentPackage.CustomVersions, FSchemaMigrationVersion::Guid,
-		&DastV4::FCustomVersion::Guid);
+		&PackageObjectStream::FCustomVersion::Guid);
 	ASSERT_NE(CurrentVersion, CurrentPackage.CustomVersions.end());
 	EXPECT_EQ(CurrentVersion->Value, FSchemaMigrationVersion::LatestVersion);
 
 	auto Schema = std::ranges::find(
 		CurrentPackage.Schemas, std::string("Tests::DSchemaMigrationAssetForTest"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(Schema, CurrentPackage.Schemas.end());
 	const auto FindField = [&](std::string_view Name) {
-		return std::ranges::find(Schema->Fields, std::string(Name), &DastV4::FDecodedField::Name);
+		return std::ranges::find(Schema->Fields, std::string(Name), &PackageObjectStream::FDecodedField::Name);
 	};
 	auto AField = FindField("A");
 	auto BField = FindField("B");
@@ -4281,14 +4383,14 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	const uint64 StructDataFieldId = static_cast<uint64>(
 		std::distance(Schema->Fields.begin(), StructDataField)) + 1;
 	const uint64 Int32TypeId = AnchorField->TypeId;
-	const auto FindOverride = [&](DastV4::FDecodedPackage& Package, uint64 FieldId) {
+	const auto FindOverride = [&](PackageObjectStream::FDecodedPackage& Package, uint64 FieldId) {
 		return std::ranges::find_if(Package.ObjectValues.front().Overrides,
-			[&](const DastV4::FDecodedOverride& Override) {
+			[&](const PackageObjectStream::FDecodedOverride& Override) {
 				return Override.SchemaId == SchemaId && Override.FieldId == FieldId;
 			});
 	};
 
-	DastV4::FDecodedPackage LegacyPackage = CurrentPackage;
+	PackageObjectStream::FDecodedPackage LegacyPackage = CurrentPackage;
 	LegacyPackage.CustomVersions.clear();
 	auto LegacySchema = LegacyPackage.Schemas.begin() + static_cast<ptrdiff_t>(SchemaId - 1);
 	LegacySchema->Fields[AFieldId - 1].TypeId = Int32TypeId;
@@ -4297,10 +4399,10 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	LegacySchema->Fields[MergedFieldId - 1].Name = "Right";
 	auto LegacyStructSchema = std::ranges::find(
 		LegacyPackage.Schemas, std::string("Tests::FMigratingValue"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(LegacyStructSchema, LegacyPackage.Schemas.end());
 	auto LegacyStructValueField = std::ranges::find(
-		LegacyStructSchema->Fields, std::string("Value"), &DastV4::FDecodedField::Name);
+		LegacyStructSchema->Fields, std::string("Value"), &PackageObjectStream::FDecodedField::Name);
 	ASSERT_NE(LegacyStructValueField, LegacyStructSchema->Fields.end());
 	LegacyStructValueField->TypeId = Int32TypeId;
 	auto AOverride = FindOverride(LegacyPackage, AFieldId);
@@ -4324,14 +4426,11 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	StructDataOverride->Value.Elements.front().Signed = 8;
 
 	std::vector<std::byte> LegacyBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	const std::vector<std::byte> FixtureLegacyBytes = ReadCompatibilityFixtureBytes("schema_migration_legacy");
-	ASSERT_EQ(LegacyBytes, FixtureLegacyBytes);
-	LegacyBytes = FixtureLegacyBytes;
 	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
 	FAssetPackageCompatibilityRecord Compatibility;
-	ASSERT_TRUE(DastV4::ProbeCompatibility(
+	ASSERT_TRUE(PackageObjectStream::ProbeCompatibility(
 		LegacyBytes, LegacyLoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
@@ -4339,9 +4438,9 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	EXPECT_EQ(std::ranges::count(Compatibility.Findings,
 		EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
 		&FAssetCompatibilityFinding::Code), 5);
-	DastV4::FLoadedAssetPackage Loaded;
+	PackageObjectStream::FLoadedAssetPackage Loaded;
 	FAssetLoadReport LoadReport;
-	const FAssetResult Load = DastV4::LoadAssetPackage(
+	const FAssetResult Load = PackageObjectStream::LoadAssetPackage(
 		LegacyBytes, LegacyLoadPath, Loaded, &LoadReport, {}, {}, &ReaderDiagnostic);
 	ASSERT_TRUE(Load) << Load.Message << ": " << ReaderDiagnostic.Message;
 	auto* Migrated = static_cast<DSchemaMigrationAssetForTest*>(Loaded.GetPackage()->GetAsset());
@@ -4372,22 +4471,22 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 		EAuthoredOverrideProvenance::Forced);
 
 	std::vector<std::byte> CanonicalBytes;
-	ASSERT_TRUE(DastV4::WriteAssetPackage(
+	ASSERT_TRUE(PackageObjectStream::WriteAssetPackage(
 		Loaded.GetPackage(), CanonicalBytes, Options, &WriterDiagnostic)) << WriterDiagnostic.Message;
-	DastV4::FDecodedPackage CanonicalPackage;
-	ASSERT_TRUE(DastV4::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
+	PackageObjectStream::FDecodedPackage CanonicalPackage;
+	ASSERT_TRUE(PackageObjectStream::DecodePackage(CanonicalBytes, CanonicalPackage, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
 	const auto CanonicalSchema = std::ranges::find(
 		CanonicalPackage.Schemas, std::string("Tests::DSchemaMigrationAssetForTest"),
-		&DastV4::FDecodedSchema::QualifiedName);
+		&PackageObjectStream::FDecodedSchema::QualifiedName);
 	ASSERT_NE(CanonicalSchema, CanonicalPackage.Schemas.end());
 	for (std::string_view OldName : {"A_DEPRECATED", "Left", "Left_DEPRECATED", "Right",
 		"Right_DEPRECATED", "Distance_DEPRECATED"})
 		EXPECT_EQ(std::ranges::find(CanonicalSchema->Fields, std::string(OldName),
-			&DastV4::FDecodedField::Name), CanonicalSchema->Fields.end());
+			&PackageObjectStream::FDecodedField::Name), CanonicalSchema->Fields.end());
 
-	DastV4::FLoadedAssetPackage CurrentLoaded;
-	ASSERT_TRUE(DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage CurrentLoaded;
+	ASSERT_TRUE(PackageObjectStream::LoadAssetPackage(
 		CurrentBytes, CurrentLoadPath, CurrentLoaded, nullptr, {}, {}, &ReaderDiagnostic));
 	auto* Current = static_cast<DSchemaMigrationAssetForTest*>(CurrentLoaded.GetPackage()->GetAsset());
 	ASSERT_NE(Current, nullptr);
@@ -4398,8 +4497,8 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	EXPECT_FLOAT_EQ(Current->StructData.Value, 26.0f);
 
 	GRejectSchemaMigrationPostLoad = true;
-	DastV4::FLoadedAssetPackage Rejected;
-	const FAssetResult RejectedResult = DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage Rejected;
+	const FAssetResult RejectedResult = PackageObjectStream::LoadAssetPackage(
 		LegacyBytes, FailedLoadPath, Rejected, nullptr, {}, {}, &ReaderDiagnostic);
 	GRejectSchemaMigrationPostLoad = false;
 	EXPECT_FALSE(RejectedResult);
@@ -4407,54 +4506,54 @@ TEST(FPackageAssetTests, V4DeprecatedRoutesMigrateVersionedFieldsAndAuthoredInte
 	FAssetPath StructFailedPath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationStructFailed", StructFailedPath));
 	AssetStructTest::RejectMigrationPostDeserialize = true;
-	DastV4::FLoadedAssetPackage StructRejected;
-	const FAssetResult StructRejectedResult = DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage StructRejected;
+	const FAssetResult StructRejectedResult = PackageObjectStream::LoadAssetPackage(
 		LegacyBytes, StructFailedPath, StructRejected, nullptr, {}, {}, &ReaderDiagnostic);
 	AssetStructTest::RejectMigrationPostDeserialize = false;
 	EXPECT_FALSE(StructRejectedResult);
 	EXPECT_EQ(FindResidentPackage(StructFailedPath), nullptr);
 
-	DastV4::FDecodedPackage NewerPackage = CurrentPackage;
+	PackageObjectStream::FDecodedPackage NewerPackage = CurrentPackage;
 	auto NewerVersion = std::ranges::find(
 		NewerPackage.CustomVersions, FSchemaMigrationVersion::Guid,
-		&DastV4::FCustomVersion::Guid);
+		&PackageObjectStream::FCustomVersion::Guid);
 	ASSERT_NE(NewerVersion, NewerPackage.CustomVersions.end());
 	NewerVersion->Value = FSchemaMigrationVersion::LatestVersion + 1;
 	std::vector<std::byte> NewerBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(NewerPackage, NewerBytes, &ReaderDiagnostic));
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(NewerPackage, NewerBytes, &ReaderDiagnostic));
 	FAssetPath NewerPath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationNewer", NewerPath));
-	DastV4::FLoadedAssetPackage NewerLoaded;
-	EXPECT_FALSE(DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage NewerLoaded;
+	EXPECT_FALSE(PackageObjectStream::LoadAssetPackage(
 		NewerBytes, NewerPath, NewerLoaded, nullptr, {}, {}, &ReaderDiagnostic));
 	EXPECT_EQ(FindResidentPackage(NewerPath), nullptr);
 
-	DastV4::FDecodedPackage OverflowPackage = CurrentPackage;
+	PackageObjectStream::FDecodedPackage OverflowPackage = CurrentPackage;
 	auto OverflowVersion = std::ranges::find(
 		OverflowPackage.CustomVersions, FSchemaMigrationVersion::Guid,
-		&DastV4::FCustomVersion::Guid);
+		&PackageObjectStream::FCustomVersion::Guid);
 	ASSERT_NE(OverflowVersion, OverflowPackage.CustomVersions.end());
 	OverflowVersion->Value = static_cast<uint32>(std::numeric_limits<int32>::max()) + 1u;
 	std::vector<std::byte> OverflowBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(OverflowPackage, OverflowBytes, &ReaderDiagnostic));
-	DastV4::FDecodedPackage RejectedOverflowPackage;
-	EXPECT_FALSE(DastV4::DecodePackage(
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(OverflowPackage, OverflowBytes, &ReaderDiagnostic));
+	PackageObjectStream::FDecodedPackage RejectedOverflowPackage;
+	EXPECT_FALSE(PackageObjectStream::DecodePackage(
 		OverflowBytes, RejectedOverflowPackage, {}, &ReaderDiagnostic));
-	EXPECT_EQ(ReaderDiagnostic.Failure, DastV4::EReaderFailure::InvalidTable);
+	EXPECT_EQ(ReaderDiagnostic.Failure, PackageObjectStream::EReaderFailure::InvalidTable);
 
-	DastV4::FDecodedPackage IncompatiblePackage = LegacyPackage;
-	DastV4::FDecodedType IncompatibleType = IncompatiblePackage.Types[Int32TypeId - 1];
-	IncompatibleType.Opcode = DastV4::ETypeOpcode::I64;
+	PackageObjectStream::FDecodedPackage IncompatiblePackage = LegacyPackage;
+	PackageObjectStream::FDecodedType IncompatibleType = IncompatiblePackage.Types[Int32TypeId - 1];
+	IncompatibleType.Opcode = PackageObjectStream::ETypeOpcode::I64;
 	IncompatiblePackage.Types.push_back(std::move(IncompatibleType));
 	IncompatiblePackage.Schemas[SchemaId - 1].Fields[AFieldId - 1].TypeId =
 		IncompatiblePackage.Types.size();
 	std::vector<std::byte> IncompatibleBytes;
-	ASSERT_TRUE(DastV4::ReencodePackage(
+	ASSERT_TRUE(PackageObjectStream::ReencodePackage(
 		IncompatiblePackage, IncompatibleBytes, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
 	FAssetPath IncompatiblePath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/SchemaMigrationIncompatible", IncompatiblePath));
-	DastV4::FLoadedAssetPackage IncompatibleLoaded;
-	EXPECT_FALSE(DastV4::LoadAssetPackage(
+	PackageObjectStream::FLoadedAssetPackage IncompatibleLoaded;
+	EXPECT_FALSE(PackageObjectStream::LoadAssetPackage(
 		IncompatibleBytes, IncompatiblePath, IncompatibleLoaded, nullptr, {}, {}, &ReaderDiagnostic));
 	EXPECT_EQ(FindResidentPackage(IncompatiblePath), nullptr);
 
@@ -5069,7 +5168,7 @@ TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(DependencyPath), nullptr);
 }
 
-TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
+TEST(FPackageAssetTests, VersionFourIsExplicitlyUnsupportedWithoutCatalogMutation)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -5084,7 +5183,7 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LegacyVersion.dasset";
 	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
 	ASSERT_TRUE(Stream.is_open());
-	const uint32 Version = 1;
+	const uint32 Version = 4;
 	Stream.seekp(sizeof(uint32));
 	Stream.write(reinterpret_cast<const char*>(&Version), sizeof(Version));
 	Stream.close();

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "Asset/PackageV4Reader.h"
+#include "Asset/PackageObjectStreamReader.h"
+#include "AssetPackageV5Codec.h"
 #include "Asset/Testing.h"
 #include "AssetTools.h"
 #include "CoreGlobals.h"
@@ -8,13 +9,13 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
-#include "PackageV4ReferenceModel.h"
+#include "PackageObjectStreamReferenceModel.h"
 #include "HAL/PlatformLTS.h"
 
 namespace
 {
-	namespace Production = Durin::Asset::DastV4;
-	namespace Reference = Durin::Testing::DastV4;
+	namespace Production = Durin::Asset::PackageObjectStream;
+	namespace Reference = Durin::Testing::PackageObjectStream;
 	auto MakeBytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result;
@@ -137,7 +138,7 @@ namespace
 	}
 }
 
-TEST(FPackageV4ReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublishingOnFailure)
+TEST(FPackageObjectStreamReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublishingOnFailure)
 {
 	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FValidatedHeader Header{.AssetClass = "sentinel"};
@@ -158,7 +159,7 @@ TEST(FPackageV4ReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublish
 	EXPECT_EQ(Header, Before);
 }
 
-TEST(FPackageV4ReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
+TEST(FPackageObjectStreamReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
 {
 	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
@@ -176,7 +177,7 @@ TEST(FPackageV4ReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
 	EXPECT_EQ(Reencoded, Bytes);
 }
 
-TEST(FPackageV4ReaderTests, RetainedClosureAndPayloadRemainExact)
+TEST(FPackageObjectStreamReaderTests, RetainedClosureAndPayloadRemainExact)
 {
 	const std::vector<std::byte> Bytes = BuildPackage(true);
 	Production::FDecodedPackage Package;
@@ -192,7 +193,7 @@ TEST(FPackageV4ReaderTests, RetainedClosureAndPayloadRemainExact)
 	EXPECT_EQ(Reencoded, Bytes);
 }
 
-TEST(FPackageV4ReaderTests, MalformedPrimitiveExtentAndLimitFailuresAreAtomic)
+TEST(FPackageObjectStreamReaderTests, MalformedPrimitiveExtentAndLimitFailuresAreAtomic)
 {
 	const std::vector<std::byte> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
@@ -210,16 +211,16 @@ TEST(FPackageV4ReaderTests, MalformedPrimitiveExtentAndLimitFailuresAreAtomic)
 	EXPECT_EQ(Package.Header.AssetClass, "sentinel");
 }
 
-TEST(FPackageV4ReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedFields)
+TEST(FPackageObjectStreamReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedFields)
 {
 	Durin::Asset::FAssetPackageInspection Inspection;
 	Production::FReaderDiagnostic Diagnostic;
 	const std::vector<std::byte> Bytes = BuildPackage();
 	ASSERT_TRUE(Production::InspectPackage(Bytes, Inspection, {}, &Diagnostic)) << Diagnostic.Message;
-	EXPECT_EQ(Inspection.Header.FormatVersion, 4);
+	EXPECT_EQ(Inspection.Header.FormatVersion, 5);
 	ASSERT_EQ(Inspection.Objects.size(), 1);
 	ASSERT_EQ(Inspection.Objects.front().Fields.size(), 2);
-	EXPECT_EQ(Inspection.Objects.front().FindField("Count")->SourceFormatVersion, 4);
+	EXPECT_EQ(Inspection.Objects.front().FindField("Count")->SourceFormatVersion, 5);
 	int32 Count = 0;
 	EXPECT_TRUE(Inspection.Objects.front().FindField("Count")->TryReadScalar(Count));
 	EXPECT_EQ(Count, -7);
@@ -233,7 +234,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeInspectionProjectsKnownAndRetainedField
 		Expected.begin(), Expected.end()), Retained.Payload.end());
 }
 
-TEST(FPackageV4ReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAndBoundedCost)
+TEST(FPackageObjectStreamReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAndBoundedCost)
 {
 	const std::vector<std::byte> Bytes = BuildPackage();
 	Durin::Asset::FAssetPackageCompatibilityRecord Record;
@@ -243,7 +244,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAnd
 	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	ASSERT_TRUE(Production::ProbeCompatibility(Bytes, Path, Catalog, Record, &Stats, {}, &Diagnostic))
 		<< Diagnostic.Message;
-	EXPECT_EQ(Record.FormatVersion, 4);
+	EXPECT_EQ(Record.FormatVersion, 5);
 	EXPECT_EQ(Record.Inspection, Durin::Asset::EAssetCompatibilityInspection::Ready);
 	EXPECT_EQ(Record.Compatibility, Durin::Asset::EAssetPackageCompatibility::Unsupported);
 	ASSERT_EQ(Record.Findings.size(), 1);
@@ -253,7 +254,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAnd
 	EXPECT_LT(Stats.MetadataBytesRead, Bytes.size());
 }
 
-TEST(FPackageV4ReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBackFailure)
+TEST(FPackageObjectStreamReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBackFailure)
 {
 	const Durin::FAssetPath Path = InitializeLiveReaderTest();
 	const std::vector<std::byte> Bytes = BuildLivePackage();
@@ -288,7 +289,7 @@ TEST(FPackageV4ReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBa
 	Loaded.Reset();
 }
 
-TEST(FPackageV4ReaderTests, ConstructFreeReferencesCoverInternalExternalAndSoftValues)
+TEST(FPackageObjectStreamReaderTests, ConstructFreeReferencesCoverInternalExternalAndSoftValues)
 {
 	const Durin::FAssetPath Source = InitializeLiveReaderTest();
 	Production::FReaderDiagnostic Diagnostic;
@@ -310,7 +311,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeReferencesCoverInternalExternalAndSoftV
 	}));
 }
 
-TEST(FPackageV4ReaderTests, LiveUnknownFieldFailsBeforePackagePublication)
+TEST(FPackageObjectStreamReaderTests, LiveUnknownFieldFailsBeforePackagePublication)
 {
 	InitializeLiveReaderTest();
 	Durin::FAssetPath Path;
@@ -325,7 +326,7 @@ TEST(FPackageV4ReaderTests, LiveUnknownFieldFailsBeforePackagePublication)
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
-TEST(FPackageV4ReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
+TEST(FPackageObjectStreamReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
 {
 	InitializeLiveReaderTest();
 	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
@@ -345,11 +346,14 @@ TEST(FPackageV4ReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
 		Durin::Asset::EAssetCompatibilityFindingCode::IncompatibleFieldSignature);
 }
 
-TEST(FPackageV4ReaderTests, OrdinaryValidationUsesTheProductionV4Reader)
+TEST(FPackageObjectStreamReaderTests, OrdinaryValidationUsesTheV5Envelope)
 {
-	const std::vector<std::byte> Bytes = BuildPackage();
+	const std::vector<std::byte> ObjectStream = BuildPackage();
 	Production::FDecodedPackage Package;
-	ASSERT_TRUE(Production::DecodePackage(Bytes, Package));
+	ASSERT_TRUE(Production::DecodePackage(ObjectStream, Package));
+	std::vector<std::byte> Bytes;
+	ASSERT_TRUE(Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+		ObjectStream, Bytes));
 	const Durin::Asset::FAssetResult Ordinary = Durin::Asset::ValidateAssetPackageBytes(Bytes);
 	EXPECT_TRUE(Ordinary) << Ordinary.Message;
 }

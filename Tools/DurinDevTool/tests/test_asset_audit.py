@@ -26,7 +26,7 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
-    format_version: int = 4,
+    format_version: int = 5,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{
@@ -221,8 +221,9 @@ def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols
     ("native_report", "expected"),
     [
         (report(package("/Game/Baseline")), 0),
-        (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-        (report(package("/Game/Baseline", format_version=3)), 3),
+            (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+            (report(package("/Game/Baseline", format_version=3)), 3),
+            (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
         (report(), 3),
     ],

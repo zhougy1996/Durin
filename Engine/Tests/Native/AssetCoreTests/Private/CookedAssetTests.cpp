@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "AssetTools.h"
-#include "Asset/PackageV4Writer.h"
+#include "AssetPackageV5Codec.h"
+#include "Asset/PackageObjectStreamWriter.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Object.h"
@@ -43,15 +44,18 @@ namespace
 		(void)bInitialized;
 		const std::string ClassName =
 			DObject::StaticClass()->GetQualifiedName().ToString();
-		Asset::DastV4::FPackageInput Input{
+		Asset::PackageObjectStream::FPackageInput Input{
 			.AssetClass = ClassName,
 			.Objects = {{"Root", {}, ClassName, "Root"}},
 			.ObjectValues = {{"Root", {}}},
 		};
-		std::vector<std::byte> Bytes;
-		Asset::DastV4::FWriterDiagnostic Diagnostic;
-		EXPECT_TRUE(Asset::DastV4::WritePackage(Input, Bytes, &Diagnostic))
+		std::vector<std::byte> ObjectStream;
+		Asset::PackageObjectStream::FWriterDiagnostic Diagnostic;
+		EXPECT_TRUE(Asset::PackageObjectStream::WritePackage(Input, ObjectStream, &Diagnostic))
 			<< Diagnostic.Message;
+		std::vector<std::byte> Bytes;
+		EXPECT_TRUE(Asset::Private::DastV5::BuildPackageFromObjectStream(
+			ObjectStream, Bytes));
 		return Bytes;
 	}
 

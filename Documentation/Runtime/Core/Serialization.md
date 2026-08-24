@@ -138,7 +138,7 @@ schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
 DAST v5 does not introduce a second logical Archive dialect. Its object stream
-uses the canonical v4 table and tagged-value encoding with a v5 package
+uses the canonical object-stream table and tagged-value encoding with a v5 package
 preamble, followed by an AssetCore-owned trailer/footer. Archive continues to
 encode the compatibility bulk descriptor; package validation must match every
 external descriptor exactly to one trailer entry before any logical value is
@@ -182,7 +182,7 @@ publication. Bulk replacement sorts complete paths and rejects duplicates
 without changing the prior ledger.
 
 Known intent is exactly `LoadedExplicit` or `Forced`; absence means no known
-intent, while retained unknown v4 values remain separate AssetCore state.
+intent, while retained unknown object-stream values remain separate AssetCore state.
 Enabled planning applies `Forced`, then `LoadedExplicit`, then logical
 difference, then omission. Nested intent emits every required parent record.
 Forced state cannot be downgraded by a loaded-explicit update. Exact clear,
@@ -194,8 +194,8 @@ remapped after structural edits, while Map marks survive iteration-order changes
 `DuplicateObjectGraph(...)` copies ledger snapshots only after the destination
 graph exists and revalidates every path against the destination. GC ignores the
 pointer-free tokens, object destruction releases the snapshot, and class/Struct
-default teardown cannot invalidate it. Current DAST v3 load creates no ledger
-and current v3 save never queries one.
+default teardown cannot invalidate it. Authored-package load creates no ledger
+and current v5 save never queries one.
 
 Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk

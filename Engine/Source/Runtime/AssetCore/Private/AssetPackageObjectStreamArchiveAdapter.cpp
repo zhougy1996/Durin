@@ -1,7 +1,7 @@
 #include "AssetPackageArchive.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
-#include "Asset/PackageV4Writer.h"
+#include "Asset/PackageObjectStreamWriter.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageValueCodec.h"
 
@@ -338,7 +338,7 @@ namespace Durin::Asset::Private
 						.ContainerHash = ContainerHash,
 						.StorageKind = EEditorBulkDataStorageKind::External};
 					if (!Resolved || !ResolveEditorBulkDataCompanionPath(
-							PhysicalPackage, ContainerHash, CompanionPath, &Error)
+							PhysicalPackage, CompanionPath, &Error)
 						|| !LoadEditorBulkDataStoragePayload(CompanionPath, Descriptor, Buffer, &Error))
 					{
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
@@ -1235,54 +1235,54 @@ namespace Durin::Asset::Private
 		}
 
 		auto AdaptV4Type(const FArchiveLogicalTypeDescriptor& Input,
-			DastV4::FTypePtr& OutType, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+			PackageObjectStream::FTypePtr& OutType, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
-			using O = DastV4::ETypeOpcode;
+			using O = PackageObjectStream::ETypeOpcode;
 			switch (Input.Kind)
 			{
 			case K::Scalar:
-				if (Input.bFloating) OutType = DastV4::MakeType(Input.BitWidth == 32 ? O::F32 : O::F64);
-				else if (Input.bSigned) OutType = DastV4::MakeType(Input.BitWidth == 8 ? O::I8 : Input.BitWidth == 16 ? O::I16 : Input.BitWidth == 32 ? O::I32 : O::I64);
-				else OutType = DastV4::MakeType(Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64);
+				if (Input.bFloating) OutType = PackageObjectStream::MakeType(Input.BitWidth == 32 ? O::F32 : O::F64);
+				else if (Input.bSigned) OutType = PackageObjectStream::MakeType(Input.BitWidth == 8 ? O::I8 : Input.BitWidth == 16 ? O::I16 : Input.BitWidth == 32 ? O::I32 : O::I64);
+				else OutType = PackageObjectStream::MakeType(Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64);
 				return true;
 			case K::Enum:
 				// Authored Archive enum signatures freeze storage width but not signedness;
-				// the v4 bridge therefore uses the unsigned opcode.
-				OutType = DastV4::MakeType(O::Enum, Input.QualifiedType.ToString(), uint8(
+				// the object-stream bridge therefore uses the unsigned opcode.
+				OutType = PackageObjectStream::MakeType(O::Enum, Input.QualifiedType.ToString(), uint8(
 					Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16
 						: Input.BitWidth == 32 ? O::U32 : O::U64));
 				return true;
-			case K::String: OutType = DastV4::MakeType(O::String); return true;
-			case K::Name: OutType = DastV4::MakeType(O::Name); return true;
-			case K::Guid: OutType = DastV4::MakeType(O::Guid); return true;
-			case K::Bytes: OutType = DastV4::MakeType(O::Bytes); return true;
-			case K::BulkData: OutType = DastV4::MakeType(O::BulkData); return true;
-			case K::Object: OutType = DastV4::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
-			case K::SoftObject: OutType = DastV4::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
-			case K::Struct: OutType = DastV4::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
+			case K::String: OutType = PackageObjectStream::MakeType(O::String); return true;
+			case K::Name: OutType = PackageObjectStream::MakeType(O::Name); return true;
+			case K::Guid: OutType = PackageObjectStream::MakeType(O::Guid); return true;
+			case K::Bytes: OutType = PackageObjectStream::MakeType(O::Bytes); return true;
+			case K::BulkData: OutType = PackageObjectStream::MakeType(O::BulkData); return true;
+			case K::Object: OutType = PackageObjectStream::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
+			case K::SoftObject: OutType = PackageObjectStream::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
+			case K::Struct: OutType = PackageObjectStream::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
 			case K::Array: case K::FixedArray:
 			{
-				DastV4::FTypePtr Element;
+				PackageObjectStream::FTypePtr Element;
 				if (!Input.ElementType || !AdaptV4Type(*Input.ElementType, Element, Diagnostic)) break;
-				OutType = DastV4::MakeType(Input.Kind == K::Array ? O::Array : O::FixedArray,
+				OutType = PackageObjectStream::MakeType(Input.Kind == K::Array ? O::Array : O::FixedArray,
 					{}, Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0, {Element});
 				return true;
 			}
 			case K::Map:
 			{
-				DastV4::FTypePtr Key, Value;
+				PackageObjectStream::FTypePtr Key, Value;
 				if (!Input.KeyType || !Input.ValueType || !AdaptV4Type(*Input.KeyType, Key, Diagnostic)
 					|| !AdaptV4Type(*Input.ValueType, Value, Diagnostic)) break;
-				OutType = DastV4::MakeType(O::Map, {}, 0, {Key, Value}); return true;
+				OutType = PackageObjectStream::MakeType(O::Map, {}, 0, {Key, Value}); return true;
 			}
 			}
-			Diagnostic = {DastV4::EWriterFailure::UnsupportedType, {}, "Archive logical type cannot be represented by DAST v4."};
+			Diagnostic = {PackageObjectStream::EWriterFailure::UnsupportedType, {}, "Archive logical type cannot be represented by the package object stream."};
 			return false;
 		}
 
-		auto AreV4TypesEquivalent(const DastV4::FTypeDescriptor& Left,
-			const DastV4::FTypeDescriptor& Right) -> bool
+		auto AreV4TypesEquivalent(const PackageObjectStream::FTypeDescriptor& Left,
+			const PackageObjectStream::FTypeDescriptor& Right) -> bool
 		{
 			if (Left.Opcode != Right.Opcode || Left.QualifiedName != Right.QualifiedName
 				|| Left.Parameter != Right.Parameter || Left.Children.size() != Right.Children.size()
@@ -1294,32 +1294,32 @@ namespace Durin::Asset::Private
 			return true;
 		}
 
-		auto DiscoverV4Field(const FCapturedNode& Node, DastV4::FPackageInput& Input,
-			DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		auto DiscoverV4Field(const FCapturedNode& Node, PackageObjectStream::FPackageInput& Input,
+			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			if (Node.Kind != ENodeKind::Field)
 			{
-				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "A discovered field node has the wrong event kind."};
+				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "A discovered field node has the wrong event kind."};
 				return false;
 			}
-			DastV4::FTypePtr Type;
+			PackageObjectStream::FTypePtr Type;
 			if (!AdaptV4Type(Node.Field.LogicalType, Type, Diagnostic)) return false;
 			if (Node.ReflectedProperty
 				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
-				Type = DastV4::MakeType(DastV4::ETypeOpcode::Bool);
+				Type = PackageObjectStream::MakeType(PackageObjectStream::ETypeOpcode::Bool);
 			const std::string SchemaName = Node.Field.DeclaringType.ToString();
 			const std::string FieldName = Node.Field.Name.ToString();
-			auto Schema = std::ranges::find(Input.Schemas, SchemaName, &DastV4::FSchemaDescriptor::QualifiedName);
+			auto Schema = std::ranges::find(Input.Schemas, SchemaName, &PackageObjectStream::FSchemaDescriptor::QualifiedName);
 			if (Schema == Input.Schemas.end())
 			{
 				Input.Schemas.push_back({SchemaName, {}});
 				Schema = std::prev(Input.Schemas.end());
 			}
-			auto Existing = std::ranges::find(Schema->Fields, FieldName, &DastV4::FFieldDescriptor::Name);
+			auto Existing = std::ranges::find(Schema->Fields, FieldName, &PackageObjectStream::FFieldDescriptor::Name);
 			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
 			else if (!Existing->Type || !AreV4TypesEquivalent(*Existing->Type, *Type))
 			{
-				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
+				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch,
 					SchemaName + "::" + FieldName,
 					"Repeated field discovery changed its logical type."};
 				return false;
@@ -1363,12 +1363,12 @@ namespace Durin::Asset::Private
 
 		auto MaterializeV4Value(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
 			const FCapturedPackage& Package, std::span<const uint64> InternalReferenceIds,
-			DastV4::FPackageInput& Input, DastV4::FValue& Out,
-			DastV4::FWriterDiagnostic& Diagnostic, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
+			PackageObjectStream::FPackageInput& Input, PackageObjectStream::FValue& Out,
+			PackageObjectStream::FWriterDiagnostic& Diagnostic, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
 			auto Invalid = [&]() {
-				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Captured Archive events do not match their frozen logical type."}; return false;
+				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Captured Archive events do not match their frozen logical type."}; return false;
 			};
 			if (Type.Kind == K::FixedArray || Type.Kind == K::Array || Type.Kind == K::Map)
 			{
@@ -1383,7 +1383,7 @@ namespace Durin::Asset::Private
 				{
 					const auto* ChildType = Type.Kind == K::Map ? (Index % 2 == 0 ? Type.KeyType.get() : Type.ValueType.get()) : Type.ElementType.get();
 					if (!ChildType) return Invalid();
-					DastV4::FValue Child;
+					PackageObjectStream::FValue Child;
 					const FDefaultDeltaNode* ChildDelta = DeltaNode && Index < DeltaNode->Elements.size() ? DeltaNode->Elements[Index].get() : nullptr;
 					if (!MaterializeV4Value(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
 						Input, Child, Diagnostic, ChildDelta)) return false;
@@ -1399,7 +1399,7 @@ namespace Durin::Asset::Private
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
 					if (DeltaNode && !DeltaField) return Invalid();
 					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
-					DastV4::FValue Child;
+					PackageObjectStream::FValue Child;
 					if (!MaterializeV4Value(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Input, Child, Diagnostic,
 						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
@@ -1472,7 +1472,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto GatherDeprecationCustomVersions(std::span<DObject* const> Objects,
-			DastV4::FPackageInput& Input, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+			PackageObjectStream::FPackageInput& Input, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			std::unordered_map<FGuid, int32> Versions;
 			std::unordered_set<const DStructBase*> Visited;
@@ -1483,7 +1483,7 @@ namespace Durin::Asset::Private
 						Deprecation->CustomVersionGuid, Deprecation->LatestVersion);
 					if (!bInserted && It->second != Deprecation->LatestVersion)
 					{
-						Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
+						Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch,
 							ReflectedStructIdentity(Struct),
 							"One custom-version GUID declares inconsistent latest versions."};
 						return false;
@@ -1503,10 +1503,10 @@ namespace Durin::Asset::Private
 
 		auto BuildV4Input(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
-			std::span<const DastV4::FCustomVersion> CustomVersions,
-			DastV4::FPackageInput& Out, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+			std::span<const PackageObjectStream::FCustomVersion> CustomVersions,
+			PackageObjectStream::FPackageInput& Out, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
-			DastV4::FPackageInput Input;
+			PackageObjectStream::FPackageInput Input;
 			Input.AssetClass = Summary.AssetClassName;
 			Input.EntryKind = Summary.EntryKind;
 			Input.RedirectDestination = Summary.RedirectDestination.GetView();
@@ -1517,7 +1517,7 @@ namespace Durin::Asset::Private
 			{
 				if (Object.Id == 0 || Object.Id > Captured.Objects.size() || Object.OuterId >= Object.Id)
 				{
-					Diagnostic = {DastV4::EWriterFailure::InvalidTopology, {}, "Captured object ids are not topological."}; return false;
+					Diagnostic = {PackageObjectStream::EWriterFailure::InvalidTopology, {}, "Captured object ids are not topological."}; return false;
 				}
 				const std::string OuterPath = Object.OuterId == 0 ? std::string{} : Paths[Object.OuterId - 1];
 				const std::string Path = OuterPath.empty() ? Object.ObjectName : OuterPath + "/" + Object.ObjectName;
@@ -1527,14 +1527,14 @@ namespace Durin::Asset::Private
 			}
 			if (Objects.size() != Captured.Objects.size() || DeltaPlan.Objects.size() != Captured.Objects.size())
 			{
-				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Delta plan object graph differs from Archive discovery."}; return false;
+				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan object graph differs from Archive discovery."}; return false;
 			}
 			std::unordered_map<const DObject*, const FDefaultDeltaObjectPlan*> DeltaObjects;
 			for (const FDefaultDeltaObjectPlan& DeltaObject : DeltaPlan.Objects)
 			{
 				if (!DeltaObject.Object || !DeltaObjects.emplace(DeltaObject.Object, &DeltaObject).second)
 				{
-					Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Delta plan contains an invalid or duplicate object."}; return false;
+					Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan contains an invalid or duplicate object."}; return false;
 				}
 			}
 			std::vector<size_t> CanonicalOrder(Input.Objects.size());
@@ -1556,16 +1556,16 @@ namespace Durin::Asset::Private
 				const auto DeltaIt = DeltaObjects.find(Objects[ObjectIndex]);
 				if (DeltaIt == DeltaObjects.end())
 				{
-					Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, Paths[Object.Id - 1], "Delta plan object graph differs from Archive discovery."}; return false;
+					Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, Paths[Object.Id - 1], "Delta plan object graph differs from Archive discovery."}; return false;
 				}
 				const FDefaultDeltaObjectPlan& DeltaObject = *DeltaIt->second;
-				DastV4::FObjectValueInput Values{.ObjectPath = Paths[Object.Id - 1]};
+				PackageObjectStream::FObjectValueInput Values{.ObjectPath = Paths[Object.Id - 1]};
 				for (const auto& Field : Object.Fields)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
-					if (!DeltaField) { Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Delta plan is missing an Archive field."}; return false; }
+					if (!DeltaField) { Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan is missing an Archive field."}; return false; }
 					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
-					DastV4::FValue Value;
+					PackageObjectStream::FValue Value;
 					if (!MaterializeV4Value(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
 						Input, Value, Diagnostic,
 						DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
@@ -1581,15 +1581,15 @@ namespace Durin::Asset::Private
 			const FAuthoredPackageSummary& Summary,
 			std::span<DObject* const> ObjectIdentities,
 			const FDefaultDeltaPlan& DeltaPlan,
-			std::span<const DastV4::FCustomVersion> CustomVersions,
+			std::span<const PackageObjectStream::FCustomVersion> CustomVersions,
 			std::vector<std::byte>& OutBytes,
-			DastV4::FWriterDiagnostic& Diagnostic) -> bool
+			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
-			DastV4::FPackageInput Input;
+			PackageObjectStream::FPackageInput Input;
 			if (!BuildV4Input(
 				Captured, Summary, ObjectIdentities, DeltaPlan, CustomVersions,
 				Input, Diagnostic)) return false;
-			return DastV4::WritePackage(Input, OutBytes, &Diagnostic);
+			return PackageObjectStream::WritePackage(Input, OutBytes, &Diagnostic);
 		}
 	}
 
@@ -1622,7 +1622,7 @@ namespace Durin::Asset::Private
 	}
 }
 
-namespace Durin::Asset::DastV4
+namespace Durin::Asset::PackageObjectStream
 {
 	auto WriteRedirectorPackage(
 		const FAssetPath& SourcePath,
