@@ -9,6 +9,7 @@
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Persistence/ImportRecord.h"
+#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "AssetAuthoring.h"

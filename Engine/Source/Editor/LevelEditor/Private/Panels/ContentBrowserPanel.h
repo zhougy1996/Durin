@@ -6,12 +6,11 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "AssetForge/ImportService.h"
+#include "AssetForge/Persistence/ImportRecord.h"
 #include "Threading/Task.h"
 
 #include <array>
 #include <unordered_set>
-
-namespace Durin::Asset { enum class EImportRecordAction : uint8; }
 
 namespace Durin::Editor::Level
 {

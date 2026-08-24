@@ -1160,7 +1160,7 @@ namespace Durin
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
@@ -1172,7 +1172,7 @@ namespace Durin
 				}
 			const auto& SkeletalDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.SkeletalMeshes.Opaque : Inputs.Receiver.SkeletalMeshes.Masked;
 			for (const FPreparedSkeletalMeshDraw& Draw : SkeletalDraws)
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
@@ -1184,7 +1184,7 @@ namespace Durin
 				}
 			const auto& TerrainDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.Terrains.Opaque : Inputs.Receiver.Terrains.Masked;
 			for (const FPreparedTerrainDraw& Draw : TerrainDraws)
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					TerrainRenderer.ExecutePreparedDraw_RenderThread(
