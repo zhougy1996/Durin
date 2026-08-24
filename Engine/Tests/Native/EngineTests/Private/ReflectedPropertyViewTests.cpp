@@ -312,6 +312,54 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 	EXPECT_EQ(Durin::Editor::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
 }
 
+TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProperties)
+{
+	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
+	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("CategoryGroups"));
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	Durin::Editor::FPropertyView PropertyView;
+
+	const auto DrawFrame = [&](std::string_view SearchText) -> int
+	{
+		int LastRow = -1;
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({600.0f, 300.0f});
+		ImGui::Begin("Category Property View Test", nullptr,
+			ImGuiWindowFlags_NoTitleBar);
+		if (Durin::MonaImGui::PropertyEdit::BeginTable("CategoryPropertyRows"))
+		{
+			ImGui::GetStateStorage()->SetInt(ImGui::GetID("Numbers"), 0);
+			const Durin::Editor::FObjectPropertyViewResult Result =
+				PropertyView.EditObject({}, &Object, {
+					.SearchText = SearchText,
+					.Filter = [&Reflection](const Durin::FProperty& Property, uint32) {
+						return &Property == Reflection.Property;
+					},
+					.bCreatePropertyTable = false,
+					.bShowEmptyMessage = false,
+				});
+			EXPECT_EQ(Result.VisiblePropertyCount, 1u);
+			LastRow = ImGui::TableGetRowIndex();
+			Durin::MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::End();
+		ImGui::Render();
+		return LastRow;
+	};
+
+	EXPECT_EQ(DrawFrame({}), 0);
+	EXPECT_EQ(DrawFrame("Bounded Value"), 1);
+	ImGui::DestroyContext(ImContext);
+}
+
 TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
 {
 	InitializeDObjectSystem();

@@ -446,18 +446,31 @@ namespace Durin::Editor
 			return Left.Property->GetTypedMetadata().Category < Right.Property->GetTypedMetadata().Category;
 		});
 		std::string CurrentCategory;
+		bool bCurrentCategoryOpen = true;
 		for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{
 			const std::string& Category = VisibleProperty.Property->GetTypedMetadata().Category;
-			if (!Category.empty() && Category != CurrentCategory)
+			if (Category != CurrentCategory)
 			{
+				if (!CurrentCategory.empty() && bCurrentCategoryOpen)
+					MonaImGui::PropertyEdit::EndGroup();
 				CurrentCategory = Category;
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextDisabled("%s", Category.c_str());
+				bCurrentCategoryOpen = true;
+				if (!CurrentCategory.empty())
+				{
+					if (!Options.SearchText.empty())
+						ImGui::GetStateStorage()->SetInt(
+							ImGui::GetID(CurrentCategory.c_str()), 1);
+					bCurrentCategoryOpen = MonaImGui::PropertyEdit::BeginGroup(
+						CurrentCategory.c_str(), CurrentCategory.c_str());
+				}
 			}
-			Result.bChanged |= EditProperty(Context, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
+			if (bCurrentCategoryOpen)
+				Result.bChanged |= EditProperty(Context, Object,
+					VisibleProperty.Property, VisibleProperty.ArrayIndex);
 		}
+		if (!CurrentCategory.empty() && bCurrentCategoryOpen)
+			MonaImGui::PropertyEdit::EndGroup();
 		if (bOwnsPropertyTable) MonaImGui::PropertyEdit::EndTable();
 		return Result;
 	}

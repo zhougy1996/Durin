@@ -1,13 +1,10 @@
 #include "VolumetricCloudDetails.h"
 
 #include "Components/VolumetricCloudComponent.h"
-#include "DObject/Package.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "LevelEditorCustomizations.h"
 #include "MonaImGui.h"
-#include "Texture/Texture2D.h"
-#include "Texture/VolumeTexture.h"
 #include "Workspace/LevelEditorContext.h"
 
 namespace Durin::Editor::Level
@@ -57,21 +54,13 @@ namespace Durin::Editor::Level
 			return Active;
 		}
 
-		auto RevealButton(const char* Label, DObject* Asset,
-			const ::Durin::Editor::FPropertyViewContext& Context) -> void
+		auto GetCloudStatus(const DVolumetricCloudComponent* Component,
+			const DVolumetricCloudComponent* Active) -> std::string
 		{
-			FAssetPath Path;
-			const bool bAvailable = Asset && Asset->GetPackage()
-				&& FAssetPath::TryCreate(Asset->GetPackage()->GetPackagePath(), Path)
-				&& static_cast<bool>(Context.RevealAsset);
-			if (!bAvailable) ImGui::BeginDisabled();
-			if (ImGui::SmallButton(Label))
-			{
-				std::string Error;
-				if (!Context.RevealAsset(Path, Error) && Context.ReportError)
-					Context.ReportError(std::move(Error));
-			}
-			if (!bAvailable) ImGui::EndDisabled();
+			if (Active == Component) return "Active: selected for rendering.";
+			if (IsEligible(Component))
+				return "Ignored: another eligible cloud has higher priority.";
+			return Component->GetEligibilityStatus();
 		}
 
 		class FVolumetricCloudDetailsCustomization final
@@ -87,26 +76,13 @@ namespace Durin::Editor::Level
 					"EligibilityStatus")) Builder.HideProperty(Eligibility);
 
 				Builder.AddCustomRow(
-					"Volumetric Cloud Active Ignored Eligibility Status Priority Inputs Roles",
+					"Volumetric Cloud Active Ignored Ineligible Eligibility Status",
 					[Component, Level = EditorContext.Level](
 						::Durin::Editor::FPropertyView&,
-						const ::Durin::Editor::FPropertyViewContext& Context) {
+						const ::Durin::Editor::FPropertyViewContext&) {
 						Component->RefreshEligibilityDiagnostic();
 						DVolumetricCloudComponent* Active = FindActive(Level);
-						DrawFact("Scene selection", Active == Component ? "Active"
-							: IsEligible(Component) ? "Ignored by a higher-priority cloud"
-							: "Ineligible");
-						DrawFact("Eligibility", Component->GetEligibilityStatus());
-						DrawFact("Base density", "Required low-frequency cloud shape");
-						DrawFact("Detail density", "Required high-frequency erosion");
-						DrawFact("Weather", "Optional two-dimensional coverage control");
-						MonaImGui::PropertyEdit::BeginRow("Asset actions", true);
-						RevealButton("Reveal Base", Component->GetBaseDensityTexture(), Context);
-						ImGui::SameLine();
-						RevealButton("Reveal Detail", Component->GetDetailDensityTexture(), Context);
-						ImGui::SameLine();
-						RevealButton("Reveal Weather", Component->GetWeatherTexture(), Context);
-						MonaImGui::PropertyEdit::EndRow(true);
+						DrawFact("Cloud status", GetCloudStatus(Component, Active));
 						return false;
 					});
 			}

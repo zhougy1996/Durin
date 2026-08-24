@@ -39,11 +39,13 @@ coverage, erosion, extinction, lighting, or weather semantics.
 
 The component customization groups the existing reflected properties into
 Activation, Density Inputs, Layer, Mapping and Motion, and Optical Response.
-Its read-only header refreshes the shared Engine eligibility result and reports
-whether the component is active, ignored by stable scene selection, or
-ineligible. Base, detail, and weather actions reveal the assigned assets through
-the existing editor context. All editable rows keep normal reflection,
-transaction, undo/redo, validation, dirtying, and serialization behavior.
+These categories use the standard expandable Details groups and matching search
+automatically opens a containing group. One compact read-only status row
+refreshes the shared Engine eligibility result and reports whether the component
+is active, ignored by stable scene selection, or ineligible. Base, detail, and
+weather use the standard asset-picker reveal action instead of cloud-specific
+duplicate buttons. All editable rows keep normal reflection, transaction,
+undo/redo, validation, dirtying, and serialization behavior.
 
 Cloud quality and debug selection belong to `FSceneViewSettings`, not the
 component. Each viewport submits one quality (`Performance`, `High`, `Epic`, or

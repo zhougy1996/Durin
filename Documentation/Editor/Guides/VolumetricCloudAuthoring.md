@@ -20,7 +20,9 @@ control.
 ## Create and configure the cloud
 
 In the World Outliner, use **Add Actors** and choose Volumetric Cloud. Select
-the actor to edit its component. The cloud Details header reports one of:
+the actor to edit its component. Expand only the Details groups needed for the
+current task; property search automatically opens groups containing matches.
+The compact **Cloud status** row reports one of:
 
 - **Active**: this eligible component wins the stable scene selection.
 - **Ignored**: another eligible component has the higher selection priority.
@@ -28,10 +30,10 @@ the actor to edit its component. The cloud Details header reports one of:
   missing value.
 
 Assign Base and Detail volumes, optionally assign Weather, and tune the Layer,
-Mapping and Motion, and Optical Response groups. Use **Reveal Base**,
-**Reveal Detail**, or **Reveal Weather** to locate assigned inputs. These are
-ordinary reflected properties, so save/reload, duplication, undo/redo, and
-world reopen use the standard editor behavior.
+Mapping and Motion, and Optical Response groups. Use the reveal icon beside an
+assigned asset to locate it in Content Browser. These are ordinary reflected
+properties, so save/reload, duplication, undo/redo, and world reopen use the
+standard editor behavior.
 
 ## Choose viewport quality and debug output
 
