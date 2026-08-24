@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "Misc/FileHelper.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/TexturePayloadInspection.h"
 
@@ -306,6 +307,9 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureDerivedDataTests/Cached", AssetPath));
+	const Durin::Asset::FAssetCatalogEntry CachedAssetData =
+		Durin::Asset::FindAssetExact(AssetPath);
+	ASSERT_TRUE(CachedAssetData);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::DTexture2D* Loaded = nullptr;
@@ -323,6 +327,13 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		std::ofstream Stream(CachePath, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
+	std::vector<std::byte> PackageBytesBeforeRecovery;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		PackageBytesBeforeRecovery, CachedAssetData->PhysicalPath));
+	const auto PackageTimeBeforeRecovery =
+		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+	std::filesystem::last_write_time(
+		CachedAssetData->PhysicalPath, PackageTimeBeforeRecovery);
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Loaded))
 		<< Loaded->GetLastBuildError();
@@ -332,6 +343,13 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);
 	EXPECT_GT(std::filesystem::file_size(CachePath), 7u);
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
+	std::vector<std::byte> PackageBytesAfterRecovery;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		PackageBytesAfterRecovery, CachedAssetData->PhysicalPath));
+	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);
+	EXPECT_EQ(std::filesystem::last_write_time(CachedAssetData->PhysicalPath),
+		PackageTimeBeforeRecovery);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));

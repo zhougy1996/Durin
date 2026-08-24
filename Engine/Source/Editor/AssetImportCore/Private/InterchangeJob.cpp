@@ -597,12 +597,18 @@ namespace Durin::Asset
 				std::vector<FImportDiagnostic> Diagnostics;
 				std::vector<FPreparedInterchangeOutput> Prepared;
 				const auto Nodes = Products.Graphs.FactoryGraph.GetNodes();
+				const bool bPersistAuthoredPackages =
+					Request.Mode != EInterchangeImportMode::Recover;
 				for (FInterchangeProductEntry& Product : Products.Products)
 				{
 					if (Context.IsCancellationRequested())
 						return Complete(FailureOutcome(std::move(Diagnostics),
 							"Interchange materialization was canceled.", true));
 					const FImportFactoryNode& Node = Nodes[Product.NodeIndex];
+					if (!bPersistAuthoredPackages
+						&& Node.Policy == EImportOutputPolicy::Create)
+						return Complete(FailureOutcome(std::move(Diagnostics),
+							"Interchange recovery cannot create an authored asset."));
 					auto Invocation = Product.Factory.TryEnter();
 					auto Candidate = Invocation && Product.Factory.GetFactory()
 						? Product.Factory.GetFactory()->MaterializeCandidate(
@@ -733,67 +739,93 @@ namespace Durin::Asset
 						Packages.push_back(Output.ExistingTarget->GetPackage());
 					}
 				}
-				Asset::FAssetBundleSaveOptions SaveOptions = Request.SaveOptions;
-				if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
-				FXxHash128Builder AuthoredFingerprintBuilder;
-				bool bFingerprintSucceeded = true;
-				std::string FingerprintError;
-				for (DPackage* Package : Packages)
+				if (bPersistAuthoredPackages)
 				{
-					std::string Fingerprint;
-					if (!ComputeImportPackageFingerprint(
-						Package, Fingerprint, FingerprintError))
+					Asset::FAssetBundleSaveOptions SaveOptions = Request.SaveOptions;
+					if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
+					FXxHash128Builder AuthoredFingerprintBuilder;
+					bool bFingerprintSucceeded = true;
+					std::string FingerprintError;
+					for (DPackage* Package : Packages)
 					{
-						bFingerprintSucceeded = false;
-						break;
+						std::string Fingerprint;
+						if (!ComputeImportPackageFingerprint(
+							Package, Fingerprint, FingerprintError))
+						{
+							bFingerprintSucceeded = false;
+							break;
+						}
+						const uint64 Size = Fingerprint.size();
+						AuthoredFingerprintBuilder.UpdateValue(Size);
+						AuthoredFingerprintBuilder.Update(Fingerprint);
 					}
-					const uint64 Size = Fingerprint.size();
-					AuthoredFingerprintBuilder.UpdateValue(Size);
-					AuthoredFingerprintBuilder.Update(Fingerprint);
-				}
-				if (!bFingerprintSucceeded)
-				{
-					for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-						(*It)->Exchange->Reverse();
-					RestorePackageDirtyStates();
-					Abandon(Prepared);
-					return Complete(FailureOutcome(std::move(Diagnostics),
-						std::move(FingerprintError)));
-				}
-				Products.Graphs.Provenance.AuthoredOutputFingerprint =
-					AuthoredFingerprintBuilder.Finalize().ToString();
-				for (FPreparedInterchangeOutput& Output : Prepared)
-				{
-					const FImportFactoryNode& Node = Nodes[Output.NodeIndex];
-					DObject* PublishedAsset = Node.Policy == EImportOutputPolicy::Create
-						? Output.Candidate->GetAsset() : Output.ExistingTarget;
-					auto Invocation = Output.Factory.TryEnter();
-					if (!PublishedAsset || !Invocation || !Output.Factory.GetFactory()
-						|| !Output.Factory.GetFactory()->ApplyProvenance(
-							*PublishedAsset, Products.Graphs.Provenance, Diagnostics))
+					if (!bFingerprintSucceeded)
 					{
 						for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
 							(*It)->Exchange->Reverse();
 						RestorePackageDirtyStates();
 						Abandon(Prepared);
 						return Complete(FailureOutcome(std::move(Diagnostics),
-							std::format("Factory '{}' failed to persist Interchange provenance.",
-								Node.FactoryId)));
+							std::move(FingerprintError)));
+					}
+					Products.Graphs.Provenance.AuthoredOutputFingerprint =
+						AuthoredFingerprintBuilder.Finalize().ToString();
+					for (FPreparedInterchangeOutput& Output : Prepared)
+					{
+						const FImportFactoryNode& Node = Nodes[Output.NodeIndex];
+						DObject* PublishedAsset = Node.Policy == EImportOutputPolicy::Create
+							? Output.Candidate->GetAsset() : Output.ExistingTarget;
+						auto Invocation = Output.Factory.TryEnter();
+						if (!PublishedAsset || !Invocation || !Output.Factory.GetFactory()
+							|| !Output.Factory.GetFactory()->ApplyProvenance(
+								*PublishedAsset, Products.Graphs.Provenance, Diagnostics))
+						{
+							for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
+								(*It)->Exchange->Reverse();
+							RestorePackageDirtyStates();
+							Abandon(Prepared);
+							return Complete(FailureOutcome(std::move(Diagnostics),
+								std::format("Factory '{}' failed to persist Interchange provenance.",
+									Node.FactoryId)));
+						}
+					}
+					const Asset::FAssetResult Saved =
+						Asset::SavePackagesAtomically(Packages, SaveOptions);
+					if (!Saved)
+					{
+						for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
+							(*It)->Exchange->Reverse();
+						RestorePackageDirtyStates();
+						Abandon(Prepared);
+						Diagnostics.push_back({
+							.Category = EImportDiagnosticCategory::PublicationFailure,
+							.Identity = "InterchangePublicationFailed",
+							.Phase = "Publication",
+							.Message = Saved.Message});
+						return Complete(FailureOutcome(std::move(Diagnostics), Saved.Message));
 					}
 				}
-				const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(Packages, SaveOptions);
-				if (!Saved)
+				else
 				{
-					for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-						(*It)->Exchange->Reverse();
+					if (Request.ExistingProvenance)
+						for (FPreparedInterchangeOutput& Output : Prepared)
+						{
+							auto Invocation = Output.Factory.TryEnter();
+							if (!Output.ExistingTarget || !Invocation
+								|| !Output.Factory.GetFactory()
+								|| !Output.Factory.GetFactory()->ApplyProvenance(
+									*Output.ExistingTarget, *Request.ExistingProvenance,
+									Diagnostics))
+							{
+								for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
+									(*It)->Exchange->Reverse();
+								RestorePackageDirtyStates();
+								Abandon(Prepared);
+								return Complete(FailureOutcome(std::move(Diagnostics),
+									"Interchange recovery failed to restore existing provenance."));
+							}
+						}
 					RestorePackageDirtyStates();
-					Abandon(Prepared);
-					Diagnostics.push_back({
-						.Category = EImportDiagnosticCategory::PublicationFailure,
-						.Identity = "InterchangePublicationFailed",
-						.Phase = "Publication",
-						.Message = Saved.Message});
-					return Complete(FailureOutcome(std::move(Diagnostics), Saved.Message));
 				}
 
 				FInterchangeImportResult Result;

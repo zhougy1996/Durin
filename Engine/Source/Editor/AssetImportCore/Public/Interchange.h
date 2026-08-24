@@ -446,6 +446,7 @@ namespace Durin::Asset
 		Reimport,
 		ReplaceSource,
 		Repair,
+		// Rebuilds disposable runtime and DDC state without publishing authored packages.
 		Recover
 	};
 
