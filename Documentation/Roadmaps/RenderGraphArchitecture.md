@@ -10,8 +10,9 @@ Completed: 2026-08-24
 ## Current Status
 
 Milestones 1 through 4A are complete. One immutable `FSceneRenderPlan`
-separates preparation from execution, `FRenderGraphSceneFrameExecutor` authors
-the sole production scene graph, and `RenderCore` compiles exact resource
+separates preparation from execution. `FRenderGraphSceneFrameExecutor` owns the
+sole graph's lifecycle boundary, `FSceneFrameGraphComposer` wires typed feature
+contributors, and `RenderCore` compiles exact resource
 versions, minimal value/hazard dependencies, retained lifetimes, culling,
 preparation requests, transitions, and pointer-free diagnostics. RHI/Vulkan
 remain the only physical execution-state authority.
@@ -181,7 +182,7 @@ Provide one renderer-owned frame graph in which:
 | Area | Reusable foundation | Gap owned by this roadmap |
 | --- | --- | --- |
 | Frame preparation | Immutable `FSceneRenderPlan`, typed feature partitions, resolved geometry, and typed pass outcomes | Translate prepared values into graph passes without exposing the whole plan to callbacks |
-| Scheduling | One `FRenderGraphSceneFrameExecutor` with stable production and qualification declarations | Continue replacing closed feature-internal scheduling with typed graph authoring patterns |
+| Scheduling | One lifecycle executor, one stable-order scene composer, and feature-owned typed graph contributions | Continue replacing closed feature-internal scheduling with typed graph authoring patterns |
 | Access transitions | Backend-neutral `ERHIAccess`, exact buffer ranges and texture subresources, recorded transition commands, and authoritative Vulkan validation | Derive transition batches from declared uses and diagnose graph/resource context before RHI replay |
 | Render passes | Existing attachment load/store and initial/final access contracts | Represent attachment semantics in pass declarations without weakening legacy render-pass validation |
 | Transient textures | Description-keyed, budgeted, complete-or-null `FRendererTransientTargetPool` leases with recovery and invalidation | Separate logical graph resources from physical leases, compute lifetimes, and move acquisition to graph execution preparation |

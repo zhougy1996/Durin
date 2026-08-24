@@ -10,9 +10,8 @@ Last reviewed: 2026-08-24
 
 ## Ownership Boundary
 
-One render command prepares one `FSceneRenderPlan`. Only
-`FRenderGraphSceneFrameExecutor` may inspect this outer value. It owns
-command-local logical
+One render command prepares one `FSceneRenderPlan`. Only the private scene-frame
+execution pipeline may inspect this outer value. It owns command-local logical
 partitions for the fitted view, optional environment, selected lighting,
 receiver geometry and its shared Skeletal pose table, optional directional
 shadow, and optional volumetric cloud. The temporal transaction, resolved
@@ -65,8 +64,10 @@ Preparation returns either one complete plan or a typed failure. The published
 plan is then held as `const`. A distinct resolution stage allocates the packed
 lighting uniform, resolves receiver and shadow resources, uploads shared
 Skeletal palettes into a resolved palette table, and resolves the cloud
-sampler. The executor then derives one immutable `FSceneFrameRequirements`
-value. Scene Color, depth, GBuffer, and output receive graph identities before
+sampler. The pipeline then derives one immutable `FSceneFrameTopology` value.
+Mutually exclusive Contact Visibility, cloud-shadow, and cloud routes use
+`Disabled`/`Fragment`/`Compute` states rather than independent booleans. Scene
+Color, depth, GBuffer, and output receive graph identities before
 physical target creation; the compiled retained request resolves their backing
 into `FResolvedSceneFrame::Targets` as one publication. Directional-shadow command recording follows
 both resolution boundaries as an explicit graph pass; it is never performed by
@@ -100,9 +101,10 @@ introduce synchronization.
 
 ## Render Graph Frame Schedule
 
-`FSceneRenderer::RenderView_RenderThread` delegates to
-`FRenderGraphSceneFrameExecutor`. The executor builds and compiles the sole
-production frame graph with this stable declaration order:
+`FSceneRenderer::RenderView_RenderThread` delegates to the thin
+`FRenderGraphSceneFrameExecutor`. The executor owns the compile/execute/capture
+boundary. `FSceneFrameGraphComposer` constructs the sole production graph in
+stable order through renderer-private named feature contributors:
 
 1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
@@ -110,7 +112,7 @@ production frame graph with this stable declaration order:
 3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
    shared poses, combined translucency, and optional cloud inputs; publish the
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
-   resources into `FResolvedSceneFrame`. Derive frame requirements once.
+   resources into `FResolvedSceneFrame`. Derive frame topology once.
 4. Compile explicit top-level dependencies and output roots, cull unreachable
    versions, then resolve retained logical resources as one complete-or-null
    backing table before any command records.
@@ -123,7 +125,7 @@ production frame graph with this stable declaration order:
    Graph declarations own every color/depth handoff between these passes.
 8. Render combined translucent geometry in the prepared stable order; its
    managed attachment declarations publish the final color/depth access.
-9. The executor's finalization stage selects debug or Scene Color output,
+9. The frame finalization stage selects debug or Scene Color output,
    performs post process, optional editor assistance, restores the output
    viewport/scissor, and finishes in `Present` for window output or
    `ShaderReadOnly` offscreen.
@@ -136,11 +138,13 @@ execute an alternate production scheduler.
 
 ## Typed Results and Failure Policy
 
-`FSceneFrameOutcome` owns the submission's typed directional-shadow, GBuffer,
-GTAO, contact-shadow, cloud-shadow, isolated-deferred, Scene Color/cloud, and
-post-process results. Each graph edge wraps its outcome token in
-`TSceneFrameGraphValue<TResult>`, so distinct non-RHI results cannot be
-interchanged accidentally. Each fallible producer publishes `NotRequested`,
+`FSceneFrameGraphExecutionChannels` owns the submission's typed
+directional-shadow, GBuffer, GTAO, contact-shadow, cloud-shadow,
+isolated-deferred, Scene Color/cloud, and post-process results. Each channel is
+a `TSceneFrameGraphValue<TResult>` containing both its graph token and its
+execution-lifetime result, so distinct non-RHI results cannot be interchanged
+and callbacks do not communicate through unrelated external locals. Each
+fallible producer publishes `NotRequested`,
 `Complete`, or `Failed`. Graph-owned directional shadow, GBuffer, GTAO,
 contact/cloud visibility, isolated-deferred, Scene Color/cloud, debug, and
 post-process results carry status and logical selection only; consumers resolve
@@ -190,6 +194,20 @@ Color, cloud spatial/reconstruction/composite, translucency, post process,
 editor assistance, and output finalization. Its inputs are typed preparation
 partitions, resolved geometry values, imported/persistent graph handles,
 retained logical target descriptions, and non-RHI pass results described above.
+
+Each stable pass identity is owned by one named contributor type in
+`SceneFrameGraphContributors.h`; contributors add passes only to the
+caller-owned builder and never compile or execute a graph. The composer wires
+their handles, declared resources, and typed channels. It converts the complete
+prepared plan into feature-specific shadow, geometry, visibility, cloud, or
+view inputs; neither contributors nor their callbacks can discover the whole
+plan or the execution pipeline. `FSceneFrameFeatureRecorders` owns command
+recording through the same narrow contracts. Retained allocation
+policy is a separate `FSceneFrameGraphBackingProvider`: graph descriptions use
+the typed `ESceneFrameBackingClass` boundary, retained requests are converted
+into a request-bounded topology, and logical-to-physical publication succeeds
+only as one complete candidate table. Human-readable backing names remain
+diagnostics rather than allocation policy.
 
 The graph preserves imported initial/final access, persistent view-state
 history, optional fallback policy, and the temporal/output transaction while

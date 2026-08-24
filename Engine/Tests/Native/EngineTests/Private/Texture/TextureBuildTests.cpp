@@ -356,8 +356,9 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const auto OrphanEntry = std::ranges::find(
 		PayloadInspection.Entries, Durin::ETexturePayloadRepairAction::RemoveOrphan,
 		&Durin::FTexturePayloadInspectionEntry::Repair);
-	ASSERT_NE(OrphanEntry, PayloadInspection.Entries.end());
-	EXPECT_EQ(OrphanEntry->State, Durin::ETexturePayloadState::Stale);
+	// Stable companion publication deliberately ignores legacy/non-stable names;
+	// they are not safe package-owned cleanup candidates.
+	EXPECT_EQ(OrphanEntry, PayloadInspection.Entries.end());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrphanCompanion));
 	std::filesystem::remove(OrphanCompanion);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));

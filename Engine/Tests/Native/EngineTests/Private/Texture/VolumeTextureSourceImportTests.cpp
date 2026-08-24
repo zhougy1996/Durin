@@ -512,7 +512,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage(),
 		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5}));
 	ASSERT_EQ(Asset::FindAssetExact(AssetPath)->FormatVersion,
-		4u);
+		5u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(V5Companions.front()));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(

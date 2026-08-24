@@ -151,12 +151,21 @@ owns ordering against GBuffer, depth, deferred lighting, and final output.
 
 ## Scene Frame Graph
 
-`FRenderGraphSceneFrameExecutor` is the sole production scene scheduler. It
-declares logical result tokens and dependencies for directional shadow,
-GBuffer, ambient occlusion, contact visibility, cloud shadow, deferred
-lighting, Scene Color, and final output. Present or offscreen output is the
+`FRenderGraphSceneFrameExecutor` owns the sole production graph's
+compile/execute/capture boundary. `FSceneFrameExecutionPipeline` owns frame
+preparation, topology selection, and commit or abort, while
+`FSceneFrameGraphComposer` wires renderer-private feature contributors in a
+fixed order. Each contributor owns its pass declarations, exclusive logical
+textures, uses, and bounded callback. Present or offscreen output is the
 explicit root. Stable compilation preserves declaration order between
 independent optional producers.
+
+The composer is the only boundary allowed to see the complete immutable
+`FSceneRenderPlan`; it slices that plan into feature-specific recorder inputs
+before invoking contributors. Contributors and their callbacks cannot receive
+the complete plan or execution pipeline. `FSceneFrameFeatureRecorders` owns
+feature command semantics and renderer services, but does not author, compile,
+or execute graph structure.
 
 Persistent geometry and feature pipeline preparation complete before graph
 compile. Compute, fragment, disabled, and factor-one routes are therefore part

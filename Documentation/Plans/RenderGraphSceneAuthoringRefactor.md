@@ -4,33 +4,32 @@ Summary: Decompose scene-frame graph authoring into a thin executor, typed featu
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-The Render Graph foundation and production scene migration are complete. The
-renderer now builds one parent graph, resolves only retained logical resources,
-and delegates dependency, culling, transition, and execution ordering to
-RenderCore. Production and qualification evidence freezes the current scene
-graph at 11 scheduled passes, 22--25 dependencies, and either 1 or 17 texture
-transitions for the representative volumetric-cloud frames.
+Stages 0--5 are complete. `FRenderGraphSceneFrameExecutor` is the thin
+compile/execute/capture boundary; `FSceneFrameExecutionPipeline` owns
+preparation, topology, and transaction finalization; and
+`FSceneFrameGraphComposer` wires the sole parent graph in stable order. Twelve
+named contributors own feature passes, exclusive resources, uses, and bounded
+callbacks. The composer slices `FSceneRenderPlan` into feature-specific record
+inputs, so contributors and callbacks receive neither the complete plan nor
+the execution pipeline. `FSceneFrameFeatureRecorders` owns command semantics,
+while `FSceneFrameGraphBackingProvider` owns typed request-bounded atomic
+backing publication.
 
-The remaining problem is code ownership rather than graph correctness.
-`FRenderGraphSceneFrameExecutor::Execute_RenderThread` currently contains frame
-transaction setup, route selection, logical resource declarations, retained
-backing publication, all scene pass declarations, feature result plumbing,
-graph compilation, execution, capture, and finalization. The executor header
-also exposes one private execution adapter per feature and directly retains the
-complete renderer service fan-out. This makes the sole graph authority easy to
-inspect in one place, but makes feature-local changes expensive and encourages
-new declarations to accumulate in the same function.
-
-No implementation stage has started. This plan performs a behavior-preserving
-decomposition: the parent graph, pass/resource identities, stable order,
-dependencies, transitions, output, failure outcomes, telemetry, and current
-single-queue execution model remain frozen while authoring ownership moves to
-typed feature contributors.
+Final validation passed the complete Win64 Debug editor build, all 60
+`fast-all` routine targets, 35 Renderer scene contracts, 86 texture tests, and
+the representative Vulkan scene integration. Directional Shadow, HDR display,
+and Volumetric Cloud qualification workflows passed; GBuffer qualification
+passed twice consecutively after one GTX 1060 observation run exposed a
+non-repeating 1.9% timestamp-containment sample. The stale texture assertions
+that had blocked the routine gate were aligned with the repository's completed
+DAST v5-only and stable-companion contracts: non-stable companion names are not
+package-owned cleanup candidates, and a DAST v5 resave remains format version
+5. Changed/all documentation plus all-plan and all-roadmap validators passed.
 
 ## Goal
 
@@ -174,20 +173,20 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 0: Freeze topology and select the ownership seams
 
-- [ ] Capture representative disabled, invalid-input, compute, fragment,
+- [x] Capture representative disabled, invalid-input, compute, fragment,
   offscreen, present, resize, debug, and qualification frames before source
   movement; record pass/resource identity, domains, dependencies, uses,
   transitions, effects, retained requests, failure outcomes, and CPU budgets.
-- [ ] Inventory every responsibility in `Execute_RenderThread`, every private
+- [x] Inventory every responsibility in `Execute_RenderThread`, every private
   `RenderXxx_RenderThread` adapter, every direct renderer dependency, and every
   cross-pass mutable result; assign each to lifecycle, topology, composer,
   backing provider, feature contributor, feature recorder, or finalization.
-- [ ] Define `FSceneFrameTopology` with valid route enums/variants and prove
+- [x] Define `FSceneFrameTopology` with valid route enums/variants and prove
   each current option/qualification/readiness combination maps to the same
   authored passes and fallback behavior.
-- [ ] Define naming and placement for composer, backing provider, shared graph
+- [x] Define naming and placement for composer, backing provider, shared graph
   inputs, execution-lifetime result channels, and each feature contributor.
-- [ ] Add structural tests that reject nested compile/execute ownership and
+- [x] Add structural tests that reject nested compile/execute ownership and
   freeze the single parent graph's current declaration/capture contract.
 
 #### Acceptance Gate
@@ -199,20 +198,20 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 1: Extract topology and retained-backing infrastructure
 
-- [ ] Introduce typed topology selection before graph construction and replace
+- [x] Introduce typed topology selection before graph construction and replace
   feature-route requirement booleans without changing authored graph variants.
-- [ ] Move logical target descriptions and allocation classes into narrow scene
+- [x] Move logical target descriptions and allocation classes into narrow scene
   graph resource types, keeping human-readable names only for diagnostics.
-- [ ] Extract `FSceneFrameGraphBackingProvider` from the inline resolver; give
+- [x] Extract `FSceneFrameGraphBackingProvider` from the inline resolver; give
   it only the transient pool/target services and graph resource table required
   for complete-or-null retained publication.
-- [ ] Preserve request-bounded acquisition: culled resources do not allocate,
+- [x] Preserve request-bounded acquisition: culled resources do not allocate,
   optional families are requested only when retained, and a failed requested
   family publishes no partial `FResolvedSceneFrameTargets`.
-- [ ] Add focused tests for every allocation class, duplicate/unknown mapping,
+- [x] Add focused tests for every allocation class, duplicate/unknown mapping,
   optional family omission, injected acquisition failure, resize/recovery, and
   atomic publication.
-- [ ] Remove the old string-policy switch and target-field mapping from the
+- [x] Remove the old string-policy switch and target-field mapping from the
   executor after provider parity passes.
 
 #### Acceptance Gate
@@ -223,22 +222,22 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 2: Move feature pass authoring to typed contributors
 
-- [ ] Establish the contributor pattern with directional shadow and GBuffer:
+- [x] Establish the contributor pattern with directional shadow and GBuffer:
   explicit immutable inputs, logical resources, pass declarations, bounded
   record callbacks, typed outputs, and contributor-level capture tests.
-- [ ] Extract ambient occlusion, Contact Visibility, volumetric-cloud shadow,
+- [x] Extract ambient occlusion, Contact Visibility, volumetric-cloud shadow,
   and deferred lighting while preserving compute/fragment/disabled topology,
   factor-one fallbacks, debug outputs, and production/qualification behavior.
-- [ ] Extract opaque scene rendering, volumetric-cloud spatial/composite,
+- [x] Extract opaque scene rendering, volumetric-cloud spatial/composite,
   sorted translucency, post process, and editor assistance while preserving
   attachment exits, present/offscreen behavior, and final-output effects.
-- [ ] Move feature-local parameter construction and command recording behind
+- [x] Move feature-local parameter construction and command recording behind
   each contributor's narrow recorder contract; remove corresponding
   `RenderXxx_RenderThread` adapters from the executor as their callers move.
-- [ ] Ensure contributor callbacks capture only their immutable prepared slice,
+- [x] Ensure contributor callbacks capture only their immutable prepared slice,
   typed result writer, required service/recorder, and declared handles resolved
   through `FRenderGraphPassResources`.
-- [ ] Run focused capture and feature fixtures after each contributor group so
+- [x] Run focused capture and feature fixtures after each contributor group so
   one extraction cannot hide a topology or failure change in a later batch.
 
 #### Acceptance Gate
@@ -250,22 +249,22 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 3: Introduce the composer and explicit typed result flow
 
-- [ ] Implement `FSceneFrameGraphComposer` as direct stable-order calls that
+- [x] Implement `FSceneFrameGraphComposer` as direct stable-order calls that
   connect typed contributor outputs to downstream typed inputs and return the
   final scene/output values required by frame finalization.
-- [ ] Replace callback-captured mutable pass results with execution-lifetime
+- [x] Replace callback-captured mutable pass results with execution-lifetime
   typed result channels whose single writer and readers are paired with graph
   token declarations.
-- [ ] Remove redundant control tokens where declared resource/effect edges
+- [x] Remove redundant control tokens where declared resource/effect edges
   already express the complete dependency; retain and name only genuine
   non-resource status/control dependencies.
-- [ ] Keep shared persistent/default/environment imports unique per physical
+- [x] Keep shared persistent/default/environment imports unique per physical
   identity and pass them through explicit shared graph inputs without exposing
   an untyped resource blackboard.
-- [ ] Add composer tests for feature omission, route variants, stable ordering,
+- [x] Add composer tests for feature omission, route variants, stable ordering,
   dependency minimality, culling, result propagation, and failure short-circuit
   behavior.
-- [ ] Confirm the composer contains no feature draw/dispatch logic, physical
+- [x] Confirm the composer contains no feature draw/dispatch logic, physical
   target-field mapping, graph compile/execute, or frame commit/abort behavior.
 
 #### Acceptance Gate
@@ -276,21 +275,21 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 4: Reduce the executor to frame lifecycle ownership
 
-- [ ] Move frame transaction initialization, temporal begin/commit/abort,
+- [x] Move frame transaction initialization, temporal begin/commit/abort,
   telemetry publication, graph capture publication, and error translation into
   small lifecycle helpers with explicit ownership and ordering.
-- [ ] Reduce `Execute_RenderThread` to output validation, preparation, topology
+- [x] Reduce `Execute_RenderThread` to output validation, preparation, topology
   selection, graph/composer invocation, compile/execute, and finalization.
-- [ ] Replace the executor's direct feature renderer fan-out with the smallest
+- [x] Replace the executor's direct feature renderer fan-out with the smallest
   explicit dependency aggregates owned by composer/contributors; do not add a
   service locator or runtime registry.
-- [ ] Remove obsolete requirements, resolved-target containers, adapters,
+- [x] Remove obsolete requirements, resolved-target containers, adapters,
   helpers, includes, and compatibility paths once no production or test caller
   uses them.
-- [ ] Add structural ownership tests or targeted source assertions that keep
+- [x] Add structural ownership tests or targeted source assertions that keep
   `AddPass`, feature transient creation/use declarations, backing resolution,
   and feature command recording out of the executor.
-- [ ] Review names and file boundaries so a new rendering feature has one
+- [x] Review names and file boundaries so a new rendering feature has one
   obvious contributor location, typed integration point, and focused test
   target.
 
@@ -303,20 +302,20 @@ extend without weakening the single-parent-graph architecture:
 
 ### Stage 5: Qualify architecture, behavior, and cost
 
-- [ ] Pass focused topology, backing-provider, contributor, composer,
+- [x] Pass focused topology, backing-provider, contributor, composer,
   RenderCore graph, RHI transition, transient-pool, and Renderer failure tests.
-- [ ] Pass scene image/readback, contact compute/fragment/factor-one, GBuffer,
+- [x] Pass scene image/readback, contact compute/fragment/factor-one, GBuffer,
   deferred lighting, volumetric cloud, editor assistance, present/offscreen,
   resize, multi-view, duplicate-submission, recovery, and shutdown fixtures.
-- [ ] Compare Stage 0 and final graph captures for pass/resource identity,
+- [x] Compare Stage 0 and final graph captures for pass/resource identity,
   domain, scheduled order, dependencies, uses, effects, retained requests,
   transition plans, compile/execute CPU observations, and diagnostics.
-- [ ] Run the repository's focused Renderer Vulkan integration and Directional
+- [x] Run the repository's focused Renderer Vulkan integration and Directional
   Shadow, GBuffer, HDR display, and Volumetric Cloud qualification workflows;
   preserve truthful named-device timing gates.
-- [ ] Pass the complete repository build, routine native-test set, and required
+- [x] Pass the complete repository build, routine native-test set, and required
   changed/all documentation, plan, and roadmap validators.
-- [ ] Move lasting contributor, topology, backing, result-flow, and extension
+- [x] Move lasting contributor, topology, backing, result-flow, and extension
   rules into Runtime Rendering documentation and record final evidence here.
 
 #### Acceptance Gate

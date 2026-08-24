@@ -1,4 +1,4 @@
-#include "Renderers/RenderGraphSceneFrameExecutor.h"
+#include "Renderers/SceneFrameExecutionPipeline.h"
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -16,7 +16,7 @@
 
 namespace Durin
 {
-	auto FRenderGraphSceneFrameExecutor::PrepareView_RenderThread(
+	auto FSceneFrameExecutionPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		FSceneView& RenderView,
@@ -392,7 +392,7 @@ namespace Durin
 			.Plan = std::move(PreparedView)};
 	}
 
-	auto FRenderGraphSceneFrameExecutor::ResolveFrameResources_RenderThread(
+	auto FSceneFrameExecutionPipeline::ResolveFrameResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView
 	) -> ERenderViewResult
@@ -466,12 +466,12 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FRenderGraphSceneFrameExecutor::BuildFrameRequirements(
+	auto FSceneFrameExecutionPipeline::BuildFrameTopology(
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height
-	) const -> FSceneFrameRequirements
+	) const -> FSceneFrameTopology
 	{
 		const FSceneView& View = PreparedView.Context.View;
 		const bool bProductionDeferred =
@@ -527,16 +527,19 @@ namespace Durin
 			.Height = Height,
 			.bGBuffer = bGBuffer,
 			.bGroundTruthAmbientOcclusion = bAmbientOcclusion,
-			.bContactFragment = bContact && !bForceContactCompute,
-			.bContactCompute = bContact && !bForceContactFragment,
-			.bVolumetricCloudShadowFragment = bCloudShadow,
-			.bVolumetricCloudShadowCompute =
-				bCloudShadow && !bForceCloudFragment,
+			.ContactVisibility = !bContact ? ESceneFrameRoute::Disabled
+				: (bForceContactFragment ? ESceneFrameRoute::Fragment
+					: ESceneFrameRoute::Compute),
+			.VolumetricCloudShadow = !bCloudShadow
+				? ESceneFrameRoute::Disabled
+				: (bForceCloudFragment ? ESceneFrameRoute::Fragment
+					: ESceneFrameRoute::Compute),
 			.bIsolatedDeferred = bIsolatedDeferred,
 			.bGBufferDebug =
 				Options.GBufferDebugMode != EGBufferDebugMode::Disabled,
-			.bVolumetricCloudFragment = bCloudInputs,
-			.bVolumetricCloudCompute = bCloudInputs && !bForceCloudFragment,
+			.VolumetricCloud = !bCloudInputs ? ESceneFrameRoute::Disabled
+				: (bForceCloudFragment ? ESceneFrameRoute::Fragment
+					: ESceneFrameRoute::Compute),
 			.bVolumetricCloudComposite = bCloudInputs,
 			.AmbientOcclusionQuality = View.Settings.AmbientOcclusion.Quality,
 			.VolumetricCloudExtent = {
@@ -544,8 +547,8 @@ namespace Durin
 				static_cast<int32>(CloudExtent.Height)}};
 	}
 
-	auto FRenderGraphSceneFrameExecutor::ResolveFrameTargets_RenderThread(
-		const FSceneFrameRequirements& Requirements
+	auto FSceneFrameExecutionPipeline::ResolveFrameTargets_RenderThread(
+		const FSceneFrameTopology& Requirements
 	) -> ERenderViewResult
 	{
 		FResolvedSceneFrameTargets Targets;
@@ -569,14 +572,14 @@ namespace Durin
 			if (!Targets.GroundTruthAmbientOcclusion)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.bContactFragment)
+		if (Requirements.UsesContactFragment())
 		{
 			Targets.ContactFragment = ContactShadowRenderer.EnsureTargets_RenderThread(
 				Requirements.Width, Requirements.Height);
 			if (!Targets.ContactFragment)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.bContactCompute)
+		if (Requirements.UsesContactCompute())
 		{
 			Targets.ContactCompute =
 				ContactShadowRenderer.EnsureComputeTargets_RenderThread(
@@ -584,7 +587,7 @@ namespace Durin
 			if (!Targets.ContactCompute)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.bVolumetricCloudShadowFragment)
+		if (Requirements.UsesCloudShadowFragment())
 		{
 			Targets.VolumetricCloudShadowFragment =
 				VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(
@@ -592,7 +595,7 @@ namespace Durin
 			if (!Targets.VolumetricCloudShadowFragment)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.bVolumetricCloudShadowCompute)
+		if (Requirements.UsesCloudShadowCompute())
 		{
 			Targets.VolumetricCloudShadowCompute =
 				VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(
@@ -619,7 +622,7 @@ namespace Durin
 			std::max(Requirements.VolumetricCloudExtent.x, 0));
 		const uint32 CloudHeight = static_cast<uint32>(
 			std::max(Requirements.VolumetricCloudExtent.y, 0));
-		if (Requirements.bVolumetricCloudFragment)
+		if (Requirements.UsesCloudFragment())
 		{
 			Targets.VolumetricCloudFragment =
 				VolumetricCloudRenderer.EnsureTargets_RenderThread(
@@ -627,7 +630,7 @@ namespace Durin
 			if (!Targets.VolumetricCloudFragment)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.bVolumetricCloudCompute)
+		if (Requirements.UsesCloudCompute())
 		{
 			Targets.VolumetricCloudCompute =
 				VolumetricCloudRenderer.EnsureComputeTargets_RenderThread(
@@ -647,23 +650,5 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FRenderGraphSceneFrameExecutor::RenderDirectionalShadow_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FSceneRenderPlan& PreparedView,
-		FRHITexture* DirectionalShadowTarget
-	) -> FDirectionalShadowPassResult
-	{
-		if (!PreparedView.DirectionalShadow
-			|| !ResolvedFrame.DirectionalShadow
-			|| !ResolvedFrame.DirectionalShadow->bEnabled)
-			return {};
-		const bool bRendered = DirectionalShadowRenderer.Render_RenderThread(
-			CommandList, DirectionalShadowTarget, StaticMeshRenderer, SkeletalMeshRenderer,
-			TerrainRenderer, *PreparedView.DirectionalShadow,
-			*ResolvedFrame.DirectionalShadow, Telemetry.View);
-		return {
-			.Status = bRendered
-				? EScenePassStatus::Complete : EScenePassStatus::Failed};
-	}
 
 } // namespace Durin
