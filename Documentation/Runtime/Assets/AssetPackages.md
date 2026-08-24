@@ -158,6 +158,38 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
+### Detached DAST v6 Qualification Route
+
+AssetCore implements DAST v6 under `DURF` v1 as a detached, capability-complete
+codec while the repository baseline remains v5. Its 32-byte format header
+records package kind, zero flags, absolute directory offset, section count,
+48-byte entry size, and zero reserved word. The canonical required sections are
+Public Summary, Import, Name, Type, Schema, Export, Value, and Payload
+Directory. Directory entries are strictly kind-ordered and contain required
+flags, 64-bit contiguous extents, XXH3-128 section hashes, and zero reserved
+words. Public Summary and Import end exactly at `HeaderBytes`; all sections are
+contiguous through physical EOF, with no DTRL/DTRF footer authority.
+
+Public Summary selects one-based `MainExportIndex` 1 and freezes Import,
+Export, and payload counts plus class/redirect metadata. Import paths are
+canonical sorted unique dependencies. Existing Name, Type, Schema, and Value
+bytes are reused exactly; v5 Object bytes become Export after topology
+validation, dependency IDs become one-based Import indexes, and trailer entries
+become the front-directory-owned Payload Directory. Soft paths remain paths.
+The detached adapter may reconstruct canonical v5 logical bytes internally to
+reuse the qualified semantic engine, but those bytes are never v6 wire
+authority or published output.
+
+Header-only inspection validates the complete common front matter, directory
+extents, and Public Summary/Import section hashes without reading later
+sections. Full validation checks every section hash, exact contiguity, semantic
+topology, payload descriptor equality, and canonical reconstruction before any
+codec capability exposes data. Unknown required sections fail. Unknown
+skippable sections are extent/hash validated for read-only validation, but save
+or mutation rejects before output unless byte-exact canonical retention is
+available. M2 does not register v6 in the supported-reader set or select it as
+the ordinary writer; baseline cutover is separately gated.
+
 ### DAST v5 Trailer-Indexed Ordinary Route
 
 AssetCore registers one reader-, writer-, and mutation-complete DAST v5 codec

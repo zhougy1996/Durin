@@ -2,12 +2,13 @@
 
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageV5Codec.h"
+#include "AssetPackageV6Codec.h"
 
 namespace Durin::Asset::Private
 {
 	namespace
 	{
-		const std::array Codecs{DastV5::GetCodec()};
+		const std::array Codecs{DastV5::GetCodec(), DastV6::GetCodec()};
 		constexpr FBinaryEnvelopeLimits PackageEnvelopeLimits{
 			16ull * 1024ull * 1024ull,
 			1024ull * 1024ull * 1024ull};
@@ -109,6 +110,11 @@ namespace Durin::Asset::Private
 		FAssetPackagePreamble Preamble;
 		if (FAssetResult Result = ReadAssetPackagePreamble(Bytes, Preamble); !Result)
 			return Result;
+		if (Preamble.FormatId != DastBinaryFormatId
+			|| !IsSupportedAssetPackageReaderVersion(Preamble.FormatVersion))
+			return {EAssetError::UnsupportedVersion,
+				std::format("Unsupported asset format {} version {}.",
+					Preamble.FormatId.ToString(), Preamble.FormatVersion)};
 		OutCodec = FindAssetPackageReader(Preamble.FormatId, Preamble.FormatVersion);
 		if (!OutCodec)
 			return {EAssetError::UnsupportedVersion,

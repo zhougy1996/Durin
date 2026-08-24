@@ -68,8 +68,10 @@ rewrite, redirector creation, and cook canonicalization do not branch on a
 version enum. The repository currently registers only the bounded production
 v5 codec; read-only entrypoints never select a writer or dirty authored content.
 A DAST v4 preamble is unsupported and fails before object-stream parsing or
-publication. The dormant DAST v6 envelope descriptor has no reader or writer;
-ordinary and explicit saves remain byte-exact v5 until the baseline cutover.
+publication. A detached DAST v6 codec implements the complete capability set
+for explicit qualification, but v6 is not in the supported-reader policy and
+is not the ordinary writer. Ordinary and explicit production saves remain
+byte-exact v5 until the separately gated baseline cutover.
 
 A frozen writer constructs its Archive context from its own codec identity.
 The v5 writer therefore always reports DAST v5 to serializers and emits v5. The

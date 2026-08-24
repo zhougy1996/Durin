@@ -2,6 +2,7 @@
 
 #include "AssetTools.h"
 #include "AssetPackageV5Codec.h"
+#include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
@@ -20,6 +21,7 @@
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
 
 #include <chrono>
@@ -2095,6 +2097,136 @@ TEST(FPackageAssetTests, DormantEnvelopeDispatchUsesPermanentIdentityAndFailsBef
 
 	V6[48] ^= std::byte{1};
 	EXPECT_EQ(ReadAssetPackagePreamble(V6, Parsed).Error, EAssetError::CorruptFile);
+}
+
+TEST(FPackageAssetTests, DetachedV6CodecMatchesLiveWriteInspectReferenceMutationAndLoadSemantics)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::Asset;
+	using namespace Durin::Asset::Private;
+	FAssetPath TargetPath;
+	FAssetPath ReplacementPath;
+	FAssetPath SourcePath;
+	FAssetPath RelocatedPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Target", TargetPath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Replacement", ReplacementPath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Source", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Relocated", RelocatedPath));
+	DPackageAssetForTest* Target = nullptr;
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreateAsset(TargetPath, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(CreateAsset(SourcePath, Source));
+	Source->Value = 417;
+	Source->ExternalReference = Target;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+
+	const FAssetCatalogEntry SourceData = FindAssetExact(SourcePath);
+	ASSERT_TRUE(SourceData);
+	std::vector<std::byte> V5;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(V5, SourceData->PhysicalPath));
+	std::vector<std::byte> V6;
+	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	const FAssetPackageCodec& Codec = DastV6::GetCodec();
+	ASSERT_TRUE(Codec.Validate(V6));
+	FAssetPackageHeader Header;
+	uint64 HeaderByteCount = 0;
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(V6, 32, HeaderByteCount));
+	ASSERT_TRUE(Codec.ReadHeader(
+		std::span(V6).first(static_cast<size_t>(HeaderByteCount)), V6.size(), Header));
+	EXPECT_EQ(Header.FormatVersion, AssetPackageV6FormatVersion);
+	EXPECT_EQ(Header.ObjectCount, 2);
+	EXPECT_EQ(Header.Dependencies, std::vector{TargetPath});
+	FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Codec.Inspect(V6, Inspection));
+	EXPECT_EQ(Inspection.Header.FormatVersion, AssetPackageV6FormatVersion);
+	EXPECT_EQ(Inspection.Fingerprint.ReaderVersion, AssetPackageV6FormatVersion);
+
+	std::vector<FAssetReferenceEdge> References;
+	ASSERT_TRUE(Codec.ExtractReferences(V6, SourcePath, References));
+	ASSERT_EQ(References.size(), 2);
+	EXPECT_EQ(std::ranges::count(References, TargetPath, &FAssetReferenceEdge::TargetPath), 1);
+	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	FAssetPackageCompatibilityRecord Compatibility;
+	ASSERT_TRUE(Codec.ProbeCompatibility(
+		V6, SourcePath, Catalog, Compatibility, nullptr));
+	EXPECT_EQ(Compatibility.FormatVersion, AssetPackageV6FormatVersion);
+
+	std::vector<std::byte> DirectWrite;
+	ASSERT_TRUE(Codec.Write(Source->GetPackage(), DirectWrite,
+		EDefaultDeltaMode::NoDelta, {}));
+	EXPECT_EQ(DirectWrite, V6);
+	std::vector<std::byte> Relocated;
+	ASSERT_TRUE(Codec.Relocate(V6, RelocatedPath, Relocated));
+	ASSERT_TRUE(Codec.Validate(Relocated));
+	const FAssetRedirectorFixupMapping Mapping{TargetPath, ReplacementPath};
+	std::vector<std::byte> Rewritten;
+	ASSERT_TRUE(Codec.RewriteReferences(V6, std::span(&Mapping, 1), 1, Rewritten));
+	References.clear();
+	ASSERT_TRUE(Codec.ExtractReferences(Rewritten, SourcePath, References));
+	ASSERT_EQ(References.size(), 2);
+	EXPECT_EQ(std::ranges::count(
+		References, ReplacementPath, &FAssetReferenceEdge::TargetPath), 1);
+
+	std::vector<std::byte> Redirector;
+	ASSERT_TRUE(Codec.WriteRedirector(SourcePath, TargetPath, Redirector));
+	ASSERT_TRUE(Codec.ReadHeader(Redirector, Redirector.size(), Header));
+	EXPECT_EQ(Header.EntryKind, EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(Header.RedirectDestination, TargetPath);
+
+	ASSERT_TRUE(UnloadPackage(SourcePath));
+	DPackage* Loaded = nullptr;
+	FAssetLoadReport Report;
+	ASSERT_TRUE(Codec.Load(V6, SourcePath, Loaded, &Report, {}, {}));
+	ASSERT_NE(Loaded, nullptr);
+	auto* LoadedAsset = static_cast<DPackageAssetForTest*>(Loaded->GetAsset());
+	ASSERT_NE(LoadedAsset, nullptr);
+	EXPECT_EQ(LoadedAsset->Value, 417);
+	EXPECT_EQ(LoadedAsset->ExternalReference, Target);
+	RemoveFromRoot(Loaded);
+	MarkObjectHierarchyAsGarbage(Loaded);
+	CollectGarbage();
+	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
+}
+
+TEST(FPackageAssetTests, DetachedV6PreservesExternalPayloadDirectoryAndCompanionDescriptor)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::Asset;
+	using namespace Durin::Asset::Private;
+	FAssetPath Path;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6ExternalPayload", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreateAsset(Path, Asset));
+	std::vector<std::byte> Payload(
+		static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(),
+		{.WriterSelection = EAssetPackageWriterSelection::DastV5}));
+	const FAssetCatalogEntry Data = FindAssetExact(Path);
+	ASSERT_TRUE(Data);
+	std::vector<std::byte> V5;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(V5, Data->PhysicalPath));
+	std::vector<std::byte> V6;
+	ASSERT_TRUE(DastV6::ConvertV5Package(V5, V6));
+	DastV6::FParsedPackage Parsed;
+	std::string Error;
+	ASSERT_TRUE(DastV6::ParsePackage(V6, Parsed, &Error)) << Error;
+	ASSERT_EQ(Parsed.PayloadEntries.size(), 1);
+	FAssetPackageInspection Inspection;
+	ASSERT_TRUE(DastV6::GetCodec().Inspect(V6, Inspection));
+	std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
+		Inspection, Descriptors, &Error)) << Error;
+	ASSERT_EQ(Descriptors.size(), 1);
+	EXPECT_EQ(Descriptors.front().PayloadId, Parsed.PayloadEntries.front().PayloadId);
+	EXPECT_EQ(Descriptors.front().ContentHash, Parsed.PayloadEntries.front().ContentHash);
+	EXPECT_EQ(Descriptors.front().ContainerHash, Parsed.PayloadEntries.front().ContainerHash);
+	EXPECT_EQ(Descriptors.front().StoredByteCount,
+		Parsed.PayloadEntries.front().StoredByteCount);
+	ASSERT_TRUE(DeleteAssetClosureForTest({Path}));
 }
 
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)

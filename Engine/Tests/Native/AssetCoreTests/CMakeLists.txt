@@ -47,6 +47,7 @@ durin_add_asset_functional_test(AssetPackageTests
 	SOURCES
 		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
+		Private/PackageV6Tests.cpp
 		Private/PackageObjectStreamWireContract.cpp
 		Private/PackageObjectStreamWireContractTests.cpp
 		Private/PackageObjectStreamReferenceModel.cpp
