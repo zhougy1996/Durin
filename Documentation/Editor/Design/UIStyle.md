@@ -27,6 +27,22 @@ Persist values only when users can change them. Product defaults and validation 
 in type-safe C++ policy constants; colors that must vary between light and dark themes use
 `EUIThemeColor` and the YAML `SemanticColors` map.
 
+In the dark theme, generic chrome interaction uses a neutral graphite scale:
+hovered controls become lighter without changing hue, and pressed or active
+controls advance one more brightness step. Check marks, slider grabs, keyboard
+navigation, text selection, and docking targets use the same neutral family;
+docking feedback relies on contrast and transparency instead of an accent hue.
+Amber remains semantic for primary scene selection and warnings. Blue remains
+semantic for information, asset identity, secondary scene selection, and the Z
+axis; do not use either accent for generic hover or pressed states.
+
+Use `MonaImGui::BeginContentTabBar()` and `EndContentTabBar()` for tab bars that
+switch views within one editor panel. The shared control presents adjacent tabs
+as one contiguous group, enables the selected overline, and takes its selected,
+hovered, dimmed, and overline colors from the active theme. Panels must not remap
+tab colors or spacing to header, check-mark, or local literal values. Docked-window
+tabs remain owned by ImGui docking but consume the same global tab tokens.
+
 Zeros, normalized ratios used by algorithms, collection counts, and mathematical tolerances
 are not UI design tokens.
 

@@ -48,6 +48,11 @@ namespace Durin::MonaImGui::PropertyEdit
 
 	MONAIMGUI_API auto BeginTable(const char* Id, const FTableConfig& Config = {}) -> bool;
 	MONAIMGUI_API auto EndTable() -> void;
+	// Draws an expandable property-table row with the same vertical alignment as
+	// framed value widgets. Call EndTreeRow() only when BeginTreeRow() returns true.
+	MONAIMGUI_API auto BeginTreeRow(const char* Id, const char* Label,
+		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_DefaultOpen) -> bool;
+	MONAIMGUI_API auto EndTreeRow() -> void;
 	// Draws an expandable group spanning the property and value columns. Call
 	// EndGroup() only when BeginGroup() returns true.
 	MONAIMGUI_API auto BeginGroup(const char* Id, const char* Label,

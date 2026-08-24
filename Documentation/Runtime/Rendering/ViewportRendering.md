@@ -321,7 +321,11 @@ Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
 Overview reports headline frame and graph-budget values, Scene owns the
 feature breakdowns removed from the compact overlay, and Render Graph provides
 pass filtering, pass/resource inspection, dependency visualization, resource
-lifetimes, and transition counts. The panel is optional in the workspace and
+lifetimes, and transition counts. Pass filtering compacts the graph to matches
+plus their direct dependency context. Hovering or selecting a pass focuses its
+incoming and outgoing edges by default, with an opt-out for whole-graph
+inspection; dependency tooltips identify value, execution, and explicit edges
+and their captured resource cause. The panel is optional in the workspace and
 is also available from the Level Editor Panels menu.
 
 Full graph inspection is explicitly sampled rather than copied every frame.

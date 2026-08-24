@@ -240,19 +240,27 @@ namespace Durin::MonaImGui::PropertyEdit
 		ImGui::PopStyleVar();
 	}
 
-	auto BeginGroup(const char* Id, const char* Label, ImGuiTreeNodeFlags Flags) -> bool
+	auto BeginTreeRow(const char* Id, const char* Label, ImGuiTreeNodeFlags Flags) -> bool
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
-		return CompactTreeNode(Id,
-			Flags | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns |
-			ImGuiTreeNodeFlags_FramePadding,
-			"%s", Label);
+		return CompactTreeNode(Id, Flags | ImGuiTreeNodeFlags_FramePadding, "%s", Label);
+	}
+
+	auto EndTreeRow() -> void
+	{
+		ImGui::TreePop();
+	}
+
+	auto BeginGroup(const char* Id, const char* Label, ImGuiTreeNodeFlags Flags) -> bool
+	{
+		return BeginTreeRow(Id, Label,
+			Flags | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns);
 	}
 
 	auto EndGroup() -> void
 	{
-		ImGui::TreePop();
+		EndTreeRow();
 	}
 
 	auto BeginFixedArray(const char* Id, const char* Label, uint64 Count, ImGuiTreeNodeFlags Flags) -> bool

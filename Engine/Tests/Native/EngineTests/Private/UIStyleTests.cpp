@@ -86,6 +86,37 @@ namespace Durin::Editor::Level
 		ImGui::DestroyContext(Context);
 	}
 
+	TEST(FMonaImGuiStyleTests, DarkThemeKeepsChromeInteractionNeutral)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
+		const ImGuiStyle& Style = ImGui::GetStyle();
+
+		auto ChannelSpread = [](const ImVec4& Color) {
+			return std::max({Color.x, Color.y, Color.z})
+				- std::min({Color.x, Color.y, Color.z});
+		};
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_ButtonHovered]), 0.06f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_HeaderHovered]), 0.06f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_TabHovered]), 0.06f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_TabSelectedOverline]), 0.08f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_TabDimmedSelectedOverline]), 0.08f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_CheckMark]), 0.06f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_SliderGrabActive]), 0.08f);
+		EXPECT_LT(ChannelSpread(Style.Colors[ImGuiCol_NavCursor]), 0.08f);
+		EXPECT_GT(Style.Colors[ImGuiCol_ButtonHovered].x,
+			Style.Colors[ImGuiCol_Button].x);
+		EXPECT_GT(Style.Colors[ImGuiCol_ButtonActive].x,
+			Style.Colors[ImGuiCol_ButtonHovered].x);
+
+		const ImVec4& DockingPreview = Style.Colors[ImGuiCol_DockingPreview];
+		EXPECT_LT(ChannelSpread(DockingPreview), 0.08f);
+		EXPECT_GT(DockingPreview.x, Style.Colors[ImGuiCol_WindowBg].x);
+		EXPECT_GT(DockingPreview.w, 0.5f);
+		ImGui::DestroyContext(Context);
+	}
+
 	TEST(FMonaImGuiStyleTests, BottomDrawerAnimationAndGeometryStayBounded)
 	{
 		ImGuiContext* Context = ImGui::CreateContext();
@@ -269,6 +300,30 @@ namespace Durin::Editor::Level
 		DrawFrame();
 
 		EXPECT_DOUBLE_EQ(StoredValue.z, 42.0);
+		ImGui::DestroyContext(Context);
+	}
+
+	TEST(FMonaImGuiStyleTests, ExpandablePropertyRowsMatchFramedValueHeight)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(800.0f, 600.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+
+		ImGui::NewFrame();
+		ImGui::Begin("ExpandablePropertyRowTest");
+		ASSERT_TRUE(MonaImGui::PropertyEdit::BeginTable("ExpandablePropertyRows"));
+		const bool bOpen = MonaImGui::PropertyEdit::BeginTreeRow("Struct", "Struct");
+		const float TreeRowHeight = ImGui::GetItemRectSize().y;
+		if (bOpen) MonaImGui::PropertyEdit::EndTreeRow();
+		MonaImGui::PropertyEdit::EndTable();
+		ImGui::End();
+		ImGui::Render();
+
+		EXPECT_FLOAT_EQ(TreeRowHeight, ImGui::GetFrameHeight());
 		ImGui::DestroyContext(Context);
 	}
 } // namespace Durin::Editor::Level

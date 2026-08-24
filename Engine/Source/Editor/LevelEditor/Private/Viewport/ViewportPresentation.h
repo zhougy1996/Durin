@@ -191,6 +191,9 @@ namespace Durin::Editor::Level
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void;
 	auto DrawViewportOrientationOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 	auto DrawViewportCameraSpeedOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
+	// Returns one shared, smoothed frame-time reading whose visible value updates
+	// slowly enough to remain readable in diagnostics surfaces.
+	auto GetStableEditorFrameTimeMilliseconds() -> float;
 	auto DrawViewportStatisticsOverlay(
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,

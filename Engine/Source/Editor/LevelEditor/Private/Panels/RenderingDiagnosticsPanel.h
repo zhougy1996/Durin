@@ -36,6 +36,8 @@ namespace Durin::Editor::Level
 		uint64 ObservedCaptureRevision = 0;
 		int32 SelectedPass = -1;
 		bool bCapturePending = false;
+		bool bFocusDependencies = true;
+		float RenderGraphSidebarRatio = 0.27f;
 		std::array<char, 128> PassFilter{};
 	};
 } // namespace Durin::Editor::Level

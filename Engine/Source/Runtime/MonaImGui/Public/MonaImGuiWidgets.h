@@ -17,6 +17,13 @@ namespace Durin::MonaImGui
 	MONAIMGUI_API auto CompactToolbarIconButton(const char* Icon, const char* Id, const char* Tooltip = nullptr) -> bool;
 	MONAIMGUI_API auto GetCompactToolbarIconButtonWidth() -> float;
 	MONAIMGUI_API auto DialogButton(const char* Label, bool bCompact = false) -> bool;
+	// Begins a themed, contiguous tab bar for switching between content views.
+	// Call EndContentTabBar only when this returns true.
+	MONAIMGUI_API auto BeginContentTabBar(
+		const char* Id,
+		ImGuiTabBarFlags Flags = ImGuiTabBarFlags_None
+	) -> bool;
+	MONAIMGUI_API auto EndContentTabBar() -> void;
 	// Draws a consistently sized modal and clears Message when the user dismisses it.
 	MONAIMGUI_API auto ErrorDialog(const char* Title, std::string& Message) -> void;
 	MONAIMGUI_API auto InputText(const char* Label, std::string& Value, ImGuiInputTextFlags Flags = ImGuiInputTextFlags_None) -> bool;

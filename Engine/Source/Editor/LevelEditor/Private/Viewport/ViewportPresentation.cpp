@@ -18,6 +18,17 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
+		struct FStableFrameTimeState
+		{
+			ImGuiContext* Context = nullptr;
+			int32 LastFrame = -1;
+			float SmoothedSeconds = 0.0f;
+			float PresentedSeconds = 0.0f;
+			float PresentationAccumulator = 0.0f;
+		};
+
+		FStableFrameTimeState StableFrameTime;
+
 		template<typename T>
 		// Couples a viewport-mode value with its label, tooltip, and toolbar icon.
 		struct TViewportModeOption
@@ -663,6 +674,42 @@ namespace Durin::Editor::Level
 		}
 	} // namespace
 
+	auto GetStableEditorFrameTimeMilliseconds() -> float
+	{
+		ImGuiContext* Context = ImGui::GetCurrentContext();
+		const ImGuiIO& IO = ImGui::GetIO();
+		if (StableFrameTime.Context != Context)
+			StableFrameTime = {.Context = Context};
+
+		if (StableFrameTime.LastFrame != ImGui::GetFrameCount())
+		{
+			StableFrameTime.LastFrame = ImGui::GetFrameCount();
+			const float DeltaSeconds = std::clamp(IO.DeltaTime, 0.0f, 0.25f);
+			if (StableFrameTime.SmoothedSeconds <= 0.0f)
+				StableFrameTime.SmoothedSeconds = DeltaSeconds;
+			else
+			{
+				constexpr float SmoothingTimeSeconds = 0.35f;
+				const float Blend = 1.0f - std::exp(
+					-DeltaSeconds / SmoothingTimeSeconds);
+				StableFrameTime.SmoothedSeconds += Blend
+					* (DeltaSeconds - StableFrameTime.SmoothedSeconds);
+			}
+
+			StableFrameTime.PresentationAccumulator += DeltaSeconds;
+			constexpr float PresentationIntervalSeconds = 0.25f;
+			if (StableFrameTime.PresentedSeconds <= 0.0f
+				|| StableFrameTime.PresentationAccumulator
+					>= PresentationIntervalSeconds)
+			{
+				StableFrameTime.PresentedSeconds = StableFrameTime.SmoothedSeconds;
+				StableFrameTime.PresentationAccumulator = 0.0f;
+			}
+		}
+
+		return StableFrameTime.PresentedSeconds * 1000.0f;
+	}
+
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void
 	{
 		DrawPlayStateBorder(ViewportMin, ViewportMax, bPaused);
@@ -715,7 +762,7 @@ namespace Durin::Editor::Level
 			TransformIconWidth + ContentGap + ChevronWidth + ContentPadding * 2.0f,
 			Layout.Height);
 		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth;
-		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(3.0f);
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 3.0f + SecondaryWidth + MonaImGui::ScaleUI(3.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(3.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(3.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(3.0f));
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
@@ -759,10 +806,7 @@ namespace Durin::Editor::Level
 		DrawToolbarSurface(Layout.BackgroundMin, Layout.BackgroundMax);
 		DrawToolbarSurface(Layout.PlayBackgroundMin, Layout.PlayBackgroundMax);
 		const float ViewSeparatorX = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap * 0.5f;
-		const float TransformSeparatorX = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap
-			+ Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap * 0.5f;
 		DrawToolbarSeparator(DrawList, ViewSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
-		DrawToolbarSeparator(DrawList, TransformSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
 		DrawList->PopClipRect();
 
 		if (ViewportClient != nullptr)
@@ -1105,7 +1149,8 @@ namespace Durin::Editor::Level
 			if (DrawToolbarButton(Id, ImVec2(X, Y), ImVec2(Width, Layout.Height), Text, Icon, bSelected, Tooltip)) Action();
 			X += Width;
 		};
-		if (DrawToolbarButton("##EditModeButton", ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height), Layout.EditModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, true, "Viewport editing mode"))
+		const bool bEditModePopupOpen = ImGui::IsPopupOpen("ViewportEditModePopup");
+		if (DrawToolbarButton("##EditModeButton", ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height), Layout.EditModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, bEditModePopupOpen, "Viewport editing mode"))
 			ImGui::OpenPopup("ViewportEditModePopup");
 		SetNextToolbarPopupPosition(ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height));
 		if (ImGui::BeginPopup("ViewportEditModePopup"))
@@ -1139,7 +1184,7 @@ namespace Durin::Editor::Level
 		ToolbarButton("##RotateMode", nullptr, EViewportToolbarIcon::Rotate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
 		X += Layout.ToolButtonGap;
 		ToolbarButton("##ScaleMode", nullptr, EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
-		X += Layout.Gap;
+		X += Layout.ToolButtonGap;
 		ImVec2 SnapPopupPosition(X, Y);
 		if (Layout.bOverflow)
 		{
@@ -1405,7 +1450,7 @@ namespace Durin::Editor::Level
 			{
 				const FSceneViewStatistics& Statistics = Snapshot.Statistics;
 				DrawRow("Frame time", std::format("{:.2f} ms",
-					ImGui::GetIO().DeltaTime * 1000.0f));
+					GetStableEditorFrameTimeMilliseconds()));
 				DrawRow("Visible primitives", std::format("{} / {}",
 					FormatViewportStatistic(Statistics.Visibility.VisiblePrimitives),
 					FormatViewportStatistic(Statistics.Visibility.SubmittedPrimitives)));

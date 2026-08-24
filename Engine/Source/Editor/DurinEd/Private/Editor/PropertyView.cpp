@@ -639,15 +639,14 @@ namespace Durin::Editor
 			if (Field && Field->HasAnyPropertyFlags(EPropertyFlags::Edit)) EditableFields.push_back(Field);
 		});
 
-		ImGui::TableNextRow();
-		ImGui::TableSetColumnIndex(0);
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (Property->GetMetaData(FName("DefaultCollapsed")) != "true")
 			Flags |= ImGuiTreeNodeFlags_DefaultOpen;
 		if (EditableFields.empty()) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-		const bool bOpen = MonaImGui::CompactTreeNode("##Struct", Flags, "%s", Label.c_str());
+		const bool bOpen = MonaImGui::PropertyEdit::BeginTreeRow("##Struct", Label.c_str(), Flags);
 		MonaImGui::PropertyEdit::ShowLabelTooltip(TypeTooltip.c_str(), bReadOnly);
 		ImGui::TableSetColumnIndex(1);
+		ImGui::AlignTextToFramePadding();
 		const std::string StructName = Struct->GetShortName().ToString();
 		ImGui::TextDisabled("%s", StructName.c_str());
 		if (!bOpen || EditableFields.empty()) return false;
@@ -669,7 +668,7 @@ namespace Durin::Editor
 			}
 			if (bChanged) break;
 		}
-		ImGui::TreePop();
+		MonaImGui::PropertyEdit::EndTreeRow();
 		return bChanged;
 	}
 

@@ -61,6 +61,23 @@ namespace Durin::MonaImGui
 		return ImGui::Button(Label, ImVec2(bCompact ? Metrics.CompactButtonWidth : Metrics.StandardButtonWidth, 0.0f));
 	}
 
+	auto BeginContentTabBar(const char* Id, ImGuiTabBarFlags Flags) -> bool
+	{
+		const ImVec2 InnerSpacing = ImGui::GetStyle().ItemInnerSpacing;
+		ImGui::PushStyleVar(
+			ImGuiStyleVar_ItemInnerSpacing, ImVec2(0.0f, InnerSpacing.y));
+		const bool bOpen = ImGui::BeginTabBar(
+			Id, Flags | ImGuiTabBarFlags_DrawSelectedOverline);
+		if (!bOpen) ImGui::PopStyleVar();
+		return bOpen;
+	}
+
+	auto EndContentTabBar() -> void
+	{
+		ImGui::EndTabBar();
+		ImGui::PopStyleVar();
+	}
+
 	auto ErrorDialog(const char* Title, std::string& Message) -> void
 	{
 		if (!Title || Message.empty()) return;

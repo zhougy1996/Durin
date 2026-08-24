@@ -5,6 +5,7 @@
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
 #include "RenderGraph.h"
+#include "Viewport/ViewportPresentation.h"
 #include "Workspace/LevelEditorWorkspace.h"
 
 namespace Durin::Editor::Level
@@ -29,6 +30,17 @@ namespace Durin::Editor::Level
 			case ERenderGraphUse::Read: return "Read";
 			case ERenderGraphUse::Write: return "Write";
 			case ERenderGraphUse::ReadWrite: return "Read / Write";
+			}
+			return "Unknown";
+		}
+
+		auto DependencyKindLabel(ERenderGraphDependencyKind Kind) -> const char*
+		{
+			switch (Kind)
+			{
+			case ERenderGraphDependencyKind::Value: return "Value";
+			case ERenderGraphDependencyKind::Execution: return "Execution";
+			case ERenderGraphDependencyKind::Explicit: return "Explicit";
 			}
 			return "Unknown";
 		}
@@ -115,6 +127,9 @@ namespace Durin::Editor::Level
 
 	auto FRenderingDiagnosticsPanel::Draw(FLevelEditorContext&) -> void
 	{
+		ImGui::SetNextWindowSize(
+			ImVec2(MonaImGui::ScaleUI(980.0f), MonaImGui::ScaleUI(700.0f)),
+			ImGuiCond_FirstUseEver);
 		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(
 			Workspace::Type, "Rendering Diagnostics", "RenderingDiagnostics",
 			GetOpenPtr()))
@@ -136,32 +151,28 @@ namespace Durin::Editor::Level
 		if (!Graph.bAvailable && !bCapturePending) RequestCapture();
 
 		const bool bHasCapture = Graph.bAvailable && Graph.Capture != nullptr;
-		if (bHasCapture)
-			ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
-				"Captured frame graph");
-		else if (bCapturePending)
-			ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.2f, 1.0f),
-				"Waiting for the next rendered frame...");
-		else
-			ImGui::TextDisabled("Frame graph unavailable");
-		ImGui::SameLine();
 		if (ImGui::Button(bCapturePending ? "Capture pending" : "Capture next frame"))
 			RequestCapture();
+		const char* CaptureStatus = bHasCapture
+			? "Captured frame graph"
+			: bCapturePending ? "Waiting for the next rendered frame..."
+				: "Frame graph unavailable";
 		ImGui::SameLine();
-		ImGui::TextDisabled("Statistics revision %llu",
-			static_cast<unsigned long long>(Statistics.Revision));
+		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(),
+			ImGui::GetWindowContentRegionMax().x
+				- ImGui::CalcTextSize(CaptureStatus).x));
+		if (bHasCapture)
+			ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "%s",
+				CaptureStatus);
+		else if (bCapturePending)
+			ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.2f, 1.0f), "%s",
+				CaptureStatus);
+		else
+			ImGui::TextDisabled("%s", CaptureStatus);
 
 		const FRenderGraphCapture* Capture = bHasCapture
 			? Graph.Capture.get() : nullptr;
-		const ImGuiStyle& Style = ImGui::GetStyle();
-		ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize,
-			MonaImGui::ScaleUI(1.0f));
-		ImGui::PushStyleColor(ImGuiCol_TabSelected,
-			Style.Colors[ImGuiCol_HeaderActive]);
-		ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline,
-			Style.Colors[ImGuiCol_CheckMark]);
-		if (ImGui::BeginTabBar("RenderingDiagnosticsTabs",
-			ImGuiTabBarFlags_DrawSelectedOverline))
+		if (MonaImGui::BeginContentTabBar("RenderingDiagnosticsTabs"))
 		{
 			if (ImGui::BeginTabItem("Overview"))
 			{
@@ -178,10 +189,8 @@ namespace Durin::Editor::Level
 				DrawRenderGraph(Capture);
 				ImGui::EndTabItem();
 			}
-			ImGui::EndTabBar();
+			MonaImGui::EndContentTabBar();
 		}
-		ImGui::PopStyleColor(2);
-		ImGui::PopStyleVar();
 		ImGui::End();
 	}
 
@@ -199,7 +208,7 @@ namespace Durin::Editor::Level
 		{
 			const FSceneViewStatistics& Statistics = Snapshot.Statistics;
 			DrawValueRow("Editor frame time", std::format("{:.2f} ms",
-				ImGui::GetIO().DeltaTime * 1000.0f));
+				GetStableEditorFrameTimeMilliseconds()));
 			DrawCountRow("Triangles", Statistics.Summary.Triangles);
 			DrawCountRow("Draw calls", Statistics.Summary.DrawCalls);
 			DrawValueRow("Visible primitives", std::format("{} / {}",
@@ -321,15 +330,30 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(260.0f));
+		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
+		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
+		const float MinimumSidebarWidth = MonaImGui::ScaleUI(220.0f);
+		const float MinimumCanvasWidth = MonaImGui::ScaleUI(360.0f);
+		const float PaneWidth = std::max(
+			0.0f, AvailableWidth - Metrics.SplitterThickness);
+		const float ListWidth = std::clamp(
+			PaneWidth * RenderGraphSidebarRatio,
+			std::min(MinimumSidebarWidth, PaneWidth),
+			std::max(std::min(MinimumSidebarWidth, PaneWidth),
+				PaneWidth - MinimumCanvasWidth));
+
+		ImGui::SetNextItemWidth(ListWidth);
 		ImGui::InputTextWithHint("##RenderGraphPassFilter", "Filter passes...",
 			PassFilter.data(), PassFilter.size());
+		ImGui::SameLine();
+		ImGui::Checkbox("Focus dependencies", &bFocusDependencies);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("When a pass is selected or hovered, hide unrelated edges.");
 		ImGui::SameLine();
 		ImGui::TextDisabled("%zu passes  |  %zu resources  |  %zu dependencies",
 			Capture->Passes.size(), Capture->Resources.size(),
 			Capture->Dependencies.size());
 
-		const float ListWidth = MonaImGui::ScaleUI(250.0f);
 		const float GraphHeight = std::max(MonaImGui::ScaleUI(330.0f),
 			ImGui::GetContentRegionAvail().y * 0.62f);
 		if (ImGui::BeginChild("RenderGraphPassList", ImVec2(ListWidth, GraphHeight),
@@ -366,7 +390,11 @@ namespace Durin::Editor::Level
 			}
 		}
 		ImGui::EndChild();
-		ImGui::SameLine();
+		ImGui::SameLine(0.0f, 0.0f);
+		MonaImGui::DrawSplitter("RenderGraphSidebarSplitter",
+			MonaImGui::EUISplitterAxis::X, GraphHeight, PaneWidth,
+			MinimumSidebarWidth, MinimumCanvasWidth, RenderGraphSidebarRatio);
+		ImGui::SameLine(0.0f, 0.0f);
 
 		if (ImGui::BeginChild("RenderGraphCanvas", ImVec2(0.0f, GraphHeight),
 			ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
@@ -377,8 +405,47 @@ namespace Durin::Editor::Level
 			const float RowStep = MonaImGui::ScaleUI(70.0f);
 			const float HeaderHeight = MonaImGui::ScaleUI(30.0f);
 			const ImVec2 Origin = ImGui::GetCursorScreenPos();
+			const std::string_view Filter(PassFilter.data());
+			std::vector<bool> bVisible(Capture->Passes.size(), Filter.empty());
+			std::vector<bool> bFilterMatch(Capture->Passes.size(), false);
+			for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
+			{
+				bFilterMatch[Index] = ContainsCaseInsensitive(
+					Capture->Passes[Index].Name, Filter);
+				if (bFilterMatch[Index]) bVisible[Index] = true;
+			}
+			auto FindPass = [&](uint32 DeclarationIndex) -> size_t {
+				for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
+					if (Capture->Passes[Index].DeclarationIndex == DeclarationIndex)
+						return Index;
+				return Capture->Passes.size();
+			};
+			if (!Filter.empty())
+			{
+				for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
+				{
+					const size_t Before = FindPass(Dependency.BeforePass);
+					const size_t After = FindPass(Dependency.AfterPass);
+					if (Before >= Capture->Passes.size()
+						|| After >= Capture->Passes.size()) continue;
+					if (bFilterMatch[Before] || bFilterMatch[After])
+					{
+						bVisible[Before] = true;
+						bVisible[After] = true;
+					}
+				}
+			}
+			std::vector<size_t> VisiblePasses;
+			std::vector<size_t> VisibleRows(
+				Capture->Passes.size(), Capture->Passes.size());
+			for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
+				if (bVisible[Index])
+				{
+					VisibleRows[Index] = VisiblePasses.size();
+					VisiblePasses.push_back(Index);
+				}
 			const float CanvasHeight = std::max(GraphHeight - MonaImGui::ScaleUI(20.0f),
-				HeaderHeight + RowStep * static_cast<float>(Capture->Passes.size()));
+				HeaderHeight + RowStep * static_cast<float>(VisiblePasses.size()));
 			ImGui::InvisibleButton("RenderGraphCanvasSurface",
 				ImVec2(MonaImGui::ScaleUI(CanvasWidth), CanvasHeight));
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
@@ -400,14 +467,25 @@ namespace Durin::Editor::Level
 				return ImVec2(
 					Origin.x + MonaImGui::ScaleUI(15.0f)
 						+ LaneStep * LaneOf(Capture->Passes[Index].Type),
-					Origin.y + HeaderHeight + RowStep * static_cast<float>(Index));
+					Origin.y + HeaderHeight
+						+ RowStep * static_cast<float>(VisibleRows[Index]));
 			};
-			auto FindPass = [&](uint32 DeclarationIndex) -> size_t {
-				for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
-					if (Capture->Passes[Index].DeclarationIndex == DeclarationIndex)
-						return Index;
-				return Capture->Passes.size();
-			};
+			int32 HoveredPass = -1;
+			for (size_t Index : VisiblePasses)
+			{
+				const ImVec2 Min = NodeMin(Index);
+				const ImVec2 Max(Min.x + NodeWidth, Min.y + NodeHeight);
+				if (ImGui::IsMouseHoveringRect(Min, Max))
+				{
+					HoveredPass = static_cast<int32>(Index);
+					break;
+				}
+			}
+			const bool bSelectedPassVisible = SelectedPass >= 0
+				&& static_cast<size_t>(SelectedPass) < bVisible.size()
+				&& bVisible[SelectedPass];
+			const int32 FocusedPass = HoveredPass >= 0
+				? HoveredPass : bSelectedPassVisible ? SelectedPass : -1;
 
 			for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
 			{
@@ -415,32 +493,78 @@ namespace Durin::Editor::Level
 				const size_t After = FindPass(Dependency.AfterPass);
 				if (Before >= Capture->Passes.size() || After >= Capture->Passes.size())
 					continue;
+				if (!bVisible[Before] || !bVisible[After]) continue;
+				const bool bHighlighted = FocusedPass == static_cast<int32>(Before)
+					|| FocusedPass == static_cast<int32>(After);
+				if (bFocusDependencies && FocusedPass >= 0 && !bHighlighted) continue;
 				const ImVec2 A = NodeMin(Before);
 				const ImVec2 B = NodeMin(After);
-				const ImVec2 Start(A.x + NodeWidth, A.y + NodeHeight * 0.5f);
-				const ImVec2 End(B.x, B.y + NodeHeight * 0.5f);
-				const bool bHighlighted = SelectedPass == static_cast<int32>(Before)
-					|| SelectedPass == static_cast<int32>(After);
-				const ImU32 Color = ImGui::GetColorU32(bHighlighted
-					? ImGuiCol_CheckMark : ImGuiCol_Border);
-				const float Bend = MonaImGui::ScaleUI(45.0f);
-				DrawList->AddBezierCubic(Start,
-					ImVec2(Start.x + Bend, Start.y),
-					ImVec2(End.x - Bend, End.y), End, Color,
-					bHighlighted ? 2.5f : 1.0f);
+				const uint32 BeforeLane = LaneOf(Capture->Passes[Before].Type);
+				const uint32 AfterLane = LaneOf(Capture->Passes[After].Type);
+				ImVec2 Start;
+				ImVec2 End;
+				ImVec2 ControlA;
+				ImVec2 ControlB;
+				if (BeforeLane == AfterLane)
+				{
+					Start = ImVec2(A.x + NodeWidth, A.y + NodeHeight * 0.5f);
+					End = ImVec2(B.x + NodeWidth, B.y + NodeHeight * 0.5f);
+					const size_t Span = VisibleRows[After] > VisibleRows[Before]
+						? VisibleRows[After] - VisibleRows[Before]
+						: VisibleRows[Before] - VisibleRows[After];
+					const float GutterOffset = MonaImGui::ScaleUI(
+						24.0f + 4.0f * static_cast<float>(Span % 5));
+					ControlA = ImVec2(Start.x + GutterOffset, Start.y);
+					ControlB = ImVec2(End.x + GutterOffset, End.y);
+				}
+				else
+				{
+					const bool bMovesRight = BeforeLane < AfterLane;
+					Start = ImVec2(bMovesRight ? A.x + NodeWidth : A.x,
+						A.y + NodeHeight * 0.5f);
+					End = ImVec2(bMovesRight ? B.x : B.x + NodeWidth,
+						B.y + NodeHeight * 0.5f);
+					const float MiddleX = (Start.x + End.x) * 0.5f;
+					ControlA = ImVec2(MiddleX, Start.y);
+					ControlB = ImVec2(MiddleX, End.y);
+				}
+				ImVec4 Color = ImGui::GetStyleColorVec4(
+					Dependency.Kind == ERenderGraphDependencyKind::Explicit
+						? ImGuiCol_CheckMark : Dependency.Kind == ERenderGraphDependencyKind::Value
+							? ImGuiCol_TextDisabled : ImGuiCol_Border);
+				if (!bHighlighted) Color.w *= 0.38f;
+				DrawList->AddBezierCubic(Start, ControlA, ControlB, End,
+					ImGui::GetColorU32(Color), bHighlighted ? 2.5f : 1.0f);
+				const float DirectionX = End.x - ControlB.x;
+				const float DirectionY = End.y - ControlB.y;
+				const float DirectionLength = std::sqrt(
+					DirectionX * DirectionX + DirectionY * DirectionY);
+				if (DirectionLength > 0.0f)
+				{
+					const float UnitX = DirectionX / DirectionLength;
+					const float UnitY = DirectionY / DirectionLength;
+					const float ArrowLength = MonaImGui::ScaleUI(7.0f);
+					const float ArrowWidth = MonaImGui::ScaleUI(3.5f);
+					const ImVec2 Base(End.x - UnitX * ArrowLength,
+						End.y - UnitY * ArrowLength);
+					DrawList->AddTriangleFilled(End,
+						ImVec2(Base.x - UnitY * ArrowWidth,
+							Base.y + UnitX * ArrowWidth),
+						ImVec2(Base.x + UnitY * ArrowWidth,
+							Base.y - UnitX * ArrowWidth),
+						ImGui::GetColorU32(Color));
+				}
 			}
 
-			for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
+			for (size_t Index : VisiblePasses)
 			{
 				const FRenderGraphPassCapture& Pass = Capture->Passes[Index];
 				const ImVec2 Min = NodeMin(Index);
 				const ImVec2 Max(Min.x + NodeWidth, Min.y + NodeHeight);
 				const bool bSelected = SelectedPass == static_cast<int32>(Index);
-				const bool bMatches = ContainsCaseInsensitive(
-					Pass.Name, PassFilter.data());
 				ImVec4 Fill = ImGui::GetStyleColorVec4(
 					bSelected ? ImGuiCol_HeaderActive : ImGuiCol_FrameBg);
-				if (!bMatches) Fill.w *= 0.25f;
+				if (!Filter.empty() && !bFilterMatch[Index]) Fill.w *= 0.45f;
 				DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(Fill),
 					MonaImGui::ScaleUI(4.0f));
 				DrawList->AddRect(Min, Max,
@@ -454,10 +578,51 @@ namespace Durin::Editor::Level
 				DrawList->AddText(ImVec2(Min.x + MonaImGui::ScaleUI(8.0f),
 					Min.y + MonaImGui::ScaleUI(25.0f)),
 					ImGui::GetColorU32(ImGuiCol_TextDisabled), Detail.c_str());
-				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-					&& ImGui::IsMouseHoveringRect(Min, Max))
+				if (HoveredPass == static_cast<int32>(Index)
+					&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 					SelectedPass = static_cast<int32>(Index);
+				if (HoveredPass == static_cast<int32>(Index))
+				{
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(MonaImGui::ScaleUI(520.0f));
+					ImGui::TextUnformatted(Pass.Name.c_str());
+					constexpr size_t MaximumTooltipDependencies = 12;
+					size_t DependencyCount = 0;
+					for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
+					{
+						const size_t Before = FindPass(Dependency.BeforePass);
+						const size_t After = FindPass(Dependency.AfterPass);
+						if (Before == Index && After < Capture->Passes.size())
+						{
+							if (DependencyCount < MaximumTooltipDependencies)
+								ImGui::BulletText("%s -> %s (%s)",
+									DependencyKindLabel(Dependency.Kind),
+									Capture->Passes[After].Name.c_str(),
+									Dependency.Cause.c_str());
+							++DependencyCount;
+						}
+						else if (After == Index && Before < Capture->Passes.size())
+						{
+							if (DependencyCount < MaximumTooltipDependencies)
+								ImGui::BulletText("%s <- %s (%s)",
+									DependencyKindLabel(Dependency.Kind),
+									Capture->Passes[Before].Name.c_str(),
+									Dependency.Cause.c_str());
+							++DependencyCount;
+						}
+					}
+					if (DependencyCount == 0) ImGui::TextDisabled("No dependencies");
+					else if (DependencyCount > MaximumTooltipDependencies)
+						ImGui::TextDisabled("+ %zu more dependencies",
+							DependencyCount - MaximumTooltipDependencies);
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
 			}
+			if (VisiblePasses.empty())
+				DrawList->AddText(ImVec2(Origin.x + MonaImGui::ScaleUI(15.0f),
+					Origin.y + HeaderHeight), ImGui::GetColorU32(ImGuiCol_TextDisabled),
+					"No passes match the filter.");
 		}
 		ImGui::EndChild();
 
