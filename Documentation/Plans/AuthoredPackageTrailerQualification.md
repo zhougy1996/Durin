@@ -4,22 +4,30 @@ Summary: Measure authored payload costs and select, defer, or retain a compatibl
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-This plan is the active Milestone 0 child of
-[Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md).
-No production wire, writer default, or source-control policy has been selected.
-The qualified DAST v4/DABK v1 route remains authoritative throughout this plan.
+Milestone 0 completed with a **Retain** decision. No new package boundary,
+placement vocabulary, production writer, or source-control migration is
+selected. DAST v4/DABK v1 remains authoritative, including companion-first
+publication and atomic package replacement.
 
-The initial 2026-08-24 snapshot contains 32 tracked `.dasset` files totalling
-71,797 bytes and two tracked `.dabulk` files totalling 2,359,616 bytes.
-`.dasset` is ordinary Git binary data; `.dabulk` is Git LFS data. These numbers
-are routing evidence only. Stage 0 freezes representative workloads, metrics,
-and decision thresholds before the qualification treats any result as an
-acceptance claim.
+The reproducible Windows Debug run inspected all 32 tracked `.dasset` files and
+two reachable `.dabulk` companions without mutation. It found two external
+payload descriptors totalling 2,359,296 logical bytes, no corrupt or missing
+payload, no orphan companion, and no exact duplicate content. The same logical
+payload GUID occurs in the two different packages; this is valid under the
+qualified package-scoped uniqueness rule and the contents differ.
+
+Storage and current-corpus pressure remained below their frozen gates. The
+current computer is not the performance reference machine, so its 69.965 ms
+construct-free Debug warm p95 and publication timings are retained as diagnostic
+evidence only and do not select or reopen a wire. No new boundary has measured
+benefit sufficient to justify compatibility and migration cost. Raw evidence is
+ignored under
+`Saved/AuthoredPackageStorageQualification/2026-08-24-win64-debug-retain/`.
 
 ## Goal
 
@@ -110,23 +118,192 @@ without introducing production format code.
 | Source control | `.dasset` uses ordinary Git and `.dabulk` uses Git LFS | Package-local bytes can invert the documented storage policy and must be measured separately |
 | Tests | `AssetBulkContainerTests` and `AssetPackageTests` cover current container and package behavior | No selected new wire exists for golden, corruption, or migration fixtures |
 
+## Frozen Qualification Protocol
+
+The checked-in protocol is
+`Tools/DurinDevTool/data/authored-package-storage-qualification-v1.json`. Run it
+from the repository root with:
+
+```powershell
+.\DevTool.bat asset qualify-storage --project Sandbox\Sandbox.dproject --output Saved\AuthoredPackageStorageQualification\2026-08-24-win64-debug-retain
+```
+
+The report directory contains `native-inventory.json`, `git-baseline.json`,
+`source-control-experiment.json`, `synthetic-model.json`,
+`publication-benchmark.json`, and the aggregate `qualification-report.json`.
+The isolated Git repositories remain below the run's `_scratch/` directory so
+their objects and LFS pointers can be audited without touching project history.
+
+| Workload | Classification | Reproduction and ownership |
+| --- | --- | --- |
+| Every tracked package and companion | Current corpus | Mounted Engine and Sandbox package snapshot plus Git-tracked `.dasset`/`.dabulk` enumeration |
+| `synthetic-mixed-v1` | Synthetic only | Seed 841592647; 128 packages; repeated 0 B through 64 MiB distribution; 0%, 1%, 25%, and 100% edit fractions |
+| VolumeTexture source | Named future consumer | Atomic tightly packed voxel payload owned by [Volume Textures](../Runtime/Assets/VolumeTextures.md) |
+| Texture source | Named future consumer | Domain-owned Texture2D/TextureCube source payload boundary in [Texture System](../Runtime/Rendering/TextureSystem.md); no projected count is reported as corpus fact |
+
+| Metric | Unit and collection | Samples | Frozen gate or revisit trigger |
+| --- | --- | --- | --- |
+| Package/payload inventory and fan-out | counts and bytes from construct-free package inspection and verified DABK loads | complete corpus | corrupt, missing, same-package duplicate id, or unreachable required bytes fail correctness |
+| Inspection IO and latency | package bytes read; first call cold, following calls warm | 5 inspections per package | diagnostic on this non-reference machine; a reference run uses 50 ms warm p95 |
+| Publication latency and rewrite bytes | write, flush, `fsync`, close, and atomic replace of detached copies | 7 per package/operation | diagnostic on this non-reference machine; temporary amplification remains bounded at 2.0x |
+| Git history and change rate | unique Git blob bytes, LFS pointer-declared bytes, commit touches/month | complete tracked history | revisit at 2 GiB monthly LFS transfer/rewrite |
+| Checkout/partial sync | isolated Git object bytes and LFS payload bytes with skip-smudge projection | baseline, metadata edit, 1% payload edit, rename | candidate must reduce a measured cost by at least 25% without changing an unapproved Git/LFS boundary |
+| Corpus pressure | reachable external bytes and authored payload count | complete corpus | revisit at 256 MiB or 100 payloads |
+| Consumer pressure | distinct dense authored consumers | owning contracts | revisit at two consumers with measured shared need |
+| Failure model | state/failure pair with last-good-generation outcome | every reachable transition named below | every correctness/durability case must pass; performance cannot compensate |
+
+The run used Windows 10 build 2009 on x64, NTFS, Git 2.45.2, Git LFS 3.5.1,
+the `windows-msvc-x64` profile, `Win64-Debug-DurinEditor` preset, and Debug
+configuration. This is not the performance reference computer, so timings are
+diagnostic and cannot change the storage decision. A
+cold sample is the first inspection in a new native process; warm samples reuse
+that process without an OS cache flush. The timing policy requires no editor,
+test, build, or storage-heavy competitor.
+
+## Measured Results
+
+| Corpus result | Measurement |
+| --- | ---: |
+| Tracked DAST packages | 32 files; 71,797 working-tree bytes |
+| Tracked DABK companions | 2 files; 2,359,616 working-tree bytes including 320 bytes of container framing |
+| Authored payloads | 2 external, 0 inline; 2,359,296 logical/stored bytes |
+| Package fan-out | 30 packages with 0 payloads; 2 packages with 1 payload each |
+| Integrity/reachability | 0 corrupt packages, 0 missing payloads, 0 stale generations, 0 tracked or discovered orphans |
+| Identity/content | one cross-package repeated GUID; 0 same-package duplicate ids; 0 equal-hash candidates; 0 exact duplicates |
+| Construct-free IO | 71,797 package bytes per complete pass |
+| Construct-free warm timing | diagnostic 5.818 ms median; 69.965 ms p95 on the non-reference Debug machine |
+| Publication | diagnostic maximum warm p95 13.302 ms; largest external save wrote 2,098,805 bytes |
+| Estimated current rewrite rate | 2,610,827 bytes/month from tracked history touch rates |
+| Historical object accounting | 953,867 bytes of unique main-Git blobs by path; 2,359,616 bytes of LFS payload generations by path |
+
+The deterministic synthetic workload contains 128 packages, 112 nonempty
+payloads, and 1,431,371,776 logical bytes. Its median payload is 1 MiB and p95
+and maximum are 64 MiB. It is scaling evidence only. With immutable generations,
+any nonzero edit fraction rewrites the affected full payload; it is not evidence
+that the current corpus has this scale or change rate.
+
+The isolated 1 MiB experiment separated main-Git and LFS growth:
+
+| Layout/edit | Main-Git object delta | LFS object delta |
+| --- | ---: | ---: |
+| Companion-local baseline | 4,096 B | 1,048,576 B |
+| Companion-local metadata edit | 4,096 B | 0 B |
+| Companion-local 1% payload edit | 1,024 B | 1,048,576 B |
+| Package-local ordinary-Git baseline | 1,052,672 B | 0 B |
+| Package-local metadata edit | 1,053,696 B | 0 B |
+| Package-local 1% payload edit | 1,052,672 B | 0 B |
+
+After the rename, the companion experiment projected a 9,216-byte Git-only
+checkout with LFS smudge skipped and 2,106,368 bytes when both LFS generations
+were included. The package-local layout required 3,159,040 main-Git object
+bytes and had no partial-payload sync boundary. Rename introduced no new payload
+object in either layout. Package-local ordinary Git is therefore rejected for
+the current source-control policy.
+
+## Identity, Hash, and Placement Qualification
+
+| Lifecycle event | Qualified rule while retaining the baseline |
+| --- | --- |
+| New logical payload | Generate a nonzero GUID unique within its package |
+| Repeated authored edit or reimport | Retain `PayloadId`; replace bytes atomically and update size/integrity values |
+| Package copy | Retain payload GUIDs; cross-package equality is valid and is not implicit aliasing or deduplication |
+| Object duplicate within one package | Regenerate the duplicated payload GUID before save; same-package duplicates fail save |
+| Cross-package move/relocation | Retain logical GUID and bytes while publication moves the full reachable closure |
+| Exact content duplicate | Equal XXH3-128 values are candidates only; exact byte comparison is required before reporting identity or deduplication |
+
+`PayloadId` remains logical identity and never addresses a backend. DAST v4 and
+DABK v1 store uncompressed logical bytes, so their current XXH3-128 value checks
+both logical and stored bytes but remains an integrity check, not a durable
+global content key. Retain selects no persistent key. A reopened persistent route
+must encode `(algorithm, version, digest)`, compare exact bytes before aliasing,
+and reject/quarantine a same-key byte mismatch. Compression remains domain- or
+future-container-owned; current DABK accepts no codec and unknown required codec
+or placement values fail. Only current `Inline` and `External` placements are
+qualified; referenced and virtualized values remain unsupported.
+
+## Boundary and Compatibility Qualification
+
+Only the retained baseline survives to a byte-level contract. DAST v4 begins
+with `DAST`, little-endian version 4, a bounded summary length, section count 5,
+then exactly five 9-byte Name/Type/Schema/Object/Value entries. Sections are
+contiguous, unpadded, canonical, and the Value extent ends at physical EOF.
+DABK v1 has a 64-byte header, sorted 96-byte entries, 16-byte payload alignment,
+XXH3-128 container/content integrity, unique ids, and no trailing bytes. The
+implemented contract remains authoritative in [Asset Packages](../Runtime/Assets/AssetPackages.md).
+
+| Candidate | Legacy reader | New reader/write hypothesis | Rollback bytes | Result |
+| --- | --- | --- | --- | --- |
+| DAST v4 + DABK v1 | Reads exact v4 and resolves v1 companion | Current canonical reader/writer and construct-free inspection | previous DAST plus every named immutable DABK | Pass; production baseline |
+| DAST v5 + indexed companion | Rejects version 5 before body decoding | Dual dispatch by package version; would require exact new header/section layout | canonical v4 plus retained/rebuilt DABK v1 | Deferred before wire freeze: no measured benefit |
+| Outer envelope + indexed companion | Rejects envelope magic; never treats appended bytes as v4 | Would bound an exact inner stream and separately validate trailer/footer | exact inner v4 plus every DABK it names | Deferred before wire freeze: no measured benefit |
+| Package-local payload | Rejects new boundary | Would require bounded payload region and explicit `.dasset` Git/LFS policy | v4 plus reconstructed DABK | Rejected under current ordinary-Git policy and amplification evidence |
+| Bare bytes after DAST v4 EOF | Rejects trailing bytes | Cannot be described as compatible v4 | none | Rejected as structurally incompatible |
+| Tail rewrite / append generation | Rejects new boundary | Requires proven footer discovery, generation commit, and compaction | previous discoverable generation | Rejected: durability/fault gate failed |
+
+No candidate changes a domain schema, makes DDC authoritative, hides a physical
+fact in `FEditorBulkData`, or changes catalog/dirty/DDC authority. Because the
+decision is Retain, no new writer/reader pair, downgrade codec, trailer golden,
+or production placement state is activated.
+
+## Publication and Failure Qualification
+
+| Protocol | Commit model and injected failures | Last-good result |
+| --- | --- | --- |
+| Complete-file replacement | construct, flush, close, replace, catalog, cleanup; termination, short write, flush/close/rename, disk, and catalog failures | Pass: replacement is the only file commit point; catalog retains/reconciles its prior revision |
+| Companion-first | construct/flush/close/publish companion, construct/flush/close/publish package, catalog, submit closure, cleanup; corrupt candidate and partial submit added | Pass: unpublished companion is orphanable and the old package continues naming the old immutable companion; submit must include the full closure |
+| In-place tail rewrite | write/flush/publish footer; termination, short write, stale footer, disk failure | Fail: interruption can destroy the only committed footer on NTFS |
+| Append generation | append/flush data and footer, corrupt latest, interrupted compaction, disk failure | Fail: no bounded redundant-footer discovery or atomic footer guarantee is qualified |
+
+Temporary disk for accepted protocols is bounded by one detached candidate
+closure (at most 1.0x additional live bytes in the measured model), below the
+2.0x gate. Full replacement remains the fallback. Fully local and companion
+placements remain offline-capable when their submit closure is present; no
+never-hydrated virtual state was selected.
+
+## Decision Scorecard
+
+| Candidate | Compatibility | Durability | Source control | Measured benefit | Decision |
+| --- | --- | --- | --- | --- | --- |
+| Retain DAST v4/DABK v1 | Pass | Pass | Pass | Baseline | Retain |
+| DAST v5 indexed companion | Hypothesis only | Full replacement could pass | Preserves Git/LFS split | Not measured | Reject for current corpus |
+| Outer envelope indexed companion | Hypothesis only | Full replacement could pass | Preserves Git/LFS split | Not measured | Reject for current corpus |
+| Package-local ordinary Git | Requires new reader | Full replacement could pass | Fail | Negative metadata/history amplification | Reject |
+| Tail/append | Requires new reader | Fail | Unselected | No accepted gain | Reject |
+
+The exact decision is **Retain** with high confidence for storage and durability:
+corpus integrity, source-control amplification, and publication rewrite bytes
+are direct. Current-machine performance data is diagnostic only. Revisit when
+any one of the following occurs:
+
+- the exact construct-free workload remains above 50 ms warm p95 in two
+  consecutive quiet Release runs on the designated reference machine;
+- reachable external authored bytes reach 256 MiB;
+- the tracked authored payload count reaches 100;
+- measured monthly LFS transfer/rewrite reaches 2 GiB;
+- publication warm p95 reaches 250 ms; or
+- two distinct dense authored consumers demonstrate the same storage need.
+
+Revisit does not imply Proceed. Thresholds reopen qualification; a production
+route still needs a measured 25% benefit plus all compatibility and durability
+gates. No Package Trailer Foundation plan is created by this result.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the qualification protocol
 
-- [ ] Freeze three workload sets: the complete tracked corpus, deterministic
+- [x] Freeze three workload sets: the complete tracked corpus, deterministic
   synthetic size/change distributions, and named future-consumer scenarios
   backed by an owning contract rather than speculation.
-- [ ] Define every measured metric with unit, workload, collection method,
+- [x] Define every measured metric with unit, workload, collection method,
   repeat count, environment facts, and an acceptance or revisit threshold
   before collecting decision-bearing results.
-- [ ] Record the supported filesystem, Git, Git LFS, build preset, CPU/storage
+- [x] Record the supported filesystem, Git, Git LFS, build preset, CPU/storage
   environment, cold/warm-cache definition, and interference policy used for
   timing claims.
-- [ ] Freeze the candidate matrix across package boundary, local placement,
+- [x] Freeze the candidate matrix across package boundary, local placement,
   publication protocol, source-control classification, and rollback route;
   reject combinations that cannot preserve a last complete generation.
-- [ ] Define the ignored raw-report layout under
+- [x] Define the ignored raw-report layout under
   `Saved/AuthoredPackageStorageQualification/` and the stable summary tables to
   be maintained in this plan.
 
@@ -141,19 +318,19 @@ without introducing production format code.
 
 ### Stage 1: Measure corpus and source-control costs
 
-- [ ] Inspect every tracked `.dasset` construct-free, enumerate every authored
+- [x] Inspect every tracked `.dasset` construct-free, enumerate every authored
   bulk descriptor and reachable DABK, and report corrupt, missing, duplicate-id,
   duplicate-content, stale-generation, and orphan states without mutation.
-- [ ] Measure payload counts, logical/stored-size distributions, inline/external
+- [x] Measure payload counts, logical/stored-size distributions, inline/external
   split, per-package fan-out, and deduplication upper bounds for tracked and
   synthetic workloads.
-- [ ] Measure Git history growth, working-tree bytes, incremental checkout and
+- [x] Measure Git history growth, working-tree bytes, incremental checkout and
   transfer bytes, partial-sync behavior, and rename/edit amplification for the
   ordinary-Git `.dasset` and LFS-backed `.dabulk` baseline.
-- [ ] In an isolated throwaway repository, compare metadata-only and payload
+- [x] In an isolated throwaway repository, compare metadata-only and payload
   edits for companion-local and package-local layouts without changing the
   repository `.gitattributes` or rewriting project history.
-- [ ] Measure current save/publication latency, bytes written, peak temporary
+- [x] Measure current save/publication latency, bytes written, peak temporary
   disk, construct-free inspection bytes, and orphan cleanup amplification under
   the frozen cold/warm and repeat policy.
 
@@ -167,21 +344,21 @@ without introducing production format code.
 
 ### Stage 2: Select identity, wire, and compatibility boundaries
 
-- [ ] Record byte-level layouts for each surviving boundary candidate, including
+- [x] Record byte-level layouts for each surviving boundary candidate, including
   version discovery, inner DAST extent, header/table/data/footer ownership,
   alignment, counts, sizes, hashes, canonical ordering, and trailing-byte rules.
-- [ ] Decide the payload-id uniqueness scope and exact regeneration/aliasing
+- [x] Decide the payload-id uniqueness scope and exact regeneration/aliasing
   behavior for object duplication, package copy, cross-package move, reimport,
   and repeated authored edits.
-- [ ] Decide logical-byte versus stored-byte hashes, content-key
+- [x] Decide logical-byte versus stored-byte hashes, content-key
   algorithm/version representation, collision handling, compression ownership,
   and the rule for unsupported reserved codecs.
-- [ ] Define only the initial placement states required by the selected local
+- [x] Define only the initial placement states required by the selected local
   route and reject unknown required states without reserving behavior in code.
-- [ ] Complete a reader/writer matrix for legacy DAST v4/DABK v1 and every
+- [x] Complete a reader/writer matrix for legacy DAST v4/DABK v1 and every
   surviving candidate, including construct-free inspection, canonical resave,
   explicit old-reader rejection, downgrade, rollback, and orphan disposition.
-- [ ] Eliminate any candidate that requires changing a domain schema, makes DDC
+- [x] Eliminate any candidate that requires changing a domain schema, makes DDC
   authoritative, hides a physical fact in `FEditorBulkData`, or cannot keep
   catalog and dirty/DDC fingerprints authority-correct.
 
@@ -197,20 +374,20 @@ without introducing production format code.
 
 ### Stage 3: Qualify publication and failure models
 
-- [ ] Model candidate construction, flush, close, package/companion replacement,
+- [x] Model candidate construction, flush, close, package/companion replacement,
   footer visibility, catalog publication, source-control submit, cleanup, and
   bundle ordering as explicit state transitions.
-- [ ] Inject or simulate termination, short write, flush/close failure, rename
+- [x] Inject or simulate termination, short write, flush/close failure, rename
   failure, stale footer, corrupt latest generation, interrupted compaction,
   insufficient disk, catalog failure, and partial submit at every reachable
   transition.
-- [ ] Prove the last complete generation remains discoverable, distinguish an
+- [x] Prove the last complete generation remains discoverable, distinguish an
   incomplete candidate from committed corruption, and bound temporary plus
   stale-generation disk use.
-- [ ] Compare complete-file replacement, companion-first publication, tail
+- [x] Compare complete-file replacement, companion-first publication, tail
   rewrite, and append generation against the frozen save-latency, rewrite-byte,
   source-control, and compaction budgets on each supported filesystem.
-- [ ] Define the exact offline outcome for every selected local placement and
+- [x] Define the exact offline outcome for every selected local placement and
   leave remote hydration, backend permissions, retention, and GC to the
   virtualization child plan.
 
@@ -225,17 +402,17 @@ without introducing production format code.
 
 ### Stage 4: Record the decision and handoff
 
-- [ ] Publish a candidate scorecard with pass/fail durability and compatibility
+- [x] Publish a candidate scorecard with pass/fail durability and compatibility
   gates plus measured storage, source-control, and performance deltas.
-- [ ] Record exactly one Proceed, Defer, or Retain result, its rationale,
+- [x] Record exactly one Proceed, Defer, or Retain result, its rationale,
   rejected alternatives, confidence limits, and quantitative revisit triggers.
-- [ ] Update the roadmap Milestone 0 state and current status. Create and link
+- [x] Update the roadmap Milestone 0 state and current status. Create and link
   the Package Trailer Foundation plan only for Proceed and only with the
   selected boundary and placement vocabulary.
-- [ ] Preserve the current DAST v4/DABK v1 contracts as authoritative until a
+- [x] Preserve the current DAST v4/DABK v1 contracts as authoritative until a
   production child plan passes its migration gate; do not write future wire
   decisions into implemented contract documentation prematurely.
-- [ ] Run repository documentation validation and record any native evidence
+- [x] Run repository documentation validation and record any native evidence
   selected below using the root agent workflows.
 
 #### Acceptance Gate
@@ -262,6 +439,22 @@ without introducing production format code.
 | Performance | Frozen workloads and thresholds for save latency, bytes rewritten, checkout/transfer, inspection IO, peak temporary disk, and compaction amplification |
 | Native baseline | `AssetBulkContainerTests` for bounded container mechanics and `AssetPackageTests` for DAST, authored companion, inspection, publication, and recovery behavior, selected through [Agent Testing Workflow](../Agents/Testing.md) |
 | Build | Any executable evidence follows [Agent Build and Run Workflow](../Agents/BuildAndRun.md); a document-only stage does not invent a native build claim |
+
+## Validation Evidence
+
+- `DevTool.bat build --target DurinAssetTool` passed for
+  `Win64-Debug-DurinEditor`.
+- The recorded `asset qualify-storage` command completed with Retain and wrote
+  all raw reports below the ignored run directory without changing tracked
+  assets, `.gitattributes`, or project history.
+- `AssetBulkContainerTests` passed 11/11 tests.
+- `AssetPackageTests` passed 106/106 tests.
+- Focused DevTool asset/command-contract tests passed 34/34. The complete
+  Windows-applicable DevTool selection passed 375 tests with 2 skipped and 3
+  explicitly deselected POSIX/macOS-only assertions. An unfiltered diagnostic
+  run confirmed those three host-mismatch failures and no additional failure.
+- Changed-document, all-document, all-plan, and all-roadmap validation passed
+  after the final evidence update.
 
 ## Definition of Done
 
@@ -315,3 +508,6 @@ without introducing production format code.
 - `Engine/Tests/Native/AssetCoreTests/Private/BulkContainerInfrastructureTests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/PackageV4WireContractTests.cpp`
+- `Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp`
+- `Tools/DurinDevTool/durin_dev_tool/storage_qualification.py`
+- `Tools/DurinDevTool/data/authored-package-storage-qualification-v1.json`

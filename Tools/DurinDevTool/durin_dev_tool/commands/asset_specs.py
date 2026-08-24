@@ -7,6 +7,7 @@ from .specification import CommandSpec, argument
 
 
 HANDLER = "durin_dev_tool.asset:run"
+QUALIFICATION_HANDLER = "durin_dev_tool.storage_qualification:run"
 
 COMMAND_SPEC = CommandSpec(
     "asset",
@@ -39,6 +40,23 @@ COMMAND_SPEC = CommandSpec(
                     action="append",
                     default=[],
                 ),
+            ),
+        ),
+        CommandSpec(
+            "qualify-storage",
+            "measure authored package storage and record a Proceed, Defer, or Retain decision",
+            QUALIFICATION_HANDLER,
+            required_modules=("rich", "jsonschema"),
+            arguments=CONTEXT_ARGUMENTS
+            + (
+                argument("--project", dest="project_path", type=Path, required=True),
+                argument(
+                    "--output",
+                    dest="output_path",
+                    type=Path,
+                    default=Path("Saved/AuthoredPackageStorageQualification/latest"),
+                ),
+                argument("--format", dest="format_name", choices=("human", "json"), default="human"),
             ),
         ),
     ),

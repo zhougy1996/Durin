@@ -35,9 +35,20 @@ Implementation plans remain gated by measured need and must preserve the
 qualified DAST v4/DABK v1 route until their own migration gates pass.
 The first child plan,
 [Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md),
-is active. It may select a production direction, defer it behind explicit
-telemetry triggers, or retain DABK; qualification is not evidence that a
-trailer has already been selected.
+completed on 2026-08-24 with a **Retain** decision. The complete tracked corpus
+has 32 DAST packages and two reachable external payloads totalling 2,359,296
+logical bytes, with no corruption, missing payload, orphan, or exact duplicate.
+An isolated 1 MiB metadata edit added 4 KiB of main-Git objects with an
+LFS-backed companion but about 1.005 MiB when payload bytes were embedded in an
+ordinary-Git package. No new boundary showed measured benefit sufficient to
+pay its compatibility and migration cost.
+
+DAST v4/DABK v1, companion-first publication, and the current Git/LFS split
+therefore remain authoritative. Current-computer timings are recorded as
+diagnostic only because this is not the designated performance reference
+machine. Milestones 1-7 remain inactive. Milestone 0 reopens only when a
+recorded corpus, transfer, consumer, publication, or reference-machine
+inspection trigger fires; reopening qualification is not a Proceed decision.
 
 ## Outcome
 
@@ -233,7 +244,7 @@ an initial assumption.
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 0. Qualification and wire decision | Current DAST/DABK contracts and representative corpus | Measured corpus/source-control baseline, UE-reference analysis, alternatives record, compatibility matrix, and a recorded Proceed, Defer, or Retain decision; Proceed also selects the package/descriptor boundary and next child plan | Roadmap accepted and the qualification plan activated | Reproducible evidence covers payload counts/sizes/change rates, save and checkout costs, Git/LFS effects, supported-filesystem crash windows, identity/hash policy, and candidate layouts; Proceed proves benefit over DABK, while Defer or Retain records measurable revisit triggers and activates no production-format plan | Active |
+| 0. Qualification and wire decision | Current DAST/DABK contracts and representative corpus | Measured corpus/source-control baseline, UE-reference analysis, alternatives record, compatibility matrix, and a recorded Proceed, Defer, or Retain decision; Proceed also selects the package/descriptor boundary and next child plan | Roadmap accepted and the qualification plan activated | Reproducible evidence covers payload counts/sizes/change rates, save and checkout costs, Git/LFS effects, supported-filesystem crash windows, identity/hash policy, and candidate layouts; Proceed proves benefit over DABK, while Defer or Retain records measurable revisit triggers and activates no production-format plan | Completed — Retain 2026-08-24 |
 | 1. Package trailer foundation | Milestone 0 | Bounded versioned trailer/footer model, detached builder/reader, only the selected entry vocabulary, construct-free inspection, golden bytes, and corruption fixtures | Milestone 0 records Proceed and selects a trailer/object-stream boundary without changing domain schemas | Focused tests prove canonical ordering, backward discovery by the new reader, all structural bounds, unsupported-state rejection, duplicate/range/trailing rejection, and no object construction; no production writer uses the format yet | Qualification-gated |
 | 2. Selected local authored payload publication | Milestone 1 | Dual-read package loading, failure-atomic publication for the selected package-local or companion-local placement, recovery/compaction policy, package operations integration, and opt-in writer | The selected placement shows measured or operational benefit, has an explicit Git/LFS policy, and preserves the prior generation under every injected failure | Save/reload, bundle, move, copy, delete, Fix Up, canonical resave, crash recovery, and catalog failure tests pass while DAST v4/DABK v1 remain readable | Qualification-gated |
 | 3. VolumeTexture migration pilot | Milestone 2 | One production asset route writes through the selected trailer-indexed authored-voxel placement without domain-schema change and can roll back to DAST v4/DABK v1 during qualification | Selected local publication is qualified and VolumeTexture golden/source/DDC/Cook fixtures are green | Editor save/reload, reimport, DDC miss/rebuild, Cook/runtime, inspection/repair, source control, canonical resave, and rollback pass with exact disposition of legacy companions | Qualification-gated |
@@ -252,7 +263,7 @@ program.
 
 | Child plan | Activation condition | Owns | Must not own |
 | --- | --- | --- | --- |
-| [Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md) | Active since 2026-08-24 | Measurements, UE comparison, format/placement alternatives, identity and hash policy, compatibility matrix, and Proceed/Defer/Retain decision | Production wire changes, source-control migration, or corpus mutation |
+| [Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md) | Completed 2026-08-24 with Retain | Measurements, UE comparison, format/placement alternatives, identity and hash policy, compatibility matrix, and Proceed/Defer/Retain decision | Production wire changes, source-control migration, or corpus mutation |
 | Authored Package Trailer Foundation | Milestone 0 records Proceed | Selected trailer/footer codec, builder/reader, inspection model, golden and corruption fixtures | Unselected placement states, asset-domain codecs, production default writer, or virtualization backend |
 | Local Authored Trailer Publication | Milestone 1 exit gate | Atomic/tail/append publication choice, recovery, compaction, package operation integration, dual-read and opt-in write | Remote backend or broad consumer migration |
 | VolumeTexture Trailer Migration | Milestone 2 exit gate | VolumeTexture pilot, source/DDC/Cook equivalence, rollback, inspection/repair evidence | Generic texture schema redesign or unrelated consumer conversion |
@@ -264,6 +275,23 @@ Later child plans are created only when their activation condition is met. Each
 plan owns concrete files, implementation stages, test selection, benchmark
 budgets, and commit provenance. This roadmap owns ordering and cross-plan
 invariants.
+
+## Retain Revisit Gates
+
+Milestone 0 reopens when any one gate is observed; reopening does not select a
+wire or activate Milestone 1:
+
+- reachable external authored bytes reach 256 MiB;
+- tracked authored payload count reaches 100;
+- measured monthly LFS transfer or rewritten authored bytes reach 2 GiB;
+- two distinct dense authored consumers demonstrate the same storage need;
+- publication warm p95 reaches 250 ms on the designated reference machine; or
+- the exact construct-free workload remains above 50 ms warm p95 in two
+  consecutive quiet Release runs on that reference machine.
+
+A reopened candidate still requires at least 25% measured improvement in the
+violated cost, plus every compatibility, durability, submit-closure, and
+rollback gate. Measurements from a non-reference computer remain diagnostic.
 
 ## Program Validation Matrix
 

@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "inspectionRepeatCount": 5,
+  "publicationRepeatCount": 7,
+  "timingPolicy": {
+    "decisionBearing": false,
+    "authority": "Diagnostic only on the current non-reference machine; performance thresholds do not select or reopen a wire.",
+    "cold": "The first construct-free inspection in a newly started native inventory process.",
+    "warm": "The following four inspections in the same process; report median and p95 without flushing the OS cache.",
+    "interference": "Close Durin editor/test processes and avoid concurrent builds or storage-heavy work; non-exclusive runs are diagnostic only."
+  },
+  "workloads": [
+    {
+      "id": "tracked-complete",
+      "kind": "tracked",
+      "description": "Every Git-tracked .dasset and .dabulk reachable from the Engine and Sandbox project mounts."
+    },
+    {
+      "id": "synthetic-mixed-v1",
+      "kind": "synthetic",
+      "seed": 841592647,
+      "packageCount": 128,
+      "payloadSizesBytes": [0, 4096, 65536, 262144, 1048576, 4194304, 16777216, 67108864],
+      "payloadEditFractions": [0.0, 0.01, 0.25, 1.0],
+      "description": "Deterministic powers-of-four size and edit distribution used only for analytic scaling and isolated Git/LFS experiments."
+    },
+    {
+      "id": "volume-texture-source",
+      "kind": "future-consumer",
+      "owner": "Documentation/Runtime/Assets/VolumeTextures.md",
+      "description": "One atomic tightly packed authored voxel payload per VolumeTexture."
+    },
+    {
+      "id": "texture-source",
+      "kind": "future-consumer",
+      "owner": "Documentation/Runtime/Rendering/TextureSystem.md",
+      "description": "Domain-owned authored Texture2D/TextureCube source payloads; projection is not current-corpus fact."
+    }
+  ],
+  "thresholds": {
+    "proceedMinimumReachableExternalBytes": 268435456,
+    "proceedMinimumAuthoredPayloadCount": 100,
+    "proceedMinimumMonthlyRewrittenBytes": 2147483648,
+    "proceedMinimumMedianRewriteReductionRatio": 0.25,
+    "maximumWarmInspectionP95Milliseconds": 50.0,
+    "maximumCurrentPublicationP95Milliseconds": 250.0,
+    "maximumTemporaryDiskAmplification": 2.0,
+    "revisitReachableExternalBytes": 268435456,
+    "revisitAuthoredPayloadCount": 100,
+    "revisitMonthlyLfsTransferBytes": 2147483648,
+    "revisitPublicationP95Milliseconds": 250.0,
+    "revisitDistinctDenseConsumers": 2
+  },
+  "candidates": [
+    {
+      "id": "retain-dast4-dabk1",
+      "boundary": "DAST v4 exact five-section file",
+      "placement": "generation-named DABK v1 companion in Git LFS",
+      "publication": "companion-first plus atomic package replacement",
+      "sourceControl": ".dasset ordinary Git; .dabulk Git LFS",
+      "legacyRead": "DAST v4 reader accepts exact DAST v4 and resolves DABK v1",
+      "newRead": "same as legacy read",
+      "rollback": "previous package bytes and every companion named by that package",
+      "lastGoodGeneration": "old package continues naming the old immutable companion until package replacement"
+    },
+    {
+      "id": "dast5-companion-index",
+      "boundary": "new DAST v5 with an explicit metadata index section before EOF",
+      "placement": "versioned LFS-backed companion indexed by package metadata",
+      "publication": "companion-first plus atomic package replacement",
+      "sourceControl": ".dasset ordinary Git; companion Git LFS",
+      "legacyRead": "old reader rejects version 5 before section decoding",
+      "newRead": "new reader dispatches v4/DABK v1 or v5/indexed companion by package version",
+      "rollback": "canonical v4 resave plus reachable DABK v1 bytes retained for the rollback window",
+      "lastGoodGeneration": "old package remains authoritative until the new package atomically replaces it"
+    },
+    {
+      "id": "outer-envelope-companion-index",
+      "boundary": "versioned outer envelope containing an exact bounded DAST logical stream and metadata trailer",
+      "placement": "versioned LFS-backed companion indexed by the envelope trailer",
+      "publication": "companion-first plus atomic envelope replacement",
+      "sourceControl": "envelope ordinary Git; companion Git LFS",
+      "legacyRead": "old reader rejects the envelope magic; it never interprets trailer bytes as DAST v4",
+      "newRead": "new reader bounds and dispatches the inner DAST stream then validates the trailer/footer",
+      "rollback": "extract exact inner DAST v4 bytes and retain every DABK v1 byte named by it",
+      "lastGoodGeneration": "old envelope/package remains authoritative until whole-file replacement"
+    },
+    {
+      "id": "package-local-payload",
+      "boundary": "new DAST version or outer envelope with package-local payload segment",
+      "placement": "payload bytes in .dasset",
+      "publication": "complete-file atomic replacement",
+      "sourceControl": ".dasset would require an explicit ordinary-Git or LFS migration decision",
+      "legacyRead": "old reader rejects the new boundary",
+      "newRead": "new reader validates bounded object and payload regions",
+      "rollback": "canonical v4 plus reconstructed DABK v1 companion",
+      "lastGoodGeneration": "whole old file remains authoritative until replacement"
+    },
+    {
+      "id": "in-place-tail-or-append",
+      "boundary": "new versioned footer/trailer discovery",
+      "placement": "package-local or companion-local",
+      "publication": "tail rewrite or append generation",
+      "sourceControl": "depends on selected package/companion classification",
+      "legacyRead": "old reader rejects the new boundary",
+      "newRead": "new reader discovers only a fully committed footer generation",
+      "rollback": "previous generation must remain discoverable without trusting the latest footer",
+      "lastGoodGeneration": "requires filesystem-proven atomic footer commit or redundant generation discovery"
+    }
+  ]
+}

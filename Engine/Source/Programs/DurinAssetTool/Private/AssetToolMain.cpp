@@ -1,6 +1,9 @@
 #include "AssetTools.h"
 #include "ImportRecord.h"
 
+#include "Asset/EditorBulkDataStorage.h"
+#include "Asset/PackageInspection.h"
+
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"
@@ -11,6 +14,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 
+#include <chrono>
 #include <csignal>
 
 namespace
@@ -23,6 +27,7 @@ namespace
 	{
 		std::string Project;
 		bool bCanonicalResave = false;
+		bool bStorageQualificationInventory = false;
 		bool bCi = false;
 		bool bProjectScope = false;
 		bool bHuman = false;
@@ -47,6 +52,8 @@ namespace
 				OutOptions.Project = Argument.substr(std::string_view("--project=").size());
 			}
 			else if (Argument == "--operation=canonical-resave") OutOptions.bCanonicalResave = true;
+			else if (Argument == "--operation=storage-qualification-inventory")
+				OutOptions.bStorageQualificationInventory = true;
 			else if (Argument == "--ci") OutOptions.bCi = true;
 			else if (Argument == "--project-scope") OutOptions.bProjectScope = true;
 			else if (Argument == "--apply") OutOptions.bApply = true;
@@ -94,7 +101,182 @@ namespace
 			OutError = "--project-scope cannot be combined with narrower selectors.";
 			return false;
 		}
+		if (OutOptions.bCanonicalResave && OutOptions.bStorageQualificationInventory)
+		{
+			OutError = "Only one --operation may be selected.";
+			return false;
+		}
 		return true;
+	}
+
+	auto JsonEscape(std::string_view Value) -> std::string
+	{
+		std::string Escaped;
+		Escaped.reserve(Value.size());
+		for (const unsigned char Character : Value)
+		{
+			switch (Character)
+			{
+			case '\"': Escaped += "\\\""; break;
+			case '\\': Escaped += "\\\\"; break;
+			case '\b': Escaped += "\\b"; break;
+			case '\f': Escaped += "\\f"; break;
+			case '\n': Escaped += "\\n"; break;
+			case '\r': Escaped += "\\r"; break;
+			case '\t': Escaped += "\\t"; break;
+			default:
+				if (Character < 0x20) Escaped += std::format("\\u{:04x}", Character);
+				else Escaped.push_back(static_cast<char>(Character));
+			}
+		}
+		return Escaped;
+	}
+
+	struct FQualificationDescriptor
+	{
+		Durin::Asset::FEditorBulkDataStorageDescriptor Descriptor;
+		std::filesystem::path CompanionPath;
+		bool bReachable = true;
+		std::string Diagnostic;
+		Durin::FSharedByteBuffer ExternalBytes;
+		uint64 ExactDuplicateGroup = 0;
+	};
+
+	auto SerializeStorageQualificationInventory(
+		std::span<const Durin::Asset::FAssetPackageCompatibilityProbeInput> Inputs)
+		-> std::string
+	{
+		using namespace Durin;
+		using namespace Durin::Asset;
+		struct FPackage
+		{
+			const FAssetPackageCompatibilityProbeInput* Input = nullptr;
+			FAssetPackageInspection Inspection;
+			FAssetResult Result;
+			std::vector<uint64> InspectionNanoseconds;
+			std::vector<FQualificationDescriptor> Descriptors;
+			std::vector<std::filesystem::path> Orphans;
+			std::string DescriptorDiagnostic;
+		};
+
+		std::vector<FPackage> Packages;
+		Packages.reserve(Inputs.size());
+		for (const FAssetPackageCompatibilityProbeInput& Input : Inputs)
+		{
+			FPackage Package;
+			Package.Input = &Input;
+			for (size_t Repeat = 0; Repeat < 5; ++Repeat)
+			{
+				FAssetPackageInspection Candidate;
+				const auto Start = std::chrono::steady_clock::now();
+				Package.Result = InspectAssetPackage(Input.PhysicalPath, Candidate);
+				const auto End = std::chrono::steady_clock::now();
+				Package.InspectionNanoseconds.push_back(static_cast<uint64>(
+					std::chrono::duration_cast<std::chrono::nanoseconds>(End - Start).count()));
+				if (!Package.Result) break;
+				Package.Inspection = std::move(Candidate);
+			}
+			if (Package.Result)
+			{
+				std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+				if (!InspectEditorBulkDataStorageDescriptors(
+						Package.Inspection, Descriptors, &Package.DescriptorDiagnostic))
+				{
+					Package.Result = {EAssetError::CorruptFile, Package.DescriptorDiagnostic};
+				}
+				else
+				{
+					for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
+					{
+						FQualificationDescriptor Item{.Descriptor = Descriptor};
+						if (Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
+						{
+							if (!ResolveEditorBulkDataCompanionPath(
+									Input.PhysicalPath, Descriptor.ContainerHash,
+									Item.CompanionPath, &Item.Diagnostic)
+								|| !LoadEditorBulkDataStoragePayload(
+									Item.CompanionPath, Descriptor, Item.ExternalBytes,
+									&Item.Diagnostic))
+								Item.bReachable = false;
+						}
+						Package.Descriptors.push_back(std::move(Item));
+					}
+					std::string OrphanError;
+					if (!InspectOrphanedEditorBulkDataCompanionPaths(
+							Input.PhysicalPath, Package.Inspection, Package.Orphans, &OrphanError))
+						Package.DescriptorDiagnostic = OrphanError;
+				}
+			}
+			Packages.push_back(std::move(Package));
+		}
+
+		uint64 NextDuplicateGroup = 1;
+		std::vector<FQualificationDescriptor*> External;
+		for (FPackage& Package : Packages)
+			for (FQualificationDescriptor& Descriptor : Package.Descriptors)
+				if (Descriptor.bReachable && !Descriptor.ExternalBytes.IsEmpty())
+					External.push_back(&Descriptor);
+		for (size_t LeftIndex = 0; LeftIndex < External.size(); ++LeftIndex)
+		{
+			FQualificationDescriptor& Left = *External[LeftIndex];
+			for (size_t RightIndex = LeftIndex + 1; RightIndex < External.size(); ++RightIndex)
+			{
+				FQualificationDescriptor& Right = *External[RightIndex];
+				if (Left.Descriptor.ContentHash != Right.Descriptor.ContentHash
+					|| Left.ExternalBytes.GetSize() != Right.ExternalBytes.GetSize()
+					|| !std::ranges::equal(Left.ExternalBytes.GetBytes(), Right.ExternalBytes.GetBytes()))
+					continue;
+				if (Left.ExactDuplicateGroup == 0) Left.ExactDuplicateGroup = NextDuplicateGroup++;
+				Right.ExactDuplicateGroup = Left.ExactDuplicateGroup;
+			}
+		}
+
+		std::string Json = "{\"schemaVersion\":1,\"inspectionRepeatCount\":5,\"packages\":[";
+		for (size_t PackageIndex = 0; PackageIndex < Packages.size(); ++PackageIndex)
+		{
+			if (PackageIndex != 0) Json += ',';
+			const FPackage& Package = Packages[PackageIndex];
+			Json += std::format(
+				"{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"fileSize\":{},"
+				"\"inspection\":\"{}\",\"diagnostic\":\"{}\",\"fileBytesRead\":{},"
+				"\"inspectionNanoseconds\":[",
+				JsonEscape(Package.Input->PackagePath.GetView()), JsonEscape(Package.Input->PhysicalPath),
+				Package.Input->ExpectedFileSize, Package.Result ? "Ready" : "Failed",
+				JsonEscape(Package.Result.Message), Package.Input->ExpectedFileSize);
+			for (size_t Index = 0; Index < Package.InspectionNanoseconds.size(); ++Index)
+			{
+				if (Index != 0) Json += ',';
+				Json += std::to_string(Package.InspectionNanoseconds[Index]);
+			}
+			Json += "],\"descriptors\":[";
+			for (size_t DescriptorIndex = 0; DescriptorIndex < Package.Descriptors.size(); ++DescriptorIndex)
+			{
+				if (DescriptorIndex != 0) Json += ',';
+				const FQualificationDescriptor& Item = Package.Descriptors[DescriptorIndex];
+				const auto& Descriptor = Item.Descriptor;
+				Json += std::format(
+					"{{\"payloadId\":\"{}\",\"logicalBytes\":{},\"storedBytes\":{},"
+					"\"contentHash\":\"{}\",\"containerHash\":\"{}\",\"storage\":\"{}\","
+					"\"companionPath\":\"{}\",\"reachable\":{},\"diagnostic\":\"{}\","
+					"\"exactDuplicateGroup\":{}}}",
+					Descriptor.PayloadId.ToString(), Descriptor.LogicalByteCount,
+					Descriptor.StoredByteCount, Descriptor.ContentHash.ToString(),
+					Descriptor.ContainerHash.ToString(),
+					Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline ? "Inline" : "External",
+					JsonEscape(Item.CompanionPath.generic_string()), Item.bReachable ? "true" : "false",
+					JsonEscape(Item.Diagnostic), Item.ExactDuplicateGroup);
+			}
+			Json += "],\"orphanCompanions\":[";
+			for (size_t OrphanIndex = 0; OrphanIndex < Package.Orphans.size(); ++OrphanIndex)
+			{
+				if (OrphanIndex != 0) Json += ',';
+				Json += std::format("\"{}\"", JsonEscape(Package.Orphans[OrphanIndex].generic_string()));
+			}
+			Json += std::format("],\"descriptorDiagnostic\":\"{}\"}}",
+				JsonEscape(Package.DescriptorDiagnostic));
+		}
+		Json += "]}";
+		return Json;
 	}
 }
 
@@ -142,6 +324,11 @@ int main(int ArgC, char** ArgV)
 	{
 		std::cerr << "Error: " << Snapshot.Error << '\n';
 		return 1;
+	}
+	if (Options.bStorageQualificationInventory)
+	{
+		std::cout << SerializeStorageQualificationInventory(Snapshot.Packages) << '\n';
+		return 0;
 	}
 	if (Options.bCanonicalResave && Options.bApply)
 	{

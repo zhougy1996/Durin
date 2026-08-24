@@ -42,6 +42,10 @@ COMMAND_CASES = (
     (("asset", "baseline"), "asset baseline --project Sandbox/Sandbox.dproject"),
     (("asset", "audit"), "asset audit --project Sandbox/Sandbox.dproject"),
     (
+        ("asset", "qualify-storage"),
+        "asset qualify-storage --project Sandbox/Sandbox.dproject",
+    ),
+    (
         ("scene", "graybox-build"),
         "scene graybox-build --project Sandbox/Sandbox.dproject --output /Game/Test",
     ),
@@ -103,6 +107,7 @@ EXPECTED_COMMAND_PATHS = {
     ("asset",),
     ("asset", "baseline"),
     ("asset", "audit"),
+    ("asset", "qualify-storage"),
     ("scene",),
     ("scene", "graybox-build"),
     ("create",),
@@ -176,6 +181,7 @@ class TestCommandGrammarContract:
                     "import durin_dev_tool.commands.scene_specs; "
                     "import durin_dev_tool.commands.worktree_specs; "
                     "assert 'durin_dev_tool.asset' not in sys.modules; "
+                    "assert 'durin_dev_tool.storage_qualification' not in sys.modules; "
                     "assert 'durin_dev_tool.bootstrap.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.build.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.documentation.handler' not in sys.modules; "
@@ -225,7 +231,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "39c936984f84285e5972c6ef0c2cac37c8fd23d2e5f3ec6b0b255d3d90ccdb43"
+            "3125cc0f7e8c668808898f490da90a6bbdc8610c6d6d358815fe5aa8fa7c47c4"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"

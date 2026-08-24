@@ -12,6 +12,7 @@ DEV_TOOL_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool import asset
+from durin_dev_tool import storage_qualification
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 
@@ -132,6 +133,89 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     )
     assert audit_namespace.asset_command == "audit"
     assert audit_namespace.fail_on == ["incompatible", "unsupported", "error"]
+
+    _, qualification_namespace = registry.parse(
+        ["asset", "qualify-storage", "--project", "Sandbox/Sandbox.dproject"]
+    )
+    assert qualification_namespace.output_path == Path(
+        "Saved/AuthoredPackageStorageQualification/latest"
+    )
+
+
+def test_storage_qualification_protocol_and_decision_are_frozen() -> None:
+    protocol = json.loads(storage_qualification.PROTOCOL_PATH.read_text(encoding="utf-8"))
+    assert protocol["schemaVersion"] == 1
+    assert {workload["kind"] for workload in protocol["workloads"]} == {
+        "tracked", "synthetic", "future-consumer"
+    }
+    assert {candidate["id"] for candidate in protocol["candidates"]} == {
+        "retain-dast4-dabk1", "dast5-companion-index",
+        "outer-envelope-companion-index", "package-local-payload",
+        "in-place-tail-or-append",
+    }
+    corpus = {
+        "reachableExternalBytes": 2_359_616,
+        "payloadCount": 2,
+        "warmInspectionP95Milliseconds": 10.0,
+    }
+    git_baseline = {
+        "files": [{
+            "path": "Example.dabulk", "workingTreeBytes": 2_359_616,
+            "history": {"monthlyTouchRate": 1.0},
+        }]
+    }
+    publication = {"samples": [{"warmP95Milliseconds": 10.0}]}
+    decision = storage_qualification._decision(
+        protocol, corpus, git_baseline, publication
+    )
+    assert decision["result"] == "Retain"
+    assert not any(decision["pressureGates"].values())
+
+    corpus["warmInspectionP95Milliseconds"] = 75.0
+    diagnostic = storage_qualification._decision(
+        protocol, corpus, git_baseline, publication
+    )
+    assert diagnostic["result"] == "Retain"
+    assert diagnostic["performanceDiagnosticOnly"]
+    assert not diagnostic["pressureGates"]["inspectionP95"]
+
+
+def test_storage_qualification_inventory_summary_distinguishes_hash_candidates_from_exact_duplicates() -> None:
+    descriptor = {
+        "payloadId": "A", "logicalBytes": 4, "storedBytes": 4,
+        "contentHash": "HASH", "storage": "External", "reachable": True,
+        "exactDuplicateGroup": 1,
+    }
+    inventory = {
+        "packages": [
+            {
+                "inspection": "Ready", "fileBytesRead": 10,
+                "inspectionNanoseconds": [2_000_000, 1_000_000],
+                "descriptors": [descriptor],
+            },
+            {
+                "inspection": "Ready", "fileBytesRead": 20,
+                "inspectionNanoseconds": [2_000_000, 1_500_000],
+                "descriptors": [{**descriptor, "payloadId": "B"}],
+            },
+        ]
+    }
+    summary = storage_qualification._summarize_inventory(inventory)
+    assert summary["duplicatePayloadIds"] == []
+    assert summary["duplicateContentCandidateHashes"] == ["HASH"]
+    assert summary["exactDuplicateExternalPayloadCount"] == 2
+    assert summary["inspectionBytesRead"] == 30
+
+
+def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols() -> None:
+    results = {
+        item["candidate"]: item["result"]
+        for item in storage_qualification._failure_model()
+    }
+    assert results["complete-file-atomic-replacement"] == "Pass"
+    assert results["companion-first-publication"] == "Pass"
+    assert results["in-place-tail-rewrite"] == "Fail"
+    assert results["append-generation"] == "Fail"
 
 @pytest.mark.parametrize(
     ("native_report", "expected"),
