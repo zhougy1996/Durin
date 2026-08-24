@@ -253,10 +253,17 @@ namespace Durin
 			ApplyStaticProperties(
 				CachedResolvedData, *LocalLayer.StaticProperties);
 		}
+		if (LocalLayer.CompiledProgram)
+		{
+			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
+			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
+				LocalLayer.CompiledProgram->Identity;
+		}
 
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
-		if (!bRepresentationValid
+		if (!CachedResolvedData.CompiledProgram
+			|| !bRepresentationValid
 			|| !RepresentationBuilder.Build(
 				CompiledRepresentation, ValidationDiagnostic))
 		{

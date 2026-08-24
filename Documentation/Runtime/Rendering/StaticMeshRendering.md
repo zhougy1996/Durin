@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 SkeletalMesh uses the same material/pass policy and combined Translucent order
 through its dedicated geometry, vertex-factory, palette, and renderer owner; see
@@ -180,9 +180,11 @@ and no hard-coded static-mesh stream selection.
 - `FLocalVertexFactoryIntermediates`, pass-neutral decoded vertex data;
 - `GetLocalVertexFactoryIntermediates()`, the decode entry function.
 
-Decode helpers are module-internal. Transform, material sampling, tangent-space
-normal construction, environment sampling, and pass entry points remain in
-`StaticMeshBasePass.slang`. `Lighting.PBRLighting` owns the pass-independent
+Decode helpers are module-internal. `StaticMeshBasePass.slang` retains geometry
+transform, vertex entry points, and the material-resource-free opaque-shadow
+fragment. A material's accepted generated module owns forward, GBuffer, and
+masked-shadow fragment entry points and imports the same surface, specular-AA,
+directional-shadow, forward-lighting, and PBR helpers. `Lighting.PBRLighting` owns the pass-independent
 Cook-Torrance GGX direct-light and split-sum environment-light evaluations.
 The direct GGX distribution relies on the canonical minimum perceptual
 roughness of `0.045` for finite evaluation and uses
@@ -328,7 +330,9 @@ The draw path does not perform parameter GUID or `FName` lookup and does not
 read reflected material objects or legacy fixed material fields. Dynamic
 uniform/resource bytes are not part of shader-map or pipeline cache keys, so
 dynamic edits reuse the existing identity while static-property edits select
-the corresponding cached shader/pipeline pair. The effective pipeline key also
+the corresponding cached shader/pipeline pair. The normalized program digest
+is part of shader-map, pipeline, diagnostic, and draw-sort identity; identical
+programs may reuse a candidate while distinct programs cannot alias. The effective pipeline key also
 contains polygon, cull, front-face, depth, and color-blend values, so mirrored
 winding, render mode, and every visible material policy select compatible PSOs.
 Texture resources use role-specific white, black, or flat-normal fallbacks;

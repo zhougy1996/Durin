@@ -15,6 +15,8 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderPaths.h"
 
+#include <iostream>
+
 namespace Durin
 {
 	namespace
@@ -469,7 +471,18 @@ float4 FragmentMain() : SV_Target
 				return Pixels;
 			};
 
+		const auto InitialResolveBegin = std::chrono::steady_clock::now();
 		const auto Initial = Resolve();
+		const auto InitialResolveEnd = std::chrono::steady_clock::now();
+		const auto InitialResolveMicroseconds =
+			std::chrono::duration_cast<std::chrono::microseconds>(
+				InitialResolveEnd - InitialResolveBegin).count();
+		testing::Test::RecordProperty(
+			"InitialShaderPipelineResolveMicroseconds",
+			static_cast<int>(InitialResolveMicroseconds));
+		std::cout
+			<< "[M5RendererResourceBaseline] initial_resolve_us="
+			<< InitialResolveMicroseconds << '\n';
 		ASSERT_NE(Initial->Payload, nullptr);
 		ASSERT_NE(Initial->Payload->PipelineState, nullptr);
 		FRHIGraphicsPipelineState* InitialPipeline =

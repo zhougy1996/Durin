@@ -19,5 +19,8 @@ namespace Durin
 	auto InitShaderCompileService() -> void;
 	auto ShutdownShaderCompileService() -> void;
 	auto GetOrCompileShader(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
+	auto GetOrCompileGeneratedShader(
+		const FGeneratedShaderCompileRequest& Request)
+		-> FShaderCompilerOutput;
 	auto GetShaderCompileServiceStats() -> FShaderCompileServiceStats;
 } // namespace Durin

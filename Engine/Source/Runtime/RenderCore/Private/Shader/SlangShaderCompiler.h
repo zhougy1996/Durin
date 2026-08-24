@@ -15,10 +15,16 @@ namespace Durin
 		~FSlangShaderCompiler() override;
 
 		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput override;
+		auto CompileSource(std::string_view ModuleName,
+			std::string_view SourcePathHint, std::string_view Source,
+			const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 		auto GetEnvironmentIdentity() const -> std::string;
 
 	private:
-		auto CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool;
+		auto CreateSession(const FShaderCompileOptions& Options,
+			Slang::ComPtr<slang::ISession>& OutSession,
+			std::string& OutErrorMessage,
+			std::string_view SearchPath = {}) const -> bool;
 
 		auto CompileInternal(
 			slang::ISession* InSession,
@@ -27,6 +33,8 @@ namespace Durin
 			Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
 			Slang::ComPtr<slang::IBlob>& OutDiagnostics
 		) const -> Slang::Result;
+		auto CompileModule(slang::IModule* Module,
+			const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 
 		auto InitGlobalSession() -> void;
 

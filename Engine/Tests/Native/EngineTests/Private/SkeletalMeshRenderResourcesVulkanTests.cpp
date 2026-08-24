@@ -8,6 +8,7 @@
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Math/Operations.h"
+#include "Materials/Material.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
@@ -424,18 +425,23 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 						   Durin::FVector3 Color,
 						   Durin::EMaterialShadingModel ShadingModel =
 							   Durin::EMaterialShadingModel::Lit) {
-		auto Material = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
-		Durin::FMaterialRenderProxyPublication Publication;
-		Publication.LocalVersion = 1;
-		Publication.LocalLayer.StaticProperties =
+		const char* Name = ShadingModel == Durin::EMaterialShadingModel::Unlit
+			? "SkeletalUnlitMaterial"
+			: (BlendMode == Durin::EMaterialBlendMode::Masked
+				? "SkeletalMaskedMaterial"
+				: (BlendMode == Durin::EMaterialBlendMode::Translucent
+					? "SkeletalTranslucentMaterial"
+					: "SkeletalOpaqueMaterial"));
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		EXPECT_TRUE(Material->SetStaticProperties(
 			Durin::FMaterialStaticProperties{
 				.BlendMode = BlendMode,
 				.ShadingModel = ShadingModel,
 				.bTwoSided = true
-			};
-		Publication.LocalLayer.Parameters.push_back({.Id = Durin::MaterialParameters::BaseColorId, .Type = Durin::EMaterialParameterType::Vector, .VectorValue = Color});
-		EXPECT_TRUE(Material->QueuePublication_GameThread(std::move(Publication)));
-		return Material;
+			}));
+		EXPECT_TRUE(Material->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(), Color));
+		return Material->GetMaterialRenderProxy();
 	};
 	auto Opaque = MakeMaterial(
 		Durin::EMaterialBlendMode::Opaque, {1.0, 0.0, 0.0}

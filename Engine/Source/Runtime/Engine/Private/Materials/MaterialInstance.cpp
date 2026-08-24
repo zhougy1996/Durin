@@ -136,6 +136,12 @@ namespace Durin
 		return Parent != nullptr ? Parent->GetStaticProperties() : Super::GetStaticProperties();
 	}
 
+	auto DMaterialInstance::GetMaterialProgram() const
+		-> const FMaterialProgram*
+	{
+		return Parent ? Parent->GetMaterialProgram() : nullptr;
+	}
+
 	auto DMaterialInstance::SetStaticPropertiesOverride(
 		const FMaterialStaticProperties& InProperties) -> bool
 	{

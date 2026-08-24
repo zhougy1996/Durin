@@ -7,6 +7,7 @@
 #include "DynamicRHI.h"
 #include "Engine/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
@@ -532,16 +533,16 @@ namespace Durin
 		ASSERT_TRUE(BuildTerrainHeightmapPayload(
 			3, 3, Samples, Payload, Error
 		)) << Error;
-		auto Material = MakeRefCount<FMaterialRenderProxy>();
-		FMaterialRenderProxyPublication Publication;
-		Publication.LocalVersion = 1;
-		Publication.LocalLayer.StaticProperties = FMaterialStaticProperties{
+		auto* MaterialObject = NewObject<DMaterial>(
+			nullptr, "EditorGridTerrainMaterial");
+		ASSERT_TRUE(MaterialObject->SetStaticProperties(FMaterialStaticProperties{
 			.BlendMode = EMaterialBlendMode::Opaque,
 			.ShadingModel = EMaterialShadingModel::Unlit,
 			.bTwoSided = true
-		};
-		Publication.LocalLayer.Parameters.push_back({.Id = MaterialParameters::BaseColorId, .Type = EMaterialParameterType::Vector, .VectorValue = {0.0f, 0.0f, 0.0f}});
-		ASSERT_TRUE(Material->QueuePublication_GameThread(std::move(Publication)));
+		}));
+		ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
+			MaterialParameters::BaseColorName(), {0.0f, 0.0f, 0.0f}));
+		auto Material = MaterialObject->GetMaterialRenderProxy();
 		FlushRenderingCommands();
 		constexpr double TerrainExtent = 4000.0;
 		FTerrainPatchDescriptor Patch{
@@ -628,6 +629,10 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FGBufferRenderer GBuffer(Coordinator, TransientTargets);
+		auto* MaterialObject = NewObject<DMaterial>(
+			nullptr, "GBufferRecoveryMaterial");
+		const FMaterialRenderData MaterialData = MaterialObject->GetRenderData();
+		ASSERT_TRUE(MaterialData.CompiledProgram);
 		auto bFailed = std::make_shared<bool>(false);
 		auto bSuppressed = std::make_shared<bool>(false);
 		auto RecoveredTargets =
@@ -647,7 +652,7 @@ namespace Durin
 		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Coordinator, &TransientTargets, &GBuffer, bFailed, bSuppressed,
-			 RecoveredTargets, AlternateTargets, PipelineResults](
+			 RecoveredTargets, AlternateTargets, PipelineResults, MaterialData](
 				FRHICommandListImmediate&
 			) {
 				*bFailed = !GBuffer.EnsureTargets_RenderThread(64, 32);
@@ -666,9 +671,6 @@ namespace Durin
 				ASSERT_TRUE(Alternate);
 				*AlternateTargets = *Alternate;
 
-				FMaterialPlanningPassIdentity Material;
-				Material.ShaderMap.BlendMode = EMaterialBlendMode::Opaque;
-				Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
 				FRHIDepthStencilState Depth;
 				Depth.bEnableTest = true;
 				Depth.bEnableWrite = true;
@@ -688,7 +690,8 @@ namespace Durin
 				}
 				auto MakeRequest = [&](size_t Index) {
 					return FGBufferRenderer::FPipelineRequest{
-						.Material = Material,
+						.Material = MaterialData.PlanningPassIdentity,
+						.CompiledProgram = MaterialData.CompiledProgram,
 						.Rasterizer = FRHIRasterizerState{},
 						.Depth = Depth,
 						.VertexDeclaration = Declarations[Index],

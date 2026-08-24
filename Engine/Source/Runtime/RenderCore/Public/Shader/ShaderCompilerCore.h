@@ -2,6 +2,7 @@
 
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
+#include "RenderCoreAPI.h"
 
 namespace Durin
 {
@@ -95,4 +96,38 @@ namespace Durin
 
 		operator bool() const { return bSucceeded; }
 	};
+
+	struct FShaderSourceDependencyFingerprint
+	{
+		std::string VirtualPath;
+		FXxHash128 ContentHash;
+
+		auto operator==(const FShaderSourceDependencyFingerprint&) const
+			-> bool = default;
+	};
+
+	// Owns an in-memory generated root. RenderCore resolves imports, compiles,
+	// reflects, and caches it without materializing authored source on disk.
+	struct FGeneratedShaderCompileRequest
+	{
+		std::string VirtualPath;
+		std::string Source;
+		std::vector<std::string> EntryPoints;
+		std::vector<EShaderFrequency> Frequencies;
+		std::vector<FShaderMacroDefinition> Macros;
+		std::vector<std::string> AllowedImportVirtualPrefixes;
+		bool bForceRecompile = false;
+	};
+
+	// Produces value-owned compiler and reachable-source identity without
+	// exposing physical cache paths to higher-level compilers.
+	RENDERCORE_API auto GetShaderCompilerEnvironmentIdentity() -> std::string;
+	RENDERCORE_API auto BuildShaderSourceDependencyManifest(
+		std::string_view VirtualShaderPath,
+		const FShaderCompileOptions& Options,
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
+		std::string& OutError) -> bool;
+	RENDERCORE_API auto CompileGeneratedShader(
+		const FGeneratedShaderCompileRequest& Request)
+		-> FShaderCompilerOutput;
 }

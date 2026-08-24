@@ -136,6 +136,60 @@ namespace
 		return false;
 	}
 
+	auto RemoveSerializedField(
+		std::vector<std::byte>& Bytes,
+		std::string_view Name) -> bool
+	{
+		Durin::Asset::PackageTrailer::FInspection Trailer;
+		if (!Durin::Asset::PackageTrailer::Inspect(Bytes, Trailer)
+			|| Trailer.ObjectStreamEnd > Bytes.size()) return false;
+		std::vector<std::byte> ObjectStream(
+			Bytes.begin(), Bytes.begin()
+				+ static_cast<size_t>(Trailer.ObjectStreamEnd));
+		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
+		if (!Durin::Asset::PackageObjectStream::DecodePackage(
+			ObjectStream, Package)) return false;
+
+		size_t SchemaIndex = std::string::npos;
+		size_t FieldIndex = std::string::npos;
+		for (size_t CandidateSchema = 0;
+			CandidateSchema < Package.Schemas.size(); ++CandidateSchema)
+		{
+			for (size_t CandidateField = 0;
+				CandidateField < Package.Schemas[CandidateSchema].Fields.size();
+				++CandidateField)
+			{
+				if (Package.Schemas[CandidateSchema]
+					.Fields[CandidateField].Name != Name) continue;
+				if (SchemaIndex != std::string::npos) return false;
+				SchemaIndex = CandidateSchema;
+				FieldIndex = CandidateField;
+			}
+		}
+		if (SchemaIndex == std::string::npos) return false;
+
+		const uint64 SchemaId = SchemaIndex + 1;
+		const uint64 FieldId = FieldIndex + 1;
+		Package.Schemas[SchemaIndex].Fields.erase(
+			Package.Schemas[SchemaIndex].Fields.begin() + FieldIndex);
+		for (auto& ObjectValues : Package.ObjectValues)
+		{
+			std::erase_if(ObjectValues.Overrides, [&](const auto& Override) {
+				return Override.SchemaId == SchemaId
+					&& Override.FieldId == FieldId;
+			});
+			for (auto& Override : ObjectValues.Overrides)
+				if (Override.SchemaId == SchemaId
+					&& Override.FieldId > FieldId)
+					--Override.FieldId;
+		}
+		if (!Durin::Asset::PackageObjectStream::ReencodePackage(
+			Package, ObjectStream)) return false;
+		return static_cast<bool>(
+			Durin::Asset::Private::DastV5::BuildPackageFromObjectStream(
+				ObjectStream, Bytes));
+	}
+
 	auto ReplaceAll(std::string& Text, std::string_view From, std::string_view To) -> void
 	{
 		size_t Offset = 0;

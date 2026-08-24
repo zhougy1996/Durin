@@ -55,6 +55,7 @@ namespace Durin
 		struct FPipelineRequest
 		{
 			FMaterialPlanningPassIdentity Material;
+			std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 			FRHIRasterizerState Rasterizer;
 			FRHIDepthStencilState Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;

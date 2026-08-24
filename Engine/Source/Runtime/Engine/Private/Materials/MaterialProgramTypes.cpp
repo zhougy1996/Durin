@@ -1,0 +1,710 @@
+#include "Materials/MaterialProgramTypes.h"
+
+#include "Materials/MaterialTypes.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <functional>
+#include <numeric>
+#include <ranges>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace Durin
+{
+	namespace
+	{
+		constexpr auto MakeCanonicalNodeId(uint32 Index) -> FGuid
+		{
+			return {0x4d350001u, 0x7a6b4c21u, 0x91d2e3f4u, Index + 1u};
+		}
+
+		auto MakeLink(const FMaterialProgramNode& Node)
+			-> FMaterialProgramLink
+		{
+			return {.SourceNodeId = Node.Id, .SourceOutputIndex = 0};
+		}
+
+		auto IsNumeric(EMaterialProgramValueType Type) -> bool
+		{
+			return Type >= EMaterialProgramValueType::Float
+				&& Type <= EMaterialProgramValueType::Float4;
+		}
+
+		auto GetComponentCount(EMaterialProgramValueType Type) -> uint8
+		{
+			switch (Type)
+			{
+			case EMaterialProgramValueType::Float: return 1;
+			case EMaterialProgramValueType::Float2: return 2;
+			case EMaterialProgramValueType::Float3: return 3;
+			case EMaterialProgramValueType::Float4: return 4;
+			case EMaterialProgramValueType::Texture2D: return 0;
+			}
+			return 0;
+		}
+
+		auto IsValidValueType(EMaterialProgramValueType Type) -> bool
+		{
+			return GetComponentCount(Type) != 0
+				|| Type == EMaterialProgramValueType::Texture2D;
+		}
+
+		auto IsValidOpcode(EMaterialProgramOpcode Opcode) -> bool
+		{
+			return Opcode >= EMaterialProgramOpcode::Constant
+				&& Opcode <= EMaterialProgramOpcode::BlendNormalsRNM;
+		}
+
+		auto IsCanonicalTextureParameter(const FGuid& Id) -> bool
+		{
+			return std::ranges::find(MaterialParameters::TextureIds, Id)
+				!= MaterialParameters::TextureIds.end();
+		}
+
+		auto FindParameter(
+			std::span<const FMaterialParameterDefinition> Definitions,
+			const FGuid& Id) -> const FMaterialParameterDefinition*
+		{
+			const auto It = std::ranges::find(Definitions, Id,
+				&FMaterialParameterDefinition::Id);
+			return It == Definitions.end() ? nullptr : &*It;
+		}
+
+		auto GetProgramType(EMaterialParameterType Type)
+			-> EMaterialProgramValueType
+		{
+			switch (Type)
+			{
+			case EMaterialParameterType::Scalar:
+				return EMaterialProgramValueType::Float;
+			case EMaterialParameterType::Vector2:
+				return EMaterialProgramValueType::Float2;
+			case EMaterialParameterType::Vector:
+				return EMaterialProgramValueType::Float3;
+			case EMaterialParameterType::Texture:
+				return EMaterialProgramValueType::Texture2D;
+			}
+			return static_cast<EMaterialProgramValueType>(0xff);
+		}
+
+		auto GetSurfaceOutputType(EMaterialSurfaceOutput Output)
+			-> EMaterialProgramValueType
+		{
+			switch (Output)
+			{
+			case EMaterialSurfaceOutput::BaseColor:
+			case EMaterialSurfaceOutput::Normal:
+			case EMaterialSurfaceOutput::Emissive:
+				return EMaterialProgramValueType::Float3;
+			case EMaterialSurfaceOutput::Metallic:
+			case EMaterialSurfaceOutput::Roughness:
+			case EMaterialSurfaceOutput::AmbientOcclusion:
+			case EMaterialSurfaceOutput::Opacity:
+			case EMaterialSurfaceOutput::OpacityMask:
+				return EMaterialProgramValueType::Float;
+			}
+			return static_cast<EMaterialProgramValueType>(0xff);
+		}
+
+		auto AddDiagnostic(
+			std::vector<FMaterialProgramDiagnostic>& Diagnostics,
+			EMaterialProgramDiagnosticCategory Category,
+			EMaterialProgramDiagnosticLocationKind LocationKind,
+			const FGuid& NodeId,
+			uint32 LocationIndex,
+			std::string Message) -> void
+		{
+			if (Diagnostics.size() >= MaterialProgramMaxDiagnosticCount)
+				return;
+			if (Message.size() > MaterialProgramMaxDiagnosticMessageBytes)
+				Message.resize(MaterialProgramMaxDiagnosticMessageBytes);
+			Diagnostics.push_back({
+				.Category = Category,
+				.LocationKind = LocationKind,
+				.NodeId = NodeId,
+				.LocationIndex = LocationIndex,
+				.Message = std::move(Message)});
+		}
+
+		auto SortAndBoundDiagnostics(
+			std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> void
+		{
+			std::ranges::sort(Diagnostics, [](const auto& A, const auto& B) {
+				return std::tie(
+					A.Category, A.NodeId, A.LocationKind,
+					A.LocationIndex, A.Message)
+					< std::tie(
+					B.Category, B.NodeId, B.LocationKind,
+					B.LocationIndex, B.Message);
+			});
+			Diagnostics.erase(
+				std::unique(Diagnostics.begin(), Diagnostics.end()),
+				Diagnostics.end());
+			if (Diagnostics.size() > MaterialProgramMaxDiagnosticCount)
+				Diagnostics.resize(MaterialProgramMaxDiagnosticCount);
+		}
+
+		auto ValidateNodeShape(
+			const FMaterialProgramNode& Node,
+			const std::function<const FMaterialProgramNode*(size_t)>& GetInput,
+			std::span<const FMaterialParameterDefinition> Definitions,
+			std::unordered_set<FGuid>& ReferencedParameters,
+			std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> void
+		{
+			const auto AddType = [&](uint32 Input, std::string Message) {
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Type,
+					EMaterialProgramDiagnosticLocationKind::Input,
+					Node.Id, Input, std::move(Message));
+			};
+			const auto RequireCount = [&](size_t Expected) {
+				if (Node.Inputs.size() == Expected) return true;
+				AddType(0, "Material program opcode has an invalid input count.");
+				return false;
+			};
+			const auto InputType = [&](size_t Index) {
+				const FMaterialProgramNode* Input = GetInput(Index);
+				return Input ? Input->ResultType
+					: static_cast<EMaterialProgramValueType>(0xff);
+			};
+			const auto RequireSameNumeric = [&](size_t Count) {
+				if (!RequireCount(Count) || !IsNumeric(Node.ResultType)) return;
+				for (size_t Index = 0; Index < Count; ++Index)
+					if (InputType(Index) != Node.ResultType)
+						AddType(static_cast<uint32>(Index),
+							"Material program numeric input type does not match its result type.");
+			};
+
+			switch (Node.Opcode)
+			{
+			case EMaterialProgramOpcode::Constant:
+			{
+				RequireCount(0);
+				if (!IsNumeric(Node.ResultType))
+					AddType(0, "Material program constants must have a numeric result type.");
+				const std::array Values{
+					Node.Literal.X, Node.Literal.Y,
+					Node.Literal.Z, Node.Literal.W};
+				for (uint8 Index = 0; Index < GetComponentCount(Node.ResultType); ++Index)
+					if (!std::isfinite(Values[Index]))
+						AddType(Index, "Material program constant components must be finite binary32 values.");
+				break;
+			}
+			case EMaterialProgramOpcode::Parameter:
+			case EMaterialProgramOpcode::TextureParameter:
+			case EMaterialProgramOpcode::TextureCoordinate:
+			{
+				RequireCount(0);
+				const FMaterialParameterDefinition* Definition =
+					FindParameter(Definitions, Node.ParameterId);
+				if (!Node.ParameterId.IsValid() || Definition == nullptr)
+				{
+					AddType(0, "Material program parameter reference is missing or unknown.");
+					break;
+				}
+				ReferencedParameters.insert(Node.ParameterId);
+				if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
+				{
+					if (!IsCanonicalTextureParameter(Node.ParameterId)
+						|| Node.ResultType != EMaterialProgramValueType::Float2)
+						AddType(0, "TextureCoordinate must reference a canonical texture role and return Float2.");
+				}
+				else
+				{
+					const EMaterialProgramValueType Expected = GetProgramType(Definition->Type);
+					const bool bTextureOpcode = Node.Opcode
+						== EMaterialProgramOpcode::TextureParameter;
+					if (Node.ResultType != Expected
+						|| bTextureOpcode != (Expected
+							== EMaterialProgramValueType::Texture2D))
+						AddType(0, "Material program parameter opcode or result type does not match the referenced definition.");
+				}
+				break;
+			}
+			case EMaterialProgramOpcode::TextureSample2D:
+				if (RequireCount(2))
+				{
+					if (Node.ResultType != EMaterialProgramValueType::Float4)
+						AddType(0, "TextureSample2D must return Float4.");
+					if (InputType(0) != EMaterialProgramValueType::Texture2D)
+						AddType(0, "TextureSample2D input 0 must be Texture2D.");
+					if (InputType(1) != EMaterialProgramValueType::Float2)
+						AddType(1, "TextureSample2D input 1 must be Float2.");
+				}
+				break;
+			case EMaterialProgramOpcode::Add:
+			case EMaterialProgramOpcode::Subtract:
+			case EMaterialProgramOpcode::Multiply:
+			case EMaterialProgramOpcode::Divide:
+			case EMaterialProgramOpcode::Minimum:
+			case EMaterialProgramOpcode::Maximum:
+			case EMaterialProgramOpcode::BlendNormalsRNM:
+				RequireSameNumeric(2);
+				if (Node.Opcode == EMaterialProgramOpcode::BlendNormalsRNM
+					&& Node.ResultType != EMaterialProgramValueType::Float3)
+					AddType(0, "BlendNormalsRNM requires two Float3 inputs and a Float3 result.");
+				break;
+			case EMaterialProgramOpcode::Negate:
+			case EMaterialProgramOpcode::OneMinus:
+			case EMaterialProgramOpcode::Absolute:
+			case EMaterialProgramOpcode::Saturate:
+			case EMaterialProgramOpcode::Normalize:
+				RequireSameNumeric(1);
+				if (Node.Opcode == EMaterialProgramOpcode::Normalize
+					&& Node.ResultType == EMaterialProgramValueType::Float)
+					AddType(0, "Normalize requires Float2, Float3, or Float4.");
+				break;
+			case EMaterialProgramOpcode::Clamp:
+				RequireSameNumeric(3);
+				break;
+			case EMaterialProgramOpcode::Lerp:
+				if (RequireCount(3))
+				{
+					if (!IsNumeric(Node.ResultType)
+						|| InputType(0) != Node.ResultType
+						|| InputType(1) != Node.ResultType)
+						AddType(0, "Lerp value inputs must match its numeric result type.");
+					if (InputType(2) != EMaterialProgramValueType::Float)
+						AddType(2, "Lerp alpha must be Float.");
+				}
+				break;
+			case EMaterialProgramOpcode::MakeFloat2:
+			case EMaterialProgramOpcode::MakeFloat3:
+			case EMaterialProgramOpcode::MakeFloat4:
+			{
+				const uint8 Count = static_cast<uint8>(Node.Opcode)
+					- static_cast<uint8>(EMaterialProgramOpcode::MakeFloat2) + 2;
+				if (RequireCount(Count))
+					for (uint8 Index = 0; Index < Count; ++Index)
+						if (InputType(Index) != EMaterialProgramValueType::Float)
+							AddType(Index, "Vector construction inputs must be Float.");
+				if (GetComponentCount(Node.ResultType) != Count)
+					AddType(0, "Vector construction result width is invalid.");
+				break;
+			}
+			case EMaterialProgramOpcode::Swizzle:
+				if (RequireCount(1))
+				{
+					const uint8 SourceWidth = GetComponentCount(InputType(0));
+					const std::array Mask{
+						Node.SwizzleX, Node.SwizzleY,
+						Node.SwizzleZ, Node.SwizzleW};
+					if (Node.SwizzleLength == 0 || Node.SwizzleLength > 4
+						|| GetComponentCount(Node.ResultType) != Node.SwizzleLength)
+						AddType(0, "Swizzle length must match its numeric result width.");
+					for (uint8 Index = 0; Index < Node.SwizzleLength && Index < 4; ++Index)
+						if (Mask[Index] >= SourceWidth)
+							AddType(Index, "Swizzle component exceeds the source width.");
+				}
+				break;
+			case EMaterialProgramOpcode::Splat2:
+			case EMaterialProgramOpcode::Splat3:
+			case EMaterialProgramOpcode::Splat4:
+			{
+				const uint8 Width = static_cast<uint8>(Node.Opcode)
+					- static_cast<uint8>(EMaterialProgramOpcode::Splat2) + 2;
+				if (RequireCount(1)
+					&& InputType(0) != EMaterialProgramValueType::Float)
+					AddType(0, "Splat input must be Float.");
+				if (GetComponentCount(Node.ResultType) != Width)
+					AddType(0, "Splat result width is invalid.");
+				break;
+			}
+			case EMaterialProgramOpcode::TruncateToFloat:
+			case EMaterialProgramOpcode::TruncateToFloat2:
+			case EMaterialProgramOpcode::TruncateToFloat3:
+			{
+				const uint8 Width = static_cast<uint8>(Node.Opcode)
+					- static_cast<uint8>(EMaterialProgramOpcode::TruncateToFloat) + 1;
+				if (RequireCount(1)
+					&& GetComponentCount(InputType(0)) <= Width)
+					AddType(0, "Truncate source must be a wider numeric vector.");
+				if (GetComponentCount(Node.ResultType) != Width)
+					AddType(0, "Truncate result width is invalid.");
+				break;
+			}
+			case EMaterialProgramOpcode::DecodeNormalRG:
+				if (RequireCount(1)
+					&& (InputType(0) != EMaterialProgramValueType::Float2
+						|| Node.ResultType != EMaterialProgramValueType::Float3))
+					AddType(0, "DecodeNormalRG requires Float2 and returns Float3.");
+				break;
+			}
+		}
+	}
+
+	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
+	{
+		FMaterialProgram Program;
+		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
+		auto AddNode = [&](EMaterialProgramOpcode Opcode,
+			EMaterialProgramValueType Type,
+			std::vector<FMaterialProgramLink> Inputs = {},
+			FGuid ParameterId = {},
+			FMaterialProgramLiteral Literal = {})
+			-> FMaterialProgramNode& {
+			FMaterialProgramNode Node;
+			Node.Id = MakeCanonicalNodeId(
+				static_cast<uint32>(Program.Nodes.size()));
+			Node.Opcode = Opcode;
+			Node.ResultType = Type;
+			Node.Inputs = std::move(Inputs);
+			Node.ParameterId = ParameterId;
+			Node.Literal = Literal;
+			Program.Nodes.push_back(std::move(Node));
+			return Program.Nodes.back();
+		};
+		auto Parameter = [&](FGuid Id, EMaterialProgramValueType Type)
+			-> FMaterialProgramNode& {
+			return AddNode(EMaterialProgramOpcode::Parameter, Type, {}, Id);
+		};
+		auto Sample = [&](FGuid TextureId) -> FMaterialProgramNode& {
+			auto& Texture = AddNode(
+				EMaterialProgramOpcode::TextureParameter,
+				EMaterialProgramValueType::Texture2D, {}, TextureId);
+			auto& UV = AddNode(
+				EMaterialProgramOpcode::TextureCoordinate,
+				EMaterialProgramValueType::Float2, {}, TextureId);
+			return AddNode(
+				EMaterialProgramOpcode::TextureSample2D,
+				EMaterialProgramValueType::Float4,
+				{MakeLink(Texture), MakeLink(UV)});
+		};
+		auto Swizzle = [&](FMaterialProgramNode& Source,
+			EMaterialProgramValueType Type,
+			std::initializer_list<uint8> Mask) -> FMaterialProgramNode& {
+			auto& Node = AddNode(
+				EMaterialProgramOpcode::Swizzle, Type, {MakeLink(Source)});
+			Node.SwizzleLength = static_cast<uint8>(Mask.size());
+			std::array<uint8*, 4> Slots{
+				&Node.SwizzleX, &Node.SwizzleY,
+				&Node.SwizzleZ, &Node.SwizzleW};
+			size_t Index = 0;
+			for (uint8 Component : Mask) *Slots[Index++] = Component;
+			return Node;
+		};
+		auto Unary = [&](EMaterialProgramOpcode Opcode,
+			FMaterialProgramNode& Input) -> FMaterialProgramNode& {
+			return AddNode(Opcode, Input.ResultType, {MakeLink(Input)});
+		};
+		auto Binary = [&](EMaterialProgramOpcode Opcode,
+			FMaterialProgramNode& A,
+			FMaterialProgramNode& B) -> FMaterialProgramNode& {
+			return AddNode(Opcode, A.ResultType, {MakeLink(A), MakeLink(B)});
+		};
+		auto Constant = [&](EMaterialProgramValueType Type,
+			float X, float Y = 0.0f, float Z = 0.0f, float W = 0.0f)
+			-> FMaterialProgramNode& {
+			return AddNode(EMaterialProgramOpcode::Constant, Type, {}, {},
+				{.X = X, .Y = Y, .Z = Z, .W = W});
+		};
+
+		auto& BaseParameter = Parameter(
+			MaterialParameters::BaseColorId,
+			EMaterialProgramValueType::Float3);
+		auto& BaseSample = Sample(MaterialParameters::BaseColorTextureId);
+		auto& BaseRgb = Swizzle(
+			BaseSample, EMaterialProgramValueType::Float3, {0, 1, 2});
+		auto& BaseSaturated = Unary(
+			EMaterialProgramOpcode::Saturate, BaseParameter);
+		auto& BaseColor = Binary(
+			EMaterialProgramOpcode::Multiply, BaseSaturated, BaseRgb);
+
+		auto& NormalParameter = Parameter(
+			MaterialParameters::NormalId,
+			EMaterialProgramValueType::Float3);
+		auto& NormalSample = Sample(MaterialParameters::NormalTextureId);
+		auto& NormalRg = Swizzle(
+			NormalSample, EMaterialProgramValueType::Float2, {0, 1});
+		auto& DecodedNormal = AddNode(
+			EMaterialProgramOpcode::DecodeNormalRG,
+			EMaterialProgramValueType::Float3, {MakeLink(NormalRg)});
+		auto& Normal = Binary(
+			EMaterialProgramOpcode::BlendNormalsRNM,
+			NormalParameter, DecodedNormal);
+
+		auto MakeScalarProduct = [&](FGuid ParameterId, FGuid TextureId,
+			uint8 Component) -> FMaterialProgramNode& {
+			auto& Value = Parameter(
+				ParameterId, EMaterialProgramValueType::Float);
+			auto& TextureSample = Sample(TextureId);
+			auto& Channel = Swizzle(
+				TextureSample, EMaterialProgramValueType::Float, {Component});
+			auto& SaturatedValue = Unary(
+				EMaterialProgramOpcode::Saturate, Value);
+			auto& SaturatedChannel = Unary(
+				EMaterialProgramOpcode::Saturate, Channel);
+			return Binary(
+				EMaterialProgramOpcode::Multiply,
+				SaturatedValue, SaturatedChannel);
+		};
+
+		auto& Metallic = MakeScalarProduct(
+			MaterialParameters::MetallicId,
+			MaterialParameters::MetallicTextureId, 2);
+		auto& RoughnessProduct = MakeScalarProduct(
+			MaterialParameters::RoughnessId,
+			MaterialParameters::RoughnessTextureId, 1);
+		auto& RoughnessMinimum = Constant(
+			EMaterialProgramValueType::Float, 0.045f);
+		auto& RoughnessMaximum = Constant(
+			EMaterialProgramValueType::Float, 1.0f);
+		auto& Roughness = AddNode(
+			EMaterialProgramOpcode::Clamp,
+			EMaterialProgramValueType::Float,
+			{MakeLink(RoughnessProduct), MakeLink(RoughnessMinimum),
+				MakeLink(RoughnessMaximum)});
+		auto& AmbientOcclusion = MakeScalarProduct(
+			MaterialParameters::AmbientOcclusionId,
+			MaterialParameters::AmbientOcclusionTextureId, 0);
+
+		auto& EmissiveParameter = Parameter(
+			MaterialParameters::EmissiveId,
+			EMaterialProgramValueType::Float3);
+		auto& EmissiveSample = Sample(
+			MaterialParameters::EmissiveTextureId);
+		auto& EmissiveRgb = Swizzle(
+			EmissiveSample, EMaterialProgramValueType::Float3, {0, 1, 2});
+		auto& Zero3 = Constant(
+			EMaterialProgramValueType::Float3, 0.0f, 0.0f, 0.0f);
+		auto& PositiveEmissive = Binary(
+			EMaterialProgramOpcode::Maximum, EmissiveParameter, Zero3);
+		auto& PositiveEmissiveSample = Binary(
+			EMaterialProgramOpcode::Maximum, EmissiveRgb, Zero3);
+		auto& Emissive = Binary(
+			EMaterialProgramOpcode::Add,
+			PositiveEmissive, PositiveEmissiveSample);
+
+		auto& Opacity = MakeScalarProduct(
+			MaterialParameters::OpacityId,
+			MaterialParameters::OpacityTextureId, 3);
+		auto& OpacityMask = MakeScalarProduct(
+			MaterialParameters::OpacityMaskId,
+			MaterialParameters::OpacityMaskTextureId, 0);
+
+		Program.Outputs = {
+			.BaseColor = MakeLink(BaseColor),
+			.Normal = MakeLink(Normal),
+			.Metallic = MakeLink(Metallic),
+			.Roughness = MakeLink(Roughness),
+			.AmbientOcclusion = MakeLink(AmbientOcclusion),
+			.Emissive = MakeLink(Emissive),
+			.Opacity = MakeLink(Opacity),
+			.OpacityMask = MakeLink(OpacityMask)};
+		return Program;
+	}
+
+	auto ValidateMaterialProgram(
+		const FMaterialProgram& Program,
+		std::span<const FMaterialParameterDefinition> ParameterDefinitions)
+		-> FMaterialProgramValidationResult
+	{
+		FMaterialProgramValidationResult Result;
+		auto& Diagnostics = Result.Diagnostics;
+		Diagnostics.reserve(MaterialProgramMaxDiagnosticCount);
+		if (Program.SchemaVersion != CurrentMaterialProgramSchemaVersion)
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Schema,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program schema version is unsupported.");
+		if (Program.Nodes.empty()
+			|| Program.Nodes.size() > MaterialProgramMaxNodeCount)
+		{
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Bounds,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program node count is outside the version-1 bounds.");
+			SortAndBoundDiagnostics(Diagnostics);
+			return Result;
+		}
+
+		uint64 LinkCount = 8;
+		uint64 StringBytes = 0;
+		uint64 EstimatedBytes = sizeof(Program.SchemaVersion) + 8 * sizeof(FMaterialProgramLink);
+		std::unordered_map<FGuid, size_t> NodeIndices;
+		NodeIndices.reserve(std::min<size_t>(
+			Program.Nodes.size(), MaterialProgramMaxNodeCount));
+		std::vector<size_t> ScanIndices(Program.Nodes.size());
+		std::iota(ScanIndices.begin(), ScanIndices.end(), size_t{0});
+		std::ranges::sort(ScanIndices, [&](size_t A, size_t B) {
+			return Program.Nodes[A].Id < Program.Nodes[B].Id;
+		});
+		for (size_t Index : ScanIndices)
+		{
+			const FMaterialProgramNode& Node = Program.Nodes[Index];
+			LinkCount += Node.Inputs.size();
+			StringBytes += Node.DisplayName.size();
+			EstimatedBytes += 64 + Node.DisplayName.size()
+				+ Node.Inputs.size() * sizeof(FMaterialProgramLink);
+			if (!Node.Id.IsValid())
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Schema,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Node.Id, 0, "Material program node GUID must be nonzero.");
+			else if (!NodeIndices.emplace(Node.Id, Index).second)
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Schema,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Node.Id, 0, "Material program node GUID is duplicated.");
+			if (!IsValidOpcode(Node.Opcode) || !IsValidValueType(Node.ResultType))
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Schema,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Node.Id, 0, "Material program node enum value is invalid.");
+			if (Node.Inputs.size() > MaterialProgramMaxNodeInputCount)
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Bounds,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Node.Id, 0, "Material program node input count exceeds the bound.");
+			if (Node.DisplayName.size() > MaterialProgramMaxDisplayNameBytes)
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Bounds,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Node.Id, 0, "Material program node display name exceeds the byte bound.");
+		}
+		if (LinkCount > MaterialProgramMaxLinkCount)
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Bounds,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program link count exceeds the bound.");
+		if (StringBytes > MaterialProgramMaxStringBytes)
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Bounds,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program aggregate string bytes exceed the bound.");
+		if (EstimatedBytes > MaterialProgramMaxCanonicalBytes)
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Bounds,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program estimated canonical bytes exceed the bound.");
+		if (std::ranges::any_of(Diagnostics, [](const auto& Diagnostic) {
+			return Diagnostic.Category
+				== EMaterialProgramDiagnosticCategory::Schema
+				|| Diagnostic.Category
+				== EMaterialProgramDiagnosticCategory::Bounds;
+		}))
+		{
+			SortAndBoundDiagnostics(Diagnostics);
+			return Result;
+		}
+
+		std::vector<size_t> OrderedIndices;
+		OrderedIndices.reserve(NodeIndices.size());
+		for (const auto& [Id, Index] : NodeIndices) OrderedIndices.push_back(Index);
+		std::ranges::sort(OrderedIndices, [&](size_t A, size_t B) {
+			return Program.Nodes[A].Id < Program.Nodes[B].Id;
+		});
+
+		for (size_t NodeIndex : OrderedIndices)
+		{
+			const FMaterialProgramNode& Node = Program.Nodes[NodeIndex];
+			for (size_t InputIndex = 0;
+				InputIndex < std::min<size_t>(
+					Node.Inputs.size(), MaterialProgramMaxNodeInputCount);
+				++InputIndex)
+			{
+				const FMaterialProgramLink& Link = Node.Inputs[InputIndex];
+				if (Link.SourceOutputIndex != 0
+					|| !NodeIndices.contains(Link.SourceNodeId))
+					AddDiagnostic(Diagnostics,
+						EMaterialProgramDiagnosticCategory::Graph,
+						EMaterialProgramDiagnosticLocationKind::Input,
+						Node.Id, static_cast<uint32>(InputIndex),
+						"Material program input link is dangling or names an unsupported output slot.");
+			}
+		}
+
+		std::unordered_set<FGuid> ReferencedParameters;
+		for (size_t NodeIndex : OrderedIndices)
+		{
+			const FMaterialProgramNode& Node = Program.Nodes[NodeIndex];
+			if (!IsValidOpcode(Node.Opcode) || !IsValidValueType(Node.ResultType))
+				continue;
+			ValidateNodeShape(Node, [&](size_t InputIndex) {
+				if (InputIndex >= Node.Inputs.size()) return static_cast<const FMaterialProgramNode*>(nullptr);
+				const auto It = NodeIndices.find(Node.Inputs[InputIndex].SourceNodeId);
+				return It == NodeIndices.end() ? nullptr : &Program.Nodes[It->second];
+			}, ParameterDefinitions, ReferencedParameters, Diagnostics);
+		}
+		if (ReferencedParameters.size()
+			> MaterialProgramMaxReferencedParameterCount)
+			AddDiagnostic(Diagnostics,
+				EMaterialProgramDiagnosticCategory::Bounds,
+				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
+				"Material program referenced parameter count exceeds the bound.");
+
+		std::vector<uint8> VisitState(Program.Nodes.size(), 0);
+		std::vector<uint32> Depth(Program.Nodes.size(), 0);
+		std::function<uint32(size_t)> Visit = [&](size_t Index) -> uint32 {
+			if (VisitState[Index] == 2) return Depth[Index];
+			if (VisitState[Index] == 1)
+			{
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Graph,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Program.Nodes[Index].Id, 0,
+					"Material program graph contains a cycle.");
+				return 1;
+			}
+			VisitState[Index] = 1;
+			uint32 MaximumInputDepth = 0;
+			for (const FMaterialProgramLink& Link :
+				Program.Nodes[Index].Inputs | std::views::take(
+					MaterialProgramMaxNodeInputCount))
+				if (const auto It = NodeIndices.find(Link.SourceNodeId);
+					It != NodeIndices.end())
+					MaximumInputDepth = std::max(
+						MaximumInputDepth, Visit(It->second));
+			VisitState[Index] = 2;
+			Depth[Index] = MaximumInputDepth + 1;
+			if (Depth[Index] > MaterialProgramMaxDepth)
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Bounds,
+					EMaterialProgramDiagnosticLocationKind::Node,
+					Program.Nodes[Index].Id, 0,
+					"Material program dependency depth exceeds the bound.");
+			return Depth[Index];
+		};
+		for (size_t Index : OrderedIndices)
+			if (VisitState[Index] == 0) Visit(Index);
+
+		const std::array<std::pair<EMaterialSurfaceOutput,
+			const FMaterialProgramLink*>, 8> Outputs{{
+			{EMaterialSurfaceOutput::BaseColor, &Program.Outputs.BaseColor},
+			{EMaterialSurfaceOutput::Normal, &Program.Outputs.Normal},
+			{EMaterialSurfaceOutput::Metallic, &Program.Outputs.Metallic},
+			{EMaterialSurfaceOutput::Roughness, &Program.Outputs.Roughness},
+			{EMaterialSurfaceOutput::AmbientOcclusion, &Program.Outputs.AmbientOcclusion},
+			{EMaterialSurfaceOutput::Emissive, &Program.Outputs.Emissive},
+			{EMaterialSurfaceOutput::Opacity, &Program.Outputs.Opacity},
+			{EMaterialSurfaceOutput::OpacityMask, &Program.Outputs.OpacityMask}}};
+		for (const auto& [Output, Link] : Outputs)
+		{
+			const auto It = NodeIndices.find(Link->SourceNodeId);
+			if (!Link->SourceNodeId.IsValid() || Link->SourceOutputIndex != 0
+				|| It == NodeIndices.end())
+			{
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Graph,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					{}, static_cast<uint32>(Output),
+					"Material surface output is missing or dangling.");
+				continue;
+			}
+			if (Program.Nodes[It->second].ResultType
+				!= GetSurfaceOutputType(Output))
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Type,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					Link->SourceNodeId, static_cast<uint32>(Output),
+					"Material surface output type is incompatible with the fixed surface contract.");
+		}
+
+		SortAndBoundDiagnostics(Diagnostics);
+		Result.bSucceeded = Diagnostics.empty();
+		return Result;
+	}
+}

@@ -69,6 +69,91 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 		Durin::EMaterialDepthWritePolicy::Enabled);
 }
 
+TEST(FMaterialProgramCharacterizationTests,
+	FixedPathSeparatesDynamicShaderAndPipelineIdentity)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "M5FixedPathBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+		nullptr, "M5FixedPathInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+
+	const Durin::FMaterialRenderData Initial = Base->GetRenderData();
+	EXPECT_EQ(
+		Initial.PlanningPassIdentity.ShaderMap.RenderLayout,
+		Durin::FMaterialRenderLayoutIdentity{});
+	EXPECT_EQ(
+		Initial.PlanningPassIdentity.ShaderMap.BlendMode,
+		Durin::EMaterialBlendMode::Opaque);
+	EXPECT_EQ(
+		Initial.PlanningPassIdentity.ShaderMap.ShadingModel,
+		Durin::EMaterialShadingModel::Lit);
+	EXPECT_FLOAT_EQ(
+		Initial.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold,
+		0.333f);
+	EXPECT_FALSE(Initial.PlanningPassIdentity.bTwoSided);
+	EXPECT_EQ(
+		Initial.PlanningPassIdentity.DepthWritePolicy,
+		Durin::EMaterialDepthWritePolicy::Automatic);
+
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.2, 0.4, 0.8)));
+	const Durin::FMaterialRenderData Dynamic = Base->GetRenderData();
+	EXPECT_FALSE(std::ranges::equal(
+		Dynamic.Representation.GetUniformPayload(),
+		Initial.Representation.GetUniformPayload()));
+	EXPECT_EQ(
+		Dynamic.PlanningPassIdentity,
+		Initial.PlanningPassIdentity);
+	EXPECT_EQ(
+		Instance->GetRenderData().PlanningPassIdentity,
+		Dynamic.PlanningPassIdentity);
+
+	Durin::FMaterialStaticProperties PipelineOnly =
+		Base->GetStaticProperties();
+	PipelineOnly.bTwoSided = true;
+	PipelineOnly.DepthWritePolicy =
+		Durin::EMaterialDepthWritePolicy::Disabled;
+	ASSERT_TRUE(Base->SetStaticProperties(PipelineOnly));
+	const Durin::FMaterialRenderData PipelineChanged = Base->GetRenderData();
+	EXPECT_EQ(
+		PipelineChanged.PlanningPassIdentity.ShaderMap,
+		Dynamic.PlanningPassIdentity.ShaderMap);
+	EXPECT_NE(
+		PipelineChanged.PlanningPassIdentity,
+		Dynamic.PlanningPassIdentity);
+
+	Durin::FMaterialStaticProperties ShaderProperties = PipelineOnly;
+	ShaderProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
+	ShaderProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
+	ShaderProperties.OpacityMaskThreshold = 0.625f;
+	ASSERT_TRUE(Base->SetStaticProperties(ShaderProperties));
+	const Durin::FMaterialRenderData ShaderChanged = Base->GetRenderData();
+	EXPECT_NE(
+		ShaderChanged.PlanningPassIdentity.ShaderMap,
+		PipelineChanged.PlanningPassIdentity.ShaderMap);
+	EXPECT_EQ(
+		Instance->GetRenderData().PlanningPassIdentity,
+		ShaderChanged.PlanningPassIdentity);
+
+	const Durin::FMaterialRenderData& Error =
+		Durin::GetErrorMaterialRenderData();
+	EXPECT_TRUE(Error.Representation.IsError());
+	EXPECT_EQ(
+		Error.Representation.GetLayout().Identity,
+		Initial.Representation.GetLayout().Identity);
+	EXPECT_EQ(Error.Representation.GetResources().size(), 8u);
+	EXPECT_TRUE(std::ranges::all_of(
+		Error.Representation.GetResources(),
+		[](const auto& Resource) { return Resource == nullptr; }));
+
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 {
 	InitializeDObjectSystem();

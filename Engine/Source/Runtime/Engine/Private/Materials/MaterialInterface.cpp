@@ -128,6 +128,20 @@ namespace Durin
 		return GDefaultMaterialStaticProperties;
 	}
 
+	auto DMaterialInterface::GetMaterialProgram() const
+		-> const FMaterialProgram*
+	{
+		return nullptr;
+	}
+
+	auto DMaterialInterface::GetAcceptedCompiledProgram() const
+		-> std::shared_ptr<const FMaterialCompilerResult>
+	{
+		DMaterialInterface* Parent = GetParent();
+		return IsValid(Parent) && Parent != this
+			? Parent->GetAcceptedCompiledProgram() : nullptr;
+	}
+
 	auto DMaterialInterface::IsDependent(const DMaterialInterface* TestDependency) const -> bool
 	{
 		CheckMaterialQueryThread();
@@ -178,10 +192,16 @@ namespace Durin
 		Result.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
 		Result.PlanningPassIdentity.bTwoSided = StaticProperties.bTwoSided;
 		Result.PlanningPassIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
+		Result.CompiledProgram = GetAcceptedCompiledProgram();
+		if (Result.CompiledProgram)
+			Result.PlanningPassIdentity.ShaderMap.ProgramIdentity =
+				Result.CompiledProgram->Identity;
 
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
-		if (bRepresentationValid
+		const bool bRequiresCompiledProgram = GetMaterialProgram() != nullptr;
+		if ((!bRequiresCompiledProgram || Result.CompiledProgram)
+			&& bRepresentationValid
 			&& RepresentationBuilder.Build(
 				CompiledRepresentation, ValidationDiagnostic))
 		{

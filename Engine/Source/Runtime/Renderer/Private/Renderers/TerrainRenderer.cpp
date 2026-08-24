@@ -1,5 +1,6 @@
 #include "Renderers/TerrainRenderer.h"
 #include "Renderers/MeshRenderingCommon.h"
+#include "Renderers/MeshRendererShared.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SurfaceMaterial.h"
 
@@ -487,6 +488,7 @@ namespace Durin
 
 		if (bPrepareForwardPipeline)
 		{
+			if (!Draw.Material.CompiledProgram) return false;
 			const auto ShaderBegin = std::chrono::steady_clock::now();
 			auto& ShaderCache = bShadowDepth ? State->ShadowShaders : State->Shaders;
 			auto& ShaderEntry = ShaderCache.FindOrAdd(
@@ -522,9 +524,28 @@ namespace Durin
 				else if (Identity.BlendMode == EMaterialBlendMode::Masked)
 					Types.push_back(&ShadowFragmentType);
 				else Types.push_back(&OpaqueShadowFragmentType);
-				auto Map = std::make_shared<FShaderMapBase>();
+				std::shared_ptr<FShaderMapBase> Map;
 				std::string Error;
-				if (!Map->InitializeFromShaderTypes(Types, Options, Error))
+				const bool bOpaqueShadow = bShadowDepth
+					&& Identity.BlendMode != EMaterialBlendMode::Masked;
+				bool bInitialized = false;
+				if (bOpaqueShadow)
+				{
+					Map = std::make_shared<FShaderMapBase>();
+					bInitialized = Map->InitializeFromShaderTypes(
+						Types, Options, Error);
+				}
+				else
+				{
+					const FShaderType& GeneratedFragmentType = bShadowDepth
+						? ShadowFragmentType : FragmentType;
+					bInitialized = RendererPrivate::InitializeCompiledMaterialShaderMap(
+						VertexType, GeneratedFragmentType,
+						*Draw.Material.CompiledProgram,
+						bShadowDepth ? "ShadowFragmentMain" : "FragmentMain",
+						Options, Map, Error);
+				}
+				if (!bInitialized)
 					return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderCompile, "TerrainShaderMap", "terrain", std::move(Error), ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
 				auto* Vertex = static_cast<FTerrainVertexShader*>(Map->GetShader(&VertexType));
 				auto* Fragment = !bShadowDepth
@@ -987,7 +1008,7 @@ namespace Durin
 				TopologyIt->second->VertexFactory.GetDeclaration()
 			);
 			FGBufferRenderer::FPipeline* GBufferPipeline =
-				GBuffer->EnsurePipeline_RenderThread({.Material = Draw.PipelineKey.Material, .Rasterizer = Draw.PipelineKey.Rasterizer, .Depth = Draw.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = EGBufferVertexDomain::Terrain});
+				GBuffer->EnsurePipeline_RenderThread({.Material = Draw.PipelineKey.Material, .CompiledProgram = Draw.Material.CompiledProgram, .Rasterizer = Draw.PipelineKey.Rasterizer, .Depth = Draw.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = EGBufferVertexDomain::Terrain});
 			if (GBufferPipeline == nullptr) return false;
 			const FGBufferRenderer::FVertexParameters VertexParameters{
 				.Transform = TransformBuffer,

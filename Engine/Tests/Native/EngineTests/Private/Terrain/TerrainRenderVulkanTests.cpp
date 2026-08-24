@@ -3,6 +3,7 @@
 #include "Engine/TerrainSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
@@ -121,18 +122,16 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 3, Samples, Payload, Error)) << Error;
-	auto Material = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
-	Durin::FMaterialRenderProxyPublication Publication;
-	Publication.LocalVersion = 1;
-	Publication.LocalLayer.StaticProperties = Durin::FMaterialStaticProperties{
+	auto* MaterialObject = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "TerrainRenderVulkanMaterial");
+	ASSERT_TRUE(MaterialObject->SetStaticProperties(
+		Durin::FMaterialStaticProperties{
 		.BlendMode = Durin::EMaterialBlendMode::Opaque,
 		.ShadingModel = Durin::EMaterialShadingModel::Lit,
-		.bTwoSided = true};
-	Publication.LocalLayer.Parameters.push_back({
-		.Id = Durin::MaterialParameters::BaseColorId,
-		.Type = Durin::EMaterialParameterType::Vector,
-		.VectorValue = {0.8f, 0.2f, 0.1f}});
-	ASSERT_TRUE(Material->QueuePublication_GameThread(std::move(Publication)));
+		.bTwoSided = true}));
+	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), {0.8f, 0.2f, 0.1f}));
+	auto Material = MaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
 	Durin::FTerrainPatchDescriptor Patch{
 		.OriginX = 0, .OriginY = 0, .CellCountX = 2, .CellCountY = 2,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialProgramCompiler.h"
 #include "Misc/EnumClassFlags.h"
 
 #include <array>
@@ -255,6 +256,7 @@ namespace Durin
 	struct FMaterialShaderMapIdentity
 	{
 		FMaterialRenderLayoutIdentity RenderLayout;
+		FMaterialProgramIdentity ProgramIdentity;
 		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
 		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
 		float OpacityMaskThreshold = 0.333f;
@@ -274,6 +276,7 @@ namespace Durin
 	struct FMaterialRenderData
 	{
 		FMaterialRenderRepresentation Representation;
+		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
 				.RenderLayout = {},

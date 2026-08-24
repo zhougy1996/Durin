@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
 ## Complete-Or-Null Construction
 
@@ -41,6 +41,14 @@ payload as stale-ready. Device-generation changes always discard dependent RHI
 payloads before replacement, so fallback never crosses a device generation.
 This seam coordinates reconstruction; it does not recover a lost Vulkan device
 or a failed RHI executor.
+
+Compiled materials retain one immutable accepted `FMaterialCompilerResult` in
+Engine render data. Renderer shader slots use its program identity as key and
+recreate typed forward, GBuffer, and masked-shadow shader maps from its complete
+compiled fragment set. Shader reload may refresh the shared fixed vertex stage;
+device invalidation discards the combined RHI shaders and PSOs. Both reconstruct
+lazily on the rendering thread without rereading graph state or recompiling the
+material program.
 
 Frame-transient targets use the Renderer-private provider described by
 [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md).

@@ -36,6 +36,19 @@ All dependency and variant keys are exactly 32 hexadecimal characters. Storage r
 
 The dependency key includes the virtual shader path, normalized macro definitions, and compiler environment. A manifest stores the source-tree signature and each dependency's normalized path, size, modification time, and content hash.
 
+Higher-level deterministic compilers may request the current Slang environment
+identity and a value-owned dependency fingerprint manifest. That public view is
+sorted by virtual source path and contains only virtual paths plus content
+hashes; physical source and cache paths remain private to RenderCore.
+
+Generated shader roots use a separate owned-memory request. Their virtual path,
+source-content hash, normalized macros, imported file fingerprints, compiler
+environment, entry points, and frequencies form the variant identity. Imports
+must resolve through caller-selected registered virtual prefixes. The source is
+never materialized as authored content; SPIR-V/reflection artifacts still use
+the ordinary RenderCore cache validation, retention, corruption repair, force-
+recompile, and in-process output cache.
+
 The variant key includes the virtual shader path, source-tree signature, normalized macros, target settings, and Slang build identity. Artifact filenames use a stable hash of the unsanitized source entry point and requested shader frequency, so separate requests cannot collide through filename sanitization or stage differences.
 
 ## Warm and Miss Paths

@@ -54,7 +54,7 @@ namespace Durin
 	// grouping happens before deterministic primitive/section tie breaking.
 	struct FMeshDrawSortKey
 	{
-		std::array<uint32, 26> Pipeline{};
+		std::array<uint32, 30> Pipeline{};
 		std::vector<std::byte> MaterialUniform;
 		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
 		std::array<uint32, 6> Geometry{};

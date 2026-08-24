@@ -705,6 +705,37 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FVector3(0.0)));
 		const std::vector<std::byte> PbrBaselinePixels =
 			Capture(CaptureMaterial);
+		const Durin::FMaterialProgram CanonicalProgram =
+			*CaptureMaterial->GetMaterialProgram();
+		Durin::FMaterialProgram EditedProgram = CanonicalProgram;
+		const auto RoughnessMaximum = std::ranges::find_if(
+			EditedProgram.Nodes, [](const auto& Node) {
+				return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+					&& Node.ResultType
+						== Durin::EMaterialProgramValueType::Float
+					&& Node.Literal.X == 1.0f;
+			});
+		ASSERT_NE(RoughnessMaximum, EditedProgram.Nodes.end());
+		RoughnessMaximum->Literal.X = 0.2f;
+		const Durin::FMaterialProgramIdentity CanonicalProgramIdentity =
+			CaptureMaterial->GetRenderData()
+				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
+		Durin::FMaterialProgramValidationResult ProgramValidation;
+		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
+			std::move(EditedProgram), ProgramValidation));
+		const Durin::FMaterialProgramIdentity EditedProgramIdentity =
+			CaptureMaterial->GetRenderData()
+				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
+		EXPECT_NE(EditedProgramIdentity, CanonicalProgramIdentity);
+		const std::vector<std::byte> EditedProgramPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
+			CanonicalProgram, ProgramValidation));
+		EXPECT_EQ(CaptureMaterial->GetRenderData()
+			.PlanningPassIdentity.ShaderMap.ProgramIdentity,
+			CanonicalProgramIdentity);
+		const std::vector<std::byte> RestoredProgramPixels =
+			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::MetallicName(), 1.0f));
 		const std::vector<std::byte> MetallicOnlyPixels =
@@ -1013,6 +1044,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
 		EXPECT_NE(InheritedBeforePixels, InheritedAfterPixels);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
+		EXPECT_NE(PbrBaselinePixels, EditedProgramPixels);
+		EXPECT_EQ(PbrBaselinePixels, RestoredProgramPixels);
 		EXPECT_NE(PbrBaselinePixels, MetallicOnlyPixels);
 		EXPECT_NE(PbrBaselinePixels, RoughnessOnlyPixels);
 		EXPECT_NE(PbrBaselinePixels, NormalOnlyPixels);

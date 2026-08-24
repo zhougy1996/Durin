@@ -10,6 +10,7 @@
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/MeshRendererShared.h"
 #include "Renderers/RenderGraphSceneFrameExecutor.h"
 #include "Renderers/SceneFrameGraphBackingProvider.h"
 #include "Renderers/SceneFrameGraphContributors.h"
@@ -69,6 +70,35 @@ concept CHasDirectExecutionCounters = requires(T Value) {
 	Value.SuccessfulDraws;
 	Value.RejectedDraws;
 };
+
+TEST(FRendererSceneContractTests, MaterialProgramIdentityParticipatesInRendererKeys)
+{
+	Durin::FEffectiveMeshPipelineKey FirstPipeline;
+	FirstPipeline.Material.ShaderMap.RenderLayout =
+		Durin::MakeDefaultMaterialRenderLayout().Identity;
+	FirstPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashLow =
+		0x0123456789abcdefull;
+	FirstPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashHigh =
+		0xfedcba9876543210ull;
+	auto SecondPipeline = FirstPipeline;
+	SecondPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashLow =
+		0x1123456789abcdefull;
+	const Durin::FMaterialRenderRepresentation Representation =
+		Durin::MakeCanonicalMaterialRenderRepresentation();
+	const Durin::FVertexDeclarationElementList Elements{};
+	const std::array<uint32, 6> Geometry{};
+	const auto First = Durin::RendererPrivate::MakeMeshDrawSortKey(
+		Durin::EMeshBasePass::Opaque, FirstPipeline, Representation,
+		0, Elements, Geometry, 1, 0, 0);
+	const auto Second = Durin::RendererPrivate::MakeMeshDrawSortKey(
+		Durin::EMeshBasePass::Opaque, SecondPipeline, Representation,
+		0, Elements, Geometry, 1, 0, 0);
+	EXPECT_NE(First.Pipeline, Second.Pipeline);
+	EXPECT_NE(Durin::RendererPrivate::GetIdentityText(
+		FirstPipeline.Material.ShaderMap),
+		Durin::RendererPrivate::GetIdentityText(
+			SecondPipeline.Material.ShaderMap));
+}
 
 template <typename T>
 concept CHasUploadRange = requires(T Value) { Value.Range; };

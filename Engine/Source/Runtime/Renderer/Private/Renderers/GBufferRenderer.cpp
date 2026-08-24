@@ -1,5 +1,6 @@
 #include "Renderers/GBufferRenderer.h"
 
+#include "Renderers/MeshRendererShared.h"
 #include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -110,9 +111,10 @@ namespace Durin
 			-> std::string
 		{
 			return std::format(
-				"layout-version={},layout-id={},blend={},shading={},domain={},declaration={}",
+				"layout-version={},layout-id={},program={},blend={},shading={},domain={},declaration={}",
 				Key.Material.ShaderMap.RenderLayout.Version,
 				Key.Material.ShaderMap.RenderLayout.Id.ToString(),
+				Key.Material.ShaderMap.ProgramIdentity.ToString(),
 				static_cast<uint8>(Key.Material.ShaderMap.BlendMode),
 				static_cast<uint8>(Key.Material.ShaderMap.ShadingModel),
 				static_cast<uint8>(Key.VertexDomain),
@@ -211,7 +213,7 @@ namespace Durin
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		FState::FShaderMapPayload* Shaders = ShaderEntry.Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
-			[this, ShaderKey]() -> FShaderResult {
+			[this, ShaderKey, CompiledProgram = Request.CompiledProgram]() -> FShaderResult {
 				FShaderCompileOptions Options;
 				Options.bForceRecompile =
 					Coordinator.ShouldForceShaderRecompile_RenderThread();
@@ -262,12 +264,25 @@ namespace Durin
 				}
 				FShaderType& FragmentType =
 					FGBufferFragmentShader::StaticType();
-				auto ShaderMap = std::make_shared<FShaderMapBase>();
-				const std::array<const FShaderType*, 2> ShaderTypes{
-					VertexType, &FragmentType};
+				std::shared_ptr<FShaderMapBase> ShaderMap;
 				std::string ErrorMessage;
-				if (!ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, Options, ErrorMessage))
+				bool bInitialized = false;
+				if (CompiledProgram)
+				{
+					bInitialized = RendererPrivate::InitializeCompiledMaterialShaderMap(
+						*VertexType, FragmentType, *CompiledProgram,
+						"GeometryFragmentMain", Options, ShaderMap,
+						ErrorMessage);
+				}
+				else
+				{
+					ShaderMap = std::make_shared<FShaderMapBase>();
+					const std::array<const FShaderType*, 2> ShaderTypes{
+						VertexType, &FragmentType};
+					bInitialized = ShaderMap->InitializeFromShaderTypes(
+						ShaderTypes, Options, ErrorMessage);
+				}
+				if (!bInitialized)
 				{
 					return FShaderResult::Failure(
 						MakeRendererResourceCreateError(

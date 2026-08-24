@@ -15,9 +15,17 @@ namespace Durin
 		~FSlangShaderDependencyResolver();
 
 		auto Resolve(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> bool;
+		auto ResolveSource(std::string_view ModuleName,
+			std::string_view SourcePathHint, std::string_view Source,
+			const FShaderCompileOptions& Options,
+			std::vector<std::string>& OutDependencyPaths,
+			std::string& OutDiagnostics) const -> bool;
 
 	private:
-		auto CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool;
+		auto CreateSession(const FShaderCompileOptions& Options,
+			Slang::ComPtr<slang::ISession>& OutSession,
+			std::string& OutErrorMessage,
+			std::string_view SearchPath = {}) const -> bool;
 		auto InitGlobalSession() -> void;
 
 		Slang::ComPtr<slang::IGlobalSession> GlobalSession;

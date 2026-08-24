@@ -2,8 +2,61 @@
 
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/MathStructs.h"
+#include "Materials/MaterialProgramCompiler.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+
+#include <cstring>
+#include <limits>
+#include <unordered_set>
+
+namespace
+{
+	auto MakeSyntheticMaterialCompilerInput()
+		-> Durin::FMaterialCompilerInput
+	{
+		Durin::FMaterialCompilerInput Input;
+		Input.Program = Durin::MakeCanonicalMaterialProgram();
+		for (const Durin::FMaterialParameterDefinition& Definition
+			: Durin::GetCanonicalMaterialParameterDefinitions())
+			Input.Parameters.push_back({Definition.Id, Definition.Type});
+		std::ranges::sort(Input.Parameters, {},
+			&Durin::FMaterialCompilerParameterDeclaration::Id);
+		Input.Environment.CompilerIdentity =
+			"slang-test-build;target=spirv;profile=spirv_1_5";
+		Input.Environment.Target = "vulkan-spirv-1.5";
+		Input.Environment.Dependencies = {
+			{"/Engine/MaterialTemplate.slang", {11, 12}},
+			{"/Engine/StaticMeshBasePass.slang", {21, 22}}};
+		return Input;
+	}
+
+	auto RemapMaterialProgramNodeIds(Durin::FMaterialProgram& Program) -> void
+	{
+		std::unordered_map<Durin::FGuid, Durin::FGuid> Remapping;
+		for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
+		{
+			const uint32 Reversed = static_cast<uint32>(
+				Program.Nodes.size() - Index);
+			Remapping.emplace(Program.Nodes[Index].Id,
+				Durin::FGuid{0xf00d0001, Reversed, Reversed * 3,
+					Reversed * 7});
+		}
+		for (Durin::FMaterialProgramNode& Node : Program.Nodes)
+		{
+			Node.Id = Remapping.at(Node.Id);
+			for (Durin::FMaterialProgramLink& Link : Node.Inputs)
+				Link.SourceNodeId = Remapping.at(Link.SourceNodeId);
+		}
+		std::array<Durin::FMaterialProgramLink*, 8> Outputs{
+			&Program.Outputs.BaseColor, &Program.Outputs.Normal,
+			&Program.Outputs.Metallic, &Program.Outputs.Roughness,
+			&Program.Outputs.AmbientOcclusion, &Program.Outputs.Emissive,
+			&Program.Outputs.Opacity, &Program.Outputs.OpacityMask};
+		for (Durin::FMaterialProgramLink* Output : Outputs)
+			Output->SourceNodeId = Remapping.at(Output->SourceNodeId);
+	}
+}
 
 TEST(FMaterialTests, MeshAssetsShareOneReflectedMaterialSlotSchema)
 {
@@ -187,6 +240,567 @@ TEST(FMaterialTests, RuntimeSchemaValidationReportsSpecificCorruption)
 	EXPECT_FALSE(Material->PostLoad(Error));
 	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
 	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialProgramSchemaTests,
+	CanonicalProgramIsReflectedBoundedAndDeterministicallyValid)
+{
+	InitializeDObjectSystem();
+	const Durin::FMaterialProgram First =
+		Durin::MakeCanonicalMaterialProgram();
+	const Durin::FMaterialProgram Second =
+		Durin::MakeCanonicalMaterialProgram();
+	EXPECT_EQ(First, Second);
+	EXPECT_EQ(
+		First.SchemaVersion,
+		Durin::CurrentMaterialProgramSchemaVersion);
+	EXPECT_FALSE(First.Nodes.empty());
+	EXPECT_LE(First.Nodes.size(), Durin::MaterialProgramMaxNodeCount);
+
+	std::unordered_set<Durin::FGuid> NodeIds;
+	size_t LinkCount = 8;
+	for (const Durin::FMaterialProgramNode& Node : First.Nodes)
+	{
+		EXPECT_TRUE(Node.Id.IsValid());
+		EXPECT_TRUE(NodeIds.insert(Node.Id).second);
+		EXPECT_LE(
+			Node.Inputs.size(),
+			Durin::MaterialProgramMaxNodeInputCount);
+		LinkCount += Node.Inputs.size();
+	}
+	EXPECT_LE(LinkCount, Durin::MaterialProgramMaxLinkCount);
+	const Durin::FMaterialProgramValidationResult Validation =
+		Durin::ValidateMaterialProgram(
+			First, Durin::GetCanonicalMaterialParameterDefinitions());
+	EXPECT_TRUE(Validation);
+	EXPECT_TRUE(Validation.Diagnostics.empty());
+
+	Durin::DStruct* ProgramStruct = Durin::FMaterialProgram::StaticStruct();
+	ASSERT_NE(ProgramStruct, nullptr);
+	EXPECT_EQ(
+		ProgramStruct->GetQualifiedName().ToString(),
+		"Durin::FMaterialProgram");
+	EXPECT_NE(ProgramStruct->FindPropertyByName("SchemaVersion"), nullptr);
+	EXPECT_NE(ProgramStruct->FindPropertyByName("Nodes"), nullptr);
+	EXPECT_NE(ProgramStruct->FindPropertyByName("Outputs"), nullptr);
+	EXPECT_NE(
+		Durin::DMaterial::StaticClass()->FindPropertyByName("Program"),
+		nullptr);
+	EXPECT_EQ(
+		Durin::DMaterialInstance::StaticClass()->FindPropertyByName("Program"),
+		nullptr);
+}
+
+TEST(FMaterialProgramSchemaTests,
+	ValidatorRejectsSchemaGraphTypeAndBoundsFailuresDeterministically)
+{
+	const auto Definitions =
+		Durin::GetCanonicalMaterialParameterDefinitions();
+	const auto ExpectCategory = [&](const Durin::FMaterialProgram& Program,
+		Durin::EMaterialProgramDiagnosticCategory Category) {
+		const auto Validation =
+			Durin::ValidateMaterialProgram(Program, Definitions);
+		EXPECT_FALSE(Validation);
+		EXPECT_NE(std::ranges::find(
+			Validation.Diagnostics, Category,
+			&Durin::FMaterialProgramDiagnostic::Category),
+			Validation.Diagnostics.end());
+		return Validation;
+	};
+
+	Durin::FMaterialProgram UnknownVersion =
+		Durin::MakeCanonicalMaterialProgram();
+	UnknownVersion.SchemaVersion = 999;
+	ExpectCategory(
+		UnknownVersion,
+		Durin::EMaterialProgramDiagnosticCategory::Schema);
+
+	Durin::FMaterialProgram InvalidEnums =
+		Durin::MakeCanonicalMaterialProgram();
+	InvalidEnums.Nodes.front().Opcode =
+		static_cast<Durin::EMaterialProgramOpcode>(0xff);
+	ExpectCategory(
+		InvalidEnums,
+		Durin::EMaterialProgramDiagnosticCategory::Schema);
+
+	Durin::FMaterialProgram DuplicateIdentity =
+		Durin::MakeCanonicalMaterialProgram();
+	DuplicateIdentity.Nodes[1].Id = DuplicateIdentity.Nodes[0].Id;
+	ExpectCategory(
+		DuplicateIdentity,
+		Durin::EMaterialProgramDiagnosticCategory::Schema);
+
+	Durin::FMaterialProgram Dangling =
+		Durin::MakeCanonicalMaterialProgram();
+	Dangling.Nodes.front().Inputs.push_back({
+		.SourceNodeId = Durin::FGuid{1, 2, 3, 4},
+		.SourceOutputIndex = 0});
+	ExpectCategory(
+		Dangling,
+		Durin::EMaterialProgramDiagnosticCategory::Graph);
+
+	Durin::FMaterialProgram WrongOutput =
+		Durin::MakeCanonicalMaterialProgram();
+	WrongOutput.Outputs.Metallic = WrongOutput.Outputs.BaseColor;
+	const auto WrongOutputValidation = ExpectCategory(
+		WrongOutput,
+		Durin::EMaterialProgramDiagnosticCategory::Type);
+	const auto WrongOutputDiagnostic = std::ranges::find_if(
+		WrongOutputValidation.Diagnostics, [](const auto& Diagnostic) {
+			return Diagnostic.LocationKind
+					== Durin::EMaterialProgramDiagnosticLocationKind::SurfaceOutput
+				&& Diagnostic.LocationIndex == static_cast<uint32>(
+					Durin::EMaterialSurfaceOutput::Metallic);
+		});
+	EXPECT_NE(
+		WrongOutputDiagnostic,
+		WrongOutputValidation.Diagnostics.end());
+
+	Durin::FMaterialProgram NonFinite =
+		Durin::MakeCanonicalMaterialProgram();
+	const auto ConstantIt = std::ranges::find(
+		NonFinite.Nodes, Durin::EMaterialProgramOpcode::Constant,
+		&Durin::FMaterialProgramNode::Opcode);
+	ASSERT_NE(ConstantIt, NonFinite.Nodes.end());
+	ConstantIt->Literal.X = std::numeric_limits<float>::infinity();
+	ExpectCategory(
+		NonFinite,
+		Durin::EMaterialProgramDiagnosticCategory::Type);
+
+	Durin::FMaterialProgram UnknownParameter =
+		Durin::MakeCanonicalMaterialProgram();
+	const auto ParameterIt = std::ranges::find(
+		UnknownParameter.Nodes, Durin::EMaterialProgramOpcode::Parameter,
+		&Durin::FMaterialProgramNode::Opcode);
+	ASSERT_NE(ParameterIt, UnknownParameter.Nodes.end());
+	ParameterIt->ParameterId = {0xbad00001, 2, 3, 4};
+	ExpectCategory(
+		UnknownParameter,
+		Durin::EMaterialProgramDiagnosticCategory::Type);
+
+	Durin::FMaterialProgram Cycle =
+		Durin::MakeCanonicalMaterialProgram();
+	Durin::FMaterialProgramNode FirstCycle;
+	FirstCycle.Id = {0xc1c1e001, 1, 1, 1};
+	FirstCycle.Opcode = Durin::EMaterialProgramOpcode::Negate;
+	FirstCycle.ResultType = Durin::EMaterialProgramValueType::Float;
+	Durin::FMaterialProgramNode SecondCycle = FirstCycle;
+	SecondCycle.Id = {0xc1c1e002, 2, 2, 2};
+	FirstCycle.Inputs = {{.SourceNodeId = SecondCycle.Id}};
+	SecondCycle.Inputs = {{.SourceNodeId = FirstCycle.Id}};
+	Cycle.Nodes.push_back(FirstCycle);
+	Cycle.Nodes.push_back(SecondCycle);
+	ExpectCategory(Cycle, Durin::EMaterialProgramDiagnosticCategory::Graph);
+
+	Durin::FMaterialProgram ExcessiveDepth =
+		Durin::MakeCanonicalMaterialProgram();
+	Durin::FGuid Previous = ExcessiveDepth.Outputs.Metallic.SourceNodeId;
+	for (uint32 Index = 0;
+		Index <= Durin::MaterialProgramMaxDepth; ++Index)
+	{
+		Durin::FMaterialProgramNode Node;
+		Node.Id = {0xde770001, 0, 0, Index + 1};
+		Node.Opcode = Durin::EMaterialProgramOpcode::Negate;
+		Node.ResultType = Durin::EMaterialProgramValueType::Float;
+		Node.Inputs = {{.SourceNodeId = Previous}};
+		Previous = Node.Id;
+		ExcessiveDepth.Nodes.push_back(std::move(Node));
+	}
+	ExpectCategory(
+		ExcessiveDepth,
+		Durin::EMaterialProgramDiagnosticCategory::Bounds);
+
+	Durin::FMaterialProgram ExcessiveNodes =
+		Durin::MakeCanonicalMaterialProgram();
+	while (ExcessiveNodes.Nodes.size()
+		<= Durin::MaterialProgramMaxNodeCount)
+	{
+		Durin::FMaterialProgramNode Node;
+		const uint32 Index = static_cast<uint32>(
+			ExcessiveNodes.Nodes.size());
+		Node.Id = {0xb01d0001, 0, 0, Index + 1};
+		ExcessiveNodes.Nodes.push_back(std::move(Node));
+	}
+	ExpectCategory(
+		ExcessiveNodes,
+		Durin::EMaterialProgramDiagnosticCategory::Bounds);
+
+	Durin::FMaterialProgram ExcessiveInputs =
+		Durin::MakeCanonicalMaterialProgram();
+	ExcessiveInputs.Nodes.front().Inputs.assign(
+		Durin::MaterialProgramMaxNodeInputCount + 1,
+		ExcessiveInputs.Outputs.Metallic);
+	ExpectCategory(
+		ExcessiveInputs,
+		Durin::EMaterialProgramDiagnosticCategory::Bounds);
+
+	Durin::FMaterialProgram LongName =
+		Durin::MakeCanonicalMaterialProgram();
+	LongName.Nodes.front().DisplayName.assign(
+		Durin::MaterialProgramMaxDisplayNameBytes + 1, 'x');
+	const auto Forward = ExpectCategory(
+		LongName,
+		Durin::EMaterialProgramDiagnosticCategory::Bounds);
+	std::ranges::reverse(LongName.Nodes);
+	const auto Reversed = ExpectCategory(
+		LongName,
+		Durin::EMaterialProgramDiagnosticCategory::Bounds);
+	EXPECT_EQ(Forward.Diagnostics, Reversed.Diagnostics);
+}
+
+TEST(FMaterialProgramSchemaTests,
+	BaseOwnsProgramAndInstancesShareWithoutDuplicatingIt)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProgramOwningBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+		nullptr, "ProgramSharingInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_NE(Base->GetMaterialProgram(), nullptr);
+	EXPECT_EQ(Instance->GetMaterialProgram(), Base->GetMaterialProgram());
+
+	Durin::FMaterialProgram Reordered = *Base->GetMaterialProgram();
+	std::ranges::reverse(Reordered.Nodes);
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Base->SetMaterialProgram(Reordered, Validation));
+	EXPECT_TRUE(Validation);
+	EXPECT_EQ(*Base->GetMaterialProgram(), Reordered);
+	EXPECT_EQ(Instance->GetMaterialProgram(), Base->GetMaterialProgram());
+
+	Durin::FMaterialProgram Invalid = Reordered;
+	Invalid.Outputs.BaseColor = {};
+	const Durin::FMaterialProgram Before = *Base->GetMaterialProgram();
+	EXPECT_FALSE(Base->SetMaterialProgram(std::move(Invalid), Validation));
+	EXPECT_FALSE(Validation);
+	EXPECT_EQ(*Base->GetMaterialProgram(), Before);
+
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialProgramNormalizationTests,
+	SnapshotIsDetachedAndExcludesDynamicParameterValues)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "CompilerSnapshotMaterial");
+	Durin::FMaterialCompilerEnvironment Environment =
+		MakeSyntheticMaterialCompilerInput().Environment;
+	Durin::FMaterialCompilerInput Before;
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(
+		*Material, Environment, Before, Validation));
+	ASSERT_TRUE(Validation);
+	ASSERT_TRUE(Material->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.87f));
+	Durin::FMaterialCompilerInput After;
+	ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(
+		*Material, Environment, After, Validation));
+	EXPECT_EQ(Before, After);
+	EXPECT_EQ(Before.Program, *Material->GetMaterialProgram());
+	EXPECT_EQ(Before.Parameters.size(),
+		Material->GetParameterDefinitions().size());
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialProgramNormalizationTests,
+	EquivalentAuthoredProgramsProduceIdenticalCanonicalIdentity)
+{
+	const Durin::FMaterialCompilerInput BaselineInput =
+		MakeSyntheticMaterialCompilerInput();
+	const Durin::FMaterialNormalizationResult Baseline =
+		Durin::NormalizeMaterialProgram(BaselineInput);
+	ASSERT_TRUE(Baseline);
+	EXPECT_FALSE(Baseline.CanonicalBytes.empty());
+	EXPECT_LE(Baseline.CanonicalBytes.size(),
+		Durin::MaterialProgramMaxCanonicalBytes);
+	constexpr std::string_view Domain = "DurinMaterialProgramIR";
+	ASSERT_GT(Baseline.CanonicalBytes.size(), Domain.size());
+	EXPECT_EQ(std::memcmp(
+		Baseline.CanonicalBytes.data(), Domain.data(), Domain.size()), 0);
+	EXPECT_EQ(Baseline.CanonicalBytes[Domain.size()], std::byte{0});
+
+	const auto ExpectEquivalent = [&](Durin::FMaterialCompilerInput Candidate) {
+		const auto Result = Durin::NormalizeMaterialProgram(Candidate);
+		ASSERT_TRUE(Result);
+		EXPECT_EQ(Result.IR, Baseline.IR);
+		EXPECT_EQ(Result.CanonicalBytes, Baseline.CanonicalBytes);
+		EXPECT_EQ(Result.Identity, Baseline.Identity);
+	};
+
+	Durin::FMaterialCompilerInput Reordered = BaselineInput;
+	std::ranges::reverse(Reordered.Program.Nodes);
+	ExpectEquivalent(std::move(Reordered));
+
+	Durin::FMaterialCompilerInput Reidentified = BaselineInput;
+	RemapMaterialProgramNodeIds(Reidentified.Program);
+	ExpectEquivalent(std::move(Reidentified));
+
+	Durin::FMaterialCompilerInput PresentationOnly = BaselineInput;
+	for (Durin::FMaterialProgramNode& Node : PresentationOnly.Program.Nodes)
+		Node.DisplayName = "ignored presentation label";
+	const auto Float3Constant = std::ranges::find_if(
+		PresentationOnly.Program.Nodes, [](const auto& Node) {
+			return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+				&& Node.ResultType
+					== Durin::EMaterialProgramValueType::Float3;
+		});
+	ASSERT_NE(Float3Constant, PresentationOnly.Program.Nodes.end());
+	Float3Constant->Literal.W = 123.0f;
+	ExpectEquivalent(std::move(PresentationOnly));
+
+	Durin::FMaterialCompilerInput SignedZero = BaselineInput;
+	const auto ZeroConstant = std::ranges::find_if(
+		SignedZero.Program.Nodes, [](const auto& Node) {
+			return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+				&& Node.Literal.X == 0.0f;
+		});
+	ASSERT_NE(ZeroConstant, SignedZero.Program.Nodes.end());
+	ZeroConstant->Literal.X = -0.0f;
+	ExpectEquivalent(std::move(SignedZero));
+
+	Durin::FMaterialCompilerInput Swapped = BaselineInput;
+	const auto Commutative = std::ranges::find_if(
+		Swapped.Program.Nodes, [](const auto& Node) {
+			return (Node.Opcode == Durin::EMaterialProgramOpcode::Add
+				|| Node.Opcode == Durin::EMaterialProgramOpcode::Multiply
+				|| Node.Opcode == Durin::EMaterialProgramOpcode::Minimum
+				|| Node.Opcode == Durin::EMaterialProgramOpcode::Maximum)
+				&& Node.Inputs.size() == 2;
+		});
+	ASSERT_NE(Commutative, Swapped.Program.Nodes.end());
+	std::swap(Commutative->Inputs[0], Commutative->Inputs[1]);
+	ExpectEquivalent(std::move(Swapped));
+
+	Durin::FMaterialCompilerInput WithDeadNode = BaselineInput;
+	Durin::FMaterialProgramNode DeadNode;
+	DeadNode.Id = {0xdead0001, 1, 2, 3};
+	DeadNode.Opcode = Durin::EMaterialProgramOpcode::Constant;
+	DeadNode.ResultType = Durin::EMaterialProgramValueType::Float;
+	DeadNode.Literal.X = -0.0f;
+	WithDeadNode.Program.Nodes.push_back(std::move(DeadNode));
+	ExpectEquivalent(std::move(WithDeadNode));
+}
+
+TEST(FMaterialProgramNormalizationTests,
+	CodeAffectingInputsParticipateInIdentityAndRuntimeStateDoesNot)
+{
+	const Durin::FMaterialCompilerInput BaselineInput =
+		MakeSyntheticMaterialCompilerInput();
+	const auto Baseline = Durin::NormalizeMaterialProgram(BaselineInput);
+	ASSERT_TRUE(Baseline);
+	const auto ExpectDifferent = [&](Durin::FMaterialCompilerInput Candidate) {
+		const auto Result = Durin::NormalizeMaterialProgram(Candidate);
+		ASSERT_TRUE(Result);
+		EXPECT_NE(Result.Identity, Baseline.Identity);
+	};
+
+	Durin::FMaterialCompilerInput ProgramChange = BaselineInput;
+	const auto Constant = std::ranges::find_if(
+		ProgramChange.Program.Nodes, [](const auto& Node) {
+			return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+				&& Node.ResultType == Durin::EMaterialProgramValueType::Float;
+		});
+	ASSERT_NE(Constant, ProgramChange.Program.Nodes.end());
+	Constant->Literal.X += 0.125f;
+	ExpectDifferent(std::move(ProgramChange));
+
+	Durin::FMaterialCompilerInput DependencyChange = BaselineInput;
+	DependencyChange.Environment.Dependencies.front().ContentHash.HashLow++;
+	ExpectDifferent(std::move(DependencyChange));
+	Durin::FMaterialCompilerInput CompilerChange = BaselineInput;
+	CompilerChange.Environment.CompilerIdentity += ";revision=2";
+	ExpectDifferent(std::move(CompilerChange));
+	Durin::FMaterialCompilerInput TargetChange = BaselineInput;
+	TargetChange.Environment.Target = "vulkan-spirv-1.6";
+	ExpectDifferent(std::move(TargetChange));
+	Durin::FMaterialCompilerInput PassChange = BaselineInput;
+	PassChange.Environment.PassContractVersion++;
+	ExpectDifferent(std::move(PassChange));
+
+	Durin::FMaterialCompilerInput BlendChange = BaselineInput;
+	BlendChange.StaticProperties.BlendMode =
+		Durin::EMaterialBlendMode::Masked;
+	ExpectDifferent(std::move(BlendChange));
+	Durin::FMaterialCompilerInput ShadingChange = BaselineInput;
+	ShadingChange.StaticProperties.ShadingModel =
+		Durin::EMaterialShadingModel::Unlit;
+	ExpectDifferent(std::move(ShadingChange));
+	Durin::FMaterialCompilerInput ThresholdChange = BaselineInput;
+	ThresholdChange.StaticProperties.OpacityMaskThreshold = 0.5f;
+	ExpectDifferent(std::move(ThresholdChange));
+
+	Durin::FMaterialCompilerInput RuntimeOnly = BaselineInput;
+	RuntimeOnly.StaticProperties.bTwoSided = true;
+	RuntimeOnly.StaticProperties.DepthWritePolicy =
+		Durin::EMaterialDepthWritePolicy::Enabled;
+	const auto RuntimeOnlyResult =
+		Durin::NormalizeMaterialProgram(RuntimeOnly);
+	ASSERT_TRUE(RuntimeOnlyResult);
+	EXPECT_EQ(RuntimeOnlyResult.Identity, Baseline.Identity);
+
+	Durin::FMaterialCompilerInput Invalid = BaselineInput;
+	Invalid.Environment.Dependencies.push_back(
+		Invalid.Environment.Dependencies.front());
+	const auto InvalidResult = Durin::NormalizeMaterialProgram(Invalid);
+	EXPECT_FALSE(InvalidResult);
+	ASSERT_FALSE(InvalidResult.Diagnostics.empty());
+	EXPECT_EQ(InvalidResult.Diagnostics.front().Category,
+		Durin::EMaterialProgramDiagnosticCategory::Normalization);
+}
+
+TEST(FMaterialProgramCompilerTests,
+	CanonicalIRGeneratesStableBoundedSourceAndCompleteStages)
+{
+	InitializeDObjectSystem();
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::FMaterialCompilerInput Input = MakeSyntheticMaterialCompilerInput();
+	std::string EnvironmentError;
+	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(
+		Input.Environment, EnvironmentError)) << EnvironmentError;
+	const auto Normalized = Durin::NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Normalized);
+	std::string FirstSource;
+	std::string SecondSource;
+	std::string Error;
+	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
+		Normalized.IR, FirstSource, Error)) << Error;
+	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
+		Normalized.IR, SecondSource, Error)) << Error;
+	EXPECT_EQ(FirstSource, SecondSource);
+	EXPECT_LE(FirstSource.size(), Durin::MaterialProgramMaxCanonicalBytes);
+	EXPECT_NE(FirstSource.find("module DurinGeneratedMaterial"),
+		std::string::npos);
+	EXPECT_EQ(FirstSource.find(Input.Environment.Dependencies.front().VirtualPath),
+		std::string::npos);
+
+	const Durin::FMaterialCompilerResult Compiled =
+		Durin::CompileMaterialProgram(Input, true);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
+		? "missing diagnostic"
+		: Compiled.Diagnostics.front().Message);
+	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
+	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
+	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
+	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
+	EXPECT_EQ(Compiled.CompiledShaders[2].Reflection.ResourceBindings.size(), 3u);
+	std::vector CorruptedStages = Compiled.CompiledShaders;
+	CorruptedStages[1].Reflection.ResourceBindings.pop_back();
+	std::string ReflectionError;
+	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
+		CorruptedStages, ReflectionError));
+	EXPECT_FALSE(ReflectionError.empty());
+	const Durin::FMaterialCompilerResult Warm =
+		Durin::CompileMaterialProgram(Input);
+	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
+		? "missing diagnostic" : Warm.Diagnostics.front().Message);
+	ASSERT_EQ(Warm.CompiledShaders.size(), Compiled.CompiledShaders.size());
+	uint64 SpirvBytes = 0;
+	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
+	{
+		EXPECT_EQ(Warm.CompiledShaders[Index].Hash,
+			Compiled.CompiledShaders[Index].Hash);
+		ASSERT_TRUE(Compiled.CompiledShaders[Index].Code);
+		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
+	}
+	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());
+	RecordProperty("DependencyCount", Compiled.Dependencies.size());
+	RecordProperty("SpirvBytes", SpirvBytes);
+	RecordProperty("NormalizationMicroseconds",
+		Compiled.Timings.NormalizationMicroseconds);
+	RecordProperty("GenerationMicroseconds",
+		Compiled.Timings.GenerationMicroseconds);
+	RecordProperty("ColdCompilationMicroseconds",
+		Compiled.Timings.CompilationMicroseconds);
+	RecordProperty("WarmCompilationMicroseconds",
+		Warm.Timings.CompilationMicroseconds);
+	std::cout << "[M5MaterialCompilerBaseline] generated_bytes="
+		<< Compiled.GeneratedSource.size()
+		<< " dependencies=" << Compiled.Dependencies.size()
+		<< " spirv_bytes=" << SpirvBytes
+		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
+		<< " generate_us=" << Compiled.Timings.GenerationMicroseconds
+		<< " cold_compile_us=" << Compiled.Timings.CompilationMicroseconds
+		<< " warm_compile_us=" << Warm.Timings.CompilationMicroseconds << '\n';
+
+	Durin::FMaterialIR InvalidIR = Normalized.IR;
+	InvalidIR.Version++;
+	std::string InvalidSource;
+	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(
+		InvalidIR, InvalidSource, Error));
+	EXPECT_TRUE(InvalidSource.empty());
+	Durin::FMaterialCompilerInput InvalidInput = Input;
+	InvalidInput.Environment.Target.clear();
+	const auto Failed = Durin::CompileMaterialProgram(InvalidInput);
+	EXPECT_FALSE(Failed);
+	EXPECT_TRUE(Failed.CompiledShaders.empty());
+	EXPECT_FALSE(Failed.Diagnostics.empty());
+}
+
+TEST(FMaterialProgramPublicationTests,
+	BasePublishesCompleteProgramAndInstancesReuseDynamicIdentity)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "CompiledProgramBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+		nullptr, "CompiledProgramInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	const auto Initial = Base->GetRenderData();
+	ASSERT_TRUE(Initial.CompiledProgram);
+	ASSERT_TRUE(Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity.IsValid());
+	EXPECT_EQ(Initial.CompiledProgram, Instance->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Initial.CompiledProgram,
+		Instance->GetRenderData().CompiledProgram);
+
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.73f));
+	const auto Dynamic = Base->GetRenderData();
+	EXPECT_EQ(Dynamic.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_EQ(Dynamic.PlanningPassIdentity.ShaderMap.ProgramIdentity,
+		Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity);
+
+	Durin::FMaterialStaticProperties PipelineOnly = Base->GetStaticProperties();
+	PipelineOnly.bTwoSided = true;
+	PipelineOnly.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Enabled;
+	ASSERT_TRUE(Base->SetStaticProperties(PipelineOnly));
+	const auto PipelineChanged = Base->GetRenderData();
+	EXPECT_EQ(PipelineChanged.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_NE(PipelineChanged.PlanningPassIdentity,
+		Initial.PlanningPassIdentity);
+
+	Durin::FMaterialStaticProperties ShaderProperties = PipelineOnly;
+	ShaderProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Base->SetStaticProperties(ShaderProperties));
+	const auto ShaderChanged = Base->GetRenderData();
+	ASSERT_TRUE(ShaderChanged.CompiledProgram);
+	EXPECT_NE(ShaderChanged.CompiledProgram, Initial.CompiledProgram);
+	EXPECT_NE(ShaderChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity,
+		Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity);
+
+	Durin::FMaterialProgram Edited = *Base->GetMaterialProgram();
+	const auto Constant = std::ranges::find_if(
+		Edited.Nodes, [](const auto& Node) {
+			return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+				&& Node.ResultType == Durin::EMaterialProgramValueType::Float;
+		});
+	ASSERT_NE(Constant, Edited.Nodes.end());
+	Constant->Literal.X += 0.01f;
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Edited), Validation));
+	const auto ProgramChanged = Base->GetRenderData();
+	ASSERT_TRUE(ProgramChanged.CompiledProgram);
+	EXPECT_NE(ProgramChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity,
+		ShaderChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity);
+	EXPECT_EQ(ProgramChanged.CompiledProgram,
+		Instance->GetAcceptedCompiledProgram());
+
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
 

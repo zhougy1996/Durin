@@ -277,6 +277,7 @@ namespace Durin
 	{
 		if (Primitive.VertexFactory == nullptr) return false;
 		const FMaterialRenderData& Material = Item.Material;
+		if (!Material.CompiledProgram) return false;
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
 		auto& ShaderEntry = ShaderMapCache.FindOrAdd(
@@ -319,9 +320,28 @@ namespace Durin
 					Types.push_back(&ShadowFragmentType);
 				else
 					Types.push_back(&OpaqueShadowFragmentType);
-				auto ShaderMap = std::make_shared<FShaderMapBase>();
+				std::shared_ptr<FShaderMapBase> ShaderMap;
 				std::string Error;
-				if (!ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+				const bool bOpaqueShadow = bShadowDepth
+					&& Identity.BlendMode != EMaterialBlendMode::Masked;
+				bool bInitialized = false;
+				if (bOpaqueShadow)
+				{
+					ShaderMap = std::make_shared<FShaderMapBase>();
+					bInitialized = ShaderMap->InitializeFromShaderTypes(
+						Types, Options, Error);
+				}
+				else
+				{
+					const FShaderType& GeneratedFragmentType = bShadowDepth
+						? ShadowFragmentType : FragmentType;
+					bInitialized = InitializeCompiledMaterialShaderMap(
+						VertexType, GeneratedFragmentType,
+						*Material.CompiledProgram,
+						bShadowDepth ? "ShadowFragmentMain" : "FragmentMain",
+						Options, ShaderMap, Error);
+				}
+				if (!bInitialized)
 					return FShaderResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"SkeletalMeshShaderMap", GetIdentityText(Identity),
@@ -849,7 +869,7 @@ namespace Durin
 			Primitive.VertexFactory->GetDeclaration()
 		);
 		FGBufferRenderer::FPipeline* Pipeline =
-			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = EGBufferVertexDomain::Skeletal});
+			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .CompiledProgram = Item.Material.CompiledProgram, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = EGBufferVertexDomain::Skeletal});
 		if (Pipeline == nullptr) return false;
 
 		FStaticMeshTransformUniform Transform;

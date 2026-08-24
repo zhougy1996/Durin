@@ -3,6 +3,7 @@
 #include "Engine/StaticMeshSceneProxy.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
@@ -23,18 +24,21 @@ namespace
 	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, bool bTwoSided = false, Durin::EMaterialDepthWritePolicy DepthWrite = Durin::EMaterialDepthWritePolicy::Automatic)
 		-> Durin::FMaterialRenderProxyRef
 	{
-		auto Proxy = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
-		Durin::FMaterialRenderProxyPublication Publication;
-		Publication.LocalVersion = 1;
-		Publication.LocalLayer.StaticProperties = Durin::FMaterialStaticProperties{
+		const char* Name = BlendMode == Durin::EMaterialBlendMode::Masked
+			? "PreparationMaskedMaterial"
+			: (BlendMode == Durin::EMaterialBlendMode::Translucent
+				? "PreparationTranslucentMaterial"
+				: (bTwoSided ? "PreparationTwoSidedMaterial"
+					: "PreparationOpaqueMaterial"));
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		EXPECT_TRUE(Material->SetStaticProperties(Durin::FMaterialStaticProperties{
 			.BlendMode = BlendMode,
 			.ShadingModel = Durin::EMaterialShadingModel::Lit,
 			.bTwoSided = bTwoSided,
 			.DepthWritePolicy = DepthWrite,
 			.OpacityMaskThreshold = 0.4f
-		};
-		EXPECT_TRUE(Proxy->QueuePublication_GameThread(std::move(Publication)));
-		return Proxy;
+		}));
+		return Material->GetMaterialRenderProxy();
 	}
 
 	auto MakeRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
@@ -243,8 +247,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			ASSERT_EQ(First.Opaque.size(), 2u);
 			ASSERT_EQ(First.Masked.size(), 1u);
 			ASSERT_EQ(First.Translucent.size(), 1u);
-			EXPECT_EQ(First.Opaque[0].SectionIndex, 0u);
-			EXPECT_EQ(First.Opaque[1].SectionIndex, 3u);
+			std::array OpaqueSections{
+				First.Opaque[0].SectionIndex, First.Opaque[1].SectionIndex};
+			std::ranges::sort(OpaqueSections);
+			EXPECT_EQ(OpaqueSections, (std::array<uint32_t, 2>{0u, 3u}));
 			EXPECT_EQ(First.Masked[0].SectionIndex, 1u);
 			EXPECT_EQ(First.Translucent[0].SectionIndex, 2u);
 			EXPECT_EQ(

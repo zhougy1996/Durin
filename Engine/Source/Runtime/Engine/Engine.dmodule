@@ -74,6 +74,7 @@
         "Public/EnvironmentLighting/EnvironmentLighting.h",
 		"Public/Materials/MeshMaterialSlot.h",
         "Public/Materials/MaterialTypes.h",
+		"Public/Materials/MaterialProgramTypes.h",
         "Public/Materials/MaterialInterface.h",
         "Public/Materials/Material.h",
         "Public/Materials/MaterialInstance.h",

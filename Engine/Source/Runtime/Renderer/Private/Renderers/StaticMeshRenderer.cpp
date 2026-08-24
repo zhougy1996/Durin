@@ -604,6 +604,7 @@ namespace Durin
 			return false;
 		}
 		const FMaterialRenderData& Material = Item.Material;
+		if (!Material.CompiledProgram) return false;
 		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
 
 		using FShaderMapResult =
@@ -661,11 +662,28 @@ namespace Durin
 						ShaderTypes.push_back(&ShadowFragmentShaderType);
 					else
 						ShaderTypes.push_back(&OpaqueShadowFragmentShaderType);
-					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::shared_ptr<FShaderMapBase> ShaderMap;
 					std::string ErrorMessage;
-					if (!ShaderMap->InitializeFromShaderTypes(
-							ShaderTypes, CompileOptions, ErrorMessage
-						))
+					const bool bOpaqueShadow = bShadowDepth
+						&& Identity.BlendMode != EMaterialBlendMode::Masked;
+					bool bInitialized = false;
+					if (bOpaqueShadow)
+					{
+						ShaderMap = std::make_shared<FShaderMapBase>();
+						bInitialized = ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage);
+					}
+					else
+					{
+						const FShaderType& GeneratedFragmentType = bShadowDepth
+							? ShadowFragmentShaderType : FragmentShaderType;
+						bInitialized = InitializeCompiledMaterialShaderMap(
+							VertexShaderType, GeneratedFragmentType,
+							*Material.CompiledProgram,
+							bShadowDepth ? "ShadowFragmentMain" : "FragmentMain",
+							CompileOptions, ShaderMap, ErrorMessage);
+					}
+					if (!bInitialized)
 					{
 						return FShaderMapResult::Failure(
 							MakeRendererResourceCreateError(
@@ -1077,7 +1095,7 @@ namespace Durin
 			VertexFactory.GetDeclaration()
 		);
 		FGBufferRenderer::FPipeline* Pipeline =
-			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = Primitive.VertexDomain == EVertexDeformationDomain::Spline ? EGBufferVertexDomain::Spline : EGBufferVertexDomain::Local});
+			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .CompiledProgram = Item.Material.CompiledProgram, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = VertexDeclaration, .VertexDomain = Primitive.VertexDomain == EVertexDeformationDomain::Spline ? EGBufferVertexDomain::Spline : EGBufferVertexDomain::Local});
 		if (Pipeline == nullptr) return false;
 
 		FStaticMeshTransformUniform TransformUniform;

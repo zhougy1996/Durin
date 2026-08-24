@@ -5,6 +5,7 @@
 #include "SlangShaderDependencyResolver.h"
 
 #include "Misc/FileFingerprintCache.h"
+#include "Misc/Paths.h"
 #include "ShaderCacheStore.h"
 #include "Shader/ShaderPaths.h"
 
@@ -128,6 +129,126 @@ namespace Durin
 					.ContentReads = FileFingerprintCache.GetContentReadCount(),
 					.OutputEntries = OutputCache.size()
 				};
+			}
+
+			auto GetOrCompileGenerated(
+				const FGeneratedShaderCompileRequest& Request)
+				-> FShaderCompilerOutput
+			{
+				FShaderCompilerOutput Output;
+				if (!Request.VirtualPath.starts_with("/Generated/Materials/")
+					|| Request.Source.empty()
+					|| Request.Source.size() > 1024 * 1024
+					|| Request.EntryPoints.empty()
+					|| Request.EntryPoints.size() != Request.Frequencies.size()
+					|| Request.EntryPoints.size() > 8)
+				{
+					Output.ErrorMessage = "Invalid generated shader compile request";
+					return Output;
+				}
+				FShaderCompileOptions Options;
+				Options.Frequencies = Request.Frequencies;
+				Options.Macros = Request.Macros;
+				Options.bForceRecompile = Request.bForceRecompile;
+				Options.VirtualShaderPath = Request.VirtualPath;
+				Options.CompilerEnvironment = Compiler.GetEnvironmentIdentity();
+				Options.EntryPoints.reserve(Request.EntryPoints.size());
+				for (const std::string& Entry : Request.EntryPoints)
+					Options.EntryPoints.push_back(Entry.c_str());
+
+				std::vector<FShaderMacroDefinition> Macros;
+				if (!ShaderCompileUtilities::NormalizeMacros(
+					Options, Macros, Output.ErrorMessage)) return Output;
+				const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
+				const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
+				if (Mounts.empty())
+				{
+					Output.ErrorMessage = "Generated shader compilation requires a registered shader mount";
+					return Output;
+				}
+				const auto SourceMount = std::ranges::find_if(Mounts,
+					[&](const FShaderPaths::FShaderMountPoint& Mount) {
+						return std::ranges::any_of(
+							Request.AllowedImportVirtualPrefixes,
+							[&](const std::string& Prefix) {
+								return Prefix.starts_with(Mount.VirtualRoot);
+							});
+					});
+				const std::string SourcePathHint =
+					(std::filesystem::path(SourceMount != Mounts.end()
+						? SourceMount->SourceDir : Mounts.front().SourceDir)
+						/ "GeneratedMaterial.slang").generic_string();
+				std::vector<std::string> DependencyPaths;
+				DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
+				if (!DependencyResolver.ResolveSource(
+					Request.VirtualPath.substr(1), SourcePathHint, Request.Source,
+					Options, DependencyPaths, Output.ErrorMessage)) return Output;
+				for (const std::string& PhysicalPath : DependencyPaths)
+				{
+					std::string VirtualPath;
+					if (!FShaderPaths::TryMakeVirtualSourcePath(
+						PhysicalPath, VirtualPath))
+					{
+						Output.ErrorMessage = "Generated shader import has no virtual identity";
+						return Output;
+					}
+					const bool bAllowed = std::ranges::any_of(
+						Request.AllowedImportVirtualPrefixes,
+						[&](const std::string& Prefix) {
+							return VirtualPath.starts_with(Prefix);
+						});
+					if (!bAllowed)
+					{
+						Output.ErrorMessage = std::format(
+							"Generated shader import is not allowlisted: {}", VirtualPath);
+						return Output;
+					}
+				}
+				FShaderMetaData MetaData;
+				if (!ShaderCompileUtilities::BuildShaderMetaData(
+					DependencyPaths, FileFingerprintCache, MetaData,
+					Output.ErrorMessage)) return Output;
+				FXxHash128Builder SourceTree;
+				SourceTree.Update("DurinGeneratedShaderSourceTree_v1");
+				SourceTree.UpdateValue(SourceHash);
+				SourceTree.UpdateValue(MetaData.SourceTreeSignature);
+				MetaData.SourceTreeSignature = SourceTree.Finalize();
+				FShaderVariantKey VariantKey;
+				ShaderCompileUtilities::BuildVariantKey(
+					Request.VirtualPath, MetaData, Macros,
+					Options.CompilerEnvironment, VariantKey);
+				const std::string OutputKey = BuildOutputKey(VariantKey, Options);
+				if (!Options.bForceRecompile)
+				{
+					std::lock_guard Lock(OutputCacheMutex);
+					if (const auto Found = OutputCache.find(OutputKey);
+						Found != OutputCache.end())
+					{
+						MemoryHits.fetch_add(1, std::memory_order_relaxed);
+						OutputRecency.splice(OutputRecency.begin(),
+							OutputRecency, Found->second.Recency);
+						return Found->second.Output;
+					}
+				}
+				const std::string CachePath = std::format(
+					"{}__GeneratedMaterials/{}", Mounts.front().VirtualRoot,
+					SourceHash.ToString());
+				if (!Options.bForceRecompile && CacheStore.TryLoad(
+					CachePath, Options, VariantKey, Output))
+				{
+					DiskHits.fetch_add(1, std::memory_order_relaxed);
+					AddOutput(OutputKey, Output);
+					return Output;
+				}
+				Compilations.fetch_add(1, std::memory_order_relaxed);
+				Output = Compiler.CompileSource(Request.VirtualPath.substr(1),
+					SourcePathHint, Request.Source, Options);
+				if (!Output) return Output;
+				if (!CacheStore.Save(CachePath, Options, VariantKey, Output))
+					DURIN_WARN("Generated shader cache write failed for {}",
+						Request.VirtualPath);
+				AddOutput(OutputKey, Output);
+				return Output;
 			}
 
 		private:
@@ -291,5 +412,18 @@ namespace Durin
 	auto GetShaderCompileServiceStats() -> FShaderCompileServiceStats
 	{
 		return GShaderCompileService ? GShaderCompileService->GetStats() : FShaderCompileServiceStats{};
+	}
+
+	auto GetOrCompileGeneratedShader(
+		const FGeneratedShaderCompileRequest& Request)
+		-> FShaderCompilerOutput
+	{
+		if (!GShaderCompileService)
+		{
+			FShaderCompilerOutput Output;
+			Output.ErrorMessage = "Shader compile service is not initialized";
+			return Output;
+		}
+		return GShaderCompileService->GetOrCompileGenerated(Request);
 	}
 }

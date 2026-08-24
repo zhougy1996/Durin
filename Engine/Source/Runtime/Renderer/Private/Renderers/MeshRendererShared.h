@@ -30,6 +30,47 @@
 
 namespace Durin::RendererPrivate
 {
+	inline auto InitializeCompiledMaterialShaderMap(
+		const FShaderType& VertexType,
+		const FShaderType& FragmentType,
+		const FMaterialCompilerResult& MaterialProgram,
+		std::string_view FragmentEntryPoint,
+		const FShaderCompileOptions& VertexCompileOptions,
+		std::shared_ptr<FShaderMapBase>& OutShaderMap,
+		std::string& OutError) -> bool
+	{
+		const auto Generated = std::ranges::find(
+			MaterialProgram.CompiledShaders, FragmentEntryPoint,
+			&FCompiledShader::SourceEntryPoint);
+		if (Generated == MaterialProgram.CompiledShaders.end())
+		{
+			OutError = std::format(
+				"Accepted material program has no {} stage.",
+				FragmentEntryPoint);
+			return false;
+		}
+		FShaderMapBase VertexMap;
+		const std::array<const FShaderType*, 1> VertexTypes{&VertexType};
+		if (!VertexMap.InitializeFromShaderTypes(
+			VertexTypes, VertexCompileOptions, OutError)) return false;
+		const uint32* VertexIndex = VertexMap.FindShaderIndex(&VertexType);
+		if (!VertexIndex || !VertexMap.GetCode())
+		{
+			OutError = "Fixed material vertex program produced no resource code.";
+			return false;
+		}
+		FShaderCompilerOutput Combined;
+		Combined.bSucceeded = true;
+		Combined.CompiledShaders = {
+			VertexMap.GetCode()->GetCompiledShader(*VertexIndex), *Generated};
+		const std::array<const FShaderType*, 2> Types{
+			&VertexType, &FragmentType};
+		auto Candidate = std::make_shared<FShaderMapBase>();
+		if (!Candidate->Initialize(
+			Types, Combined, VertexCompileOptions, OutError)) return false;
+		OutShaderMap = std::move(Candidate);
+		return true;
+	}
 
 	class FStaticMeshVertexShader : public FShader
 	{
@@ -113,9 +154,10 @@ namespace Durin::RendererPrivate
 	) -> std::string
 	{
 		return std::format(
-			"layout-version={},layout-id={},blend={},shading={},mask-bits={}",
+			"layout-version={},layout-id={},program={},blend={},shading={},mask-bits={}",
 			Identity.RenderLayout.Version,
 			Identity.RenderLayout.Id.ToString(),
+			Identity.ProgramIdentity.ToString(),
 			static_cast<uint8>(Identity.BlendMode),
 			static_cast<uint8>(Identity.ShadingModel),
 			std::bit_cast<uint32>(Identity.OpacityMaskThreshold)
@@ -175,9 +217,14 @@ namespace Durin::RendererPrivate
 		const FMaterialPlanningPassIdentity& Material = PipelineKey.Material;
 		const FMaterialShaderMapIdentity& Shader = Material.ShaderMap;
 		const FGuid& LayoutId = Shader.RenderLayout.Id;
+		const FXxHash128& ProgramDigest = Shader.ProgramIdentity.Digest;
 		Result.Pipeline = {
 			static_cast<uint32>(Pass), Shader.RenderLayout.Version,
 			LayoutId.A, LayoutId.B, LayoutId.C, LayoutId.D,
+			static_cast<uint32>(ProgramDigest.HashLow),
+			static_cast<uint32>(ProgramDigest.HashLow >> 32),
+			static_cast<uint32>(ProgramDigest.HashHigh),
+			static_cast<uint32>(ProgramDigest.HashHigh >> 32),
 			static_cast<uint32>(Shader.BlendMode),
 			static_cast<uint32>(Shader.ShadingModel),
 			std::bit_cast<uint32>(Shader.OpacityMaskThreshold),

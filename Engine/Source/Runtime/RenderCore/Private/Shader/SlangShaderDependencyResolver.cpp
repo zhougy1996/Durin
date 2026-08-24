@@ -30,7 +30,10 @@ namespace Durin
 		GlobalSession.setNull();
 	}
 
-	auto FSlangShaderDependencyResolver::CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool
+	auto FSlangShaderDependencyResolver::CreateSession(
+		const FShaderCompileOptions& Options,
+		Slang::ComPtr<slang::ISession>& OutSession,
+		std::string& OutErrorMessage, std::string_view SearchPath) const -> bool
 	{
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
 		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
@@ -57,6 +60,13 @@ namespace Durin
 		SessionDesc.targetCount = 1;
 		SessionDesc.preprocessorMacros = SlangMacros.empty() ? nullptr : SlangMacros.data();
 		SessionDesc.preprocessorMacroCount = static_cast<SlangInt>(SlangMacros.size());
+		const std::string SearchPathStorage(SearchPath);
+		const char* SearchPathPointer = SearchPathStorage.c_str();
+		if (!SearchPath.empty())
+		{
+			SessionDesc.searchPaths = &SearchPathPointer;
+			SessionDesc.searchPathCount = 1;
+		}
 
 		if (SLANG_FAILED(GlobalSession->createSession(SessionDesc, OutSession.writeRef())))
 		{
@@ -103,6 +113,49 @@ namespace Durin
 		std::ranges::sort(OutDependencyPaths);
 		const auto UniqueEnd = std::ranges::unique(OutDependencyPaths).begin();
 		OutDependencyPaths.erase(UniqueEnd, OutDependencyPaths.end());
+		return true;
+	}
+
+	auto FSlangShaderDependencyResolver::ResolveSource(
+		std::string_view ModuleName, std::string_view SourcePathHint,
+		std::string_view Source, const FShaderCompileOptions& Options,
+		std::vector<std::string>& OutDependencyPaths,
+		std::string& OutDiagnostics) const -> bool
+	{
+		Slang::ComPtr<slang::ISession> Session;
+		if (!CreateSession(Options, Session, OutDiagnostics,
+			std::filesystem::path(SourcePathHint).parent_path().generic_string()))
+			return false;
+		const std::string Name(ModuleName);
+		const std::string Path(SourcePathHint);
+		const std::string Text(Source);
+		Slang::ComPtr<slang::IBlob> Diagnostics;
+		slang::IModule* Module = Session->loadModuleFromSourceString(
+			Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
+		if (!Module)
+		{
+			OutDiagnostics = Diagnostics
+				? static_cast<const char*>(Diagnostics->getBufferPointer())
+				: "Failed to resolve generated shader module";
+			return false;
+		}
+		OutDependencyPaths.clear();
+		const std::string NormalizedSourcePath = NormalizePath(Path);
+		for (SlangInt Index = 0;
+			Index < Module->getDependencyFileCount(); ++Index)
+		{
+			const char* Dependency = Module->getDependencyFilePath(Index);
+			if (Dependency && Dependency[0] != '\0')
+			{
+				std::string NormalizedDependency = NormalizePath(Dependency);
+				if (NormalizedDependency != NormalizedSourcePath)
+					OutDependencyPaths.push_back(std::move(NormalizedDependency));
+			}
+		}
+		std::ranges::sort(OutDependencyPaths);
+		OutDependencyPaths.erase(
+			std::ranges::unique(OutDependencyPaths).begin(),
+			OutDependencyPaths.end());
 		return true;
 	}
 

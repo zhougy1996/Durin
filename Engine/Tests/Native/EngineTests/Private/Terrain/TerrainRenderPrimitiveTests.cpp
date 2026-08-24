@@ -1,8 +1,10 @@
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
+#include "CoreGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 #include "Engine/TerrainSceneProxy.h"
+#include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainLOD.h"
@@ -14,6 +16,19 @@
 
 namespace
 {
+	class TerrainRenderPrimitive : public testing::Test
+	{
+	protected:
+		auto SetUp() -> void override
+		{
+			if (!Durin::GIsGameThreadIdInitialized)
+			{
+				Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+				Durin::GIsGameThreadIdInitialized = true;
+			}
+		}
+	};
+
 	auto MakeTerrainPerspectiveProjection(double NearClip, double FarClip) -> Durin::FMatrix
 	{
 		Durin::FMatrix Projection(0.0);
@@ -37,7 +52,7 @@ namespace
 		return Projection;
 	}
 
-	TEST(TerrainRenderPrimitive, ReflectedActorOwnsTerrainComponent)
+	TEST_F(TerrainRenderPrimitive, ReflectedActorOwnsTerrainComponent)
 	{
 		auto* Actor = Durin::NewObject<Durin::ATerrainActor>(nullptr, "TerrainActorContract");
 		ASSERT_NE(Actor, nullptr);
@@ -46,7 +61,7 @@ namespace
 		EXPECT_NE(Durin::ATerrainActor::StaticClass(), Durin::AActor::StaticClass());
 	}
 
-	TEST(TerrainRenderPrimitive, RejectsInvalidComponentParameters)
+	TEST_F(TerrainRenderPrimitive, RejectsInvalidComponentParameters)
 	{
 		auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "TerrainValidation");
 		ASSERT_NE(Component, nullptr);
@@ -57,7 +72,7 @@ namespace
 		EXPECT_TRUE(Component->SetHeightRange(-100.0, 25.0));
 	}
 
-	TEST(TerrainRenderPrimitive, ExposesSingleMaterialSlotThroughMeshContract)
+	TEST_F(TerrainRenderPrimitive, ExposesSingleMaterialSlotThroughMeshContract)
 	{
 		auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "TerrainMaterialContract");
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TerrainMaterialContractValue");
@@ -71,7 +86,7 @@ namespace
 		EXPECT_EQ(MeshComponent->GetMaterial(0), nullptr);
 	}
 
-	TEST(TerrainRenderPrimitive, BuildsExactYMajorEdgePatchesAndBounds)
+	TEST_F(TerrainRenderPrimitive, BuildsExactYMajorEdgePatchesAndBounds)
 	{
 		constexpr uint32 Width = 130;
 		constexpr uint32 Height = 70;
@@ -110,7 +125,7 @@ namespace
 		EXPECT_DOUBLE_EQ(Bounds.Max.z, 25.0);
 	}
 
-	TEST(TerrainRenderPrimitive, BuildsConservativeMonotonicPatchErrors)
+	TEST_F(TerrainRenderPrimitive, BuildsConservativeMonotonicPatchErrors)
 	{
 		constexpr uint32 Size = 65;
 		std::vector<uint16> Samples(Size * Size, 0);
@@ -130,7 +145,7 @@ namespace
 		EXPECT_GT(Patch.LODErrors.back(), 0.0);
 	}
 
-	TEST(TerrainRenderPrimitive, ReusesDerivedPatchesAndInvalidatesChangedParameters)
+	TEST_F(TerrainRenderPrimitive, ReusesDerivedPatchesAndInvalidatesChangedParameters)
 	{
 		constexpr uint32 Size = 65;
 		std::vector<uint16> Samples(Size * Size, 0);
@@ -171,7 +186,7 @@ namespace
 		EXPECT_NE(Changed->GetLocalBounds().Max.z, First->GetLocalBounds().Max.z);
 	}
 
-	TEST(TerrainRenderPrimitive, ResolvesAdjacencyByStableCoarsePromotion)
+	TEST_F(TerrainRenderPrimitive, ResolvesAdjacencyByStableCoarsePromotion)
 	{
 		std::vector<Durin::FTerrainPatchDescriptor> Patches(3);
 		for (uint16 X = 0; X < 3; ++X)
@@ -194,7 +209,7 @@ namespace
 		EXPECT_EQ(Result.StitchMasks[2], 0u);
 	}
 
-	TEST(TerrainRenderPrimitive, SelectsFlatCoarsestAndHonorsForceLOD0)
+	TEST_F(TerrainRenderPrimitive, SelectsFlatCoarsestAndHonorsForceLOD0)
 	{
 		Durin::FTerrainPatchDescriptor Patch;
 		Patch.CellCountX = 64;
@@ -210,7 +225,7 @@ namespace
 		EXPECT_EQ(Durin::SelectTerrainPatchLOD(View, Durin::FMatrix(1.0), Patch).LODIndex, 0u);
 	}
 
-	TEST(TerrainRenderPrimitive, SelectsPerspectiveAndOrthographicErrorWithFineEquality)
+	TEST_F(TerrainRenderPrimitive, SelectsPerspectiveAndOrthographicErrorWithFineEquality)
 	{
 		Durin::FTerrainPatchDescriptor Patch;
 		Patch.CellCountX = 2;
@@ -239,7 +254,7 @@ namespace
 		EXPECT_TRUE(Fallback.bFallback);
 	}
 
-	TEST(TerrainRenderPrimitive, GeneratesAllStitchMasksWithoutInvalidTriangles)
+	TEST_F(TerrainRenderPrimitive, GeneratesAllStitchMasksWithoutInvalidTriangles)
 	{
 		for (uint16 Step : {1u, 2u, 4u, 8u, 16u, 32u})
 		for (uint8 Mask = 0; Mask < 16; ++Mask)
@@ -312,7 +327,7 @@ namespace
 			static_cast<uint8>(Durin::ETerrainStitchEdge::North)}, Partial));
 	}
 
-	TEST(TerrainRenderPrimitive, ProxyRetainsExactPayloadRevision)
+	TEST_F(TerrainRenderPrimitive, ProxyRetainsExactPayloadRevision)
 	{
 		const std::array<uint16, 4> Samples{0, 1, 32768, 65535};
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainRevisionHeightmap");
@@ -330,7 +345,7 @@ namespace
 		EXPECT_EQ(Value, 65535);
 	}
 
-	TEST(TerrainRenderPrimitive, ValidAssetBeyondT1CeilingIsNotRendered)
+	TEST_F(TerrainRenderPrimitive, ValidAssetBeyondT1CeilingIsNotRendered)
 	{
 		std::vector<uint16> Samples(1026u * 2u, 1u);
 		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "TerrainOversizeHeightmap");

@@ -490,7 +490,9 @@ namespace Durin
 		GlobalSession.setNull();
 	}
 
-	auto FSlangShaderCompiler::CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool
+	auto FSlangShaderCompiler::CreateSession(const FShaderCompileOptions& Options,
+		Slang::ComPtr<slang::ISession>& OutSession,
+		std::string& OutErrorMessage, std::string_view SearchPath) const -> bool
 	{
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
 		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
@@ -517,6 +519,13 @@ namespace Durin
 		SessionDesc.targetCount = 1;
 		SessionDesc.preprocessorMacros = SlangMacros.empty() ? nullptr : SlangMacros.data();
 		SessionDesc.preprocessorMacroCount = static_cast<SlangInt>(SlangMacros.size());
+		const std::string SearchPathStorage(SearchPath);
+		const char* SearchPathPointer = SearchPathStorage.c_str();
+		if (!SearchPath.empty())
+		{
+			SessionDesc.searchPaths = &SearchPathPointer;
+			SessionDesc.searchPathCount = 1;
+		}
 
 		if (SLANG_FAILED(GlobalSession->createSession(SessionDesc, OutSession.writeRef())))
 		{
@@ -660,7 +669,8 @@ namespace Durin
 		return true;
 	}
 
-	FShaderCompilerOutput FSlangShaderCompiler::Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options)
+	FShaderCompilerOutput FSlangShaderCompiler::CompileModule(
+		slang::IModule* Module, const FShaderCompileOptions& Options)
 	{
 		FShaderCompilerOutput Output;
 
@@ -678,24 +688,6 @@ namespace Durin
 			return Output;
 		}
 
-		const std::string SourceFilePath(ShaderSourceFilePath);
-
-		Slang::ComPtr<slang::ISession> CompileSession;
-		if (!CreateSession(Options, CompileSession, Output.ErrorMessage))
-		{
-			return Output;
-		}
-
-		Slang::ComPtr<slang::IBlob> ModuleDiagnostics;
-		slang::IModule* Module = CompileSession->loadModule(SourceFilePath.data(), ModuleDiagnostics.writeRef());
-		if (!Module)
-		{
-			Output.ErrorMessage = ModuleDiagnostics
-				? std::string{"Failed to load shader module. Diagnostics: \n"} + static_cast<const char*>(ModuleDiagnostics->getBufferPointer())
-				: "Failed to load shader module";
-			return Output;
-		}
-
 		Output.CompiledShaders.resize(EntryPointCount);
 		for (uint32 Index = 0; Index < EntryPointCount; ++Index)
 		{
@@ -703,7 +695,9 @@ namespace Durin
 
 			Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
 			Slang::ComPtr<slang::IComponentType> ComposedProgram;
-			const Slang::Result CompileResult = CompileInternal(CompileSession.get(), Module, SingleEntryPoint, ComposedProgram, DiagnosticsBlob);
+			const Slang::Result CompileResult = CompileInternal(
+				Module->getSession(), Module, SingleEntryPoint,
+				ComposedProgram, DiagnosticsBlob);
 			if (SLANG_FAILED(CompileResult) && !ComposedProgram)
 			{
 				if (DiagnosticsBlob != nullptr)
@@ -737,6 +731,54 @@ namespace Durin
 
 		Output.bSucceeded = true;
 		return Output;
+	}
+
+	FShaderCompilerOutput FSlangShaderCompiler::Compile(
+		std::string_view ShaderSourceFilePath,
+		const FShaderCompileOptions& Options)
+	{
+		FShaderCompilerOutput Output;
+		Slang::ComPtr<slang::ISession> Session;
+		if (!CreateSession(Options, Session, Output.ErrorMessage)) return Output;
+		const std::string Path(ShaderSourceFilePath);
+		Slang::ComPtr<slang::IBlob> Diagnostics;
+		slang::IModule* Module = Session->loadModule(
+			Path.c_str(), Diagnostics.writeRef());
+		if (!Module)
+		{
+			Output.ErrorMessage = Diagnostics
+				? std::string{"Failed to load shader module. Diagnostics: \n"}
+					+ static_cast<const char*>(Diagnostics->getBufferPointer())
+				: "Failed to load shader module";
+			return Output;
+		}
+		return CompileModule(Module, Options);
+	}
+
+	FShaderCompilerOutput FSlangShaderCompiler::CompileSource(
+		std::string_view ModuleName, std::string_view SourcePathHint,
+		std::string_view Source, const FShaderCompileOptions& Options)
+	{
+		FShaderCompilerOutput Output;
+		Slang::ComPtr<slang::ISession> Session;
+		if (!CreateSession(Options, Session, Output.ErrorMessage,
+			std::filesystem::path(SourcePathHint).parent_path().generic_string()))
+			return Output;
+		const std::string Name(ModuleName);
+		const std::string Path(SourcePathHint);
+		const std::string Text(Source);
+		Slang::ComPtr<slang::IBlob> Diagnostics;
+		slang::IModule* Module = Session->loadModuleFromSourceString(
+			Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
+		if (!Module)
+		{
+			Output.ErrorMessage = Diagnostics
+				? std::string{"Failed to load generated shader module. Diagnostics: \n"}
+					+ static_cast<const char*>(Diagnostics->getBufferPointer())
+				: "Failed to load generated shader module";
+			return Output;
+		}
+		return CompileModule(Module, Options);
 	}
 
 	auto FSlangShaderCompiler::GetEnvironmentIdentity() const -> std::string

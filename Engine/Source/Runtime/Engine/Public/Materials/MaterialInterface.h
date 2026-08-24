@@ -11,6 +11,7 @@ namespace Durin
 {
 	class DMaterialInstance;
 	class DTexture2D;
+	struct FMaterialProgram;
 
 	enum class EMaterialLoadedQueryOperation : uint8
 	{
@@ -52,6 +53,10 @@ namespace Durin
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
+		ENGINE_API virtual auto GetMaterialProgram() const
+			-> const FMaterialProgram*;
+		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
+			-> std::shared_ptr<const FMaterialCompilerResult>;
 
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;

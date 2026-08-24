@@ -643,6 +643,104 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 }
 
+TEST(FMaterialProgramPackageTests,
+	ProgramRoundTripsDuplicatesTransitionsLegacyAndRejectsMalformedPresentData)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "MaterialPrograms";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	Durin::PathUtilities::RegisterMountPointForTests(
+		"/MaterialProgramTests/", Root.generic_string() + "/");
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/MaterialProgramTests/Base", Path));
+	Durin::DMaterial* Material = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Material));
+	Durin::FMaterialProgram Authored =
+		Durin::MakeCanonicalMaterialProgram();
+	std::ranges::reverse(Authored.Nodes);
+	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(Authored, Validation));
+	ASSERT_TRUE(Validation);
+	ASSERT_TRUE(Durin::Asset::SavePackage(
+		Material->GetPackage(),
+		{.WriterSelection =
+			Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+
+	std::vector<std::byte> FirstSerialization;
+	std::vector<std::byte> SecondSerialization;
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
+		Material->GetPackage(), FirstSerialization));
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
+		Material->GetPackage(), SecondSerialization));
+	EXPECT_EQ(FirstSerialization, SecondSerialization);
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Program"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "SchemaVersion"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Nodes"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Outputs"));
+
+	std::string DuplicateError;
+	auto* Duplicate = Durin::Cast<Durin::DMaterial>(
+		Durin::DuplicateObjectGraph(
+			Material, nullptr, "DuplicatedMaterialProgram", &DuplicateError));
+	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+	ASSERT_NE(Duplicate->GetMaterialProgram(), nullptr);
+	EXPECT_EQ(*Duplicate->GetMaterialProgram(), Authored);
+	EXPECT_NE(Duplicate->GetMaterialProgram(), Material->GetMaterialProgram());
+	Durin::MarkObjectHierarchyAsGarbage(Duplicate);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::DMaterial* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	ASSERT_NE(Loaded->GetMaterialProgram(), nullptr);
+	EXPECT_EQ(*Loaded->GetMaterialProgram(), Authored);
+	EXPECT_TRUE(Durin::ValidateMaterialProgram(
+		*Loaded->GetMaterialProgram(), Loaded->GetParameterDefinitions()));
+	const auto CatalogEntry = Durin::Asset::FindAssetExact(Path);
+	ASSERT_NE(CatalogEntry, nullptr);
+	EXPECT_TRUE(CatalogEntry->Dependencies.empty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	std::vector<std::byte> LegacyBytes = FirstSerialization;
+	ASSERT_TRUE(RemoveSerializedField(LegacyBytes, "Program"));
+	ASSERT_FALSE(ContainsSerializedField(LegacyBytes, "Program"));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		LegacyBytes, Root / "Base.dasset"));
+	Durin::DMaterial* LegacyLoaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LegacyLoaded));
+	ASSERT_NE(LegacyLoaded->GetMaterialProgram(), nullptr);
+	EXPECT_EQ(
+		*LegacyLoaded->GetMaterialProgram(),
+		Durin::MakeCanonicalMaterialProgram());
+
+	auto* ProgramProperty = LegacyLoaded->GetClass()->FindPropertyByName(
+		"Program");
+	ASSERT_NE(ProgramProperty, nullptr);
+	auto* MutableProgram =
+		ProgramProperty->ContainerPtrToValuePtr<Durin::FMaterialProgram>(
+			LegacyLoaded);
+	ASSERT_NE(MutableProgram, nullptr);
+	MutableProgram->Nodes.clear();
+	LegacyLoaded->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(
+		LegacyLoaded->GetPackage(),
+		{.WriterSelection =
+			Durin::Asset::EAssetPackageWriterSelection::DastV5}));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::DMaterial* Rejected = nullptr;
+	const Durin::Asset::FAssetResult RejectedResult =
+		Durin::Asset::LoadAsset(Path, Rejected);
+	EXPECT_FALSE(RejectedResult);
+	EXPECT_EQ(Rejected, nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
+
+	Durin::CollectGarbage();
+}
+
 TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 {
 	InitializeDObjectSystem();

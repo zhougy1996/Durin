@@ -4,7 +4,7 @@ Summary: Defines finite Terrain ownership, deterministic patch LOD, crack-free s
 
 Modules: Engine, GeometryBuild, AssetForge, RHI, VulkanRHI, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## Runtime ownership
 
@@ -117,8 +117,8 @@ the normal is transformed by the inverse-transpose matrix. The two triangles
 of each cell are `(A,B,C)` and `(B,D,C)`; the existing determinant-based front
 face policy handles mirrored component transforms.
 
-Terrain compiles the existing material base pass with the Terrain vertex
-contract. Exact-v3 material binding, ErrorMaterial fallback, texture fallbacks,
+Terrain compiles the fixed Terrain vertex contract and combines it with the
+accepted program-identified generated surface fragments. Exact-v3 material binding, ErrorMaterial fallback, texture fallbacks,
 Opaque/Masked/Translucent classification, two-sided state, depth
 policy, Lit/Unlit lighting, Solid/Wireframe rasterization, environment data,
 and Present/offscreen render-target layouts remain shared Renderer policy.
@@ -127,8 +127,9 @@ StaticMesh and SkeletalMesh draws.
 
 Terrain retains its vertex shader, height/topology resources, pipeline keys,
 patch grouping, indexed instancing, and scalar Translucent submission. Its
-forward, opaque-shadow, and masked-shadow fragment programs are the same
-canonical surface programs used by StaticMesh and SkeletalMesh. The shared
+generated forward and masked-shadow fragments are the same accepted surface
+program used by StaticMesh and SkeletalMesh; opaque shadow stays fixed and
+material-resource-free. The shared
 surface service supplies the uniform, role fallback table, complete-state
 samplers, environment set, and directional-shadow fallbacks; Terrain binds the
 result without entering the mesh geometry executor. Opaque shadow resolves no

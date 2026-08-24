@@ -4,7 +4,7 @@ Summary: Define production GPU skinning, animated bounds, scene preparation, pal
 
 Modules: Engine, GeometryBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 Durin renders `DSkeletalMeshComponent` through the ordinary scene and viewport
 pipeline. The component evaluates a complete immutable `FSkeletalPosePalette`
@@ -64,7 +64,7 @@ sort keys before the render pass.
 `FSkeletalMeshRenderer` owns skeletal shader maps, pipelines, retry state,
 palette preparation, execution, invalidation, and release. `FSceneRenderer`'s
 surface-material service owns the generation-aware material sampler slots and
-canonical surface uniform, role fallbacks, fragment programs, and parameter
+canonical surface uniform, role fallbacks, and parameter
 binding shared with StaticMesh and Terrain. It is a
 private feature owner composed by `FSceneRenderer`, not a parallel frame
 renderer. Opaque and Masked work remains state-grouped within each geometry
@@ -78,8 +78,10 @@ policy, straight-alpha blending, texture defaults, post-process, output, and
 editor-assistance composition as StaticMesh. After skeletal transform/palette
 and geometry binding, the shared mesh surface-pass executor owns the
 opaque-shadow fast path, masked role-7 binding, complete forward binding, and
-single draw submission. GBuffer consumes the same canonical eight-role packet
-through its existing binder. Opaque and Masked sections participate in the
+single draw submission. The skeletal owner combines its fixed vertex stage with
+the accepted generated forward, GBuffer, or masked-shadow fragment selected by
+program identity. GBuffer consumes the same canonical eight-role packet through
+its existing binder. Opaque and Masked sections participate in the
 directional-shadow path without moving palette, raster-bias, or draw counters
 out of the skeletal owner.
 
@@ -92,7 +94,8 @@ binding, sampler, or PSO failure rejects the smallest complete draw or primitive
 and preserves unrelated features.
 
 Shader reload and device invalidation advance renderer resource generations;
-the skeletal owner recreates stale shader/pipeline slots and the shared surface
+the skeletal owner recreates stale shader/pipeline slots from the retained
+accepted compiler result and the shared surface
 owner recreates stale samplers on the next prepared view. Scene
 removal precedes borrowed render-data retirement. Shutdown removes membership,
 drains render commands, releases renderer slots, crosses asset fences, and

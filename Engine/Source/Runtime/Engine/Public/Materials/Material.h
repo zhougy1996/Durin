@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialProgramTypes.h"
 #include "Texture/Texture2D.h"
 
 #include "Material.gen.h"
@@ -16,6 +17,23 @@ namespace Durin
 		ENGINE_API explicit DMaterial(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		auto GetMaterialProgram() const -> const FMaterialProgram* override
+		{
+			return &Program;
+		}
+		auto GetAcceptedCompiledProgram() const
+			-> std::shared_ptr<const FMaterialCompilerResult> override
+		{
+			return AcceptedCompiledProgram;
+		}
+		auto GetMaterialCompileDiagnostics() const
+			-> std::span<const FMaterialProgramDiagnostic>
+		{
+			return MaterialCompileDiagnostics;
+		}
+		ENGINE_API auto SetMaterialProgram(
+			FMaterialProgram InProgram,
+			FMaterialProgramValidationResult& OutValidation) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
@@ -29,12 +47,17 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(
+			const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
 		ENGINE_API auto BuildMaterialLocalRenderLayer() const
 			-> FMaterialLocalRenderLayer override;
 
 	private:
+		ENGINE_API auto CompileProgramCandidate(
+			const FMaterialProgram& CandidateProgram,
+			const FMaterialStaticProperties& CandidateProperties) -> void;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
@@ -42,5 +65,13 @@ namespace Durin
 		// Definition identity and metadata are canonical; only the nested Value fields are editable.
 		DPROPERTY()
 		std::vector<FMaterialParameterDefinition> ParameterDefinitions;
+
+		// Missing legacy fields retain the canonical constructor value; malformed
+		// present program data is rejected by PostLoad.
+		DPROPERTY()
+		FMaterialProgram Program;
+
+		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
+		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
 	};
 }

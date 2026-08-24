@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -64,8 +64,75 @@ magnification, mip filtering, and independent U/V addressing.
 Their GUIDs are permanent because serialized overrides must survive renames.
 Engine resolution compiles the declarations into the versioned v3 render
 layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
-uniform offsets and eight resource indices. User-authored
+uniform offsets and eight resource indices. User-authored parameter
 declarations and compiled layouts remain deferred work.
+
+`DMaterial` additionally persists one reflected material program defined by
+`Materials/MaterialProgramTypes.h`. Version 1 is a bounded typed expression DAG
+with stable node/parameter/link identities and one required record covering all
+eight surface outputs. Constants, parameter and texture reads, UV resolution,
+sampling, arithmetic, composition, explicit conversions, safe normal decode,
+and RNM normal blending form the closed opcode domain. `DMaterialInstance`
+stores no graph and resolves the root base program through its existing parent
+chain, so dynamic GUID overrides remain independent of authored node order.
+
+Fresh materials own the permanent canonical fixed-surface program. Packages
+written before the `Program` field existed retain that constructor value during
+load and write version 1 on their next save. A present empty, unknown-version,
+or malformed program does not take the legacy transition: bounded validation
+rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
+links, cycles, non-finite constants, bad parameter references, input types, and
+missing or incompatible surface outputs before residency. Diagnostics are
+bounded and sort by stable category/node/location/message identity. Duplication
+deep-copies program values while preserving program GUIDs; presentation names
+round trip but do not affect rendering semantics.
+
+The persisted program is authored state, not a render artifact. GameThread can
+snapshot it, parameter declarations, code-affecting static properties, target,
+compiler identity, and virtual dependency fingerprints into a detached value
+request. Normalization removes dead and presentation-only state, canonicalizes
+commutative inputs and numeric bytes, and produces versioned typed IR plus a
+stable digest independent of authored node order, node GUIDs, and dynamic
+parameter/resource values. Two-sided state and depth policy remain pipeline-
+only and do not enter this program digest.
+
+The synchronous compiler lowers that IR to bounded deterministic Slang using
+stable IR-index symbols and exact floating-point bit expressions. RenderCore
+accepts the generated root as owned memory, resolves only allowlisted virtual
+imports, retains cache/artifact ownership, compiles forward, GBuffer, and
+masked-shadow fragments, and reflects their exact 24/17/3 binding contracts.
+The complete value-owned result includes identity, IR, source, dependencies,
+three compiled stages, phase timings, and bounded diagnostics; any failure
+retains no publishable partial stage set.
+
+Base materials synchronously compile at construction, successful load, program
+edits, and blend/shading/mask-threshold edits. Their immutable render data and
+base proxy layer carry a shared accepted compiler result; its digest extends
+`FMaterialShaderMapIdentity`. Instances inherit the exact parent handle.
+Dynamic values/textures and pipeline-only two-sided/depth changes rebuild only
+the existing v3 layer and preserve the compiled identity. A required compile
+failure publishes no partial stages and resolves to ErrorMaterial with bounded
+diagnostics. Identical canonical bases reuse the same accepted immutable result
+within the process.
+
+Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
+and deterministic draw ordering by the material-program digest plus the exact
+pass and geometry-domain contract. On the rendering thread they combine the
+shared fixed geometry vertex stage with the accepted generated `FragmentMain`,
+`GeometryFragmentMain`, or `ShadowFragmentMain` artifact and create a complete
+typed shader map transactionally. Opaque shadow retains the fixed material-
+resource-free fragment. StaticMesh, SplineMesh, SkeletalMesh, Terrain, Material
+Preview, and thumbnails therefore consume the same accepted surface program;
+none reads the authored graph or IR.
+
+Generated forward evaluation uses the same world normal frame, specular-AA,
+directional/local/environment lighting, shadow, UV transform/rotation, Terrain
+coverage, and exact-v3 binding helpers as the fixed characterization path.
+GBuffer uses the same evaluator and publishes the established octahedral
+normal, effective roughness, AO, opacity, and emissive encoding. Shader reload
+rebuilds shader-dependent slots and device invalidation discards then lazily
+recreates device-dependent RHI resources from the retained accepted compiler
+result; neither operation reinterprets the authored program.
 
 ## Renderer Boundary
 
