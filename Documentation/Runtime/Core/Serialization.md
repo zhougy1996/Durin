@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## Archive And Object Serialization
 
@@ -25,6 +25,28 @@ format-specific equivalence such as normalizing `-0.0` before a compatibility
 hash remains the responsibility of the owning format. Bounded sequential
 regions and random-access integer reads validate their complete source range
 before publishing output.
+
+`Serialization/BinaryEnvelope.h` owns the format-neutral `DURF` header-version-1
+contract. The fixed 64-byte little-endian preamble encodes `DURF`, header and
+preamble versions, a nonzero GUID `FormatId`, format version, required-feature
+mask, exact front-header and physical-file extents, and an XXH3-128 header hash.
+GUID words encode `A`, `B`, `C`, then `D`; the hash encodes low then high 64-bit
+words. The hash covers the complete contiguous front header with its stored
+16-byte hash field treated as zero and is an integrity check, not authenticity.
+
+Prefix parsing consumes only the common preamble plus an independently known
+physical file size and caller limits. It publishes the exact required front
+header size only after validating magic, versions, identity, extents, limits,
+and physical size. Complete validation receives that bounded front span and an
+explicit immutable descriptor registry, then rejects unknown identities,
+unsupported format versions or required features, descriptor-specific limits,
+and hash mismatches before returning non-owning common and format-header views.
+Registry construction copies descriptors, rejects invalid or duplicate IDs and
+debug names independent of input order, and has no global registration or
+constructor-order authority. Encoding, finalization, parsing, registry creation,
+and validation replace caller outputs or destination bytes only on success.
+Core never interprets format-owned sections, asset paths, schemas, codecs, or
+publication policy.
 
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit

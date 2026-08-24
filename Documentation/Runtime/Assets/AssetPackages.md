@@ -122,6 +122,15 @@ Every authored or cooked `.dasset`, regardless of its main asset class, uses the
 same DAST object-package envelope. DAST v5 is the ordinary writer and repository
 baseline and the only supported authored package version. Unsupported versions fail before
 header-specific interpretation, object construction, mutation, or publication.
+DAST has the permanent nonzero format identity
+`3c59d1a9-6ceb-4e4c-b059-452db0a5af56` and canonical diagnostic name
+`Durin.BinaryFormat.DAST`. The private codec key is `(FormatId, FormatVersion)`;
+legacy `DAST` v5 bytes synthesize that identity without changing their wire
+prefix. AssetCore can also validate the common `DURF` front envelope through an
+explicit immutable registry, but no v6 codec is registered yet: valid DAST v6,
+unknown `DURF` identities, unsupported required features, and corrupt envelopes
+fail before any package codec is called. This dormant dispatch seam does not
+authorize v6 reading or writing and does not rewrite content.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
 version, main asset class, bounded registry-entry kind, redirect destination,
@@ -156,6 +165,7 @@ and selects it for ordinary single-package and bundle saves. A caller may spell
 the selection as ordinary or explicit `DastV5`; both produce v5. An existing
 file, asset type, payload size, or environment value never changes that policy.
 DAST v4 is unsupported and has no read, write, migration, or rollback route.
+The ordinary v5 prefix remains the exact bytes `44 41 53 54 05 00 00 00`.
 
 The v5 object stream reuses canonical object-stream logical table, tagged-value, Archive,
 and section encoding with a v5 preamble. Its last section ends at the trailer

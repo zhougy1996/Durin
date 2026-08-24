@@ -4,8 +4,8 @@ Summary: Freeze and implement the reusable DURF v1 preamble, explicit format reg
 
 Last reviewed: 2026-08-25
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-25
 
 ## Current Status
 
@@ -15,12 +15,27 @@ DAST v6 has been selected, but DAST v5 remains the only supported reader and
 ordinary writer. No current format, tracked package, compatibility fixture, or
 companion has changed.
 
-Stage 0 is ready. It freezes the exact Core/AssetCore ownership boundary,
-permanent DAST identity, two-phase header API, wire representation, and
-caller-owned bounds before production code changes. The initial repository
-inventory contains 30 tracked `.dasset` packages, two `.dabulk` companions,
-and seven `.dasset.hex` fixtures; later cutover work must regenerate rather
-than trust those counts.
+All five stages are complete. Core owns the format-neutral `DURF` v1 primitive,
+explicit immutable registry, exact encoder/finalizer, bounded two-phase reader,
+stable diagnostics, independent oracle, exact goldens, and deterministic
+mutation coverage. AssetCore owns the permanent DAST identity
+`3c59d1a9-6ceb-4e4c-b059-452db0a5af56` with canonical name
+`Durin.BinaryFormat.DAST`; legacy v5 synthesizes that identity while valid but
+unimplemented envelope v6 fails before a codec call. DAST v5 remains the sole
+reader and ordinary writer and no tracked authored binary changed.
+
+Pre-change evidence was `CoreUtilityTests` 82/82 and `AssetPackageTests`
+111/111, 30 tracked `.dasset`, two `.dabulk`, seven `.dasset.hex`, and ordinary
+prefix `44 41 53 54 05 00 00 00`. Final focused evidence is
+`CoreUtilityTests` 91/91 and `AssetPackageTests` 113/113. The independent
+oracle freezes 64-byte and 71-byte goldens; robustness covers all 64 preamble
+byte mutations plus 512 deterministic extended-front-matter mutations, extreme
+extents, descriptor reversal, and concurrent registry reads. Debug
+characterization measured the 64-byte envelope at 0.71 microseconds and a
+4096-byte maximum-policy sample at 8.53 microseconds over 2,000 iterations. The
+unchanged representative v5 sample measured 563 file bytes, 90 logical header
+bytes read, and 4.42 microseconds over 2,000 iterations. Thresholds are 100,
+250, and 500 microseconds respectively.
 
 ## Goal
 
@@ -137,19 +152,19 @@ changing the current format.
 Dependencies: the roadmap's DAST v6 selection and the characterized DAST v5
 baseline.
 
-- [ ] Record the exact 64-byte field table, GUID/hash encoding, hash-zeroing
+- [x] Record the exact 64-byte field table, GUID/hash encoding, hash-zeroing
   rule, two-phase read contract, diagnostic categories, and success-only output
   semantics in test/reference-model constants before production encoding.
-- [ ] Generate the DAST GUID once with `FGuid::NewGuid()`, commit it as an
+- [x] Generate the DAST GUID once with `FGuid::NewGuid()`, commit it as an
   explicit constant with `Durin.BinaryFormat.DAST`, and add a golden assertion
   that prevents accidental reallocation.
-- [ ] Define the immutable descriptor/registry contract, including duplicate
+- [x] Define the immutable descriptor/registry contract, including duplicate
   ID/name rejection, version/feature support, caller-owned size limits, and
   descriptor-order independence.
-- [ ] Define the AssetCore coexistence rule that maps legacy `DAST` v5 bytes to
+- [x] Define the AssetCore coexistence rule that maps legacy `DAST` v5 bytes to
   the same logical DAST identity while leaving the supported-reader and
   ordinary-writer policy unchanged.
-- [ ] Capture the pre-change `CoreUtilityTests`, `AssetPackageTests`, tracked
+- [x] Capture the pre-change `CoreUtilityTests`, `AssetPackageTests`, tracked
   package/fixture counts, ordinary v5 prefix, and representative header-read
   cost used for later comparison.
 
@@ -164,18 +179,18 @@ baseline.
 
 Dependencies: Stage 0 acceptance gate.
 
-- [ ] Add focused `BinaryEnvelope` public/private source beside Core's existing
+- [x] Add focused `BinaryEnvelope` public/private source beside Core's existing
   binary-format utilities; do not grow `FBinaryFormatHeader` into a competing
   interpretation of `DURF`.
-- [ ] Implement success-atomic prefix parsing with checked physical/header/file
+- [x] Implement success-atomic prefix parsing with checked physical/header/file
   extents and caller limits, returning the exact required front-header size
   without reading format-owned data.
-- [ ] Implement descriptor and immutable registry validation, lookup by
+- [x] Implement descriptor and immutable registry validation, lookup by
   `FormatId`, version/required-feature rejection, and deterministic diagnostics
   independent of descriptor order.
-- [ ] Implement complete front-header validation and header finalization with
+- [x] Implement complete front-header validation and header finalization with
   exact XXH3-128 zeroed-field hashing and no native-layout serialization.
-- [ ] Keep the API span/value-owned, allocation-bounded, thread-safe after
+- [x] Keep the API span/value-owned, allocation-bounded, thread-safe after
   construction, and independent of AssetCore, DObject, filesystem paths, and
   publication services.
 
@@ -190,24 +205,24 @@ Dependencies: Stage 0 acceptance gate.
 
 Dependencies: Stage 1 acceptance gate.
 
-- [ ] Add a test-only reference encoder/parser that does not call the
+- [x] Add a test-only reference encoder/parser that does not call the
   production reader, writer, finalizer, registry lookup, or shared field-offset
   helpers.
-- [ ] Freeze exact minimal and nontrivial golden bytes, including a nonzero
+- [x] Freeze exact minimal and nontrivial golden bytes, including a nonzero
   GUID, multi-byte version/features/extents, and header-owned bytes beyond the
   64-byte preamble.
-- [ ] Prove production/reference agreement across repeated construction and
+- [x] Prove production/reference agreement across repeated construction and
   forward/reverse descriptor order.
-- [ ] Cover truncated prefixes/front matter, bad magic, header/preamble
+- [x] Cover truncated prefixes/front matter, bad magic, header/preamble
   versions, zero/unknown/duplicate identities, duplicate names, unsupported
   format versions and feature bits, invalid limits, extent overflow,
   header/file mismatch, trailing data, reserved/hash byte mutations, and bad
   hashes.
-- [ ] Add a deterministic mutation/fuzz loop over the 64-byte preamble and
+- [x] Add a deterministic mutation/fuzz loop over the 64-byte preamble and
   bounded front matter. Require termination, no out-of-bounds access or
   allocation beyond policy, stable classification, and no output publication
   on failure.
-- [ ] Record encoded size plus header-only parse/hash cost for representative
+- [x] Record encoded size plus header-only parse/hash cost for representative
   small and maximum-policy headers; set regression thresholds only from stable
   measurements rather than intuition.
 
@@ -221,18 +236,18 @@ Dependencies: Stage 1 acceptance gate.
 
 Dependencies: Stages 1 and 2 acceptance gates.
 
-- [ ] Declare the permanent DAST descriptor in AssetCore and change private
+- [x] Declare the permanent DAST descriptor in AssetCore and change private
   codec identity from a bare wire version to `(FormatId, FormatVersion)` while
   preserving the existing complete-capability checks.
-- [ ] Map a valid legacy `DAST` v5 preamble to the DAST descriptor and v5 codec
+- [x] Map a valid legacy `DAST` v5 preamble to the DAST descriptor and v5 codec
   without changing the bytes passed to header, validation, inspection, load,
   write, or mutation operations.
-- [ ] Recognize `DURF` through the new Core reader, resolve only explicitly
+- [x] Recognize `DURF` through the new Core reader, resolve only explicitly
   registered package descriptors, and reject an unimplemented DAST v6,
   unknown format, unsupported feature, or invalid header before a codec call.
-- [ ] Prove duplicate codec keys/names, identity mismatches, and incomplete
+- [x] Prove duplicate codec keys/names, identity mismatches, and incomplete
   capabilities fail policy validation independent of table order.
-- [ ] Retain DAST v5 as the sole supported reader and ordinary writer; assert
+- [x] Retain DAST v5 as the sole supported reader and ordinary writer; assert
   that ordinary saves, redirectors, relocation, Cook package bytes, and
   construct-free inspection still use the exact legacy prefix and behavior.
 
@@ -246,16 +261,16 @@ Dependencies: Stages 1 and 2 acceptance gates.
 
 Dependencies: Stage 3 acceptance gate.
 
-- [ ] Run the registered `CoreUtilityTests`, `AssetPackageTests`, and the
+- [x] Run the registered `CoreUtilityTests`, `AssetPackageTests`, and the
   smallest additional registry-discovered targets required by changed source.
-- [ ] Run changed-document, all-plan, and all-roadmap validation after updating
+- [x] Run changed-document, all-plan, and all-roadmap validation after updating
   this plan and roadmap status/evidence.
-- [ ] Update the Core serialization contract with the landed neutral-envelope
+- [x] Update the Core serialization contract with the landed neutral-envelope
   API and update Asset Packages/Versioning only to record the dormant dispatch
   seam and unchanged v5 baseline.
-- [ ] Verify Git reports no modified `.dasset`, `.dasset.hex`, `.dabulk`, or
+- [x] Verify Git reports no modified `.dasset`, `.dasset.hex`, `.dabulk`, or
   generated/cooked binary artifact.
-- [ ] Record exact test selections, golden/reference evidence, mutation count,
+- [x] Record exact test selections, golden/reference evidence, mutation count,
   header limits, and parse-cost measurements in `Current Status`; close only
   evidence-backed checks.
 

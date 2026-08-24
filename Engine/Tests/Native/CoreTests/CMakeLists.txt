@@ -21,6 +21,7 @@ endfunction()
 durin_add_core_functional_test(CoreUtilityTests
 	Private/ArchiveTests.cpp
 	Private/AssertionTests.cpp
+	Private/BinaryEnvelopeTests.cpp
 	Private/CheckedArithmeticTests.cpp
 	Private/ConsoleCommandTests.cpp
 	Private/GuidTests.cpp

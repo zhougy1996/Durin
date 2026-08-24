@@ -1988,6 +1988,113 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	EXPECT_TRUE(Durin::Asset::ValidateAssetPackageVersionPolicy(Error)) << Error;
 	EXPECT_NE(Durin::Asset::AssetPackageReaderPolicyFingerprint,
 		Durin::Asset::AssetPackageV5FormatVersion);
+	EXPECT_TRUE(Durin::Asset::DastBinaryFormatId.IsValid());
+	EXPECT_EQ(Durin::Asset::DastBinaryFormatId,
+		(Durin::FGuid{0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56}));
+	EXPECT_EQ(Durin::Asset::DastBinaryFormatName, "Durin.BinaryFormat.DAST");
+
+	const auto& V5 = Durin::Asset::Private::DastV5::GetCodec();
+	EXPECT_EQ(V5.FormatId, Durin::Asset::DastBinaryFormatId);
+	std::array DuplicateKeys{V5, V5};
+	DuplicateKeys[1].CodecId = "dast-v5-alias";
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
+	std::ranges::reverse(DuplicateKeys);
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
+
+	std::array DuplicateNames{V5, V5};
+	DuplicateNames[1].FormatVersion = Durin::Asset::AssetPackageV6FormatVersion;
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateNames, Error));
+	std::ranges::reverse(DuplicateNames);
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateNames, Error));
+
+	std::array Incomplete{V5};
+	Incomplete[0].Validate = nullptr;
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(Incomplete, Error));
+	std::array InvalidIdentity{V5};
+	InvalidIdentity[0].FormatId = {};
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(InvalidIdentity, Error));
+}
+
+TEST(FPackageAssetTests, LegacyV5HeaderReadCharacterizationRemainsBounded)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V5HeaderCost", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "V5HeaderCost.dasset";
+	std::vector<std::byte> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
+	const auto* Reader = Durin::Asset::Private::FindAssetPackageReader(
+		Durin::Asset::DastBinaryFormatId, Durin::Asset::AssetPackageV5FormatVersion);
+	ASSERT_NE(Reader, nullptr);
+
+	constexpr size_t Iterations = 2000;
+	const auto Begin = std::chrono::steady_clock::now();
+	uint64 LastBytesRead = 0;
+	for (size_t Index = 0; Index < Iterations; ++Index)
+	{
+		Durin::Asset::FAssetPackageHeader Header;
+		ASSERT_TRUE(Reader->ReadHeader(Bytes, Bytes.size(), Header));
+		LastBytesRead = Header.BytesRead;
+	}
+	const double Microseconds = std::chrono::duration<double, std::micro>(
+		std::chrono::steady_clock::now() - Begin).count() / Iterations;
+	testing::Test::RecordProperty("v5_file_bytes", Bytes.size());
+	testing::Test::RecordProperty("v5_header_bytes_read", LastBytesRead);
+	testing::Test::RecordProperty("v5_header_parse_us", Microseconds);
+	EXPECT_LT(Microseconds, 500.0);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, DormantEnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCodec)
+{
+	using namespace Durin;
+	using namespace Durin::Asset;
+	using namespace Durin::Asset::Private;
+	constexpr FBinaryEnvelopeLimits Limits{16ull * 1024ull * 1024ull,
+		1024ull * 1024ull * 1024ull};
+
+	std::array<std::byte, BinaryEnvelopePreambleBytes> V6{};
+	const FBinaryEnvelopePreamble V6Preamble{
+		.FormatId = DastBinaryFormatId,
+		.FormatVersion = AssetPackageV6FormatVersion,
+		.HeaderBytes = V6.size(),
+		.FileBytes = V6.size()};
+	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(V6Preamble, V6));
+	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(V6, V6.size(), Limits));
+
+	FAssetPackagePreamble Parsed;
+	ASSERT_TRUE(ReadAssetPackagePreamble(V6, Parsed));
+	EXPECT_EQ(Parsed.FormatId, DastBinaryFormatId);
+	EXPECT_EQ(Parsed.FormatVersion, AssetPackageV6FormatVersion);
+	EXPECT_TRUE(Parsed.bUsesBinaryEnvelope);
+	const FAssetPackageCodec* Codec = reinterpret_cast<const FAssetPackageCodec*>(1);
+	const FAssetResult Unsupported = ResolveAssetPackageReader(V6, Codec);
+	EXPECT_EQ(Unsupported.Error, EAssetError::UnsupportedVersion);
+	EXPECT_EQ(Codec, nullptr);
+
+	std::array<std::byte, 8> Legacy{
+		std::byte{0x44}, std::byte{0x41}, std::byte{0x53}, std::byte{0x54},
+		std::byte{0x05}, std::byte{}, std::byte{}, std::byte{}};
+	ASSERT_TRUE(ReadAssetPackagePreamble(Legacy, Parsed));
+	EXPECT_EQ(Parsed.FormatId, DastBinaryFormatId);
+	EXPECT_EQ(Parsed.FormatVersion, AssetPackageV5FormatVersion);
+	EXPECT_FALSE(Parsed.bUsesBinaryEnvelope);
+
+	std::array<std::byte, BinaryEnvelopePreambleBytes> Unknown{};
+	const FBinaryEnvelopePreamble UnknownPreamble{
+		.FormatId = {1, 2, 3, 4},
+		.FormatVersion = AssetPackageV6FormatVersion,
+		.HeaderBytes = Unknown.size(),
+		.FileBytes = Unknown.size()};
+	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(UnknownPreamble, Unknown));
+	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(Unknown, Unknown.size(), Limits));
+	EXPECT_EQ(ReadAssetPackagePreamble(Unknown, Parsed).Error, EAssetError::UnsupportedVersion);
+
+	V6[48] ^= std::byte{1};
+	EXPECT_EQ(ReadAssetPackagePreamble(V6, Parsed).Error, EAssetError::CorruptFile);
 }
 
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)

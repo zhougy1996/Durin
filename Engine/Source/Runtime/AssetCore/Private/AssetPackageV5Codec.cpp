@@ -316,6 +316,7 @@ namespace Durin::Asset::Private::DastV5
 	{
 		static const FAssetPackageCodec Codec{
 			.CodecId = "dast-v5",
+			.FormatId = DastBinaryFormatId,
 			.FormatVersion = Version,
 			.bCanRead = true,
 			.bCanWrite = true,

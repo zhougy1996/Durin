@@ -1,13 +1,18 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "Misc/Guid.h"
 
 #include <array>
 
 namespace Durin::Asset
 {
 	inline constexpr uint32 DastPackageMagic = 0x54534144;
+	inline constexpr FGuid DastBinaryFormatId{
+		0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56};
+	inline constexpr std::string_view DastBinaryFormatName = "Durin.BinaryFormat.DAST";
 	inline constexpr uint32 AssetPackageV5FormatVersion = 5;
+	inline constexpr uint32 AssetPackageV6FormatVersion = 6;
 	inline constexpr uint32 AssetPackageObjectStreamVersion = AssetPackageV5FormatVersion;
 
 	inline constexpr std::array SupportedAssetPackageReaderVersions{

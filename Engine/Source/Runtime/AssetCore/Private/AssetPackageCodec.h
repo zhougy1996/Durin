@@ -2,7 +2,9 @@
 
 #include "Asset/Compatibility.h"
 #include "Asset/Mutation.h"
+#include "Asset/PackageVersionPolicy.h"
 #include "DObject/DefaultDeltaPlan.h"
+#include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::Asset::Private
 {
@@ -10,6 +12,7 @@ namespace Durin::Asset::Private
 	struct FAssetPackageCodec
 	{
 		std::string_view CodecId;
+		FGuid FormatId;
 		uint32 FormatVersion = 0;
 		bool bCanRead = false;
 		bool bCanWrite = false;
@@ -45,17 +48,29 @@ namespace Durin::Asset::Private
 
 	struct FAssetPackagePreamble
 	{
+		FGuid FormatId;
 		uint32 FormatVersion = 0;
+		bool bUsesBinaryEnvelope = false;
 	};
 
-	auto ReadAssetPackagePreamble(
+	ASSETCORE_API auto ReadAssetPackagePreamble(
 		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble) -> FAssetResult;
 	ASSETCORE_API auto FindAssetPackageReader(
-		uint32 FormatVersion) -> const FAssetPackageCodec*;
+		const FGuid& FormatId, uint32 FormatVersion) -> const FAssetPackageCodec*;
 	ASSETCORE_API auto FindAssetPackageWriter(
-		uint32 FormatVersion) -> const FAssetPackageCodec*;
+		const FGuid& FormatId, uint32 FormatVersion) -> const FAssetPackageCodec*;
+	inline auto FindAssetPackageReader(uint32 FormatVersion) -> const FAssetPackageCodec*
+	{
+		return FindAssetPackageReader(DastBinaryFormatId, FormatVersion);
+	}
+	inline auto FindAssetPackageWriter(uint32 FormatVersion) -> const FAssetPackageCodec*
+	{
+		return FindAssetPackageWriter(DastBinaryFormatId, FormatVersion);
+	}
 	auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		FAssetPackagePreamble* OutPreamble = nullptr) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
+	ASSETCORE_API auto ValidateAssetPackageCodecTable(
+		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;
 }

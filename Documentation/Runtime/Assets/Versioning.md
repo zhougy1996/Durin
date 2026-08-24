@@ -55,17 +55,21 @@ publication.
 ## Authored Package Version Policy
 
 Supported readers and the ordinary writer are separate policies backed by one
-private, statically composed codec table. Each
-codec has an immutable string identity, wire version, and complete reader,
+private, statically composed codec table. Each codec has an immutable string
+identity, permanent nonzero `FormatId`, wire version, and complete reader,
 writer, and mutation capability set. Shared code parses the magic/version
-preamble once, resolves a codec, and fails closed before codec parsing when no
-reader exists. Header reads, validation, inspection, compatibility probes,
+preamble once, maps legacy DAST bytes to the permanent DAST identity, and
+resolves the `(FormatId, FormatVersion)` codec key. A `DURF` preamble instead
+uses Core's bounded two-phase envelope validation and AssetCore's explicit
+immutable descriptor registry. Both paths fail closed before codec parsing when
+no reader exists. Header reads, validation, inspection, compatibility probes,
 reference projection, live loading, serialization, relocation, reference
 rewrite, redirector creation, and cook canonicalization do not branch on a
 version enum. The repository currently registers only the bounded production
 v5 codec; read-only entrypoints never select a writer or dirty authored content.
 A DAST v4 preamble is unsupported and fails before object-stream parsing or
-publication.
+publication. The dormant DAST v6 envelope descriptor has no reader or writer;
+ordinary and explicit saves remain byte-exact v5 until the baseline cutover.
 
 A frozen writer constructs its Archive context from its own codec identity.
 The v5 writer therefore always reports DAST v5 to serializers and emits v5. The
