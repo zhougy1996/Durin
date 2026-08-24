@@ -20,6 +20,7 @@ namespace Durin
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
 		std::atomic<FDeferredDirectionalCaptureSink> GDeferredDirectionalCaptureSink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionCaptureSink> GGroundTruthAmbientOcclusionCaptureSink = nullptr;
+		std::atomic<FSceneRenderGraphCaptureSink> GSceneRenderGraphCaptureSink = nullptr;
 	}
 
 	FScopedRendererQualificationPolicy::FScopedRendererQualificationPolicy(
@@ -151,6 +152,21 @@ namespace Durin
 		);
 	}
 
+	auto SetSceneRenderGraphCaptureSink(FSceneRenderGraphCaptureSink Sink) -> void
+	{
+		GSceneRenderGraphCaptureSink.store(Sink, std::memory_order_release);
+	}
+
+	auto PublishSceneRenderGraphCapture(const FCompiledRenderGraph& Graph) -> void
+	{
+		if (const auto Sink =
+			GSceneRenderGraphCaptureSink.load(std::memory_order_acquire))
+		{
+			const FRenderGraphCapture Capture = Graph.Capture();
+			Sink(Capture);
+		}
+	}
+
 #define DURIN_DEFINE_SINK_GETTER(Name, Type, Storage) \
 	auto Name() -> Type { return Storage.load(std::memory_order_acquire); }
 	DURIN_DEFINE_SINK_GETTER(GetSceneColorTimingQuerySink,
@@ -188,6 +204,8 @@ namespace Durin
 	DURIN_DEFINE_SINK_GETTER(GetGroundTruthAmbientOcclusionCaptureSink,
 		FGroundTruthAmbientOcclusionCaptureSink,
 		GGroundTruthAmbientOcclusionCaptureSink)
+	DURIN_DEFINE_SINK_GETTER(GetSceneRenderGraphCaptureSink,
+		FSceneRenderGraphCaptureSink, GSceneRenderGraphCaptureSink)
 #undef DURIN_DEFINE_SINK_GETTER
 
 } // namespace Durin

@@ -10,9 +10,10 @@
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
-#include "Renderers/FixedSceneFrameExecutor.h"
+#include "Renderers/RenderGraphSceneFrameExecutor.h"
 #include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRenderTelemetry.h"
+#include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SurfaceMaterial.h"
@@ -82,12 +83,12 @@ static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
-static_assert(std::is_final_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(!std::is_empty_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(!std::is_copy_constructible_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(!std::is_copy_assignable_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(!std::is_move_constructible_v<Durin::FFixedSceneFrameExecutor>);
-static_assert(!std::is_move_assignable_v<Durin::FFixedSceneFrameExecutor>);
+static_assert(std::is_final_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(!std::is_empty_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(!std::is_copy_constructible_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(!std::is_copy_assignable_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(!std::is_move_constructible_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(!std::is_move_assignable_v<Durin::FRenderGraphSceneFrameExecutor>);
 static_assert(!CHasPublicQualificationSwitches<
 	Durin::FSceneViewRenderOptions>);
 static_assert(!std::is_copy_constructible_v<
@@ -290,6 +291,7 @@ namespace
 	};
 
 	std::vector<Durin::FViewRenderTelemetry>* GObservedViewTelemetrySnapshots = nullptr;
+	std::vector<Durin::FRenderGraphCapture>* GObservedRenderGraphCaptures = nullptr;
 
 	auto ObserveViewTelemetrySnapshot(
 		const Durin::FViewRenderTelemetry& Telemetry) -> void
@@ -298,6 +300,12 @@ namespace
 		{
 			GObservedViewTelemetrySnapshots->push_back(Telemetry);
 		}
+	}
+
+	auto ObserveRenderGraphCapture(const Durin::FRenderGraphCapture& Capture) -> void
+	{
+		if (GObservedRenderGraphCaptures != nullptr)
+			GObservedRenderGraphCaptures->push_back(Capture);
 	}
 
 	struct FObservedLight
@@ -799,6 +807,32 @@ TEST(FRendererSceneContractTests, TelemetrySnapshotSeamDeliversOneImmutableValue
 	ASSERT_EQ(Snapshots.size(), 1u);
 	EXPECT_EQ(Snapshots.front().Visibility.SubmittedPrimitives, 3u);
 	EXPECT_EQ(Snapshots.front().StaticMesh.StaticMeshAttemptedDraws, 2u);
+}
+
+TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnapshot)
+{
+	std::vector<Durin::FRenderGraphCapture> Captures;
+	GObservedRenderGraphCaptures = &Captures;
+	Durin::SetSceneRenderGraphCaptureSink(ObserveRenderGraphCapture);
+	{
+		Durin::FRenderGraphBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Output = Builder.CreateToken("Scene.Output");
+		const auto Final = Builder.AddPass(
+			"Scene.FinalOutput", Durin::ERenderGraphPassType::Graphics);
+		Builder.UseToken(Final, Output, Durin::ERenderGraphUse::Write);
+		Builder.MarkPassRoot(Final, "offscreen-output");
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		Durin::PublishSceneRenderGraphCapture(*Result.Graph);
+	}
+	Durin::SetSceneRenderGraphCaptureSink(nullptr);
+	GObservedRenderGraphCaptures = nullptr;
+	ASSERT_EQ(Captures.size(), 1u);
+	ASSERT_EQ(Captures[0].Passes.size(), 1u);
+	EXPECT_EQ(Captures[0].Passes[0].Name, "Scene.FinalOutput");
+	EXPECT_EQ(Captures[0].CullingDecisions[0].Reason, "offscreen-output");
+	EXPECT_NE(Captures[0].Dump.find("Scene.FinalOutput"), std::string::npos);
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)

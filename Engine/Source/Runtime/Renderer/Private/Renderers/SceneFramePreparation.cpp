@@ -1,4 +1,4 @@
-#include "Renderers/FixedSceneFrameExecutor.h"
+#include "Renderers/RenderGraphSceneFrameExecutor.h"
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -16,7 +16,7 @@
 
 namespace Durin
 {
-	auto FFixedSceneFrameExecutor::PrepareView_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		FSceneView& RenderView,
@@ -392,7 +392,7 @@ namespace Durin
 			.Plan = std::move(PreparedView)};
 	}
 
-	auto FFixedSceneFrameExecutor::ResolveFrameResources_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::ResolveFrameResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView
 	) -> ERenderViewResult
@@ -466,7 +466,7 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FFixedSceneFrameExecutor::BuildFrameRequirements(
+	auto FRenderGraphSceneFrameExecutor::BuildFrameRequirements(
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -543,7 +543,7 @@ namespace Durin
 				static_cast<int32>(CloudExtent.Height)}};
 	}
 
-	auto FFixedSceneFrameExecutor::ResolveFrameTargets_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::ResolveFrameTargets_RenderThread(
 		const FSceneFrameRequirements& Requirements
 	) -> ERenderViewResult
 	{
@@ -601,7 +601,7 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FFixedSceneFrameExecutor::RenderDirectionalShadow_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderDirectionalShadow_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView
 	) -> FDirectionalShadowPassResult

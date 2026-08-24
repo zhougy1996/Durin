@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-24
 
 Durin represents each renderable world resident with an Engine-facing
 SceneProxy and a Renderer-owned SceneInfo. Components publish detached
@@ -130,7 +130,7 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation and Fixed Execution](RendererFramePreparation.md)
+- [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md)
 - [Viewport Rendering](ViewportRendering.md)
 - [Static Mesh Rendering](StaticMeshRendering.md)
 - [Cube Textures](CubeTextures.md)

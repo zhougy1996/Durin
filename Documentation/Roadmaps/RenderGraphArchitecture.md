@@ -19,7 +19,7 @@ manual scheduling, target ownership, and access restoration in each feature.
 
 The required preparation is complete. One immutable `FSceneRenderPlan`
 separates view preparation from execution, feature boundaries use typed inputs
-and results, `FFixedSceneFrameExecutor` exposes the production order, and
+and results, `FRenderGraphSceneFrameExecutor` owns the compiled production graph, and
 `FRendererTransientTargetPool` centralizes frame-transient texture ownership.
 RHI already supplies validated buffer and texture access transitions, exact
 subresource/range descriptions, recorded-command ownership, and a single
@@ -27,10 +27,18 @@ Vulkan state authority. These contracts let an RDG compile declarative uses
 into the existing RHI transition model without inventing a second scene model
 or backend state tracker.
 
-No child implementation plan is active yet. The first required milestone is
-ready to be selected: freeze the current command/access baseline, implement the
-minimum graph and compiler above RHI, and prove barrier equivalence with a
-bounded production pilot. Later performance features do not block that work.
+Milestones 1 through 4 are complete. `RenderCore` owns deterministic graph
+compilation, exact transition batches, logical result lifetimes, explicit-root
+culling, and complete-or-abort execution preparation. Production contact
+visibility uses graph-owned transitions, and `FRenderGraphSceneFrameExecutor`
+now compiles the sole scene schedule from directional shadow through final
+output before the existing pool resolves the complete transient bundle. The
+fixed executor has been removed. Immutable pointer-free graph capture is now a
+post-migration rendering inspection feature, production graphs have frozen
+structural and observational CPU budgets, and the documented authoring contract
+requires graph declarations for new inter-pass resources. Milestones 5 through
+7 remain evidence-gated; none is activated by completion of the required
+architecture outcome alone.
 
 ## Outcome
 
@@ -170,7 +178,7 @@ Provide one renderer-owned frame graph in which:
 | Area | Reusable foundation | Gap owned by this roadmap |
 | --- | --- | --- |
 | Frame preparation | Immutable `FSceneRenderPlan`, typed feature partitions, resolved geometry, and typed pass outcomes | Translate prepared values into graph passes without exposing the whole plan to callbacks |
-| Scheduling | One readable `FFixedSceneFrameExecutor` with production and qualification ordering | Replace imperative inter-pass sequencing with compiled dependencies and retire the fixed authority |
+| Scheduling | One `FRenderGraphSceneFrameExecutor` with stable production and qualification declarations | Continue replacing closed feature-internal scheduling with typed graph authoring patterns |
 | Access transitions | Backend-neutral `ERHIAccess`, exact buffer ranges and texture subresources, recorded transition commands, and authoritative Vulkan validation | Derive transition batches from declared uses and diagnose graph/resource context before RHI replay |
 | Render passes | Existing attachment load/store and initial/final access contracts | Represent attachment semantics in pass declarations without weakening legacy render-pass validation |
 | Transient textures | Description-keyed, budgeted, complete-or-null `FRendererTransientTargetPool` leases with recovery and invalidation | Separate logical graph resources from physical leases, compute lifetimes, and move acquisition to graph execution preparation |
@@ -184,10 +192,10 @@ Provide one renderer-owned frame graph in which:
 
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 1. Render Graph foundation and barrier equivalence | Landed frame-preparation refactor; RHI transition/state contracts | Graph-local resource handles, pass declarations, dependency compilation, deterministic scheduling, imported initial/final states, compiled transition batches, diagnostics, and synthetic graphics/compute/copy fixtures | Current fixed pass/resource/access inventory and performance baseline remain reproducible | Invalid graphs fail before recording; compiled transitions pass RHI/Vulkan validation; synthetic graphs prove read/write ordering, cycles, discard, ranges/subresources, final states, and deterministic dumps with bounded compile cost | Ready to activate |
-| 2. Renderer production pilot | Milestone 1 | One closed production vertical slice with imported, persistent, and transient resources, at least one graphics/compute or attachment/sampling handoff, optional fallback, and fixed-path equivalence evidence | The selected slice has typed inputs/results, stable image/readback fixtures, exact manual transition inventory, and no unrelated feature redesign | Production uses the graph for the slice; output, failure, telemetry, barriers, draw/dispatch identity, runtime modes, and GPU/CPU gates match baseline; migrated edges contain no manual transition authority | Proposed |
-| 3. Transient lifetime integration, culling, and complete frame migration | Milestone 2 | Logical transient descriptions and first/last-use analysis, graph-owned lease preparation through the existing pool, explicit side-effect roots, safe pass culling, migration of the complete fixed schedule, and retirement of duplicate orchestration | Pilot diagnostics can explain every dependency, allocation, external effect, and barrier; pool recovery and budgets remain authoritative | Directional shadow through final output executes under one graph; unused optional branches cull deterministically; temporal/output transactions, resize, multi-view, recovery, validation, images, and performance pass; fixed production scheduling and migrated manual barriers are removed | Proposed |
-| 4. Graph hardening and feature-authoring contract | Milestone 3 plus at least one new post-migration rendering feature | Stable typed pass/resource authoring patterns, graph inspection/capture tools, compile-time and runtime budgets, documentation, and regression gates that make RDG the required route for new inter-pass resources | Full migration exposes real authoring repetition and diagnostics needs; one new feature can exercise the contract without compatibility scaffolding | The feature lands without bypass scheduling or hidden transitions; graph dumps and failure diagnostics are actionable; aggregate compile/execute overhead stays within frozen budgets | Proposed |
+| 1. Render Graph foundation and barrier equivalence | Landed frame-preparation refactor; RHI transition/state contracts | Graph-local resource handles, pass declarations, dependency compilation, deterministic scheduling, imported initial/final states, compiled transition batches, diagnostics, and synthetic graphics/compute/copy fixtures | Current fixed pass/resource/access inventory and performance baseline remain reproducible | Invalid graphs fail before recording; compiled transitions pass RHI/Vulkan validation; synthetic graphs prove read/write ordering, cycles, discard, ranges/subresources, final states, and deterministic dumps with bounded compile cost | Completed |
+| 2. Renderer production pilot | Milestone 1 | One closed production vertical slice with imported, persistent, and transient resources, at least one graphics/compute or attachment/sampling handoff, optional fallback, and fixed-path equivalence evidence | The selected slice has typed inputs/results, stable image/readback fixtures, exact manual transition inventory, and no unrelated feature redesign | Production uses the graph for the slice; output, failure, telemetry, barriers, draw/dispatch identity, runtime modes, and GPU/CPU gates match baseline; migrated edges contain no manual transition authority | Completed |
+| 3. Transient lifetime integration, culling, and complete frame migration | Milestone 2 | Logical transient descriptions and first/last-use analysis, graph-owned lease preparation through the existing pool, explicit side-effect roots, safe pass culling, migration of the complete fixed schedule, and retirement of duplicate orchestration | Pilot diagnostics can explain every dependency, allocation, external effect, and barrier; pool recovery and budgets remain authoritative | Directional shadow through final output executes under one graph; unused optional branches cull deterministically; temporal/output transactions, resize, multi-view, recovery, validation, images, and performance pass; fixed production scheduling and migrated manual barriers are removed | Completed |
+| 4. Graph hardening and feature-authoring contract | Milestone 3 plus at least one new post-migration rendering feature | Stable typed pass/resource authoring patterns, graph inspection/capture tools, compile-time and runtime budgets, documentation, and regression gates that make RDG the required route for new inter-pass resources | Full migration exposes real authoring repetition and diagnostics needs; one new feature can exercise the contract without compatibility scaffolding | The feature lands without bypass scheduling or hidden transitions; graph dumps and failure diagnostics are actionable; aggregate compile/execute overhead stays within frozen budgets | Completed |
 | 5. Physical transient allocation and aliasing | Milestone 3; Vulkan allocation/placement and GPU-completion prerequisites | Measured allocator design for compatible non-overlapping resources, alias barriers, retained/peak budgets, deterministic fallback, and capture diagnostics | Graph lifetime telemetry shows material peak or retained-memory savings on target content and RHI/Vulkan can express safe placement and alias transitions | Validation, stress, resize/multi-view, failure injection, capture, and target hardware measurements prove safety and material memory benefit without regression | Evidence-gated |
 | 6. Queue-aware scheduling and asynchronous compute | Milestone 3; compute workloads, queue-family/timeline RHI contracts, and profiling | Queue-qualified access, cross-queue dependencies, ownership transfer, timeline synchronization, overlap policy, and synchronous fallback | A measured workload has independent graphics/compute work, supported hardware queues, and expected overlap benefit greater than scheduling/synchronization cost | Validation and timing on supported and fallback devices prove deterministic correctness, no starvation/deadlock, bounded submission overhead, and material frame-time improvement | Evidence-gated |
 | 7. Advanced graph compilation | Milestones 3-4; independent evidence per optimization | Selected pass merging, scheduling reordering, parallel recording, persistent graph reuse, or other compiler optimizations | Profiling identifies graph compile, command recording, bandwidth, or render-pass overhead that one bounded optimization can address | The selected optimization has its own plan, preserves graph semantics/diagnostics, and demonstrates target improvement without coupling unrelated techniques | Optional and evidence-gated |
@@ -203,9 +211,10 @@ dispositioned from current measurements.
 | Child plan | State | Owns | Must not own |
 | --- | --- | --- | --- |
 | [Renderer Frame Preparation Refactor](../Plans/Archive/2026-08/RendererFramePreparationRefactor.md) | Completed foundation | Immutable preparation, typed results, transient-provider handoff, fixed schedule, and migration baseline | An RDG builder/compiler or automatic barriers |
-| Render Graph Foundation and Barrier Equivalence | Proposed; ready for selection | Milestone 1 graph mechanics, structural tests, transition oracle, diagnostics, and compile-cost baseline | Production-wide migration, physical aliasing, async compute, or a public registry |
-| Render Graph Renderer Pilot | Proposed after Milestone 1 | One selected production subgraph, boundary adapters, exact parity qualification, and removal of its manual barriers | Whole-frame rewrite or feature algorithm changes |
-| Render Graph Frame Migration | Proposed after Milestone 2 | Logical transient integration, side effects and culling, bounded feature migrations, fixed-scheduler retirement, and lasting authoring contract | Physical aliasing, queue expansion, or unrelated renderer modernization |
+| [Render Graph Foundation and Barrier Equivalence](../Plans/RenderGraphFoundationAndBarrierEquivalence.md) | Completed | Milestone 1 graph mechanics, structural tests, transition oracle, diagnostics, and compile-cost baseline | Production-wide migration, physical aliasing, async compute, or a public registry |
+| [Render Graph Renderer Pilot](../Plans/RenderGraphRendererPilot.md) | Completed | One selected production subgraph, boundary adapters, exact parity qualification, and removal of its manual barriers | Whole-frame rewrite or feature algorithm changes |
+| [Render Graph Frame Migration](../Plans/RenderGraphFrameMigration.md) | Completed | Logical transient integration, side effects and culling, bounded feature migrations, fixed-scheduler retirement, and lasting authoring contract | Physical aliasing, queue expansion, or unrelated renderer modernization |
+| [Render Graph Hardening and Authoring Contract](../Plans/RenderGraphHardeningAndAuthoringContract.md) | Completed | Structural/CPU budgets, owning graph capture, scene inspection wiring, and the mandatory inter-pass authoring contract | Physical aliasing, queue scheduling, or observer-controlled correctness |
 | Render Graph Transient Aliasing | Evidence-gated | Compatible placement classes, physical reuse, alias transitions, GPU retirement, budgets, and memory evidence | Logical lifetime correctness or ordinary pool recovery |
 | Render Graph Async Compute | Evidence-gated | Queue capabilities, ownership transfer, timeline scheduling, workload policy, and fallback | Treating every compute shader as asynchronously profitable |
 | Render Graph Compiler Optimization: `<Technique>` | Optional per measured bottleneck | One bounded merge/reorder/reuse/parallel-recording optimization | A general optimization bundle without independent evidence |
@@ -302,7 +311,8 @@ activate the migration, aliasing, and queue plans together.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation and Fixed Execution](../Runtime/Rendering/RendererFramePreparation.md)
+- [Render Graph](../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
 - [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
 - [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
@@ -322,5 +332,5 @@ activate the migration, aliasing, and queue plans together.
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderPlan.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFramePreparation.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/FixedSceneFrameExecutor.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/RenderGraphSceneFrameExecutor.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`

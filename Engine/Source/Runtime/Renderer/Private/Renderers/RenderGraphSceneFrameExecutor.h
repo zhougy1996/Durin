@@ -61,18 +61,18 @@ namespace Durin
 		FResolvedSceneFrameTargets Targets;
 	};
 
-	// Owns the complete fixed pass order for one scene-view submission.
-	class FFixedSceneFrameExecutor final
+	// Owns the complete render-graph pass order for one scene-view submission.
+	class FRenderGraphSceneFrameExecutor final
 	{
 	public:
-		explicit FFixedSceneFrameExecutor(FSceneRenderer& Renderer);
+		explicit FRenderGraphSceneFrameExecutor(FSceneRenderer& Renderer);
 
-		FFixedSceneFrameExecutor(const FFixedSceneFrameExecutor&) = delete;
-		auto operator=(const FFixedSceneFrameExecutor&)
-			-> FFixedSceneFrameExecutor& = delete;
-		FFixedSceneFrameExecutor(FFixedSceneFrameExecutor&&) = delete;
-		auto operator=(FFixedSceneFrameExecutor&&)
-			-> FFixedSceneFrameExecutor& = delete;
+		FRenderGraphSceneFrameExecutor(const FRenderGraphSceneFrameExecutor&) = delete;
+		auto operator=(const FRenderGraphSceneFrameExecutor&)
+			-> FRenderGraphSceneFrameExecutor& = delete;
+		FRenderGraphSceneFrameExecutor(FRenderGraphSceneFrameExecutor&&) = delete;
+		auto operator=(FRenderGraphSceneFrameExecutor&&)
+			-> FRenderGraphSceneFrameExecutor& = delete;
 
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,

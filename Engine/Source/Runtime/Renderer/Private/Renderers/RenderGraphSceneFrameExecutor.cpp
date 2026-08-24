@@ -1,10 +1,11 @@
-#include "Renderers/FixedSceneFrameExecutor.h"
+#include "Renderers/RenderGraphSceneFrameExecutor.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
+#include "RenderGraph.h"
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"
@@ -16,7 +17,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto ReportFixedFrameRejectedViewState(
+		auto ReportRenderGraphFrameRejectedViewState(
 			std::string_view Reason,
 			FSceneViewStateId Id
 		) -> void
@@ -30,15 +31,15 @@ namespace Durin
 			);
 		}
 
-		class FFixedFrameViewStateSubmission final
+		class FRenderGraphFrameViewStateSubmission final
 		{
 		public:
-			explicit FFixedFrameViewStateSubmission(FSceneViewState* InState)
+			explicit FRenderGraphFrameViewStateSubmission(FSceneViewState* InState)
 				: State(InState)
 			{
 			}
 
-			~FFixedFrameViewStateSubmission()
+			~FRenderGraphFrameViewStateSubmission()
 			{
 				if (State != nullptr) State->Abort();
 			}
@@ -56,14 +57,14 @@ namespace Durin
 			FSceneViewState* State = nullptr;
 		};
 
-		auto CanonicalizeFixedFrameCloudQuality(EVolumetricCloudQuality Quality)
+		auto CanonicalizeRenderGraphFrameCloudQuality(EVolumetricCloudQuality Quality)
 			-> EVolumetricCloudQuality
 		{
 			return Quality < EVolumetricCloudQuality::Count
 				? Quality : EVolumetricCloudQuality::High;
 		}
 
-		auto CanonicalizeFixedFrameCloudDebugMode(EVolumetricCloudDebugMode Mode)
+		auto CanonicalizeRenderGraphFrameCloudDebugMode(EVolumetricCloudDebugMode Mode)
 			-> EVolumetricCloudDebugMode
 		{
 			return Mode < EVolumetricCloudDebugMode::Count
@@ -78,7 +79,7 @@ namespace Durin
 		}
 	} // namespace
 
-	FFixedSceneFrameExecutor::FFixedSceneFrameExecutor(FSceneRenderer& Renderer)
+	FRenderGraphSceneFrameExecutor::FRenderGraphSceneFrameExecutor(FSceneRenderer& Renderer)
 		: DefaultTextures(Renderer.DefaultTextures)
 		, EnvironmentLighting(Renderer.EnvironmentLighting)
 		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)
@@ -103,7 +104,7 @@ namespace Durin
 	{
 	}
 
-	auto FFixedSceneFrameExecutor::Execute_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -122,9 +123,9 @@ namespace Durin
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++RenderSubmissionSerial;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
-			CanonicalizeFixedFrameCloudQuality(View.Settings.VolumetricCloud.Quality);
+			CanonicalizeRenderGraphFrameCloudQuality(View.Settings.VolumetricCloud.Quality);
 		Telemetry.View.VolumetricCloud.VolumetricCloudDebugMode =
-			CanonicalizeFixedFrameCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
+			CanonicalizeRenderGraphFrameCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
 		FSceneTelemetryPublication TelemetryPublication(
 			Telemetry, OutStatistics
 		);
@@ -165,13 +166,13 @@ namespace Durin
 				RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::DuplicateSubmission;
-			ReportFixedFrameRejectedViewState(
+			ReportRenderGraphFrameRejectedViewState(
 				"an interleaved submission for",
 				RenderView.ViewStateId
 			);
 			ViewState = nullptr;
 		}
-		FFixedFrameViewStateSubmission ViewStateSubmission(ViewState);
+		FRenderGraphFrameViewStateSubmission ViewStateSubmission(ViewState);
 		if (ViewState != nullptr)
 		{
 			TemporalContext = ViewState->Begin(
@@ -194,7 +195,7 @@ namespace Durin
 				ESceneViewDiscontinuity::MissingState;
 			if (RenderView.ViewStateId.IsValid())
 			{
-				ReportFixedFrameRejectedViewState(
+				ReportRenderGraphFrameRejectedViewState(
 					"a missing, released, or foreign",
 					RenderView.ViewStateId
 				);
@@ -210,14 +211,7 @@ namespace Durin
 			return ResolutionResult;
 		const FSceneFrameRequirements Requirements = BuildFrameRequirements(
 			PreparedView, Options, Width, Height);
-		const ERenderViewResult TargetResolutionResult =
-			ResolveFrameTargets_RenderThread(Requirements);
-		if (TargetResolutionResult != ERenderViewResult::Success)
-			return TargetResolutionResult;
-		const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
 		FSceneFrameOutcome Outcome;
-		Outcome.DirectionalShadow = RenderDirectionalShadow_RenderThread(
-			CommandList, PreparedView);
 		const bool bRequiresDeferredOpaque =
 			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& RenderView.Settings.Mode.RasterMode == ERasterMode::Solid;
@@ -258,85 +252,199 @@ namespace Durin
 		const bool bNeedsGBuffer = Qualification.bEnableGBuffer
 								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 								   || bWantsDeferredInputs;
-		Outcome.GBuffer = RenderGBuffer_RenderThread(
-			CommandList, PreparedView, SceneTargets, Options, Width, Height,
-			bNeedsGBuffer, bWantsIsolatedDeferred
-		);
-		const auto* GBufferTargets = Outcome.GBuffer.Targets;
-		const bool bGBufferComplete = Outcome.GBuffer.IsComplete();
-		Outcome.AmbientOcclusion =
-			RenderGroundTruthAmbientOcclusion_RenderThread(
-				CommandList, PreparedView, GBufferTargets, SceneTargets,
-				Options, Width, Height,
-				bWantsGroundTruthAmbientOcclusion, bGBufferComplete);
-		Outcome.ContactShadow = RenderContactShadows_RenderThread(
-			CommandList, PreparedView, GBufferTargets, SceneTargets,
-			Options, Width, Height, bWantsProductionDeferred,
-			bGBufferComplete, Outcome.GBuffer.bRenderedGeometry);
-		Outcome.VolumetricCloudShadow =
-			RenderVolumetricCloudShadows_RenderThread(
-				CommandList, PreparedView, SceneTargets,
-				Width, Height, bWantsProductionDeferred, bGBufferComplete);
-		const auto DeferredParameters = bWantsDeferredInputs
-			? BuildDeferredParameters(
-				PreparedView, Outcome.DirectionalShadow, Outcome.GBuffer,
-				Outcome.AmbientOcclusion, Outcome.ContactShadow,
-				Outcome.VolumetricCloudShadow, SceneTargets, Options)
-			: std::nullopt;
-		if (DeferredParameters)
-		{
-			Outcome.IsolatedDeferred = RenderIsolatedDeferred_RenderThread(
-				CommandList, *DeferredParameters, Options,
-				Width, Height, bWantsIsolatedDeferred
-			);
-		}
-		else if (bWantsIsolatedDeferred)
-		{
-			Outcome.IsolatedDeferred.Status = EScenePassStatus::Failed;
-			++Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
-		}
-
-		const bool bProductionResourcesReady =
-			!bWantsProductionDeferred
-			|| (bGBufferComplete && bHybridRetainedResourcesReady
-				&& DeferredParameters.has_value());
+		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
+			DeferredParameters;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
 			ProductionDeferredParameters;
-		if (bWantsProductionDeferred && bProductionResourcesReady)
+		ERenderViewResult TargetResolutionResult = ERenderViewResult::Success;
+		FRenderGraphBuilder Graph;
+		constexpr FRenderGraphBudget SceneFrameBudget{
+			.MaxPasses = 12,
+			.MaxDependencies = 24,
+			.MaxBufferTransitions = 0,
+			.MaxTextureTransitions = 0,
+			.MaxCompileMicroseconds = 5000,
+			.MaxExecuteMicroseconds = 250000,
+		};
+		Graph.SetBudget(SceneFrameBudget);
+		Graph.EnablePassCulling();
+		Graph.SetExecutionPreparation([&](std::string& Error) {
+			TargetResolutionResult = ResolveFrameTargets_RenderThread(Requirements);
+			if (TargetResolutionResult == ERenderViewResult::Success) return true;
+			Error = "renderer transient target preparation failed";
+			return false;
+		});
+		const auto DirectionalShadowValue =
+			Graph.CreateToken("Scene.DirectionalShadowValue");
+		const auto GBufferValue = Graph.CreateToken("Scene.GBufferValue");
+		const auto AmbientOcclusionValue =
+			Graph.CreateToken("Scene.AmbientOcclusionValue");
+		const auto ContactShadowValue =
+			Graph.CreateToken("Scene.ContactShadowValue");
+		const auto CloudShadowValue =
+			Graph.CreateToken("Scene.CloudShadowValue");
+		const auto DeferredValue = Graph.CreateToken("Scene.DeferredValue");
+		const auto SceneColorValue = Graph.CreateToken("Scene.ColorValue");
+		const auto FinalOutputValue = Graph.CreateToken("Scene.FinalOutputValue");
+		const auto DirectionalShadowPass = Graph.AddPass(
+			"Scene.DirectionalShadow", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				Outcome.DirectionalShadow =
+					RenderDirectionalShadow_RenderThread(Commands, PreparedView);
+			});
+		Graph.UseToken(DirectionalShadowPass, DirectionalShadowValue,
+			ERenderGraphUse::Write);
+		const auto GBufferPass = Graph.AddPass(
+			"Scene.GBuffer", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+				Outcome.GBuffer = RenderGBuffer_RenderThread(
+					Commands, PreparedView, SceneTargets, Options, Width, Height,
+					bNeedsGBuffer, bWantsIsolatedDeferred);
+			});
+		Graph.UseToken(GBufferPass, GBufferValue, ERenderGraphUse::Write);
+		const auto AmbientOcclusionPass = Graph.AddPass(
+			"Scene.AmbientOcclusion", ERenderGraphPassType::Compute,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				Outcome.AmbientOcclusion =
+					RenderGroundTruthAmbientOcclusion_RenderThread(
+						Commands, PreparedView, Outcome.GBuffer.Targets,
+						*ResolvedFrame.Targets.Scene, Options, Width, Height,
+						bWantsGroundTruthAmbientOcclusion,
+						Outcome.GBuffer.IsComplete());
+			});
+		Graph.UseToken(AmbientOcclusionPass, GBufferValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(AmbientOcclusionPass, AmbientOcclusionValue,
+			ERenderGraphUse::Write);
+		const auto ContactShadowPass = Graph.AddPass(
+			"Scene.ContactShadow", ERenderGraphPassType::Compute,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				Outcome.ContactShadow = RenderContactShadows_RenderThread(
+					Commands, PreparedView, Outcome.GBuffer.Targets,
+					*ResolvedFrame.Targets.Scene, Options, Width, Height,
+					bWantsProductionDeferred, Outcome.GBuffer.IsComplete(),
+					Outcome.GBuffer.bRenderedGeometry);
+			});
+		Graph.UseToken(ContactShadowPass, DirectionalShadowValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(ContactShadowPass, GBufferValue, ERenderGraphUse::Read);
+		Graph.UseToken(ContactShadowPass, ContactShadowValue,
+			ERenderGraphUse::Write);
+		const auto CloudShadowPass = Graph.AddPass(
+			"Scene.VolumetricCloudShadow", ERenderGraphPassType::Compute,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				Outcome.VolumetricCloudShadow =
+					RenderVolumetricCloudShadows_RenderThread(
+						Commands, PreparedView, *ResolvedFrame.Targets.Scene,
+						Width, Height, bWantsProductionDeferred,
+						Outcome.GBuffer.IsComplete());
+			});
+		Graph.UseToken(CloudShadowPass, GBufferValue, ERenderGraphUse::Read);
+		Graph.UseToken(CloudShadowPass, CloudShadowValue,
+			ERenderGraphUse::Write);
+		const auto DeferredPass = Graph.AddPass(
+			"Scene.DeferredLighting", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+				DeferredParameters = bWantsDeferredInputs
+					? BuildDeferredParameters(
+						PreparedView, Outcome.DirectionalShadow, Outcome.GBuffer,
+						Outcome.AmbientOcclusion, Outcome.ContactShadow,
+						Outcome.VolumetricCloudShadow, SceneTargets, Options)
+					: std::nullopt;
+				if (DeferredParameters)
+					Outcome.IsolatedDeferred = RenderIsolatedDeferred_RenderThread(
+						Commands, *DeferredParameters, Options, Width, Height,
+						bWantsIsolatedDeferred);
+				else if (bWantsIsolatedDeferred)
+				{
+					Outcome.IsolatedDeferred.Status = EScenePassStatus::Failed;
+					++Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
+				}
+				const bool bProductionResourcesReady =
+					!bWantsProductionDeferred
+					|| (Outcome.GBuffer.IsComplete()
+						&& bHybridRetainedResourcesReady
+						&& DeferredParameters.has_value());
+				if (bWantsProductionDeferred && bProductionResourcesReady)
+				{
+					ProductionDeferredParameters = *DeferredParameters;
+					ProductionDeferredParameters->DiagnosticMode = 0;
+				}
+			});
+		Graph.UseToken(DeferredPass, DirectionalShadowValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, GBufferValue, ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, AmbientOcclusionValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, ContactShadowValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, CloudShadowValue,
+			ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, DeferredValue, ERenderGraphUse::Write);
+		const auto SceneColorPass = Graph.AddPass(
+			"Scene.Color", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+				const FSceneColorTimingQuerySink TimingSink =
+					GetSceneColorTimingQuerySink();
+				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
+				Outcome.SceneColor = RenderScene_RenderThread(
+					Commands, PreparedView, SceneTargets.Color, SceneTargets.Depth,
+					ProductionDeferredParameters
+						? &*ProductionDeferredParameters : nullptr,
+					Outcome.VolumetricCloudShadow.Visibility);
+				Timing.Commit();
+				if (!Outcome.SceneColor.IsSuccess()) return;
+				ReduceStaticMeshTelemetry(PreparedView.Receiver.StaticMeshes,
+					ResolvedFrame.Receiver.StaticMeshes, Telemetry.View);
+				ReduceSkeletalMeshTelemetry(PreparedView.Receiver.SkeletalMeshes,
+					ResolvedFrame.Receiver.SkeletalMeshes,
+					ResolvedFrame.Receiver.SkeletalPalettes, Telemetry.View);
+				ReduceTerrainTelemetry(PreparedView.Receiver.Terrains,
+					ResolvedFrame.Receiver.Terrains, Telemetry.View);
+			});
+		Graph.UseToken(SceneColorPass, DeferredValue, ERenderGraphUse::Read);
+		Graph.UseToken(SceneColorPass, CloudShadowValue, ERenderGraphUse::Read);
+		Graph.UseToken(SceneColorPass, SceneColorValue, ERenderGraphUse::Write);
+		const auto PostProcessPass = Graph.AddPass(
+			"Scene.FinalOutput", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources&) {
+				if (!Outcome.SceneColor.IsSuccess()) return;
+				Outcome.PostProcess = RenderPostProcess_RenderThread(
+					Commands, PreparedView, View, OutputTarget, bPresentOutput,
+					Options, *ResolvedFrame.Targets.Scene, Outcome.GBuffer.Targets,
+					Outcome.SceneColor.SceneColor, Outcome.IsolatedDeferred.Output);
+			});
+		Graph.UseToken(PostProcessPass, SceneColorValue, ERenderGraphUse::Read);
+		Graph.UseToken(PostProcessPass, GBufferValue, ERenderGraphUse::Read);
+		Graph.UseToken(PostProcessPass, FinalOutputValue,
+			ERenderGraphUse::Write);
+		Graph.MarkPassRoot(PostProcessPass,
+			bPresentOutput ? "present" : "offscreen-output");
+		auto CompiledGraph = Graph.Compile();
+		if (!CompiledGraph.IsSuccess())
 		{
-			ProductionDeferredParameters = *DeferredParameters;
-			ProductionDeferredParameters->DiagnosticMode = 0;
+			DURIN_WARN("Scene frame graph compilation failed: {}",
+				CompiledGraph.Error);
+			return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		const FSceneColorTimingQuerySink SceneColorTimingSink =
-			GetSceneColorTimingQuerySink();
-		TScopedRendererGPUTimingQuery SceneColorTiming(
-			CommandList, SceneColorTimingSink
-		);
-		Outcome.SceneColor = RenderScene_RenderThread(
-			CommandList, PreparedView, SceneTargets.Color, SceneTargets.Depth,
-			ProductionDeferredParameters ? &*ProductionDeferredParameters : nullptr,
-			Outcome.VolumetricCloudShadow.Visibility
-		);
-		SceneColorTiming.Commit();
+		std::string ExecutionError;
+		const bool bExecuted =
+			CompiledGraph.Graph->Execute(CommandList, &ExecutionError);
+		PublishSceneRenderGraphCapture(*CompiledGraph.Graph);
+		if (!bExecuted)
+			return TargetResolutionResult;
 		if (!Outcome.SceneColor.IsSuccess()) return Outcome.SceneColor.Result;
-		ReduceStaticMeshTelemetry(
-			PreparedView.Receiver.StaticMeshes,
-			ResolvedFrame.Receiver.StaticMeshes, Telemetry.View
-		);
-		ReduceSkeletalMeshTelemetry(
-			PreparedView.Receiver.SkeletalMeshes,
-			ResolvedFrame.Receiver.SkeletalMeshes,
-			ResolvedFrame.Receiver.SkeletalPalettes,
-			Telemetry.View
-		);
-		ReduceTerrainTelemetry(PreparedView.Receiver.Terrains,
-			ResolvedFrame.Receiver.Terrains, Telemetry.View);
-
-		Outcome.PostProcess = RenderPostProcess_RenderThread(
-			CommandList, PreparedView, View, OutputTarget, bPresentOutput,
-			Options, SceneTargets, GBufferTargets, Outcome.SceneColor.SceneColor,
-			Outcome.IsolatedDeferred.Output
-		);
 		if (Outcome.PostProcess.Result == ERenderViewResult::Success)
 		{
 			ViewStateSubmission.Commit();
@@ -346,7 +454,7 @@ namespace Durin
 	}
 
 
-	auto FFixedSceneFrameExecutor::RenderGBuffer_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
@@ -512,7 +620,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FFixedSceneFrameExecutor::RenderGroundTruthAmbientOcclusion_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderGroundTruthAmbientOcclusion_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
@@ -693,7 +801,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FFixedSceneFrameExecutor::RenderContactShadows_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderContactShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
@@ -772,7 +880,7 @@ namespace Durin
 		return PassResult;
 	}
 
-	auto FFixedSceneFrameExecutor::RenderVolumetricCloudShadows_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
@@ -804,7 +912,7 @@ namespace Durin
 		auto* ComputeTargets = !bForceFragment
 			&& ResolvedFrame.Targets.VolumetricCloudShadowCompute
 			? &*ResolvedFrame.Targets.VolumetricCloudShadowCompute : nullptr;
-		const auto QualityTier = CanonicalizeFixedFrameCloudQuality(
+		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
 			PreparedView.Context.View.Settings.VolumetricCloud.Quality);
 		FRHITexture* Weather = ResolvedCloud->Textures.Weather;
 		if (!Weather) Weather = DefaultTextures.Get_RenderThread(EDefaultTexture::White);
@@ -852,7 +960,7 @@ namespace Durin
 		return PassResult;
 	}
 
-	auto FFixedSceneFrameExecutor::BuildDeferredParameters(
+	auto FRenderGraphSceneFrameExecutor::BuildDeferredParameters(
 		const FSceneRenderPlan& PreparedView,
 		const FDirectionalShadowPassResult& DirectionalShadow,
 		const FGBufferPassResult& GBuffer,
@@ -926,7 +1034,7 @@ namespace Durin
 			.bVolumetricCloudVisibilityEnabled = CloudShadow.IsComplete()};
 	}
 
-	auto FFixedSceneFrameExecutor::RenderIsolatedDeferred_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderIsolatedDeferred_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
 		const FSceneViewRenderOptions& Options,
@@ -992,7 +1100,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FFixedSceneFrameExecutor::RenderPostProcess_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderPostProcess_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FSceneView& View,
@@ -1124,7 +1232,7 @@ namespace Durin
 			.bEditorAssistance = true};
 	}
 
-	auto FFixedSceneFrameExecutor::RenderVolumetricCloud_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloud_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		FRHITexture* SceneColor,
@@ -1147,7 +1255,7 @@ namespace Durin
 									&& ResolvedCloud->Textures.DetailDensity != nullptr
 									&& ResolvedCloud->Textures.DensitySampler != nullptr
 									&& Depth != nullptr;
-		const auto QualityTier = CanonicalizeFixedFrameCloudQuality(
+		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
 		const auto Quality = FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(
 			QualityTier
@@ -1225,7 +1333,7 @@ namespace Durin
 			.SceneColor = SceneColor};
 	}
 
-	auto FFixedSceneFrameExecutor::RenderScene_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		FRHITexture* SceneColor,
@@ -1475,7 +1583,7 @@ namespace Durin
 			.VolumetricCloud = CloudResult};
 	}
 
-	auto FFixedSceneFrameExecutor::RenderSpecialForwardScene_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderSpecialForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		FRHITexture* RenderTarget

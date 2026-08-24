@@ -102,17 +102,27 @@ namespace Durin::RenderTargetLayouts
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
 			EPixelFormat::R8_UNORM,
 			ERHIRenderTargetLoadAction::Clear,
-			ERHITextureLayout::Undefined,
-			ERHIAccess::None,
-			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite
 		);
 		return Layout;
 	}
 
 	auto MakeVolumetricCloudShadowOutput() -> FRHIRenderTargetLayout
 	{
-		return MakeContactVisibilityOutput();
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R8_UNORM,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead
+		);
+		return Layout;
 	}
 
 	auto MakeVolumetricCloudOutput() -> FRHIRenderTargetLayout

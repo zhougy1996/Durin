@@ -36,8 +36,14 @@ namespace Durin
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::R8_UNORM);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.InitialLayout,
+			ERHITextureLayout::ColorAttachment);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.InitialAccess,
+			ERHIAccess::ColorAttachmentReadWrite);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ColorAttachment);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess,
+			ERHIAccess::ColorAttachmentReadWrite);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::BytesPerPixel, 1u);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::CalculateTargetBytes(1920, 1080), 2'073'600u);
 		EXPECT_EQ(FContactShadowVisibilityRenderer::MaximumRetainedBytes, 32u * 1024u * 1024u);

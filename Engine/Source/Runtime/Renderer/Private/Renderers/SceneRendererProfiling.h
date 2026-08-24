@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
+#include "RenderGraph.h"
 #include "RHIResources.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -21,7 +22,7 @@ namespace Durin
 	};
 
 	// Installs one render-thread qualification policy for the lexical duration
-	// of a test/tool submission. The fixed executor snapshots the value.
+	// of a test/tool submission. The graph executor snapshots the value.
 	class RENDERER_API FScopedRendererQualificationPolicy final
 	{
 	public:
@@ -119,6 +120,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* Visibility,
 		bool bFiltered);
+	using FSceneRenderGraphCaptureSink = void (*)(
+		const FRenderGraphCapture& Capture);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -157,6 +160,9 @@ namespace Durin
 		FDeferredDirectionalCaptureSink Sink) -> void;
 	RENDERER_API auto SetGroundTruthAmbientOcclusionCaptureSink(
 		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void;
+	// Observes an owning, pointer-free snapshot after graph execution.
+	RENDERER_API auto SetSceneRenderGraphCaptureSink(
+		FSceneRenderGraphCaptureSink Sink) -> void;
 
 	// Renderer-private immutable snapshots of the current observer registrations.
 	RENDERER_API auto GetRendererQualificationPolicy()
@@ -184,4 +190,7 @@ namespace Durin
 		-> FDeferredDirectionalCaptureSink;
 	auto GetGroundTruthAmbientOcclusionCaptureSink()
 		-> FGroundTruthAmbientOcclusionCaptureSink;
+	auto GetSceneRenderGraphCaptureSink() -> FSceneRenderGraphCaptureSink;
+	RENDERER_API auto PublishSceneRenderGraphCapture(
+		const FCompiledRenderGraph& Graph) -> void;
 }

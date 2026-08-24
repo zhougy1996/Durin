@@ -114,6 +114,8 @@ namespace
 	};
 
 	Durin::FViewRenderTelemetry GLastTelemetry;
+	Durin::FRenderGraphCapture GLastSceneRenderGraphCapture;
+	bool GReceivedSceneRenderGraphCapture = false;
 	std::vector<std::byte>* GHDRSceneColorPixels = nullptr;
 	std::vector<std::byte>* GHDRPostProcessInputPixels = nullptr;
 	std::vector<std::byte>* GGBufferMaterialPixels = nullptr;
@@ -125,6 +127,12 @@ namespace
 	auto CaptureTelemetry(const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
 		GLastTelemetry = Telemetry;
+	}
+
+	auto CaptureSceneRenderGraph(const Durin::FRenderGraphCapture& Capture) -> void
+	{
+		GLastSceneRenderGraphCapture = Capture;
+		GReceivedSceneRenderGraphCapture = true;
 	}
 
 	auto CaptureHDRSceneColor(
@@ -570,6 +578,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	Durin::FModuleTestHarness RendererLifecycle("DirectionalShadowRendererTest");
 	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderTelemetrySink(CaptureTelemetry);
+	GReceivedSceneRenderGraphCapture = false;
+	Durin::SetSceneRenderGraphCaptureSink(CaptureSceneRenderGraph);
 
 	auto Quad = MakeQuadRenderData();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
@@ -1116,6 +1126,20 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 			  << Q1EntryMotionChangedPixels[0] << ", "
 			  << Q1EntryMotionChangedPixels[1] << '\n';
 
+	EXPECT_TRUE(GReceivedSceneRenderGraphCapture);
+	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
+	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 0u);
+	EXPECT_FALSE(
+		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
+	EXPECT_FALSE(
+		GLastSceneRenderGraphCapture.Statistics.bExecuteBudgetExceeded);
+	EXPECT_TRUE(std::ranges::any_of(GLastSceneRenderGraphCapture.Passes,
+		[](const Durin::FRenderGraphPassCapture& Pass) {
+			return Pass.Name == "Scene.FinalOutput";
+		}));
+	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	RendererLifecycle.Shutdown();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(

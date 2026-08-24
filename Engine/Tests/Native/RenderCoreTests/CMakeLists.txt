@@ -114,6 +114,7 @@ durin_add_render_functional_test(RenderContractTests
 	SOURCES
 		Private/RenderResourceCreationTests.cpp
 		Private/RenderResourceLifecycleTests.cpp
+		Private/RenderGraphTests.cpp
 		Private/RenderTargetLayoutTests.cpp
 		Private/RHITextureTests.cpp
 		Private/TextureReferenceTests.cpp

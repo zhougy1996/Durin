@@ -43,14 +43,14 @@ This seam coordinates reconstruction; it does not recover a lost Vulkan device
 or a failed RHI executor.
 
 Frame-transient targets use the Renderer-private provider described by
-[Renderer Frame Preparation and Fixed Execution](RendererFramePreparation.md).
+[Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md).
 Each physical texture has the same generation-scoped failure suppression and
 retry semantics; complete typed bundles are returned only after every texture
 resolves. Device or manual invalidation and retained-byte eviction make later
 construction eligible without moving shaders, PSOs, samplers, or committed
 view history into transient ownership.
 
-The fixed frame executor derives one immutable requirements value after logical
+The graph frame executor derives one immutable requirements value after logical
 preparation and persistent-resource resolution, then acquires every requested
 frame-transient bundle before the first consuming pass. The pool partitions
 descriptions into bounded typed semantic groups. A failed multi-texture bundle
@@ -99,5 +99,5 @@ through its own ordered shutdown.
 
 - [Viewport Rendering](ViewportRendering.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
-- [Renderer Frame Preparation and Fixed Execution](RendererFramePreparation.md)
+- [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md)
 - [Runtime Lifecycle](../Core/RuntimeLifecycle.md)

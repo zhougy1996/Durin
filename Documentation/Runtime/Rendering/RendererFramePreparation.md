@@ -1,8 +1,8 @@
-# Renderer Frame Preparation and Fixed Execution
+# Renderer Frame Preparation and Render Graph Execution
 
 Summary: Define immutable per-view preparation, resolved geometry, transient
-target ownership, typed pass outcomes, fixed scheduling, telemetry, and output
-transactions.
+target ownership, typed pass outcomes, render-graph scheduling, telemetry, and
+output transactions.
 
 Modules: Renderer, RenderCore, RHI
 
@@ -10,8 +10,9 @@ Last reviewed: 2026-08-24
 
 ## Ownership Boundary
 
-One render command prepares one `FSceneRenderPlan`. Only fixed Renderer
-orchestration may inspect this outer value. It owns command-local logical
+One render command prepares one `FSceneRenderPlan`. Only
+`FRenderGraphSceneFrameExecutor` may inspect this outer value. It owns
+command-local logical
 partitions for the fitted view, optional environment, selected lighting,
 receiver geometry and its shared Skeletal pose table, optional directional
 shadow, and optional volumetric cloud. The temporal transaction, resolved
@@ -45,15 +46,15 @@ policy and draw readiness inspect only prepared identities and resolved records.
 Qualification-only route selection is not part of public
 `FSceneViewRenderOptions` or the logical plan. Tests and development tools may
 install one Renderer-private `FScopedRendererQualificationPolicy` on the
-render thread; the fixed executor snapshots it once when the submission starts.
+render thread; the graph executor snapshots it once when the submission starts.
 That bounded value can request isolated GBuffer/deferred/GTAO work or force the
 contact/cloud fragment comparison routes. It cannot change scene preparation,
 and the former mutable volumetric-cloud preparation callback no longer exists.
 Supported GBuffer, deferred, and GTAO debug modes remain explicit public view
-options and execute through the same fixed schedule. Timing and capture sinks
-observe completed typed pass results only.
+options and execute through the same compiled graph schedule. Timing and
+capture sinks observe completed typed pass results only.
 
-The fixed executor's preparation stage builds the plan from the fitted
+The graph executor's preparation stage builds the plan from the fitted
 `FSceneView` and render-thread `FScene` snapshot. The plan never contains a
 reflected or game-thread object and remains bounded by the render command's
 existing SceneInfo/proxy lifetime. Optional environment and cloud partitions
@@ -67,14 +68,14 @@ Skeletal palettes into a resolved palette table, and resolves the cloud
 sampler. The executor then derives one immutable `FSceneFrameRequirements`
 value and resolves Scene Color/depth plus every requested feature bundle into
 `FResolvedSceneFrame::Targets`. Directional-shadow command recording follows
-both resolution boundaries as an explicit fixed-schedule step; it is never
-performed by logical preparation.
+both resolution boundaries as an explicit graph pass; it is never performed by
+logical preparation.
 
 ## Resource Lifetime Classes
 
 | Class | Owner | Examples | Frame rule |
 | --- | --- | --- | --- |
-| Imported | Caller, asset, or shared resource owner | Window/offscreen output, material and environment textures, default textures | Pass inputs retain RHI references and declare required access; the fixed executor does not release them. |
+| Imported | Caller, asset, or shared resource owner | Window/offscreen output, material and environment textures, default textures | Pass inputs retain RHI references and declare required access; the graph executor does not release them. |
 | Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the transient pool. |
 | Frame-transient | `FRendererTransientTargetPool` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | Frame setup acquires a complete typed lease. Pass execution receives resolved targets and performs no target lookup or creation. |
 
@@ -96,11 +97,11 @@ is released. Device invalidation reconstructs demanded textures under the new
 generation. The provider does not alias physical memory, infer scheduling, or
 introduce synchronization.
 
-## Fixed Frame Schedule
+## Render Graph Frame Schedule
 
 `FSceneRenderer::RenderView_RenderThread` delegates to
-`FFixedSceneFrameExecutor`. The executor is the sole production scheduler and
-keeps this order:
+`FRenderGraphSceneFrameExecutor`. The executor builds and compiles the sole
+production frame graph with this stable declaration order:
 
 1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
@@ -108,22 +109,23 @@ keeps this order:
 3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
    shared poses, combined translucency, and optional cloud inputs; publish the
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
-   resources into `FResolvedSceneFrame`. Derive the frame requirements once and
-   resolve all requested frame-transient bundles before execution begins.
-4. Render directional-shadow cascades, then execute GBuffer from its resolved
+   resources into `FResolvedSceneFrame`. Derive frame requirements once.
+4. Compile explicit top-level dependencies and output roots, then prepare every
+   requested frame-transient bundle as one complete-or-null execution gate.
+5. Render directional-shadow cascades, then execute GBuffer from its resolved
    target bundle if the production or qualification route requires it.
-5. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
+6. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
    visibility, and explicit isolated debug/qualification branches.
-6. Bootstrap/produce Scene Color, render retained unlit opaque/masked
+7. Bootstrap/produce Scene Color, render retained unlit opaque/masked
    geometry, transition depth for sampling, then render, reconstruct, and
    composite clouds.
-7. Restore Scene Color attachment access and render combined translucent
+8. Restore Scene Color attachment access and render combined translucent
    geometry in the prepared stable order.
-8. The executor's finalization stage selects debug or Scene Color output,
+9. The executor's finalization stage selects debug or Scene Color output,
    performs post process, optional editor assistance, restores the output
    viewport/scissor, and finishes in `Present` for window output or
    `ShaderReadOnly` offscreen.
-9. On complete success, commit temporal state and publish telemetry. Every
+10. On complete success, commit temporal state and publish telemetry. Every
    early return aborts pending view state and publishes no partial statistics.
 
 Qualification routes are optional branches over the same prepared plan,
@@ -158,9 +160,12 @@ missing optional cloud inputs disable that feature; unavailable optional debug
 targets do not publish a partially valid output. Directional-shadow and
 environment bindings use their documented complete fallback resources.
 
-Manual texture and buffer transitions remain the only resource-state
+The render graph is the inter-pass declaration and transition-planning
 authority. Typed pass boundaries use backend-neutral RHI resources and preserve
-the established render-pass load/store and initial/final access contracts.
+the established render-pass load/store and imported initial/final access
+contracts. RHI and the active backend remain authoritative for validating and
+committing physical execution state; migrated edges contain no competing
+feature-local manual transition.
 
 ## Telemetry and Observation
 
@@ -172,22 +177,21 @@ sink registration and scoped GPU queries; capture and qualification observers
 receive immutable named pass resources/results and cannot mutate the frame
 plan.
 
-## Render Graph Handoff Inventory
+## Render Graph Integration Boundary
 
-The bounded Render Graph follow-up may wrap, in order, directional shadow,
-GBuffer, GTAO, contact visibility, cloud-shadow visibility, isolated deferred
-and debug, Scene Color/deferred production, cloud spatial/reconstruction/
-composite, translucency, post process, editor assistance, and output
-finalization. Its first consumers are the typed preparation partitions,
-resolved geometry values, transient leases, and pass results described above.
+The production graph declares, in order, directional shadow, GBuffer, GTAO,
+contact visibility, cloud-shadow visibility, isolated deferred and debug,
+Scene Color/deferred production, cloud spatial/reconstruction/composite,
+translucency, post process, editor assistance, and output finalization. Its
+inputs are the typed preparation partitions, resolved geometry values,
+transient leases, and pass results described above.
 
-The graph must preserve imported initial/final access, persistent view-state
-history, optional fallback policy, the temporal/output transaction, and the
-manual transition semantics before it may synthesize equivalent barriers. It
-does not need a new scene-preparation model, mutable blackboard, public pass
-registry, or alternate feature interface. Physical aliasing, asynchronous
-compute, multiple queues, pass merging/culling, and PSO centralization remain
-separate measured decisions.
+The graph preserves imported initial/final access, persistent view-state
+history, optional fallback policy, and the temporal/output transaction while
+compiling equivalent RHI transition batches. It does not introduce a second
+scene-preparation model, mutable blackboard, public pass registry, or alternate
+feature interface. Physical aliasing, asynchronous compute, multiple queues,
+pass merging, and PSO centralization remain separate measured decisions.
 
 The cross-plan sequencing, required migration milestones, and evidence gates
 for those conditional extensions are owned by the

@@ -4,7 +4,7 @@ Summary: Defines the deterministic volumetric-cloud spatial producer, scene-line
 
 Modules: Renderer
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-24
 
 ## Ownership and input
 
@@ -98,7 +98,7 @@ explicit non-gating observations.
 
 P2 production views receive their input from the selected immutable Engine
 scene snapshot. Tests force the fragment route through the feature-bounded
-Renderer-private `FScopedRendererQualificationPolicy`; the fixed executor
+Renderer-private `FScopedRendererQualificationPolicy`; the graph executor
 snapshots this value without mutating cloud preparation. There is no cloud
 preparation callback or shipping option that can select the qualification
 route. `VolumetricCloudSceneVulkanTests` uses real reflected actors and volume

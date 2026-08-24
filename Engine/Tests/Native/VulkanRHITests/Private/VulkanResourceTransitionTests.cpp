@@ -6,6 +6,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#include "RenderGraph.h"
 #include "InlineRHITestScope.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
@@ -224,6 +225,82 @@ namespace Durin::VulkanRHI
 
 		Buffer = nullptr;
 		BurstBuffer = nullptr;
+		Texture = nullptr;
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		RHIExit();
+	}
+
+	TEST(FVulkanResourceTransitionTests, RenderGraphTransitionsReplayThroughVulkanStateTracking)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+		FBufferRHIRef Buffer = RHICreateBuffer(FRHIBufferCreateDesc::Create(
+			"GraphBuffer", 64, 4, EBufferUsageFlags::Static
+				| EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::DestinationCopy));
+		FTextureRHIRef Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D(
+			"GraphTexture", 8, 8, EPixelFormat::RGBA8_UNORM)
+			.SetNumMips(2).SetFlags(ETextureCreateFlags::DestinationCopy
+				| ETextureCreateFlags::ShaderResource));
+		ASSERT_TRUE(Buffer && Texture);
+		bool bPrepared = false;
+		bool bExecuted = false;
+		FRenderGraphBuilder RejectedBuilder;
+		RejectedBuilder.EnablePassCulling();
+		const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
+			ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+				bExecuted = true;
+			});
+		RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
+		RejectedBuilder.SetExecutionPreparation([&](std::string& Error) {
+			bPrepared = true;
+			Error = "injected allocation failure";
+			return false;
+		});
+		auto Rejected = RejectedBuilder.Compile();
+		ASSERT_TRUE(Rejected.IsSuccess()) << Rejected.Error;
+		std::string PreparationError;
+		EXPECT_FALSE(Rejected.Graph->Execute(Commands, &PreparationError));
+		EXPECT_TRUE(bPrepared);
+		EXPECT_FALSE(bExecuted);
+		EXPECT_EQ(PreparationError, "injected allocation failure");
+
+		FRenderGraphBuilder Builder;
+		const auto GraphBuffer = Builder.CreateBuffer(
+			"GraphBuffer", Buffer.GetReference(), ERHIAccess::VertexBufferRead);
+		const auto GraphTexture = Builder.CreateTexture(
+			"GraphTexture", Texture.GetReference(), ERHIAccess::GraphicsShaderRead);
+		const auto Copy = Builder.AddPass("Copy", ERenderGraphPassType::Copy);
+		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERenderGraphUse::Write,
+			ERHIAccess::TransferWrite, true);
+		Builder.UseTexture(Copy, GraphTexture,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Write,
+			ERHIAccess::TransferWrite, true);
+		const auto Consume = Builder.AddPass(
+			"Consume", ERenderGraphPassType::Graphics);
+		Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERenderGraphUse::Read,
+			ERHIAccess::VertexBufferRead);
+		Builder.UseTexture(Consume, GraphTexture,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Read,
+			ERHIAccess::GraphicsShaderRead);
+		auto Compiled = Builder.Compile();
+		ASSERT_TRUE(Compiled.IsSuccess()) << Compiled.Error;
+		Compiled.Graph->Execute(Commands);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::SubmitToGPU);
+
+		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
+		EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),
+			(std::vector<FVulkanBufferStateTracker::FInterval>{
+				{0, 64, ERHIAccess::VertexBufferRead}}));
+		EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
+			ERHITextureAspect::Color, 1, 0), ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
+			ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
+
+		Buffer = nullptr;
 		Texture = nullptr;
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		RHIExit();
