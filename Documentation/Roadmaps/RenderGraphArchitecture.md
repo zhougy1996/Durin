@@ -4,41 +4,44 @@ Summary: Establish a declarative Render Dependency Graph as the renderer's singl
 
 Last reviewed: 2026-08-24
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-24
 
 ## Current Status
 
-The renderer does not currently have a material transition defect, lifetime
-failure, or transient-memory bottleneck that forces an emergency Render Graph
-migration. The program is activated deliberately before those pressures become
-the architecture boundary: future screen-space effects, temporal features,
-additional lighting paths, compute work, and multi-view rendering will all add
-resource relationships that are safer to express once than to reproduce as
-manual scheduling, target ownership, and access restoration in each feature.
+Milestones 1 through 4A are complete. One immutable `FSceneRenderPlan`
+separates preparation from execution, `FRenderGraphSceneFrameExecutor` authors
+the sole production scene graph, and `RenderCore` compiles exact resource
+versions, minimal value/hazard dependencies, retained lifetimes, culling,
+preparation requests, transitions, and pointer-free diagnostics. RHI/Vulkan
+remain the only physical execution-state authority.
 
-The required preparation is complete. One immutable `FSceneRenderPlan`
-separates view preparation from execution, feature boundaries use typed inputs
-and results, `FRenderGraphSceneFrameExecutor` owns the compiled production graph, and
-`FRendererTransientTargetPool` centralizes frame-transient texture ownership.
-RHI already supplies validated buffer and texture access transitions, exact
-subresource/range descriptions, recorded-command ownership, and a single
-Vulkan state authority. These contracts let an RDG compile declarative uses
-into the existing RHI transition model without inventing a second scene model
-or backend state tracker.
+Every directional-shadow-through-output inter-pass resource now has one graph
+identity and pass-scoped declaration. Compute, fragment, disabled, and
+factor-one topology is selected before compile; retained logical requests drive
+one atomic target publication before recording; no feature callback compiles a
+child graph or owns a migrated outer transition. Representative cloud frames
+schedule 11 passes with 22--25 dependencies and 1 or 17 texture transitions
+under frozen ceilings of 12, 28, and 20 respectively. Debug graph compilation
+and complete callback recording remain below their 5 ms and 250 ms observation
+ceilings.
 
-Milestones 1 through 4 are complete. `RenderCore` owns deterministic graph
-compilation, exact transition batches, logical result lifetimes, explicit-root
-culling, and complete-or-abort execution preparation. Production contact
-visibility uses graph-owned transitions, and `FRenderGraphSceneFrameExecutor`
-now compiles the sole scene schedule from directional shadow through final
-output before the existing pool resolves the complete transient bundle. The
-fixed executor has been removed. Immutable pointer-free graph capture is now a
-post-migration rendering inspection feature, production graphs have frozen
-structural and observational CPU budgets, and the documented authoring contract
-requires graph declarations for new inter-pass resources. Milestones 5 through
-7 remain evidence-gated; none is activated by completion of the required
-architecture outcome alone.
+The completed boundary passed the full `Win64-Debug-DurinEditor` build, all 79
+routine native-test targets, focused RenderCore/RHI/Renderer contracts, the
+renderer Vulkan integration set, and Directional Shadow, GBuffer, HDR display,
+and Volumetric Cloud qualifications. Adapter-specific timing fixtures report
+the selected Vulkan device and apply frozen RTX 3090 thresholds only on the
+matching named lane; the available GTX 1060 run remains truthful observation
+evidence while preserving functional, memory, telemetry, and relative-route
+gates.
+
+Milestones 5 through 7 are explicitly dispositioned rather than activated.
+Current captures do not establish material physical-aliasing savings, the
+qualified Vulkan device exposes one shared graphics/compute/transfer family
+rather than an independent overlap opportunity, and graph compile/record cost
+does not cross its frozen ceilings. Aliasing, async compute, and advanced graph
+compilation therefore require new measured entry evidence and independent
+plans; none is implied by this roadmap's completion.
 
 ## Outcome
 
@@ -196,15 +199,16 @@ Provide one renderer-owned frame graph in which:
 | 2. Renderer production pilot | Milestone 1 | One closed production vertical slice with imported, persistent, and transient resources, at least one graphics/compute or attachment/sampling handoff, optional fallback, and fixed-path equivalence evidence | The selected slice has typed inputs/results, stable image/readback fixtures, exact manual transition inventory, and no unrelated feature redesign | Production uses the graph for the slice; output, failure, telemetry, barriers, draw/dispatch identity, runtime modes, and GPU/CPU gates match baseline; migrated edges contain no manual transition authority | Completed |
 | 3. Transient lifetime integration, culling, and complete frame migration | Milestone 2 | Logical transient descriptions and first/last-use analysis, graph-owned lease preparation through the existing pool, explicit side-effect roots, safe pass culling, migration of the complete fixed schedule, and retirement of duplicate orchestration | Pilot diagnostics can explain every dependency, allocation, external effect, and barrier; pool recovery and budgets remain authoritative | Directional shadow through final output executes under one graph; unused optional branches cull deterministically; temporal/output transactions, resize, multi-view, recovery, validation, images, and performance pass; fixed production scheduling and migrated manual barriers are removed | Completed |
 | 4. Graph hardening and feature-authoring contract | Milestone 3 plus at least one new post-migration rendering feature | Stable typed pass/resource authoring patterns, graph inspection/capture tools, compile-time and runtime budgets, documentation, and regression gates that make RDG the required route for new inter-pass resources | Full migration exposes real authoring repetition and diagnostics needs; one new feature can exercise the contract without compatibility scaffolding | The feature lands without bypass scheduling or hidden transitions; graph dumps and failure diagnostics are actionable; aggregate compile/execute overhead stays within frozen budgets | Completed |
-| 5. Physical transient allocation and aliasing | Milestone 3; Vulkan allocation/placement and GPU-completion prerequisites | Measured allocator design for compatible non-overlapping resources, alias barriers, retained/peak budgets, deterministic fallback, and capture diagnostics | Graph lifetime telemetry shows material peak or retained-memory savings on target content and RHI/Vulkan can express safe placement and alias transitions | Validation, stress, resize/multi-view, failure injection, capture, and target hardware measurements prove safety and material memory benefit without regression | Evidence-gated |
-| 6. Queue-aware scheduling and asynchronous compute | Milestone 3; compute workloads, queue-family/timeline RHI contracts, and profiling | Queue-qualified access, cross-queue dependencies, ownership transfer, timeline synchronization, overlap policy, and synchronous fallback | A measured workload has independent graphics/compute work, supported hardware queues, and expected overlap benefit greater than scheduling/synchronization cost | Validation and timing on supported and fallback devices prove deterministic correctness, no starvation/deadlock, bounded submission overhead, and material frame-time improvement | Evidence-gated |
-| 7. Advanced graph compilation | Milestones 3-4; independent evidence per optimization | Selected pass merging, scheduling reordering, parallel recording, persistent graph reuse, or other compiler optimizations | Profiling identifies graph compile, command recording, bandwidth, or render-pass overhead that one bounded optimization can address | The selected optimization has its own plan, preserves graph semantics/diagnostics, and demonstrates target improvement without coupling unrelated techniques | Optional and evidence-gated |
+| 4A. Foundation consolidation | Milestone 4; post-migration architecture review | Logical resource descriptions with retained backing, pass-scoped access, minimal value/hazard dependencies, truthful pass domains, one parent scene graph, and exact capture diagnostics | The completed migration provides parity evidence and the review inventories hidden physical edges, nested scheduling, preparation gaps, and dense dependency construction | Every scene inter-pass edge and retained allocation is graph-declared; no nested graph or undeclared access remains; culling, fallback, transitions, captures, and budgets pass focused and production qualification | Completed |
+| 5. Physical transient allocation and aliasing | Milestone 4A; Vulkan allocation/placement and GPU-completion prerequisites | Measured allocator design for compatible non-overlapping resources, alias barriers, retained/peak budgets, deterministic fallback, and capture diagnostics | Graph lifetime telemetry shows material peak or retained-memory savings on target content and RHI/Vulkan can express safe placement and alias transitions | Validation, stress, resize/multi-view, failure injection, capture, and target hardware measurements prove safety and material memory benefit without regression | Evidence-gated |
+| 6. Queue-aware scheduling and asynchronous compute | Milestone 4A; compute workloads, queue-family/timeline RHI contracts, and profiling | Queue-qualified access, cross-queue dependencies, ownership transfer, timeline synchronization, overlap policy, and synchronous fallback | A measured workload has independent graphics/compute work, supported hardware queues, and expected overlap benefit greater than scheduling/synchronization cost | Validation and timing on supported and fallback devices prove deterministic correctness, no starvation/deadlock, bounded submission overhead, and material frame-time improvement | Evidence-gated |
+| 7. Advanced graph compilation | Milestone 4A; independent evidence per optimization | Selected pass merging, scheduling reordering, parallel recording, persistent graph reuse, or other compiler optimizations | Profiling identifies graph compile, command recording, bandwidth, or render-pass overhead that one bounded optimization can address | The selected optimization has its own plan, preserves graph semantics/diagnostics, and demonstrates target improvement without coupling unrelated techniques | Optional and evidence-gated |
 
-Milestones 1 through 4 are required for the architecture outcome. Milestones 5
-through 7 belong to the roadmap so their prerequisites are preserved, but lack
-of present memory or scheduling pressure is not treated as implementation
-evidence. At roadmap completion they must be completed or explicitly
-dispositioned from current measurements.
+Milestones 1 through 4A preserve the completed migration, parity, and
+consolidation evidence. Milestones 5 through 7 remain recorded so their
+prerequisites are preserved, and are explicitly dispositioned from current
+memory, queue, and compile-cost evidence rather than treated as implementation
+work.
 
 ## Child Plan Boundaries
 
@@ -215,6 +219,7 @@ dispositioned from current measurements.
 | [Render Graph Renderer Pilot](../Plans/RenderGraphRendererPilot.md) | Completed | One selected production subgraph, boundary adapters, exact parity qualification, and removal of its manual barriers | Whole-frame rewrite or feature algorithm changes |
 | [Render Graph Frame Migration](../Plans/RenderGraphFrameMigration.md) | Completed | Logical transient integration, side effects and culling, bounded feature migrations, fixed-scheduler retirement, and lasting authoring contract | Physical aliasing, queue expansion, or unrelated renderer modernization |
 | [Render Graph Hardening and Authoring Contract](../Plans/RenderGraphHardeningAndAuthoringContract.md) | Completed | Structural/CPU budgets, owning graph capture, scene inspection wiring, and the mandatory inter-pass authoring contract | Physical aliasing, queue scheduling, or observer-controlled correctness |
+| [Render Graph Foundation Consolidation](../Plans/RenderGraphFoundationConsolidation.md) | Completed | Logical descriptions and retained backing, pass isolation, minimal dependency semantics, one parent scene graph, and exact diagnostics | Physical aliasing, queue scheduling, feature algorithm changes, or unrelated compiler optimizations |
 | Render Graph Transient Aliasing | Evidence-gated | Compatible placement classes, physical reuse, alias transitions, GPU retirement, budgets, and memory evidence | Logical lifetime correctness or ordinary pool recovery |
 | Render Graph Async Compute | Evidence-gated | Queue capabilities, ownership transfer, timeline scheduling, workload policy, and fallback | Treating every compute shader as asynchronously profitable |
 | Render Graph Compiler Optimization: `<Technique>` | Optional per measured bottleneck | One bounded merge/reorder/reuse/parallel-recording optimization | A general optimization bundle without independent evidence |
@@ -303,8 +308,9 @@ activate the migration, aliasing, and queue plans together.
 - Deterministic diagnostics expose passes, edges, lifetimes, culling,
   allocations, barriers, and external states sufficiently to diagnose a failed
   graph without backend capture as the only source of truth.
-- Milestones 1 through 4 complete through bounded validated child plans and
-  lasting contracts move to Runtime Rendering/RHI documentation.
+- Milestones 1 through 4 and the post-migration foundation consolidation
+  complete through bounded validated child plans, and lasting contracts move
+  to Runtime Rendering/RHI documentation.
 - Physical aliasing, async/multi-queue scheduling, and advanced compilation are
   either completed from evidence or explicitly dispositioned with current
   measurements; their absence does not leave two graph architectures.

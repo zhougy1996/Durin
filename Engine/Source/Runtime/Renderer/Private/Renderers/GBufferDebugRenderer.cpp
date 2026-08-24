@@ -240,12 +240,6 @@ namespace Durin
 		Uniform.InverseViewportX = 1.0f / static_cast<float>(Width);
 		Uniform.InverseViewportY = 1.0f / static_cast<float>(Height);
 
-		const std::array DepthReadTransition{
-			FRHITextureTransition::Whole(Depth,
-				ERHIAccess::DepthStencilReadWrite,
-				ERHIAccess::GraphicsShaderRead)};
-		CommandList.TransitionTextures(DepthReadTransition);
-
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.RenderTargetLayout =
 			RenderTargetLayouts::MakeGBufferDebugOutput();
@@ -274,11 +268,6 @@ namespace Durin
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 
-		const std::array DepthWriteTransition{
-			FRHITextureTransition::Whole(Depth,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::DepthStencilReadWrite)};
-		CommandList.TransitionTextures(DepthWriteTransition);
 		return true;
 	}
 

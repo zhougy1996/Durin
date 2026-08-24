@@ -4,10 +4,31 @@
 #include "Texture2DSourceTranslation.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "AssetForgeAuthoringTestSupport.h"
+#include "AssetForgeProviderTestFixture.h"
+
+namespace
+{
+	class FScopedTextureBuildHost final
+	{
+	public:
+		~FScopedTextureBuildHost()
+		{
+			Durin::Asset::Build::ShutdownBuildHost();
+			Durin::Asset::Build::ShutdownTextureBuildService();
+		}
+	};
+}
 
 TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisions)
 {
 	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
+	Durin::Tests::FScopedAssetForgeProviders Providers;
+	std::string ProviderError;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
+	FScopedTextureBuildHost BuildHost;
+	ASSERT_TRUE(EnsureTextureBuildHost());
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndexCache");
 	const std::filesystem::path Input =

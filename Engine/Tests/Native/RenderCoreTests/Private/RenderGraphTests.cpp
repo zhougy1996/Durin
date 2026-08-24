@@ -1,5 +1,7 @@
 #include "RenderGraph.h"
 
+#include "RHICommandList.h"
+
 #include <gtest/gtest.h>
 
 namespace Durin
@@ -50,7 +52,8 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->GetPasses()[2].Name, "Consume");
 		ASSERT_EQ(Result.Graph->GetDependencies().size(), 1u);
 		EXPECT_EQ(Result.Graph->GetDependencies()[0],
-			(FRenderGraphDependency{1, 2, "SceneColor"}));
+			(FRenderGraphDependency{1, 2, "SceneColor",
+				ERenderGraphDependencyKind::Value}));
 		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0],
 			(FRHITextureTransition{&Texture, WholeColor(), ERHIAccess::Discard,
@@ -86,7 +89,11 @@ namespace Durin
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		ASSERT_EQ(Result.Graph->GetDependencies().size(), 3u);
+		ASSERT_EQ(Result.Graph->GetDependencies().size(), 2u);
+		EXPECT_EQ(Result.Graph->GetDependencies()[0].Kind,
+			ERenderGraphDependencyKind::Value);
+		EXPECT_EQ(Result.Graph->GetDependencies()[1].Kind,
+			ERenderGraphDependencyKind::Execution);
 		EXPECT_EQ(Result.Graph->GetPasses()[0].BufferTransitions[0].ExpectedBefore,
 			ERHIAccess::Discard);
 		EXPECT_EQ(Result.Graph->GetPasses()[1].BufferTransitions[0].ExpectedBefore,
@@ -127,7 +134,7 @@ namespace Durin
 		EXPECT_EQ(Cycle.Error, "graph contains a dependency cycle");
 	}
 
-	TEST(FRenderGraphTests, SeparatesExactSubresourcesAndRejectsPartialOverlap)
+	TEST(FRenderGraphTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
 	{
 		FRHITexture Texture = MakeGraphTexture("MipChain", 4);
 		FRenderGraphBuilder Builder;
@@ -152,8 +159,12 @@ namespace Durin
 			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		auto Overlap = Partial.Compile();
-		EXPECT_FALSE(Overlap.IsSuccess());
-		EXPECT_NE(Overlap.Error.find("partially overlapping"), std::string::npos);
+		ASSERT_TRUE(Overlap.IsSuccess()) << Overlap.Error;
+		ASSERT_EQ(Overlap.Graph->GetDependencies().size(), 1u);
+		EXPECT_EQ(Overlap.Graph->GetDependencies()[0].Kind,
+			ERenderGraphDependencyKind::Value);
+		EXPECT_EQ(Overlap.Graph->GetPasses()[0].TextureTransitions.size(), 3u);
+		EXPECT_EQ(Overlap.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 	}
 
 	TEST(FRenderGraphTests, DiscardedAttachmentStoreCannotBecomeAProducer)
@@ -229,6 +240,7 @@ namespace Durin
 		EXPECT_EQ(First.Graph->Dump(), Second.Graph->Dump());
 		EXPECT_LT(First.Graph->GetCompileMicroseconds(), 250000u);
 		EXPECT_LT(Second.Graph->GetCompileMicroseconds(), 250000u);
+		EXPECT_EQ(First.Graph->GetDependencies().size(), 127u);
 	}
 
 	TEST(FRenderGraphTests, CullsUnreachableBranchesAndReportsExactLifetimes)
@@ -264,9 +276,151 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetResourceLifetimes()[1].bCulled);
 		ASSERT_EQ(Result.Graph->GetCullingDecisions().size(), 3u);
 		EXPECT_FALSE(Result.Graph->GetCullingDecisions()[0].bCulled);
-		EXPECT_EQ(Result.Graph->GetCullingDecisions()[0].Reason, "dependency");
+		EXPECT_EQ(Result.Graph->GetCullingDecisions()[0].Reason, "value dependency");
 		EXPECT_EQ(Result.Graph->GetCullingDecisions()[1].Reason, "present");
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[2].bCulled);
+	}
+
+	TEST(FRenderGraphTests, RejectsDuplicateImportedIdentityAndDomainMismatch)
+	{
+		FRHITexture Texture = MakeGraphTexture("Shared");
+		FRenderGraphBuilder Duplicate;
+		Duplicate.ImportTexture("First", &Texture, ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::GraphicsShaderRead);
+		Duplicate.ImportTexture("Second", &Texture, ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::GraphicsShaderRead);
+		auto DuplicateResult = Duplicate.Compile();
+		EXPECT_FALSE(DuplicateResult.IsSuccess());
+		EXPECT_NE(DuplicateResult.Error.find("duplicate imported physical"),
+			std::string::npos);
+
+		FRenderGraphBuilder Domain;
+		const auto Imported = Domain.ImportTexture("Shared", &Texture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Copy = Domain.AddPass("Copy", ERenderGraphPassType::Copy);
+		Domain.UseTexture(Copy, Imported, WholeColor(), ERenderGraphUse::Read,
+			ERHIAccess::GraphicsShaderRead);
+		auto DomainResult = Domain.Compile();
+		EXPECT_FALSE(DomainResult.IsSuccess());
+		EXPECT_NE(DomainResult.Error.find("incompatible with pass domain"),
+			std::string::npos);
+	}
+
+	TEST(FRenderGraphTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
+	{
+		FRHITexture Texture = MakeGraphTexture("Versioned");
+		FRenderGraphBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Resource = Builder.CreateTexture("Versioned", &Texture);
+		const auto Old = Builder.AddPass("Old", ERenderGraphPassType::Compute);
+		Builder.UseTexture(Old, Resource, WholeColor(), ERenderGraphUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Replacement = Builder.AddPass("Replacement",
+			ERenderGraphPassType::Compute);
+		Builder.UseTexture(Replacement, Resource, WholeColor(),
+			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Consume = Builder.AddPass("Consume", ERenderGraphPassType::Compute);
+		Builder.UseTexture(Consume, Resource, WholeColor(), ERenderGraphUse::Read,
+			ERHIAccess::ComputeShaderRead);
+		Builder.MarkPassRoot(Consume, "output");
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 2u);
+		EXPECT_EQ(Result.Graph->GetPasses()[0].Name, "Replacement");
+		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[0].bCulled);
+	}
+
+	TEST(FRenderGraphTests, RetainedLogicalResourcesPublishExactPreparationCapture)
+	{
+		FRenderGraphBuilder Builder;
+		Builder.EnablePassCulling();
+		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
+		FRenderGraphBufferDesc Desc{
+			.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess),
+			.BackingClass = "test-pool"};
+		const auto Retained = Builder.CreateBuffer("Retained", Desc);
+		const auto Culled = Builder.CreateBuffer("Culled", Desc);
+		const auto Produce = Builder.AddPass("Produce", ERenderGraphPassType::Compute);
+		Builder.UseBuffer(Produce, Retained, 0, 64, ERenderGraphUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.MarkPassRoot(Produce, "effect");
+		const auto Unused = Builder.AddPass("Unused", ERenderGraphPassType::Compute);
+		Builder.UseBuffer(Unused, Culled, 0, 64, ERenderGraphUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Resources.size(), 2u);
+		EXPECT_EQ(Capture.Resources[0].Preparation, "requested");
+		EXPECT_EQ(Capture.Resources[0].BackingClass, "test-pool");
+		EXPECT_EQ(Capture.Resources[1].Preparation, "culled");
+		ASSERT_EQ(Capture.Uses.size(), 1u);
+		EXPECT_EQ(Capture.Uses[0].Version, 1u);
+	}
+
+	TEST(FRenderGraphTests, PassResourceViewRejectsUndeclaredLookup)
+	{
+		FRHITexture DeclaredTexture = MakeGraphTexture("Declared");
+		FRHITexture HiddenTexture = MakeGraphTexture("Hidden");
+		FRenderGraphBuilder Builder;
+		const auto Declared = Builder.ImportTexture("Declared", &DeclaredTexture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Hidden = Builder.ImportTexture("Hidden", &HiddenTexture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Pass = Builder.AddPass("Pass", ERenderGraphPassType::Graphics,
+			[=](FRHICommandListImmediate&, const FRenderGraphPassResources& Resources) {
+				Resources.GetTexture(Hidden);
+			});
+		Builder.UseTexture(Pass, Declared, WholeColor(), ERenderGraphUse::Read,
+			ERHIAccess::GraphicsShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+			"undeclared texture");
+	}
+
+	TEST(FRenderGraphTests, ManagedAttachmentExitStateDrivesFollowingTransition)
+	{
+		FRHITexture Texture = MakeGraphTexture("Managed");
+		FRenderGraphBuilder Builder;
+		const auto Target = Builder.CreateTexture("Managed", &Texture);
+		const auto Render = Builder.AddPass("Render", ERenderGraphPassType::Graphics);
+		Builder.UseManagedColorAttachment(Render, Target, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store,
+			ERHIAccess::GraphicsShaderRead);
+		const auto Consume = Builder.AddPass("Consume", ERenderGraphPassType::Compute);
+		Builder.UseTexture(Consume, Target, WholeColor(), ERenderGraphUse::Read,
+			ERHIAccess::ComputeShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_TRUE(Result.Graph->GetPasses()[0].TextureTransitions.empty());
+		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
+		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0].ExpectedBefore,
+			ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Result.Graph->Capture().Transitions.size(), 3u);
+	}
+
+	TEST(FRenderGraphTests, IncompleteBackingPublicationRecordsNoCallback)
+	{
+		bool bExecuted = false;
+		FRenderGraphBuilder Builder;
+		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
+		const auto Buffer = Builder.CreateBuffer("Logical",
+			FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
+				64, 4, EBufferUsageFlags::UnorderedAccess)});
+		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Compute,
+			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+				bExecuted = true;
+			});
+		Builder.UseBuffer(Pass, Buffer, 0, 64, ERenderGraphUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		std::string Error;
+		EXPECT_FALSE(Result.Graph->Execute(FRHICommandListImmediate::Get(), &Error));
+		EXPECT_FALSE(bExecuted);
+		EXPECT_NE(Error.find("omitted retained resource"), std::string::npos);
 	}
 
 	TEST(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)

@@ -177,7 +177,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FTargets* FragmentTargets,
 		const FComputeTargets* ComputeTargets,
-		const FRenderInput& Input) -> FRenderResult
+		const FRenderInput& Input,
+		const FRenderPolicy& Policy) -> FRenderResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -190,8 +191,12 @@ namespace Durin
 			&& View->ViewportY <= Input.Height
 			&& View->ViewportWidth <= Input.Width - View->ViewportX
 			&& View->ViewportHeight <= Input.Height - View->ViewportY;
-		if (!View || !Input.BaseDensity || !Input.DetailDensity || !Input.Weather
-			|| !Input.SceneDepth || !Input.DensitySampler || !bViewFits
+		const bool bPhysicalInputsValid = View && Input.BaseDensity
+			&& Input.DetailDensity && Input.Weather
+			&& Input.SceneDepth && Input.DensitySampler;
+		if (!View || !(Policy.bPreparationOnly
+			? Policy.bInputsExpected : bPhysicalInputsValid)
+			|| !bViewFits
 			|| !Input.Parameters.IsValid() || !std::isfinite(LightLengthSquared)
 			|| LightLengthSquared <= 1.0e-8)
 		{
@@ -207,7 +212,8 @@ namespace Durin
 		using FComputePayload = FState::FComputePayload;
 		using FComputeResult = TRenderResourceCreateResult<FComputePayload>;
 		FComputePayload* ComputePayload = nullptr;
-		if (ComputeTargets)
+		if (Policy.bPreparationOnly
+			? Policy.bComputeTargetExpected : ComputeTargets != nullptr)
 			ComputePayload = State->ComputeResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
 					FShaderCompileOptions Options;
@@ -244,14 +250,19 @@ namespace Durin
 		const uint32 GroupsY = CalculateGroupCount(Input.Height);
 		const bool bComputeExtent = Capabilities && GroupsX <= Capabilities->MaxComputeWorkGroupCount[0]
 			&& GroupsY <= Capabilities->MaxComputeWorkGroupCount[1];
+		const bool bComputeTargetReady = Policy.bPreparationOnly
+			? Policy.bComputeTargetExpected : ComputeTargets != nullptr;
 		ERouteReason FallbackReason = !ComputePayload ? ERouteReason::ComputePayloadUnavailable
-			: !ComputeTargets ? ERouteReason::ComputeTargetUnavailable
+			: !bComputeTargetReady ? ERouteReason::ComputeTargetUnavailable
 			: ERouteReason::ComputeExtentUnsupported;
 
 		using FFragmentPayload = FState::FFragmentPayload;
 		using FFragmentResult = TRenderResourceCreateResult<FFragmentPayload>;
 		FFragmentPayload* FragmentPayload = nullptr;
-		if (!(ComputePayload && ComputeTargets && bComputeExtent) && FragmentTargets)
+		const bool bFragmentTargetReady = Policy.bPreparationOnly
+			? Policy.bFragmentTargetExpected : FragmentTargets != nullptr;
+		if (!(ComputePayload && bComputeTargetReady && bComputeExtent)
+			&& bFragmentTargetReady)
 			FragmentPayload = State->FragmentResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
 					FShaderCompileOptions Options;
@@ -293,10 +304,16 @@ namespace Durin
 					return FFragmentResult::Success(std::move(Candidate));
 				}, ReportRendererResourceCreateDiagnostic);
 
-		const bool bUseCompute = ComputePayload && ComputeTargets && bComputeExtent;
+		const bool bUseCompute = ComputePayload && bComputeTargetReady && bComputeExtent;
 		if (!bUseCompute && !FragmentPayload)
 		{
 			Result.Reason = ERouteReason::FragmentUnavailable;
+			return Result;
+		}
+		if (Policy.bPreparationOnly)
+		{
+			Result.Route = bUseCompute ? ERoute::Compute : ERoute::Fragment;
+			Result.Reason = bUseCompute ? ERouteReason::Compute : FallbackReason;
 			return Result;
 		}
 		FMatrix InverseViewProjection;
@@ -359,7 +376,8 @@ namespace Durin
 				FRHITextureTransition::Whole(Input.Weather, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(Input.SceneDepth, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(ComputeTargets->Visibility, ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite)};
-			CommandList.TransitionTextures(Inputs);
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(Inputs);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
 			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
 			FCloudShadowComputeShader::FParameters Params;
@@ -378,7 +396,8 @@ namespace Durin
 				FRHITextureTransition::Whole(Input.Weather, ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(Input.SceneDepth, ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(ComputeTargets->Visibility, ERHIAccess::ComputeShaderReadWrite, ERHIAccess::GraphicsShaderRead)};
-			CommandList.TransitionTextures(Restore);
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(Restore);
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 			Result.Visibility = ComputeTargets->Visibility;
 			Result.Route = ERoute::Compute;

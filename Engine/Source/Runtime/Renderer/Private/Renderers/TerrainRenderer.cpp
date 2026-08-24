@@ -596,7 +596,10 @@ namespace Durin
 				Initializer.RenderTargetLayout = bShadowDepth
 					? RenderTargetLayouts::MakeDirectionalShadowDepth()
 					: (EffectivePipelineKey.bHybridRetained
-						? RenderTargetLayouts::MakeHybridRetainedForward()
+						? (EffectivePipelineKey.Material.ShaderMap.BlendMode
+								== EMaterialBlendMode::Translucent
+							? RenderTargetLayouts::MakeHybridSortedTranslucency()
+							: RenderTargetLayouts::MakeHybridRetainedForward())
 						: RenderTargetLayouts::MakeSceneTargets());
 				Initializer.BoundShaders.VertexShader = Candidate.Vertex.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader = bShadowDepth

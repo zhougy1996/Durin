@@ -28,7 +28,7 @@ namespace Durin
 			FTextureRHIRef Black;
 			FTextureRHIRef FlatNormal;
 			FTextureRHIRef BlackCube;
-			FTextureRHIRef WhiteArray;
+			FTextureRHIRef ShadowArray;
 		};
 
 		FRendererResourceCoordinator& Coordinator;

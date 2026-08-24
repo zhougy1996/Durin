@@ -60,6 +60,14 @@ namespace Durin
 			uint32 SampleCount = 0;
 			uint64 TargetBytes = 0;
 		};
+		struct FRenderPolicy
+		{
+			bool bPreparationOnly = false;
+			bool bInputsExpected = false;
+			bool bFragmentTargetExpected = false;
+			bool bComputeTargetExpected = false;
+			bool bGraphManagedTextureAccess = false;
+		};
 		using FTimingQuerySink = void (*)(const FGPUTimingQueryRHIRef&, ERoute);
 		using FCaptureSink = void (*)(FRHITexture*, ERoute);
 		static auto SetTimingQuerySink(FTimingQuerySink Sink) -> void;
@@ -104,7 +112,8 @@ namespace Durin
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
-			const FRenderInput& Input) -> FRenderResult;
+			const FRenderInput& Input,
+			const FRenderPolicy& Policy = {}) -> FRenderResult;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 

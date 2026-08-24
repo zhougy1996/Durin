@@ -12,7 +12,11 @@ Last reviewed: 2026-08-24
 pass handles are valid only for the builder that created them. A successful
 compile transfers immutable resource views, pass callbacks, dependencies, and
 transition batches into `FCompiledRenderGraph`; external owners retain the
-physical RHI resources themselves.
+physical RHI resources themselves. Graph-created textures and buffers may be
+declared from `FRenderGraphTextureDesc`/`FRenderGraphBufferDesc` without a
+physical pointer. Compilation computes retained lifetimes first; one backing
+resolver receives only retained requests and must publish a complete candidate
+table before recording starts.
 
 The graph is the declaration and scheduling authority. It emits existing
 `FRHIBufferTransition` and `FRHITextureTransition` descriptors, while RHI and
@@ -22,14 +26,15 @@ execution state. Compilation never mutates a command list.
 ## Resource Contract
 
 - Imported resources declare their exact initial and final access and remain
-  externally owned. A missing final access is a compile error.
+  externally owned. A missing final access is a compile error. The same
+  physical texture or buffer cannot be imported twice into one graph.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
   producer before any read or load, and may omit a final state when their
   contents do not cross the graph boundary.
 - Every use declares one nonempty exact byte range or texture
-  aspect/mip/layer range. Exact matching ranges and disjoint ranges are tracked
-  independently. Partially overlapping declarations are rejected until the
-  compiler owns interval splitting.
+  aspect/mip/layer range. The compiler partitions partially overlapping
+  declarations into exact buffer intervals and texture aspect/mip/layer cells;
+  disjoint cells remain independent.
 - Required access cannot contain `Discard`. Discard is producer intent and
   affects only the expected-before state.
 - An attachment `Load` requires prior contents. A `DontCare` store invalidates
@@ -38,20 +43,23 @@ execution state. Compilation never mutates a command list.
 ## Compilation and Ordering
 
 Passes retain declaration order when dependencies leave them independent.
-Explicit prerequisites and overlapping resource hazards add directed edges;
-RAW, WAR, and WAW hazards preserve declaration order. Stable topological
-compilation rejects cycles and never performs performance reordering.
+Each normalized range carries a produced-value version. Value edges connect a
+producer to readers and read/write consumers; explicit edges also participate
+in reachability. A separate minimal execution frontier preserves required RAW,
+WAR, and WAW order without making overwritten values reachable. A discard
+write starts a new version. Stable topological compilation rejects cycles and
+never performs performance reordering. A same-range overwrite chain therefore
+produces linear rather than all-pairs dependencies.
 
 Compilation fails as one complete result for invalid or foreign handles,
 unnamed or duplicate identities, missing producers, illegal access/use pairs,
-overlapping declarations within a pass, partial overlaps across passes,
-invalid RHI ranges or usage, and dependency cycles. No pass callback runs and
+overlapping declarations within a pass, invalid normalized ranges or usage,
+pass-domain/access mismatch, and dependency cycles. No pass callback runs and
 no transition records when compilation fails.
 
-Logical tokens express producer/consumer ordering and lifetimes when a typed
-feature result crosses passes but physical RHI ownership remains inside a
-closed renderer callback. Tokens participate in RAW/WAR/WAW dependencies,
-culling, and diagnostics without inventing transitions or backend state.
+Logical tokens express producer/consumer ordering and lifetimes for typed
+non-RHI outcomes. They use the same value-version and execution-frontier rules
+without inventing transitions or backend state.
 
 Pass culling is opt-in and root-driven. Present, offscreen output, temporal
 publication, readback, capture, timestamps, and other external effects mark an
@@ -72,23 +80,32 @@ compiled access is exact. Final transition batches restore each used imported
 or explicitly finalized range after the last pass.
 
 `FCompiledRenderGraph::Execute` records each pre-pass batch, invokes the pass
-callback with graph-bounded resource lookup, and then records final batches.
-Callbacks can resolve only handles owned by that compiled graph. Callback
-policy and rendering algorithms remain feature-owned.
+callback with a pass-scoped resource view, and then records final batches.
+Lookup of a foreign, undeclared, incorrectly typed, or unavailable handle is
+an unrecoverable authoring-contract failure. Graphics, compute, and copy passes
+accept only their corresponding graphics/attachment, compute, and transfer
+access families.
 
-An optional execution-preparation callback runs once after successful compile
-and before the first transition or pass callback. Renderer uses this gate to
-acquire the complete transient target bundle from its existing pool. A false
-result records nothing, invokes no pass, and preserves pool and temporal abort
-policies.
+An optional compatibility preparation callback runs after successful compile.
+The retained-backing resolver then receives immutable requests containing
+stable identity, logical description, backing class, and retained lifetime.
+Publication is atomic: returning false or omitting one required backing records
+nothing and invokes no pass. Culled logical resources never enter the request.
+
+Render-pass bodies that already own validated attachment initial/final layouts
+use the managed-attachment declaration. The graph records the attachment
+intent and exit access, emits only an entry handoff needed for a load, and
+continues state tracking from the render pass's declared final access. This
+avoids a second explicit barrier competing with RHI render-pass state.
 
 ## Diagnostics and Budgets
 
 `Dump()` reports stable scheduled pass identities, declaration indices,
-domains, transition counts, dependency causes, and final-batch counts. The
+domains, dependency kinds/causes, logical resources, normalized uses and
+versions, transition counts, preparation disposition, and final-batch counts. The
 dump omits builder identities, addresses, timestamps, and measured duration so
 equal declarations produce equal text. `Capture()` copies that dump plus
-pointer-free pass records, dependencies, lifetimes, culling decisions, and
+pointer-free pass/resource/use/transition records, dependencies, lifetimes, culling decisions, and
 statistics into an owning value that remains valid after graph destruction.
 
 `FRenderGraphBudget` freezes pass, dependency, and transition ceilings as
@@ -106,13 +123,12 @@ production acceptance gate.
 
 New renderer work that crosses pass boundaries must use the graph path:
 
-- Declare physical texture/buffer ranges with exact access, or use a logical
-  token when a typed result crosses callbacks but RHI ownership stays inside a
-  closed feature implementation.
+- Declare every cross-pass texture/buffer range with exact access and use a
+  typed logical token only for a non-RHI outcome.
 - Declare external effects such as presentation, offscreen output, readback,
   capture, publication, and timestamps as explicit roots when culling is on.
-- Put resource acquisition in execution preparation when it must complete as
-  one frame bundle; do not lazily allocate inside pass callbacks.
+- Put graph-created resource acquisition in the retained-backing resolver; do
+  not lazily allocate inside pass callbacks.
 - Set a named structural and CPU budget beside every production graph authoring
   site. Raising a structural limit requires explaining the new pass/resource
   relationship and extending its contract coverage.
@@ -128,20 +144,10 @@ and observer-controlled execution are not supported authoring patterns.
 
 ## Production Pilot Boundary
 
-Contact-shadow visibility is the first production graph slice. Route and
-resource preparation select compute, fragment, or factor-one before graph
-construction. Compute declares five imported GBuffer/depth inputs, one
-submission-local uniform range, and one transient visibility output. Fragment
-adds the persistent fullscreen vertex/index buffers and declares visibility as
-a cleared color attachment. Both routes restore visibility and all imported
-inputs to graphics-readable boundary state.
-
-The contact-visibility render-pass layout keeps its attachment in
-`ColorAttachmentReadWrite` across begin/end. The graph owns the discard-to-
-attachment and attachment-to-sampling transitions outside that render pass.
-Feature code contains no manual buffer or texture transition for the migrated
-slice, and callbacks resolve all declared resources through
-`FRenderGraphPassResources`.
+Contact-shadow visibility contributes work to the scene parent graph and no
+longer constructs, compiles, or executes a child graph. Its current compute or
+fragment body retains its bounded intra-pass pipeline handoffs while the parent
+owns ordering against GBuffer, depth, deferred lighting, and final output.
 
 ## Scene Frame Graph
 
@@ -152,20 +158,31 @@ lighting, Scene Color, and final output. Present or offscreen output is the
 explicit root. Stable compilation preserves declaration order between
 independent optional producers.
 
-Persistent geometry and feature preparation complete before graph compile.
-Frame target requirements are immutable graph input; the existing transient
-pool resolves every requested bundle through the execution-preparation gate.
-Only then do callbacks run. Scene failure prevents final output work from
-publishing success, and the surrounding view-state transaction commits only
-after the rooted final-output pass succeeds.
+Persistent geometry and feature pipeline preparation complete before graph
+compile. Compute, fragment, disabled, and factor-one routes are therefore part
+of the authored topology rather than callback-time choices. After culling, the
+backing resolver derives target-family requirements solely from retained
+logical resources and atomically publishes only those requested handles from
+the existing transient pool. Only then do callbacks run. Scene failure prevents
+final output work from publishing success, and the surrounding view-state
+transaction commits only after the rooted final-output pass succeeds.
 
-The scene graph freezes ceilings of 12 declared passes, 24 dependencies, and
-zero physical transitions because its current cross-feature values are logical
-tokens. Its observational Debug CPU thresholds are 5 milliseconds to compile
-and 250 milliseconds to record the complete callback schedule. Contact compute
-and fragment graphs each allow one pass and zero dependencies; their exact
-transition ceilings are 2 buffer/12 texture and 0 buffer/2 texture,
-respectively. These are regression ceilings, not optimization targets.
+The scene graph freezes ceilings of 12 declared passes, 28 dependencies, and
+20 physical texture transitions. It intentionally has no zero-valued buffer
+transition gate: the current graph declares no cross-pass buffers, and an
+unsupported future buffer edge must first establish its own measured ceiling.
+Scene Color, depth, directional and cloud shadows, GBuffer, ambient occlusion,
+contact visibility, cloud spatial/composite, isolated deferred, GBuffer debug,
+and output all have graph identities. Consumers obtain physical textures only
+from their pass-scoped resource views; typed tokens carry non-RHI outcome state.
+
+The 2026-08-24 Win64 Debug Vulkan cloud fixture froze six disabled,
+invalid-input, compute, fragment, offscreen, present, and resized captures. Each
+scheduled all 11 declared passes, with 22--25 dependencies and 1 or 17 texture
+transitions. The observational Debug CPU thresholds remain 5 milliseconds to
+compile and 250 milliseconds to record the complete callback schedule; every
+fixture capture stayed within both ceilings. These are regression ceilings,
+not optimization targets.
 
 `SetSceneRenderGraphCaptureSink` is the first feature authored after complete
 frame migration. When installed, it receives an owning capture after execution.

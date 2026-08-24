@@ -333,7 +333,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FTargets* FragmentTargets,
 		const FComputeTargets* ComputeTargets,
-		const FRenderInput& Input
+		const FRenderInput& Input,
+		const FRenderPolicy& Policy
 	) -> FRenderResult
 	{
 		check(IsInRenderingThread());
@@ -368,7 +369,8 @@ namespace Durin
 		FParameters Parameters = Input.Parameters;
 		Parameters.PrimarySampleCount = Quality.PrimarySampleCount;
 		Parameters.LightSampleCount = Quality.LightSampleCount;
-		const bool bBaseInputsValid = Input.Textures.HasRequiredInputs()
+		const bool bBaseInputsValid = (Policy.bPreparationOnly
+			? Policy.bInputsExpected : Input.Textures.HasRequiredInputs())
 									  && Parameters.IsValid() && bViewFits && bTargetMatchesPolicy
 									  && CloudView.ViewportWidth != 0 && CloudView.ViewportHeight != 0;
 
@@ -408,7 +410,9 @@ namespace Durin
 		using FComputePayload = FState::FComputePayload;
 		using FComputeResult = TRenderResourceCreateResult<FComputePayload>;
 		FComputePayload* ComputePayload = nullptr;
-		if (Input.bRequested && bInputsValid && Input.Width != 0 && Input.Height != 0)
+		if (Input.bRequested && bInputsValid && Input.Width != 0 && Input.Height != 0
+			&& (Policy.bPreparationOnly
+				? Policy.bComputeTargetExpected : ComputeTargets != nullptr))
 		{
 			ComputePayload = State->ComputeResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
@@ -448,9 +452,13 @@ namespace Durin
 			.bRequested = Input.bRequested,
 			.bRequiredInputsValid = bInputsValid,
 			.bComputePayloadReady = ComputePayload != nullptr,
-			.bComputeTargetReady = ComputeTargets != nullptr && ComputeTargets->Cloud != nullptr,
+			.bComputeTargetReady = Policy.bPreparationOnly
+				? Policy.bComputeTargetExpected
+				: ComputeTargets != nullptr && ComputeTargets->Cloud != nullptr,
 			.bFragmentPayloadReady = false,
-			.bFragmentTargetReady = FragmentTargets != nullptr && FragmentTargets->Cloud != nullptr,
+			.bFragmentTargetReady = Policy.bPreparationOnly
+				? Policy.bFragmentTargetExpected
+				: FragmentTargets != nullptr && FragmentTargets->Cloud != nullptr,
 			.Width = Input.Width,
 			.Height = Input.Height,
 			.MaxGroupCountX = Capabilities ? Capabilities->MaxComputeWorkGroupCount[0] : 0,
@@ -520,6 +528,8 @@ namespace Durin
 		};
 		DescribeRoute(Counters);
 		if (Decision.Route == ERoute::Disabled)
+			return {.Counters = Counters};
+		if (Policy.bPreparationOnly)
 			return {.Counters = Counters};
 
 		FMatrix InverseViewProjection;
@@ -607,9 +617,11 @@ namespace Durin
 				FRHITextureTransition::Whole(Weather, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(Input.Textures.SceneDepth, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead)
 			};
-			CommandList.TransitionTextures(InputsToCompute);
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(InputsToCompute);
 			const std::array OutputToCompute{FRHITextureTransition::Whole(ComputeTargets->Cloud, ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite)};
-			CommandList.TransitionTextures(OutputToCompute);
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(OutputToCompute);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
 			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
 			FCloudComputeShader::FParameters Params;
@@ -631,7 +643,8 @@ namespace Durin
 				FRHITextureTransition::Whole(Weather, ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(Input.Textures.SceneDepth, ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead)
 			};
-			CommandList.TransitionTextures(TextureRestore);
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(TextureRestore);
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 			Cloud = ComputeTargets->Cloud;
 		}

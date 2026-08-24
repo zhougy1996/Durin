@@ -142,7 +142,7 @@ TEST(FRendererSceneContractTests, QualificationPolicyIsLexicallyScoped)
 	EXPECT_FALSE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
 }
 
-TEST(FRendererSceneContractTests, TypedPassResultsRejectIncompleteOutputs)
+TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 {
 	Durin::FGBufferPassResult GBuffer;
 	Durin::FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
@@ -159,11 +159,15 @@ TEST(FRendererSceneContractTests, TypedPassResultsRejectIncompleteOutputs)
 	ContactShadow.Status = Durin::EScenePassStatus::Complete;
 	CloudShadow.Status = Durin::EScenePassStatus::Complete;
 	SceneColor.Result = Durin::ERenderViewResult::Success;
-	EXPECT_FALSE(GBuffer.IsComplete());
-	EXPECT_FALSE(AmbientOcclusion.IsComplete());
+	EXPECT_TRUE(GBuffer.IsComplete());
+	EXPECT_TRUE(AmbientOcclusion.IsComplete());
 	EXPECT_FALSE(ContactShadow.IsComplete());
 	EXPECT_FALSE(CloudShadow.IsComplete());
-	EXPECT_FALSE(SceneColor.IsSuccess());
+	EXPECT_TRUE(SceneColor.IsSuccess());
+	ContactShadow.Route = Durin::EContactShadowPassRoute::Compute;
+	EXPECT_TRUE(ContactShadow.IsComplete());
+	CloudShadow.Route = Durin::EVolumetricCloudShadowPassRoute::Fragment;
+	EXPECT_TRUE(CloudShadow.IsComplete());
 }
 
 TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)

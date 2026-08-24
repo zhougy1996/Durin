@@ -66,8 +66,9 @@ plan is then held as `const`. A distinct resolution stage allocates the packed
 lighting uniform, resolves receiver and shadow resources, uploads shared
 Skeletal palettes into a resolved palette table, and resolves the cloud
 sampler. The executor then derives one immutable `FSceneFrameRequirements`
-value and resolves Scene Color/depth plus every requested feature bundle into
-`FResolvedSceneFrame::Targets`. Directional-shadow command recording follows
+value. Scene Color, depth, GBuffer, and output receive graph identities before
+physical target creation; the compiled retained request resolves their backing
+into `FResolvedSceneFrame::Targets` as one publication. Directional-shadow command recording follows
 both resolution boundaries as an explicit graph pass; it is never performed by
 logical preparation.
 
@@ -77,7 +78,7 @@ logical preparation.
 | --- | --- | --- | --- |
 | Imported | Caller, asset, or shared resource owner | Window/offscreen output, material and environment textures, default textures | Pass inputs retain RHI references and declare required access; the graph executor does not release them. |
 | Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the transient pool. |
-| Frame-transient | `FRendererTransientTargetPool` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | Frame setup acquires a complete typed lease. Pass execution receives resolved targets and performs no target lookup or creation. |
+| Frame-transient | `FRendererTransientTargetPool` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | After compile and culling, retained logical requests derive the exact target families and publish one complete backing table before recording. Culled resources never allocate, and pass execution performs no target creation. |
 
 The transient pool partitions entries by bounded
 `ERendererTransientTargetGroup` identity and keys each group by the complete
@@ -110,17 +111,18 @@ production frame graph with this stable declaration order:
    shared poses, combined translucency, and optional cloud inputs; publish the
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
    resources into `FResolvedSceneFrame`. Derive frame requirements once.
-4. Compile explicit top-level dependencies and output roots, then prepare every
-   requested frame-transient bundle as one complete-or-null execution gate.
+4. Compile explicit top-level dependencies and output roots, cull unreachable
+   versions, then resolve retained logical resources as one complete-or-null
+   backing table before any command records.
 5. Render directional-shadow cascades, then execute GBuffer from its resolved
    target bundle if the production or qualification route requires it.
 6. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
    visibility, and explicit isolated debug/qualification branches.
-7. Bootstrap/produce Scene Color, render retained unlit opaque/masked
-   geometry, transition depth for sampling, then render, reconstruct, and
-   composite clouds.
-8. Restore Scene Color attachment access and render combined translucent
-   geometry in the prepared stable order.
+7. Produce opaque Scene Color, then render cloud spatial work through its
+   preselected compute or graphics domain and reconstruct/composite the result.
+   Graph declarations own every color/depth handoff between these passes.
+8. Render combined translucent geometry in the prepared stable order; its
+   managed attachment declarations publish the final color/depth access.
 9. The executor's finalization stage selects debug or Scene Color output,
    performs post process, optional editor assistance, restores the output
    viewport/scissor, and finishes in `Present` for window output or
@@ -136,10 +138,13 @@ execute an alternate production scheduler.
 
 `FSceneFrameOutcome` owns the submission's typed directional-shadow, GBuffer,
 GTAO, contact-shadow, cloud-shadow, isolated-deferred, Scene Color/cloud, and
-post-process results. Each fallible producer publishes `NotRequested`,
-`Complete`, or `Failed` with the resources required by its consumers. A status
-alone is insufficient: result predicates reject `Complete` values whose
-required output is absent.
+post-process results. Each graph edge wraps its outcome token in
+`TSceneFrameGraphValue<TResult>`, so distinct non-RHI results cannot be
+interchanged accidentally. Each fallible producer publishes `NotRequested`,
+`Complete`, or `Failed`. Graph-owned directional shadow, GBuffer, GTAO,
+contact/cloud visibility, isolated-deferred, Scene Color/cloud, debug, and
+post-process results carry status and logical selection only; consumers resolve
+physical textures from their declared handles.
 
 Geometry resolution and execution return family-specific resolved/result
 values. `FGBufferPassResult` establishes completeness and whether any geometry
@@ -180,11 +185,11 @@ plan.
 ## Render Graph Integration Boundary
 
 The production graph declares, in order, directional shadow, GBuffer, GTAO,
-contact visibility, cloud-shadow visibility, isolated deferred and debug,
-Scene Color/deferred production, cloud spatial/reconstruction/composite,
-translucency, post process, editor assistance, and output finalization. Its
-inputs are the typed preparation partitions, resolved geometry values,
-transient leases, and pass results described above.
+contact visibility, cloud-shadow visibility, deferred lighting, opaque Scene
+Color, cloud spatial/reconstruction/composite, translucency, post process,
+editor assistance, and output finalization. Its inputs are typed preparation
+partitions, resolved geometry values, imported/persistent graph handles,
+retained logical target descriptions, and non-RHI pass results described above.
 
 The graph preserves imported initial/final access, persistent view-state
 history, optional fallback policy, and the temporal/output transaction while

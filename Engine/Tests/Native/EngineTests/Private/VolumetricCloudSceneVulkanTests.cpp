@@ -52,10 +52,16 @@ namespace Durin
 		};
 
 		FViewRenderTelemetry GSceneCloudTelemetry;
+		std::vector<FRenderGraphCapture> GSceneCloudGraphCaptures;
 
 		auto CaptureSceneCloudTelemetry(const FViewRenderTelemetry& Telemetry) -> void
 		{
 			GSceneCloudTelemetry = Telemetry;
+		}
+
+		auto CaptureSceneCloudGraph(const FRenderGraphCapture& Capture) -> void
+		{
+			GSceneCloudGraphCaptures.push_back(Capture);
 		}
 
 		auto BuildViewMatrix(const FVector3& Location, const FVector3& Forward)
@@ -197,7 +203,9 @@ namespace Durin
 		ASSERT_NE(BaseAsset->GetTextureReferenceRHI(), nullptr);
 		ASSERT_NE(DetailAsset->GetTextureReferenceRHI(), nullptr);
 
+		GSceneCloudGraphCaptures.clear();
 		SetViewRenderTelemetrySink(CaptureSceneCloudTelemetry);
+		SetSceneRenderGraphCaptureSink(CaptureSceneCloudGraph);
 		auto RenderOffscreen = [&Renderer, Scene](
 								   bool bForceFragment
 							   ) {
@@ -314,7 +322,23 @@ namespace Durin
 		FlushRenderingCommands();
 		EXPECT_EQ(RenderPresent(128, 72, true), ERenderViewResult::Success);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
+		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 6u);
+		const std::array<uint32, 6> ExpectedDependencies{22, 22, 25, 25, 25, 25};
+		const std::array<uint32, 6> ExpectedTextureTransitions{1, 1, 17, 1, 17, 1};
+		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
+		{
+			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
+			EXPECT_EQ(Statistics.DeclaredPasses, 11u) << Index;
+			EXPECT_EQ(Statistics.ScheduledPasses, 11u) << Index;
+			EXPECT_EQ(Statistics.Dependencies, ExpectedDependencies[Index]) << Index;
+			EXPECT_EQ(Statistics.BufferTransitions, 0u) << Index;
+			EXPECT_EQ(Statistics.TextureTransitions,
+				ExpectedTextureTransitions[Index]) << Index;
+			EXPECT_FALSE(Statistics.bCompileBudgetExceeded) << Index;
+			EXPECT_FALSE(Statistics.bExecuteBudgetExceeded) << Index;
+		}
 
+		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);
 		Viewport = nullptr;
 		Component->UnregisterComponent();

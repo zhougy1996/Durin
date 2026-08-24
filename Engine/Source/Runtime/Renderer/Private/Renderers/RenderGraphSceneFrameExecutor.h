@@ -4,6 +4,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderer.h"
+#include "RenderGraph.h"
 
 namespace Durin
 {
@@ -61,6 +62,42 @@ namespace Durin
 		FResolvedSceneFrameTargets Targets;
 	};
 
+	// Binds the physical scene-frame contract to graph identities before execution.
+	struct FSceneFrameGraphResources
+	{
+		std::optional<FRenderGraphTextureHandle> DirectionalShadow;
+		FRenderGraphTextureHandle SceneColor;
+		FRenderGraphTextureHandle SceneDepth;
+		FRenderGraphTextureHandle Output;
+		std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
+		std::array<std::optional<FRenderGraphTextureHandle>, 4>
+			GroundTruthAmbientOcclusion;
+		std::optional<FRenderGraphTextureHandle> ContactFragment;
+		std::optional<FRenderGraphTextureHandle> ContactCompute;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowFragment;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowCompute;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudBaseDensity;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudDetailDensity;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudWeather;
+		std::optional<FRenderGraphTextureHandle> DefaultWhite;
+		std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
+		std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
+		std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
+		std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudFragment;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudCompute;
+		std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
+		std::optional<FRenderGraphTextureHandle> IsolatedDeferred;
+		std::optional<FRenderGraphTextureHandle> GBufferDebug;
+	};
+
+	// Prevents distinct renderer outcomes from sharing an untyped scheduling value.
+	template <typename TResult>
+	struct TSceneFrameGraphValue
+	{
+		FRenderGraphTokenHandle Handle;
+	};
+
 	// Owns the complete render-graph pass order for one scene-view submission.
 	class FRenderGraphSceneFrameExecutor final
 	{
@@ -106,12 +143,14 @@ namespace Durin
 		) -> ERenderViewResult;
 		auto RenderDirectionalShadow_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneRenderPlan& PreparedView
+			const FSceneRenderPlan& PreparedView,
+			FRHITexture* DirectionalShadowTarget
 		) -> FDirectionalShadowPassResult;
 		auto RenderGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
 			uint32 Height,
@@ -122,6 +161,8 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
 			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FGroundTruthAmbientOcclusionRenderer::FTargets*
+				AmbientOcclusionTargets,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
@@ -133,6 +174,10 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
 			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FContactShadowVisibilityRenderer::FTargets*
+				FragmentContactTargets,
+			const FContactShadowVisibilityRenderer::FComputeTargets*
+				ComputeContactTargets,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
@@ -144,7 +189,12 @@ namespace Durin
 		auto RenderVolumetricCloudShadows_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
+			const FVolumetricCloudShadowRenderer::FTargets* FragmentTargets,
+			const FVolumetricCloudShadowRenderer::FComputeTargets* ComputeTargets,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			FRHITexture* BaseDensity,
+			FRHITexture* DetailDensity,
+			FRHITexture* Weather,
 			uint32 Width,
 			uint32 Height,
 			bool bWantsProductionDeferred,
@@ -153,16 +203,29 @@ namespace Durin
 		auto BuildDeferredParameters(
 			const FSceneRenderPlan& PreparedView,
 			const FDirectionalShadowPassResult& DirectionalShadow,
+			FRHITexture* DirectionalShadowTexture,
 			const FGBufferPassResult& GBuffer,
+			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FGroundTruthAmbientOcclusionPassResult& AmbientOcclusion,
+			const FGroundTruthAmbientOcclusionRenderer::FTargets*
+				AmbientOcclusionTargets,
 			const FContactShadowPassResult& ContactShadow,
+			const FContactShadowVisibilityRenderer::FTargets*
+				FragmentContactTargets,
+			const FContactShadowVisibilityRenderer::FComputeTargets*
+				ComputeContactTargets,
 			const FVolumetricCloudShadowPassResult& CloudShadow,
+			const FVolumetricCloudShadowRenderer::FTargets*
+				FragmentCloudShadowTargets,
+			const FVolumetricCloudShadowRenderer::FComputeTargets*
+				ComputeCloudShadowTargets,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
 			const FSceneViewRenderOptions& Options
 		) -> std::optional<
 			FDeferredDirectionalLightingRenderer::FRenderParameters>;
 		auto RenderIsolatedDeferred_RenderThread(
 			FRHICommandListImmediate& CommandList,
+			const FDeferredDirectionalLightingRenderer::FTargets* Targets,
 			const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
@@ -178,24 +241,55 @@ namespace Durin
 			const FSceneViewRenderOptions& Options,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
 			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FGBufferDebugRenderer::FTargets* GBufferDebugTargets,
 			FRHITexture* SceneColor,
-			FRHITexture* GroundTruthAmbientOcclusionDebugOutput
+			FRHITexture* GroundTruthAmbientOcclusionDebugOutput,
+			bool bEditorAssistanceFollows
 		) -> FPostProcessPassResult;
-		auto RenderVolumetricCloud_RenderThread(
+		auto RenderEditorAssistance_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
+			FRHITexture* OutputTarget,
+			FRHITexture* DepthTarget,
+			bool bPresentOutput,
+			const RendererEditorAssistance::FPrepared& Prepared
+		) -> bool;
+		auto RenderVolumetricCloudSpatial_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneRenderPlan& PreparedView,
+			const FVolumetricCloudRenderer::FTargets* FragmentTargets,
+			const FVolumetricCloudRenderer::FComputeTargets* ComputeTargets,
+			FRHITexture* BaseDensity,
+			FRHITexture* DetailDensity,
+			FRHITexture* Weather,
+			FRHITexture* Depth
+		) -> FVolumetricCloudSpatialPassResult;
+		auto RenderVolumetricCloudComposite_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneRenderPlan& PreparedView,
+			const FVolumetricCloudSpatialPassResult& Spatial,
+			const FVolumetricCloudRenderer::FTargets* FragmentTargets,
+			const FVolumetricCloudRenderer::FComputeTargets* ComputeTargets,
+			const FVolumetricCloudRenderer::FTargets* CompositeTargets,
 			FRHITexture* SceneColor,
 			FRHITexture* Depth,
 			FRHITexture* VolumetricCloudShadowVisibility
 		) -> FVolumetricCloudPassResult;
-		auto RenderScene_RenderThread(
+		auto RenderSceneOpaque_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView,
 			FRHITexture* SceneColor,
 			FRHITexture* Depth,
 			const FDeferredDirectionalLightingRenderer::FRenderParameters*
-				DeferredParameters,
-			FRHITexture* VolumetricCloudShadowVisibility
+				DeferredParameters
+		) -> FSceneColorPassResult;
+		auto RenderSceneTranslucency_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneRenderPlan& PreparedView,
+			FRHITexture* SceneColor,
+			FRHITexture* Depth,
+			const FSceneColorPassResult& Opaque,
+			const FVolumetricCloudPassResult& VolumetricCloud
 		) -> FSceneColorPassResult;
 		auto RenderSpecialForwardScene_RenderThread(
 			FRHICommandListImmediate& CommandList,

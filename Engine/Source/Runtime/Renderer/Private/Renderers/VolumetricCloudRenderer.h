@@ -61,6 +61,15 @@ namespace Durin
 			uint32 OutputHeight = 0;
 		};
 
+		struct FRenderPolicy
+		{
+			bool bPreparationOnly = false;
+			bool bInputsExpected = false;
+			bool bFragmentTargetExpected = false;
+			bool bComputeTargetExpected = false;
+			bool bGraphManagedTextureAccess = false;
+		};
+
 		struct FRenderResult
 		{
 			FRHITexture* Cloud = nullptr;
@@ -104,7 +113,8 @@ namespace Durin
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
-			const FRenderInput& Input) -> FRenderResult;
+			const FRenderInput& Input,
+			const FRenderPolicy& Policy = {}) -> FRenderResult;
 		auto ReconstructTemporal_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FTemporalReconstructionInput& Input

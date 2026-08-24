@@ -134,18 +134,17 @@ durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
 durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
 	KIND qualification
 	DOMAINS renderer viewport
-	MODULES engine renderer
+	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
-		"Measures the production HDR copy and FXAA display routes at the frozen 1920x1080 RTX 3090 qualification point."
-	RUNTIME_ONLY_RATIONALE
-		"RHIInit selects VulkanRHI dynamically for hardware-backed timestamp measurements."
-	RUNTIME_ONLY_TARGETS VulkanRHI
+		"Measures HDR copy and FXAA display routes and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 	SOURCES Private/HDRDisplayMappingQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	DATA_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/HDRDisplayMapping
 )
@@ -153,18 +152,17 @@ durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
 durin_add_engine_functional_test(GBufferQualificationTests
 	KIND qualification
 	DOMAINS renderer
-	MODULES engine renderer
+	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
-		"Measures the four-family minimal GBuffer pass at the frozen 1920x1080 RTX 3090 qualification point."
-	RUNTIME_ONLY_RATIONALE
-		"RHIInit selects VulkanRHI dynamically for hardware-backed timestamp measurements."
-	RUNTIME_ONLY_TARGETS VulkanRHI
+		"Measures the four-family GBuffer path and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 	SOURCES Private/GBufferQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 )
 
 durin_add_engine_functional_test(VolumetricCloudQualificationTests

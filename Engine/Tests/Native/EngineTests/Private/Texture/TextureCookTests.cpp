@@ -1,4 +1,5 @@
 #include "AssetTools.h"
+#include "AssetForgeProviderTestFixture.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -116,6 +117,9 @@ namespace
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
+	Durin::Tests::FScopedAssetForgeProviders Providers;
+	std::string Error;
+	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCookedConsumer";
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
@@ -147,7 +151,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Import.Asset->GetCookedPayloadDescriptor();
 	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
 
-	std::string Error;
 	Durin::Asset::FCookContext First(
 		CookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,

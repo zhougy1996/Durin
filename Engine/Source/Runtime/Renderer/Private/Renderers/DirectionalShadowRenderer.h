@@ -43,6 +43,7 @@ namespace Durin
 			FViewRenderTelemetry& Telemetry) -> bool;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
+			FRHITexture* Target,
 			FStaticMeshRenderer& StaticMeshes,
 			FSkeletalMeshRenderer& SkeletalMeshes,
 			FTerrainRenderer& Terrains,

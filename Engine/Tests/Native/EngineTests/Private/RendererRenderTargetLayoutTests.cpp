@@ -495,8 +495,8 @@ namespace Durin
 		EXPECT_EQ(Deferred.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
 		EXPECT_TRUE(Retained.bHasDepthStencil);
 		EXPECT_EQ(Retained.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
-		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
-		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Translucency.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
 		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);

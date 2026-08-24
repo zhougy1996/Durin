@@ -73,6 +73,10 @@ namespace Durin::RenderTargetLayouts
 		Layout.bHasDepthStencil = true;
 		Layout.DepthStencilAttachment = MakeDirectionalShadowDepth()
 											.DepthStencilAttachment;
+		Layout.DepthStencilAttachment.FinalLayout =
+			ERHITextureLayout::ShaderReadOnly;
+		Layout.DepthStencilAttachment.FinalAccess =
+			ERHIAccess::GraphicsShaderRead;
 		return Layout;
 	}
 
@@ -257,15 +261,20 @@ namespace Durin::RenderTargetLayouts
 		Layout.DepthStencilAttachment.InitialAccess =
 			ERHIAccess::GraphicsShaderRead;
 		Layout.DepthStencilAttachment.FinalLayout =
-			ERHITextureLayout::DepthStencilAttachment;
+			ERHITextureLayout::ShaderReadOnly;
 		Layout.DepthStencilAttachment.FinalAccess =
-			ERHIAccess::DepthStencilReadWrite;
+			ERHIAccess::GraphicsShaderRead;
 		return Layout;
 	}
 
 	auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout
 	{
-		return MakeHybridRetainedForward();
+		FRHIRenderTargetLayout Layout = MakeHybridRetainedForward();
+		Layout.DepthStencilAttachment.FinalLayout =
+			ERHITextureLayout::DepthStencilAttachment;
+		Layout.DepthStencilAttachment.FinalAccess =
+			ERHIAccess::DepthStencilReadWrite;
+		return Layout;
 	}
 
 	auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout

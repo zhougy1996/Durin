@@ -238,10 +238,11 @@ namespace Durin::VulkanRHI
 		FBufferRHIRef Buffer = RHICreateBuffer(FRHIBufferCreateDesc::Create(
 			"GraphBuffer", 64, 4, EBufferUsageFlags::Static
 				| EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::DestinationCopy));
-		FTextureRHIRef Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D(
+		const auto TextureDesc = FRHITextureCreateDesc::Create2D(
 			"GraphTexture", 8, 8, EPixelFormat::RGBA8_UNORM)
 			.SetNumMips(2).SetFlags(ETextureCreateFlags::DestinationCopy
-				| ETextureCreateFlags::ShaderResource));
+				| ETextureCreateFlags::ShaderResource);
+		FTextureRHIRef Texture = RHICreateTexture(TextureDesc);
 		ASSERT_TRUE(Buffer && Texture);
 		bool bPrepared = false;
 		bool bExecuted = false;
@@ -267,10 +268,23 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(PreparationError, "injected allocation failure");
 
 		FRenderGraphBuilder Builder;
+		Builder.SetBackingResolver([&](auto Requests, auto& Backings,
+			std::string&) {
+			EXPECT_EQ(Requests.size(), 2u);
+			bool bComplete = true;
+			for (const auto& Request : Requests)
+				bComplete = (Request.Kind == ERenderGraphResourceKind::Texture
+					? Backings.SetTexture(Request.Texture, Texture.GetReference())
+					: Backings.SetBuffer(Request.Buffer, Buffer.GetReference()))
+					&& bComplete;
+			return bComplete;
+		});
 		const auto GraphBuffer = Builder.CreateBuffer(
-			"GraphBuffer", Buffer.GetReference(), ERHIAccess::VertexBufferRead);
+			"GraphBuffer", FRenderGraphBufferDesc{.Buffer = Buffer->GetDesc()},
+			ERHIAccess::VertexBufferRead);
 		const auto GraphTexture = Builder.CreateTexture(
-			"GraphTexture", Texture.GetReference(), ERHIAccess::GraphicsShaderRead);
+			"GraphTexture", FRenderGraphTextureDesc{.Texture = TextureDesc},
+			ERHIAccess::GraphicsShaderRead);
 		const auto Copy = Builder.AddPass("Copy", ERenderGraphPassType::Copy);
 		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERenderGraphUse::Write,
 			ERHIAccess::TransferWrite, true);

@@ -71,6 +71,14 @@ namespace Durin
 			ERoute Route = ERoute::FactorOne;
 			ERouteReason Reason = ERouteReason::DisabledOrUnneeded;
 		};
+		struct FRenderPolicy
+		{
+			bool bPreparationOnly = false;
+			bool bInputsExpected = false;
+			bool bFragmentTargetExpected = false;
+			bool bComputeTargetExpected = false;
+			bool bGraphManagedTextureAccess = false;
+		};
 
 		static constexpr uint64 BytesPerPixel = 1;
 		static constexpr uint64 MaximumRetainedBytesPerRoute =
@@ -117,7 +125,8 @@ namespace Durin
 			FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
 			FRHITexture* Emissive, FRHITexture* SceneDepth,
 			const FSceneView& View, const FVector3& LightDirection,
-			uint32 Width, uint32 Height) -> FRenderResult;
+			uint32 Width, uint32 Height,
+			const FRenderPolicy& Policy = {}) -> FRenderResult;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 

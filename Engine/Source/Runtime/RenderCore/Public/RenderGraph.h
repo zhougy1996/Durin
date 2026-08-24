@@ -16,6 +16,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRenderGraphBuilder;
 	class FCompiledRenderGraph;
+	class FRenderGraphResourceBackings;
 
 	// Selects the command domain used by a declared graph pass.
 	enum class ERenderGraphPassType : uint8
@@ -33,6 +34,36 @@ namespace Durin
 		ReadWrite,
 	};
 
+	// Selects the stable resource category exposed by graph diagnostics.
+	enum class ERenderGraphResourceKind : uint8
+	{
+		Texture,
+		Buffer,
+		Token,
+	};
+
+	// Distinguishes semantic value reachability from execution-only ordering.
+	enum class ERenderGraphDependencyKind : uint8
+	{
+		Value,
+		Execution,
+		Explicit,
+	};
+
+	// Describes a graph-created texture without requiring physical backing.
+	struct FRenderGraphTextureDesc final
+	{
+		FRHITextureDesc Texture;
+		std::string BackingClass = "transient";
+	};
+
+	// Describes a graph-created buffer without requiring physical backing.
+	struct FRenderGraphBufferDesc final
+	{
+		FRHIBufferDesc Buffer;
+		std::string BackingClass = "transient";
+	};
+
 	// Identifies one texture registered in a single builder lifetime.
 	class FRenderGraphTextureHandle final
 	{
@@ -45,6 +76,7 @@ namespace Durin
 		friend class FRenderGraphBuilder;
 		friend class FCompiledRenderGraph;
 		friend class FRenderGraphPassResources;
+		friend class FRenderGraphResourceBackings;
 		FRenderGraphTextureHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
@@ -63,6 +95,7 @@ namespace Durin
 		friend class FRenderGraphBuilder;
 		friend class FCompiledRenderGraph;
 		friend class FRenderGraphPassResources;
+		friend class FRenderGraphResourceBackings;
 		FRenderGraphBufferHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
@@ -110,17 +143,55 @@ namespace Durin
 
 	private:
 		friend class FCompiledRenderGraph;
-		explicit FRenderGraphPassResources(const FCompiledRenderGraph& InGraph)
-			: Graph(InGraph)
+		explicit FRenderGraphPassResources(const FCompiledRenderGraph& InGraph,
+			uint32 InPassIndex)
+			: Graph(InGraph), PassIndex(InPassIndex)
 		{
 		}
 
 		const FCompiledRenderGraph& Graph;
+		uint32 PassIndex = 0;
 	};
 
 	using FRenderGraphExecute = std::function<void(
 		FRHICommandListImmediate&, const FRenderGraphPassResources&)>;
 	using FRenderGraphPrepare = std::function<bool(std::string&)>;
+
+	// Names one retained logical resource that requires physical backing.
+	struct FRenderGraphPreparationRequest final
+	{
+		uint32 ResourceId = 0;
+		std::string Name;
+		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+		FRenderGraphTextureHandle Texture;
+		FRenderGraphBufferHandle Buffer;
+		FRHITextureDesc TextureDesc;
+		FRHIBufferDesc BufferDesc;
+		std::string BackingClass;
+		uint32 FirstPass = 0;
+		uint32 LastPass = 0;
+	};
+
+	// Collects one candidate complete backing publication during preparation.
+	class RENDERCORE_API FRenderGraphResourceBackings final
+	{
+	public:
+		auto SetTexture(FRenderGraphTextureHandle Handle, FRHITexture* Texture)
+			-> bool;
+		auto SetBuffer(FRenderGraphBufferHandle Handle, FRHIBuffer* Buffer)
+			-> bool;
+
+	private:
+		friend class FCompiledRenderGraph;
+		explicit FRenderGraphResourceBackings(uint64 InOwner, uint32 Count);
+		uint64 Owner = 0;
+		std::vector<FRHITexture*> Textures;
+		std::vector<FRHIBuffer*> Buffers;
+	};
+
+	using FRenderGraphBackingResolver = std::function<bool(
+		std::span<const FRenderGraphPreparationRequest>,
+		FRenderGraphResourceBackings&, std::string&)>;
 
 	// Records one immutable dependency edge in compiler diagnostics.
 	struct FRenderGraphDependency final
@@ -128,8 +199,54 @@ namespace Durin
 		uint32 BeforePass = 0;
 		uint32 AfterPass = 0;
 		std::string Cause;
+		ERenderGraphDependencyKind Kind = ERenderGraphDependencyKind::Execution;
 
 		auto operator==(const FRenderGraphDependency&) const -> bool = default;
+	};
+
+	// Records one pointer-free declared resource and its preparation outcome.
+	struct FRenderGraphResourceCapture final
+	{
+		uint32 ResourceId = 0;
+		std::string Name;
+		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+		bool bImported = false;
+		std::string BackingClass;
+		std::string Preparation;
+		EPixelFormat TextureFormat = EPixelFormat::Unknown;
+		FIntPoint TextureExtent{0, 0};
+		uint16 TextureArraySize = 0;
+		uint8 TextureMips = 0;
+		uint64 BufferSize = 0;
+		uint32 BufferStride = 0;
+	};
+
+	// Records one exact pointer-free pass use after range normalization.
+	struct FRenderGraphUseCapture final
+	{
+		uint32 PassDeclarationIndex = 0;
+		uint32 ResourceId = 0;
+		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERHIAccess Access = ERHIAccess::None;
+		FRHITextureSubresourceRange TextureRange{};
+		uint64 BufferOffset = 0;
+		uint64 BufferSize = 0;
+		uint32 Version = 0;
+		bool bDiscard = false;
+		bool bStore = true;
+	};
+
+	// Records one exact pointer-free transition at a pass or graph boundary.
+	struct FRenderGraphTransitionCapture final
+	{
+		uint32 ResourceId = 0;
+		uint32 PassIndex = std::numeric_limits<uint32>::max();
+		ERHIAccess Before = ERHIAccess::None;
+		ERHIAccess After = ERHIAccess::None;
+		FRHITextureSubresourceRange TextureRange{};
+		uint64 BufferOffset = 0;
+		uint64 BufferSize = 0;
+		bool bFinal = false;
 	};
 
 	// Reports the retained scheduled interval of one declared resource.
@@ -191,6 +308,9 @@ namespace Durin
 	{
 		FRenderGraphStatistics Statistics;
 		std::vector<FRenderGraphPassCapture> Passes;
+		std::vector<FRenderGraphResourceCapture> Resources;
+		std::vector<FRenderGraphUseCapture> Uses;
+		std::vector<FRenderGraphTransitionCapture> Transitions;
 		std::vector<FRenderGraphDependency> Dependencies;
 		std::vector<FRenderGraphResourceLifetime> ResourceLifetimes;
 		std::vector<FRenderGraphCullingDecision> CullingDecisions;
@@ -275,10 +395,18 @@ namespace Durin
 		auto CreateTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphTextureHandle;
+		auto CreateTexture(std::string_view Name,
+			const FRenderGraphTextureDesc& Desc,
+			ERHIAccess FinalAccess = ERHIAccess::None)
+			-> FRenderGraphTextureHandle;
 		auto ImportBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 			-> FRenderGraphBufferHandle;
 		auto CreateBuffer(std::string_view Name, FRHIBuffer* Buffer,
+			ERHIAccess FinalAccess = ERHIAccess::None)
+			-> FRenderGraphBufferHandle;
+		auto CreateBuffer(std::string_view Name,
+			const FRenderGraphBufferDesc& Desc,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRenderGraphTokenHandle;
@@ -291,6 +419,7 @@ namespace Durin
 			std::string_view Reason = "side-effect") -> void;
 		auto EnablePassCulling() -> void;
 		auto SetExecutionPreparation(FRenderGraphPrepare Prepare) -> void;
+		auto SetBackingResolver(FRenderGraphBackingResolver Resolver) -> void;
 		auto SetBudget(const FRenderGraphBudget& Budget) -> void;
 
 		auto UseTexture(FRenderGraphPassHandle Pass,
@@ -311,6 +440,25 @@ namespace Durin
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction) -> void;
+		// Declares an attachment whose render-pass body performs its own RHI
+		// entry/final layout transitions and publishes ResultAccess on exit.
+		auto UseManagedColorAttachment(FRenderGraphPassHandle Pass,
+			FRenderGraphTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range,
+			ERHIRenderTargetLoadAction LoadAction,
+			ERHIRenderTargetStoreAction StoreAction,
+			ERHIAccess ResultAccess) -> void;
+		auto UseManagedDepthStencilAttachment(FRenderGraphPassHandle Pass,
+			FRenderGraphTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range,
+			ERHIRenderTargetLoadAction LoadAction,
+			ERHIRenderTargetStoreAction StoreAction,
+			ERHIAccess ResultAccess) -> void;
+		auto UseManagedTexture(FRenderGraphPassHandle Pass,
+			FRenderGraphTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range, ERenderGraphUse Use,
+			ERHIAccess EntryAccess, ERHIAccess ResultAccess,
+			bool bDiscard = false) -> void;
 		auto UseToken(FRenderGraphPassHandle Pass, FRenderGraphTokenHandle Token,
 			ERenderGraphUse Use) -> void;
 

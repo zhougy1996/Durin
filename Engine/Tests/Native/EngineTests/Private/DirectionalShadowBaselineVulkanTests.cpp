@@ -1130,14 +1130,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
 	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
-	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 0u);
+	// Retained opaque publishes sampled depth directly; the final scene pass owns
+	// the sole remaining shader-read to depth-attachment boundary.
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 1u);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bExecuteBudgetExceeded);
 	EXPECT_TRUE(std::ranges::any_of(GLastSceneRenderGraphCapture.Passes,
 		[](const Durin::FRenderGraphPassCapture& Pass) {
-			return Pass.Name == "Scene.FinalOutput";
+			return Pass.Name == "Scene.PostProcess";
 		}));
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	Durin::SetViewRenderTelemetrySink(nullptr);
@@ -2007,7 +2009,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
 			CaptureWidth, CaptureHeight));
 	EXPECT_EQ(ContactHybridTelemetry.ContactShadow.ContactShadowRetainedBytes,
-		2u * Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
+		Durin::FContactShadowVisibilityRenderer::CalculateTargetBytes(
 			CaptureWidth, CaptureHeight));
 	EXPECT_EQ(ContactFragmentTelemetry.ContactShadow.ContactShadowComputeViews, 0u);
 	EXPECT_EQ(ContactFragmentTelemetry.ContactShadow.ContactShadowFragmentViews, 1u);

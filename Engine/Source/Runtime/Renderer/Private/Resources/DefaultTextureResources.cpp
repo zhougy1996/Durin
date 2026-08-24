@@ -72,7 +72,7 @@ namespace Durin
 			return Texture;
 		}
 
-		auto CreateSolidArrayTexture(
+		auto CreateShadowArrayTexture(
 			FRHICommandListImmediate& CommandList,
 			const char* DebugName) -> FTextureRHIRef
 		{
@@ -80,7 +80,7 @@ namespace Durin
 				FRHITextureCreateDesc::Create2DArray(DebugName)
 					.SetExtent(1)
 					.SetArraySize(3)
-					.SetFormat(EPixelFormat::RGBA8_UNORM)
+					.SetFormat(EPixelFormat::D32)
 					.SetFlags(ETextureCreateFlags::ShaderResource);
 			FTextureRHIRef Texture =
 				GDynamicRHI->RHICreateTexture(CommandList, Desc);
@@ -140,12 +140,12 @@ namespace Durin
 				Candidate.FlatNormal = CreateFlatNormalTexture(CommandList);
 				Candidate.BlackCube = CreateSolidCubeTexture(
 					CommandList, "DefaultBlackCube", {0, 0, 0, 255});
-				Candidate.WhiteArray = CreateSolidArrayTexture(
-					CommandList, "DefaultWhiteArray");
+				Candidate.ShadowArray = CreateShadowArrayTexture(
+					CommandList, "DefaultShadowArray");
 				if (Candidate.White == nullptr || Candidate.Black == nullptr
 					|| Candidate.FlatNormal == nullptr
 					|| Candidate.BlackCube == nullptr
-					|| Candidate.WhiteArray == nullptr)
+					|| Candidate.ShadowArray == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -186,7 +186,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		const FPayload* Payload = Slot.GetPayload();
-		return Payload != nullptr ? Payload->WhiteArray.GetReference() : nullptr;
+		return Payload != nullptr ? Payload->ShadowArray.GetReference() : nullptr;
 	}
 
 	auto FDefaultTextureResources::ReleaseResources_RenderThread() -> void

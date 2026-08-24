@@ -507,7 +507,8 @@ namespace Durin
 		const bool bCloudShadow = bProductionDeferred
 			&& PreparedView.VolumetricCloud
 			&& !PreparedView.Lighting.Lights.Directional.empty();
-		const bool bCloudInputs = PreparedView.VolumetricCloud
+		const bool bCloudInputs = bProductionDeferred
+			&& PreparedView.VolumetricCloud
 			&& PreparedView.VolumetricCloud->Textures.BaseDensity
 			&& PreparedView.VolumetricCloud->Textures.DetailDensity;
 		const auto CloudQuality = View.Settings.VolumetricCloud.Quality
@@ -547,80 +548,122 @@ namespace Durin
 		const FSceneFrameRequirements& Requirements
 	) -> ERenderViewResult
 	{
-		auto& Targets = ResolvedFrame.Targets;
+		FResolvedSceneFrameTargets Targets;
 		Targets.Scene = PostProcessRenderer.EnsureSceneTargets_RenderThread(
 			Requirements.Width, Requirements.Height);
 		if (!Targets.Scene || !Targets.Scene->Color || !Targets.Scene->Depth)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (Requirements.bGBuffer)
+		{
 			Targets.GBuffer = GBufferRenderer.EnsureTargets_RenderThread(
 				Requirements.Width, Requirements.Height);
+			if (!Targets.GBuffer)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bGroundTruthAmbientOcclusion)
+		{
 			Targets.GroundTruthAmbientOcclusion =
 				GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
 					Requirements.Width, Requirements.Height,
 					Requirements.AmbientOcclusionQuality);
+			if (!Targets.GroundTruthAmbientOcclusion)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bContactFragment)
+		{
 			Targets.ContactFragment = ContactShadowRenderer.EnsureTargets_RenderThread(
 				Requirements.Width, Requirements.Height);
+			if (!Targets.ContactFragment)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bContactCompute)
+		{
 			Targets.ContactCompute =
 				ContactShadowRenderer.EnsureComputeTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
+			if (!Targets.ContactCompute)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bVolumetricCloudShadowFragment)
+		{
 			Targets.VolumetricCloudShadowFragment =
 				VolumetricCloudShadowRenderer.EnsureTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
+			if (!Targets.VolumetricCloudShadowFragment)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bVolumetricCloudShadowCompute)
+		{
 			Targets.VolumetricCloudShadowCompute =
 				VolumetricCloudShadowRenderer.EnsureComputeTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
+			if (!Targets.VolumetricCloudShadowCompute)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bIsolatedDeferred)
+		{
 			Targets.IsolatedDeferred =
 				DeferredDirectionalLightingRenderer.EnsureTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
+			if (!Targets.IsolatedDeferred)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bGBufferDebug)
+		{
 			Targets.GBufferDebug = GBufferDebugRenderer.EnsureTargets_RenderThread(
 				Requirements.Width, Requirements.Height);
+			if (!Targets.GBufferDebug)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		const uint32 CloudWidth = static_cast<uint32>(
 			std::max(Requirements.VolumetricCloudExtent.x, 0));
 		const uint32 CloudHeight = static_cast<uint32>(
 			std::max(Requirements.VolumetricCloudExtent.y, 0));
 		if (Requirements.bVolumetricCloudFragment)
+		{
 			Targets.VolumetricCloudFragment =
 				VolumetricCloudRenderer.EnsureTargets_RenderThread(
 					CloudWidth, CloudHeight);
+			if (!Targets.VolumetricCloudFragment)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bVolumetricCloudCompute)
+		{
 			Targets.VolumetricCloudCompute =
 				VolumetricCloudRenderer.EnsureComputeTargets_RenderThread(
 					CloudWidth, CloudHeight);
+			if (!Targets.VolumetricCloudCompute)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (Requirements.bVolumetricCloudComposite)
+		{
 			Targets.VolumetricCloudComposite =
 				VolumetricCloudRenderer.EnsureCompositeTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
+			if (!Targets.VolumetricCloudComposite)
+				return ERenderViewResult::RendererResourcesUnavailable;
+		}
+		ResolvedFrame.Targets = std::move(Targets);
 		return ERenderViewResult::Success;
 	}
 
 	auto FRenderGraphSceneFrameExecutor::RenderDirectionalShadow_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FSceneRenderPlan& PreparedView
+		const FSceneRenderPlan& PreparedView,
+		FRHITexture* DirectionalShadowTarget
 	) -> FDirectionalShadowPassResult
 	{
 		if (!PreparedView.DirectionalShadow
 			|| !ResolvedFrame.DirectionalShadow
 			|| !ResolvedFrame.DirectionalShadow->bEnabled)
 			return {};
-		DirectionalShadowRenderer.Render_RenderThread(
-			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
+		const bool bRendered = DirectionalShadowRenderer.Render_RenderThread(
+			CommandList, DirectionalShadowTarget, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, *PreparedView.DirectionalShadow,
 			*ResolvedFrame.DirectionalShadow, Telemetry.View);
-		FRHITexture* Texture =
-			DirectionalShadowRenderer.GetTexture_RenderThread();
 		return {
-			.Status = Texture != nullptr
-				? EScenePassStatus::Complete : EScenePassStatus::Failed,
-			.Texture = Texture,
-			.Sampler = DirectionalShadowRenderer.GetSampler_RenderThread()};
+			.Status = bRendered
+				? EScenePassStatus::Complete : EScenePassStatus::Failed};
 	}
 
 } // namespace Durin

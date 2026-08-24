@@ -2,6 +2,7 @@
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
+#include "ImportService.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
@@ -23,9 +24,30 @@
 #include "Texture2DSourceTranslation.h"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <limits>
+#include <thread>
+
+namespace
+{
+	auto WaitForMaterialPreviewMeshRecovery(
+		const Durin::FAssetPath& AssetPath,
+		double TimeoutSeconds = 10.0) -> bool
+	{
+		auto& Service = Durin::Asset::GetImportService();
+		const auto Deadline = std::chrono::steady_clock::now()
+			+ std::chrono::duration<double>(TimeoutSeconds);
+		while (Service.HasActiveImportClaim(AssetPath.ToString())
+			&& std::chrono::steady_clock::now() < Deadline)
+		{
+			(void)Service.PumpImportOperations();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return !Service.HasActiveImportClaim(AssetPath.ToString());
+	}
+}
 
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
 {
@@ -576,6 +598,7 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 		std::string Error;
 		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
 		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
+		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(Path));
 		EXPECT_EQ(First.Get(), Second.Get());
 		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
 		ASSERT_NE(Mesh, nullptr) << Error;
@@ -622,6 +645,8 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		Durin::FAssetPath BoxPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Sphere", SpherePath));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", BoxPath));
+		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(SpherePath));
+		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(BoxPath));
 		Durin::Editor::FRetainedAsset SphereAsset;
 		Durin::Editor::FRetainedAsset BoxAsset;
 		std::string Error;

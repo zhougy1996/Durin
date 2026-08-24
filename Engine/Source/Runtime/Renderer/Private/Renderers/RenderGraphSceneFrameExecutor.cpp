@@ -209,8 +209,18 @@ namespace Durin
 			ResolveFrameResources_RenderThread(CommandList, PreparedView);
 		if (ResolutionResult != ERenderViewResult::Success)
 			return ResolutionResult;
-		const FSceneFrameRequirements Requirements = BuildFrameRequirements(
+		FSceneFrameRequirements Requirements = BuildFrameRequirements(
 			PreparedView, Options, Width, Height);
+		const RenderTargetLayouts::EViewportOutput ViewportOutput =
+			GetViewportOutput(bPresentOutput);
+		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
+			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
+		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
+		if (!EditorAssistanceRequest.IsEmpty())
+			PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
+				CommandList, RenderView, EditorAssistanceRequest);
+		const bool bHasEditorAssistance =
+			PreparedEditorAssistance.HasDrawableOperation();
 		FSceneFrameOutcome Outcome;
 		const bool bRequiresDeferredOpaque =
 			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
@@ -252,6 +262,102 @@ namespace Durin
 		const bool bNeedsGBuffer = Qualification.bEnableGBuffer
 								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 								   || bWantsDeferredInputs;
+		FContactShadowVisibilityRenderer::FRouteDecision PreparedContactRoute;
+		if ((Requirements.bContactFragment || Requirements.bContactCompute)
+			&& PreparedView.DirectionalShadow)
+		{
+			const auto Prepared = ContactShadowRenderer.Render_RenderThread(
+				CommandList, true, nullptr, nullptr, nullptr, nullptr, nullptr,
+				nullptr, nullptr, RenderView,
+				PreparedView.DirectionalShadow->View.LightDirection, Width, Height,
+				{.bPreparationOnly = true,
+					.bInputsExpected = bNeedsGBuffer,
+					.bFragmentTargetExpected = Requirements.bContactFragment,
+					.bComputeTargetExpected = Requirements.bContactCompute});
+			PreparedContactRoute = {
+				.Route = Prepared.Route, .Reason = Prepared.Reason};
+			Requirements.bContactFragment = Prepared.Route
+				== FContactShadowVisibilityRenderer::ERoute::Fragment;
+			Requirements.bContactCompute = Prepared.Route
+				== FContactShadowVisibilityRenderer::ERoute::Compute;
+		}
+		FVolumetricCloudShadowRenderer::ERoute PreparedCloudShadowRoute =
+			FVolumetricCloudShadowRenderer::ERoute::FactorOne;
+		FRHITexture* CloudWeatherTexture = nullptr;
+		if (ResolvedFrame.VolumetricCloud)
+		{
+			CloudWeatherTexture = ResolvedFrame.VolumetricCloud->Textures.Weather;
+			if (!CloudWeatherTexture)
+				CloudWeatherTexture = DefaultTextures.Get_RenderThread(
+					EDefaultTexture::White);
+		}
+		if ((Requirements.bVolumetricCloudShadowFragment
+				|| Requirements.bVolumetricCloudShadowCompute)
+			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
+		{
+			const auto Prepared = VolumetricCloudShadowRenderer.Render_RenderThread(
+				CommandList, nullptr, nullptr,
+				{.bRequested = true,
+					.BaseDensity = ResolvedFrame.VolumetricCloud->Textures.BaseDensity,
+					.DetailDensity = ResolvedFrame.VolumetricCloud->Textures.DetailDensity,
+					.Weather = CloudWeatherTexture,
+					.DensitySampler =
+						ResolvedFrame.VolumetricCloud->Textures.DensitySampler,
+					.Parameters = PreparedView.VolumetricCloud->Parameters,
+					.View = &RenderView,
+					.QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+						RenderView.Settings.VolumetricCloud.Quality),
+					.Width = Width, .Height = Height},
+				{.bPreparationOnly = true,
+					.bInputsExpected = true,
+					.bFragmentTargetExpected =
+						Requirements.bVolumetricCloudShadowFragment,
+					.bComputeTargetExpected =
+						Requirements.bVolumetricCloudShadowCompute});
+			PreparedCloudShadowRoute = Prepared.Route;
+			Requirements.bVolumetricCloudShadowFragment = Prepared.Route
+				== FVolumetricCloudShadowRenderer::ERoute::Fragment;
+			Requirements.bVolumetricCloudShadowCompute = Prepared.Route
+				== FVolumetricCloudShadowRenderer::ERoute::Compute;
+		}
+		FVolumetricCloudRenderer::ERoute PreparedCloudRoute =
+			FVolumetricCloudRenderer::ERoute::Disabled;
+		if ((Requirements.bVolumetricCloudFragment
+				|| Requirements.bVolumetricCloudCompute)
+			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
+		{
+			auto Textures = ResolvedFrame.VolumetricCloud->Textures;
+			Textures.Weather = CloudWeatherTexture;
+			Textures.SceneDepth = nullptr;
+			const auto Prepared = VolumetricCloudRenderer.Render_RenderThread(
+				CommandList, nullptr, nullptr,
+				{.bRequested = true,
+					.Textures = Textures,
+					.Parameters = PreparedView.VolumetricCloud->Parameters,
+					.View = &RenderView,
+					.QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+						RenderView.Settings.VolumetricCloud.Quality),
+					.SuccessfulSequence = TemporalContext.SuccessfulSequence,
+					.Width = static_cast<uint32>(std::max(
+						Requirements.VolumetricCloudExtent.x, 0)),
+					.Height = static_cast<uint32>(std::max(
+						Requirements.VolumetricCloudExtent.y, 0)),
+					.OutputWidth = Width,
+					.OutputHeight = Height},
+				{.bPreparationOnly = true,
+					.bInputsExpected = true,
+					.bFragmentTargetExpected =
+						Requirements.bVolumetricCloudFragment,
+					.bComputeTargetExpected =
+						Requirements.bVolumetricCloudCompute});
+			PreparedCloudRoute = Prepared.Counters.Route;
+			Requirements.bVolumetricCloudFragment = PreparedCloudRoute
+				== FVolumetricCloudRenderer::ERoute::Fragment;
+			Requirements.bVolumetricCloudCompute = PreparedCloudRoute
+				== FVolumetricCloudRenderer::ERoute::Compute;
+			Requirements.bVolumetricCloudComposite = PreparedCloudRoute
+				!= FVolumetricCloudRenderer::ERoute::Disabled;
+		}
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
 			DeferredParameters;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
@@ -260,109 +366,853 @@ namespace Durin
 		FRenderGraphBuilder Graph;
 		constexpr FRenderGraphBudget SceneFrameBudget{
 			.MaxPasses = 12,
-			.MaxDependencies = 24,
-			.MaxBufferTransitions = 0,
-			.MaxTextureTransitions = 0,
+			.MaxDependencies = 28,
+			.MaxTextureTransitions = 20,
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
 		Graph.SetBudget(SceneFrameBudget);
 		Graph.EnablePassCulling();
-		Graph.SetExecutionPreparation([&](std::string& Error) {
-			TargetResolutionResult = ResolveFrameTargets_RenderThread(Requirements);
-			if (TargetResolutionResult == ERenderViewResult::Success) return true;
-			Error = "renderer transient target preparation failed";
-			return false;
+		FSceneFrameGraphResources GraphResources;
+		std::vector<std::pair<FRHITexture*, FRenderGraphTextureHandle>>
+			PersistentTextureImports;
+		auto ImportPersistentTexture = [&](std::string_view Name,
+			FRHITexture* Texture) -> std::optional<FRenderGraphTextureHandle> {
+			if (!Texture) return std::nullopt;
+			const auto Existing = std::ranges::find(PersistentTextureImports,
+				Texture,
+				&std::pair<FRHITexture*, FRenderGraphTextureHandle>::first);
+			if (Existing != PersistentTextureImports.end()) return Existing->second;
+			const auto Handle = Graph.ImportTexture(Name, Texture,
+				ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead);
+			PersistentTextureImports.emplace_back(Texture, Handle);
+			return Handle;
+		};
+		FRHITexture* DirectionalShadowTexture =
+			DirectionalShadowRenderer.GetTexture_RenderThread();
+		if (PreparedView.DirectionalShadow && ResolvedFrame.DirectionalShadow
+			&& ResolvedFrame.DirectionalShadow->bEnabled
+			&& DirectionalShadowTexture != nullptr)
+			GraphResources.DirectionalShadow = ImportPersistentTexture(
+				"Scene.DirectionalShadow", DirectionalShadowTexture);
+		if (ResolvedFrame.VolumetricCloud)
+		{
+			GraphResources.VolumetricCloudBaseDensity = ImportPersistentTexture(
+				"Scene.VolumetricCloud.BaseDensity",
+				ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+			GraphResources.VolumetricCloudDetailDensity = ImportPersistentTexture(
+				"Scene.VolumetricCloud.DetailDensity",
+				ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+			GraphResources.VolumetricCloudWeather = ImportPersistentTexture(
+				"Scene.VolumetricCloud.Weather", CloudWeatherTexture);
+		}
+		GraphResources.DefaultWhite = ImportPersistentTexture(
+			"Scene.Default.White",
+			DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+		GraphResources.DefaultShadowArray = ImportPersistentTexture(
+			"Scene.Default.ShadowArray", DefaultTextures.GetArray_RenderThread());
+		GraphResources.EnvironmentIrradiance = ImportPersistentTexture(
+			"Scene.Environment.Irradiance",
+			EnvironmentLighting.GetIrradiance_RenderThread());
+		GraphResources.EnvironmentPrefiltered = ImportPersistentTexture(
+			"Scene.Environment.Prefiltered",
+			EnvironmentLighting.GetPrefiltered_RenderThread());
+		GraphResources.EnvironmentBrdfLut = ImportPersistentTexture(
+			"Scene.Environment.BrdfLut",
+			EnvironmentLighting.GetBrdfLut_RenderThread());
+		GraphResources.SceneColor = Graph.CreateTexture("Scene.Color",
+			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				"SceneColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
+				.SetFlags(ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::SourceCopy),
+				.BackingClass = "renderer.scene"}, ERHIAccess::GraphicsShaderRead);
+		GraphResources.SceneDepth = Graph.CreateTexture("Scene.Depth",
+			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				"SceneDepth", Width, Height, EPixelFormat::D32)
+				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
+					| ETextureCreateFlags::ShaderResource),
+				.BackingClass = "renderer.scene"}, ERHIAccess::DepthStencilReadWrite);
+		GraphResources.Output = Graph.ImportTexture("Scene.Output", OutputTarget,
+			ERHIAccess::Discard,
+			bPresentOutput ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bGBuffer)
+		{
+			const std::array Formats{EPixelFormat::RGBA8_UNORM,
+				EPixelFormat::RGBA8_UNORM, EPixelFormat::RGBA8_UNORM,
+				EPixelFormat::R11G11B10_FLOAT};
+			const std::array Names{"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
+				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
+			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+				GraphResources.GBuffer[Index] = Graph.CreateTexture(Names[Index],
+					FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+						Names[Index], Width, Height, Formats[Index])
+						.SetFlags(ETextureCreateFlags::RenderTargetable
+							| ETextureCreateFlags::ShaderResource
+							| ETextureCreateFlags::SourceCopy),
+						.BackingClass = "renderer.gbuffer"},
+					ERHIAccess::GraphicsShaderRead);
+		}
+		if (Requirements.bGroundTruthAmbientOcclusion)
+		{
+			const bool bHalfResolution = Requirements.AmbientOcclusionQuality
+				== EGroundTruthAmbientOcclusionQuality::HalfResolution;
+			const uint32 NativeWidth = bHalfResolution
+				? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Width)
+				: Width;
+			const uint32 NativeHeight = bHalfResolution
+				? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Height)
+				: Height;
+			const std::array Names{"Scene.AmbientOcclusion.Raw",
+				"Scene.AmbientOcclusion.Scratch",
+				"Scene.AmbientOcclusion.Selector",
+				"Scene.AmbientOcclusion.Resolved"};
+			for (uint32 Index = 0; Index < 2; ++Index)
+				GraphResources.GroundTruthAmbientOcclusion[Index] =
+					Graph.CreateTexture(Names[Index],
+						FRenderGraphTextureDesc{.Texture =
+							FRHITextureCreateDesc::Create2D(Names[Index],
+								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
+							.SetFlags(ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::SourceCopy)
+							.SetClearValue(FClearValueBinding(
+								1.0f, 1.0f, 1.0f, 1.0f)),
+							.BackingClass = "renderer.ambient-occlusion"},
+						ERHIAccess::GraphicsShaderRead);
+			if (bHalfResolution)
+			{
+				GraphResources.GroundTruthAmbientOcclusion[2] =
+					Graph.CreateTexture(Names[2],
+						FRenderGraphTextureDesc{.Texture =
+							FRHITextureCreateDesc::Create2D(Names[2],
+								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
+							.SetFlags(ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::SourceCopy)
+							.SetClearValue(FClearValueBinding(
+								0.0f, 0.0f, 0.0f, 0.0f)),
+							.BackingClass = "renderer.ambient-occlusion"},
+						ERHIAccess::GraphicsShaderRead);
+				GraphResources.GroundTruthAmbientOcclusion[3] =
+					Graph.CreateTexture(Names[3],
+						FRenderGraphTextureDesc{.Texture =
+							FRHITextureCreateDesc::Create2D(Names[3], Width,
+								Height, EPixelFormat::R8_UNORM)
+							.SetFlags(ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::SourceCopy)
+							.SetClearValue(FClearValueBinding(
+								1.0f, 1.0f, 1.0f, 1.0f)),
+							.BackingClass = "renderer.ambient-occlusion"},
+						ERHIAccess::GraphicsShaderRead);
+			}
+		}
+		if (Requirements.bContactFragment)
+			GraphResources.ContactFragment = Graph.CreateTexture(
+				"Scene.ContactVisibility.Fragment",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"DirectionalContactVisibility", Width, Height,
+					EPixelFormat::R8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy)
+					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
+					.BackingClass = "renderer.contact-visibility.fragment"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bContactCompute)
+			GraphResources.ContactCompute = Graph.CreateTexture(
+				"Scene.ContactVisibility.Compute",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"DirectionalContactVisibilityCompute", Width, Height,
+					EPixelFormat::R8_UNORM)
+					.SetFlags(ETextureCreateFlags::Storage
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy),
+					.BackingClass = "renderer.contact-visibility.compute"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bVolumetricCloudShadowFragment)
+			GraphResources.VolumetricCloudShadowFragment = Graph.CreateTexture(
+				"Scene.VolumetricCloudShadow.Fragment",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"VolumetricCloudVisibility", Width, Height,
+					EPixelFormat::R8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy
+						| ETextureCreateFlags::CPUReadback)
+					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
+					.BackingClass = "renderer.cloud-shadow.fragment"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bVolumetricCloudShadowCompute)
+			GraphResources.VolumetricCloudShadowCompute = Graph.CreateTexture(
+				"Scene.VolumetricCloudShadow.Compute",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"VolumetricCloudVisibilityCompute", Width, Height,
+					EPixelFormat::R8_UNORM)
+					.SetFlags(ETextureCreateFlags::Storage
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy
+						| ETextureCreateFlags::CPUReadback),
+					.BackingClass = "renderer.cloud-shadow.compute"},
+				ERHIAccess::GraphicsShaderRead);
+		const uint32 CloudWidth = static_cast<uint32>(
+			std::max(Requirements.VolumetricCloudExtent.x, 0));
+		const uint32 CloudHeight = static_cast<uint32>(
+			std::max(Requirements.VolumetricCloudExtent.y, 0));
+		if (Requirements.bVolumetricCloudFragment)
+			GraphResources.VolumetricCloudFragment = Graph.CreateTexture(
+				"Scene.VolumetricCloud.Fragment",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"VolumetricCloudFragment", CloudWidth, CloudHeight,
+					EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy
+						| ETextureCreateFlags::CPUReadback)
+					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
+					.BackingClass = "renderer.cloud.fragment"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bVolumetricCloudCompute)
+			GraphResources.VolumetricCloudCompute = Graph.CreateTexture(
+				"Scene.VolumetricCloud.Compute",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"VolumetricCloudCompute", CloudWidth, CloudHeight,
+					EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::Storage
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy
+						| ETextureCreateFlags::CPUReadback),
+					.BackingClass = "renderer.cloud.compute"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bVolumetricCloudComposite)
+			GraphResources.VolumetricCloudComposite = Graph.CreateTexture(
+				"Scene.VolumetricCloud.Composite",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"VolumetricCloudComposite", Width, Height,
+					EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy
+						| ETextureCreateFlags::CPUReadback)
+					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
+					.BackingClass = "renderer.cloud.composite"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bIsolatedDeferred)
+			GraphResources.IsolatedDeferred = Graph.CreateTexture(
+				"Scene.Deferred.Isolated",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"DeferredDirectionalColor", Width, Height,
+					EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy),
+					.BackingClass = "renderer.deferred"},
+				ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bGBufferDebug)
+			GraphResources.GBufferDebug = Graph.CreateTexture(
+				"Scene.GBuffer.Debug",
+				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					"GBufferDebugColor", Width, Height,
+					EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::SourceCopy),
+					.BackingClass = "renderer.gbuffer-debug"},
+				ERHIAccess::GraphicsShaderRead);
+		Graph.SetBackingResolver([this, &Requirements, &TargetResolutionResult,
+			&GraphResources](auto Requests, auto& Backings,
+			std::string& Error) {
+			FSceneFrameRequirements RetainedRequirements{
+				.Width = Requirements.Width,
+				.Height = Requirements.Height,
+				.AmbientOcclusionQuality = Requirements.AmbientOcclusionQuality};
+			for (const FRenderGraphPreparationRequest& Request : Requests)
+			{
+				const std::string_view Class = Request.BackingClass;
+				if (Class == "renderer.scene") continue;
+				if (Class == "renderer.gbuffer")
+					RetainedRequirements.bGBuffer = true;
+				else if (Class == "renderer.ambient-occlusion")
+					RetainedRequirements.bGroundTruthAmbientOcclusion = true;
+				else if (Class == "renderer.contact-visibility.fragment")
+					RetainedRequirements.bContactFragment = true;
+				else if (Class == "renderer.contact-visibility.compute")
+					RetainedRequirements.bContactCompute = true;
+				else if (Class == "renderer.cloud-shadow.fragment")
+					RetainedRequirements.bVolumetricCloudShadowFragment = true;
+				else if (Class == "renderer.cloud-shadow.compute")
+					RetainedRequirements.bVolumetricCloudShadowCompute = true;
+				else if (Class == "renderer.cloud.fragment")
+				{
+					RetainedRequirements.bVolumetricCloudFragment = true;
+					RetainedRequirements.VolumetricCloudExtent = {
+						Request.TextureDesc.Extent.x,
+						Request.TextureDesc.Extent.y};
+				}
+				else if (Class == "renderer.cloud.compute")
+				{
+					RetainedRequirements.bVolumetricCloudCompute = true;
+					RetainedRequirements.VolumetricCloudExtent = {
+						Request.TextureDesc.Extent.x,
+						Request.TextureDesc.Extent.y};
+				}
+				else if (Class == "renderer.cloud.composite")
+					RetainedRequirements.bVolumetricCloudComposite = true;
+				else if (Class == "renderer.deferred")
+					RetainedRequirements.bIsolatedDeferred = true;
+				else if (Class == "renderer.gbuffer-debug")
+					RetainedRequirements.bGBufferDebug = true;
+				else
+				{
+					Error = "unknown renderer backing class '" + Request.BackingClass
+						+ "'";
+					return false;
+				}
+			}
+			TargetResolutionResult = ResolveFrameTargets_RenderThread(
+				RetainedRequirements);
+			if (TargetResolutionResult != ERenderViewResult::Success)
+			{
+				Error = "renderer transient target preparation failed";
+				return false;
+			}
+			const auto& Targets = *ResolvedFrame.Targets.Scene;
+			auto IsRequested = [&](FRenderGraphTextureHandle Handle) {
+				return std::ranges::any_of(Requests,
+					[&](const FRenderGraphPreparationRequest& Request) {
+						return Request.Kind == ERenderGraphResourceKind::Texture
+							&& Request.Texture == Handle;
+					});
+			};
+			bool bComplete = Backings.SetTexture(GraphResources.SceneColor, Targets.Color)
+				&& Backings.SetTexture(GraphResources.SceneDepth, Targets.Depth);
+			if (GraphResources.GBuffer[0]
+				&& IsRequested(*GraphResources.GBuffer[0]))
+			{
+				if (!ResolvedFrame.Targets.GBuffer) return false;
+				const auto& GBuffer = *ResolvedFrame.Targets.GBuffer;
+				const std::array Physical{GBuffer.Material, GBuffer.Normals,
+					GBuffer.Surface, GBuffer.Emissive};
+				for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+					bComplete = Backings.SetTexture(*GraphResources.GBuffer[Index],
+						Physical[Index]) && bComplete;
+			}
+			if (GraphResources.GroundTruthAmbientOcclusion[0]
+				&& IsRequested(*GraphResources.GroundTruthAmbientOcclusion[0]))
+			{
+				if (!ResolvedFrame.Targets.GroundTruthAmbientOcclusion) return false;
+				const auto& AmbientOcclusion =
+					*ResolvedFrame.Targets.GroundTruthAmbientOcclusion;
+				const std::array<FRHITexture*, 4> Physical{
+					AmbientOcclusion.Raw, AmbientOcclusion.Scratch,
+					AmbientOcclusion.Selector, AmbientOcclusion.Resolved};
+				for (uint32 Index = 0;
+					Index < GraphResources.GroundTruthAmbientOcclusion.size(); ++Index)
+				{
+					if (!GraphResources.GroundTruthAmbientOcclusion[Index]) continue;
+					bComplete = Backings.SetTexture(
+						*GraphResources.GroundTruthAmbientOcclusion[Index],
+						Physical[Index]) && bComplete;
+				}
+			}
+			if (GraphResources.ContactFragment
+				&& IsRequested(*GraphResources.ContactFragment))
+			{
+				if (!ResolvedFrame.Targets.ContactFragment) return false;
+				bComplete = Backings.SetTexture(*GraphResources.ContactFragment,
+					ResolvedFrame.Targets.ContactFragment->Visibility) && bComplete;
+			}
+			if (GraphResources.ContactCompute
+				&& IsRequested(*GraphResources.ContactCompute))
+			{
+				if (!ResolvedFrame.Targets.ContactCompute) return false;
+				bComplete = Backings.SetTexture(*GraphResources.ContactCompute,
+					ResolvedFrame.Targets.ContactCompute->Visibility) && bComplete;
+			}
+			if (GraphResources.VolumetricCloudShadowFragment
+				&& IsRequested(*GraphResources.VolumetricCloudShadowFragment))
+			{
+				if (!ResolvedFrame.Targets.VolumetricCloudShadowFragment) return false;
+				bComplete = Backings.SetTexture(
+					*GraphResources.VolumetricCloudShadowFragment,
+					ResolvedFrame.Targets.VolumetricCloudShadowFragment->Visibility)
+					&& bComplete;
+			}
+			if (GraphResources.VolumetricCloudShadowCompute
+				&& IsRequested(*GraphResources.VolumetricCloudShadowCompute))
+			{
+				if (!ResolvedFrame.Targets.VolumetricCloudShadowCompute) return false;
+				bComplete = Backings.SetTexture(
+					*GraphResources.VolumetricCloudShadowCompute,
+					ResolvedFrame.Targets.VolumetricCloudShadowCompute->Visibility)
+					&& bComplete;
+			}
+			if (GraphResources.VolumetricCloudFragment
+				&& IsRequested(*GraphResources.VolumetricCloudFragment))
+			{
+				if (!ResolvedFrame.Targets.VolumetricCloudFragment) return false;
+				bComplete = Backings.SetTexture(
+					*GraphResources.VolumetricCloudFragment,
+					ResolvedFrame.Targets.VolumetricCloudFragment->Cloud) && bComplete;
+			}
+			if (GraphResources.VolumetricCloudCompute
+				&& IsRequested(*GraphResources.VolumetricCloudCompute))
+			{
+				if (!ResolvedFrame.Targets.VolumetricCloudCompute) return false;
+				bComplete = Backings.SetTexture(
+					*GraphResources.VolumetricCloudCompute,
+					ResolvedFrame.Targets.VolumetricCloudCompute->Cloud) && bComplete;
+			}
+			if (GraphResources.VolumetricCloudComposite
+				&& IsRequested(*GraphResources.VolumetricCloudComposite))
+			{
+				if (!ResolvedFrame.Targets.VolumetricCloudComposite) return false;
+				bComplete = Backings.SetTexture(
+					*GraphResources.VolumetricCloudComposite,
+					ResolvedFrame.Targets.VolumetricCloudComposite->Cloud) && bComplete;
+			}
+			if (GraphResources.IsolatedDeferred
+				&& IsRequested(*GraphResources.IsolatedDeferred))
+			{
+				if (!ResolvedFrame.Targets.IsolatedDeferred) return false;
+				bComplete = Backings.SetTexture(*GraphResources.IsolatedDeferred,
+					ResolvedFrame.Targets.IsolatedDeferred->Color) && bComplete;
+			}
+			if (GraphResources.GBufferDebug
+				&& IsRequested(*GraphResources.GBufferDebug))
+			{
+				if (!ResolvedFrame.Targets.GBufferDebug) return false;
+				bComplete = Backings.SetTexture(*GraphResources.GBufferDebug,
+					ResolvedFrame.Targets.GBufferDebug->Color) && bComplete;
+			}
+			if (!bComplete) Error = "renderer graph backing publication was incomplete";
+			return bComplete;
 		});
-		const auto DirectionalShadowValue =
-			Graph.CreateToken("Scene.DirectionalShadowValue");
-		const auto GBufferValue = Graph.CreateToken("Scene.GBufferValue");
-		const auto AmbientOcclusionValue =
-			Graph.CreateToken("Scene.AmbientOcclusionValue");
-		const auto ContactShadowValue =
-			Graph.CreateToken("Scene.ContactShadowValue");
-		const auto CloudShadowValue =
-			Graph.CreateToken("Scene.CloudShadowValue");
-		const auto DeferredValue = Graph.CreateToken("Scene.DeferredValue");
-		const auto SceneColorValue = Graph.CreateToken("Scene.ColorValue");
-		const auto FinalOutputValue = Graph.CreateToken("Scene.FinalOutputValue");
+		const TSceneFrameGraphValue<FDirectionalShadowPassResult> DirectionalShadowValue{
+			Graph.CreateToken("Scene.DirectionalShadowValue")};
+		const TSceneFrameGraphValue<FGBufferPassResult> GBufferValue{
+			Graph.CreateToken("Scene.GBufferValue")};
+		const TSceneFrameGraphValue<FGroundTruthAmbientOcclusionPassResult>
+			AmbientOcclusionValue{Graph.CreateToken("Scene.AmbientOcclusionValue")};
+		const TSceneFrameGraphValue<FContactShadowPassResult> ContactShadowValue{
+			Graph.CreateToken("Scene.ContactShadowValue")};
+		const TSceneFrameGraphValue<FVolumetricCloudShadowPassResult> CloudShadowValue{
+			Graph.CreateToken("Scene.CloudShadowValue")};
+		const TSceneFrameGraphValue<FIsolatedDeferredPassResult> DeferredValue{
+			Graph.CreateToken("Scene.DeferredValue")};
+		const TSceneFrameGraphValue<FSceneColorPassResult> OpaqueSceneValue{
+			Graph.CreateToken("Scene.OpaqueValue")};
+		const TSceneFrameGraphValue<FVolumetricCloudSpatialPassResult>
+			VolumetricCloudSpatialValue{
+				Graph.CreateToken("Scene.VolumetricCloudSpatialValue")};
+		const TSceneFrameGraphValue<FVolumetricCloudPassResult>
+			VolumetricCloudValue{
+				Graph.CreateToken("Scene.VolumetricCloudValue")};
+		const TSceneFrameGraphValue<FSceneColorPassResult> SceneColorValue{
+			Graph.CreateToken("Scene.ColorValue")};
+		const TSceneFrameGraphValue<FPostProcessPassResult> PostProcessValue{
+			Graph.CreateToken("Scene.PostProcessValue")};
+		const TSceneFrameGraphValue<bool> FinalOutputValue{
+			Graph.CreateToken("Scene.FinalOutputValue")};
+		FSceneColorPassResult OpaqueSceneResult;
+		FVolumetricCloudSpatialPassResult VolumetricCloudSpatialResult;
+		FVolumetricCloudPassResult VolumetricCloudResult;
+		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
+			std::vector<FRenderGraphTextureHandle> Declared;
+			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
+				if (!Handle || !Physical
+					|| std::ranges::find(Declared, *Handle) != Declared.end())
+					return;
+				Declared.push_back(*Handle);
+				Graph.UseTexture(Pass, *Handle,
+					{GetTextureAspects(Physical->GetFormat()), 0,
+						Physical->GetNumMips(), 0, Physical->GetArraySize()},
+					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+			};
+			Declare(GraphResources.DefaultWhite,
+				DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+			Declare(GraphResources.DefaultShadowArray,
+				DefaultTextures.GetArray_RenderThread());
+			Declare(GraphResources.EnvironmentIrradiance,
+				EnvironmentLighting.GetIrradiance_RenderThread());
+			Declare(GraphResources.EnvironmentPrefiltered,
+				EnvironmentLighting.GetPrefiltered_RenderThread());
+			Declare(GraphResources.EnvironmentBrdfLut,
+				EnvironmentLighting.GetBrdfLut_RenderThread());
+		};
 		const auto DirectionalShadowPass = Graph.AddPass(
 			"Scene.DirectionalShadow", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
+			[this, &Outcome, &PreparedView, &GraphResources](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
 				Outcome.DirectionalShadow =
-					RenderDirectionalShadow_RenderThread(Commands, PreparedView);
+					RenderDirectionalShadow_RenderThread(Commands, PreparedView,
+						GraphResources.DirectionalShadow
+							? Resources.GetTexture(*GraphResources.DirectionalShadow)
+							: nullptr);
 			});
-		Graph.UseToken(DirectionalShadowPass, DirectionalShadowValue,
+		Graph.UseToken(DirectionalShadowPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Write);
+		if (GraphResources.DirectionalShadow)
+			Graph.UseManagedDepthStencilAttachment(DirectionalShadowPass,
+				*GraphResources.DirectionalShadow,
+				{ERHITextureAspect::Depth, 0, 1, 0,
+					DirectionalShadowCascadeCount},
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store,
+				ERHIAccess::GraphicsShaderRead);
 		const auto GBufferPass = Graph.AddPass(
 			"Scene.GBuffer", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
-				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+			[this, &Outcome, &PreparedView, &GraphResources, &Options,
+				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = nullptr,
+					.Depth = GraphResources.GBuffer[0]
+						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+				if (GraphResources.GBuffer[0])
+					GBufferTargets = {.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
+						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
+						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
+						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
 				Outcome.GBuffer = RenderGBuffer_RenderThread(
-					Commands, PreparedView, SceneTargets, Options, Width, Height,
+					Commands, PreparedView, SceneTargets,
+					GBufferTargets ? &*GBufferTargets : nullptr,
+					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
 			});
-		Graph.UseToken(GBufferPass, GBufferValue, ERenderGraphUse::Write);
+		Graph.UseToken(GBufferPass, GBufferValue.Handle, ERenderGraphUse::Write);
+		if (GraphResources.GBuffer[0])
+		{
+			for (const auto& Texture : GraphResources.GBuffer)
+				Graph.UseManagedColorAttachment(GBufferPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1},
+					ERHIRenderTargetLoadAction::Clear,
+					ERHIRenderTargetStoreAction::Store,
+					ERHIAccess::GraphicsShaderRead);
+			Graph.UseManagedDepthStencilAttachment(GBufferPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1},
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store,
+				ERHIAccess::GraphicsShaderRead);
+		}
 		const auto AmbientOcclusionPass = Graph.AddPass(
-			"Scene.AmbientOcclusion", ERenderGraphPassType::Compute,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
+			"Scene.AmbientOcclusion", ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+				if (GraphResources.GBuffer[0]
+					&& Requirements.bGroundTruthAmbientOcclusion)
+					GBufferTargets = {
+						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
+						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
+						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
+						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = nullptr,
+					.Depth = GBufferTargets
+						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+				std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
+					AmbientOcclusionTargets;
+				if (GraphResources.GroundTruthAmbientOcclusion[0])
+					AmbientOcclusionTargets = {
+						.Raw = Resources.GetTexture(
+							*GraphResources.GroundTruthAmbientOcclusion[0]),
+						.Scratch = Resources.GetTexture(
+							*GraphResources.GroundTruthAmbientOcclusion[1]),
+						.Selector = GraphResources.GroundTruthAmbientOcclusion[2]
+							? Resources.GetTexture(
+								*GraphResources.GroundTruthAmbientOcclusion[2])
+							: nullptr,
+						.Resolved = GraphResources.GroundTruthAmbientOcclusion[3]
+							? Resources.GetTexture(
+								*GraphResources.GroundTruthAmbientOcclusion[3])
+							: nullptr,
+						.Quality = Requirements.AmbientOcclusionQuality};
 				Outcome.AmbientOcclusion =
 					RenderGroundTruthAmbientOcclusion_RenderThread(
-						Commands, PreparedView, Outcome.GBuffer.Targets,
-						*ResolvedFrame.Targets.Scene, Options, Width, Height,
+						Commands, PreparedView,
+						GBufferTargets ? &*GBufferTargets : nullptr,
+						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
+						SceneTargets, Options, Width, Height,
 						bWantsGroundTruthAmbientOcclusion,
 						Outcome.GBuffer.IsComplete());
 			});
-		Graph.UseToken(AmbientOcclusionPass, GBufferValue,
+		Graph.UseToken(AmbientOcclusionPass, GBufferValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(AmbientOcclusionPass, AmbientOcclusionValue,
+		Graph.UseToken(AmbientOcclusionPass, AmbientOcclusionValue.Handle,
 			ERenderGraphUse::Write);
+		if (GraphResources.GBuffer[0] && Requirements.bGroundTruthAmbientOcclusion)
+		{
+			for (const auto& Texture : GraphResources.GBuffer)
+				Graph.UseTexture(AmbientOcclusionPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+					ERHIAccess::GraphicsShaderRead);
+			Graph.UseTexture(AmbientOcclusionPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+			for (const auto& Texture :
+				GraphResources.GroundTruthAmbientOcclusion)
+			{
+				if (!Texture) continue;
+				Graph.UseManagedTexture(AmbientOcclusionPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1},
+					ERenderGraphUse::ReadWrite,
+					ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::GraphicsShaderRead, true);
+			}
+		}
 		const auto ContactShadowPass = Graph.AddPass(
-			"Scene.ContactShadow", ERenderGraphPassType::Compute,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
+			"Scene.ContactShadow",
+			PreparedContactRoute.Route
+					== FContactShadowVisibilityRenderer::ERoute::Compute
+				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				&Options, Width, Height, bWantsProductionDeferred](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+				if (GraphResources.GBuffer[0]
+					&& (Requirements.bContactFragment
+						|| Requirements.bContactCompute))
+					GBufferTargets = {
+						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
+						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
+						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
+						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = nullptr,
+					.Depth = GBufferTargets
+						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+				std::optional<FContactShadowVisibilityRenderer::FTargets>
+					FragmentContactTargets;
+				if (GraphResources.ContactFragment)
+					FragmentContactTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.ContactFragment)};
+				std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
+					ComputeContactTargets;
+				if (GraphResources.ContactCompute)
+					ComputeContactTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.ContactCompute)};
 				Outcome.ContactShadow = RenderContactShadows_RenderThread(
-					Commands, PreparedView, Outcome.GBuffer.Targets,
-					*ResolvedFrame.Targets.Scene, Options, Width, Height,
+					Commands, PreparedView,
+					GBufferTargets ? &*GBufferTargets : nullptr,
+					FragmentContactTargets ? &*FragmentContactTargets : nullptr,
+					ComputeContactTargets ? &*ComputeContactTargets : nullptr,
+					SceneTargets, Options, Width, Height,
 					bWantsProductionDeferred, Outcome.GBuffer.IsComplete(),
 					Outcome.GBuffer.bRenderedGeometry);
 			});
-		Graph.UseToken(ContactShadowPass, DirectionalShadowValue,
+		Graph.UseToken(ContactShadowPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(ContactShadowPass, GBufferValue, ERenderGraphUse::Read);
-		Graph.UseToken(ContactShadowPass, ContactShadowValue,
+		Graph.UseToken(ContactShadowPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(ContactShadowPass, ContactShadowValue.Handle,
 			ERenderGraphUse::Write);
+		if (GraphResources.GBuffer[0])
+		{
+			for (const auto& Texture : GraphResources.GBuffer)
+				Graph.UseTexture(ContactShadowPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+					PreparedContactRoute.Route
+							== FContactShadowVisibilityRenderer::ERoute::Compute
+						? ERHIAccess::ComputeShaderRead
+						: ERHIAccess::GraphicsShaderRead);
+			Graph.UseTexture(ContactShadowPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				PreparedContactRoute.Route
+						== FContactShadowVisibilityRenderer::ERoute::Compute
+					? ERHIAccess::ComputeShaderRead
+					: ERHIAccess::GraphicsShaderRead);
+		}
+		if (GraphResources.ContactFragment)
+			Graph.UseColorAttachment(ContactShadowPass,
+				*GraphResources.ContactFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store);
+		if (GraphResources.ContactCompute)
+			Graph.UseTexture(ContactShadowPass,
+				*GraphResources.ContactCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		const auto CloudShadowPass = Graph.AddPass(
-			"Scene.VolumetricCloudShadow", ERenderGraphPassType::Compute,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
+			"Scene.VolumetricCloudShadow",
+			PreparedCloudShadowRoute
+					== FVolumetricCloudShadowRenderer::ERoute::Compute
+				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				Width, Height, bWantsProductionDeferred](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				std::optional<FVolumetricCloudShadowRenderer::FTargets>
+					FragmentTargets;
+				if (GraphResources.VolumetricCloudShadowFragment)
+					FragmentTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowFragment)};
+				std::optional<FVolumetricCloudShadowRenderer::FComputeTargets>
+					ComputeTargets;
+				if (GraphResources.VolumetricCloudShadowCompute)
+					ComputeTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowCompute)};
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = nullptr,
+					.Depth = Requirements.bVolumetricCloudShadowFragment
+						|| Requirements.bVolumetricCloudShadowCompute
+						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
 				Outcome.VolumetricCloudShadow =
 					RenderVolumetricCloudShadows_RenderThread(
-						Commands, PreparedView, *ResolvedFrame.Targets.Scene,
+						Commands, PreparedView,
+						FragmentTargets ? &*FragmentTargets : nullptr,
+						ComputeTargets ? &*ComputeTargets : nullptr,
+						SceneTargets,
+						GraphResources.VolumetricCloudBaseDensity
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudBaseDensity) : nullptr,
+						GraphResources.VolumetricCloudDetailDensity
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudDetailDensity) : nullptr,
+						GraphResources.VolumetricCloudWeather
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudWeather) : nullptr,
 						Width, Height, bWantsProductionDeferred,
 						Outcome.GBuffer.IsComplete());
 			});
-		Graph.UseToken(CloudShadowPass, GBufferValue, ERenderGraphUse::Read);
-		Graph.UseToken(CloudShadowPass, CloudShadowValue,
+		Graph.UseToken(CloudShadowPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(CloudShadowPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Write);
+		if (Requirements.bVolumetricCloudShadowFragment
+			|| Requirements.bVolumetricCloudShadowCompute)
+			Graph.UseTexture(CloudShadowPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				PreparedCloudShadowRoute
+						== FVolumetricCloudShadowRenderer::ERoute::Compute
+					? ERHIAccess::ComputeShaderRead
+					: ERHIAccess::GraphicsShaderRead);
+		auto DeclareCloudShadowInput = [&](const auto& Texture, FRHITexture* Physical) {
+			if (!Texture || !Physical) return;
+			Graph.UseTexture(CloudShadowPass, *Texture,
+				{GetTextureAspects(Physical->GetFormat()), 0,
+					Physical->GetNumMips(), 0, Physical->GetArraySize()},
+				ERenderGraphUse::Read,
+				PreparedCloudShadowRoute
+						== FVolumetricCloudShadowRenderer::ERoute::Compute
+					? ERHIAccess::ComputeShaderRead
+					: ERHIAccess::GraphicsShaderRead);
+		};
+		if (ResolvedFrame.VolumetricCloud)
+		{
+			DeclareCloudShadowInput(GraphResources.VolumetricCloudBaseDensity,
+				ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+			DeclareCloudShadowInput(GraphResources.VolumetricCloudDetailDensity,
+				ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+			DeclareCloudShadowInput(GraphResources.VolumetricCloudWeather,
+				CloudWeatherTexture);
+		}
+		if (GraphResources.VolumetricCloudShadowFragment)
+			Graph.UseManagedTexture(CloudShadowPass,
+				*GraphResources.VolumetricCloudShadowFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::ReadWrite, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead, true);
+		if (GraphResources.VolumetricCloudShadowCompute)
+			Graph.UseTexture(CloudShadowPass,
+				*GraphResources.VolumetricCloudShadowCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		const auto DeferredPass = Graph.AddPass(
 			"Scene.DeferredLighting", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
-				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				&Options, &DeferredParameters, &ProductionDeferredParameters,
+				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
+				bWantsProductionDeferred, bHybridRetainedResourcesReady](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+				if (GraphResources.GBuffer[0])
+					GBufferTargets = {
+						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
+						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
+						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
+						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = nullptr,
+					.Depth = GBufferTargets
+						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+				std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
+					AmbientOcclusionTargets;
+				if (GraphResources.GroundTruthAmbientOcclusion[0])
+					AmbientOcclusionTargets = {
+						.Raw = Resources.GetTexture(
+							*GraphResources.GroundTruthAmbientOcclusion[0]),
+						.Scratch = Resources.GetTexture(
+							*GraphResources.GroundTruthAmbientOcclusion[1]),
+						.Selector = GraphResources.GroundTruthAmbientOcclusion[2]
+							? Resources.GetTexture(
+								*GraphResources.GroundTruthAmbientOcclusion[2])
+							: nullptr,
+						.Resolved = GraphResources.GroundTruthAmbientOcclusion[3]
+							? Resources.GetTexture(
+								*GraphResources.GroundTruthAmbientOcclusion[3])
+							: nullptr,
+						.Quality = Requirements.AmbientOcclusionQuality};
+				std::optional<FContactShadowVisibilityRenderer::FTargets>
+					FragmentContactTargets;
+				if (GraphResources.ContactFragment)
+					FragmentContactTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.ContactFragment)};
+				std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
+					ComputeContactTargets;
+				if (GraphResources.ContactCompute)
+					ComputeContactTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.ContactCompute)};
+				std::optional<FVolumetricCloudShadowRenderer::FTargets>
+					FragmentCloudShadowTargets;
+				if (GraphResources.VolumetricCloudShadowFragment)
+					FragmentCloudShadowTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowFragment)};
+				std::optional<FVolumetricCloudShadowRenderer::FComputeTargets>
+					ComputeCloudShadowTargets;
+				if (GraphResources.VolumetricCloudShadowCompute)
+					ComputeCloudShadowTargets = {.Visibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowCompute)};
 				DeferredParameters = bWantsDeferredInputs
 					? BuildDeferredParameters(
-						PreparedView, Outcome.DirectionalShadow, Outcome.GBuffer,
-						Outcome.AmbientOcclusion, Outcome.ContactShadow,
-						Outcome.VolumetricCloudShadow, SceneTargets, Options)
+						PreparedView, Outcome.DirectionalShadow,
+						GraphResources.DirectionalShadow
+							? Resources.GetTexture(*GraphResources.DirectionalShadow)
+							: nullptr,
+						Outcome.GBuffer,
+						GBufferTargets ? &*GBufferTargets : nullptr,
+						Outcome.AmbientOcclusion,
+						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
+						Outcome.ContactShadow,
+						FragmentContactTargets ? &*FragmentContactTargets : nullptr,
+						ComputeContactTargets ? &*ComputeContactTargets : nullptr,
+						Outcome.VolumetricCloudShadow,
+						FragmentCloudShadowTargets
+							? &*FragmentCloudShadowTargets : nullptr,
+						ComputeCloudShadowTargets
+							? &*ComputeCloudShadowTargets : nullptr,
+						SceneTargets, Options)
 					: std::nullopt;
 				if (DeferredParameters)
+				{
+					std::optional<FDeferredDirectionalLightingRenderer::FTargets>
+						IsolatedTargets;
+					if (GraphResources.IsolatedDeferred)
+						IsolatedTargets = {.Color = Resources.GetTexture(
+							*GraphResources.IsolatedDeferred)};
 					Outcome.IsolatedDeferred = RenderIsolatedDeferred_RenderThread(
-						Commands, *DeferredParameters, Options, Width, Height,
+						Commands, IsolatedTargets ? &*IsolatedTargets : nullptr,
+						*DeferredParameters, Options, Width, Height,
 						bWantsIsolatedDeferred);
+				}
 				else if (bWantsIsolatedDeferred)
 				{
 					Outcome.IsolatedDeferred.Status = EScenePassStatus::Failed;
@@ -379,30 +1229,312 @@ namespace Durin
 					ProductionDeferredParameters->DiagnosticMode = 0;
 				}
 			});
-		Graph.UseToken(DeferredPass, DirectionalShadowValue,
+		Graph.UseToken(DeferredPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredPass, GBufferValue, ERenderGraphUse::Read);
-		Graph.UseToken(DeferredPass, AmbientOcclusionValue,
+		Graph.UseToken(DeferredPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(DeferredPass, AmbientOcclusionValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredPass, ContactShadowValue,
+		Graph.UseToken(DeferredPass, ContactShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredPass, CloudShadowValue,
+		Graph.UseToken(DeferredPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredPass, DeferredValue, ERenderGraphUse::Write);
-		const auto SceneColorPass = Graph.AddPass(
-			"Scene.Color", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
-				const auto& SceneTargets = *ResolvedFrame.Targets.Scene;
+		Graph.UseToken(DeferredPass, DeferredValue.Handle, ERenderGraphUse::Write);
+		if (GraphResources.DirectionalShadow)
+			Graph.UseTexture(DeferredPass, *GraphResources.DirectionalShadow,
+				{ERHITextureAspect::Depth, 0, 1, 0,
+					DirectionalShadowCascadeCount},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.GBuffer[0])
+		{
+			for (const auto& Texture : GraphResources.GBuffer)
+				Graph.UseTexture(DeferredPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+					ERHIAccess::GraphicsShaderRead);
+			Graph.UseTexture(DeferredPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		}
+		for (const auto& Texture : GraphResources.GroundTruthAmbientOcclusion)
+		{
+			if (!Texture) continue;
+			Graph.UseTexture(DeferredPass, *Texture,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		}
+		if (GraphResources.ContactFragment)
+			Graph.UseTexture(DeferredPass, *GraphResources.ContactFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.ContactCompute)
+			Graph.UseTexture(DeferredPass, *GraphResources.ContactCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudShadowFragment)
+			Graph.UseTexture(DeferredPass,
+				*GraphResources.VolumetricCloudShadowFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudShadowCompute)
+			Graph.UseTexture(DeferredPass,
+				*GraphResources.VolumetricCloudShadowCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		DeclarePersistentGraphicsInputs(DeferredPass);
+		if (GraphResources.IsolatedDeferred)
+			Graph.UseManagedColorAttachment(DeferredPass,
+				*GraphResources.IsolatedDeferred,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store,
+				ERHIAccess::GraphicsShaderRead);
+		const auto OpaqueScenePass = Graph.AddPass(
+			"Scene.Opaque", ERenderGraphPassType::Graphics,
+			[this, &PreparedView, &GraphResources, &ProductionDeferredParameters,
+				&OpaqueSceneResult](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = Resources.GetTexture(GraphResources.SceneColor),
+					.Depth = Resources.GetTexture(GraphResources.SceneDepth)};
 				const FSceneColorTimingQuerySink TimingSink =
 					GetSceneColorTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
-				Outcome.SceneColor = RenderScene_RenderThread(
+				OpaqueSceneResult = RenderSceneOpaque_RenderThread(
 					Commands, PreparedView, SceneTargets.Color, SceneTargets.Depth,
 					ProductionDeferredParameters
-						? &*ProductionDeferredParameters : nullptr,
-					Outcome.VolumetricCloudShadow.Visibility);
+						? &*ProductionDeferredParameters : nullptr);
 				Timing.Commit();
+			});
+		Graph.UseToken(OpaqueScenePass, DeferredValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(OpaqueScenePass, OpaqueSceneValue.Handle,
+			ERenderGraphUse::Write);
+		if (GraphResources.DirectionalShadow)
+			Graph.UseTexture(OpaqueScenePass, *GraphResources.DirectionalShadow,
+				{ERHITextureAspect::Depth, 0, 1, 0,
+					DirectionalShadowCascadeCount},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		DeclarePersistentGraphicsInputs(OpaqueScenePass);
+		Graph.UseManagedColorAttachment(OpaqueScenePass,
+			GraphResources.SceneColor,
+			{ERHITextureAspect::Color, 0, 1, 0, 1},
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store,
+			ERHIAccess::GraphicsShaderRead);
+		Graph.UseManagedTexture(OpaqueScenePass, GraphResources.SceneDepth,
+			{ERHITextureAspect::Depth, 0, 1, 0, 1},
+			ERenderGraphUse::ReadWrite,
+			bNeedsGBuffer ? ERHIAccess::GraphicsShaderRead
+				: ERHIAccess::DepthStencilReadWrite,
+			bRequiresDeferredOpaque ? ERHIAccess::GraphicsShaderRead
+				: ERHIAccess::DepthStencilReadWrite,
+			!bNeedsGBuffer);
+
+		const auto VolumetricCloudSpatialPass = Graph.AddPass(
+			"Scene.VolumetricCloudSpatial",
+			PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
+				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
+			[this, &PreparedView, &GraphResources, &Requirements,
+				&VolumetricCloudSpatialResult](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
+				if (GraphResources.VolumetricCloudFragment)
+					FragmentTargets = {.Cloud = Resources.GetTexture(
+						*GraphResources.VolumetricCloudFragment)};
+				std::optional<FVolumetricCloudRenderer::FComputeTargets> ComputeTargets;
+				if (GraphResources.VolumetricCloudCompute)
+					ComputeTargets = {.Cloud = Resources.GetTexture(
+						*GraphResources.VolumetricCloudCompute)};
+				const FVolumetricCloudTimingQuerySink TimingSink =
+					GetVolumetricCloudTimingQuerySink();
+				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
+				VolumetricCloudSpatialResult =
+					RenderVolumetricCloudSpatial_RenderThread(
+						Commands, PreparedView,
+						FragmentTargets ? &*FragmentTargets : nullptr,
+						ComputeTargets ? &*ComputeTargets : nullptr,
+						GraphResources.VolumetricCloudBaseDensity
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudBaseDensity) : nullptr,
+						GraphResources.VolumetricCloudDetailDensity
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudDetailDensity) : nullptr,
+						GraphResources.VolumetricCloudWeather
+							? Resources.GetTexture(
+								*GraphResources.VolumetricCloudWeather) : nullptr,
+						Requirements.bVolumetricCloudFragment
+							|| Requirements.bVolumetricCloudCompute
+							? Resources.GetTexture(GraphResources.SceneDepth) : nullptr);
+				Timing.Commit();
+			});
+		Graph.UseToken(VolumetricCloudSpatialPass, OpaqueSceneValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(VolumetricCloudSpatialPass,
+			VolumetricCloudSpatialValue.Handle, ERenderGraphUse::Write);
+		auto DeclareCloudSpatialInput = [&](const auto& Texture,
+			FRHITexture* Physical) {
+			if (!Texture || !Physical) return;
+			Graph.UseTexture(VolumetricCloudSpatialPass, *Texture,
+				{GetTextureAspects(Physical->GetFormat()), 0,
+					Physical->GetNumMips(), 0, Physical->GetArraySize()},
+				ERenderGraphUse::Read,
+				PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
+					? ERHIAccess::ComputeShaderRead
+					: ERHIAccess::GraphicsShaderRead);
+		};
+		if (ResolvedFrame.VolumetricCloud)
+		{
+			DeclareCloudSpatialInput(GraphResources.VolumetricCloudBaseDensity,
+				ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+			DeclareCloudSpatialInput(GraphResources.VolumetricCloudDetailDensity,
+				ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+			DeclareCloudSpatialInput(GraphResources.VolumetricCloudWeather,
+				CloudWeatherTexture);
+		}
+		if (Requirements.bVolumetricCloudFragment
+			|| Requirements.bVolumetricCloudCompute)
+			Graph.UseTexture(VolumetricCloudSpatialPass,
+				GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
+					? ERHIAccess::ComputeShaderRead
+					: ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudFragment)
+			Graph.UseManagedTexture(VolumetricCloudSpatialPass,
+				*GraphResources.VolumetricCloudFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::ReadWrite, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead, true);
+		if (GraphResources.VolumetricCloudCompute)
+			Graph.UseTexture(VolumetricCloudSpatialPass,
+				*GraphResources.VolumetricCloudCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+
+		const auto VolumetricCloudPass = Graph.AddPass(
+			"Scene.VolumetricCloud", ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				&VolumetricCloudSpatialResult, &VolumetricCloudResult](
+				FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				if (!Requirements.bVolumetricCloudComposite) return;
+				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
+				if (GraphResources.VolumetricCloudFragment)
+					FragmentTargets = {.Cloud = Resources.GetTexture(
+						*GraphResources.VolumetricCloudFragment)};
+				std::optional<FVolumetricCloudRenderer::FComputeTargets> ComputeTargets;
+				if (GraphResources.VolumetricCloudCompute)
+					ComputeTargets = {.Cloud = Resources.GetTexture(
+						*GraphResources.VolumetricCloudCompute)};
+				std::optional<FVolumetricCloudRenderer::FTargets> CompositeTargets;
+				if (GraphResources.VolumetricCloudComposite)
+					CompositeTargets = {.Cloud = Resources.GetTexture(
+						*GraphResources.VolumetricCloudComposite)};
+				FRHITexture* ShadowVisibility = nullptr;
+				if (Outcome.VolumetricCloudShadow.Route
+					== EVolumetricCloudShadowPassRoute::Compute
+					&& GraphResources.VolumetricCloudShadowCompute)
+					ShadowVisibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowCompute);
+				else if (Outcome.VolumetricCloudShadow.Route
+					== EVolumetricCloudShadowPassRoute::Fragment
+					&& GraphResources.VolumetricCloudShadowFragment)
+					ShadowVisibility = Resources.GetTexture(
+						*GraphResources.VolumetricCloudShadowFragment);
+				VolumetricCloudResult =
+					RenderVolumetricCloudComposite_RenderThread(
+						Commands, PreparedView, VolumetricCloudSpatialResult,
+						FragmentTargets ? &*FragmentTargets : nullptr,
+						ComputeTargets ? &*ComputeTargets : nullptr,
+						CompositeTargets ? &*CompositeTargets : nullptr,
+						Resources.GetTexture(GraphResources.SceneColor),
+						Resources.GetTexture(GraphResources.SceneDepth),
+						ShadowVisibility);
+			});
+		Graph.UseToken(VolumetricCloudPass, OpaqueSceneValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(VolumetricCloudPass, VolumetricCloudSpatialValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(VolumetricCloudPass, CloudShadowValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(VolumetricCloudPass, VolumetricCloudValue.Handle,
+			ERenderGraphUse::Write);
+		if (Requirements.bVolumetricCloudComposite)
+		{
+			Graph.UseTexture(VolumetricCloudPass, GraphResources.SceneColor,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+			Graph.UseTexture(VolumetricCloudPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		}
+		auto DeclareCloudCompositeInput = [&](const auto& Texture,
+			FRHITexture* Physical) {
+			if (!Texture || !Physical) return;
+			Graph.UseTexture(VolumetricCloudPass, *Texture,
+				{GetTextureAspects(Physical->GetFormat()), 0,
+					Physical->GetNumMips(), 0, Physical->GetArraySize()},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		};
+		if (ResolvedFrame.VolumetricCloud
+			&& Requirements.bVolumetricCloudComposite)
+		{
+			DeclareCloudCompositeInput(GraphResources.VolumetricCloudBaseDensity,
+				ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+			DeclareCloudCompositeInput(GraphResources.VolumetricCloudDetailDensity,
+				ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+			DeclareCloudCompositeInput(GraphResources.VolumetricCloudWeather,
+				CloudWeatherTexture);
+		}
+		if (GraphResources.VolumetricCloudShadowFragment)
+			Graph.UseTexture(VolumetricCloudPass,
+				*GraphResources.VolumetricCloudShadowFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudShadowCompute)
+			Graph.UseTexture(VolumetricCloudPass,
+				*GraphResources.VolumetricCloudShadowCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudFragment)
+			Graph.UseTexture(VolumetricCloudPass,
+				*GraphResources.VolumetricCloudFragment,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudCompute)
+			Graph.UseTexture(VolumetricCloudPass,
+				*GraphResources.VolumetricCloudCompute,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudComposite)
+			Graph.UseManagedTexture(VolumetricCloudPass,
+				*GraphResources.VolumetricCloudComposite,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::ReadWrite, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead, true);
+
+		const auto SceneColorPass = Graph.AddPass(
+			"Scene.Color", ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &GraphResources, &Requirements,
+				&OpaqueSceneResult, &VolumetricCloudResult,
+				bRequiresDeferredOpaque](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				if (!bRequiresDeferredOpaque)
+					Outcome.SceneColor = OpaqueSceneResult;
+				else
+				{
+					FSceneColorPassResult Input = OpaqueSceneResult;
+					if (Requirements.bVolumetricCloudComposite
+						&& !VolumetricCloudResult.bCompositeOutputValid)
+						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
+					FRHITexture* Color = Requirements.bVolumetricCloudComposite
+						&& GraphResources.VolumetricCloudComposite
+						? Resources.GetTexture(
+							*GraphResources.VolumetricCloudComposite)
+						: Resources.GetTexture(GraphResources.SceneColor);
+					Outcome.SceneColor = RenderSceneTranslucency_RenderThread(
+						Commands, PreparedView, Color,
+						Resources.GetTexture(GraphResources.SceneDepth), Input,
+						VolumetricCloudResult);
+				}
 				if (!Outcome.SceneColor.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(PreparedView.Receiver.StaticMeshes,
 					ResolvedFrame.Receiver.StaticMeshes, Telemetry.View);
@@ -412,25 +1544,154 @@ namespace Durin
 				ReduceTerrainTelemetry(PreparedView.Receiver.Terrains,
 					ResolvedFrame.Receiver.Terrains, Telemetry.View);
 			});
-		Graph.UseToken(SceneColorPass, DeferredValue, ERenderGraphUse::Read);
-		Graph.UseToken(SceneColorPass, CloudShadowValue, ERenderGraphUse::Read);
-		Graph.UseToken(SceneColorPass, SceneColorValue, ERenderGraphUse::Write);
-		const auto PostProcessPass = Graph.AddPass(
-			"Scene.FinalOutput", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources&) {
-				if (!Outcome.SceneColor.IsSuccess()) return;
-				Outcome.PostProcess = RenderPostProcess_RenderThread(
-					Commands, PreparedView, View, OutputTarget, bPresentOutput,
-					Options, *ResolvedFrame.Targets.Scene, Outcome.GBuffer.Targets,
-					Outcome.SceneColor.SceneColor, Outcome.IsolatedDeferred.Output);
-			});
-		Graph.UseToken(PostProcessPass, SceneColorValue, ERenderGraphUse::Read);
-		Graph.UseToken(PostProcessPass, GBufferValue, ERenderGraphUse::Read);
-		Graph.UseToken(PostProcessPass, FinalOutputValue,
+		Graph.UseToken(SceneColorPass, OpaqueSceneValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(SceneColorPass, VolumetricCloudValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseToken(SceneColorPass, SceneColorValue.Handle,
 			ERenderGraphUse::Write);
-		Graph.MarkPassRoot(PostProcessPass,
-			bPresentOutput ? "present" : "offscreen-output");
+		if (bRequiresDeferredOpaque)
+		{
+			const FRenderGraphTextureHandle Color =
+				Requirements.bVolumetricCloudComposite
+					&& GraphResources.VolumetricCloudComposite
+				? *GraphResources.VolumetricCloudComposite
+				: GraphResources.SceneColor;
+			Graph.UseManagedTexture(SceneColorPass, Color,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::ReadWrite,
+				ERHIAccess::ColorAttachmentReadWrite,
+				ERHIAccess::GraphicsShaderRead);
+			Graph.UseManagedTexture(SceneColorPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1},
+				ERenderGraphUse::ReadWrite, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::DepthStencilReadWrite);
+		}
+		const auto PostProcessPass = Graph.AddPass(
+			"Scene.PostProcess", ERenderGraphPassType::Graphics,
+			[this, &Outcome, &PreparedView, &View, &GraphResources,
+				&Requirements, &Options, bPresentOutput,
+				bHasEditorAssistance](FRHICommandListImmediate& Commands,
+				const FRenderGraphPassResources& Resources) {
+				if (!Outcome.SceneColor.IsSuccess()) return;
+				const FPostProcessRenderer::FSceneTargets SceneTargets{
+					.Color = Resources.GetTexture(GraphResources.SceneColor),
+					.Depth = Requirements.bGBufferDebug
+						? Resources.GetTexture(GraphResources.SceneDepth)
+						: nullptr};
+				FRHITexture* SceneColorInput = SceneTargets.Color;
+				if (Outcome.SceneColor.bUsesVolumetricCloudComposite
+					&& GraphResources.VolumetricCloudComposite)
+					SceneColorInput = Resources.GetTexture(
+						*GraphResources.VolumetricCloudComposite);
+				std::optional<FGBufferDebugRenderer::FTargets> DebugTargets;
+				if (GraphResources.GBufferDebug)
+					DebugTargets = {.Color = Resources.GetTexture(
+						*GraphResources.GBufferDebug)};
+				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+				if (GraphResources.GBuffer[0] && Requirements.bGBufferDebug)
+					GBufferTargets = {
+						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
+						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
+						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
+						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
+				FRHITexture* IsolatedDeferredOutput = nullptr;
+				if (GraphResources.IsolatedDeferred
+					&& Outcome.IsolatedDeferred.bOutputValid)
+					IsolatedDeferredOutput = Resources.GetTexture(
+						*GraphResources.IsolatedDeferred);
+				Outcome.PostProcess = RenderPostProcess_RenderThread(
+					Commands, PreparedView, View, Resources.GetTexture(GraphResources.Output),
+					bPresentOutput, Options, SceneTargets,
+					GBufferTargets ? &*GBufferTargets : nullptr,
+					DebugTargets ? &*DebugTargets : nullptr,
+					SceneColorInput, IsolatedDeferredOutput,
+					bHasEditorAssistance);
+			});
+		Graph.UseToken(PostProcessPass, SceneColorValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(PostProcessPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseToken(PostProcessPass, PostProcessValue.Handle,
+			ERenderGraphUse::Write);
+		Graph.UseTexture(PostProcessPass, GraphResources.SceneColor,
+			{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
+			ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.VolumetricCloudComposite)
+			Graph.UseTexture(PostProcessPass,
+				*GraphResources.VolumetricCloudComposite,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (Requirements.bGBufferDebug)
+			Graph.UseTexture(PostProcessPass, GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+		Graph.UseManagedColorAttachment(PostProcessPass, GraphResources.Output,
+			{GetTextureAspects(OutputTarget->GetFormat()), 0,
+				OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()},
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store,
+			bHasEditorAssistance
+				? ERHIAccess::ColorAttachmentReadWrite
+				: (bPresentOutput ? ERHIAccess::Present
+								  : ERHIAccess::GraphicsShaderRead));
+		if (GraphResources.GBufferDebug)
+			Graph.UseManagedColorAttachment(PostProcessPass,
+				*GraphResources.GBufferDebug,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store,
+				ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.GBuffer[0] && Requirements.bGBufferDebug)
+			for (const auto& Texture : GraphResources.GBuffer)
+				Graph.UseTexture(PostProcessPass, *Texture,
+					{ERHITextureAspect::Color, 0, 1, 0, 1},
+					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (GraphResources.IsolatedDeferred)
+			Graph.UseTexture(PostProcessPass, *GraphResources.IsolatedDeferred,
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+		if (!bHasEditorAssistance)
+		{
+			Graph.UseToken(PostProcessPass, FinalOutputValue.Handle,
+				ERenderGraphUse::Write);
+			Graph.MarkPassRoot(PostProcessPass,
+				bPresentOutput ? "present" : "offscreen-output");
+		}
+		else
+		{
+			const auto EditorAssistancePass = Graph.AddPass(
+				"Scene.EditorAssistance", ERenderGraphPassType::Graphics,
+				[this, &Outcome, &PreparedView, &GraphResources,
+					&PreparedEditorAssistance, bPresentOutput](
+					FRHICommandListImmediate& Commands,
+					const FRenderGraphPassResources& Resources) {
+					if (Outcome.PostProcess.Result != ERenderViewResult::Success) return;
+					Outcome.PostProcess.bEditorAssistance =
+						RenderEditorAssistance_RenderThread(Commands, PreparedView,
+							Resources.GetTexture(GraphResources.Output),
+							Resources.GetTexture(GraphResources.SceneDepth),
+							bPresentOutput, PreparedEditorAssistance);
+				});
+			Graph.UseToken(EditorAssistancePass, PostProcessValue.Handle,
+				ERenderGraphUse::Read);
+			Graph.UseToken(EditorAssistancePass, FinalOutputValue.Handle,
+				ERenderGraphUse::Write);
+			Graph.UseManagedColorAttachment(EditorAssistancePass,
+				GraphResources.Output,
+				{GetTextureAspects(OutputTarget->GetFormat()), 0,
+					OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()},
+				ERHIRenderTargetLoadAction::Load,
+				ERHIRenderTargetStoreAction::Store,
+				bPresentOutput ? ERHIAccess::Present
+								 : ERHIAccess::GraphicsShaderRead);
+			Graph.UseManagedDepthStencilAttachment(EditorAssistancePass,
+				GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1},
+				ERHIRenderTargetLoadAction::Load,
+				ERHIRenderTargetStoreAction::Store,
+				ERHIAccess::DepthStencilReadWrite);
+			Graph.MarkPassRoot(EditorAssistancePass,
+				bPresentOutput ? "present" : "offscreen-output");
+		}
 		auto CompiledGraph = Graph.Compile();
 		if (!CompiledGraph.IsSuccess())
 		{
@@ -458,6 +1719,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
@@ -467,11 +1729,8 @@ namespace Durin
 	{
 		const FSceneView& RenderView = PreparedView.Context.View;
 		FGBufferPassResult Result;
-		FGBufferRenderer::FTargets* GBufferTargets = nullptr;
 		if (bNeedsGBuffer)
 		{
-			GBufferTargets = ResolvedFrame.Targets.GBuffer
-				? &*ResolvedFrame.Targets.GBuffer : nullptr;
 			if (GBufferTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;
@@ -542,7 +1801,6 @@ namespace Durin
 					ResolvedFrame.Receiver.Terrains
 				);
 				CommandList.EndRenderPass();
-				Result.Targets = GBufferTargets;
 				Result.Status = StaticResult.bComplete && SkeletalResult.bComplete
 					&& TerrainResult.bComplete
 					? EScenePassStatus::Complete
@@ -624,6 +1882,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
+		const FGroundTruthAmbientOcclusionRenderer::FTargets*
+			InAmbientOcclusionTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -634,23 +1894,18 @@ namespace Durin
 	{
 		FGroundTruthAmbientOcclusionPassResult Result;
 		const FSceneView& RenderView = PreparedView.Context.View;
+		std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
+			AmbientOcclusionTargetsStorage;
+		if (InAmbientOcclusionTargets != nullptr)
+			AmbientOcclusionTargetsStorage = *InAmbientOcclusionTargets;
+		auto* AmbientOcclusionTargets = AmbientOcclusionTargetsStorage
+			? &*AmbientOcclusionTargetsStorage : nullptr;
 		if (bWantsGroundTruthAmbientOcclusion)
 		{
 			++Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews;
-			std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
-				AmbientOcclusionTargetsStorage;
-			if (bGBufferComplete
-				&& ResolvedFrame.Targets.GroundTruthAmbientOcclusion
-			)
-			{
-				AmbientOcclusionTargetsStorage =
-					*ResolvedFrame.Targets.GroundTruthAmbientOcclusion;
-			}
-			auto* AmbientOcclusionTargets = AmbientOcclusionTargetsStorage
-				? &*AmbientOcclusionTargetsStorage : nullptr;
 			Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes =
 				GroundTruthAmbientOcclusionRenderer.GetRetainedTargetBytes_RenderThread();
-			if (AmbientOcclusionTargets == nullptr)
+			if (!bGBufferComplete || AmbientOcclusionTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;
 				++Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews;
@@ -723,8 +1978,6 @@ namespace Durin
 					if (bResolved)
 					{
 						FeatureTiming.Commit();
-						FRHITexture* RawDiagnosticTexture =
-							AmbientOcclusionTargets->Raw;
 						if (Options.GroundTruthAmbientOcclusionDebugMode
 							== EGroundTruthAmbientOcclusionDebugMode::Raw)
 						{
@@ -743,20 +1996,10 @@ namespace Durin
 								AmbientOcclusionTargets->Raw,
 								AmbientOcclusionTargets->Scratch
 							);
-							if (bRawDiagnosticRendered)
-								RawDiagnosticTexture =
-									AmbientOcclusionTargets->Scratch;
+							Result.bRawDiagnosticUsesScratch =
+								bRawDiagnosticRendered;
 						}
 						Result.Status = EScenePassStatus::Complete;
-						Result.Raw = RawDiagnosticTexture;
-						Result.Filtered = AmbientOcclusionTargets->Raw;
-						Result.Resolved =
-							AmbientOcclusionTargets->Quality
-									== EGroundTruthAmbientOcclusionQuality::HalfResolution ?
-								AmbientOcclusionTargets->Resolved.GetReference() :
-								AmbientOcclusionTargets->Raw.GetReference();
-						Result.Selector =
-							AmbientOcclusionTargets->Selector.GetReference();
 						Result.bHalfResolution =
 							AmbientOcclusionTargets->Quality
 							== EGroundTruthAmbientOcclusionQuality::HalfResolution;
@@ -805,6 +2048,10 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
+		const FContactShadowVisibilityRenderer::FTargets*
+			FragmentContactTargets,
+		const FContactShadowVisibilityRenderer::FComputeTargets*
+			ComputeContactTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -832,12 +2079,8 @@ namespace Durin
 										|| RoutePreference == EContactShadowRoutePreference::Fragment;
 			const bool bForceCompute = !Qualification.bForceFragmentContactVisibility
 									   && RoutePreference == EContactShadowRoutePreference::Compute;
-			auto* FragmentContactTargets = !bForceCompute
-				&& ResolvedFrame.Targets.ContactFragment
-				? &*ResolvedFrame.Targets.ContactFragment : nullptr;
-			auto* ComputeContactTargets = !bForceFragment
-				&& ResolvedFrame.Targets.ContactCompute
-				? &*ResolvedFrame.Targets.ContactCompute : nullptr;
+			if (bForceCompute) FragmentContactTargets = nullptr;
+			if (bForceFragment) ComputeContactTargets = nullptr;
 			Telemetry.View.ContactShadow.ContactShadowRetainedBytes =
 				ContactShadowRenderer.GetRetainedTargetBytes_RenderThread();
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
@@ -845,7 +2088,8 @@ namespace Durin
 				GBufferTargets->Material, GBufferTargets->Normals,
 				GBufferTargets->Surface, GBufferTargets->Emissive,
 				SceneTargets.Depth, RenderView,
-				PreparedView.DirectionalShadow->View.LightDirection, Width, Height
+				PreparedView.DirectionalShadow->View.LightDirection, Width, Height,
+				{.bGraphManagedTextureAccess = true}
 			);
 			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
 			if (ReasonIndex < Telemetry.View.ContactShadow.ContactShadowRouteReasons.size())
@@ -855,7 +2099,10 @@ namespace Durin
 				Telemetry.View.ContactShadow.ContactShadowActiveBytes =
 					FContactShadowVisibilityRenderer::CalculateTargetBytes(Width, Height);
 				PassResult.Status = EScenePassStatus::Complete;
-				PassResult.Visibility = ContactResult.Visibility;
+				PassResult.Route = ContactResult.Route
+					== FContactShadowVisibilityRenderer::ERoute::Compute
+					? EContactShadowPassRoute::Compute
+					: EContactShadowPassRoute::Fragment;
 				PassResult.bDebug =
 					RenderView.Settings.DirectionalShadow.bShowContactDebug;
 				++Telemetry.View.ContactShadow.ContactShadowEnabledViews;
@@ -883,7 +2130,12 @@ namespace Durin
 	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
+		const FVolumetricCloudShadowRenderer::FTargets* FragmentTargets,
+		const FVolumetricCloudShadowRenderer::FComputeTargets* ComputeTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		FRHITexture* BaseDensity,
+		FRHITexture* DetailDensity,
+		FRHITexture* Weather,
 		uint32 Width,
 		uint32 Height,
 		bool bWantsProductionDeferred,
@@ -907,20 +2159,14 @@ namespace Durin
 		PassResult.Status = EScenePassStatus::Failed;
 		const bool bForceFragment =
 			Qualification.bForceFragmentVolumetricCloud;
-		auto* FragmentTargets = ResolvedFrame.Targets.VolumetricCloudShadowFragment
-			? &*ResolvedFrame.Targets.VolumetricCloudShadowFragment : nullptr;
-		auto* ComputeTargets = !bForceFragment
-			&& ResolvedFrame.Targets.VolumetricCloudShadowCompute
-			? &*ResolvedFrame.Targets.VolumetricCloudShadowCompute : nullptr;
+		if (bForceFragment) ComputeTargets = nullptr;
 		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
 			PreparedView.Context.View.Settings.VolumetricCloud.Quality);
-		FRHITexture* Weather = ResolvedCloud->Textures.Weather;
-		if (!Weather) Weather = DefaultTextures.Get_RenderThread(EDefaultTexture::White);
 		const auto Result = VolumetricCloudShadowRenderer.Render_RenderThread(
 			CommandList, FragmentTargets, ComputeTargets,
 			{.bRequested = true,
-				 .BaseDensity = ResolvedCloud->Textures.BaseDensity,
-				 .DetailDensity = ResolvedCloud->Textures.DetailDensity,
+				 .BaseDensity = BaseDensity,
+				 .DetailDensity = DetailDensity,
 			 .Weather = Weather,
 			 .SceneDepth = SceneTargets.Depth,
 				 .DensitySampler = ResolvedCloud->Textures.DensitySampler,
@@ -928,7 +2174,8 @@ namespace Durin
 			 .View = &PreparedView.Context.View,
 			 .QualityTier = QualityTier,
 			 .Width = Width,
-			 .Height = Height}
+			 .Height = Height},
+			{.bGraphManagedTextureAccess = true}
 		);
 		auto& ViewTelemetry = Telemetry.View;
 		const size_t ReasonIndex = static_cast<size_t>(Result.Reason);
@@ -942,7 +2189,10 @@ namespace Durin
 			return PassResult;
 		}
 		PassResult.Status = EScenePassStatus::Complete;
-		PassResult.Visibility = Result.Visibility;
+		PassResult.Route = Result.Route
+			== FVolumetricCloudShadowRenderer::ERoute::Compute
+			? EVolumetricCloudShadowPassRoute::Compute
+			: EVolumetricCloudShadowPassRoute::Fragment;
 		ViewTelemetry.VolumetricCloud.VolumetricCloudShadowActiveBytes = Result.TargetBytes;
 		ViewTelemetry.VolumetricCloud.VolumetricCloudShadowSamples = static_cast<uint64>(Width)
 												* Height * Result.SampleCount;
@@ -963,16 +2213,28 @@ namespace Durin
 	auto FRenderGraphSceneFrameExecutor::BuildDeferredParameters(
 		const FSceneRenderPlan& PreparedView,
 		const FDirectionalShadowPassResult& DirectionalShadow,
+		FRHITexture* DirectionalShadowTexture,
 		const FGBufferPassResult& GBuffer,
+		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FGroundTruthAmbientOcclusionPassResult& AmbientOcclusion,
+		const FGroundTruthAmbientOcclusionRenderer::FTargets*
+			AmbientOcclusionTargets,
 		const FContactShadowPassResult& ContactShadow,
+		const FContactShadowVisibilityRenderer::FTargets*
+			FragmentContactTargets,
+		const FContactShadowVisibilityRenderer::FComputeTargets*
+			ComputeContactTargets,
 		const FVolumetricCloudShadowPassResult& CloudShadow,
+		const FVolumetricCloudShadowRenderer::FTargets*
+			FragmentCloudShadowTargets,
+		const FVolumetricCloudShadowRenderer::FComputeTargets*
+			ComputeCloudShadowTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FSceneViewRenderOptions& Options
 	) -> std::optional<
 		FDeferredDirectionalLightingRenderer::FRenderParameters>
 	{
-		if (!GBuffer.IsComplete()) return std::nullopt;
+		if (!GBuffer.IsComplete() || GBufferTargets == nullptr) return std::nullopt;
 		FRHITexture* EnvironmentIrradiance =
 			EnvironmentLighting.GetIrradiance_RenderThread();
 		FRHITexture* EnvironmentPrefiltered =
@@ -994,48 +2256,93 @@ namespace Durin
 		}
 		FRHITexture* White =
 			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
-		const auto& Targets = *GBuffer.Targets;
+		const bool bAmbientOcclusionComplete = AmbientOcclusion.IsComplete()
+			&& AmbientOcclusionTargets != nullptr;
+		FRHITexture* ContactVisibility = White;
+		bool bContactVisibilityComplete = false;
+		if (ContactShadow.IsComplete())
+		{
+			if (ContactShadow.Route == EContactShadowPassRoute::Compute
+				&& ComputeContactTargets != nullptr)
+			{
+				ContactVisibility = ComputeContactTargets->Visibility;
+				bContactVisibilityComplete = true;
+			}
+			else if (ContactShadow.Route == EContactShadowPassRoute::Fragment
+				&& FragmentContactTargets != nullptr)
+			{
+				ContactVisibility = FragmentContactTargets->Visibility;
+				bContactVisibilityComplete = true;
+			}
+		}
+		FRHITexture* CloudShadowVisibility = White;
+		bool bCloudShadowVisibilityComplete = false;
+		if (CloudShadow.IsComplete())
+		{
+			if (CloudShadow.Route == EVolumetricCloudShadowPassRoute::Compute
+				&& ComputeCloudShadowTargets != nullptr)
+			{
+				CloudShadowVisibility = ComputeCloudShadowTargets->Visibility;
+				bCloudShadowVisibilityComplete = true;
+			}
+			else if (CloudShadow.Route == EVolumetricCloudShadowPassRoute::Fragment
+				&& FragmentCloudShadowTargets != nullptr)
+			{
+				CloudShadowVisibility = FragmentCloudShadowTargets->Visibility;
+				bCloudShadowVisibilityComplete = true;
+			}
+		}
 		return FDeferredDirectionalLightingRenderer::FRenderParameters{
-			.Material = Targets.Material,
-			.Normals = Targets.Normals,
-			.Surface = Targets.Surface,
-			.Emissive = Targets.Emissive,
+			.Material = GBufferTargets->Material,
+			.Normals = GBufferTargets->Normals,
+			.Surface = GBufferTargets->Surface,
+			.Emissive = GBufferTargets->Emissive,
 			.Depth = SceneTargets.Depth,
 			.EnvironmentIrradiance = EnvironmentIrradiance,
 			.EnvironmentPrefiltered = EnvironmentPrefiltered,
 			.EnvironmentBrdfLut = EnvironmentBrdfLut,
 			.EnvironmentSampler = EnvironmentSampler,
 			.DirectionalShadowTexture = DirectionalShadow.IsComplete()
-				? DirectionalShadow.Texture
+				&& DirectionalShadowTexture != nullptr
+				? DirectionalShadowTexture
 				: DefaultTextures.GetArray_RenderThread(),
-			.DirectionalShadowSampler = DirectionalShadow.Sampler,
-			.GroundTruthAmbientOcclusionRaw = AmbientOcclusion.IsComplete()
-				? AmbientOcclusion.Raw : White,
+			.DirectionalShadowSampler = DirectionalShadow.IsComplete()
+				? DirectionalShadowRenderer.GetSampler_RenderThread() : nullptr,
+			.GroundTruthAmbientOcclusionRaw = bAmbientOcclusionComplete
+				? (AmbientOcclusion.bRawDiagnosticUsesScratch
+					? AmbientOcclusionTargets->Scratch.GetReference()
+					: AmbientOcclusionTargets->Raw.GetReference())
+				: White,
 			.GroundTruthAmbientOcclusionFiltered =
-				AmbientOcclusion.IsComplete() ? AmbientOcclusion.Filtered : White,
+				bAmbientOcclusionComplete
+					? AmbientOcclusionTargets->Raw.GetReference() : White,
 			.GroundTruthAmbientOcclusionResolved =
-				AmbientOcclusion.IsComplete() ? AmbientOcclusion.Resolved : White,
+				bAmbientOcclusionComplete
+					? (AmbientOcclusion.bHalfResolution
+						? AmbientOcclusionTargets->Resolved.GetReference()
+						: AmbientOcclusionTargets->Raw.GetReference())
+					: White,
 			.GroundTruthAmbientOcclusionSelector =
-				AmbientOcclusion.IsComplete() && AmbientOcclusion.Selector != nullptr
-					? AmbientOcclusion.Selector : White,
-			.ContactVisibility = ContactShadow.IsComplete()
-				? ContactShadow.Visibility : White,
-			.VolumetricCloudVisibility = CloudShadow.IsComplete()
-				? CloudShadow.Visibility : White,
+				bAmbientOcclusionComplete && AmbientOcclusion.bHalfResolution
+					? AmbientOcclusionTargets->Selector.GetReference() : White,
+			.ContactVisibility = ContactVisibility,
+			.VolumetricCloudVisibility = CloudShadowVisibility,
 			.Lighting = ResolvedFrame.Lighting.UniformBuffer,
 			.View = &PreparedView.Context.View,
 			.DiagnosticMode = static_cast<uint32>(
 				Options.DeferredDirectionalDebugMode),
-			.bGroundTruthAmbientOcclusionEnabled = AmbientOcclusion.IsComplete(),
+			.bGroundTruthAmbientOcclusionEnabled = bAmbientOcclusionComplete,
 			.bGroundTruthAmbientOcclusionHalfResolution =
 				AmbientOcclusion.bHalfResolution,
-			.bContactVisibilityEnabled = ContactShadow.IsComplete(),
+			.bContactVisibilityEnabled = bContactVisibilityComplete,
 			.bContactVisibilityDebug = ContactShadow.bDebug,
-			.bVolumetricCloudVisibilityEnabled = CloudShadow.IsComplete()};
+			.bVolumetricCloudVisibilityEnabled =
+				bCloudShadowVisibilityComplete};
 	}
 
 	auto FRenderGraphSceneFrameExecutor::RenderIsolatedDeferred_RenderThread(
 		FRHICommandListImmediate& CommandList,
+		const FDeferredDirectionalLightingRenderer::FTargets* Targets,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
@@ -1047,9 +2354,7 @@ namespace Durin
 		if (bWantsIsolatedDeferred)
 		{
 			Result.Status = EScenePassStatus::Failed;
-			auto* DeferredTargets = ResolvedFrame.Targets.IsolatedDeferred
-				? &*ResolvedFrame.Targets.IsolatedDeferred : nullptr;
-			if (DeferredTargets == nullptr)
+			if (Targets == nullptr)
 				++Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
 			else
 			{
@@ -1065,7 +2370,7 @@ namespace Durin
 				);
 				const bool bRendered =
 					DeferredDirectionalLightingRenderer.Render_RenderThread(
-						CommandList, *DeferredTargets, Parameters
+						CommandList, *Targets, Parameters
 					);
 				DeferredTiming.End();
 				if (bRendered)
@@ -1084,11 +2389,11 @@ namespace Durin
 					const FDeferredDirectionalCaptureSink CaptureSink =
 						GetDeferredDirectionalCaptureSink();
 					if (CaptureSink != nullptr)
-						CaptureSink(CommandList, DeferredTargets->Color);
+						CaptureSink(CommandList, Targets->Color);
 					if (Options.GroundTruthAmbientOcclusionDebugMode
 						!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 					{
-						Result.Output = DeferredTargets->Color;
+						Result.bOutputValid = true;
 					}
 				}
 				else
@@ -1109,8 +2414,10 @@ namespace Durin
 		const FSceneViewRenderOptions& Options,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FGBufferRenderer::FTargets* GBufferTargets,
+		const FGBufferDebugRenderer::FTargets* GBufferDebugTargets,
 		FRHITexture* SceneColor,
-		FRHITexture* GroundTruthAmbientOcclusionDebugOutput
+		FRHITexture* GroundTruthAmbientOcclusionDebugOutput,
+		bool bEditorAssistanceFollows
 	) -> FPostProcessPassResult
 	{
 		const FSceneView& RenderView = PreparedView.Context.View;
@@ -1122,9 +2429,7 @@ namespace Durin
 		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 			&& GBufferTargets != nullptr)
 		{
-			auto* DebugTargets = ResolvedFrame.Targets.GBufferDebug
-				? &*ResolvedFrame.Targets.GBufferDebug : nullptr;
-			if (DebugTargets != nullptr
+			if (GBufferDebugTargets != nullptr
 				&& GBufferDebugRenderer.Render_RenderThread(
 					CommandList,
 					GBufferTargets->Material,
@@ -1132,14 +2437,14 @@ namespace Durin
 					GBufferTargets->Surface,
 					GBufferTargets->Emissive,
 					SceneTargets.Depth,
-					DebugTargets->Color,
+					GBufferDebugTargets->Color,
 					RenderView,
 					Options.GBufferDebugMode,
 					Width,
 					Height
 				))
 			{
-				PostProcessInput = DebugTargets->Color;
+				PostProcessInput = GBufferDebugTargets->Color;
 				++Telemetry.View.GBuffer.GBufferDebugViews;
 			}
 			else
@@ -1158,23 +2463,10 @@ namespace Durin
 			HDRCaptureSink(CommandList, SceneColor, PostProcessInput);
 		}
 
-		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
-		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
-		if (!EditorAssistanceRequest.IsEmpty())
-		{
-			PreparedEditorAssistance =
-				EditorAssistanceRenderer.Prepare_RenderThread(
-					CommandList,
-					RenderView,
-					EditorAssistanceRequest
-				);
-		}
-		const bool bHasEditorAssistance =
-			PreparedEditorAssistance.HasDrawableOperation();
-
 		FRHIRenderPassInfo PostProcessPassInfo{};
-		PostProcessPassInfo.RenderTargetLayout = bHasEditorAssistance ? RenderTargetLayouts::MakeScenePostProcessOutput() : RenderTargetLayouts::MakeFinalScenePostProcessOutput(ViewportOutput);
+		PostProcessPassInfo.RenderTargetLayout = bEditorAssistanceFollows
+			? RenderTargetLayouts::MakeScenePostProcessOutput()
+			: RenderTargetLayouts::MakeFinalScenePostProcessOutput(ViewportOutput);
 		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
 		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
 			View.ClearColor.r,
@@ -1198,24 +2490,33 @@ namespace Durin
 			Height,
 			bPresentOutput,
 			View.Settings.PostProcess.bEnableFXAA,
-			bHasEditorAssistance,
+			bEditorAssistanceFollows,
 			RenderView.Settings.PostProcess.ExposureEV
 		);
 		CommandList.EndRenderPass();
 		PostProcessTiming.Commit();
-		if (!bHasEditorAssistance)
-		{
-			return {
-				.Result = ERenderViewResult::Success,
-				.Input = PostProcessInput};
-		}
+		return {.Result = ERenderViewResult::Success};
+	}
 
+	auto FRenderGraphSceneFrameExecutor::RenderEditorAssistance_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView,
+		FRHITexture* OutputTarget,
+		FRHITexture* DepthTarget,
+		bool bPresentOutput,
+		const RendererEditorAssistance::FPrepared& Prepared
+	) -> bool
+	{
+		if (!Prepared.HasDrawableOperation()) return false;
+		const FSceneView& RenderView = PreparedView.Context.View;
+		const RenderTargetLayouts::EViewportOutput ViewportOutput =
+			GetViewportOutput(bPresentOutput);
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
 		EditorAssistancePassInfo.RenderTargetLayout =
 			RenderTargetLayouts::MakeEditorAssistanceOutput(ViewportOutput);
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget =
-			SceneTargets.Depth;
+			DepthTarget;
 		CommandList.BeginRenderPass(
 			EditorAssistancePassInfo,
 			bPresentOutput ? "EditorAssistancePresentRenderPass" : "EditorAssistanceOffscreenRenderPass"
@@ -1223,36 +2524,37 @@ namespace Durin
 		EditorAssistanceRenderer.Draw_RenderThread(
 			CommandList,
 			RenderView,
-			PreparedEditorAssistance
+			Prepared
 		);
 		CommandList.EndRenderPass();
-		return {
-			.Result = ERenderViewResult::Success,
-			.Input = PostProcessInput,
-			.bEditorAssistance = true};
+		return true;
 	}
 
-	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloud_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloudSpatial_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
-		FRHITexture* SceneColor,
-		FRHITexture* Depth,
-		FRHITexture* VolumetricCloudShadowVisibility
-	) -> FVolumetricCloudPassResult
+		const FVolumetricCloudRenderer::FTargets* FragmentTargets,
+		const FVolumetricCloudRenderer::FComputeTargets* ComputeTargets,
+		FRHITexture* BaseDensity,
+		FRHITexture* DetailDensity,
+		FRHITexture* Weather,
+		FRHITexture* Depth
+	) -> FVolumetricCloudSpatialPassResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView& View = PreparedView.Context.View;
-		const uint32 Width = SceneColor != nullptr ? SceneColor->GetSizeX() : 0;
-		const uint32 Height = SceneColor != nullptr ? SceneColor->GetSizeY() : 0;
+		const uint32 Width = Depth != nullptr ? Depth->GetSizeX() : 0;
+		const uint32 Height = Depth != nullptr ? Depth->GetSizeY() : 0;
 		const FPreparedVolumetricCloud* Cloud = PreparedView.VolumetricCloud
 			? &*PreparedView.VolumetricCloud : nullptr;
 		const FResolvedVolumetricCloud* ResolvedCloud =
 			ResolvedFrame.VolumetricCloud
 				? &*ResolvedFrame.VolumetricCloud : nullptr;
 		const bool bInputsPresent = Cloud != nullptr && ResolvedCloud != nullptr
-									&& ResolvedCloud->Textures.BaseDensity != nullptr
-									&& ResolvedCloud->Textures.DetailDensity != nullptr
+									&& BaseDensity != nullptr
+									&& DetailDensity != nullptr
+									&& Weather != nullptr
 									&& ResolvedCloud->Textures.DensitySampler != nullptr
 									&& Depth != nullptr;
 		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
@@ -1263,19 +2565,26 @@ namespace Durin
 		const auto CloudExtent = FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
 			Width, Height, Quality
 		);
-		auto* FragmentTargets = bInputsPresent
-			&& ResolvedFrame.Targets.VolumetricCloudFragment
-			? &*ResolvedFrame.Targets.VolumetricCloudFragment : nullptr;
-		auto* ComputeTargets = bInputsPresent
-			&& !Qualification.bForceFragmentVolumetricCloud
-			&& ResolvedFrame.Targets.VolumetricCloudCompute
-			? &*ResolvedFrame.Targets.VolumetricCloudCompute : nullptr;
+		if (!bInputsPresent) FragmentTargets = nullptr;
+		if (!bInputsPresent || Qualification.bForceFragmentVolumetricCloud)
+			ComputeTargets = nullptr;
 		auto Textures = ResolvedCloud != nullptr
 			? ResolvedCloud->Textures
 			: FVolumetricCloudRenderer::FTextureBindings{};
+		Textures.BaseDensity = BaseDensity;
+		Textures.DetailDensity = DetailDensity;
+		Textures.Weather = Weather;
 		Textures.SceneDepth = Depth;
 		const FVolumetricCloudRenderer::FRenderResult Result =
-			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets, ComputeTargets, {.bRequested = Cloud != nullptr, .Textures = Textures, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .View = &View, .QualityTier = QualityTier, .SuccessfulSequence = TemporalContext.SuccessfulSequence, .Width = CloudExtent.Width, .Height = CloudExtent.Height, .OutputWidth = Width, .OutputHeight = Height});
+			VolumetricCloudRenderer.Render_RenderThread(CommandList, FragmentTargets,
+				ComputeTargets, {.bRequested = Cloud != nullptr, .Textures = Textures,
+					.Parameters = Cloud != nullptr ? Cloud->Parameters
+						: FVolumetricCloudRenderer::FParameters{}, .View = &View,
+					.QualityTier = QualityTier,
+					.SuccessfulSequence = TemporalContext.SuccessfulSequence,
+					.Width = CloudExtent.Width, .Height = CloudExtent.Height,
+					.OutputWidth = Width, .OutputHeight = Height},
+				{.bGraphManagedTextureAccess = true});
 		auto& ViewTelemetry = Telemetry.View;
 		const auto RouteIndex = static_cast<size_t>(Result.Counters.Reason);
 		if (RouteIndex < ViewTelemetry.VolumetricCloud.VolumetricCloudRouteReasons.size())
@@ -1295,9 +2604,42 @@ namespace Durin
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudFragmentViews;
 		else
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudDisabledViews;
+		return {
+			.Status = Result.Cloud != nullptr
+				? EScenePassStatus::Complete
+				: (Cloud != nullptr ? EScenePassStatus::Failed
+					: EScenePassStatus::NotRequested),
+			.Route = Result.Counters.Route};
+	}
+
+	auto FRenderGraphSceneFrameExecutor::RenderVolumetricCloudComposite_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView,
+		const FVolumetricCloudSpatialPassResult& Spatial,
+		const FVolumetricCloudRenderer::FTargets* FragmentTargets,
+		const FVolumetricCloudRenderer::FComputeTargets* ComputeTargets,
+		const FVolumetricCloudRenderer::FTargets* CompositeTargets,
+		FRHITexture* SceneColor,
+		FRHITexture* Depth,
+		FRHITexture* VolumetricCloudShadowVisibility
+	) -> FVolumetricCloudPassResult
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		const FSceneView& View = PreparedView.Context.View;
+		const FPreparedVolumetricCloud* Cloud = PreparedView.VolumetricCloud
+			? &*PreparedView.VolumetricCloud : nullptr;
+		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+			View.Settings.VolumetricCloud.Quality);
+		auto& ViewTelemetry = Telemetry.View;
+		FRHITexture* CurrentCloud = Spatial.Route
+				== FVolumetricCloudRenderer::ERoute::Compute && ComputeTargets
+			? ComputeTargets->Cloud.GetReference()
+			: (Spatial.Route == FVolumetricCloudRenderer::ERoute::Fragment
+				&& FragmentTargets ? FragmentTargets->Cloud.GetReference() : nullptr);
 		const FVolumetricCloudRenderer::FTemporalReconstructionResult Temporal =
-			Result.Cloud != nullptr ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
-										  CommandList, {.CurrentCloud = Result.Cloud, .View = &View, .TemporalContext = &TemporalContext, .ViewState = ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
+			CurrentCloud != nullptr ? VolumetricCloudRenderer.ReconstructTemporal_RenderThread(
+										  CommandList, {.CurrentCloud = CurrentCloud, .View = &View, .TemporalContext = &TemporalContext, .ViewState = ViewState, .Parameters = Cloud != nullptr ? Cloud->Parameters : FVolumetricCloudRenderer::FParameters{}, .QualityTier = QualityTier, .CloudHistoryKey = Cloud != nullptr ? Cloud->HistoryKey : 0}
 									  ) :
 									  FVolumetricCloudRenderer::FTemporalReconstructionResult{};
 		ViewTelemetry.VolumetricCloud.VolumetricCloudHistoryBytes = Temporal.HistoryBytes;
@@ -1308,10 +2650,10 @@ namespace Durin
 		else if (Temporal.bCandidatePublished)
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudHistoryRejected;
 		FRHITexture* Composite = Temporal.Cloud != nullptr
-			&& ResolvedFrame.Targets.VolumetricCloudComposite
+			&& CompositeTargets != nullptr
 			? VolumetricCloudRenderer.Composite_RenderThread(
 				CommandList,
-				*ResolvedFrame.Targets.VolumetricCloudComposite,
+				*CompositeTargets,
 				SceneColor, Temporal.Cloud, Depth,
 				VolumetricCloudShadowVisibility,
 				Temporal.bCandidatePublished,
@@ -1325,22 +2667,20 @@ namespace Durin
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudCompositeDraws;
 			return {
 				.Status = EScenePassStatus::Complete,
-				.SceneColor = Composite};
+				.bCompositeOutputValid = true};
 		}
 		return {
-			.Status = Cloud != nullptr
-				? EScenePassStatus::Failed : EScenePassStatus::NotRequested,
-			.SceneColor = SceneColor};
+			.Status = Spatial.Status == EScenePassStatus::Complete
+				? EScenePassStatus::Failed : EScenePassStatus::NotRequested};
 	}
 
-	auto FRenderGraphSceneFrameExecutor::RenderScene_RenderThread(
+	auto FRenderGraphSceneFrameExecutor::RenderSceneOpaque_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView,
 		FRHITexture* SceneColor,
 		FRHITexture* Depth,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters*
-			DeferredParameters,
-		FRHITexture* VolumetricCloudShadowVisibility
+			DeferredParameters
 	) -> FSceneColorPassResult
 	{
 		check(IsInRenderingThread());
@@ -1371,8 +2711,7 @@ namespace Durin
 			CommandList.EndRenderPass();
 			return {
 				.Result = bRendered ? ERenderViewResult::Success
-					: ERenderViewResult::RequiredEnvironmentUnavailable,
-				.SceneColor = SceneColor};
+					: ERenderViewResult::RequiredEnvironmentUnavailable};
 		}
 		if (DeferredParameters == nullptr)
 		{
@@ -1424,9 +2763,10 @@ namespace Durin
 		}
 		CommandList.EndRenderPass();
 		if (!bBootstrapRendered)
+		{
 			return {
-				.Result = ERenderViewResult::RequiredEnvironmentUnavailable,
-				.SceneColor = SceneColor};
+				.Result = ERenderViewResult::RequiredEnvironmentUnavailable};
+		}
 
 		const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
 			GetDeferredDirectionalTimingQuerySink();
@@ -1502,26 +2842,38 @@ namespace Durin
 		}
 		CommandList.EndRenderPass();
 		RetainedOpaqueTiming.Commit();
-		const FVolumetricCloudTimingQuerySink VolumetricCloudTimingSink =
-			GetVolumetricCloudTimingQuerySink();
-		TScopedRendererGPUTimingQuery VolumetricCloudTiming(
-			CommandList, VolumetricCloudTimingSink
-		);
-		const std::array CloudBoundaryTransitions{
-			FRHITextureTransition::Whole(Depth, ERHIAccess::DepthStencilReadWrite, ERHIAccess::GraphicsShaderRead)
-		};
-		CommandList.TransitionTextures(CloudBoundaryTransitions);
+		return {.Result = ERenderViewResult::Success};
+	}
 
-		const FVolumetricCloudPassResult CloudResult =
-			RenderVolumetricCloud_RenderThread(
-				CommandList, PreparedView, SceneColor, Depth,
-				VolumetricCloudShadowVisibility);
-		SceneColor = CloudResult.SceneColor;
-		const std::array SortedTranslucencyTransitions{
-			FRHITextureTransition::Whole(SceneColor, ERHIAccess::GraphicsShaderRead, ERHIAccess::ColorAttachmentReadWrite)
+	auto FRenderGraphSceneFrameExecutor::RenderSceneTranslucency_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneRenderPlan& PreparedView,
+		FRHITexture* SceneColor,
+		FRHITexture* Depth,
+		const FSceneColorPassResult& Opaque,
+		const FVolumetricCloudPassResult& VolumetricCloud
+	) -> FSceneColorPassResult
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		if (!Opaque.IsSuccess()) return Opaque;
+		const FSceneView& View = PreparedView.Context.View;
+		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
+			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
+			return Opaque;
+		if (SceneColor == nullptr || Depth == nullptr) return {};
+		auto SetViewRect = [&CommandList, &View]() {
+			CommandList.SetViewport(
+				static_cast<float>(View.ViewportX),
+				static_cast<float>(View.ViewportY), 0.0f,
+				static_cast<float>(View.ViewportX + View.ViewportWidth),
+				static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+			CommandList.SetScissor(
+				static_cast<float>(View.ViewportX),
+				static_cast<float>(View.ViewportY),
+				static_cast<float>(View.ViewportWidth),
+				static_cast<float>(View.ViewportHeight));
 		};
-		CommandList.TransitionTextures(SortedTranslucencyTransitions);
-		VolumetricCloudTiming.Commit();
 		const FSortedTranslucencyTimingQuerySink SortedTranslucencyTimingSink =
 			GetSortedTranslucencyTimingQuerySink();
 		TScopedRendererGPUTimingQuery SortedTranslucencyTiming(
@@ -1579,8 +2931,9 @@ namespace Durin
 		++Telemetry.View.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,
-			.SceneColor = SceneColor,
-			.VolumetricCloud = CloudResult};
+			.bUsesVolumetricCloudComposite =
+				VolumetricCloud.bCompositeOutputValid,
+			.VolumetricCloud = VolumetricCloud};
 	}
 
 	auto FRenderGraphSceneFrameExecutor::RenderSpecialForwardScene_RenderThread(

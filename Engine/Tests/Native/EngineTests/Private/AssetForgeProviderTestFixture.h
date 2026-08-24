@@ -2,6 +2,7 @@
 
 #include "AssetForgeAuthoringTestSupport.h"
 #include "AssetForgeProviders.h"
+#include "EngineTestSupport.h"
 
 #include <string>
 

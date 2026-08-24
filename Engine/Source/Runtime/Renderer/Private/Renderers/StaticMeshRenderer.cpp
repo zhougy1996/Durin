@@ -815,7 +815,14 @@ namespace Durin
 				Candidate.OpaqueShadowFragmentShader =
 					ShaderMapPayload->OpaqueShadowFragmentShader;
 				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout = bShadowDepth ? RenderTargetLayouts::MakeDirectionalShadowDepth() : (Identity.bHybridRetained ? RenderTargetLayouts::MakeHybridRetainedForward() : RenderTargetLayouts::MakeSceneTargets());
+				Initializer.RenderTargetLayout = bShadowDepth
+					? RenderTargetLayouts::MakeDirectionalShadowDepth()
+					: (Identity.bHybridRetained
+						? (Identity.Material.ShaderMap.BlendMode
+								== EMaterialBlendMode::Translucent
+							? RenderTargetLayouts::MakeHybridSortedTranslucency()
+							: RenderTargetLayouts::MakeHybridRetainedForward())
+						: RenderTargetLayouts::MakeSceneTargets());
 				Initializer.BoundShaders.VertexShader = Identity.VertexDomain == EVertexDeformationDomain::Spline ? Candidate.SplineVertexShader.GetRHIShader() : Candidate.VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader = bShadowDepth ? (Identity.Material.ShaderMap.BlendMode
 																				  == EMaterialBlendMode::Masked ?

@@ -8,7 +8,6 @@
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"
-#include "RenderGraph.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
 #include "Shader/Shader.h"
@@ -20,23 +19,6 @@ namespace Durin
 	{
 		std::atomic<FContactShadowVisibilityRenderer::FTimingQuerySink>
 			GContactVisibilityTimingQuerySink = nullptr;
-		constexpr FRenderGraphBudget ContactComputeGraphBudget{
-			.MaxPasses = 1, .MaxDependencies = 0,
-			.MaxBufferTransitions = 2, .MaxTextureTransitions = 12,
-			.MaxCompileMicroseconds = 2000,
-			.MaxExecuteMicroseconds = 50000};
-		constexpr FRenderGraphBudget ContactFragmentGraphBudget{
-			.MaxPasses = 1, .MaxDependencies = 0,
-			.MaxBufferTransitions = 0, .MaxTextureTransitions = 2,
-			.MaxCompileMicroseconds = 2000,
-			.MaxExecuteMicroseconds = 50000};
-
-		auto GetWholeTextureRange(FRHITexture* Texture)
-			-> FRHITextureSubresourceRange
-		{
-			return {GetTextureAspects(Texture->GetFormat()), 0,
-				Texture->GetNumMips(), 0, Texture->GetArraySize()};
-		}
 		class FContactVisibilityVertexShader final : public FShader
 		{
 		public:
@@ -206,7 +188,8 @@ namespace Durin
 		const FComputeTargets* ComputeTargets,
 		FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface,
 		FRHITexture* Emissive, FRHITexture* SceneDepth, const FSceneView& View,
-		const FVector3& LightDirection, uint32 Width, uint32 Height) -> FRenderResult
+		const FVector3& LightDirection, uint32 Width, uint32 Height,
+		const FRenderPolicy& Policy) -> FRenderResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
@@ -214,10 +197,15 @@ namespace Durin
 		const bool bViewFits = View.ViewportX <= Width && View.ViewportY <= Height
 			&& View.ViewportWidth <= Width - View.ViewportX
 			&& View.ViewportHeight <= Height - View.ViewportY;
-		const bool bInputsValid = Material != nullptr && Normals != nullptr
+		const bool bPhysicalInputsValid = Material != nullptr && Normals != nullptr
 			&& Surface != nullptr && Emissive != nullptr && SceneDepth != nullptr
 			&& View.ViewportWidth != 0 && View.ViewportHeight != 0 && bViewFits
 			&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8;
+		const bool bInputsValid = Policy.bPreparationOnly
+			? Policy.bInputsExpected && View.ViewportWidth != 0
+				&& View.ViewportHeight != 0 && bViewFits
+				&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8
+			: bPhysicalInputsValid;
 
 		using FComputePayload = FState::FComputePayload;
 		using FComputeResult = TRenderResourceCreateResult<FComputePayload>;
@@ -284,8 +272,9 @@ namespace Durin
 			.bRequested = bRequested,
 			.bInputsValid = bInputsValid,
 			.bComputePayloadReady = ComputePayload != nullptr,
-			.bComputeTargetReady = ComputeTargets != nullptr
-				&& ComputeTargets->Visibility != nullptr,
+			.bComputeTargetReady = Policy.bPreparationOnly
+				? Policy.bComputeTargetExpected
+				: ComputeTargets != nullptr && ComputeTargets->Visibility != nullptr,
 			.bFragmentReady = false,
 			.Width = Width,
 			.Height = Height,
@@ -299,8 +288,10 @@ namespace Durin
 		using FFragmentResult = TRenderResourceCreateResult<FFragmentPayload>;
 		FFragmentPayload* FragmentPayload = nullptr;
 		if (Decision.Route != ERoute::Compute && bRequested && bInputsValid
-			&& Width != 0 && Height != 0 && FragmentTargets != nullptr
-			&& FragmentTargets->Visibility != nullptr)
+			&& Width != 0 && Height != 0
+			&& (Policy.bPreparationOnly ? Policy.bFragmentTargetExpected
+				: FragmentTargets != nullptr
+					&& FragmentTargets->Visibility != nullptr))
 		{
 			FragmentPayload = State->FragmentResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
@@ -373,6 +364,8 @@ namespace Durin
 			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
 			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
 		Decision = SelectRoute(RouteInputs);
+		if (Policy.bPreparationOnly)
+			return {.Route = Decision.Route, .Reason = Decision.Reason};
 		if (Decision.Route == ERoute::FactorOne)
 			return {.Route = Decision.Route, .Reason = Decision.Reason};
 
@@ -408,184 +401,123 @@ namespace Durin
 
 		if (Decision.Route == ERoute::Compute)
 		{
-			FRenderGraphBuilder Graph;
-			Graph.SetBudget(ContactComputeGraphBudget);
-			const auto GraphMaterial = Graph.ImportTexture("Contact.Material", Material,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto GraphNormals = Graph.ImportTexture("Contact.Normals", Normals,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto GraphSurface = Graph.ImportTexture("Contact.Surface", Surface,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto GraphEmissive = Graph.ImportTexture("Contact.Emissive", Emissive,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto GraphDepth = Graph.ImportTexture("Contact.Depth", SceneDepth,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto GraphVisibility = Graph.CreateTexture("Contact.Visibility",
-				ComputeTargets->Visibility, ERHIAccess::GraphicsShaderRead);
-			const auto GraphUniform = Graph.ImportBuffer("Contact.Uniform",
-				UniformBuffer.Buffer, ERHIAccess::Discard,
-				ERHIAccess::GraphicsUniformRead);
-			const auto Pass = Graph.AddPass("ContactVisibility.Compute",
-				ERenderGraphPassType::Compute,
-				[=](FRHICommandListImmediate& GraphCommands,
-					const FRenderGraphPassResources& Resources) {
-					FGPUTimingQueryRHIRef TimingQuery;
-					if (TimingSink != nullptr && GDynamicRHI != nullptr)
-					{
-						TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
-						if (TimingQuery) GraphCommands.BeginGPUTimingQuery(TimingQuery);
-					}
-					GraphCommands.SwitchPipeline(ERHIPipeline::Compute);
-					GraphCommands.SetComputePipelineState(*ComputePayload->PipelineState);
-					FContactVisibilityComputeShader::FParameters Parameters;
-					Parameters.GBufferMaterial = Resources.GetTexture(GraphMaterial);
-					Parameters.GBufferNormals = Resources.GetTexture(GraphNormals);
-					Parameters.GBufferSurface = Resources.GetTexture(GraphSurface);
-					Parameters.GBufferEmissive = Resources.GetTexture(GraphEmissive);
-					Parameters.SceneDepth = Resources.GetTexture(GraphDepth);
-					Parameters.Params = {Resources.GetBuffer(GraphUniform),
-						UniformBuffer.Offset, UniformBuffer.Size};
-					Parameters.ContactVisibilityOutput =
-						Resources.GetTexture(GraphVisibility);
-					SetShaderParameters(GraphCommands, ComputePayload->ComputeShader,
-						Parameters);
-					GraphCommands.Dispatch(CalculateGroupCount(Width),
-						CalculateGroupCount(Height), 1);
-					GraphCommands.SwitchPipeline(ERHIPipeline::Graphics);
-					if (TimingQuery)
-					{
-						GraphCommands.EndGPUTimingQuery(TimingQuery);
-						TimingSink(TimingQuery, Decision.Route);
-					}
-				});
-			Graph.UseTexture(Pass, GraphMaterial, GetWholeTextureRange(Material),
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
-			Graph.UseTexture(Pass, GraphNormals, GetWholeTextureRange(Normals),
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
-			Graph.UseTexture(Pass, GraphSurface, GetWholeTextureRange(Surface),
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
-			Graph.UseTexture(Pass, GraphEmissive, GetWholeTextureRange(Emissive),
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
-			Graph.UseTexture(Pass, GraphDepth, GetWholeTextureRange(SceneDepth),
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
-			Graph.UseTexture(Pass, GraphVisibility,
-				GetWholeTextureRange(ComputeTargets->Visibility),
-				ERenderGraphUse::ReadWrite, ERHIAccess::ComputeShaderReadWrite, true);
-			Graph.UseBuffer(Pass, GraphUniform, UniformBuffer.Offset,
-				UniformBuffer.Size, ERenderGraphUse::Read,
-				ERHIAccess::ComputeUniformRead);
-			auto Compiled = Graph.Compile();
-			if (!Compiled.IsSuccess())
+			const std::array InputTransitions{
+				FRHITextureTransition::Whole(Material, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead),
+				FRHITextureTransition::Whole(Normals, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead),
+				FRHITextureTransition::Whole(Surface, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead),
+				FRHITextureTransition::Whole(Emissive, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead),
+				FRHITextureTransition::Whole(SceneDepth, ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::ComputeShaderRead),
+				FRHITextureTransition::Whole(ComputeTargets->Visibility,
+					ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite)};
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(InputTransitions);
+			const std::array UniformTransition{FRHIBufferTransition{
+				UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size,
+				ERHIAccess::Discard, ERHIAccess::ComputeUniformRead}};
+			CommandList.TransitionBuffers(UniformTransition);
+			FGPUTimingQueryRHIRef TimingQuery;
+			if (TimingSink != nullptr && GDynamicRHI != nullptr)
 			{
-				DURIN_WARN("Contact visibility graph compilation failed: {}",
-					Compiled.Error);
-				return {.Route = ERoute::FactorOne,
-					.Reason = ERouteReason::InvalidInputs};
+				TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+				if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 			}
-			Compiled.Graph->Execute(CommandList);
+			CommandList.SwitchPipeline(ERHIPipeline::Compute);
+			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
+			FContactVisibilityComputeShader::FParameters Parameters;
+			Parameters.GBufferMaterial = Material;
+			Parameters.GBufferNormals = Normals;
+			Parameters.GBufferSurface = Surface;
+			Parameters.GBufferEmissive = Emissive;
+			Parameters.SceneDepth = SceneDepth;
+			Parameters.Params = UniformBuffer;
+			Parameters.ContactVisibilityOutput = ComputeTargets->Visibility;
+			SetShaderParameters(CommandList, ComputePayload->ComputeShader, Parameters);
+			CommandList.Dispatch(CalculateGroupCount(Width),
+				CalculateGroupCount(Height), 1);
+			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+			if (TimingQuery)
+			{
+				CommandList.EndGPUTimingQuery(TimingQuery);
+				TimingSink(TimingQuery, Decision.Route);
+			}
+			const std::array OutputTransitions{
+				FRHITextureTransition::Whole(Material, ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead),
+				FRHITextureTransition::Whole(Normals, ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead),
+				FRHITextureTransition::Whole(Surface, ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead),
+				FRHITextureTransition::Whole(Emissive, ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead),
+				FRHITextureTransition::Whole(SceneDepth, ERHIAccess::ComputeShaderRead,
+					ERHIAccess::GraphicsShaderRead),
+				FRHITextureTransition::Whole(ComputeTargets->Visibility,
+					ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::GraphicsShaderRead)};
+			if (!Policy.bGraphManagedTextureAccess)
+				CommandList.TransitionTextures(OutputTransitions);
+			const std::array FinalUniformTransition{FRHIBufferTransition{
+				UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size,
+				ERHIAccess::ComputeUniformRead, ERHIAccess::GraphicsUniformRead}};
+			CommandList.TransitionBuffers(FinalUniformTransition);
 			return {.Visibility = ComputeTargets->Visibility,
 				.Route = Decision.Route, .Reason = Decision.Reason};
 		}
 
-		FRenderGraphBuilder Graph;
-		Graph.SetBudget(ContactFragmentGraphBudget);
-		const auto GraphMaterial = Graph.ImportTexture("Contact.Material", Material,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto GraphNormals = Graph.ImportTexture("Contact.Normals", Normals,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto GraphSurface = Graph.ImportTexture("Contact.Surface", Surface,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto GraphEmissive = Graph.ImportTexture("Contact.Emissive", Emissive,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto GraphDepth = Graph.ImportTexture("Contact.Depth", SceneDepth,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto GraphVisibility = Graph.CreateTexture("Contact.Visibility",
-			FragmentTargets->Visibility, ERHIAccess::GraphicsShaderRead);
-		const auto GraphUniform = Graph.ImportBuffer("Contact.Uniform",
-			UniformBuffer.Buffer, ERHIAccess::GraphicsUniformRead,
-			ERHIAccess::GraphicsUniformRead);
 		FRHIBuffer* VertexBuffer = FullscreenGeometry.GetVertexBuffer_RenderThread();
 		FRHIBuffer* IndexBuffer = FullscreenGeometry.GetIndexBuffer_RenderThread();
-		const auto GraphVertices = Graph.ImportBuffer("Contact.FullscreenVertices",
-			VertexBuffer, ERHIAccess::VertexBufferRead, ERHIAccess::VertexBufferRead);
-		const auto GraphIndices = Graph.ImportBuffer("Contact.FullscreenIndices",
-			IndexBuffer, ERHIAccess::IndexBufferRead, ERHIAccess::IndexBufferRead);
-		const auto Pass = Graph.AddPass("ContactVisibility.Fragment",
-			ERenderGraphPassType::Graphics,
-			[=, &View](FRHICommandListImmediate& GraphCommands,
-				const FRenderGraphPassResources& Resources) {
-				FGPUTimingQueryRHIRef TimingQuery;
-				if (TimingSink != nullptr && GDynamicRHI != nullptr)
-				{
-					TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
-					if (TimingQuery) GraphCommands.BeginGPUTimingQuery(TimingQuery);
-				}
-				FRHIRenderPassInfo PassInfo{};
-				PassInfo.RenderTargetLayout =
-					RenderTargetLayouts::MakeContactVisibilityOutput();
-				PassInfo.ColorRenderTargets[0] = Resources.GetTexture(GraphVisibility);
-				PassInfo.ColorClearValues[0] =
-					FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
-				GraphCommands.BeginRenderPass(PassInfo, "ContactVisibilityRenderPass");
-				GraphCommands.SetGraphicsPipelineState(*FragmentPayload->PipelineState);
-				GraphCommands.SetViewport(static_cast<float>(View.ViewportX),
+		FGPUTimingQueryRHIRef TimingQuery;
+		if (TimingSink != nullptr && GDynamicRHI != nullptr)
+		{
+			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
+		}
+		const std::array VisibilityTransition{FRHITextureTransition::Whole(
+			FragmentTargets->Visibility, ERHIAccess::Discard,
+			ERHIAccess::ColorAttachmentReadWrite)};
+		if (!Policy.bGraphManagedTextureAccess)
+			CommandList.TransitionTextures(VisibilityTransition);
+		FRHIRenderPassInfo PassInfo{};
+		PassInfo.RenderTargetLayout = RenderTargetLayouts::MakeContactVisibilityOutput();
+		PassInfo.ColorRenderTargets[0] = FragmentTargets->Visibility;
+		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
+		CommandList.BeginRenderPass(PassInfo, "ContactVisibilityRenderPass");
+		CommandList.SetGraphicsPipelineState(*FragmentPayload->PipelineState);
+		CommandList.SetViewport(static_cast<float>(View.ViewportX),
 					static_cast<float>(View.ViewportY), 0.0f,
 					static_cast<float>(View.ViewportX + View.ViewportWidth),
 					static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
-				GraphCommands.SetScissor(static_cast<float>(View.ViewportX),
+		CommandList.SetScissor(static_cast<float>(View.ViewportX),
 					static_cast<float>(View.ViewportY),
 					static_cast<float>(View.ViewportWidth),
 					static_cast<float>(View.ViewportHeight));
-				GraphCommands.BindVertexBuffer(0,
-					Resources.GetBuffer(GraphVertices), 0);
-				GraphCommands.BindIndexBuffer(Resources.GetBuffer(GraphIndices), 0);
-				FContactVisibilityFragmentShader::FParameters Parameters;
-				Parameters.GBufferMaterial = Resources.GetTexture(GraphMaterial);
-				Parameters.GBufferNormals = Resources.GetTexture(GraphNormals);
-				Parameters.GBufferSurface = Resources.GetTexture(GraphSurface);
-				Parameters.GBufferEmissive = Resources.GetTexture(GraphEmissive);
-				Parameters.SceneDepth = Resources.GetTexture(GraphDepth);
-				Parameters.Params = {Resources.GetBuffer(GraphUniform),
-					UniformBuffer.Offset, UniformBuffer.Size};
-				SetShaderParameters(GraphCommands, FragmentPayload->FragmentShader,
-					Parameters);
-				GraphCommands.DrawIndexed(3, 0, 0);
-				GraphCommands.EndRenderPass();
-				if (TimingQuery)
-				{
-					GraphCommands.EndGPUTimingQuery(TimingQuery);
-					TimingSink(TimingQuery, Decision.Route);
-				}
-			});
-		Graph.UseTexture(Pass, GraphMaterial, GetWholeTextureRange(Material),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		Graph.UseTexture(Pass, GraphNormals, GetWholeTextureRange(Normals),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		Graph.UseTexture(Pass, GraphSurface, GetWholeTextureRange(Surface),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		Graph.UseTexture(Pass, GraphEmissive, GetWholeTextureRange(Emissive),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		Graph.UseTexture(Pass, GraphDepth, GetWholeTextureRange(SceneDepth),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		Graph.UseColorAttachment(Pass, GraphVisibility,
-			GetWholeTextureRange(FragmentTargets->Visibility),
-			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
-		Graph.UseBuffer(Pass, GraphUniform, UniformBuffer.Offset,
-			UniformBuffer.Size, ERenderGraphUse::Read,
-			ERHIAccess::GraphicsUniformRead);
-		Graph.UseBuffer(Pass, GraphVertices, 0, VertexBuffer->GetSize(),
-			ERenderGraphUse::Read, ERHIAccess::VertexBufferRead);
-		Graph.UseBuffer(Pass, GraphIndices, 0, IndexBuffer->GetSize(),
-			ERenderGraphUse::Read, ERHIAccess::IndexBufferRead);
-		auto Compiled = Graph.Compile();
-		if (!Compiled.IsSuccess())
+		CommandList.BindVertexBuffer(0, VertexBuffer, 0);
+		CommandList.BindIndexBuffer(IndexBuffer, 0);
+		FContactVisibilityFragmentShader::FParameters Parameters;
+		Parameters.GBufferMaterial = Material;
+		Parameters.GBufferNormals = Normals;
+		Parameters.GBufferSurface = Surface;
+		Parameters.GBufferEmissive = Emissive;
+		Parameters.SceneDepth = SceneDepth;
+		Parameters.Params = UniformBuffer;
+		SetShaderParameters(CommandList, FragmentPayload->FragmentShader, Parameters);
+		CommandList.DrawIndexed(3, 0, 0);
+		CommandList.EndRenderPass();
+		if (TimingQuery)
 		{
-			DURIN_WARN("Contact visibility graph compilation failed: {}",
-				Compiled.Error);
-			return {.Route = ERoute::FactorOne,
-				.Reason = ERouteReason::InvalidInputs};
+			CommandList.EndGPUTimingQuery(TimingQuery);
+			TimingSink(TimingQuery, Decision.Route);
 		}
-		Compiled.Graph->Execute(CommandList);
+		const std::array FinalVisibilityTransition{FRHITextureTransition::Whole(
+			FragmentTargets->Visibility, ERHIAccess::ColorAttachmentReadWrite,
+			ERHIAccess::GraphicsShaderRead)};
+		if (!Policy.bGraphManagedTextureAccess)
+			CommandList.TransitionTextures(FinalVisibilityTransition);
 		return {.Visibility = FragmentTargets->Visibility,
 			.Route = Decision.Route, .Reason = Decision.Reason};
 	}

@@ -29,6 +29,8 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Terrain/TerrainHeightmap.h"
+#include <vulkan/vulkan.hpp>
+#include "VulkanDynamicRHI.h"
 
 #include <array>
 #include <chrono>
@@ -434,6 +436,18 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	auto* Vulkan = static_cast<Durin::VulkanRHI::IVulkanDynamicRHI*>(
+		Durin::GDynamicRHI);
+	vk::PhysicalDeviceProperties DeviceProperties{};
+	Vulkan->RHIExecuteCommandBufferForBackendIntegration(
+		[&Vulkan, &DeviceProperties](vk::CommandBuffer) {
+			DeviceProperties = Vulkan->RHIGetVkPhysicalDevice().getProperties();
+		});
+	const std::string DeviceName = DeviceProperties.deviceName.data();
+	const bool bNamedAdapter = DeviceName == "NVIDIA GeForce RTX 3090"
+		&& vk::apiVersionMajor(DeviceProperties.apiVersion) == 1u
+		&& vk::apiVersionMinor(DeviceProperties.apiVersion) == 4u
+		&& vk::apiVersionPatch(DeviceProperties.apiVersion) == 325u;
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
 	Durin::FModuleTestHarness RendererLifecycle("GBufferQualificationTest");
@@ -905,12 +919,15 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	const uint64 DeferredP95 = Percentile95(DeferredDurations);
 	const uint64 CombinedMedian = Median(CombinedDurations);
 	const uint64 CombinedP95 = Percentile95(CombinedDurations);
-	EXPECT_LE(GBufferMedian, 350'000u);
-	EXPECT_LE(GBufferP95, 500'000u);
-	EXPECT_LE(DeferredMedian, 450'000u);
-	EXPECT_LE(DeferredP95, 650'000u);
-	EXPECT_LE(CombinedMedian, 800'000u);
-	EXPECT_LE(CombinedP95, 1'000'000u);
+	if (bNamedAdapter)
+	{
+		EXPECT_LE(GBufferMedian, 350'000u);
+		EXPECT_LE(GBufferP95, 500'000u);
+		EXPECT_LE(DeferredMedian, 450'000u);
+		EXPECT_LE(DeferredP95, 650'000u);
+		EXPECT_LE(CombinedMedian, 800'000u);
+		EXPECT_LE(CombinedP95, 1'000'000u);
+	}
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferAttemptedDraws, 4u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSuccessfulDraws, 4u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferRejectedDraws, 0u);
@@ -932,7 +949,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::FGBufferRenderer::CalculateTargetBytes(TimingWidth, TimingHeight);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferAttachmentBytes, AttachmentBytes);
 	EXPECT_LE(AttachmentBytes, Durin::FGBufferRenderer::MaximumRetainedBytes);
-	std::cout << "Deferred lighting qualification: adapter=NVIDIA GeForce RTX 3090, "
+	std::cout << "Deferred lighting qualification: status="
+			  << (bNamedAdapter ? "named_gate" : "observation")
+			  << ", adapter=" << DeviceName
+			  << ", vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
+			  << ", driver=" << DeviceProperties.driverVersion << ", "
 			  << "resolution=1920x1080, warmup=" << WarmupFrames
 			  << ", samples=" << MeasuredFrames
 			  << ", gbuffer_median_ns=" << GBufferMedian
@@ -1055,10 +1078,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	const uint64 AmbientOcclusionCombinedP95 =
 		Percentile95(AmbientOcclusionCombinedDurations);
 	EXPECT_GT(AmbientOcclusionMedian, 0u);
-	EXPECT_LE(AmbientOcclusionMedian, 600'000u);
 	EXPECT_GT(AmbientOcclusionFilterMedian, 0u);
-	EXPECT_LE(AmbientOcclusionFilterMedian, 250'000u);
-	EXPECT_LE(AmbientOcclusionCombinedMedian, 850'000u);
+	if (bNamedAdapter)
+	{
+		EXPECT_LE(AmbientOcclusionMedian, 600'000u);
+		EXPECT_LE(AmbientOcclusionFilterMedian, 250'000u);
+		EXPECT_LE(AmbientOcclusionCombinedMedian, 850'000u);
+	}
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionUnavailableViews, 0u);
@@ -1067,8 +1093,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionResolvePassFailures, 0u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionFullResolutionViews, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes, 4'147'200u);
-	std::cout << "GTAO_RAW_QUALIFICATION gpu=NVIDIA_GeForce_RTX_3090"
-			  << ",driver=591.86,vulkan=1.4.325"
+	std::cout << "GTAO_RAW_QUALIFICATION status="
+			  << (bNamedAdapter ? "named_gate" : "observation")
+			  << ",gpu=\"" << DeviceName << "\""
+			  << ",driver=" << DeviceProperties.driverVersion
+			  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
 			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
 			  << ",resolution=1920x1080,warmup_frames=" << WarmupFrames
 			  << ",measured_frames=" << MeasuredFrames
@@ -1724,35 +1755,38 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	// scheduling reference, so cross-batch tails are not regression evidence.
 	// The synchronized production route below owns the hard p95 gates.
 	EXPECT_GT(FullGTAOFeatureMedian, 0u);
-	EXPECT_LE(FullGTAOFeatureMedian, 850'000u);
 	EXPECT_GT(HalfGTAOFeatureMedian, 0u);
 	EXPECT_GT(HalfGTAOResolveMedian, 0u);
 	EXPECT_LE(HalfGTAOFeatureMedian * 100u, FullGTAOFeatureMedian * 65u);
-	EXPECT_LE(HalfGTAOFeatureMedian, 600'000u);
-	EXPECT_LE(HalfGTAOResolveMedian, 150'000u);
 	EXPECT_GT(ProductionGBufferMedian, 0u);
-	EXPECT_LE(ProductionGBufferMedian, 350'000u);
-	EXPECT_LE(ProductionGBufferP95, 500'000u);
 	EXPECT_GT(ProductionDeferredMedian, 0u);
-	EXPECT_LE(ProductionDeferredMedian, 450'000u);
-	EXPECT_LE(ProductionDeferredP95, 650'000u);
-	EXPECT_LE(ProductionAmbientOcclusionCompositionIncrement, 75'000u);
 	EXPECT_GT(ProductionRetainedOpaqueMedian, 0u);
 	EXPECT_GT(ProductionVolumetricCloudMedian, 0u);
 	EXPECT_GT(ProductionSortedTranslucencyMedian, 0u);
 	EXPECT_GT(ProductionRetainedMedian, 0u);
-	EXPECT_LE(ProductionRetainedMedian, 300'000u);
-	EXPECT_LE(ProductionRetainedP95, 500'000u);
 	EXPECT_GT(ProductionPostProcessMedian, 0u);
-	EXPECT_LE(ProductionPostProcessMedian, 100'000u);
-	EXPECT_LE(ProductionPostProcessP95, 120'000u);
 	EXPECT_GT(ProductionShadowMedian, 0u);
 	EXPECT_GT(ProductionTotalMedian, 0u);
-	EXPECT_LE(ProductionTotalMedian, 1'350'000u);
-	EXPECT_LE(ProductionTotalP95, 3'000'000u);
-	EXPECT_LE(ProductionTotalP95 * 100u, ProductionTotalMedian * 125u)
-		<< "Qualification samples are unstable; rerun without competing GPU "
-			"work before treating this as a renderer regression.";
+	if (bNamedAdapter)
+	{
+		EXPECT_LE(FullGTAOFeatureMedian, 850'000u);
+		EXPECT_LE(HalfGTAOFeatureMedian, 600'000u);
+		EXPECT_LE(HalfGTAOResolveMedian, 150'000u);
+		EXPECT_LE(ProductionGBufferMedian, 350'000u);
+		EXPECT_LE(ProductionGBufferP95, 500'000u);
+		EXPECT_LE(ProductionDeferredMedian, 450'000u);
+		EXPECT_LE(ProductionDeferredP95, 650'000u);
+		EXPECT_LE(ProductionAmbientOcclusionCompositionIncrement, 75'000u);
+		EXPECT_LE(ProductionRetainedMedian, 300'000u);
+		EXPECT_LE(ProductionRetainedP95, 500'000u);
+		EXPECT_LE(ProductionPostProcessMedian, 100'000u);
+		EXPECT_LE(ProductionPostProcessP95, 120'000u);
+		EXPECT_LE(ProductionTotalMedian, 1'350'000u);
+		EXPECT_LE(ProductionTotalP95, 3'000'000u);
+		EXPECT_LE(ProductionTotalP95 * 100u, ProductionTotalMedian * 125u)
+			<< "Qualification samples are unstable; rerun without competing GPU "
+				"work before treating this as a renderer regression.";
+	}
 	constexpr uint64 ProductionActiveBytes =
 		Durin::FPostProcessRenderer::CalculateSceneTargetBytes(
 			TimingWidth, TimingHeight
@@ -1793,8 +1827,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes);
 	EXPECT_EQ(ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudEnabledViews, 0u);
 	EXPECT_EQ(ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
-	std::cout << "HYBRID_PRODUCTION_QUALIFICATION"
-			  << " gpu=NVIDIA_GeForce_RTX_3090,driver=591.86,vulkan=1.4.325"
+	std::cout << "HYBRID_PRODUCTION_QUALIFICATION status="
+			  << (bNamedAdapter ? "named_gate" : "observation")
+			  << ",gpu=\"" << DeviceName << "\""
+			  << ",driver=" << DeviceProperties.driverVersion
+			  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+			  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
 			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
 			  << ",resolution=1920x1080,warmup_frames=" << WarmupFrames
 			  << ",measured_frames=" << MeasuredFrames

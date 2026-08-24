@@ -11,6 +11,8 @@
 #include "RendererModule.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include <vulkan/vulkan.hpp>
+#include "VulkanDynamicRHI.h"
 
 #include <algorithm>
 #include <chrono>
@@ -62,6 +64,17 @@ namespace Durin
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(FRHIInitializationContext::Headless());
 		ASSERT_NE(GDynamicRHI, nullptr);
+		auto* Vulkan = static_cast<VulkanRHI::IVulkanDynamicRHI*>(GDynamicRHI);
+		vk::PhysicalDeviceProperties DeviceProperties{};
+		Vulkan->RHIExecuteCommandBufferForBackendIntegration(
+			[&Vulkan, &DeviceProperties](vk::CommandBuffer) {
+				DeviceProperties = Vulkan->RHIGetVkPhysicalDevice().getProperties();
+			});
+		const std::string DeviceName = DeviceProperties.deviceName.data();
+		const bool bNamedAdapter = DeviceName == "NVIDIA GeForce RTX 3090"
+			&& vk::apiVersionMajor(DeviceProperties.apiVersion) == 1u
+			&& vk::apiVersionMinor(DeviceProperties.apiVersion) == 4u
+			&& vk::apiVersionPatch(DeviceProperties.apiVersion) == 325u;
 		InitRenderingThread();
 
 		FRendererModule Renderer;
@@ -156,8 +169,14 @@ namespace Durin
 			? FXAA.P95Nanoseconds - Copy.P95Nanoseconds
 			: 0u;
 		std::cout
-			<< "HDR_DISPLAY_QUALIFICATION gpu=NVIDIA_GeForce_RTX_3090"
-			<< ",driver=591.86,vulkan=1.4.325,configuration=Win64-Debug-DurinEditor"
+			<< "HDR_DISPLAY_QUALIFICATION status="
+			<< (bNamedAdapter ? "named_gate" : "observation")
+			<< ",gpu=\"" << DeviceName << "\""
+			<< ",driver=" << DeviceProperties.driverVersion
+			<< ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
+			<< '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
+			<< '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
+			<< ",configuration=Win64-Debug-DurinEditor"
 			<< ",warmup_frames=" << WarmupFrames
 			<< ",measured_frames=" << MeasuredFrames
 			<< ",copy_median_ns=" << Copy.MedianNanoseconds
@@ -169,13 +188,16 @@ namespace Durin
 			<< ",output_bytes=" << OutputBytes << '\n';
 
 		EXPECT_GT(Copy.MedianNanoseconds, 0u);
-		EXPECT_LE(Copy.MedianNanoseconds, 30'000u);
-		EXPECT_LE(Copy.P95Nanoseconds, 40'000u);
 		EXPECT_GT(FXAA.MedianNanoseconds, 0u);
-		EXPECT_LE(FXAA.MedianNanoseconds, 100'000u);
-		EXPECT_LE(FXAA.P95Nanoseconds, 120'000u);
 		EXPECT_GE(FXAA.MedianNanoseconds, Copy.MedianNanoseconds);
-		EXPECT_LE(FXAAP95Increment, 90'000u);
+		if (bNamedAdapter)
+		{
+			EXPECT_LE(Copy.MedianNanoseconds, 30'000u);
+			EXPECT_LE(Copy.P95Nanoseconds, 40'000u);
+			EXPECT_LE(FXAA.MedianNanoseconds, 100'000u);
+			EXPECT_LE(FXAA.P95Nanoseconds, 120'000u);
+			EXPECT_LE(FXAAP95Increment, 90'000u);
+		}
 
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();

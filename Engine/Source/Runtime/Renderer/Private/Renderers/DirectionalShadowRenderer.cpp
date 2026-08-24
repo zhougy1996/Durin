@@ -174,6 +174,7 @@ namespace Durin
 
 	auto FDirectionalShadowRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList,
+		FRHITexture* Target,
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
 		FTerrainRenderer& Terrains,
@@ -184,7 +185,8 @@ namespace Durin
 		check(!CommandList.IsInsideRenderPass());
 		FState::FResources* Resources = State->Resources.GetPayload();
 		if (!ResolvedShadow.bEnabled || Resources == nullptr
-			|| Resources->Target == nullptr) return false;
+			|| Resources->Target == nullptr || Target != Resources->Target)
+			return false;
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
 			GShadowDepthTimingQuerySink.load(std::memory_order_acquire);
@@ -200,7 +202,7 @@ namespace Durin
 			FRHIRenderPassInfo Pass{};
 			Pass.RenderTargetLayout =
 				RenderTargetLayouts::MakeDirectionalShadowDepth();
-			Pass.DepthStencilRenderTarget = Resources->Target;
+			Pass.DepthStencilRenderTarget = Target;
 			Pass.DepthStencilRenderTargetView =
 				Resources->DepthAttachmentViews[CascadeIndex];
 			Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);

@@ -2,6 +2,7 @@
 
 #include "IRendererModule.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/VolumetricCloudSpatialRenderer.h"
 
 namespace Durin
 {
@@ -15,99 +16,110 @@ namespace Durin
 	struct FDirectionalShadowPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* Texture = nullptr;
-		FRHISampler* Sampler = nullptr;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
-			return Status == EScenePassStatus::Complete
-				&& Texture != nullptr;
+			return Status == EScenePassStatus::Complete;
 		}
 	};
 
 	struct FGBufferPassResult
 	{
-		const FGBufferRenderer::FTargets* Targets = nullptr;
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
 		bool bRenderedGeometry = false;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
-			return Status == EScenePassStatus::Complete && Targets != nullptr;
+			return Status == EScenePassStatus::Complete;
 		}
 	};
 
 	struct FGroundTruthAmbientOcclusionPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* Raw = nullptr;
-		FRHITexture* Filtered = nullptr;
-		FRHITexture* Resolved = nullptr;
-		FRHITexture* Selector = nullptr;
 		bool bHalfResolution = false;
+		bool bRawDiagnosticUsesScratch = false;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
-			return Status == EScenePassStatus::Complete
-				&& Raw != nullptr && Filtered != nullptr
-				&& Resolved != nullptr;
+			return Status == EScenePassStatus::Complete;
 		}
+	};
+
+	enum class EContactShadowPassRoute : uint8
+	{
+		None,
+		Compute,
+		Fragment
 	};
 
 	struct FContactShadowPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* Visibility = nullptr;
+		EContactShadowPassRoute Route = EContactShadowPassRoute::None;
 		bool bDebug = false;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
 			return Status == EScenePassStatus::Complete
-				&& Visibility != nullptr;
+				&& Route != EContactShadowPassRoute::None;
 		}
+	};
+
+	enum class EVolumetricCloudShadowPassRoute : uint8
+	{
+		None,
+		Compute,
+		Fragment
 	};
 
 	struct FVolumetricCloudShadowPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* Visibility = nullptr;
+		EVolumetricCloudShadowPassRoute Route =
+			EVolumetricCloudShadowPassRoute::None;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
 			return Status == EScenePassStatus::Complete
-				&& Visibility != nullptr;
+				&& Route != EVolumetricCloudShadowPassRoute::None;
 		}
 	};
 
 	struct FIsolatedDeferredPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* Output = nullptr;
+		bool bOutputValid = false;
 	};
 
 	struct FVolumetricCloudPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		FRHITexture* SceneColor = nullptr;
+		bool bCompositeOutputValid = false;
+	};
+
+	struct FVolumetricCloudSpatialPassResult
+	{
+		EScenePassStatus Status = EScenePassStatus::NotRequested;
+		FVolumetricCloudSpatialRenderer::ERoute Route =
+			FVolumetricCloudSpatialRenderer::ERoute::Disabled;
 	};
 
 	struct FSceneColorPassResult
 	{
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-		FRHITexture* SceneColor = nullptr;
+		bool bUsesVolumetricCloudComposite = false;
 		FVolumetricCloudPassResult VolumetricCloud;
 
 		[[nodiscard]] auto IsSuccess() const -> bool
 		{
-			return Result == ERenderViewResult::Success
-				&& SceneColor != nullptr;
+			return Result == ERenderViewResult::Success;
 		}
 	};
 
 	struct FPostProcessPassResult
 	{
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-		FRHITexture* Input = nullptr;
 		bool bEditorAssistance = false;
 	};
 
