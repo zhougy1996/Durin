@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities or explicitly migrate package format without reimporting source data.
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -41,5 +41,9 @@ scan is empty and a second apply is a no-op.
 Blocked packages are never written. Typical blockers are a Dirty loaded
 package, read-only mount, redirector, non-current package format, stale
 fingerprint, incompatible or unknown payload, unavailable reflected type, or
-corrupt bytes. Resolve the named condition and create a fresh plan; do not use
-reimport merely to canonicalize reflected identities.
+corrupt bytes. For uncooked asset families, apply also waits for the PostLoad
+recovery started by the ordinary loader; missing source/DDC data or a provider
+that does not publish family-ready transient state blocks the save rather than
+serializing a partially recovered object. Resolve the named condition and
+create a fresh plan; do not invoke an authored reimport merely to canonicalize
+reflected identities.

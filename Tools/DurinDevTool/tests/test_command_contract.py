@@ -231,7 +231,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "3125cc0f7e8c668808898f490da90a6bbdc8610c6d6d358815fe5aa8fa7c47c4"
+            "bf38c0803f75f32e2283a38376135182428a270cb775635ec16d8ac824da565d"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"

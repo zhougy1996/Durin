@@ -8,10 +8,10 @@ namespace Durin
 	class FAssetForgeBuiltinsModule final : public IModuleInterface
 	{
 	public:
-			auto StartupModule() -> void override
+		auto StartupModule() -> void override
 		{
 			ImportRegistryCallbackRegistration =
-					FModuleStartup::CreateOwnedCallbackRegistration("AssetForge.Registries");
+				FModuleStartup::CreateOwnedCallbackRegistration("AssetForge.Registries");
 			require(ImportRegistryCallbackRegistration.IsValid());
 			StaticMeshRegistration = FModuleStartup::RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
 			Texture2DRegistration = FModuleStartup::RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
@@ -20,11 +20,14 @@ namespace Durin
 			TextureCubeRegistration = FModuleStartup::RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
 			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
 				IVolumeTextureImportRecoveryFeature>(AuthoringFeatures);
+			AuthoringReadinessRegistration = FModuleStartup::RegisterFeature<
+				IAssetAuthoringReadinessFeature>(AuthoringFeatures);
 			require(StaticMeshRegistration.IsValid());
 			require(Texture2DRegistration.IsValid());
 			require(Texture2DRecoveryRegistration.IsValid());
 			require(TextureCubeRegistration.IsValid());
 			require(VolumeTextureRegistration.IsValid());
+			require(AuthoringReadinessRegistration.IsValid());
 			TerrainFeatures = std::make_unique<AssetForge::Builtins::FTerrainAuthoringFeature>();
 			require(TerrainFeatures->SetOperationGroup(
 				FModuleStartup::CreateAsyncOperationGroup("TerrainAuthoringLoads")));
@@ -48,6 +51,7 @@ namespace Durin
 		FModularFeatureRegistration Texture2DRecoveryRegistration;
 		FModularFeatureRegistration TextureCubeRegistration;
 		FModularFeatureRegistration VolumeTextureRegistration;
+		FModularFeatureRegistration AuthoringReadinessRegistration;
 		std::unique_ptr<AssetForge::Builtins::FTerrainAuthoringFeature> TerrainFeatures;
 		FModularFeatureRegistration TerrainRegistration;
 		FModuleOwnedCallbackRegistration ImportRegistryCallbackRegistration;

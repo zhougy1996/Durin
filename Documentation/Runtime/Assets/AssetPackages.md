@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -558,15 +558,23 @@ payloads, dirty loaded packages, and non-authoring mounts. A package with no
 evidence is skipped unless an interactive caller explicitly requests a plain
 package resave.
 
-Apply revalidates each fingerprint, loads through the ordinary current-format
-reader when necessary, and publishes one bounded atomic package unit through
-`SavePackagesAtomically`. It never invokes an import provider or source-data
-workflow. The published bytes are reread through the compatibility probe;
-success requires the current writer, compatible inspection, and zero remaining
-legacy identities. Verification or registry-reconciliation failure restores
-the prior authored bytes. Batch admission stops at cancellation and retains
-terminal results for completed units; project maintenance does not claim
-project-wide atomicity.
+Apply revalidates each fingerprint and loads through the ordinary current-format
+reader when necessary. In the uncooked tool host, PostLoad may schedule
+family-owned derived-data recovery; apply alone loads the required build and
+built-in authoring modules, drains the asset's active recovery claim, and asks
+the registered `IAssetAuthoringReadinessFeature` provider to validate transient
+domain state. The generic tool does not enumerate concrete asset classes.
+Recovery may read a mounted source or DDC entry, but recovery-mode AssetForge
+does not publish an authored package; an authored mutation or Dirty package
+blocks the subsequent canonical save.
+
+The ready package is published as one bounded atomic unit through
+`SavePackagesAtomically`. Published bytes are reread through the compatibility
+probe; success requires the current writer, compatible inspection, and zero
+remaining legacy identities. Verification or registry-reconciliation failure
+restores the prior authored bytes. Batch admission stops at cancellation and
+retains terminal results for completed units; project maintenance does not
+claim project-wide atomicity.
 
 `DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
 uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`

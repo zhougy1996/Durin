@@ -77,10 +77,15 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
     unsupported = sum(p["compatibility"] == "Unsupported" for p in packages)
     failed = sum(p["inspection"] == "Failed" for p in packages)
     stale = sum(p["freshness"] == "Stale" for p in packages)
+    resave_recommended = sum(
+        bool(p["canonicalizationEvidence"] or p["deprecatedRouteEvidence"])
+        for p in packages
+    )
     print(
         f"Asset compatibility audit: {len(packages)} package(s); "
         f"{compatible} compatible, {incompatible} incompatible, "
-        f"{unsupported} unsupported, {failed} failed, {stale} stale.",
+        f"{unsupported} unsupported, {failed} failed, {stale} stale, "
+        f"{resave_recommended} resave recommended.",
         file=stdout,
     )
     groups = (
@@ -88,6 +93,12 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
         ("Unsupported", lambda p: p["compatibility"] == "Unsupported"),
         ("Failed", lambda p: p["inspection"] == "Failed"),
         ("Stale", lambda p: p["freshness"] == "Stale"),
+        (
+            "Resave recommended",
+            lambda p: bool(
+                p["canonicalizationEvidence"] or p["deprecatedRouteEvidence"]
+            ),
+        ),
     )
     for label, predicate in groups:
         selected = [package for package in packages if predicate(package)]
@@ -99,6 +110,23 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
             for finding in package["findings"]:
                 print(
                     f"    [{finding['code']}] {finding['diagnostic']}",
+                    file=stdout,
+                )
+            if label != "Resave recommended":
+                continue
+            for evidence in package["canonicalizationEvidence"]:
+                print(
+                    f"    [Canonicalization] {evidence['storedIdentity']} -> "
+                    f"{evidence['currentIdentity']} "
+                    f"({evidence['kind']} {evidence['location']}: "
+                    f"{evidence['logicalPath']})",
+                    file=stdout,
+                )
+            for evidence in package["deprecatedRouteEvidence"]:
+                targets = ", ".join(evidence["migrationTargets"])
+                print(
+                    f"    [DeprecatedRoute] {evidence['declaringType']}."
+                    f"{evidence['storedFieldName']} -> {targets}",
                     file=stdout,
                 )
 
@@ -123,6 +151,8 @@ def _baseline_failed(report: Mapping[str, Any]) -> bool:
             or package["compatibility"] != "Compatible"
             or package["freshness"] != "Current"
             or package["findings"]
+            or package["canonicalizationEvidence"]
+            or package["deprecatedRouteEvidence"]
             for package in packages
         )
     )
@@ -197,7 +227,11 @@ def run(
     elif is_baseline:
         if _baseline_failed(report):
             _render_human(report, stdout)
-            print("\nAsset baseline rejected: every package must be current DAST v5 with no schema findings.", file=stdout)
+            print(
+                "\nAsset baseline rejected: every package must be current DAST v5 "
+                "with no compatibility or resave findings.",
+                file=stdout,
+            )
         else:
             print(f"Asset baseline: {len(report['packages'])} current DAST v5 package(s).", file=stdout)
     else:

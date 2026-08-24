@@ -1,7 +1,53 @@
 #include "BuiltinImportProviderCommon.h"
 
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
+
 namespace Durin::AssetForge::Builtins
 {
+	auto FAssetForgeBuiltinsAuthoringFeatures::Validate(const DObject& Object) const
+		-> FAssetAuthoringReadinessFeatureResult
+	{
+		auto NotReady = [](std::string_view Domain) {
+			return FAssetAuthoringReadinessFeatureResult{
+				.bHandled = true,
+				.Result = {Asset::EAssetError::StaleData,
+					std::format("{} post-load recovery did not publish domain-ready data.", Domain)}};
+		};
+		if (const auto* Mesh = Cast<DStaticMesh>(&Object))
+			return Mesh->GetRenderData()
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("StaticMesh");
+		if (const auto* Mesh = Cast<DSkeletalMesh>(&Object))
+			return Mesh->GetRenderData()
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("SkeletalMesh");
+		if (const auto* Texture = Cast<DTexture2D>(&Object))
+			return Texture->GetPlatformData()
+				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("Texture2D");
+		if (const auto* Texture = Cast<DTextureCube>(&Object))
+			return Texture->GetPlatformData()
+				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("TextureCube");
+		if (const auto* Texture = Cast<DVolumeTexture>(&Object))
+			return Texture->GetPlatformData()
+				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("VolumeTexture");
+		if (const auto* Heightmap = Cast<DTerrainHeightmap>(&Object))
+			return Heightmap->GetPayload()
+				&& Heightmap->GetStatus() == ETerrainHeightmapStatus::Ready
+				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				: NotReady("TerrainHeightmap");
+		return {};
+	}
+
 	auto FAssetForgeBuiltinsAuthoringFeatures::BuildFileProduct(
 		DStaticMesh& Mesh,
 		std::string_view SourcePath,

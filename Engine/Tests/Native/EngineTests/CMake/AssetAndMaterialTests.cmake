@@ -1,3 +1,10 @@
+durin_add_engine_functional_test(AssetAuthoringReadinessTests
+	KIND contract
+	DOMAINS asset-workflow
+	MODULES engine
+	SOURCES Private/AssetAuthoringReadinessTests.cpp
+)
+
 durin_add_engine_functional_test(AssetBuildCoreTests
 	EDITOR_ONLY
 	KIND contract

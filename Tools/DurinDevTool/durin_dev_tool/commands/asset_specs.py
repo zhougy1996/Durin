@@ -44,7 +44,7 @@ COMMAND_SPEC = CommandSpec(
         ),
         CommandSpec(
             "qualify-storage",
-            "measure authored package storage and record a Proceed, Defer, or Retain decision",
+            "measure authored package storage and record a Retain or Defer recommendation",
             QUALIFICATION_HANDLER,
             required_modules=("rich", "jsonschema"),
             arguments=CONTEXT_ARGUMENTS

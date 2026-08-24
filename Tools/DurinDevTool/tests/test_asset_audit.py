@@ -62,6 +62,31 @@ def report(*packages: dict[str, object]) -> str:
     return json.dumps({"schemaVersion": 3, "packages": list(packages)})
 
 
+def with_canonicalization_evidence(value: dict[str, object]) -> dict[str, object]:
+    value["canonicalizationEvidence"] = [{
+        "storedIdentity": "Durin::OldAsset",
+        "currentIdentity": "Durin::CurrentAsset",
+        "kind": "Class",
+        "location": "ObjectRecord",
+        "logicalPath": "MainAsset",
+    }]
+    return value
+
+
+def with_deprecated_route_evidence(value: dict[str, object]) -> dict[str, object]:
+    value["deprecatedRouteEvidence"] = [{
+        "objectPath": "/Game/Baseline.Baseline",
+        "declaringType": "Durin::DExample",
+        "storedFieldName": "OldValue",
+        "deprecatedPropertyName": "OldValue_DEPRECATED",
+        "customVersionGuid": "00000000-0000-0000-0000-000000000001",
+        "sourceVersion": 1,
+        "deprecatedBefore": 2,
+        "migrationTargets": ["CurrentValue"],
+    }]
+    return value
+
+
 def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: str = "json") -> tuple[int, str, str]:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
@@ -144,12 +169,12 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
 
 def test_storage_qualification_protocol_and_decision_are_frozen() -> None:
     protocol = json.loads(storage_qualification.PROTOCOL_PATH.read_text(encoding="utf-8"))
-    assert protocol["schemaVersion"] == 1
+    assert protocol["schemaVersion"] == 2
     assert {workload["kind"] for workload in protocol["workloads"]} == {
         "tracked", "synthetic", "future-consumer"
     }
     assert {candidate["id"] for candidate in protocol["candidates"]} == {
-        "retain-dast4-dabk1", "dast5-companion-index",
+        "retain-dast5-dabk1", "dast6-companion-index",
         "outer-envelope-companion-index", "package-local-payload",
         "in-place-tail-or-append",
     }
@@ -179,6 +204,19 @@ def test_storage_qualification_protocol_and_decision_are_frozen() -> None:
     assert diagnostic["performanceDiagnosticOnly"]
     assert not diagnostic["pressureGates"]["inspectionP95"]
 
+    broken_corpus = {
+        **corpus,
+        "corruptPackageCount": 1,
+        "missingExternalPayloadCount": 1,
+    }
+    rejected = storage_qualification._decision(
+        protocol, broken_corpus, git_baseline, publication
+    )
+    assert rejected["result"] == "Defer"
+    assert rejected["integrityGates"]["corruptPackages"]
+    assert rejected["integrityGates"]["missingExternalPayloads"]
+    assert "Mandatory corpus or durability gates failed" in rejected["rationale"]
+
 
 def test_storage_qualification_inventory_summary_distinguishes_hash_candidates_from_exact_duplicates() -> None:
     descriptor = {
@@ -205,6 +243,8 @@ def test_storage_qualification_inventory_summary_distinguishes_hash_candidates_f
     assert summary["duplicateContentCandidateHashes"] == ["HASH"]
     assert summary["exactDuplicateExternalPayloadCount"] == 2
     assert summary["inspectionBytesRead"] == 30
+    assert summary["duplicatePayloadIdsWithinPackage"] == []
+    assert summary["orphanCompanionCount"] == 0
 
 
 def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols() -> None:
@@ -217,6 +257,27 @@ def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols
     assert results["in-place-tail-rewrite"] == "Fail"
     assert results["append-generation"] == "Fail"
 
+
+def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> None:
+    def git(*arguments: str) -> None:
+        subprocess.run(
+            ["git", *arguments], cwd=tmp_path, check=True, capture_output=True, text=True
+        )
+
+    git("init", "--quiet")
+    git("config", "user.email", "qualification@durin.invalid")
+    git("config", "user.name", "Durin Qualification")
+    old_path = tmp_path / "Old.dasset"
+    old_path.write_bytes(b"asset bytes")
+    git("add", "Old.dasset")
+    git("commit", "--quiet", "-m", "baseline")
+    git("mv", "Old.dasset", "Renamed.dasset")
+    git("commit", "--quiet", "-m", "rename")
+
+    history = storage_qualification._history_for_path(tmp_path, "Renamed.dasset")
+    assert history["commitTouches"] == 2
+    assert history["uniqueMainGitBlobs"] == 1
+
 @pytest.mark.parametrize(
     ("native_report", "expected"),
     [
@@ -225,6 +286,8 @@ def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols
             (report(package("/Game/Baseline", format_version=3)), 3),
             (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
+        (report(with_canonicalization_evidence(package("/Game/Baseline"))), 3),
+        (report(with_deprecated_route_evidence(package("/Game/Baseline"))), 3),
         (report(), 3),
     ],
 )
@@ -340,6 +403,21 @@ def test_human_output_groups_orthogonal_states(tmp_path: Path) -> None:
     assert "Unsupported (1):" in output
     assert "Failed (1):" in output
     assert "Stale (1):" in output
+
+
+def test_human_output_exposes_resave_evidence(tmp_path: Path) -> None:
+    value = with_canonicalization_evidence(package("/Game/Legacy"))
+    with_deprecated_route_evidence(value)
+    result, output, _ = run_handler(
+        tmp_path,
+        report(value),
+        format_name="human",
+    )
+    assert result == 0
+    assert "1 resave recommended" in output
+    assert "Resave recommended (1):" in output
+    assert "Durin::OldAsset -> Durin::CurrentAsset" in output
+    assert "Durin::DExample.OldValue -> CurrentValue" in output
 
 
 def test_rejects_unstable_order_and_unknown_schema_names(tmp_path: Path) -> None:

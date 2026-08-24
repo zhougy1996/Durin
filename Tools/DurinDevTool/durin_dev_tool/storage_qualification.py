@@ -30,7 +30,7 @@ from .runtime_program import (
 )
 
 
-REPORT_VERSION = 1
+REPORT_VERSION = 2
 NATIVE_INVENTORY_VERSION = 2
 PROGRAM = ExecutableDescription(
     "Authored package storage qualification", "DurinAssetTool", "DurinAssetTool"
@@ -38,7 +38,7 @@ PROGRAM = ExecutableDescription(
 PROTOCOL_PATH = (
     Path(__file__).resolve().parents[1]
     / "data"
-    / "authored-package-storage-qualification-v1.json"
+    / "authored-package-storage-qualification-v2.json"
 )
 
 
@@ -143,25 +143,42 @@ def _native_inventory(
 
 
 def _history_for_path(repository_root: Path, relative_path: str) -> dict[str, Any]:
-    commits = [
-        line
-        for line in _git(
-            repository_root, "log", "--all", "--format=%H:%ct", "--", relative_path
-        ).splitlines()
-        if line
-    ]
+    history = _git(
+        repository_root,
+        "-c",
+        "core.quotePath=false",
+        "log",
+        "--follow",
+        "--format=commit:%H:%ct",
+        "--name-only",
+        "HEAD",
+        "--",
+        relative_path,
+    )
+    commits: list[tuple[str, int, str]] = []
+    current: tuple[str, int, str] | None = None
+    for raw_line in history.splitlines():
+        line = raw_line.strip()
+        if line.startswith("commit:"):
+            if current:
+                commits.append(current)
+            commit, timestamp = line.removeprefix("commit:").split(":", 1)
+            current = (commit, int(timestamp), relative_path)
+        elif line and current:
+            current = (current[0], current[1], line)
+    if current:
+        commits.append(current)
+
     object_ids: set[str] = set()
-    timestamps: list[int] = []
-    for entry in commits:
-        commit, timestamp = entry.split(":", 1)
-        timestamps.append(int(timestamp))
+    timestamps = [timestamp for _, timestamp, _ in commits]
+    for commit, _, path_at_commit in commits:
         resolved = subprocess.run(
             [
                 "git",
                 "-c",
                 f"safe.directory={repository_root.as_posix()}",
                 "rev-parse",
-                f"{commit}:{relative_path}",
+                f"{commit}:{path_at_commit}",
             ],
             cwd=repository_root,
             text=True,
@@ -207,7 +224,8 @@ def _collect_git_baseline(
         records.append(
             {
                 "path": relative_path,
-                "workingTreeBytes": physical.stat().st_size,
+                "workingTreePresent": physical.is_file(),
+                "workingTreeBytes": physical.stat().st_size if physical.is_file() else 0,
                 "filter": filter_value,
                 "history": _history_for_path(repository_root, relative_path),
             }
@@ -227,7 +245,23 @@ def _collect_git_baseline(
     main_git_bytes = sum(
         record["history"]["uniqueMainGitBlobBytes"] for record in records
     )
+    asset_changes = [
+        line
+        for line in _git(
+            repository_root,
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            "--",
+            "*.dasset",
+            "*.dabulk",
+        ).splitlines()
+        if line
+    ]
     return {
+        "headCommit": _git(repository_root, "rev-parse", "HEAD"),
+        "assetWorkingTreeDirty": bool(asset_changes),
+        "assetWorkingTreeChanges": asset_changes,
         "trackedDassetCount": sum(record["path"].endswith(".dasset") for record in records),
         "trackedDabulkCount": sum(record["path"].endswith(".dabulk") for record in records),
         "workingTreeDassetBytes": sum(
@@ -243,6 +277,9 @@ def _collect_git_baseline(
         "trackedOrphanCompanions": sorted(
             path.relative_to(repository_root).as_posix()
             for path in tracked_companions - reachable
+        ),
+        "missingTrackedFiles": sorted(
+            record["path"] for record in records if not record["workingTreePresent"]
         ),
         "files": records,
     }
@@ -349,7 +386,7 @@ def _source_control_experiment(output_root: Path, protocol: Mapping[str, Any]) -
     seed = next(
         workload["seed"]
         for workload in protocol["workloads"]
-        if workload["id"] == "synthetic-mixed-v1"
+        if workload["kind"] == "synthetic"
     )
     layouts = [
         _run_layout_experiment(scratch / "companion", companion=True, seed=seed),
@@ -365,7 +402,7 @@ def _source_control_experiment(output_root: Path, protocol: Mapping[str, Any]) -
 
 def _synthetic_model(protocol: Mapping[str, Any]) -> dict[str, Any]:
     workload = next(
-        item for item in protocol["workloads"] if item["id"] == "synthetic-mixed-v1"
+        item for item in protocol["workloads"] if item["kind"] == "synthetic"
     )
     sizes = list(workload["payloadSizesBytes"])
     repetitions = int(workload["packageCount"]) // len(sizes)
@@ -479,6 +516,23 @@ def _summarize_inventory(inventory: Mapping[str, Any]) -> dict[str, Any]:
     payload_ids: dict[str, int] = {}
     content_candidates: dict[str, int] = {}
     exact_groups: dict[int, int] = {}
+    duplicate_payload_ids_within_package: list[dict[str, Any]] = []
+    orphan_companions: set[str] = set()
+    descriptor_inspection_failure_count = 0
+    for package in packages:
+        package_payload_ids: dict[str, int] = {}
+        for descriptor in package["descriptors"]:
+            payload_id = descriptor["payloadId"]
+            package_payload_ids[payload_id] = package_payload_ids.get(payload_id, 0) + 1
+        duplicates = sorted(
+            payload_id for payload_id, count in package_payload_ids.items() if count > 1
+        )
+        if duplicates:
+            duplicate_payload_ids_within_package.append(
+                {"packagePath": package.get("packagePath", ""), "payloadIds": duplicates}
+            )
+        orphan_companions.update(package.get("orphanCompanions", ()))
+        descriptor_inspection_failure_count += bool(package.get("descriptorDiagnostic"))
     for descriptor in descriptors:
         payload_ids[descriptor["payloadId"]] = payload_ids.get(descriptor["payloadId"], 0) + 1
         content_candidates[descriptor["contentHash"]] = content_candidates.get(descriptor["contentHash"], 0) + 1
@@ -502,12 +556,16 @@ def _summarize_inventory(inventory: Mapping[str, Any]) -> dict[str, Any]:
             item["storage"] == "External" and not item["reachable"] for item in descriptors
         ),
         "duplicatePayloadIds": sorted(key for key, count in payload_ids.items() if count > 1),
+        "duplicatePayloadIdsWithinPackage": duplicate_payload_ids_within_package,
         "duplicateContentCandidateHashes": sorted(
             key for key, count in content_candidates.items() if count > 1
         ),
         "exactDuplicateExternalPayloadCount": sum(
             count for count in exact_groups.values() if count > 1
         ),
+        "orphanCompanionCount": len(orphan_companions),
+        "orphanCompanions": sorted(orphan_companions),
+        "descriptorInspectionFailureCount": descriptor_inspection_failure_count,
         "warmInspectionMedianMilliseconds": statistics.median(warm_times) if warm_times else 0.0,
         "warmInspectionP95Milliseconds": _percentile(warm_times, 0.95),
         "inspectionBytesRead": sum(package["fileBytesRead"] for package in packages),
@@ -519,6 +577,7 @@ def _failure_model() -> list[dict[str, Any]]:
     return [
         {
             "candidate": "complete-file-atomic-replacement",
+            "requiredForRetain": True,
             "transitions": ["construct", "flush", "close", "replace", "catalog", "cleanup"],
             "injectedFailures": [
                 "termination", "short-write", "flush", "close", "rename", "insufficient-disk", "catalog"
@@ -528,6 +587,7 @@ def _failure_model() -> list[dict[str, Any]]:
         },
         {
             "candidate": "companion-first-publication",
+            "requiredForRetain": True,
             "transitions": [
                 "construct-companion", "flush-companion", "close-companion", "publish-companion",
                 "construct-package", "flush-package", "close-package", "publish-package",
@@ -542,6 +602,7 @@ def _failure_model() -> list[dict[str, Any]]:
         },
         {
             "candidate": "in-place-tail-rewrite",
+            "requiredForRetain": False,
             "transitions": ["write-tail", "flush-tail", "publish-footer"],
             "injectedFailures": ["termination", "short-write", "stale-footer", "flush", "insufficient-disk"],
             "lastGoodGeneration": "Not proven on the supported filesystem because an interrupted in-place tail write can destroy the only committed footer.",
@@ -549,6 +610,7 @@ def _failure_model() -> list[dict[str, Any]]:
         },
         {
             "candidate": "append-generation",
+            "requiredForRetain": False,
             "transitions": ["append-data", "flush-data", "append-footer", "flush-footer", "compact"],
             "injectedFailures": [
                 "termination", "short-write", "stale-footer", "corrupt-latest", "interrupted-compaction", "insufficient-disk"
@@ -581,6 +643,7 @@ def _decision(
     corpus: Mapping[str, Any],
     git_baseline: Mapping[str, Any],
     publication: Mapping[str, Any],
+    failure_model: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     thresholds = protocol["thresholds"]
     file_history = {item["path"]: item["history"] for item in git_baseline["files"]}
@@ -594,33 +657,66 @@ def _decision(
     timing_decision_bearing = bool(protocol["timingPolicy"]["decisionBearing"])
     pressure = {
         "reachableExternalBytes": corpus["reachableExternalBytes"]
-        >= thresholds["proceedMinimumReachableExternalBytes"],
-        "payloadCount": corpus["payloadCount"] >= thresholds["proceedMinimumAuthoredPayloadCount"],
+        >= thresholds["revisitReachableExternalBytes"],
+        "payloadCount": corpus["payloadCount"] >= thresholds["revisitAuthoredPayloadCount"],
         "monthlyRewrittenBytes": monthly_rewritten
-        >= thresholds["proceedMinimumMonthlyRewrittenBytes"],
+        >= thresholds["revisitMonthlyLfsTransferBytes"],
         "publicationP95": timing_decision_bearing and publication_p95
-        >= thresholds["maximumCurrentPublicationP95Milliseconds"],
+        >= thresholds["revisitPublicationP95Milliseconds"],
         "inspectionP95": timing_decision_bearing and inspection_p95
         >= thresholds["maximumWarmInspectionP95Milliseconds"],
     }
-    result = "Defer" if any(pressure.values()) else "Retain"
-    rationale = (
-        "A decision-bearing construct-free inspection p95 exceeds its frozen budget, but no new "
-        "boundary has measured benefit sufficient to justify production format and migration "
-        "cost. Keep DAST v5/DABK v1 authoritative and repeat the exact inspection workload in "
-        "a quiet Release lane; reopen candidate qualification only if the breach persists."
-        if result == "Defer"
-        else "The current corpus passes integrity, durability, storage, and source-control "
-        "pressure gates. Performance measurements from the current non-reference machine are "
-        "retained as diagnostic evidence only. A new wire adds compatibility and migration "
-        "cost without measured current benefit."
+    integrity = {
+        "corruptPackages": int(corpus.get("corruptPackageCount", 0)) != 0,
+        "missingExternalPayloads": int(corpus.get("missingExternalPayloadCount", 0)) != 0,
+        "duplicatePayloadIdsWithinPackage": bool(
+            corpus.get("duplicatePayloadIdsWithinPackage", ())
+        ),
+        "orphanCompanions": bool(corpus.get("orphanCompanionCount", 0))
+        or bool(git_baseline.get("trackedOrphanCompanions", ())),
+        "descriptorInspectionFailures": bool(
+            corpus.get("descriptorInspectionFailureCount", 0)
+        ),
+        "missingTrackedFiles": bool(git_baseline.get("missingTrackedFiles", ())),
+        "assetWorkingTreeDirty": bool(git_baseline.get("assetWorkingTreeDirty", False)),
+        "failureModel": any(
+            item.get("requiredForRetain", False) and item.get("result") != "Pass"
+            for item in (failure_model or ())
+        ),
+    }
+    failed_integrity = [name for name, failed in integrity.items() if failed]
+    active_pressure = [name for name, active in pressure.items() if active]
+    result = "Defer" if failed_integrity or active_pressure else "Retain"
+    if failed_integrity:
+        rationale = (
+            "Mandatory corpus or durability gates failed: "
+            f"{', '.join(failed_integrity)}. Keep DAST v5/DABK v1 authoritative, repair the "
+            "evidence, and rerun qualification before evaluating another boundary."
+        )
+    elif active_pressure:
+        rationale = (
+            "Revisit pressure is active for: "
+            f"{', '.join(active_pressure)}. Keep DAST v5/DABK v1 authoritative while a "
+            "separate candidate qualification measures a concrete replacement."
+        )
+    else:
+        rationale = (
+            "The current corpus passes integrity, durability, storage, and source-control "
+            "pressure gates. Performance measurements from the current non-reference machine "
+            "remain diagnostic only. A new wire adds compatibility and migration cost without "
+            "measured current benefit."
+        )
+    retained = next(
+        candidate for candidate in protocol["candidates"]
+        if str(candidate["id"]).startswith("retain-")
     )
     return {
         "result": result,
-        "selectedBoundary": "None; DAST v5 remains the authoritative production baseline during deferral.",
-        "selectedPlacement": "None; generation-named DABK v1 in Git LFS remains the production baseline.",
-        "selectedPublication": "None; current companion-first publication and atomic package replacement remain authoritative.",
+        "selectedBoundary": retained["boundary"] if result == "Retain" else None,
+        "selectedPlacement": retained["placement"] if result == "Retain" else None,
+        "selectedPublication": retained["publication"] if result == "Retain" else None,
         "rationale": rationale,
+        "integrityGates": integrity,
         "pressureGates": pressure,
         "estimatedMonthlyRewrittenBytes": monthly_rewritten,
         "observedPublicationP95Milliseconds": publication_p95,
@@ -676,7 +772,9 @@ def run(
     )
     _write_json(output_root / "publication-benchmark.json", publication)
     failure_model = _failure_model()
-    decision = _decision(protocol, corpus, git_baseline, publication)
+    decision = _decision(
+        protocol, corpus, git_baseline, publication, failure_model=failure_model
+    )
     report = {
         "schemaVersion": REPORT_VERSION,
         "protocol": protocol,

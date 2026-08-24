@@ -1,12 +1,12 @@
 #include "AssetTools.h"
 #include "AssetForge/Persistence/ImportRecord.h"
+#include "AssetAuthoringReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
-#include "DObject/Class.h"
 #include "EngineAssetServices.h"
 #include "Engine/Level.h"
 #include "AssetForge/ImportService.h"
@@ -16,13 +16,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Threading/Task.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureCube.h"
-#include "Texture/VolumeTexture.h"
 
 #include <chrono>
 #include <csignal>
@@ -34,40 +28,6 @@ namespace
 	constexpr auto CanonicalResaveRecoveryTimeout = std::chrono::seconds(60);
 
 	auto HandleInterrupt(int) -> void { GCancelled.store(true, std::memory_order_relaxed); }
-
-	auto ValidateCanonicalResaveAssetReadiness(Durin::DObject* Asset)
-		-> Durin::Asset::FAssetResult
-	{
-		if (!Asset)
-			return {Durin::Asset::EAssetError::InvalidObjectGraph,
-				"Loaded package has no main asset."};
-		auto NotReady = [&](std::string_view Domain) {
-			return Durin::Asset::FAssetResult{
-				Durin::Asset::EAssetError::StaleData,
-				std::format("{} post-load recovery did not publish domain-ready data.", Domain)};
-		};
-		if (const auto* Mesh = Durin::Cast<Durin::DStaticMesh>(Asset);
-			Mesh && !Mesh->GetRenderData()) return NotReady("StaticMesh");
-		if (const auto* Mesh = Durin::Cast<Durin::DSkeletalMesh>(Asset);
-			Mesh && !Mesh->GetRenderData()) return NotReady("SkeletalMesh");
-		if (const auto* Texture = Durin::Cast<Durin::DTexture2D>(Asset);
-			Texture && (!Texture->GetPlatformData()
-				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
-			return NotReady("Texture2D");
-		if (const auto* Texture = Durin::Cast<Durin::DTextureCube>(Asset);
-			Texture && (!Texture->GetPlatformData()
-				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
-			return NotReady("TextureCube");
-		if (const auto* Texture = Durin::Cast<Durin::DVolumeTexture>(Asset);
-			Texture && (!Texture->GetPlatformData()
-				|| Texture->GetBuildStatus() != Durin::ETextureBuildStatus::Ready))
-			return NotReady("VolumeTexture");
-		if (const auto* Heightmap = Durin::Cast<Durin::DTerrainHeightmap>(Asset);
-			Heightmap && (!Heightmap->GetPayload()
-				|| Heightmap->GetStatus() != Durin::ETerrainHeightmapStatus::Ready))
-			return NotReady("TerrainHeightmap");
-		return {};
-	}
 
 	auto PrepareCanonicalResaveAsset(
 		const Durin::FAssetPath& Path, Durin::DObject* Asset)
@@ -89,25 +49,150 @@ namespace
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		(void)Service.PumpImportOperations();
-		return ValidateCanonicalResaveAssetReadiness(Asset);
+		return Durin::ValidateAssetAuthoringReadiness(Asset);
+	}
+
+	enum class EOperation : uint8
+	{
+		Audit,
+		CanonicalResave,
+		StorageQualificationInventory
+	};
+
+	enum class EOutputFormat : uint8 { Json, Human };
+
+	enum class EOption : uint16
+	{
+		Project = 1 << 0,
+		Operation = 1 << 1,
+		Format = 1 << 2,
+		Ci = 1 << 3,
+		ProjectScope = 1 << 4,
+		Apply = 1 << 5,
+		Target = 1 << 6,
+		Mount = 1 << 7,
+		Folder = 1 << 8,
+		Package = 1 << 9
+	};
+
+	constexpr auto OptionBit(EOption Option) -> uint16
+	{
+		return static_cast<uint16>(Option);
+	}
+
+	auto OperationName(EOperation Operation) -> std::string_view
+	{
+		switch (Operation)
+		{
+		case EOperation::Audit: return "audit";
+		case EOperation::CanonicalResave: return "canonical-resave";
+		case EOperation::StorageQualificationInventory:
+			return "storage-qualification-inventory";
+		}
+		return "audit";
+	}
+
+	auto OptionName(EOption Option) -> std::string_view
+	{
+		switch (Option)
+		{
+		case EOption::Project: return "--project";
+		case EOption::Operation: return "--operation";
+		case EOption::Format: return "--format";
+		case EOption::Ci: return "--ci";
+		case EOption::ProjectScope: return "--project-scope";
+		case EOption::Apply: return "--apply";
+		case EOption::Target: return "--target";
+		case EOption::Mount: return "--mount";
+		case EOption::Folder: return "--folder";
+		case EOption::Package: return "--package";
+		}
+		return "option";
 	}
 
 	struct FOptions
 	{
 		std::string Project;
-		bool bCanonicalResave = false;
-		bool bStorageQualificationInventory = false;
+		EOperation Operation = EOperation::Audit;
+		EOutputFormat Format = EOutputFormat::Json;
 		bool bCi = false;
 		bool bProjectScope = false;
-		bool bHuman = false;
 		bool bApply = false;
-		bool bTargetSpecified = false;
 		Durin::Asset::EAssetPackageWriterSelection TargetWriterSelection =
 			Durin::Asset::EAssetPackageWriterSelection::DastV5;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
+		uint16 SpecifiedOptions = 0;
 	};
+
+	auto MarkOptionOnce(FOptions& Options, EOption Option, std::string& OutError) -> bool
+	{
+		const uint16 Bit = OptionBit(Option);
+		if ((Options.SpecifiedOptions & Bit) != 0)
+		{
+			OutError = std::format("{} may be specified only once.", OptionName(Option));
+			return false;
+		}
+		Options.SpecifiedOptions |= Bit;
+		return true;
+	}
+
+	auto ValidateOptions(const FOptions& Options, std::string& OutError) -> bool
+	{
+		if (Options.Project.empty())
+		{
+			OutError = "--project=<path-to-project.dproject> is required.";
+			return false;
+		}
+
+		constexpr uint16 Common = OptionBit(EOption::Project)
+			| OptionBit(EOption::Operation) | OptionBit(EOption::Format);
+		constexpr uint16 Canonical = Common | OptionBit(EOption::Ci)
+			| OptionBit(EOption::ProjectScope) | OptionBit(EOption::Apply)
+			| OptionBit(EOption::Target) | OptionBit(EOption::Mount)
+			| OptionBit(EOption::Folder) | OptionBit(EOption::Package);
+		const uint16 Allowed = Options.Operation == EOperation::CanonicalResave
+			? Canonical : Common;
+		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
+		constexpr EOption OrderedOptions[] = {
+			EOption::Ci, EOption::ProjectScope, EOption::Apply, EOption::Target,
+			EOption::Mount, EOption::Folder, EOption::Package};
+		for (const EOption Option : OrderedOptions)
+			if ((Unexpected & OptionBit(Option)) != 0)
+			{
+				OutError = std::format("{} is not valid for operation {}.",
+					OptionName(Option), OperationName(Options.Operation));
+				return false;
+			}
+		if (Options.Operation != EOperation::CanonicalResave
+			&& Options.Format == EOutputFormat::Human)
+		{
+			OutError = std::format(
+				"--format=human is not supported by operation {}.",
+				OperationName(Options.Operation));
+			return false;
+		}
+		if (Options.Operation != EOperation::CanonicalResave) return true;
+		if (Options.bCi && Options.bApply)
+		{
+			OutError = "--ci is read-only and cannot be combined with --apply.";
+			return false;
+		}
+		if (Options.Mounts.empty() && Options.Folders.empty()
+			&& Options.Packages.empty() && !Options.bProjectScope)
+		{
+			OutError = "Canonical resave requires --package, --folder, --mount, or explicit --project-scope.";
+			return false;
+		}
+		if (Options.bProjectScope && (!Options.Mounts.empty()
+			|| !Options.Folders.empty() || !Options.Packages.empty()))
+		{
+			OutError = "--project-scope cannot be combined with narrower selectors.";
+			return false;
+		}
+		return true;
+	}
 
 	auto ParseOptions(int ArgC, char** ArgV, FOptions& OutOptions, std::string& OutError) -> bool
 	{
@@ -116,80 +201,68 @@ namespace
 			const std::string_view Argument = ArgV[Index];
 			if (Argument.starts_with("--project="))
 			{
-				if (!OutOptions.Project.empty())
-				{
-					OutError = "--project may be specified only once.";
-					return false;
-				}
+				if (!MarkOptionOnce(OutOptions, EOption::Project, OutError)) return false;
 				OutOptions.Project = Argument.substr(std::string_view("--project=").size());
 			}
-			else if (Argument == "--operation=canonical-resave") OutOptions.bCanonicalResave = true;
-			else if (Argument == "--operation=storage-qualification-inventory")
-				OutOptions.bStorageQualificationInventory = true;
-			else if (Argument == "--ci") OutOptions.bCi = true;
-			else if (Argument == "--project-scope") OutOptions.bProjectScope = true;
-			else if (Argument == "--apply") OutOptions.bApply = true;
+			else if (Argument == "--operation=audit"
+				|| Argument == "--operation=canonical-resave"
+				|| Argument == "--operation=storage-qualification-inventory")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::Operation, OutError)) return false;
+				if (Argument == "--operation=canonical-resave")
+					OutOptions.Operation = EOperation::CanonicalResave;
+				else if (Argument == "--operation=storage-qualification-inventory")
+					OutOptions.Operation = EOperation::StorageQualificationInventory;
+			}
+			else if (Argument == "--ci")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::Ci, OutError)) return false;
+				OutOptions.bCi = true;
+			}
+			else if (Argument == "--project-scope")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::ProjectScope, OutError)) return false;
+				OutOptions.bProjectScope = true;
+			}
+			else if (Argument == "--apply")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::Apply, OutError)) return false;
+				OutOptions.bApply = true;
+			}
 			else if (Argument == "--target=v5")
 			{
-				OutOptions.bTargetSpecified = true;
+				if (!MarkOptionOnce(OutOptions, EOption::Target, OutError)) return false;
 				OutOptions.TargetWriterSelection =
 					Durin::Asset::EAssetPackageWriterSelection::DastV5;
 			}
-			else if (Argument.starts_with("--mount=")) OutOptions.Mounts.emplace_back(Argument.substr(std::string_view("--mount=").size()));
-			else if (Argument.starts_with("--folder=")) OutOptions.Folders.emplace_back(Argument.substr(std::string_view("--folder=").size()));
-			else if (Argument.starts_with("--package=")) OutOptions.Packages.emplace_back(Argument.substr(std::string_view("--package=").size()));
-			else if (Argument == "--format=human") OutOptions.bHuman = true;
-			else if (Argument != "--format=json")
+			else if (Argument.starts_with("--mount="))
+			{
+				OutOptions.SpecifiedOptions |= OptionBit(EOption::Mount);
+				OutOptions.Mounts.emplace_back(Argument.substr(std::string_view("--mount=").size()));
+			}
+			else if (Argument.starts_with("--folder="))
+			{
+				OutOptions.SpecifiedOptions |= OptionBit(EOption::Folder);
+				OutOptions.Folders.emplace_back(Argument.substr(std::string_view("--folder=").size()));
+			}
+			else if (Argument.starts_with("--package="))
+			{
+				OutOptions.SpecifiedOptions |= OptionBit(EOption::Package);
+				OutOptions.Packages.emplace_back(Argument.substr(std::string_view("--package=").size()));
+			}
+			else if (Argument == "--format=human" || Argument == "--format=json")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::Format, OutError)) return false;
+				OutOptions.Format = Argument == "--format=human"
+					? EOutputFormat::Human : EOutputFormat::Json;
+			}
+			else
 			{
 				OutError = std::format("Unknown argument: {}", Argument);
 				return false;
 			}
 		}
-		if (OutOptions.Project.empty())
-		{
-			OutError = "--project=<path-to-project.dproject> is required.";
-			return false;
-		}
-		if (OutOptions.bApply && !OutOptions.bCanonicalResave)
-		{
-			OutError = "--apply requires --operation=canonical-resave.";
-			return false;
-		}
-		if (OutOptions.bTargetSpecified && !OutOptions.bCanonicalResave)
-		{
-			OutError = "--target requires --operation=canonical-resave.";
-			return false;
-		}
-		if (OutOptions.bCi && !OutOptions.bCanonicalResave)
-		{
-			OutError = "--ci requires --operation=canonical-resave.";
-			return false;
-		}
-		if (OutOptions.bCi && OutOptions.bApply)
-		{
-			OutError = "--ci is read-only and cannot be combined with --apply.";
-			return false;
-		}
-		if (OutOptions.bCanonicalResave && OutOptions.Mounts.empty()
-			&& OutOptions.Folders.empty() && OutOptions.Packages.empty()
-			&& !OutOptions.bProjectScope)
-		{
-			OutError = "Canonical resave requires --package, --folder, --mount, or explicit --project-scope.";
-			return false;
-		}
-		if (OutOptions.bCanonicalResave && OutOptions.bProjectScope
-			&& (!OutOptions.Mounts.empty() || !OutOptions.Folders.empty()
-				|| !OutOptions.Packages.empty()))
-		{
-			OutError = "--project-scope cannot be combined with narrower selectors.";
-			return false;
-		}
-		if (OutOptions.bCanonicalResave && OutOptions.bStorageQualificationInventory)
-		{
-			OutError = "Only one --operation may be selected.";
-			return false;
-		}
-		return true;
+		return ValidateOptions(OutOptions, OutError);
 	}
 
 	auto JsonEscape(std::string_view Value) -> std::string
@@ -361,6 +434,146 @@ namespace
 		Json += "]}";
 		return Json;
 	}
+
+	auto IsValidVirtualPrefix(std::string_view Value) -> bool
+	{
+		return Value.size() >= 2 && Value.front() == '/' && Value.back() != '/'
+			&& Value.find("//") == std::string_view::npos
+			&& Value.find('\\') == std::string_view::npos;
+	}
+
+	auto MatchesVirtualPrefix(
+		const Durin::Asset::FAssetPackageCompatibilityRecord& Record,
+		std::string_view Prefix) -> bool
+	{
+		const std::string_view Path = Record.PackagePath.GetView();
+		return Path.starts_with(Prefix) && Path.size() > Prefix.size()
+			&& Path[Prefix.size()] == '/';
+	}
+
+	auto MakeCanonicalResaveSelection(
+		const FOptions& Options,
+		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records,
+		Durin::Asset::FAssetCanonicalResaveSelection& OutSelection,
+		std::string& OutError) -> int
+	{
+		OutSelection = {
+			.Mounts = Options.Mounts,
+			.Folders = Options.Folders,
+			.bWholeProject = Options.bProjectScope,
+			.bAllowPlainResave = true,
+			.TargetWriterSelection = Options.TargetWriterSelection};
+		for (const std::string& Value : Options.Packages)
+		{
+			Durin::FAssetPath Path;
+			if (!Durin::FAssetPath::TryCreate(Value, Path, &OutError))
+			{
+				OutError = std::format(
+					"invalid --package value '{}': {}", Value, OutError);
+				return 2;
+			}
+			OutSelection.Packages.push_back(std::move(Path));
+		}
+
+		auto ValidatePrefixes = [&](std::span<const std::string> Values,
+			std::string_view OptionName) -> int {
+			for (const std::string& Value : Values)
+			{
+				if (!IsValidVirtualPrefix(Value))
+				{
+					OutError = std::format("invalid {} value '{}'.", OptionName, Value);
+					return 2;
+				}
+				if (std::ranges::none_of(Records, [&](const auto& Record) {
+					return MatchesVirtualPrefix(Record, Value);
+				}))
+				{
+					OutError = std::format(
+						"{} selector '{}' matched no discovered package.", OptionName, Value);
+					return 1;
+				}
+			}
+			return 0;
+		};
+		if (const int Result = ValidatePrefixes(OutSelection.Mounts, "--mount"))
+			return Result;
+		if (const int Result = ValidatePrefixes(OutSelection.Folders, "--folder"))
+			return Result;
+		for (const Durin::FAssetPath& Package : OutSelection.Packages)
+			if (std::ranges::find(Records, Package,
+				&Durin::Asset::FAssetPackageCompatibilityRecord::PackagePath) == Records.end())
+			{
+				OutError = std::format("--package selector '{}' matched no discovered package.",
+					Package.ToString());
+				return 1;
+			}
+		return 0;
+	}
+
+	auto RunCanonicalResave(
+		const FOptions& Options,
+		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records,
+		const Durin::Asset::FReflectionCompatibilityCatalog& Catalog) -> int
+	{
+		std::string Error;
+		Durin::Asset::FAssetCanonicalResaveSelection Selection;
+		if (const int Result = MakeCanonicalResaveSelection(
+				Options, Records, Selection, Error))
+		{
+			std::cerr << "Error: " << Error << '\n';
+			return Result;
+		}
+		const auto Plan = Durin::Asset::PlanAssetCanonicalResaves(
+			Records, Selection, [] { return GCancelled.load(std::memory_order_relaxed); });
+		if (Plan.Status == Durin::Asset::EAssetCanonicalResavePlanStatus::Cancelled)
+			return 130;
+		if (Options.bApply)
+		{
+			auto Applied = Durin::Asset::ApplyAssetCanonicalResaves(
+				Plan, Catalog,
+				{.PrepareLoadedAsset = PrepareCanonicalResaveAsset},
+				[] { return GCancelled.load(std::memory_order_relaxed); });
+			if (Options.Format == EOutputFormat::Human)
+				std::cout << "canonical-resave apply: " << Applied.ChangedPaths.size()
+					<< " package(s) resaved; " << Applied.Diagnostic << '\n';
+			else
+				std::cout << Durin::Asset::SerializeAssetCanonicalResaveApplyReport(Applied)
+					<< '\n';
+			std::cout.flush();
+			if (Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Cancelled)
+				return 130;
+			return Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded
+				? 0 : 1;
+		}
+		if (Options.Format == EOutputFormat::Human)
+		{
+			const auto Ready = std::ranges::count(Plan.Packages,
+				Durin::Asset::EAssetCanonicalResavePackageStatus::Ready,
+				&Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
+			const auto Blocked = std::ranges::count(Plan.Packages,
+				Durin::Asset::EAssetCanonicalResavePackageStatus::Blocked,
+				&Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
+			const auto Skipped = std::ranges::count(Plan.Packages,
+				Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped,
+				&Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
+			std::cout << "canonical-resave plan: " << Ready << " ready, "
+				<< Blocked << " blocked, " << Skipped << " skipped, "
+				<< Plan.Packages.size() << " selected\n";
+			for (const auto& Package : Plan.Packages)
+				if (Package.Status == Durin::Asset::EAssetCanonicalResavePackageStatus::Blocked)
+				{
+					std::cout << "  " << Package.PackagePath.ToString() << '\n';
+					for (const std::string& Diagnostic : Package.Diagnostics)
+						std::cout << "    " << Diagnostic << '\n';
+				}
+		}
+		else
+			std::cout << Durin::Asset::SerializeAssetCanonicalResavePlanReport(Plan) << '\n';
+		if (Options.bCi && std::ranges::any_of(Plan.Packages, [](const auto& Package) {
+			return Package.Status != Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped;
+		})) return 3;
+		return 0;
+	}
 }
 
 int main(int ArgC, char** ArgV)
@@ -398,7 +611,7 @@ int main(int ArgC, char** ArgV)
 	}
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
-	if (Options.bCanonicalResave && Options.bApply)
+	if (Options.Operation == EOperation::CanonicalResave && Options.bApply)
 	{
 		if (!Durin::InitializeTaskScheduler(2)
 			|| !Durin::InitializeGameThreadDeferredExecutor())
@@ -423,12 +636,12 @@ int main(int ArgC, char** ArgV)
 		std::cerr << "Error: " << Snapshot.Error << '\n';
 		return 1;
 	}
-	if (Options.bStorageQualificationInventory)
+	if (Options.Operation == EOperation::StorageQualificationInventory)
 	{
 		std::cout << SerializeStorageQualificationInventory(Snapshot.Packages) << '\n';
 		return 0;
 	}
-	if (Options.bCanonicalResave && Options.bApply)
+	if (Options.Operation == EOperation::CanonicalResave && Options.bApply)
 	{
 		const Durin::Asset::FAssetCatalogRefreshResult Refresh =
 			Durin::Asset::RefreshAssetCatalog(
@@ -450,106 +663,11 @@ int main(int ArgC, char** ArgV)
 		if (Result.Status == Durin::Asset::EAssetCompatibilityProbeStatus::Cancelled) return 130;
 		if (Result.Record) Records.push_back(std::move(*Result.Record));
 	}
-	if (!Options.bCanonicalResave)
+	if (Options.Operation == EOperation::Audit)
 	{
 		std::cout << Durin::Asset::SerializeAssetCompatibilityReportV1(Records) << '\n';
 		return 0;
 	}
 
-	if (Options.bCanonicalResave)
-	{
-		Durin::Asset::FAssetCanonicalResaveSelection Selection{
-			.Mounts = std::move(Options.Mounts),
-			.Folders = std::move(Options.Folders)};
-		for (const std::string& Value : Options.Packages)
-		{
-			Durin::FAssetPath Path;
-			if (!Durin::FAssetPath::TryCreate(Value, Path, &Error))
-			{
-				std::cerr << "Error: invalid --package value '" << Value << "': " << Error << '\n';
-				return 2;
-			}
-			Selection.Packages.push_back(std::move(Path));
-		}
-		for (const std::string& Mount : Selection.Mounts)
-		{
-			if (Mount.size() < 2 || Mount.front() != '/' || Mount.back() == '/'
-				|| Mount.find("//") != std::string::npos || Mount.find('\\') != std::string::npos)
-			{
-				std::cerr << "Error: invalid --mount value '" << Mount << "'.\n";
-				return 2;
-			}
-			if (!std::ranges::any_of(Records, [&](const auto& Record) {
-				const std::string_view Path = Record.PackagePath.GetView();
-				return Path.starts_with(Mount) && Path.size() > Mount.size() && Path[Mount.size()] == '/';
-			}))
-			{
-				std::cerr << "Error: --mount selector '" << Mount << "' matched no discovered package.\n";
-				return 1;
-			}
-		}
-		for (const std::string& Folder : Selection.Folders)
-		{
-			if (Folder.size() < 2 || Folder.front() != '/' || Folder.back() == '/'
-				|| Folder.find("//") != std::string::npos || Folder.find('\\') != std::string::npos)
-			{
-				std::cerr << "Error: invalid --folder value '" << Folder << "'.\n";
-				return 2;
-			}
-			if (!std::ranges::any_of(Records, [&](const auto& Record) {
-				const std::string_view Path = Record.PackagePath.GetView();
-				return Path.starts_with(Folder) && Path.size() > Folder.size() && Path[Folder.size()] == '/';
-			}))
-			{
-				std::cerr << "Error: --folder selector '" << Folder << "' matched no discovered package.\n";
-				return 1;
-			}
-		}
-		for (const Durin::FAssetPath& Package : Selection.Packages)
-			if (std::ranges::find(Records, Package,
-				&Durin::Asset::FAssetPackageCompatibilityRecord::PackagePath) == Records.end())
-			{
-				std::cerr << "Error: --package selector '" << Package.ToString()
-					<< "' matched no discovered package.\n";
-				return 1;
-			}
-		Selection.bWholeProject = Options.bProjectScope;
-		Selection.bAllowPlainResave = true;
-		Selection.TargetWriterSelection = Options.TargetWriterSelection;
-		const auto Plan = Durin::Asset::PlanAssetCanonicalResaves(
-			Records, Selection, [] { return GCancelled.load(std::memory_order_relaxed); });
-		if (Plan.Status == Durin::Asset::EAssetCanonicalResavePlanStatus::Cancelled) return 130;
-		if (Options.bApply)
-		{
-			auto Applied = Durin::Asset::ApplyAssetCanonicalResaves(
-				Plan, Catalog,
-				{.PrepareLoadedAsset = PrepareCanonicalResaveAsset},
-				[] { return GCancelled.load(std::memory_order_relaxed); });
-			if (Options.bHuman)
-				std::cout << "canonical-resave apply: " << Applied.ChangedPaths.size()
-					<< " package(s) resaved; " << Applied.Diagnostic << '\n';
-			else std::cout << Durin::Asset::SerializeAssetCanonicalResaveApplyReport(Applied) << '\n';
-			std::cout.flush();
-			if (Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Cancelled) return 130;
-			return Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded ? 0 : 1;
-		}
-		if (Options.bHuman)
-		{
-			const auto Ready = std::ranges::count(Plan.Packages,
-				Durin::Asset::EAssetCanonicalResavePackageStatus::Ready,
-				&Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
-			const auto Blocked = std::ranges::count(Plan.Packages,
-				Durin::Asset::EAssetCanonicalResavePackageStatus::Blocked,
-				&Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
-			std::cout << "canonical-resave plan: " << Ready << " ready, "
-				<< Blocked << " blocked, " << Plan.Packages.size() << " selected\n";
-		}
-		else std::cout << Durin::Asset::SerializeAssetCanonicalResavePlanReport(Plan) << '\n';
-		if (Options.bCi && std::ranges::any_of(Plan.Packages, [](const auto& Package) {
-			return Package.Status != Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped;
-		})) return 3;
-		return 0;
-	}
-
-	return 0;
+	return RunCanonicalResave(Options, Records, Catalog);
 }
