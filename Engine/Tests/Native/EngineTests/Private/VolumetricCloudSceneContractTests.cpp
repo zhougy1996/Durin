@@ -10,6 +10,7 @@
 #include "EngineTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "RendererModule.h"
+#include "RenderResource.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
 #include "RenderingThread.h"
 #include "Scene.h"
@@ -39,12 +40,25 @@ namespace
 			return "ObserveVolumetricCloud";
 		}
 	};
+	struct FMakeCloudTexturesReady
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "MakeCloudTexturesReady";
+		}
+	};
 
 	struct FCloudObservation
 	{
 		bool bHasActive = false;
 		Durin::FVolumetricCloudSceneData Active;
 		size_t Count = 0;
+	};
+
+	class FDeferredReadyCloudTexture final : public Durin::FRHITexture
+	{
+	protected:
+		~FDeferredReadyCloudTexture() override = default;
 	};
 
 	auto ObserveClouds(const Durin::IScene& Scene) -> FCloudObservation
@@ -292,6 +306,51 @@ TEST(FVolumetricCloudSceneContractTests, SceneSelectsPriorityAndStableIdentityAn
 
 	Owner.reset();
 	Durin::FlushRenderingCommands();
+	Durin::ShutdownRenderingThread();
+}
+
+TEST(FVolumetricCloudSceneContractTests,
+	SceneSelectsCloudWhenStableTextureReferencesBecomeReady)
+{
+	InitializeDObjectSystem();
+	Durin::InitRenderingThread();
+	Durin::FRendererModule Factory;
+	Durin::FScenePtr Owner = Factory.CreateScene();
+	auto& Scene = static_cast<Durin::FScene&>(*Owner);
+	Durin::FTextureReference BaseReference;
+	Durin::FTextureReference DetailReference;
+	BaseReference.BeginInit_GameThread();
+	DetailReference.BeginInit_GameThread();
+	Durin::FlushRenderingCommands();
+
+	auto Candidate = MakeCandidate(
+		1, 1, 0, Durin::FGuid(1, 0, 0, 0), "DeferredReadyCloud");
+	Candidate.BaseDensityTexture = BaseReference.GetTextureReferenceRHI();
+	Candidate.DetailDensityTexture = DetailReference.GetTextureReferenceRHI();
+	Publish(Scene, std::move(Candidate));
+	EXPECT_FALSE(ObserveClouds(Scene).bHasActive);
+
+	Durin::FTextureRHIRef BaseTexture(new FDeferredReadyCloudTexture());
+	Durin::FTextureRHIRef DetailTexture(new FDeferredReadyCloudTexture());
+	Durin::EnqueueRenderCommand<FMakeCloudTexturesReady>(
+		[&BaseReference, &DetailReference, BaseTexture, DetailTexture](
+			Durin::FRHICommandListImmediate&) {
+			BaseReference.SetReferencedTexture_RenderThread(BaseTexture);
+			DetailReference.SetReferencedTexture_RenderThread(DetailTexture);
+		});
+	Durin::FlushRenderingCommands();
+
+	const FCloudObservation Observation = ObserveClouds(Scene);
+	ASSERT_TRUE(Observation.bHasActive);
+	EXPECT_EQ(Observation.Active.InstanceId, 1u);
+
+	Scene.RemoveVolumetricCloud(Durin::FVolumetricCloudSceneId(1), 1);
+	BaseReference.BeginRelease_GameThread();
+	DetailReference.BeginRelease_GameThread();
+	Owner.reset();
+	Durin::FlushRenderingCommands();
+	BaseTexture = nullptr;
+	DetailTexture = nullptr;
 	Durin::ShutdownRenderingThread();
 }
 

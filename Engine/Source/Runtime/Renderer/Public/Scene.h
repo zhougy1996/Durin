@@ -184,7 +184,5 @@ namespace Durin
 			std::unique_ptr<FVolumetricCloudSceneInfo>, FSceneIdHash>
 			VolumetricCloudInfosById;
 		std::vector<FVolumetricCloudSceneInfo*> VolumetricCloudSceneInfos;
-		FVolumetricCloudSceneInfo* ActiveVolumetricCloudSceneInfo = nullptr;
-		auto RecomputeActiveVolumetricCloud_RenderThread() -> void;
 	};
 }

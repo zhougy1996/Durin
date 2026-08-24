@@ -279,7 +279,6 @@ namespace Durin
 		DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
 		SpotLightSceneInfos.clear(); LightInfosById.clear();
 		SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
-		ActiveVolumetricCloudSceneInfo = nullptr;
 		VolumetricCloudSceneInfos.clear(); VolumetricCloudInfosById.clear();
 	}
 
@@ -400,40 +399,6 @@ namespace Durin
 		return SkyBoxSceneInfos.size();
 	}
 
-	auto FScene::RecomputeActiveVolumetricCloud_RenderThread() -> void
-	{
-		CheckRenderingThread();
-		ActiveVolumetricCloudSceneInfo = nullptr;
-		for (FVolumetricCloudSceneInfo* Candidate : VolumetricCloudSceneInfos)
-		{
-			const FVolumetricCloudSceneData& Data = Candidate->GetProxy().GetData();
-			if (!Data.bEligible) continue;
-			// Assigned texture references are stable across import/reimport. Resolve
-			// readiness here so a recovered asset becomes selectable without an
-			// unrelated component edit or proxy republication.
-			if ((Data.BaseDensityTexture
-					&& !Data.BaseDensityTexture->GetReferencedTexture_RenderThread())
-				|| (Data.DetailDensityTexture
-					&& !Data.DetailDensityTexture->GetReferencedTexture_RenderThread()))
-				continue;
-			if (ActiveVolumetricCloudSceneInfo == nullptr)
-			{
-				ActiveVolumetricCloudSceneInfo = Candidate;
-				continue;
-			}
-			const FVolumetricCloudSceneData& Active =
-				ActiveVolumetricCloudSceneInfo->GetProxy().GetData();
-			if (Data.Priority > Active.Priority
-				|| (Data.Priority == Active.Priority
-					&& std::tuple(Data.PersistentId, Data.SelectionKey, Data.InstanceId)
-					< std::tuple(Active.PersistentId, Active.SelectionKey,
-						Active.InstanceId)))
-			{
-				ActiveVolumetricCloudSceneInfo = Candidate;
-			}
-		}
-	}
-
 	auto FScene::AddOrReplaceVolumetricCloud(
 		FVolumetricCloudSceneId CloudId, uint64 PublicationRevision,
 		std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
@@ -459,7 +424,6 @@ namespace Durin
 					*this, CloudId, SharedProxy);
 				VolumetricCloudSceneInfos.push_back(Info.get());
 				VolumetricCloudInfosById.emplace(CloudId, std::move(Info));
-				RecomputeActiveVolumetricCloud_RenderThread();
 			});
 	}
 
@@ -475,7 +439,6 @@ namespace Durin
 					|| Found->second->GetRevision() != ExpectedRevision) return;
 				std::erase(VolumetricCloudSceneInfos, Found->second.get());
 				VolumetricCloudInfosById.erase(Found);
-				RecomputeActiveVolumetricCloud_RenderThread();
 			});
 	}
 
@@ -483,7 +446,30 @@ namespace Durin
 		-> const FVolumetricCloudSceneInfo*
 	{
 		CheckRenderingThread();
-		return ActiveVolumetricCloudSceneInfo;
+		FVolumetricCloudSceneInfo* Active = nullptr;
+		for (FVolumetricCloudSceneInfo* Candidate : VolumetricCloudSceneInfos)
+		{
+			const FVolumetricCloudSceneData& Data = Candidate->GetProxy().GetData();
+			if (!Data.bEligible
+				|| (Data.BaseDensityTexture
+					&& !Data.BaseDensityTexture->GetReferencedTexture_RenderThread())
+				|| (Data.DetailDensityTexture
+					&& !Data.DetailDensityTexture->GetReferencedTexture_RenderThread()))
+				continue;
+			if (Active == nullptr)
+			{
+				Active = Candidate;
+				continue;
+			}
+			const FVolumetricCloudSceneData& ActiveData = Active->GetProxy().GetData();
+			if (Data.Priority > ActiveData.Priority
+				|| (Data.Priority == ActiveData.Priority
+					&& std::tuple(Data.PersistentId, Data.SelectionKey, Data.InstanceId)
+					< std::tuple(ActiveData.PersistentId, ActiveData.SelectionKey,
+						ActiveData.InstanceId)))
+				Active = Candidate;
+		}
+		return Active;
 	}
 
 	auto FScene::GetActiveVolumetricCloud_RenderThread(
