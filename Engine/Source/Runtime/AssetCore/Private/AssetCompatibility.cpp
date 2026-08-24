@@ -328,6 +328,11 @@ namespace Durin::Asset
 			case DurinCodeGen::EPropertyGenFlags::Struct: return "Struct";
 			case DurinCodeGen::EPropertyGenFlags::Name: return "Name";
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "Guid";
+			case DurinCodeGen::EPropertyGenFlags::SoftObject: return "SoftObject";
+			case DurinCodeGen::EPropertyGenFlags::WeakObject: return "WeakObject";
+			case DurinCodeGen::EPropertyGenFlags::Byte: return "Byte";
+			case DurinCodeGen::EPropertyGenFlags::Blob: return "Blob";
+			case DurinCodeGen::EPropertyGenFlags::BulkData: return "BulkData";
 			}
 			return "Unknown";
 		}

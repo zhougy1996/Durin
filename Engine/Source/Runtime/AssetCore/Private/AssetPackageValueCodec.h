@@ -164,6 +164,7 @@ namespace Durin::Asset::Private
 		case EKind::Guid: return DurinCodeGen::EPropertyGenFlags::Guid;
 		case EKind::Object: return DurinCodeGen::EPropertyGenFlags::Object;
 		case EKind::SoftObject: return DurinCodeGen::EPropertyGenFlags::SoftObject;
+		case EKind::WeakObject: return DurinCodeGen::EPropertyGenFlags::WeakObject;
 		case EKind::Struct: return DurinCodeGen::EPropertyGenFlags::Struct;
 		case EKind::Array: return DurinCodeGen::EPropertyGenFlags::Array;
 		case EKind::Map: return DurinCodeGen::EPropertyGenFlags::Map;

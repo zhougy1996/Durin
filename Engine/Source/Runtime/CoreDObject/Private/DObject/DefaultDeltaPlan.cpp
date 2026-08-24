@@ -769,6 +769,8 @@ namespace Durin
 				return (Left.ObjectValue == Right.ObjectValue
 					|| (Context.Graph && Context.Graph->AreReferencesEquivalent(Left.ObjectValue, Right.ObjectValue)))
 					? EPropertyIdentityResult::Identical : EPropertyIdentityResult::Different;
+			case ETypeKind::WeakObject:
+				return EPropertyIdentityResult::Unsupported;
 			case ETypeKind::Struct:
 				if (Left.SourceStruct && Left.SourceStruct == Right.SourceStruct
 					&& Left.SourceStruct->HasIdentical())

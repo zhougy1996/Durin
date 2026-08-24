@@ -403,25 +403,25 @@ namespace
 				Durin::DurinCodeGen::WithLegacyNames(
 					Durin::DurinCodeGen::FInt32PropertyParams{
 						"Value", Durin::EPropertyFlags::None, 1,
-						static_cast<uint16>(offsetof(DPackageAssetForTest, Value))},
+						STRUCT_OFFSET_UINT16(DPackageAssetForTest, Value)},
 					ValueLegacyNames, std::size(ValueLegacyNames));
-			static const Durin::DurinCodeGen::FStringPropertyParams LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, Label))};
-			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, DisplayName))};
-			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, PersistentId))};
+			static const Durin::DurinCodeGen::FStringPropertyParams LabelProp = {"Label", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, Label)};
+			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, DisplayName)};
+			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, PersistentId)};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidInner = {"RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, RelatedIds)), &GuidInner, &GGuidVectorHelper};
+			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, RelatedIds), &GuidInner, &GGuidVectorHelper};
 			static const Durin::DurinCodeGen::FInt32PropertyParams ScoreInner = {"Scores_Inner", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FArrayPropertyParams ScoresProp = {"Scores", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, Scores)), &ScoreInner, &GIntVectorHelper};
+			static const Durin::DurinCodeGen::FArrayPropertyParams ScoresProp = {"Scores", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, Scores), &ScoreInner, &GIntVectorHelper};
 			static const Durin::DurinCodeGen::FStringPropertyParams MapKeyProp = {"NamedScores_Key", Durin::EPropertyFlags::None, 1, 0};
 			static const Durin::DurinCodeGen::FInt32PropertyParams MapValueProp = {"NamedScores_Value", Durin::EPropertyFlags::None, 1, 0};
-			static const Durin::DurinCodeGen::FMapPropertyParams NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, NamedScores)), &MapKeyProp, &MapValueProp, &GScoreMapHelper};
+			static const Durin::DurinCodeGen::FMapPropertyParams NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, NamedScores), &MapKeyProp, &MapValueProp, &GScoreMapHelper};
 			static const Durin::DurinCodeGen::FStructPropertyParams SourcePathProp = {
 				"SourcePath", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DPackageAssetForTest, SourcePath)),
+				STRUCT_OFFSET_UINT16(DPackageAssetForTest, SourcePath),
 				&Durin::FSourcePath::StaticStruct
 			};
-			static const Durin::DurinCodeGen::FObjectPropertyParams ChildProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, DefaultChild)), &Durin::DObject::StaticClass);
-			static const Durin::DurinCodeGen::FObjectPropertyParams ExternalProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DPackageAssetForTest, ExternalReference)), &Durin::DObject::StaticClass);
+			static const Durin::DurinCodeGen::FObjectPropertyParams ChildProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("DefaultChild", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, DefaultChild), &Durin::DObject::StaticClass);
+			static const Durin::DurinCodeGen::FObjectPropertyParams ExternalProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("ExternalReference", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, ExternalReference), &Durin::DObject::StaticClass);
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&ValueProp, &LabelProp, &DisplayNameProp, &GuidProp, &GuidsProp, &ScoresProp,
 				&NamedScoresProp, &SourcePathProp, &ChildProp, &ExternalProp
@@ -482,7 +482,7 @@ namespace
 				Durin::DurinCodeGen::FBulkDataPropertyParams::Create<
 					Durin::Asset::FEditorBulkData>(
 						"Payload", Durin::EPropertyFlags::None, 1,
-						static_cast<uint16>(offsetof(DBulkPackageAssetForTest, Payload)));
+						STRUCT_OFFSET_UINT16(DBulkPackageAssetForTest, Payload));
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&PayloadProp};
 			static const Durin::DurinCodeGen::FClassParams Params = {
@@ -531,10 +531,10 @@ namespace
 			"Value", Targets, std::size(Targets)};
 		static const FFloatPropertyParams ValueProp{
 			"Value", EPropertyFlags::None, 1,
-			static_cast<uint16>(offsetof(AssetStructTest::FMigratingValue, Value))};
+			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value)};
 		static const FInt32PropertyParams DeprecatedProp = WithDeprecation(
 			FInt32PropertyParams{"Value_DEPRECATED", EPropertyFlags::Deprecated, 1,
-				static_cast<uint16>(offsetof(AssetStructTest::FMigratingValue, Value_DEPRECATED))},
+				STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value_DEPRECATED)},
 			&Deprecation);
 		static const FPropertyParamsBase* Properties[] = {&ValueProp, &DeprecatedProp};
 		static const FStructParams Params{
@@ -599,37 +599,37 @@ namespace
 				FSchemaMigrationVersion::LatestVersion, "Distance", DistanceTargets,
 				std::size(DistanceTargets)};
 			static const FFloatPropertyParams AProp{
-				"A", EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, A))};
+				"A", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, A)};
 			static const FFloatPropertyParams BProp{
-				"B", EPropertyFlags::None, 1, static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, B))};
+				"B", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, B)};
 			static const FInt32PropertyParams MergedProp{
 				"Merged", EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Merged))};
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Merged)};
 			static const FFloatPropertyParams DistanceProp{
 				"Distance", EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Distance))};
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Distance)};
 			static const FInt32PropertyParams AnchorProp{
 				"Anchor", EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Anchor))};
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Anchor)};
 			static const FStructPropertyParams StructDataProp{
 				"StructData", EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, StructData)),
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, StructData),
 				&GetMigratingValueStruct};
 			static const FInt32PropertyParams ADeprecatedProp = WithDeprecation(
 				FInt32PropertyParams{"A_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, A_DEPRECATED))},
+					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, A_DEPRECATED)},
 				&ADeprecation);
 			static const FInt32PropertyParams LeftDeprecatedProp = WithDeprecation(
 				FInt32PropertyParams{"Left_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Left_DEPRECATED))},
+					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Left_DEPRECATED)},
 				&LeftDeprecation);
 			static const FInt32PropertyParams RightDeprecatedProp = WithDeprecation(
 				FInt32PropertyParams{"Right_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Right_DEPRECATED))},
+					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Right_DEPRECATED)},
 				&RightDeprecation);
 			static const FFloatPropertyParams DistanceDeprecatedProp = WithDeprecation(
 				FFloatPropertyParams{"Distance_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					static_cast<uint16>(offsetof(DSchemaMigrationAssetForTest, Distance_DEPRECATED))},
+					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Distance_DEPRECATED)},
 				&DistanceDeprecation);
 			static const FPropertyParamsBase* Properties[] = {
 				&AProp, &BProp, &MergedProp, &DistanceProp, &AnchorProp, &StructDataProp, &ADeprecatedProp,
@@ -712,7 +712,7 @@ namespace
 				"Values_Inner", EPropertyFlags::None, 1, 0, &GetMigratingValueStruct};
 			static const FArrayPropertyParams ValuesProperty{
 				"Values", EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DContainerMigrationAssetForTest, Values)),
+				STRUCT_OFFSET_UINT16(DContainerMigrationAssetForTest, Values),
 				&ValuesInner, &GMigratingValueVectorHelper};
 			static const FPropertyParamsBase* Properties[] = {&ValuesProperty};
 			static const FClassParams Params{
@@ -904,13 +904,13 @@ namespace
 			static const auto DirectProp =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftReference>(
 					"Direct", Durin::EPropertyFlags::None, 1,
-					static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Direct)),
+					STRUCT_OFFSET_UINT16(DSoftPackageAssetForTest, Direct),
 					&DPackageAssetForTest::StaticClass
 				);
 			static const auto FixedProp =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftReference>(
 					"Fixed", Durin::EPropertyFlags::None, 2,
-					static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Fixed)),
+					STRUCT_OFFSET_UINT16(DSoftPackageAssetForTest, Fixed),
 					&DPackageAssetForTest::StaticClass
 				);
 			static const auto ArrayInner =
@@ -920,7 +920,7 @@ namespace
 				);
 			static const Durin::DurinCodeGen::FArrayPropertyParams ArrayProp = {
 				"Array", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Array)),
+				STRUCT_OFFSET_UINT16(DSoftPackageAssetForTest, Array),
 				&ArrayInner, &ResolveSoftArrayOps
 			};
 			static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
@@ -933,7 +933,7 @@ namespace
 				);
 			static const Durin::DurinCodeGen::FMapPropertyParams MapProp = {
 				"Map", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DSoftPackageAssetForTest, Map)),
+				STRUCT_OFFSET_UINT16(DSoftPackageAssetForTest, Map),
 				&MapKey, &MapValue, &ResolveSoftMapOps
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -967,7 +967,7 @@ namespace
 	{
 		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
 			"Value", Durin::EPropertyFlags::None, 1,
-			static_cast<uint16>(offsetof(AssetStructTest::FCodecSource, Value))
+			STRUCT_OFFSET_UINT16(AssetStructTest::FCodecSource, Value)
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
 		static const Durin::DurinCodeGen::FStructParams Params = {
@@ -993,7 +993,7 @@ namespace
 	{
 		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
 			"Value", Durin::EPropertyFlags::None, 1,
-			static_cast<uint16>(offsetof(AssetStructTest::FCodecTarget, Value))
+			STRUCT_OFFSET_UINT16(AssetStructTest::FCodecTarget, Value)
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
 		static const Durin::DurinCodeGen::FStructParams Params = {
@@ -1050,7 +1050,7 @@ namespace
 			constexpr bool bSource = std::is_same_v<TValue, AssetStructTest::FCodecSource>;
 			static const Durin::DurinCodeGen::FStructPropertyParams ValueProp = {
 				"Value", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(TCodecAssetForTest, Value)),
+				STRUCT_OFFSET_UINT16(TCodecAssetForTest, Value),
 				bSource ? &GetCodecSourceStruct : &GetCodecTargetStruct
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -1112,22 +1112,22 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorProp = {
 				"Vector", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, Vector)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Vector),
 				&Durin::Z_Construct_DStruct_Durin_FVector3
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams TransformProp = {
 				"Transform", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, Transform)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Transform),
 				&Durin::Z_Construct_DStruct_Durin_FTransform
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatQuatProp = {
 				"FloatQuat", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, FloatQuat)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, FloatQuat),
 				&Durin::Z_Construct_DStruct_Durin_FQuatf
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatMatrixProp = {
 				"FloatMatrix", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, FloatMatrix)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, FloatMatrix),
 				&Durin::Z_Construct_DStruct_Durin_FMatrix4f
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
@@ -1136,7 +1136,7 @@ namespace
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams VectorsProp = {
 				"Vectors", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, Vectors)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Vectors),
 				&VectorInner, &GVector3VectorHelper
 			};
 			static const Durin::DurinCodeGen::FStringPropertyParams VectorMapKey = {
@@ -1148,7 +1148,7 @@ namespace
 			};
 			static const Durin::DurinCodeGen::FMapPropertyParams VectorMapProp = {
 				"VectorMap", Durin::EPropertyFlags::None, 1,
-				static_cast<uint16>(offsetof(DMathStructAssetForTest, VectorMap)),
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, VectorMap),
 				&VectorMapKey, &VectorMapValue, &GVectorMapHelper
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
@@ -3964,8 +3964,8 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_EQ(Transform->GetPropertyFlags(), Durin::EPropertyFlags::None);
 	EXPECT_EQ(Vector->GetArrayDim(), 1);
 	EXPECT_EQ(Transform->GetArrayDim(), 1);
-	EXPECT_EQ(Vector->GetOffset(), static_cast<uint16>(offsetof(DMathStructAssetForTest, Vector)));
-	EXPECT_EQ(Transform->GetOffset(), static_cast<uint16>(offsetof(DMathStructAssetForTest, Transform)));
+	EXPECT_EQ(Vector->GetOffset(), STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Vector));
+	EXPECT_EQ(Transform->GetOffset(), STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Transform));
 	EXPECT_EQ(Vector->GetElementSize(), VectorStruct->PropertiesSize);
 	EXPECT_EQ(Transform->GetElementSize(), TransformStruct->PropertiesSize);
 	EXPECT_EQ(Vector->GetValueAlignment(), VectorStruct->MinAlignment);

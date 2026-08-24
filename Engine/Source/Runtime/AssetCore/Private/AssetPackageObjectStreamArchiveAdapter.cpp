@@ -1234,7 +1234,7 @@ namespace Durin::Asset::Private
 			return Writer.HasError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);
 		}
 
-		auto AdaptV4Type(const FArchiveLogicalTypeDescriptor& Input,
+		auto AdaptObjectStreamType(const FArchiveLogicalTypeDescriptor& Input,
 			PackageObjectStream::FTypePtr& OutType, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
@@ -1260,11 +1260,12 @@ namespace Durin::Asset::Private
 			case K::BulkData: OutType = PackageObjectStream::MakeType(O::BulkData); return true;
 			case K::Object: OutType = PackageObjectStream::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
 			case K::SoftObject: OutType = PackageObjectStream::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
+			case K::WeakObject: break;
 			case K::Struct: OutType = PackageObjectStream::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
 			case K::Array: case K::FixedArray:
 			{
 				PackageObjectStream::FTypePtr Element;
-				if (!Input.ElementType || !AdaptV4Type(*Input.ElementType, Element, Diagnostic)) break;
+				if (!Input.ElementType || !AdaptObjectStreamType(*Input.ElementType, Element, Diagnostic)) break;
 				OutType = PackageObjectStream::MakeType(Input.Kind == K::Array ? O::Array : O::FixedArray,
 					{}, Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0, {Element});
 				return true;
@@ -1272,8 +1273,8 @@ namespace Durin::Asset::Private
 			case K::Map:
 			{
 				PackageObjectStream::FTypePtr Key, Value;
-				if (!Input.KeyType || !Input.ValueType || !AdaptV4Type(*Input.KeyType, Key, Diagnostic)
-					|| !AdaptV4Type(*Input.ValueType, Value, Diagnostic)) break;
+				if (!Input.KeyType || !Input.ValueType || !AdaptObjectStreamType(*Input.KeyType, Key, Diagnostic)
+					|| !AdaptObjectStreamType(*Input.ValueType, Value, Diagnostic)) break;
 				OutType = PackageObjectStream::MakeType(O::Map, {}, 0, {Key, Value}); return true;
 			}
 			}
@@ -1281,7 +1282,7 @@ namespace Durin::Asset::Private
 			return false;
 		}
 
-		auto AreV4TypesEquivalent(const PackageObjectStream::FTypeDescriptor& Left,
+		auto AreObjectStreamTypesEquivalent(const PackageObjectStream::FTypeDescriptor& Left,
 			const PackageObjectStream::FTypeDescriptor& Right) -> bool
 		{
 			if (Left.Opcode != Right.Opcode || Left.QualifiedName != Right.QualifiedName
@@ -1290,11 +1291,11 @@ namespace Durin::Asset::Private
 				|| Left.bHasCustomSerializer != Right.bHasCustomSerializer) return false;
 			for (size_t Index = 0; Index < Left.Children.size(); ++Index)
 				if (!Left.Children[Index] || !Right.Children[Index]
-					|| !AreV4TypesEquivalent(*Left.Children[Index], *Right.Children[Index])) return false;
+					|| !AreObjectStreamTypesEquivalent(*Left.Children[Index], *Right.Children[Index])) return false;
 			return true;
 		}
 
-		auto DiscoverV4Field(const FCapturedNode& Node, PackageObjectStream::FPackageInput& Input,
+		auto DiscoverObjectStreamField(const FCapturedNode& Node, PackageObjectStream::FPackageInput& Input,
 			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			if (Node.Kind != ENodeKind::Field)
@@ -1303,7 +1304,7 @@ namespace Durin::Asset::Private
 				return false;
 			}
 			PackageObjectStream::FTypePtr Type;
-			if (!AdaptV4Type(Node.Field.LogicalType, Type, Diagnostic)) return false;
+			if (!AdaptObjectStreamType(Node.Field.LogicalType, Type, Diagnostic)) return false;
 			if (Node.ReflectedProperty
 				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
 				Type = PackageObjectStream::MakeType(PackageObjectStream::ETypeOpcode::Bool);
@@ -1317,7 +1318,7 @@ namespace Durin::Asset::Private
 			}
 			auto Existing = std::ranges::find(Schema->Fields, FieldName, &PackageObjectStream::FFieldDescriptor::Name);
 			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
-			else if (!Existing->Type || !AreV4TypesEquivalent(*Existing->Type, *Type))
+			else if (!Existing->Type || !AreObjectStreamTypesEquivalent(*Existing->Type, *Type))
 			{
 				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch,
 					SchemaName + "::" + FieldName,
@@ -1326,7 +1327,7 @@ namespace Durin::Asset::Private
 			}
 			Input.Types.push_back(std::move(Type));
 			std::function<bool(const FCapturedNode&)> DiscoverChildren = [&](const FCapturedNode& Child) {
-				if (Child.Kind == ENodeKind::Field) return DiscoverV4Field(Child, Input, Diagnostic);
+				if (Child.Kind == ENodeKind::Field) return DiscoverObjectStreamField(Child, Input, Diagnostic);
 				for (const FCapturedNode& Nested : Child.Children)
 					if (!DiscoverChildren(Nested)) return false;
 				return true;
@@ -1361,7 +1362,7 @@ namespace Durin::Asset::Private
 			return It == Fields->end() ? nullptr : &*It;
 		}
 
-		auto MaterializeV4Value(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
+		auto MaterializeObjectStreamValue(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
 			const FCapturedPackage& Package, std::span<const uint64> InternalReferenceIds,
 			PackageObjectStream::FPackageInput& Input, PackageObjectStream::FValue& Out,
 			PackageObjectStream::FWriterDiagnostic& Diagnostic, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
@@ -1385,7 +1386,7 @@ namespace Durin::Asset::Private
 					if (!ChildType) return Invalid();
 					PackageObjectStream::FValue Child;
 					const FDefaultDeltaNode* ChildDelta = DeltaNode && Index < DeltaNode->Elements.size() ? DeltaNode->Elements[Index].get() : nullptr;
-					if (!MaterializeV4Value(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
+					if (!MaterializeObjectStreamValue(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
 						Input, Child, Diagnostic, ChildDelta)) return false;
 					Out.Elements.push_back(std::move(Child));
 				}
@@ -1400,7 +1401,7 @@ namespace Durin::Asset::Private
 					if (DeltaNode && !DeltaField) return Invalid();
 					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
 					PackageObjectStream::FValue Child;
-					if (!MaterializeV4Value(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
+					if (!MaterializeObjectStreamValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Input, Child, Diagnostic,
 						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
 					Out.FieldNames.push_back(ChildNode.Field.Name.ToString());
@@ -1501,7 +1502,7 @@ namespace Durin::Asset::Private
 			return true;
 		}
 
-		auto BuildV4Input(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
+		auto BuildObjectStreamInput(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
 			std::span<const PackageObjectStream::FCustomVersion> CustomVersions,
 			PackageObjectStream::FPackageInput& Out, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
@@ -1523,7 +1524,7 @@ namespace Durin::Asset::Private
 				const std::string Path = OuterPath.empty() ? Object.ObjectName : OuterPath + "/" + Object.ObjectName;
 				Paths[Object.Id - 1] = Path;
 				Input.Objects.push_back({Path, OuterPath, Object.ClassName, Object.ObjectName});
-				for (const auto& Field : Object.Fields) if (!DiscoverV4Field(Field, Input, Diagnostic)) return false;
+				for (const auto& Field : Object.Fields) if (!DiscoverObjectStreamField(Field, Input, Diagnostic)) return false;
 			}
 			if (Objects.size() != Captured.Objects.size() || DeltaPlan.Objects.size() != Captured.Objects.size())
 			{
@@ -1566,7 +1567,7 @@ namespace Durin::Asset::Private
 					if (!DeltaField) { Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan is missing an Archive field."}; return false; }
 					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
 					PackageObjectStream::FValue Value;
-					if (!MaterializeV4Value(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
+					if (!MaterializeObjectStreamValue(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
 						Input, Value, Diagnostic,
 						DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
 					Values.KnownOverrides.push_back({Field.Field.DeclaringType.ToString(), Field.Field.Name.ToString(), DeltaField->Provenance, std::move(Value)});
@@ -1586,7 +1587,7 @@ namespace Durin::Asset::Private
 			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
 		{
 			PackageObjectStream::FPackageInput Input;
-			if (!BuildV4Input(
+			if (!BuildObjectStreamInput(
 				Captured, Summary, ObjectIdentities, DeltaPlan, CustomVersions,
 				Input, Diagnostic)) return false;
 			return PackageObjectStream::WritePackage(Input, OutBytes, &Diagnostic);
