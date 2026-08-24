@@ -411,7 +411,11 @@ namespace Durin
 		if (GraphStatus == ESceneFrameGraphExecutionStatus::CompileFailed)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (GraphStatus == ESceneFrameGraphExecutionStatus::ExecutionFailed)
-			return Composition.TargetResolutionResult;
+		{
+			return Composition.TargetResolutionResult != ERenderViewResult::Success
+				? Composition.TargetResolutionResult
+				: ERenderViewResult::RendererResourcesUnavailable;
+		}
 		if (!Composition.Channels.SceneColor.Result.IsSuccess())
 			return Composition.Channels.SceneColor.Result.Result;
 		if (Composition.Channels.PostProcess.Result.Result
