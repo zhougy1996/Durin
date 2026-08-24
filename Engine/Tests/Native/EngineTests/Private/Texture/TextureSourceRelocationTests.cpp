@@ -1,7 +1,7 @@
 #include "Source/MountedSourceRelocation.h"
 #include "Source/SourceReferenceIndex.h"
 #include "Texture/TextureTestSupport.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 TEST(FTextureSourceRelocationTests, RelocatesSharedSourceAndAllReferencingPackages)
 {
@@ -13,13 +13,13 @@ TEST(FTextureSourceRelocationTests, RelocatesSharedSourceAndAllReferencingPackag
 	Durin::FTexture2DImportSettings ImportSettings;
 	ImportSettings.SourceDestination =
 		"/TextureImportTests/Textures/RelocationTransactionShared.png";
-	const Durin::FTexture2DImportResult First = Durin::Asset::Forge::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult First = Durin::AssetForge::Builtins::ImportTexture2DAsset(
 		Input.generic_string(), "/TextureImportTests/Relocation/First",
 		ImportSettings);
 	ASSERT_TRUE(First) << First.Message;
 	const Durin::FTextureSourceDiagnostic OriginalSource = First.Asset->InspectSource();
 	ASSERT_EQ(OriginalSource.Status, Durin::ETextureSourceStatus::Available);
-	const Durin::FTexture2DImportResult Second = Durin::Asset::Forge::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Second = Durin::AssetForge::Builtins::ImportTexture2DAsset(
 		OriginalSource.PhysicalPath, "/TextureImportTests/Relocation/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 

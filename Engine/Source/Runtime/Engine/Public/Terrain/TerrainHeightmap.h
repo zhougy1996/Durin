@@ -153,7 +153,7 @@ namespace Durin
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetStatus() const -> ETerrainHeightmapStatus { return Status; }
 		auto GetSourceImportData() const -> const FTerrainHeightmapSourceImportData& { return SourceImportData; }
-		auto GetInterchangeProvenance() const -> std::string_view { return InterchangeProvenance; }
+		auto GetImportProvenance() const -> std::string_view { return ImportProvenance; }
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
@@ -187,7 +187,7 @@ namespace Durin
 		ENGINE_API auto IsSemanticImportNoOp(const DTerrainHeightmap& Candidate) const -> bool;
 		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
 		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
-		ENGINE_API auto PublishInterchangeProvenance(std::vector<std::byte> Provenance) -> void;
+		ENGINE_API auto PublishImportProvenance(std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -204,7 +204,7 @@ namespace Durin
 		FTerrainHeightmapSourceImportData SourceImportData;
 
 		DPROPERTY(EditorOnly)
-		std::string InterchangeProvenance;
+		std::string ImportProvenance;
 
 		DPROPERTY(EditorOnly)
 		uint64 SourceFileSize = 0;

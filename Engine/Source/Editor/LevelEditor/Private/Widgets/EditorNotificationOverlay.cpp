@@ -4,7 +4,7 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 #include "Editor/WorkspaceUI.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
@@ -121,7 +121,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FEditorNotificationOverlay::RegisterImportOperation(
-		Asset::FImportOperationHandle Handle, std::string Title) -> void
+		AssetForge::FImportOperationHandle Handle, std::string Title) -> void
 	{
 		if (!Handle) return;
 		const uint64 OperationId = Handle.GetOperationId();
@@ -141,14 +141,14 @@ namespace Durin::Editor::Level
 		for (FPresentedImportOperation& Operation : ImportOperations)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.UIPolling");
-			const Asset::FImportOperationSnapshot Snapshot =
+			const AssetForge::FImportOperationSnapshot Snapshot =
 				Operation.Handle.GetSnapshot();
 			if (!Operation.NotificationId)
 			{
-				const Asset::FImportOperationHandle CancelHandle = Operation.Handle;
+				const AssetForge::FImportOperationHandle CancelHandle = Operation.Handle;
 				Operation.NotificationId = Notifications.BeginProgress({
 					.Message = std::format("{}: {}", Operation.Title,
-						Asset::GetImportPhaseLabel(Snapshot.Phase)),
+						AssetForge::GetImportPhaseLabel(Snapshot.Phase)),
 					.Progress = Snapshot.Progress,
 					.Cancel = [CancelHandle] { (void)CancelHandle.RequestCancel(); },
 					.Presentation = ::Durin::Editor::ENotificationPresentation::HistoryOnly});
@@ -156,7 +156,7 @@ namespace Durin::Editor::Level
 			if (Operation.LastRevision == Snapshot.Revision) continue;
 			Operation.LastRevision = Snapshot.Revision;
 			const std::string Message = std::format("{}: {}", Operation.Title,
-				Asset::GetImportPhaseLabel(Snapshot.Phase));
+				AssetForge::GetImportPhaseLabel(Snapshot.Phase));
 			if (!Snapshot.IsTerminal())
 			{
 				Notifications.UpdateProgress(
@@ -165,19 +165,19 @@ namespace Durin::Editor::Level
 			}
 			switch (Snapshot.State)
 			{
-			case Asset::EImportOperationState::Succeeded:
+			case AssetForge::EImportOperationState::Succeeded:
 				Notifications.CompleteProgress(Operation.NotificationId,
 					std::format("{} completed", Operation.Title));
 				break;
-			case Asset::EImportOperationState::Canceled:
-			case Asset::EImportOperationState::Superseded:
+			case AssetForge::EImportOperationState::Canceled:
+			case AssetForge::EImportOperationState::Superseded:
 				Notifications.CancelProgress(Operation.NotificationId,
-					Snapshot.State == Asset::EImportOperationState::Superseded
+					Snapshot.State == AssetForge::EImportOperationState::Superseded
 						? std::format("{} superseded", Operation.Title)
 						: std::format("{} canceled", Operation.Title));
 				break;
-			case Asset::EImportOperationState::Failed:
-			case Asset::EImportOperationState::Rejected:
+			case AssetForge::EImportOperationState::Failed:
+			case AssetForge::EImportOperationState::Rejected:
 				Notifications.FailProgress(Operation.NotificationId,
 					Snapshot.Diagnostic.empty()
 						? std::format("{} failed", Operation.Title)
@@ -200,13 +200,13 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		const Asset::FImportOperationSnapshot Primary =
+		const AssetForge::FImportOperationSnapshot Primary =
 			ImportOperations.front().Handle.GetSnapshot();
 		const std::string AggregateMessage = ImportOperations.size() == 1
 			? std::format("{}: {}", ImportOperations.front().Title,
-				Asset::GetImportPhaseLabel(Primary.Phase))
+				AssetForge::GetImportPhaseLabel(Primary.Phase))
 			: std::format("{}: {} ({} active)", ImportOperations.front().Title,
-				Asset::GetImportPhaseLabel(Primary.Phase), ImportOperations.size());
+				AssetForge::GetImportPhaseLabel(Primary.Phase), ImportOperations.size());
 		std::optional<float> AggregateProgress = Primary.Progress;
 		if (ImportOperations.size() > 1) AggregateProgress.reset();
 		if (!ImportAggregateNotificationId)

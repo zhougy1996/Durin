@@ -3,19 +3,19 @@
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "AssetTools.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "SceneImport.h"
+#include "AssetForge/Builtins/SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "AssetForgeProviders.h"
-#include "AssetForgeAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsProviders.h"
+#include "AssetForgeBuiltinsAuthoringTestSupport.h"
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
@@ -87,15 +87,15 @@ namespace
 
 	struct FSceneOutputs
 	{
-		Durin::Asset::DImportRecord* Record = nullptr;
+		Durin::AssetForge::DImportRecord* Record = nullptr;
 		std::vector<Durin::DSkeleton*> Skeletons;
 		std::vector<Durin::DSkeletalMesh*> SkeletalMeshes;
 		std::vector<Durin::DAnimationClip*> AnimationClips;
 		std::vector<Durin::DMaterialInstance*> Materials;
-		Durin::Asset::FInterchangeProvenance Provenance;
+		Durin::AssetForge::FImportProvenance Provenance;
 	};
 
-	auto LoadSceneOutputs(const Durin::Asset::FInterchangeImportResult& Result)
+	auto LoadSceneOutputs(const Durin::AssetForge::FImportResult& Result)
 		-> FSceneOutputs
 	{
 		FSceneOutputs Outputs{.Provenance = Result.Provenance};
@@ -103,7 +103,7 @@ namespace
 		{
 			Durin::DObject* Object = nullptr;
 			if (!Durin::Asset::LoadAsset(Mapping.AssetPath, Object) || !Object) continue;
-			if (auto* Value = Durin::Cast<Durin::Asset::DImportRecord>(Object)) Outputs.Record = Value;
+			if (auto* Value = Durin::Cast<Durin::AssetForge::DImportRecord>(Object)) Outputs.Record = Value;
 			else if (auto* Value = Durin::Cast<Durin::DSkeleton>(Object)) Outputs.Skeletons.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DSkeletalMesh>(Object)) Outputs.SkeletalMeshes.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DAnimationClip>(Object)) Outputs.AnimationClips.push_back(Value);
@@ -112,35 +112,35 @@ namespace
 		return Outputs;
 	}
 
-	auto ExecuteSceneInterchange(const Durin::FSourcePath& Source,
+	auto ExecuteSceneImport(const Durin::FSourcePath& Source,
 		const Durin::FAssetPath& Destination,
-		Durin::Asset::EInterchangeImportMode Mode,
-		std::optional<Durin::Asset::FInterchangeProvenance> Provenance = {})
+		Durin::AssetForge::EImportMode Mode,
+		std::optional<Durin::AssetForge::FImportProvenance> Provenance = {})
 		-> FSceneOutputs
 	{
-		Durin::Asset::FInterchangeImportRequest Request;
+		Durin::AssetForge::FImportRequest Request;
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Forge::MakeSceneInterchangeRequest(
+		EXPECT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
 			Source, Destination, Durin::FStaticMeshImportSettings::MakeDurin(), Mode,
-			{.OwnerId = "SkeletalSceneLifecycle.Interchange"},
+			{.OwnerId = "SkeletalSceneLifecycle.AssetForge"},
 			std::move(Provenance), Request, Error)) << Error;
-		const auto Result = Durin::Asset::GetImportService().RunInterchangeImportInline(
-			std::move(Request), "Skeletal Scene lifecycle Interchange");
-		EXPECT_EQ(Result.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		const auto Result = Durin::AssetForge::GetImportService().RunImportInline(
+			std::move(Request), "Skeletal Scene lifecycle AssetForge");
+		EXPECT_EQ(Result.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 			<< Result.Outcome.Diagnostic;
 		return LoadSceneOutputs(Result);
 	}
 
-	auto ReimportSceneRecord(Durin::Asset::DImportRecord& Record) -> FSceneOutputs
+	auto ReimportSceneRecord(Durin::AssetForge::DImportRecord& Record) -> FSceneOutputs
 	{
-		Durin::Asset::FInterchangeImportRequest Request;
+		Durin::AssetForge::FImportRequest Request;
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Forge::MakeSceneRecordInterchangeRequest(
-			Record, Durin::Asset::EImportRecordAction::Reimport,
+		EXPECT_TRUE(Durin::AssetForge::Builtins::MakeSceneRecordImportRequest(
+			Record, Durin::AssetForge::EImportRecordAction::Reimport,
 			{.OwnerId = "SkeletalSceneLifecycle.RecordReimport"}, Request, Error)) << Error;
-		const auto Result = Durin::Asset::GetImportService().RunInterchangeImportInline(
-			std::move(Request), "Skeletal Scene record Interchange reimport");
-		EXPECT_EQ(Result.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+		const auto Result = Durin::AssetForge::GetImportService().RunImportInline(
+			std::move(Request), "Skeletal Scene record AssetForge reimport");
+		EXPECT_EQ(Result.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 			<< Result.Outcome.Diagnostic;
 		return LoadSceneOutputs(Result);
 	}
@@ -190,11 +190,11 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
-		ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
-		ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
+		ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+		ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			Error, GetEngineTestModuleCallbackGate())) << Error;
 		Durin::DMaterial* StandardMaterial =
-			Durin::Asset::Forge::EnsureImportedSurfaceMaterial(Error);
+			Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error);
 		ASSERT_NE(StandardMaterial, nullptr) << Error;
 
 		const std::array<std::pair<std::string_view, std::string_view>, 2> Cases{{
@@ -214,10 +214,10 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			std::filesystem::copy_file(
 				SourceFixture, GameContent / "Scenes" / (std::string(Name) + Extension),
 				std::filesystem::copy_options::overwrite_existing);
-			Results[CaseIndex] = ExecuteSceneInterchange(
+			Results[CaseIndex] = ExecuteSceneImport(
 				{.Path = std::format("/Game/Scenes/{}{}", Name, Extension)},
 				MakeAssetPath(std::format("/Game/Imports/{}", Name)),
-				Durin::Asset::EInterchangeImportMode::Import);
+				Durin::AssetForge::EImportMode::Import);
 			const FSceneOutputs& Initial = Results[CaseIndex];
 			ASSERT_NE(Initial.Record, nullptr);
 			ASSERT_EQ(Initial.Skeletons.size(), 2u);
@@ -389,7 +389,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		for (const Durin::FAssetPath& RecordPath : RecordPaths)
 		{
-			Durin::Asset::DImportRecord* Record = nullptr;
+			Durin::AssetForge::DImportRecord* Record = nullptr;
 			ASSERT_TRUE(Durin::Asset::LoadAsset(RecordPath, Record));
 			ASSERT_NE(Record, nullptr);
 			const FSceneOutputs Reimported = ReimportSceneRecord(*Record);

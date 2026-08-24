@@ -11,15 +11,15 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "AssetForgeProviders.h"
-#include "AssetForgeAuthoringTestSupport.h"
-#include "AssetForgeProviderTestFixture.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForgeBuiltinsProviders.h"
+#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 
 #include <gtest/gtest.h>
 #include <chrono>
@@ -33,7 +33,7 @@ namespace
 		const FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
 	{
-		auto& Service = Asset::GetImportService();
+		auto& Service = AssetForge::GetImportService();
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ std::chrono::duration<double>(TimeoutSeconds);
 		while (Service.HasActiveImportClaim(AssetPath.ToString())
@@ -75,8 +75,8 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Asset::RefreshAssetCatalog());
-	ASSERT_TRUE(Tests::InstallAssetForgeAuthoringFeatures());
-	Tests::FScopedAssetForgeProviders Providers;
+	ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FAssetPath Path;
@@ -328,10 +328,10 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
 	DLevel* Level = nullptr;
 	std::string ProviderError;
-	ASSERT_TRUE(Asset::Forge::RegisterAssetForgeProviders(
+	ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	FStaticMeshImportResult MeshImport = Asset::Forge::ImportStaticMeshAsset(
+	FStaticMeshImportResult MeshImport = AssetForge::Builtins::ImportStaticMeshAsset(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
@@ -363,7 +363,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_EQ(State->Params, Loaded->GetSplineMeshParams());
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);
 	EXPECT_TRUE(Asset::UnloadPackage(Path));
-	Asset::Forge::UnregisterAssetForgeProviders();
+	AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
 }
 
 TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)

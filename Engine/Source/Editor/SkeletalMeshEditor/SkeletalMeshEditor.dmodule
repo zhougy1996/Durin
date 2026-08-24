@@ -5,6 +5,6 @@
     "PrivateDependencies": [
         "Core", "CoreDObject", "ApplicationCore", "RHI", "RenderCore",
         "Renderer", "Engine", "AssetCore", "Mona", "MonaImGui", "DurinEd",
-        "AssetImportCore"
+        "AssetForge"
     ]
 }

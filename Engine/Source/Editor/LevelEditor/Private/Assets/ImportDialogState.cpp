@@ -1,31 +1,25 @@
 #include "Assets/ImportDialogState.h"
 
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
-#include "VolumeTextureSourceTranslation.h"
+#include "AssetForge/Builtins/VolumeTextureImport.h"
 
 namespace Durin::Editor::Level
 {
 	auto FImportDialogProgressModel::Begin(
-		Asset::FAsyncImportPlanHandle InHandle) -> void
-	{
-		Begin(InHandle.GetOperationHandle());
-	}
-
-	auto FImportDialogProgressModel::Begin(
-		Asset::FImportOperationHandle InHandle) -> void
+		AssetForge::FImportOperationHandle InHandle) -> void
 	{
 		Handle = std::move(InHandle);
 		Refresh();
 	}
 
 	auto FImportDialogProgressModel::ApplySnapshot(
-		Asset::FImportOperationSnapshot InSnapshot) -> void
+		AssetForge::FImportOperationSnapshot InSnapshot) -> void
 	{
 		Snapshot = std::move(InSnapshot);
 	}
@@ -61,18 +55,18 @@ namespace Durin::Editor::Level
 	{
 		switch (Snapshot.State)
 		{
-		case Asset::EImportOperationState::Finalizing:
+		case AssetForge::EImportOperationState::Finalizing:
 			return EImportDialogOperationState::Finalizing;
-		case Asset::EImportOperationState::Succeeded:
+		case AssetForge::EImportOperationState::Succeeded:
 			return EImportDialogOperationState::Succeeded;
-		case Asset::EImportOperationState::Failed:
-		case Asset::EImportOperationState::Rejected:
+		case AssetForge::EImportOperationState::Failed:
+		case AssetForge::EImportOperationState::Rejected:
 			return EImportDialogOperationState::Failed;
-		case Asset::EImportOperationState::Canceled:
-		case Asset::EImportOperationState::Superseded:
+		case AssetForge::EImportOperationState::Canceled:
+		case AssetForge::EImportOperationState::Superseded:
 			return EImportDialogOperationState::Canceled;
-		case Asset::EImportOperationState::Pending:
-		case Asset::EImportOperationState::Canceling:
+		case AssetForge::EImportOperationState::Pending:
+		case AssetForge::EImportOperationState::Canceling:
 			return (Handle || Snapshot.OperationId != 0)
 				? EImportDialogOperationState::Preparing
 				: EImportDialogOperationState::Editing;
@@ -150,13 +144,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FImportDialogCallbacks::NotifyImportStarted(
-		Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void
-	{
-		NotifyImportStarted(Handle.GetOperationHandle(), Title);
-	}
-
-	auto FImportDialogCallbacks::NotifyImportStarted(
-		Asset::FImportOperationHandle Handle, std::string_view Title) const -> void
+		AssetForge::FImportOperationHandle Handle, std::string_view Title) const -> void
 	{
 		if (ImportStarted) ImportStarted(std::move(Handle), std::string(Title));
 	}

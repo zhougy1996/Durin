@@ -202,7 +202,7 @@ namespace Durin::Editor::Level
 					ContentBrowserPanel->RevealDirectory(DirectoryPath);
 			},
 			.ImportStarted = [this](
-				Asset::FImportOperationHandle Handle, std::string Title) {
+				AssetForge::FImportOperationHandle Handle, std::string Title) {
 				if (NotificationOverlay)
 					NotificationOverlay->RegisterImportOperation(
 						std::move(Handle), std::move(Title));
@@ -262,7 +262,7 @@ namespace Durin::Editor::Level
 				if (GEditor)
 					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 			},
-			[this](Asset::FImportOperationHandle Handle, std::string Title) {
+			[this](AssetForge::FImportOperationHandle Handle, std::string Title) {
 				if (NotificationOverlay)
 					NotificationOverlay->RegisterImportOperation(
 						std::move(Handle), std::move(Title));

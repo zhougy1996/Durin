@@ -17,11 +17,11 @@ namespace Durin
 			DVolumeTexture& Texture, std::string& OutError) -> bool = 0;
 	};
 
-	class IVolumeTextureInterchangeRecoveryFeature : public IModularFeature
+	class IVolumeTextureImportRecoveryFeature : public IModularFeature
 	{
 	public:
 		static constexpr std::string_view FeatureName =
-			"Engine.VolumeTextureInterchangeRecovery";
+			"Engine.VolumeTextureImportRecovery";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto RecoverUncooked(
 			DVolumeTexture& Texture, std::string& OutError) -> bool = 0;
@@ -29,6 +29,6 @@ namespace Durin
 
 	ENGINE_API auto InvokeVolumeTextureUncookedPostLoadHandler(
 		DVolumeTexture& Texture, std::string& OutError) -> bool;
-	ENGINE_API auto TryInvokeVolumeTextureInterchangeRecovery(
+	ENGINE_API auto TryInvokeVolumeTextureImportRecovery(
 		DVolumeTexture& Texture, std::string& OutError) -> std::optional<bool>;
 }

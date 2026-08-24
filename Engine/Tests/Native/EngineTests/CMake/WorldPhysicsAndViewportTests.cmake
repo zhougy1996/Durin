@@ -17,7 +17,7 @@ if(DURIN_WITH_EDITOR)
 	target_link_libraries(WorldTests PRIVATE
 		Engine
 		DurinEd
-		AssetForge
+		AssetForgeBuiltins
 	)
 	set_target_properties(WorldTests PROPERTIES
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -156,8 +156,8 @@ if(DURIN_WITH_EDITOR)
 		Mona
 		MonaImGui
 		AssetCore
-		AssetImportCore
 		AssetForge
+		AssetForgeBuiltins
 		GeometryBuild
 		DurinEd
 	)
@@ -199,8 +199,8 @@ if(DURIN_WITH_EDITOR)
 		Mona
 		MonaImGui
 		AssetCore
-		AssetImportCore
 		AssetForge
+		AssetForgeBuiltins
 		GeometryBuild
 		DurinEd
 	)

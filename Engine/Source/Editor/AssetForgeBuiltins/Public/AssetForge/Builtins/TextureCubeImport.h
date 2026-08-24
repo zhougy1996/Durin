@@ -1,0 +1,133 @@
+#pragma once
+
+#include "AssetForgeBuiltinsAPI.h"
+#include "Texture/TextureCube.h"
+#include "Texture/TextureCubeBuildOperations.h"
+#include "AssetForge/ImportRequest.h"
+#include "AssetForge/Operations/ImportExecution.h"
+
+namespace Durin::AssetForge::Builtins
+{
+	using FTextureCubeImportSettings = Asset::Build::FTextureCubeFacesBuildSettings;
+	using FTextureCubePanoramaImportSettings =
+		Asset::Build::FTextureCubePanoramaBuildSettings;
+	using FTextureCubePanoramaSourceData = std::variant<
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaImage,
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage>;
+	ASSETFORGEBUILTINS_API auto IsTextureCubeFaceSourceExtension(
+		std::string_view Extension) -> bool;
+	ASSETFORGEBUILTINS_API auto IsTextureCubePanoramaSourceExtension(
+		std::string_view Extension) -> bool;
+
+	ASSETFORGEBUILTINS_API auto TranslateTextureCubePanoramaSource(
+		std::span<const std::byte> EncodedBytes,
+		std::string_view ExtensionHint,
+		FTextureCubePanoramaSourceData& OutSource,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto TranslateTextureCubeFaceSources(
+		const std::array<std::span<const std::byte>, TextureCubeFaceCount>& EncodedFaces,
+		FTextureCubeSourceData& OutSource,
+		std::string& OutError) -> bool;
+
+	struct FTextureCubeImportValidation
+	{
+		bool bValid = false;
+		std::string Message;
+		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		uint32 SourceWidth = 0;
+		uint32 SourceHeight = 0;
+		uint32 Dimension = 0;
+		uint32 MipCount = 0;
+		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+		bool bHDR = false;
+
+		explicit operator bool() const { return bValid; }
+	};
+
+	struct FTextureCubeImportResult
+	{
+		bool bSucceeded = false;
+		std::string Message;
+		DTextureCube* Asset = nullptr;
+
+		explicit operator bool() const { return bSucceeded; }
+	};
+
+	ASSETFORGEBUILTINS_API auto ValidateTextureCubeFaces(
+		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+		const FTextureCubeImportSettings& Settings = {})
+		-> FTextureCubeImportValidation;
+	ASSETFORGEBUILTINS_API auto ValidateTextureCubePanorama(
+		std::string_view PanoramaFile,
+		const FTextureCubePanoramaImportSettings& Settings = {})
+		-> FTextureCubeImportValidation;
+	ASSETFORGEBUILTINS_API auto ImportTextureCubeFaces(
+		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+		std::string_view AssetPath,
+		const FTextureCubeImportSettings& Settings = {},
+		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {},
+		bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
+	ASSETFORGEBUILTINS_API auto ImportTextureCubePanorama(
+		std::string_view PanoramaFile,
+		std::string_view AssetPath,
+		const FTextureCubePanoramaImportSettings& Settings = {},
+		std::string_view SourceDestination = {},
+		bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
+	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanorama(
+		DTextureCube& Texture,
+		std::string_view PanoramaFile,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto ReimportTextureCubeFaces(
+		DTextureCube& Texture,
+		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+		const FTextureCubeImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto ChangeTextureCubePanoramaSourceReference(
+		DTextureCube& Texture,
+		std::string_view SourceVirtualPath,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto ChangeTextureCubeFaceSourceReferences(
+		DTextureCube& Texture,
+		const std::array<std::string, TextureCubeFaceCount>& SourceVirtualPaths,
+		const FTextureCubeImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto IngestAndChangeTextureCubePanoramaSource(
+		DTextureCube& Texture,
+		std::string_view FilePath,
+		std::string_view TargetSourceVirtualPath,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto IngestAndChangeTextureCubeFaceSources(
+		DTextureCube& Texture,
+		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+		const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
+		const FTextureCubeImportSettings& Settings,
+		std::string& OutError) -> bool;
+
+	ASSETFORGEBUILTINS_API auto MakeTextureCubeImportRequest(
+		std::span<const FSourcePath> MountedSources,
+		ETextureCubeSourceLayout Layout,
+		const FAssetPath& Destination,
+		const FTextureCubeImportSettings& FaceSettings,
+		const FTextureCubePanoramaImportSettings& PanoramaSettings,
+		AssetForge::EImportMode Mode,
+		AssetForge::FImportOperationOwner Owner,
+		std::optional<AssetForge::FImportProvenance> ExistingProvenance,
+		AssetForge::FImportRequest& OutRequest,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto InspectTextureCubeImportProvenance(
+		const DTextureCube& Texture,
+		AssetForge::FImportProvenance& OutProvenance,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto SubmitTextureCubeImport(
+		std::span<const std::string> SourceFiles,
+		std::span<const std::string> SourceDestinations,
+		ETextureCubeSourceLayout Layout, const FAssetPath& Destination,
+		const FTextureCubeImportSettings& FaceSettings,
+		const FTextureCubePanoramaImportSettings& PanoramaSettings,
+		bool bEngineAuthoringContext,
+		AssetForge::FImportCompletion Completion,
+		std::string& OutError) -> AssetForge::FImportHandle;
+}

@@ -2,9 +2,9 @@
 #include "Documents/LevelDocumentRevisionState.h"
 
 #include "Animation/AnimationClip.h"
-#include "MultiOutputImport.h"
-#include "ImportService.h"
-#include "SceneImport.h"
+#include "AssetForge/Persistence/ImportRecord.h"
+#include "AssetForge/ImportService.h"
+#include "AssetForge/Builtins/SceneImport.h"
 #include "AssetAuthoring.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
@@ -33,11 +33,11 @@ namespace Durin::Editor::Level
 			std::string& OutError) -> bool
 		{
 			const std::vector<DObject*> Assets(MissingAssets.begin(), MissingAssets.end());
-			std::vector<Asset::DImportRecord*> Records;
+			std::vector<AssetForge::DImportRecord*> Records;
 			for (DObject* Asset : Assets)
 			{
 				std::string RecordError;
-				Asset::DImportRecord* Record = Asset::Forge::FindSceneImportRecordForOutput(
+				AssetForge::DImportRecord* Record = AssetForge::Builtins::FindSceneImportRecordForOutput(
 					*Asset, RecordError);
 				if (!Record)
 				{
@@ -50,12 +50,12 @@ namespace Durin::Editor::Level
 					Records.push_back(Record);
 			}
 
-			for (Asset::DImportRecord* Record : Records)
+			for (AssetForge::DImportRecord* Record : Records)
 			{
-				Asset::FInterchangeImportRequest Request;
+				AssetForge::FImportRequest Request;
 				std::string Error;
-				if (!Asset::Forge::MakeSceneRecordInterchangeRequest(*Record,
-					Asset::EImportRecordAction::Reimport,
+				if (!AssetForge::Builtins::MakeSceneRecordImportRequest(*Record,
+					AssetForge::EImportRecordAction::Reimport,
 					{.OwnerId = std::format("LevelOpen.SceneRecovery:{}", Record->GetObjectPath()),
 						.ConflictIdentities = {Record->GetObjectPath()}},
 					Request, Error))
@@ -65,11 +65,11 @@ namespace Durin::Editor::Level
 						Error);
 					return false;
 				}
-				Request.Lifetime = Asset::EImportOperationLifetime::SessionCritical;
-				const Asset::FInterchangeImportResult Result =
-					Asset::GetImportService().RunInterchangeImportInline(
+				Request.Lifetime = AssetForge::EImportOperationLifetime::SessionCritical;
+				const AssetForge::FImportResult Result =
+					AssetForge::GetImportService().RunImportInline(
 						std::move(Request), "Recover Scene skeletal data");
-				if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+				if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
 				{
 					OutError = std::format(
 						"Could not rebuild skeletal derived data from its Scene import record: {}",

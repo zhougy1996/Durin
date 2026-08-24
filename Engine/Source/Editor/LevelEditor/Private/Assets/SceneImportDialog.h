@@ -2,8 +2,8 @@
 
 #include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
-#include "SceneImport.h"
-#include "InterchangeJob.h"
+#include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Operations/ImportExecution.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::Level
@@ -40,11 +40,11 @@ namespace Durin::Editor::Level
 		FMeshCoordinateImportModel Coordinates;
 		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 		std::string PreviewKey;
-		std::optional<Asset::FInterchangeImportResult> Preview;
-		std::optional<Asset::FInterchangeImportHandle> PreviewRequest;
-		std::optional<Asset::Forge::FSceneSourceBundleAsyncHandle> SourceRequest;
+		std::optional<AssetForge::FImportResult> Preview;
+		std::optional<AssetForge::FImportHandle> PreviewRequest;
+		std::optional<AssetForge::Builtins::FSceneSourceBundleAsyncHandle> SourceRequest;
 		std::optional<FAssetPath> PendingImportDirectory;
-		std::optional<Asset::FInterchangeImportHandle> InterchangeRequest;
+		std::optional<AssetForge::FImportHandle> ImportRequestHandle;
 		FImportDialogProgressModel ImportProgress;
 	};
 } // namespace Durin::Editor::Level

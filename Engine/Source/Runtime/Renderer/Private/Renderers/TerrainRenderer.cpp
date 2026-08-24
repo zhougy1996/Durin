@@ -192,24 +192,24 @@ namespace Durin
 					CommonDraw.Material, LogicalBinding,
 					"TerrainMaterialSelection"))
 				continue;
-			CommonDraw.PipelineKey.Material = CommonDraw.Material.PipelineIdentity;
+			CommonDraw.PipelineKey.Material = CommonDraw.Material.PlanningPassIdentity;
 			CommonDraw.PipelineKey.Rasterizer.PolygonMode =
 				RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
 			CommonDraw.PipelineKey.Rasterizer.CullMode =
-				CommonDraw.Material.PipelineIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
+				CommonDraw.Material.PlanningPassIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
 			CommonDraw.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 			CommonDraw.PipelineKey.Depth.bEnableTest = true;
 			CommonDraw.PipelineKey.Depth.CompareOp =
 				View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
 			const auto CommonBlend =
-				CommonDraw.Material.PipelineIdentity.ShaderMap.BlendMode;
+				CommonDraw.Material.PlanningPassIdentity.ShaderMap.BlendMode;
 			CommonDraw.Pass = CommonBlend == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : CommonBlend == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																								 EMeshBasePass::Opaque;
 			if (Mode == ERenderPreparationMode::ShadowDepth
 				&& CommonDraw.Pass == EMeshBasePass::Translucent)
 				continue;
 			const auto CommonDepth =
-				CommonDraw.Material.PipelineIdentity.DepthWritePolicy;
+				CommonDraw.Material.PlanningPassIdentity.DepthWritePolicy;
 			CommonDraw.PipelineKey.Depth.bEnableWrite =
 				CommonDepth == EMaterialDepthWritePolicy::Enabled
 				|| (CommonDepth == EMaterialDepthWritePolicy::Automatic
@@ -307,7 +307,7 @@ namespace Durin
 				const FVector3 Offset = Center - View.ViewLocation;
 				Draw.TranslucentDistanceSquared = Math::Dot(Offset, Offset);
 				Draw.SortKey.Pipeline[0] = static_cast<uint32>(Draw.Pass);
-				Draw.SortKey.Pipeline[1] = Draw.Material.PipelineIdentity.ShaderMap.RenderLayout.Version;
+				Draw.SortKey.Pipeline[1] = Draw.Material.PlanningPassIdentity.ShaderMap.RenderLayout.Version;
 				Draw.SortKey.Geometry[0] = Patch.CellCountX;
 				Draw.SortKey.Geometry[1] = Patch.CellCountY;
 				Draw.SortKey.Geometry[2] = Draw.LODStep;
@@ -490,14 +490,14 @@ namespace Durin
 			const auto ShaderBegin = std::chrono::steady_clock::now();
 			auto& ShaderCache = bShadowDepth ? State->ShadowShaders : State->Shaders;
 			auto& ShaderEntry = ShaderCache.FindOrAdd(
-				Draw.Material.PipelineIdentity.ShaderMap
+				Draw.Material.PlanningPassIdentity.ShaderMap
 			);
 			using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
 			bool bShaderCreated = false;
 			++ResolvedView.Observations.ShaderLookups;
 			auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(), [this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
 				bShaderCreated = true;
-				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
+				const auto& Identity = Draw.Material.PlanningPassIdentity.ShaderMap;
 				FShaderCompileOptions Options;
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
 				Options.Macros.emplace_back("DURIN_TERRAIN", "1");
@@ -634,7 +634,7 @@ namespace Durin
 													   .count();
 		}
 		const ESurfaceMaterialPass SurfacePass = bShadowDepth
-			? (Draw.Material.PipelineIdentity.ShaderMap.BlendMode
+			? (Draw.Material.PlanningPassIdentity.ShaderMap.BlendMode
 					== EMaterialBlendMode::Masked
 				? ESurfaceMaterialPass::MaskedShadow
 				: ESurfaceMaterialPass::OpaqueShadow)
@@ -674,7 +674,7 @@ namespace Durin
 				}
 				const bool bPrepareForwardPipeline =
 					bPrepareLitOpaqueForward
-					|| FirstDraw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					|| FirstDraw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
 				const bool bReady = EnsureDrawResources_RenderThread(
 					CommandList, FirstDraw, ResolvedView, false, false,
@@ -733,7 +733,7 @@ namespace Durin
 			for (const FPreparedTerrainDraw& Draw : Bucket)
 			{
 				if (!bAllMaterials
-					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					&& Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
 				bReady = EnsureDrawResources_RenderThread(
@@ -963,7 +963,7 @@ namespace Durin
 			return true;
 		}
 		const bool bMaskedShadow = bShadowDepth
-			&& Draw.Material.PipelineIdentity.ShaderMap.BlendMode
+			&& Draw.Material.PlanningPassIdentity.ShaderMap.BlendMode
 				== EMaterialBlendMode::Masked;
 		const ESurfaceMaterialPass SurfacePass = GBuffer != nullptr
 			? ESurfaceMaterialPass::GBuffer
@@ -973,7 +973,7 @@ namespace Durin
 		if (!SurfaceMaterials.Resolve_RenderThread(
 				*MaterialBinding, SurfacePass,
 				RenderMode == ERenderMode::Lit
-					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					&& Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
 				SceneView.Settings.Mode.bEnableSpecularAA,
 				ResolvedView.DirectionalShadowTexture,
@@ -1126,7 +1126,7 @@ namespace Durin
 				}
 				const FPreparedTerrainDraw& Draw =
 					(*Draws)[Batch.DrawIndices.front()];
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					++ResolvedView.Observations.GBufferSkippedDraws;

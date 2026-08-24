@@ -1,11 +1,11 @@
 #include "Assets/TextureImportDialog.h"
 
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
 #include "AssetAuthoring.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -193,7 +193,7 @@ namespace Durin::Editor::Level
 		}
 
 		if (Cube.bSourcesValid)
-			ImGui::TextDisabled("Interchange verified the TextureCube source graph and output policy.");
+			ImGui::TextDisabled("AssetForge verified the TextureCube source graph and output policy.");
 		else
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
@@ -450,17 +450,17 @@ namespace Durin::Editor::Level
 			}
 			else
 			{
-			Asset::FInterchangeImportResult Preview;
+			AssetForge::FImportResult Preview;
 			if (!TextureCubePreview->TryGetResult(Preview)) return Cube.bSourcesValid;
 			TextureCubePreview.reset();
 			PendingTextureCubePreviewKey.clear();
-			Cube.bSourcesValid = Preview.Outcome.State == Asset::EImportOperationState::Succeeded
+			Cube.bSourcesValid = Preview.Outcome.State == AssetForge::EImportOperationState::Succeeded
 				&& Preview.Inspection.bCompatible;
 			ValidatedTextureCubePreviewKey = Cube.bSourcesValid ? CurrentKey : std::string{};
 			Cube.SourceValidationMessage = Cube.bSourcesValid
 				? "TextureCube source graph is compatible."
 				: Preview.Outcome.Diagnostic.empty()
-					? "TextureCube Interchange preview failed."
+					? "TextureCube AssetForge preview failed."
 					: Preview.Outcome.Diagnostic;
 			return Cube.bSourcesValid;
 			}
@@ -486,22 +486,22 @@ namespace Durin::Editor::Level
 		FAssetPath PreviewDestination;
 		if (!FAssetPath::TryCreate(Destination.GetPath(), PreviewDestination))
 			(void)FAssetPath::TryCreate("/Engine/Transient/TextureCubePreview", PreviewDestination);
-		Asset::FInterchangeImportRequest Request;
+		AssetForge::FImportRequest Request;
 		std::string Error;
-		if (!Asset::Forge::MakeTextureCubeInterchangeRequest(
+		if (!AssetForge::Builtins::MakeTextureCubeImportRequest(
 			std::span(Sources).first(SourceCount), Cube.SourceLayout, PreviewDestination, {},
 			{.FaceDimension = Cube.PanoramaFaceDimension,
 				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
 					? Cube.PanoramaExposureEV : 0.0f},
-			Asset::EInterchangeImportMode::Preview,
+			AssetForge::EImportMode::Preview,
 			{.OwnerId = "TextureImportDialog.TextureCubePreview"}, {}, Request, Error))
 		{
 			Cube.bSourcesValid = false;
 			Cube.SourceValidationMessage = std::move(Error);
 			return false;
 		}
-		Request.Lifetime = Asset::EImportOperationLifetime::EphemeralPreview;
-		TextureCubePreview = Asset::GetImportService().SubmitInterchangeImport(
+		Request.Lifetime = AssetForge::EImportOperationLifetime::EphemeralPreview;
+		TextureCubePreview = AssetForge::GetImportService().SubmitImport(
 			std::move(Request), "Preview TextureCube");
 		PendingTextureCubePreviewKey = TextureCubePreview && *TextureCubePreview
 			? CurrentKey : std::string{};
@@ -525,7 +525,7 @@ namespace Durin::Editor::Level
 		std::array<std::string, TextureCubeFaceCount> Sources;
 		std::array<std::string, TextureCubeFaceCount> Destinations;
 		size_t SourceCount = 1;
-		Asset::Forge::FTextureCubePanoramaImportSettings PanoramaSettings;
+		AssetForge::Builtins::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			SourceCount = TextureCubeFaceCount;
@@ -551,19 +551,19 @@ namespace Durin::Editor::Level
 		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTextureCubeInterchangeImport(
+		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTextureCubeImport(
 			std::span(Sources).first(SourceCount), std::span(Destinations).first(SourceCount),
 			Cube.SourceLayout, AssetPath, {}, PanoramaSettings,
 			IsEngineAuthoringDestination(Destination.GetPath()),
-			[CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
-				if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
+				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{
 					CompletionCallbacks.NotifyImported(Path);
 					FAssetPath ImportedPath;
 					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
 				}
 				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-					? "TextureCube Interchange import failed." : Result.Outcome.Diagnostic);
+					? "TextureCube AssetForge import failed." : Result.Outcome.Diagnostic);
 			}, Error);
 		if (!Handle)
 		{

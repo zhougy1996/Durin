@@ -30,7 +30,7 @@ namespace
 	{
 		Durin::FTextureSourceData SourceData;
 		std::string Error;
-		if (!Durin::Asset::Forge::TranslateTexture2DSource(
+		if (!Durin::AssetForge::Builtins::TranslateTexture2DSource(
 			Bytes, SourceData, Error)) return {};
 		const Durin::FXxHash128 SourceHash = Durin::FXxHash128::HashBuffer(Bytes);
 		return {
@@ -108,7 +108,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Forge::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		TransparentPngData(), SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngData());
@@ -157,7 +157,7 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 
 	Durin::FTextureSourceData BaselineSource;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Forge::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		Bytes, BaselineSource, Error)) << Error;
 	Durin::FTexturePlatformData BaselinePlatform;
 	ASSERT_TRUE(Durin::Asset::Build::TextureBuilder::BuildMipChain(

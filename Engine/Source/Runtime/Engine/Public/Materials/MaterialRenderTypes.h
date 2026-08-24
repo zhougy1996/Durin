@@ -262,19 +262,19 @@ namespace Durin
 		auto operator==(const FMaterialShaderMapIdentity&) const -> bool = default;
 	};
 
-	struct FMaterialPipelineIdentity
+	struct FMaterialPlanningPassIdentity
 	{
 		FMaterialShaderMapIdentity ShaderMap;
 		bool bTwoSided = false;
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 
-		auto operator==(const FMaterialPipelineIdentity&) const -> bool = default;
+		auto operator==(const FMaterialPlanningPassIdentity&) const -> bool = default;
 	};
 
 	struct FMaterialRenderData
 	{
 		FMaterialRenderRepresentation Representation;
-		FMaterialPipelineIdentity PipelineIdentity{
+		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
 				.RenderLayout = {},
 				.BlendMode = EMaterialBlendMode::Opaque,

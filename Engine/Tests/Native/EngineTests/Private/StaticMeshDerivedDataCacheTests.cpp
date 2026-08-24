@@ -5,14 +5,14 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 
 namespace
 {
@@ -55,7 +55,7 @@ namespace
 		Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
 		const auto Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(
+		const Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 			Source.generic_string(), Fixture.AssetPath.ToString());
 		EXPECT_TRUE(Import) << Import.Message;
 		Fixture.Mesh = Import.Asset;
@@ -74,7 +74,7 @@ namespace
 		const Durin::FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
 	{
-		auto& Service = Durin::Asset::GetImportService();
+		auto& Service = Durin::AssetForge::GetImportService();
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ std::chrono::duration<double>(TimeoutSeconds);
 		while (Service.HasActiveImportClaim(AssetPath.ToString())

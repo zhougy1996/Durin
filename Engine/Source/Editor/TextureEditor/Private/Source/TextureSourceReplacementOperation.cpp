@@ -5,7 +5,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::Editor::Texture
 {
@@ -23,7 +23,7 @@ namespace Durin::Editor::Texture
 				OutError = "The Texture2D replacement target is unavailable.";
 				return false;
 			}
-			const bool bStarted = Asset::Forge::ReimportTexture2DSource(
+			const bool bStarted = AssetForge::Builtins::ReimportTexture2DSource(
 				*Texture,
 				{},
 				OutError,

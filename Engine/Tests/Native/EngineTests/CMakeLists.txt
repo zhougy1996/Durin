@@ -11,14 +11,14 @@ set(_durin_skeletal_mesh_editor_private
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
 set(_durin_editor_test_modules
-	AssetImportCore
+	AssetForge
 	DurinEd
 	Mona
 	MonaImGui
 	GeometryBuild
 	AssetBuildCore
 	TextureBuild
-	AssetForge
+	AssetForgeBuiltins
 )
 
 function(durin_add_engine_functional_test target_name)

@@ -62,7 +62,7 @@ if(DURIN_WITH_EDITOR)
 	)
 else()
 	durin_exclude_native_test_sources(
-		RATIONALE "Texture authoring and scene import require editor-only Build and AssetForge services."
+		RATIONALE "Texture authoring and scene import require editor-only Build and AssetForgeBuiltins services."
 		SOURCES
 			Private/Texture/TextureTestEnvironment.cpp
 			Private/Texture/TextureImportAndCacheTests.cpp
@@ -86,7 +86,7 @@ durin_add_engine_functional_test(TerrainHeightmapTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetImportCore AssetForge DurinEd GeometryBuild
+	LIBRARIES AssetForge AssetForgeBuiltins DurinEd GeometryBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
@@ -98,7 +98,7 @@ durin_add_engine_functional_test(TerrainHeightmapCookTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES GeometryBuild AssetForge
+	LIBRARIES GeometryBuild AssetForgeBuiltins
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests

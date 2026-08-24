@@ -21,7 +21,7 @@ function(durin_add_asset_functional_test target_name)
 	)
 
 	if(DURIN_ASSET_TEST_IMPORT_RUNTIME)
-		target_link_libraries(${target_name} PRIVATE AssetImportCore AssetForge)
+		target_link_libraries(${target_name} PRIVATE AssetForge AssetForgeBuiltins)
 		durin_test_deploy_directory_to_data(
 			${target_name}
 			"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
@@ -110,17 +110,15 @@ if(DURIN_WITH_EDITOR)
 		SOURCES Private/AssetImportTests.cpp
 	)
 
-	durin_add_asset_functional_test(AssetImportCoreTests
+	durin_add_asset_functional_test(AssetForgeTests
 		KIND contract
 		DOMAINS asset-import
 		MODULES asset-core asset-import-core
-		LIBRARIES AssetImportCore
+		LIBRARIES AssetForge
 		SOURCES
-			Private/AssetImportCoreTests.cpp
-			Private/ImportRecordTests.cpp
-			Private/InterchangeContractTests.cpp
+			Private/AssetForgeContractTests.cpp
 	)
-	target_include_directories(AssetImportCoreTests PRIVATE
+	target_include_directories(AssetForgeTests PRIVATE
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 	)
 else()
@@ -128,8 +126,6 @@ else()
 		RATIONALE "Asset import services and their test fixtures are editor-only."
 		SOURCES
 			Private/AssetImportTests.cpp
-			Private/AssetImportCoreTests.cpp
-			Private/ImportRecordTests.cpp
-			Private/InterchangeContractTests.cpp
+			Private/AssetForgeContractTests.cpp
 	)
 endif()

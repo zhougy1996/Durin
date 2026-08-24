@@ -5,7 +5,7 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Threading/Task.h"
 
 #include <array>
@@ -47,7 +47,7 @@ namespace Durin::Editor::Level
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FNotifyImportStarted = std::function<void(
-			Asset::FImportOperationHandle, std::string)>;
+			AssetForge::FImportOperationHandle, std::string)>;
 
 		FContentBrowserPanel(
 			FLevelEditorSessionSettings& InSessionSettings,
@@ -119,7 +119,7 @@ namespace Durin::Editor::Level
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
 		auto ReimportAsset(
 			const FContentBrowserItem& Item,
-			Asset::EImportRecordAction Action) -> void;
+			AssetForge::EImportRecordAction Action) -> void;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
 		auto PollSingleAssetReimport() -> void;
 		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
@@ -173,9 +173,9 @@ namespace Durin::Editor::Level
 		std::vector<FAssetPath> LastReimportOrphans;
 		struct FPendingSingleAssetReimport
 		{
-			std::optional<Asset::FInterchangeImportHandle> Interchange;
+			std::optional<AssetForge::FImportHandle> AssetForge;
 			FAssetPath AssetPath;
-			std::vector<Asset::FImportRecordOutput> PreviousRecordOutputs;
+			std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs;
 		};
 		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;

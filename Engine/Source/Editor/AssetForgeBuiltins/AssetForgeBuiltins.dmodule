@@ -1,0 +1,19 @@
+{
+    "ModuleName": "AssetForgeBuiltins",
+    "LinkType": "Shared",
+    "PCH": "Self",
+	"PrivateDependencies": [
+		"GeometryBuild"
+	],
+    "PublicDependencies": [
+		"AssetForge",
+        "AssetCore",
+        "Core",
+        "CoreDObject",
+		"Engine",
+		"TextureBuild"
+    ],
+	"ReflectHeaders": [],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

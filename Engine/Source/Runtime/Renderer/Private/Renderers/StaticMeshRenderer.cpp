@@ -182,26 +182,26 @@ namespace Durin
 				Item.PrimitiveIndex = PrimitiveIndex;
 				Item.SectionIndex = SectionIndex;
 				Item.Section = &Section;
-				Item.ShaderMapIdentity = Item.Material.PipelineIdentity.ShaderMap;
-				Item.PipelineKey.Material = Item.Material.PipelineIdentity;
+				Item.ShaderMapIdentity = Item.Material.PlanningPassIdentity.ShaderMap;
+				Item.PipelineKey.Material = Item.Material.PlanningPassIdentity;
 				Item.PipelineKey.VertexDomain = Result.Primitives[PrimitiveIndex].VertexDomain;
 				Item.PipelineKey.Rasterizer.PolygonMode =
 					RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
 				Item.PipelineKey.Rasterizer.CullMode =
-					Item.Material.PipelineIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
+					Item.Material.PlanningPassIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
 				Item.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 				Item.PipelineKey.Depth.bEnableTest = true;
 				Item.PipelineKey.Depth.CompareOp =
 					View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
 				const EMaterialBlendMode BlendMode =
-					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
+					Item.Material.PlanningPassIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																												   EMeshBasePass::Opaque;
 				if (Mode == ERenderPreparationMode::ShadowDepth
 					&& Item.Pass == EMeshBasePass::Translucent)
 					continue;
 				const EMaterialDepthWritePolicy DepthPolicy =
-					Item.Material.PipelineIdentity.DepthWritePolicy;
+					Item.Material.PlanningPassIdentity.DepthWritePolicy;
 				Item.PipelineKey.Depth.bEnableWrite =
 					DepthPolicy == EMaterialDepthWritePolicy::Enabled
 					|| (DepthPolicy == EMaterialDepthWritePolicy::Automatic
@@ -474,7 +474,7 @@ namespace Durin
 				const bool bNeedsForwardPipeline =
 					Pass == EMeshBasePass::Translucent
 					|| bPrepareLitOpaqueForward
-					|| Item.Material.PipelineIdentity.ShaderMap.ShadingModel
+					|| Item.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
 				const bool bReady = Primitive != nullptr
 					&& (bNeedsForwardPipeline
@@ -501,7 +501,7 @@ namespace Durin
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				if (Pass != EMeshBasePass::Translucent
-					&& Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					&& Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
 				const FPreparedStaticMeshPrimitive* Primitive =
@@ -609,7 +609,7 @@ namespace Durin
 		using FShaderMapResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		const FMeshShaderMapKey ShaderMapKey{
-			.Material = Material.PipelineIdentity.ShaderMap,
+			.Material = Material.PlanningPassIdentity.ShaderMap,
 			.VertexDomain = Primitive.VertexDomain
 		};
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
@@ -620,7 +620,7 @@ namespace Durin
 				[this, &Material, Domain = Primitive.VertexDomain,
 				 bShadowDepth]() -> FShaderMapResult {
 					const FMaterialShaderMapIdentity& Identity =
-						Material.PipelineIdentity.ShaderMap;
+						Material.PlanningPassIdentity.ShaderMap;
 					FShaderCompileOptions CompileOptions;
 					CompileOptions.bForceRecompile =
 						Coordinator.ShouldForceShaderRecompile_RenderThread();
@@ -916,9 +916,9 @@ namespace Durin
 									   && Item.Section != nullptr
 									   && std::isfinite(Item.TranslucentDistanceSquared)
 									   && Item.ShaderMapIdentity
-											  == Item.Material.PipelineIdentity.ShaderMap
+											  == Item.Material.PlanningPassIdentity.ShaderMap
 									   && Item.PipelineKey.Material
-											  == Item.Material.PipelineIdentity;
+											  == Item.Material.PlanningPassIdentity;
 				checkf(bComplete, "StaticMesh execution requires one complete prepared section.");
 				if (!bBucketMatches || !bSortKeyMatchesPass || !bComplete
 					|| !ResolvedView.IsReady(Item))
@@ -956,8 +956,8 @@ namespace Durin
 							   && Primitive->LOD != nullptr && Primitive->VertexFactory != nullptr
 							   && Item.Section != nullptr && Item.Pass == Pass
 							   && Item.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
-							   && Item.ShaderMapIdentity == Item.Material.PipelineIdentity.ShaderMap
-							   && Item.PipelineKey.Material == Item.Material.PipelineIdentity;
+							   && Item.ShaderMapIdentity == Item.Material.PlanningPassIdentity.ShaderMap
+							   && Item.PipelineKey.Material == Item.Material.PlanningPassIdentity;
 		if (!bComplete || !ResolvedView.IsReady(Item))
 		{
 			++ResolvedView.Observations.RejectedDraws;
@@ -1020,7 +1020,7 @@ namespace Durin
 		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					++ResolvedView.Observations.GBufferSkippedDraws;
@@ -1238,7 +1238,7 @@ namespace Durin
 				bMaskedShadow ? ESurfaceMaterialPass::MaskedShadow
 					: ESurfaceMaterialPass::Forward,
 				RenderMode == ERenderMode::Lit
-					&& Material.PipelineIdentity.ShaderMap.ShadingModel
+					&& Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						== EMaterialShadingModel::Lit,
 				View.Settings.Mode.bEnableSpecularAA,
 				ResolvedView.DirectionalShadowTexture,

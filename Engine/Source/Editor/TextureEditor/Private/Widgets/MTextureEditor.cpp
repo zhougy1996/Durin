@@ -1,7 +1,7 @@
 #include "Widgets/MTextureEditor.h"
 
-#include "AssetImportCore.h"
-#include "ImportService.h"
+#include "AssetForge/ImportTypes.h"
+#include "AssetForge/ImportService.h"
 #include "AssetAuthoring.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -22,7 +22,7 @@
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
@@ -864,9 +864,9 @@ namespace Durin::Editor::Texture
 			ImGui::TextDisabled("%s", Phase);
 		}
 		ImGui::BeginDisabled(bReplacingThisSource);
-		Asset::FInterchangeProvenance ReimportProvenance;
+		AssetForge::FImportProvenance ReimportProvenance;
 		std::string ReimportDiagnostic;
-		const bool bCanReimport = Asset::Forge::InspectTexture2DInterchangeProvenance(
+		const bool bCanReimport = AssetForge::Builtins::InspectTexture2DImportProvenance(
 			*Texture, ReimportProvenance, ReimportDiagnostic);
 		constexpr const char* ReimportLabel = "Reimport from Current Source";
 		if (!bCanReimport) ImGui::BeginDisabled();
@@ -920,7 +920,7 @@ namespace Durin::Editor::Texture
 	{
 		if (!Texture) return;
 		std::string Error;
-		if (!Asset::Forge::ReimportTexture2DSource(*Texture, {}, Error))
+		if (!AssetForge::Builtins::ReimportTexture2DSource(*Texture, {}, Error))
 			SetError(std::move(Error));
 	}
 
@@ -955,7 +955,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Forge::ChangeTexture2DSourceReference(
+		if (!AssetForge::Builtins::ChangeTexture2DSourceReference(
 			*Texture, Classified.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -1019,7 +1019,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Forge::IngestAndChangeTexture2DSource(
+		if (!AssetForge::Builtins::IngestAndChangeTexture2DSource(
 			*Texture, Input.FilePath, ClassifiedDestination.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -1046,7 +1046,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Forge::RepairTexture2DSourcePath(
+		if (!AssetForge::Builtins::RepairTexture2DSourcePath(
 			*Texture, Result.FilePath, Error))
 		{
 			SetError(std::move(Error));
@@ -1324,7 +1324,7 @@ namespace Durin::Editor::Texture
 		}
 		const std::string SourceDestination = Classified.RelativePath.generic_string();
 		std::string Error;
-		if (!Asset::Forge::ChangeTexture2DSourceLocation(
+		if (!AssetForge::Builtins::ChangeTexture2DSourceLocation(
 			*Texture, SourceDestination, Error))
 			SetError(std::move(Error));
 	}

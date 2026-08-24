@@ -26,9 +26,9 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore GeometryBuild AssetForge RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore AssetForge GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
-		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForge/Private
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 	DATA_DIRECTORIES
@@ -54,7 +54,7 @@ durin_add_engine_functional_test(ThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForge StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -69,7 +69,7 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialAssetThumbnailTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForge MaterialEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -83,7 +83,7 @@ durin_add_engine_functional_test(TextureThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForge TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -105,7 +105,7 @@ durin_add_engine_functional_test(StaticMeshThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForge MaterialEditor StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

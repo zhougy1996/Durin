@@ -18,11 +18,11 @@
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
-#include "SceneImport.h"
-#include "ImportService.h"
+#include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/ImportService.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
@@ -95,7 +95,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
@@ -148,9 +148,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	// Replace catalog paths captured from the default mounts before mutating test assets.
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	const Durin::FAssetPath StandardPath =
-		MakeAssetPath(Durin::Asset::Forge::ImportedSurfaceMaterialPath);
+		MakeAssetPath(Durin::AssetForge::Builtins::ImportedSurfaceMaterialPath);
 	std::string MaterialError;
-	ASSERT_NE(Durin::Asset::Forge::EnsureImportedSurfaceMaterial(MaterialError), nullptr)
+	ASSERT_NE(Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(MaterialError), nullptr)
 		<< MaterialError;
 	const Durin::Asset::FAssetCatalogEntry StandardMaterialEntry =
 		Durin::Asset::FindAssetExact(StandardPath);
@@ -169,24 +169,24 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	Durin::Asset::FInterchangeImportRequest SceneRequest;
+	Durin::AssetForge::FImportRequest SceneRequest;
 	std::string SceneError;
-	ASSERT_TRUE(Durin::Asset::Forge::MakeSceneInterchangeRequest(
+	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
 		{.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
 		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(),
-		Durin::Asset::EInterchangeImportMode::Import,
-		{.OwnerId = "SceneImportVulkan.Interchange"}, {}, SceneRequest, SceneError))
+		Durin::AssetForge::EImportMode::Import,
+		{.OwnerId = "SceneImportVulkan.AssetForge"}, {}, SceneRequest, SceneError))
 		<< SceneError;
-	const Durin::Asset::FInterchangeImportResult Executed =
-		Durin::Asset::GetImportService().RunInterchangeImportInline(
-			std::move(SceneRequest), "Scene Vulkan Interchange import");
-	ASSERT_EQ(Executed.Outcome.State, Durin::Asset::EImportOperationState::Succeeded)
+	const Durin::AssetForge::FImportResult Executed =
+		Durin::AssetForge::GetImportService().RunImportInline(
+			std::move(SceneRequest), "Scene Vulkan AssetForge import");
+	ASSERT_EQ(Executed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 		<< Executed.Outcome.Diagnostic;
 	ASSERT_EQ(Executed.Inspection.Outputs.size(), 4u);
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
-	for (const Durin::Asset::FImportOutputPreview& Output
+	for (const Durin::AssetForge::FImportOutputPreview& Output
 		: Executed.Inspection.Outputs)
 	{
 		if (Output.AssetClassName
@@ -210,7 +210,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FAssetPath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
 	const Durin::FStaticMeshImportResult LODContractImport =
-		Durin::Asset::Forge::ImportStaticMeshAsset(
+		Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "MultiSection.gltf").generic_string(),
 			LODContractPath.ToString());

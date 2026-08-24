@@ -3,7 +3,7 @@
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
 #include "AssetAuthoring.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -33,7 +33,7 @@ namespace Durin::Editor::Level
 		Preview.reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
-		if (!Asset::Forge::EnsureImportedSurfaceMaterial(Error)) SetError(std::move(Error));
+		if (!AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error)) SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 
@@ -57,8 +57,8 @@ namespace Durin::Editor::Level
 			return;
 		}
 		const bool bImportPending = SourceRequest.has_value()
-			|| InterchangeRequest.has_value();
-		if (InterchangeRequest) ImportProgress.Refresh();
+			|| ImportRequestHandle.has_value();
+		if (ImportRequestHandle) ImportProgress.Refresh();
 		ImGui::BeginDisabled(bImportPending);
 
 		ImGui::TextUnformatted("Import the assets described by an FBX or glTF Scene source.");
@@ -111,7 +111,7 @@ namespace Durin::Editor::Level
 		{
 			if (PreviewRequest)
 			{
-				Asset::GetImportService().CancelImportOperation(
+				AssetForge::GetImportService().CancelImportOperation(
 					PreviewRequest->GetOperationHandle());
 				PreviewRequest.reset();
 			}
@@ -122,22 +122,22 @@ namespace Durin::Editor::Level
 		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bHasSource
 			&& SourceDiagnostic.bValid && Preview
-			&& Preview->Outcome.State == Asset::EImportOperationState::Succeeded
+			&& Preview->Outcome.State == AssetForge::EImportOperationState::Succeeded
 			&& Preview->Inspection.bCompatible)
 		{
 			ImGui::BeginChild("ImportOutputPreview",
 				ImVec2(0.0f, MonaImGui::ScaleUI(190.0f)), ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Peer outputs (role, policy, destination)");
-			for (const Asset::FImportOutputPreview& Output : Preview->Inspection.Outputs)
+			for (const AssetForge::FImportOutputPreview& Output : Preview->Inspection.Outputs)
 			{
-				const char* Policy = Output.Policy == Asset::EImportOutputPolicy::Create
+				const char* Policy = Output.Policy == AssetForge::EImportOutputPolicy::Create
 					? "Create" : "Replace managed";
 				ImGui::BulletText("%s  [%s]  %s", Output.Role.c_str(), Policy,
 					Output.AssetPath.ToString().c_str());
 			}
 			ImGui::Spacing();
 			ImGui::TextDisabled("Captured sources");
-			for (const Asset::FImportSourcePreview& Source : Preview->Inspection.Sources)
+			for (const AssetForge::FImportSourcePreview& Source : Preview->Inspection.Sources)
 				ImGui::BulletText("%s", Source.SourcePath.Path.c_str());
 			ImGui::EndChild();
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
@@ -162,12 +162,12 @@ namespace Durin::Editor::Level
 		else if (PreviewRequest)
 			ValidationMessage = "Preparing import preview...";
 		else if (Preview
-			&& Preview->Outcome.State != Asset::EImportOperationState::Succeeded)
+			&& Preview->Outcome.State != AssetForge::EImportOperationState::Succeeded)
 			ValidationMessage = Preview->Outcome.Diagnostic;
 		else if (SourceRequest)
 			ValidationMessage = "Capturing Scene sources in the background...";
-		else if (InterchangeRequest)
-			ValidationMessage = "Scene Interchange import is running...";
+		else if (ImportRequestHandle)
+			ValidationMessage = "Scene AssetForge import is running...";
 
 		DrawImportDialogWarning(ValidationMessage);
 
@@ -187,18 +187,18 @@ namespace Durin::Editor::Level
 				ImGui::SameLine();
 				if (ImGui::Button("Cancel"))
 				{
-					Asset::Forge::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
+					AssetForge::Builtins::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
 					SourceRequest.reset();
 					PendingImportDirectory.reset();
 				}
 				ImGui::EndPopup();
 				return;
 			}
-			const Asset::FImportOperationSnapshot& Snapshot = ImportProgress.GetSnapshot();
+			const AssetForge::FImportOperationSnapshot& Snapshot = ImportProgress.GetSnapshot();
 			const std::string Overlay = Snapshot.Progress
 				? std::format("{}%", static_cast<int>(*Snapshot.Progress * 100.0f))
 				: std::string{};
-			ImGui::TextUnformatted(Asset::GetImportPhaseLabel(Snapshot.Phase).data());
+			ImGui::TextUnformatted(AssetForge::GetImportPhaseLabel(Snapshot.Phase).data());
 			if (!Snapshot.SourceIdentity.empty() && Snapshot.SourceIdentity != "root")
 				ImGui::TextDisabled("Current source: %s", Snapshot.SourceIdentity.c_str());
 			const float Progress = Snapshot.Progress.value_or(
@@ -212,7 +212,7 @@ namespace Durin::Editor::Level
 			}
 			ImGui::SameLine();
 			ImGui::BeginDisabled(!ImportProgress.CanCancel());
-			if (ImGui::Button(Snapshot.State == Asset::EImportOperationState::Canceling
+			if (ImGui::Button(Snapshot.State == AssetForge::EImportOperationState::Canceling
 				? "Canceling..." : "Cancel")) ImportProgress.RequestCancel();
 			ImGui::EndDisabled();
 		}
@@ -356,29 +356,29 @@ namespace Durin::Editor::Level
 			static_cast<int32>(Coordinates.GetSettings().UpAxis));
 		if (Key != PreviewKey)
 		{
-			if (PreviewRequest) Asset::GetImportService().CancelImportOperation(
+			if (PreviewRequest) AssetForge::GetImportService().CancelImportOperation(
 				PreviewRequest->GetOperationHandle());
 			PreviewRequest.reset();
 			Preview.reset();
 			PreviewKey = Key;
-			Asset::FInterchangeImportRequest Request;
+			AssetForge::FImportRequest Request;
 			std::string Error;
-			if (!Asset::Forge::MakeSceneInterchangeRequest(
+			if (!AssetForge::Builtins::MakeSceneImportRequest(
 				{.Path = SourcePathBuffer.data()}, InDestinationDirectory,
-				Coordinates.GetSettings(), Asset::EInterchangeImportMode::Preview,
+				Coordinates.GetSettings(), AssetForge::EImportMode::Preview,
 				{.OwnerId = "LevelEditor.SceneImportDialog.Preview"}, {}, Request, Error))
 			{
-				Preview = Asset::FInterchangeImportResult{
-					.Outcome = {.State = Asset::EImportOperationState::Failed,
+				Preview = AssetForge::FImportResult{
+					.Outcome = {.State = AssetForge::EImportOperationState::Failed,
 						.Diagnostic = std::move(Error)}};
 				return;
 			}
-			Request.Lifetime = Asset::EImportOperationLifetime::EphemeralPreview;
-			PreviewRequest = Asset::GetImportService().SubmitInterchangeImport(
+			Request.Lifetime = AssetForge::EImportOperationLifetime::EphemeralPreview;
+			PreviewRequest = AssetForge::GetImportService().SubmitImport(
 				std::move(Request), "Preview Scene import");
 		}
 		if (!PreviewRequest) return;
-		Asset::FInterchangeImportResult Completed;
+		AssetForge::FImportResult Completed;
 		if (PreviewRequest->TryGetResult(Completed))
 		{
 			Preview = std::move(Completed);
@@ -388,7 +388,7 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::Import() -> bool
 	{
-		if (SourceRequest || InterchangeRequest) return false;
+		if (SourceRequest || ImportRequestHandle) return false;
 		Callbacks.Clear();
 		FAssetPath OutputDirectory;
 		std::string Error;
@@ -399,7 +399,7 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		PendingImportDirectory = OutputDirectory;
-		SourceRequest = Asset::Forge::BeginSceneSourceBundlePreparation(
+		SourceRequest = AssetForge::Builtins::BeginSceneSourceBundlePreparation(
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string(SourceDestinationBuffer.data()) : std::string{},
@@ -411,14 +411,14 @@ namespace Durin::Editor::Level
 	{
 		if (SourceRequest)
 		{
-			Asset::Forge::FPreparedSceneSourceBundle Sources;
+			AssetForge::Builtins::FPreparedSceneSourceBundle Sources;
 			std::string Error;
-			const Asset::EAsyncImportPlanStatus Status =
-				Asset::Forge::PollSceneSourceBundlePreparation(
+			const AssetForge::EAsyncImportPlanStatus Status =
+				AssetForge::Builtins::PollSceneSourceBundlePreparation(
 					*SourceRequest, Sources, Error);
-			if (Status == Asset::EAsyncImportPlanStatus::Pending) return false;
+			if (Status == AssetForge::EAsyncImportPlanStatus::Pending) return false;
 			SourceRequest.reset();
-			if (Status != Asset::EAsyncImportPlanStatus::Succeeded
+			if (Status != AssetForge::EAsyncImportPlanStatus::Succeeded
 				|| !PendingImportDirectory)
 			{
 				PendingImportDirectory.reset();
@@ -428,11 +428,11 @@ namespace Durin::Editor::Level
 			}
 			// Source ingestion is an explicit authoring operation and remains even if
 			// the subsequent asset publication is rejected or fails.
-			Asset::Forge::CommitSceneSourceBundle(Sources);
-			Asset::FInterchangeImportRequest Request;
-			if (!Asset::Forge::MakeSceneInterchangeRequest(
+			AssetForge::Builtins::CommitSceneSourceBundle(Sources);
+			AssetForge::FImportRequest Request;
+			if (!AssetForge::Builtins::MakeSceneImportRequest(
 				Sources.RootSource, *PendingImportDirectory, Coordinates.GetSettings(),
-				Asset::EInterchangeImportMode::Import,
+				AssetForge::EImportMode::Import,
 				{.OwnerId = "LevelEditor.SceneImportDialog.Execute",
 					.ConflictIdentities = {PendingImportDirectory->ToString()}},
 				{}, Request, Error))
@@ -441,31 +441,31 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return false;
 			}
-			InterchangeRequest = Asset::GetImportService().SubmitInterchangeImport(
+			ImportRequestHandle = AssetForge::GetImportService().SubmitImport(
 				std::move(Request), "Importing Scene");
 			PendingImportDirectory.reset();
-			if (InterchangeRequest && *InterchangeRequest)
+			if (ImportRequestHandle && *ImportRequestHandle)
 			{
-				ImportProgress.Begin(InterchangeRequest->GetOperationHandle());
+				ImportProgress.Begin(ImportRequestHandle->GetOperationHandle());
 				Callbacks.NotifyImportStarted(
-					InterchangeRequest->GetOperationHandle(), "Importing Scene");
+					ImportRequestHandle->GetOperationHandle(), "Importing Scene");
 			}
-			else SetError("Scene Interchange import could not be submitted.");
+			else SetError("Scene AssetForge import could not be submitted.");
 			return false;
 		}
-		if (!InterchangeRequest) return false;
-		Asset::FInterchangeImportResult Result;
-		if (!InterchangeRequest->TryGetResult(Result)) return false;
-		InterchangeRequest.reset();
+		if (!ImportRequestHandle) return false;
+		AssetForge::FImportResult Result;
+		if (!ImportRequestHandle->TryGetResult(Result)) return false;
+		ImportRequestHandle.reset();
 		ImportProgress.Reset();
-		if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+		if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
 		{
 			SetError(Result.Outcome.Diagnostic.empty()
-				? "Scene Interchange import failed." : Result.Outcome.Diagnostic);
+				? "Scene AssetForge import failed." : Result.Outcome.Diagnostic);
 			return false;
 		}
 		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-		for (const Asset::FInterchangeOutputMapping& Output : Result.Provenance.OutputMappings)
+		for (const AssetForge::FOutputMapping& Output : Result.Provenance.OutputMappings)
 			Asset::UnloadPackage(Output.AssetPath);
 		return true;
 	}
@@ -473,17 +473,17 @@ namespace Durin::Editor::Level
 	auto FSceneImportDialog::CancelRequests() -> void
 	{
 		if (PreviewRequest)
-			Asset::GetImportService().CancelImportOperation(
+			AssetForge::GetImportService().CancelImportOperation(
 				PreviewRequest->GetOperationHandle());
 		if (SourceRequest)
-			Asset::Forge::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
-		if (InterchangeRequest)
-			Asset::GetImportService().CancelAndDrainImportOperation(
-				InterchangeRequest->GetOperationHandle());
+			AssetForge::Builtins::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
+		if (ImportRequestHandle)
+			AssetForge::GetImportService().CancelAndDrainImportOperation(
+				ImportRequestHandle->GetOperationHandle());
 		PreviewRequest.reset();
 		SourceRequest.reset();
 		PendingImportDirectory.reset();
-		InterchangeRequest.reset();
+		ImportRequestHandle.reset();
 		ImportProgress.Reset();
 	}
 

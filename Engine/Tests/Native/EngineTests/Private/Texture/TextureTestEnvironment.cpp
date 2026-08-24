@@ -1,6 +1,6 @@
 #include "TextureTestSupport.h"
-#include "AssetForgeAuthoringTestSupport.h"
-#include "AssetForgeProviders.h"
+#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsProviders.h"
 #include "Texture2DPropertyEditing.h"
 #include "TextureSourceRelocation.h"
 
@@ -16,8 +16,8 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureBuildHost());
 			std::string Error;
-			ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
-			ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
+			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 				Error, GetEngineTestModuleCallbackGate())) << Error;
 			ASSERT_TRUE(Durin::Editor::Texture::RegisterTexture2DPropertyEditing());
 			ASSERT_TRUE(Durin::Editor::Texture::RegisterTextureSourceRelocation());
@@ -27,7 +27,7 @@ namespace
 		{
 			Durin::Editor::Texture::UnregisterTextureSourceRelocation();
 			Durin::Editor::Texture::UnregisterTexture2DPropertyEditing();
-			Durin::Asset::Forge::UnregisterAssetForgeProviders();
+			Durin::AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
 			Durin::Asset::Build::ShutdownBuildHost();
 			Durin::Asset::Build::ShutdownTextureBuildService();
 		}

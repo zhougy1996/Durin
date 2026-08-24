@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AsyncImport.h"
+#include "AssetForge/Operations/ImportOperation.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 
@@ -42,12 +42,12 @@ namespace Durin::Editor::Level
 		auto DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void;
 		auto OpenHistory() -> void;
 		auto RegisterImportOperation(
-			Asset::FImportOperationHandle Handle, std::string Title) -> void;
+			AssetForge::FImportOperationHandle Handle, std::string Title) -> void;
 
 	private:
 		struct FPresentedImportOperation
 		{
-			Asset::FImportOperationHandle Handle;
+			AssetForge::FImportOperationHandle Handle;
 			std::string Title;
 			uint64 LastRevision = 0;
 			uint64 NotificationId = 0;

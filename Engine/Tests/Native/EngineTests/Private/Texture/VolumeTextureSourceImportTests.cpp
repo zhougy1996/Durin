@@ -1,8 +1,8 @@
 #include "TextureTestSupport.h"
 
-#include "VolumeTextureSourceTranslation.h"
-#include "AssetForgeProviderTestFixture.h"
-#include "ImportService.h"
+#include "AssetForge/Builtins/VolumeTextureImport.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
+#include "AssetForge/ImportService.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureDerivedData.h"
@@ -12,34 +12,34 @@
 #include "Misc/FileHelper.h"
 
 using namespace Durin;
-using namespace Durin::Asset::Forge;
+using namespace Durin::AssetForge::Builtins;
 
 namespace
 {
 	auto ReimportVolumeTexture(DVolumeTexture& Texture,
 		const FVolumeTextureImportSettings& Settings,
 		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
-		-> Asset::FInterchangeImportResult
+		-> AssetForge::FImportResult
 	{
 		FAssetPath Destination;
 		std::string Error;
 		if (!Texture.GetPackage() || !FAssetPath::TryCreate(
 			Texture.GetPackage()->GetPackagePath(), Destination, &Error))
-			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
 				.Diagnostic = std::move(Error)}};
-		Asset::FInterchangeProvenance Provenance;
-		if (!InspectVolumeTextureInterchangeProvenance(Texture, Provenance, Error))
-			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+		AssetForge::FImportProvenance Provenance;
+		if (!InspectVolumeTextureImportProvenance(Texture, Provenance, Error))
+			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
 				.Diagnostic = std::move(Error)}};
-		Asset::FInterchangeImportRequest Request;
-		if (!MakeVolumeTextureInterchangeRequest(
+		AssetForge::FImportRequest Request;
+		if (!MakeVolumeTextureImportRequest(
 			Texture.GetSourceImportData().Source.SourcePath, Destination, Settings,
-			Asset::EInterchangeImportMode::Reimport,
-			{.OwnerId = "Tests.VolumeTexture.InterchangeReimport"}, Provenance,
+			AssetForge::EImportMode::Reimport,
+			{.OwnerId = "Tests.VolumeTexture.ImportReimport"}, Provenance,
 			Request, Error, AuthoringOptions))
-			return {.Outcome = {.State = Asset::EImportOperationState::Failed,
+			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
 				.Diagnostic = std::move(Error)}};
-		return Asset::GetImportService().RunInterchangeImportInline(
+		return AssetForge::GetImportService().RunImportInline(
 			std::move(Request), "Reimport VolumeTexture");
 	}
 
@@ -305,7 +305,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	ASSERT_TRUE(EnsureTextureBuildHost());
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	const std::filesystem::path SourceDirectory =
@@ -341,7 +341,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	EXPECT_TRUE(SourceFileProperty->HasAnyPropertyFlags(EPropertyFlags::ReadOnly));
 
 	auto Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	ASSERT_EQ(Executed.Outcome.State, Asset::EImportOperationState::Succeeded)
+	ASSERT_EQ(Executed.Outcome.State, AssetForge::EImportOperationState::Succeeded)
 		<< Executed.Outcome.Diagnostic;
 	const std::string LastKnownGoodKey = Imported.Asset->GetDerivedDataKey();
 
@@ -350,7 +350,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		Corrupt << "not a png";
 	}
 	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	EXPECT_EQ(Executed.Outcome.State, Asset::EImportOperationState::Failed);
+	EXPECT_EQ(Executed.Outcome.State, AssetForge::EImportOperationState::Failed);
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), LastKnownGoodKey);
 	EXPECT_EQ(Imported.Asset->GetBuildStatus(), ETextureBuildStatus::Ready);
 
@@ -417,7 +417,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	ASSERT_TRUE(EnsureTextureBuildHost());
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
 	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -471,7 +471,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings,
 		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV5});
-	ASSERT_EQ(Reimported.Outcome.State, Asset::EImportOperationState::Succeeded)
+	ASSERT_EQ(Reimported.Outcome.State, AssetForge::EImportOperationState::Succeeded)
 		<< Reimported.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), V5DerivedDataKey);
 

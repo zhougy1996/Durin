@@ -6,7 +6,7 @@
         "Core",
         "RHI",
         "ApplicationCore",
-		"AssetImportCore",
+		"AssetForge",
         "MonaCore",
         "Mona"
     ],

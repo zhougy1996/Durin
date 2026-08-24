@@ -2,7 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetAuthoring.h"
-#include "ImportRecord.h"
+#include "AssetForge/Persistence/ImportRecord.h"
 #include "Engine/Level.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -380,7 +380,7 @@ namespace Durin::Editor::Level
 				DestinationPath,
 				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		};
-		if (auto* Record = Cast<Asset::DImportRecord>(DuplicatedAsset))
+		if (auto* Record = Cast<AssetForge::DImportRecord>(DuplicatedAsset))
 		{
 			std::string CloneError;
 			if (!Record->SetRecordIdForClone(FGuid::NewGuid(), CloneError))

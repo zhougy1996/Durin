@@ -15,11 +15,11 @@ namespace Durin
 		virtual auto PostLoadUncooked(DTexture2D& Texture, std::string& OutError) -> bool = 0;
 	};
 
-	class ITexture2DInterchangeRecoveryFeature : public IModularFeature
+	class ITexture2DImportRecoveryFeature : public IModularFeature
 	{
 	public:
 		static constexpr std::string_view FeatureName =
-			"Engine.Texture2DInterchangeRecovery";
+			"Engine.Texture2DImportRecovery";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto WaitForRecovery(
 			DTexture2D& Texture, double TimeoutSeconds) -> bool = 0;
@@ -27,6 +27,6 @@ namespace Durin
 
 	ENGINE_API auto InvokeTexture2DUncookedPostLoadHandler(
 		DTexture2D& Texture, std::string& OutError) -> bool;
-	ENGINE_API auto TryWaitForTexture2DInterchangeRecovery(
+	ENGINE_API auto TryWaitForTexture2DImportRecovery(
 		DTexture2D& Texture, double TimeoutSeconds) -> std::optional<bool>;
 }

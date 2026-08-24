@@ -1,8 +1,8 @@
 #include "EngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
-#include "AssetForgeAuthoringTestSupport.h"
-#include "AssetForgeProviders.h"
+#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsProviders.h"
 
 #include <gtest/gtest.h>
 
@@ -17,8 +17,8 @@ namespace
 			InitializeDObjectSystem();
 			Durin::FModuleManager::Get().LoadModule("GeometryBuild");
 			std::string Error;
-			ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
-			ASSERT_TRUE(Durin::Asset::Forge::RegisterAssetForgeProviders(
+			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 				Error, GetEngineTestModuleCallbackGate())) << Error;
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),
@@ -33,7 +33,7 @@ namespace
 				Durin::ERenderCommandAdmissionState::Running);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
-			Durin::Asset::Forge::UnregisterAssetForgeProviders();
+			Durin::AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
 		}
 	};
 

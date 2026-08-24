@@ -666,7 +666,7 @@ namespace Durin
 				ASSERT_TRUE(Alternate);
 				*AlternateTargets = *Alternate;
 
-				FMaterialPipelineIdentity Material;
+				FMaterialPlanningPassIdentity Material;
 				Material.ShaderMap.BlendMode = EMaterialBlendMode::Opaque;
 				Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
 				FRHIDepthStencilState Depth;

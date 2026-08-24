@@ -1,5 +1,5 @@
 #include "SkyBoxTestSupport.h"
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Editor/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxLevelAuthoring.h"
@@ -12,13 +12,13 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::FScene* Scene = Engine.CreateTestScene();
 	Durin::GEngine = &Engine;
 
-	Durin::Asset::Forge::FTextureCubeImportValidation Validation = Durin::Asset::Forge::ValidateTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportValidation Validation = Durin::AssetForge::Builtins::ValidateTextureCubeFaces(
 		GetSkyBoxConventionFaces());
 	ASSERT_TRUE(Validation) << Validation.Message;
 	EXPECT_EQ(Validation.Dimension, 128u);
 	EXPECT_EQ(Validation.MipCount, 8u);
 
-	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/EditorWorkflowCube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;
@@ -125,18 +125,18 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 
 	const std::filesystem::path Panorama = std::filesystem::path(DURIN_TEST_DATA_DIR) /
 		"EquirectangularPanorama" / "AnalyticalHDR.hdr";
-	const Durin::Asset::Forge::FTextureCubePanoramaImportSettings Settings{
+	const Durin::AssetForge::Builtins::FTextureCubePanoramaImportSettings Settings{
 		.FaceDimension = 2,
 		.ExposureEV = 1.0f};
-	const Durin::Asset::Forge::FTextureCubeImportValidation Validation =
-		Durin::Asset::Forge::ValidateTextureCubePanorama(Panorama.generic_string(), Settings);
+	const Durin::AssetForge::Builtins::FTextureCubeImportValidation Validation =
+		Durin::AssetForge::Builtins::ValidateTextureCubePanorama(Panorama.generic_string(), Settings);
 	ASSERT_TRUE(Validation) << Validation.Message;
 	EXPECT_TRUE(Validation.bHDR);
 	EXPECT_EQ(Validation.SourceWidth, 8u);
 	EXPECT_EQ(Validation.SourceHeight, 4u);
 	EXPECT_EQ(Validation.Dimension, 2u);
 
-	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		Panorama.generic_string(), "/SkyBoxAssetTests/PanoramaWorkflowCube", Settings);
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;

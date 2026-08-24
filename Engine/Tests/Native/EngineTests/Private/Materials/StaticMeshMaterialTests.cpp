@@ -1,9 +1,9 @@
 #include "MaterialTestSupport.h"
-#include "ImportService.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/ImportService.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace
 {
@@ -11,7 +11,7 @@ namespace
 		const Durin::FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
 	{
-		auto& Service = Durin::Asset::GetImportService();
+		auto& Service = Durin::AssetForge::GetImportService();
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ std::chrono::duration<double>(TimeoutSeconds);
 		while (Service.HasActiveImportClaim(AssetPath.ToString())
@@ -46,7 +46,7 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	Durin::PathUtilities::RegisterMountPointForTests("/MeshImportTests/", Root.generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult ImportResult = Durin::Asset::Forge::ImportStaticMeshAsset(Source.generic_string(), "/MeshImportTests/MultiSection");
+	Durin::FStaticMeshImportResult ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), "/MeshImportTests/MultiSection");
 	ASSERT_TRUE(ImportResult) << ImportResult.Message;
 	ASSERT_NE(ImportResult.Asset, nullptr);
 	const Durin::FStaticMeshRenderData* RenderData = ImportResult.Asset->GetRenderData();
@@ -102,7 +102,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 		"/StaticMeshSourceProvenance/", (Root / "Content").generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(
+	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 		Source.generic_string(), "/StaticMeshSourceProvenance/Environment/Mesh");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
@@ -117,7 +117,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 		Root / "Content/Models/Environment/Mesh.gltf";
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "Environment" / "Mesh.gltf"));
-	EXPECT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Import.Asset).Status,
+	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 
 	Durin::FAssetPath OldPath;
@@ -127,7 +127,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_EQ(Import.Asset->GetSourceImportData().SourcePath.Path, OriginalSourcePath);
-	EXPECT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Import.Asset).Status,
+	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
@@ -150,7 +150,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceRepair/Mesh", AssetPath));
 	Durin::DStaticMesh* Mesh = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Mesh));
-	ASSERT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Mesh).Status,
+	ASSERT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
 		Durin::EStaticMeshSourceStatus::NoSource);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
@@ -163,16 +163,16 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	auto* SourceImportData = static_cast<Durin::FStaticMeshSourceImportData*>(
 		SourceImportProperty->GetValuePtr(Mesh));
 	SourceImportData->SourcePath.Path = "../Outside.gltf";
-	EXPECT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Mesh).Status,
+	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
 		Durin::EStaticMeshSourceStatus::Invalid);
 	*SourceImportData = {};
 	std::string RepairError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	ASSERT_TRUE(Durin::Asset::Forge::IngestAndChangeStaticMeshSource(*Mesh,
+	ASSERT_TRUE(Durin::AssetForge::Builtins::IngestAndChangeStaticMeshSource(*Mesh,
 		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
 		RepairError)) << RepairError;
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Mesh).Status,
+	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 	EXPECT_EQ(Mesh->GetSourceImportData().SourcePath.Path,
 		"/StaticMeshSourceRepair/Models/Mesh.gltf");
@@ -187,13 +187,13 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	EXPECT_TRUE(Mesh->GetPackage()->IsDirty());
 	ASSERT_TRUE(std::filesystem::remove(StoredSource));
 	const Durin::FStaticMeshSourceDiagnostic Missing =
-		Durin::Asset::Forge::InspectStaticMeshSource(*Mesh);
+		Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh);
 	EXPECT_EQ(Missing.Status, Durin::EStaticMeshSourceStatus::Missing);
 	EXPECT_NE(Missing.Message.find("source-path repair"), std::string::npos);
-	ASSERT_TRUE(Durin::Asset::Forge::IngestAndChangeStaticMeshSource(*Mesh,
+	ASSERT_TRUE(Durin::AssetForge::Builtins::IngestAndChangeStaticMeshSource(*Mesh,
 		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
 		RepairError)) << RepairError;
-	EXPECT_EQ(Durin::Asset::Forge::InspectStaticMeshSource(*Mesh).Status,
+	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(
 		AssetPath,
@@ -212,7 +212,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Mesh", MeshPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Default", MaterialPath));
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
+	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_EQ(Import.Asset->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Import.Asset->FindMaterialSlot(Durin::FName("Blue")), Import.Asset->GetMaterialSlot(1));
@@ -260,7 +260,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	auto ImportBase = [&](std::string_view Name) -> Durin::DStaticMesh* {
 		const std::string AssetPath = std::format("/StaticMeshSlotReimport/{}", Name);
-		Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(BaseSource.generic_string(), AssetPath);
+		Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(BaseSource.generic_string(), AssetPath);
 		EXPECT_TRUE(Import) << Import.Message;
 		return Import.Asset;
 	};
@@ -360,7 +360,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/RedOverride", MaterialPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Component", ComponentPath));
 	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::Asset::Forge::ImportStaticMeshAsset(BaseSource.generic_string(), MeshPath.ToString());
+	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(BaseSource.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
 	const Durin::FMeshMaterialSlotDefinition* RedSlot =
 		Import.Asset->FindMaterialSlot(Durin::FName("Red"));
@@ -450,7 +450,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 
 	const Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "AsymmetricAxes.obj";
-	Durin::FStaticMeshImportResult ImportResult = Durin::Asset::Forge::ImportStaticMeshAsset(
+	Durin::FStaticMeshImportResult ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 		Source.generic_string(), "/MeshAxisImportTests/AsymmetricAxes", Settings);
 	ASSERT_TRUE(ImportResult) << ImportResult.Message;
 	ASSERT_NE(ImportResult.Asset, nullptr);
@@ -501,7 +501,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult MeshImport = Durin::Asset::Forge::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
+	Durin::FStaticMeshImportResult MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	Durin::DMaterial* First = nullptr;
 	Durin::DMaterial* Second = nullptr;
@@ -572,7 +572,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialBaseColor.png";
 	WriteMaterialTextureFixture(TextureSource);
-	Durin::FTexture2DImportResult TextureImport = Durin::Asset::Forge::ImportTexture2DAsset(TextureSource.generic_string(), TexturePath.ToString());
+	Durin::FTexture2DImportResult TextureImport = Durin::AssetForge::Builtins::ImportTexture2DAsset(TextureSource.generic_string(), TexturePath.ToString());
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 

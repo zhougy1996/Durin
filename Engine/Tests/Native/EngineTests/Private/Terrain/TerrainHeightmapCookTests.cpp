@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "AssetForgeProviderTestFixture.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -7,7 +7,7 @@
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
-#include "TerrainHeightmapSourceTranslation.h"
+#include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Components/TerrainComponent.h"
 #include "Collision/CollisionGeometry.h"
 #include "Physics/PhysicsTypes.h"
@@ -18,7 +18,7 @@
 TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
 	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	const std::filesystem::path Root =
@@ -42,7 +42,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		Raw.push_back(static_cast<std::byte>(Sample >> 8));
 	}
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Raw)), Source));
-	const auto Imported = Durin::Asset::Forge::ImportTerrainHeightmapAsset(
+	const auto Imported = Durin::AssetForge::Builtins::ImportTerrainHeightmapAsset(
 		Source.generic_string(), "/Game/Height");
 	ASSERT_TRUE(Imported) << Imported.Message;
 

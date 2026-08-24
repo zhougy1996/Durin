@@ -1,19 +1,19 @@
 #include "Panels/ContentBrowserPanel.h"
-#include "Texture2DSourceTranslation.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "TextureCubeSourceTranslation.h"
-#include "VolumeTextureSourceTranslation.h"
-#include "TerrainHeightmapSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
+#include "AssetForge/Builtins/VolumeTextureImport.h"
+#include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "AssetImportCore.h"
-#include "ImportService.h"
+#include "AssetForge/ImportTypes.h"
+#include "AssetForge/ImportService.h"
 #include "AssetTools.h"
-#include "SceneImport.h"
+#include "AssetForge/Builtins/SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Misc/Paths.h"
@@ -150,9 +150,9 @@ namespace Durin::Editor::Level
 
 	FContentBrowserPanel::~FContentBrowserPanel()
 	{
-		if (PendingSingleAssetReimport && PendingSingleAssetReimport->Interchange)
-			Asset::GetImportService().CancelAndDrainImportOperation(
-				PendingSingleAssetReimport->Interchange->GetOperationHandle());
+		if (PendingSingleAssetReimport && PendingSingleAssetReimport->AssetForge)
+			AssetForge::GetImportService().CancelAndDrainImportOperation(
+				PendingSingleAssetReimport->AssetForge->GetOperationHandle());
 	}
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> void
@@ -526,7 +526,7 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserPanel::ReimportAsset(
 		const FContentBrowserItem& Item,
-		Asset::EImportRecordAction Action) -> void
+		AssetForge::EImportRecordAction Action) -> void
 	{
 		if (PendingSingleAssetReimport)
 		{
@@ -534,7 +534,7 @@ namespace Durin::Editor::Level
 			return;
 		}
 		const bool bRecreateMissingAssets =
-			Action != Asset::EImportRecordAction::Reimport;
+			Action != AssetForge::EImportRecordAction::Reimport;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
 		{
@@ -549,17 +549,17 @@ namespace Durin::Editor::Level
 			SetError(Load ? "The selected asset could not be loaded." : Load.Message);
 			return;
 		}
-		Asset::FImportRecordInspection Inspection =
-			Cast<Asset::DImportRecord>(AssetObject)
-				? Asset::InspectImportRecord(
-					Path, Asset::GetImportRecordIndex())
-				: Asset::InspectImportRecordForOutput(
-					Path, Asset::GetImportRecordIndex());
+		AssetForge::FImportRecordInspection Inspection =
+			Cast<AssetForge::DImportRecord>(AssetObject)
+				? AssetForge::InspectImportRecord(
+					Path, AssetForge::GetImportRecordIndex())
+				: AssetForge::InspectImportRecordForOutput(
+					Path, AssetForge::GetImportRecordIndex());
 		if (Inspection && Inspection.Record)
 		{
-			Asset::FInterchangeImportRequest Request;
+			AssetForge::FImportRequest Request;
 			std::string Error;
-			if (!Asset::Forge::MakeSceneRecordInterchangeRequest(
+			if (!AssetForge::Builtins::MakeSceneRecordImportRequest(
 				*Inspection.Record, Action,
 				{.OwnerId = std::format("ContentBrowser.RecordReimport:{}", Path.ToString()),
 					.ConflictIdentities = {Inspection.RecordPath.ToString()}},
@@ -568,30 +568,30 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			Asset::FInterchangeImportHandle Handle =
-				Asset::GetImportService().SubmitInterchangeImport(
+			AssetForge::FImportHandle Handle =
+				AssetForge::GetImportService().SubmitImport(
 					std::move(Request), "Reimport Scene graph");
 			if (!Handle)
 			{
-				SetError("The Scene Interchange record action could not be submitted.");
+				SetError("The Scene AssetForge record action could not be submitted.");
 				return;
 			}
 			LastReimportOrphans.clear();
 			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.Interchange = std::move(Handle), .AssetPath = Path,
-				.PreviousRecordOutputs = std::vector<Asset::FImportRecordOutput>(
+				.AssetForge = std::move(Handle), .AssetPath = Path,
+				.PreviousRecordOutputs = std::vector<AssetForge::FImportRecordOutput>(
 					Inspection.Record->GetOutputs().begin(), Inspection.Record->GetOutputs().end())};
 			if (NotifyImportStarted)
-				NotifyImportStarted(PendingSingleAssetReimport->Interchange->GetOperationHandle(),
+				NotifyImportStarted(PendingSingleAssetReimport->AssetForge->GetOperationHandle(),
 					"Reimport Scene graph");
 			return;
 		}
 		if (auto* Texture = Cast<DTexture2D>(AssetObject);
 			Texture && !bRecreateMissingAssets)
 		{
-			Asset::FInterchangeProvenance Existing;
+			AssetForge::FImportProvenance Existing;
 			std::string Error;
-			if (!Asset::Forge::InspectTexture2DInterchangeProvenance(
+			if (!AssetForge::Builtins::InspectTexture2DImportProvenance(
 				*Texture, Existing, Error))
 			{
 				SetError(std::move(Error));
@@ -611,10 +611,10 @@ namespace Durin::Editor::Level
 				.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
 				.MaxResolution = Texture->GetMaxResolution(),
 				.bSRGB = Texture->IsSRGB()};
-			Asset::FInterchangeImportRequest Request;
-			if (!Asset::Forge::MakeTexture2DInterchangeRequest(
+			AssetForge::FImportRequest Request;
+			if (!AssetForge::Builtins::MakeTexture2DImportRequest(
 				Texture->GetSourceImportData().Source.SourcePath, Path, Settings,
-				Asset::EInterchangeImportMode::Reimport,
+				AssetForge::EImportMode::Reimport,
 				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
 					.ConflictIdentities = {Path.ToString()}},
 				std::move(Existing), Request, Error))
@@ -622,12 +622,12 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			Asset::FInterchangeImportHandle Handle =
-				Asset::GetImportService().SubmitInterchangeImport(
+			AssetForge::FImportHandle Handle =
+				AssetForge::GetImportService().SubmitImport(
 					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
 			if (!Handle)
 			{
-				SetError("The Texture2D Interchange reimport could not be submitted.");
+				SetError("The Texture2D AssetForge reimport could not be submitted.");
 				return;
 			}
 			LastReimportOrphans.clear();
@@ -635,32 +635,32 @@ namespace Durin::Editor::Level
 				NotifyImportStarted(Handle.GetOperationHandle(),
 					std::format("Reimport {}", Path.GetAssetName()));
 			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.Interchange = std::move(Handle), .AssetPath = Path};
+				.AssetForge = std::move(Handle), .AssetPath = Path};
 			return;
 		}
 		if (auto* Mesh = Cast<DStaticMesh>(AssetObject);
 			Mesh && !bRecreateMissingAssets)
 		{
-			Asset::FInterchangeProvenance Existing;
+			AssetForge::FImportProvenance Existing;
 			std::string Error;
-			if (!Asset::Forge::InspectStaticMeshInterchangeProvenance(
+			if (!AssetForge::Builtins::InspectStaticMeshImportProvenance(
 				*Mesh, Existing, Error))
 			{
 				SetError(std::move(Error));
 				return;
 			}
 			const FStaticMeshSourceDiagnostic Source =
-				Asset::Forge::InspectStaticMeshSource(*Mesh);
+				AssetForge::Builtins::InspectStaticMeshSource(*Mesh);
 			if (Source.Status != EStaticMeshSourceStatus::Available)
 			{
 				SetError(Source.Message.empty()
 					? "The StaticMesh source is unavailable." : Source.Message);
 				return;
 			}
-			Asset::FInterchangeImportRequest Request;
-			if (!Asset::Forge::MakeStaticMeshInterchangeRequest(
+			AssetForge::FImportRequest Request;
+			if (!AssetForge::Builtins::MakeStaticMeshImportRequest(
 				Mesh->GetSourceImportData().SourcePath, Path, Mesh->GetImportSettings(),
-				Asset::EInterchangeImportMode::Reimport,
+				AssetForge::EImportMode::Reimport,
 				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
 					.ConflictIdentities = {Path.ToString()}},
 				std::move(Existing), Request, Error))
@@ -668,12 +668,12 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			Asset::FInterchangeImportHandle Handle =
-				Asset::GetImportService().SubmitInterchangeImport(
+			AssetForge::FImportHandle Handle =
+				AssetForge::GetImportService().SubmitImport(
 					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
 			if (!Handle)
 			{
-				SetError("The StaticMesh Interchange reimport could not be submitted.");
+				SetError("The StaticMesh AssetForge reimport could not be submitted.");
 				return;
 			}
 			LastReimportOrphans.clear();
@@ -681,17 +681,17 @@ namespace Durin::Editor::Level
 				NotifyImportStarted(Handle.GetOperationHandle(),
 					std::format("Reimport {}", Path.GetAssetName()));
 			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.Interchange = std::move(Handle), .AssetPath = Path};
+				.AssetForge = std::move(Handle), .AssetPath = Path};
 			return;
 		}
-		auto SubmitInterchange = [&](Asset::FInterchangeImportRequest Request,
+		auto SubmitImportRequest = [&](AssetForge::FImportRequest Request,
 			std::string_view Family) -> bool {
-			Asset::FInterchangeImportHandle Handle =
-				Asset::GetImportService().SubmitInterchangeImport(
+			AssetForge::FImportHandle Handle =
+				AssetForge::GetImportService().SubmitImport(
 					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
 			if (!Handle)
 			{
-				SetError(std::format("The {} Interchange reimport could not be submitted.", Family));
+				SetError(std::format("The {} AssetForge reimport could not be submitted.", Family));
 				return false;
 			}
 			LastReimportOrphans.clear();
@@ -699,15 +699,15 @@ namespace Durin::Editor::Level
 				NotifyImportStarted(Handle.GetOperationHandle(),
 					std::format("Reimport {}", Path.GetAssetName()));
 			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.Interchange = std::move(Handle), .AssetPath = Path};
+				.AssetForge = std::move(Handle), .AssetPath = Path};
 			return true;
 		};
 		if (auto* Cube = Cast<DTextureCube>(AssetObject);
 			Cube && !bRecreateMissingAssets)
 		{
-			Asset::FInterchangeProvenance Existing;
+			AssetForge::FImportProvenance Existing;
 			std::string Error;
-			if (!Asset::Forge::InspectTextureCubeInterchangeProvenance(*Cube, Existing, Error))
+			if (!AssetForge::Builtins::InspectTextureCubeImportProvenance(*Cube, Existing, Error))
 			{
 				SetError(std::move(Error));
 				return;
@@ -719,13 +719,13 @@ namespace Durin::Editor::Level
 			else for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 				Sources[Index] = Cube->GetSourceImportData().GetFace(
 					static_cast<ETextureCubeFace>(Index)).SourcePath;
-			Asset::FInterchangeImportRequest Request;
-			if (!Asset::Forge::MakeTextureCubeInterchangeRequest(
+			AssetForge::FImportRequest Request;
+			if (!AssetForge::Builtins::MakeTextureCubeImportRequest(
 				std::span(Sources).first(SourceCount), Cube->GetSourceLayout(), Path,
 				{.bSRGB = Cube->IsSRGB()},
 				{.FaceDimension = Cube->GetPanoramaFaceDimension(),
 					.ExposureEV = Cube->GetPanoramaExposureEV()},
-				Asset::EInterchangeImportMode::Reimport,
+				AssetForge::EImportMode::Reimport,
 				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
 					.ConflictIdentities = {Path.ToString()}},
 				std::move(Existing), Request, Error))
@@ -733,27 +733,27 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			(void)SubmitInterchange(std::move(Request), "TextureCube");
+			(void)SubmitImportRequest(std::move(Request), "TextureCube");
 			return;
 		}
 		if (auto* Volume = Cast<DVolumeTexture>(AssetObject);
 			Volume && !bRecreateMissingAssets)
 		{
-			Asset::FInterchangeProvenance Existing;
+			AssetForge::FImportProvenance Existing;
 			std::string Error;
-			if (!Asset::Forge::InspectVolumeTextureInterchangeProvenance(*Volume, Existing, Error))
+			if (!AssetForge::Builtins::InspectVolumeTextureImportProvenance(*Volume, Existing, Error))
 			{
 				SetError(std::move(Error));
 				return;
 			}
 			const FVolumeTextureSourceImportData& Source = Volume->GetSourceImportData();
-			Asset::Forge::FVolumeTextureImportSettings Settings{
+			AssetForge::Builtins::FVolumeTextureImportSettings Settings{
 				.ImportFormat = Source.ImportFormat, .Channels = Source.Channels,
 				.SliceWidth = Source.SliceWidth, .SliceHeight = Source.SliceHeight,
 				.Depth = Source.Depth, .TilesX = Source.TilesX, .TilesY = Source.TilesY};
-			Asset::FInterchangeImportRequest Request;
-			if (!Asset::Forge::MakeVolumeTextureInterchangeRequest(Source.Source.SourcePath,
-				Path, Settings, Asset::EInterchangeImportMode::Reimport,
+			AssetForge::FImportRequest Request;
+			if (!AssetForge::Builtins::MakeVolumeTextureImportRequest(Source.Source.SourcePath,
+				Path, Settings, AssetForge::EImportMode::Reimport,
 				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
 					.ConflictIdentities = {Path.ToString()}},
 				std::move(Existing), Request, Error))
@@ -761,19 +761,19 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			(void)SubmitInterchange(std::move(Request), "VolumeTexture");
+			(void)SubmitImportRequest(std::move(Request), "VolumeTexture");
 			return;
 		}
 		if (auto* Terrain = Cast<DTerrainHeightmap>(AssetObject);
 			Terrain && !bRecreateMissingAssets)
 		{
-			Asset::FInterchangeProvenance Existing;
-			Asset::FInterchangeImportRequest Request;
+			AssetForge::FImportProvenance Existing;
+			AssetForge::FImportRequest Request;
 			std::string Error;
-			if (!Asset::Forge::InspectTerrainHeightmapInterchangeProvenance(*Terrain, Existing, Error)
-				|| !Asset::Forge::MakeTerrainHeightmapInterchangeRequest(
+			if (!AssetForge::Builtins::InspectTerrainHeightmapImportProvenance(*Terrain, Existing, Error)
+				|| !AssetForge::Builtins::MakeTerrainHeightmapImportRequest(
 					Terrain->GetSourceImportData().SourcePath, Path,
-					Asset::EInterchangeImportMode::Reimport,
+					AssetForge::EImportMode::Reimport,
 					{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
 						.ConflictIdentities = {Path.ToString()}},
 					std::move(Existing), Request, Error))
@@ -781,33 +781,33 @@ namespace Durin::Editor::Level
 				SetError(std::move(Error));
 				return;
 			}
-			(void)SubmitInterchange(std::move(Request), "TerrainHeightmap");
+			(void)SubmitImportRequest(std::move(Request), "TerrainHeightmap");
 			return;
 		}
 		SetError(Inspection.Message.empty()
-			? "The selected asset has no Interchange reimport capability."
+			? "The selected asset has no AssetForge reimport capability."
 			: Inspection.Message);
 	}
 
 	auto FContentBrowserPanel::PollSingleAssetReimport() -> void
 	{
-		if (!PendingSingleAssetReimport || !PendingSingleAssetReimport->Interchange) return;
-		Asset::FInterchangeImportResult Result;
-		if (!PendingSingleAssetReimport->Interchange->TryGetResult(Result)) return;
+		if (!PendingSingleAssetReimport || !PendingSingleAssetReimport->AssetForge) return;
+		AssetForge::FImportResult Result;
+		if (!PendingSingleAssetReimport->AssetForge->TryGetResult(Result)) return;
 		const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
-		const std::vector<Asset::FImportRecordOutput> PreviousOutputs =
+		const std::vector<AssetForge::FImportRecordOutput> PreviousOutputs =
 			std::move(PendingSingleAssetReimport->PreviousRecordOutputs);
 		PendingSingleAssetReimport.reset();
-		if (Result.Outcome.State != Asset::EImportOperationState::Succeeded)
+		if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
 		{
-			if (Result.Outcome.State != Asset::EImportOperationState::Canceled)
+			if (Result.Outcome.State != AssetForge::EImportOperationState::Canceled)
 				SetError(Result.Outcome.Diagnostic.empty()
-					? "Interchange reimport failed." : Result.Outcome.Diagnostic);
+					? "AssetForge reimport failed." : Result.Outcome.Diagnostic);
 			return;
 		}
-		for (const Asset::FImportRecordOutput& Previous : PreviousOutputs)
+		for (const AssetForge::FImportRecordOutput& Previous : PreviousOutputs)
 			if (std::ranges::none_of(Result.Provenance.OutputMappings,
-				[&](const Asset::FInterchangeOutputMapping& Mapping) {
+				[&](const AssetForge::FOutputMapping& Mapping) {
 					return Mapping.OutputIdentity == Previous.StableIdentity; }))
 				LastReimportOrphans.push_back(Previous.AssetPath);
 		PublishMountedContentMutation();

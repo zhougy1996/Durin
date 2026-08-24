@@ -16,7 +16,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/TextureBuildService.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 #include "TexturePlatformDataTestFixtures.h"
 
 #include <bc7decomp.h>

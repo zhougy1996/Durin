@@ -12,8 +12,8 @@
         "Mona",
         "MonaImGui",
         "AssetCore",
-        "AssetImportCore",
         "AssetForge",
+        "AssetForgeBuiltins",
         "GeometryBuild",
         "TextureBuild",
         "DurinEd"

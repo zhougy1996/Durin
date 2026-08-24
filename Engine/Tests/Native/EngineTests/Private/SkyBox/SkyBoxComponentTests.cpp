@@ -1,5 +1,5 @@
 #include "SkyBoxTestSupport.h"
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Math/Operations.h"
 
 TEST(FSkyBoxTests, ClassDefaultSkipsRuntimeIdentityAllocation)
@@ -201,7 +201,7 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 {
 	InitializeSkyBoxAssetMount();
-	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/Cube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 

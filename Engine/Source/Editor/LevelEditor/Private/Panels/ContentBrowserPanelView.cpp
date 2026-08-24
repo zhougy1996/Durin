@@ -6,9 +6,9 @@
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "AssetImportCore.h"
-#include "ImportService.h"
-#include "MultiOutputImport.h"
+#include "AssetForge/ImportTypes.h"
+#include "AssetForge/ImportService.h"
+#include "AssetForge/Persistence/ImportRecord.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "AssetAuthoring.h"
@@ -859,15 +859,15 @@ namespace Durin::Editor::Level
 				ImGui::Separator();
 			}
 			FAssetPath ItemPath;
-			Asset::FImportRecordInspection Inspection;
+			AssetForge::FImportRecordInspection Inspection;
 			if (FAssetPath::TryCreate(Item.VirtualPath, ItemPath))
 			{
 				Inspection = Item.AssetClassName ==
-					Asset::DImportRecord::StaticClass()->GetQualifiedName().ToString()
-					? Asset::InspectImportRecord(
-						ItemPath, Asset::GetImportRecordIndex())
-					: Asset::InspectImportRecordForOutput(
-						ItemPath, Asset::GetImportRecordIndex());
+					AssetForge::DImportRecord::StaticClass()->GetQualifiedName().ToString()
+					? AssetForge::InspectImportRecord(
+						ItemPath, AssetForge::GetImportRecordIndex())
+					: AssetForge::InspectImportRecordForOutput(
+						ItemPath, AssetForge::GetImportRecordIndex());
 			}
 			if (Inspection && Inspection.Record)
 			{
@@ -882,11 +882,11 @@ namespace Durin::Editor::Level
 					});
 				if (ImGui::BeginMenu("Reveal Managed Output"))
 				{
-					for (const Asset::FImportRecordManagement& Output : Inspection.Outputs)
+					for (const AssetForge::FImportRecordManagement& Output : Inspection.Outputs)
 					{
 						const auto Recorded = std::ranges::find(
 							Inspection.Record->GetOutputs(), Output.OutputIdentity,
-							&Asset::FImportRecordOutput::StableIdentity);
+							&AssetForge::FImportRecordOutput::StableIdentity);
 						if (Recorded != Inspection.Record->GetOutputs().end()
 							&& ImGui::MenuItem(Recorded->AssetPath.GetAssetName().data()))
 							QueueContentAction([this, Path = Recorded->AssetPath.ToString()] {
@@ -895,20 +895,20 @@ namespace Durin::Editor::Level
 					}
 					ImGui::EndMenu();
 				}
-				for (const Asset::EImportRecordAction Action : {
-					Asset::EImportRecordAction::Reimport,
-					Asset::EImportRecordAction::RecreateMissingOutputs,
-					Asset::EImportRecordAction::RepairManagedOutputs})
+				for (const AssetForge::EImportRecordAction Action : {
+					AssetForge::EImportRecordAction::Reimport,
+					AssetForge::EImportRecordAction::RecreateMissingOutputs,
+					AssetForge::EImportRecordAction::RepairManagedOutputs})
 				{
-					const bool bRelevant = Action == Asset::EImportRecordAction::Reimport
-						|| Action == Asset::EImportRecordAction::RecreateMissingOutputs
+					const bool bRelevant = Action == AssetForge::EImportRecordAction::Reimport
+						|| Action == AssetForge::EImportRecordAction::RecreateMissingOutputs
 							&& Inspection.bHasMissingManagedOutput
-						|| Action == Asset::EImportRecordAction::RepairManagedOutputs
+						|| Action == AssetForge::EImportRecordAction::RepairManagedOutputs
 							&& Inspection.bHasFingerprintMismatch;
 					const bool bAvailable = !Inspection.bConflicted && bRelevant;
-					const char* Label = Action == Asset::EImportRecordAction::Reimport
+					const char* Label = Action == AssetForge::EImportRecordAction::Reimport
 						? "Reimport Managed Outputs"
-						: Action == Asset::EImportRecordAction::RecreateMissingOutputs
+						: Action == AssetForge::EImportRecordAction::RecreateMissingOutputs
 							? "Recreate Missing Outputs" : "Repair Changed Outputs";
 					if (ImGui::MenuItem(Label, nullptr, false, bAvailable))
 						QueueContentAction([this, Item, Action] { ReimportAsset(Item, Action); });
@@ -920,19 +920,19 @@ namespace Durin::Editor::Level
 				if (bManagedByRecord && ImGui::MenuItem("Detach from Import Record"))
 				{
 					const auto Managed = std::ranges::find_if(
-						Inspection.Record->GetOutputs(), [&](const Asset::FImportRecordOutput& Output) {
+						Inspection.Record->GetOutputs(), [&](const AssetForge::FImportRecordOutput& Output) {
 							return Output.AssetPath == Inspection.SelectedOutputPath;
 						});
 					if (Managed != Inspection.Record->GetOutputs().end())
 						QueueContentAction([this,
 							RecordPath = Inspection.RecordPath,
 							Identity = Managed->StableIdentity] {
-							Asset::DImportRecord* Record = nullptr;
+							AssetForge::DImportRecord* Record = nullptr;
 							const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
 							if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-							const Asset::FImportRecordEditResult Result =
-								Asset::DetachImportRecordOutput(
-									*Record, Identity, Asset::GetImportRecordIndex());
+							const AssetForge::FImportRecordEditResult Result =
+								AssetForge::DetachImportRecordOutput(
+									*Record, Identity, AssetForge::GetImportRecordIndex());
 							if (!Result) { SetError(Result.Message); return; }
 							PublishMountedContentMutation();
 							RevealAsset(Result.RevealPath.ToString());
@@ -940,12 +940,12 @@ namespace Durin::Editor::Level
 				}
 				if (Inspection.bConflicted && ImGui::MenuItem("Repair Record Identity"))
 					QueueContentAction([this, RecordPath = Inspection.RecordPath] {
-						Asset::DImportRecord* Record = nullptr;
+						AssetForge::DImportRecord* Record = nullptr;
 						const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
 						if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-						const Asset::FImportRecordEditResult Result =
-							Asset::RepairDuplicatedImportRecord(
-								*Record, Asset::GetImportRecordIndex());
+						const AssetForge::FImportRecordEditResult Result =
+							AssetForge::RepairDuplicatedImportRecord(
+								*Record, AssetForge::GetImportRecordIndex());
 						if (!Result) { SetError(Result.Message); return; }
 						PublishMountedContentMutation();
 						RevealAsset(Result.RevealPath.ToString());
@@ -953,18 +953,18 @@ namespace Durin::Editor::Level
 				ImGui::Separator();
 			}
 		}
-		const bool bInterchangeSingleAsset =
+		const bool bImportableSingleAsset =
 			Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
 			|| Item.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
 			|| Item.AssetClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
 			|| Item.AssetClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString()
 			|| Item.AssetClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString();
 		if (Item.Kind == EContentBrowserItemKind::Asset
-			&& !bManagedByRecord && bInterchangeSingleAsset)
+			&& !bManagedByRecord && bImportableSingleAsset)
 		{
 			if (ImGui::MenuItem("Reimport from Current Source"))
 				QueueContentAction([this, Item] {
-					ReimportAsset(Item, Asset::EImportRecordAction::Reimport);
+					ReimportAsset(Item, AssetForge::EImportRecordAction::Reimport);
 				});
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))

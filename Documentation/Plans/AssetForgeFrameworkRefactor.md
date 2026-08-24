@@ -9,18 +9,31 @@ Completed:
 
 ## Current Status
 
-Planning is active from entry revision `f4797f02`. The graph-based import path
-is complete and owns production import, preview, reimport, repair, recovery,
-and Scene reconciliation, but its public vocabulary and physical ownership do
-not match the intended product boundary. `AssetImportCore` currently owns the
-framework while `AssetForge` owns Durin's built-in implementations.
-
-This plan selects `AssetForge` as the framework name, `Durin::AssetForge` as
-its public namespace, and `AssetForgeBuiltins` as the aggregate for built-in
-source translators, planning passes, asset builders, and typed authoring
-facades. Implementation has not started. Stage 0 must first freeze the exact
-public API, persisted identity, authored-asset, module-dependency, and focused
-test baselines so the refactor cannot hide a behavior or compatibility change.
+Stages 0 and 1 are complete. The superseded provider registry, provider lease,
+generic plan, legacy async-plan, and public multi-output orchestration have
+been removed. Scene planning now returns a private typed immutable result, and
+the surviving framework retains source capture, graph component leases,
+operation scheduling, candidate exchange, records, and failure-atomic graph
+publication. Post-removal validation passed the focused framework, built-in,
+and Scene targets. Stage 2 is complete: the lightweight framework is
+`AssetForge` in `Durin::AssetForge`, concrete implementations are
+`AssetForgeBuiltins` in `Durin::AssetForge::Builtins`, and no compatibility
+namespace aliases remain. Dependency closure remains editor-only. The renamed
+`AssetForgeTests` (18), `AssetImportTests` (17), and `SceneImportTests` (5)
+passed, and the `DurinAssetTool` consumer target builds with the new ownership.
+Stage 3 is complete. Framework contracts are split by graph, extension,
+operation, persistence, request, result, and service responsibility. Built-in
+registration and implementation are split by texture, mesh, Terrain, and Scene
+families. Stage 4 is complete: framework fingerprints, preview reuse, task
+attribution, diagnostics, Scene state, and record-index domains use
+`Durin.AssetForge.*`; builder components use `.Builder`; and framework contract
+version 2 is strict. All 24 affected authored packages were canonically resaved
+or regenerated, including both Scene records and their heterogeneous outputs.
+The strict 30-package audit reports every package compatible and current with
+zero canonicalization or deprecated-route evidence; canonical-resave CI is a
+zero-work no-op. `AssetForgeTests` (18), `AssetImportTests` (17), and
+`SceneImportTests` (5) pass after removing all migration aliases and retired
+provider reconstruction.
 
 ## Goal
 
@@ -286,28 +299,87 @@ AssetForgeBuiltins/Private/
   and fingerprint domain separators. These categories require different
   migration treatment.
 
+### Stage 0 Baseline Inventory
+
+- Framework public surface: the ten headers under
+  `Engine/Source/Editor/AssetImportCore/Public` own source capture, the old
+  provider/plan API, async operations, import jobs, graph contracts, records,
+  the service, and multi-output publication. Built-in public surface: the
+  twelve headers under `Engine/Source/Editor/AssetForge/Public` own module
+  startup, imported Scene values, and the six typed asset-family facades.
+- Physical targets are `AssetImportCore` and `AssetForge`. The former publicly
+  depends only on `AssetCore`; the latter publicly depends on
+  `AssetImportCore`, `AssetCore`, `Core`, `CoreDObject`, `Engine`, and
+  `TextureBuild`, privately depends on `GeometryBuild`, and directly links and
+  deploys Assimp. `Engine.dproject` includes both only in the editor runtime
+  variant, while root closure assertions exclude both from `Engine` and
+  `DurinLauncher`.
+- Production consumers are `DurinEd`, `MainFrame`, `LevelEditor`,
+  `TextureEditor`, `SkeletalMeshEditor`, built-in post-load/recovery policy,
+  and the registered native-test targets. They use the graph request/service
+  path. No production caller constructs an old public `IImportProvider` or
+  `FMultiOutputImportPlan`; the remaining declarative-provider adapter is
+  internal compatibility code.
+- `IImportProvider`, `FImportPlanRequest`, `FImportPlan`, the plan coordinator,
+  legacy async-plan entry points, and public multi-output orchestration are
+  removable. `FImportPlanBuilder` survives only as a private immutable Scene
+  planning result replacement. Generic operation handles, progress/history,
+  task scopes, candidate exchange, dependency-ordered publication, and reverse
+  rollback remain framework mechanics used by `FImportJob`.
+- C++/file/test/diagnostic `Interchange` occurrences all migrate in Stage 3.
+  Persisted strings are isolated for Stage 4: graph domains
+  `Durin.Interchange.TranslatedGraph`, `Durin.Interchange.FactoryGraph`, and
+  `Durin.Interchange.PreviewReuse`; framework diagnostics beginning with
+  `Interchange`; Scene state `Durin.Scene.InterchangeState`; and component IDs
+  ending in `.Factory`. Stable domain/provider identities including
+  `Durin.Image`, `Durin.SceneGraph`, decoder/importer identities, source schema
+  IDs, and authored output paths retain their bytes unless Stage 4 proves a
+  semantic role change.
+- The strict baseline is `InterchangeContractVersion == 1`,
+  `ImportRecordVersion == 2`, exact current-version record loading, and exact
+  component contract selection. The supported authored corpus is the 30
+  repository `.dasset` files under `Engine/Content` and `Sandbox/Content`,
+  including two Scene import roots, their heterogeneous managed outputs,
+  Terrain, Texture2D, TextureCube, and VolumeTexture assets. DDC and graph keys
+  remain derivable rather than separately checked in.
+- Frozen focused coverage is `AssetImportCoreTests` for graph ordering,
+  validation, selection, retirement, cancellation, provenance, records,
+  reconciliation, failure rollback, and construct-free serialization;
+  `AssetImportTests` for built-in request/output behavior; `TextureTests`,
+  `TerrainHeightmapTests`, `SceneImportTests`, and
+  `SkeletalSceneLifecycleTests` for asset-family import/reimport/recovery; and
+  `AssetCookTests`, `TerrainHeightmapCookTests`, and
+  `TextureCookIntegrationTests` for cook/runtime stripping. Stage 0 directly
+  ran and passed the first two targets plus `SceneImportTests`.
+- The build-safe sequence is: remove old orchestration while both current
+  modules exist; rename current `AssetForge` to `AssetForgeBuiltins`; move
+  current `AssetImportCore` to `AssetForge`; update descriptors/dependencies;
+  then rename namespaces/files/types and finally version persisted identities.
+  The target public layout and complete name map in this plan are authoritative;
+  no temporary compatibility aliases survive a stage commit.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the refactor and compatibility baselines
 
 Dependencies: none.
 
-- [ ] Inventory every public `AssetImportCore` and `AssetForge` header, export,
+- [x] Inventory every public `AssetImportCore` and `AssetForge` header, export,
   consuming module, CMake target, project descriptor entry, and runtime
   deployment exclusion.
-- [ ] Classify the old provider/plan and async-plan APIs as removable,
+- [x] Classify the old provider/plan and async-plan APIs as removable,
   internally reusable publication mechanics, or still-required public
   contracts; record every surviving production caller.
-- [ ] Inventory all `Interchange` occurrences by C++ identifier, filename,
+- [x] Inventory all `Interchange` occurrences by C++ identifier, filename,
   diagnostic identity, task attribution, test name, schema/component ID,
   serialized state field, and fingerprint domain separator.
-- [ ] Capture the supported repository asset/import-record corpus and its
+- [x] Capture the supported repository asset/import-record corpus and its
   construct-free compatibility audit, provenance versions, graph
   fingerprints, DDC keys, and representative import/reimport outputs.
-- [ ] Freeze focused tests for translator selection, graph validation,
+- [x] Freeze focused tests for translator selection, graph validation,
   component retirement, preview reuse, cancellation, recovery, record
   reconciliation, failure rollback, cook stripping, and runtime deployment.
-- [ ] Confirm the exact name map, target file layout, and temporary build-safe
+- [x] Confirm the exact name map, target file layout, and temporary build-safe
   module rename sequence before moving source files.
 
 #### Acceptance Gate
@@ -321,18 +393,18 @@ Dependencies: none.
 
 Dependencies: Stage 0 inventories and focused baseline.
 
-- [ ] Replace Scene's internal `FImportPlanBuilder` reuse with a private,
+- [x] Replace Scene's internal `FImportPlanBuilder` reuse with a private,
   immutable Scene planning result owned by the graph-based implementation.
-- [ ] Remove old provider registration, provider leases, generic plan request,
+- [x] Remove old provider registration, provider leases, generic plan request,
   builder, result, and legacy async-plan entrypoints that have no production
   owner.
-- [ ] Move still-required generic source capture, progress, job scheduling,
+- [x] Move still-required generic source capture, progress, job scheduling,
   import-record, reconciliation, and publication mechanics behind the selected
   framework contracts instead of keeping legacy names public.
-- [ ] Remove or rewrite tests that exercise only the retired framework; retain
+- [x] Remove or rewrite tests that exercise only the retired framework; retain
   their valuable bounds, lease, cancellation, ambiguity, and rollback cases
   against the graph-based service.
-- [ ] Prove that every production import family still enters the single
+- [x] Prove that every production import family still enters the single
   service-owned graph job.
 
 #### Acceptance Gate
@@ -346,18 +418,18 @@ Dependencies: Stage 0 inventories and focused baseline.
 
 Dependencies: Stage 1 leaves one framework architecture.
 
-- [ ] Move the existing concrete `AssetForge` target and tree to
+- [x] Move the existing concrete `AssetForge` target and tree to
   `AssetForgeBuiltins`, including its export macro, module startup, tests,
   CMake metadata, project registration, and consuming dependencies.
-- [ ] Rename the cleaned `AssetImportCore` target and tree to `AssetForge`,
+- [x] Rename the cleaned `AssetImportCore` target and tree to `AssetForge`,
   including its export macro, PCH, reflected headers, task attribution, tests,
   and program/editor dependencies.
-- [ ] Move framework C++ into `Durin::AssetForge` and built-in APIs into
+- [x] Move framework C++ into `Durin::AssetForge` and built-in APIs into
   `Durin::AssetForge::Builtins` without temporary namespace aliases.
-- [ ] Make the built-in module own registration and reverse-order retirement
+- [x] Make the built-in module own registration and reverse-order retirement
   of all translators, planning passes, builders, and authoring/recovery
   features.
-- [ ] Audit public/private dependency placement so `AssetForge` has no
+- [x] Audit public/private dependency placement so `AssetForge` has no
   concrete Engine, Build, decoder, or third-party dependency and runtime
   targets deploy neither module.
 
@@ -373,23 +445,23 @@ Dependencies: Stage 1 leaves one framework architecture.
 Dependencies: Stage 2 physical ownership is stable. Persisted IDs remain on
 their Stage 0 values throughout this stage.
 
-- [ ] Apply the selected translator/planning-pass/asset-builder and
+- [x] Apply the selected translator/planning-pass/asset-builder and
   source-graph/build-graph type map across framework, built-ins, editor hosts,
   tests, task attribution, operation titles, diagnostics, and non-persistent
   strings.
-- [ ] Split schema payload, source graph, build graph, extension contracts,
+- [x] Split schema payload, source graph, build graph, extension contracts,
   operations, provenance, record, and service APIs into the selected public
   directories with minimal includes.
-- [ ] Split built-in registration and implementation by source/asset family;
+- [x] Split built-in registration and implementation by source/asset family;
   remove the monolithic provider and image-family interchange files once no
   target references them.
-- [ ] Rename typed public facades and source files from `*SourceTranslation`
+- [x] Rename typed public facades and source files from `*SourceTranslation`
   and `*Interchange*` to complete `*Import` responsibilities, and make helpers
   private unless an editor host requires them.
-- [ ] Keep generic graph nodes in `AssetForge`; keep normalized image, mesh,
+- [x] Keep generic graph nodes in `AssetForge`; keep normalized image, mesh,
   material, sampler, and scene schemas private to built-ins until Stage 0 reuse
   evidence qualifies a value-only shared schema.
-- [ ] Update focused test target and case names to AssetForge vocabulary while
+- [x] Update focused test target and case names to AssetForge vocabulary while
   preserving assertions and failure evidence.
 
 #### Acceptance Gate
@@ -405,19 +477,19 @@ their Stage 0 values throughout this stage.
 
 Dependencies: Stage 3 establishes final C++ ownership and vocabulary.
 
-- [ ] Select final `Durin.AssetForge.*` fingerprint, preview-cache, operation,
+- [x] Select final `Durin.AssetForge.*` fingerprint, preview-cache, operation,
   diagnostic, and serialized-state identities; retain domain/provider IDs whose
   semantics did not change.
-- [ ] Rename factory-role component IDs to builder-role IDs where their
+- [x] Rename factory-role component IDs to builder-role IDs where their
   persisted meaning changed, and update request reconstruction and component
   selection together.
-- [ ] Bump framework/provenance and affected provider-state schema versions;
+- [x] Bump framework/provenance and affected provider-state schema versions;
   update strict serialization, validation, hashing, and compatibility
   diagnostics without a fallback reader for unsupported temporary contracts.
-- [ ] Regenerate or rewrite every affected repository-authored asset and import
+- [x] Regenerate or rewrite every affected repository-authored asset and import
   record, then validate graph fingerprints, output mappings, hard references,
   source hashes, DDC reconstruction, and record indexing.
-- [ ] Remove the inventoried legacy persisted strings after proving that no
+- [x] Remove the inventoried legacy persisted strings after proving that no
   supported authored package or record requires them.
 
 #### Acceptance Gate
@@ -523,8 +595,8 @@ Dependencies: Stages 1 through 4 complete.
 
 ## Related Code
 
-- [`Engine/Source/Editor/AssetImportCore`](../../Engine/Source/Editor/AssetImportCore)
 - [`Engine/Source/Editor/AssetForge`](../../Engine/Source/Editor/AssetForge)
+- [`Engine/Source/Editor/AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
 - [`Engine/Source/Editor/LevelEditor`](../../Engine/Source/Editor/LevelEditor)
 - [`Engine/Source/Editor/TextureEditor`](../../Engine/Source/Editor/TextureEditor)
 - [`Engine/Tests/Native/AssetCoreTests`](../../Engine/Tests/Native/AssetCoreTests)

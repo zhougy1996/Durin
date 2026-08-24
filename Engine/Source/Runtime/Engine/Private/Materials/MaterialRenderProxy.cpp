@@ -27,15 +27,15 @@ namespace Durin
 			const FMaterialStaticProperties& StaticProperties
 		) -> void
 		{
-			RenderData.PipelineIdentity.ShaderMap.BlendMode =
+			RenderData.PlanningPassIdentity.ShaderMap.BlendMode =
 				StaticProperties.BlendMode;
-			RenderData.PipelineIdentity.ShaderMap.ShadingModel =
+			RenderData.PlanningPassIdentity.ShaderMap.ShadingModel =
 				StaticProperties.ShadingModel;
-			RenderData.PipelineIdentity.ShaderMap.OpacityMaskThreshold =
+			RenderData.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold =
 				StaticProperties.OpacityMaskThreshold;
-			RenderData.PipelineIdentity.bTwoSided =
+			RenderData.PlanningPassIdentity.bTwoSided =
 				StaticProperties.bTwoSided;
-			RenderData.PipelineIdentity.DepthWritePolicy =
+			RenderData.PlanningPassIdentity.DepthWritePolicy =
 				StaticProperties.DepthWritePolicy;
 		}
 	}

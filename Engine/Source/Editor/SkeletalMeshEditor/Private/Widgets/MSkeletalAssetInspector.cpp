@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "AssetAuthoring.h"
-#include "ImportRecordIndex.h"
+#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
 #include "Materials/MaterialInterface.h"
@@ -39,24 +39,24 @@ namespace Durin::Editor::SkeletalMesh
 			std::vector<std::string>& OutPaths)
 			-> DObject*
 		{
-			const Asset::FImportRecordInspection Inspection =
-				Asset::InspectImportRecordForOutput(
-					AssetPath, Asset::GetImportRecordIndex());
+			const AssetForge::FImportRecordInspection Inspection =
+				AssetForge::InspectImportRecordForOutput(
+					AssetPath, AssetForge::GetImportRecordIndex());
 			if (!Inspection || !Inspection.Record) return nullptr;
-			std::vector<const Asset::FImportRecordOutput*> Candidates;
-			for (const Asset::FImportRecordOutput& Output : Inspection.Record->GetOutputs())
+			std::vector<const AssetForge::FImportRecordOutput*> Candidates;
+			for (const AssetForge::FImportRecordOutput& Output : Inspection.Record->GetOutputs())
 			{
 				const bool bWanted = Cast<DSkeletalMesh>(Asset)
 					? Output.AssetClassName == DAnimationClip::StaticClass()->GetQualifiedName().ToString()
 					: Cast<DAnimationClip>(Asset)
 						&& Output.AssetClassName == DSkeletalMesh::StaticClass()->GetQualifiedName().ToString();
-				if (bWanted && Output.Policy == Asset::EImportRecordOutputPolicy::Managed)
+				if (bWanted && Output.Policy == AssetForge::EImportRecordOutputPolicy::Managed)
 					Candidates.push_back(&Output);
 			}
 			std::ranges::sort(Candidates, {}, [](const auto* Output) {
 				return Output->AssetPath.GetView();
 			});
-			for (const Asset::FImportRecordOutput* Candidate : Candidates)
+			for (const AssetForge::FImportRecordOutput* Candidate : Candidates)
 			{
 				const std::string_view Expected = Cast<DSkeletalMesh>(Asset)
 					? Cast<DSkeletalMesh>(Asset)->GetSkeletonCompatibilityIdentity()

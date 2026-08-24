@@ -41,22 +41,22 @@ add_subdirectory(Sandbox)
 if(TARGET AssetCore)
 	durin_assert_target_dependency_closure_excludes(AssetCore
 		Engine
-		AssetImportCore
+		AssetForge
 		GeometryBuild
 		TextureBuild
-		AssetForge
+		AssetForgeBuiltins
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
 	)
 endif()
 
-if(TARGET AssetImportCore)
-	durin_assert_target_dependency_closure_excludes(AssetImportCore
+if(TARGET AssetForge)
+	durin_assert_target_dependency_closure_excludes(AssetForge
 		Engine
 		GeometryBuild
 		TextureBuild
-		AssetForge
+		AssetForgeBuiltins
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
@@ -65,10 +65,10 @@ endif()
 
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
-		AssetImportCore
+		AssetForge
 		GeometryBuild
 		TextureBuild
-		AssetForge
+		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()
@@ -80,9 +80,9 @@ if(TARGET TextureBuild)
 		bc7enc_rdo::bc7enc_rdo
 	)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
-		AssetImportCore
-		GeometryBuild
 		AssetForge
+		GeometryBuild
+		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()
@@ -93,9 +93,9 @@ if(TARGET GeometryBuild)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(GeometryBuild
-		AssetImportCore
-		TextureBuild
 		AssetForge
+		TextureBuild
+		AssetForgeBuiltins
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
@@ -109,10 +109,10 @@ if(TARGET AssetBuildCore)
 	)
 	durin_assert_target_dependency_closure_excludes(AssetBuildCore
 		Engine
-		AssetImportCore
+		AssetForge
 		GeometryBuild
 		TextureBuild
-		AssetForge
+		AssetForgeBuiltins
 		RHI
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -120,9 +120,9 @@ if(TARGET AssetBuildCore)
 	)
 endif()
 
-if(TARGET AssetForge)
-	durin_assert_target_dependency_closure_includes(AssetForge
-		AssetImportCore
+if(TARGET AssetForgeBuiltins)
+	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
+		AssetForge
 		GeometryBuild
 		TextureBuild
 		assimp::assimp
@@ -139,7 +139,7 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
 		# Authoring frameworks and hosts.
 		AssetImport
-		AssetImportCore
+		AssetForge
 		# Derived builders and offline compressors.
 		GeometryBuild
 		AssetBuildCore
@@ -147,7 +147,7 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
 		# Concrete source translators and their SDKs.
-		AssetForge
+		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()

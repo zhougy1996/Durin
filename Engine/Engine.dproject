@@ -24,8 +24,8 @@
         "StaticMeshEditor": "Source/Editor/StaticMeshEditor",
         "SkeletalMeshEditor": "Source/Editor/SkeletalMeshEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher",
+        "AssetForgeBuiltins": "Source/Editor/AssetForgeBuiltins",
         "AssetForge": "Source/Editor/AssetForge",
-        "AssetImportCore": "Source/Editor/AssetImportCore",
         "GeometryBuild": "Source/Developer/GeometryBuild",
         "AssetBuildCore": "Source/Developer/AssetBuildCore",
         "TextureBuild": "Source/Developer/TextureBuild"
@@ -45,8 +45,8 @@
                 "TextureEditor",
                 "StaticMeshEditor",
                 "SkeletalMeshEditor",
+                "AssetForgeBuiltins",
                 "AssetForge",
-                "AssetImportCore",
                 "GeometryBuild",
                 "AssetBuildCore",
                 "TextureBuild"

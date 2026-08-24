@@ -53,8 +53,8 @@ TEST(FImportDialogProgressModelTests, MapsOperationSnapshotsWithoutOwningAWidget
 
 	Model.ApplySnapshot({
 		.OperationId = 7,
-		.Phase = Asset::EImportPhase::Parse,
-		.State = Asset::EImportOperationState::Pending,
+		.Phase = AssetForge::EImportPhase::Parse,
+		.State = AssetForge::EImportOperationState::Pending,
 		.bCancelable = true});
 	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Preparing);
 	EXPECT_TRUE(Model.CanCancel());
@@ -62,15 +62,15 @@ TEST(FImportDialogProgressModelTests, MapsOperationSnapshotsWithoutOwningAWidget
 
 	Model.ApplySnapshot({
 		.OperationId = 7,
-		.Phase = Asset::EImportPhase::Publication,
-		.State = Asset::EImportOperationState::Finalizing,
+		.Phase = AssetForge::EImportPhase::Publication,
+		.State = AssetForge::EImportOperationState::Finalizing,
 		.bCancelable = false});
 	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Finalizing);
 	EXPECT_FALSE(Model.CanCancel());
 
 	Model.ApplySnapshot({
 		.OperationId = 7,
-		.State = Asset::EImportOperationState::Failed,
+		.State = AssetForge::EImportOperationState::Failed,
 		.bCancelable = false,
 		.Diagnostic = "Candidate validation failed."});
 	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Failed);

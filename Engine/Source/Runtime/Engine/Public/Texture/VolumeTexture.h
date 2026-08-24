@@ -176,7 +176,7 @@ namespace Durin
 
 		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
 		auto GetSourceImportData() const -> const FVolumeTextureSourceImportData& { return SourceImportData; }
-		auto GetInterchangeProvenance() const -> std::string_view { return InterchangeProvenance; }
+		auto GetImportProvenance() const -> std::string_view { return ImportProvenance; }
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
@@ -194,7 +194,7 @@ namespace Durin
 		ENGINE_API auto PublishSourceImportData(
 			FVolumeTextureSourceImportData InSourceImportData,
 			std::string& OutError) -> bool;
-		ENGINE_API auto PublishInterchangeProvenance(std::vector<std::byte> Provenance) -> void;
+		ENGINE_API auto PublishImportProvenance(std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
@@ -219,7 +219,7 @@ namespace Durin
 		FVolumeTextureSourceImportData SourceImportData;
 
 		DPROPERTY(EditorOnly)
-		std::string InterchangeProvenance;
+		std::string ImportProvenance;
 
 		DPROPERTY()
 		FVolumeTextureBuildSettings BuildSettings;

@@ -6,7 +6,7 @@
 #include "Editor/PropertyEditing.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture/TextureBuilder.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::Editor::Texture
 {
@@ -127,7 +127,7 @@ namespace Durin::Editor::Texture
 					std::string Error;
 					const auto DeferredCompletion =
 						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
-					if (!Asset::Forge::RebuildTexture2DFromCurrentSource(
+					if (!AssetForge::Builtins::RebuildTexture2DFromCurrentSource(
 						*LiveTexture,
 						Settings,
 						Error,

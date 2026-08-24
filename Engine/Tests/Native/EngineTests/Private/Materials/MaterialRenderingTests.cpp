@@ -2,15 +2,15 @@
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeProviders.h"
-#include "AssetForgeAuthoringTestSupport.h"
-#include "AssetForgeProviderTestFixture.h"
+#include "AssetForgeBuiltinsProviders.h"
+#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -21,7 +21,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 #include <array>
 #include <chrono>
@@ -36,7 +36,7 @@ namespace
 		const Durin::FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
 	{
-		auto& Service = Durin::Asset::GetImportService();
+		auto& Service = Durin::AssetForge::GetImportService();
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ std::chrono::duration<double>(TimeoutSeconds);
 		while (Service.HasActiveImportClaim(AssetPath.ToString())
@@ -273,7 +273,7 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatingProxy)
+TEST(FMaterialTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecreatingProxy)
 {
 	FRenderSceneHarness Harness;
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticIdentityMaterial");
@@ -300,8 +300,8 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatin
 	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
 	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
 	EXPECT_NE(
-		Updated.Materials[0].PipelineIdentity,
-		Initial.Materials[0].PipelineIdentity);
+		Updated.Materials[0].PlanningPassIdentity,
+		Initial.Materials[0].PlanningPassIdentity);
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -429,8 +429,8 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 		GetMaterialBinding(Updated.Materials[3]).BaseColor,
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(
-		Updated.Materials[0].PipelineIdentity,
-		Initial.Materials[0].PipelineIdentity);
+		Updated.Materials[0].PlanningPassIdentity,
+		Initial.Materials[0].PlanningPassIdentity);
 	EXPECT_EQ(Updated.MaterialProxies[0], Updated.MaterialProxies[2]);
 
 	auto* SmallerMesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -579,8 +579,8 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
@@ -620,8 +620,8 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FMaterialPreviewHarness Harness;

@@ -2,18 +2,13 @@
     "ModuleName": "AssetForge",
     "LinkType": "Shared",
     "PCH": "Self",
-	"PrivateDependencies": [
-		"GeometryBuild"
-	],
+    "PrivateDependencies": [],
     "PublicDependencies": [
-		"AssetImportCore",
-        "AssetCore",
-        "Core",
-        "CoreDObject",
-		"Engine",
-		"TextureBuild"
+        "AssetCore"
     ],
-	"ReflectHeaders": [],
+    "ReflectHeaders": [
+        "Public/AssetForge/Persistence/ImportRecord.h"
+    ],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []
 }

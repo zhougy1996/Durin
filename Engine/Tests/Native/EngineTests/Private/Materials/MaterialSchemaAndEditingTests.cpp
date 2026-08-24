@@ -59,16 +59,16 @@ TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 	EXPECT_EQ(Child->GetStaticProperties(), Properties);
 	const Durin::FMaterialRenderData BaseRenderData = Base->GetRenderData();
 	const Durin::FMaterialRenderData ChildRenderData = Child->GetRenderData();
-	EXPECT_NE(BaseRenderData.PipelineIdentity, DefaultRenderData.PipelineIdentity);
-	EXPECT_EQ(ChildRenderData.PipelineIdentity, BaseRenderData.PipelineIdentity);
-	EXPECT_EQ(BaseRenderData.PipelineIdentity.ShaderMap.BlendMode, Properties.BlendMode);
-	EXPECT_EQ(BaseRenderData.PipelineIdentity.ShaderMap.ShadingModel, Properties.ShadingModel);
+	EXPECT_NE(BaseRenderData.PlanningPassIdentity, DefaultRenderData.PlanningPassIdentity);
+	EXPECT_EQ(ChildRenderData.PlanningPassIdentity, BaseRenderData.PlanningPassIdentity);
+	EXPECT_EQ(BaseRenderData.PlanningPassIdentity.ShaderMap.BlendMode, Properties.BlendMode);
+	EXPECT_EQ(BaseRenderData.PlanningPassIdentity.ShaderMap.ShadingModel, Properties.ShadingModel);
 	EXPECT_FLOAT_EQ(
-		BaseRenderData.PipelineIdentity.ShaderMap.OpacityMaskThreshold,
+		BaseRenderData.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold,
 		Properties.OpacityMaskThreshold);
-	EXPECT_EQ(BaseRenderData.PipelineIdentity.bTwoSided, Properties.bTwoSided);
+	EXPECT_EQ(BaseRenderData.PlanningPassIdentity.bTwoSided, Properties.bTwoSided);
 	EXPECT_EQ(
-		BaseRenderData.PipelineIdentity.DepthWritePolicy,
+		BaseRenderData.PlanningPassIdentity.DepthWritePolicy,
 		Properties.DepthWritePolicy);
 
 	Durin::FMaterialStaticProperties Invalid = Properties;

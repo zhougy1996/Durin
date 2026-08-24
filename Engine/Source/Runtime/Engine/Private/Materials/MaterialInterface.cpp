@@ -173,11 +173,11 @@ namespace Durin
 				&& bRepresentationValid;
 		}
 		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
-		Result.PipelineIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
-		Result.PipelineIdentity.ShaderMap.ShadingModel = StaticProperties.ShadingModel;
-		Result.PipelineIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
-		Result.PipelineIdentity.bTwoSided = StaticProperties.bTwoSided;
-		Result.PipelineIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
+		Result.PlanningPassIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
+		Result.PlanningPassIdentity.ShaderMap.ShadingModel = StaticProperties.ShadingModel;
+		Result.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
+		Result.PlanningPassIdentity.bTwoSided = StaticProperties.bTwoSided;
+		Result.PlanningPassIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
 
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;

@@ -22,7 +22,7 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore AssetForge
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetForge AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -50,7 +50,7 @@ durin_add_engine_functional_test(SkyBoxTests
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES GeometryBuild AssetForge RenderCore Renderer DurinEd
+	LIBRARIES GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -66,7 +66,7 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
-	LIBRARIES ApplicationCore GeometryBuild AssetForge RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -196,7 +196,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
-	LIBRARIES ApplicationCore AssetImportCore AssetForge RenderCore Renderer DurinEd MaterialEditor GeometryBuild
+	LIBRARIES ApplicationCore AssetForge AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor GeometryBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -316,5 +316,5 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES GeometryBuild AssetForge RenderCore Renderer
+	LIBRARIES GeometryBuild AssetForgeBuiltins RenderCore Renderer
 )

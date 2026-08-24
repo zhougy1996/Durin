@@ -61,11 +61,11 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 		Durin::GetErrorMaterialRenderData();
 	EXPECT_TRUE(ErrorData.Representation.IsError());
 	EXPECT_EQ(
-		ErrorData.PipelineIdentity.ShaderMap.ShadingModel,
+		ErrorData.PlanningPassIdentity.ShaderMap.ShadingModel,
 		Durin::EMaterialShadingModel::Unlit);
-	EXPECT_TRUE(ErrorData.PipelineIdentity.bTwoSided);
+	EXPECT_TRUE(ErrorData.PlanningPassIdentity.bTwoSided);
 	EXPECT_EQ(
-		ErrorData.PipelineIdentity.DepthWritePolicy,
+		ErrorData.PlanningPassIdentity.DepthWritePolicy,
 		Durin::EMaterialDepthWritePolicy::Enabled);
 }
 
@@ -111,9 +111,9 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(0.0f));
 	EXPECT_FALSE(Resolved.Representation.IsError());
 	EXPECT_EQ(
-		Resolved.PipelineIdentity.ShaderMap.ShadingModel,
+		Resolved.PlanningPassIdentity.ShaderMap.ShadingModel,
 		Durin::EMaterialShadingModel::Lit);
-	EXPECT_FALSE(Resolved.PipelineIdentity.bTwoSided);
+	EXPECT_FALSE(Resolved.PlanningPassIdentity.bTwoSided);
 
 	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
 	ASSERT_EQ(CookRoots.size(), 1u);

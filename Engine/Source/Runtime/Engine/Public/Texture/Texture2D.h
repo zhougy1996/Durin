@@ -200,9 +200,9 @@ namespace Durin
 			return SourceImportData.Source.SourcePath.Path;
 		}
 		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
-		auto GetInterchangeProvenance() const -> std::string_view
+		auto GetImportProvenance() const -> std::string_view
 		{
-			return InterchangeProvenance;
+			return ImportProvenance;
 		}
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
@@ -250,7 +250,7 @@ namespace Durin
 			std::string DerivedDataKey = {}) -> bool;
 		ENGINE_API auto PublishSourceFingerprint(
 			uint64 FileSize, int64 LastWriteTime) -> void;
-		ENGINE_API auto PublishInterchangeProvenance(
+		ENGINE_API auto PublishImportProvenance(
 			std::vector<std::byte> Provenance) -> void;
 
 		// Exchanges persisted and derived import state while preserving object
@@ -271,9 +271,9 @@ protected:
 		FTexture2DSourceImportData SourceImportData;
 
 		// Opaque editor-framework reproduction metadata. Runtime Engine keeps the
-		// bytes without depending on the editor Interchange schema.
+		// bytes without depending on the editor AssetForge schema.
 		DPROPERTY(EditorOnly)
-		std::string InterchangeProvenance;
+		std::string ImportProvenance;
 
 		// Imported content identity and lightweight diagnostics remain in the package
 		// so a warm derived-data load does not need to decode the source image.

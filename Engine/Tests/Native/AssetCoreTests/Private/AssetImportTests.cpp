@@ -1,14 +1,12 @@
 #include <gtest/gtest.h>
 
-#include "ImportedScene.h"
+#include "AssetForge/Builtins/ImportedScene.h"
 #include "Json/Json.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 
-namespace Durin::Asset
+namespace Durin::AssetForge::Builtins
 {
-	using namespace Forge;
-
 	namespace
 	{
 		auto ExpectVec3Eq(const FVector3f& Expected, const FVector3f& Actual) -> void

@@ -3,7 +3,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneViewState.h"
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 
 namespace
 {
@@ -34,7 +34,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
@@ -77,7 +77,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		[BackloggedViewport](Durin::FRHICommandListImmediate&) {});
 	BackloggedViewport.reset();
 
-	Durin::Asset::Forge::FTextureCubeImportResult CubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
 		{.FaceDimension = 64}
@@ -86,7 +86,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(CubeReference, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
-	Durin::Asset::Forge::FTextureCubeImportResult HdrCubeResult = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult HdrCubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
 		{.FaceDimension = 64, .ExposureEV = 1.0f}

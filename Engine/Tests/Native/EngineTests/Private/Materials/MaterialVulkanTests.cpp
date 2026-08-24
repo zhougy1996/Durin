@@ -1,5 +1,5 @@
 #include "MaterialTestSupport.h"
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
@@ -12,9 +12,9 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeProviders.h"
-#include "AssetForgeProviderTestFixture.h"
-#include "AssetForgeAuthoringFeatures.h"
+#include "AssetForgeBuiltinsProviders.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
+#include "AssetForgeBuiltinsAuthoringFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -25,7 +25,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 
 #include <array>
 #include <cmath>
@@ -54,7 +54,7 @@ namespace
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
 	static Durin::FModuleTestOwner AuthoringContext("MaterialVulkanTests.Authoring");
-	static Durin::Asset::Forge::FAssetForgeAuthoringFeatures AuthoringFeatures;
+	static Durin::AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
 	static auto StaticMeshAuthoring =
 		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(AuthoringFeatures);
 	static auto Texture2DAuthoring =
@@ -64,7 +64,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	(void)StaticMeshAuthoring;
 	(void)Texture2DAuthoring;
 	(void)TextureCubeAuthoring;
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
@@ -260,7 +260,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::FTexture2DImportResult TextureResult =
-			Durin::Asset::Forge::ImportTexture2DAsset(
+			Durin::AssetForge::Builtins::ImportTexture2DAsset(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
 		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
@@ -272,10 +272,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
 		const Durin::FTexture2DImportResult DataTextureResult =
-			Durin::Asset::Forge::ImportTexture2DAsset(
+			Durin::AssetForge::Builtins::ImportTexture2DAsset(
 				TextureSource.generic_string(), DataTexturePath.ToString());
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
-		ASSERT_TRUE(Durin::Asset::Forge::SetTexture2DUsage(
+		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*DataTextureResult.Asset, Durin::ETextureUsage::DataMask, Error)) << Error;
 		ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(
 			*DataTextureResult.Asset, 10.0))
@@ -289,10 +289,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
 		const Durin::FTexture2DImportResult NormalTextureResult =
-			Durin::Asset::Forge::ImportTexture2DAsset(
+			Durin::AssetForge::Builtins::ImportTexture2DAsset(
 				TextureSource.generic_string(), NormalTexturePath.ToString());
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
-		ASSERT_TRUE(Durin::Asset::Forge::SetTexture2DUsage(
+		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*NormalTextureResult.Asset, Durin::ETextureUsage::Normal, Error)) << Error;
 		ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(
 			*NormalTextureResult.Asset, 10.0))
@@ -664,8 +664,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			const Durin::FMaterialRenderData DirectRenderData =
 				CaptureMaterial->GetRenderData();
 			EXPECT_EQ(
-				ProxyRenderData.PipelineIdentity,
-				DirectRenderData.PipelineIdentity);
+				ProxyRenderData.PlanningPassIdentity,
+				DirectRenderData.PlanningPassIdentity);
 			EXPECT_TRUE(std::ranges::equal(
 				ProxyRenderData.Representation.GetUniformPayload(),
 				DirectRenderData.Representation.GetUniformPayload()));
@@ -738,16 +738,16 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FVector3(0.1, 0.05, 0.0)));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.4f));
-		const Durin::FMaterialPipelineIdentity LitPipelineIdentity =
-			CaptureMaterial->GetRenderData().PipelineIdentity;
+		const Durin::FMaterialPlanningPassIdentity LitPlanningPassIdentity =
+			CaptureMaterial->GetRenderData().PlanningPassIdentity;
 		const std::vector<std::byte> LitEmissivePixels =
 			Capture(CaptureMaterial);
 		Durin::FMaterialStaticProperties StaticProperties;
 		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
 		EXPECT_NE(
-			CaptureMaterial->GetRenderData().PipelineIdentity,
-			LitPipelineIdentity);
+			CaptureMaterial->GetRenderData().PlanningPassIdentity,
+			LitPlanningPassIdentity);
 		const std::vector<std::byte> StaticIdentityPixels =
 			Capture(CaptureMaterial);
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
@@ -795,8 +795,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
-		const Durin::Asset::Forge::FTextureCubeImportResult CubeResult =
-			Durin::Asset::Forge::ImportTextureCubeFaces(
+		const Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult =
+			Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 				Durin::Tests::GetRenderedThumbnailDirectionalCubeFaces(),
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;

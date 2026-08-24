@@ -7,7 +7,7 @@
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 
 namespace Durin::Editor::Level
 {
@@ -301,20 +301,20 @@ namespace Durin::Editor::Level
 		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitStaticMeshInterchangeImport(
+		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitStaticMeshImport(
 			SourcePathBuffer.data(), AssetPath, Coordinates.GetSettings(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
 			IsEngineAuthoringDestination(Destination.GetPath()),
-			[CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
-				if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
+				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{
 					CompletionCallbacks.NotifyImported(Path);
 					FAssetPath ImportedPath;
 					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
 				}
 				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-					? "StaticMesh Interchange import failed." : Result.Outcome.Diagnostic);
+					? "StaticMesh AssetForge import failed." : Result.Outcome.Diagnostic);
 			}, Error);
 		if (!Handle)
 		{

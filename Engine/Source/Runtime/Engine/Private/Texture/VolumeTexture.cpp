@@ -281,16 +281,16 @@ namespace Durin
 		return true;
 	}
 
-	auto DVolumeTexture::PublishInterchangeProvenance(
+	auto DVolumeTexture::PublishImportProvenance(
 		std::vector<std::byte> Provenance) -> void
 	{
 		static constexpr char Hex[] = "0123456789abcdef";
-		InterchangeProvenance.resize(Provenance.size() * 2);
+		ImportProvenance.resize(Provenance.size() * 2);
 		for (size_t Index = 0; Index < Provenance.size(); ++Index)
 		{
 			const uint8 Value = std::to_integer<uint8>(Provenance[Index]);
-			InterchangeProvenance[Index * 2] = Hex[Value >> 4];
-			InterchangeProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+			ImportProvenance[Index * 2] = Hex[Value >> 4];
+			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
 		}
 	}
 
@@ -299,7 +299,7 @@ namespace Durin
 		if (&Other == this) return;
 		std::swap(SourceData, Other.SourceData);
 		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(InterchangeProvenance, Other.InterchangeProvenance);
+		std::swap(ImportProvenance, Other.ImportProvenance);
 		std::swap(BuildSettings, Other.BuildSettings);
 		std::swap(CookedPayload, Other.CookedPayload);
 		std::swap(PlatformData, Other.PlatformData);

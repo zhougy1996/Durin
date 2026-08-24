@@ -9,7 +9,7 @@
 #include "MonaImGui.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
-#include "TerrainHeightmapSourceTranslation.h"
+#include "AssetForge/Builtins/TerrainHeightmapImport.h"
 
 namespace Durin::Editor::Level
 {
@@ -146,18 +146,18 @@ namespace Durin::Editor::Level
 		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTerrainHeightmapInterchangeImport(
+		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTerrainHeightmapImport(
 			Source.generic_string(), AssetPath, SourceDestination,
 			IsEngineAuthoringDestination(Destination.GetPath()),
-			[CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
-				if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
+				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{
 					CompletionCallbacks.NotifyImported(Path);
 					FAssetPath ImportedPath;
 					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
 				}
 				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-					? "Terrain heightmap Interchange import failed." : Result.Outcome.Diagnostic);
+					? "Terrain heightmap AssetForge import failed." : Result.Outcome.Diagnostic);
 			}, Error);
 		if (!Handle)
 		{

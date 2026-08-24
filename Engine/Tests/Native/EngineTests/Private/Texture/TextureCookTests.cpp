@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "AssetForgeProviderTestFixture.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -25,7 +25,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture2DSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "TexturePlatformDataTestFixtures.h"
 
@@ -117,7 +117,7 @@ namespace
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
 	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	const std::filesystem::path Root =
@@ -136,7 +136,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path Source = Root / "NpotTexture.tga";
 	WriteNpotTextureFixture(Source);
-	const Durin::FTexture2DImportResult Import = Durin::Asset::Forge::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Import = Durin::AssetForge::Builtins::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureCookTests/Texture");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

@@ -21,9 +21,9 @@ namespace Durin
 				Key, Cached, Status, Message))
 				return Texture.PublishDerivedDataLoad(
 					std::move(Cached), Key, OutError);
-			if (const std::optional<bool> Interchange =
-				TryInvokeVolumeTextureInterchangeRecovery(Texture, OutError))
-				return *Interchange;
+			if (const std::optional<bool> AssetForge =
+				TryInvokeVolumeTextureImportRecovery(Texture, OutError))
+				return *AssetForge;
 			Asset::Build::FVolumeTextureBuildProduct Product;
 			if (!Asset::Build::BuildVolumeTexture(Texture.GetSourceData(),
 				Texture.GetBuildSettings(), Product, OutError)) return false;

@@ -5,7 +5,7 @@
 #include "NativeTestSupport.h"
 #include "Preview/OrbitAssetPreview.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMeshSourceTranslation.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMeshEditorModule.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
@@ -120,9 +120,9 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/StaticMeshEditorTests/", (Root / "Content").generic_string() + "/");
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	const Durin::FStaticMeshImportResult First = Durin::Asset::Forge::ImportStaticMeshAsset(
+	const Durin::FStaticMeshImportResult First = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 		Source.generic_string(), "/StaticMeshEditorTests/First");
-	const Durin::FStaticMeshImportResult Second = Durin::Asset::Forge::ImportStaticMeshAsset(
+	const Durin::FStaticMeshImportResult Second = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
 		Source.generic_string(), "/StaticMeshEditorTests/Second");
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_TRUE(Second) << Second.Message;

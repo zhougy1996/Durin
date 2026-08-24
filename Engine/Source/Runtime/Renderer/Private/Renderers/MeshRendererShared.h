@@ -123,7 +123,7 @@ namespace Durin::RendererPrivate
 	}
 
 	inline auto GetIdentityText(
-		const FMaterialPipelineIdentity& Identity
+		const FMaterialPlanningPassIdentity& Identity
 	) -> std::string
 	{
 		return std::format(
@@ -172,7 +172,7 @@ namespace Durin::RendererPrivate
 	) -> FMeshDrawSortKey
 	{
 		FMeshDrawSortKey Result;
-		const FMaterialPipelineIdentity& Material = PipelineKey.Material;
+		const FMaterialPlanningPassIdentity& Material = PipelineKey.Material;
 		const FMaterialShaderMapIdentity& Shader = Material.ShaderMap;
 		const FGuid& LayoutId = Shader.RenderLayout.Id;
 		Result.Pipeline = {

@@ -18,12 +18,12 @@ namespace Durin
 			OutError);
 	}
 
-	auto TryWaitForTexture2DInterchangeRecovery(
+	auto TryWaitForTexture2DImportRecovery(
 		DTexture2D& Texture, double TimeoutSeconds) -> std::optional<bool>
 	{
 		const auto Result = FModularFeatureRegistry::Get().InvokeSingle<
-			ITexture2DInterchangeRecoveryFeature>(
-			[&](ITexture2DInterchangeRecoveryFeature& Feature) {
+			ITexture2DImportRecoveryFeature>(
+			[&](ITexture2DImportRecoveryFeature& Feature) {
 				return Feature.WaitForRecovery(Texture, TimeoutSeconds);
 			});
 		if (Result.Status == EFeatureInvokeStatus::Unavailable) return std::nullopt;

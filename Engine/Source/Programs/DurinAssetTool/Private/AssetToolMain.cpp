@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "ImportRecord.h"
+#include "AssetForge/Persistence/ImportRecord.h"
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
@@ -9,7 +9,7 @@
 #include "DObject/Class.h"
 #include "EngineAssetServices.h"
 #include "Engine/Level.h"
-#include "ImportService.h"
+#include "AssetForge/ImportService.h"
 #include "HAL/PlatformMisc.h"
 #include "Logging/Logger.h"
 #include "Misc/Name.h"
@@ -73,7 +73,7 @@ namespace
 		const Durin::FAssetPath& Path, Durin::DObject* Asset)
 		-> Durin::Asset::FAssetResult
 	{
-		auto& Service = Durin::Asset::GetImportService();
+		auto& Service = Durin::AssetForge::GetImportService();
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ CanonicalResaveRecoveryTimeout;
 		while (Service.HasActiveImportClaim(Path.ToString()))
@@ -408,10 +408,10 @@ int main(int ArgC, char** ArgV)
 		}
 		Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("AssetForge");
+		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
-	(void)Durin::Asset::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
+	(void)Durin::AssetForge::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
 		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	Durin::Asset::FAssetPackageDiscoverySnapshot Snapshot =

@@ -40,7 +40,7 @@ namespace Durin
 
 	struct FEffectiveMeshPipelineKey
 	{
-		FMaterialPipelineIdentity Material;
+		FMaterialPlanningPassIdentity Material;
 		FRHIRasterizerState Rasterizer;
 		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;

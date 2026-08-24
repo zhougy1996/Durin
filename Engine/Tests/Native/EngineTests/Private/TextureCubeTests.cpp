@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "TextureCubeSourceTranslation.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 #include "DObject/Property.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -102,7 +102,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = GetConventionFaces();
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/Convention");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -173,7 +173,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	const std::filesystem::path Root = InitializeCubeMount();
 	auto Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)].clear();
-	Durin::Asset::Forge::FTextureCubeImportResult Missing = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Missing = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/MissingFace");
 	EXPECT_FALSE(Missing);
 	EXPECT_NE(Missing.Message.find("PositiveY"), std::string::npos);
@@ -182,7 +182,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	WriteSolidTga(Nonsquare, 4, 2);
 	Faces = GetConventionFaces();
 	Faces[0] = Nonsquare.generic_string();
-	Durin::Asset::Forge::FTextureCubeImportResult InvalidShape = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult InvalidShape = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/Nonsquare");
 	EXPECT_FALSE(InvalidShape);
 	EXPECT_NE(InvalidShape.Message.find("square"), std::string::npos);
@@ -191,7 +191,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	WriteSolidTga(DifferentSize, 4, 4);
 	Faces = GetConventionFaces();
 	Faces[0] = DifferentSize.generic_string();
-	Durin::Asset::Forge::FTextureCubeImportResult Mismatch = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Mismatch = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/Mismatch");
 	EXPECT_FALSE(Mismatch);
 	EXPECT_NE(Mismatch.Message.find("identical"), std::string::npos);
@@ -203,8 +203,8 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	}
 	Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = Corrupt.generic_string();
-	const Durin::Asset::Forge::FTextureCubeImportValidation CorruptValidation =
-		Durin::Asset::Forge::ValidateTextureCubeFaces(Faces);
+	const Durin::AssetForge::Builtins::FTextureCubeImportValidation CorruptValidation =
+		Durin::AssetForge::Builtins::ValidateTextureCubeFaces(Faces);
 	EXPECT_FALSE(CorruptValidation);
 	EXPECT_NE(CorruptValidation.Message.find("NegativeZ"), std::string::npos);
 	EXPECT_NE(CorruptValidation.Message.find("decode failed"), std::string::npos);
@@ -229,7 +229,7 @@ TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 	auto Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = TransparentFace.generic_string();
 
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/Transparent");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
@@ -248,7 +248,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	auto Faces = GetConventionFaces();
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/ReimportFaces");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -267,7 +267,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)],
 		std::filesystem::copy_options::overwrite_existing);
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Forge::ReimportTextureCubeFaces(*Texture, Faces, {.bSRGB = true}, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubeFaces(*Texture, Faces, {.bSRGB = true}, Error)) << Error;
 	EXPECT_NE(Texture->GetDerivedDataKey(), InitialKey);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -288,7 +288,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Corrupt,
 		Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)],
 		std::filesystem::copy_options::overwrite_existing);
-	EXPECT_FALSE(Durin::Asset::Forge::ReimportTextureCubeFaces(*Texture, Faces, {.bSRGB = false}, Error));
+	EXPECT_FALSE(Durin::AssetForge::Builtins::ReimportTextureCubeFaces(*Texture, Faces, {.bSRGB = false}, Error));
 	EXPECT_EQ(Texture->GetDerivedDataKey(), ValidKey);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	EXPECT_TRUE(Texture->IsSRGB());
@@ -299,7 +299,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = GetConventionFaces();
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubeFaces(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/MissingAfterImport");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -325,8 +325,8 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const std::filesystem::path Panorama = GetPanoramaFixture("AnalyticalLDR.tga");
-	const Durin::Asset::Forge::FTextureCubeImportValidation Validation =
-		Durin::Asset::Forge::ValidateTextureCubePanorama(Panorama.generic_string());
+	const Durin::AssetForge::Builtins::FTextureCubeImportValidation Validation =
+		Durin::AssetForge::Builtins::ValidateTextureCubePanorama(Panorama.generic_string());
 	ASSERT_TRUE(Validation) << Validation.Message;
 	EXPECT_EQ(Validation.SourceLayout, Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	EXPECT_EQ(Validation.SourceWidth, 8u);
@@ -335,7 +335,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_EQ(Validation.MipCount, 2u);
 	EXPECT_FALSE(Validation.bHDR);
 
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		Panorama.generic_string(), "/TextureCubeTests/Panorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -406,7 +406,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 	const std::filesystem::path Root = InitializeCubeMount();
 	const std::filesystem::path WrongAspect = Root / "WrongAspect.tga";
 	WriteSolidTga(WrongAspect, 4, 4);
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		WrongAspect.generic_string(), "/TextureCubeTests/InvalidPanorama");
 	EXPECT_FALSE(Result);
 	EXPECT_NE(Result.Message.find("2:1"), std::string::npos);
@@ -416,11 +416,11 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not radiance";
 	}
-	Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		Corrupt.generic_string(), "/TextureCubeTests/InvalidPanorama");
 	EXPECT_FALSE(Result);
 	EXPECT_NE(Result.Message.find("decode failed"), std::string::npos);
-	Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/TextureCubeTests/InvalidPanorama", {.FaceDimension = 4097});
 	EXPECT_FALSE(Result);
@@ -437,14 +437,14 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailure)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(), "/TextureCubeTests/ReimportPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	const uint64 InitialRevision = Texture->GetBuildRevision();
 
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Forge::IngestAndChangeTextureCubePanoramaSource(*Texture,
+	ASSERT_TRUE(Durin::AssetForge::Builtins::IngestAndChangeTextureCubePanoramaSource(*Texture,
 		GetPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/TextureCubeTests/Textures/ReimportPanorama_panorama.hdr",
 		{.FaceDimension = 4, .ExposureEV = 2.0f}, Error)) << Error;
@@ -460,7 +460,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		Root / "Textures/ReimportPanorama_panorama.hdr"));
 
 	const uint64 FirstReimportRevision = Texture->GetBuildRevision();
-	ASSERT_TRUE(Durin::Asset::Forge::ReimportTextureCubePanorama(*Texture,
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubePanorama(*Texture,
 		(Root / "Textures/ReimportPanorama_panorama.hdr").generic_string(),
 		{.FaceDimension = 4, .ExposureEV = 1.0f}, Error)) << Error;
 	EXPECT_GT(Texture->GetBuildRevision(), FirstReimportRevision);
@@ -473,7 +473,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not radiance";
 	}
-	EXPECT_FALSE(Durin::Asset::Forge::ReimportTextureCubePanorama(*Texture, Corrupt.generic_string(),
+	EXPECT_FALSE(Durin::AssetForge::Builtins::ReimportTextureCubePanorama(*Texture, Corrupt.generic_string(),
 		{.FaceDimension = 8, .ExposureEV = -1.0f}, Error));
 	EXPECT_NE(Error.find("read-only"), std::string::npos);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
@@ -501,7 +501,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSource)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
-	Durin::Asset::Forge::FTextureCubeImportResult Result = Durin::Asset::Forge::ImportTextureCubePanorama(
+	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
 		GetPanoramaFixture("AnalyticalHDR.hdr").generic_string(), "/TextureCubeTests/MissingPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -539,7 +539,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = GetConventionFaces();
-	const Durin::Asset::Forge::FTextureCubeImportResult Import = Durin::Asset::Forge::ImportTextureCubeFaces(
+	const Durin::AssetForge::Builtins::FTextureCubeImportResult Import = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
 		Faces, "/TextureCubeTests/CookedCube");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

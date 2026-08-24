@@ -54,7 +54,7 @@ namespace Durin
 
 		struct FPipelineRequest
 		{
-			FMaterialPipelineIdentity Material;
+			FMaterialPlanningPassIdentity Material;
 			FRHIRasterizerState Rasterizer;
 			FRHIDepthStencilState Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;

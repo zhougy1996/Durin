@@ -67,7 +67,7 @@ namespace
 		EXPECT_EQ(
 			ActualBinding.Textures[0],
 			ExpectedBinding.Textures[0]);
-		EXPECT_EQ(Actual.PipelineIdentity, Expected.PipelineIdentity);
+		EXPECT_EQ(Actual.PlanningPassIdentity, Expected.PlanningPassIdentity);
 		EXPECT_EQ(
 			Actual.Representation.GetLayout().Identity,
 			Expected.Representation.GetLayout().Identity);

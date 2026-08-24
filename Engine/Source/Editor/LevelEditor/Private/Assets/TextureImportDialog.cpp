@@ -10,8 +10,8 @@
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture2DSourceTranslation.h"
-#include "VolumeTextureSourceTranslation.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/VolumeTextureImport.h"
 
 namespace Durin::Editor::Level
 {
@@ -310,7 +310,7 @@ namespace Durin::Editor::Level
 			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
 		const bool bSupportedSource = bHasSource && (bVolume
 			? SourceExtension == ".png"
-			: Asset::Forge::IsTexture2DSourceExtension(SourceExtension));
+			: AssetForge::Builtins::IsTexture2DSourceExtension(SourceExtension));
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
@@ -384,7 +384,7 @@ namespace Durin::Editor::Level
 			{
 				return VolumeInspection.Message;
 			}
-			Asset::Forge::FVolumeTextureImportSettings Settings{
+			AssetForge::Builtins::FVolumeTextureImportSettings Settings{
 				.Channels = Volume.Channels,
 				.SliceWidth = Volume.SliceWidth,
 				.SliceHeight = Volume.SliceHeight,
@@ -491,7 +491,7 @@ namespace Durin::Editor::Level
 
 		InspectedVolumeSourcePath = SourcePath;
 		SelectedVolumeLayout = -1;
-		VolumeInspection = Asset::Forge::InspectVolumeTextureAtlasSource(SourcePath);
+		VolumeInspection = AssetForge::Builtins::InspectVolumeTextureAtlasSource(SourcePath);
 		if (!VolumeInspection)
 		{
 			SubmissionError.clear();
@@ -506,7 +506,7 @@ namespace Durin::Editor::Level
 	auto FTextureImportDialog::ApplyVolumeTextureLayoutSuggestion(size_t Index) -> void
 	{
 		if (Index >= VolumeInspection.SuggestedLayouts.size()) return;
-		const Asset::Forge::FVolumeTextureImportSettings& Suggested =
+		const AssetForge::Builtins::FVolumeTextureImportSettings& Suggested =
 			VolumeInspection.SuggestedLayouts[Index];
 		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
 		Volume.Channels = Suggested.Channels;
@@ -621,21 +621,21 @@ namespace Durin::Editor::Level
 		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		auto Completion = [CompletionCallbacks, Path](const Asset::FInterchangeImportResult& Result) {
-			if (Result.Outcome.State == Asset::EImportOperationState::Succeeded)
+		auto Completion = [CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
+			if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 			{
 				CompletionCallbacks.NotifyImported(Path);
 				FAssetPath ImportedPath;
 				if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
 			}
 			else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-				? "Texture Interchange import failed." : Result.Outcome.Diagnostic);
+				? "Texture AssetForge import failed." : Result.Outcome.Diagnostic);
 		};
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
 		{
 			const FVolumeTextureImportFormState& Volume =
 				State.GetVolumeTexture();
-			Asset::Forge::FVolumeTextureImportSettings Settings;
+			AssetForge::Builtins::FVolumeTextureImportSettings Settings;
 			if (State.GetSourceMode() ==
 				EMountedSourceImportMode::IngestExternal)
 				Settings.SourceDestination =
@@ -646,8 +646,8 @@ namespace Durin::Editor::Level
 			Settings.Depth = Volume.Depth;
 			Settings.TilesX = Volume.TilesX;
 			Settings.TilesY = Volume.TilesY;
-			Asset::FInterchangeImportHandle Handle =
-				Asset::Forge::SubmitVolumeTextureInterchangeImport(
+			AssetForge::FImportHandle Handle =
+				AssetForge::Builtins::SubmitVolumeTextureImport(
 					Source.GetSourcePathBuffer().data(), AssetPath, Settings,
 					IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
 			if (!Handle)
@@ -664,7 +664,7 @@ namespace Durin::Editor::Level
 		if (State.GetSourceMode() == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = Source.GetDestinationBuffer().data();
 		Settings.Usage = State.GetTexture2D().Usage;
-		Asset::FInterchangeImportHandle Handle = Asset::Forge::SubmitTexture2DInterchangeImport(
+		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTexture2DImport(
 			Source.GetSourcePathBuffer().data(), AssetPath, Settings,
 			IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
 		if (!Handle)

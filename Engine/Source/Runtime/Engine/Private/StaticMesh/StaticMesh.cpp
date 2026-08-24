@@ -674,16 +674,16 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::PublishInterchangeProvenance(
+	auto DStaticMesh::PublishImportProvenance(
 		std::vector<std::byte> Provenance) -> void
 	{
 		static constexpr char Hex[] = "0123456789abcdef";
-		InterchangeProvenance.resize(Provenance.size() * 2);
+		ImportProvenance.resize(Provenance.size() * 2);
 		for (size_t Index = 0; Index < Provenance.size(); ++Index)
 		{
 			const uint8 Value = static_cast<uint8>(Provenance[Index]);
-			InterchangeProvenance[Index * 2] = Hex[Value >> 4];
-			InterchangeProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+			ImportProvenance[Index * 2] = Hex[Value >> 4];
+			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
 		}
 		MarkPackageDirty();
 	}
@@ -782,7 +782,7 @@ namespace Durin
 				std::move(Other.RenderData);
 
 		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(InterchangeProvenance, Other.InterchangeProvenance);
+		std::swap(ImportProvenance, Other.ImportProvenance);
 			std::swap(NormalizedSize, Other.NormalizedSize);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);

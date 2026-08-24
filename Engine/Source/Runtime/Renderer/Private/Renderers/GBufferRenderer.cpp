@@ -98,7 +98,7 @@ namespace Durin
 
 		struct FGBufferPipelineKey
 		{
-			FMaterialPipelineIdentity Material;
+			FMaterialPlanningPassIdentity Material;
 			FRHIRasterizerState Rasterizer;
 			FRHIDepthStencilState Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;
@@ -106,7 +106,7 @@ namespace Durin
 			auto operator==(const FGBufferPipelineKey&) const -> bool = default;
 		};
 
-		auto GetGBufferPipelineIdentity(const FGBufferPipelineKey& Key)
+		auto GetGBufferPlanningPassIdentity(const FGBufferPipelineKey& Key)
 			-> std::string
 		{
 			return std::format(
@@ -431,7 +431,7 @@ namespace Durin
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"GBufferPipeline",
-							GetGBufferPipelineIdentity(PipelineKey),
+							GetGBufferPlanningPassIdentity(PipelineKey),
 							"Graphics pipeline creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device

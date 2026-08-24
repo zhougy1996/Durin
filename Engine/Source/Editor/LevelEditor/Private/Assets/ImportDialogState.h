@@ -2,7 +2,7 @@
 
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
-#include "AsyncImport.h"
+#include "AssetForge/Operations/ImportOperation.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 
@@ -28,22 +28,21 @@ namespace Durin::Editor::Level
 	class FImportDialogProgressModel
 	{
 	public:
-		auto Begin(Asset::FAsyncImportPlanHandle InHandle) -> void;
-		auto Begin(Asset::FImportOperationHandle InHandle) -> void;
-		auto ApplySnapshot(Asset::FImportOperationSnapshot InSnapshot) -> void;
+		auto Begin(AssetForge::FImportOperationHandle InHandle) -> void;
+		auto ApplySnapshot(AssetForge::FImportOperationSnapshot InSnapshot) -> void;
 		auto Refresh() -> void;
 		auto Reset() -> void;
 		auto RequestCancel() -> bool;
 		auto RunInBackground() -> bool;
 
 		auto GetState() const -> EImportDialogOperationState;
-		auto GetSnapshot() const -> const Asset::FImportOperationSnapshot& { return Snapshot; }
+		auto GetSnapshot() const -> const AssetForge::FImportOperationSnapshot& { return Snapshot; }
 		auto HasOperation() const -> bool { return Handle.IsValid(); }
 		auto CanCancel() const -> bool { return Snapshot.bCancelable && !Snapshot.IsTerminal(); }
 
 	private:
-		Asset::FImportOperationHandle Handle;
-		Asset::FImportOperationSnapshot Snapshot;
+		AssetForge::FImportOperationHandle Handle;
+		AssetForge::FImportOperationSnapshot Snapshot;
 	};
 
 	// Routes import-dialog outcomes to the owning editor workspace.
@@ -53,16 +52,14 @@ namespace Durin::Editor::Level
 		std::function<void(std::string)> ReportError;
 		std::function<void(std::string)> Imported;
 		std::function<void(std::string)> ImportedDirectory;
-		std::function<void(Asset::FImportOperationHandle, std::string)> ImportStarted;
+		std::function<void(AssetForge::FImportOperationHandle, std::string)> ImportStarted;
 
 		auto Clear() const -> void;
 		auto Report(std::string Message) const -> void;
 		auto NotifyImported(std::string_view AssetPath) const -> void;
 		auto NotifyImportedDirectory(std::string_view DirectoryPath) const -> void;
 		auto NotifyImportStarted(
-			Asset::FAsyncImportPlanHandle Handle, std::string_view Title) const -> void;
-		auto NotifyImportStarted(
-			Asset::FImportOperationHandle Handle, std::string_view Title) const -> void;
+			AssetForge::FImportOperationHandle Handle, std::string_view Title) const -> void;
 	};
 
 	// Owns editable asset-destination state and its suggestion and browse rules.

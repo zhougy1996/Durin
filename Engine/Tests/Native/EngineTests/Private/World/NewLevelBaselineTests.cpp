@@ -1,7 +1,7 @@
 #include "WorldTestSupport.h"
 
 #include "DObject/Package.h"
-#include "AssetForgeProviderTestFixture.h"
+#include "AssetForgeBuiltinsProviderTestFixture.h"
 
 namespace
 {
@@ -98,9 +98,9 @@ namespace
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeAuthoringFeatures());
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
 	std::string ProviderError;
-	Durin::Tests::FScopedAssetForgeProviders Providers;
+	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";

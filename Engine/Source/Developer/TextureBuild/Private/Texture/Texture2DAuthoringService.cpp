@@ -255,8 +255,8 @@ namespace Durin::Asset::Build
 		}
 		if (RequestId == 0)
 		{
-			if (const auto Interchange = TryWaitForTexture2DInterchangeRecovery(
-				Texture, TimeoutSeconds)) return *Interchange;
+			if (const auto AssetForge = TryWaitForTexture2DImportRecovery(
+				Texture, TimeoutSeconds)) return *AssetForge;
 			return true;
 		}
 		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
