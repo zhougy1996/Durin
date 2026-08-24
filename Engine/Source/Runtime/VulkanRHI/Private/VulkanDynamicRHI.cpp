@@ -543,7 +543,8 @@ namespace Durin::VulkanRHI
 			.setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
 				| vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
 				| vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance)
-			.setPfnUserCallback(&VulkanDebugUtilsCallback)
+			.setPfnUserCallback(reinterpret_cast<
+				vk::PFN_DebugUtilsMessengerCallbackEXT>(&VulkanDebugUtilsCallback))
 			.setPUserData(&DebugCallbackState);
 		try
 		{

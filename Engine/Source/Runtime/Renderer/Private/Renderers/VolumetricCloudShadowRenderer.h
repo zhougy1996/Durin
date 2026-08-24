@@ -93,6 +93,7 @@ namespace Durin
 			case FVolumetricCloudSpatialRenderer::EQualityTier::High: return 6;
 			case FVolumetricCloudSpatialRenderer::EQualityTier::Epic:
 			case FVolumetricCloudSpatialRenderer::EQualityTier::Reference: return 8;
+			case FVolumetricCloudSpatialRenderer::EQualityTier::Count: return 6;
 			}
 			return 6;
 		}
@@ -113,7 +114,7 @@ namespace Durin
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
 			const FRenderInput& Input,
-			const FRenderPolicy& Policy = {}) -> FRenderResult;
+			const FRenderPolicy& Policy) -> FRenderResult;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 

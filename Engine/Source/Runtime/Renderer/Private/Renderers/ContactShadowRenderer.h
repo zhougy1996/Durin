@@ -126,7 +126,7 @@ namespace Durin
 			FRHITexture* Emissive, FRHITexture* SceneDepth,
 			const FSceneView& View, const FVector3& LightDirection,
 			uint32 Width, uint32 Height,
-			const FRenderPolicy& Policy = {}) -> FRenderResult;
+			const FRenderPolicy& Policy) -> FRenderResult;
 		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 

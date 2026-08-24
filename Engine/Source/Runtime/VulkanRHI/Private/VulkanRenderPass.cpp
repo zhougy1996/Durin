@@ -5,6 +5,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanFramebuffer.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanResourceState.h"
 #include "VulkanTexture.h"
 
 namespace Durin::VulkanRHI
@@ -60,32 +61,12 @@ namespace Durin::VulkanRHI
 
 		auto AccessStage(ERHIAccess Access) -> vk::PipelineStageFlags
 		{
-			switch (Access)
-			{
-			case ERHIAccess::None: return vk::PipelineStageFlagBits::eTopOfPipe;
-			case ERHIAccess::ColorAttachmentReadWrite: return vk::PipelineStageFlagBits::eColorAttachmentOutput;
-			case ERHIAccess::DepthStencilReadWrite: return vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
-			case ERHIAccess::GraphicsShaderRead: return vk::PipelineStageFlagBits::eFragmentShader;
-			case ERHIAccess::GraphicsShaderReadWrite: return vk::PipelineStageFlagBits::eAllGraphics;
-			case ERHIAccess::Present: return vk::PipelineStageFlagBits::eBottomOfPipe;
-			}
-			check(false);
-			return vk::PipelineStageFlagBits::eTopOfPipe;
+			return MapVulkanResourceState(Access).LegacyStageMask;
 		}
 
 		auto AccessMask(ERHIAccess Access) -> vk::AccessFlags
 		{
-			switch (Access)
-			{
-			case ERHIAccess::None: return {};
-			case ERHIAccess::ColorAttachmentReadWrite: return vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite;
-			case ERHIAccess::DepthStencilReadWrite: return vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
-			case ERHIAccess::GraphicsShaderRead: return vk::AccessFlagBits::eShaderRead;
-			case ERHIAccess::GraphicsShaderReadWrite: return vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-			case ERHIAccess::Present: return vk::AccessFlagBits::eMemoryRead;
-			}
-			check(false);
-			return {};
+			return MapVulkanResourceState(Access).LegacyAccessMask;
 		}
 
 		auto MakeAttachment(const FRHIAttachmentLayout& Layout) -> vk::AttachmentDescription

@@ -114,7 +114,7 @@ namespace Durin
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
 			const FRenderInput& Input,
-			const FRenderPolicy& Policy = {}) -> FRenderResult;
+			const FRenderPolicy& Policy) -> FRenderResult;
 		auto ReconstructTemporal_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FTemporalReconstructionInput& Input

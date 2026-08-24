@@ -65,6 +65,7 @@ namespace Durin::Editor::Level
 		case AssetForge::EImportOperationState::Canceled:
 		case AssetForge::EImportOperationState::Superseded:
 			return EImportDialogOperationState::Canceled;
+		case AssetForge::EImportOperationState::Queued:
 		case AssetForge::EImportOperationState::Pending:
 		case AssetForge::EImportOperationState::Canceling:
 			return (Handle || Snapshot.OperationId != 0)

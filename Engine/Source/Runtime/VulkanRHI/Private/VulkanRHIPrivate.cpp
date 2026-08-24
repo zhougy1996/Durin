@@ -1,7 +1,7 @@
 #include "VulkanRHIPrivate.h"
 
 #include "RHICommandList.h"
-#include "Vulkan/utility/vk_format_utils.h"
+#include "vulkan/utility/vk_format_utils.h"
 
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"

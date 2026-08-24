@@ -73,7 +73,8 @@ namespace Durin
 		{
 			using TRaw = typename TCanonicalIntegerType<TValue>::Type;
 			using TUnsigned = std::make_unsigned_t<TRaw>;
-			TUnsigned Raw = static_cast<TUnsigned>(Value);
+			static_assert(sizeof(TUnsigned) <= sizeof(uint64));
+			uint64 Raw = static_cast<TUnsigned>(Value);
 			for (size_t Index = 0; Index < sizeof(TUnsigned); ++Index)
 			{
 				Bytes.push_back(static_cast<std::byte>(Raw & 0xffu));

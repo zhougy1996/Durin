@@ -80,6 +80,7 @@ namespace Durin
 		case EQualityTier::Performance:
 			return {.PrimarySampleCount = 16, .LightSampleCount = 1, .TemporalPatternLength = 8, .HistoryWeight = 0.88f};
 		case EQualityTier::High:
+		case EQualityTier::Count:
 			return {.PrimarySampleCount = 24, .LightSampleCount = 2, .TemporalPatternLength = 8, .HistoryWeight = 0.90f};
 		case EQualityTier::Epic:
 			return {.PrimarySampleCount = 32, .LightSampleCount = 4, .TemporalPatternLength = 8, .HistoryWeight = 0.92f};
