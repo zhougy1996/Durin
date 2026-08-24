@@ -2,11 +2,13 @@
 
 #include "Client/Viewport.h"
 #include "Rendering/ViewportDisplaySource.h"
+#include "RenderGraph.h"
 #include "ViewRenderStatistics.h"
 #include "SceneViewState.h"
 
 #include "MonaCoreFwd.h"
 
+#include <atomic>
 #include <mutex>
 
 namespace Durin
@@ -25,6 +27,14 @@ namespace Durin
 
 		auto operator==(const FSceneViewportStatisticsSnapshot&) const
 			-> bool = default;
+	};
+
+	// Identifies the latest explicitly captured graph for one scene viewport.
+	struct FSceneViewportRenderGraphSnapshot
+	{
+		std::shared_ptr<const FRenderGraphCapture> Capture;
+		uint64 Revision = 0;
+		bool bAvailable = false;
 	};
 
 	// Owns Engine window or offscreen output while exposing only its offscreen texture through MonaCore.
@@ -65,6 +75,14 @@ namespace Durin
 			bool bAvailable) -> void;
 		ENGINE_API auto GetRenderStatisticsSnapshot() const
 			-> FSceneViewportStatisticsSnapshot;
+		// Requests one full owning graph capture from the next submitted frame.
+		ENGINE_API auto RequestRenderGraphCapture() -> void;
+		ENGINE_API auto ConsumeRenderGraphCaptureRequest() -> bool;
+		ENGINE_API auto PublishRenderGraphCapture_RenderThread(
+			std::shared_ptr<const FRenderGraphCapture> Capture,
+			bool bAvailable) -> void;
+		ENGINE_API auto GetRenderGraphSnapshot() const
+			-> FSceneViewportRenderGraphSnapshot;
 
 		// Auxiliary editor viewports may render an isolated scene instead of leaking preview primitives into the level.
 		ENGINE_API auto GetRenderScene() const -> IScene* { return RenderScene; }
@@ -90,5 +108,8 @@ namespace Durin
 		mutable bool bHistoryResetRequested = true;
 		mutable std::mutex StatisticsMutex;
 		FSceneViewportStatisticsSnapshot StatisticsSnapshot;
+		std::atomic_bool bRenderGraphCaptureRequested = false;
+		mutable std::mutex RenderGraphMutex;
+		FSceneViewportRenderGraphSnapshot RenderGraphSnapshot;
 	};
 }

@@ -21,6 +21,8 @@ namespace Durin::Editor::Level
 		EXPECT_TRUE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::Persistent));
 		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
+			ELevelEditorPanelRole::Optional));
+		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::DrawerTool));
 		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::ActivityHistory));

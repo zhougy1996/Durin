@@ -250,12 +250,13 @@ namespace Durin
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics
+		FSceneViewStatistics* OutStatistics,
+		FRenderGraphCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
 		return FRenderGraphSceneFrameExecutor(*this).Execute_RenderThread(
 			CommandList, Scene, View, OutputTarget, bPresentOutput,
-			Options, OutStatistics
+			Options, OutStatistics, OutRenderGraphCapture
 		);
 	}
 

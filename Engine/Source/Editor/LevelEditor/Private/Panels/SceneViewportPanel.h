@@ -20,6 +20,8 @@ namespace Durin
 	class FSceneViewport;
 	class AActor;
 	class DLevel;
+	struct FSceneViewportStatisticsSnapshot;
+	struct FSceneViewportRenderGraphSnapshot;
 }
 
 namespace Durin::Editor::Level
@@ -55,6 +57,15 @@ namespace Durin::Editor::Level
 		auto SetCameraMovementSpeed(float Speed) -> void;
 		auto IsStatisticsVisible() const -> bool { return bShowStatistics; }
 		auto SetStatisticsVisible(bool bVisible) -> void { bShowStatistics = bVisible; }
+		auto SetOpenRenderingDiagnostics(std::function<void()> Callback) -> void
+		{
+			OpenRenderingDiagnostics = std::move(Callback);
+		}
+		auto GetRenderStatisticsSnapshot() const
+			-> FSceneViewportStatisticsSnapshot;
+		auto GetRenderGraphSnapshot() const
+			-> FSceneViewportRenderGraphSnapshot;
+		auto RequestRenderGraphCapture() -> void;
 		auto FocusActor(const AActor* Actor) -> void;
 
 	private:
@@ -76,6 +87,7 @@ namespace Durin::Editor::Level
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
 		bool bShowStatistics = false;
+		std::function<void()> OpenRenderingDiagnostics;
 		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
 		::Durin::Editor::EPlayDestination PreferredPlayDestination;
 		std::vector<FConsoleCommandHandle> ViewportConsoleCommandHandles;

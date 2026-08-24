@@ -1331,8 +1331,10 @@ namespace Durin::Editor::Level
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,
 		const FSceneViewportStatisticsSnapshot& Snapshot,
-		bool& bExpanded) -> FViewportStatisticsOverlayLayout
+		bool& bExpanded,
+		bool* OutDetailsRequested) -> FViewportStatisticsOverlayLayout
 	{
+		if (OutDetailsRequested != nullptr) *OutDetailsRequested = false;
 		FViewportStatisticsOverlayLayout Layout =
 			CalculateViewportStatisticsOverlayLayout(
 				ViewportMin, ViewportMax, bExpanded);
@@ -1374,7 +1376,7 @@ namespace Durin::Editor::Level
 			const ImU32 ValueColor = MonaImGui::GetThemeColorU32(
 				MonaImGui::EUIThemeColor::ViewportText);
 			DrawList->AddText(ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
-				ValueColor, "Rendering Statistics");
+				ValueColor, "Frame Summary");
 			Y += RowHeight + MonaImGui::ScaleUI(3.0f);
 			DrawList->AddLine(
 				ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
@@ -1402,64 +1404,44 @@ namespace Durin::Editor::Level
 			else
 			{
 				const FSceneViewStatistics& Statistics = Snapshot.Statistics;
+				DrawRow("Frame time", std::format("{:.2f} ms",
+					ImGui::GetIO().DeltaTime * 1000.0f));
 				DrawRow("Visible primitives", std::format("{} / {}",
 					FormatViewportStatistic(Statistics.Visibility.VisiblePrimitives),
 					FormatViewportStatistic(Statistics.Visibility.SubmittedPrimitives)));
 				DrawRow("Triangles", FormatViewportStatistic(Statistics.Summary.Triangles));
 				DrawRow("Draw calls", FormatViewportStatistic(Statistics.Summary.DrawCalls));
-				Y += MonaImGui::ScaleUI(3.0f);
-				DrawRow("Static mesh", FormatViewportStatistic(Statistics.StaticMesh.Triangles));
-				DrawRow("Spline mesh", FormatViewportStatistic(Statistics.SplineMesh.Triangles));
-				DrawRow("Skeletal mesh", FormatViewportStatistic(Statistics.SkeletalMesh.Triangles));
-				DrawRow("Terrain", FormatViewportStatistic(Statistics.Terrain.Triangles));
-				DrawRow("Shadow", Statistics.Shadow.bEnabled
-					? FormatViewportStatistic(Statistics.Shadow.Triangles) : "Off");
-				const char* ContactShadowRoute = "Off";
-				if (Statistics.Shadow.ContactRoute
-					== EContactShadowExecutionRoute::Compute)
-					ContactShadowRoute = "Compute";
-				else if (Statistics.Shadow.ContactRoute
-					== EContactShadowExecutionRoute::Fragment)
-					ContactShadowRoute = "Fragment";
-				else if (Statistics.Shadow.bContactEnabled)
-					ContactShadowRoute = "Unknown";
-				DrawRow("Contact shadow", ContactShadowRoute);
-				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
-					Statistics.Lights.Directional, Statistics.Lights.Point,
-					Statistics.Lights.Spot));
-				const auto& Cloud = Statistics.VolumetricCloud;
-				Y += MonaImGui::ScaleUI(3.0f);
-				const char* CloudRoute = Cloud.Route == EVolumetricCloudExecutionRoute::Compute
-					? "Compute" : Cloud.Route == EVolumetricCloudExecutionRoute::Fragment
-						? "Fragment" : "Off";
-				DrawRow("Cloud route", CloudRoute);
-				DrawRow("Cloud extent", Cloud.TargetWidth && Cloud.TargetHeight
-					? std::format("{} x {}", Cloud.TargetWidth, Cloud.TargetHeight) : "Unavailable");
-				DrawRow("Cloud samples", FormatViewportStatistic(
-					Cloud.PrimarySamples + Cloud.LightSamples + Cloud.ShadowSamples));
-				DrawRow("Cloud GPU memory", FormatByteCount(
-					Cloud.RetainedBytes + Cloud.ShadowRetainedBytes));
-				DrawRow("Cloud history", !Cloud.bHistoryAvailable ? "Unavailable"
-					: Cloud.bHistoryAccepted ? "Accepted" : "Rejected");
-				DrawRow("Cloud GPU time", "Unavailable");
-
-				if (ImGui::IsMouseHoveringRect(Layout.PanelMin, Layout.PanelMax))
-				{
-					ImGui::SetTooltip(
-						"Exact values\nPrimitives: %llu / %llu\nTriangles: %llu\n"
-						"Draw calls: %llu\nStatic draws: %llu\nSkeletal draws: %llu\n"
-						"Terrain draws: %llu\nShadow draws: %llu\nShadow cascades: %u",
-						static_cast<unsigned long long>(Statistics.Visibility.VisiblePrimitives),
-						static_cast<unsigned long long>(Statistics.Visibility.SubmittedPrimitives),
-						static_cast<unsigned long long>(Statistics.Summary.Triangles),
-						static_cast<unsigned long long>(Statistics.Summary.DrawCalls),
-						static_cast<unsigned long long>(Statistics.StaticMesh.DrawCalls),
-						static_cast<unsigned long long>(Statistics.SkeletalMesh.DrawCalls),
-						static_cast<unsigned long long>(Statistics.Terrain.DrawCalls),
-						static_cast<unsigned long long>(Statistics.Shadow.DrawCalls),
-						Statistics.Shadow.Cascades);
-				}
 			}
+
+			const ImVec2 ButtonMin(
+				Layout.PanelMin.x + HorizontalPadding,
+				Layout.PanelMax.y - MonaImGui::ScaleUI(35.0f));
+			const ImVec2 ButtonSize(
+				Layout.PanelMax.x - Layout.PanelMin.x - HorizontalPadding * 2.0f,
+				MonaImGui::ScaleUI(25.0f));
+			ImGui::SetCursorScreenPos(ButtonMin);
+			const bool bDetailsActivated = ImGui::InvisibleButton(
+				"##ViewportRenderingDiagnostics", ButtonSize);
+			const bool bDetailsHovered = ImGui::IsItemHovered();
+			if (bDetailsHovered || ImGui::IsItemActive())
+			{
+				ImVec4 Feedback = ImGui::GetStyleColorVec4(ImGui::IsItemActive()
+					? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered);
+				Feedback.w *= 0.45f;
+				DrawList->AddRectFilled(ButtonMin,
+					ImVec2(ButtonMin.x + ButtonSize.x, ButtonMin.y + ButtonSize.y),
+					ImGui::GetColorU32(Feedback), MonaImGui::ScaleUI(4.0f));
+			}
+			constexpr const char* DetailsLabel = "Details...";
+			const ImVec2 DetailsTextSize = ImGui::CalcTextSize(DetailsLabel);
+			DrawList->AddText(ImVec2(
+				ButtonMin.x + (ButtonSize.x - DetailsTextSize.x) * 0.5f,
+				ButtonMin.y + (ButtonSize.y - DetailsTextSize.y) * 0.5f),
+				ImGui::GetColorU32(bDetailsHovered
+					? ImGuiCol_Text : ImGuiCol_TextDisabled), DetailsLabel);
+			if (bDetailsActivated && OutDetailsRequested != nullptr)
+				*OutDetailsRequested = true;
+			ImGui::SetCursorScreenPos(SavedCursor);
 		}
 		ImGui::PopClipRect();
 		return Layout;

@@ -29,6 +29,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/SceneViewportPanel.h"
+#include "Panels/RenderingDiagnosticsPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
 #include "Profiling/Profiling.h"
 #include "Assets/SceneImportDialog.h"
@@ -144,6 +145,14 @@ namespace Durin::Editor::Level
 		};
 		SessionSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
+		auto RenderingDiagnostics =
+			std::make_unique<FRenderingDiagnosticsPanel>(*SceneViewportPanel);
+		RenderingDiagnosticsPanel = RenderingDiagnostics.get();
+		SceneViewportPanel->SetOpenRenderingDiagnostics([this] {
+			if (RenderingDiagnosticsPanel)
+				RenderingDiagnosticsPanel->SetOpen(true);
+		});
+		Panels.emplace_back(std::move(RenderingDiagnostics));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		auto Details = std::make_unique<FDetailsPanel>(SessionSettings);
 		DetailsPanel = Details.get();
@@ -459,6 +468,8 @@ namespace Durin::Editor::Level
 		{
 			const ELevelEditorPanelRole Role = Panel.get() == NotificationOverlay
 				? ELevelEditorPanelRole::ActivityHistory
+				: Panel.get() == RenderingDiagnosticsPanel
+					? ELevelEditorPanelRole::Optional
 				: (Panel.get() == ContentBrowserPanel || Panel.get() == ConsolePanel
 					? ELevelEditorPanelRole::DrawerTool
 					: ELevelEditorPanelRole::Persistent);

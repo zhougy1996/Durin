@@ -18,19 +18,22 @@ namespace Durin
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics
+		FSceneViewStatistics* OutStatistics,
+		FRenderGraphCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
 		return Pipeline.Execute_RenderThread(CommandList, Scene, View, OutputTarget,
 			bPresentOutput, Options, OutStatistics,
-			[this, &CommandList](FRenderGraphBuilder& Graph) {
-				return CompileAndExecuteGraph_RenderThread(Graph, CommandList);
+			[this, &CommandList, OutRenderGraphCapture](FRenderGraphBuilder& Graph) {
+				return CompileAndExecuteGraph_RenderThread(
+					Graph, CommandList, OutRenderGraphCapture);
 			});
 	}
 
 	auto FRenderGraphSceneFrameExecutor::CompileAndExecuteGraph_RenderThread(
 		FRenderGraphBuilder& Graph,
-		FRHICommandListImmediate& CommandList
+		FRHICommandListImmediate& CommandList,
+		FRenderGraphCapture* OutRenderGraphCapture
 	) -> ESceneFrameGraphExecutionStatus
 	{
 		auto CompiledGraph = Graph.Compile();
@@ -61,6 +64,8 @@ namespace Durin
 		std::string ExecutionError;
 		const bool Executed =
 			CompiledGraph.Graph->Execute(CommandList, &ExecutionError);
+		if (OutRenderGraphCapture != nullptr)
+			*OutRenderGraphCapture = CompiledGraph.Graph->Capture();
 		PublishSceneRenderGraphCapture(*CompiledGraph.Graph);
 		return Executed ? ESceneFrameGraphExecutionStatus::Executed
 			: ESceneFrameGraphExecutionStatus::ExecutionFailed;

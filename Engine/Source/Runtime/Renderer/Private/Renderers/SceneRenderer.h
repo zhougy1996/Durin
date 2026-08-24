@@ -71,7 +71,8 @@ namespace Durin
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics
+			FSceneViewStatistics* OutStatistics,
+			FRenderGraphCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&

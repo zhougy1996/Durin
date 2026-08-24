@@ -2,7 +2,7 @@
 
 Summary: Define window-backed viewports, render targets, presentation, resize recovery, and editor assistance rendering.
 
-Modules: ApplicationCore, Engine, MonaCore, Mona, Renderer, RHI
+Modules: ApplicationCore, Engine, LevelEditor, MonaCore, Mona, RenderCore, Renderer, RHI
 
 This document explains how Durin connects Mona widgets, scene viewports, and RHI render targets for both standalone game windows and editor viewport panels.
 
@@ -307,13 +307,31 @@ Main, window-backed, and auxiliary viewports own independent snapshots; camera
 preview rendering cannot overwrite the Level Editor main-view statistics.
 
 The Level Editor FPS badge is the statistics entry point. Activating the badge
-toggles a themed panel right-aligned directly below it. The full badge/panel
-rectangle is excluded from drag/drop, selection, gizmo editing, camera
-navigation, wheel input, and embedded-PIE capture before those paths evaluate
-the viewport. The panel is suppressed when its minimum readable size cannot fit
-inside the viewport, while the FPS badge remains available. Expansion is an
-editor session preference under `SceneViewport.ShowStatistics`; it defaults to
-collapsed and never dirties level or asset packages.
+toggles a compact frame summary right-aligned directly below it. The summary is
+limited to frame time, visibility, triangles, and draw calls; its `Details...`
+action opens the independently dockable Rendering Diagnostics panel. The full
+badge/panel rectangle is excluded from drag/drop, selection, gizmo editing,
+camera navigation, wheel input, and embedded-PIE capture before those paths
+evaluate the viewport. The summary is suppressed when its minimum readable
+size cannot fit inside the viewport, while the FPS badge remains available.
+Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
+it defaults to collapsed and never dirties level or asset packages.
+
+Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
+Overview reports headline frame and graph-budget values, Scene owns the
+feature breakdowns removed from the compact overlay, and Render Graph provides
+pass filtering, pass/resource inspection, dependency visualization, resource
+lifetimes, and transition counts. The panel is optional in the workspace and
+is also available from the Level Editor Panels menu.
+
+Full graph inspection is explicitly sampled rather than copied every frame.
+Opening the panel without a capture requests the next frame once; later
+captures occur only through `Capture next frame`. `FSceneViewport` carries the
+request atomically into the exact render submission and publishes an immutable
+owning `FRenderGraphCapture` under a separate revision. Main, window-backed,
+and auxiliary viewports therefore retain independent graph captures just as
+they retain independent bounded statistics. A failed requested render
+publishes an unavailable capture instead of retaining misleading stale data.
 
 The Level Editor camera preview uses this auxiliary path. Selecting an actor with a camera component supplies a camera-backed `FViewportClient`; the resulting target follows the camera's reflected aspect-ratio mode and is drawn as a non-interactive overlay in the main scene panel. The preview stays dormant when no camera is selected, the panel is hidden, or PIE owns the active scene.
 

@@ -26,7 +26,9 @@ namespace Durin
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult override;
+			FSceneViewStatistics* OutStatistics = nullptr,
+			FRenderGraphCapture* OutRenderGraphCapture = nullptr
+		) -> ERenderViewResult override;
 
 	private:
 		static auto ReleaseViewState(FSceneViewStateId Id) -> void;

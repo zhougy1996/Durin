@@ -9,6 +9,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class IScene;
+	struct FRenderGraphCapture;
 
 	// Reports whether one render-thread view submission produced a complete output.
 	enum class ERenderViewResult : uint8
@@ -28,6 +29,7 @@ namespace Durin
 		virtual auto CreateViewState() -> FSceneViewStateOwner = 0;
 		virtual auto InvalidateViewState(FSceneViewStateId Id) -> void = 0;
 		virtual auto InvalidateAllViewStates() -> void = 0;
+		// A non-null capture output requests one owning graph snapshot for this view.
 		virtual auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			IScene* Scene,
@@ -35,6 +37,8 @@ namespace Durin
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult = 0;
+			FSceneViewStatistics* OutStatistics = nullptr,
+			FRenderGraphCapture* OutRenderGraphCapture = nullptr
+		) -> ERenderViewResult = 0;
 	};
 }

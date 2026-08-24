@@ -85,6 +85,25 @@ namespace Durin::Editor::Level
 		RegisterViewportConsoleCommands();
 	}
 
+	auto FSceneViewportPanel::GetRenderStatisticsSnapshot() const
+		-> FSceneViewportStatisticsSnapshot
+	{
+		return SceneViewport ? SceneViewport->GetRenderStatisticsSnapshot()
+			: FSceneViewportStatisticsSnapshot{};
+	}
+
+	auto FSceneViewportPanel::GetRenderGraphSnapshot() const
+		-> FSceneViewportRenderGraphSnapshot
+	{
+		return SceneViewport ? SceneViewport->GetRenderGraphSnapshot()
+			: FSceneViewportRenderGraphSnapshot{};
+	}
+
+	auto FSceneViewportPanel::RequestRenderGraphCapture() -> void
+	{
+		if (SceneViewport) SceneViewport->RequestRenderGraphCapture();
+	}
+
 	FSceneViewportPanel::~FSceneViewportPanel()
 	{
 		for (const FConsoleCommandHandle Handle : ViewportConsoleCommandHandles)
@@ -477,8 +496,12 @@ namespace Durin::Editor::Level
 					DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				}
 				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);
+				bool bOpenDetails = false;
 				DrawViewportStatisticsOverlay(
-					VpMin, VpMax, StatisticsSnapshot, bShowStatistics);
+					VpMin, VpMax, StatisticsSnapshot, bShowStatistics,
+					&bOpenDetails);
+				if (bOpenDetails && OpenRenderingDiagnostics)
+					OpenRenderingDiagnostics();
 				if (Context.bReadOnly)
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();

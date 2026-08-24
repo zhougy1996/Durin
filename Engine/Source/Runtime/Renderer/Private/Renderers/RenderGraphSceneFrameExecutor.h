@@ -25,13 +25,15 @@ namespace Durin
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics
+			FSceneViewStatistics* OutStatistics,
+			FRenderGraphCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 	private:
 		auto CompileAndExecuteGraph_RenderThread(
 			FRenderGraphBuilder& Graph,
-			FRHICommandListImmediate& CommandList
+			FRHICommandListImmediate& CommandList,
+			FRenderGraphCapture* OutRenderGraphCapture
 		) -> ESceneFrameGraphExecutionStatus;
 
 		FSceneFrameExecutionPipeline Pipeline;

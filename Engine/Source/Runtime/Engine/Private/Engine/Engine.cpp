@@ -226,24 +226,33 @@ namespace Durin
 			SceneViewport->UpdateRHIViewport();
 			FTextureRHIRef RenderTargetRHI = SceneViewport->GetRenderTargetRHI();
 			if (RenderTargetRHI == nullptr) return;
+			const bool bCaptureRenderGraph =
+				SceneViewport->ConsumeRenderGraphCaptureRequest();
 			IScene* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
 				[RenderTargetRHI, View, Scene, SceneViewport,
-				 RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+				 RendererModule = RendererModule,
+				 bCaptureRenderGraph](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
+					auto RenderGraphCapture = bCaptureRenderGraph
+						? std::make_shared<FRenderGraphCapture>() : nullptr;
 					ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 					if (RendererModule != nullptr)
 					{
 						const FSceneViewRenderOptions Options{};
 						Result = RendererModule->RenderView(
 							CommandList, Scene, View, RenderTargetRHI, false, Options,
-							&Statistics
+							&Statistics, RenderGraphCapture.get()
 						);
 					}
 					SceneViewport->PublishRenderStatistics_RenderThread(
 						Statistics, Result == ERenderViewResult::Success
 					);
+					if (bCaptureRenderGraph)
+						SceneViewport->PublishRenderGraphCapture_RenderThread(
+							std::move(RenderGraphCapture),
+							Result == ERenderViewResult::Success);
 				}
 			);
 		};
@@ -265,9 +274,12 @@ namespace Durin
 				if (BuildSceneView(MainSceneViewport.get(), ViewWidth, ViewHeight, true, View))
 				{
 					const std::shared_ptr<FSceneViewport> SceneViewport = MainSceneViewport;
+					const bool bCaptureRenderGraph =
+						SceneViewport->ConsumeRenderGraphCaptureRequest();
 					ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
 						[ViewportRHI, View, SceneViewport, Scene = MainScene.get(),
-						 RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+						 RendererModule = RendererModule,
+						 bCaptureRenderGraph](FRHICommandListImmediate& CommandList) {
 							CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 							CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 
@@ -275,23 +287,32 @@ namespace Durin
 							if (BackBuffer == nullptr)
 							{
 								SceneViewport->PublishRenderStatistics_RenderThread({}, false);
+								if (bCaptureRenderGraph)
+									SceneViewport->PublishRenderGraphCapture_RenderThread(
+										nullptr, false);
 								CommandList.EndDrawingViewport(ViewportRHI, false, false);
 								return;
 							}
 
 							FSceneViewStatistics Statistics;
+							auto RenderGraphCapture = bCaptureRenderGraph
+								? std::make_shared<FRenderGraphCapture>() : nullptr;
 							ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 							if (RendererModule != nullptr)
 							{
 								const FSceneViewRenderOptions Options{};
 								Result = RendererModule->RenderView(
 									CommandList, Scene, View, BackBuffer, true, Options,
-									&Statistics
+									&Statistics, RenderGraphCapture.get()
 								);
 							}
 							SceneViewport->PublishRenderStatistics_RenderThread(
 								Statistics, Result == ERenderViewResult::Success
 							);
+							if (bCaptureRenderGraph)
+								SceneViewport->PublishRenderGraphCapture_RenderThread(
+									std::move(RenderGraphCapture),
+									Result == ERenderViewResult::Success);
 
 							CommandList.EndDrawingViewport(ViewportRHI, true, false);
 						}

@@ -181,10 +181,12 @@ the existing transient pool. Only then do callbacks run. Scene failure prevents
 final output work from publishing success, and the surrounding view-state
 transaction commits only after the rooted final-output pass succeeds.
 
-The scene graph freezes ceilings of 12 declared passes, 28 dependencies, and
-20 physical texture transitions. It intentionally has no zero-valued buffer
-transition gate: the current graph declares no cross-pass buffers, and an
-unsupported future buffer edge must first establish its own measured ceiling.
+The scene graph observes regression ceilings of 12 declared passes, 28
+dependencies, and 32 physical texture transitions. Its structural safety
+limits are independently set to 256 passes and 4096 dependencies, buffer
+transitions, and texture transitions. The current graph declares no cross-pass
+buffers, so its buffer regression ceiling remains unbounded until production
+measurements establish one.
 Scene Color, depth, directional and cloud shadows, GBuffer, ambient occlusion,
 contact visibility, cloud spatial/composite, isolated deferred, GBuffer debug,
 and output all have graph identities. Consumers obtain physical textures only
@@ -198,10 +200,12 @@ compile and 250 milliseconds to record the complete callback schedule; every
 fixture capture stayed within both ceilings. These are regression ceilings,
 not optimization targets.
 
-`SetSceneRenderGraphCaptureSink` is the first feature authored after complete
-frame migration. When installed, it receives an owning capture after execution.
-With no sink, no capture is constructed. The observer cannot mutate resources,
-callbacks, scheduling, or frame commit state.
+`SetSceneRenderGraphCaptureSink` remains the development and test observer
+authored after complete frame migration. An individual `RenderView` submission
+may instead supply an explicit capture output; Engine uses that path to route a
+one-shot owning capture back to the exact requesting `FSceneViewport`. With no
+observer and no explicit output, no capture is constructed. Neither mechanism
+can mutate resources, callbacks, scheduling, or frame commit state.
 
 ## Related Documentation
 

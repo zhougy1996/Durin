@@ -398,7 +398,8 @@ namespace
 			Durin::FRHITexture*,
 			bool,
 			const Durin::FSceneViewRenderOptions&,
-			Durin::FSceneViewStatistics*) -> Durin::ERenderViewResult override
+			Durin::FSceneViewStatistics*,
+			Durin::FRenderGraphCapture*) -> Durin::ERenderViewResult override
 		{
 			return Durin::ERenderViewResult::RendererResourcesUnavailable;
 		}
@@ -1225,6 +1226,59 @@ TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrent
 	Viewport.reset();
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(WeakViewport.expired());
+}
+
+TEST(FRendererSceneContractTests,
+	SceneViewportRenderGraphCaptureIsExplicitAndIsolated)
+{
+	FRenderingThreadScope RenderingThread;
+	const std::shared_ptr<Durin::FSceneViewport> Main =
+		Durin::FSceneViewport::CreateOffscreen(nullptr);
+	const std::shared_ptr<Durin::FSceneViewport> Auxiliary =
+		Durin::FSceneViewport::CreateOffscreen(nullptr);
+
+	EXPECT_FALSE(Main->ConsumeRenderGraphCaptureRequest());
+	Main->RequestRenderGraphCapture();
+	EXPECT_TRUE(Main->ConsumeRenderGraphCaptureRequest());
+	EXPECT_FALSE(Main->ConsumeRenderGraphCaptureRequest());
+	EXPECT_FALSE(Auxiliary->ConsumeRenderGraphCaptureRequest());
+
+	auto Capture = std::make_shared<Durin::FRenderGraphCapture>();
+	Capture->Dump = "main graph";
+	Capture->Statistics.DeclaredPasses = 7;
+	struct FPublishViewportRenderGraphCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "PublishViewportRenderGraph";
+		}
+	};
+	Durin::EnqueueRenderCommand<FPublishViewportRenderGraphCommand>(
+		[Main, Capture](Durin::FRHICommandListImmediate&) {
+			Main->PublishRenderGraphCapture_RenderThread(Capture, true);
+		});
+	Durin::FlushRenderingCommands();
+
+	const Durin::FSceneViewportRenderGraphSnapshot MainSnapshot =
+		Main->GetRenderGraphSnapshot();
+	EXPECT_TRUE(MainSnapshot.bAvailable);
+	ASSERT_NE(MainSnapshot.Capture, nullptr);
+	EXPECT_EQ(MainSnapshot.Revision, 1u);
+	EXPECT_EQ(MainSnapshot.Capture->Dump, "main graph");
+	EXPECT_EQ(MainSnapshot.Capture->Statistics.DeclaredPasses, 7u);
+	EXPECT_FALSE(Auxiliary->GetRenderGraphSnapshot().bAvailable);
+
+	Durin::EnqueueRenderCommand<FPublishViewportRenderGraphCommand>(
+		[Main](Durin::FRHICommandListImmediate&) {
+			Main->PublishRenderGraphCapture_RenderThread(nullptr, false);
+		});
+	Durin::FlushRenderingCommands();
+	const Durin::FSceneViewportRenderGraphSnapshot Failed =
+		Main->GetRenderGraphSnapshot();
+	EXPECT_FALSE(Failed.bAvailable);
+	EXPECT_EQ(Failed.Revision, 2u);
+	EXPECT_EQ(Failed.Capture, nullptr);
+	EXPECT_EQ(MainSnapshot.Capture->Dump, "main graph");
 }
 
 TEST(FRendererSceneContractTests,

@@ -28,6 +28,7 @@ namespace Durin::Editor::Level
 	class FEditorAssetMoveCoordinator;
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
+	class FRenderingDiagnosticsPanel;
 	class FSceneImportDialog;
 	class FStaticMeshImportDialog;
 	class FTextureImportDialog;
@@ -114,6 +115,7 @@ namespace Durin::Editor::Level
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		// Panel pointers are non-owning aliases into the Panels collection.
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
+		FRenderingDiagnosticsPanel* RenderingDiagnosticsPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		FConsolePanel* ConsolePanel = nullptr;
 		FDetailsPanel* DetailsPanel = nullptr;

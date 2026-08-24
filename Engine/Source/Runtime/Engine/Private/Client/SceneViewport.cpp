@@ -147,6 +147,37 @@ namespace Durin
 		return StatisticsSnapshot;
 	}
 
+	auto FSceneViewport::RequestRenderGraphCapture() -> void
+	{
+		bRenderGraphCaptureRequested.store(true, std::memory_order_release);
+	}
+
+	auto FSceneViewport::ConsumeRenderGraphCaptureRequest() -> bool
+	{
+		return bRenderGraphCaptureRequested.exchange(
+			false, std::memory_order_acq_rel);
+	}
+
+	auto FSceneViewport::PublishRenderGraphCapture_RenderThread(
+		std::shared_ptr<const FRenderGraphCapture> Capture,
+		bool bAvailable) -> void
+	{
+		check(IsInRenderingThread());
+		std::scoped_lock Lock(RenderGraphMutex);
+		if (RenderGraphSnapshot.Revision != std::numeric_limits<uint64>::max())
+			++RenderGraphSnapshot.Revision;
+		RenderGraphSnapshot.bAvailable = bAvailable && Capture != nullptr;
+		RenderGraphSnapshot.Capture = RenderGraphSnapshot.bAvailable
+			? std::move(Capture) : nullptr;
+	}
+
+	auto FSceneViewport::GetRenderGraphSnapshot() const
+		-> FSceneViewportRenderGraphSnapshot
+	{
+		std::scoped_lock Lock(RenderGraphMutex);
+		return RenderGraphSnapshot;
+	}
+
 	auto FSceneViewport::SanitizeDisplayExtent(const FVector2f& DesiredSize) -> FVector2f
 	{
 		return {

@@ -8,6 +8,7 @@ namespace Durin::Editor::Level
 	enum class ELevelEditorPanelRole : uint8
 	{
 		Persistent,
+		Optional,
 		DrawerTool,
 		ActivityHistory,
 	};
