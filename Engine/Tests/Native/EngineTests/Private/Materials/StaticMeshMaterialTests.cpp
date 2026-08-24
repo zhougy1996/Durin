@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "ImportService.h"
 #include "StaticMeshSourceTranslation.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
@@ -6,6 +7,22 @@
 
 namespace
 {
+	auto WaitForStaticMeshRecovery(
+		const Durin::FAssetPath& AssetPath,
+		double TimeoutSeconds = 10.0) -> bool
+	{
+		auto& Service = Durin::Asset::GetImportService();
+		const auto Deadline = std::chrono::steady_clock::now()
+			+ std::chrono::duration<double>(TimeoutSeconds);
+		while (Service.HasActiveImportClaim(AssetPath.ToString())
+			&& std::chrono::steady_clock::now() < Deadline)
+		{
+			(void)Service.PumpImportOperations();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return !Service.HasActiveImportClaim(AssetPath.ToString());
+	}
+
 	auto RelocateAssetForTest(
 		const Durin::FAssetPath& Source,
 		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
@@ -165,6 +182,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	const std::string OriginalHash = Mesh->GetSourceImportData().SourceContentHash;
 	WriteStaticMeshSlotVariant(StoredSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	ASSERT_TRUE(Mesh->PostLoad(RepairError)) << RepairError;
+	ASSERT_TRUE(WaitForStaticMeshRecovery(AssetPath));
 	EXPECT_NE(Mesh->GetSourceImportData().SourceContentHash, OriginalHash);
 	EXPECT_TRUE(Mesh->GetPackage()->IsDirty());
 	ASSERT_TRUE(std::filesystem::remove(StoredSource));
@@ -253,6 +271,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		std::string Error;
 		ASSERT_TRUE(Mesh->PostLoad(Error)) << Error;
+		Durin::FAssetPath AssetPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			Mesh->GetPackage()->GetPackagePath(), AssetPath));
+		ASSERT_TRUE(WaitForStaticMeshRecovery(AssetPath));
 	};
 
 	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
@@ -380,6 +402,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 		Root / "Models/Mesh.gltf", R"({ "name": "Blue" }, { "name": "Red" })");
 	std::string ReimportError;
 	ASSERT_TRUE(Component->GetStaticMesh()->PostLoad(ReimportError)) << ReimportError;
+	ASSERT_TRUE(WaitForStaticMeshRecovery(MeshPath));
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);
 	const auto& ReimportedSections =

@@ -12,6 +12,9 @@ namespace
 		Input.SourceContentHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
+		Input.ReconciliationHash = Durin::FXxHash128{
+			0x1111111111111111ull,
+			0x2222222222222222ull};
 		Input.ImporterId = "Assimp";
 		Input.ImporterVersion = 602;
 		Input.ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
@@ -31,9 +34,11 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		Durin::Asset::Build::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const std::vector<std::byte> Expected = [] {
 		const uint8 Values[]{
-		0x01, 0x00, 0x00, 0x00,
+		0x02, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
 		0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		'A', 's', 's', 'i', 'm', 'p',
 		0x5a, 0x02, 0x00, 0x00,
@@ -48,7 +53,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
 	EXPECT_EQ(Durin::Asset::Build::BuildStaticMeshDerivedDataKey(Input, Error),
-		"423fd576f6529b0df5c564c4f093ae11");
+		"06dd0f0c896c2a603a7f704cacdbba55");
 	EXPECT_EQ(Durin::Asset::Build::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
 }
 
@@ -67,6 +72,7 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 	};
 
 	ExpectChanged([](auto& Value) { ++Value.SourceContentHash.HashLow; });
+	ExpectChanged([](auto& Value) { ++Value.ReconciliationHash.HashLow; });
 	ExpectChanged([](auto& Value) { Value.ImporterId = "DurinFixtureImporter"; });
 	ExpectChanged([](auto& Value) { ++Value.ImporterVersion; });
 	ExpectChanged([](auto& Value) { Value.ImportSettings.ForwardAxis = Durin::EStaticMeshImportAxis::PositiveX; });

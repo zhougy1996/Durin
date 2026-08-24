@@ -14,6 +14,28 @@ namespace Durin::Asset::Build
 {
 	namespace
 	{
+		auto BuildReconciliationHash(
+			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
+			float NormalizedSize) -> FXxHash128
+		{
+			FXxHash128Builder Builder;
+			Builder.UpdateValue(NormalizedSize);
+			const uint64 SlotCount = MaterialSlots.size();
+			Builder.UpdateValue(SlotCount);
+			for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
+			{
+				const std::string Name = Slot.Name.ToString();
+				const uint64 NameSize = Name.size();
+				Builder.UpdateValue(NameSize);
+				Builder.Update(Name);
+				const uint64 SourceNameSize = Slot.SourceName.size();
+				Builder.UpdateValue(SourceNameSize);
+				Builder.Update(Slot.SourceName);
+				Builder.UpdateValue(Slot.SourceMaterialIndex);
+			}
+			return Builder.Finalize();
+		}
+
 		constexpr float VectorTolerance = 1.0e-10f;
 
 		auto IsCanonicalHash(std::string_view Hash) -> bool
@@ -557,6 +579,8 @@ namespace Durin::Asset::Build
 		const FStaticMeshBuildKeyInput KeyInput{
 			.SourceContentHash = FXxHash128::FromString(
 				SourceImportData.SourceContentHash),
+			.ReconciliationHash = BuildReconciliationHash(
+				Product.MaterialSlots, Reconciliation.NormalizedSize),
 			.ImporterId = SourceImportData.ImporterId,
 			.ImporterVersion = SourceImportData.ImporterVersion,
 			.ImportSettings = SourceImportData.ImportSettings,
@@ -606,6 +630,7 @@ namespace Durin::Asset::Build
 		Product.RenderData = std::move(SelectedRenderData);
 
 		Product.SourceImportData = std::move(SourceImportData);
+		Product.NormalizedSize = Reconciliation.NormalizedSize;
 		Product.FailureStage = EStaticMeshAuthoringFailureStage::None;
 		OutError.clear();
 		return true;
@@ -638,6 +663,8 @@ namespace Durin::Asset::Build
 		const FStaticMeshBuildKeyInput KeyInput{
 			.SourceContentHash = FXxHash128::FromString(
 				SourceImportData.SourceContentHash),
+			.ReconciliationHash = BuildReconciliationHash(
+				Reconciliation.MaterialSlots, Reconciliation.NormalizedSize),
 			.ImporterId = SourceImportData.ImporterId,
 			.ImporterVersion = SourceImportData.ImporterVersion,
 			.ImportSettings = SourceImportData.ImportSettings,
@@ -681,6 +708,7 @@ namespace Durin::Asset::Build
 		OutProduct.MaterialSlots.assign(
 			Reconciliation.MaterialSlots.begin(), Reconciliation.MaterialSlots.end());
 		OutProduct.SourceImportData = std::move(SourceImportData);
+		OutProduct.NormalizedSize = Reconciliation.NormalizedSize;
 		OutProduct.DerivedDataKey = Key;
 		OutProduct.DerivedDataStatus = bSourceAvailable
 			? EStaticMeshDerivedDataStatus::Hit

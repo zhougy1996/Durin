@@ -651,7 +651,9 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		const FStaticMeshSourceImportData PreviousSource = SourceImportData;
+		const float PreviousNormalizedSize = NormalizedSize;
 		SourceImportData = std::move(Product.SourceImportData);
+		NormalizedSize = Product.NormalizedSize;
 		if (!PublishRenderData(
 			std::move(Product.RenderData),
 			std::move(Product.MaterialSlots),
@@ -659,6 +661,7 @@ namespace Durin
 			OutError))
 		{
 			SourceImportData = PreviousSource;
+			NormalizedSize = PreviousNormalizedSize;
 			return false;
 		}
 		DerivedDataDiagnostic = {

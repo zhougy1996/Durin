@@ -22,6 +22,7 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		FStaticMeshSourceImportData SourceImportData;
+		float NormalizedSize = 1.5f;
 		std::string DerivedDataKey;
 		bool bSlotMetadataChanged = false;
 		EStaticMeshDerivedDataStatus DerivedDataStatus =

@@ -250,6 +250,12 @@ namespace Durin::Asset
 			-> std::unique_ptr<IInterchangeFactoryProduct> { return {}; }
 	};
 
+	class IInterchangeFactoryReconciliationContext
+	{
+	public:
+		virtual ~IInterchangeFactoryReconciliationContext() = default;
+	};
+
 	// Read-only view of the complete prospective authored graph. Factories use
 	// it to bind relationships only after every candidate has been materialized.
 	// ExistingTarget returns the currently published object for replacements;
@@ -271,6 +277,20 @@ namespace Durin::Asset
 			const std::function<bool()>& IsCancellationRequested,
 			std::vector<FImportDiagnostic>& OutDiagnostics) const
 			-> std::unique_ptr<IInterchangeFactoryProduct> = 0;
+		// Captures immutable replacement facts on the GameThread. The returned
+		// context crosses to worker product construction and must not retain
+		// Target references.
+		virtual auto CaptureReconciliationContext(
+			const FImportFactoryNode&,
+			const DObject&,
+			std::vector<FImportDiagnostic>&) const
+			-> std::unique_ptr<IInterchangeFactoryReconciliationContext> { return {}; }
+		// Applies the immutable target context during worker product construction.
+		virtual auto ReconcileDetachedProduct(
+			const FImportFactoryNode&,
+			const IInterchangeFactoryReconciliationContext*,
+			IInterchangeFactoryProduct&,
+			std::vector<FImportDiagnostic>&) const -> bool { return true; }
 		virtual auto MaterializeCandidate(
 			const FImportFactoryNode& FactoryNode,
 			std::unique_ptr<IInterchangeFactoryProduct> Product,
@@ -294,6 +314,12 @@ namespace Durin::Asset
 			ISingleAssetCandidate&,
 			std::vector<FImportDiagnostic>&) const
 			-> std::unique_ptr<IPreparedImportedStateExchange> { return {}; }
+		// Called after a recovery exchange. The candidate now contains the
+		// displaced target state, allowing factories to distinguish authored
+		// changes from disposable runtime/DDC reconstruction.
+		virtual auto HasAuthoredRecoveryChanges(
+			const DObject&,
+			const ISingleAssetCandidate&) const -> bool { return false; }
 		// Persists framework reproduction metadata after the reversible state
 		// exchange and authored fingerprint are complete, but before atomic save.
 		virtual auto ApplyProvenance(

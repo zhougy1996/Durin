@@ -8,6 +8,7 @@ namespace Durin::Asset::Build
 	struct FStaticMeshBuildKeyInput
 	{
 		FXxHash128 SourceContentHash;
+		FXxHash128 ReconciliationHash;
 		std::string ImporterId;
 		uint32 ImporterVersion = 0;
 		FStaticMeshImportSettings ImportSettings;

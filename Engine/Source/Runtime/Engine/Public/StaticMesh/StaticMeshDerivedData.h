@@ -13,7 +13,7 @@ namespace Durin
 	inline constexpr uint32 StaticMeshPayloadMagic = 0x48534D44; // DMSH
 	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 4;
 	inline constexpr uint32 StaticMeshBuilderVersion = 3;
-	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 1;
+	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 2;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;

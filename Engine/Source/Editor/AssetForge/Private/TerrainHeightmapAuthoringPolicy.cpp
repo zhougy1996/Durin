@@ -1,5 +1,6 @@
 #include "TerrainAuthoringFeature.h"
 
+#include "Asset/MountedSource.h"
 #include "DObject/ObjectHandle.h"
 #include "EncodedSourceSnapshot.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -317,6 +318,29 @@ namespace Durin::Asset::Forge
 			if (!Heightmap.GetPackage()
 				|| !FAssetPath::TryCreate(Heightmap.GetPackage()->GetPackagePath(),
 					Destination, &OutError)) return false;
+			FMountedSourceResolution SourceResolution;
+			if (!ResolveMountedSourceReference(
+				Destination.ToString(), Heightmap.GetSourceImportData().SourcePath.Path,
+				EMountedSourceExistencePolicy::AllowMissing,
+				SourceResolution, OutError))
+			{
+				const uint64 Generation = Heightmap.BeginAuthoringLoad(
+					true, "Validating terrain heightmap recovery source.");
+				(void)Heightmap.FailAuthoringLoad(
+					Generation, ETerrainHeightmapStatus::Failed, OutError);
+				return false;
+			}
+			if (!SourceResolution.bExists)
+			{
+				OutError = std::format(
+					"Terrain heightmap recovery source '{}' is unavailable.",
+					Heightmap.GetSourceImportData().SourcePath.Path);
+				const uint64 Generation = Heightmap.BeginAuthoringLoad(
+					true, "Validating terrain heightmap recovery source.");
+				(void)Heightmap.FailAuthoringLoad(
+					Generation, ETerrainHeightmapStatus::SourceUnavailable, OutError);
+				return false;
+			}
 			FInterchangeProvenance Existing;
 			std::optional<FInterchangeProvenance> Provenance;
 			if (InspectTerrainHeightmapInterchangeProvenance(Heightmap, Existing, OutError))

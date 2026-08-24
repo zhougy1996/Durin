@@ -64,6 +64,7 @@ namespace Durin::Asset::Build
 		uint8 UpAxis = static_cast<uint8>(ImportSettings.UpAxis);
 		uint32 Platform = static_cast<uint32>(TargetPlatform);
 		Ar << KeySchemaVersion << SourceContentHash.HashLow << SourceContentHash.HashHigh
+			<< ReconciliationHash.HashLow << ReconciliationHash.HashHigh
 			<< ImporterId << ImporterVersion << ForwardAxis << RightAxis << UpAxis
 			<< BuilderVersion << PayloadSchemaVersion << Platform;
 	}

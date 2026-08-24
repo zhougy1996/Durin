@@ -170,6 +170,7 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	ASSERT_TRUE(std::filesystem::remove(ObjectPath));
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
+	ASSERT_TRUE(WaitForStaticMeshRecovery(Fixture.AssetPath));
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	EXPECT_EQ(
 		Fixture.Mesh->GetDerivedDataDiagnostic().Status,
@@ -210,6 +211,7 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	}
 	std::string Error;
 	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error)) << Error;
+	ASSERT_TRUE(WaitForStaticMeshRecovery(Fixture.AssetPath));
 	const std::string SourceChangedKey = Fixture.Mesh->GetDerivedDataDiagnostic().Key;
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_NE(SourceChangedKey, InitialKey);
@@ -226,6 +228,7 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 		SourceImportProperty->GetValuePtr(Fixture.Mesh));
 	SourceImportData->ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error)) << Error;
+	ASSERT_TRUE(WaitForStaticMeshRecovery(Fixture.AssetPath));
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_NE(Fixture.Mesh->GetDerivedDataDiagnostic().Key, SourceChangedKey);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);

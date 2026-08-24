@@ -68,6 +68,13 @@ namespace Durin::Asset
 
 		struct FInterchangeGraphJobValue final : IImportJobValue
 		{
+			FInterchangeGraphJobValue() = default;
+			FInterchangeGraphJobValue(const FInterchangeGraphJobValue&) = delete;
+			auto operator=(const FInterchangeGraphJobValue&)
+				-> FInterchangeGraphJobValue& = delete;
+			FInterchangeGraphJobValue(FInterchangeGraphJobValue&&) noexcept = default;
+			auto operator=(FInterchangeGraphJobValue&&) noexcept
+				-> FInterchangeGraphJobValue& = default;
 			std::shared_ptr<const FSourceSnapshot> Snapshot;
 			FTranslatedAssetGraph TranslatedGraph;
 			FImportFactoryGraph FactoryGraph;
@@ -75,6 +82,8 @@ namespace Durin::Asset
 			FInterchangeInspection Inspection;
 			uint64 RegistryRevision = 0;
 			FXxHash128 PreviewReuseFingerprint{};
+			std::vector<std::unique_ptr<IInterchangeFactoryReconciliationContext>>
+				ReconciliationContexts;
 		};
 
 		auto CloneGraphs(const FInterchangeGraphJobValue& Source)
@@ -238,7 +247,7 @@ namespace Durin::Asset
 			-> std::unique_ptr<FInterchangeProductJobValue>
 		{
 			auto Result = std::make_unique<FInterchangeProductJobValue>();
-			Result->Graphs = *CloneGraphs(Source.Graphs);
+			Result->Graphs = std::move(*CloneGraphs(Source.Graphs));
 			Result->Products.reserve(Source.Products.size());
 			for (const FInterchangeProductEntry& Entry : Source.Products)
 			{
@@ -342,6 +351,37 @@ namespace Durin::Asset
 					auto* Graphs = dynamic_cast<FInterchangeGraphJobValue*>(PreviousWorkerResult.get());
 					if (!Graphs) return Complete(FailureOutcome({},
 						"Interchange graph preparation returned an invalid value."));
+					std::vector<FImportDiagnostic> Diagnostics;
+					const auto Nodes = Graphs->FactoryGraph.GetNodes();
+					Graphs->ReconciliationContexts.resize(Nodes.size());
+					for (size_t NodeIndex = 0; NodeIndex < Nodes.size(); ++NodeIndex)
+					{
+						const FImportFactoryNode& Node = Nodes[NodeIndex];
+						if (Node.Policy == EImportOutputPolicy::Create) continue;
+						auto Selected = GetImportService().SelectFactory(
+							Node.OutputClassName, Node.FactoryId, Node.FactoryContractVersion);
+						if (!Selected)
+							return Complete(FailureOutcome(std::move(Selected.Diagnostics),
+								"Factory selection failed during replacement snapshot capture."));
+						auto Invocation = Selected.Lease.TryEnter();
+						DObject* ExistingTarget = nullptr;
+						const Asset::FAssetResult Loaded = Invocation && Selected.Lease.GetFactory()
+							? Selected.Lease.GetFactory()->LoadExistingTarget(Node, ExistingTarget)
+							: Asset::FAssetResult{
+								.Error = Asset::EAssetError::ShuttingDown,
+								.Message = "Interchange factory retired before snapshot capture."};
+						if (!Loaded || !ExistingTarget)
+							return Complete(FailureOutcome(std::move(Diagnostics),
+								std::format("Replacement target '{}' is unavailable: {}",
+									Node.Destination.ToString(), Loaded.Message)));
+						Graphs->ReconciliationContexts[NodeIndex] =
+							Selected.Lease.GetFactory()->CaptureReconciliationContext(
+								Node, *ExistingTarget, Diagnostics);
+						if (HasError(Diagnostics))
+							return Complete(FailureOutcome(std::move(Diagnostics),
+								std::format("Replacement target '{}' snapshot capture failed.",
+									Node.Destination.ToString())));
+					}
 					State = EState::AwaitProducts;
 					WorkerRound = 1;
 					return FImportJobEditorAdvance::ContinueWith({
@@ -554,6 +594,13 @@ namespace Durin::Asset
 									|| (GroupCancellation
 										&& GroupCancellation->IsCancellationRequested());
 							}, Diagnostics[LevelIndex]);
+						if (Entry.Product
+							&& !Entry.Factory.GetFactory()->ReconcileDetachedProduct(
+								Node,
+								Value->Graphs.ReconciliationContexts.empty() ? nullptr
+									: Value->Graphs.ReconciliationContexts[Entry.NodeIndex].get(),
+								*Entry.Product, Diagnostics[LevelIndex]))
+							Entry.Product.reset();
 						Succeeded[LevelIndex] = Entry.Product
 							&& !HasError(Diagnostics[LevelIndex]);
 					};
@@ -610,6 +657,21 @@ namespace Durin::Asset
 						return Complete(FailureOutcome(std::move(Diagnostics),
 							"Interchange recovery cannot create an authored asset."));
 					auto Invocation = Product.Factory.TryEnter();
+					DObject* ExistingTarget = nullptr;
+					if (Node.Policy != EImportOutputPolicy::Create)
+					{
+						const Asset::FAssetResult Loaded =
+							Invocation && Product.Factory.GetFactory()
+							? Product.Factory.GetFactory()->LoadExistingTarget(
+								Node, ExistingTarget)
+							: Asset::FAssetResult{
+								.Error = Asset::EAssetError::ShuttingDown,
+								.Message = "Interchange factory retired before target loading."};
+						if (!Loaded || !ExistingTarget)
+							return Complete(FailureOutcome(std::move(Diagnostics),
+								std::format("Replacement target '{}' is unavailable: {}",
+									Node.Destination.ToString(), Loaded.Message)));
+					}
 					auto Candidate = Invocation && Product.Factory.GetFactory()
 						? Product.Factory.GetFactory()->MaterializeCandidate(
 							Node, std::move(Product.Product), Diagnostics)
@@ -623,25 +685,8 @@ namespace Durin::Asset
 					FPreparedInterchangeOutput Output{
 						.Factory = std::move(Product.Factory),
 						.Candidate = std::move(Candidate),
+						.ExistingTarget = ExistingTarget,
 						.NodeIndex = Product.NodeIndex};
-					if (Node.Policy != EImportOutputPolicy::Create)
-					{
-						const Asset::FAssetResult Loaded =
-							Invocation && Output.Factory.GetFactory()
-							? Output.Factory.GetFactory()->LoadExistingTarget(
-								Node, Output.ExistingTarget)
-							: Asset::FAssetResult{
-								.Error = Asset::EAssetError::ShuttingDown,
-								.Message = "Interchange factory retired before target loading."};
-						if (!Loaded || !Output.ExistingTarget)
-						{
-							Abandon(Prepared);
-							Output.Candidate->Abandon();
-							return Complete(FailureOutcome(std::move(Diagnostics),
-								std::format("Replacement target '{}' is unavailable: {}",
-									Node.Destination.ToString(), Loaded.Message)));
-						}
-					}
 					Prepared.push_back(std::move(Output));
 				}
 
@@ -825,7 +870,19 @@ namespace Durin::Asset
 									"Interchange recovery failed to restore existing provenance."));
 							}
 						}
-					RestorePackageDirtyStates();
+					for (FPreparedInterchangeOutput& Output : Prepared)
+					{
+						DPackage* Package = Output.ExistingTarget->GetPackage();
+						const auto DirtyState = std::ranges::find(
+							PackageDirtyStates, Package, &std::pair<DPackage*, bool>::first);
+						if (DirtyState != PackageDirtyStates.end() && DirtyState->second)
+							continue;
+						auto Invocation = Output.Factory.TryEnter();
+						if (Invocation && Output.Factory.GetFactory()
+							&& !Output.Factory.GetFactory()->HasAuthoredRecoveryChanges(
+								*Output.ExistingTarget, *Output.Candidate))
+							Package->ClearDirty();
+					}
 				}
 
 				FInterchangeImportResult Result;

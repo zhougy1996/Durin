@@ -1410,6 +1410,7 @@ namespace Durin::Asset::Forge
 				Result.RenderData = std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
 			Result.MaterialSlots = Source.MaterialSlots;
 			Result.SourceImportData = Source.SourceImportData;
+			Result.NormalizedSize = Source.NormalizedSize;
 			Result.DerivedDataKey = Source.DerivedDataKey;
 			Result.bSlotMetadataChanged = Source.bSlotMetadataChanged;
 			Result.DerivedDataStatus = Source.DerivedDataStatus;
@@ -1424,13 +1425,26 @@ namespace Durin::Asset::Forge
 		{
 		public:
 			Asset::Build::FStaticMeshBuildProduct Product;
+			Asset::Build::FStaticMeshImportedData ImportedData;
+			FStaticMeshSourceImportData SourceImportData;
+			std::string SourceLabel;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IInterchangeFactoryProduct> override
 			{
 				auto Result = std::make_unique<FStaticMeshInterchangeProduct>();
 				Result->Product = CloneStaticMeshBuildProduct(Product);
+				Result->ImportedData = ImportedData;
+				Result->SourceImportData = SourceImportData;
+				Result->SourceLabel = SourceLabel;
 				return Result;
 			}
+		};
+
+		class FStaticMeshInterchangeReconciliationContext final
+			: public IInterchangeFactoryReconciliationContext
+		{
+		public:
+			Asset::Build::FStaticMeshReconciliationSnapshot Snapshot;
 		};
 
 		class FStaticMeshInterchangeFactory final : public IInterchangeFactory
@@ -1472,8 +1486,12 @@ namespace Durin::Asset::Forge
 					.Provenance = Provenance,
 					.ImportSettings = Plan.Settings};
 				auto Result = std::make_unique<FStaticMeshInterchangeProduct>();
-				if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
-					Reconciliation, Source.ImportedData, std::move(Provenance),
+				Result->ImportedData = Source.ImportedData;
+				Result->SourceImportData = Provenance;
+				Result->SourceLabel = Source.SourcePath.Path;
+				if (FactoryNode.Policy == EImportOutputPolicy::Create
+					&& !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					Reconciliation, Result->ImportedData, Provenance,
 					Source.SourcePath.Path, Result->Product, Error))
 				{
 					OutDiagnostics.push_back({
@@ -1484,6 +1502,49 @@ namespace Durin::Asset::Forge
 					return {};
 				}
 				return Result;
+			}
+
+			auto CaptureReconciliationContext(
+				const FImportFactoryNode&,
+				const DObject& ExistingTarget,
+				std::vector<FImportDiagnostic>&) const
+				-> std::unique_ptr<IInterchangeFactoryReconciliationContext> override
+			{
+				const auto* Mesh = Cast<DStaticMesh>(&ExistingTarget);
+				if (!Mesh) return {};
+				auto Result = std::make_unique<FStaticMeshInterchangeReconciliationContext>();
+				Result->Snapshot =
+					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
+				return Result;
+			}
+
+			auto ReconcileDetachedProduct(
+				const FImportFactoryNode& FactoryNode,
+				const IInterchangeFactoryReconciliationContext* Context,
+				IInterchangeFactoryProduct& Product,
+				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
+			{
+				if (FactoryNode.Policy == EImportOutputPolicy::Create) return true;
+				const auto* Reconciliation =
+					dynamic_cast<const FStaticMeshInterchangeReconciliationContext*>(Context);
+				auto* MeshProduct = dynamic_cast<FStaticMeshInterchangeProduct*>(&Product);
+				std::string Error;
+				if (!Reconciliation || !MeshProduct
+					|| !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+						Reconciliation->Snapshot,
+						MeshProduct->ImportedData, MeshProduct->SourceImportData,
+						MeshProduct->SourceLabel, MeshProduct->Product, Error))
+				{
+					OutDiagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Identity = "Durin.StaticMesh.ReconciliationFailed",
+						.Phase = "Reconciliation", .Message = std::move(Error)});
+					return false;
+				}
+				MeshProduct->Product.DiagnosticMessage =
+					"Rebuilt static mesh after cache miss or source change.";
+				return true;
 			}
 
 			auto MaterializeCandidate(
@@ -1534,6 +1595,18 @@ namespace Durin::Asset::Forge
 						.Phase = "Exchange", .Message = std::move(Error)});
 				return Exchange
 					? std::make_unique<FStaticMeshExchange>(std::move(Exchange)) : nullptr;
+			}
+
+			auto HasAuthoredRecoveryChanges(
+				const DObject& TargetObject,
+				const ISingleAssetCandidate& CandidateObject) const -> bool override
+			{
+				const auto* Target = Cast<DStaticMesh>(&TargetObject);
+				const auto* Previous = Cast<DStaticMesh>(CandidateObject.GetAsset());
+				return !Target || !Previous
+					|| Target->GetSourceImportData() != Previous->GetSourceImportData()
+					|| !std::ranges::equal(
+						Target->GetMaterialSlots(), Previous->GetMaterialSlots());
 			}
 
 			auto ApplyProvenance(
@@ -1870,7 +1943,8 @@ namespace Durin::Asset::Forge
 					Asset::Build::FStaticMeshReconciliationSnapshot Reconciliation{
 						.StableObjectPath = FactoryNode.Destination.ToString(),
 						.Provenance = Provenance, .ImportSettings = Cached->Data->MeshSettings};
-					if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					if (FactoryNode.Policy == EImportOutputPolicy::Create
+						&& !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
 						Reconciliation, MakeStaticMeshImportedData(Cached->Data->Scene),
 						std::move(Provenance), Root->SourcePath.Path, Product->StaticMesh, Error))
 						return Fail(FactoryNode, std::move(Error), OutDiagnostics);
@@ -1930,6 +2004,64 @@ namespace Durin::Asset::Forge
 						return Fail(FactoryNode, std::move(Error), OutDiagnostics);
 				}
 				return Product;
+			}
+
+			auto CaptureReconciliationContext(
+				const FImportFactoryNode& FactoryNode,
+				const DObject& ExistingTarget,
+				std::vector<FImportDiagnostic>& OutDiagnostics) const
+				-> std::unique_ptr<IInterchangeFactoryReconciliationContext> override
+			{
+				if (Kind != ESceneOutputKind::StaticMesh) return {};
+				const auto* Mesh = Cast<DStaticMesh>(&ExistingTarget);
+				if (!Mesh)
+				{
+					(void)Fail(FactoryNode,
+						"Scene StaticMesh replacement target is invalid.", OutDiagnostics);
+					return {};
+				}
+				auto Result = std::make_unique<FStaticMeshInterchangeReconciliationContext>();
+				Result->Snapshot =
+					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
+				return Result;
+			}
+
+			auto ReconcileDetachedProduct(
+				const FImportFactoryNode& FactoryNode,
+				const IInterchangeFactoryReconciliationContext* Context,
+				IInterchangeFactoryProduct& ProductObject,
+				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
+			{
+				if (Kind != ESceneOutputKind::StaticMesh
+					|| FactoryNode.Policy == EImportOutputPolicy::Create) return true;
+				const auto* Reconciliation =
+					dynamic_cast<const FStaticMeshInterchangeReconciliationContext*>(Context);
+				auto* Product = dynamic_cast<FSceneInterchangeFactoryProduct*>(&ProductObject);
+				const FSourceSnapshotEntry* Root = Product && Product->Cached
+					? Product->Cached->Snapshot->FindSource("root") : nullptr;
+				std::string Error;
+				if (!Reconciliation || !Product || !Root
+					|| Product->OutputIndex >= Product->Cached->Data->Outputs.size())
+				{
+					(void)Fail(FactoryNode,
+						"Scene StaticMesh replacement context is invalid.", OutDiagnostics);
+					return false;
+				}
+				FStaticMeshSourceImportData Provenance{
+					.SourcePath = Root->SourcePath,
+					.SourceContentHash = Root->ContentHash.ToString(),
+					.ImporterId = std::string(SceneTranslatorId), .ImporterVersion = 1,
+					.ImportSettings = Product->Cached->Data->MeshSettings};
+				if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					Reconciliation->Snapshot,
+					MakeStaticMeshImportedData(Product->Cached->Data->Scene),
+					std::move(Provenance), Root->SourcePath.Path,
+					Product->StaticMesh, Error))
+				{
+					(void)Fail(FactoryNode, std::move(Error), OutDiagnostics);
+					return false;
+				}
+				return true;
 			}
 
 			auto MaterializeCandidate(
