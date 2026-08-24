@@ -1,7 +1,10 @@
 #include "TextureTestSupport.h"
 #include "AssetBuild/BuildHost.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
+#include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
 #include "ImportService.h"
@@ -10,6 +13,23 @@ static_assert(std::is_base_of_v<
 	Durin::FTextureAssetResource, Durin::FTexture2DResource>);
 static_assert(std::is_base_of_v<
 	Durin::FTextureAssetResource, Durin::FTextureCubeResource>);
+
+namespace
+{
+	auto MakeSingleMipPlatformData() -> Durin::FTexturePlatformData
+	{
+		Durin::FTexturePlatformData Result;
+		Result.PixelFormat = Durin::EPixelFormat::BC1_UNORM;
+		const Durin::FPixelFormatLayout Layout =
+			Durin::GetPixelFormatLayout(Result.PixelFormat, 1, 1);
+		Durin::FTexture2DMipData& Mip = Result.Mips.emplace_back();
+		Mip.Width = 1;
+		Mip.Height = 1;
+		Mip.RowPitch = static_cast<uint32>(Layout.RowPitch);
+		Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize));
+		return Result;
+	}
+}
 
 TEST(FTextureResourceCompletionTests, RejectsStaleBuild)
 {
@@ -121,6 +141,49 @@ TEST(FTextureResourceCompletionTests, AppliedRevisionIsMonotonic)
 	ASSERT_TRUE(Completion.MarkBuilding(1));
 	Completion.MarkReady(1);
 	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+}
+
+TEST(FTexture2DTests, ExchangeInvalidatesTheSideWithoutPlatformData)
+{
+	InitializeDObjectSystem();
+	auto* Populated = Durin::NewObject<Durin::DTexture2D>(nullptr, "PopulatedTexture2D");
+	auto* Empty = Durin::NewObject<Durin::DTexture2D>(nullptr, "EmptyTexture2D");
+	std::string Error;
+	ASSERT_TRUE(Populated->PublishDerivedDataLoad(
+		std::make_unique<Durin::FTexturePlatformData>(MakeSingleMipPlatformData()),
+		"Texture2DExchangeTest", true, Error)) << Error;
+
+	Populated->ExchangeImportedState(*Empty);
+
+	EXPECT_EQ(Populated->GetPlatformData(), nullptr);
+	EXPECT_EQ(Populated->GetRenderResourceState(), Durin::ERenderResourceState::Released);
+	ASSERT_NE(Empty->GetPlatformData(), nullptr);
+	EXPECT_TRUE(Empty->GetPlatformData()->IsValid());
+	Durin::MarkAsGarbage(Populated);
+	Durin::MarkAsGarbage(Empty);
+}
+
+TEST(FTextureCubeTests, ExchangeInvalidatesTheSideWithoutPlatformData)
+{
+	InitializeDObjectSystem();
+	auto* Populated = Durin::NewObject<Durin::DTextureCube>(nullptr, "PopulatedTextureCube");
+	auto* Empty = Durin::NewObject<Durin::DTextureCube>(nullptr, "EmptyTextureCube");
+	auto PlatformData = std::make_unique<Durin::FTextureCubePlatformData>();
+	PlatformData->PixelFormat = Durin::EPixelFormat::BC1_UNORM;
+	for (Durin::FTexturePlatformData& Face : PlatformData->Faces)
+		Face = MakeSingleMipPlatformData();
+	std::string Error;
+	ASSERT_TRUE(Populated->PublishDerivedDataLoad(
+		std::move(PlatformData), "TextureCubeExchangeTest", Error)) << Error;
+
+	Populated->ExchangeImportedState(*Empty);
+
+	EXPECT_EQ(Populated->GetPlatformData(), nullptr);
+	EXPECT_EQ(Populated->GetRenderResourceState(), Durin::ERenderResourceState::Released);
+	ASSERT_NE(Empty->GetPlatformData(), nullptr);
+	EXPECT_TRUE(Empty->GetPlatformData()->IsValid());
+	Durin::MarkAsGarbage(Populated);
+	Durin::MarkAsGarbage(Empty);
 }
 
 TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)

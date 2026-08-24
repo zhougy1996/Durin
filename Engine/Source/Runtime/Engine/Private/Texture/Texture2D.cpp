@@ -565,8 +565,11 @@ namespace Durin
 		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
 		std::swap(BuildStatus, Other.BuildStatus);
 		std::swap(LastBuildError, Other.LastBuildError);
-		QueueRenderResourceBuild();
-		Other.QueueRenderResourceBuild();
+		if (PlatformData && PlatformData->IsValid()) QueueRenderResourceBuild();
+		else InvalidateRenderResource();
+		if (Other.PlatformData && Other.PlatformData->IsValid())
+			Other.QueueRenderResourceBuild();
+		else Other.InvalidateRenderResource();
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
 	}
