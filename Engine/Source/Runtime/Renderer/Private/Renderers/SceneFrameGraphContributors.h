@@ -54,22 +54,25 @@ namespace Durin
 		FGBufferPassResult, "Scene.GBuffer", FGBufferRecordInputs);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FAmbientOcclusionGraphContributor,
 		FGroundTruthAmbientOcclusionPassResult, "Scene.AmbientOcclusion", FSceneView);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FContactVisibilityGraphContributor,
-		FContactShadowPassResult, "Scene.ContactShadow", FContactVisibilityRecordInputs);
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FContactShadowVisibilityGraphContributor,
+		FContactShadowVisibilityPassResult, "Scene.ContactShadowVisibility",
+		FContactShadowVisibilityRecordInputs);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudShadowGraphContributor,
 		FVolumetricCloudShadowPassResult, "Scene.VolumetricCloudShadow",
 		FVolumetricCloudShadowRecordInputs);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FDeferredLightingGraphContributor,
-		FIsolatedDeferredPassResult, "Scene.DeferredLighting", FSceneView);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FOpaqueSceneGraphContributor,
-		FSceneColorPassResult, "Scene.Opaque", FSceneGeometryRecordInputs);
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(
+		FDeferredDirectionalLightingGraphContributor,
+		FIsolatedDeferredPassResult, "Scene.DeferredDirectionalLighting",
+		FSceneView);
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FBaseSceneGraphContributor,
+		FSceneColorPassResult, "Scene.Base", FSceneGeometryRecordInputs);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudSpatialGraphContributor,
 		FVolumetricCloudSpatialPassResult, "Scene.VolumetricCloudSpatial",
 		FVolumetricCloudRecordInputs);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudCompositeGraphContributor,
 		FVolumetricCloudPassResult, "Scene.VolumetricCloud",
 		FVolumetricCloudRecordInputs);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FSortedTranslucencyGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FSceneColorGraphContributor,
 		FSceneColorPassResult, "Scene.Color", FSceneGeometryRecordInputs);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FPostProcessGraphContributor,
 		FPostProcessPassResult, "Scene.PostProcess", FSceneView);

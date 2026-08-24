@@ -20,7 +20,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -55,16 +55,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -88,7 +87,7 @@ namespace Durin
 			Declare(GraphResources.EnvironmentBrdfLut,
 				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
 		};
-		if (Requirements.bGBuffer)
+		if (Topology.bGBuffer)
 		{
 			const std::array Formats{EPixelFormat::RGBA8_UNORM,
 				EPixelFormat::RGBA8_UNORM, EPixelFormat::RGBA8_UNORM,

@@ -19,7 +19,7 @@ namespace Durin
 		const auto& View = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
 		const auto& Options = Inputs.Options;
-		auto& Requirements = Inputs.Topology;
+		auto& Topology = Inputs.Topology;
 		const auto& PreparedEditorAssistance = Inputs.EditorAssistance;
 		const auto PreparedContactRoute = Inputs.ContactRoute;
 		const auto PreparedCloudShadowRoute = Inputs.CloudShadowRoute;
@@ -122,12 +122,12 @@ namespace Durin
 		GraphResources.Output = Graph.ImportTexture("Scene.Output", OutputTarget,
 			ERHIAccess::Discard,
 			bPresentOutput ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead);
-		Graph.SetBackingResolver([&Services, &Requirements, &TargetResolutionResult,
+		Graph.SetBackingResolver([&Services, &Topology, &TargetResolutionResult,
 			&GraphResources](auto Requests, auto& Backings,
 			std::string& Error) {
 			const auto Retained =
 				FSceneFrameGraphBackingProvider::BuildRetainedTopology(
-					Requests, Requirements, Error);
+					Requests, Topology, Error);
 			if (!Retained) return false;
 			TargetResolutionResult = Services.ResolveTargets(*Retained);
 			if (TargetResolutionResult != ERenderViewResult::Success)
@@ -142,16 +142,18 @@ namespace Durin
 			.DirectionalShadow = {Graph.CreateToken("Scene.DirectionalShadowValue")},
 			.GBuffer = {Graph.CreateToken("Scene.GBufferValue")},
 			.AmbientOcclusion = {Graph.CreateToken("Scene.AmbientOcclusionValue")},
-			.ContactShadow = {Graph.CreateToken("Scene.ContactShadowValue")},
+			.ContactShadowVisibility = {
+				Graph.CreateToken("Scene.ContactShadowVisibilityValue")},
 			.CloudShadow = {Graph.CreateToken("Scene.CloudShadowValue")},
-			.Deferred = {Graph.CreateToken("Scene.DeferredValue")},
-			.OpaqueScene = {Graph.CreateToken("Scene.OpaqueValue")},
+			.DeferredDirectionalLighting = {
+				Graph.CreateToken("Scene.DeferredDirectionalLightingValue")},
+			.BaseScene = {Graph.CreateToken("Scene.BaseValue")},
 			.VolumetricCloudSpatial = {
 				Graph.CreateToken("Scene.VolumetricCloudSpatialValue")},
 			.VolumetricCloud = {Graph.CreateToken("Scene.VolumetricCloudValue")},
 			.SceneColor = {Graph.CreateToken("Scene.ColorValue")},
 			.PostProcess = {Graph.CreateToken("Scene.PostProcessValue")},
-			.FinalOutput = {Graph.CreateToken("Scene.FinalOutputValue")}};
+			.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion")};
 		FSceneFrameGraphContributorContext Context{
 			.Graph = Graph,
 			.Services = Services,
@@ -159,7 +161,7 @@ namespace Durin
 			.View = View,
 			.OutputTarget = OutputTarget,
 			.Options = Options,
-			.Topology = Requirements,
+			.Topology = Topology,
 			.EditorAssistance = PreparedEditorAssistance,
 			.ContactRoute = PreparedContactRoute,
 			.CloudShadowRoute = PreparedCloudShadowRoute,
@@ -189,19 +191,20 @@ namespace Durin
 		FGBufferGraphContributor::AddPasses(Context,
 			{PreparedRenderView, PreparedView.Receiver});
 		FAmbientOcclusionGraphContributor::AddPasses(Context, PreparedRenderView);
-		FContactVisibilityGraphContributor::AddPasses(Context,
+		FContactShadowVisibilityGraphContributor::AddPasses(Context,
 			{PreparedRenderView, DirectionalShadow});
 		FVolumetricCloudShadowGraphContributor::AddPasses(Context,
 			{PreparedRenderView, VolumetricCloud, PreparedView.Lighting});
-		FDeferredLightingGraphContributor::AddPasses(Context, PreparedRenderView);
+		FDeferredDirectionalLightingGraphContributor::AddPasses(
+			Context, PreparedRenderView);
 		const FSceneGeometryRecordInputs GeometryInputs{
 			PreparedRenderView, Environment, PreparedView.Receiver};
-		FOpaqueSceneGraphContributor::AddPasses(Context, GeometryInputs);
+		FBaseSceneGraphContributor::AddPasses(Context, GeometryInputs);
 		const FVolumetricCloudRecordInputs CloudInputs{
 			PreparedRenderView, VolumetricCloud};
 		FVolumetricCloudSpatialGraphContributor::AddPasses(Context, CloudInputs);
 		FVolumetricCloudCompositeGraphContributor::AddPasses(Context, CloudInputs);
-		FSortedTranslucencyGraphContributor::AddPasses(Context, GeometryInputs);
+		FSceneColorGraphContributor::AddPasses(Context, GeometryInputs);
 		FPostProcessGraphContributor::AddPasses(Context, PreparedRenderView);
 		FEditorAssistanceGraphContributor::AddPasses(Context, PreparedRenderView);
 	}

@@ -35,7 +35,6 @@ namespace Durin
 		auto& GraphResources = Context.Composition.Resources;
 		auto& Channels = Context.Composition.Channels;
 		auto& PostProcessValue = Channels.PostProcess;
-			auto& FinalOutputValue = Channels.FinalOutput;
 			const auto EditorAssistancePass =
 				AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
 					Graph, ERenderGraphPassType::Graphics,
@@ -53,7 +52,7 @@ namespace Durin
 				});
 			Graph.UseToken(EditorAssistancePass, PostProcessValue.Handle,
 				ERenderGraphUse::Read);
-			Graph.UseToken(EditorAssistancePass, FinalOutputValue.Handle,
+			Graph.UseToken(EditorAssistancePass, Channels.OutputCompletion,
 				ERenderGraphUse::Write);
 			Graph.UseManagedColorAttachment(EditorAssistancePass,
 				GraphResources.Output,

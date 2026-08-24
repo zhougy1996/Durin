@@ -46,23 +46,24 @@ namespace Durin
 		}
 	};
 
-	enum class EContactShadowPassRoute : uint8
+	enum class EContactShadowVisibilityPassRoute : uint8
 	{
 		None,
 		Compute,
 		Fragment
 	};
 
-	struct FContactShadowPassResult
+	struct FContactShadowVisibilityPassResult
 	{
 		EScenePassStatus Status = EScenePassStatus::NotRequested;
-		EContactShadowPassRoute Route = EContactShadowPassRoute::None;
+		EContactShadowVisibilityPassRoute Route =
+			EContactShadowVisibilityPassRoute::None;
 		bool bDebug = false;
 
 		[[nodiscard]] auto IsComplete() const -> bool
 		{
 			return Status == EScenePassStatus::Complete
-				&& Route != EContactShadowPassRoute::None;
+				&& Route != EContactShadowVisibilityPassRoute::None;
 		}
 	};
 
@@ -128,7 +129,7 @@ namespace Durin
 		FDirectionalShadowPassResult DirectionalShadow;
 		FGBufferPassResult GBuffer;
 		FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
-		FContactShadowPassResult ContactShadow;
+		FContactShadowVisibilityPassResult ContactShadow;
 		FVolumetricCloudShadowPassResult VolumetricCloudShadow;
 		FIsolatedDeferredPassResult IsolatedDeferred;
 		FSceneColorPassResult SceneColor;

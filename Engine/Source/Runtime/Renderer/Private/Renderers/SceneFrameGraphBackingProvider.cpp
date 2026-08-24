@@ -25,10 +25,10 @@ namespace Durin
 			case ESceneFrameBackingClass::GBuffer: Retained.bGBuffer = true; break;
 			case ESceneFrameBackingClass::AmbientOcclusion:
 				Retained.bGroundTruthAmbientOcclusion = true; break;
-			case ESceneFrameBackingClass::ContactVisibilityFragment:
-				Retained.ContactVisibility = ESceneFrameRoute::Fragment; break;
-			case ESceneFrameBackingClass::ContactVisibilityCompute:
-				Retained.ContactVisibility = ESceneFrameRoute::Compute; break;
+			case ESceneFrameBackingClass::ContactShadowVisibilityFragment:
+				Retained.ContactShadowVisibility = ESceneFrameRoute::Fragment; break;
+			case ESceneFrameBackingClass::ContactShadowVisibilityCompute:
+				Retained.ContactShadowVisibility = ESceneFrameRoute::Compute; break;
 			case ESceneFrameBackingClass::VolumetricCloudShadowFragment:
 				Retained.VolumetricCloudShadow = ESceneFrameRoute::Fragment; break;
 			case ESceneFrameBackingClass::VolumetricCloudShadowCompute:
@@ -94,11 +94,11 @@ namespace Durin
 				Complete = SetOptional(Resources.GroundTruthAmbientOcclusion[Index],
 					Physical[Index]) && Complete;
 		}
-		Complete = SetOptional(Resources.ContactFragment,
-			Targets.ContactFragment ? Targets.ContactFragment->Visibility : nullptr)
+		Complete = SetOptional(Resources.ContactShadowVisibilityFragment,
+			Targets.ContactShadowVisibilityFragment ? Targets.ContactShadowVisibilityFragment->Visibility : nullptr)
 			&& Complete;
-		Complete = SetOptional(Resources.ContactCompute,
-			Targets.ContactCompute ? Targets.ContactCompute->Visibility : nullptr)
+		Complete = SetOptional(Resources.ContactShadowVisibilityCompute,
+			Targets.ContactShadowVisibilityCompute ? Targets.ContactShadowVisibilityCompute->Visibility : nullptr)
 			&& Complete;
 		Complete = SetOptional(Resources.VolumetricCloudShadowFragment,
 			Targets.VolumetricCloudShadowFragment

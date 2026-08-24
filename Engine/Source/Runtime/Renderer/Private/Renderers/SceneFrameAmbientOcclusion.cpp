@@ -20,7 +20,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -55,16 +55,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -88,9 +87,9 @@ namespace Durin
 			Declare(GraphResources.EnvironmentBrdfLut,
 				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
 		};
-		if (Requirements.bGroundTruthAmbientOcclusion)
+		if (Topology.bGroundTruthAmbientOcclusion)
 		{
-			const bool bHalfResolution = Requirements.AmbientOcclusionQuality
+			const bool bHalfResolution = Topology.AmbientOcclusionQuality
 				== EGroundTruthAmbientOcclusionQuality::HalfResolution;
 			const uint32 NativeWidth = bHalfResolution
 				? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Width)
@@ -149,13 +148,13 @@ namespace Durin
 		const auto AmbientOcclusionPass =
 			AddSceneFrameFeaturePass<FAmbientOcclusionGraphContributor>(
 				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordView = &RecordView, &GraphResources, &Requirements,
+			[&Services, &Channels, RecordView = &RecordView, &GraphResources, &Topology,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
 				FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
 				if (GraphResources.GBuffer[0]
-					&& Requirements.bGroundTruthAmbientOcclusion)
+					&& Topology.bGroundTruthAmbientOcclusion)
 					GBufferTargets = {
 						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
 						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
@@ -181,7 +180,7 @@ namespace Durin
 							? Resources.GetTexture(
 								*GraphResources.GroundTruthAmbientOcclusion[3])
 							: nullptr,
-						.Quality = Requirements.AmbientOcclusionQuality};
+						.Quality = Topology.AmbientOcclusionQuality};
 				Channels.AmbientOcclusion.Result =
 					Services.Recorders.RenderGroundTruthAmbientOcclusion_RenderThread(
 						Commands, *RecordView,
@@ -195,7 +194,7 @@ namespace Durin
 			ERenderGraphUse::Read);
 		Graph.UseToken(AmbientOcclusionPass, AmbientOcclusionValue.Handle,
 			ERenderGraphUse::Write);
-		if (GraphResources.GBuffer[0] && Requirements.bGroundTruthAmbientOcclusion)
+		if (GraphResources.GBuffer[0] && Topology.bGroundTruthAmbientOcclusion)
 		{
 			for (const auto& Texture : GraphResources.GBuffer)
 				Graph.UseTexture(AmbientOcclusionPass, *Texture,

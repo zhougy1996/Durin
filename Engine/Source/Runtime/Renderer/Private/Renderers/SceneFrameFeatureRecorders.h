@@ -19,7 +19,7 @@ namespace Durin
 		const FPreparedReceiverGeometry& Receiver;
 	};
 
-	struct FContactVisibilityRecordInputs final
+	struct FContactShadowVisibilityRecordInputs final
 	{
 		const FSceneView& View;
 		const FPreparedDirectionalShadow* Shadow = nullptr;
@@ -45,7 +45,7 @@ namespace Durin
 		const FPreparedReceiverGeometry& Receiver;
 	};
 
-	// Owns feature command recording and the renderer services required by it.
+	// Coordinates feature command recording through borrowed renderer services.
 	class FSceneFrameFeatureRecorders final
 	{
 	public:
@@ -85,9 +85,9 @@ namespace Durin
 		bool bWantsGroundTruthAmbientOcclusion,
 		bool bGBufferComplete
 	) -> FGroundTruthAmbientOcclusionPassResult;
-	auto RenderContactShadows_RenderThread(
+	auto RenderContactShadowVisibility_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FContactVisibilityRecordInputs& Inputs,
+		const FContactShadowVisibilityRecordInputs& Inputs,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FContactShadowVisibilityRenderer::FTargets*
 			FragmentContactTargets,
@@ -100,7 +100,7 @@ namespace Durin
 		bool bWantsProductionDeferred,
 		bool bGBufferComplete,
 		bool bGBufferHasGeometry
-	) -> FContactShadowPassResult;
+	) -> FContactShadowVisibilityPassResult;
 	auto RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudShadowRecordInputs& Inputs,
@@ -124,7 +124,7 @@ namespace Durin
 		const FGroundTruthAmbientOcclusionPassResult& AmbientOcclusion,
 		const FGroundTruthAmbientOcclusionRenderer::FTargets*
 			AmbientOcclusionTargets,
-		const FContactShadowPassResult& ContactShadow,
+		const FContactShadowVisibilityPassResult& ContactShadow,
 		const FContactShadowVisibilityRenderer::FTargets*
 			FragmentContactTargets,
 		const FContactShadowVisibilityRenderer::FComputeTargets*
@@ -190,7 +190,7 @@ namespace Durin
 		FRHITexture* Depth,
 		FRHITexture* VolumetricCloudShadowVisibility
 	) -> FVolumetricCloudPassResult;
-	auto RenderSceneOpaque_RenderThread(
+	auto RenderBaseScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,
@@ -203,10 +203,10 @@ namespace Durin
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,
 		FRHITexture* Depth,
-		const FSceneColorPassResult& Opaque,
+		const FSceneColorPassResult& BaseScene,
 		const FVolumetricCloudPassResult& VolumetricCloud
 	) -> FSceneColorPassResult;
-	auto RenderSpecialForwardScene_RenderThread(
+	auto RenderForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* RenderTarget

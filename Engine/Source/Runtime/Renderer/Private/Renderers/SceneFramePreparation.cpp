@@ -496,11 +496,11 @@ namespace Durin
 			&& View.Settings.DirectionalShadow.bEnableContactShadows
 			&& PreparedView.DirectionalShadow
 			&& PreparedView.DirectionalShadow->View.bEnabled;
-		const bool bForceContactFragment =
+		const bool bForceContactShadowVisibilityFragment =
 			Qualification.bForceFragmentContactVisibility
 			|| View.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Fragment;
-		const bool bForceContactCompute =
+		const bool bForceContactShadowVisibilityCompute =
 			!Qualification.bForceFragmentContactVisibility
 			&& View.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Compute;
@@ -527,8 +527,8 @@ namespace Durin
 			.Height = Height,
 			.bGBuffer = bGBuffer,
 			.bGroundTruthAmbientOcclusion = bAmbientOcclusion,
-			.ContactVisibility = !bContact ? ESceneFrameRoute::Disabled
-				: (bForceContactFragment ? ESceneFrameRoute::Fragment
+			.ContactShadowVisibility = !bContact ? ESceneFrameRoute::Disabled
+				: (bForceContactShadowVisibilityFragment ? ESceneFrameRoute::Fragment
 					: ESceneFrameRoute::Compute),
 			.VolumetricCloudShadow = !bCloudShadow
 				? ESceneFrameRoute::Disabled
@@ -572,19 +572,19 @@ namespace Durin
 			if (!Targets.GroundTruthAmbientOcclusion)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.UsesContactFragment())
+		if (Requirements.UsesContactShadowVisibilityFragment())
 		{
-			Targets.ContactFragment = ContactShadowRenderer.EnsureTargets_RenderThread(
+			Targets.ContactShadowVisibilityFragment = ContactShadowRenderer.EnsureTargets_RenderThread(
 				Requirements.Width, Requirements.Height);
-			if (!Targets.ContactFragment)
+			if (!Targets.ContactShadowVisibilityFragment)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (Requirements.UsesContactCompute())
+		if (Requirements.UsesContactShadowVisibilityCompute())
 		{
-			Targets.ContactCompute =
+			Targets.ContactShadowVisibilityCompute =
 				ContactShadowRenderer.EnsureComputeTargets_RenderThread(
 					Requirements.Width, Requirements.Height);
-			if (!Targets.ContactCompute)
+			if (!Targets.ContactShadowVisibilityCompute)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
 		if (Requirements.UsesCloudShadowFragment())

@@ -18,8 +18,8 @@ namespace Durin
 		Scene,
 		GBuffer,
 		AmbientOcclusion,
-		ContactVisibilityFragment,
-		ContactVisibilityCompute,
+		ContactShadowVisibilityFragment,
+		ContactShadowVisibilityCompute,
 		VolumetricCloudShadowFragment,
 		VolumetricCloudShadowCompute,
 		VolumetricCloudFragment,
@@ -38,10 +38,10 @@ namespace Durin
 		case ESceneFrameBackingClass::GBuffer: return "renderer.gbuffer";
 		case ESceneFrameBackingClass::AmbientOcclusion:
 			return "renderer.ambient-occlusion";
-		case ESceneFrameBackingClass::ContactVisibilityFragment:
-			return "renderer.contact-visibility.fragment";
-		case ESceneFrameBackingClass::ContactVisibilityCompute:
-			return "renderer.contact-visibility.compute";
+		case ESceneFrameBackingClass::ContactShadowVisibilityFragment:
+			return "renderer.contact-shadow-visibility.fragment";
+		case ESceneFrameBackingClass::ContactShadowVisibilityCompute:
+			return "renderer.contact-shadow-visibility.compute";
 		case ESceneFrameBackingClass::VolumetricCloudShadowFragment:
 			return "renderer.cloud-shadow.fragment";
 		case ESceneFrameBackingClass::VolumetricCloudShadowCompute:
@@ -78,7 +78,7 @@ namespace Durin
 		uint32 Height = 0;
 		bool bGBuffer = false;
 		bool bGroundTruthAmbientOcclusion = false;
-		ESceneFrameRoute ContactVisibility = ESceneFrameRoute::Disabled;
+		ESceneFrameRoute ContactShadowVisibility = ESceneFrameRoute::Disabled;
 		ESceneFrameRoute VolumetricCloudShadow = ESceneFrameRoute::Disabled;
 		bool bIsolatedDeferred = false;
 		bool bGBufferDebug = false;
@@ -88,13 +88,13 @@ namespace Durin
 			EGroundTruthAmbientOcclusionQuality::FullResolution;
 		FIntPoint VolumetricCloudExtent{0, 0};
 
-		[[nodiscard]] auto UsesContactFragment() const -> bool
+		[[nodiscard]] auto UsesContactShadowVisibilityFragment() const -> bool
 		{
-			return ContactVisibility == ESceneFrameRoute::Fragment;
+			return ContactShadowVisibility == ESceneFrameRoute::Fragment;
 		}
-		[[nodiscard]] auto UsesContactCompute() const -> bool
+		[[nodiscard]] auto UsesContactShadowVisibilityCompute() const -> bool
 		{
-			return ContactVisibility == ESceneFrameRoute::Compute;
+			return ContactShadowVisibility == ESceneFrameRoute::Compute;
 		}
 		[[nodiscard]] auto UsesCloudShadowFragment() const -> bool
 		{
@@ -120,9 +120,10 @@ namespace Durin
 		std::optional<FGBufferRenderer::FTargets> GBuffer;
 		std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
 			GroundTruthAmbientOcclusion;
-		std::optional<FContactShadowVisibilityRenderer::FTargets> ContactFragment;
+		std::optional<FContactShadowVisibilityRenderer::FTargets>
+			ContactShadowVisibilityFragment;
 		std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
-			ContactCompute;
+			ContactShadowVisibilityCompute;
 		std::optional<FVolumetricCloudShadowRenderer::FTargets>
 			VolumetricCloudShadowFragment;
 		std::optional<FVolumetricCloudShadowRenderer::FComputeTargets>
@@ -154,8 +155,8 @@ namespace Durin
 		std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
 		std::array<std::optional<FRenderGraphTextureHandle>, 4>
 			GroundTruthAmbientOcclusion;
-		std::optional<FRenderGraphTextureHandle> ContactFragment;
-		std::optional<FRenderGraphTextureHandle> ContactCompute;
+		std::optional<FRenderGraphTextureHandle> ContactShadowVisibilityFragment;
+		std::optional<FRenderGraphTextureHandle> ContactShadowVisibilityCompute;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowFragment;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowCompute;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudBaseDensity;
@@ -186,16 +187,18 @@ namespace Durin
 		TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
 		TSceneFrameGraphValue<FGroundTruthAmbientOcclusionPassResult>
 			AmbientOcclusion;
-		TSceneFrameGraphValue<FContactShadowPassResult> ContactShadow;
+		TSceneFrameGraphValue<FContactShadowVisibilityPassResult>
+			ContactShadowVisibility;
 		TSceneFrameGraphValue<FVolumetricCloudShadowPassResult> CloudShadow;
-		TSceneFrameGraphValue<FIsolatedDeferredPassResult> Deferred;
-		TSceneFrameGraphValue<FSceneColorPassResult> OpaqueScene;
+		TSceneFrameGraphValue<FIsolatedDeferredPassResult>
+			DeferredDirectionalLighting;
+		TSceneFrameGraphValue<FSceneColorPassResult> BaseScene;
 		TSceneFrameGraphValue<FVolumetricCloudSpatialPassResult>
 			VolumetricCloudSpatial;
 		TSceneFrameGraphValue<FVolumetricCloudPassResult> VolumetricCloud;
 		TSceneFrameGraphValue<FSceneColorPassResult> SceneColor;
 		TSceneFrameGraphValue<FPostProcessPassResult> PostProcess;
-		TSceneFrameGraphValue<bool> FinalOutput;
+		FRenderGraphTokenHandle OutputCompletion;
 	};
 
 	enum class ESceneFrameGraphExecutionStatus : uint8

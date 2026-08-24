@@ -129,7 +129,7 @@ static_assert(CAcceptsContributorInputs<
 	Durin::FVolumetricCloudShadowGraphContributor,
 	Durin::FVolumetricCloudShadowRecordInputs>);
 static_assert(CAcceptsContributorInputs<
-	Durin::FOpaqueSceneGraphContributor,
+	Durin::FBaseSceneGraphContributor,
 	Durin::FSceneGeometryRecordInputs>);
 static_assert(!CAcceptsContributorInputs<
 	Durin::FDirectionalShadowGraphContributor, Durin::FSceneRenderPlan>);
@@ -175,7 +175,7 @@ TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 {
 	Durin::FGBufferPassResult GBuffer;
 	Durin::FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
-	Durin::FContactShadowPassResult ContactShadow;
+	Durin::FContactShadowVisibilityPassResult ContactShadow;
 	Durin::FVolumetricCloudShadowPassResult CloudShadow;
 	Durin::FSceneColorPassResult SceneColor;
 	EXPECT_FALSE(GBuffer.IsComplete());
@@ -193,7 +193,7 @@ TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 	EXPECT_FALSE(ContactShadow.IsComplete());
 	EXPECT_FALSE(CloudShadow.IsComplete());
 	EXPECT_TRUE(SceneColor.IsSuccess());
-	ContactShadow.Route = Durin::EContactShadowPassRoute::Compute;
+	ContactShadow.Route = Durin::EContactShadowVisibilityPassRoute::Compute;
 	EXPECT_TRUE(ContactShadow.IsComplete());
 	CloudShadow.Route = Durin::EVolumetricCloudShadowPassRoute::Fragment;
 	EXPECT_TRUE(CloudShadow.IsComplete());
@@ -202,14 +202,14 @@ TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 TEST(FRendererSceneContractTests, SceneFrameTopologyUsesExclusiveRoutes)
 {
 	Durin::FSceneFrameTopology Topology;
-	EXPECT_FALSE(Topology.UsesContactFragment());
-	EXPECT_FALSE(Topology.UsesContactCompute());
-	Topology.ContactVisibility = Durin::ESceneFrameRoute::Fragment;
-	EXPECT_TRUE(Topology.UsesContactFragment());
-	EXPECT_FALSE(Topology.UsesContactCompute());
-	Topology.ContactVisibility = Durin::ESceneFrameRoute::Compute;
-	EXPECT_FALSE(Topology.UsesContactFragment());
-	EXPECT_TRUE(Topology.UsesContactCompute());
+	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
+	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
+	Topology.ContactShadowVisibility = Durin::ESceneFrameRoute::Fragment;
+	EXPECT_TRUE(Topology.UsesContactShadowVisibilityFragment());
+	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
+	Topology.ContactShadowVisibility = Durin::ESceneFrameRoute::Compute;
+	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
+	EXPECT_TRUE(Topology.UsesContactShadowVisibilityCompute());
 
 	Topology.VolumetricCloudShadow = Durin::ESceneFrameRoute::Fragment;
 	EXPECT_TRUE(Topology.UsesCloudShadowFragment());
@@ -238,7 +238,7 @@ TEST(FRendererSceneContractTests, RetainedBackingTopologyIsRequestBounded)
 	Durin::FSceneFrameTopology Frame{
 		.Width = 1280,
 		.Height = 720,
-		.ContactVisibility = Durin::ESceneFrameRoute::Compute};
+		.ContactShadowVisibility = Durin::ESceneFrameRoute::Compute};
 	std::array<Durin::FRenderGraphPreparationRequest, 2> Requests;
 	Requests[0].BackingClass = std::string(Durin::GetSceneFrameBackingClassName(
 		Durin::ESceneFrameBackingClass::Scene));
@@ -253,7 +253,8 @@ TEST(FRendererSceneContractTests, RetainedBackingTopologyIsRequestBounded)
 	EXPECT_EQ(Retained->Width, 1280u);
 	EXPECT_EQ(Retained->Height, 720u);
 	EXPECT_TRUE(Retained->bGBuffer);
-	EXPECT_EQ(Retained->ContactVisibility, Durin::ESceneFrameRoute::Disabled);
+	EXPECT_EQ(Retained->ContactShadowVisibility,
+		Durin::ESceneFrameRoute::Disabled);
 
 	Requests[1].BackingClass = "renderer.unknown";
 	EXPECT_FALSE(Durin::FSceneFrameGraphBackingProvider::BuildRetainedTopology(
@@ -267,13 +268,13 @@ TEST(FRendererSceneContractTests, FeatureContributorOrderIsStableAndUnique)
 		Durin::FDirectionalShadowGraphContributor::Name,
 		Durin::FGBufferGraphContributor::Name,
 		Durin::FAmbientOcclusionGraphContributor::Name,
-		Durin::FContactVisibilityGraphContributor::Name,
+		Durin::FContactShadowVisibilityGraphContributor::Name,
 		Durin::FVolumetricCloudShadowGraphContributor::Name,
-		Durin::FDeferredLightingGraphContributor::Name,
-		Durin::FOpaqueSceneGraphContributor::Name,
+		Durin::FDeferredDirectionalLightingGraphContributor::Name,
+		Durin::FBaseSceneGraphContributor::Name,
 		Durin::FVolumetricCloudSpatialGraphContributor::Name,
 		Durin::FVolumetricCloudCompositeGraphContributor::Name,
-		Durin::FSortedTranslucencyGraphContributor::Name,
+		Durin::FSceneColorGraphContributor::Name,
 		Durin::FPostProcessGraphContributor::Name,
 		Durin::FEditorAssistanceGraphContributor::Name};
 	EXPECT_EQ(Names.front(), "Scene.DirectionalShadow");

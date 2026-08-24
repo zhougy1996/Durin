@@ -30,7 +30,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -65,16 +65,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -98,7 +97,7 @@ namespace Durin
 			Declare(GraphResources.EnvironmentBrdfLut,
 				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
 		};
-		if (Requirements.UsesCloudShadowFragment())
+		if (Topology.UsesCloudShadowFragment())
 			GraphResources.VolumetricCloudShadowFragment = Graph.CreateTexture(
 				"Scene.VolumetricCloudShadow.Fragment",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -112,7 +111,7 @@ namespace Durin
 					.BackingClass = std::string(GetSceneFrameBackingClassName(
 						ESceneFrameBackingClass::VolumetricCloudShadowFragment))},
 				ERHIAccess::GraphicsShaderRead);
-		if (Requirements.UsesCloudShadowCompute())
+		if (Topology.UsesCloudShadowCompute())
 			GraphResources.VolumetricCloudShadowCompute = Graph.CreateTexture(
 				"Scene.VolumetricCloudShadow.Compute",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -130,7 +129,7 @@ namespace Durin
 			PreparedCloudShadowRoute
 					== FVolumetricCloudShadowRenderer::ERoute::Compute
 				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources, &Requirements,
+			[&Services, &Channels, RecordInputs, &GraphResources, &Topology,
 				Width, Height, bWantsProductionDeferred](
 				FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
@@ -146,7 +145,7 @@ namespace Durin
 						*GraphResources.VolumetricCloudShadowCompute)};
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
-					.Depth = Requirements.VolumetricCloudShadow
+					.Depth = Topology.VolumetricCloudShadow
 							!= ESceneFrameRoute::Disabled
 						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
 				Channels.CloudShadow.Result =
@@ -171,7 +170,7 @@ namespace Durin
 		Graph.UseToken(CloudShadowPass, GBufferValue.Handle, ERenderGraphUse::Read);
 		Graph.UseToken(CloudShadowPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Write);
-		if (Requirements.VolumetricCloudShadow != ESceneFrameRoute::Disabled)
+		if (Topology.VolumetricCloudShadow != ESceneFrameRoute::Disabled)
 			Graph.UseTexture(CloudShadowPass, GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
 				PreparedCloudShadowRoute
@@ -220,7 +219,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -255,16 +254,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -289,10 +287,10 @@ namespace Durin
 				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
 		};
 		const uint32 CloudWidth = static_cast<uint32>(
-			std::max(Requirements.VolumetricCloudExtent.x, 0));
+			std::max(Topology.VolumetricCloudExtent.x, 0));
 		const uint32 CloudHeight = static_cast<uint32>(
-			std::max(Requirements.VolumetricCloudExtent.y, 0));
-		if (Requirements.UsesCloudFragment())
+			std::max(Topology.VolumetricCloudExtent.y, 0));
+		if (Topology.UsesCloudFragment())
 			GraphResources.VolumetricCloudFragment = Graph.CreateTexture(
 				"Scene.VolumetricCloud.Fragment",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -306,7 +304,7 @@ namespace Durin
 					.BackingClass = std::string(GetSceneFrameBackingClassName(
 						ESceneFrameBackingClass::VolumetricCloudFragment))},
 				ERHIAccess::GraphicsShaderRead);
-		if (Requirements.UsesCloudCompute())
+		if (Topology.UsesCloudCompute())
 			GraphResources.VolumetricCloudCompute = Graph.CreateTexture(
 				"Scene.VolumetricCloud.Compute",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -319,7 +317,7 @@ namespace Durin
 					.BackingClass = std::string(GetSceneFrameBackingClassName(
 						ESceneFrameBackingClass::VolumetricCloudCompute))},
 				ERHIAccess::GraphicsShaderRead);
-		if (Requirements.bVolumetricCloudComposite)
+		if (Topology.bVolumetricCloudComposite)
 			GraphResources.VolumetricCloudComposite = Graph.CreateTexture(
 				"Scene.VolumetricCloud.Composite",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -337,7 +335,7 @@ namespace Durin
 			AddSceneFrameFeaturePass<FVolumetricCloudSpatialGraphContributor>(Graph,
 			PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
 				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
-			[&Services, RecordInputs, &GraphResources, &Requirements,
+			[&Services, RecordInputs, &GraphResources, &Topology,
 				&Channels](FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
 				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
@@ -366,11 +364,11 @@ namespace Durin
 						GraphResources.VolumetricCloudWeather
 							? Resources.GetTexture(
 								*GraphResources.VolumetricCloudWeather) : nullptr,
-					Requirements.VolumetricCloud != ESceneFrameRoute::Disabled
+					Topology.VolumetricCloud != ESceneFrameRoute::Disabled
 							? Resources.GetTexture(GraphResources.SceneDepth) : nullptr);
 				Timing.Commit();
 			});
-		Graph.UseToken(VolumetricCloudSpatialPass, OpaqueSceneValue.Handle,
+		Graph.UseToken(VolumetricCloudSpatialPass, BaseSceneValue.Handle,
 			ERenderGraphUse::Read);
 		Graph.UseToken(VolumetricCloudSpatialPass,
 			VolumetricCloudSpatialValue.Handle, ERenderGraphUse::Write);
@@ -394,7 +392,7 @@ namespace Durin
 			DeclareCloudSpatialInput(GraphResources.VolumetricCloudWeather,
 				CloudWeatherTexture);
 		}
-		if (Requirements.VolumetricCloud != ESceneFrameRoute::Disabled)
+		if (Topology.VolumetricCloud != ESceneFrameRoute::Disabled)
 			Graph.UseTexture(VolumetricCloudSpatialPass,
 				GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
@@ -424,7 +422,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -459,16 +457,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -495,10 +492,10 @@ namespace Durin
 		const auto VolumetricCloudPass =
 			AddSceneFrameFeaturePass<FVolumetricCloudCompositeGraphContributor>(
 				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources, &Requirements](
+			[&Services, &Channels, RecordInputs, &GraphResources, &Topology](
 				FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
-				if (!Requirements.bVolumetricCloudComposite) return;
+				if (!Topology.bVolumetricCloudComposite) return;
 				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
 				if (GraphResources.VolumetricCloudFragment)
 					FragmentTargets = {.Cloud = Resources.GetTexture(
@@ -534,7 +531,7 @@ namespace Durin
 						Resources.GetTexture(GraphResources.SceneDepth),
 						ShadowVisibility);
 			});
-		Graph.UseToken(VolumetricCloudPass, OpaqueSceneValue.Handle,
+		Graph.UseToken(VolumetricCloudPass, BaseSceneValue.Handle,
 			ERenderGraphUse::Read);
 		Graph.UseToken(VolumetricCloudPass, VolumetricCloudSpatialValue.Handle,
 			ERenderGraphUse::Read);
@@ -542,7 +539,7 @@ namespace Durin
 			ERenderGraphUse::Read);
 		Graph.UseToken(VolumetricCloudPass, VolumetricCloudValue.Handle,
 			ERenderGraphUse::Write);
-		if (Requirements.bVolumetricCloudComposite)
+		if (Topology.bVolumetricCloudComposite)
 		{
 			Graph.UseTexture(VolumetricCloudPass, GraphResources.SceneColor,
 				{ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -560,7 +557,7 @@ namespace Durin
 				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
 		};
 		if (Services.ResolvedFrame.VolumetricCloud
-			&& Requirements.bVolumetricCloudComposite)
+			&& Topology.bVolumetricCloudComposite)
 		{
 			DeclareCloudCompositeInput(GraphResources.VolumetricCloudBaseDensity,
 				Services.ResolvedFrame.VolumetricCloud->Textures.BaseDensity);

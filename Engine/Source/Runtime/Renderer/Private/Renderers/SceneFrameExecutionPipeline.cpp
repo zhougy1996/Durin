@@ -267,15 +267,15 @@ namespace Durin
 								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 								   || bWantsDeferredInputs;
 		FContactShadowVisibilityRenderer::FRouteDecision PreparedContactRoute;
-		const bool bForceContactFragment =
+		const bool bForceContactShadowVisibilityFragment =
 			Qualification.bForceFragmentContactVisibility
 			|| RenderView.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Fragment;
-		const bool bForceContactCompute =
+		const bool bForceContactShadowVisibilityCompute =
 			!Qualification.bForceFragmentContactVisibility
 			&& RenderView.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Compute;
-		if (Requirements.ContactVisibility != ESceneFrameRoute::Disabled
+		if (Requirements.ContactShadowVisibility != ESceneFrameRoute::Disabled
 			&& PreparedView.DirectionalShadow)
 		{
 			const auto Prepared = ContactShadowRenderer.Render_RenderThread(
@@ -284,11 +284,11 @@ namespace Durin
 				PreparedView.DirectionalShadow->View.LightDirection, Width, Height,
 				{.bPreparationOnly = true,
 					.bInputsExpected = bNeedsGBuffer,
-					.bFragmentTargetExpected = !bForceContactCompute,
-					.bComputeTargetExpected = !bForceContactFragment});
+					.bFragmentTargetExpected = !bForceContactShadowVisibilityCompute,
+					.bComputeTargetExpected = !bForceContactShadowVisibilityFragment});
 			PreparedContactRoute = {
 				.Route = Prepared.Route, .Reason = Prepared.Reason};
-			Requirements.ContactVisibility = Prepared.Route
+			Requirements.ContactShadowVisibility = Prepared.Route
 				== FContactShadowVisibilityRenderer::ERoute::Fragment
 				? ESceneFrameRoute::Fragment
 				: (Prepared.Route == FContactShadowVisibilityRenderer::ERoute::Compute

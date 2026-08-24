@@ -30,7 +30,7 @@ namespace Durin
 		const auto& View = Context.View;
 		auto* OutputTarget = Context.OutputTarget;
 		const auto& Options = Context.Options;
-		auto& Requirements = Context.Topology;
+		auto& Topology = Context.Topology;
 		const auto& PreparedEditorAssistance =
 			Context.EditorAssistance;
 		const auto PreparedContactRoute = Context.ContactRoute;
@@ -65,16 +65,15 @@ namespace Durin
 		auto& DirectionalShadowValue = Channels.DirectionalShadow;
 		auto& GBufferValue = Channels.GBuffer;
 		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowValue = Channels.ContactShadow;
+		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
 		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredValue = Channels.Deferred;
-		auto& OpaqueSceneValue = Channels.OpaqueScene;
+		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
+		auto& BaseSceneValue = Channels.BaseScene;
 		auto& VolumetricCloudSpatialValue =
 			Channels.VolumetricCloudSpatial;
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto& FinalOutputValue = Channels.FinalOutput;
 		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
 			std::vector<FRenderGraphTextureHandle> Declared;
 			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
@@ -98,7 +97,7 @@ namespace Durin
 			Declare(GraphResources.EnvironmentBrdfLut,
 				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
 		};
-		if (Requirements.bGBufferDebug)
+		if (Topology.bGBufferDebug)
 			GraphResources.GBufferDebug = Graph.CreateTexture(
 				"Scene.GBuffer.Debug",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -114,13 +113,13 @@ namespace Durin
 			AddSceneFrameFeaturePass<FPostProcessGraphContributor>(
 				Graph, ERenderGraphPassType::Graphics,
 			[&Services, &Channels, RecordView = &RecordView, &View, &GraphResources,
-				&Requirements, &Options, bPresentOutput,
+				&Topology, &Options, bPresentOutput,
 				bHasEditorAssistance](FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
 				if (!Channels.SceneColor.Result.IsSuccess()) return;
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = Resources.GetTexture(GraphResources.SceneColor),
-					.Depth = Requirements.bGBufferDebug
+					.Depth = Topology.bGBufferDebug
 						? Resources.GetTexture(GraphResources.SceneDepth)
 						: nullptr};
 				FRHITexture* SceneColorInput = SceneTargets.Color;
@@ -133,7 +132,7 @@ namespace Durin
 					DebugTargets = {.Color = Resources.GetTexture(
 						*GraphResources.GBufferDebug)};
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (GraphResources.GBuffer[0] && Requirements.bGBufferDebug)
+				if (GraphResources.GBuffer[0] && Topology.bGBufferDebug)
 					GBufferTargets = {
 						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
 						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
@@ -141,7 +140,7 @@ namespace Durin
 						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
 				FRHITexture* IsolatedDeferredOutput = nullptr;
 				if (GraphResources.IsolatedDeferred
-					&& Channels.Deferred.Result.bOutputValid)
+					&& Channels.DeferredDirectionalLighting.Result.bOutputValid)
 					IsolatedDeferredOutput = Resources.GetTexture(
 						*GraphResources.IsolatedDeferred);
 				Channels.PostProcess.Result = Services.Recorders.RenderPostProcess_RenderThread(
@@ -165,7 +164,7 @@ namespace Durin
 				*GraphResources.VolumetricCloudComposite,
 				{ERHITextureAspect::Color, 0, 1, 0, 1},
 				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-		if (Requirements.bGBufferDebug)
+		if (Topology.bGBufferDebug)
 			Graph.UseTexture(PostProcessPass, GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
 				ERHIAccess::GraphicsShaderRead);
@@ -185,7 +184,7 @@ namespace Durin
 				ERHIRenderTargetLoadAction::Clear,
 				ERHIRenderTargetStoreAction::Store,
 				ERHIAccess::GraphicsShaderRead);
-		if (GraphResources.GBuffer[0] && Requirements.bGBufferDebug)
+		if (GraphResources.GBuffer[0] && Topology.bGBufferDebug)
 			for (const auto& Texture : GraphResources.GBuffer)
 				Graph.UseTexture(PostProcessPass, *Texture,
 					{ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -196,7 +195,7 @@ namespace Durin
 				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
 		if (!bHasEditorAssistance)
 		{
-			Graph.UseToken(PostProcessPass, FinalOutputValue.Handle,
+			Graph.UseToken(PostProcessPass, Channels.OutputCompletion,
 				ERenderGraphUse::Write);
 			Graph.MarkPassRoot(PostProcessPass,
 				bPresentOutput ? "present" : "offscreen-output");
