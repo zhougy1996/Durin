@@ -1,6 +1,9 @@
 #pragma once
 
-#include "BuiltinImportProviderCommon.h"
+#include "BuiltinImportSchema.h"
+
+#include "AssetForge/Builtins/Texture2DImport.h"
+#include "Texture/Texture2D.h"
 
 namespace Durin::AssetForge::Builtins
 {

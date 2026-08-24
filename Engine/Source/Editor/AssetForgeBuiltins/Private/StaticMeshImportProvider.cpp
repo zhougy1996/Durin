@@ -1,4 +1,6 @@
 #include "StaticMeshImportProviderSchema.h"
+#include "BuiltinImportProviderCommon.h"
+#include "BuiltinImportProvenance.h"
 #include "BuiltinProviderRegistration.h"
 
 namespace Durin::AssetForge::Builtins
@@ -265,7 +267,7 @@ namespace Durin::AssetForge::Builtins
 					&& !MakeCandidatePath(AssetBuilderNode.Destination, CandidatePath)) return {};
 				DStaticMesh* Candidate = nullptr;
 				if (!MeshProduct || !Asset::CreateAsset(CandidatePath, Candidate)) return {};
-				auto Result = std::make_unique<FEngineSingleAssetCandidate>(
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
 				std::string Error;
 				if (!Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
@@ -627,63 +629,13 @@ namespace Durin::AssetForge::Builtins
 		FImportProvenance& OutProvenance,
 		std::string& OutError) -> bool
 	{
-		if (!Mesh.GetImportProvenance().empty())
+		if (Mesh.GetImportProvenance().empty())
 		{
-			const std::string_view Hex = Mesh.GetImportProvenance();
-			if ((Hex.size() & 1) != 0)
-			{
-				OutError = "StaticMesh AssetForge provenance encoding is malformed.";
-				return false;
-			}
-			std::vector<std::byte> Bytes(Hex.size() / 2);
-			auto Nibble = [](char Value) -> int {
-				if (Value >= '0' && Value <= '9') return Value - '0';
-				if (Value >= 'a' && Value <= 'f') return Value - 'a' + 10;
-				return -1;
-			};
-			for (size_t Index = 0; Index < Bytes.size(); ++Index)
-			{
-				const int High = Nibble(Hex[Index * 2]);
-				const int Low = Nibble(Hex[Index * 2 + 1]);
-				if (High < 0 || Low < 0)
-				{
-					OutError = "StaticMesh AssetForge provenance encoding is malformed.";
-					return false;
-				}
-				Bytes[Index] = static_cast<std::byte>((High << 4) | Low);
-			}
-			return DeserializeImportProvenance(Bytes, OutProvenance, OutError);
-		}
-		const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
-		const bool bHashValid = Source.SourceContentHash.size() == 32
-			&& std::ranges::all_of(Source.SourceContentHash, [](char Value) {
-				return Value >= '0' && Value <= '9' || Value >= 'a' && Value <= 'f';
-			});
-		if (!Source.HasSource() || !bHashValid)
-		{
-			OutError = "StaticMesh has no compatible AssetForge or legacy provenance.";
+			OutError = "StaticMesh has no current AssetForge provenance.";
 			return false;
 		}
-		const FXxHash128 Hash = FXxHash128::FromString(Source.SourceContentHash);
-		FAssetPath AssetPath;
-		if (!Mesh.GetPackage()
-			|| !FAssetPath::TryCreate(Mesh.GetPackage()->GetPackagePath(), AssetPath, &OutError))
-			return false;
-		OutProvenance = {
-			.Translator = {.Id = std::string(GeometryTranslatorId), .ContractVersion = 1,
-				.Settings = EncodeGeometryTranslatorSettings(Source.ImportSettings)},
-			.PlanningPassStack = {{.PlanningPassId = std::string(StaticMeshPlanningPassId),
-				.ContractVersion = 1,
-				.Settings = EncodeStaticMeshImportPlan({
-					.Destination = AssetPath, .Settings = Source.ImportSettings,
-					.Policy = EImportOutputPolicy::ReplaceWholeState})}},
-			.Sources = {{.StableIdentity = "root", .Role = "Root",
-				.SourcePath = Source.SourcePath, .ContentHash = Hash}},
-			.OutputMappings = {{.SourceNodeIdentity = "mesh:combined",
-				.OutputIdentity = "static-mesh", .AssetPath = AssetPath}},
-			.AuthoredOutputFingerprint = Source.SourceContentHash};
-		OutError.clear();
-		return true;
+		return DecodeStoredImportProvenance(
+			Mesh.GetImportProvenance(), OutProvenance, OutError);
 	}
 
 	auto RegisterStaticMeshImportProvider(FImportService& Service,

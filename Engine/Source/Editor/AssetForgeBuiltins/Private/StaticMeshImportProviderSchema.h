@@ -1,6 +1,10 @@
 #pragma once
 
-#include "BuiltinImportProviderCommon.h"
+#include "BuiltinImportSchema.h"
+
+#include "AssetForge/Builtins/ImportedScene.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 
 namespace Durin::AssetForge::Builtins
 {

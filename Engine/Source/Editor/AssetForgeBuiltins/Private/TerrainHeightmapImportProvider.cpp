@@ -121,7 +121,8 @@ namespace Durin::AssetForge::Builtins
 				if (Node.Policy != EImportOutputPolicy::Create && !MakeCandidatePath(Node.Destination, Path)) return {};
 				DTerrainHeightmap* AssetObject = nullptr;
 				if (!Typed || !Asset::CreateAsset(Path, AssetObject)) return {};
-				auto Result = std::make_unique<FCandidate>(AssetObject, Node.Policy == EImportOutputPolicy::Create);
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
+					AssetObject, Node.Policy == EImportOutputPolicy::Create);
 				std::string Error;
 				if (!Asset::Build::PublishTerrainHeightmapProduct(*AssetObject,
 					std::move(Typed->Product), Typed->Publication, Error))
@@ -138,7 +139,9 @@ namespace Durin::AssetForge::Builtins
 				auto* A = Cast<DTerrainHeightmap>(&Target);
 				auto* B = Cast<DTerrainHeightmap>(Candidate.GetAsset());
 				if (A && B) A->PrepareCandidateRevision(*B);
-				return A && B ? std::make_unique<TExchange<DTerrainHeightmap>>(*A, *B) : nullptr;
+				return A && B
+					? std::make_unique<TImportedStateExchange<DTerrainHeightmap>>(*A, *B)
+					: nullptr;
 			}
 			auto ApplyProvenance(DObject& Object, const FImportProvenance& Provenance,
 				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override
@@ -176,7 +179,8 @@ namespace Durin::AssetForge::Builtins
 		FImportProvenance& Out, std::string& OutError) -> bool
 	{
 		if (!Heightmap.GetImportProvenance().empty())
-			return DecodeStoredProvenance(Heightmap.GetImportProvenance(), Out, OutError);
+			return DecodeStoredImportProvenance(
+				Heightmap.GetImportProvenance(), Out, OutError);
 		OutError = "Terrain heightmap has no persisted AssetForge provenance; reimport requires explicit repair.";
 		return false;
 	}

@@ -331,7 +331,9 @@ unsupported. Current Scene records identify translator `Durin.SceneGraph`
 contract 1 and `Durin.Scene.Plan` settings schema 1, use AssetForge contract 2,
 and store Scene state as `Durin.AssetForge.Scene.State` schema 2. The request
 builder accepts only the current component contracts and does not reconstruct
-retired provider or factory identities.
+retired provider or factory identities. StaticMesh and Texture2D reimport and
+recovery likewise require persisted current AssetForge provenance; source-import
+metadata is not a provenance reconstruction path.
 Repository assets must be upgraded or regenerated in the same change that
 removes an old schema.
 

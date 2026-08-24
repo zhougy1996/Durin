@@ -1,5 +1,8 @@
 #pragma once
 
+#include "BuiltinImportProvenance.h"
+#include "BuiltinImportSchema.h"
+#include "BuiltinSingleAssetImport.h"
 #include "ImageFamilyImports.h"
 
 #include "AssetAuthoring.h"
@@ -37,86 +40,15 @@ namespace Durin::AssetForge::Builtins
 		inline constexpr std::string_view TerrainPlanSchema = "Durin.TerrainHeightmap.Plan";
 		inline constexpr std::string_view TerrainNodeSchema = "Durin.TerrainHeightmap.Samples";
 
-		template<typename T>
-		auto Append(std::vector<std::byte>& Bytes, const T& Value) -> void
-		{
-			static_assert(std::is_trivially_copyable_v<T>);
-			const auto* Begin = reinterpret_cast<const std::byte*>(&Value);
-			Bytes.insert(Bytes.end(), Begin, Begin + sizeof(T));
-		}
-
-		template<typename T>
-		auto Read(std::span<const std::byte>& Bytes, T& Out) -> bool
-		{
-			static_assert(std::is_trivially_copyable_v<T>);
-			if (Bytes.size() < sizeof(T)) return false;
-			std::memcpy(&Out, Bytes.data(), sizeof(T));
-			Bytes = Bytes.subspan(sizeof(T));
-			return true;
-		}
-
-		auto AppendString(std::vector<std::byte>& Bytes, std::string_view Value) -> void
-		{
-			Append(Bytes, static_cast<uint64>(Value.size()));
-			Bytes.insert(Bytes.end(), reinterpret_cast<const std::byte*>(Value.data()),
-				reinterpret_cast<const std::byte*>(Value.data() + Value.size()));
-		}
-
-		auto ReadString(std::span<const std::byte>& Bytes, std::string& Out) -> bool
-		{
-			uint64 Size = 0;
-			if (!Read(Bytes, Size) || Size > Bytes.size() || Size > 1'048'576) return false;
-			Out.assign(reinterpret_cast<const char*>(Bytes.data()), static_cast<size_t>(Size));
-			Bytes = Bytes.subspan(static_cast<size_t>(Size));
-			return true;
-		}
-
-		template<typename T>
-		auto AppendVector(std::vector<std::byte>& Bytes, std::span<const T> Values) -> void
-		{
-			Append(Bytes, static_cast<uint64>(Values.size()));
-			const auto Raw = std::as_bytes(Values);
-			Bytes.insert(Bytes.end(), Raw.begin(), Raw.end());
-		}
-
-		template<typename T>
-		auto ReadVector(std::span<const std::byte>& Bytes, std::vector<T>& Out,
-			uint64 MaximumElements) -> bool
-		{
-			uint64 Count = 0;
-			if (!Read(Bytes, Count) || Count > MaximumElements
-				|| Count > Bytes.size() / sizeof(T)) return false;
-			Out.resize(static_cast<size_t>(Count));
-			const size_t ByteCount = static_cast<size_t>(Count) * sizeof(T);
-			std::memcpy(Out.data(), Bytes.data(), ByteCount);
-			Bytes = Bytes.subspan(ByteCount);
-			return true;
-		}
-
-		auto Payload(std::string Schema, std::vector<std::byte> Bytes) -> FSchemaPayload
-		{
-			FSchemaPayload Result{
-				.SchemaId = std::move(Schema), .SchemaVersion = 1, .Bytes = std::move(Bytes)};
-			std::string Error;
-			(void)Result.Finalize(Error);
-			return Result;
-		}
-
 		auto EmptyPayload(std::string_view Schema) -> FSchemaPayload
 		{
-			return Payload(std::string(Schema), {});
+			return MakeSchemaPayload(std::string(Schema), 1, {});
 		}
 
 		auto ValidatePayload(const FSchemaPayload& Value,
 			std::string_view Schema, std::string& OutError) -> bool
 		{
-			if (Value.SchemaId != Schema || Value.SchemaVersion != 1
-				|| Value.ContentHash != FXxHash128::HashBuffer(Value.Bytes))
-			{
-				OutError = std::format("AssetForge payload '{}' is invalid.", Schema);
-				return false;
-			}
-			return true;
+			return ValidateSchemaPayload(Value, Schema, 1, OutError);
 		}
 
 		struct FDecodedImage
@@ -131,19 +63,19 @@ namespace Durin::AssetForge::Builtins
 		auto EncodeImage(const FDecodedImage& Image) -> FSchemaPayload
 		{
 			std::vector<std::byte> Bytes;
-			Append(Bytes, Image.Source.Width);
-			Append(Bytes, Image.Source.Height);
-			Append(Bytes, Image.Source.SourceChannelCount);
-			Append(Bytes, Image.Source.Format);
-			Append(Bytes, Image.Source.bHasTransparency);
-			Append(Bytes, Image.Hash.HashLow);
-			Append(Bytes, Image.Hash.HashHigh);
-			Append(Bytes, Image.FileSize);
-			Append(Bytes, Image.LastWriteTime);
+			AppendValue(Bytes, Image.Source.Width);
+			AppendValue(Bytes, Image.Source.Height);
+			AppendValue(Bytes, Image.Source.SourceChannelCount);
+			AppendValue(Bytes, Image.Source.Format);
+			AppendValue(Bytes, Image.Source.bHasTransparency);
+			AppendValue(Bytes, Image.Hash.HashLow);
+			AppendValue(Bytes, Image.Hash.HashHigh);
+			AppendValue(Bytes, Image.FileSize);
+			AppendValue(Bytes, Image.LastWriteTime);
 			AppendString(Bytes, Image.Path.Path);
-			Append(Bytes, static_cast<uint64>(Image.Source.Pixels.size()));
+			AppendValue(Bytes, static_cast<uint64>(Image.Source.Pixels.size()));
 			Bytes.insert(Bytes.end(), Image.Source.Pixels.begin(), Image.Source.Pixels.end());
-			return Payload(std::string(ImageNodeSchema), std::move(Bytes));
+			return MakeSchemaPayload(std::string(ImageNodeSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeImage(const FSchemaPayload& Value,
@@ -152,13 +84,13 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidatePayload(Value, ImageNodeSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
 			uint64 PixelBytes = 0;
-			if (!Read(Bytes, Out.Source.Width) || !Read(Bytes, Out.Source.Height)
-				|| !Read(Bytes, Out.Source.SourceChannelCount)
-				|| !Read(Bytes, Out.Source.Format)
-				|| !Read(Bytes, Out.Source.bHasTransparency)
-				|| !Read(Bytes, Out.Hash.HashLow) || !Read(Bytes, Out.Hash.HashHigh)
-				|| !Read(Bytes, Out.FileSize) || !Read(Bytes, Out.LastWriteTime)
-				|| !ReadString(Bytes, Out.Path.Path) || !Read(Bytes, PixelBytes)
+			if (!ReadValue(Bytes, Out.Source.Width) || !ReadValue(Bytes, Out.Source.Height)
+				|| !ReadValue(Bytes, Out.Source.SourceChannelCount)
+				|| !ReadValue(Bytes, Out.Source.Format)
+				|| !ReadValue(Bytes, Out.Source.bHasTransparency)
+				|| !ReadValue(Bytes, Out.Hash.HashLow) || !ReadValue(Bytes, Out.Hash.HashHigh)
+				|| !ReadValue(Bytes, Out.FileSize) || !ReadValue(Bytes, Out.LastWriteTime)
+				|| !ReadString(Bytes, Out.Path.Path) || !ReadValue(Bytes, PixelBytes)
 				|| PixelBytes != Bytes.size())
 			{
 				OutError = "Normalized image payload is malformed.";
@@ -187,8 +119,8 @@ namespace Durin::AssetForge::Builtins
 			-> FSchemaPayload
 		{
 			std::vector<std::byte> Bytes;
-			Append(Bytes, Layout);
-			return Payload(std::string(CubeTranslatorSchema), std::move(Bytes));
+			AppendValue(Bytes, Layout);
+			return MakeSchemaPayload(std::string(CubeTranslatorSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeCubeTranslatorSettings(const FSchemaPayload& Value,
@@ -196,7 +128,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (!ValidatePayload(Value, CubeTranslatorSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
-			if (!Read(Bytes, Out) || !Bytes.empty()
+			if (!ReadValue(Bytes, Out) || !Bytes.empty()
 				|| (Out != ETextureCubeSourceLayout::SixFaces
 					&& Out != ETextureCubeSourceLayout::EquirectangularPanorama))
 			{
@@ -210,12 +142,12 @@ namespace Durin::AssetForge::Builtins
 		{
 			std::vector<std::byte> Bytes;
 			AppendString(Bytes, Plan.Destination.ToString());
-			Append(Bytes, Plan.Policy);
-			Append(Bytes, Plan.Layout);
-			Append(Bytes, Plan.FaceSettings.bSRGB);
-			Append(Bytes, Plan.PanoramaSettings.FaceDimension);
-			Append(Bytes, Plan.PanoramaSettings.ExposureEV);
-			return Payload(std::string(CubePlanSchema), std::move(Bytes));
+			AppendValue(Bytes, Plan.Policy);
+			AppendValue(Bytes, Plan.Layout);
+			AppendValue(Bytes, Plan.FaceSettings.bSRGB);
+			AppendValue(Bytes, Plan.PanoramaSettings.FaceDimension);
+			AppendValue(Bytes, Plan.PanoramaSettings.ExposureEV);
+			return MakeSchemaPayload(std::string(CubePlanSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeCubePlan(const FSchemaPayload& Value,
@@ -224,10 +156,10 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidatePayload(Value, CubePlanSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
 			std::string Destination;
-			if (!ReadString(Bytes, Destination) || !Read(Bytes, Out.Policy)
-				|| !Read(Bytes, Out.Layout) || !Read(Bytes, Out.FaceSettings.bSRGB)
-				|| !Read(Bytes, Out.PanoramaSettings.FaceDimension)
-				|| !Read(Bytes, Out.PanoramaSettings.ExposureEV) || !Bytes.empty()
+			if (!ReadString(Bytes, Destination) || !ReadValue(Bytes, Out.Policy)
+				|| !ReadValue(Bytes, Out.Layout) || !ReadValue(Bytes, Out.FaceSettings.bSRGB)
+				|| !ReadValue(Bytes, Out.PanoramaSettings.FaceDimension)
+				|| !ReadValue(Bytes, Out.PanoramaSettings.ExposureEV) || !Bytes.empty()
 				|| !FAssetPath::TryCreate(Destination, Out.Destination, &OutError)
 				|| !std::isfinite(Out.PanoramaSettings.ExposureEV))
 			{
@@ -241,25 +173,25 @@ namespace Durin::AssetForge::Builtins
 			const FSourceSnapshotEntry& Entry) -> FSchemaPayload
 		{
 			std::vector<std::byte> Bytes;
-			Append(Bytes, static_cast<uint8>(Source.index()));
-			Append(Bytes, Entry.ContentHash.HashLow);
-			Append(Bytes, Entry.ContentHash.HashHigh);
-			Append(Bytes, Entry.ByteCount);
-			Append(Bytes, Entry.LastWriteTime);
+			AppendValue(Bytes, static_cast<uint8>(Source.index()));
+			AppendValue(Bytes, Entry.ContentHash.HashLow);
+			AppendValue(Bytes, Entry.ContentHash.HashHigh);
+			AppendValue(Bytes, Entry.ByteCount);
+			AppendValue(Bytes, Entry.LastWriteTime);
 			AppendString(Bytes, Entry.SourcePath.Path);
 			std::visit([&](const auto& Image) {
-				Append(Bytes, Image.Width);
-				Append(Bytes, Image.Height);
+				AppendValue(Bytes, Image.Width);
+				AppendValue(Bytes, Image.Height);
 				if constexpr (std::is_same_v<std::decay_t<decltype(Image)>,
 					Asset::Build::TextureCubeBuilder::FTexturePanoramaImage>)
 				{
-					Append(Bytes, Image.SourceChannelCount);
-					Append(Bytes, Image.bHasTransparency);
-					AppendVector(Bytes, std::span(Image.Pixels));
+					AppendValue(Bytes, Image.SourceChannelCount);
+					AppendValue(Bytes, Image.bHasTransparency);
+					AppendTrivialVector(Bytes, std::span(Image.Pixels));
 				}
-				else AppendVector(Bytes, std::span(Image.Pixels));
+				else AppendTrivialVector(Bytes, std::span(Image.Pixels));
 			}, Source);
-			return Payload(std::string(CubePanoramaSchema), std::move(Bytes));
+			return MakeSchemaPayload(std::string(CubePanoramaSchema), 1, std::move(Bytes));
 		}
 
 		struct FDecodedPanorama
@@ -277,25 +209,25 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidatePayload(Value, CubePanoramaSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
 			uint8 Kind = 0;
-			if (!Read(Bytes, Kind) || Kind > 1 || !Read(Bytes, Out.Hash.HashLow)
-				|| !Read(Bytes, Out.Hash.HashHigh) || !Read(Bytes, Out.FileSize)
-				|| !Read(Bytes, Out.LastWriteTime) || !ReadString(Bytes, Out.Path.Path))
+			if (!ReadValue(Bytes, Kind) || Kind > 1 || !ReadValue(Bytes, Out.Hash.HashLow)
+				|| !ReadValue(Bytes, Out.Hash.HashHigh) || !ReadValue(Bytes, Out.FileSize)
+				|| !ReadValue(Bytes, Out.LastWriteTime) || !ReadString(Bytes, Out.Path.Path))
 				return false;
 			if (Kind == 0)
 			{
 				Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Image;
-				if (!Read(Bytes, Image.Width) || !Read(Bytes, Image.Height)
-					|| !Read(Bytes, Image.SourceChannelCount)
-					|| !Read(Bytes, Image.bHasTransparency)
-					|| !ReadVector(Bytes, Image.Pixels,
+				if (!ReadValue(Bytes, Image.Width) || !ReadValue(Bytes, Image.Height)
+					|| !ReadValue(Bytes, Image.SourceChannelCount)
+					|| !ReadValue(Bytes, Image.bHasTransparency)
+					|| !ReadTrivialVector(Bytes, Image.Pixels,
 						Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
 				Out.Source = std::move(Image);
 			}
 			else
 			{
 				Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage Image;
-				if (!Read(Bytes, Image.Width) || !Read(Bytes, Image.Height)
-					|| !ReadVector(Bytes, Image.Pixels,
+				if (!ReadValue(Bytes, Image.Width) || !ReadValue(Bytes, Image.Height)
+					|| !ReadTrivialVector(Bytes, Image.Pixels,
 						Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
 				Out.Source = std::move(Image);
 			}
@@ -318,15 +250,15 @@ namespace Durin::AssetForge::Builtins
 		{
 			std::vector<std::byte> Bytes;
 			AppendString(Bytes, Plan.Destination.ToString());
-			Append(Bytes, Plan.Policy);
-			Append(Bytes, Plan.Settings.ImportFormat);
-			Append(Bytes, Plan.Settings.Channels);
-			Append(Bytes, Plan.Settings.SliceWidth);
-			Append(Bytes, Plan.Settings.SliceHeight);
-			Append(Bytes, Plan.Settings.Depth);
-			Append(Bytes, Plan.Settings.TilesX);
-			Append(Bytes, Plan.Settings.TilesY);
-			return Payload(std::string(VolumePlanSchema), std::move(Bytes));
+			AppendValue(Bytes, Plan.Policy);
+			AppendValue(Bytes, Plan.Settings.ImportFormat);
+			AppendValue(Bytes, Plan.Settings.Channels);
+			AppendValue(Bytes, Plan.Settings.SliceWidth);
+			AppendValue(Bytes, Plan.Settings.SliceHeight);
+			AppendValue(Bytes, Plan.Settings.Depth);
+			AppendValue(Bytes, Plan.Settings.TilesX);
+			AppendValue(Bytes, Plan.Settings.TilesY);
+			return MakeSchemaPayload(std::string(VolumePlanSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeVolumePlan(const FSchemaPayload& Value,
@@ -335,13 +267,13 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidatePayload(Value, VolumePlanSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
 			std::string Destination;
-			if (!ReadString(Bytes, Destination) || !Read(Bytes, Out.Policy)
-				|| !Read(Bytes, Out.Settings.ImportFormat)
-				|| !Read(Bytes, Out.Settings.Channels)
-				|| !Read(Bytes, Out.Settings.SliceWidth)
-				|| !Read(Bytes, Out.Settings.SliceHeight)
-				|| !Read(Bytes, Out.Settings.Depth) || !Read(Bytes, Out.Settings.TilesX)
-				|| !Read(Bytes, Out.Settings.TilesY) || !Bytes.empty()
+			if (!ReadString(Bytes, Destination) || !ReadValue(Bytes, Out.Policy)
+				|| !ReadValue(Bytes, Out.Settings.ImportFormat)
+				|| !ReadValue(Bytes, Out.Settings.Channels)
+				|| !ReadValue(Bytes, Out.Settings.SliceWidth)
+				|| !ReadValue(Bytes, Out.Settings.SliceHeight)
+				|| !ReadValue(Bytes, Out.Settings.Depth) || !ReadValue(Bytes, Out.Settings.TilesX)
+				|| !ReadValue(Bytes, Out.Settings.TilesY) || !Bytes.empty()
 				|| !FAssetPath::TryCreate(Destination, Out.Destination, &OutError)
 				|| !Out.Settings.IsValid(&OutError))
 			{
@@ -361,8 +293,8 @@ namespace Durin::AssetForge::Builtins
 		{
 			std::vector<std::byte> Bytes;
 			AppendString(Bytes, Plan.Destination.ToString());
-			Append(Bytes, Plan.Policy);
-			return Payload(std::string(TerrainPlanSchema), std::move(Bytes));
+			AppendValue(Bytes, Plan.Policy);
+			return MakeSchemaPayload(std::string(TerrainPlanSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeTerrainPlan(const FSchemaPayload& Value,
@@ -371,7 +303,7 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidatePayload(Value, TerrainPlanSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
 			std::string Destination;
-			if (!ReadString(Bytes, Destination) || !Read(Bytes, Out.Policy) || !Bytes.empty()
+			if (!ReadString(Bytes, Destination) || !ReadValue(Bytes, Out.Policy) || !Bytes.empty()
 				|| !FAssetPath::TryCreate(Destination, Out.Destination, &OutError))
 			{
 				if (OutError.empty()) OutError = "Terrain heightmap plan is malformed.";
@@ -392,19 +324,19 @@ namespace Durin::AssetForge::Builtins
 		auto EncodeTerrain(const FDecodedTerrain& Terrain) -> FSchemaPayload
 		{
 			std::vector<std::byte> Bytes;
-			Append(Bytes, Terrain.Source.Width);
-			Append(Bytes, Terrain.Source.Height);
+			AppendValue(Bytes, Terrain.Source.Width);
+			AppendValue(Bytes, Terrain.Source.Height);
 			AppendString(Bytes, Terrain.Source.DecoderId);
-			Append(Bytes, Terrain.Source.DecoderVersion);
-			Append(Bytes, Terrain.Source.SourceFormat);
-			Append(Bytes, Terrain.Source.SourceProfileVersion);
+			AppendValue(Bytes, Terrain.Source.DecoderVersion);
+			AppendValue(Bytes, Terrain.Source.SourceFormat);
+			AppendValue(Bytes, Terrain.Source.SourceProfileVersion);
 			AppendString(Bytes, Terrain.Path.Path);
-			Append(Bytes, Terrain.Hash.HashLow);
-			Append(Bytes, Terrain.Hash.HashHigh);
-			Append(Bytes, Terrain.FileSize);
-			Append(Bytes, Terrain.LastWriteTime);
-			AppendVector(Bytes, std::span(Terrain.Source.Samples));
-			return Payload(std::string(TerrainNodeSchema), std::move(Bytes));
+			AppendValue(Bytes, Terrain.Hash.HashLow);
+			AppendValue(Bytes, Terrain.Hash.HashHigh);
+			AppendValue(Bytes, Terrain.FileSize);
+			AppendValue(Bytes, Terrain.LastWriteTime);
+			AppendTrivialVector(Bytes, std::span(Terrain.Source.Samples));
+			return MakeSchemaPayload(std::string(TerrainNodeSchema), 1, std::move(Bytes));
 		}
 
 		auto DecodeTerrain(const FSchemaPayload& Value,
@@ -412,15 +344,15 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (!ValidatePayload(Value, TerrainNodeSchema, OutError)) return false;
 			std::span<const std::byte> Bytes(Value.Bytes);
-			if (!Read(Bytes, Out.Source.Width) || !Read(Bytes, Out.Source.Height)
+			if (!ReadValue(Bytes, Out.Source.Width) || !ReadValue(Bytes, Out.Source.Height)
 				|| !ReadString(Bytes, Out.Source.DecoderId)
-				|| !Read(Bytes, Out.Source.DecoderVersion)
-				|| !Read(Bytes, Out.Source.SourceFormat)
-				|| !Read(Bytes, Out.Source.SourceProfileVersion)
-				|| !ReadString(Bytes, Out.Path.Path) || !Read(Bytes, Out.Hash.HashLow)
-				|| !Read(Bytes, Out.Hash.HashHigh) || !Read(Bytes, Out.FileSize)
-				|| !Read(Bytes, Out.LastWriteTime)
-				|| !ReadVector(Bytes, Out.Source.Samples, MaximumTerrainHeightmapSamples)
+				|| !ReadValue(Bytes, Out.Source.DecoderVersion)
+				|| !ReadValue(Bytes, Out.Source.SourceFormat)
+				|| !ReadValue(Bytes, Out.Source.SourceProfileVersion)
+				|| !ReadString(Bytes, Out.Path.Path) || !ReadValue(Bytes, Out.Hash.HashLow)
+				|| !ReadValue(Bytes, Out.Hash.HashHigh) || !ReadValue(Bytes, Out.FileSize)
+				|| !ReadValue(Bytes, Out.LastWriteTime)
+				|| !ReadTrivialVector(Bytes, Out.Source.Samples, MaximumTerrainHeightmapSamples)
 				|| !Bytes.empty() || !Out.Source.IsValid())
 			{
 				OutError = "Terrain heightmap payload is malformed.";
@@ -428,83 +360,6 @@ namespace Durin::AssetForge::Builtins
 			}
 			return true;
 		}
-
-		auto MakeCandidatePath(const FAssetPath& Target, FAssetPath& Out) -> bool
-		{
-			for (uint32 Suffix = 1; Suffix != 0; ++Suffix)
-				if (FAssetPath::TryCreate(std::format("{}_ImportCandidate_{}",
-					Target.ToString(), Suffix), Out)
-					&& !Asset::FindResidentPackage(Out) && !Asset::FindAssetExact(Out)) return true;
-			return false;
-		}
-
-		class FCandidate final : public ISingleAssetCandidate
-		{
-		public:
-			explicit FCandidate(DObject* InAsset, bool bInNew)
-				: AssetObject(InAsset), Package(InAsset ? InAsset->GetPackage() : nullptr), bNew(bInNew) {}
-			auto GetAsset() const -> DObject* override { return AssetObject; }
-			auto GetPackage() const -> DPackage* override { return Package; }
-			auto IsNewAsset() const -> bool override { return bNew; }
-			auto GetAuthoredFingerprint() const -> std::string override
-			{
-				if (const auto* Cube = Cast<DTextureCube>(AssetObject)) return Cube->GetDerivedDataKey();
-				if (const auto* Volume = Cast<DVolumeTexture>(AssetObject)) return Volume->GetDerivedDataKey();
-				if (const auto* Terrain = Cast<DTerrainHeightmap>(AssetObject)) return Terrain->GetDerivedDataKey();
-				return {};
-			}
-			auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
-			{
-				const bool Valid = AssetObject && Package &&
-					((Cast<DTextureCube>(AssetObject) && Cast<DTextureCube>(AssetObject)->GetPlatformData())
-					|| (Cast<DVolumeTexture>(AssetObject) && Cast<DVolumeTexture>(AssetObject)->GetPlatformData())
-					|| (Cast<DTerrainHeightmap>(AssetObject) && Cast<DTerrainHeightmap>(AssetObject)->GetPayload()));
-				if (!Valid) OutDiagnostics.push_back({
-					.Severity = EImportDiagnosticSeverity::Error,
-					.Category = EImportDiagnosticCategory::ValidationFailure,
-					.Identity = "Durin.ImageFamily.CandidateInvalid",
-					.Phase = "CandidateValidation",
-					.Message = "Image-family candidate has no validated runtime data."});
-				return Valid;
-			}
-			auto Abandon() noexcept -> void override
-			{
-				if (DPackage* Detached = DetachPackageForAbandon())
-					(void)Asset::UnloadPackage(
-						Detached, EAssetPackageUnloadPolicy::DiscardUnsaved);
-			}
-			auto DetachPackageForAbandon() noexcept -> DPackage* override
-			{
-				DPackage* Detached = Package;
-				Package = nullptr;
-				AssetObject = nullptr;
-				return Detached;
-			}
-		private:
-			DObject* AssetObject = nullptr;
-			DPackage* Package = nullptr;
-			bool bNew = false;
-		};
-
-		template<typename T>
-		class TExchange final : public IPreparedImportedStateExchange
-		{
-		public:
-			TExchange(T& InTarget, T& InCandidate) : Target(&InTarget), Candidate(&InCandidate) {}
-			auto Commit() noexcept -> void override
-			{
-				if (!bCommitted) { Target->ExchangeImportedState(*Candidate); bCommitted = true; }
-			}
-			auto Reverse() noexcept -> void override
-			{
-				if (bCommitted) { Target->ExchangeImportedState(*Candidate); bCommitted = false; }
-			}
-			auto Finalize() noexcept -> void override { Target = nullptr; Candidate = nullptr; }
-		private:
-			T* Target;
-			T* Candidate;
-			bool bCommitted = false;
-		};
 
 		auto AddFailure(std::vector<FImportDiagnostic>& Diagnostics,
 			std::string Identity, std::string Phase, std::string Message) -> void
@@ -531,30 +386,6 @@ namespace Durin::AssetForge::Builtins
 			else if (auto* Terrain = Cast<DTerrainHeightmap>(&Object)) Terrain->PublishImportProvenance(std::move(Bytes));
 			else return false;
 			return true;
-		}
-
-		auto DecodeStoredProvenance(std::string_view Hex,
-			FImportProvenance& Out, std::string& OutError) -> bool
-		{
-			if (Hex.empty() || (Hex.size() & 1) != 0)
-			{
-				OutError = "AssetForge provenance encoding is malformed.";
-				return false;
-			}
-			auto Nibble = [](char Value) -> int {
-				if (Value >= '0' && Value <= '9') return Value - '0';
-				if (Value >= 'a' && Value <= 'f') return Value - 'a' + 10;
-				return -1;
-			};
-			std::vector<std::byte> Bytes(Hex.size() / 2);
-			for (size_t Index = 0; Index < Bytes.size(); ++Index)
-			{
-				const int High = Nibble(Hex[Index * 2]);
-				const int Low = Nibble(Hex[Index * 2 + 1]);
-				if (High < 0 || Low < 0) return false;
-				Bytes[Index] = static_cast<std::byte>((High << 4) | Low);
-			}
-			return DeserializeImportProvenance(Bytes, Out, OutError);
 		}
 
 		auto PolicyFor(EImportMode Mode) -> EImportOutputPolicy

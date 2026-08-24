@@ -1,4 +1,5 @@
 #include "SceneImportProviderSchema.h"
+#include "BuiltinImportProviderCommon.h"
 #include "BuiltinProviderRegistration.h"
 
 namespace Durin::AssetForge::Builtins
@@ -502,7 +503,7 @@ namespace Durin::AssetForge::Builtins
 				else if (Kind == ESceneOutputKind::Texture2D) { DTexture2D* Value = nullptr; Created = Asset::CreateAsset(CandidatePath, Value); Candidate = Value; }
 				else { AssetForge::DImportRecord* Value = nullptr; Created = AssetForge::CreateImportRecordAsset(CandidatePath, Value); Candidate = Value; }
 				if (!Created || !Candidate) return {};
-				auto Result = std::make_unique<FEngineSingleAssetCandidate>(
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
 				std::string Error;
 				const FSceneOutputData& Output = Product->Cached->Data->Outputs[Product->OutputIndex];
@@ -684,11 +685,11 @@ namespace Durin::AssetForge::Builtins
 						*Cast<DStaticMesh>(Candidate.GetAsset()), Error);
 					return Exchange ? std::make_unique<FStaticMeshExchange>(std::move(Exchange)) : nullptr;
 				}
-				if (Kind == ESceneOutputKind::Texture2D) return std::make_unique<TNoFailExchange<DTexture2D>>(
+				if (Kind == ESceneOutputKind::Texture2D) return std::make_unique<TImportedStateExchange<DTexture2D>>(
 					*Cast<DTexture2D>(&Target), *Cast<DTexture2D>(Candidate.GetAsset()));
-				if (Kind == ESceneOutputKind::MaterialInstance) return std::make_unique<TNoFailExchange<DMaterialInstance>>(
+				if (Kind == ESceneOutputKind::MaterialInstance) return std::make_unique<TImportedStateExchange<DMaterialInstance>>(
 					*Cast<DMaterialInstance>(&Target), *Cast<DMaterialInstance>(Candidate.GetAsset()));
-				if (Kind == ESceneOutputKind::ImportRecord) return std::make_unique<TNoFailExchange<AssetForge::DImportRecord>>(
+				if (Kind == ESceneOutputKind::ImportRecord) return std::make_unique<TImportedStateExchange<AssetForge::DImportRecord>>(
 					*Cast<AssetForge::DImportRecord>(&Target), *Cast<AssetForge::DImportRecord>(Candidate.GetAsset()));
 				if (Kind == ESceneOutputKind::Skeleton)
 				{
@@ -717,7 +718,7 @@ namespace Durin::AssetForge::Builtins
 					.OutputIdentity = Node.StableIdentity, .Message = std::move(Message)});
 				return {};
 			}
-			auto MaterializationFailure(std::unique_ptr<FEngineSingleAssetCandidate> Candidate,
+			auto MaterializationFailure(std::unique_ptr<FBuiltinSingleAssetCandidate> Candidate,
 				std::string Message, std::vector<FImportDiagnostic>& Diagnostics) const
 				-> std::unique_ptr<ISingleAssetCandidate>
 			{

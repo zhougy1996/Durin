@@ -1,4 +1,6 @@
 #include "Texture2DImportProviderSchema.h"
+#include "BuiltinImportProviderCommon.h"
+#include "BuiltinImportProvenance.h"
 #include "BuiltinProviderRegistration.h"
 
 namespace Durin::AssetForge::Builtins
@@ -161,7 +163,7 @@ namespace Durin::AssetForge::Builtins
 					&& !MakeCandidatePath(AssetBuilderNode.Destination, CandidatePath)) return {};
 				DTexture2D* Candidate = nullptr;
 				if (!TextureProduct || !Asset::CreateAsset(CandidatePath, Candidate)) return {};
-				auto Result = std::make_unique<FEngineSingleAssetCandidate>(
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
 				std::string Error;
 				if (!Asset::Build::PublishTexture2DProduct(*Candidate,
@@ -187,7 +189,7 @@ namespace Durin::AssetForge::Builtins
 				auto* Target = Cast<DTexture2D>(&TargetObject);
 				auto* Candidate = Cast<DTexture2D>(CandidateObject.GetAsset());
 				return Target && Candidate
-					? std::make_unique<TNoFailExchange<DTexture2D>>(*Target, *Candidate)
+					? std::make_unique<TImportedStateExchange<DTexture2D>>(*Target, *Candidate)
 					: nullptr;
 			}
 
@@ -272,73 +274,13 @@ namespace Durin::AssetForge::Builtins
 		FImportProvenance& OutProvenance,
 		std::string& OutError) -> bool
 	{
-		if (!Texture.GetImportProvenance().empty())
+		if (Texture.GetImportProvenance().empty())
 		{
-			const std::string_view Hex = Texture.GetImportProvenance();
-			if ((Hex.size() & 1) != 0)
-			{
-				OutError = "Texture2D AssetForge provenance encoding is malformed.";
-				return false;
-			}
-			auto Nibble = [](char Character) -> int32 {
-				if (Character >= '0' && Character <= '9') return Character - '0';
-				if (Character >= 'a' && Character <= 'f') return Character - 'a' + 10;
-				return -1;
-			};
-			std::vector<std::byte> Bytes(Hex.size() / 2);
-			for (size_t Index = 0; Index < Bytes.size(); ++Index)
-			{
-				const int32 High = Nibble(Hex[Index * 2]);
-				const int32 Low = Nibble(Hex[Index * 2 + 1]);
-				if (High < 0 || Low < 0)
-				{
-					OutError = "Texture2D AssetForge provenance encoding is malformed.";
-					return false;
-				}
-				Bytes[Index] = static_cast<std::byte>((High << 4) | Low);
-			}
-			return DeserializeImportProvenance(Bytes, OutProvenance, OutError);
-		}
-		const FTexture2DSourceImportData& Source = Texture.GetSourceImportData();
-		FAssetPath Destination;
-		if (!Texture.GetPackage() || !Source.HasSource()
-			|| (Source.DecoderId != "DurinImage" && Source.DecoderId != ImageTranslatorId)
-			|| !FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination,
-				&OutError))
-		{
-			if (OutError.empty())
-				OutError = "Texture2D has no compatible AssetForge or legacy image provenance.";
+			OutError = "Texture2D has no current AssetForge provenance.";
 			return false;
 		}
-		FTexture2DImportSettings Settings{
-			.Usage = Texture.GetUsage(),
-			.CompressionQuality = Texture.GetCompressionQuality(),
-			.AlphaMipMode = Texture.GetAlphaMipMode(),
-			.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
-			.MaxResolution = Texture.GetMaxResolution(),
-			.bSRGB = Texture.IsSRGB()};
-		OutProvenance = {
-			.Translator = {
-				.Id = std::string(ImageTranslatorId), .ContractVersion = 1,
-				.Settings = MakeSchemaPayload(
-					std::string(EmptyTranslatorSettingsSchema), 1, {})},
-			.PlanningPassStack = {{
-				.PlanningPassId = std::string(Texture2DPlanningPassId), .ContractVersion = 1,
-				.Settings = EncodeTexture2DImportPlan({
-					.Destination = Destination, .Settings = Settings,
-					.Policy = EImportOutputPolicy::ReplaceWholeState})}},
-			.Sources = {{
-				.StableIdentity = "root", .Role = "Root",
-				.SourcePath = Source.Source.SourcePath,
-				.ContentHash = {.HashLow = Source.Source.SourceContentHashLow,
-					.HashHigh = Source.Source.SourceContentHashHigh},
-				.ByteCount = Texture.GetSourceFileSize()}},
-			.OutputMappings = {{
-				.SourceNodeIdentity = "image", .OutputIdentity = "texture2d",
-				.AssetPath = Destination}},
-			.AuthoredOutputFingerprint = Texture.GetDerivedDataKey()};
-		OutError.clear();
-		return true;
+		return DecodeStoredImportProvenance(
+			Texture.GetImportProvenance(), OutProvenance, OutError);
 	}
 
 	auto RegisterTexture2DImportProvider(FImportService& Service,

@@ -3,6 +3,9 @@
 #include "StaticMeshImportProviderSchema.h"
 #include "Texture2DImportProviderSchema.h"
 
+#include "AssetForge/Persistence/ImportRecord.h"
+#include "SceneImportInternal.h"
+
 namespace Durin::AssetForge::Builtins
 {
 	namespace

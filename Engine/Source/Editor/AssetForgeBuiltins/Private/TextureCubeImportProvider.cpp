@@ -178,7 +178,8 @@ namespace Durin::AssetForge::Builtins
 				if (Node.Policy != EImportOutputPolicy::Create && !MakeCandidatePath(Node.Destination, Path)) return {};
 				DTextureCube* AssetObject = nullptr;
 				if (!Typed || !Asset::CreateAsset(Path, AssetObject)) return {};
-				auto Result = std::make_unique<FCandidate>(AssetObject, Node.Policy == EImportOutputPolicy::Create);
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
+					AssetObject, Node.Policy == EImportOutputPolicy::Create);
 				std::string Error;
 				if (!Asset::Build::PublishTextureCubeProduct(*AssetObject,
 					std::move(Typed->Product), Typed->Publication, Error))
@@ -194,7 +195,9 @@ namespace Durin::AssetForge::Builtins
 			{
 				auto* A = Cast<DTextureCube>(&Target);
 				auto* B = Cast<DTextureCube>(Candidate.GetAsset());
-				return A && B ? std::make_unique<TExchange<DTextureCube>>(*A, *B) : nullptr;
+				return A && B
+					? std::make_unique<TImportedStateExchange<DTextureCube>>(*A, *B)
+					: nullptr;
 			}
 			auto ApplyProvenance(DObject& Object, const FImportProvenance& Provenance,
 				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override
@@ -242,7 +245,8 @@ namespace Durin::AssetForge::Builtins
 		FImportProvenance& Out, std::string& OutError) -> bool
 	{
 		if (!Texture.GetImportProvenance().empty())
-			return DecodeStoredProvenance(Texture.GetImportProvenance(), Out, OutError);
+			return DecodeStoredImportProvenance(
+				Texture.GetImportProvenance(), Out, OutError);
 		OutError = "TextureCube has no persisted AssetForge provenance; reimport requires explicit repair.";
 		return false;
 	}
