@@ -578,12 +578,21 @@ namespace Durin
 		}
 
 		const uint32 PassCount = static_cast<uint32>(State->Passes.size());
+		const uint32 ResourceCount = static_cast<uint32>(State->Resources.size());
+		size_t DeclaredUseCount = 0;
+		size_t ExplicitDependencyCount = 0;
+		for (const auto& Pass : State->Passes)
+		{
+			DeclaredUseCount += Pass.Uses.size();
+			ExplicitDependencyCount += Pass.Prerequisites.size();
+		}
 		if (PassCount > State->Budget.MaxPasses)
 			return Fail("render graph safety limit exceeded: passes actual="
 				+ std::to_string(PassCount) + " limit=" + std::to_string(State->Budget.MaxPasses));
 		std::vector<std::vector<uint32>> Outgoing(PassCount);
 		std::vector<uint32> Indegree(PassCount, 0);
 		std::vector<FRenderGraphDependency> Dependencies;
+		Dependencies.reserve(ExplicitDependencyCount + DeclaredUseCount);
 		auto AddEdge = [&](uint32 Before, uint32 After, const std::string& Cause,
 			ERenderGraphDependencyKind Kind) {
 			if (Before == After) return;
@@ -667,19 +676,28 @@ namespace Durin
 			}
 		}
 
+		std::vector<std::vector<const FGraphUse*>> ResourceUses(ResourceCount);
+		std::vector<size_t> ResourceUseCounts(ResourceCount, 0);
+		for (const auto& Pass : State->Passes)
+			for (const auto& Use : Pass.Uses)
+				++ResourceUseCounts[Use.ResourceIndex];
+		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount; ++ResourceIndex)
+			ResourceUses[ResourceIndex].reserve(ResourceUseCounts[ResourceIndex]);
+		for (const auto& Pass : State->Passes)
+			for (const auto& Use : Pass.Uses)
+				ResourceUses[Use.ResourceIndex].push_back(&Use);
+
 		std::vector<FRangeState> Cells;
-		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
+		Cells.reserve(DeclaredUseCount);
+		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount; ++ResourceIndex)
 		{
 			const auto& Resource = State->Resources[ResourceIndex];
-			std::vector<FGraphUse> Uses;
-			for (const auto& Pass : State->Passes)
-				for (const auto& Use : Pass.Uses)
-					if (Use.ResourceIndex == ResourceIndex) Uses.push_back(Use);
+			const auto& Uses = ResourceUses[ResourceIndex];
 			if (Uses.empty()) continue;
 			if (Resource.Kind == ERenderGraphResourceKind::Token)
 			{
 				FRangeState Cell;
-				Cell.Use = Uses.front();
+				Cell.Use = *Uses.front();
 				Cell.bProduced = Resource.bImported;
 				Cell.Access = Resource.InitialAccess;
 				Cells.push_back(std::move(Cell));
@@ -688,19 +706,20 @@ namespace Durin
 			if (Resource.Kind == ERenderGraphResourceKind::Buffer)
 			{
 				std::vector<uint64> Cuts;
-				for (const auto& Use : Uses)
+				for (const FGraphUse* Use : Uses)
 				{
-					Cuts.push_back(Use.BufferOffset);
-					Cuts.push_back(Use.BufferOffset + Use.BufferSize);
+					Cuts.push_back(Use->BufferOffset);
+					Cuts.push_back(Use->BufferOffset + Use->BufferSize);
 				}
 				std::ranges::sort(Cuts);
 				Cuts.erase(std::unique(Cuts.begin(), Cuts.end()), Cuts.end());
 				for (size_t Index = 1; Index < Cuts.size(); ++Index)
 				{
-					FGraphUse CellUse = Uses.front();
+					FGraphUse CellUse = *Uses.front();
 					CellUse.BufferOffset = Cuts[Index - 1];
 					CellUse.BufferSize = Cuts[Index] - Cuts[Index - 1];
-					if (!std::ranges::any_of(Uses, [&](const auto& Use) { return ContainsRange(Use, CellUse); }))
+					if (!std::ranges::any_of(Uses,
+						[&](const FGraphUse* Use) { return ContainsRange(*Use, CellUse); }))
 						continue;
 					FRangeState Cell;
 					Cell.Use = CellUse;
@@ -715,13 +734,13 @@ namespace Durin
 			{
 				std::vector<uint32> MipCuts;
 				std::vector<uint32> LayerCuts;
-				for (const auto& Use : Uses)
-					if (EnumHasAnyFlags(Use.TextureRange.Aspects, Aspect))
+				for (const FGraphUse* Use : Uses)
+					if (EnumHasAnyFlags(Use->TextureRange.Aspects, Aspect))
 					{
-						MipCuts.push_back(Use.TextureRange.FirstMip);
-						MipCuts.push_back(Use.TextureRange.FirstMip + Use.TextureRange.NumMips);
-						LayerCuts.push_back(Use.TextureRange.FirstArrayLayer);
-						LayerCuts.push_back(Use.TextureRange.FirstArrayLayer + Use.TextureRange.NumArrayLayers);
+						MipCuts.push_back(Use->TextureRange.FirstMip);
+						MipCuts.push_back(Use->TextureRange.FirstMip + Use->TextureRange.NumMips);
+						LayerCuts.push_back(Use->TextureRange.FirstArrayLayer);
+						LayerCuts.push_back(Use->TextureRange.FirstArrayLayer + Use->TextureRange.NumArrayLayers);
 					}
 				std::ranges::sort(MipCuts);
 				std::ranges::sort(LayerCuts);
@@ -730,11 +749,12 @@ namespace Durin
 				for (size_t Mip = 1; Mip < MipCuts.size(); ++Mip)
 					for (size_t Layer = 1; Layer < LayerCuts.size(); ++Layer)
 					{
-						FGraphUse CellUse = Uses.front();
+						FGraphUse CellUse = *Uses.front();
 						CellUse.TextureRange = {Aspect, MipCuts[Mip - 1],
 							MipCuts[Mip] - MipCuts[Mip - 1], LayerCuts[Layer - 1],
 							LayerCuts[Layer] - LayerCuts[Layer - 1]};
-						if (!std::ranges::any_of(Uses, [&](const auto& Use) { return ContainsRange(Use, CellUse); }))
+						if (!std::ranges::any_of(Uses,
+							[&](const FGraphUse* Use) { return ContainsRange(*Use, CellUse); }))
 							continue;
 						FRangeState Cell;
 						Cell.Use = CellUse;
@@ -781,6 +801,7 @@ namespace Durin
 				}
 
 		std::vector<uint32> Order;
+		Order.reserve(PassCount);
 		std::vector<bool> Emitted(PassCount, false);
 		while (Order.size() < PassCount)
 		{
@@ -797,6 +818,7 @@ namespace Durin
 		if (State->bEnableCulling)
 		{
 			std::vector<uint32> Pending;
+			Pending.reserve(PassCount);
 			for (uint32 Index = 0; Index < PassCount; ++Index)
 				if (State->Passes[Index].bRoot) { Retained[Index] = true; Pending.push_back(Index); }
 			while (!Pending.empty())
@@ -820,6 +842,18 @@ namespace Durin
 		CompiledState->Prepare = State->Prepare;
 		CompiledState->Resolver = State->Resolver;
 		CompiledState->Budget = State->Budget;
+		CompiledState->Passes.reserve(PassCount);
+		CompiledState->Dependencies.reserve(Dependencies.size());
+		CompiledState->ResourceLifetimes.reserve(ResourceCount);
+		CompiledState->CullingDecisions.reserve(PassCount);
+		CompiledState->ExecuteCallbacks.reserve(PassCount);
+		CompiledState->PassResourceIndices.reserve(PassCount);
+		CompiledState->PassBufferTransitionResources.reserve(PassCount);
+		CompiledState->PassTextureTransitionResources.reserve(PassCount);
+		CompiledState->ResourceCaptures.reserve(ResourceCount);
+		CompiledState->UseCaptures.reserve(DeclaredUseCount);
+		CompiledState->TransitionCaptures.reserve(DeclaredUseCount * 2);
+		CompiledState->PreparationRequests.reserve(ResourceCount);
 		for (const auto& Edge : Dependencies)
 			if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
 				CompiledState->Dependencies.push_back(Edge);
@@ -862,6 +896,11 @@ namespace Durin
 			std::vector<uint32> DeclaredResources;
 			std::vector<uint32> BufferTransitionResources;
 			std::vector<uint32> TextureTransitionResources;
+			DeclaredResources.reserve(Pass.Uses.size());
+			BufferTransitionResources.reserve(Pass.Uses.size());
+			TextureTransitionResources.reserve(Pass.Uses.size());
+			CompiledPass.BufferTransitions.reserve(Pass.Uses.size());
+			CompiledPass.TextureTransitions.reserve(Pass.Uses.size());
 			for (const auto& Use : Pass.Uses)
 			{
 				if (std::ranges::find(DeclaredResources, Use.ResourceIndex) == DeclaredResources.end())
@@ -1270,33 +1309,35 @@ namespace Durin
 		}
 		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
 		{
-			const auto& Pass = State->Passes[Index];
-			std::vector<FRHIBufferTransition> BufferTransitions = Pass.BufferTransitions;
-			for (uint32 TransitionIndex = 0; TransitionIndex < BufferTransitions.size(); ++TransitionIndex)
-				BufferTransitions[TransitionIndex].Buffer = State->Resources[
+			auto& Pass = State->Passes[Index];
+			for (uint32 TransitionIndex = 0;
+				TransitionIndex < Pass.BufferTransitions.size(); ++TransitionIndex)
+				Pass.BufferTransitions[TransitionIndex].Buffer = State->Resources[
 					State->PassBufferTransitionResources[Index][TransitionIndex]].Buffer;
-			std::vector<FRHITextureTransition> TextureTransitions = Pass.TextureTransitions;
-			for (uint32 TransitionIndex = 0; TransitionIndex < TextureTransitions.size(); ++TransitionIndex)
-				TextureTransitions[TransitionIndex].Texture = State->Resources[
+			for (uint32 TransitionIndex = 0;
+				TransitionIndex < Pass.TextureTransitions.size(); ++TransitionIndex)
+				Pass.TextureTransitions[TransitionIndex].Texture = State->Resources[
 					State->PassTextureTransitionResources[Index][TransitionIndex]].Texture;
-			if (!BufferTransitions.empty()) CommandList.TransitionBuffers(BufferTransitions);
-			if (!TextureTransitions.empty()) CommandList.TransitionTextures(TextureTransitions);
+			if (!Pass.BufferTransitions.empty())
+				CommandList.TransitionBuffers(Pass.BufferTransitions);
+			if (!Pass.TextureTransitions.empty())
+				CommandList.TransitionTextures(Pass.TextureTransitions);
 			if (State->ExecuteCallbacks[Index])
 			{
 				const FRenderGraphPassResources Resources(*this, Index);
 				State->ExecuteCallbacks[Index](CommandList, Resources);
 			}
 		}
-		std::vector<FRHIBufferTransition> FinalBuffers = State->FinalBufferTransitions;
-		for (uint32 Index = 0; Index < FinalBuffers.size(); ++Index)
-			FinalBuffers[Index].Buffer = State->Resources[
+		for (uint32 Index = 0; Index < State->FinalBufferTransitions.size(); ++Index)
+			State->FinalBufferTransitions[Index].Buffer = State->Resources[
 				State->FinalBufferTransitionResources[Index]].Buffer;
-		std::vector<FRHITextureTransition> FinalTextures = State->FinalTextureTransitions;
-		for (uint32 Index = 0; Index < FinalTextures.size(); ++Index)
-			FinalTextures[Index].Texture = State->Resources[
+		for (uint32 Index = 0; Index < State->FinalTextureTransitions.size(); ++Index)
+			State->FinalTextureTransitions[Index].Texture = State->Resources[
 				State->FinalTextureTransitionResources[Index]].Texture;
-		if (!FinalBuffers.empty()) CommandList.TransitionBuffers(FinalBuffers);
-		if (!FinalTextures.empty()) CommandList.TransitionTextures(FinalTextures);
+		if (!State->FinalBufferTransitions.empty())
+			CommandList.TransitionBuffers(State->FinalBufferTransitions);
+		if (!State->FinalTextureTransitions.empty())
+			CommandList.TransitionTextures(State->FinalTextureTransitions);
 		if (OutError != nullptr) OutError->clear();
 		RecordDuration();
 		return true;

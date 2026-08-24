@@ -308,7 +308,7 @@ preview rendering cannot overwrite the Level Editor main-view statistics.
 
 The Level Editor FPS badge is the statistics entry point. Activating the badge
 toggles a compact frame summary right-aligned directly below it. The summary is
-limited to frame time, visibility, triangles, and draw calls; its `Details...`
+limited to frame interval, visibility, triangles, and draw calls; its `Details...`
 action opens the independently dockable Rendering Diagnostics panel. The full
 badge/panel rectangle is excluded from drag/drop, selection, gizmo editing,
 camera navigation, wheel input, and embedded-PIE capture before those paths
@@ -318,7 +318,13 @@ Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
 it defaults to collapsed and never dirties level or asset packages.
 
 Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
-Overview reports headline frame and graph-budget values, Scene owns the
+Overview separates the smoothed wall-clock frame interval into game-thread work
+and the measured end-of-frame render synchronization wait. The latter is a
+pacing boundary that may include render-thread, RHI, GPU, Present, or VSync
+backlog; it is not presented as pure VSync time. Overview also reports
+graph-budget values. The three frame-timing values publish one synchronized
+snapshot every half second while their underlying accumulators continue to
+sample every frame. Scene owns the
 feature breakdowns removed from the compact overlay, and Render Graph provides
 pass filtering, pass/resource inspection, dependency visualization, resource
 lifetimes, and transition counts. Pass filtering compacts the graph to matches

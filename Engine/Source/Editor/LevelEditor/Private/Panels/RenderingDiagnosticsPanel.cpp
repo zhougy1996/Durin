@@ -2,6 +2,7 @@
 
 #include "Client/SceneViewport.h"
 #include "Editor/WorkspaceUI.h"
+#include "EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
 #include "RenderGraph.h"
@@ -45,11 +46,14 @@ namespace Durin::Editor::Level
 			return "Unknown";
 		}
 
-		auto DrawValueRow(const char* Label, std::string_view Value) -> void
+		auto DrawValueRow(const char* Label, std::string_view Value,
+			const char* Tooltip = nullptr) -> void
 		{
 			ImGui::TableNextRow();
 			ImGui::TableNextColumn();
 			ImGui::TextDisabled("%s", Label);
+			if (Tooltip != nullptr && ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", Tooltip);
 			ImGui::TableNextColumn();
 			ImGui::TextUnformatted(Value.data(), Value.data() + Value.size());
 		}
@@ -207,8 +211,16 @@ namespace Durin::Editor::Level
 		else if (DrawMetricTableBegin("OverviewFrame"))
 		{
 			const FSceneViewStatistics& Statistics = Snapshot.Statistics;
-			DrawValueRow("Editor frame time", std::format("{:.2f} ms",
-				GetStableEditorFrameTimeMilliseconds()));
+			const FEngineFrameTiming& Timing = GetStableEditorFrameTiming();
+			DrawValueRow("Frame interval", std::format("{:.2f} ms",
+				Timing.FrameIntervalMilliseconds),
+				"Wall-clock interval between completed engine frames, including work and waits.");
+			DrawValueRow("Game-thread work", std::format("{:.2f} ms",
+				Timing.GameThreadWorkMilliseconds),
+				"Frame interval outside the measured end-of-frame render synchronization wait.");
+			DrawValueRow("Render sync wait", std::format("{:.2f} ms",
+				Timing.RenderSyncWaitMilliseconds),
+				"Time blocked on render-thread pacing; may include RHI, GPU, Present, and VSync backlog.");
 			DrawCountRow("Triangles", Statistics.Summary.Triangles);
 			DrawCountRow("Draw calls", Statistics.Summary.DrawCalls);
 			DrawValueRow("Visible primitives", std::format("{} / {}",

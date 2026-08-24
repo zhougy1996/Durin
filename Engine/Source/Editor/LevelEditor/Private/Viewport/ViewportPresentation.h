@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EngineGlobals.h"
 #include "SceneView.h"
 #include "MonaImGui.h"
 #include "ThirdParty/ImGui/imgui.h"
@@ -133,7 +134,7 @@ namespace Durin::Editor::Level
 		bool bExpanded) -> FViewportStatisticsOverlayLayout
 	{
 		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
 		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
 		const float OverlayHeight = std::max(
 			MonaImGui::ScaleUI(30.0f),
@@ -191,8 +192,9 @@ namespace Durin::Editor::Level
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void;
 	auto DrawViewportOrientationOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 	auto DrawViewportCameraSpeedOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
-	// Returns one shared, smoothed frame-time reading whose visible value updates
-	// slowly enough to remain readable in diagnostics surfaces.
+	// Returns one synchronized timing snapshot published at a readable cadence.
+	auto GetStableEditorFrameTiming() -> const FEngineFrameTiming&;
+	// Returns the frame interval from the shared stable timing snapshot.
 	auto GetStableEditorFrameTimeMilliseconds() -> float;
 	auto DrawViewportStatisticsOverlay(
 		const ImVec2& ViewportMin,

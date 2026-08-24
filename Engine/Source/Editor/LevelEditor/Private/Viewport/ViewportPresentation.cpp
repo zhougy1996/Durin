@@ -4,6 +4,7 @@
 #include "Client/SceneViewport.h"
 #include "Client/ViewportClient.h"
 #include "Engine/Engine.h"
+#include "EngineGlobals.h"
 #include "Engine/World.h"
 #include "Math/Vector.h"
 #include "MonaImGui.h"
@@ -18,16 +19,16 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		struct FStableFrameTimeState
+		struct FStableEditorFrameTimingState final
 		{
 			ImGuiContext* Context = nullptr;
 			int32 LastFrame = -1;
-			float SmoothedSeconds = 0.0f;
-			float PresentedSeconds = 0.0f;
-			float PresentationAccumulator = 0.0f;
+			float PresentationAccumulatorSeconds = 0.0f;
+			FEngineFrameTiming Presented;
+			bool bInitialized = false;
 		};
 
-		FStableFrameTimeState StableFrameTime;
+		FStableEditorFrameTimingState StableEditorFrameTiming;
 
 		template<typename T>
 		// Couples a viewport-mode value with its label, tooltip, and toolbar icon.
@@ -674,40 +675,32 @@ namespace Durin::Editor::Level
 		}
 	} // namespace
 
-	auto GetStableEditorFrameTimeMilliseconds() -> float
+	auto GetStableEditorFrameTiming() -> const FEngineFrameTiming&
 	{
 		ImGuiContext* Context = ImGui::GetCurrentContext();
-		const ImGuiIO& IO = ImGui::GetIO();
-		if (StableFrameTime.Context != Context)
-			StableFrameTime = {.Context = Context};
-
-		if (StableFrameTime.LastFrame != ImGui::GetFrameCount())
+		if (StableEditorFrameTiming.Context != Context)
+			StableEditorFrameTiming = {.Context = Context};
+		if (StableEditorFrameTiming.LastFrame != ImGui::GetFrameCount())
 		{
-			StableFrameTime.LastFrame = ImGui::GetFrameCount();
-			const float DeltaSeconds = std::clamp(IO.DeltaTime, 0.0f, 0.25f);
-			if (StableFrameTime.SmoothedSeconds <= 0.0f)
-				StableFrameTime.SmoothedSeconds = DeltaSeconds;
-			else
-			{
-				constexpr float SmoothingTimeSeconds = 0.35f;
-				const float Blend = 1.0f - std::exp(
-					-DeltaSeconds / SmoothingTimeSeconds);
-				StableFrameTime.SmoothedSeconds += Blend
-					* (DeltaSeconds - StableFrameTime.SmoothedSeconds);
-			}
-
-			StableFrameTime.PresentationAccumulator += DeltaSeconds;
-			constexpr float PresentationIntervalSeconds = 0.25f;
-			if (StableFrameTime.PresentedSeconds <= 0.0f
-				|| StableFrameTime.PresentationAccumulator
+			StableEditorFrameTiming.LastFrame = ImGui::GetFrameCount();
+			StableEditorFrameTiming.PresentationAccumulatorSeconds += std::clamp(
+				ImGui::GetIO().DeltaTime, 0.0f, 0.25f);
+			constexpr float PresentationIntervalSeconds = 0.5f;
+			if (!StableEditorFrameTiming.bInitialized
+				|| StableEditorFrameTiming.PresentationAccumulatorSeconds
 					>= PresentationIntervalSeconds)
 			{
-				StableFrameTime.PresentedSeconds = StableFrameTime.SmoothedSeconds;
-				StableFrameTime.PresentationAccumulator = 0.0f;
+				StableEditorFrameTiming.Presented = GetEngineFrameTiming();
+				StableEditorFrameTiming.PresentationAccumulatorSeconds = 0.0f;
+				StableEditorFrameTiming.bInitialized = true;
 			}
 		}
+		return StableEditorFrameTiming.Presented;
+	}
 
-		return StableFrameTime.PresentedSeconds * 1000.0f;
+	auto GetStableEditorFrameTimeMilliseconds() -> float
+	{
+		return GetStableEditorFrameTiming().FrameIntervalMilliseconds;
 	}
 
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void
@@ -812,7 +805,7 @@ namespace Durin::Editor::Level
 		if (ViewportClient != nullptr)
 		{
 			char FpsText[32];
-			snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+			snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
 			const float FpsWidth = ImGui::CalcTextSize(FpsText).x + MonaImGui::ScaleUI(14.0f);
 			const float CurrentSpeed = ViewportClient->GetMovementSpeed();
 			const std::string SpeedLabel = CurrentSpeed >= 1.0f
@@ -1389,7 +1382,7 @@ namespace Durin::Editor::Level
 			Layout.BadgeMax.x - Layout.BadgeMin.x,
 			Layout.BadgeMax.y - Layout.BadgeMin.y);
 		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
 		const bool bActivated = DrawToolbarButton(
 			"##ViewportStatisticsToggle", Layout.BadgeMin, BadgeSize, FpsText,
 			EViewportToolbarIcon::None, bExpanded,
@@ -1449,7 +1442,7 @@ namespace Durin::Editor::Level
 			else
 			{
 				const FSceneViewStatistics& Statistics = Snapshot.Statistics;
-				DrawRow("Frame time", std::format("{:.2f} ms",
+				DrawRow("Frame interval", std::format("{:.2f} ms",
 					GetStableEditorFrameTimeMilliseconds()));
 				DrawRow("Visible primitives", std::format("{} / {}",
 					FormatViewportStatistic(Statistics.Visibility.VisiblePrimitives),

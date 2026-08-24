@@ -2,6 +2,7 @@
 
 #include "Engine/Engine.h"
 #include "EngineGlobals.h"
+#include "Misc/Time.h"
 #include "Mona.h"
 #include "Profiling/Profiling.h"
 #include "RHI.h"
@@ -43,7 +44,11 @@ namespace Durin
 		auto RenderFrame(EEngineFrameMode Mode) -> void
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
-			if (GDynamicRHI == nullptr) return;
+			if (GDynamicRHI == nullptr)
+			{
+				RecordEngineFrameSyncWait(0.0f);
+				return;
+			}
 
 			const uint64 LogicFrameCounter = GFrameCounter;
 			const uint64 RenderFrameCounter = GRenderFrameCounter;
@@ -61,7 +66,10 @@ namespace Durin
 				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
 					EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
 				});
+			const double SyncStarted = FTime::Seconds();
 			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+			RecordEngineFrameSyncWait(static_cast<float>(
+				(FTime::Seconds() - SyncStarted) * 1000.0));
 			GRenderFrameCounter++;
 		}
 	}
