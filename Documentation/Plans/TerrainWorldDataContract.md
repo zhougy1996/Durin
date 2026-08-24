@@ -4,36 +4,53 @@ Summary: Freeze the product targets, canonical coordinates, tile products, owner
 
 Last reviewed: 2026-08-25
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-25
 
 ## Current Status
 
-The long-term [Terrain World System Roadmap](../Roadmaps/TerrainWorldSystem.md)
-selects T0 as the first required milestone. Existing Terrain assets,
-components, serialized payloads, editor workflows, and shader bindings carry
-no compatibility requirement, but old production code remains in place until
-the new finite runtime tile can replace it in T2.
+T0 is complete. The authoritative [Terrain World Data
+contract](../Runtime/Terrain/TerrainWorldData.md) freezes four numeric profiles,
+signed global coordinates, 0.25 m height quanta, 256-cell tiles, exact repeated
+borders, five typed products, 8×8-tile region packages, compatibility rejection,
+budgets, outcomes, and the World Partition-neutral interest boundary.
 
-The initial repository inventory found one isolated Sandbox Terrain content
-set:
+The selected profiles cover 4.096 km finite qualification, 32.768 km continuous
+traversal, 131.072 km teleport recovery, and a 524.288 km large-open-world
+storage case. They range from 256 to 262,144 tiles and from 5 to 4,097 installed
+packages. Peak build memory is capped at 4 GiB and 768 MiB per task; the
+contract records independent resident and latency budgets for every profile.
 
-| Candidate | Role | Observed reference state |
-| --- | --- | --- |
-| `Sandbox/Content/Levels/LEV_TestTerrain.dasset` | Old Terrain demonstration Level | Not the configured default Level; directly references `TestTerrain_1025` |
-| `Sandbox/Content/Terrains/TestTerrain_1025.dasset` | Heightmap asset used by the demonstration Level | Referenced by `LEV_TestTerrain` |
-| `Sandbox/Content/Terrains/TestTerrain.dasset` | Older heightmap asset | No repository reference found by the initial scan |
-| `Sandbox/Content/Sources/TerrainHeightmaps/Erosion1_Out.raw` | Source for `TestTerrain_1025` | Referenced by that asset's source provenance |
-| `Sandbox/Content/Sources/TerrainHeightmaps/Erosion_Out.raw` | Source for `TestTerrain` | Referenced by that asset's source provenance |
+Legacy cleanup used a one-time `AssetReferenceStoreTests` qualification against
+the real Sandbox. It registered `/Engine` and `/Game`, registered the authored
+`DImportRecord` class needed by the corpus, ran catalog/reference
+`FullValidation`, registered the project-default-Level external store, and
+prepared the three-asset deletion closure. Preparation returned zero blockers,
+zero warnings, three exact package entries, no aliases, no external persistent
+or loaded references, and no conflicting companions. The committed transaction
+removed:
 
-`Sandbox/Configs/Project.yaml` names `/Game/Levels/GrayboxStage15` as the
-default Level. This inventory is evidence for Stage 0; deletion must still use
-the authoritative asset reference projection and external-reference checks.
+- `Sandbox/Content/Levels/LEV_TestTerrain.dasset`;
+- `Sandbox/Content/Terrains/TestTerrain.dasset`;
+- `Sandbox/Content/Terrains/TestTerrain_1025.dasset`;
+- `Sandbox/Content/Sources/TerrainHeightmaps/Erosion_Out.raw`;
+- `Sandbox/Content/Sources/TerrainHeightmaps/Erosion1_Out.raw`.
 
-No world dimensions, tile dimensions, height encoding, package granularity,
-or runtime budgets are selected yet. Stage 0 freezes numeric product profiles
-before later stages choose formats. This plan defines contracts and removes
-disposable authored content; it does not implement the new Terrain runtime.
+`Sandbox/Configs/Project.yaml` still selects `/Game/Levels/GrayboxStage15`, and
+the post-transaction catalog lookup confirmed that Level remained present while
+all three deleted packages were absent. A post-cleanup `DurinAssetTool`
+canonical-resave dry plan selected that Level as `1 ready, 0 blocked`, confirming
+package compatibility/load preparation. The one-time destructive test code was
+then removed; only the content deletion remains.
+
+Current Terrain disposition is explicit: exact height/extrema, LOD/stitching,
+collision separation, camera-relative rendering, build/Cook, and lifecycle
+tests remain T2 characterization oracles. `AssetCore`, `AssetBuildCore`, task,
+package/Cook, collision, render-resource, and asset-mutation capabilities are
+independent reusable infrastructure. `DTerrainHeightmap`, component/actor/scene
+proxy, Terrain renderer/topology/vertex factory, import/editor workflow, legacy
+build keys/codecs/shaders, and their user documents are T2 replacement targets.
+None is a compatibility dependency of the new family.
 
 ## Goal
 
@@ -188,24 +205,24 @@ independent from future Actor/Level cell dimensions.
 
 ### Stage 0: Freeze product profiles and legacy removal closure
 
-- [ ] Record finite qualification, continuous traversal, teleport/recovery, and
+- [x] Record finite qualification, continuous traversal, teleport/recovery, and
   large-open-world profiles with numeric dimensions, horizontal resolution,
   vertical range/precision, layer counts, expected authored/cooked bytes, and
   target platform.
-- [ ] Freeze peak build memory, resident bytes by product class, initial
+- [x] Freeze peak build memory, resident bytes by product class, initial
   activation latency, traversal latency, teleport recovery, and expected
   storage/package counts for each profile.
-- [ ] Compare 128-, 256-, and 512-cell tiles using border overhead,
+- [x] Compare 128-, 256-, and 512-cell tiles using border overhead,
   package/request count, rebuild amplification, render patches, and collision
   working set; select one default and versioning policy.
-- [ ] Prepare deletion through the authoritative reference projection for
+- [x] Prepare deletion through the authoritative reference projection for
   `LEV_TestTerrain`, `TestTerrain_1025`, and `TestTerrain`, including aliases,
   hard/soft references, external stores, residency, sources, and exact files.
-- [ ] Confirm `GrayboxStage15` remains loadable/default, then remove the five
+- [x] Confirm `GrayboxStage15` remains loadable/default, then remove the five
   isolated files or record a proven incoming reference that narrows the set.
-- [ ] Inventory current Terrain code/tests/docs and classify each as T2 oracle,
+- [x] Inventory current Terrain code/tests/docs and classify each as T2 oracle,
   future replacement target, or independent reusable infrastructure.
-- [ ] Record selected profiles, tile comparison, deleted set, reference
+- [x] Record selected profiles, tile comparison, deleted set, reference
   evidence, and retained exceptions in `Current Status`.
 
 #### Acceptance Gate
@@ -219,20 +236,20 @@ independent from future Actor/Level cell dimensions.
 
 ### Stage 1: Freeze global coordinates, heights, tiles, and seams
 
-- [ ] Specify types and checked conversions for world ID, global sample, tile
+- [x] Specify types and checked conversions for world ID, global sample, tile
   key, in-tile coordinate, origin, spacing, datum, integer height, and
   quantization.
-- [ ] Freeze valid ranges, invalid states, comparison/hash, byte order,
+- [x] Freeze valid ranges, invalid states, comparison/hash, byte order,
   versions, and overflow/non-finite rejection.
-- [ ] Specify signed tile division/modulo for negative coordinates, borders,
+- [x] Specify signed tile division/modulo for negative coordinates, borders,
   and the maximum world boundary.
-- [ ] Define interiors, repeated edges/corners, optional halo, row/axis order,
+- [x] Define interiors, repeated edges/corners, optional halo, row/axis order,
   winding, and half-open/inclusive region conventions.
-- [ ] Define neighbor keys and edge/halo consumption for bounds, normals, LOD,
+- [x] Define neighbor keys and edge/halo consumption for bounds, normals, LOD,
   collision, coverage, and incremental rebuild.
-- [ ] Create asymmetric golden fixtures covering negative tiles/heights,
+- [x] Create asymmetric golden fixtures covering negative tiles/heights,
   extrema, all edge/corner orientations, non-square extents, and overflow.
-- [ ] Publish the canonical coordinate/seam contract in Runtime Terrain docs.
+- [x] Publish the canonical coordinate/seam contract in Runtime Terrain docs.
 
 #### Acceptance Gate
 
@@ -245,18 +262,18 @@ independent from future Actor/Level cell dimensions.
 
 ### Stage 2: Freeze authored intent and tile product graph
 
-- [ ] Define the authored World schema: coordinates, extent, tile policy,
+- [x] Define the authored World schema: coordinates, extent, tile policy,
   layer library, ordered composition sources, build settings, and references.
-- [ ] Define normalized tile inputs with source content, composition policy,
+- [x] Define normalized tile inputs with source content, composition policy,
   rectangle/halo, layers, neighbor evidence, builder identity, and cancellation.
-- [ ] Define metadata, height, coverage, collision, and query value schemas with
+- [x] Define metadata, height, coverage, collision, and query value schemas with
   independent magic, version, checksum, ceilings, and compatibility fields.
-- [ ] Decide atomic publication and independent build/load/residency relations.
-- [ ] Define deterministic build keys, cached/local validation, corruption,
+- [x] Decide atomic publication and independent build/load/residency relations.
+- [x] Define deterministic build keys, cached/local validation, corruption,
   Cook selection, and runtime compatibility inspection.
-- [ ] Select package granularity and specify manifest lookup, partial
+- [x] Select package granularity and specify manifest lookup, partial
   installation, reachability, unload blocking, and product location.
-- [ ] Specify exact rejection of all legacy Terrain classes and schemas.
+- [x] Specify exact rejection of all legacy Terrain classes and schemas.
 
 #### Acceptance Gate
 
@@ -269,19 +286,19 @@ independent from future Actor/Level cell dimensions.
 
 ### Stage 3: Freeze runtime ownership and World Partition seam
 
-- [ ] Define value-only runtime handles for world, tile, product class,
+- [x] Define value-only runtime handles for world, tile, product class,
   immutable generation, and regional interest without old Terrain objects.
-- [ ] Define interest fields for bounds/region, consumer, product/quality,
+- [x] Define interest fields for bounds/region, consumer, product/quality,
   priority, safety/deadline, generation, and cancellation lifetime.
-- [ ] Define a standalone camera/player/editor producer and the identical
+- [x] Define a standalone camera/player/editor producer and the identical
   adapter contract for a future World Partition producer.
-- [ ] Specify interest-to-product mapping ownership, coalescing, ordering,
+- [x] Specify interest-to-product mapping ownership, coalescing, ordering,
   cancellation, supersession, terminals, and telemetry.
-- [ ] Specify independent metadata/render/surface/collision/query residency
+- [x] Specify independent metadata/render/surface/collision/query residency
   vocabularies and minimum complete fallbacks.
-- [ ] Walk through unequal World/Terrain grids, overlapping sources, physics
+- [x] Walk through unequal World/Terrain grids, overlapping sources, physics
   radius beyond render visibility, and teleport replacement.
-- [ ] Publish the integration boundary without creating generic World
+- [x] Publish the integration boundary without creating generic World
   Partition APIs or a new roadmap.
 
 #### Acceptance Gate
@@ -294,16 +311,16 @@ independent from future Actor/Level cell dimensions.
 
 ### Stage 4: Lock budgets, failures, and T1 handoff
 
-- [ ] Consolidate extent, byte, dependency, neighbor, task, queue, resident,
+- [x] Consolidate extent, byte, dependency, neighbor, task, queue, resident,
   and peak-build ceilings for all schemas and profiles.
-- [ ] Freeze status/error and prior-generation/fallback behavior for validation,
+- [x] Freeze status/error and prior-generation/fallback behavior for validation,
   build, cache, Cook, load, publication, and interest requests.
-- [ ] Define diagnostics and conservation for bytes, products, dependencies,
+- [x] Define diagnostics and conservation for bytes, products, dependencies,
   cache origins, timings, generations, requests, rejection, and cancellation.
-- [ ] Define structural, codec, malformed, determinism, integration, Cook,
+- [x] Define structural, codec, malformed, determinism, integration, Cook,
   runtime, performance, memory, and shutdown fixtures required from T1.
-- [ ] Update the roadmap T0 state and T1 gate with selected contracts/budgets.
-- [ ] Create `Terrain Tile Build and Cook` only after prior gates pass.
+- [x] Update the roadmap T0 state and T1 gate with selected contracts/budgets.
+- [x] Create `Terrain Tile Build and Cook` only after prior gates pass.
 
 #### Acceptance Gate
 
@@ -362,6 +379,8 @@ commands.
 
 ## Related Documentation
 
+- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
+- [Terrain Tile Build and Cook](TerrainTileBuildAndCook.md)
 - [Terrain World System Roadmap](../Roadmaps/TerrainWorldSystem.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
