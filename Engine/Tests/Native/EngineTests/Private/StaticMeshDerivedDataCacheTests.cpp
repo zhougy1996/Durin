@@ -5,6 +5,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"
+#include "ImportService.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -67,6 +68,22 @@ namespace
 	{
 		return Fixture.CacheRoot / "StaticMesh" / "Objects"
 			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
+	}
+
+	auto WaitForStaticMeshRecovery(
+		const Durin::FAssetPath& AssetPath,
+		double TimeoutSeconds = 10.0) -> bool
+	{
+		auto& Service = Durin::Asset::GetImportService();
+		const auto Deadline = std::chrono::steady_clock::now()
+			+ std::chrono::duration<double>(TimeoutSeconds);
+		while (Service.HasActiveImportClaim(AssetPath.ToString())
+			&& std::chrono::steady_clock::now() < Deadline)
+		{
+			(void)Service.PumpImportOperations();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return !Service.HasActiveImportClaim(AssetPath.ToString());
 	}
 
 	auto WriteU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
@@ -217,7 +234,7 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreservesLiveData)
+TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailurePreservesLiveData)
 {
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshCacheRecovery");
@@ -227,24 +244,40 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreserve
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
 	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), ObjectPath));
+	const std::filesystem::path PackagePath = Fixture.Root / "Content" / "Mesh.dasset";
+	std::vector<std::byte> PackageBytesBeforeRecovery;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		PackageBytesBeforeRecovery, PackagePath));
+	const auto PackageTimeBeforeRecovery =
+		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+	std::filesystem::last_write_time(PackagePath, PackageTimeBeforeRecovery);
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
+	ASSERT_TRUE(WaitForStaticMeshRecovery(Fixture.AssetPath));
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FStaticMeshRenderData* CompleteRenderData = Fixture.Mesh->GetRenderData();
 	ASSERT_NE(CompleteRenderData, nullptr);
+	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
+	std::vector<std::byte> PackageBytesAfterRecovery;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		PackageBytesAfterRecovery, PackagePath));
+	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);
+	EXPECT_EQ(std::filesystem::last_write_time(PackagePath), PackageTimeBeforeRecovery);
 
 	const std::filesystem::path BlockedCacheRoot = Fixture.Root / "BlockedCacheRoot";
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), BlockedCacheRoot));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedCacheRoot.generic_string());
 	std::string Error;
-	EXPECT_FALSE(Fixture.Mesh->PostLoad(Error));
+	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error)) << Error;
+	ASSERT_TRUE(WaitForStaticMeshRecovery(Fixture.AssetPath));
 	EXPECT_EQ(
 		Fixture.Mesh->GetDerivedDataDiagnostic().Status,
-		Durin::EStaticMeshDerivedDataStatus::WriteFailure);
+		Durin::EStaticMeshDerivedDataStatus::Missing);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), CompleteRenderData);
-	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
+	EXPECT_TRUE(Error.empty());
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(
