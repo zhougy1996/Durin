@@ -29,6 +29,12 @@ Roadmap](MaterialSystem.md). The first programmable Terrain surface milestone
 depends on the smallest material-program contract that can expose bounded
 Terrain inputs and resources without creating a second compiler.
 
+T0 is active through the [Terrain World Data Contract
+Plan](../Plans/TerrainWorldDataContract.md). It freezes numeric product
+profiles, global coordinates, tile and seam identity, product/package
+ownership, budgets, the future World Partition spatial-interest seam, and the
+legacy Terrain removal boundary before T1 creates build formats.
+
 ## Outcome
 
 Durin can represent, build, stream, render, query, collide with, and author a
@@ -247,7 +253,7 @@ flowchart LR
 
 | Milestone | State | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- |
-| T0: Terrain World and canonical data contract | Required; proposed | Asset lifecycle and package contracts | Frozen world/sample coordinates, height precision, tile/border scheme, layer identity, product classes, payload budgets, failure vocabulary, and old-Terrain removal boundary | Roadmap selected; representative finite and large-world product targets named | Asymmetric coordinate fixtures, border ownership, schemas, ownership graph, budgets, and compatibility rejection are reviewed; no design depends on existing Terrain serialization |
+| T0: Terrain World and canonical data contract | Required; active | Asset lifecycle and package contracts | Frozen world/sample coordinates, height precision, tile/border scheme, layer identity, product classes, payload budgets, failure vocabulary, and old-Terrain removal boundary | Met: roadmap selected and T0 plan activated; product profiles are the first plan gate | Asymmetric coordinate fixtures, border ownership, schemas, ownership graph, budgets, and compatibility rejection are reviewed; no design depends on existing Terrain serialization |
 | T1: Tile build, derived data, and Cook | Required; blocked on T0 | T0, AssetBuildCore, GeometryBuild, AssetForge, Cook | Normalized source composition and independently buildable/cookable immutable tile products with manifests and checksums | T0 formats and product boundaries frozen | Cold/warm/cancel/stale/corrupt/rebuild/Cook/source-free runtime cases produce deterministic identities and exact shared borders within peak memory and latency gates |
 | T2: Finite runtime tile and query reference | Required; blocked on T1 | T1, Renderer, Engine, Aether | One correctly rendered, collided, pickable, queryable tile using new runtime ownership and a deterministic reference path | Complete tile product loads without source or DDC | Render/collision/query coordinate parity, LOD continuity, pass coverage, lifecycle failure, device recovery, runtime launch, and bounded reference performance pass without old Terrain objects |
 | T3: Programmable Terrain surface domain | Required; blocked on T2 and Material System M5 | T2, compiled material-program foundation, Texture system | Stable layer library and coverage assets plus bounded near/middle/far Terrain surface evaluation through shared material passes | Material compiler exposes versioned geometry inputs, dependencies, resources, diagnostics, and Cook seam | Representative grass/soil/rock/snow material proves world scale, slope/height/curvature rules, height and normal blending, triplanar cliffs, macro/detail behavior, layer-remap bounds, forward/GBuffer/shadow parity, and explicit overflow/failure fallback |
@@ -262,7 +268,7 @@ flowchart LR
 
 | Proposed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| Terrain World Data Contract | T0 | Characterization, product targets, global lattice, schemas, identities, ownership, budgets, compatibility rejection, and deletion/migration boundary; no runtime implementation | Create when T0 is selected as active work |
+| [Terrain World Data Contract](../Plans/TerrainWorldDataContract.md) | T0 | Characterization, product targets, global lattice, schemas, identities, ownership, budgets, compatibility rejection, World Partition interest seam, and deletion/migration boundary; no runtime implementation | Active; complete before creating T1 |
 | Terrain Tile Build and Cook | T1 | Normalized inputs, composition, build keys/functions, tile payloads, manifests, DDC, Cook, checksums, cancellation, and source-free load; no renderer or editor surface workflow | Create after T0 exit evidence freezes formats |
 | Terrain Runtime Tile Reference | T2 | New Engine ownership, scene proxy/info, reference geometry/LOD, render resources, collision/query publication, passes, diagnostics, and lifecycle; no world streaming | Create after T1 produces a complete runtime tile |
 | Terrain Surface Domain | T3 | Layer definitions, coverage, compiler inputs, bounded evaluation, resource binding, near/middle/far policy, debug modes, and pass qualification; no generic material-compiler architecture | Create after Material System M5 and T2 satisfy their entry evidence |
