@@ -4,7 +4,7 @@ Summary: Evolve authored bulk storage from generation-named DABK companions towa
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -35,7 +35,7 @@ wire formats, names, workspace-domain implementation, or backend policy.
 Implementation plans remain gated by measured need and must preserve the
 qualified DAST v4/DABK v1 route until their own migration gates pass.
 The first child plan,
-[Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md),
+[Authored Package Trailer Qualification](../../../Plans/Archive/2026-08/AuthoredPackageTrailerQualification.md),
 completed on 2026-08-24 with a **Retain** decision. The complete tracked corpus
 has 32 DAST packages and two reachable external payloads totalling 2,359,296
 logical bytes, with no corruption, missing payload, orphan, or exact duplicate.
@@ -49,23 +49,23 @@ therefore remain authoritative. Current-computer timings are recorded as
 diagnostic only because this is not the designated performance reference
 machine. The subsequent user directive to generate and execute plans until this
 roadmap is complete is recorded separately by
-[Authored Package Storage Strategic Activation](../Plans/AuthoredPackageStorageStrategicActivation.md).
+[Authored Package Storage Strategic Activation](../../../Plans/Archive/2026-08/AuthoredPackageStorageStrategicActivation.md).
 It preserves the Retain evidence but authorizes strategic Proceed, selects DAST
 v5 with a versioned EOF trailer/footer and external DABK v1 placement, and
 activated and completed the
-[Authored Package Trailer Foundation](../Plans/AuthoredPackageTrailerFoundation.md).
+[Authored Package Trailer Foundation](../../../Plans/Archive/2026-08/AuthoredPackageTrailerFoundation.md).
 Its detached v1 trailer/footer codec, EOF inspection, golden wires, and
 corruption contracts are qualified without registering production DAST v5.
 Milestone 2 completed through
-[Selected Local Authored Payload Publication](../Plans/SelectedLocalAuthoredPayloadPublication.md).
+[Selected Local Authored Payload Publication](../../../Plans/Archive/2026-08/SelectedLocalAuthoredPayloadPublication.md).
 DAST v5 became reader-complete and explicitly publishable with external DABK v1,
 while v4 remained the ordinary writer and canonical rollback at that gate. Milestone 3
 completed through
-[VolumeTexture Trailer Migration](../Plans/VolumeTextureTrailerMigration.md):
+[VolumeTexture Trailer Migration](../../../Plans/Archive/2026-08/VolumeTextureTrailerMigration.md):
 the explicit VolumeTexture pilot qualified inline/external source, DDC, Cook,
 corruption recovery, deletion, and v4 rollback without schema change.
 Milestone 4 completed through
-[Authored Trailer Corpus Migration](../Plans/AuthoredTrailerCorpusMigration.md).
+[Authored Trailer Corpus Migration](../../../Plans/Archive/2026-08/AuthoredTrailerCorpusMigration.md).
 The ordinary writer is v5, and all 30 remaining tracked packages use v5.
 Headless apply now waits for asynchronous
 source recovery, validates domain readiness, and exposes Engine third-party
@@ -300,12 +300,12 @@ not waive their separate entry gates.
 
 | Child plan | Activation condition | Owns | Must not own |
 | --- | --- | --- | --- |
-| [Authored Package Trailer Qualification](../Plans/AuthoredPackageTrailerQualification.md) | Completed 2026-08-24 with Retain | Measurements, UE comparison, format/placement alternatives, identity and hash policy, compatibility matrix, and Proceed/Defer/Retain decision | Production wire changes, source-control migration, or corpus mutation |
-| [Authored Package Storage Strategic Activation](../Plans/AuthoredPackageStorageStrategicActivation.md) | Completed 2026-08-24 from explicit user completion directive | Strategic Proceed authority, DAST v5 boundary selection, external DABK v1 placement, compatibility/rollback selection, and foundation activation | Rewriting qualification measurements or waiving later evidence gates |
-| [Authored Package Trailer Foundation](../Plans/AuthoredPackageTrailerFoundation.md) | Completed 2026-08-24 | Trailer/footer codec, detached builder/reader, construct-free inspection, golden and corruption fixtures | Production package codec registration, unselected placements, default writer, or virtualization backend |
-| [Selected Local Authored Payload Publication](../Plans/SelectedLocalAuthoredPayloadPublication.md) | Completed 2026-08-24 | Atomic whole-file publication, recovery, package operation integration, dual-read and opt-in write | Remote backend or broad consumer migration |
-| [VolumeTexture Trailer Migration](../Plans/VolumeTextureTrailerMigration.md) | Completed 2026-08-24 | VolumeTexture pilot, source/DDC/Cook equivalence, rollback, inspection/repair evidence | Generic texture schema redesign or unrelated consumer conversion |
-| [Authored Trailer Corpus Migration](../Plans/AuthoredTrailerCorpusMigration.md) | Milestone 3 completed 2026-08-24 | Canonical resave, source-control submit checks, cleanup, default writer, compatibility disposition | Persistent backend implementation unless separately activated |
+| [Authored Package Trailer Qualification](../../../Plans/Archive/2026-08/AuthoredPackageTrailerQualification.md) | Completed 2026-08-24 with Retain | Measurements, UE comparison, format/placement alternatives, identity and hash policy, compatibility matrix, and Proceed/Defer/Retain decision | Production wire changes, source-control migration, or corpus mutation |
+| [Authored Package Storage Strategic Activation](../../../Plans/Archive/2026-08/AuthoredPackageStorageStrategicActivation.md) | Completed 2026-08-24 from explicit user completion directive | Strategic Proceed authority, DAST v5 boundary selection, external DABK v1 placement, compatibility/rollback selection, and foundation activation | Rewriting qualification measurements or waiving later evidence gates |
+| [Authored Package Trailer Foundation](../../../Plans/Archive/2026-08/AuthoredPackageTrailerFoundation.md) | Completed 2026-08-24 | Trailer/footer codec, detached builder/reader, construct-free inspection, golden and corruption fixtures | Production package codec registration, unselected placements, default writer, or virtualization backend |
+| [Selected Local Authored Payload Publication](../../../Plans/Archive/2026-08/SelectedLocalAuthoredPayloadPublication.md) | Completed 2026-08-24 | Atomic whole-file publication, recovery, package operation integration, dual-read and opt-in write | Remote backend or broad consumer migration |
+| [VolumeTexture Trailer Migration](../../../Plans/Archive/2026-08/VolumeTextureTrailerMigration.md) | Completed 2026-08-24 | VolumeTexture pilot, source/DDC/Cook equivalence, rollback, inspection/repair evidence | Generic texture schema redesign or unrelated consumer conversion |
+| [Authored Trailer Corpus Migration](../../../Plans/Archive/2026-08/AuthoredTrailerCorpusMigration.md) | Milestone 3 completed 2026-08-24 | Canonical resave, source-control submit checks, cleanup, default writer, compatibility disposition | Persistent backend implementation unless separately activated |
 | Authored Payload Virtualization | Milestone 5 entry gate | Persistent/cache backend hierarchy, hydration, offline behavior, permissions, provenance, retention and GC | Making DDC authoritative or changing domain semantics |
 | Legacy DABK Write Retirement | Milestone 7 entry gate | Writer retirement, final corpus audit, compatibility fixtures, lasting documentation | Premature removal of legacy reads or historical evidence |
 
@@ -412,11 +412,11 @@ rollback gate. Measurements from a non-reference computer remain diagnostic.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File IO](../Runtime/Core/FileIO.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File IO](../../../Runtime/Core/FileIO.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 - [Domain-Owned Large Asset Payload Architecture](LargeAssetPayloadArchitecture.md)
 - [Unreal Engine `FPackageTrailer`](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/CoreUObject/FPackageTrailer)
 - [Unreal Engine `FPackageTrailerBuilder`](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/CoreUObject/FPackageTrailerBuilder)

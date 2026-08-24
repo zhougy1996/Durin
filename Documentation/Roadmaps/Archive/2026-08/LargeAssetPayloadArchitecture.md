@@ -4,7 +4,7 @@ Summary: Reframe large asset payloads as domain-owned schemas over untyped bulk 
 
 Last reviewed: 2026-08-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-23
 
 ## Current Status
@@ -239,16 +239,16 @@ or legacy APIs.
 
 | Child plan | State | Owns | Must not own |
 | --- | --- | --- | --- |
-| [Authored Asset Bulk Data Foundation](../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md) | Completed historical evidence | Immutable bytes, authored companion transactions, initial VolumeTexture source migration | Future semantic/storage boundaries |
-| [Unified BulkData API](../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) | Completed experiment, architecture superseded | Evidence for common immutable access and synchronous residency | A requirement to preserve its descriptor/provider API |
-| [BulkData Compatibility Retirement](../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) | Completed historical evidence | Corpus canonicalization and removal of obsolete aliases/routes | Protection of experimental common APIs from refactor |
-| [Bulk Container Infrastructure](../Plans/Archive/2026-08/BulkContainerInfrastructure.md) | Completed reusable foundation | Private bounded IO, layout, hashing, and range validation | Shared schema, suffix, provider, or transaction authority |
-| [Bulk Payload Layer Realignment](../Plans/Archive/2026-08/BulkPayloadLayerRealignment.md) | Completed | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
-| [VolumeTexture Domain Payload Pilot](../Plans/Archive/2026-08/VolumeTextureDomainPayloadPilot.md) | Completed | Source/cooked schema ownership, canonical voxel bytes, storage boundary, exact compatibility decision | Generic typed-buffer registry or redesign for unrelated consumers |
-| [Authority-Specific Payload Services](../Plans/Archive/2026-08/AuthoritySpecificPayloadServices.md) | Completed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
-| [Texture2D Payload Consumer Qualification](../Plans/Archive/2026-08/Texture2DPayloadConsumerQualification.md) | Completed | Texture2D metadata, codecs, compatibility, measured storage/structure, diagnostics, and end-to-end workflow | Changing the generic layer solely for local convenience |
+| [Authored Asset Bulk Data Foundation](../../../Plans/Archive/2026-08/AuthoredAssetBulkDataFoundation.md) | Completed historical evidence | Immutable bytes, authored companion transactions, initial VolumeTexture source migration | Future semantic/storage boundaries |
+| [Unified BulkData API](../../../Plans/Archive/2026-08/UnifiedBulkDataAPI.md) | Completed experiment, architecture superseded | Evidence for common immutable access and synchronous residency | A requirement to preserve its descriptor/provider API |
+| [BulkData Compatibility Retirement](../../../Plans/Archive/2026-08/BulkDataCompatibilityRetirement.md) | Completed historical evidence | Corpus canonicalization and removal of obsolete aliases/routes | Protection of experimental common APIs from refactor |
+| [Bulk Container Infrastructure](../../../Plans/Archive/2026-08/BulkContainerInfrastructure.md) | Completed reusable foundation | Private bounded IO, layout, hashing, and range validation | Shared schema, suffix, provider, or transaction authority |
+| [Bulk Payload Layer Realignment](../../../Plans/Archive/2026-08/BulkPayloadLayerRealignment.md) | Completed | Current API/caller inventory, storage-only target, compatibility matrix, removal/migration of common semantic/provider APIs | Broad consumer migration, async streaming, or physical optimization |
+| [VolumeTexture Domain Payload Pilot](../../../Plans/Archive/2026-08/VolumeTextureDomainPayloadPilot.md) | Completed | Source/cooked schema ownership, canonical voxel bytes, storage boundary, exact compatibility decision | Generic typed-buffer registry or redesign for unrelated consumers |
+| [Authority-Specific Payload Services](../../../Plans/Archive/2026-08/AuthoritySpecificPayloadServices.md) | Completed | Authored mutation, DDC rebuild, Cook publication/load boundaries and justified shared mechanics | Merging their durability or fallback policies |
+| [Texture2D Payload Consumer Qualification](../../../Plans/Archive/2026-08/Texture2DPayloadConsumerQualification.md) | Completed | Texture2D metadata, codecs, compatibility, measured storage/structure, diagnostics, and end-to-end workflow | Changing the generic layer solely for local convenience |
 | Asset Payload Consumer Migration: `<Domain>` | Proposed per later consumer | One domain's metadata, codecs, compatibility, tooling summary, and end-to-end workflow | Changing the generic layer solely for local convenience |
-| [Domain Payload Inspection and Repair](../Plans/Archive/2026-08/DomainPayloadInspectionAndRepair.md) | Completed | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
+| [Domain Payload Inspection and Repair](../../../Plans/Archive/2026-08/DomainPayloadInspectionAndRepair.md) | Completed | Cross-lifecycle diagnostics, orphan detection, provenance, repair and cleanup orchestration | Owning domain codecs or runtime streaming policy |
 | Payload IO and Residency | Evidence-gated | Async requests, cancellation, priorities, range IO, budgets, eviction, and mapping | Domain schema design or authored/cooked format unification |
 | Authored Payload Virtualization | Evidence-gated | External content-addressed source storage and durable retrieval policy | DDC/cooked authority merger or required remote-only operation |
 
@@ -336,13 +336,13 @@ checkout telemetry demonstrating material virtualization savings for Milestone
 
 ## Related Documentation
 
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

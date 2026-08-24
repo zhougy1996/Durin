@@ -4,7 +4,7 @@ Summary: Migrate one closed renderer production slice to Render Graph with fixed
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -132,11 +132,11 @@ shader read. These are the pilot edges to migrate.
 
 ## Related Documentation
 
-- [Render Graph Architecture Roadmap](../Roadmaps/RenderGraphArchitecture.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Testing](../Agents/Testing.md)
+- [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

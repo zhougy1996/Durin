@@ -339,7 +339,7 @@ Depends on Stages 0-4.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [Unified BulkData API](UnifiedBulkDataAPI.md)
 - [Authored Asset Bulk Data Foundation](AuthoredAssetBulkDataFoundation.md)
 - [BulkData Compatibility Retirement](BulkDataCompatibilityRetirement.md)

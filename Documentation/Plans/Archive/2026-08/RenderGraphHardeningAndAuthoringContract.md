@@ -4,7 +4,7 @@ Summary: Harden typed graph authoring, add immutable frame inspection, and freez
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -139,7 +139,7 @@ and explicit CPU regression telemetry.
 
 ## Related Documentation
 
-- `Documentation/Roadmaps/RenderGraphArchitecture.md`
+- `Documentation/Roadmaps/Archive/2026-08/RenderGraphArchitecture.md`
 - `Documentation/Runtime/Rendering/RenderGraph.md`
 
 ## Related Code

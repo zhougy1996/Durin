@@ -4,7 +4,7 @@ Summary: Classify the authored package corpus and qualify the DAST v5 default wr
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -177,11 +177,11 @@ only after reversible corpus and compatibility evidence passes.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [VolumeTexture Trailer Migration](VolumeTextureTrailerMigration.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

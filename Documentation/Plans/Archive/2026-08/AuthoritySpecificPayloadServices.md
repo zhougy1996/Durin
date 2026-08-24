@@ -177,7 +177,7 @@ inherit another authority's placement, fallback, or failure policy.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [VolumeTexture Domain Payload Pilot](VolumeTextureDomainPayloadPilot.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

@@ -43,7 +43,7 @@ not open the other rows or scan an entire directory.
 | Persistent view identity, previous-frame metadata, temporal discontinuity, or history lifetime | [Persistent view state](Runtime/Rendering/PersistentViewState.md) |
 | Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/RenderResourceLifecycle.md) |
 | Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
-| Render Graph, RDG, pass dependencies, automatic barriers, transient lifetimes, aliasing, or async-compute scheduling | [Render Graph architecture roadmap](Roadmaps/RenderGraphArchitecture.md) |
+| Render Graph, RDG, pass dependencies, automatic barriers, transient lifetimes, aliasing, or async-compute scheduling | [Render Graph architecture roadmap](Roadmaps/Archive/2026-08/RenderGraphArchitecture.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |
 | Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/DeferredDirectionalLighting.md) |
 | Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |

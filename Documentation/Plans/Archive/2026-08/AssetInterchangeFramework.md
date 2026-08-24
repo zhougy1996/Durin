@@ -4,7 +4,7 @@ Summary: Replace format-specific import workflows with a translator, pipeline, f
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -577,13 +577,13 @@ the editor publication boundary.
 
 ## Related Documentation
 
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Modular Features and Module Retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Build and Run Agent Workflow](../Agents/BuildAndRun.md)
-- [Testing Agent Workflow](../Agents/Testing.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Build and Run Agent Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Agent Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

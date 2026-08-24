@@ -4,7 +4,7 @@ Summary: Qualify VolumeTexture authored voxels through the explicit DAST v5 trai
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -147,12 +147,12 @@ or ordinary behavior for any other asset type.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Selected Local Authored Payload Publication](SelectedLocalAuthoredPayloadPublication.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

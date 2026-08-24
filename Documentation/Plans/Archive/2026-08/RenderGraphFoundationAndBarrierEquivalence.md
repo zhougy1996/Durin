@@ -4,7 +4,7 @@ Summary: Implement deterministic graph compilation, resource declarations, trans
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -134,11 +134,11 @@ pre-recording validation, and graph diagnostics.
 
 ## Related Documentation
 
-- [Render Graph Architecture Roadmap](../Roadmaps/RenderGraphArchitecture.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

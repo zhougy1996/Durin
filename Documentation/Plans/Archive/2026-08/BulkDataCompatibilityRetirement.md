@@ -295,7 +295,7 @@ Depends on Stages 1-3.
 ## Related Documentation
 
 - [Unified BulkData API](UnifiedBulkDataAPI.md)
-- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)

@@ -4,7 +4,7 @@ Summary: Publish authored DABK companions under stable names with hidden transac
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -147,11 +147,11 @@ closure.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Retire DAST v4 write, rollback, and read compatibility after separating
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -398,8 +398,8 @@ publication.
 | Authoring | Ordinary, bundle, redirector, relocation, reference rewrite, canonical resave, and tool paths cannot select or emit v4 |
 | Publication and recovery | V5 package plus companion publication remains failure-atomic; generic transaction rollback preserves the previous committed v5 closure |
 | DABK | External DABK v1 read/write, integrity, generation reachability, submit closure, repair, and orphan protection remain supported |
-| Native and tool tests | Select and run affected tests according to [Agent Testing Workflow](../Agents/Testing.md), including negative v4 entry points and representative authored consumers |
-| Build | Build affected targets according to [Agent Build and Run Workflow](../Agents/BuildAndRun.md); record exact preset/configuration and results |
+| Native and tool tests | Select and run affected tests according to [Agent Testing Workflow](../../../Agents/Testing.md), including negative v4 entry points and representative authored consumers |
+| Build | Build affected targets according to [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md); record exact preset/configuration and results |
 
 ## Definition of Done
 
@@ -425,14 +425,14 @@ publication.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Trailer Corpus Migration](AuthoredTrailerCorpusMigration.md)
 - [Selected Local Authored Payload Publication](SelectedLocalAuthoredPayloadPublication.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

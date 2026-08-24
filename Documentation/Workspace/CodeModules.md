@@ -45,8 +45,8 @@ direction.
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
-| `AssetImportCore` | Format-neutral asset-import requests, policies, results, and extension interfaces | [source](../../Engine/Source/Editor/AssetImportCore) |
-| `AssetForge` | Built-in image, mesh, material, texture, and skeletal import implementations | [source](../../Engine/Source/Editor/AssetForge) |
+| `AssetForge` | Format-neutral asset-import graphs, requests, results, operations, persistence, and extension contracts | [source](../../Engine/Source/Editor/AssetForge) |
+| `AssetForgeBuiltins` | Built-in image, mesh, material, texture, Terrain, Scene, skeletal, and animation import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |
 
 ## Developer Modules
@@ -77,7 +77,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
-| importing assets | `AssetImportCore`, `AssetForge` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
+| importing assets | `AssetForge`, `AssetForgeBuiltins` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube, skeletal/animation, or TerrainHeightmap | `AssetBuildCore` | `GeometryBuild` or `TextureBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
 
 Engine public headers are a repository-owned module contract rather than an

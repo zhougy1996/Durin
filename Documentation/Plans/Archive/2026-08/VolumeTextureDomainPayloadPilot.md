@@ -187,7 +187,7 @@ format translation or schema identity owned by authored bulk storage.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [Bulk Payload Layer Realignment](BulkPayloadLayerRealignment.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

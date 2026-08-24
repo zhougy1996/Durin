@@ -94,7 +94,7 @@ actionable repair or cleanup for editor, derived, and cooked payloads.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)

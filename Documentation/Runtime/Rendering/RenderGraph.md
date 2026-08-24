@@ -200,7 +200,7 @@ callbacks, scheduling, or frame commit state.
 
 ## Related Documentation
 
-- [Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md)
+- [Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 - [RHI Resource Transitions](RHIResourceTransitions.md)
 - [RHI Command Execution](RHICommandExecution.md)
 - [Renderer Frame Preparation](RendererFramePreparation.md)

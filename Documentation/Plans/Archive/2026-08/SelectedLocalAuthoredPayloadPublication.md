@@ -4,7 +4,7 @@ Summary: Implement DAST v5 dual-read loading and failure-atomic opt-in publicati
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -196,13 +196,13 @@ writer or any domain schema.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Package Trailer Foundation](AuthoredPackageTrailerFoundation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File IO](../Runtime/Core/FileIO.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File IO](../../../Runtime/Core/FileIO.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

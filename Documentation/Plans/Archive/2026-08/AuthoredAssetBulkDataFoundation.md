@@ -333,7 +333,7 @@ Cook, or runtime texture results.
 
 ## Related Documentation
 
-- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/LargeAssetPayloadArchitecture.md)
+- [Large Asset Payload Architecture Roadmap](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
 - [Serialization](../../../Runtime/Core/Serialization.md)
 - [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

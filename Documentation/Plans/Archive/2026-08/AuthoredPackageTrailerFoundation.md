@@ -4,7 +4,7 @@ Summary: Implement the bounded DAST v5 trailer and footer codec, construct-free 
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -221,14 +221,14 @@ size disagreement, or any noncanonical order fails.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Package Storage Strategic Activation](AuthoredPackageStorageStrategicActivation.md)
 - [Authored Package Trailer Qualification](AuthoredPackageTrailerQualification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File IO](../Runtime/Core/FileIO.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File IO](../../../Runtime/Core/FileIO.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

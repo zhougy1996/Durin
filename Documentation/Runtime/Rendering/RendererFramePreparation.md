@@ -218,7 +218,7 @@ pass merging, and PSO centralization remain separate measured decisions.
 
 The cross-plan sequencing, required migration milestones, and evidence gates
 for those conditional extensions are owned by the
-[Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md).
+[Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md).
 
 ## Related Documentation
 
@@ -229,4 +229,4 @@ for those conditional extensions are owned by the
 - [RHI Resource Transitions](RHIResourceTransitions.md)
 - [Minimal GBuffer Contract](GBuffer.md)
 - [Volumetric Cloud Spatial Rendering](VolumetricCloudSpatialRendering.md)
-- [Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md)
+- [Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)

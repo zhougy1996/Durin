@@ -4,7 +4,7 @@ Summary: Measure authored payload costs and select, defer, or retain a compatibl
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -138,8 +138,8 @@ their objects and LFS pointers can be audited without touching project history.
 | --- | --- | --- |
 | Every tracked package and companion | Current corpus | Mounted Engine and Sandbox package snapshot plus Git-tracked `.dasset`/`.dabulk` enumeration |
 | `synthetic-mixed-v1` | Synthetic only | Seed 841592647; 128 packages; repeated 0 B through 64 MiB distribution; 0%, 1%, 25%, and 100% edit fractions |
-| VolumeTexture source | Named future consumer | Atomic tightly packed voxel payload owned by [Volume Textures](../Runtime/Assets/VolumeTextures.md) |
-| Texture source | Named future consumer | Domain-owned Texture2D/TextureCube source payload boundary in [Texture System](../Runtime/Rendering/TextureSystem.md); no projected count is reported as corpus fact |
+| VolumeTexture source | Named future consumer | Atomic tightly packed voxel payload owned by [Volume Textures](../../../Runtime/Assets/VolumeTextures.md) |
+| Texture source | Named future consumer | Domain-owned Texture2D/TextureCube source payload boundary in [Texture System](../../../Runtime/Rendering/TextureSystem.md); no projected count is reported as corpus fact |
 
 | Metric | Unit and collection | Samples | Frozen gate or revisit trigger |
 | --- | --- | --- | --- |
@@ -229,7 +229,7 @@ then exactly five 9-byte Name/Type/Schema/Object/Value entries. Sections are
 contiguous, unpadded, canonical, and the Value extent ends at physical EOF.
 DABK v1 has a 64-byte header, sorted 96-byte entries, 16-byte payload alignment,
 XXH3-128 container/content integrity, unique ids, and no trailing bytes. The
-implemented contract remains authoritative in [Asset Packages](../Runtime/Assets/AssetPackages.md).
+implemented contract remains authoritative in [Asset Packages](../../../Runtime/Assets/AssetPackages.md).
 
 | Candidate | Legacy reader | New reader/write hypothesis | Rollback bytes | Result |
 | --- | --- | --- | --- | --- |
@@ -437,8 +437,8 @@ gates. No Package Trailer Foundation plan is created by this result.
 | Publication | State-transition and failure-injection matrix covering full-file, companion-first, tail, append, catalog, bundle, cleanup, and submit boundaries |
 | Source control | Isolated ordinary-Git versus LFS measurements for metadata and payload edits; no main-repository attribute or history mutation |
 | Performance | Frozen workloads and thresholds for save latency, bytes rewritten, checkout/transfer, inspection IO, peak temporary disk, and compaction amplification |
-| Native baseline | `AssetBulkContainerTests` for bounded container mechanics and `AssetPackageTests` for DAST, authored companion, inspection, publication, and recovery behavior, selected through [Agent Testing Workflow](../Agents/Testing.md) |
-| Build | Any executable evidence follows [Agent Build and Run Workflow](../Agents/BuildAndRun.md); a document-only stage does not invent a native build claim |
+| Native baseline | `AssetBulkContainerTests` for bounded container mechanics and `AssetPackageTests` for DAST, authored companion, inspection, publication, and recovery behavior, selected through [Agent Testing Workflow](../../../Agents/Testing.md) |
+| Build | Any executable evidence follows [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md); a document-only stage does not invent a native build claim |
 
 ## Validation Evidence
 
@@ -481,15 +481,15 @@ gates. No Package Trailer Foundation plan is created by this result.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File IO](../Runtime/Core/FileIO.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Domain-Owned Large Asset Payload Architecture](../Roadmaps/LargeAssetPayloadArchitecture.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File IO](../../../Runtime/Core/FileIO.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Domain-Owned Large Asset Payload Architecture](../../../Roadmaps/Archive/2026-08/LargeAssetPayloadArchitecture.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

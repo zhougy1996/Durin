@@ -4,7 +4,7 @@ Summary: Supersede the measured Retain disposition with an explicit strategic Pr
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -13,7 +13,7 @@ The measured
 [Authored Package Trailer Qualification](AuthoredPackageTrailerQualification.md)
 correctly recorded Retain for the present 32-package corpus. The user has now
 directed Codex to generate and execute the remaining plans until the
-[Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+[Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 roadmap is complete. This is a strategic investment decision, not evidence that
 the original corpus thresholds fired.
 
@@ -177,10 +177,10 @@ ordering, and activate exactly one bounded Package Trailer Foundation plan.
 
 ## Related Documentation
 
-- [Authored Package Storage Evolution](../Roadmaps/AuthoredPackageStorageEvolution.md)
+- [Authored Package Storage Evolution](../../../Roadmaps/Archive/2026-08/AuthoredPackageStorageEvolution.md)
 - [Authored Package Trailer Qualification](AuthoredPackageTrailerQualification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

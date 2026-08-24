@@ -4,7 +4,7 @@ Summary: Integrate logical transient lifetimes and culling, migrate the complete
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -138,12 +138,12 @@ and sequenced feature methods imperatively in the former fixed executor.
 
 ## Related Documentation
 
-- [Render Graph Architecture Roadmap](../Roadmaps/RenderGraphArchitecture.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [Testing](../Agents/Testing.md)
+- [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

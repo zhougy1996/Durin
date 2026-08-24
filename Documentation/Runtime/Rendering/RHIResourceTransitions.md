@@ -108,7 +108,7 @@ transition.
 
 The staged adoption of render-graph barrier synthesis, Renderer migration,
 transient allocation, and later queue scheduling is owned by the
-[Render Graph Architecture Roadmap](../../Roadmaps/RenderGraphArchitecture.md).
+[Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md).
 
 ## Related Documentation
 
@@ -119,7 +119,7 @@ transient allocation, and later queue scheduling is owned by the
 - [Viewport rendering](ViewportRendering.md)
 - [Compute shader pipeline roadmap](../../Roadmaps/Archive/2026-08/ComputeShaderPipeline.md)
 - [RHI and Vulkan backend evolution roadmap](../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
-- [Render Graph architecture roadmap](../../Roadmaps/RenderGraphArchitecture.md)
+- [Render Graph architecture roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 - [Native tests](../../Development/Build/NativeTests.md)
 

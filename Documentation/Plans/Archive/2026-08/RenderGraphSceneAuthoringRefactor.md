@@ -4,7 +4,7 @@ Summary: Decompose scene-frame graph authoring into a thin executor, typed featu
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -385,9 +385,9 @@ extend without weakening the single-parent-graph architecture:
 
 ## Related Documentation
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [Render Graph Architecture Roadmap](../Roadmaps/RenderGraphArchitecture.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 - [Render Graph Foundation Consolidation Plan](RenderGraphFoundationConsolidation.md)
 
 ## Related Code

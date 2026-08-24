@@ -4,7 +4,7 @@ Summary: Establish a declarative Render Dependency Graph as the renderer's singl
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -215,16 +215,16 @@ work.
 
 | Child plan | State | Owns | Must not own |
 | --- | --- | --- | --- |
-| [Renderer Frame Preparation Refactor](../Plans/Archive/2026-08/RendererFramePreparationRefactor.md) | Completed foundation | Immutable preparation, typed results, transient-provider handoff, fixed schedule, and migration baseline | An RDG builder/compiler or automatic barriers |
-| [Render Graph Foundation and Barrier Equivalence](../Plans/RenderGraphFoundationAndBarrierEquivalence.md) | Completed | Milestone 1 graph mechanics, structural tests, transition oracle, diagnostics, and compile-cost baseline | Production-wide migration, physical aliasing, async compute, or a public registry |
-| [Render Graph Renderer Pilot](../Plans/RenderGraphRendererPilot.md) | Completed | One selected production subgraph, boundary adapters, exact parity qualification, and removal of its manual barriers | Whole-frame rewrite or feature algorithm changes |
-| [Render Graph Frame Migration](../Plans/RenderGraphFrameMigration.md) | Completed | Logical transient integration, side effects and culling, bounded feature migrations, fixed-scheduler retirement, and lasting authoring contract | Physical aliasing, queue expansion, or unrelated renderer modernization |
-| [Render Graph Hardening and Authoring Contract](../Plans/RenderGraphHardeningAndAuthoringContract.md) | Completed | Structural/CPU budgets, owning graph capture, scene inspection wiring, and the mandatory inter-pass authoring contract | Physical aliasing, queue scheduling, or observer-controlled correctness |
-| [Render Graph Foundation Consolidation](../Plans/RenderGraphFoundationConsolidation.md) | Completed | Logical descriptions and retained backing, pass isolation, minimal dependency semantics, one parent scene graph, and exact diagnostics | Physical aliasing, queue scheduling, feature algorithm changes, or unrelated compiler optimizations |
+| [Renderer Frame Preparation Refactor](../../../Plans/Archive/2026-08/RendererFramePreparationRefactor.md) | Completed foundation | Immutable preparation, typed results, transient-provider handoff, fixed schedule, and migration baseline | An RDG builder/compiler or automatic barriers |
+| [Render Graph Foundation and Barrier Equivalence](../../../Plans/Archive/2026-08/RenderGraphFoundationAndBarrierEquivalence.md) | Completed | Milestone 1 graph mechanics, structural tests, transition oracle, diagnostics, and compile-cost baseline | Production-wide migration, physical aliasing, async compute, or a public registry |
+| [Render Graph Renderer Pilot](../../../Plans/Archive/2026-08/RenderGraphRendererPilot.md) | Completed | One selected production subgraph, boundary adapters, exact parity qualification, and removal of its manual barriers | Whole-frame rewrite or feature algorithm changes |
+| [Render Graph Frame Migration](../../../Plans/Archive/2026-08/RenderGraphFrameMigration.md) | Completed | Logical transient integration, side effects and culling, bounded feature migrations, fixed-scheduler retirement, and lasting authoring contract | Physical aliasing, queue expansion, or unrelated renderer modernization |
+| [Render Graph Hardening and Authoring Contract](../../../Plans/Archive/2026-08/RenderGraphHardeningAndAuthoringContract.md) | Completed | Structural/CPU budgets, owning graph capture, scene inspection wiring, and the mandatory inter-pass authoring contract | Physical aliasing, queue scheduling, or observer-controlled correctness |
+| [Render Graph Foundation Consolidation](../../../Plans/Archive/2026-08/RenderGraphFoundationConsolidation.md) | Completed | Logical descriptions and retained backing, pass isolation, minimal dependency semantics, one parent scene graph, and exact diagnostics | Physical aliasing, queue scheduling, feature algorithm changes, or unrelated compiler optimizations |
 | Render Graph Transient Aliasing | Evidence-gated | Compatible placement classes, physical reuse, alias transitions, GPU retirement, budgets, and memory evidence | Logical lifetime correctness or ordinary pool recovery |
 | Render Graph Async Compute | Evidence-gated | Queue capabilities, ownership transfer, timeline scheduling, workload policy, and fallback | Treating every compute shader as asynchronously profitable |
 | Render Graph Compiler Optimization: `<Technique>` | Optional per measured bottleneck | One bounded merge/reorder/reuse/parallel-recording optimization | A general optimization bundle without independent evidence |
-| [PSO Cache for Render-Graph Expansion](../Investigations/PSOCacheForRenderGraphExpansion.md) | Open investigation | PSO request identity, duplication, creation cost, working-set, and invalidation evidence at the RDG boundary | Assuming RDG requires a cache or selecting cache policy without measurements |
+| [PSO Cache for Render-Graph Expansion](../../../Investigations/PSOCacheForRenderGraphExpansion.md) | Open investigation | PSO request identity, duplication, creation cost, working-set, and invalidation evidence at the RDG boundary | Assuming RDG requires a cache or selecting cache policy without measurements |
 
 Child plans may refine type names and file placement while preserving the
 program invariants. Create only the next plan whose entry gate is met; do not
@@ -318,16 +318,16 @@ activate the migration, aliasing, and queue plans together.
 
 ## Related Documentation
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [PSO Cache for Render-Graph Expansion](../Investigations/PSOCacheForRenderGraphExpansion.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [PSO Cache for Render-Graph Expansion](../../../Investigations/PSOCacheForRenderGraphExpansion.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

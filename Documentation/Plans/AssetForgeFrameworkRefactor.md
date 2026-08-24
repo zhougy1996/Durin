@@ -588,7 +588,7 @@ Dependencies: Stages 1 through 4 complete.
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
 - [Code Modules](../Workspace/CodeModules.md)
-- [Asset Interchange Framework Plan](AssetInterchangeFramework.md)
+- [Asset Interchange Framework Plan](Archive/2026-08/AssetInterchangeFramework.md)
 - [Asset Import Framework Plan](Archive/2026-08/AssetImportFramework.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../Agents/Testing.md)
