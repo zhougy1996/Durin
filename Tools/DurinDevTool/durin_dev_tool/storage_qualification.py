@@ -30,7 +30,7 @@ from .runtime_program import (
 )
 
 
-REPORT_VERSION = 2
+REPORT_VERSION = 3
 NATIVE_INVENTORY_VERSION = 2
 PROGRAM = ExecutableDescription(
     "Authored package storage qualification", "DurinAssetTool", "DurinAssetTool"
@@ -38,7 +38,7 @@ PROGRAM = ExecutableDescription(
 PROTOCOL_PATH = (
     Path(__file__).resolve().parents[1]
     / "data"
-    / "authored-package-storage-qualification-v2.json"
+    / "authored-package-storage-qualification-v3.json"
 )
 
 
@@ -690,13 +690,13 @@ def _decision(
     if failed_integrity:
         rationale = (
             "Mandatory corpus or durability gates failed: "
-            f"{', '.join(failed_integrity)}. Keep DAST v5/DABK v1 authoritative, repair the "
+            f"{', '.join(failed_integrity)}. Keep DAST v6/DABK v1 authoritative, repair the "
             "evidence, and rerun qualification before evaluating another boundary."
         )
     elif active_pressure:
         rationale = (
             "Revisit pressure is active for: "
-            f"{', '.join(active_pressure)}. Keep DAST v5/DABK v1 authoritative while a "
+            f"{', '.join(active_pressure)}. Keep DAST v6/DABK v1 authoritative while a "
             "separate candidate qualification measures a concrete replacement."
         )
     else:

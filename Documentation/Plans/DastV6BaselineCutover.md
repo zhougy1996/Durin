@@ -148,11 +148,17 @@ replacement, complete project qualification, and legacy deletion.
   Sandbox. Focused results are AssetPackage 122/122, CoreFileSystem 41/41,
   AssetCook 13/13, AssetBulkContainer 11/11, Material 84/84, Texture 86/86,
   and StaticMesh 74/74. The post-removal `fast-all` gate built and passed all
-  61 selected contract, feature, and infrastructure targets.
+  61 selected contract, feature, and infrastructure targets. In the completion
+  audit, 390 DevTool tests passed and two were intentionally skipped.
 - Production/source searches find no v5 codec, package-trailer, DTRL/DTRF,
   converter, or `EncodeV5ObjectStream` symbol. The temporary converter target
   and source, v5 codec, trailer/footer implementation, and obsolete trailer
   tests were deleted before final validation.
+- The completion audit also removed the remaining M2 transition labels from
+  the production codec and tests. DevTool storage qualification now consumes
+  protocol v3, treats DURF/DAST v6 plus DABK v1 as the retained current
+  boundary across 27 packages, two payloads, and 2,359,296 reachable bytes,
+  and leaves the frozen v2 protocol only as historical evidence.
 - Lasting package, lifecycle, versioning, serialization, and content-version
   control contracts now define v6 as the sole supported/emitted authority.
 

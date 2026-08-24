@@ -26,7 +26,7 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
-    format_version: int = 5,
+    format_version: int = 6,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{
@@ -167,15 +167,15 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     )
 
 
-def test_storage_qualification_protocol_and_decision_are_frozen() -> None:
+def test_storage_qualification_protocol_and_decision_match_current_v6_baseline() -> None:
     protocol = json.loads(storage_qualification.PROTOCOL_PATH.read_text(encoding="utf-8"))
-    assert protocol["schemaVersion"] == 2
+    assert protocol["schemaVersion"] == 3
     assert {workload["kind"] for workload in protocol["workloads"]} == {
         "tracked", "synthetic", "future-consumer"
     }
     assert {candidate["id"] for candidate in protocol["candidates"]} == {
-        "retain-dast5-dabk1", "dast6-companion-index",
-        "outer-envelope-companion-index", "package-local-payload",
+        "retain-dast6-dabk1", "next-dast-companion-index",
+        "content-addressed-companion", "package-local-payload",
         "in-place-tail-or-append",
     }
     corpus = {
@@ -282,9 +282,10 @@ def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> 
     ("native_report", "expected"),
     [
         (report(package("/Game/Baseline")), 0),
-            (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-            (report(package("/Game/Baseline", format_version=3)), 3),
-            (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+        (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+        (report(package("/Game/Baseline", format_version=3)), 3),
+        (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+        (report(package("/Game/Baseline", format_version=5, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
         (report(with_canonicalization_evidence(package("/Game/Baseline"))), 3),
         (report(with_deprecated_route_evidence(package("/Game/Baseline"))), 3),

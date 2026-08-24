@@ -155,7 +155,7 @@ namespace
 	}
 }
 
-TEST(FDastV6WireTests, ExactDetachedConversionRoundTripsAndAgreesWithIndependentParser)
+TEST(FDastV6WireTests, ExactLogicalStreamRoundTripAgreesWithIndependentParser)
 {
 	std::vector<std::byte> V6;
 	ASSERT_TRUE(MakeV6(V6));
@@ -223,7 +223,7 @@ TEST(FDastV6WireTests, DirectorySectionAndEnvelopeCorruptionFailDeterministicall
 	ExpectFailure(std::move(Trailing), "gaps, trailing bytes");
 }
 
-TEST(FDastV6WireTests, DetachedCodecIsTheSoleOrdinaryPolicy)
+TEST(FDastV6WireTests, V6CodecIsTheSoleOrdinaryPolicy)
 {
 	const FAssetPackageCodec& Codec = DastV6::GetCodec();
 	EXPECT_EQ(Codec.FormatId, DastBinaryFormatId);

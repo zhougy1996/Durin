@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 3,
+  "inspectionRepeatCount": 5,
+  "publicationRepeatCount": 7,
+  "timingPolicy": {
+    "decisionBearing": false,
+    "authority": "Diagnostic only on the current non-reference machine; performance thresholds do not select or reopen a wire.",
+    "cold": "The first construct-free inspection in a newly started native inventory process.",
+    "warm": "The following four inspections in the same process; report median and p95 without flushing the OS cache.",
+    "interference": "Close Durin editor/test processes and avoid concurrent builds or storage-heavy work; non-exclusive runs are diagnostic only."
+  },
+  "workloads": [
+    {
+      "id": "tracked-complete",
+      "kind": "tracked",
+      "description": "Every Git-tracked DURF/DAST v6 package and DABK v1 companion reachable from the Engine and Sandbox project mounts."
+    },
+    {
+      "id": "synthetic-mixed-v3",
+      "kind": "synthetic",
+      "seed": 841592647,
+      "packageCount": 128,
+      "payloadSizesBytes": [0, 4096, 65536, 262144, 1048576, 4194304, 16777216, 67108864],
+      "payloadEditFractions": [0.0, 0.01, 0.25, 1.0],
+      "description": "Deterministic powers-of-four size and edit distribution used only for analytic scaling and isolated Git/LFS experiments."
+    },
+    {
+      "id": "volume-texture-source",
+      "kind": "future-consumer",
+      "owner": "Documentation/Runtime/Assets/VolumeTextures.md",
+      "description": "One atomic tightly packed authored voxel payload per VolumeTexture."
+    },
+    {
+      "id": "texture-source",
+      "kind": "future-consumer",
+      "owner": "Documentation/Runtime/Rendering/TextureSystem.md",
+      "description": "Domain-owned authored Texture2D/TextureCube source payloads; projection is not current-corpus fact."
+    }
+  ],
+  "thresholds": {
+    "minimumCandidateRewriteReductionRatio": 0.25,
+    "maximumWarmInspectionP95Milliseconds": 50.0,
+    "maximumCurrentPublicationP95Milliseconds": 250.0,
+    "maximumTemporaryDiskAmplification": 2.0,
+    "revisitReachableExternalBytes": 268435456,
+    "revisitAuthoredPayloadCount": 100,
+    "revisitMonthlyLfsTransferBytes": 2147483648,
+    "revisitPublicationP95Milliseconds": 250.0,
+    "revisitDistinctDenseConsumers": 2
+  },
+  "candidates": [
+    {
+      "id": "retain-dast6-dabk1",
+      "boundary": "DURF/DAST v6 with a required front Payload Directory",
+      "placement": "stable sibling DABK v1 companion in Git LFS",
+      "publication": "companion-first plus atomic package replacement",
+      "sourceControl": ".dasset ordinary Git; .dabulk Git LFS",
+      "legacyRead": "the current DAST v6 reader validates the Payload Directory and resolves exact DABK v1 bytes",
+      "newRead": "same as current read",
+      "rollback": "previous v6 package bytes and the exact companion selected by its descriptor",
+      "lastGoodGeneration": "the old package remains authoritative until package replacement"
+    },
+    {
+      "id": "next-dast-companion-index",
+      "boundary": "a future DAST version with a changed companion index contract",
+      "placement": "versioned LFS-backed companion indexed by package metadata",
+      "publication": "companion-first plus atomic package replacement",
+      "sourceControl": ".dasset ordinary Git; companion Git LFS",
+      "legacyRead": "the current reader rejects the future package version before section decoding",
+      "newRead": "a future reader validates the new package and companion index",
+      "rollback": "retain canonical DAST v6 plus every DABK v1 byte reachable from it for an explicit migration window",
+      "lastGoodGeneration": "the current v6 package remains authoritative until its replacement commits"
+    },
+    {
+      "id": "content-addressed-companion",
+      "boundary": "a future DAST version naming immutable content-addressed companion bytes",
+      "placement": "content-addressed LFS-backed companion storage",
+      "publication": "publish immutable companion bytes before atomic package replacement",
+      "sourceControl": ".dasset ordinary Git; companion storage requires a separately qualified Git/LFS layout",
+      "legacyRead": "the current reader rejects the future package version",
+      "newRead": "a future reader resolves and verifies content-addressed companion identity",
+      "rollback": "retain canonical DAST v6 and reachable DABK v1 bytes",
+      "lastGoodGeneration": "the current package remains authoritative until replacement"
+    },
+    {
+      "id": "package-local-payload",
+      "boundary": "a future DAST version with a package-local payload segment",
+      "placement": "payload bytes in .dasset",
+      "publication": "complete-file atomic replacement",
+      "sourceControl": ".dasset requires an explicit ordinary-Git or LFS migration decision",
+      "legacyRead": "the current reader rejects the future package version",
+      "newRead": "a future reader validates bounded object and payload regions",
+      "rollback": "retain canonical DAST v6 plus reconstructed DABK v1 companions",
+      "lastGoodGeneration": "the complete old file remains authoritative until replacement"
+    },
+    {
+      "id": "in-place-tail-or-append",
+      "boundary": "a future versioned footer or append-generation discovery contract",
+      "placement": "package-local or companion-local",
+      "publication": "tail rewrite or append generation",
+      "sourceControl": "depends on separately qualified package and companion classification",
+      "legacyRead": "the current reader rejects the future package version",
+      "newRead": "a future reader discovers only a fully committed generation",
+      "rollback": "the previous DAST v6/DABK v1 closure remains available",
+      "lastGoodGeneration": "requires filesystem-proven atomic commit or redundant generation discovery"
+    }
+  ]
+}

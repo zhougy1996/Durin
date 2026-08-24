@@ -1647,7 +1647,7 @@ TEST(FPackageAssetTests, V6FirstBundleFailureRemovesUncommittedStableCompanion)
 		Root / "V6FirstFailure.dabulk.durin-backup"));
 }
 
-TEST(FPackageAssetTests, V6OptInPublishesLoadsAndRollsBackExternalClosure)
+TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -1908,17 +1908,17 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	EXPECT_LT(Header.FileBytesRead, std::filesystem::file_size(File));
 }
 
-TEST(FPackageAssetTests, OrdinaryWriterEmitsVersionFivePrefix)
+TEST(FPackageAssetTests, OrdinaryWriterEmitsDurfV1Prefix)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/VersionFivePrefix", Path));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DurfV1Prefix", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 
 	const auto File =
-		Durin::Testing::GetTestWorkDirectory() / "Assets" / "VersionFivePrefix.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DurfV1Prefix.dasset";
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
 	constexpr std::array<std::byte, 8> ExpectedPrefix = {
@@ -2000,7 +2000,7 @@ TEST(FPackageAssetTests, V6HeaderReadCharacterizationRemainsBounded)
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
-TEST(FPackageAssetTests, DormantEnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCodec)
+TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCodec)
 {
 	using namespace Durin;
 	using namespace Durin::Asset;
@@ -2050,7 +2050,7 @@ TEST(FPackageAssetTests, DormantEnvelopeDispatchUsesPermanentIdentityAndFailsBef
 	EXPECT_EQ(ReadAssetPackagePreamble(V6, Parsed).Error, EAssetError::CorruptFile);
 }
 
-TEST(FPackageAssetTests, DetachedV6CodecMatchesLiveWriteInspectReferenceMutationAndLoadSemantics)
+TEST(FPackageAssetTests, V6CodecMatchesLiveWriteInspectReferenceMutationAndLoadSemantics)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -2139,7 +2139,7 @@ TEST(FPackageAssetTests, DetachedV6CodecMatchesLiveWriteInspectReferenceMutation
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
 }
 
-TEST(FPackageAssetTests, DetachedV6PreservesExternalPayloadDirectoryAndCompanionDescriptor)
+TEST(FPackageAssetTests, V6PreservesExternalPayloadDirectoryAndCompanionDescriptor)
 {
 	InitializeAssetTests();
 	using namespace Durin;
