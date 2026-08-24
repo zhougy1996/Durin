@@ -1,5 +1,6 @@
 import pytest
 import io
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,24 @@ class TestRepositoryDiscovery:
         completed = subprocess.run([sys.executable, str(PRODUCT_ROOT / 'durin_dev_tool' / '__main__.py'), 'help'], cwd=directory, text=True, capture_output=True, check=False)
         assert completed.returncode == 0, completed.stderr
         assert 'DurinDevTool commands:' in completed.stdout
+
+    def test_cli_entrypoint_emits_utf8_when_host_locale_uses_gbk(self) -> None:
+        environment = os.environ.copy()
+        environment['PYTHONIOENCODING'] = 'gbk'
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(PRODUCT_ROOT / 'durin_dev_tool' / '__main__.py'),
+                '不存在',
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            capture_output=True,
+            check=False,
+        )
+        stderr = completed.stderr.decode('utf-8')
+        assert completed.returncode == 1
+        assert "invalid choice: '不存在'" in stderr
 
 class TestCommandRegistry:
 
