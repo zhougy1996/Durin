@@ -1,6 +1,7 @@
 #include "Widgets/MMaterialEditor.h"
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
+#include "Graph/MaterialGraphCanvas.h"
 
 #include "AssetAuthoring.h"
 #include "DObject/Package.h"
@@ -228,6 +229,7 @@ namespace Durin::Editor::Material
 	{
 		FinishActivePropertyEdit(true);
 		MaterialPreviews.clear();
+		MaterialGraphCanvases.clear();
 	}
 
 	auto MMaterialEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -276,6 +278,7 @@ namespace Durin::Editor::Material
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
+		MaterialGraphCanvases.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
@@ -486,7 +489,16 @@ namespace Durin::Editor::Material
 			ScaledMinimumDetailsWidth,
 			SidebarRatio);
 		ImGui::SameLine();
-		DrawDetailsPanel(Material, Available.y);
+		if (ImGui::BeginChild("MaterialEditorAuthoring", ImVec2(0.0f, Available.y)))
+		{
+			const float GraphHeight = std::max(Available.y * 0.62f,
+				MonaImGui::ScaleUI(280.0f));
+			DrawGraphPanel(Document, Material,
+				std::min(GraphHeight, std::max(Available.y - 180.0f, 0.0f)));
+			ImGui::Spacing();
+			DrawDetailsPanel(Material, 0.0f);
+		}
+		ImGui::EndChild();
 	}
 
 	auto MMaterialEditor::DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
@@ -501,6 +513,8 @@ namespace Durin::Editor::Material
 			Material,
 			MonaImGui::ScaleUI(MinimumOverviewHeight));
 		ImGui::Spacing();
+		DrawGraphPanel(Document, Material, MonaImGui::ScaleUI(460.0f));
+		ImGui::Spacing();
 		DrawDetailsPanel(Material, 0.0f);
 	}
 
@@ -513,6 +527,35 @@ namespace Durin::Editor::Material
 		std::unique_ptr<FMaterialPreview>& Preview = MaterialPreviews[Document.Id.Value];
 		if (Preview == nullptr) Preview = std::make_unique<FMaterialPreview>(Document.Id.Value);
 		Preview->Draw(Material, Height);
+	}
+
+	auto MMaterialEditor::DrawGraphPanel(
+		const ::Durin::Editor::FDocumentTab& Document,
+		DMaterialInterface* Material,
+		float Height) -> void
+	{
+		DMaterial* Base = Cast<DMaterial>(Material);
+		if (!Base)
+		{
+			if (ImGui::BeginChild("MaterialGraphInstance", ImVec2(0.0f, Height),
+				ImGuiChildFlags_Borders))
+			{
+				ImGui::SeparatorText("Material Graph");
+				ImGui::TextWrapped("Material instances inherit their graph from the root base material. Open the base material to author it.");
+			}
+			ImGui::EndChild();
+			return;
+		}
+		if (!GEditor)
+		{
+			ImGui::TextDisabled("Material graph transactions are unavailable.");
+			return;
+		}
+		std::unique_ptr<FMaterialGraphCanvas>& Canvas =
+			MaterialGraphCanvases[Document.Id.Value];
+		if (!Canvas) Canvas = std::make_unique<FMaterialGraphCanvas>();
+		Canvas->Draw(*Base, GEditor->GetTransactionManager(), Height,
+			[this](std::string Message) { SetError(std::move(Message)); });
 	}
 
 	auto MMaterialEditor::DrawOverviewPanel(

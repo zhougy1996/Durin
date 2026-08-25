@@ -518,6 +518,24 @@ namespace Durin::Editor::Material
 			{Request.SourceNodeId, Request.DestinationNodeId}, {}, Transactions);
 	}
 
+	auto FMaterialGraphService::DisconnectInput(
+		DMaterial& Material,
+		const FGuid& DestinationNodeId,
+		uint32 DestinationInputIndex,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		FMaterialProgramNode* Destination = FindNode(Candidate, DestinationNodeId);
+		if (!Destination)
+			return MakeRejected("The material graph destination node does not exist.");
+		if (DestinationInputIndex >= Destination->Inputs.size())
+			return MakeRejected("The material graph destination input does not exist.");
+		Destination->Inputs.erase(Destination->Inputs.begin() + DestinationInputIndex);
+		return Commit(Material, std::move(Candidate),
+			Material.GetMaterialGraphPresentation(), true,
+			"Disconnect Material Input", {DestinationNodeId}, {}, Transactions);
+	}
+
 	auto FMaterialGraphService::AssignSurfaceOutput(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceOutputRequest& Request,
@@ -566,6 +584,79 @@ namespace Durin::Editor::Material
 		}
 		return Commit(Material, *Material.GetMaterialProgram(), std::move(Presentation), false,
 			"Move Material Nodes", std::move(Affected), {}, Transactions);
+	}
+
+	auto FMaterialGraphService::Layout(
+		DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		const FMaterialProgram& Program = *Material.GetMaterialProgram();
+		if (NodeIds.size() > MaterialProgramMaxNodeCount)
+			return MakeRejected("The material graph layout request exceeds the node bound.");
+		std::unordered_set<FGuid> Requested(NodeIds.begin(), NodeIds.end());
+		if (NodeIds.empty())
+			for (const FMaterialProgramNode& Node : Program.Nodes)
+				Requested.insert(Node.Id);
+		if (Requested.size() != (NodeIds.empty() ? Program.Nodes.size() : NodeIds.size()))
+			return MakeRejected("The material graph layout request contains duplicate node GUIDs.");
+		for (const FGuid& Id : Requested)
+			if (!FindNode(Program, Id))
+				return MakeRejected("A material graph layout node does not exist.");
+
+		std::unordered_map<FGuid, std::vector<FGuid>> Consumers;
+		for (const FMaterialProgramNode& Node : Program.Nodes)
+			for (const FMaterialProgramLink& Input : Node.Inputs)
+				Consumers[Input.SourceNodeId].push_back(Node.Id);
+		std::unordered_set<FGuid> SurfaceSources{
+			Program.Outputs.BaseColor.SourceNodeId,
+			Program.Outputs.Normal.SourceNodeId,
+			Program.Outputs.Metallic.SourceNodeId,
+			Program.Outputs.Roughness.SourceNodeId,
+			Program.Outputs.AmbientOcclusion.SourceNodeId,
+			Program.Outputs.Emissive.SourceNodeId,
+			Program.Outputs.Opacity.SourceNodeId,
+			Program.Outputs.OpacityMask.SourceNodeId,
+		};
+		std::unordered_map<FGuid, uint32> DistanceToSink;
+		std::function<uint32(const FGuid&)> Visit = [&](const FGuid& Id) -> uint32 {
+			if (const auto It = DistanceToSink.find(Id); It != DistanceToSink.end())
+				return It->second;
+			uint32 Distance = SurfaceSources.contains(Id) ? 1u : 0u;
+			if (const auto It = Consumers.find(Id); It != Consumers.end())
+				for (const FGuid& Consumer : It->second)
+					Distance = std::max(Distance, Visit(Consumer) + 1);
+			DistanceToSink.emplace(Id, Distance);
+			return Distance;
+		};
+		uint32 MaximumDistance = 0;
+		for (const FMaterialProgramNode& Node : Program.Nodes)
+			MaximumDistance = std::max(MaximumDistance, Visit(Node.Id));
+
+		std::map<uint32, std::vector<FGuid>> Columns;
+		for (const FGuid& Id : Requested)
+			Columns[MaximumDistance - DistanceToSink[Id]].push_back(Id);
+		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		std::vector<FMaterialGraphNodePresentation> Positions;
+		for (auto& [Column, Nodes] : Columns)
+		{
+			std::ranges::sort(Nodes);
+			for (size_t Row = 0; Row < Nodes.size(); ++Row)
+				Positions.push_back({
+					Nodes[Row],
+					static_cast<int32>(Column * 280),
+					static_cast<int32>(Row * 160)});
+		}
+		for (const FMaterialGraphNodePresentation& Position : Positions)
+		{
+			auto It = std::ranges::find(Presentation.Nodes, Position.NodeId,
+				&FMaterialGraphNodePresentation::NodeId);
+			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back(Position);
+			else *It = Position;
+		}
+		std::vector<FGuid> Affected(Requested.begin(), Requested.end());
+		return Commit(Material, Program, std::move(Presentation), false,
+			"Layout Material Graph", std::move(Affected), {}, Transactions);
 	}
 
 	struct FMaterialGraphMoveSession::FImpl

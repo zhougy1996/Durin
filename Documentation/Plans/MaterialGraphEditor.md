@@ -269,13 +269,13 @@ not infer success from labels or mutate reflected storage directly.
 
 ### Stage 2: Implement the base canvas and typed linking
 
-- [ ] Add a document-local canvas controller and read-only view model with pan,
+- [x] Add a document-local canvas controller and read-only view model with pan,
   zoom, framing, grid, selection, marquee, and maximum-graph culling/hit testing.
-- [ ] Draw surface outputs, typed nodes/pins, links, selection, hover, invalid
+- [x] Draw surface outputs, typed nodes/pins, links, selection, hover, invalid
   targets, and pending/failed compile state using existing editor style tokens.
-- [ ] Route node creation, movement, deletion, connection, disconnection, and
+- [x] Route node creation, movement, deletion, connection, disconnection, and
   literal/parameter editing exclusively through the command service.
-- [ ] Provide keyboard/context-menu operations and deterministic automatic
+- [x] Provide keyboard/context-menu operations and deterministic automatic
   layout for legacy materials with no positions.
 
 #### Acceptance Gate

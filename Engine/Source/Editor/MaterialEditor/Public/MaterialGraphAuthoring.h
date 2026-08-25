@@ -121,6 +121,12 @@ namespace Durin::Editor::Material
 			const FMaterialGraphConnectRequest& Request,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto DisconnectInput(
+			DMaterial& Material,
+			const FGuid& DestinationNodeId,
+			uint32 DestinationInputIndex,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto AssignSurfaceOutput(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceOutputRequest& Request,
@@ -129,6 +135,11 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto MoveNodes(
 			DMaterial& Material,
 			std::span<const FMaterialGraphNodePresentation> Positions,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto Layout(
+			DMaterial& Material,
+			std::span<const FGuid> NodeIds = {},
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 	};

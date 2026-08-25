@@ -16,6 +16,7 @@ namespace Durin
 namespace Durin::Editor::Material
 {
 	class FMaterialPreview;
+	class FMaterialGraphCanvas;
 	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
 	struct FMaterialParameterPanelEntry;
@@ -55,6 +56,7 @@ namespace Durin::Editor::Material
 		auto DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
+		auto DrawGraphPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawOverviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
@@ -76,6 +78,7 @@ namespace Durin::Editor::Material
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
 		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
+		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};

@@ -110,6 +110,47 @@ TEST(FMaterialGraphAuthoringTests, CatalogAndInspectionCoverTheClosedOpcodeDomai
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphAuthoringTests, MaximumGraphLayoutIsDeterministicAndPresentationOnly)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaximumLayoutMaterial");
+	ASSERT_NE(Material, nullptr);
+	FMaterialProgram MaximumProgram = *Material->GetMaterialProgram();
+	while (MaximumProgram.Nodes.size() < MaterialProgramMaxNodeCount)
+	{
+		FMaterialProgramNode Node;
+		Node.Id = FGuid::NewGuid();
+		Node.Opcode = EMaterialProgramOpcode::Constant;
+		Node.ResultType = EMaterialProgramValueType::Float;
+		MaximumProgram.Nodes.push_back(Node);
+	}
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(MaximumProgram, Validation));
+	const uint64 SemanticRevision =
+		Material->GetMaterialCompileStatus().AuthoredRevision;
+
+	const auto Begin = std::chrono::steady_clock::now();
+	const FMaterialGraphCommandResult First =
+		FMaterialGraphService::Layout(*Material);
+	const auto Duration = std::chrono::steady_clock::now() - Begin;
+	ASSERT_TRUE(First) << First.Message;
+	EXPECT_LT(Duration, std::chrono::seconds(1));
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
+		MaterialProgramMaxNodeCount);
+	EXPECT_EQ(*Material->GetMaterialProgram(), MaximumProgram);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+		SemanticRevision);
+	const FMaterialGraphPresentation FirstLayout =
+		Material->GetMaterialGraphPresentation();
+	const FMaterialGraphCommandResult Second =
+		FMaterialGraphService::Layout(*Material);
+	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
+
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphAuthoringTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)
 {
 	InitializeDObjectSystem();
