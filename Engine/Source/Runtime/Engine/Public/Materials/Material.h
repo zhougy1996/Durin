@@ -23,6 +23,11 @@ namespace Durin
 		{
 			return &Program;
 		}
+		auto GetMaterialGraphPresentation() const
+			-> const FMaterialGraphPresentation&
+		{
+			return GraphPresentation;
+		}
 		auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override
 		{
@@ -44,6 +49,8 @@ namespace Durin
 		ENGINE_API auto SetMaterialProgram(
 			FMaterialProgram InProgram,
 			FMaterialProgramValidationResult& OutValidation) -> bool;
+		ENGINE_API auto SetMaterialGraphPresentation(
+			FMaterialGraphPresentation InPresentation) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto GetRenderableStaticProperties() const
@@ -89,6 +96,10 @@ namespace Durin
 		// present program data is rejected by PostLoad.
 		DPROPERTY(EditorOnly)
 		FMaterialProgram Program;
+
+		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
+		DPROPERTY(EditorOnly)
+		FMaterialGraphPresentation GraphPresentation;
 
 		// Runtime-only descriptor replaced transactionally in cooked package bytes.
 		DPROPERTY()

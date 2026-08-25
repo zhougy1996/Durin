@@ -26,6 +26,8 @@ namespace Durin
 	inline constexpr uint32 MaterialProgramMaxCanonicalBytes = 1024 * 1024;
 	inline constexpr uint32 MaterialProgramMaxDiagnosticCount = 64;
 	inline constexpr uint32 MaterialProgramMaxDiagnosticMessageBytes = 512;
+	inline constexpr uint32 CurrentMaterialGraphPresentationSchemaVersion = 1;
+	inline constexpr int32 MaterialGraphPresentationCoordinateLimit = 1024 * 1024;
 
 	DENUM()
 	enum class EMaterialProgramValueType : uint8
@@ -212,6 +214,39 @@ namespace Durin
 		auto operator==(const FMaterialProgram&) const -> bool = default;
 	};
 
+	// Stores one package-persisted editor position for a live material-program node.
+	DSTRUCT()
+	struct FMaterialGraphNodePresentation
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FGuid NodeId;
+
+		DPROPERTY()
+		int32 X = 0;
+
+		DPROPERTY()
+		int32 Y = 0;
+
+		auto operator==(const FMaterialGraphNodePresentation&) const -> bool = default;
+	};
+
+	// Owns shared authored graph presentation without participating in shader semantics.
+	DSTRUCT()
+	struct FMaterialGraphPresentation
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		uint32 SchemaVersion = CurrentMaterialGraphPresentationSchemaVersion;
+
+		DPROPERTY()
+		std::vector<FMaterialGraphNodePresentation> Nodes;
+
+		auto operator==(const FMaterialGraphPresentation&) const -> bool = default;
+	};
+
 	enum class EMaterialProgramDiagnosticCategory : uint8
 	{
 		Schema,
@@ -260,4 +295,7 @@ namespace Durin
 		const FMaterialProgram& Program,
 		std::span<const FMaterialParameterDefinition> ParameterDefinitions)
 		-> FMaterialProgramValidationResult;
+	ENGINE_API auto SanitizeMaterialGraphPresentation(
+		const FMaterialGraphPresentation& Presentation,
+		const FMaterialProgram& Program) -> FMaterialGraphPresentation;
 }

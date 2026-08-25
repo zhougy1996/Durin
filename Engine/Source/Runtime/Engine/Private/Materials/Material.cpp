@@ -102,6 +102,17 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SetMaterialGraphPresentation(
+		FMaterialGraphPresentation InPresentation) -> bool
+	{
+		InPresentation = SanitizeMaterialGraphPresentation(
+			InPresentation, Program);
+		if (GraphPresentation == InPresentation) return true;
+		GraphPresentation = std::move(InPresentation);
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
 		return ParameterDefinitions;
@@ -261,6 +272,8 @@ namespace Durin
 				: ProgramValidation.Diagnostics.front().Message;
 			return false;
 		}
+		GraphPresentation = SanitizeMaterialGraphPresentation(
+			GraphPresentation, Program);
 		RequestProgramCompile(Program, StaticProperties);
 		PublishMaterialRenderProxyState();
 		return true;

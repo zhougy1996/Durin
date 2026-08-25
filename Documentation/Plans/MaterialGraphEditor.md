@@ -250,15 +250,15 @@ not infer success from labels or mutate reflected storage directly.
 
 ### Stage 1: Land presentation state and graph command core
 
-- [ ] Add bounded reflected node-presentation storage to `DMaterial`, including
+- [x] Add bounded reflected node-presentation storage to `DMaterial`, including
   legacy defaults, duplication, import/exchange, save/reload, and sanitization.
-- [ ] Implement read-only graph/node/pin/catalog views derived from the existing
+- [x] Implement read-only graph/node/pin/catalog views derived from the existing
   program and parameter definitions.
-- [ ] Implement candidate-based semantic and presentation commands with
+- [x] Implement candidate-based semantic and presentation commands with
   structured failures and exact dirty/compile behavior.
-- [ ] Integrate snapshot transactions with MaterialEditor's existing per-document
+- [x] Integrate snapshot transactions with MaterialEditor's existing per-document
   Undo/Redo model, including drag coalescing and stale-object rejection.
-- [ ] Add command tests for success, rejection without mutation, maximum bounds,
+- [x] Add command tests for success, rejection without mutation, maximum bounds,
   Undo/Redo, and semantic-versus-presentation compile generation.
 
 #### Acceptance Gate

@@ -707,4 +707,34 @@ namespace Durin
 		Result.bSucceeded = Diagnostics.empty();
 		return Result;
 	}
+
+	auto SanitizeMaterialGraphPresentation(
+		const FMaterialGraphPresentation& Presentation,
+		const FMaterialProgram& Program) -> FMaterialGraphPresentation
+	{
+		FMaterialGraphPresentation Result;
+		Result.Nodes.reserve(std::min<size_t>(
+			Presentation.Nodes.size(), MaterialProgramMaxNodeCount));
+		std::unordered_set<FGuid> LiveNodes;
+		LiveNodes.reserve(Program.Nodes.size());
+		for (const FMaterialProgramNode& Node : Program.Nodes)
+			if (Node.Id.IsValid()) LiveNodes.insert(Node.Id);
+		std::unordered_set<FGuid> AddedNodes;
+		AddedNodes.reserve(Result.Nodes.capacity());
+		for (const FMaterialGraphNodePresentation& Node : Presentation.Nodes)
+		{
+			if (Result.Nodes.size() >= MaterialProgramMaxNodeCount) break;
+			if (!Node.NodeId.IsValid() || !LiveNodes.contains(Node.NodeId)
+				|| !AddedNodes.insert(Node.NodeId).second
+				|| Node.X < -MaterialGraphPresentationCoordinateLimit
+				|| Node.X > MaterialGraphPresentationCoordinateLimit
+				|| Node.Y < -MaterialGraphPresentationCoordinateLimit
+				|| Node.Y > MaterialGraphPresentationCoordinateLimit)
+				continue;
+			Result.Nodes.push_back(Node);
+		}
+		std::ranges::sort(Result.Nodes, {},
+			&FMaterialGraphNodePresentation::NodeId);
+		return Result;
+	}
 }
