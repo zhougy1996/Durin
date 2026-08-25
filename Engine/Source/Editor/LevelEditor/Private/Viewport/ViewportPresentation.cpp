@@ -136,8 +136,6 @@ namespace Durin::Editor::Level
 			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
 			const EDirectionalShadowDiagnosticMode CurrentMode =
 				CurrentSettings.DirectionalShadow.DiagnosticMode;
-			const bool bDebugViewsActive = CurrentMode != EDirectionalShadowDiagnosticMode::Lit
-				|| CurrentSettings.DirectionalShadow.bShowContactDebug;
 			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
 				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 				Settings.DirectionalShadow.DiagnosticMode = Mode;
@@ -145,13 +143,6 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			};
 
-			if (ImGui::MenuItem("Reset Debug Views", nullptr, false, bDebugViewsActive))
-			{
-				SetMode(EDirectionalShadowDiagnosticMode::Lit);
-			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-				ImGui::SetTooltip("Disable all shadow diagnostics without changing production rendering settings.");
-			ImGui::Separator();
 			if (ImGui::RadioButton("Contact Shadow Contribution",
 				CurrentSettings.DirectionalShadow.bShowContactDebug))
 			{
@@ -1100,21 +1091,26 @@ namespace Durin::Editor::Level
 			ImGui::Separator();
 			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Debug Views"))
 			{
-				ImGui::TextDisabled("Temporary diagnostic rendering.");
-				DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
+				if (ImGui::Selectable("Reset Debug Views", false, ImGuiSelectableFlags_DontClosePopups))
+				{
+					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+					Settings.DirectionalShadow.DiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
+					Settings.DirectionalShadow.bShowContactDebug = false;
+					Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
+					RenderSettingsClient->SetViewSettings(Settings);
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Disable all diagnostic views without changing production rendering settings.");
 				ImGui::Separator();
+				if (ImGui::BeginMenu("Shadow"))
+				{
+					DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
+					ImGui::EndMenu();
+				}
 				if (ImGui::BeginMenu("Volumetric Clouds"))
 				{
 					const EVolumetricCloudDebugMode Current =
 						RenderSettingsClient->GetViewSettings().VolumetricCloud.DebugMode;
-					if (ImGui::MenuItem("Reset Cloud Debug View", nullptr, false,
-						Current != EVolumetricCloudDebugMode::Lit))
-					{
-						FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-						Settings.VolumetricCloud.DebugMode = EVolumetricCloudDebugMode::Lit;
-						RenderSettingsClient->SetViewSettings(Settings);
-					}
-					ImGui::Separator();
 					DrawModeOptions(Current, VolumetricCloudDebugOptions,
 						[RenderSettingsClient](EVolumetricCloudDebugMode Mode) {
 							FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
