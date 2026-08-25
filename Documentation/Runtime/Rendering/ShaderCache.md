@@ -47,7 +47,11 @@ source-tree fingerprint. It uses the same macro-specific manifest as ordinary
 shader compilation: a warm lookup validates persisted size and modification
 metadata, while a missing or stale manifest reparses imports and refreshes
 content hashes. This avoids maintaining a separate higher-level dependency
-cache.
+cache. The compile service memoizes aggregate fingerprints for the current
+Shader reload generation. Repeated callers perform no filesystem validation;
+an applied `renderer.reload-shaders changed|all` request advances the shared
+generation, clears those memoized views lazily, and makes the next request
+validate the persisted manifest again.
 
 Generated shader roots use a separate owned-memory request. Their virtual path,
 source-content hash, normalized macros, imported file fingerprints, compiler

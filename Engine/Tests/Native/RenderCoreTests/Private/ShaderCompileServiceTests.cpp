@@ -119,6 +119,15 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			"/ShaderCompileServiceTests/Simple");
 		EXPECT_FALSE(ColdFingerprint.ContentHash.IsZero());
 		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 1u);
+		FShaderSourceDependencyFingerprint SameGenerationFingerprint;
+		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
+			"/ShaderCompileServiceTests/Simple", Options,
+			SameGenerationFingerprint, Error)) << Error;
+		EXPECT_EQ(SameGenerationFingerprint, ColdFingerprint);
+		const auto SameGenerationStats = GetShaderCompileServiceStats();
+		EXPECT_EQ(SameGenerationStats.DependencyResolutions, 1u);
+		EXPECT_EQ(SameGenerationStats.ManifestHits, 0u);
+		EXPECT_EQ(SameGenerationStats.SourceTreeFingerprintHits, 1u);
 
 		ShutdownShaderCompileService();
 		InitShaderCompileService();
@@ -131,6 +140,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(WarmStats.ManifestHits, 1u);
 		EXPECT_EQ(WarmStats.ContentReads, 0u);
+		EXPECT_EQ(WarmStats.SourceTreeFingerprintHits, 0u);
 
 		WriteTextFile(GetServiceTestRoot() / "Source/Simple.slang",
 			R"([shader("vertex")]
@@ -139,6 +149,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
     return float4(float(vertexID), 1.0, 2.0, 1.0);
 }
 )");
+		FShaderSourceDependencyFingerprint BeforeReloadFingerprint;
+		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
+			"/ShaderCompileServiceTests/Simple", Options,
+			BeforeReloadFingerprint, Error)) << Error;
+		EXPECT_EQ(BeforeReloadFingerprint, WarmFingerprint);
+		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 0u);
+		EXPECT_EQ(
+			GetShaderCompileServiceStats().SourceTreeFingerprintHits, 1u);
+		const uint64 PreviousReloadGeneration = GetShaderReloadGeneration();
+		EXPECT_GT(AdvanceShaderReloadGeneration(), PreviousReloadGeneration);
 		FShaderSourceDependencyFingerprint ChangedFingerprint;
 		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
 			"/ShaderCompileServiceTests/Simple", Options,

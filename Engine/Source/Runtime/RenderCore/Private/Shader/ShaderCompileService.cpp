@@ -155,6 +155,28 @@ namespace Durin
 				std::vector<FShaderMacroDefinition> NormalizedMacros;
 				if (!ShaderCompileUtilities::NormalizeMacros(
 					EffectiveOptions, NormalizedMacros, OutError)) return false;
+				FShaderDependencyKey DependencyKey;
+				ShaderCompileUtilities::BuildDependencyKey(
+					VirtualShaderPath, NormalizedMacros,
+					EffectiveOptions.CompilerEnvironment, DependencyKey);
+				const uint64 ReloadGeneration = GetShaderReloadGeneration();
+				{
+					std::lock_guard Lock(SourceTreeFingerprintCacheMutex);
+					if (SourceTreeFingerprintCacheGeneration != ReloadGeneration)
+					{
+						SourceTreeFingerprintCache.clear();
+						SourceTreeFingerprintCacheGeneration = ReloadGeneration;
+					}
+					if (const auto Found = SourceTreeFingerprintCache.find(
+						DependencyKey.Hex);
+						Found != SourceTreeFingerprintCache.end())
+					{
+						OutFingerprint = Found->second;
+						SourceTreeFingerprintHits.fetch_add(
+							1, std::memory_order_relaxed);
+						return true;
+					}
+				}
 				FShaderMetaData MetaData;
 				if (!ResolveSourceMetaData(
 					VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath),
@@ -162,6 +184,19 @@ namespace Durin
 				OutFingerprint = {
 					.VirtualPath = std::string(VirtualShaderPath),
 					.ContentHash = MetaData.SourceTreeSignature};
+				if (GetShaderReloadGeneration() == ReloadGeneration)
+				{
+					std::lock_guard Lock(SourceTreeFingerprintCacheMutex);
+					if (SourceTreeFingerprintCacheGeneration == ReloadGeneration)
+					{
+						if (SourceTreeFingerprintCache.size()
+							>= GMaximumSourceTreeFingerprintEntries)
+							SourceTreeFingerprintCache.erase(
+								SourceTreeFingerprintCache.begin());
+						SourceTreeFingerprintCache.insert_or_assign(
+							DependencyKey.Hex, OutFingerprint);
+					}
+				}
 				return true;
 			}
 
@@ -228,7 +263,9 @@ namespace Durin
 					.DiskHits = DiskHits.load(std::memory_order_relaxed),
 					.Compilations = Compilations.load(std::memory_order_relaxed),
 					.ContentReads = FileFingerprintCache.GetContentReadCount(),
-					.OutputEntries = OutputCache.size()
+					.OutputEntries = OutputCache.size(),
+					.SourceTreeFingerprintHits =
+						SourceTreeFingerprintHits.load(std::memory_order_relaxed)
 				};
 			}
 
@@ -397,6 +434,7 @@ namespace Durin
 
 		private:
 			static constexpr size_t GMaximumOutputEntries = 128;
+			static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
 
 			static auto ValidateGeneratedImports(
 				std::span<const std::string> DependencyPaths,
@@ -572,11 +610,16 @@ namespace Durin
 			mutable std::mutex OutputCacheMutex;
 			std::list<std::string> OutputRecency;
 			std::unordered_map<std::string, FOutputCacheEntry> OutputCache;
+			std::mutex SourceTreeFingerprintCacheMutex;
+			uint64 SourceTreeFingerprintCacheGeneration = 0;
+			std::unordered_map<std::string,
+				FShaderSourceDependencyFingerprint> SourceTreeFingerprintCache;
 			std::atomic_uint64_t DependencyResolutions = 0;
 			std::atomic_uint64_t ManifestHits = 0;
 			std::atomic_uint64_t MemoryHits = 0;
 			std::atomic_uint64_t DiskHits = 0;
 			std::atomic_uint64_t Compilations = 0;
+			std::atomic_uint64_t SourceTreeFingerprintHits = 0;
 		};
 
 		std::unique_ptr<FShaderCompileService> GShaderCompileService;

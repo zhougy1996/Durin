@@ -105,7 +105,11 @@ ordinary persisted shader manifest, so a warm startup validates file metadata
 without asking Slang to parse the graph or rereading source contents. Any
 reachable source change rebuilds the aggregate fingerprint and therefore
 selects a new material-program identity; the root virtual path is an identity
-anchor, not an extra shader compilation.
+anchor, not an extra shader compilation. RenderCore memoizes that aggregate for
+the current Shader reload generation, so every later material in the process
+reuses it without additional file-status queries. Applying an explicit Shader
+reload advances the generation and makes the next material compilation
+revalidate the manifest.
 
 The synchronous compiler lowers that IR to bounded deterministic Slang using
 stable IR-index symbols and exact floating-point bit expressions. RenderCore

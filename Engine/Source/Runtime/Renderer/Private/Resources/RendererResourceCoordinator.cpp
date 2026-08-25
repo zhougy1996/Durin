@@ -2,6 +2,7 @@
 
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
@@ -152,6 +153,7 @@ namespace Durin
 		case ERendererResourceInvalidationCause::ShaderAll:
 			Generation.Advance(
 				ERenderResourceGenerationDependency::Shader);
+			AdvanceShaderReloadGeneration();
 			ForceRecompileShaderGeneration =
 				Cause == ERendererResourceInvalidationCause::ShaderAll
 					? std::optional<uint64>(Generation.Shader)

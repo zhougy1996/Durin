@@ -14,6 +14,7 @@ namespace Durin
 		uint64 Compilations = 0;
 		uint64 ContentReads = 0;
 		uint64 OutputEntries = 0;
+		uint64 SourceTreeFingerprintHits = 0;
 	};
 
 	auto InitShaderCompileService() -> void;

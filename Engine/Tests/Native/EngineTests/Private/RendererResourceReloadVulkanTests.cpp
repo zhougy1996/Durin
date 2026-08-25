@@ -13,6 +13,7 @@
 #include "RendererModule.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
 #include <iostream>
@@ -170,6 +171,8 @@ float4 FragmentMain() : SV_Target
 				return "ValidateCoordinatorOwnership";
 			}
 		};
+		const uint64 PreviousShaderReloadGeneration =
+			GetShaderReloadGeneration();
 		EnqueueRenderCommand<FValidateCoordinatorOwnership>(
 			[&OwnershipCoordinator, &OwnershipEvents, &OwnershipSnapshot](
 				FRHICommandListImmediate&) {
@@ -211,6 +214,8 @@ float4 FragmentMain() : SV_Target
 		EXPECT_EQ(OwnershipSnapshot.Generation.Device, 1);
 		EXPECT_EQ(OwnershipSnapshot.Generation.Manual, 1);
 		EXPECT_TRUE(OwnershipSnapshot.bForceShaderRecompile);
+		EXPECT_GT(
+			GetShaderReloadGeneration(), PreviousShaderReloadGeneration);
 		const std::array<std::string, 4> ExpectedOwnershipEvents{
 			"shader-all",
 			"device-release",
