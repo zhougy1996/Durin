@@ -136,19 +136,27 @@ The default limits are:
 | UI uploads per frame | 2 |
 | Rendered captures per frame | 1 |
 | Live rendered preview scenes | 1 |
+| Parked rendered resource waits | 64 |
+| Parked resource poll interval | 4 frames |
+| Parked resource wait timeout | 600 frames |
 | CPU pixels | 64 MiB |
 | GPU thumbnail textures | 64 MiB |
 | One encoded object | 16 MiB |
 | Persistent thumbnail objects | 256 MiB |
 
 Rendered jobs move through queued, loading, resource-wait, rendering, readback,
-encoding, and ready states. Preview-scene mutation and asset loading occur on
-the game thread; rendering and readback occur on the rendering thread; encoding
-and atomic publication may run on workers. Completed CPU/GPU entries and disk
-objects use least-recently-used eviction, while active or pinned entries are
-not selected. Closing Content Browser or unloading a provider cancels pending
-work and rejects stale completion before releasing scenes and GPU resources on
-their owning threads.
+encoding, and ready states. A resource-waiting job is parked without retaining
+the active render slot or preview scene, so another rendered request can load
+or capture while the parked session remains generation-qualified. Parked jobs
+are polled at a bounded interval, visible ready jobs resume first, and a bounded
+wait becomes one stable failure rather than monopolizing the queue.
+Preview-scene mutation and asset loading occur on the game thread; rendering and
+readback occur on the rendering thread; encoding and atomic publication may run
+on workers. Completed CPU/GPU entries and disk objects use least-recently-used
+eviction, while active or pinned entries are not selected. Closing Content
+Browser or unloading a provider cancels active and parked work and rejects
+stale completion before releasing scenes and GPU resources on their owning
+threads.
 
 The pool snapshots the view and optional environment independently when a
 capture is accepted. Reset advances the cancellation generation, clears pixel

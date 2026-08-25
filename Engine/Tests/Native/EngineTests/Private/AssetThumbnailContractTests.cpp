@@ -132,6 +132,8 @@ namespace Durin
 			uint32 InputDestructions = 0;
 			uint32 SessionDestructions = 0;
 			uint32 ExtensionDestructions = 0;
+			uint32 ResourcePollsBeforeReady = 0;
+			uint32 ResourcePolls = 0;
 		};
 
 		class FFakeRenderedThumbnailInput final : public Editor::IAssetThumbnailGenerationInput
@@ -198,14 +200,24 @@ namespace Durin
 			auto Load() -> Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				return {
-					.State = Editor::ERenderedAssetThumbnailSessionState::ReadyToRender,
+					.State = State->ResourcePollsBeforeReady == 0
+						? Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
+						: Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = 17,
-					.ResourceRevision = 29};
+					.ResourceRevision = State->ResourcePollsBeforeReady == 0 ? 29u : 0u};
 			}
 
 			auto PollResources() -> Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
-				return Load();
+				++State->ResourcePolls;
+				const bool bReady = State->ResourcePolls
+					> State->ResourcePollsBeforeReady;
+				return {
+					.State = bReady
+						? Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
+						: Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+					.AssetRevision = 17,
+					.ResourceRevision = bReady ? 29u : 0u};
 			}
 
 			auto PreparePreview(
@@ -605,6 +617,9 @@ namespace Durin
 		const Editor::FAssetThumbnailBudgets Budgets;
 		EXPECT_EQ(Budgets.MaximumRendersPerFrame, 1u);
 		EXPECT_EQ(Budgets.MaximumLivePreviewScenes, 1u);
+		EXPECT_GT(Budgets.MaximumParkedRenderedJobs, 0u);
+		EXPECT_GT(Budgets.ResourcePollIntervalFrames, 0u);
+		EXPECT_GT(Budgets.MaximumResourceWaitFrames, 0u);
 		EXPECT_GT(Budgets.MaximumQueuedJobs, 0u);
 		EXPECT_GT(Budgets.CpuPixelBudgetBytes, 0u);
 		EXPECT_GT(Budgets.GpuTextureBudgetBytes, 0u);
@@ -867,6 +882,94 @@ namespace Durin
 			AfterRegistration.Find(AfterRequest.Asset.VirtualPath).State,
 			Editor::EAssetThumbnailState::Loading);
 		EXPECT_EQ(State->ExtensionDestructions, 1u);
+	}
+
+	TEST(FAssetThumbnailContractTests, ParkedResourceWaitDoesNotBlockLaterRenderedWork)
+	{
+		Editor::FRenderedAssetThumbnailService Service;
+		std::string Error;
+		auto WaitingState = std::make_shared<FFakeRenderedExtensionState>();
+		WaitingState->ResourcePollsBeforeReady = 100;
+		auto ReadyState = std::make_shared<FFakeRenderedExtensionState>();
+		auto WaitingRegistration = Service.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(
+				WaitingState, "DWaitingRenderedAsset"), Error);
+		ASSERT_TRUE(WaitingRegistration) << Error;
+		auto ReadyRegistration = Service.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(
+				ReadyState, "DReadyRenderedAsset"), Error);
+		ASSERT_TRUE(ReadyRegistration) << Error;
+		Editor::FAssetThumbnailBudgets Budgets;
+		Budgets.ResourcePollIntervalFrames = 4;
+		Editor::FRenderedAssetThumbnailCache Cache(
+			Service,
+			Budgets,
+			{.CacheRoot = MakeObjectStoreRoot("ParkedResourceWait"),
+				.ObjectExtension = ".bin"});
+		const Editor::FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
+			"/ThumbnailTests/Parked/Waiting", "DWaitingRenderedAsset", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+		const Editor::FAssetThumbnailRequest Ready = MakeThumbnailRequest(
+			"/ThumbnailTests/Parked/Ready", "DReadyRenderedAsset", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+
+		Cache.BeginFrame();
+		Cache.Request(Waiting.Asset, Waiting.Priority);
+		Cache.EndFrame();
+		EXPECT_EQ(Cache.Find(Waiting.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::WaitingForResources);
+		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 1u);
+		EXPECT_FALSE(Cache.GetStats().bHasActiveJob);
+
+		Cache.BeginFrame();
+		Cache.Request(Ready.Asset, Ready.Priority);
+		Cache.EndFrame();
+		EXPECT_EQ(Cache.Find(Waiting.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::WaitingForResources);
+		EXPECT_NE(Cache.Find(Ready.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::Queued);
+		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 1u);
+		EXPECT_EQ(Cache.GetStats().PeakParkedResourceWaits, 1u);
+	}
+
+	TEST(FAssetThumbnailContractTests, ParkedResourceWaitTimesOutAndReleasesSession)
+	{
+		Editor::FRenderedAssetThumbnailService Service;
+		std::string Error;
+		auto State = std::make_shared<FFakeRenderedExtensionState>();
+		State->ResourcePollsBeforeReady = 100;
+		auto Registration = Service.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(
+				State, "DTimeoutRenderedAsset"), Error);
+		ASSERT_TRUE(Registration) << Error;
+		Editor::FAssetThumbnailBudgets Budgets;
+		Budgets.ResourcePollIntervalFrames = 1;
+		Budgets.MaximumResourceWaitFrames = 2;
+		Editor::FRenderedAssetThumbnailCache Cache(
+			Service,
+			Budgets,
+			{.CacheRoot = MakeObjectStoreRoot("ParkedResourceTimeout"),
+				.ObjectExtension = ".bin"});
+		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+			"/ThumbnailTests/Parked/Timeout", "DTimeoutRenderedAsset", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+
+		Cache.BeginFrame();
+		Cache.Request(Request.Asset, Request.Priority);
+		Cache.EndFrame();
+		Cache.BeginFrame();
+		Cache.EndFrame();
+		Cache.BeginFrame();
+		Cache.EndFrame();
+
+		const Editor::FAssetThumbnailView View =
+			Cache.Find(Request.Asset.VirtualPath);
+		EXPECT_EQ(View.State, Editor::EAssetThumbnailState::Failed);
+		EXPECT_NE(View.Diagnostic.find("Timed out"), std::string::npos);
+		EXPECT_EQ(Cache.GetStats().ParkedResourceWaits, 0u);
+		EXPECT_EQ(Cache.GetStats().ResourceWaitTimeouts, 1u);
+		EXPECT_EQ(State->PreviewResets, 1u);
+		EXPECT_EQ(State->SessionDestructions, 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, FakeRenderedExtensionRunsColdAndWarmBeforeScopedRemoval)

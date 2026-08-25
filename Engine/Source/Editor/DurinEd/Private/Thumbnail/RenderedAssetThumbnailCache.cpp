@@ -33,6 +33,15 @@ namespace Durin::Editor
 
 	struct FRenderedAssetThumbnailCache::FImpl
 	{
+		struct FParkedJob
+		{
+			FRenderedAssetThumbnailJob Job;
+			FRenderedAssetThumbnailSessionUpdate LastUpdate;
+			uint64 FirstWaitFrame = 0;
+			uint64 NextPollFrame = 0;
+			bool bReady = false;
+		};
+
 		struct FEntry
 		{
 			FAssetThumbnailPackageFingerprint Fingerprint;
@@ -58,6 +67,7 @@ namespace Durin::Editor
 		std::shared_ptr<FRenderedThumbnailAsyncState> AsyncState =
 			std::make_shared<FRenderedThumbnailAsyncState>();
 		std::optional<FRenderedAssetThumbnailJob> ActiveJob;
+		std::vector<FParkedJob> ParkedJobs;
 		uint64 FrameNumber = 0;
 		uint64 PreviewSceneCreations = 0;
 		uint64 PreviewSceneAssignments = 0;
@@ -65,6 +75,8 @@ namespace Durin::Editor
 		uint64 UploadsCompleted = 0;
 		uint64 UploadFailures = 0;
 		uint64 GpuEvictions = 0;
+		uint64 PeakParkedResourceWaits = 0;
+		uint64 ResourceWaitTimeouts = 0;
 
 		FImpl(
 			FRenderedAssetThumbnailService& InService,
@@ -97,19 +109,30 @@ namespace Durin::Editor
 			return ScenePool->IsAvailable();
 		}
 
-		auto ResetActive() -> void
+		auto ReleaseJob(FRenderedAssetThumbnailJob& Job) -> void
 		{
-			if (!ActiveJob) return;
 			FAssetThumbnailGenerationRequest& Request =
-				ActiveJob->ScheduledJob.GenerationRequest;
+				Job.ScheduledJob.GenerationRequest;
 			if (IRenderedAssetThumbnailGenerationSession* Session =
 				Request.GetRenderedSession())
 			{
 				Session->ResetPreview();
 			}
-			if (ScenePool) ScenePool->Reset();
 			Request.ReleaseRenderedSession();
+		}
+
+		auto ResetActive() -> void
+		{
+			if (!ActiveJob) return;
+			ReleaseJob(*ActiveJob);
+			if (ScenePool) ScenePool->Reset();
 			ActiveJob.reset();
+		}
+
+		auto ResetParkedJobs() -> void
+		{
+			for (FParkedJob& Parked : ParkedJobs) ReleaseJob(Parked.Job);
+			ParkedJobs.clear();
 		}
 
 		auto UnregisterTexture(FEntry& Entry) -> void
@@ -349,7 +372,39 @@ namespace Durin::Editor
 			ResetActive();
 		}
 
-		auto PollActive() -> void
+		auto ParkActive(
+			const FRenderedAssetThumbnailSessionUpdate& Update) -> void
+		{
+			if (!ActiveJob) return;
+			if (Budgets.MaximumParkedRenderedJobs == 0
+				|| ParkedJobs.size() >= Budgets.MaximumParkedRenderedJobs)
+			{
+				Pipeline.BeginRender(
+					*ActiveJob, false, Update.AssetRevision, 0,
+					"The rendered-thumbnail parked-resource budget is exhausted.");
+				ResetActive();
+				return;
+			}
+			if (!Pipeline.BeginRender(
+					*ActiveJob, false, Update.AssetRevision, 0))
+			{
+				Pipeline.Cancel(*ActiveJob);
+				ResetActive();
+				return;
+			}
+			ParkedJobs.push_back({
+				.Job = std::move(*ActiveJob),
+				.LastUpdate = Update,
+				.FirstWaitFrame = FrameNumber,
+				.NextPollFrame = FrameNumber
+					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames)});
+			ActiveJob.reset();
+			PeakParkedResourceWaits = std::max<uint64>(
+				PeakParkedResourceWaits, ParkedJobs.size());
+		}
+
+		auto HandleActiveUpdate(
+			const FRenderedAssetThumbnailSessionUpdate& Update) -> void
 		{
 			if (!ActiveJob) return;
 			FRenderedAssetThumbnailJob& Job = *ActiveJob;
@@ -362,7 +417,6 @@ namespace Durin::Editor
 				ResetActive();
 				return;
 			}
-			FRenderedAssetThumbnailSessionUpdate Update = Session->PollResources();
 			if (Update.State == ERenderedAssetThumbnailSessionState::Failed)
 			{
 				Pipeline.BeginRender(
@@ -376,13 +430,17 @@ namespace Durin::Editor
 			}
 			const bool bReady =
 				Update.State == ERenderedAssetThumbnailSessionState::ReadyToRender;
+			if (!bReady)
+			{
+				ParkActive(Update);
+				return;
+			}
 			if (!Pipeline.BeginRender(
 					Job,
-					bReady,
+					true,
 					Update.AssetRevision,
 					Update.ResourceRevision))
 				return;
-			if (!bReady) return;
 			std::string Error;
 			if (!EnsureScene(Request.KeyInput.Output))
 			{
@@ -411,6 +469,106 @@ namespace Durin::Editor
 			Pipeline.CompleteRender(
 				Job, Job.AssetRevision, Job.ResourceRevision, Error);
 			ResetActive();
+		}
+
+		auto PollActive() -> void
+		{
+			if (!ActiveJob) return;
+			IRenderedAssetThumbnailGenerationSession* Session =
+				ActiveJob->ScheduledJob.GenerationRequest.GetRenderedSession();
+			if (Session == nullptr)
+			{
+				ResetActive();
+				return;
+			}
+			HandleActiveUpdate(Session->PollResources());
+		}
+
+		auto PollParkedJobs() -> void
+		{
+			const uint64 PollInterval =
+				std::max<uint32>(1, Budgets.ResourcePollIntervalFrames);
+			for (size_t Index = 0; Index < ParkedJobs.size();)
+			{
+				FParkedJob& Parked = ParkedJobs[Index];
+				FAssetThumbnailGenerationRequest& Request =
+					Parked.Job.ScheduledJob.GenerationRequest;
+				IRenderedAssetThumbnailGenerationSession* Session =
+					Request.GetRenderedSession();
+				const bool bTimedOut = !Parked.bReady
+					&& Budgets.MaximumResourceWaitFrames != 0
+					&& FrameNumber - Parked.FirstWaitFrame
+						>= Budgets.MaximumResourceWaitFrames;
+				bool bRelease = Session == nullptr || !IsCurrent(Request);
+				if (!bRelease && bTimedOut)
+				{
+					Pipeline.BeginRender(
+						Parked.Job, false, Parked.Job.AssetRevision, 0,
+						"Timed out waiting for rendered-thumbnail resources.");
+					++ResourceWaitTimeouts;
+					bRelease = true;
+				}
+				if (!bRelease && !Parked.bReady
+					&& FrameNumber >= Parked.NextPollFrame)
+				{
+					Parked.LastUpdate = Session->PollResources();
+					Parked.NextPollFrame = FrameNumber + PollInterval;
+					if (Parked.LastUpdate.State
+						== ERenderedAssetThumbnailSessionState::Failed)
+					{
+						Pipeline.BeginRender(
+							Parked.Job, false,
+							Parked.LastUpdate.AssetRevision,
+							Parked.LastUpdate.ResourceRevision,
+							Parked.LastUpdate.Diagnostic);
+						bRelease = true;
+					}
+					else if (Parked.LastUpdate.State
+						== ERenderedAssetThumbnailSessionState::ReadyToRender)
+					{
+						Parked.bReady = true;
+					}
+					else if (!Pipeline.BeginRender(
+							Parked.Job, false,
+							Parked.LastUpdate.AssetRevision, 0))
+					{
+						Pipeline.Cancel(Parked.Job);
+						bRelease = true;
+					}
+				}
+				if (bRelease)
+				{
+					ReleaseJob(Parked.Job);
+					ParkedJobs.erase(ParkedJobs.begin()
+						+ static_cast<ptrdiff_t>(Index));
+					continue;
+				}
+				++Index;
+			}
+		}
+
+		auto ActivateReadyParkedJob() -> void
+		{
+			if (ActiveJob || ParkedJobs.empty()) return;
+			auto IsVisible = [this](const FParkedJob& Parked) {
+				const auto It = Entries.find(
+					Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.VirtualPath);
+				return It != Entries.end() && It->second.bVisible;
+			};
+			auto Selected = std::ranges::find_if(
+				ParkedJobs,
+				[&](const FParkedJob& Parked) {
+					return Parked.bReady && IsVisible(Parked);
+				});
+			if (Selected == ParkedJobs.end())
+				Selected = std::ranges::find_if(
+					ParkedJobs,
+					[](const FParkedJob& Parked) { return Parked.bReady; });
+			if (Selected == ParkedJobs.end()) return;
+			FRenderedAssetThumbnailSessionUpdate Update = Selected->LastUpdate;
+			ActiveJob = std::move(Selected->Job);
+			ParkedJobs.erase(Selected);
+			HandleActiveUpdate(Update);
 		}
 
 		auto StartNext(bool bGeneratedPixelsOnly = false) -> void
@@ -619,7 +777,10 @@ namespace Durin::Editor
 	{
 		if (Impl->ActiveJob)
 			Impl->PollActive();
-		else
+		Impl->PollParkedJobs();
+		if (!Impl->ActiveJob)
+			Impl->ActivateReadyParkedJob();
+		if (!Impl->ActiveJob)
 			Impl->StartNext();
 		if (Impl->ActiveJob)
 			Impl->StartNext(true);
@@ -629,7 +790,10 @@ namespace Durin::Editor
 	auto FRenderedAssetThumbnailCache::CancelPendingRequests() -> void
 	{
 		if (Impl->ActiveJob) Impl->Pipeline.Cancel(*Impl->ActiveJob);
+		for (const FImpl::FParkedJob& Parked : Impl->ParkedJobs)
+			Impl->Pipeline.Cancel(Parked.Job);
 		Impl->ResetActive();
+		Impl->ResetParkedJobs();
 		Impl->Scheduler.CancelAll();
 		for (auto& [Path, Entry] : Impl->Entries)
 		{
@@ -663,6 +827,9 @@ namespace Durin::Editor
 			.UploadFailures = Impl->UploadFailures,
 			.GpuEvictions = Impl->GpuEvictions,
 			.LiveGpuTextures = LiveGpuTextures,
+			.ParkedResourceWaits = Impl->ParkedJobs.size(),
+			.PeakParkedResourceWaits = Impl->PeakParkedResourceWaits,
+			.ResourceWaitTimeouts = Impl->ResourceWaitTimeouts,
 			.bHasActiveJob = Impl->ActiveJob.has_value(),
 			.bHasPreviewScene = Impl->ScenePool != nullptr};
 	}

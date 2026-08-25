@@ -116,6 +116,9 @@ namespace Durin
 		uint32 MaximumUploadsPerFrame = 2;
 		uint32 MaximumRendersPerFrame = 1;
 		uint32 MaximumLivePreviewScenes = 1;
+		uint32 MaximumParkedRenderedJobs = 64;
+		uint32 ResourcePollIntervalFrames = 4;
+		uint32 MaximumResourceWaitFrames = 600;
 		uint64 CpuPixelBudgetBytes = 64ull * 1024ull * 1024ull;
 		uint64 GpuTextureBudgetBytes = 64ull * 1024ull * 1024ull;
 		uint64 MaximumEncodedObjectBytes = 16ull * 1024ull * 1024ull;

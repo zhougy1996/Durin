@@ -17,6 +17,9 @@ namespace Durin::Editor
 		uint64 UploadFailures = 0;
 		uint64 GpuEvictions = 0;
 		uint64 LiveGpuTextures = 0;
+		uint64 ParkedResourceWaits = 0;
+		uint64 PeakParkedResourceWaits = 0;
+		uint64 ResourceWaitTimeouts = 0;
 		bool bHasActiveJob = false;
 		bool bHasPreviewScene = false;
 	};
