@@ -10,7 +10,9 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin::Editor::Level
+#include "ContentBrowser/ContentBrowserTool.h"
+
+namespace Durin::Editor::ContentBrowser::Private
 {
 	TEST(FContentBrowserItemViewTests, MapsProviderStatesWithoutOwningTextures)
 	{
@@ -185,13 +187,13 @@ namespace Durin::Editor::Level
 
 		const ContentBrowserItemView::FGridMetrics Minimum =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				FLevelEditorSessionSettings::MinimumContentBrowserIconSize);
+				::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize);
 		const ContentBrowserItemView::FGridMetrics Default =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				FLevelEditorSessionSettings::DefaultContentBrowserIconSize);
+				::Durin::Editor::ContentBrowser::FPresentationSettings::DefaultIconSize);
 		const ContentBrowserItemView::FGridMetrics Maximum =
 			ContentBrowserItemView::FGridMetrics::FromPreviewExtent(
-				FLevelEditorSessionSettings::MaximumContentBrowserIconSize);
+				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
 
 		EXPECT_LT(Minimum.CellWidth, Default.CellWidth);
 		EXPECT_LT(Default.CellWidth, Maximum.CellWidth);
@@ -199,14 +201,14 @@ namespace Durin::Editor::Level
 		EXPECT_LT(Default.TileHeight, Maximum.TileHeight);
 		EXPECT_FLOAT_EQ(
 			Minimum.PreviewExtent,
-			FLevelEditorSessionSettings::MinimumContentBrowserIconSize);
+			::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize);
 		EXPECT_FLOAT_EQ(
 			Default.PreviewExtent,
-			FLevelEditorSessionSettings::DefaultContentBrowserIconSize);
+			::Durin::Editor::ContentBrowser::FPresentationSettings::DefaultIconSize);
 		EXPECT_FLOAT_EQ(
 			Maximum.PreviewExtent,
-			FLevelEditorSessionSettings::MaximumContentBrowserIconSize);
+			::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
 
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::ContentBrowser::Private

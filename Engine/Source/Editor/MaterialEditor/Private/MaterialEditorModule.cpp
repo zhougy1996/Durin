@@ -1,5 +1,6 @@
 #include "MaterialEditorModule.h"
 
+#include "AssetAuthoring.h"
 #include "Editor/WorkspaceManager.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
@@ -11,6 +12,46 @@
 namespace Durin
 {
 	using namespace Editor::Material;
+	namespace
+	{
+		template<typename TMaterial>
+		auto CreateMaterialAsset(std::string_view VirtualDirectory,
+			std::string_view BaseName, std::string& OutPath,
+			std::string& OutClassName, std::string& OutError) -> bool
+		{
+			std::string Directory(VirtualDirectory);
+			if (!Directory.ends_with('/')) Directory += '/';
+			FAssetPath Path;
+			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+			{
+				const std::string Name = Suffix == 0
+					? std::string(BaseName)
+					: std::format("{}{}", BaseName, Suffix + 1);
+				if (!FAssetPath::TryCreate(Directory + Name, Path)
+					|| Asset::FindAssetExact(Path)
+					|| Asset::FindResidentPackage(Path)) continue;
+				TMaterial* Material = nullptr;
+				Asset::FAssetResult Result = Asset::CreateAsset(Path, Material);
+				if (!Result || !Material)
+				{
+					OutError = Result ? "Could not create the material asset." : Result.Message;
+					return false;
+				}
+				Result = Asset::SavePackage(Material->GetPackage());
+				if (!Result)
+				{
+					Asset::UnloadPackage(Path);
+					OutError = Result.Message;
+					return false;
+				}
+				OutPath = Path.ToString();
+				OutClassName = Material->GetClass()->GetQualifiedName().ToString();
+				return true;
+			}
+			OutError = "Could not find a unique material asset name in this folder.";
+			return false;
+		}
+	}
 
 	IMPLEMENT_MODULE(FMaterialEditorModule, MaterialEditor)
 
@@ -98,11 +139,68 @@ namespace Durin
 		MaterialInstanceThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(InstanceHandle));
+		const auto RegisterCreate = [this](std::string Id, std::string Label,
+			std::string BaseName, bool bInstance) {
+			std::string Error;
+			auto Handle = ::Durin::Editor::ContentBrowser::RegisterExtension({
+				.Id = std::move(Id),
+				.Label = std::move(Label),
+				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Create,
+				.Order = bInstance ? 210 : 200,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [BaseName = std::move(BaseName), bInstance](const auto& Invocation) {
+					std::string Path;
+					std::string ClassName;
+					std::string Error;
+					const bool bCreated = bInstance
+						? CreateMaterialAsset<DMaterialInstance>(
+							Invocation.Context.VirtualDirectory, BaseName,
+							Path, ClassName, Error)
+						: CreateMaterialAsset<DMaterial>(
+							Invocation.Context.VirtualDirectory, BaseName,
+							Path, ClassName, Error);
+					if (!bCreated)
+					{
+						if (Invocation.ReportError)
+							Invocation.ReportError(std::move(Error));
+						return;
+					}
+					if (Invocation.NotifyMountedContentChanged)
+						Invocation.NotifyMountedContentChanged();
+					if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
+					if (Invocation.OpenAsset && !Invocation.OpenAsset(Path, ClassName)
+						&& Invocation.ReportError)
+						Invocation.ReportError(
+							"The material was created, but its editor could not be opened.");
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register Content Browser material creation: {}", Error);
+				return false;
+			}
+			ContentBrowserExtensions.push_back(std::move(Handle));
+			return true;
+		};
+		if (!RegisterCreate("material.create-material", "Material", "NewMaterial", false)
+			|| !RegisterCreate("material.create-instance", "Material Instance",
+				"NewMaterialInstance", true))
+		{
+			ContentBrowserExtensions.clear();
+			MaterialInstanceThumbnailRegistration.reset();
+			MaterialThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
 		return true;
 	}
 
 	auto FMaterialEditorModule::UnregisterMaterialEditor() -> void
 	{
+		ContentBrowserExtensions.clear();
 		MaterialInstanceThumbnailRegistration.reset();
 		MaterialThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();

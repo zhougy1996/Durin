@@ -11,6 +11,8 @@
         "Renderer",
         "Engine",
         "AssetCore",
+		"AssetForge",
+		"ContentBrowser",
         "Mona",
         "MonaImGui",
         "DurinEd"

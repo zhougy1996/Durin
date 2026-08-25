@@ -1,9 +1,11 @@
 #pragma once
 
 #include "AssetForge/Operations/ImportOperation.h"
+#include "DObject/AssetPath.h"
 #include "Editor/Transaction.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
+#include "ContentBrowserAPI.h"
 
 namespace Durin::Editor::ContentBrowser
 {
@@ -35,12 +37,18 @@ namespace Durin::Editor::ContentBrowser
 	struct FExtensionInvocation
 	{
 		FExtensionContext Context;
+		std::function<bool(std::string_view)> RevealAsset;
+		std::function<bool(std::string_view)> RevealDirectory;
+		std::function<bool(std::string_view, std::string_view)> OpenAsset;
+		std::function<void()> NotifyMountedContentChanged;
+		std::function<void(std::string)> ReportError;
 	};
 
 	// Defines one deterministically ordered, unload-gated browser contribution.
 	struct FExtensionDescriptor
 	{
 		std::string Id;
+		std::string Label;
 		EExtensionCategory Category = EExtensionCategory::ContextMenu;
 		int32 Order = 0;
 		std::function<bool(const FExtensionContext&)> IsApplicable;
@@ -86,8 +94,8 @@ namespace Durin::Editor::ContentBrowser
 
 	struct FAssetMove
 	{
-		std::string OldPath;
-		std::string NewPath;
+		FAssetPath OldPath;
+		FAssetPath NewPath;
 	};
 
 	struct FActionResult
@@ -122,4 +130,13 @@ namespace Durin::Editor::ContentBrowser
 		virtual auto StopRequestAdmission() -> void = 0;
 		virtual auto GetAdmissionState() const -> EAdmissionState = 0;
 	};
+
+	CONTENTBROWSER_API auto RegisterExtension(
+		FExtensionDescriptor Descriptor, std::string& OutError)
+		-> FScopedExtensionRegistration;
+	CONTENTBROWSER_API auto CaptureExtensions(EExtensionCategory Category)
+		-> std::vector<FExtensionDescriptor>;
+	CONTENTBROWSER_API auto InvokeExtension(
+		const FExtensionDescriptor& Descriptor,
+		const FExtensionInvocation& Invocation) -> bool;
 } // namespace Durin::Editor::ContentBrowser

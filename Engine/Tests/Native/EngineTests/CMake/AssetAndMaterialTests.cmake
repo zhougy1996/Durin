@@ -63,27 +63,46 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned asset workflow white-box coverage keeps transaction and browser implementation seams private."
+		"LevelEditor-owned asset workflow white-box coverage keeps import-dialog implementation seams private."
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp
-		Private/Editor/ContentBrowserItemViewTests.cpp
-		Private/Editor/ContentBrowserModelTests.cpp
-		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Assets/AssetRelocationTransaction.cpp
 		${_durin_level_editor_private}/Assets/AssetDestinationValidation.cpp
 		${_durin_level_editor_private}/Assets/ImportDialogState.cpp
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
-		${_durin_level_editor_private}/Panels/ContentBrowserItemView.cpp
-		${_durin_level_editor_private}/Panels/ContentBrowserModel.cpp
-		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
-		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
-		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(ContentBrowserWorkflowTests
+	KIND feature
+	DOMAINS asset-workflow
+	MODULES content-browser
+	STACKS editor
+	PRIVATE_SOURCE_OWNER ContentBrowser
+	PRIVATE_SOURCE_RATIONALE
+		"ContentBrowser-owned workflow white-box coverage avoids exporting model and operation implementations."
+	RUNTIME_STACK_RATIONALE
+		"Exercises ContentBrowser asset workflows across AssetCore, DurinEd, and Mona UI models."
+	SOURCES
+		Private/Editor/ContentBrowserExtensionRegistryTests.cpp
+		Private/Editor/ContentBrowserItemViewTests.cpp
+		Private/Editor/ContentBrowserModelTests.cpp
+		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
+	PRIVATE_SOURCES
+		${_durin_content_browser_private}/ContentBrowserExtensionRegistry.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserItemView.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
+		${_durin_content_browser_private}/Panels/ContentDeletionTransaction.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

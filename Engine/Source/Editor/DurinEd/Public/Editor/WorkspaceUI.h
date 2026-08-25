@@ -10,7 +10,7 @@ namespace Durin::Editor
 }
 namespace Durin::Editor::WorkspaceUI
 {
-	inline constexpr uint32 HostLayoutVersion = 2;
+	inline constexpr uint32 HostLayoutVersion = 3;
 
 	DURINED_API auto MakeHostDockSpaceName(uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakeRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string;

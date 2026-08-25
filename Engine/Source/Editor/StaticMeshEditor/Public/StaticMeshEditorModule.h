@@ -2,6 +2,7 @@
 
 #include "Modules/ModuleManager.h"
 #include "StaticMeshEditorAPI.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 
 namespace Durin::Editor
 {
@@ -22,12 +23,15 @@ namespace Durin
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			std::function<void(std::string)> OpenImportDialog = {}) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
+		Editor::ContentBrowser::FScopedExtensionRegistration
+			ContentBrowserImportExtension;
 	};
 }

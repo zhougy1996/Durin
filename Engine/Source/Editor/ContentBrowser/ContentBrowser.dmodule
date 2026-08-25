@@ -1,0 +1,19 @@
+{
+    "ModuleName": "ContentBrowser",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_MonaEditor",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "RenderCore",
+        "Engine",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona",
+        "MonaImGui",
+        "AssetCore",
+        "AssetForge",
+        "AssetForgeBuiltins",
+        "DurinEd"
+    ]
+}

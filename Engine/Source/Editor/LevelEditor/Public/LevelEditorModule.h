@@ -4,6 +4,8 @@
 #include "Modules/ModuleManager.h"
 #include "LevelEditorCustomizations.h"
 #include "LevelEditorViewportEditing.h"
+#include "LevelEditorContentBrowserCallbacks.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 
 namespace Durin
 {
@@ -36,10 +38,15 @@ namespace Durin
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			std::function<void(AssetForge::FImportOperationHandle, std::string)>
+				NotifyImportStarted,
+			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
-		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
+		LEVELEDITOR_API auto OpenImportDialog(
+			std::string Directory,
+			Editor::Level::EImportDialogType Type) -> void;
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		FAsyncOperationGroup ThumbnailOperations;
@@ -54,5 +61,7 @@ namespace Durin
 		uint64 GrayboxBuildStartupCommandHandle = 0;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>
 			TerrainThumbnailRegistration;
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+			ContentBrowserExtensions;
 	};
 }

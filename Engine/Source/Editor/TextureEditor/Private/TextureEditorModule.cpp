@@ -41,7 +41,8 @@ namespace Durin
 
 	auto FTextureEditorModule::RegisterTextureEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		std::function<void(std::string)> OpenImportDialog) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
@@ -119,11 +120,35 @@ namespace Durin
 		TextureCubeThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(TextureCubeHandle));
+		ContentBrowserImportExtension =
+			::Durin::Editor::ContentBrowser::RegisterExtension({
+				.Id = "texture.import", .Label = "Texture...",
+				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Import,
+				.Order = 100,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [OpenImportDialog = std::move(OpenImportDialog)](
+					const auto& Invocation) {
+					if (OpenImportDialog)
+						OpenImportDialog(Invocation.Context.VirtualDirectory);
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+		if (!ContentBrowserImportExtension.IsValid())
+		{
+			DURIN_ERROR("Could not register Content Browser texture import: {}", Error);
+			TextureCubeThumbnailRegistration.reset();
+			Texture2DThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
 		return true;
 	}
 
 	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
+		ContentBrowserImportExtension.Reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();

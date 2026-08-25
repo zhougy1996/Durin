@@ -31,10 +31,11 @@ monitor-derived defaults and creates it when host display state is first
 persisted. The reflected `DEditorEngine` remains in `Durin` and does not depend
 on `MainFrame` headers.
 
-`Editor::Level::FLevelEditorSessionSettings` persists only
-Level workspace state such as viewport cameras, gizmo preferences, Content
-Browser state, and Details layout. The two settings files have no compatibility
-or migration coupling.
+`Editor::Level::FLevelEditorSessionSettings` persists only Level workspace state
+such as viewport cameras, gizmo preferences, and Details layout.
+`ContentBrowserSettings.yaml` independently persists browser presentation.
+When the new file is absent it starts from defaults and does not read retired
+Level Editor browser keys.
 
 ## Startup Bootstrap
 
@@ -95,44 +96,30 @@ cannot add or replace top-level menus. Activating a document changes only the
 target of Save, Undo, and Redo. Workspace-local actions belong in that editor's
 toolbar or panels rather than replacing the application menu bar.
 
-## Level Editor Presentation
+## Editor Host Presentation
 
-The Level Editor's version-6 default internal layout is viewport-first. Scene
-Viewport occupies the left side, while one right column places World Outliner
-above Details. Content Browser, Console, and Activity History have no default
-dock assignment and start closed. Reset Layout reconstructs that default,
-reopens its three persistent surfaces, closes the transient tools, and clears
-bottom-drawer state.
+The Level Editor internal layout is viewport-first: Scene Viewport occupies the
+left side, while World Outliner and Details form the right column. It contains
+no Content Browser, Console, Activity History, status bar, or bottom drawer.
+Reset Active Editor Layout affects only that workspace's internal panels.
 
-LevelEditor owns the selected bottom-drawer tool and presents Content Browser
-or Console through the reusable MonaImGui drawer. Drawer selection and open
-state are session-transient and do not extend `LevelEditorSession.yaml` or
-`imgui.ini`. Each hosted panel separates its ordinary window wrapper from one
-state-preserving content body, and that body is submitted at most once per
-frame. The drawer dismisses after losing focus, except while text input, a
-popup, an active item, or an in-bounds drag-and-drop operation owns the
-interaction. An active drag that leaves the drawer bounds dismisses the overlay
-without discarding its payload, exposing workspace drop targets. Its Dock in
-Layout action opens the selected tool as an ordinary dockable panel while
-preserving its content state and the transient drawer entry point. Selecting
-the matching status-bar action while that single-instance panel is open focuses
-the panel without changing the layout. After the user closes the docked panel,
-the same action opens its preserved state in the drawer again. Content Browser
-reveal requests select its drawer unless a separate Content Browser window is
-already visible.
+MainFrame owns the singleton Content Browser and Console surfaces, Activity
+History, notification toasts, the global status bar, and the selected bottom
+Drawer tool. The drawer is anchored below the host dock space, retains the
+existing focus-loss and drag-leave dismissal behavior, and submits each tool
+body at most once per frame. Dock in Layout opens the selected tool as an
+ordinary host-dockable window. Selecting a docked tool focuses it; selecting
+the active drawer tool closes the drawer.
 
-The Level Editor status bar exposes Content Drawer and Console on the left,
-with workspace status (`Ready` when idle), notification actions, and Activity
-History aligned on the right. `Ctrl+Space` toggles Content Drawer. Console
-continues bounded log polling while hidden and reports a bounded unread
-warning/error count without opening or taking focus. Activity History opens as
-a non-docked floating ImGui window; notification updates, status presentation,
-and toasts do not depend on that window being visible. Window > Panels opens
-Content Browser or Console as an ordinary workspace-class window and remains
-the recovery path for every surface.
+`Ctrl+Space`, the status-bar actions, Content Browser reveal requests, and the
+application Window menu all route through MainFrame host state regardless of
+the active workspace. Content Browser mutations are disabled during Play while
+Console and Activity History remain usable. Console polling, unread counts,
+transaction feedback, notification aggregation, and toasts update once per host
+frame even when the Level workspace root is hidden. Reset Editor Host Layout
+restores global tool defaults without resetting any asset-editor layout.
 
 ## Workspace Registration
-
 `DurinEd` owns the reusable editor workspace and document framework under
 `Durin::Editor`. `WorkspaceTypes.h` defines IDs, document metadata, descriptors,
 and asset routes; `Workspace.h` defines the implementation-facing `IWorkspace`
@@ -222,7 +209,7 @@ Compatibility Audit` window and its presentation actions, while `DurinEd` owns
 the request-scoped worker, cancellation, request-serial mailbox, and path-keyed
 result index. Opening or drawing the window does not start work; only `Run
 Audit` captures the registry and reflection snapshots. The window can reveal a
-selected package in the Level Editor Content Browser, but neither `MainFrame`
+selected package through the host-owned Content Browser, but neither `MainFrame`
 nor a concrete asset workspace owns compatibility classification or a write
 action.
 

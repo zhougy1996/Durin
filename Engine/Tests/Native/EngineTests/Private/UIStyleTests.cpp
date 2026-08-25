@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include "Panels/ConsolePanelLayout.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
@@ -21,59 +20,12 @@ namespace Durin::Editor::Level
 		EXPECT_EQ(ResolveEditorUILayout(780.0f, 520.0f, 780.0f), EEditorUILayoutMode::Full);
 	}
 
-	TEST(FEditorUILayoutTests, AppliesViewportFirstPanelAndUnreadPolicies)
+	TEST(FEditorUILayoutTests, AppliesViewportFirstPanelPolicy)
 	{
 		EXPECT_TRUE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::Persistent));
 		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
 			ELevelEditorPanelRole::Optional));
-		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
-			ELevelEditorPanelRole::DrawerTool));
-		EXPECT_FALSE(IsLevelEditorPanelOpenByDefault(
-			ELevelEditorPanelRole::ActivityHistory));
-		EXPECT_EQ(ResolveDrawerToggleDisposition(false, false, false),
-			EDrawerToggleDisposition::OpenDrawer);
-		EXPECT_EQ(ResolveDrawerToggleDisposition(false, true, true),
-			EDrawerToggleDisposition::CloseDrawer);
-		EXPECT_EQ(ResolveDrawerToggleDisposition(false, true, false),
-			EDrawerToggleDisposition::OpenDrawer);
-		EXPECT_EQ(ResolveDrawerToggleDisposition(true, false, false),
-			EDrawerToggleDisposition::FocusPanel);
-		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Info), 4u);
-		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Warn), 5u);
-		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(998, ELogLevel::Error), 999u);
-		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(999, ELogLevel::Fatal), 999u);
-	}
-
-	TEST(FEditorUILayoutTests, CharacterizesLegacySharedToolVisibilityGap)
-	{
-		EXPECT_EQ(ResolveLegacySharedToolUpdateDisposition(true),
-			ELegacySharedToolUpdateDisposition::Updated);
-		EXPECT_EQ(ResolveLegacySharedToolUpdateDisposition(false),
-			ELegacySharedToolUpdateDisposition::Skipped);
-	}
-
-	TEST(FEditorUILayoutTests, SubmitsEachSingleInstanceToolAtMostOncePerFrame)
-	{
-		FEditorToolFrameSubmissionState State;
-		EXPECT_TRUE(State.TrySubmit(0, 41));
-		EXPECT_FALSE(State.TrySubmit(0, 41));
-		EXPECT_TRUE(State.TrySubmit(1, 41));
-		EXPECT_TRUE(State.TrySubmit(0, 42));
-		EXPECT_FALSE(State.TrySubmit(2, 42));
-	}
-
-	TEST(FEditorUILayoutTests, ClipsVariableHeightConsoleRecordsWithOverscan)
-	{
-		const std::array<float, 5> Offsets{0.0f, 20.0f, 60.0f, 80.0f, 140.0f};
-		const FConsoleVisibleRange Middle = ResolveConsoleVisibleRange(Offsets, 55.0f, 30.0f);
-		EXPECT_EQ(Middle.Begin, 0u);
-		EXPECT_EQ(Middle.End, 4u);
-
-		const FConsoleVisibleRange Bottom = ResolveConsoleVisibleRange(Offsets, 120.0f, 30.0f);
-		EXPECT_EQ(Bottom.Begin, 2u);
-		EXPECT_EQ(Bottom.End, 4u);
-		EXPECT_EQ(ResolveConsoleVisibleRange({}, 0.0f, 100.0f).End, 0u);
 	}
 
 	TEST(FMonaImGuiStyleTests, ClampsScaleAndReturnsScaledMetrics)

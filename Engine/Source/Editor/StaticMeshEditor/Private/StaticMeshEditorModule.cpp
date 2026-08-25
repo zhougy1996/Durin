@@ -29,7 +29,8 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		std::function<void(std::string)> OpenImportDialog) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
@@ -75,11 +76,35 @@ namespace Durin
 		ThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
+		ContentBrowserImportExtension =
+			::Durin::Editor::ContentBrowser::RegisterExtension({
+				.Id = "static-mesh.import",
+				.Label = "Static Mesh (Geometry Only)...",
+				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Import,
+				.Order = 300,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [OpenImportDialog = std::move(OpenImportDialog)](
+					const auto& Invocation) {
+					if (OpenImportDialog)
+						OpenImportDialog(Invocation.Context.VirtualDirectory);
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+		if (!ContentBrowserImportExtension.IsValid())
+		{
+			DURIN_ERROR("Could not register Content Browser StaticMesh import: {}", Error);
+			ThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
 		return true;
 	}
 
 	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
 	{
+		ContentBrowserImportExtension.Reset();
 		ThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 	}

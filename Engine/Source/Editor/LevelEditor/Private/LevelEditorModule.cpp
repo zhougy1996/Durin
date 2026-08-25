@@ -32,6 +32,42 @@
 namespace Durin
 {
 	using namespace Editor::Level;
+	namespace
+	{
+		auto CreateLevelAsset(std::string_view VirtualDirectory,
+			std::string& OutPath, std::string& OutError) -> bool
+		{
+			std::string Directory(VirtualDirectory);
+			if (!Directory.ends_with('/')) Directory += '/';
+			FAssetPath Path;
+			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+			{
+				const std::string Name = Suffix == 0
+					? "NewLevel" : std::format("NewLevel{}", Suffix + 1);
+				if (!FAssetPath::TryCreate(Directory + Name, Path)
+					|| Asset::FindAssetExact(Path)
+					|| Asset::FindResidentPackage(Path)) continue;
+				DLevel* Level = nullptr;
+				Asset::FAssetResult Result = Asset::CreateAsset(Path, Level);
+				if (!Result || !Level)
+				{
+					OutError = Result ? "Could not create the level asset." : Result.Message;
+					return false;
+				}
+				Result = Asset::SavePackage(Level->GetPackage());
+				if (!Result)
+				{
+					Asset::UnloadPackage(Path);
+					OutError = Result.Message;
+					return false;
+				}
+				OutPath = Path.ToString();
+				return true;
+			}
+			OutError = "Could not find a unique level asset name in this folder.";
+			return false;
+		}
+	}
 
 	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
 
@@ -100,7 +136,10 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		std::function<void(AssetForge::FImportOperationHandle, std::string)>
+			NotifyImportStarted,
+		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
@@ -115,7 +154,8 @@ namespace Durin
 		// so feature-owned providers must already be visible to the shared service.
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
 			*SessionSettings, WorkspaceManager, EditorExtensionCallbacks.GetGate(),
-			ThumbnailOperations.GetTaskScope());
+			ThumbnailOperations.GetTaskScope(), std::move(NotifyImportStarted),
+			std::move(ContentBrowserCallbacks));
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
@@ -151,11 +191,85 @@ namespace Durin
 			::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
 		LevelEditorWorkspace = Workspace;
+		{
+			std::string Error;
+			auto Handle = Editor::ContentBrowser::RegisterExtension({
+				.Id = "level.create-level",
+				.Label = "Level",
+				.Category = Editor::ContentBrowser::EExtensionCategory::Create,
+				.Order = 100,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [](const auto& Invocation) {
+					std::string Path;
+					std::string Error;
+					if (!CreateLevelAsset(
+						Invocation.Context.VirtualDirectory, Path, Error))
+					{
+						if (Invocation.ReportError)
+							Invocation.ReportError(std::move(Error));
+						return;
+					}
+					if (Invocation.NotifyMountedContentChanged)
+						Invocation.NotifyMountedContentChanged();
+					if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register Content Browser Level creation: {}", Error);
+				LevelEditorWorkspace.reset();
+				TerrainThumbnailRegistration.reset();
+				WorkspaceRegistration.reset();
+				return false;
+			}
+			ContentBrowserExtensions.push_back(std::move(Handle));
+		}
+		const auto RegisterImport = [this, WeakWorkspace = LevelEditorWorkspace](
+			std::string Id, std::string Label,
+			Editor::Level::EImportDialogType Type) {
+			std::string Error;
+			auto Handle = Editor::ContentBrowser::RegisterExtension({
+				.Id = std::move(Id),
+				.Label = std::move(Label),
+				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [WeakWorkspace, Type](const auto& Invocation) {
+					if (const std::shared_ptr<MLevelEditor> Pinned = WeakWorkspace.lock())
+						Pinned->RequestContentBrowserImport(
+							Invocation.Context.VirtualDirectory, Type);
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register Content Browser import extension: {}", Error);
+				return false;
+			}
+			ContentBrowserExtensions.push_back(std::move(Handle));
+			return true;
+		};
+		if (!RegisterImport("level.terrain-heightmap-import", "Terrain Heightmap...",
+				Editor::Level::EImportDialogType::TerrainHeightmap)
+			|| !RegisterImport("level.scene-import", "Scene Source (FBX/glTF)...",
+				Editor::Level::EImportDialogType::Scene))
+		{
+			ContentBrowserExtensions.clear();
+			LevelEditorWorkspace.reset();
+			TerrainThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
 		return true;
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
 	{
+		ContentBrowserExtensions.clear();
 		TerrainThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 		LevelEditorWorkspace.reset();
@@ -167,9 +281,12 @@ namespace Durin
 		return Workspace && Workspace->OpenDefaultDocument();
 	}
 
-	auto FLevelEditorModule::RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool
+	LEVELEDITOR_API auto FLevelEditorModule::OpenImportDialog(
+		std::string Directory, Editor::Level::EImportDialogType Type) -> void
 	{
-		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
-		return Workspace && Workspace->RevealAssetInContentBrowser(AssetPath);
+		if (const std::shared_ptr<MLevelEditor> Workspace =
+			LevelEditorWorkspace.lock())
+			Workspace->RequestContentBrowserImport(Directory, Type);
 	}
+
 }

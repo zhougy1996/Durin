@@ -3,7 +3,7 @@
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
-using namespace Durin::Editor::Level;
+using namespace Durin::Editor::ContentBrowser::Private;
 
 namespace
 {

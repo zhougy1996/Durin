@@ -13,12 +13,7 @@ namespace Durin::Editor::Level
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
-	// Describes one asset relocation from its current resource path.
-	struct FEditorAssetMove
-	{
-		FAssetPath OldPath;
-		FAssetPath NewPath;
-	};
+	using FEditorAssetMove = Asset::FAssetRelocationMapping;
 
 	// Extends an AssetCore move with the editor-owned state keyed by asset path.
 	// Applies asset moves while keeping open documents and scene references coherent.

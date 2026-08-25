@@ -41,7 +41,8 @@ direction.
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
 | `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
-| `LevelEditor` | Level-editor workspace, scene viewport, Content Browser presentation, panels, documents, selection, and editor settings | [source](../../Engine/Source/Editor/LevelEditor) |
+| `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and source thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
+| `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, and Level settings | [source](../../Engine/Source/Editor/LevelEditor) |
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
@@ -78,7 +79,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
-| Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
+| Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore` | `LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` for scoped extensions |
 | importing assets | `AssetForge`, `AssetForgeBuiltins` | `DerivedDataCache` for generic mechanics; `TextureBuild`, `GeometryBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `GeometryBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
 
@@ -95,7 +96,7 @@ public surface.
 After selecting modules, prefer targeted symbol searches such as:
 
 ```powershell
-rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/AssetCore Engine/Source/Editor/LevelEditor
+rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/AssetCore Engine/Source/Editor/ContentBrowser
 ```
 
 Do not read every module descriptor or scan every source root merely to confirm

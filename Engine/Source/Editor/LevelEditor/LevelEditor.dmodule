@@ -17,6 +17,7 @@
         "GeometryBuild",
         "TerrainBuild",
         "TextureBuild",
+        "ContentBrowser",
         "DurinEd"
     ]
 }

@@ -54,13 +54,6 @@ namespace Durin::Editor::Level
 			? static_cast<float>(std::clamp(LoadedCameraMovementSpeed, 0.05, 10000.0))
 			: 5.0f;
 
-		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
-		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
-		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(DefaultContentBrowserIconSize), static_cast<double>(MinimumContentBrowserIconSize), static_cast<double>(MaximumContentBrowserIconSize)));
-		bContentBrowserIconSizeLocked = ContentBrowser.GetView("IconSizeLocked").GetBool(false);
-		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(DefaultContentBrowserTreeRatio), static_cast<double>(MinimumContentBrowserTreeRatio), static_cast<double>(MaximumContentBrowserTreeRatio)));
-		bContentBrowserShowHiddenFiles = ContentBrowser.GetView("ShowHiddenFiles").GetBool(false);
-		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
 		const FYamlNodeView Details = Root.GetView("Details");
 		DetailsPaneRatio = static_cast<float>(std::clamp(Details.GetView("ComponentPaneRatio").GetDouble(DefaultDetailsPaneRatio), static_cast<double>(MinimumDetailsPaneRatio), static_cast<double>(MaximumDetailsPaneRatio)));
 		bDetailsPaneAutoSized = Details.GetView("ComponentPaneAutoSized").GetBool(true);
@@ -130,13 +123,6 @@ namespace Durin::Editor::Level
 			? SceneViewportPanel->IsStatisticsVisible() : bShowViewportStatistics);
 		SceneViewportNode.SetChildValue("CameraMovementSpeed", static_cast<double>(SceneViewportPanel ? SceneViewportPanel->GetCameraMovementSpeed() : CameraMovementSpeed));
 
-		FYamlNodeRef ContentBrowserNode = Root.AddMap("ContentBrowser");
-		ContentBrowserNode.SetChildValue("ViewMode", static_cast<int64>(ContentBrowserViewMode));
-		ContentBrowserNode.SetChildValue("IconSize", static_cast<double>(ContentBrowserIconSize));
-		ContentBrowserNode.SetChildValue("IconSizeLocked", bContentBrowserIconSizeLocked);
-		ContentBrowserNode.SetChildValue("TreeWidth", static_cast<double>(ContentBrowserTreeWidth));
-		ContentBrowserNode.SetChildValue("ShowHiddenFiles", bContentBrowserShowHiddenFiles);
-		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
 		FYamlNodeRef DetailsNode = Root.AddMap("Details");
 		DetailsNode.SetChildValue("ComponentPaneRatio", static_cast<double>(DetailsPaneRatio));
 		DetailsNode.SetChildValue("ComponentPaneAutoSized", bDetailsPaneAutoSized);
@@ -203,16 +189,6 @@ namespace Durin::Editor::Level
 		FLevelViewportCameraState State = StateIt->second;
 		ProjectIt->second.erase(StateIt);
 		ProjectIt->second[std::string(NewPath)] = State;
-	}
-
-	auto FLevelEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowHiddenFiles, std::string LastDirectory) -> void
-	{
-		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
-		ContentBrowserIconSize = std::clamp(IconSize, MinimumContentBrowserIconSize, MaximumContentBrowserIconSize);
-		bContentBrowserIconSizeLocked = bIconSizeLocked;
-		ContentBrowserTreeWidth = std::clamp(TreeWidth, MinimumContentBrowserTreeRatio, MaximumContentBrowserTreeRatio);
-		bContentBrowserShowHiddenFiles = bShowHiddenFiles;
-		ContentBrowserLastDirectory = std::move(LastDirectory);
 	}
 
 	auto FLevelEditorSessionSettings::SetDetailsPaneRatio(float Ratio) -> void

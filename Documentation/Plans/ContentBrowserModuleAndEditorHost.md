@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. The public boundary, migration behavior, responsibility
+Stage 0 is complete. The public boundary, settings reset behavior, responsibility
 inventory, and source/test move map below are frozen. Existing native coverage
 already characterizes browser reveal/refresh, drawer focus and drag dismissal,
 Console record/unread behavior, notification history, and transaction feedback.
@@ -18,8 +18,12 @@ The remaining known gap is also characterized by the current call path:
 updates, transaction-event projection, status-bar drawing, and toasts whenever
 the Level workspace root is not visible.
 
-Stage 1 is next. It extracts the implementation behind the frozen boundary while
-retaining `MLevelEditor` as the temporary composition owner.
+Stages 1 and 3 are implemented together following the user's direction that a
+project-wide browser should never remain Level-owned as a transitional step.
+MainFrame now owns the singleton browser and shared host tools directly. Stage
+2 is partially complete: extensions, independent settings, relocation splitting,
+and direct reveal routing are implemented; remaining type-specific form and
+reimport-policy cleanup continues before qualification.
 
 ## Stage 0 Frozen Baseline
 
@@ -44,20 +48,13 @@ retaining `MLevelEditor` as the temporary composition owner.
   new reveal, refresh, import, and contribution work while allowing already
   admitted work to drain.
 
-### Persistent migration
+### Independent settings reset
 
-The legacy source is `LevelEditorSession.yaml`, map `ContentBrowser`, with exact
-keys `ViewMode`, `IconSize`, `IconSizeLocked`, `TreeWidth`, `ShowHiddenFiles`,
-and `LastDirectory`. The destination is `ContentBrowserSettings.yaml` with the
-same value keys plus `LegacyMigrationCompleted: true`.
-
-When the destination is absent, individually valid legacy values are imported,
-invalid values use Content Browser defaults, and the destination is written
-atomically. Once the destination exists or the completion marker has been
-written, Level Editor settings are never consulted again. Level Editor may
-continue reading old files during the compatibility window but stops writing
-the `ContentBrowser` map after migration lands. Viewport, gizmo, and Details
-settings remain untouched.
+Per user direction on 2026-08-26, the new owner does not read or migrate the
+legacy `LevelEditorSession.yaml` browser map. If
+`ContentBrowserSettings.yaml` is absent, Content Browser starts from its
+defaults and writes the new file. Level Editor stops reading and writing its
+old browser keys; viewport, gizmo, and Details settings remain untouched.
 
 ### Responsibility and move map
 
@@ -72,7 +69,7 @@ settings remain untouched.
 | Material/MaterialInstance create forms | `MaterialEditor` contributions |
 | Texture2D/TextureCube/VolumeTexture import forms | `TextureEditor` contributions |
 | StaticMesh import form | `StaticMeshEditor` contribution |
-| `LevelEditorSessionSettings` browser fields | `ContentBrowserSettings` with one-time legacy reader |
+| `LevelEditorSessionSettings` browser fields | `ContentBrowserSettings`; old values intentionally reset |
 | `ConsolePanel*`, `ConsoleRecordModel*` | `MainFrame/Private/Tools/Console` |
 | `EditorNotificationOverlay*`, Activity History, status bar, toasts, import aggregation | `MainFrame/Private/Tools/Activity` |
 | Level drawer selection/geometry and `Ctrl+Space` | `MainFrame` host tool state |
@@ -114,8 +111,8 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 - Define scoped Content Browser extension registrations for create, import,
   reimport, details, and context-menu contributions that are genuinely owned by
   an asset-family editor module.
-- Give Content Browser independent persistent presentation settings and migrate
-  the existing Level Editor settings once without resetting user choices.
+- Give Content Browser independent persistent presentation settings; initialize
+  defaults without consulting the retired Level Editor browser keys.
 - Make `MainFrame` own the singleton Content Browser instance, global bottom
   status bar, bottom drawer, Console presentation, Activity History window, and
   notification toasts.
@@ -222,10 +219,9 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 - A new Content Browser settings owner persists view mode, icon size and lock,
   tree width, hidden-content visibility, and last directory independently of
   `LevelEditorSession.yaml`.
-- On first load without the new settings file, valid legacy Content Browser
-  fields are imported from Level Editor session settings and saved. Subsequent
-  loads use only the new owner; Level-specific settings retain viewport,
-  gizmo, and Details state.
+- On first load without the new settings file, Content Browser defaults are
+  saved by the new owner. Level-specific settings retain viewport, gizmo, and
+  Details state and never read or write browser presentation state.
 - Browser navigation, selection, search, refresh coordination, and thumbnail
   cache survive workspace switches because the singleton instance survives.
 - Content Browser prepares and commits AssetCore mutation transactions through
@@ -297,7 +293,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   exposing Level Editor types.
 - [x] Specify deterministic extension ordering and the safe frame boundary for
   contribution changes.
-- [x] Record the exact legacy settings keys and one-time migration behavior.
+- [x] Record the user-approved reset behavior for retired browser settings.
 - [x] Produce the final source/test move map and verify the proposed `.dmodule`
   graph has no concrete-editor or `MainFrame` dependency below
   `ContentBrowser`.
@@ -310,25 +306,24 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 - Every current browser responsibility and caller has one selected destination;
   no source is assigned to both LevelEditor and ContentBrowser.
 
-### Stage 1: Extract the ContentBrowser module without changing ownership
+### Stage 1: Extract the ContentBrowser module with direct host ownership
 
-- [ ] Add `Engine/Source/Editor/ContentBrowser`, its API/export header,
+- [x] Add `Engine/Source/Editor/ContentBrowser`, its API/export header,
   `.dmodule`, CMake target, and `Engine.dproject` mapping.
-- [ ] Move browser models, item views, filesystem helpers, refresh coordinator,
+- [x] Move browser models, item views, filesystem helpers, refresh coordinator,
   thumbnail cache, operation adapters, and deletion transaction sources into
   the new module.
-- [ ] Replace `ILevelEditorPanel` inheritance and `FLevelEditorContext` draw
+- [x] Replace `ILevelEditorPanel` inheritance and `FLevelEditorContext` draw
   parameters with a browser-owned window wrapper plus a state-preserving content
   body.
-- [ ] Inject workspace opening, transaction execution, notifications,
+- [x] Inject workspace opening, transaction execution, notifications,
   thumbnail service/task scope, and mutation revision through explicit
   construction services.
-- [ ] Keep `MLevelEditor` as the temporary instance owner through a narrow
-  adapter so visible behavior and startup/shutdown ordering remain unchanged in
-  this stage.
-- [ ] Move white-box Content Browser tests and CMake private-source ownership to
+- [x] Per user direction, skip the temporary Level owner and construct the
+  singleton directly in MainFrame.
+- [x] Move white-box Content Browser tests and CMake private-source ownership to
   the new module; retain test names where their behavior is unchanged.
-- [ ] Remove all moved source lists and private include paths from LevelEditor
+- [x] Remove all moved source lists and private include paths from LevelEditor
   after the new target is authoritative.
 
 #### Acceptance Gate
@@ -344,22 +339,21 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 
 ### Stage 2: Remove Level-specific browser policy
 
-- [ ] Implement the scoped extension registry and immutable per-frame extension
+- [x] Implement the scoped extension registry and immutable per-frame extension
   snapshot.
 - [ ] Move Level/Scene/Terrain, Material, Texture, and StaticMesh creation/import
   dialogs to their selected owning modules and register their contributions
   during each module's existing integration lifecycle.
 - [ ] Replace concrete asset-class and import-type branches in Content Browser
   with extension applicability and invocation.
-- [ ] Add the independent Content Browser settings owner and one-time migration
-  from Level Editor session settings, including invalid-value fallback and
-  idempotent restart behavior.
-- [ ] Split relocation execution from Level-specific observation. Route open
+- [x] Add the independent Content Browser settings owner with default fallback
+  and idempotent restart behavior, without reading Level Editor session state.
+- [x] Split relocation execution from Level-specific observation. Route open
   document remapping through workspace-level observation and retain only
   viewport/session repair in LevelEditor.
-- [ ] Route import progress and completion through global notification and
+- [x] Route import progress and completion through global notification and
   mounted-content services rather than an `MLevelEditor` overlay pointer.
-- [ ] Make reveal requests target the browser facade directly; remove the
+- [x] Make reveal requests target the browser facade directly; remove the
   compatibility-audit detour through `FLevelEditorModule`.
 
 #### Acceptance Gate
@@ -371,32 +365,32 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 - Creation, import, reimport, open, rename, move, duplicate, delete, fix-up,
   reveal, and notification flows preserve their existing transaction and error
   behavior.
-- Legacy settings migrate once, survive restart, and do not alter Level
-  viewport/session settings.
+- New settings survive restart and do not alter Level viewport/session settings;
+  retired browser settings are intentionally ignored.
 - Moving an open asset remaps document identity; moving the active Level also
   preserves its viewport-session state through separate observers.
 
 ### Stage 3: Move shared tools into the editor host
 
-- [ ] Add a MainFrame-owned host tool state containing status-bar selection,
+- [x] Add a MainFrame-owned host tool state containing status-bar selection,
   drawer geometry/state, host tool-window visibility, and global shortcuts.
-- [ ] Construct and own the singleton Content Browser from MainFrame using the
+- [x] Construct and own the singleton Content Browser from MainFrame using the
   live WorkspaceManager, notification/transaction services, and shared
   thumbnail service.
-- [ ] Move Console presentation and record state out of LevelEditor; poll logs
+- [x] Move Console presentation and record state out of LevelEditor; poll logs
   and update unread counts once per host frame even when its window and drawer
   are closed.
-- [ ] Move Activity History, transaction-event publication, import-progress
+- [x] Move Activity History, transaction-event publication, import-progress
   aggregation, status notifications, and toasts to host lifetime.
-- [ ] Reserve status-bar height before submitting the host dock space, anchor
+- [x] Reserve status-bar height before submitting the host dock space, anchor
   the drawer to the remaining host content region, and add a host-level tool
   window path for "Dock in Layout".
-- [ ] Route `Ctrl+Space`, status-bar buttons, Window-menu recovery actions, host
+- [x] Route `Ctrl+Space`, status-bar buttons, Window-menu recovery actions, host
   layout reset, Content Browser reveal/focus, and drawer dismissal through the
   host state.
-- [ ] Remove Content Browser, Console, notification overlay, drawer state,
+- [x] Remove Content Browser, Console, notification overlay, drawer state,
   status-bar drawing, and corresponding layout roles from `MLevelEditor`.
-- [ ] Bump the host layout version and remove the retired Level Editor panel IDs
+- [x] Bump the host layout version and remove the retired Level Editor panel IDs
   from its default/reset layout without clearing unrelated user settings.
 
 #### Acceptance Gate
@@ -454,7 +448,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 | Module graph | Target generation/build proves exports and link dependencies; dependency audit rejects concrete-editor edges from ContentBrowser | Editor reaches Ready with every workspace registered |
 | Browser model | Existing model, item-view, filesystem, refresh, selection, filtering, and snapshot tests under the new owner | Navigate mounts, search, change filters/views, reopen the tool, and switch workspaces |
 | Asset workflows | Existing create/import/reimport, duplicate, rename, move, deletion, fix-up, recovery, and transaction tests plus extension-registry tests | Execute each contributed menu action and confirm errors/progress appear globally |
-| Settings | Migration, invalid-value fallback, idempotent reload, and independent-save tests | Preserve current browser layout across upgrade and restart without changing viewport state |
+| Settings | Default fallback, invalid-value fallback, idempotent reload, and independent-save tests | Reset once on upgrade, then preserve browser layout across restart without changing viewport state |
 | Host drawer | Drawer disposition, geometry, once-per-frame submission, shortcut routing, and host layout tests | Toggle, dismiss, drag out, dock, focus, close, recover, and reset host layout in every workspace |
 | Console and activity | Bounded record-model, hidden polling, unread-count, notification-history, and transaction-event tests | Generate logs and Undo/Redo feedback outside LevelEditor and observe immediate status/history updates |
 | Workspace integration | Asset-open routing, reveal, document remap, drag payload, active-workspace, and PIE-policy tests | Open assets from the global browser, switch editor tabs, drag compatible assets, and enter/leave PIE |
@@ -474,8 +468,8 @@ Build and native-test selection/execution follow the repository workflows in
   or bottom-drawer implementation and exposes no browser reveal API.
 - Asset-family modules contribute their owned create/import policy through
   scoped, unload-safe registrations.
-- Browser settings are independent and existing user state migrates without
-  repeated writes or data loss.
+- Browser settings are independent; retired Level browser state is ignored and
+  the new state persists without repeated writes.
 - Asset operations retain their AssetCore and global transaction semantics;
   document and Level viewport state remain coherent through separate observers.
 - Cross-workspace behavior, async lifetime, shutdown, and recovery satisfy every
@@ -511,11 +505,11 @@ Build and native-test selection/execution follow the repository workflows in
 - [Workspace framework](../../Engine/Source/Editor/DurinEd/Public/Editor/Workspace.h)
 - [Workspace manager](../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
 - [Level Editor composition](../../Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp)
-- [Content Browser panel](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.h)
-- [Content Browser model](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.h)
-- [Content Browser operations](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.h)
+- [Content Browser panel](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.h)
+- [Content Browser model](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserModel.h)
+- [Content Browser operations](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.h)
 - [Asset move coordinator](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
-- [Console panel](../../Engine/Source/Editor/LevelEditor/Private/Panels/ConsolePanel.h)
-- [Notification overlay](../../Engine/Source/Editor/LevelEditor/Private/Widgets/EditorNotificationOverlay.h)
+- [Console panel](../../Engine/Source/Editor/MainFrame/Private/Panels/ConsolePanel.h)
+- [Notification overlay](../../Engine/Source/Editor/MainFrame/Private/Widgets/EditorNotificationOverlay.h)
 - [Level Editor session settings](../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
 - [Editor transaction manager](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)

@@ -545,7 +545,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Current = MakeFingerprint(*Data);
 
-	Durin::Editor::Level::FContentBrowserThumbnailCache Cache;
+	Durin::Editor::ContentBrowser::Private::FContentBrowserThumbnailCache Cache;
 	Cache.BeginFrame();
 	Cache.Request({
 		.Identity = "/RenderedThumbnailFixtures/Meshes/SM_OldIdentity",
@@ -586,7 +586,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Editor::EAssetThumbnailState::NotRequested);
 
 	{
-		Durin::Editor::Level::FContentBrowserThumbnailCache ClosingCache;
+		Durin::Editor::ContentBrowser::Private::FContentBrowserThumbnailCache ClosingCache;
 		ClosingCache.BeginFrame();
 		ClosingCache.Request({
 			.Identity = StaticMeshPath.GetView(),

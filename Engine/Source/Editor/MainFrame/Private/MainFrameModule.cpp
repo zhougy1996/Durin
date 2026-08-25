@@ -8,6 +8,7 @@
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "ContentBrowser/ContentBrowserTool.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
@@ -21,6 +22,8 @@
 #include "Misc/Version.h"
 #include "Profiling/Profiling.h"
 #include "Settings/HostSettings.h"
+#include "Panels/ConsolePanel.h"
+#include "Widgets/EditorNotificationOverlay.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -31,6 +34,16 @@ namespace Durin::Editor::MainFrame
 
 	struct FBootstrapContext
 	{
+		~FBootstrapContext()
+		{
+			if (ContentBrowserTool)
+				ContentBrowserTool->StopRequestAdmission();
+			ContentBrowserTool.reset();
+			WorkspaceManager.reset();
+			Activity.reset();
+			Console.reset();
+		}
+
 		EBootstrapState State = EBootstrapState::ConstructingShell;
 		EDefaultDocumentState DefaultDocumentState =
 			EDefaultDocumentState::NotApplicable;
@@ -44,10 +57,19 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<FProfilingToolService> ProfilingTools;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
+		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
+		std::unique_ptr<FConsolePanel> Console;
+		std::unique_ptr<FEditorNotificationOverlay> Activity;
 	};
 
-	namespace
-	{
+		namespace
+		{
+		enum class EHostDrawerTool : uint8
+		{
+			ContentBrowser,
+			Console,
+		};
+
 		struct FMainFrameViewState
 		{
 			bool bAboutDialogOpen = false;
@@ -55,6 +77,12 @@ namespace Durin::Editor::MainFrame
 			std::string ProfilingStatusMessage;
 			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
+			bool bContentBrowserOpen = true;
+			bool bConsoleOpen = false;
+			bool bActivityHistoryRequested = false;
+			bool bResetHostLayoutRequested = false;
+			EHostDrawerTool DrawerTool = EHostDrawerTool::ContentBrowser;
+			MonaImGui::FBottomDrawerState Drawer;
 		};
 		constexpr float EditorTitleBarHeight = 44.0f;
 		constexpr float EditorTitleBarBrandHeight = 22.0f;
@@ -73,16 +101,38 @@ namespace Durin::Editor::MainFrame
 		}
 
 		auto RegisterEditorWorkspaces(
+			FBootstrapContext& Context,
 			Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::FLevelEditorModule& LevelEditorModule,
 			::Durin::FMaterialEditorModule& MaterialEditorModule,
 			::Durin::FTextureEditorModule& TextureEditorModule,
 			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
 			::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
-			Editor::FRenderedAssetThumbnailService& ThumbnailService
+			Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			FEditorNotificationOverlay& Activity
 		) -> bool
 		{
-			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager, ThumbnailService)) return false;
+			if (!LevelEditorModule.RegisterLevelEditorWorkspace(
+				WorkspaceManager, ThumbnailService,
+				[&Activity](AssetForge::FImportOperationHandle Handle,
+					std::string Title) {
+					Activity.RegisterImportOperation(
+						std::move(Handle), std::move(Title));
+				},
+				{
+					.RevealAsset = [&Context](std::string_view Path) {
+						return Context.ContentBrowserTool
+							&& Context.ContentBrowserTool->RevealAsset(Path);
+					},
+					.RevealDirectory = [&Context](std::string_view Path) {
+						return Context.ContentBrowserTool
+							&& Context.ContentBrowserTool->RevealDirectory(Path);
+					},
+					.NotifyMountedContentChanged = [&Context] {
+						return Context.ContentBrowserTool
+							&& Context.ContentBrowserTool->NotifyMountedContentChanged();
+					},
+				})) return false;
 			if (!MaterialEditorModule.RegisterMaterialEditor(
 				WorkspaceManager, ThumbnailService))
 			{
@@ -90,14 +140,22 @@ namespace Durin::Editor::MainFrame
 				return false;
 			}
 			if (!TextureEditorModule.RegisterTextureEditor(
-				WorkspaceManager, ThumbnailService))
+				WorkspaceManager, ThumbnailService,
+				[&LevelEditorModule](std::string Directory) {
+					LevelEditorModule.OpenImportDialog(std::move(Directory),
+						Editor::Level::EImportDialogType::Texture);
+				}))
 			{
 				MaterialEditorModule.UnregisterMaterialEditor();
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
 			if (!StaticMeshEditorModule.RegisterStaticMeshEditor(
-				WorkspaceManager, ThumbnailService))
+				WorkspaceManager, ThumbnailService,
+				[&LevelEditorModule](std::string Directory) {
+					LevelEditorModule.OpenImportDialog(std::move(Directory),
+						Editor::Level::EImportDialogType::StaticMesh);
+				}))
 			{
 				TextureEditorModule.UnregisterTextureEditor();
 				MaterialEditorModule.UnregisterMaterialEditor();
@@ -151,13 +209,69 @@ namespace Durin::Editor::MainFrame
 					FModuleManager::LoadModuleChecked<::Durin::FSkeletalMeshEditorModule>("SkeletalMeshEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
+					Context,
 					*Context.WorkspaceManager,
 					LevelEditorModule,
 					MaterialEditorModule,
 					TextureEditorModule,
 					StaticMeshEditorModule,
 					SkeletalMeshEditorModule,
-					ThumbnailService);
+					ThumbnailService,
+					*Context.Activity);
+				if (bWorkspaceReady)
+				{
+					ContentBrowser::FConstructionServices Services{
+						.OpenAsset = [&Context](const std::string& Path,
+							const std::string& AssetClassName) {
+							return Context.WorkspaceManager->OpenAsset(
+								Path, AssetClassName);
+						},
+						.ExecuteTransaction = [](std::unique_ptr<Editor::ITransaction> Transaction) {
+							return GEditor && GEditor->GetTransactionManager().Execute(
+								std::move(Transaction));
+						},
+						.GetMountedContentMutationRevision = [] {
+							return GEditor
+								? GEditor->GetTransactionManager()
+									.GetMountedContentMutationRevision()
+								: uint64{0};
+						},
+						.NotifyMountedContentMutation = [] {
+							if (GEditor)
+								GEditor->GetTransactionManager()
+									.NotifyMountedContentMutation();
+						},
+						.MoveAssets = [](
+							std::span<const ContentBrowser::FAssetMove> Moves) {
+							return GEditor
+								? ContentBrowser::ExecuteAssetMoves(
+									GEditor->GetTransactionManager(), Moves)
+								: ContentBrowser::FActionResult{
+									false, "The editor transaction manager is unavailable."};
+						},
+						.NotifyImportStarted = [&Context](
+							AssetForge::FImportOperationHandle Handle,
+							std::string Title) {
+							Context.Activity->RegisterImportOperation(
+								std::move(Handle), std::move(Title));
+						},
+					};
+					ContentBrowser::FPresentationSettings BrowserSettings;
+					std::string BrowserSettingsWarning;
+					if (!ContentBrowser::LoadPresentationSettings(
+						BrowserSettings, &BrowserSettingsWarning)
+						&& !BrowserSettingsWarning.empty())
+						DURIN_WARN("{}", BrowserSettingsWarning);
+					Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(
+						std::move(Services),
+						std::move(BrowserSettings),
+						[](
+							const ContentBrowser::FPresentationSettings& Settings) {
+							if (!ContentBrowser::SavePresentationSettings(Settings))
+								DURIN_WARN("Could not save Content Browser settings.");
+						});
+					bWorkspaceReady = static_cast<bool>(Context.ContentBrowserTool);
+				}
 			}
 			Profiling::RecordStartupMilestone(
 				Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
@@ -238,13 +352,19 @@ namespace Durin::Editor::MainFrame
 			ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSpaceSize);
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
 				DockSpaceNode->WindowClass = Editor::WorkspaceUI::MakeRootWindowClass();
+			ImGuiID CenterDockId = DockSpaceId;
+			ImGuiID ToolDockId = 0;
+			ImGui::DockBuilderSplitNode(
+				DockSpaceId, ImGuiDir_Down, 0.28f, &ToolDockId, &CenterDockId);
+			ImGui::DockBuilderDockWindow(
+				"Content Browser###Durin.EditorHost.ContentBrowser", ToolDockId);
 			for (const Editor::FWorkspaceDescriptor& Descriptor : Descriptors)
 			{
 				// Per-resource windows do not exist during the initial layout build; their root helper
 				// applies the same host preference when each document first appears.
 				if (Descriptor.DefaultHostDockPreference != Editor::EWorkspaceHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
 				const std::string RootWindowName = Editor::WorkspaceUI::MakeRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
-				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), DockSpaceId);
+				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), CenterDockId);
 			}
 			ImGui::DockBuilderFinish(DockSpaceId);
 		}
@@ -500,12 +620,21 @@ namespace Durin::Editor::MainFrame
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
+				ImGui::Separator();
+				ImGui::MenuItem("Content Browser", "Ctrl+Space",
+					&ViewState.bContentBrowserOpen);
+				ImGui::MenuItem("Console", nullptr, &ViewState.bConsoleOpen);
+				if (ImGui::MenuItem("Activity History"))
+					ViewState.bActivityHistoryRequested = true;
 				if (ActiveWorkspace)
 				{
 					ImGui::Separator();
 					ActiveWorkspace->DrawWindowMenu();
 					if (ImGui::MenuItem("Reset Active Editor Layout")) ActiveWorkspace->ResetLayout();
 				}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Reset Editor Host Layout"))
+					ViewState.bResetHostLayoutRequested = true;
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Help"))
@@ -716,7 +845,9 @@ namespace Durin::Editor::MainFrame
 			const FProfilingToolService& ProfilingTools,
 			FMainFrameViewState& ViewState,
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
-			::Durin::FLevelEditorModule& LevelEditorModule
+			ContentBrowser::IContentBrowserTool& ContentBrowserTool,
+			FConsolePanel& Console,
+			FEditorNotificationOverlay& Activity
 		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -735,6 +866,11 @@ namespace Durin::Editor::MainFrame
 			ImGui::PopStyleVar(3);
 
 			WorkspaceManager.RefreshDocumentState();
+			Console.Tick();
+			if (GEditor)
+				Activity.UpdateNotifications(
+					GEditor->GetNotificationManager(),
+					GEditor->GetTransactionManager());
 			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
 			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
 				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
@@ -745,6 +881,24 @@ namespace Durin::Editor::MainFrame
 			{
 				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) ActiveWorkspace->Undo();
 				if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) ActiveWorkspace->Redo();
+				if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
+				{
+					if (ViewState.bContentBrowserOpen)
+					{
+						ImGui::SetWindowFocus(
+							"Content Browser###Durin.EditorHost.ContentBrowser");
+						ContentBrowserTool.RequestFocus();
+					}
+					else if (ViewState.Drawer.IsOpen()
+						&& ViewState.DrawerTool == EHostDrawerTool::ContentBrowser)
+						ViewState.Drawer.Close();
+					else
+					{
+						ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
+						ViewState.Drawer.Open();
+						ContentBrowserTool.RequestFocus();
+					}
+				}
 			}
 			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
@@ -757,19 +911,158 @@ namespace Durin::Editor::MainFrame
 			DrawProfilingToolStatusDialog(
 				ViewState.bProfilingStatusOpen, ViewState.ProfilingStatusMessage);
 			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,
-				[&LevelEditorModule](const FAssetPath& Path) {
-					(void)LevelEditorModule.RevealAssetInContentBrowser(Path);
+				[&ContentBrowserTool, &ViewState](const FAssetPath& Path) {
+					ViewState.bContentBrowserOpen = true;
+					(void)ContentBrowserTool.RevealAsset(Path.ToString());
+					(void)ContentBrowserTool.RequestFocus();
 				});
+			if (ViewState.bActivityHistoryRequested)
+			{
+				Activity.OpenHistory();
+				ViewState.bActivityHistoryRequested = false;
+			}
 
-			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
+			ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
+			if (GEditor)
+				DockSpaceSize.y = std::max(
+					0.0f, DockSpaceSize.y - Activity.GetStatusBarHeight());
+			const ImVec2 DrawerAnchorMin = ImGui::GetCursorScreenPos();
+			const ImVec2 DrawerAnchorMax = DrawerAnchorMin + DockSpaceSize;
 			const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeHostDockSpaceId(Editor::WorkspaceUI::HostLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-			if (bNeedsDefaultLayout)
+			if (bNeedsDefaultLayout || ViewState.bResetHostLayoutRequested)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
+				ViewState.bContentBrowserOpen = true;
+				ViewState.bConsoleOpen = false;
+				ViewState.Drawer.Reset();
+				ViewState.bResetHostLayoutRequested = false;
 			}
 			Editor::WorkspaceUI::SubmitHostDockSpace(Editor::WorkspaceUI::HostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
+
+			bool bBrowserSubmitted = false;
+			bool bConsoleSubmitted = false;
+			if (ViewState.bContentBrowserOpen)
+			{
+				const bool bVisible = ImGui::Begin(
+					"Content Browser###Durin.EditorHost.ContentBrowser",
+					&ViewState.bContentBrowserOpen);
+				if (bVisible)
+				{
+					const bool bDisableMutations = GEditor && GEditor->IsPlaying();
+					if (bDisableMutations) ImGui::BeginDisabled();
+					ContentBrowserTool.DrawContents();
+					bBrowserSubmitted = true;
+					if (bDisableMutations) ImGui::EndDisabled();
+				}
+				ImGui::End();
+			}
+
+			if (ViewState.bConsoleOpen)
+			{
+				const bool bVisible = ImGui::Begin(
+					"Console###Durin.EditorHost.Console", &ViewState.bConsoleOpen);
+				if (bVisible)
+				{
+					Console.DrawContents();
+					bConsoleSubmitted = true;
+				}
+				ImGui::End();
+			}
+
+			if (GEditor)
+			{
+				EEditorStatusBarAction Selected = EEditorStatusBarAction::None;
+				if (ViewState.Drawer.IsOpen())
+					Selected = ViewState.DrawerTool == EHostDrawerTool::Console
+						? EEditorStatusBarAction::Console
+						: EEditorStatusBarAction::ContentBrowser;
+				const EEditorStatusBarAction Action = Activity.DrawStatusBar(
+					GEditor->GetNotificationManager(), Selected,
+					Console.GetUnreadImportantRecordCount());
+				const auto ToggleDrawer = [&](EHostDrawerTool Tool) {
+					const bool bDocked = Tool == EHostDrawerTool::Console
+						? ViewState.bConsoleOpen : ViewState.bContentBrowserOpen;
+					if (bDocked)
+					{
+						ImGui::SetWindowFocus(Tool == EHostDrawerTool::Console
+							? "Console###Durin.EditorHost.Console"
+							: "Content Browser###Durin.EditorHost.ContentBrowser");
+						if (Tool == EHostDrawerTool::Console) Console.RequestInputFocus();
+						else ContentBrowserTool.RequestFocus();
+						return;
+					}
+					if (ViewState.Drawer.IsOpen() && ViewState.DrawerTool == Tool)
+						ViewState.Drawer.Close();
+					else
+					{
+						ViewState.DrawerTool = Tool;
+						ViewState.Drawer.Open();
+						if (Tool == EHostDrawerTool::Console)
+						{
+							Console.RequestInputFocus();
+							Console.RequestScrollToLatest();
+						}
+						else ContentBrowserTool.RequestFocus();
+					}
+				};
+				switch (Action)
+				{
+				case EEditorStatusBarAction::ContentBrowser:
+					ToggleDrawer(EHostDrawerTool::ContentBrowser); break;
+				case EEditorStatusBarAction::Console:
+					ToggleDrawer(EHostDrawerTool::Console); break;
+				case EEditorStatusBarAction::ActivityHistory:
+					Activity.OpenHistory(); break;
+				case EEditorStatusBarAction::None: break;
+				}
+			}
+
+			if (ViewState.Drawer.IsOpen() || ViewState.Drawer.IsVisible())
+			{
+				const MonaImGui::FBottomDrawerConfig Config{
+					.Id = "Editor Bottom Drawer###Durin.EditorHost.BottomDrawer",
+					.AnchorMin = DrawerAnchorMin,
+					.AnchorMax = DrawerAnchorMax,
+					.bDismissOnFocusLoss = true,
+					.bDismissWhenDragLeavesBounds = true,
+				};
+				if (MonaImGui::BeginBottomDrawer(Config, ViewState.Drawer))
+				{
+					const bool bConsole = ViewState.DrawerTool == EHostDrawerTool::Console;
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted(bConsole ? "Console" : "Content Browser");
+					const char* DockLabel = "Dock in Layout";
+					const float ButtonWidth = ImGui::CalcTextSize(DockLabel).x
+						+ ImGui::GetStyle().FramePadding.x * 2.0f;
+					ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
+						ImGui::GetWindowContentRegionMax().x - ButtonWidth));
+					const bool bDock = ImGui::Button(DockLabel);
+					ImGui::Separator();
+					if (bConsole && !bConsoleSubmitted)
+					{
+						Console.DrawContents();
+						bConsoleSubmitted = true;
+					}
+					else if (!bConsole && !bBrowserSubmitted)
+					{
+						const bool bDisableMutations = GEditor && GEditor->IsPlaying();
+						if (bDisableMutations) ImGui::BeginDisabled();
+						ContentBrowserTool.DrawContents();
+						if (bDisableMutations) ImGui::EndDisabled();
+						bBrowserSubmitted = true;
+					}
+					MonaImGui::EndBottomDrawer(ViewState.Drawer);
+					if (bDock)
+					{
+						if (bConsole) ViewState.bConsoleOpen = true;
+						else ViewState.bContentBrowserOpen = true;
+						ViewState.Drawer.Reset();
+					}
+				}
+			}
+			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
 
 			for (const std::shared_ptr<Editor::IWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{
@@ -777,6 +1070,9 @@ namespace Durin::Editor::MainFrame
 					WorkspaceManager.ActivateWorkspace(Workspace->GetWorkspaceType());
 			}
 			Editor::WorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
+			Activity.DrawHistoryWindow();
+			if (GEditor)
+				Activity.DrawToasts(GEditor->GetNotificationManager());
 
 			ImGui::End();
 		}
@@ -823,6 +1119,8 @@ namespace Durin
 			std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
+		Context.Console = std::make_unique<FConsolePanel>();
+		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
 
 		const FIntPoint WindowSize{
 			Context.HostSettings->GetWindowWidth(),
@@ -850,7 +1148,8 @@ namespace Durin
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
-				&& Context->bHasProject && Context->LevelEditorModule;
+				&& Context->bHasProject && Context->LevelEditorModule
+				&& Context->ContentBrowserTool;
 			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
 			{
@@ -871,7 +1170,9 @@ namespace Durin
 					*Context->ProfilingTools,
 					ViewState,
 					*Context->AssetCompatibilityWindow,
-					*Context->LevelEditorModule);
+					*Context->ContentBrowserTool,
+					*Context->Console,
+					*Context->Activity);
 				return;
 			}
 			if (!Context->bHasProject

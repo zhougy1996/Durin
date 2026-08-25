@@ -1,11 +1,13 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
+#include "LevelEditorContentBrowserCallbacks.h"
 #include "DObject/SoftObjectPtr.h"
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
+#include "AssetForge/Operations/ImportOperation.h"
 
 namespace Durin
 {
@@ -33,13 +35,8 @@ namespace Durin::Editor::Level
 	class FStaticMeshImportDialog;
 	class FTextureImportDialog;
 	class FTerrainHeightmapImportDialog;
-	class FContentBrowserPanel;
-	class FConsolePanel;
-	struct FMountedContentReconciliationState;
 	class FDetailsPanel;
-	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
-	struct FLevelEditorDrawerHostState;
 
 	// Hosts level documents, panels, play controls, and project settings.
 	class MLevelEditor final : public ::Durin::Editor::IWorkspace
@@ -48,7 +45,10 @@ namespace Durin::Editor::Level
 		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 			FModuleOwnedCallbackGate InOwnerGate,
-			FTaskScopeToken InThumbnailTaskScope);
+			FTaskScopeToken InThumbnailTaskScope,
+			std::function<void(AssetForge::FImportOperationHandle, std::string)>
+				InNotifyImportStarted,
+			FContentBrowserCallbacks InContentBrowserCallbacks);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
@@ -73,7 +73,9 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
-		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
+		LEVELEDITOR_API auto RequestContentBrowserImport(
+			const std::string& Directory,
+			EImportDialogType Type) -> void;
 
 	private:
 		friend class ::Durin::FLevelEditorModule;
@@ -83,8 +85,6 @@ namespace Durin::Editor::Level
 		auto CreatePanels() -> void;
 		auto CreateDocumentServices() -> void;
 		auto CreateImportDialogs() -> void;
-		auto CreateContentBrowser() -> void;
-		auto CreateNotificationOverlay() -> void;
 		auto FinalizeSessionConstruction() -> void;
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;
@@ -94,8 +94,6 @@ namespace Durin::Editor::Level
 		auto StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
-		auto ToggleBottomDrawer(bool bConsole) -> void;
-		auto DrawBottomDrawer(FLevelEditorContext& Context) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
 		// Module-owned services outlive this registered workspace.
@@ -103,23 +101,20 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		FModuleOwnedCallbackGate OwnerGate;
 		FTaskScopeToken ThumbnailTaskScope;
+		std::function<void(AssetForge::FImportOperationHandle, std::string)>
+			NotifyImportStarted;
+		FContentBrowserCallbacks ContentBrowserCallbacks;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
 		std::unique_ptr<FTerrainHeightmapImportDialog> TerrainHeightmapImportDialog;
-		std::shared_ptr<FMountedContentReconciliationState>
-			MountedContentReconciliationState;
-		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		// Panel pointers are non-owning aliases into the Panels collection.
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FRenderingDiagnosticsPanel* RenderingDiagnosticsPanel = nullptr;
-		FContentBrowserPanel* ContentBrowserPanel = nullptr;
-		FConsolePanel* ConsolePanel = nullptr;
 		FDetailsPanel* DetailsPanel = nullptr;
-		std::unique_ptr<FLevelEditorDrawerHostState> DrawerHostState;
 		::Durin::Editor::FWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bWasActive = false;

@@ -278,12 +278,27 @@ durin_add_engine_functional_test(EditorShellTests
 		Private/EditorNotificationTests.cpp
 		Private/EditorWorkspaceTests.cpp
 		Private/UIStyleTests.cpp
-		Private/ConsoleRecordModelTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
-		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetForge DurinEd
+)
+
+durin_add_engine_functional_test(EditorHostToolTests
+	KIND feature
+	DOMAINS editor-shell
+	MODULES durin-ed main-frame
+	STACKS editor
+	PRIVATE_SOURCE_OWNER MainFrame
+	PRIVATE_SOURCE_RATIONALE
+		"MainFrame-owned Console model and layout coverage avoids exporting private host-tool implementations."
+	RUNTIME_STACK_RATIONALE "Exercises MainFrame host-tool models."
+	SOURCES
+		Private/ConsoleRecordModelTests.cpp
+		Private/EditorHostToolTests.cpp
+	PRIVATE_SOURCES
+		${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_engine_functional_test(ExternalToolTests

@@ -2,17 +2,30 @@
 
 Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
 
-Modules: LevelEditor, DurinEd, AssetCore
+Modules: ContentBrowser, MainFrame, DurinEd, AssetCore
 
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
 directory-oriented view while preserving their different identities and
 operations.
 
-Its concrete models, panels, refresh coordination, source-thumbnail caches, and
-asset-operation helpers are owned by `Durin::Editor::Level`. Shared asset
+Its concrete models, panel body, refresh coordination, source-thumbnail caches,
+and asset-operation helpers are owned by the `ContentBrowser` module under
+`Durin::Editor::ContentBrowser::Private`. MainFrame owns the singleton tool
+instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
 `Durin::Editor` boundary or their runtime modules.
+
+Create and import menu entries are deterministic scoped extensions ordered by
+`(Order, Id)`. LevelEditor contributes Level/Scene/Terrain actions,
+MaterialEditor contributes Material and Material Instance creation,
+TextureEditor contributes texture import, and StaticMeshEditor contributes
+geometry-only import. Releasing a feature handle removes admission before its
+module callback gate retires.
+
+Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
+absent, the browser uses defaults and writes the new file; the retired Level
+Editor browser keys are intentionally neither read nor migrated.
 
 ## Content Model
 
@@ -113,8 +126,8 @@ not name or construct a concrete asset editor.
 
 ## Thumbnail Requests And Refresh
 
-LevelEditor owns Content Browser item presentation and request admission.
-`DurinEd` owns the provider-neutral thumbnail service, source decode/cache,
+ContentBrowser owns item presentation, source-image decode/cache, and request
+admission. `DurinEd` owns the provider-neutral thumbnail service,
 scheduler, persistence, render/readback/upload pipeline, preview-scene pool,
 and budgets. MaterialEditor owns Material and MaterialInstance providers;
 TextureEditor owns authored Texture2D source selection and TextureCube rendering;
@@ -128,9 +141,10 @@ Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
 types share the same bounded scheduler and one-rendered-capture-per-frame limit.
 Provider removal stops admission and drains that provider's queued or in-flight
 leases without affecting providers registered by other modules. During editor
-shutdown MainFrame stops Content Browser admission, unregisters StaticMesh,
-Texture, Material, and Level integrations in that order, drains and destroys the
-shared service caches, and only then permits concrete module unload.
+shutdown MainFrame stops Content Browser admission and destroys the host tool
+before workspace state and host notification surfaces. Scoped feature
+registrations retire with their concrete modules, and provider caches drain
+before those modules unload.
 
 Selection details are presentation snapshots. TextureCube details inspect
 serialized package metadata through a bounded cache keyed by asset identity,

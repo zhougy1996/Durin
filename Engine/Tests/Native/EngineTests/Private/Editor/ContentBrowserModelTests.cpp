@@ -1,7 +1,7 @@
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserOperations.h"
 
-#include "Assets/AssetRelocationTransaction.h"
+#include "Editor/AssetRelocation.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
@@ -18,7 +18,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Level;
+	using namespace Durin::Editor::ContentBrowser::Private;
 
 	class FContentBrowserModelTests : public testing::Test
 	{
@@ -326,14 +326,9 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 
 	const Asset::FAssetRelocationMapping Mapping{
 		SourcePath, DestinationPath};
-	Asset::FAssetMutationSummary Summary;
-	Asset::FAssetMutationTransaction Transaction;
-	ASSERT_TRUE(Asset::PrepareAssetRelocationTransaction(
-		std::span{&Mapping, 1}, Summary, Transaction));
-	ASSERT_TRUE(Transaction.Commit());
 	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Transactions.CommitApplied(
-		std::make_unique<FAssetRelocationTransaction>(std::move(Transaction))));
+	ASSERT_TRUE(Durin::Editor::ExecuteAssetRelocations(
+		Transactions, std::span{&Mapping, 1}));
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
 	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);

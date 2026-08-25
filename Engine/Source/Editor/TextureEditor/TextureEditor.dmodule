@@ -12,6 +12,7 @@
         "AssetCore",
         "AssetForge",
         "AssetForgeBuiltins",
+		"ContentBrowser",
         "TextureBuild",
         "MonaImGui",
         "MonaCore",

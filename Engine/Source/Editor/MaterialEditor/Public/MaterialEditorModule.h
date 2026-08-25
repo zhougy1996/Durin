@@ -2,6 +2,7 @@
 
 #include "MaterialEditorAPI.h"
 #include "Modules/ModuleManager.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 
 namespace Durin::Editor
 {
@@ -30,5 +31,7 @@ namespace Durin
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialThumbnailRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialInstanceThumbnailRegistration;
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+			ContentBrowserExtensions;
 	};
 }

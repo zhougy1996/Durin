@@ -12,6 +12,8 @@ set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
 set(_durin_content_browser_public
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/ContentBrowser/Public")
+set(_durin_content_browser_private
+	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/ContentBrowser/Private")
 set(_durin_editor_test_modules
 	AssetForge
 	DurinEd
@@ -114,6 +116,7 @@ function(durin_add_engine_functional_test target_name)
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/SkeletalMeshEditor/Public
 		${_durin_main_frame_private}
 		${_durin_content_browser_public}
+		${_durin_content_browser_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source
 		${DURIN_ENGINE_TEST_INCLUDE_DIRECTORIES}

@@ -2,6 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "Editor/Workspace.h"
+#include "Asset/MutationExtensions.h"
 #include "Modules/ModularFeature.h"
 
 namespace Durin::Editor
@@ -53,7 +54,7 @@ namespace Durin::Editor
 	};
 
 	// Owns workspace registrations, open documents, and active-host transitions.
-	class FWorkspaceManager
+	class FWorkspaceManager final : private Asset::IAssetMoveObserver
 	{
 	public:
 		DURINED_API FWorkspaceManager();
@@ -94,11 +95,14 @@ namespace Durin::Editor
 		DURINED_API auto GetWorkspaceDescriptors() const -> std::vector<FWorkspaceDescriptor>;
 
 	private:
+		auto OnAssetsRelocated(
+			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
 		auto FindDocument(FDocumentId DocumentId) -> FDocumentTab*;
 		auto FindDocument(const FWorkspaceTypeId& WorkspaceType, std::string_view DocumentKey) -> FDocumentTab*;
 		auto RequestDeactivateActiveDocument(FDocumentId NextDocumentId = {}) -> bool;
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 
 		std::shared_ptr<Detail::FWorkspaceRegistryState> State;
+		Asset::FAssetMoveObserverHandle AssetMoveObserverHandle = 0;
 	};
 }

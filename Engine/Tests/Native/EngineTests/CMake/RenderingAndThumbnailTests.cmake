@@ -38,11 +38,11 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 durin_add_engine_functional_test(ThumbnailTests
 	KIND feature
 	DOMAINS thumbnail
-	MODULES engine level-editor
+	MODULES engine content-browser
 	STACKS editor renderer
-	PRIVATE_SOURCE_OWNER LevelEditor
+	PRIVATE_SOURCE_OWNER ContentBrowser
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned thumbnail cache white-box coverage avoids exporting private cache implementations."
+		"ContentBrowser-owned thumbnail cache white-box coverage avoids exporting private cache implementations."
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor thumbnail generation and caching."
 	SOURCES
@@ -50,10 +50,10 @@ durin_add_engine_functional_test(ThumbnailTests
 		Private/AssetThumbnailContractTests.cpp
 		Private/RenderedAssetThumbnailFixtureTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailCache.cpp
-		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
@@ -92,19 +92,19 @@ durin_add_engine_functional_test(TextureThumbnailTests
 durin_add_engine_functional_test(StaticMeshThumbnailTests
 	KIND feature
 	DOMAINS static-mesh thumbnail
-	MODULES engine level-editor static-mesh-editor
+	MODULES engine content-browser static-mesh-editor
 	STACKS editor renderer
-	PRIVATE_SOURCE_OWNER LevelEditor
+	PRIVATE_SOURCE_OWNER ContentBrowser
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned thumbnail cache white-box coverage accompanies the StaticMeshEditor extension without exporting private symbols."
+		"ContentBrowser-owned thumbnail cache white-box coverage accompanies the StaticMeshEditor extension without exporting private symbols."
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the StaticMeshEditor-owned thumbnail extension and cache lifecycle."
 	SOURCES Private/StaticMeshAssetThumbnailTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailCache.cpp
-		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
-		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild AssetForgeBuiltins MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
