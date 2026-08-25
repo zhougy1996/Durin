@@ -286,14 +286,14 @@ not infer success from labels or mutate reflected storage directly.
 
 ### Stage 3: Complete authoring operations and structured automation
 
-- [ ] Implement multi-selection duplicate, delete, copy, cut, and versioned paste
+- [x] Implement multi-selection duplicate, delete, copy, cut, and versioned paste
   with GUID remapping, relative placement, bounds checks, and one-step Undo/Redo.
-- [ ] Expose deterministic graph enumeration and the complete command vocabulary
+- [x] Expose deterministic graph enumeration and the complete command vocabulary
   through the UI-independent MaterialEditor API used by focused automation.
-- [ ] Add stable operation results containing affected/generated node GUIDs and
+- [x] Add stable operation results containing affected/generated node GUIDs and
   bounded validation diagnostics; no caller must scrape canvas labels or screen
   positions to determine the outcome.
-- [ ] Add command-sequence fixtures proving the canvas and structured callers
+- [x] Add command-sequence fixtures proving the canvas and structured callers
   produce the same persisted program and normalized identity.
 
 #### Acceptance Gate

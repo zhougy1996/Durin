@@ -7,6 +7,8 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
+		std::optional<FMaterialGraphClipboardPayload> GraphClipboard;
+
 		constexpr float NodeWidth = 190.0f;
 		constexpr float NodeHeaderHeight = 30.0f;
 		constexpr float PinSpacing = 24.0f;
@@ -490,6 +492,62 @@ namespace Durin::Editor::Material
 				for (const FMaterialGraphNodeView& Node : View.Nodes)
 					SelectedNodes.insert(Node.Node.Id);
 			}
+			if (bHovered && ImGui::GetIO().KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
+			{
+				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+				FMaterialGraphClipboardPayload Payload;
+				const FMaterialGraphCommandResult Copied =
+					FMaterialGraphService::CopySelection(Material, Selection, Payload);
+				ReportCommand(Copied, ReportError);
+				if (Copied) GraphClipboard = std::move(Payload);
+			}
+			if (bHovered && ImGui::GetIO().KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_X) && !SelectedNodes.empty())
+			{
+				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+				FMaterialGraphClipboardPayload Payload;
+				const FMaterialGraphCommandResult Cut = FMaterialGraphService::CutSelection(
+					Material, Selection, Payload, &Transactions);
+				ReportCommand(Cut, ReportError);
+				if (Cut)
+				{
+					GraphClipboard = std::move(Payload);
+					SelectedNodes.clear();
+				}
+			}
+			if (bHovered && ImGui::GetIO().KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_D) && !SelectedNodes.empty())
+			{
+				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+				const FMaterialGraphCommandResult Duplicated =
+					FMaterialGraphService::DuplicateNodes(
+						Material, Selection, 40, 40, &Transactions);
+				ReportCommand(Duplicated, ReportError);
+				if (Duplicated)
+				{
+					SelectedNodes.clear();
+					SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
+						Duplicated.GeneratedNodeIds.end());
+				}
+			}
+			if (bHovered && ImGui::GetIO().KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
+			{
+				const ImVec2 GraphPosition = Multiply(
+					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
+				const FMaterialGraphCommandResult Pasted = FMaterialGraphService::Paste(
+					Material, *GraphClipboard,
+					static_cast<int32>(std::round(GraphPosition.x)),
+					static_cast<int32>(std::round(GraphPosition.y)), &Transactions);
+				ReportCommand(Pasted, ReportError);
+				if (Pasted)
+				{
+					SelectedNodes.clear();
+					SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
+						Pasted.GeneratedNodeIds.end());
+				}
+			}
 			if (bHovered && ImGui::IsKeyPressed(ImGuiKey_Delete)
 				&& !SelectedNodes.empty())
 			{
@@ -516,6 +574,10 @@ namespace Durin::Editor::Material
 					1.0f / Zoom);
 				if (HoveredNode)
 				{
+					std::vector<FGuid> ContextSelection;
+					if (SelectedNodes.contains(HoveredNode->View->Node.Id))
+						ContextSelection.assign(SelectedNodes.begin(), SelectedNodes.end());
+					else ContextSelection = {HoveredNode->View->Node.Id};
 					FMaterialProgramNode Edited = HoveredNode->View->Node;
 					if (Edited.Opcode == EMaterialProgramOpcode::Constant)
 					{
@@ -554,6 +616,41 @@ namespace Durin::Editor::Material
 						ReportCommand(FMaterialGraphService::DisconnectInput(
 							Material, HoveredNode->View->Node.Id,
 							HoveredInputIndex, &Transactions), ReportError);
+					if (ImGui::MenuItem("Copy"))
+					{
+						FMaterialGraphClipboardPayload Payload;
+						const FMaterialGraphCommandResult Copied =
+							FMaterialGraphService::CopySelection(
+								Material, ContextSelection, Payload);
+						ReportCommand(Copied, ReportError);
+						if (Copied) GraphClipboard = std::move(Payload);
+					}
+					if (ImGui::MenuItem("Duplicate"))
+					{
+						const FMaterialGraphCommandResult Duplicated =
+							FMaterialGraphService::DuplicateNodes(
+								Material, ContextSelection, 40, 40, &Transactions);
+						ReportCommand(Duplicated, ReportError);
+						if (Duplicated)
+						{
+							SelectedNodes.clear();
+							SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
+								Duplicated.GeneratedNodeIds.end());
+						}
+					}
+					if (ImGui::MenuItem("Cut"))
+					{
+						FMaterialGraphClipboardPayload Payload;
+						const FMaterialGraphCommandResult Cut =
+							FMaterialGraphService::CutSelection(
+								Material, ContextSelection, Payload, &Transactions);
+						ReportCommand(Cut, ReportError);
+						if (Cut)
+						{
+							GraphClipboard = std::move(Payload);
+							SelectedNodes.clear();
+						}
+					}
 					if (ImGui::MenuItem("Delete"))
 					{
 						const FGuid Id = HoveredNode->View->Node.Id;
@@ -563,6 +660,21 @@ namespace Durin::Editor::Material
 				}
 				else
 				{
+					if (GraphClipboard && ImGui::MenuItem("Paste"))
+					{
+						const FMaterialGraphCommandResult Pasted =
+							FMaterialGraphService::Paste(Material, *GraphClipboard,
+								static_cast<int32>(std::round(GraphPosition.x)),
+								static_cast<int32>(std::round(GraphPosition.y)),
+								&Transactions);
+						ReportCommand(Pasted, ReportError);
+						if (Pasted)
+						{
+							SelectedNodes.clear();
+							SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
+								Pasted.GeneratedNodeIds.end());
+						}
+					}
 					if (ImGui::MenuItem("Auto Layout"))
 						ReportCommand(FMaterialGraphService::Layout(
 							Material, {}, &Transactions), ReportError);

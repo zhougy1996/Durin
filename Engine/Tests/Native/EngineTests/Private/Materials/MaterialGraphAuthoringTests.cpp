@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/Transaction.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialProgramCompiler.h"
 
 #include <gtest/gtest.h>
 
@@ -21,6 +22,20 @@ namespace
 		const auto It = std::ranges::find(View.Nodes, Id,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		return It == View.Nodes.end() ? nullptr : &*It;
+	}
+
+	auto Normalize(const DMaterial& Material) -> FMaterialNormalizationResult
+	{
+		FMaterialCompilerInput Input;
+		Input.Program = *Material.GetMaterialProgram();
+		for (const FMaterialParameterDefinition& Definition
+			: Material.GetParameterDefinitions())
+			Input.Parameters.push_back({Definition.Id, Definition.Type});
+		std::ranges::sort(Input.Parameters, {},
+			&FMaterialCompilerParameterDeclaration::Id);
+		Input.Environment.CompilerIdentity = "material-graph-authoring-test";
+		Input.Environment.Target = "vulkan-spirv-1.5";
+		return NormalizeMaterialProgram(Input);
 	}
 }
 
@@ -147,6 +162,103 @@ TEST(FMaterialGraphAuthoringTests, MaximumGraphLayoutIsDeterministicAndPresentat
 	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphAuthoringTests, ClipboardPasteRemapsInternalIdentityAndRejectsAtomically)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "ClipboardMaterial");
+	ASSERT_NE(Material, nullptr);
+	ASSERT_TRUE(FMaterialGraphService::Layout(*Material));
+	std::vector<FGuid> AllNodes;
+	for (const FMaterialProgramNode& Node : Material->GetMaterialProgram()->Nodes)
+		AllNodes.push_back(Node.Id);
+	FMaterialGraphClipboardPayload Payload;
+	const FMaterialGraphCommandResult Copied =
+		FMaterialGraphService::CopySelection(*Material, AllNodes, Payload);
+	ASSERT_TRUE(Copied) << Copied.Message;
+	ASSERT_EQ(Payload.Nodes.size(), AllNodes.size());
+	EXPECT_TRUE(std::ranges::any_of(Payload.Nodes,
+		[](const FMaterialGraphClipboardNode& Node) {
+			return Node.RelativeX == 0;
+		}));
+	EXPECT_TRUE(std::ranges::any_of(Payload.Nodes,
+		[](const FMaterialGraphClipboardNode& Node) {
+			return Node.RelativeY == 0;
+		}));
+
+	const FMaterialProgram BeforeProgram = *Material->GetMaterialProgram();
+	const FMaterialGraphPresentation BeforePresentation =
+		Material->GetMaterialGraphPresentation();
+	const FMaterialNormalizationResult BeforeIdentity = Normalize(*Material);
+	ASSERT_TRUE(BeforeIdentity);
+	FTransactionManager Transactions;
+	const FMaterialGraphCommandResult Pasted = FMaterialGraphService::Paste(
+		*Material, Payload, 1200, 400, &Transactions);
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	ASSERT_EQ(Pasted.GeneratedNodeIds.size(), Payload.Nodes.size());
+	std::unordered_set<FGuid> OriginalIds(AllNodes.begin(), AllNodes.end());
+	for (const FGuid& Id : Pasted.GeneratedNodeIds)
+		EXPECT_FALSE(OriginalIds.contains(Id));
+	const FMaterialNormalizationResult AfterIdentity = Normalize(*Material);
+	ASSERT_TRUE(AfterIdentity);
+	EXPECT_EQ(AfterIdentity.Identity, BeforeIdentity.Identity);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeProgram);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), BeforePresentation);
+	ASSERT_TRUE(Transactions.Redo());
+
+	FMaterialGraphClipboardPayload UnknownVersion = Payload;
+	UnknownVersion.SchemaVersion = 99;
+	const FMaterialProgram BeforeRejected = *Material->GetMaterialProgram();
+	const FMaterialGraphCommandResult Rejected = FMaterialGraphService::Paste(
+		*Material, UnknownVersion, 0, 0, &Transactions);
+	EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
+	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
+
+	const auto Dependent = std::ranges::find_if(
+		Material->GetMaterialProgram()->Nodes,
+		[](const FMaterialProgramNode& Node) { return !Node.Inputs.empty(); });
+	ASSERT_NE(Dependent, Material->GetMaterialProgram()->Nodes.end());
+	FMaterialGraphClipboardPayload Incomplete;
+	ASSERT_TRUE(FMaterialGraphService::CopySelection(
+		*Material, std::span(&Dependent->Id, 1), Incomplete));
+	const FMaterialGraphCommandResult IncompletePaste =
+		FMaterialGraphService::Paste(*Material, Incomplete, 0, 0, &Transactions);
+	EXPECT_EQ(IncompletePaste.Status, EMaterialGraphCommandStatus::Rejected);
+	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
+
+	FMaterialGraphCreateNodeRequest Standalone;
+	Standalone.Node.Opcode = EMaterialProgramOpcode::Constant;
+	Standalone.Node.ResultType = EMaterialProgramValueType::Float;
+	Standalone.Node.Literal.X = 0.75f;
+	Standalone.X = 80;
+	Standalone.Y = 120;
+	const FMaterialGraphCommandResult StandaloneCreated =
+		FMaterialGraphService::CreateNode(*Material, Standalone, &Transactions);
+	ASSERT_TRUE(StandaloneCreated);
+	const FGuid StandaloneId = StandaloneCreated.GeneratedNodeIds.front();
+	const FMaterialGraphCommandResult Duplicated =
+		FMaterialGraphService::DuplicateNodes(
+			*Material, std::span(&StandaloneId, 1), 40, 40, &Transactions);
+	ASSERT_TRUE(Duplicated) << Duplicated.Message;
+	ASSERT_EQ(Duplicated.GeneratedNodeIds.size(), 1u);
+	EXPECT_NE(Duplicated.GeneratedNodeIds.front(), StandaloneId);
+	FMaterialGraphClipboardPayload CutPayload;
+	const FMaterialGraphCommandResult Cut = FMaterialGraphService::CutSelection(
+		*Material, std::span(&StandaloneId, 1), CutPayload, &Transactions);
+	ASSERT_TRUE(Cut) << Cut.Message;
+	ASSERT_EQ(CutPayload.Nodes.size(), 1u);
+	EXPECT_EQ(CutPayload.Nodes.front().Node.Id, StandaloneId);
+	EXPECT_EQ(FindViewNode(FMaterialGraphService::Inspect(*Material), StandaloneId),
+		nullptr);
+	ASSERT_TRUE(Transactions.Undo());
+	const FMaterialGraphView RestoredCut = FMaterialGraphService::Inspect(*Material);
+	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
+
+	Transactions.Clear();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }

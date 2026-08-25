@@ -14,6 +14,8 @@ namespace Durin::Editor
 
 namespace Durin::Editor::Material
 {
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 1;
+
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
 	{
@@ -93,6 +95,20 @@ namespace Durin::Editor::Material
 		uint8 SourceOutputIndex = 0;
 	};
 
+	struct FMaterialGraphClipboardNode
+	{
+		FMaterialProgramNode Node;
+		int32 RelativeX = 0;
+		int32 RelativeY = 0;
+	};
+
+	// Carries one bounded versioned selection without an asset or viewport owner.
+	struct FMaterialGraphClipboardPayload
+	{
+		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
+		std::vector<FMaterialGraphClipboardNode> Nodes;
+	};
+
 	// Provides candidate-validated graph authoring with no widget or viewport dependency.
 	class FMaterialGraphService
 	{
@@ -140,6 +156,31 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto Layout(
 			DMaterial& Material,
 			std::span<const FGuid> NodeIds = {},
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto CopySelection(
+			const DMaterial& Material,
+			std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto Paste(
+			DMaterial& Material,
+			const FMaterialGraphClipboardPayload& Payload,
+			int32 X,
+			int32 Y,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto DuplicateNodes(
+			DMaterial& Material,
+			std::span<const FGuid> NodeIds,
+			int32 OffsetX = 40,
+			int32 OffsetY = 40,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto CutSelection(
+			DMaterial& Material,
+			std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 	};

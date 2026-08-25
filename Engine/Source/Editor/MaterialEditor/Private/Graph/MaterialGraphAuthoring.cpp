@@ -659,6 +659,176 @@ namespace Durin::Editor::Material
 			"Layout Material Graph", std::move(Affected), {}, Transactions);
 	}
 
+	auto FMaterialGraphService::CopySelection(
+		const DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		FMaterialGraphClipboardPayload& OutPayload)
+		-> FMaterialGraphCommandResult
+	{
+		OutPayload = {};
+		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
+			return MakeRejected("The material graph copy selection is empty or exceeds the node bound.");
+		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
+		if (Selected.size() != NodeIds.size())
+			return MakeRejected("The material graph copy selection contains duplicate node GUIDs.");
+		const FMaterialProgram& Program = *Material.GetMaterialProgram();
+		const FMaterialGraphPresentation Presentation =
+			SanitizeMaterialGraphPresentation(
+				Material.GetMaterialGraphPresentation(), Program);
+		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
+		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
+			Positions.emplace(Position.NodeId, Position);
+		int32 MinimumX = MaterialGraphPresentationCoordinateLimit;
+		int32 MinimumY = MaterialGraphPresentationCoordinateLimit;
+		for (const FGuid& Id : Selected)
+		{
+			if (!FindNode(Program, Id))
+				return MakeRejected("A copied material graph node does not exist.");
+			const auto It = Positions.find(Id);
+			if (It == Positions.end())
+				return MakeRejected("A copied material graph node has no authored position.");
+			MinimumX = std::min(MinimumX, It->second.X);
+			MinimumY = std::min(MinimumY, It->second.Y);
+		}
+		std::vector<FGuid> Ordered(Selected.begin(), Selected.end());
+		std::ranges::sort(Ordered);
+		OutPayload.Nodes.reserve(Ordered.size());
+		for (const FGuid& Id : Ordered)
+		{
+			FMaterialProgramNode Node = *FindNode(Program, Id);
+			std::erase_if(Node.Inputs, [&](const FMaterialProgramLink& Link) {
+				return !Selected.contains(Link.SourceNodeId);
+			});
+			const FMaterialGraphNodePresentation& Position = Positions.at(Id);
+			OutPayload.Nodes.push_back({
+				.Node = std::move(Node),
+				.RelativeX = Position.X - MinimumX,
+				.RelativeY = Position.Y - MinimumY,
+			});
+		}
+		return {
+			.Status = EMaterialGraphCommandStatus::Succeeded,
+			.AffectedNodeIds = std::move(Ordered),
+		};
+	}
+
+	auto FMaterialGraphService::Paste(
+		DMaterial& Material,
+		const FMaterialGraphClipboardPayload& Payload,
+		int32 X,
+		int32 Y,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
+			return MakeRejected("The material graph clipboard schema version is unsupported.");
+		if (Payload.Nodes.empty() || Payload.Nodes.size() > MaterialProgramMaxNodeCount)
+			return MakeRejected("The material graph clipboard node count is outside the supported bound.");
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		if (Candidate.Nodes.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
+			return MakeRejected("Pasting would exceed the material graph node limit.");
+
+		std::unordered_map<FGuid, FGuid> Remap;
+		Remap.reserve(Payload.Nodes.size());
+		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
+		{
+			if (!ClipboardNode.Node.Id.IsValid()
+				|| !Remap.emplace(ClipboardNode.Node.Id, FGuid{}).second)
+				return MakeRejected("The material graph clipboard contains an invalid or duplicate node GUID.");
+			if (ClipboardNode.RelativeX < 0 || ClipboardNode.RelativeY < 0
+				|| ClipboardNode.RelativeX > MaterialGraphPresentationCoordinateLimit * 2
+				|| ClipboardNode.RelativeY > MaterialGraphPresentationCoordinateLimit * 2)
+				return MakeRejected("The material graph clipboard contains an invalid relative position.");
+		}
+		std::unordered_set<FGuid> UsedIds;
+		UsedIds.reserve(Candidate.Nodes.size() + Payload.Nodes.size());
+		for (const FMaterialProgramNode& Node : Candidate.Nodes) UsedIds.insert(Node.Id);
+		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
+		{
+			FGuid& NewId = Remap.at(ClipboardNode.Node.Id);
+			do NewId = FGuid::NewGuid(); while (UsedIds.contains(NewId));
+			UsedIds.insert(NewId);
+		}
+
+		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		std::vector<FGuid> Generated;
+		Generated.reserve(Payload.Nodes.size());
+		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
+		{
+			FMaterialProgramNode Node = ClipboardNode.Node;
+			Node.Id = Remap.at(ClipboardNode.Node.Id);
+			for (FMaterialProgramLink& Input : Node.Inputs)
+			{
+				const auto It = Remap.find(Input.SourceNodeId);
+				if (It == Remap.end()) Input = {};
+				else Input.SourceNodeId = It->second;
+			}
+			std::erase_if(Node.Inputs, [](const FMaterialProgramLink& Input) {
+				return !Input.SourceNodeId.IsValid();
+			});
+			const int64 PositionX = static_cast<int64>(X) + ClipboardNode.RelativeX;
+			const int64 PositionY = static_cast<int64>(Y) + ClipboardNode.RelativeY;
+			if (PositionX < -MaterialGraphPresentationCoordinateLimit
+				|| PositionX > MaterialGraphPresentationCoordinateLimit
+				|| PositionY < -MaterialGraphPresentationCoordinateLimit
+				|| PositionY > MaterialGraphPresentationCoordinateLimit)
+				return MakeRejected("Pasting would place a material graph node outside the supported coordinate range.");
+			Generated.push_back(Node.Id);
+			Presentation.Nodes.push_back({Node.Id,
+				static_cast<int32>(PositionX), static_cast<int32>(PositionY)});
+			Candidate.Nodes.push_back(std::move(Node));
+		}
+		return Commit(Material, std::move(Candidate), std::move(Presentation), true,
+			"Paste Material Nodes", Generated, Generated, Transactions);
+	}
+
+	auto FMaterialGraphService::DuplicateNodes(
+		DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		int32 OffsetX,
+		int32 OffsetY,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphClipboardPayload Payload;
+		FMaterialGraphCommandResult Copied = CopySelection(Material, NodeIds, Payload);
+		if (!Copied) return Copied;
+		const FMaterialGraphPresentation Presentation =
+			SanitizeMaterialGraphPresentation(
+				Material.GetMaterialGraphPresentation(), *Material.GetMaterialProgram());
+		int32 MinimumX = MaterialGraphPresentationCoordinateLimit;
+		int32 MinimumY = MaterialGraphPresentationCoordinateLimit;
+		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
+		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
+			if (Selected.contains(Position.NodeId))
+			{
+				MinimumX = std::min(MinimumX, Position.X);
+				MinimumY = std::min(MinimumY, Position.Y);
+			}
+		const int64 AnchorX = static_cast<int64>(MinimumX) + OffsetX;
+		const int64 AnchorY = static_cast<int64>(MinimumY) + OffsetY;
+		if (AnchorX < -MaterialGraphPresentationCoordinateLimit
+			|| AnchorX > MaterialGraphPresentationCoordinateLimit
+			|| AnchorY < -MaterialGraphPresentationCoordinateLimit
+			|| AnchorY > MaterialGraphPresentationCoordinateLimit)
+			return MakeRejected("Duplicating would place a material graph node outside the supported coordinate range.");
+		return Paste(Material, Payload, static_cast<int32>(AnchorX),
+			static_cast<int32>(AnchorY), Transactions);
+	}
+
+	auto FMaterialGraphService::CutSelection(
+		DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		FMaterialGraphClipboardPayload& OutPayload,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphCommandResult Copied = CopySelection(
+			Material, NodeIds, OutPayload);
+		if (!Copied) return Copied;
+		FMaterialGraphCommandResult Removed = RemoveNodes(
+			Material, NodeIds, Transactions);
+		if (!Removed) OutPayload = {};
+		return Removed;
+	}
+
 	struct FMaterialGraphMoveSession::FImpl
 	{
 		TWeakObjectPtr<DMaterial> Material;
