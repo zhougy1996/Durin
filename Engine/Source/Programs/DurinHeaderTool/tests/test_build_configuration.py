@@ -439,3 +439,7 @@ class TestIntermediateLayout:
         assert project_targets.count("--workers ${DURIN_DHT_WORKERS}") == 2
         assert "set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING" in build_options
         assert project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}") == 2
+        assert "option(DURIN_ENABLE_UNITY_BUILD" in build_options
+        assert "set(DURIN_UNITY_BUILD_BATCH_SIZE 8 CACHE STRING" in build_options
+        assert "UNITY_BUILD_BATCH_SIZE ${DURIN_UNITY_BUILD_BATCH_SIZE}" in project_targets
+        assert "SKIP_UNITY_BUILD_INCLUSION TRUE" in project_targets

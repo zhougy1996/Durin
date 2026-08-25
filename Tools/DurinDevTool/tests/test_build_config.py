@@ -155,6 +155,14 @@ from durin_dev_tool.build import purge, recovery, runtime
             assert build_config.preset_cache_bool(preset, 'DURIN_ENABLE_TRACY')
             assert build_config.preset_output_configuration(preset) == 'Release-Profiling'
 
+    def test_standard_release_editor_enables_bounded_unity_builds(self) -> None:
+        presets = build_config.load_configure_presets()
+        release_editor = presets['Win64-Release-DurinEditor']
+        assert build_config.preset_cache_bool(release_editor, 'DURIN_ENABLE_UNITY_BUILD')
+        for preset_name, preset in presets.items():
+            if preset_name != 'Win64-Release-DurinEditor':
+                assert not build_config.preset_cache_bool(preset, 'DURIN_ENABLE_UNITY_BUILD')
+
     def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
         profiles = build_config.load_profiles()
         presets = build_config.load_configure_presets()

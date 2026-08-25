@@ -1,7 +1,7 @@
 {
     "ModuleName": "AssetForge",
     "LinkType": "Shared",
-    "PCH": "Self",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [],
     "PublicDependencies": [
         "AssetCore"

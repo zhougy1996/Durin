@@ -61,7 +61,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
-        "DURIN_RUNTIME_VARIANT": "DurinEditor"
+        "DURIN_RUNTIME_VARIANT": "DurinEditor",
+        "DURIN_ENABLE_UNITY_BUILD": "ON"
       }
     },
     {

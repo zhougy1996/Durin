@@ -1,7 +1,7 @@
 {
     "ModuleName": "GeometryBuild",
     "LinkType": "Shared",
-    "PCH": "Self",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core"
     ],
