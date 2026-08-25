@@ -1,10 +1,13 @@
 #pragma once
 
-#include "Asset/Compatibility.h"
-#include "Asset/Mutation.h"
-#include "Asset/PackageVersionPolicy.h"
-#include "DObject/DefaultDeltaPlan.h"
-#include "Serialization/BinaryEnvelope.h"
+#include "AssetCoreAPI.h"
+#include "AssetCoreFwd.h"
+#include "Asset/Result.h"
+
+namespace Durin
+{
+	enum class EDefaultDeltaMode : uint8;
+}
 
 namespace Durin::Asset::Private
 {

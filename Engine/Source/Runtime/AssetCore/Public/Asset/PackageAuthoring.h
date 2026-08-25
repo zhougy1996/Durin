@@ -2,7 +2,6 @@
 
 #include "AssetCoreAPI.h"
 #include "Asset/Result.h"
-#include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"

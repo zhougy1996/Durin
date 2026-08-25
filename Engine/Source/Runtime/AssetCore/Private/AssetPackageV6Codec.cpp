@@ -1,8 +1,10 @@
 #include "AssetPackageV6Codec.h"
 
+#include "Asset/Compatibility.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
+#include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::Private::DastV6

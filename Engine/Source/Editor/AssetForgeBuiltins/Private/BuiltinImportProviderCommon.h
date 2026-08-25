@@ -18,7 +18,6 @@
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "Asset/MountedSource.h"
 #include "AssetForge/ImportTypes.h"
-#include "AssetAuthoring.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EncodedSourceSnapshot.h"
 #include "Hash/XxHash.h"

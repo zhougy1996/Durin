@@ -6,9 +6,6 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "DObject/DefaultDeltaPlan.h"
 
-#include <memory>
-#include <optional>
-
 namespace Durin::Asset::PackageObjectStream
 {
 	inline constexpr uint32 Magic = DastPackageMagic;

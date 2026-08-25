@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetCoreFwd.h"
 #include "Asset/Load.h"
 #include "AssetCatalogStoreInternal.h"
 

@@ -5,7 +5,7 @@
 #include "BuiltinSingleAssetImport.h"
 #include "ImageFamilyImports.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/SourcePath.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"

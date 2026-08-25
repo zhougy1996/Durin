@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Asset/Compatibility.h"
-#include "Asset/PackageAuthoring.h"
 
 namespace Durin::Asset
 {

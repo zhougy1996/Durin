@@ -1,11 +1,8 @@
 #pragma once
 
-#include "Asset/Compatibility.h"
-#include "Asset/Mutation.h"
+#include "AssetCoreFwd.h"
+#include "Asset/Result.h"
 #include "Asset/PackageObjectStreamWriter.h"
-
-#include <array>
-#include <utility>
 
 namespace Durin::Asset::PackageObjectStream
 {

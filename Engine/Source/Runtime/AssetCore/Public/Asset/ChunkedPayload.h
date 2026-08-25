@@ -2,13 +2,6 @@
 
 #include "AssetCoreAPI.h"
 
-#include <array>
-#include <limits>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
-
 namespace Durin::Asset
 {
 	inline constexpr uint32 ChunkedPayloadHeaderSize = 64;

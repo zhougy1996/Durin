@@ -1,6 +1,10 @@
 #pragma once
 
 #include "AssetPackageCodec.h"
+#include "Asset/Catalog.h"
+#include "Asset/PackageVersionPolicy.h"
+#include "Hash/XxHash.h"
+#include "Misc/Guid.h"
 
 namespace Durin::Asset::Private::DastV6
 {

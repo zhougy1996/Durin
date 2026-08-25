@@ -3,9 +3,6 @@
 #include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
 
-#include <cstring>
-#include <limits>
-
 namespace Durin::Asset::Private
 {
 	inline constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;

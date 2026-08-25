@@ -5,6 +5,7 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageAuthoring.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -13,6 +14,7 @@
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
 #include "Profiling/Profiling.h"
+#include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 
 #include "CoreGlobals.h"

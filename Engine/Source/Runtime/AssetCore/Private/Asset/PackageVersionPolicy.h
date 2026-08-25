@@ -3,8 +3,6 @@
 #include "AssetCoreAPI.h"
 #include "Misc/Guid.h"
 
-#include <array>
-
 namespace Durin::Asset
 {
 	inline constexpr uint32 DastPackageMagic = 0x54534144;

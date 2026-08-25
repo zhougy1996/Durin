@@ -1,4 +1,5 @@
 #include "Asset/CanonicalResave.h"
+#include "Asset/PackageAuthoring.h"
 
 #include "Asset/PackageObjectStreamReader.h"
 #include "AssetRuntimeStateInternal.h"

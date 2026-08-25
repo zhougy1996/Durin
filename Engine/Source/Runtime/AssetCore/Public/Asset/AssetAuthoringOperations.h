@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Asset/PackageAuthoring.h"
+#include "AssetCoreAPI.h"
+#include "Asset/Result.h"
+#include "DObject/CoreDObject.h"
 
 namespace Durin::Asset
 {

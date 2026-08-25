@@ -2,6 +2,7 @@
 
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageV6Codec.h"
+#include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::Asset::Private
 {

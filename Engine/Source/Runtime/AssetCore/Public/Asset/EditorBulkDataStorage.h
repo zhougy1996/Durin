@@ -4,8 +4,6 @@
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/PackageInspection.h"
 
-#include <filesystem>
-
 namespace Durin::Asset
 {
 	inline constexpr uint64 EditorBulkDataExternalThreshold = 256ull * 1024;

@@ -1,4 +1,5 @@
 #include "ImageImportProviderCommon.h"
+#include "Asset/AssetAuthoringOperations.h"
 
 namespace Durin::AssetForge::Builtins
 {

@@ -2,6 +2,7 @@
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
+#include "Asset/Compatibility.h"
 #include "Asset/Testing.h"
 
 #include "DObject/Class.h"
