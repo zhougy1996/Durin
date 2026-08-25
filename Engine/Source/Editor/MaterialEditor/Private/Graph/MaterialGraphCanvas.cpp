@@ -111,6 +111,35 @@ namespace Durin::Editor::Material
 		return true;
 	}
 
+	auto FMaterialGraphCanvas::SelectAndFrameDiagnostic(
+		const FMaterialProgramDiagnostic& Diagnostic) -> bool
+	{
+		switch (Diagnostic.LocationKind)
+		{
+		case EMaterialProgramDiagnosticLocationKind::Node:
+		case EMaterialProgramDiagnosticLocationKind::Input:
+			SelectedSurfaceOutput.reset();
+			return SelectAndFrame(Diagnostic.NodeId);
+		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
+			if (Diagnostic.LocationIndex >= 8) return false;
+			SelectedNodes.clear();
+			SelectedSurfaceOutput =
+				static_cast<EMaterialSurfaceOutput>(Diagnostic.LocationIndex);
+			return true;
+		case EMaterialProgramDiagnosticLocationKind::Program:
+			return false;
+		}
+		return false;
+	}
+
+	auto FMaterialGraphCanvas::CancelInteraction() -> void
+	{
+		if (MoveSession.IsActive()) MoveSession.Cancel();
+		LinkSourceNode = {};
+		bMarqueeActive = false;
+		DragStartPositions.clear();
+	}
+
 	auto FMaterialGraphCanvas::FrameNodes(
 		const FMaterialGraphView& View,
 		const ImVec2& CanvasSize) -> void
@@ -381,6 +410,12 @@ namespace Durin::Editor::Material
 				IM_COL32(235, 238, 242, 255), "Surface Outputs");
 			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
 			{
+				if (SelectedSurfaceOutput
+					&& static_cast<size_t>(*SelectedSurfaceOutput) == Index)
+					DrawList->AddRectFilled(
+						{SurfaceMinimum.x + 2.0f, SurfacePins[Index].y - 10.0f},
+						{SurfaceMaximum.x - 2.0f, SurfacePins[Index].y + 10.0f},
+						IM_COL32(190, 145, 55, 75));
 				DrawList->AddCircleFilled(SurfacePins[Index], 5.0f,
 					TypeColor(SurfaceTypes[Index]));
 				DrawList->AddText(Add(SurfacePins[Index], {10.0f, -7.0f}),

@@ -304,16 +304,16 @@ not infer success from labels or mutate reflected storage directly.
 
 ### Stage 4: Integrate diagnostics, preview, and document lifecycle
 
-- [ ] Make diagnostic activation select/frame node, input, or surface-output
+- [x] Make diagnostic activation select/frame node, input, or surface-output
   locations and degrade deterministically for program-wide or stale locations.
-- [ ] Surface authored-dirty, pending, accepted, failed, canceled, superseded,
+- [x] Surface authored-dirty, pending, accepted, failed, canceled, superseded,
   and last-known-good states without blocking canvas input or misrepresenting the
   rendered preview.
-- [ ] Preserve independent canvas/controller state across base materials,
+- [x] Preserve independent canvas/controller state across base materials,
   instances, tab activation, close/reopen, save/discard, and multi-document use.
-- [ ] Integrate available asset relocation/deletion notifications needed by the
+- [x] Integrate available asset relocation/deletion notifications needed by the
   M7 exit gate without adding a MaterialEditor-local asset catalog mirror.
-- [ ] Qualify compile failure/recovery, dependency reload, preview and thumbnail
+- [x] Qualify compile failure/recovery, dependency reload, preview and thumbnail
   refresh, and deletion while a compile or edit gesture is active.
 
 #### Acceptance Gate

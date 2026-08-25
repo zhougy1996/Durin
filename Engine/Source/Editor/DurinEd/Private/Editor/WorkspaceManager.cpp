@@ -475,6 +475,27 @@ namespace Durin::Editor
 		}
 	}
 
+	auto FWorkspaceManager::RemapResourceId(
+		std::string_view SourceResourceId,
+		std::string_view DestinationResourceId) -> void
+	{
+		if (SourceResourceId.empty() || DestinationResourceId.empty()
+			|| SourceResourceId == DestinationResourceId) return;
+		const auto Remap = [&](FDocumentTab& Document) {
+			if (Document.ResourceId != SourceResourceId) return;
+			Document.ResourceId = DestinationResourceId;
+			if (Document.DocumentKey == SourceResourceId)
+				Document.DocumentKey = DestinationResourceId;
+			Document.Label = AssetLabel(DestinationResourceId);
+		};
+		for (FDocumentTab& Document : State->Documents) Remap(Document);
+		for (auto& [Id, Document] : State->DeferredDocumentOpens)
+		{
+			(void)Id;
+			Remap(Document);
+		}
+	}
+
 	auto FWorkspaceManager::GetDocuments() const -> const std::vector<FDocumentTab>&
 	{
 		return State->Documents;

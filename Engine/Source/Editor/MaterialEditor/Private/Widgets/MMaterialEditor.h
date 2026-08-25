@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/MutationExtensions.h"
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "MaterialEditorAPI.h"
@@ -22,10 +23,13 @@ namespace Durin::Editor::Material
 	struct FMaterialParameterPanelEntry;
 
 	// Hosts one material document with preview and parameter editing state.
-	class MMaterialEditor final : public ::Durin::Editor::IWorkspace
+	class MMaterialEditor final : public ::Durin::Editor::IWorkspace,
+		public Asset::IAssetMoveObserver
 	{
 	public:
-		explicit MMaterialEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
+		explicit MMaterialEditor(
+			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
+			FModuleOwnedCallbackGate OwnerGate = {});
 		MATERIALEDITOR_API ~MMaterialEditor() override;
 		MATERIALEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
 		MATERIALEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
@@ -52,7 +56,7 @@ namespace Durin::Editor::Material
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
-		auto DrawCompileStatus(DMaterialInterface* Material) -> void;
+		auto DrawCompileStatus(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
@@ -73,6 +77,9 @@ namespace Durin::Editor::Material
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
+		auto OnAssetsRelocated(
+			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
+		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
@@ -87,5 +94,6 @@ namespace Durin::Editor::Material
 		float SidebarRatio = 0.40f;
 		float PreviewPaneRatio = 0.68f;
 		bool bUsePreferredPreviewWidth = true;
+		Asset::FAssetMoveObserverHandle MoveObserverHandle = 0;
 	};
 }

@@ -80,6 +80,10 @@ namespace Durin::Editor
 		// Applies one response to the single pending close without losing it on save or discard failure.
 		DURINED_API auto ResolvePendingDocumentClose(EDocumentCloseResponse Response) -> EDocumentCloseResult;
 		DURINED_API auto RefreshDocumentState() -> void;
+		// Updates open and deferred document routing after an authoritative asset move.
+		DURINED_API auto RemapResourceId(
+			std::string_view SourceResourceId,
+			std::string_view DestinationResourceId) -> void;
 
 		DURINED_API auto GetDocuments() const -> const std::vector<FDocumentTab>&;
 		DURINED_API auto GetActiveDocument() -> FDocumentTab*;

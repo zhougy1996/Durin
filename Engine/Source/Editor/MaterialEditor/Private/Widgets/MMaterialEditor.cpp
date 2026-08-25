@@ -219,14 +219,19 @@ namespace Durin::Editor::Material
 		FMaterialParameterGroup Root;
 	};
 
-	MMaterialEditor::MMaterialEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
+	MMaterialEditor::MMaterialEditor(
+		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
+		FModuleOwnedCallbackGate OwnerGate)
 		: WorkspaceManager(InWorkspaceManager)
 		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 	{
+		MoveObserverHandle = Asset::RegisterAssetMoveObserver(
+			this, std::move(OwnerGate));
 	}
 
 	MMaterialEditor::~MMaterialEditor()
 	{
+		Asset::UnregisterAssetMoveObserver(MoveObserverHandle);
 		FinishActivePropertyEdit(true);
 		MaterialPreviews.clear();
 		MaterialGraphCanvases.clear();
@@ -262,17 +267,23 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
+		if (const ::Durin::Editor::FDocumentTab* Active = WorkspaceManager.GetActiveDocument();
+			Active && Active->Id != Document.Id)
+			CancelCanvasInteraction(Active->Id.Value);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
 		Documents.Activate(Document, Material);
 	}
 
 	auto MMaterialEditor::RequestDeactivate() -> bool
 	{
+		if (const ::Durin::Editor::FDocumentTab* Active = WorkspaceManager.GetActiveDocument())
+			CancelCanvasInteraction(Active->Id.Value);
 		return FinishActivePropertyEdit(true);
 	}
 
 	auto MMaterialEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
 	{
+		CancelCanvasInteraction(Document.Id.Value);
 		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true))
 			return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
@@ -290,6 +301,7 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
+		CancelCanvasInteraction(Document.Id.Value);
 		return Documents.Discard(FindOpenMaterial(Document.ResourceId));
 	}
 
@@ -311,6 +323,16 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		std::vector<::Durin::Editor::FDocumentId> DeletedDocuments;
+		for (const ::Durin::Editor::FDocumentTab& Document : WorkspaceManager.GetDocuments())
+		{
+			if (Document.WorkspaceType != Workspace::Type) continue;
+			const auto It = OpenMaterials.find(Document.ResourceId);
+			if (It != OpenMaterials.end() && !It->second.IsValid())
+				DeletedDocuments.push_back(Document.Id);
+		}
+		for (const ::Durin::Editor::FDocumentId Id : DeletedDocuments)
+			WorkspaceManager.RequestCloseDocument(Id);
 		return Documents.GetDocumentHost().DrawDocuments(
 			WorkspaceManager,
 			Workspace::Type,
@@ -338,7 +360,8 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
 	{
 		const auto It = OpenMaterials.find(std::string(ResourceId));
-		return It == OpenMaterials.end() ? nullptr : It->second.Get();
+		return It == OpenMaterials.end() || !It->second.IsValid()
+			? nullptr : It->second.Get();
 	}
 
 	auto MMaterialEditor::GetActiveMaterial() const -> DMaterialInterface*
@@ -572,12 +595,14 @@ namespace Durin::Editor::Material
 			ImGui::Spacing();
 			ImGui::TextDisabled("Type");
 			ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
-			DrawCompileStatus(Material);
+			DrawCompileStatus(Document, Material);
 		}
 		ImGui::EndChild();
 	}
 
-	auto MMaterialEditor::DrawCompileStatus(DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawCompileStatus(
+		const ::Durin::Editor::FDocumentTab& Document,
+		DMaterialInterface* Material) -> void
 	{
 		DMaterial* Base = FindCompiledBase(Material);
 		if (!Base)
@@ -596,9 +621,46 @@ namespace Durin::Editor::Material
 				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
 		if (Status.bLastKnownGoodDisplayed)
 			ImGui::TextDisabled("Preview uses the last known good program.");
+		uint32 DiagnosticIndex = 0;
 		for (const FMaterialCompileDiagnostic& Diagnostic
 			: Base->GetMaterialCompileDiagnostics())
-			ImGui::TextWrapped("%s", Diagnostic.Source.Message.c_str());
+		{
+			ImGui::PushID(static_cast<int>(DiagnosticIndex++));
+			bool bLocated = false;
+			switch (Diagnostic.Source.LocationKind)
+			{
+			case EMaterialProgramDiagnosticLocationKind::Node:
+			case EMaterialProgramDiagnosticLocationKind::Input:
+				bLocated = std::ranges::find(
+					Base->GetMaterialProgram()->Nodes,
+					Diagnostic.Source.NodeId,
+					&FMaterialProgramNode::Id)
+					!= Base->GetMaterialProgram()->Nodes.end();
+				break;
+			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
+				bLocated = Diagnostic.Source.LocationIndex < 8;
+				break;
+			case EMaterialProgramDiagnosticLocationKind::Program:
+				break;
+			}
+			const bool bStale = Diagnostic.Generation != Status.RequestGeneration;
+			if (bLocated && !bStale)
+			{
+				if (ImGui::SmallButton("Go"))
+				{
+					std::unique_ptr<FMaterialGraphCanvas>& Canvas =
+						MaterialGraphCanvases[Document.Id.Value];
+					if (!Canvas) Canvas = std::make_unique<FMaterialGraphCanvas>();
+					Canvas->SelectAndFrameDiagnostic(Diagnostic.Source);
+				}
+				ImGui::SameLine();
+			}
+			ImGui::TextWrapped("%s%s", Diagnostic.Source.Message.c_str(),
+				bStale || (Diagnostic.Source.LocationKind
+					!= EMaterialProgramDiagnosticLocationKind::Program && !bLocated)
+					? " (stale location)" : "");
+			ImGui::PopID();
+		}
 		const std::string_view CookDiagnostic = Base->GetMaterialCookDiagnostic();
 		if (!CookDiagnostic.empty())
 			ImGui::TextWrapped("Cook: %.*s",
@@ -1032,5 +1094,37 @@ namespace Durin::Editor::Material
 	{
 		ErrorMessage = std::move(Message);
 		DURIN_ERROR("Material editor: {}", ErrorMessage);
+	}
+
+	auto MMaterialEditor::OnAssetsRelocated(
+		std::span<const Asset::FAssetRelocationMapping> Mappings) -> void
+	{
+		struct FMove
+		{
+			std::string Source;
+			std::string Destination;
+			TObjectPtr<DMaterialInterface> Material;
+		};
+		std::vector<FMove> Moves;
+		for (const Asset::FAssetRelocationMapping& Mapping : Mappings)
+		{
+			const std::string Source = Mapping.SourcePath.ToString();
+			const auto It = OpenMaterials.find(Source);
+			if (It == OpenMaterials.end()) continue;
+			Moves.push_back({Source, Mapping.DestinationPath.ToString(), It->second});
+		}
+		for (const FMove& Move : Moves) OpenMaterials.erase(Move.Source);
+		for (const FMove& Move : Moves)
+		{
+			OpenMaterials[Move.Destination] = Move.Material;
+			WorkspaceManager.RemapResourceId(Move.Source, Move.Destination);
+		}
+	}
+
+	auto MMaterialEditor::CancelCanvasInteraction(uint64 DocumentId) -> void
+	{
+		if (const auto It = MaterialGraphCanvases.find(DocumentId);
+			It != MaterialGraphCanvases.end())
+			It->second->CancelInteraction();
 	}
 }

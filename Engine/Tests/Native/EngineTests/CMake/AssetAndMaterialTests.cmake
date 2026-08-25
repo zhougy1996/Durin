@@ -161,6 +161,7 @@ durin_add_engine_functional_test(MaterialTests
 		Private/Materials/MaterialRenderRepresentationTests.cpp
 		Private/MaterialParameterPanelModelTests.cpp
 	PRIVATE_SOURCES
+		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private

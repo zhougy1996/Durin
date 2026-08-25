@@ -1,4 +1,5 @@
 #include "MaterialGraphAuthoring.h"
+#include "Graph/MaterialGraphCanvas.h"
 
 #include "MaterialTestSupport.h"
 
@@ -261,6 +262,39 @@ TEST(FMaterialGraphAuthoringTests, ClipboardPasteRemapsInternalIdentityAndReject
 	Transactions.Clear();
 	MarkAsGarbage(Material);
 	CollectGarbage();
+}
+
+TEST(FMaterialGraphAuthoringTests, DiagnosticNavigationIsLocatedAndDocumentLocal)
+{
+	const FGuid FirstNode = FGuid::NewGuid();
+	const FGuid SecondNode = FGuid::NewGuid();
+	FMaterialGraphCanvas FirstCanvas;
+	FMaterialGraphCanvas SecondCanvas;
+	EXPECT_TRUE(FirstCanvas.SelectAndFrameDiagnostic({
+		.LocationKind = EMaterialProgramDiagnosticLocationKind::Input,
+		.NodeId = FirstNode,
+		.LocationIndex = 1,
+	}));
+	EXPECT_TRUE(FirstCanvas.GetSelection().contains(FirstNode));
+	EXPECT_TRUE(SecondCanvas.GetSelection().empty());
+	EXPECT_TRUE(SecondCanvas.SelectAndFrame(SecondNode));
+	EXPECT_TRUE(SecondCanvas.GetSelection().contains(SecondNode));
+	EXPECT_FALSE(FirstCanvas.GetSelection().contains(SecondNode));
+
+	EXPECT_TRUE(FirstCanvas.SelectAndFrameDiagnostic({
+		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+		.LocationIndex = static_cast<uint32>(EMaterialSurfaceOutput::Roughness),
+	}));
+	EXPECT_TRUE(FirstCanvas.GetSelection().empty());
+	EXPECT_EQ(FirstCanvas.GetSelectedSurfaceOutput(),
+		EMaterialSurfaceOutput::Roughness);
+	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
+		.LocationKind = EMaterialProgramDiagnosticLocationKind::Program,
+	}));
+	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
+		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+		.LocationIndex = 99,
+	}));
 }
 
 TEST(FMaterialGraphAuthoringTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)

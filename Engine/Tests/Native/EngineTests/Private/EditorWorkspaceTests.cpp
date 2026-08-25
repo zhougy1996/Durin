@@ -301,6 +301,32 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/M_Stone");
 }
 
+TEST(FEditorWorkspaceManagerTests, RemapsOpenPerResourceDocumentsAfterAssetRelocation)
+{
+	Durin::Editor::FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
+		.AssetEditors = {MakeAssetEditor("Material", "MaterialEditor")},
+	});
+	ASSERT_TRUE(Registration);
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/Old/M_Stone", "Material"));
+	ASSERT_EQ(Manager.GetDocuments().size(), 1u);
+	const Durin::Editor::FDocumentId DocumentId = Manager.GetDocuments().front().Id;
+
+	Manager.RemapResourceId(
+		"/Game/Materials/Old/M_Stone", "/Game/Materials/New/M_Granite");
+	ASSERT_EQ(Manager.GetDocuments().size(), 1u);
+	const Durin::Editor::FDocumentTab& Document = Manager.GetDocuments().front();
+	EXPECT_EQ(Document.Id, DocumentId);
+	EXPECT_EQ(Document.ResourceId, "/Game/Materials/New/M_Granite");
+	EXPECT_EQ(Document.DocumentKey, "/Game/Materials/New/M_Granite");
+	EXPECT_EQ(Document.Label, "M_Granite");
+	EXPECT_TRUE(Manager.ActivateDocument(DocumentId));
+	EXPECT_EQ(Workspace->LastActivatedResource,
+		"/Game/Materials/New/M_Granite");
+}
+
 TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterCompletion)
 {
 	Durin::Editor::FWorkspaceManager Manager;

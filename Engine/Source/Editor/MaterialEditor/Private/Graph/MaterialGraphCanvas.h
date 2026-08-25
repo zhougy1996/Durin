@@ -22,9 +22,17 @@ namespace Durin::Editor::Material
 			float Height,
 			const FReportError& ReportError) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
+		auto SelectAndFrameDiagnostic(
+			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
+		auto CancelInteraction() -> void;
 		auto GetSelection() const -> const std::unordered_set<FGuid>&
 		{
 			return SelectedNodes;
+		}
+		auto GetSelectedSurfaceOutput() const
+			-> std::optional<EMaterialSurfaceOutput>
+		{
+			return SelectedSurfaceOutput;
 		}
 
 	private:
@@ -36,6 +44,7 @@ namespace Durin::Editor::Material
 		float Zoom = 1.0f;
 		std::unordered_set<FGuid> SelectedNodes;
 		FGuid PendingFrameNode;
+		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
 		FGuid LinkSourceNode;
 		ImVec2 MarqueeStart{};
 		bool bMarqueeActive = false;

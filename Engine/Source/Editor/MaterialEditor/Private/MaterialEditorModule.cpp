@@ -39,7 +39,8 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		MaterialThumbnailRegistration.reset();
 		MaterialInstanceThumbnailRegistration.reset();
-		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
+		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(
+			WorkspaceManager, EditorExtensionCallbacks.GetGate());
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
