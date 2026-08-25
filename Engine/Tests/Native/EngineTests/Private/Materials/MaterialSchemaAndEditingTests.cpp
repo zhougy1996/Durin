@@ -664,7 +664,7 @@ TEST(FMaterialProgramCompilerTests,
 		Input.Environment, EnvironmentError)) << EnvironmentError;
 	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
-		"/Engine/StaticMeshBasePass");
+		"/Engine/MaterialCompilerEnvironment");
 	EXPECT_FALSE(Input.Environment.Dependencies.front().ContentHash.IsZero());
 	const auto Normalized = Durin::NormalizeMaterialProgram(Input);
 	ASSERT_TRUE(Normalized);

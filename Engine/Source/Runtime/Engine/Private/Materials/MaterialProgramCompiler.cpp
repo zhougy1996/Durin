@@ -266,7 +266,8 @@ namespace Durin
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
 		FShaderSourceDependencyFingerprint SourceTree;
 		if (!BuildShaderSourceTreeFingerprint(
-			"/Engine/StaticMeshBasePass", Options, SourceTree, OutError))
+			"/Engine/MaterialCompilerEnvironment", Options, SourceTree,
+			OutError))
 			return false;
 
 		FMaterialCompilerEnvironment Environment;
