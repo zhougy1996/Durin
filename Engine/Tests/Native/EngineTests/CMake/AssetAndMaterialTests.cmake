@@ -12,18 +12,6 @@ durin_add_engine_functional_test(AssetCompilingManagerTests
 	SOURCES Private/AssetCompilingManagerTests.cpp
 )
 
-durin_add_engine_functional_test(AssetBuildCoreTests
-	EDITOR_ONLY
-	KIND contract
-	DOMAINS derived-data
-	MODULES asset-build-core
-	RUNTIME_STACK_RATIONALE
-		"Exercises the Developer-only synchronous build-session contracts."
-	SOURCES
-		Private/AssetBuildCoreTests.cpp
-	LIBRARIES AssetBuildCore
-)
-
 durin_add_engine_functional_test(DerivedDataCacheTests
 	EDITOR_ONLY
 	KIND contract
@@ -31,7 +19,9 @@ durin_add_engine_functional_test(DerivedDataCacheTests
 	MODULES derived-data-cache
 	RUNTIME_STACK_RATIONALE
 		"Exercises the Developer-only derived-data cache contract."
-	SOURCES Private/DerivedDataCacheTests.cpp
+	SOURCES
+		Private/DerivedDataCacheTests.cpp
+		Private/DerivedDataBuildTests.cpp
 	LIBRARIES DerivedDataCache
 )
 

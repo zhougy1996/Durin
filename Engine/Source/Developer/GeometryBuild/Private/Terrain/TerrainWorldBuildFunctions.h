@@ -1,10 +1,12 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "Terrain/TerrainWorldTile.h"
 
 namespace Durin::Asset::Build::Private
 {
+	using namespace ::Durin::DerivedData;
+
 	inline constexpr std::string_view TerrainWorldProductInputName = "TerrainWorldProductBody";
 
 	auto GetTerrainWorldBuildFunctionIdentity(ETerrainTileProductClass ProductClass)

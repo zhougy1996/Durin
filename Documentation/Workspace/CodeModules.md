@@ -56,8 +56,7 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DerivedDataCache` | Backend-neutral synchronous bucket/key cache contract, immutable byte results, local filesystem persistence, atomic replacement, status reporting, and bounded trim; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
-| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, DDC status adaptation, and build-function registration; `FBuildSession` is the asset-recipe cache request path | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `DerivedDataCache` | Backend-neutral synchronous bucket/key cache, local filesystem persistence, and the family-neutral Build Framework: immutable definitions/values/policy, synchronous local sessions, cache-status adaptation, and build-function registration; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
 | `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned build-function transaction, typed recipes, offline compression, diagnostics, and the optional Texture2D compilation domain | [source](../../Engine/Source/Developer/TextureBuild) |
 | `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain keys, private codecs/functions, one module-owned registration transaction, typed recipes, DDC policy, diagnostics, and Runtime adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 
@@ -71,7 +70,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
-| generic DDC bucket/key get, put, or bounded trim | `DerivedDataCache` | `AssetBuildCore` only for Build policy and recipe orchestration |
+| generic DDC bucket/key get, put, bounded trim, Build policy, or recipe orchestration | `DerivedDataCache` | Recipe modules only for typed inputs, execution, and validation |
 | asset package, registry, redirector, cook | `AssetCore` | `Engine` for asset-type policy; editor modules for UI |
 | actor, component, level, world, runtime asset type | `Engine` | `CoreDObject`, `AssetCore`, or rendering modules at their owned boundary |
 | shader, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use |
@@ -79,8 +78,8 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
-| importing assets | `AssetForge`, `AssetForgeBuiltins` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `AssetBuildCore` | `DerivedDataCache` for opaque persistence; `GeometryBuild` or `TextureBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
+| importing assets | `AssetForge`, `AssetForgeBuiltins` | `DerivedDataCache` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
+| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `GeometryBuild` or `TextureBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

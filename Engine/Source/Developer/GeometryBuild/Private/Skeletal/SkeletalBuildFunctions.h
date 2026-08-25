@@ -1,10 +1,12 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "Skeletal/SkeletalBuildOperations.h"
 
 namespace Durin::Asset::Build::Private
 {
+	using namespace ::Durin::DerivedData;
+
 	extern const FBuildFunctionIdentity SkeletalMeshFunctionIdentity;
 	extern const FBuildFunctionIdentity AnimationClipFunctionIdentity;
 	inline constexpr std::string_view SkeletalMeshInputName = "SkeletalMeshBuildInput";

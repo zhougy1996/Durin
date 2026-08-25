@@ -132,7 +132,7 @@ namespace Durin::Editor::Texture
 						Settings,
 						Error,
 						Asset::Build::ETexture2DBuildPriority::Interactive,
-						[DeferredCompletion](Asset::Build::FAsyncBuildResult Result) {
+						[DeferredCompletion](Asset::Build::FTexture2DAuthoringResult Result) {
 							(*DeferredCompletion)(
 								Result.Succeeded(), std::move(Result.Diagnostic));
 						}))

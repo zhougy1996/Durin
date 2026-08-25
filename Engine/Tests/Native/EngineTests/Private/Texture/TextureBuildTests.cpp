@@ -497,7 +497,7 @@ TEST(FTexture2DTests, BuildOwnedAuthoringServicePublishesLatestNormalizedProduct
 		TransparentPngData, SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngData);
-	std::optional<Durin::Asset::Build::FAsyncBuildResult> CompletionResult;
+	std::optional<Durin::Asset::Build::FTexture2DAuthoringResult> CompletionResult;
 	int32 CompletionCount = 0;
 	ASSERT_TRUE(Durin::Asset::Build::SubmitTexture2DBuild(*Imported.Asset, {
 		.SourceData = std::move(SourceData),
@@ -509,7 +509,7 @@ TEST(FTexture2DTests, BuildOwnedAuthoringServicePublishesLatestNormalizedProduct
 		.DecoderVersion = 1,
 		.SourceFileSize = sizeof(TransparentPngBytes),
 		.Priority = Durin::Asset::Build::ETexture2DBuildPriority::Interactive}, Error,
-		[&](Durin::Asset::Build::FAsyncBuildResult Result) {
+		[&](Durin::Asset::Build::FTexture2DAuthoringResult Result) {
 			++CompletionCount;
 			CompletionResult = std::move(Result);
 		})) << Error;
@@ -519,7 +519,7 @@ TEST(FTexture2DTests, BuildOwnedAuthoringServicePublishesLatestNormalizedProduct
 	ASSERT_TRUE(CompletionResult.has_value());
 	EXPECT_EQ(CompletionCount, 1);
 	EXPECT_EQ(CompletionResult->Status,
-		Durin::Asset::Build::EAsyncBuildStatus::Succeeded);
+		Durin::Asset::Build::ETexture2DAuthoringStatus::Succeeded);
 	EXPECT_EQ(Imported.Asset->GetMaxResolution(), 1u);
 	ASSERT_NE(Imported.Asset->GetPlatformData(), nullptr);
 	EXPECT_EQ(Imported.Asset->GetPlatformData()->Mips.front().Width, 1u);
@@ -560,15 +560,15 @@ TEST(FTexture2DTests, AsyncAuthoringCompletionReportsFailureAndSupersessionOnce)
 		Encoded, FailedSource, Error)) << Error;
 	auto FailedRequest = MakeRequest(std::move(FailedSource));
 	FailedRequest.Settings.Usage = static_cast<Durin::ETextureUsage>(255);
-	std::optional<Durin::Asset::Build::FAsyncBuildResult> FailedResult;
+	std::optional<Durin::Asset::Build::FTexture2DAuthoringResult> FailedResult;
 	ASSERT_TRUE(Durin::Asset::Build::SubmitTexture2DBuild(
 		*Imported.Asset, std::move(FailedRequest), Error,
-		[&](Durin::Asset::Build::FAsyncBuildResult Result) {
+		[&](Durin::Asset::Build::FTexture2DAuthoringResult Result) {
 			FailedResult = std::move(Result);
 		})) << Error;
 	EXPECT_FALSE(Durin::Asset::Build::WaitForTexture2DBuild(*Imported.Asset, 10.0));
 	ASSERT_TRUE(FailedResult.has_value());
-	EXPECT_EQ(FailedResult->Status, Durin::Asset::Build::EAsyncBuildStatus::Failed);
+	EXPECT_EQ(FailedResult->Status, Durin::Asset::Build::ETexture2DAuthoringStatus::Failed);
 
 	Durin::FTextureSourceData FirstSource;
 	Durin::FTextureSourceData SecondSource;
@@ -576,28 +576,28 @@ TEST(FTexture2DTests, AsyncAuthoringCompletionReportsFailureAndSupersessionOnce)
 		Encoded, FirstSource, Error)) << Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		Encoded, SecondSource, Error)) << Error;
-	std::optional<Durin::Asset::Build::FAsyncBuildResult> FirstResult;
-	std::optional<Durin::Asset::Build::FAsyncBuildResult> SecondResult;
+	std::optional<Durin::Asset::Build::FTexture2DAuthoringResult> FirstResult;
+	std::optional<Durin::Asset::Build::FTexture2DAuthoringResult> SecondResult;
 	int32 FirstCompletionCount = 0;
 	ASSERT_TRUE(Durin::Asset::Build::SubmitTexture2DBuild(
 		*Imported.Asset, MakeRequest(std::move(FirstSource)), Error,
-		[&](Durin::Asset::Build::FAsyncBuildResult Result) {
+		[&](Durin::Asset::Build::FTexture2DAuthoringResult Result) {
 			++FirstCompletionCount;
 			FirstResult = std::move(Result);
 		})) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::SubmitTexture2DBuild(
 		*Imported.Asset, MakeRequest(std::move(SecondSource)), Error,
-		[&](Durin::Asset::Build::FAsyncBuildResult Result) {
+		[&](Durin::Asset::Build::FTexture2DAuthoringResult Result) {
 			SecondResult = std::move(Result);
 		})) << Error;
 	ASSERT_TRUE(FirstResult.has_value());
 	EXPECT_EQ(FirstCompletionCount, 1);
 	EXPECT_EQ(FirstResult->Status,
-		Durin::Asset::Build::EAsyncBuildStatus::Superseded);
+		Durin::Asset::Build::ETexture2DAuthoringStatus::Superseded);
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Imported.Asset, 10.0));
 	ASSERT_TRUE(SecondResult.has_value());
 	EXPECT_EQ(SecondResult->Status,
-		Durin::Asset::Build::EAsyncBuildStatus::Succeeded);
+		Durin::Asset::Build::ETexture2DAuthoringStatus::Succeeded);
 	EXPECT_EQ(FirstCompletionCount, 1);
 }
 

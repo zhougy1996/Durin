@@ -1,6 +1,6 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "GeometryBuildFunctionRegistry.h"
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
@@ -18,6 +18,8 @@ namespace Durin
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	auto BuildTerrainHeightmap(
 		FTerrainHeightmapBuildRequest Request,
 		FTerrainHeightmapBuildProduct& OutProduct,

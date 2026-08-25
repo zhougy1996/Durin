@@ -17,7 +17,6 @@ set(_durin_editor_test_modules
 	MonaImGui
 	GeometryBuild
 	DerivedDataCache
-	AssetBuildCore
 	TextureBuild
 	AssetForgeBuiltins
 )

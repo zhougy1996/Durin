@@ -1,10 +1,12 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
 namespace Durin::Asset::Build::Private
 {
+	using namespace ::Durin::DerivedData;
+
 	extern const FBuildFunctionIdentity StaticMeshFunctionIdentity;
 	extern const FBuildFunctionIdentity StaticMeshCollisionFunctionIdentity;
 	inline constexpr std::string_view StaticMeshInputName = "StaticMeshBuildInput";

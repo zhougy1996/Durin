@@ -1,12 +1,14 @@
 #include "Terrain/TerrainWorldTile.h"
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Serialization/BinaryFormat.h"
 #include "GeometryBuildFunctionRegistry.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	namespace
 	{
 		constexpr uint32 ProductEnvelopeMagic = 0x44505754; // TWPD

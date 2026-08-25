@@ -3,10 +3,10 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [
-        "Core"
+        "Core",
+        "DerivedDataCache"
     ],
     "PublicDependencies": [
-        "AssetBuildCore",
         "Engine"
     ],
     "OptionalPrivateDependencies": [],

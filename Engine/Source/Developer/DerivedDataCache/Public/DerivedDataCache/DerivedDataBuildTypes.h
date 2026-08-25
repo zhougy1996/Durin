@@ -1,15 +1,15 @@
 #pragma once
 
-#include "AssetBuildCoreAPI.h"
+#include "DerivedDataCacheAPI.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::Asset::Build
+namespace Durin::DerivedData
 {
 	// Immutable named bytes exchanged with the derived-data cache.
 	class FBuildValue
 	{
 	public:
-		ASSETBUILDCORE_API static auto FromOwned(
+		DERIVEDDATACACHE_API static auto FromOwned(
 			std::string Name, std::vector<std::byte> Bytes) -> FBuildValue;
 
 		auto GetName() const -> std::string_view { return Name; }
@@ -32,7 +32,7 @@ namespace Durin::Asset::Build
 	class FBuildKey
 	{
 	public:
-		ASSETBUILDCORE_API static auto FromString(
+		DERIVEDDATACACHE_API static auto FromString(
 			std::string_view Value, std::string* OutError = nullptr) -> FBuildKey;
 		auto IsValid() const -> bool { return Value.size() == 32; }
 		auto ToString() const -> std::string_view { return Value; }

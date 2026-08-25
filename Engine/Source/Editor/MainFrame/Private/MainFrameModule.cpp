@@ -133,7 +133,6 @@ namespace Durin::Editor::MainFrame
 			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
-				FModuleManager::Get().LoadModuleChecked("AssetBuildCore");
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
 				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");

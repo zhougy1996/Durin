@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, DerivedDataCache, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
+Modules: AssetCore, DerivedDataCache, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
 Last reviewed: 2026-08-26
 
@@ -19,17 +19,17 @@ Developer `TextureBuild` and `GeometryBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `DerivedDataCache` owns the backend-neutral
-`bucket + key -> opaque immutable bytes` contract and the private local
-filesystem backend. `AssetBuildCore` owns family-neutral Build policy and
-adapts cache results inside `FBuildSession`; recipe modules reach cache
-query/store only through that session. `AssetCore` owns package, descriptor, container, manifest, and
+`bucket + key -> opaque immutable bytes` contract, the private local filesystem
+backend, and the family-neutral Build Framework that adapts cache results inside
+`FBuildSession`; recipe modules reach cache query/store only through that
+session. `AssetCore` owns package, descriptor, container, manifest, and
 atomic-publication formats without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer
 version change does not by itself make a compatible payload unreadable.
 
-`AssetBuildCore` owns a synchronous local derived-data request boundary. An
+`DerivedDataCache` owns a synchronous local derived-data request boundary. An
 immutable `FBuildDefinition` selects a versioned local `IBuildFunction`, carries
 an existing canonical key plus opaque local inputs, and declares one expected
 value. `FBuildSession` performs query, cached-value validation, local build,
@@ -54,13 +54,13 @@ publication. Shader and other unrelated DDC paths remain direct family clients.
 Engine's object-aware compilation aggregate owns asynchronous domain
 registration, frame pumping, selected-object finish/cancel, aggregate progress,
 successful post-compile notification, and shutdown placement. Concrete domains
-retain scheduling, DDC, validation, and publication. AssetBuildCore build
+retain scheduling, DDC, validation, and publication. DerivedDataCache build
 function registration still uses a module callback gate for bounded synchronous
 calls but does not become a compilation domain. See
 [Asset Compilation](AssetCompilation.md).
 
-Accepted asynchronous family requests use AssetBuildCore's terminal
-`FAsyncBuildResult` vocabulary and complete their observer exactly once,
+Accepted asynchronous Texture2D requests use TextureBuild's terminal
+`FTexture2DAuthoringResult` vocabulary and complete their observer exactly once,
 including cancellation and supersession. The family service still owns request
 identity, workers, typed publication, and the thread on which it pumps that
 completion. Editor-side commit and recovery sequencing is separately defined by

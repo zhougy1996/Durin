@@ -1,9 +1,9 @@
 #pragma once
 
-#include "AssetBuild/BuildDefinition.h"
+#include "DerivedDataCache/DerivedDataBuildDefinition.h"
 #include "Modules/ModularFeature.h"
 
-namespace Durin::Asset::Build
+namespace Durin::DerivedData
 {
 	struct FBuildFunctionConfig
 	{
@@ -45,25 +45,25 @@ namespace Durin::Asset::Build
 	{
 	public:
 		FBuildFunctionRegistration() = default;
-		ASSETBUILDCORE_API ~FBuildFunctionRegistration();
+		DERIVEDDATACACHE_API ~FBuildFunctionRegistration();
 		FBuildFunctionRegistration(const FBuildFunctionRegistration&) = delete;
 		auto operator=(const FBuildFunctionRegistration&) -> FBuildFunctionRegistration& = delete;
-		ASSETBUILDCORE_API FBuildFunctionRegistration(FBuildFunctionRegistration&&) noexcept;
-		ASSETBUILDCORE_API auto operator=(FBuildFunctionRegistration&&) noexcept
+		DERIVEDDATACACHE_API FBuildFunctionRegistration(FBuildFunctionRegistration&&) noexcept;
+		DERIVEDDATACACHE_API auto operator=(FBuildFunctionRegistration&&) noexcept
 			-> FBuildFunctionRegistration&;
-		ASSETBUILDCORE_API auto Reset() -> void;
+		DERIVEDDATACACHE_API auto Reset() -> void;
 		auto IsValid() const -> bool { return Generation != 0; }
 	private:
 		FBuildFunctionIdentity Identity;
 		uint64 Generation = 0;
-		friend ASSETBUILDCORE_API auto RegisterBuildFunction(
+		friend DERIVEDDATACACHE_API auto RegisterBuildFunction(
 			FBuildFunctionIdentity, std::shared_ptr<IBuildFunction>,
 			FModuleOwnedCallbackGate, std::string*) -> FBuildFunctionRegistration;
 	};
 
 	// Module providers pass their callback gate. A process-resident direct-linked
 	// provider may omit it only when no unload boundary exists in that process.
-	ASSETBUILDCORE_API auto RegisterBuildFunction(
+	DERIVEDDATACACHE_API auto RegisterBuildFunction(
 		FBuildFunctionIdentity Identity, std::shared_ptr<IBuildFunction> Function,
 		FModuleOwnedCallbackGate OwnerGate, std::string* OutError = nullptr)
 		-> FBuildFunctionRegistration;

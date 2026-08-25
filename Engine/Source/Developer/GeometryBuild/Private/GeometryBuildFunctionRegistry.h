@@ -1,9 +1,11 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	auto EnsureGeometryBuildFunctions(
 		std::string* OutError = nullptr, FModuleOwnedCallbackGate Gate = {}) -> bool;
 	auto InitializeGeometryBuildFunctions(

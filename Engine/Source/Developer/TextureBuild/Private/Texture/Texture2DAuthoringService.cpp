@@ -19,7 +19,7 @@ namespace Durin::Asset::Build
 			uint64 LastRequestId = 0;
 			bool bLastRequestFailed = false;
 			FTexture2DPublicationContext PublicationContext;
-			FAsyncBuildCompletion Completion;
+			FTexture2DAuthoringCompletion Completion;
 		};
 
 		std::mutex GTexture2DAuthoringMutex;
@@ -39,7 +39,7 @@ namespace Durin::Asset::Build
 			CheckGameThread();
 			TWeakObjectPtr<DTexture2D> WeakTexture;
 			FTexture2DPublicationContext PublicationContext;
-			FAsyncBuildCompletion Completion;
+			FTexture2DAuthoringCompletion Completion;
 			{
 				std::lock_guard Lock(GTexture2DAuthoringMutex);
 				FTexture2DAuthoringState* State = FindStateLocked(Result.AssetIdentity);
@@ -56,7 +56,7 @@ namespace Durin::Asset::Build
 			if (!Texture || Texture->GetObjectPath() != Result.AssetIdentity)
 			{
 				if (Completion) Completion({
-					.Status = EAsyncBuildStatus::Failed,
+					.Status = ETexture2DAuthoringStatus::Failed,
 					.Diagnostic = "The Texture2D authoring target is unavailable."});
 				return;
 			}
@@ -65,7 +65,7 @@ namespace Durin::Asset::Build
 			{
 				if (Completion) Completion({
 					.Status = Result.Phase == ETexture2DBuildPhase::Cancelled
-						? EAsyncBuildStatus::Canceled : EAsyncBuildStatus::Failed,
+						? ETexture2DAuthoringStatus::Canceled : ETexture2DAuthoringStatus::Failed,
 					.Diagnostic = Result.Error.empty()
 						? "The Texture2D authoring build did not produce a publishable product."
 						: std::move(Result.Error)});
@@ -99,7 +99,7 @@ namespace Durin::Asset::Build
 				DURIN_ERROR("Texture2D authoring publication failed for {}: {}",
 					Result.AssetIdentity, Error);
 				if (Completion) Completion({
-					.Status = EAsyncBuildStatus::Failed,
+					.Status = ETexture2DAuthoringStatus::Failed,
 					.Diagnostic = std::move(Error)});
 				return;
 			}
@@ -107,7 +107,7 @@ namespace Durin::Asset::Build
 				std::lock_guard Lock(GTexture2DAuthoringMutex);
 				GSuccessfullyPublishedTextures.emplace_back(Texture);
 			}
-			if (Completion) Completion({.Status = EAsyncBuildStatus::Succeeded});
+			if (Completion) Completion({.Status = ETexture2DAuthoringStatus::Succeeded});
 		}
 
 		auto PumpTextureCompletions(uint32 MaximumCount) -> FAssetCompileProcessResult
@@ -246,7 +246,7 @@ namespace Durin::Asset::Build
 		DTexture2D& Texture,
 		FTexture2DAuthoringRequest Request,
 		std::string& OutError,
-		FAsyncBuildCompletion Completion) -> bool
+		FTexture2DAuthoringCompletion Completion) -> bool
 	{
 		CheckGameThread();
 		if (!Request.SourceData.IsValid() || Request.SourcePath.IsEmpty()
@@ -271,7 +271,7 @@ namespace Durin::Asset::Build
 		const std::string Identity = Texture.GetObjectPath();
 		uint64 Generation = 0;
 		uint64 PreviousRequestId = 0;
-		FAsyncBuildCompletion SupersededCompletion;
+		FTexture2DAuthoringCompletion SupersededCompletion;
 		{
 			std::lock_guard Lock(GTexture2DAuthoringMutex);
 			FTexture2DAuthoringState& State = GTexture2DAuthoringStates[Identity];
@@ -327,7 +327,7 @@ namespace Durin::Asset::Build
 					GTexture2DAuthoringStates.erase(Identity);
 			}
 			if (SupersededCompletion) SupersededCompletion({
-				.Status = EAsyncBuildStatus::Superseded,
+				.Status = ETexture2DAuthoringStatus::Superseded,
 				.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
 			OutError = "The TextureBuild coordinator rejected the request.";
 			return false;
@@ -342,7 +342,7 @@ namespace Durin::Asset::Build
 			}
 		}
 		if (SupersededCompletion) SupersededCompletion({
-			.Status = EAsyncBuildStatus::Superseded,
+			.Status = ETexture2DAuthoringStatus::Superseded,
 			.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
 		OutError.clear();
 		return true;

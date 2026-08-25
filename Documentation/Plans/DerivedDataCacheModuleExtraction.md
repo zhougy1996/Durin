@@ -500,14 +500,14 @@ overlap build process trees.
 
 ## Related Code
 
-- [`AssetBuildCore.dmodule`](../../Engine/Source/Developer/AssetBuildCore/AssetBuildCore.dmodule)
-- [`BuildTypes.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildTypes.h)
-- [`BuildFunction.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildFunction.h)
-- [`BuildSession.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
-- [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [`DerivedDataCache.dmodule`](../../Engine/Source/Developer/DerivedDataCache/DerivedDataCache.dmodule)
+- [`DerivedDataBuildTypes.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildTypes.h)
+- [`DerivedDataBuildFunction.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildFunction.h)
+- [`DerivedDataBuildSession.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildSession.h)
+- [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
 - [`DerivedDataCache.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
 - [`FileSystemCacheBackend.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/FileSystemCacheBackend.cpp)
-- [`AssetBuildCoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
+- [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
 - [`DerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
 - [`Engine.dproject`](../../Engine/Engine.dproject)
 - [`CMakeLists.txt`](../../CMakeLists.txt)

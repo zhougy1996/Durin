@@ -89,7 +89,7 @@ new module to the `DurinEditor` root and `Source/Developer`, while the project
 descriptor roots and dependency closure still decide whether that module is
 present. Developer modules required by headless programs are selected
 explicitly by those programs; `DurinGame` does not gain a Developer branch.
-The Engine editor currently selects `AssetBuildCore`, `TextureBuild`, and
+The Engine editor currently selects `DerivedDataCache`, `TextureBuild`, and
 `GeometryBuild`. Package audit, storage inventory, and canonical-resave dry-run
 select no Developer module. Canonical-resave apply explicitly loads
 `GeometryBuild`, `TextureBuild`, and `AssetForgeBuiltins` so uncooked PostLoad

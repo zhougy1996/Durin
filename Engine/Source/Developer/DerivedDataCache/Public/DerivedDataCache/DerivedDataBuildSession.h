@@ -1,15 +1,15 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 
-namespace Durin::Asset::Build
+namespace Durin::DerivedData
 {
 	class FBuildSession
 	{
 	public:
 		// Stateless for local synchronous execution today; the named session
 		// boundary leaves room for shared batch or remote execution context.
-		ASSETBUILDCORE_API auto Build(
+		DERIVEDDATACACHE_API auto Build(
 			const FBuildDefinition& Definition,
 			const FBuildPolicy& Policy = {},
 			const FBuildCancellationToken* Cancellation = nullptr) const -> FBuildOutput;

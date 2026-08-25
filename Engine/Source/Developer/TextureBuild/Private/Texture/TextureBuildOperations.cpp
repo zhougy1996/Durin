@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "AssetAuthoring.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
@@ -14,6 +14,8 @@
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	namespace
 	{
 		auto IsCanonicalTextureHash(std::string_view Hash) -> bool

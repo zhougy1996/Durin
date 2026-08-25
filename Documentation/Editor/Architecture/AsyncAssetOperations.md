@@ -2,7 +2,7 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: AssetBuildCore, TextureBuild, AssetForge, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
+Modules: TextureBuild, AssetForge, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
 
 Last reviewed: 2026-08-24
 
@@ -25,9 +25,9 @@ scheduler.
 
 ## Build Completion Contract
 
-`FAsyncBuildResult` identifies one terminal outcome as `Succeeded`, `Failed`,
+`FTexture2DAuthoringResult` identifies one terminal outcome as `Succeeded`, `Failed`,
 `Canceled`, or `Superseded` and carries a bounded diagnostic. An accepted build
-request invokes its `FAsyncBuildCompletion` exactly once on the contributing
+request invokes its `FTexture2DAuthoringCompletion` exactly once on the contributing
 service's completion thread. Rejection before acceptance is returned
 synchronously and does not invoke completion.
 
@@ -83,8 +83,10 @@ For Texture2D shared-source replacement:
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
 
-Other asset families can reuse the terminal result and compensating operation
-without adopting Texture2D source or package policy.
+Other asset families can reuse the compensating operation without adopting
+Texture2D's terminal result, source, or package policy. A shared result contract
+belongs in Engine only after multiple compilation domains have a real common
+consumer.
 
 AssetForge import uses the same ownership split. Worker rounds capture/hash sources,
 discover dependencies, translate, execute worker-safe planning passes, and build

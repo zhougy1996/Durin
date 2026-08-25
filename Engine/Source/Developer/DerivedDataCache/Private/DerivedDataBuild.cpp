@@ -1,7 +1,7 @@
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "DerivedDataCache/DerivedDataCache.h"
 
-namespace Durin::Asset::Build
+namespace Durin::DerivedData
 {
 	namespace
 	{
@@ -260,7 +260,6 @@ namespace Durin::Asset::Build
 		const FBuildFunctionConfig Config = Function->GetConfig();
 		if (Config.ExpectedValueName != Definition.GetExpectedValueName())
 			return Fail(EBuildFailurePhase::Request, "Build value contract does not match function configuration.");
-		using namespace Durin::DerivedData;
 		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
 		const FCacheKey CacheKey = FCacheKey::FromString(Definition.GetKey().ToString());
 		if (!CacheBucket.IsValid() || !CacheKey.IsValid())

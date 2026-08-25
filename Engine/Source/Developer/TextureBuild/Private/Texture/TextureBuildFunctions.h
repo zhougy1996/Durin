@@ -1,12 +1,14 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin::Asset::Build::Private
 {
+	using namespace ::Durin::DerivedData;
+
 	extern const FBuildFunctionIdentity Texture2DFunctionIdentity;
 	extern const FBuildFunctionIdentity TextureCubeFunctionIdentity;
 	extern const FBuildFunctionIdentity VolumeTextureFunctionIdentity;

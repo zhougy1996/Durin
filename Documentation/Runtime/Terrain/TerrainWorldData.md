@@ -2,7 +2,7 @@
 
 Summary: Define the canonical Terrain World lattice, tile products, packages, budgets, and spatial-interest boundary.
 
-Modules: Engine, GeometryBuild, AssetBuildCore, AssetCore
+Modules: Engine, GeometryBuild, DerivedDataCache, AssetCore
 
 Last reviewed: 2026-08-26
 
@@ -277,7 +277,8 @@ class before any body or dependency allocation. The implemented bodies are:
 - Metadata: signed extrema, geometric range, canonical world-space XYZ bounds,
   and the ordered five-class product directory with each schema ceiling.
 
-The five AssetBuildCore functions cache and validate canonical bodies
+The five GeometryBuild functions use the DerivedDataCache Build Framework to
+cache and validate canonical bodies
 independently. Generation envelopes are applied only at atomic publication, so
 one body can be reused without putting generation or package placement in its
 build identity. A generation publisher accepts exactly the five checked

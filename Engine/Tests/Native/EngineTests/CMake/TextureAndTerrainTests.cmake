@@ -105,12 +105,12 @@ durin_add_engine_functional_test(TerrainHeightmapCookTests
 durin_add_engine_functional_test(TerrainWorldBuildTests
 	KIND integration
 	DOMAINS asset-build asset-cook terrain
-	MODULES geometry-build asset-build-core asset-core
+	MODULES geometry-build derived-data-cache asset-core
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises offline Terrain World tile codecs, build identities, generation publication, and Cook contracts."
 	SOURCES Private/Terrain/TerrainWorldBuildTests.cpp
-	LIBRARIES GeometryBuild AssetBuildCore
+	LIBRARIES GeometryBuild DerivedDataCache
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests

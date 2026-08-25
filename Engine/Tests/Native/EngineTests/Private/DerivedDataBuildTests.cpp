@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset::Build;
+	using namespace Durin::DerivedData;
 	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
 	{
 		std::vector<std::byte> Result;
@@ -19,9 +19,9 @@ namespace
 
 	auto GetAssetBuildTestGate() -> FModuleOwnedCallbackGate
 	{
-		static FModuleTestOwner Context("AssetBuildCoreTests.Functions");
+		static FModuleTestOwner Context("DerivedDataBuildTests.Functions");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
-			"AssetBuildCoreTests.Functions");
+			"DerivedDataBuildTests.Functions");
 		return Registration.GetGate();
 	}
 
@@ -30,7 +30,7 @@ namespace
 	public:
 		FScopedDerivedDataCacheDirectory()
 			: Previous(FPaths::DerivedDataCacheDir()),
-			  Root(Testing::GetTestWorkDirectory() / "AssetBuildCoreTests")
+			  Root(Testing::GetTestWorkDirectory() / "DerivedDataBuildTests")
 		{
 			Testing::RemoveTestWorkDirectory(Root);
 			FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
@@ -54,7 +54,7 @@ namespace
 
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheBucket = "AssetBuildCoreTests/Policy",
+			return {.CacheBucket = "DerivedDataBuildTests/Policy",
 				.ExpectedValueName = "PolicyOutput", .MaximumValueBytes = 1024};
 		}
 
@@ -89,7 +89,7 @@ namespace
 	}
 }
 
-TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
+TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 {
 	FScopedDerivedDataCacheDirectory CacheDirectory;
 	class FSampleFunction final : public IBuildFunction
@@ -98,7 +98,7 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		mutable uint32 BuildCount = 0;
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheBucket = "AssetBuildCoreTests/Session",
+			return {.CacheBucket = "DerivedDataBuildTests/Session",
 				.ExpectedValueName = "SampleOutput", .MaximumValueBytes = 1024,
 				.CleanupBudgetBytes = 4096, .CleanupDeleteLimit = 2};
 		}
@@ -171,7 +171,7 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	EXPECT_EQ(QueryOnly.PhaseDurations.LocalBuildNanoseconds, 0u);
 }
 
-TEST(FAssetBuildCoreTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)
+TEST(FDerivedDataBuildTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)
 {
 	std::string Error;
 	FBuildDefinition Definition;
@@ -185,7 +185,7 @@ TEST(FAssetBuildCoreTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)
 	EXPECT_FALSE(Mismatch.Build(Definition, &Error));
 }
 
-TEST(FAssetBuildCoreTests, NumericTargetFactsUseExactBoundedUnsignedDecimalSyntax)
+TEST(FDerivedDataBuildTests, NumericTargetFactsUseExactBoundedUnsignedDecimalSyntax)
 {
 	uint32 Value = 99;
 	EXPECT_TRUE(ParseBuildTargetFactUInt32("0", Value));
@@ -200,7 +200,7 @@ TEST(FAssetBuildCoreTests, NumericTargetFactsUseExactBoundedUnsignedDecimalSynta
 	EXPECT_FALSE(ParseBuildTargetFactUInt32("4294967296", Value));
 }
 
-TEST(FAssetBuildCoreTests, SessionHonorsExplicitQueryAndStorePolicies)
+TEST(FDerivedDataBuildTests, SessionHonorsExplicitQueryAndStorePolicies)
 {
 	FScopedDerivedDataCacheDirectory CacheDirectory;
 	auto Function = std::make_shared<FPolicyTestFunction>();
@@ -224,11 +224,11 @@ TEST(FAssetBuildCoreTests, SessionHonorsExplicitQueryAndStorePolicies)
 	EXPECT_EQ(Function->BuildCount, 3u);
 }
 
-TEST(FAssetBuildCoreTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
+TEST(FDerivedDataBuildTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
 {
 	FScopedDerivedDataCacheDirectory CacheDirectory;
 	const std::filesystem::path BlockedRoot =
-		Testing::GetTestWorkDirectory() / "AssetBuildCoreTestsBlockedRoot";
+		Testing::GetTestWorkDirectory() / "DerivedDataBuildTestsBlockedRoot";
 	Testing::RemoveTestWorkDirectory(BlockedRoot);
 	const std::array<uint8, 1> BlockedBytes{0xff};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(

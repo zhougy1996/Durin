@@ -1,6 +1,6 @@
 #include "Texture/VolumeTextureBuildOperations.h"
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Hash/XxHash.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureBuildFunctions.h"
@@ -8,6 +8,8 @@
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	namespace
 	{
 		auto MakeKeyInput(const FVolumeTextureSourceData& Source,

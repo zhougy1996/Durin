@@ -1,10 +1,12 @@
 #pragma once
 
-#include "AssetBuild/BuildFunction.h"
+#include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 
 namespace Durin::Asset::Build::Private
 {
+	using namespace ::Durin::DerivedData;
+
 	extern const FBuildFunctionIdentity TerrainHeightmapFunctionIdentity;
 	inline constexpr std::string_view TerrainHeightmapInputName =
 		"TerrainHeightmapBuildInput";

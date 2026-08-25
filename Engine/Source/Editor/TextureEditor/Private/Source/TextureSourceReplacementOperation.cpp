@@ -28,7 +28,7 @@ namespace Durin::Editor::Texture
 				{},
 				OutError,
 				[Completion = std::move(Completion)](
-					Asset::Build::FAsyncBuildResult Result) mutable {
+					Asset::Build::FTexture2DAuthoringResult Result) mutable {
 					Completion(Result.Succeeded(), std::move(Result.Diagnostic));
 				});
 			if (bStarted)

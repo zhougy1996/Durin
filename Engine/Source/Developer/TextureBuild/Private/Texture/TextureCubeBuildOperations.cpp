@@ -1,6 +1,6 @@
 #include "Texture/TextureCubeBuildOperations.h"
 
-#include "AssetBuild/BuildSession.h"
+#include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Hash/XxHash.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureBuildFunctions.h"
@@ -9,6 +9,8 @@
 
 namespace Durin::Asset::Build
 {
+	using namespace ::Durin::DerivedData;
+
 	namespace
 	{
 		auto MakeSourceFile(std::string_view Path, const FXxHash128& Hash)

@@ -742,7 +742,9 @@ of being silently omitted.
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
 - `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
-- `AssetBuildCore` owns only family-neutral cache values/policy, opaque DDC access, and the authoring build-host lifecycle; it does not own typed recipes or a generic executor.
+- `DerivedDataCache` owns opaque cache access and the family-neutral definition,
+  function, policy, value, and synchronous session contracts; it does not own
+  typed asset recipes or object-aware compilation lifecycle.
 - `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
 - Editor modules invoke the descriptor-based `FImportService` for initial
   import, single-asset reimport/repair, and record-backed multi-output actions,
