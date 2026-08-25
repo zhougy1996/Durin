@@ -8,6 +8,7 @@
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/Notification.h"
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
@@ -38,6 +39,16 @@ namespace Durin::Editor::MainFrame
 		{
 			if (ContentBrowserTool)
 				ContentBrowserTool->StopRequestAdmission();
+			if (SkeletalMeshEditorModule)
+				SkeletalMeshEditorModule->UnregisterSkeletalMeshEditor();
+			if (StaticMeshEditorModule)
+				StaticMeshEditorModule->UnregisterStaticMeshEditor();
+			if (TextureEditorModule)
+				TextureEditorModule->UnregisterTextureEditor();
+			if (MaterialEditorModule)
+				MaterialEditorModule->UnregisterMaterialEditor();
+			if (LevelEditorModule)
+				LevelEditorModule->UnregisterLevelEditorWorkspace();
 			ContentBrowserTool.reset();
 			WorkspaceManager.reset();
 			Activity.reset();
@@ -57,6 +68,10 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<FProfilingToolService> ProfilingTools;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		::Durin::FLevelEditorModule* LevelEditorModule = nullptr;
+		::Durin::FMaterialEditorModule* MaterialEditorModule = nullptr;
+		::Durin::FTextureEditorModule* TextureEditorModule = nullptr;
+		::Durin::FStaticMeshEditorModule* StaticMeshEditorModule = nullptr;
+		::Durin::FSkeletalMeshEditorModule* SkeletalMeshEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
 		std::unique_ptr<FConsolePanel> Console;
 		std::unique_ptr<FEditorNotificationOverlay> Activity;
@@ -112,6 +127,29 @@ namespace Durin::Editor::MainFrame
 			FEditorNotificationOverlay& Activity
 		) -> bool
 		{
+			const Editor::Import::FImportDialogCallbacks ImportCallbacks{
+				.ReportError = [](std::string Message) {
+					if (GEditor)
+						GEditor->GetNotificationManager().Post({
+							.Type = Editor::ENotificationType::Error,
+							.Message = std::move(Message)});
+				},
+				.Imported = [&Context](std::string AssetPath) {
+					if (!Context.ContentBrowserTool) return;
+					Context.ContentBrowserTool->NotifyMountedContentChanged();
+					Context.ContentBrowserTool->RevealAsset(AssetPath);
+				},
+				.ImportedDirectory = [&Context](std::string Directory) {
+					if (!Context.ContentBrowserTool) return;
+					Context.ContentBrowserTool->NotifyMountedContentChanged();
+					Context.ContentBrowserTool->RevealDirectory(Directory);
+				},
+				.ImportStarted = [&Activity](
+					AssetForge::FImportOperationHandle Handle, std::string Title) {
+					Activity.RegisterImportOperation(
+						std::move(Handle), std::move(Title));
+				},
+			};
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(
 				WorkspaceManager, ThumbnailService,
 				[&Activity](AssetForge::FImportOperationHandle Handle,
@@ -140,22 +178,14 @@ namespace Durin::Editor::MainFrame
 				return false;
 			}
 			if (!TextureEditorModule.RegisterTextureEditor(
-				WorkspaceManager, ThumbnailService,
-				[&LevelEditorModule](std::string Directory) {
-					LevelEditorModule.OpenImportDialog(std::move(Directory),
-						Editor::Level::EImportDialogType::Texture);
-				}))
+				WorkspaceManager, ThumbnailService, ImportCallbacks))
 			{
 				MaterialEditorModule.UnregisterMaterialEditor();
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
 			if (!StaticMeshEditorModule.RegisterStaticMeshEditor(
-				WorkspaceManager, ThumbnailService,
-				[&LevelEditorModule](std::string Directory) {
-					LevelEditorModule.OpenImportDialog(std::move(Directory),
-						Editor::Level::EImportDialogType::StaticMesh);
-				}))
+				WorkspaceManager, ThumbnailService, ImportCallbacks))
 			{
 				TextureEditorModule.UnregisterTextureEditor();
 				MaterialEditorModule.UnregisterMaterialEditor();
@@ -209,6 +239,10 @@ namespace Durin::Editor::MainFrame
 				::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule =
 					FModuleManager::LoadModuleChecked<::Durin::FSkeletalMeshEditorModule>("SkeletalMeshEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
+				Context.MaterialEditorModule = &MaterialEditorModule;
+				Context.TextureEditorModule = &TextureEditorModule;
+				Context.StaticMeshEditorModule = &StaticMeshEditorModule;
+				Context.SkeletalMeshEditorModule = &SkeletalMeshEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					Context,
 					*Context.WorkspaceManager,
@@ -848,7 +882,9 @@ namespace Durin::Editor::MainFrame
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
 			ContentBrowser::IContentBrowserTool& ContentBrowserTool,
 			FConsolePanel& Console,
-			FEditorNotificationOverlay& Activity
+			FEditorNotificationOverlay& Activity,
+			::Durin::FTextureEditorModule& TextureEditorModule,
+			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule
 		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -1064,6 +1100,8 @@ namespace Durin::Editor::MainFrame
 				}
 			}
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
+			TextureEditorModule.DrawImportDialogs();
+			StaticMeshEditorModule.DrawImportDialogs();
 
 			for (const std::shared_ptr<Editor::IWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{
@@ -1150,6 +1188,7 @@ namespace Durin
 				*Context->HostSettings, *Context->RootWindow);
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
 				&& Context->bHasProject && Context->LevelEditorModule
+				&& Context->TextureEditorModule && Context->StaticMeshEditorModule
 				&& Context->ContentBrowserTool;
 			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
@@ -1173,7 +1212,9 @@ namespace Durin
 					*Context->AssetCompatibilityWindow,
 					*Context->ContentBrowserTool,
 					*Context->Console,
-					*Context->Activity);
+					*Context->Activity,
+					*Context->TextureEditorModule,
+					*Context->StaticMeshEditorModule);
 				return;
 			}
 			if (!Context->bHasProject

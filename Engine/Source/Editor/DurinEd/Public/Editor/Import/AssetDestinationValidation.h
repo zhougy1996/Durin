@@ -1,9 +1,10 @@
 #pragma once
 
 #include "Asset/Load.h"
+#include "DurinEdAPI.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::Import
 {
 	enum class EAssetDestinationOccupantKind : uint8
 	{
@@ -68,19 +69,19 @@ namespace Durin::Editor::Level
 	};
 
 	// Validates a virtual asset path and queries occupancy only after Content resolution succeeds.
-	auto InspectAssetDestination(
+	DURINED_API auto InspectAssetDestination(
 		std::string_view VirtualPath,
 		FAssetDestinationOccupancyQuery OccupancyQuery = nullptr
 	) -> FAssetDestinationValidation;
 
 	// Converts a selected package filename back to its extension-free virtual asset destination.
-	auto ClassifyAssetDestination(
+	DURINED_API auto ClassifyAssetDestination(
 		const std::filesystem::path& PhysicalPath,
 		FAssetDestinationOccupancyQuery OccupancyQuery = nullptr
 	) -> FAssetDestinationValidation;
 
-	auto InspectContentDirectory(std::string_view VirtualPath)
+	DURINED_API auto InspectContentDirectory(std::string_view VirtualPath)
 		-> FContentDirectoryValidation;
-	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
+	DURINED_API auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
 		-> FContentDirectoryValidation;
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::Import

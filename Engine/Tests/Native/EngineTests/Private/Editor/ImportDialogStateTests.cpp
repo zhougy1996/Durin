@@ -1,4 +1,5 @@
-#include "Assets/ImportDialogState.h"
+#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/TextureImportDialogState.h"
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
@@ -8,7 +9,8 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Level;
+	using namespace Durin::Editor::Import;
+	using namespace Durin::Editor::Texture;
 
 	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{
@@ -150,10 +152,10 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 
 TEST(FMountedSourceImportFormModelTests, PreservesManualDestinationAndResetsMode)
 {
-	Durin::Editor::Level::FMountedSourceImportFormModel Model;
+	Durin::Editor::Import::FMountedSourceImportFormModel Model;
 	Model.Reset();
 	EXPECT_EQ(Model.GetMode(),
-		Durin::Editor::Level::EMountedSourceImportMode::IngestExternal);
+		Durin::Editor::Import::EMountedSourceImportMode::IngestExternal);
 	Model.SuggestDestination("/Project/Sources/Textures/First.png");
 	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
 		"/Project/Sources/Textures/First.png");
@@ -164,10 +166,10 @@ TEST(FMountedSourceImportFormModelTests, PreservesManualDestinationAndResetsMode
 	Model.SuggestDestination("/Project/Sources/Textures/Third.png");
 	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
 		"/Project/Sources/Manual.png");
-	Model.GetMode() = Durin::Editor::Level::EMountedSourceImportMode::ReferenceExisting;
+	Model.GetMode() = Durin::Editor::Import::EMountedSourceImportMode::ReferenceExisting;
 	Model.Reset();
 	EXPECT_EQ(Model.GetMode(),
-		Durin::Editor::Level::EMountedSourceImportMode::IngestExternal);
+		Durin::Editor::Import::EMountedSourceImportMode::IngestExternal);
 	EXPECT_EQ(Model.GetDestinationBuffer()[0], '\0');
 }
 
@@ -229,8 +231,8 @@ TEST(FTextureImportDialogStateTests, PreservesInactiveFormsAcrossTypeSwitches)
 
 TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)
 {
-	Durin::Editor::Level::FMeshCoordinateImportModel Model;
-	Model.SetPreset(Durin::Editor::Level::FMeshCoordinateImportModel::EPreset::
+	Durin::Editor::Import::FMeshCoordinateImportModel Model;
+	Model.SetPreset(Durin::Editor::Import::FMeshCoordinateImportModel::EPreset::
 		YUpNegativeZForward);
 	const Durin::FStaticMeshImportSettings Expected =
 		Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();

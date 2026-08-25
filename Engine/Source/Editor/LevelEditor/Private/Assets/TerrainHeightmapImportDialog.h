@@ -1,9 +1,10 @@
 #pragma once
 
-#include "Assets/ImportDialogState.h"
+#include "Editor/Import/ImportDialogSupport.h"
 
 namespace Durin::Editor::Level
 {
+	using namespace ::Durin::Editor::Import;
 	// Collects the source and destination for an explicit lossless heightmap import.
 	class FTerrainHeightmapImportDialog
 	{

@@ -1,8 +1,8 @@
-#include "Assets/AssetDestinationValidation.h"
+#include "Editor/Import/AssetDestinationValidation.h"
 
 #include "AssetAuthoring.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::Import
 {
 	namespace
 	{
@@ -121,4 +121,4 @@ namespace Durin::Editor::Level
 		}
 		return InspectContentDirectory(Classified.NormalizedVirtualPath);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::Import

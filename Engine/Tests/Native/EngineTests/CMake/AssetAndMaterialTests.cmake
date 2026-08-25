@@ -59,11 +59,11 @@ durin_add_engine_functional_test(EditorOperationTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES durin-ed level-editor
+	MODULES durin-ed texture-editor
 	STACKS editor
-	PRIVATE_SOURCE_OWNER LevelEditor
+	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned asset workflow white-box coverage keeps import-dialog implementation seams private."
+		"TextureEditor-owned import-form state remains private while its reset and inactive-form behavior is white-box tested."
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
 		Private/Editor/AssetCompatibilityAuditTests.cpp
@@ -72,8 +72,9 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Assets/AssetDestinationValidation.cpp
-		${_durin_level_editor_private}/Assets/ImportDialogState.cpp
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureImportDialogState.cpp
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

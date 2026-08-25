@@ -1,6 +1,6 @@
-#include "Assets/StaticMeshImportDialog.h"
+#include "Import/StaticMeshImportDialog.h"
 
-#include "Assets/AssetDestinationValidation.h"
+#include "Editor/Import/AssetDestinationValidation.h"
 #include "AssetAuthoring.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
@@ -9,7 +9,7 @@
 #include "MonaImGui.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::StaticMesh
 {
 	namespace
 	{
@@ -330,4 +330,4 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::StaticMesh

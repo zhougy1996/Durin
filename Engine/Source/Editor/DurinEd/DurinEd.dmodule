@@ -6,12 +6,12 @@
         "Core",
         "RHI",
         "ApplicationCore",
-		"AssetForge",
-        "MonaCore",
+		"MonaCore",
         "Mona"
     ],
     "PublicDependencies": [
-        "AssetCore",
+		"AssetCore",
+		"AssetForge",
         "Engine",
         "RenderCore",
         "MonaImGui"

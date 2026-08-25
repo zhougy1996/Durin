@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetForge/Operations/ImportOperation.h"
+#include "AssetForge/ImportRequest.h"
 #include "DObject/AssetPath.h"
 #include "Editor/Transaction.h"
 #include "Modules/ModularFeature.h"
@@ -42,6 +43,7 @@ namespace Durin::Editor::ContentBrowser
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
 		std::function<void()> NotifyMountedContentChanged;
 		std::function<void(std::string)> ReportError;
+		std::function<bool(AssetForge::FImportRequest, std::string)> SubmitImport;
 	};
 
 	// Defines one deterministically ordered, unload-gated browser contribution.

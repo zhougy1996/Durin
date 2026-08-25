@@ -1,5 +1,5 @@
-#include "Assets/AssetDestinationValidation.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/AssetDestinationValidation.h"
+#include "Editor/Import/MountedSourceImport.h"
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Level;
+	using namespace Durin::Editor::Import;
 
 	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{

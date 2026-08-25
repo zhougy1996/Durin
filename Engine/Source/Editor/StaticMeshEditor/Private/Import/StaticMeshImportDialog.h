@@ -1,11 +1,11 @@
 #pragma once
 
-#include "Assets/ImportDialogState.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/ImportDialogSupport.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::StaticMesh
 {
+	using namespace ::Durin::Editor::Import;
 	// Creates one geometry-only StaticMesh without Scene materials or textures.
 	class FStaticMeshImportDialog
 	{
@@ -34,4 +34,4 @@ namespace Durin::Editor::Level
 		FMeshCoordinateImportModel Coordinates;
 		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::StaticMesh

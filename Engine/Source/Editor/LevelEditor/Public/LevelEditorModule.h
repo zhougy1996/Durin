@@ -44,9 +44,6 @@ namespace Durin
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
-		LEVELEDITOR_API auto OpenImportDialog(
-			std::string Directory,
-			Editor::Level::EImportDialogType Type) -> void;
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		FAsyncOperationGroup ThumbnailOperations;

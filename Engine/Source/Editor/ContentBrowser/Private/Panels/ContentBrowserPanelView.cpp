@@ -2,11 +2,6 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "DObject/Package.h"
-#include "StaticMesh/StaticMesh.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureCube.h"
-#include "Texture/VolumeTexture.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Persistence/ImportRecord.h"
@@ -936,7 +931,9 @@ namespace Durin::Editor::ContentBrowser::Private
 						: Action == AssetForge::EImportRecordAction::RecreateMissingOutputs
 							? "Recreate Missing Outputs" : "Repair Changed Outputs";
 					if (ImGui::MenuItem(Label, nullptr, false, bAvailable))
-						QueueContentAction([this, Item, Action] { ReimportAsset(Item, Action); });
+						QueueContentAction([this, Item, Action] {
+							ExecuteImportRecordAction(Item, Action);
+						});
 					if (!bAvailable && ImGui::IsItemHovered())
 						ImGui::SetTooltip("%s", Inspection.bConflicted
 							? "Repair the import-record conflict first."
@@ -978,19 +975,50 @@ namespace Durin::Editor::ContentBrowser::Private
 				ImGui::Separator();
 			}
 		}
-		const bool bImportableSingleAsset =
-			Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
-			|| Item.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
-			|| Item.AssetClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
-			|| Item.AssetClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString()
-			|| Item.AssetClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString();
-		if (Item.Kind == EContentBrowserItemKind::Asset
-			&& !bManagedByRecord && bImportableSingleAsset)
+		if (Item.Kind == EContentBrowserItemKind::Asset && !bManagedByRecord)
 		{
-			if (ImGui::MenuItem("Reimport from Current Source"))
-				QueueContentAction([this, Item] {
-					ReimportAsset(Item, AssetForge::EImportRecordAction::Reimport);
-				});
+			const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
+				.AssetPath = Item.VirtualPath,
+				.AssetClassName = Item.AssetClassName};
+			for (const auto& Extension :
+				::Durin::Editor::ContentBrowser::CaptureExtensions(
+					::Durin::Editor::ContentBrowser::EExtensionCategory::Reimport))
+			{
+				if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
+				if (ImGui::MenuItem(Extension.Label.c_str()))
+					QueueContentAction([this, Extension, Context] {
+						::Durin::Editor::ContentBrowser::InvokeExtension(
+							Extension, {
+								.Context = Context,
+								.RevealAsset = [this](std::string_view Path) {
+									return RevealAsset(Path);
+								},
+								.RevealDirectory = [this](std::string_view Path) {
+									return RevealDirectory(Path);
+								},
+								.OpenAsset = [this](std::string_view Path, std::string_view Class) {
+									return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
+								},
+								.NotifyMountedContentChanged = [this] {
+									PublishMountedContentMutation();
+								},
+								.ReportError = [this](std::string Message) {
+									SetError(std::move(Message));
+								},
+								.SubmitImport = [this, Context](
+									AssetForge::FImportRequest Request, std::string Title) {
+									FAssetPath Path;
+									if (!FAssetPath::TryCreate(Context.AssetPath, Path))
+									{
+										SetError("The reimport asset path is invalid.");
+										return false;
+									}
+									return SubmitSingleAssetImport(
+										std::move(Path), std::move(Request), std::move(Title));
+								},
+							});
+					});
+			}
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))
 			{

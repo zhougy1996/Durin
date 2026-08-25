@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Assets/ImportDialogState.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/ImportDialogSupport.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Operations/ImportExecution.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::Level
 {
+	using namespace ::Durin::Editor::Import;
 	// Imports one supported Scene source into a typed multi-asset directory.
 	class FSceneImportDialog
 	{

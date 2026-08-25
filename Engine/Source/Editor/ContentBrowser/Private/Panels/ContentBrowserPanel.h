@@ -108,9 +108,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
 		auto HasAssetClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto ReimportAsset(
+		auto ExecuteImportRecordAction(
 			const FContentBrowserItem& Item,
 			AssetForge::EImportRecordAction Action) -> void;
+		auto SubmitSingleAssetImport(FAssetPath AssetPath,
+			AssetForge::FImportRequest Request, std::string Title,
+			std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs = {})
+			-> bool;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
 		auto PollSingleAssetReimport() -> void;
 		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;

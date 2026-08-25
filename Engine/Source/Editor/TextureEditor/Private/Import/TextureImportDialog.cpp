@@ -1,7 +1,7 @@
-#include "Assets/TextureImportDialog.h"
+#include "Import/TextureImportDialog.h"
 
-#include "Assets/AssetDestinationValidation.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/AssetDestinationValidation.h"
+#include "Editor/Import/MountedSourceImport.h"
 #include "AssetAuthoring.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
@@ -13,7 +13,7 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
@@ -681,4 +681,4 @@ namespace Durin::Editor::Level
 	{
 		SubmissionError = std::move(Message);
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::Texture

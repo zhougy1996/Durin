@@ -74,4 +74,48 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_EQ(Invocations, 1);
 		Registration.Reset();
 	}
+
+	TEST(FContentBrowserExtensionRegistryTests, RegistersInvokesAndRemovesEveryCategory)
+	{
+		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.Categories");
+		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
+		const std::array Categories{
+			EExtensionCategory::Create,
+			EExtensionCategory::Import,
+			EExtensionCategory::Reimport,
+			EExtensionCategory::Details,
+			EExtensionCategory::ContextMenu};
+		std::vector<FScopedExtensionRegistration> Registrations;
+		int Invocations = 0;
+		for (size_t Index = 0; Index < Categories.size(); ++Index)
+		{
+			std::string Error;
+			const std::string Id = std::format("test.category.{}", Index);
+			auto Registration = RegisterExtension({
+				.Id = Id,
+				.Label = "Category",
+				.Category = Categories[Index],
+				.IsApplicable = [](const auto&) { return true; },
+				.Invoke = [&Invocations](const auto&) { ++Invocations; },
+				.OwnerGate = Gate.GetGate()}, Error);
+			ASSERT_TRUE(Registration.IsValid()) << Error;
+			const auto Snapshot = CaptureExtensions(Categories[Index]);
+			const auto Entry = std::ranges::find(
+				Snapshot, Id, &FExtensionDescriptor::Id);
+			ASSERT_NE(Entry, Snapshot.end());
+			EXPECT_TRUE(InvokeExtension(*Entry, {}));
+			Registrations.push_back(std::move(Registration));
+		}
+		EXPECT_EQ(Invocations, static_cast<int>(Categories.size()));
+
+		for (size_t Index = Registrations.size(); Index > 0; --Index)
+			Registrations[Index - 1].Reset();
+		for (size_t Index = 0; Index < Categories.size(); ++Index)
+		{
+			const std::string Id = std::format("test.category.{}", Index);
+			const auto Snapshot = CaptureExtensions(Categories[Index]);
+			EXPECT_EQ(std::ranges::find(Snapshot, Id, &FExtensionDescriptor::Id),
+				Snapshot.end());
+		}
+	}
 } // namespace Durin::Editor::ContentBrowser

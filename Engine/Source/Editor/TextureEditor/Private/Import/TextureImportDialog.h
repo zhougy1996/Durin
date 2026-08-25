@@ -1,11 +1,12 @@
 #pragma once
 
-#include "Assets/ImportDialogState.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/TextureImportDialogState.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::Texture
 {
+	using namespace ::Durin::Editor::Import;
 	// Creates Texture2D, TextureCube, or VolumeTexture assets through one modal.
 	class FTextureImportDialog
 	{
@@ -58,4 +59,4 @@ namespace Durin::Editor::Level
 		std::string ValidatedTextureCubePreviewKey;
 		int SelectedVolumeLayout = -1;
 	};
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::Texture

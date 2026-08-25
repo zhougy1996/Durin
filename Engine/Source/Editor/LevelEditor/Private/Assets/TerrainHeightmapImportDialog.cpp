@@ -1,7 +1,7 @@
 #include "Assets/TerrainHeightmapImportDialog.h"
 
-#include "Assets/AssetDestinationValidation.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/AssetDestinationValidation.h"
+#include "Editor/Import/MountedSourceImport.h"
 #include "AssetAuthoring.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"

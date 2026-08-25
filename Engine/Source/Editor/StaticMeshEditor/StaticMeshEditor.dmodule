@@ -12,6 +12,7 @@
         "Engine",
         "AssetCore",
 		"AssetForge",
+		"AssetForgeBuiltins",
 		"ContentBrowser",
         "Mona",
         "MonaImGui",

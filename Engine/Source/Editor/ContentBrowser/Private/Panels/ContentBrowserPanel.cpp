@@ -1,21 +1,11 @@
 #include "Panels/ContentBrowserPanel.h"
-#include "AssetForge/Builtins/Texture2DImport.h"
-#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "DObject/Package.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureCube.h"
-#include "Texture/VolumeTexture.h"
-#include "Terrain/TerrainHeightmap.h"
-#include "AssetForge/Builtins/TextureCubeImport.h"
-#include "AssetForge/Builtins/VolumeTextureImport.h"
-#include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
 #include "AssetTools.h"
 #include "AssetForge/Builtins/SceneImport.h"
-#include "StaticMesh/StaticMesh.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"
@@ -497,7 +487,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		BeginRename(*It);
 	}
 
-	auto FContentBrowserPanel::ReimportAsset(
+	auto FContentBrowserPanel::ExecuteImportRecordAction(
 		const FContentBrowserItem& Item,
 		AssetForge::EImportRecordAction Action) -> void
 	{
@@ -506,24 +496,15 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError("Another single-asset reimport is already active in this Content Browser.");
 			return;
 		}
-		const bool bRecreateMissingAssets =
-			Action != AssetForge::EImportRecordAction::Reimport;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
 		{
-			SetError("The selected static-mesh asset path is invalid.");
-			return;
-		}
-		DObject* AssetObject = nullptr;
-		const Asset::FAssetResult Load =
-			Asset::LoadAsset(Path, AssetObject);
-		if (!Load || !AssetObject)
-		{
-			SetError(Load ? "The selected asset could not be loaded." : Load.Message);
+			SetError("The selected import-record asset path is invalid.");
 			return;
 		}
 		AssetForge::FImportRecordInspection Inspection =
-			Cast<AssetForge::DImportRecord>(AssetObject)
+			Item.AssetClassName
+				== AssetForge::DImportRecord::StaticClass()->GetQualifiedName().ToString()
 				? AssetForge::InspectImportRecord(
 					Path, AssetForge::GetImportRecordIndex())
 				: AssetForge::InspectImportRecordForOutput(
@@ -541,225 +522,41 @@ namespace Durin::Editor::ContentBrowser::Private
 				SetError(std::move(Error));
 				return;
 			}
-			AssetForge::FImportHandle Handle =
-				AssetForge::GetImportService().SubmitImport(
-					std::move(Request), "Reimport Scene graph");
-			if (!Handle)
-			{
-				SetError("The Scene AssetForge record action could not be submitted.");
-				return;
-			}
-			LastReimportOrphans.clear();
-			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.AssetForge = std::move(Handle), .AssetPath = Path,
-				.PreviousRecordOutputs = std::vector<AssetForge::FImportRecordOutput>(
-					Inspection.Record->GetOutputs().begin(), Inspection.Record->GetOutputs().end())};
-			if (NotifyImportStarted)
-				NotifyImportStarted(PendingSingleAssetReimport->AssetForge->GetOperationHandle(),
-					"Reimport Scene graph");
-			return;
-		}
-		if (auto* Texture = Cast<DTexture2D>(AssetObject);
-			Texture && !bRecreateMissingAssets)
-		{
-			AssetForge::FImportProvenance Existing;
-			std::string Error;
-			if (!AssetForge::Builtins::InspectTexture2DImportProvenance(
-				*Texture, Existing, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			const FTextureSourceDiagnostic Source = Texture->InspectSource();
-			if (Source.Status != ETextureSourceStatus::Available)
-			{
-				SetError(Source.Message.empty()
-					? "The Texture2D source is unavailable." : Source.Message);
-				return;
-			}
-			FTexture2DImportSettings Settings{
-				.Usage = Texture->GetUsage(),
-				.CompressionQuality = Texture->GetCompressionQuality(),
-				.AlphaMipMode = Texture->GetAlphaMipMode(),
-				.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
-				.MaxResolution = Texture->GetMaxResolution(),
-				.bSRGB = Texture->IsSRGB()};
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeTexture2DImportRequest(
-				Texture->GetSourceImportData().Source.SourcePath, Path, Settings,
-				AssetForge::EImportMode::Reimport,
-				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-					.ConflictIdentities = {Path.ToString()}},
-				std::move(Existing), Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			AssetForge::FImportHandle Handle =
-				AssetForge::GetImportService().SubmitImport(
-					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
-			if (!Handle)
-			{
-				SetError("The Texture2D AssetForge reimport could not be submitted.");
-				return;
-			}
-			LastReimportOrphans.clear();
-			if (NotifyImportStarted)
-				NotifyImportStarted(Handle.GetOperationHandle(),
-					std::format("Reimport {}", Path.GetAssetName()));
-			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.AssetForge = std::move(Handle), .AssetPath = Path};
-			return;
-		}
-		if (auto* Mesh = Cast<DStaticMesh>(AssetObject);
-			Mesh && !bRecreateMissingAssets)
-		{
-			AssetForge::FImportProvenance Existing;
-			std::string Error;
-			if (!AssetForge::Builtins::InspectStaticMeshImportProvenance(
-				*Mesh, Existing, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			const FStaticMeshSourceDiagnostic Source =
-				AssetForge::Builtins::InspectStaticMeshSource(*Mesh);
-			if (Source.Status != EStaticMeshSourceStatus::Available)
-			{
-				SetError(Source.Message.empty()
-					? "The StaticMesh source is unavailable." : Source.Message);
-				return;
-			}
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeStaticMeshImportRequest(
-				Mesh->GetSourceImportData().SourcePath, Path, Mesh->GetImportSettings(),
-				AssetForge::EImportMode::Reimport,
-				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-					.ConflictIdentities = {Path.ToString()}},
-				std::move(Existing), Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			AssetForge::FImportHandle Handle =
-				AssetForge::GetImportService().SubmitImport(
-					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
-			if (!Handle)
-			{
-				SetError("The StaticMesh AssetForge reimport could not be submitted.");
-				return;
-			}
-			LastReimportOrphans.clear();
-			if (NotifyImportStarted)
-				NotifyImportStarted(Handle.GetOperationHandle(),
-					std::format("Reimport {}", Path.GetAssetName()));
-			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.AssetForge = std::move(Handle), .AssetPath = Path};
-			return;
-		}
-		auto SubmitImportRequest = [&](AssetForge::FImportRequest Request,
-			std::string_view Family) -> bool {
-			AssetForge::FImportHandle Handle =
-				AssetForge::GetImportService().SubmitImport(
-					std::move(Request), std::format("Reimport {}", Path.GetAssetName()));
-			if (!Handle)
-			{
-				SetError(std::format("The {} AssetForge reimport could not be submitted.", Family));
-				return false;
-			}
-			LastReimportOrphans.clear();
-			if (NotifyImportStarted)
-				NotifyImportStarted(Handle.GetOperationHandle(),
-					std::format("Reimport {}", Path.GetAssetName()));
-			PendingSingleAssetReimport = FPendingSingleAssetReimport{
-				.AssetForge = std::move(Handle), .AssetPath = Path};
-			return true;
-		};
-		if (auto* Cube = Cast<DTextureCube>(AssetObject);
-			Cube && !bRecreateMissingAssets)
-		{
-			AssetForge::FImportProvenance Existing;
-			std::string Error;
-			if (!AssetForge::Builtins::InspectTextureCubeImportProvenance(*Cube, Existing, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			std::array<FSourcePath, TextureCubeFaceCount> Sources;
-			const size_t SourceCount = Cube->GetSourceLayout()
-				== ETextureCubeSourceLayout::SixFaces ? TextureCubeFaceCount : 1;
-			if (SourceCount == 1) Sources[0] = Cube->GetSourceImportData().Panorama.SourcePath;
-			else for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-				Sources[Index] = Cube->GetSourceImportData().GetFace(
-					static_cast<ETextureCubeFace>(Index)).SourcePath;
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeTextureCubeImportRequest(
-				std::span(Sources).first(SourceCount), Cube->GetSourceLayout(), Path,
-				{.bSRGB = Cube->IsSRGB()},
-				{.FaceDimension = Cube->GetPanoramaFaceDimension(),
-					.ExposureEV = Cube->GetPanoramaExposureEV()},
-				AssetForge::EImportMode::Reimport,
-				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-					.ConflictIdentities = {Path.ToString()}},
-				std::move(Existing), Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			(void)SubmitImportRequest(std::move(Request), "TextureCube");
-			return;
-		}
-		if (auto* Volume = Cast<DVolumeTexture>(AssetObject);
-			Volume && !bRecreateMissingAssets)
-		{
-			AssetForge::FImportProvenance Existing;
-			std::string Error;
-			if (!AssetForge::Builtins::InspectVolumeTextureImportProvenance(*Volume, Existing, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			const FVolumeTextureSourceImportData& Source = Volume->GetSourceImportData();
-			AssetForge::Builtins::FVolumeTextureImportSettings Settings{
-				.ImportFormat = Source.ImportFormat, .Channels = Source.Channels,
-				.SliceWidth = Source.SliceWidth, .SliceHeight = Source.SliceHeight,
-				.Depth = Source.Depth, .TilesX = Source.TilesX, .TilesY = Source.TilesY};
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeVolumeTextureImportRequest(Source.Source.SourcePath,
-				Path, Settings, AssetForge::EImportMode::Reimport,
-				{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-					.ConflictIdentities = {Path.ToString()}},
-				std::move(Existing), Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			(void)SubmitImportRequest(std::move(Request), "VolumeTexture");
-			return;
-		}
-		if (auto* Terrain = Cast<DTerrainHeightmap>(AssetObject);
-			Terrain && !bRecreateMissingAssets)
-		{
-			AssetForge::FImportProvenance Existing;
-			AssetForge::FImportRequest Request;
-			std::string Error;
-			if (!AssetForge::Builtins::InspectTerrainHeightmapImportProvenance(*Terrain, Existing, Error)
-				|| !AssetForge::Builtins::MakeTerrainHeightmapImportRequest(
-					Terrain->GetSourceImportData().SourcePath, Path,
-					AssetForge::EImportMode::Reimport,
-					{.OwnerId = std::format("ContentBrowser.Reimport:{}", Path.ToString()),
-						.ConflictIdentities = {Path.ToString()}},
-					std::move(Existing), Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			(void)SubmitImportRequest(std::move(Request), "TerrainHeightmap");
+			(void)SubmitSingleAssetImport(Path, std::move(Request),
+				"Reimport Scene graph",
+				std::vector<AssetForge::FImportRecordOutput>(
+					Inspection.Record->GetOutputs().begin(),
+					Inspection.Record->GetOutputs().end()));
 			return;
 		}
 		SetError(Inspection.Message.empty()
-			? "The selected asset has no AssetForge reimport capability."
+			? "The selected asset has no import-record action."
 			: Inspection.Message);
+	}
+
+	auto FContentBrowserPanel::SubmitSingleAssetImport(FAssetPath AssetPath,
+		AssetForge::FImportRequest Request, std::string Title,
+		std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs) -> bool
+	{
+		if (PendingSingleAssetReimport)
+		{
+			SetError("Another single-asset reimport is already active in this Content Browser.");
+			return false;
+		}
+		AssetForge::FImportHandle Handle =
+			AssetForge::GetImportService().SubmitImport(std::move(Request), Title);
+		if (!Handle)
+		{
+			SetError(std::format("{} could not be submitted.", Title));
+			return false;
+		}
+		LastReimportOrphans.clear();
+		if (NotifyImportStarted)
+			NotifyImportStarted(Handle.GetOperationHandle(), Title);
+		PendingSingleAssetReimport = FPendingSingleAssetReimport{
+			.AssetForge = std::move(Handle), .AssetPath = std::move(AssetPath),
+			.PreviousRecordOutputs = std::move(PreviousRecordOutputs)};
+		return true;
 	}
 
 	auto FContentBrowserPanel::PollSingleAssetReimport() -> void

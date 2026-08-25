@@ -31,8 +31,6 @@
 #include "Panels/WorldOutlinerPanel.h"
 #include "Profiling/Profiling.h"
 #include "Assets/SceneImportDialog.h"
-#include "Assets/StaticMeshImportDialog.h"
-#include "Assets/TextureImportDialog.h"
 #include "Assets/TerrainHeightmapImportDialog.h"
 
 namespace Durin::Editor::Level
@@ -202,10 +200,6 @@ namespace Durin::Editor::Level
 		};
 		SceneImportDialog =
 			MakeImportDialog<FSceneImportDialog>(ImportCallbacks);
-		StaticMeshImportDialog =
-			MakeImportDialog<FStaticMeshImportDialog>(ImportCallbacks);
-		TextureImportDialog =
-			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
 		TerrainHeightmapImportDialog =
 			MakeImportDialog<FTerrainHeightmapImportDialog>(ImportCallbacks);
 	}
@@ -216,15 +210,9 @@ namespace Durin::Editor::Level
 	{
 		switch (Type)
 		{
-		case EImportDialogType::Texture:
-			if (TextureImportDialog) TextureImportDialog->Open(Directory);
-			break;
 		case EImportDialogType::TerrainHeightmap:
 			if (TerrainHeightmapImportDialog)
 				TerrainHeightmapImportDialog->Open(Directory);
-			break;
-		case EImportDialogType::StaticMesh:
-			if (StaticMeshImportDialog) StaticMeshImportDialog->Open(Directory);
 			break;
 		case EImportDialogType::Scene:
 			if (SceneImportDialog) SceneImportDialog->Open(Directory);
@@ -399,12 +387,10 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!Context || !DocumentController || !SceneImportDialog || !StaticMeshImportDialog
-			|| !TextureImportDialog || !TerrainHeightmapImportDialog) return false;
+		if (!Context || !DocumentController || !SceneImportDialog
+			|| !TerrainHeightmapImportDialog) return false;
 		DocumentController->DrawDialogs();
 		SceneImportDialog->Draw();
-		StaticMeshImportDialog->Draw();
-		TextureImportDialog->Draw();
 		TerrainHeightmapImportDialog->Draw();
 		bWasActive = bActive;
 		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {

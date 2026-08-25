@@ -1,9 +1,9 @@
-#include "Assets/TextureImportDialog.h"
+#include "Import/TextureImportDialog.h"
 
 #include "AssetForge/Builtins/TextureCubeImport.h"
 
-#include "Assets/AssetDestinationValidation.h"
-#include "Assets/MountedSourceImport.h"
+#include "Editor/Import/AssetDestinationValidation.h"
+#include "Editor/Import/MountedSourceImport.h"
 #include "AssetAuthoring.h"
 #include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
@@ -13,7 +13,7 @@
 #include "MonaImGui.h"
 #include "PixelFormat.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
@@ -616,4 +616,4 @@ namespace Durin::Editor::Level
 				Cube.LastSuggestedFaceDestinations[Index], Suggested);
 		}
 	}
-} // namespace Durin::Editor::Level
+} // namespace Durin::Editor::Texture
