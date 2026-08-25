@@ -136,6 +136,15 @@ namespace Durin
 		return Parent != nullptr ? Parent->GetStaticProperties() : Super::GetStaticProperties();
 	}
 
+	auto DMaterialInstance::GetRenderableStaticProperties() const
+		-> FMaterialStaticProperties
+	{
+		if (bOverrideStaticProperties) return StaticPropertiesOverride;
+		return Parent != nullptr
+			? Parent->GetRenderableStaticProperties()
+			: Super::GetRenderableStaticProperties();
+	}
+
 	auto DMaterialInstance::GetMaterialProgram() const
 		-> const FMaterialProgram*
 	{
@@ -387,6 +396,8 @@ namespace Durin
 		-> FMaterialLocalRenderLayer
 	{
 		FMaterialLocalRenderLayer Result;
+		if (bOverrideStaticProperties)
+			Result.StaticProperties = StaticPropertiesOverride;
 		Result.Parameters.reserve(ParameterOverrides.size());
 		for (const FMaterialParameterOverride& Override
 			: ParameterOverrides)

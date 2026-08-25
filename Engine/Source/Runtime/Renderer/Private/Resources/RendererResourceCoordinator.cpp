@@ -1,5 +1,7 @@
 #include "Resources/RendererResourceCoordinator.h"
 
+#include "Materials/MaterialCompileLifecycle.h"
+
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -154,6 +156,8 @@ namespace Durin
 			Generation.Advance(
 				ERenderResourceGenerationDependency::Shader);
 			AdvanceShaderReloadGeneration();
+			NotifyMaterialShaderReload(
+				Cause == ERendererResourceInvalidationCause::ShaderAll);
 			ForceRecompileShaderGeneration =
 				Cause == ERendererResourceInvalidationCause::ShaderAll
 					? std::optional<uint64>(Generation.Shader)

@@ -51,6 +51,7 @@ namespace Durin::Editor::Material
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawCompileStatus(DMaterialInterface* Material) -> void;
 		auto DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;

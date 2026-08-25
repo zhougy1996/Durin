@@ -128,6 +128,12 @@ namespace Durin
 		return GDefaultMaterialStaticProperties;
 	}
 
+	auto DMaterialInterface::GetRenderableStaticProperties() const
+		-> FMaterialStaticProperties
+	{
+		return GetStaticProperties();
+	}
+
 	auto DMaterialInterface::GetMaterialProgram() const
 		-> const FMaterialProgram*
 	{
@@ -186,7 +192,8 @@ namespace Durin
 				RepresentationBuilder, LocalParameter)
 				&& bRepresentationValid;
 		}
-		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
+		const FMaterialStaticProperties StaticProperties =
+			GetRenderableStaticProperties();
 		Result.PlanningPassIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
 		Result.PlanningPassIdentity.ShaderMap.ShadingModel = StaticProperties.ShadingModel;
 		Result.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;

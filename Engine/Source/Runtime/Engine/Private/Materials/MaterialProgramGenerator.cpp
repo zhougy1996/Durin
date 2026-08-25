@@ -496,6 +496,9 @@ float4 FragmentMain(
 		bool bForceRecompile) -> FMaterialCompilerResult
 	{
 		FMaterialCompilerResult Result;
+		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
+		Result.Target = Input.Environment.Target;
+		Result.PassContractVersion = Input.Environment.PassContractVersion;
 		const auto NormalizeBegin = std::chrono::steady_clock::now();
 		FMaterialNormalizationResult Normalized = NormalizeMaterialProgram(Input);
 		const auto GenerateBegin = std::chrono::steady_clock::now();

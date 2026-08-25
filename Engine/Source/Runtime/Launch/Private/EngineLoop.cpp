@@ -9,6 +9,7 @@
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
+#include "Materials/MaterialCompileLifecycle.h"
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
@@ -119,6 +120,12 @@ namespace Durin
 		bGameThreadDeferredExecutorStarted = true;
 
 		FModuleManager::Get().LoadModule("RenderCore");
+		if (!InitializeMaterialCompileService())
+		{
+			DURIN_ERROR("Engine pre-initialization failed because the material compile service could not start.");
+			Exit();
+			return false;
+		}
 		DObjectInit();
 		InitializeEngineAssetServices();
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
@@ -282,6 +289,7 @@ namespace Durin
 		}
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
+		PumpMaterialCompileResults();
 		GFrameCounter++;
 
 		auto& Application = Mona::FMonaApplication::Get();
@@ -339,7 +347,14 @@ namespace Durin
 		if (bWasRunning)
 		{
 			SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
+			// Material compilation depends on editor/compiler providers. Close and
+			// reconcile its task scope before consumer modules begin teardown.
+			ShutdownMaterialCompileService();
 			Diagnostics.BeginConsumerDetachment();
+		}
+		else
+		{
+			ShutdownMaterialCompileService();
 		}
 
 #if DURIN_WITH_EDITOR

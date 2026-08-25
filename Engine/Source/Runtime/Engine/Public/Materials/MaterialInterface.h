@@ -53,6 +53,8 @@ namespace Durin
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
+		ENGINE_API virtual auto GetRenderableStaticProperties() const
+			-> FMaterialStaticProperties;
 		ENGINE_API virtual auto GetMaterialProgram() const
 			-> const FMaterialProgram*;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const

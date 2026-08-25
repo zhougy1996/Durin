@@ -18,6 +18,8 @@ namespace Durin
 		ENGINE_API auto SetParent(DMaterialInterface* InParent) -> bool;
 		ENGINE_API auto GetParent() const -> DMaterialInterface* override;
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
+		ENGINE_API auto GetRenderableStaticProperties() const
+			-> FMaterialStaticProperties override;
 		ENGINE_API auto GetMaterialProgram() const
 			-> const FMaterialProgram* override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;

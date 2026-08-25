@@ -25,19 +25,21 @@ drag/drop backlog is therefore complete. Open-document relocation/deletion
 handling, a dedicated full parent-chain view, and broader workflow automation
 remain useful editor polish but do not block the material compiler.
 
-The principal remaining product limitation is that every `DMaterial` still
-uses the canonical built-in parameter schema and fixed surface shader. Users
-cannot author a typed material program, compile expressions into a shader-map
-identity, inspect compiler diagnostics, or persist and cook compiled material
-artifacts. Runtime-only dynamic material instances and measured reuse/batching
-policy have also not landed.
+Every `DMaterial` now owns a bounded typed program and deterministic compiled
+shader-map identity. Compilation is generation-safe, cancelable, shared by
+identity, last-known-good, and visible in MaterialEditor; Win64 Game Cook emits
+a strict DMAT payload that loads without authored graph state or live
+compilation. The remaining product limitation is the lack of the M7 graph
+canvas and diagnostic navigation workflow. Runtime-only dynamic material
+instances and measured reuse/batching policy also remain unlanded.
 
 The [M5 material-program and compiler foundation plan](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md)
 is complete: bounded authored programs compile deterministically and render
 through every production surface consumer. The
-[M6 lifecycle plan](../Plans/MaterialCompileLifecycleAndDerivedData.md) is the
-next prepared milestone and now contains the exact synchronous handoff and
-measured baseline needed by its Stage 0.
+[M6 lifecycle plan](../Plans/MaterialCompileLifecycleAndDerivedData.md) is
+complete: Engine owns bounded Worker orchestration and Cook admission while
+RenderCore remains the single shader-artifact DDC owner. M7 graph authoring is
+the next milestone unblocked by these contracts.
 
 ## Outcome
 
@@ -157,8 +159,8 @@ surface with actionable diagnostics.
 | 3. Metallic/roughness PBR surface | Complete | M2 | Canonical v3 PBR inputs, texture roles, tangent-space normals, direct lighting, and studio IBL | Historical | Level, preview, and thumbnail output pass focused and Vulkan qualification |
 | 4. Material passes and shared execution | Complete | M3 | Opaque/masked/translucent policy plus shared forward, GBuffer, and shadow material execution across production geometry families | Historical | StaticMesh, SkeletalMesh, and Terrain pass the shared execution matrix |
 | 5. Material program and synchronous compiler foundation | Complete | M4; landed Shader Cache and Shader Parameters contracts | Persisted bounded program schema, typed validation/IR, deterministic dependency identity, and one synchronous compiled surface vertical slice through the existing v3 boundary | Fixed surface ABI and multi-family execution are stable; generic compiler/cache infrastructure is available | Authored program round-trips, invalid graphs fail deterministically, two materially distinct programs compile and render, dependency edits invalidate identity, and fixed-schema content retains explicit fallback/transition behavior |
-| 6. Asynchronous compilation, derived data, and cooking | Plan prepared; selected next | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, persistent diagnostics, derived artifacts, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
-| 7. Material graph authoring workflow | Blocked on M5 and M6 contracts | M5 schema; M6 request/diagnostic model | Graph canvas, node/pin operations, parameters, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Representative authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing |
+| 6. Asynchronous compilation, derived data, and cooking | Complete | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, bounded diagnostics, non-duplicative cache ownership, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
+| 7. Material graph authoring workflow | Ready | M5 schema; M6 request/diagnostic model | Graph canvas, node/pin operations, parameters, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Representative authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing |
 | 8. Runtime dynamic materials and scalability | Evidence-gated | M5 compiled path; preferably M6 lifecycle | Transient non-asset instances plus measured batching/reuse/lifetime policy and stress diagnostics | Profiles identify update frequency, allocation, upload, descriptor, and cache bottlenecks | Runtime updates are bounded, do not mutate assets, preserve proxy/resource lifetime, and meet plan-defined stress budgets |
 | 9. Remaining Material Editor lifecycle polish | Conditional; independently selectable | Shared asset mutation APIs | Relocation/deletion synchronization, explicit parent-chain inspection, and missing end-to-end workflow coverage | Shared editor/asset ownership can expose the required notifications without MaterialEditor-local catalog mirrors | Open documents and references respond deterministically to move/delete, and focused workflow tests cover the selected behavior |
 
@@ -175,8 +177,8 @@ surface with actionable diagnostics.
 | [Material Render Pass Policies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M4 | Blend, depth, culling, mask, and translucent ordering | Complete |
 | [Surface Material Pass Execution](../Plans/Archive/2026-08/SurfaceMaterialPassExecution.md) | M4 | Shared material resource and pass execution across geometry families | Complete |
 | [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
-| [Material Compile Lifecycle and Derived Data](../Plans/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Prepared; selected next with M5 handoff recorded |
-| Material Graph Editor | M7 | Authoring interaction and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes | Create after M5 schema and M6 diagnostic contracts stabilize |
+| [Material Compile Lifecycle and Derived Data](../Plans/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
+| Material Graph Editor | M7 | Authoring interaction and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes | Ready to create |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and profiling-selected scalability work; excludes authored graph compilation | Create only from measured compiled-path evidence |
 | Material Editor Asset Lifecycle | M9 | Move/delete synchronization and selected workflow coverage; excludes graph/compiler design | May be selected independently when editor lifecycle is the priority |
 

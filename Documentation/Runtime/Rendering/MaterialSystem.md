@@ -120,15 +120,66 @@ The complete value-owned result includes identity, IR, source, dependencies,
 three compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
 
-Base materials synchronously compile at construction, successful load, program
-edits, and blend/shading/mask-threshold edits. Their immutable render data and
-base proxy layer carry a shared accepted compiler result; its digest extends
-`FMaterialShaderMapIdentity`. Instances inherit the exact parent handle.
-Dynamic values/textures and pipeline-only two-sided/depth changes rebuild only
-the existing v3 layer and preserve the compiled identity. A required compile
-failure publishes no partial stages and resolves to ErrorMaterial with bounded
-diagnostics. Identical canonical bases reuse the same accepted immutable result
-within the process.
+## Compile Lifecycle and Cooked Programs
+
+Engine owns one material compile service between task-system startup and
+shutdown. GameThread snapshots a base material into a value-owned request,
+normalizes it to obtain the M5 program identity, and submits the expensive
+compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
+`DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
+only synchronous compatibility path is process bootstrap or tooling without an
+active scheduler/service; construction in a running engine does not compile
+before its object handle exists. `PostLoad`, authored edits, reload, and the
+explicit editor action use the asynchronous owner.
+
+Authored revision, nonzero request generation, dependency generation, latest
+terminal result, and accepted renderable program are independent state. A new
+request removes the same owner from obsolete work, requests cooperative
+cancellation when a flight loses its last consumer, and leaves the accepted
+last-known-good program visible. GameThread admits a mailbox result only when
+the live object-handle generation, authored revision, request generation,
+dependency generation, target, and program identity all match. Successful
+admission atomically replaces the complete three-stage result and proxy state;
+failure, cancellation, supersession, rejection, deletion, or shutdown cannot
+replace it. A material with no accepted result uses ErrorMaterial.
+
+The service admits at most 64 distinct flights and 256 consumers. Requests are
+bounded to 2 MiB, results to 8 MiB, diagnostics to the M5 64-record/512-byte
+limits, and in-process retained results to 128 identities and 256 MiB FIFO.
+Equal identities share one flight and retained immutable result while keeping
+asset-local generations and diagnostics. Aggregate counters retain no asset or
+terminal-request history. Shutdown closes admission, cancels the owner scope,
+waits at most five seconds for quiescence, empties the result mailbox, and
+releases flights and retained results before task-system teardown.
+
+RenderCore remains the sole persistent DDC owner for SPIR-V, reflection, and
+dependency manifests. M6 adds no second editor material DDC because the
+material result would duplicate those artifacts and the retained M5 IR/source
+does not justify another disk owner. Cache outcomes exposed by the material
+service are therefore retained-result hit, shared in-flight work, compiled, or
+forced; corrupt RenderCore artifacts retain their existing cache-miss/repair
+semantics.
+
+Cook requires a current successful Win64 Game result and never substitutes
+ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
+DMAT v1 package-companion payload, identified by
+`MaterialCookedProgramPayloadId`, stores the exact compiler/target/pass/version
+envelope, program identity, static properties, dependencies, and complete
+shader code/reflection set. It is uncompressed, 16-byte aligned, bounded to
+8 MiB, and protected by the canonical DBLK descriptor extent/hash contract.
+Loading rejects missing, truncated, corrupt, trailing, wrong-target,
+wrong-profile, wrong-version, invalid-stage, or package/payload static-property
+mismatches before publishing an immutable result. Runtime loading therefore
+requires neither authored IR/generated source, Shader source files, editor DDC,
+nor live compilation.
+
+Base immutable render data and the base proxy layer carry the shared accepted
+compiler result; its digest extends `FMaterialShaderMapIdentity`. Instances
+inherit the exact parent handle. Dynamic values/textures and pipeline-only
+two-sided/depth changes rebuild only the existing v3 layer and preserve the
+compiled identity. Instance-authored static shader-map overrides remain on the
+existing M5 renderer permutation boundary; M6 does not duplicate a parent
+graph or cooked program in the instance package.
 
 Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
 and deterministic draw ordering by the material-program digest plus the exact

@@ -99,6 +99,46 @@ namespace Durin::Editor::Material
 			Config.MaximumValueColumnWidthInEm = MaximumMaterialValueColumnWidthInEm;
 			return Config;
 		}
+
+		auto FindCompiledBase(DMaterialInterface* Material) -> DMaterial*
+		{
+			std::unordered_set<DMaterialInterface*> Visited;
+			for (DMaterialInterface* Current = Material;
+				Current && Visited.insert(Current).second;
+				Current = Current->GetParent())
+				if (auto* Base = Cast<DMaterial>(Current)) return Base;
+			return nullptr;
+		}
+
+		auto FormatCompileState(EMaterialCompileState State) -> const char*
+		{
+			switch (State)
+			{
+			case EMaterialCompileState::NeverRequested: return "Not compiled";
+			case EMaterialCompileState::Pending: return "Compiling";
+			case EMaterialCompileState::Running: return "Compiling";
+			case EMaterialCompileState::Ready: return "Ready";
+			case EMaterialCompileState::Failed: return "Failed";
+			case EMaterialCompileState::Canceled: return "Canceled";
+			case EMaterialCompileState::Superseded: return "Superseded";
+			case EMaterialCompileState::Rejected: return "Rejected";
+			case EMaterialCompileState::Shutdown: return "Unavailable";
+			}
+			return "Unknown";
+		}
+
+		auto FormatCacheOutcome(EMaterialCompileCacheOutcome Outcome) -> const char*
+		{
+			switch (Outcome)
+			{
+			case EMaterialCompileCacheOutcome::None: return "none";
+			case EMaterialCompileCacheOutcome::RetainedHit: return "retained hit";
+			case EMaterialCompileCacheOutcome::SingleFlight: return "shared flight";
+			case EMaterialCompileCacheOutcome::Compiled: return "compiled";
+			case EMaterialCompileCacheOutcome::Forced: return "forced";
+			}
+			return "unknown";
+		}
 	}
 
 	class FMaterialParameterPanelCache
@@ -358,6 +398,26 @@ namespace Durin::Editor::Material
 	{
 		if (ImGui::Button("Save")) SaveMaterial(Material);
 		ImGui::SameLine();
+		if (DMaterial* Base = FindCompiledBase(Material))
+		{
+			const FMaterialCompileStatus& Status = Base->GetMaterialCompileStatus();
+			const bool bPending = Status.State == EMaterialCompileState::Pending
+				|| Status.State == EMaterialCompileState::Running;
+			if (bPending)
+			{
+				if (ImGui::Button("Cancel Compile")) CancelMaterialCompile(*Base);
+			}
+			else if (ImGui::Button(Status.State == EMaterialCompileState::Failed
+				|| Status.State == EMaterialCompileState::Rejected
+					? "Retry Compile" : "Recompile"))
+			{
+				RequestMaterialRecompile(*Base, true);
+			}
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
+				Status.bLastKnownGoodDisplayed ? " (showing last known good)" : "");
+		}
+		ImGui::SameLine();
 		ImGui::TextDisabled("Material");
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
@@ -469,8 +529,37 @@ namespace Durin::Editor::Material
 			ImGui::Spacing();
 			ImGui::TextDisabled("Type");
 			ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
+			DrawCompileStatus(Material);
 		}
 		ImGui::EndChild();
+	}
+
+	auto MMaterialEditor::DrawCompileStatus(DMaterialInterface* Material) -> void
+	{
+		DMaterial* Base = FindCompiledBase(Material);
+		if (!Base)
+		{
+			ImGui::TextDisabled("Compiled program: unavailable");
+			return;
+		}
+		const FMaterialCompileStatus& Status = Base->GetMaterialCompileStatus();
+		ImGui::Text("Compile: %s", FormatCompileState(Status.State));
+		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
+		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
+		ImGui::Text("Target: %s", Status.Target.empty() ? "n/a" : Status.Target.c_str());
+		ImGui::Text("Generation: %llu", static_cast<unsigned long long>(Status.RequestGeneration));
+		if (Status.DurationMicroseconds != 0)
+			ImGui::Text("Duration: %.2f ms",
+				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
+		if (Status.bLastKnownGoodDisplayed)
+			ImGui::TextDisabled("Preview uses the last known good program.");
+		for (const FMaterialCompileDiagnostic& Diagnostic
+			: Base->GetMaterialCompileDiagnostics())
+			ImGui::TextWrapped("%s", Diagnostic.Source.Message.c_str());
+		const std::string_view CookDiagnostic = Base->GetMaterialCookDiagnostic();
+		if (!CookDiagnostic.empty())
+			ImGui::TextWrapped("Cook: %.*s",
+				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
 	}
 
 	auto MMaterialEditor::DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void

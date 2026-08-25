@@ -1,10 +1,11 @@
 #include "Materials/Material.h"
 
+#include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
+#include "Asset.h"
 #include "DObject/Property.h"
 #include "Modules/ModuleManager.h"
-
-#include <unordered_map>
 
 namespace Durin
 {
@@ -15,39 +16,44 @@ namespace Durin
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
-			CompileProgramCandidate(Program, StaticProperties);
+			if (!IsMaterialCompileServiceAcceptingRequests())
+				RequestProgramCompile(Program, StaticProperties);
 			PublishMaterialRenderProxyState();
 		}
 	}
 
-	auto DMaterial::CompileProgramCandidate(
+	auto DMaterial::RequestProgramCompile(
 		const FMaterialProgram& CandidateProgram,
-		const FMaterialStaticProperties& CandidateProperties) -> void
+		const FMaterialStaticProperties& CandidateProperties,
+		bool bForceRecompile) -> bool
 	{
-		AcceptedCompiledProgram.reset();
-		MaterialCompileDiagnostics.clear();
-		static const FMaterialProgram CanonicalProgram =
-			MakeCanonicalMaterialProgram();
-		static const FMaterialStaticProperties CanonicalProperties;
-		static std::shared_ptr<const FMaterialCompilerResult>
-			CanonicalCompiledProgram;
-		const bool bCanonicalCandidate = CandidateProgram == CanonicalProgram
-			&& CandidateProperties == CanonicalProperties;
-		if (bCanonicalCandidate && CanonicalCompiledProgram)
-		{
-			AcceptedCompiledProgram = CanonicalCompiledProgram;
-			return;
-		}
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
 		std::string EnvironmentError;
 		if (!BuildDefaultMaterialCompilerEnvironment(
 			Environment, EnvironmentError))
 		{
-			MaterialCompileDiagnostics.push_back({
-				.Category = EMaterialProgramDiagnosticCategory::Dependency,
-				.Message = std::move(EnvironmentError)});
-			return;
+			MaterialCompileStatus.RequestGeneration =
+				MaterialCompileStatus.RequestGeneration
+					== std::numeric_limits<uint64>::max()
+					? 1 : MaterialCompileStatus.RequestGeneration + 1;
+			MaterialCompileStatus.State = EMaterialCompileState::Failed;
+			MaterialCompileStatus.ResultCategory =
+				EMaterialCompileResultCategory::Dependency;
+			MaterialCompileStatus.bHasLastKnownGood =
+				AcceptedCompiledProgram != nullptr;
+			MaterialCompileStatus.bLastKnownGoodDisplayed =
+				AcceptedCompiledProgram != nullptr;
+			MaterialCompileDiagnostics = {{
+				.Category = EMaterialCompileResultCategory::Dependency,
+				.Source = {
+					.Category = EMaterialProgramDiagnosticCategory::Dependency,
+					.Message = std::move(EnvironmentError)},
+				.AssetPath = GetObjectPath(),
+				.Generation = MaterialCompileStatus.RequestGeneration,
+				.bLastKnownGoodDisplayed = AcceptedCompiledProgram != nullptr,
+			}};
+			return false;
 		}
 		FMaterialCompilerInput Input;
 		Input.Program = CandidateProgram;
@@ -58,37 +64,26 @@ namespace Durin
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
 		std::ranges::sort(Input.Parameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
+		return Private::FMaterialCompileServiceAccess::Submit(
+			*this, std::move(Input), bForceRecompile);
+	}
 
-		const FMaterialNormalizationResult Normalized =
-			NormalizeMaterialProgram(Input);
-		if (!Normalized)
-		{
-			MaterialCompileDiagnostics = Normalized.Diagnostics;
-			return;
-		}
-		static std::unordered_map<FMaterialProgramIdentity,
-			std::shared_ptr<const FMaterialCompilerResult>>
-			CompiledPrograms;
-		if (const auto Existing = CompiledPrograms.find(Normalized.Identity);
-			Existing != CompiledPrograms.end())
-		{
-			AcceptedCompiledProgram = Existing->second;
-			return;
-		}
-		FMaterialCompilerResult Compiled = CompileMaterialProgram(Input);
-		if (!Compiled)
-		{
-			MaterialCompileDiagnostics = std::move(Compiled.Diagnostics);
-			return;
-		}
-		AcceptedCompiledProgram =
-			std::make_shared<const FMaterialCompilerResult>(std::move(Compiled));
-		if (CompiledPrograms.size() >= 128) CompiledPrograms.erase(
-			CompiledPrograms.begin());
-		CompiledPrograms.emplace(
-			AcceptedCompiledProgram->Identity, AcceptedCompiledProgram);
-		if (bCanonicalCandidate)
-			CanonicalCompiledProgram = AcceptedCompiledProgram;
+	auto DMaterial::AdvanceAuthoredRevision() -> void
+	{
+		MaterialCompileStatus.AuthoredRevision =
+			MaterialCompileStatus.AuthoredRevision
+				== std::numeric_limits<uint64>::max()
+				? 1 : MaterialCompileStatus.AuthoredRevision + 1;
+	}
+
+	auto DMaterial::GetRenderableStaticProperties() const
+		-> FMaterialStaticProperties
+	{
+		FMaterialStaticProperties Result = AcceptedCompiledProgram
+			? AcceptedCompiledStaticProperties : StaticProperties;
+		Result.bTwoSided = StaticProperties.bTwoSided;
+		Result.DepthWritePolicy = StaticProperties.DepthWritePolicy;
+		return Result;
 	}
 
 	auto DMaterial::SetMaterialProgram(
@@ -100,7 +95,8 @@ namespace Durin
 		if (!OutValidation) return false;
 		if (Program == InProgram) return true;
 		Program = std::move(InProgram);
-		CompileProgramCandidate(Program, StaticProperties);
+		AdvanceAuthoredRevision();
+		RequestProgramCompile(Program, StaticProperties);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
 		return true;
@@ -134,7 +130,10 @@ namespace Durin
 				!= InProperties.OpacityMaskThreshold;
 		StaticProperties = InProperties;
 		if (bShaderIdentityChanged)
-			CompileProgramCandidate(Program, StaticProperties);
+		{
+			AdvanceAuthoredRevision();
+			RequestProgramCompile(Program, StaticProperties);
+		}
 		MarkPackageDirty();
 		MarkRenderDataDirty(
 			EMaterialRenderDirtyFlags::ShaderMap
@@ -236,7 +235,7 @@ namespace Durin
 					Definition.Type,
 					Definition.Value));
 		}
-		Result.StaticProperties = StaticProperties;
+		Result.StaticProperties = GetRenderableStaticProperties();
 		Result.CompiledProgram = AcceptedCompiledProgram;
 		return Result;
 	}
@@ -251,6 +250,8 @@ namespace Durin
 		{
 			return false;
 		}
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			return LoadCookedProgram(OutError);
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)
@@ -260,7 +261,7 @@ namespace Durin
 				: ProgramValidation.Diagnostics.front().Message;
 			return false;
 		}
-		CompileProgramCandidate(Program, StaticProperties);
+		RequestProgramCompile(Program, StaticProperties);
 		PublishMaterialRenderProxyState();
 		return true;
 	}
@@ -273,8 +274,15 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("Program") || Name == FName("StaticProperties"))
 		{
-			CompileProgramCandidate(Program, StaticProperties);
+			AdvanceAuthoredRevision();
+			RequestProgramCompile(Program, StaticProperties);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
 		}
+	}
+
+	auto DMaterial::BeginDestroy() -> void
+	{
+		CancelMaterialCompile(*this);
+		Super::BeginDestroy();
 	}
 }

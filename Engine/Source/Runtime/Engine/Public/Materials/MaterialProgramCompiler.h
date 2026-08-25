@@ -116,6 +116,9 @@ namespace Durin
 	{
 		bool bSucceeded = false;
 		FMaterialProgramIdentity Identity;
+		std::string CompilerIdentity;
+		std::string Target;
+		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
 		FMaterialIR IR;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;

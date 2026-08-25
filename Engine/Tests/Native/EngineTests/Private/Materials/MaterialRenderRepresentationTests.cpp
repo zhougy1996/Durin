@@ -270,10 +270,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
-	std::vector<std::byte> PackageBytes;
-	Result = Durin::Asset::SerializeAssetPackageBytes(
-		Source->GetPackage(), PackageBytes);
-	ASSERT_TRUE(Result) << Result.Message;
+	const Durin::FMaterialProgramIdentity ExpectedIdentity =
+		Source->GetAcceptedCompiledProgram()->Identity;
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
@@ -282,15 +280,12 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Cook.AddPackage(
-		std::string(Durin::DefaultMaterialAssetPath),
-		std::move(PackageBytes),
-		{},
-		&Error)) << Error;
+	ASSERT_TRUE(Source->AddToCook(
+		Cook, Durin::DefaultMaterialAssetPath, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
-	EXPECT_FALSE(std::filesystem::exists(
+	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
 
 	Durin::Asset::ShutdownAssetManager();
@@ -317,6 +312,9 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Result = Durin::Asset::LoadAsset(Path, Cooked);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
+	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_EQ(
 		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));

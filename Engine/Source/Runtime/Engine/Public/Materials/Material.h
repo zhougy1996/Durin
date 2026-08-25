@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Texture/Texture2D.h"
 
@@ -27,15 +29,25 @@ namespace Durin
 			return AcceptedCompiledProgram;
 		}
 		auto GetMaterialCompileDiagnostics() const
-			-> std::span<const FMaterialProgramDiagnostic>
+			-> std::span<const FMaterialCompileDiagnostic>
 		{
 			return MaterialCompileDiagnostics;
+		}
+		auto GetMaterialCompileStatus() const -> const FMaterialCompileStatus&
+		{
+			return MaterialCompileStatus;
+		}
+		auto GetMaterialCookDiagnostic() const -> std::string_view
+		{
+			return MaterialCookDiagnostic;
 		}
 		ENGINE_API auto SetMaterialProgram(
 			FMaterialProgram InProgram,
 			FMaterialProgramValidationResult& OutValidation) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
+		ENGINE_API auto GetRenderableStaticProperties() const
+			-> FMaterialStaticProperties override;
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
 
 		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
@@ -47,17 +59,24 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError) -> bool;
 		ENGINE_API auto PostEditChangeProperty(
 			const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto BeginDestroy() -> void override;
 
 	protected:
 		ENGINE_API auto BuildMaterialLocalRenderLayer() const
 			-> FMaterialLocalRenderLayer override;
 
 	private:
-		ENGINE_API auto CompileProgramCandidate(
+		ENGINE_API auto RequestProgramCompile(
 			const FMaterialProgram& CandidateProgram,
-			const FMaterialStaticProperties& CandidateProperties) -> void;
+			const FMaterialStaticProperties& CandidateProperties,
+			bool bForceRecompile = false) -> bool;
+		auto AdvanceAuthoredRevision() -> void;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
@@ -68,10 +87,21 @@ namespace Durin
 
 		// Missing legacy fields retain the canonical constructor value; malformed
 		// present program data is rejected by PostLoad.
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FMaterialProgram Program;
 
+		// Runtime-only descriptor replaced transactionally in cooked package bytes.
+		DPROPERTY()
+		Asset::FCookedPayloadDescriptor CookedProgramPayload;
+
 		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
-		std::vector<FMaterialProgramDiagnostic> MaterialCompileDiagnostics;
+		FMaterialStaticProperties AcceptedCompiledStaticProperties;
+		FMaterialCompileStatus MaterialCompileStatus;
+		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
+		std::string MaterialCookDiagnostic;
+
+		auto LoadCookedProgram(std::string& OutError) -> bool;
+
+		friend struct Private::FMaterialCompileServiceAccess;
 	};
 }
