@@ -1,0 +1,449 @@
+# Content Browser Module and Editor Host Plan
+
+Summary: Extract Content Browser from LevelEditor into an independent editor feature module and host its shared surfaces in MainFrame.
+
+Last reviewed: 2026-08-26
+
+Status: Active
+Completed:
+
+## Current Status
+
+The selected architecture is recorded, but implementation has not started.
+`LevelEditor` still owns the Content Browser panel, its settings bridge, import
+dialogs, asset-move coordinator, Console panel, bottom drawer, status bar, and
+Activity History presentation. `MainFrame` owns only the outer workspace host
+and delegates all of those surfaces to the Level workspace.
+
+Stage 0 is next. It must freeze the public module and extension contracts and
+capture the existing behavior before files move. Later stages deliberately
+separate module extraction from host integration so a source move cannot hide a
+behavioral regression.
+
+## Goal
+
+Make Content Browser a project-wide editor tool that remains available while
+any Level, Material, Texture, StaticMesh, or SkeletalMesh document is active.
+The implementation must have an independent `ContentBrowser` module, a single
+host-owned browser instance, feature-module contributions for asset-family
+actions, and no dependency on Level workspace types.
+
+Move the shared bottom status bar, drawer selection, Console, notification
+toasts, and Activity History presentation to the editor host so their updates
+and visibility do not depend on whether the Level Editor dock tab is submitted.
+
+## Scope
+
+- Add an `Editor/ContentBrowser` shared module and register it in the engine
+  project and editor target dependency graph.
+- Move Content Browser models, item presentation, refresh coordination,
+  filesystem operations, reversible deletion/relocation adapters, and browser
+  thumbnail request state out of `LevelEditor`.
+- Define scoped Content Browser extension registrations for create, import,
+  reimport, details, and context-menu contributions that are genuinely owned by
+  an asset-family editor module.
+- Give Content Browser independent persistent presentation settings and migrate
+  the existing Level Editor settings once without resetting user choices.
+- Make `MainFrame` own the singleton Content Browser instance, global bottom
+  status bar, bottom drawer, Console presentation, Activity History window, and
+  notification toasts.
+- Preserve global asset opening through `FWorkspaceManager`, shared transaction
+  history, mounted-content reconciliation, thumbnail provider lifetime, reveal
+  requests, drag-and-drop payloads, and Play-In-Editor restrictions.
+- Split generic asset relocation execution from Level-specific relocation
+  observation so Content Browser never receives a Level context or viewport.
+- Move and reclassify native tests with their new source owner, then update the
+  implemented editor architecture and module-routing documentation.
+
+## Non-Goals
+
+- Replacing AssetCore catalog, package, redirector, deletion, or relocation
+  transactions.
+- Replacing AssetForge import execution or changing import/build formats.
+- Adding multiple independent Content Browser instances, saved browser tabs, or
+  per-workspace browser state.
+- Creating a full Undo/Redo stack inspector. Activity History remains the
+  notification history plus transaction feedback; it is not renamed to an
+  operation-stack browser.
+- Redesigning asset thumbnails, changing thumbnail budgets, or moving concrete
+  thumbnail providers away from their asset-family modules.
+- Redesigning individual asset-editor layouts beyond making the host tools
+  consistently available.
+- Moving World Outliner, Details, Scene Viewport, rendering diagnostics, or
+  Level document controls out of `LevelEditor`.
+
+## Design Decisions and Invariants
+
+### Module and dependency ownership
+
+- `ContentBrowser` is a concrete editor feature module. It owns browser UI and
+  workflow coordination; it is not part of `MainFrame`, `DurinEd`, or
+  `LevelEditor`.
+- `DurinEd` continues to own implementation-neutral editor services and
+  contracts: workspaces, transactions, notifications, asset drag payloads,
+  asset pickers, and the provider-neutral thumbnail service.
+- `MainFrame` owns application chrome and the lifetime of the one browser tool
+  instance. It may depend on `ContentBrowser`; `ContentBrowser` must not depend
+  on `MainFrame` or any concrete asset editor.
+- Concrete editor modules may depend on the narrow public Content Browser
+  extension API and return scoped registration handles. Destroying a handle
+  removes admission before the contributing module can unload.
+- The required dependency direction is:
+
+  `MainFrame -> ContentBrowser -> DurinEd/AssetCore/AssetForge`
+
+  and
+
+  `LevelEditor/MaterialEditor/TextureEditor/StaticMeshEditor -> ContentBrowser`
+
+  for contribution registration only. No reverse edge from `ContentBrowser` to
+  a concrete editor is allowed.
+
+### Host presentation
+
+- The status bar is drawn once by `MainFrame` below the host dock space and is
+  visible for every active project workspace.
+- The bottom drawer is anchored to the host content area, has one selected tool,
+  and preserves the current focus-loss and drag-leave dismissal semantics.
+- Content Browser and Console are single-instance host tools. Opening a tool in
+  the drawer or as a host-level dockable window submits its content body at most
+  once per frame.
+- "Dock in Layout" targets the host dock space rather than a workspace's
+  internal dock space. Resetting an asset editor's layout cannot close or move a
+  global host tool; resetting the host layout restores the global tool defaults.
+- `Ctrl+Space` is a host command. It toggles Content Browser regardless of the
+  active workspace while respecting text-input ownership.
+- Content Browser is disabled for mutations during Play-In-Editor exactly as it
+  is today, but Console and Activity History remain usable.
+- Notification updates, transaction-event publication, Console log polling,
+  unread warning/error counts, and toasts execute from host lifetime, not from
+  the visibility of a workspace root window.
+
+### Content Browser service and extensions
+
+- The public browser facade exposes reveal asset, reveal directory, request
+  focus, mounted-content invalidation, and request-admission shutdown without
+  exporting its private models or ImGui implementation.
+- Asset opening calls the live `FWorkspaceManager` route table through an
+  injected host service; Content Browser never names a concrete workspace.
+- Extension descriptors have stable IDs, deterministic ordering, an
+  applicability predicate, and an invocation callback protected by the
+  contributing module's callback gate. Duplicate IDs and invalid registrations
+  fail before mutating the registry.
+- Generic folder creation and AssetCore-backed package/file operations remain
+  in `ContentBrowser`. Asset-family creation and import forms move to their
+  semantic owner:
+  - Level and Scene/Terrain contributions: `LevelEditor`.
+  - Material and MaterialInstance creation: `MaterialEditor`.
+  - Texture2D, TextureCube, and VolumeTexture import: `TextureEditor`.
+  - StaticMesh import: `StaticMeshEditor`.
+- Reimport actions backed entirely by AssetForge's generic import record may
+  remain in `ContentBrowser`. A type-specific form or policy must be supplied by
+  its owning extension rather than recognized through concrete runtime-class
+  branches in the browser panel.
+- Extension callbacks enqueue actions after the current browser snapshot is no
+  longer traversed. Registration or removal during drawing becomes visible no
+  earlier than the next safe frame boundary.
+
+### State, mutation, and lifetime
+
+- A new Content Browser settings owner persists view mode, icon size and lock,
+  tree width, hidden-content visibility, and last directory independently of
+  `LevelEditorSession.yaml`.
+- On first load without the new settings file, valid legacy Content Browser
+  fields are imported from Level Editor session settings and saved. Subsequent
+  loads use only the new owner; Level-specific settings retain viewport,
+  gizmo, and Details state.
+- Browser navigation, selection, search, refresh coordination, and thumbnail
+  cache survive workspace switches because the singleton instance survives.
+- Content Browser prepares and commits AssetCore mutation transactions through
+  the global editor transaction manager. It does not call back into a Level
+  context to repair state.
+- Generic relocation publishes AssetCore mappings. `FWorkspaceManager` observes
+  them to remap open document resource IDs, while `LevelEditor` separately
+  observes them to move viewport-session keys and capture current-Level state.
+- Mounted-content mutation revision and reconciliation acknowledgement remain
+  process-wide and are not reset by workspace activation.
+- Shutdown order is admission stop, extension unregistration in reverse module
+  order, browser async/import drain, thumbnail cache drain, browser destruction,
+  provider/service destruction, then concrete module unload.
+- Existing deletion recovery directories and journal markers remain compatible;
+  source relocation must not orphan or reinterpret pending recovery data.
+
+### Compatibility and naming
+
+- Persisted ImGui IDs for workspace-internal Content Browser windows are not
+  reused for the host tool. The host layout version is bumped once when the new
+  tool window is introduced, avoiding accidental attachment to the retired
+  Level Editor dock node.
+- The user-visible names remain **Content Browser**, **Console**, and
+  **Activity History**.
+- The existing editor asset drag payload contract remains stable so active
+  workspace targets accept drags without depending on the new module.
+
+## Current Foundations and Gaps
+
+- `MainFrame` already owns the root window, active-workspace resolution, host
+  dock space, shared thumbnail service lifetime, and workspace registration
+  order. It is the correct composition root for global tool presentation.
+- `DurinEd` already owns `FWorkspaceManager`, the global transaction manager,
+  notification manager, asset picker and drag payload, and provider-neutral
+  thumbnail service.
+- Asset editor workspaces already forward Undo/Redo to the global transaction
+  manager, so transaction ownership is not actually Level-specific.
+- Content Browser already opens assets through an injected callback backed by
+  `FWorkspaceManager`; the concrete panel does not construct asset editors.
+- AssetCore already exposes catalog snapshots, reversible deletion/relocation
+  transactions, mounted-content mutation signals, and asset-move observation.
+- The browser implementation is nevertheless physically private to
+  `LevelEditor`, inherits `ILevelEditorPanel`, accepts `FLevelEditorContext` in
+  drawing, reads `FLevelEditorSessionSettings`, and routes typed import dialogs
+  through `MLevelEditor`.
+- The current asset-move coordinator combines generic transaction execution
+  with Level viewport-session repair, creating the strongest unwanted
+  dependency.
+- Console and Activity History consume global data but are updated only after a
+  visible Level Editor root window passes its early visibility checks. Other
+  editor tabs therefore lack the bottom bar and can delay polling or transaction
+  feedback publication.
+- Existing native tests white-box private Level Editor sources. Their ownership,
+  include roots, and source lists must move with the implementation rather than
+  continuing to claim a Level Editor exception.
+
+## Implementation Stages
+
+### Stage 0: Freeze contracts and characterize behavior
+
+- [ ] Inventory every Content Browser source, private-header consumer, native
+  test source, settings key, ImGui ID, import dialog, thumbnail dependency,
+  mutation observer, reveal caller, and shutdown callback.
+- [ ] Add characterization coverage for drawer toggle/focus dispositions,
+  once-per-frame tool submission, hidden Console polling, unread counts,
+  transaction-event publication, and browser reveal behavior.
+- [ ] Specify the public browser facade, host-construction inputs, extension
+  descriptor, scoped registration handle, and shutdown/admission states without
+  exposing Level Editor types.
+- [ ] Specify deterministic extension ordering and the safe frame boundary for
+  contribution changes.
+- [ ] Record the exact legacy settings keys and one-time migration behavior.
+- [ ] Produce the final source/test move map and verify the proposed `.dmodule`
+  graph has no concrete-editor or `MainFrame` dependency below
+  `ContentBrowser`.
+
+#### Acceptance Gate
+
+- Public contracts compile in isolation with no Level Editor include.
+- Characterization tests demonstrate the current tool behavior and known
+  inactive-workspace update gap.
+- Every current browser responsibility and caller has one selected destination;
+  no source is assigned to both LevelEditor and ContentBrowser.
+
+### Stage 1: Extract the ContentBrowser module without changing ownership
+
+- [ ] Add `Engine/Source/Editor/ContentBrowser`, its API/export header,
+  `.dmodule`, CMake target, and `Engine.dproject` mapping.
+- [ ] Move browser models, item views, filesystem helpers, refresh coordinator,
+  thumbnail cache, operation adapters, and deletion transaction sources into
+  the new module.
+- [ ] Replace `ILevelEditorPanel` inheritance and `FLevelEditorContext` draw
+  parameters with a browser-owned window wrapper plus a state-preserving content
+  body.
+- [ ] Inject workspace opening, transaction execution, notifications,
+  thumbnail service/task scope, and mutation revision through explicit
+  construction services.
+- [ ] Keep `MLevelEditor` as the temporary instance owner through a narrow
+  adapter so visible behavior and startup/shutdown ordering remain unchanged in
+  this stage.
+- [ ] Move white-box Content Browser tests and CMake private-source ownership to
+  the new module; retain test names where their behavior is unchanged.
+- [ ] Remove all moved source lists and private include paths from LevelEditor
+  after the new target is authoritative.
+
+#### Acceptance Gate
+
+- The `ContentBrowser` and `LevelEditor` targets build with no duplicate source
+  ownership.
+- Content Browser model, refresh, item-view, deletion, relocation, thumbnail,
+  and shell-characterization tests pass from their new owner.
+- Repository search finds no Content Browser implementation file remaining
+  under `LevelEditor`; the temporary adapter contains composition only.
+- Runtime behavior, visible labels, drawer behavior, and persisted settings are
+  unchanged from Stage 0.
+
+### Stage 2: Remove Level-specific browser policy
+
+- [ ] Implement the scoped extension registry and immutable per-frame extension
+  snapshot.
+- [ ] Move Level/Scene/Terrain, Material, Texture, and StaticMesh creation/import
+  dialogs to their selected owning modules and register their contributions
+  during each module's existing integration lifecycle.
+- [ ] Replace concrete asset-class and import-type branches in Content Browser
+  with extension applicability and invocation.
+- [ ] Add the independent Content Browser settings owner and one-time migration
+  from Level Editor session settings, including invalid-value fallback and
+  idempotent restart behavior.
+- [ ] Split relocation execution from Level-specific observation. Route open
+  document remapping through workspace-level observation and retain only
+  viewport/session repair in LevelEditor.
+- [ ] Route import progress and completion through global notification and
+  mounted-content services rather than an `MLevelEditor` overlay pointer.
+- [ ] Make reveal requests target the browser facade directly; remove the
+  compatibility-audit detour through `FLevelEditorModule`.
+
+#### Acceptance Gate
+
+- `ContentBrowser` has no source or link dependency on LevelEditor, MaterialEditor,
+  TextureEditor, StaticMeshEditor, SkeletalMeshEditor, or MainFrame.
+- Registering, invoking, unloading, and duplicate-ID rejection are covered for
+  every extension category.
+- Creation, import, reimport, open, rename, move, duplicate, delete, fix-up,
+  reveal, and notification flows preserve their existing transaction and error
+  behavior.
+- Legacy settings migrate once, survive restart, and do not alter Level
+  viewport/session settings.
+- Moving an open asset remaps document identity; moving the active Level also
+  preserves its viewport-session state through separate observers.
+
+### Stage 3: Move shared tools into the editor host
+
+- [ ] Add a MainFrame-owned host tool state containing status-bar selection,
+  drawer geometry/state, host tool-window visibility, and global shortcuts.
+- [ ] Construct and own the singleton Content Browser from MainFrame using the
+  live WorkspaceManager, notification/transaction services, and shared
+  thumbnail service.
+- [ ] Move Console presentation and record state out of LevelEditor; poll logs
+  and update unread counts once per host frame even when its window and drawer
+  are closed.
+- [ ] Move Activity History, transaction-event publication, import-progress
+  aggregation, status notifications, and toasts to host lifetime.
+- [ ] Reserve status-bar height before submitting the host dock space, anchor
+  the drawer to the remaining host content region, and add a host-level tool
+  window path for "Dock in Layout".
+- [ ] Route `Ctrl+Space`, status-bar buttons, Window-menu recovery actions, host
+  layout reset, Content Browser reveal/focus, and drawer dismissal through the
+  host state.
+- [ ] Remove Content Browser, Console, notification overlay, drawer state,
+  status-bar drawing, and corresponding layout roles from `MLevelEditor`.
+- [ ] Bump the host layout version and remove the retired Level Editor panel IDs
+  from its default/reset layout without clearing unrelated user settings.
+
+#### Acceptance Gate
+
+- Content Browser, Console, status notifications, toasts, and Activity History
+  remain visible and live while each registered workspace is active and while
+  the Level Editor tab is hidden.
+- Each single-instance tool content body is submitted at most once per frame;
+  toggling its selected drawer button closes it, and selecting a docked tool
+  focuses it.
+- Console warnings/errors generated in a non-Level workspace update unread
+  state immediately; transaction feedback from that workspace reaches Activity
+  History without first activating LevelEditor.
+- Content Browser state, search, selection, navigation, and thumbnail requests
+  survive workspace switches.
+- Asset drag from the drawer can dismiss the drawer and complete on compatible
+  Level, Material, Texture, StaticMesh, and SkeletalMesh workspace targets.
+- Play-In-Editor keeps browser mutations disabled without disabling Console or
+  Activity History.
+
+### Stage 4: Qualify lifecycle and publish the new contract
+
+- [ ] Exercise partial registration failure and reverse-order shutdown for
+  extensions, imports, browser request admission, task scopes, thumbnail
+  providers/caches, workspaces, and concrete modules.
+- [ ] Verify pending deletion recovery and reachable Undo/Redo entries survive
+  the ownership move without retaining unloaded module callbacks.
+- [ ] Run the repository-prescribed targeted native tests, editor-module builds,
+  full editor build, and interactive editor scenarios from the standard agent
+  build/test workflows.
+- [ ] Update the Content Browser and Workspace Framework architecture documents
+  from implemented evidence, including module ownership, host presentation,
+  settings migration, extension lifecycle, and shutdown order.
+- [ ] Update Code Modules routing and any direct source links or test ownership
+  descriptions that still identify LevelEditor as the browser owner.
+- [ ] Remove temporary adapters, legacy settings writes, obsolete layout roles,
+  unused LevelEditor dependencies, and stale private-source test exceptions.
+
+#### Acceptance Gate
+
+- Clean startup, default-document opening, workspace switching, project
+  relaunch, and shutdown pass with no leaked registration, task, thumbnail,
+  import, or callback lease.
+- Targeted and aggregate native tests pass, all affected editor targets build,
+  and interactive validation covers every global tool from every workspace.
+- Documentation validation passes after the lasting contracts and module routes
+  reflect the implemented ownership.
+- No production or test source outside the new module includes a private
+  Content Browser header.
+
+## Validation Matrix
+
+| Area | Automated evidence | Interactive evidence |
+| --- | --- | --- |
+| Module graph | Target generation/build proves exports and link dependencies; dependency audit rejects concrete-editor edges from ContentBrowser | Editor reaches Ready with every workspace registered |
+| Browser model | Existing model, item-view, filesystem, refresh, selection, filtering, and snapshot tests under the new owner | Navigate mounts, search, change filters/views, reopen the tool, and switch workspaces |
+| Asset workflows | Existing create/import/reimport, duplicate, rename, move, deletion, fix-up, recovery, and transaction tests plus extension-registry tests | Execute each contributed menu action and confirm errors/progress appear globally |
+| Settings | Migration, invalid-value fallback, idempotent reload, and independent-save tests | Preserve current browser layout across upgrade and restart without changing viewport state |
+| Host drawer | Drawer disposition, geometry, once-per-frame submission, shortcut routing, and host layout tests | Toggle, dismiss, drag out, dock, focus, close, recover, and reset host layout in every workspace |
+| Console and activity | Bounded record-model, hidden polling, unread-count, notification-history, and transaction-event tests | Generate logs and Undo/Redo feedback outside LevelEditor and observe immediate status/history updates |
+| Workspace integration | Asset-open routing, reveal, document remap, drag payload, active-workspace, and PIE-policy tests | Open assets from the global browser, switch editor tabs, drag compatible assets, and enter/leave PIE |
+| Lifetime | Registration rollback, callback-gate, task/import cancellation, cache/provider drain, and shutdown-order tests | Close the editor with active imports and after reversible asset operations; relaunch and verify consistency |
+
+Build and native-test selection/execution follow the repository workflows in
+[Build and Run](../Agents/BuildAndRun.md) and
+[Testing](../Agents/Testing.md); this plan does not duplicate their commands.
+
+## Definition of Done
+
+- `ContentBrowser` is a registered shared editor module with no concrete-editor
+  or MainFrame dependency.
+- MainFrame owns one browser and one set of global bottom tools for the complete
+  project-editor host lifetime.
+- LevelEditor contains no Content Browser, Console, Activity History, status bar,
+  or bottom-drawer implementation and exposes no browser reveal API.
+- Asset-family modules contribute their owned create/import policy through
+  scoped, unload-safe registrations.
+- Browser settings are independent and existing user state migrates without
+  repeated writes or data loss.
+- Asset operations retain their AssetCore and global transaction semantics;
+  document and Level viewport state remain coherent through separate observers.
+- Cross-workspace behavior, async lifetime, shutdown, and recovery satisfy every
+  stage acceptance gate and validation-matrix row.
+- Lasting architecture and module-routing documents describe the implemented
+  boundary, all documentation validators pass, and the completed plan records
+  exact validation evidence before archival.
+
+## Deferred Follow-ups
+
+- Multiple Content Browser instances or saved browser tabs.
+- A searchable, package-filtered Undo/Redo stack inspector distinct from
+  Activity History.
+- A general plugin-facing editor-tool framework if more application-wide tools
+  later need the same host drawer/docking contract.
+- Per-project customization of bottom-bar tool ordering or keyboard shortcuts.
+- Detaching global tools into separate native windows.
+
+## Related Documentation
+
+- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
+- [Content Browser](../Editor/Architecture/ContentBrowser.md)
+- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
+- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../Agents/Testing.md)
+- [Code Modules](../Workspace/CodeModules.md)
+
+## Related Code
+
+- [MainFrame host composition](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
+- [Workspace framework](../../Engine/Source/Editor/DurinEd/Public/Editor/Workspace.h)
+- [Workspace manager](../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
+- [Level Editor composition](../../Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp)
+- [Content Browser panel](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.h)
+- [Content Browser model](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.h)
+- [Content Browser operations](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.h)
+- [Asset move coordinator](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
+- [Console panel](../../Engine/Source/Editor/LevelEditor/Private/Panels/ConsolePanel.h)
+- [Notification overlay](../../Engine/Source/Editor/LevelEditor/Private/Widgets/EditorNotificationOverlay.h)
+- [Level Editor session settings](../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
+- [Editor transaction manager](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
