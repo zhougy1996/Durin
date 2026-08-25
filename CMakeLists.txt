@@ -104,15 +104,34 @@ endif()
 
 if(TARGET AssetBuildCore)
 	durin_assert_target_dependency_closure_includes(AssetBuildCore
-		AssetCore
+		DerivedDataCache
 		Core
 	)
 	durin_assert_target_dependency_closure_excludes(AssetBuildCore
+		AssetCore
 		Engine
 		AssetForge
 		GeometryBuild
 		TextureBuild
 		AssetForgeBuiltins
+		RHI
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET DerivedDataCache)
+	durin_assert_target_dependency_closure_includes(DerivedDataCache
+		Core
+	)
+	durin_assert_target_dependency_closure_excludes(DerivedDataCache
+		AssetCore
+		Engine
+		AssetBuildCore
+		GeometryBuild
+		TextureBuild
+		DurinEd
 		RHI
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -142,6 +161,7 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		AssetForge
 		# Derived builders and offline compressors.
 		GeometryBuild
+		DerivedDataCache
 		AssetBuildCore
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo

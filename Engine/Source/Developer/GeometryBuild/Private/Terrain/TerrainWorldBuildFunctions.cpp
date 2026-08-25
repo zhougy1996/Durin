@@ -175,7 +175,7 @@ namespace Durin::Asset::Build::Private
 
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = std::format("TerrainWorld/{}/Objects",
+				return {.CacheBucket = std::format("TerrainWorld/{}/Objects",
 					GetTerrainWorldBuildValueName(ProductClass)),
 					.ExpectedValueName = std::string(GetTerrainWorldBuildValueName(ProductClass)),
 					.MaximumValueBytes = MaximumBodyBytes(ProductClass)};

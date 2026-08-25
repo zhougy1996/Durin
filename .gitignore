@@ -18,6 +18,8 @@
 # Regenerable content and editor output. Authored source assets and .dasset
 # packages under Content remain versioned; only derived/local data is ignored.
 **/DerivedDataCache/
+!Engine/Source/Developer/DerivedDataCache/
+!Engine/Source/Developer/DerivedDataCache/**
 **/Cooked/
 **/Saved/
 **/.durin-asset-mutation/

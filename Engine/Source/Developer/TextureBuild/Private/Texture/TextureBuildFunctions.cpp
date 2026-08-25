@@ -176,7 +176,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "Textures/Objects",
+				return {.CacheBucket = "Textures/Objects",
 					.ExpectedValueName = std::string(Texture2DValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,
@@ -233,7 +233,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "TextureCube/Objects",
+				return {.CacheBucket = "TextureCube/Objects",
 					.ExpectedValueName = std::string(TextureCubeValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,
@@ -301,7 +301,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "VolumeTexture/Objects",
+				return {.CacheBucket = "VolumeTexture/Objects",
 					.ExpectedValueName = std::string(VolumeTextureValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,

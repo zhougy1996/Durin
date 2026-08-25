@@ -9,27 +9,31 @@ Completed:
 
 ## Current Status
 
-The repository has one production asset-derived-data path through
-`AssetBuildCore::FBuildSession`, but the cache implementation is still embedded
-inside that module. `FBuildCacheClient`, its query status/policy types, and the
-query/build/store adaptation are private declarations in `AssetBuildCore.cpp`;
-`FDerivedDataObjectStore` is a second private type that implements canonical-key
-validation, filesystem layout, bounded reads, atomic writes, and budget cleanup.
-The latter is a local filesystem cache backend rather than a general object
-store, and both names obscure the ownership that this plan establishes.
+Stages 0-2 are implemented. `DerivedDataCache` is a target-selected Developer
+module with a public synchronous Bucket/Key/Get/Put/Trim contract over Core's
+immutable `FSharedByteBuffer` and a private filesystem backend. The backend
+preserves the historical two-character sharding and `.bin` layout, atomic
+replacement, bounded reads, deterministic trim, dynamic test directory, and
+contained-path checks. A process facade serializes get, put, and trim without
+exposing locks or backend state.
 
-The selected first extraction creates a target-selected Developer module named
-`DerivedDataCache`. It owns a synchronous backend-neutral cache contract and a
-private local-filesystem implementation. `AssetBuildCore` becomes its first
-consumer and retains the complete query/validate/build/validate/store state
-machine. Texture, geometry, Terrain, import, Cook, runtime payload, and shader
-code do not move in this plan.
+`AssetBuildCore` now privately depends on DDC, no longer depends on `AssetCore`,
+and retains the complete query/validate/build/validate/store policy machine.
+`FDerivedDataObjectStore`, `FBuildCacheClient`, their duplicate statuses, and
+the logical `CacheRoot` field are removed. Direct DDC tests pass 5/5 and
+AssetBuildCore policy/host tests pass 8/8.
 
-The completed Asset Build Recipe Internal Consolidation plan deliberately
-deferred this module until a stable independent cache boundary was selected.
-This plan makes that selection explicitly: the boundary is canonical
-`bucket + key -> opaque immutable bytes`, with independently testable get, put,
-and bounded trim behavior and no dependency on asset types or Build functions.
+Stage 3 focused coverage passes for Texture (87), StaticMesh/collision (74),
+skeletal/animation (34), TerrainHeightmap (11), TerrainWorld (15), AssetImport
+(17), TerrainHeightmap Cook (1), and Texture Cook (1). The Editor all build,
+hidden-window smoke, DurinGame build, module closure assertions, and deployment
+exclusion checks pass. The native aggregate is currently blocked before test
+execution by unrelated stale renderer test calls in
+`VolumetricCloudVulkanTests.cpp` and `EditorGridVulkanTests.cpp`; an additional
+Skeletal Scene lifecycle qualification compiles after explicit include repair
+but reproduces a pre-existing RenderCore admission-stopped runtime failure.
+All changed/all documentation, all-plan, and all-roadmap validators pass. The
+plan remains active until the external native aggregate gates pass.
 
 ## Goal
 
@@ -275,24 +279,24 @@ validation and decide whether authoritative inputs permit a rebuild.
 Dependencies: completed Asset Build Recipe Internal Consolidation plan and the
 current passing asset Build/session baseline.
 
-- [ ] Inventory every production/test include, symbol, module dependency,
+- [x] Inventory every production/test include, symbol, module dependency,
   target root, closure assertion, runtime load name, and physical-path
   assumption involving `FDerivedDataObjectStore`, `FBuildCacheClient`,
   `CacheRoot`, or the current DDC layout.
-- [ ] Record golden bucket strings, key grammar and length, sharding, suffix,
+- [x] Record golden bucket strings, key grammar and length, sharding, suffix,
   maximum value limits, disk budgets, deletion bounds/order, hit/miss/error
   mapping, required/best-effort store results, and phase timing behavior for
   every registered Build function.
-- [ ] Characterize local backend behavior for missing entries, canonical and
+- [x] Characterize local backend behavior for missing entries, canonical and
   invalid keys/buckets, oversized files and puts, blocked roots, symlinks and
   containment, atomic same-key replacement, ignored noncanonical files,
   bounded trim, and concurrent same-key get/put/trim interactions.
-- [ ] Finalize the exact public `FCacheBucket`, `FCacheKey`, request/result,
+- [x] Finalize the exact public `FCacheBucket`, `FCacheKey`, request/result,
   status, facade/module access, and thread/lifetime contracts from the selected
   decisions above; no physical path or backend type may enter a public header.
-- [ ] Confirm by include/link audit that `AssetBuildCore` has no real
+- [x] Confirm by include/link audit that `AssetBuildCore` has no real
   `AssetCore` dependency and that `DerivedDataCache` can depend on `Core` only.
-- [ ] Select the exact native-test ownership and target metadata for direct DDC
+- [x] Select the exact native-test ownership and target metadata for direct DDC
   tests without exposing private backend headers.
 
 #### Acceptance Gate
@@ -308,24 +312,24 @@ current passing asset Build/session baseline.
 
 Dependencies: Stage 0 complete.
 
-- [ ] Add `DerivedDataCache.dmodule`, module CMake registration, API macro,
+- [x] Add `DerivedDataCache.dmodule`, module CMake registration, API macro,
   module interface/facade lifetime, public cache contracts, and the private
   `FFileSystemCacheBackend` under `Source/Developer/DerivedDataCache`.
-- [ ] Implement validated Bucket and Key construction, opaque shared-buffer
+- [x] Implement validated Bucket and Key construction, opaque shared-buffer
   get results, explicit get/put statuses, trim accounting, and stable
   diagnostics without asset or Build vocabulary.
-- [ ] Move the current path resolution, containment, size bounds, atomic write,
+- [x] Move the current path resolution, containment, size bounds, atomic write,
   and deterministic bounded cleanup mechanics into the backend; remove
   ObjectStore terminology from new production code.
-- [ ] Preserve the existing physical directory layout exactly and keep the
+- [x] Preserve the existing physical directory layout exactly and keep the
   configured DDC directory dynamically testable through the established Core
   path contract.
-- [ ] Rename and migrate `DerivedDataObjectStoreTests.cpp` to direct public DDC
+- [x] Rename and migrate `DerivedDataObjectStoreTests.cpp` to direct public DDC
   tests covering the Stage 0 matrix; inspect/corrupt expected test files only
   as a test fixture and do not add a public entry-path accessor.
-- [ ] Add focused module startup/shutdown/reload and concurrent-operation tests
+- [x] Add focused module startup/shutdown/reload and concurrent-operation tests
   if the selected facade owns process state or synchronization.
-- [ ] Add module dependency-closure assertions proving that DDC contains Core
+- [x] Add module dependency-closure assertions proving that DDC contains Core
   and excludes AssetCore, Engine, AssetBuildCore, recipes, editor modules, RHI,
   and third-party codecs.
 
@@ -340,24 +344,24 @@ Dependencies: Stage 0 complete.
 
 Dependencies: Stage 1 complete and the new cache contract qualified.
 
-- [ ] Make `DerivedDataCache` a private `AssetBuildCore` dependency and add it
+- [x] Make `DerivedDataCache` a private `AssetBuildCore` dependency and add it
   explicitly to the required Editor/tool target roots and deployment audits.
-- [ ] Replace session-local `FDerivedDataObjectStore` and
+- [x] Replace session-local `FDerivedDataObjectStore` and
   `FBuildCacheClient` construction with direct use of the process DDC facade.
-- [ ] Convert `FBuildKey` to `FCacheKey` explicitly at the session boundary and
+- [x] Convert `FBuildKey` to `FCacheKey` explicitly at the session boundary and
   adapt successful opaque bytes to the existing named `FBuildValue` contract.
-- [ ] Rename `FBuildFunctionConfig::CacheRoot` to `CacheBucket` and update every
+- [x] Rename `FBuildFunctionConfig::CacheRoot` to `CacheBucket` and update every
   recipe/test initializer while preserving the exact configured strings.
-- [ ] Retain Build-owned query/store policy, cache-hit validation, local-build
+- [x] Retain Build-owned query/store policy, cache-hit validation, local-build
   fallback, required/best-effort put handling, cancellation checkpoints,
   cleanup triggering, result origins, failure phases, diagnostics, and
   nanosecond timings.
-- [ ] Remove `FBuildCacheClient`, its private policy/query types,
+- [x] Remove `FBuildCacheClient`, its private policy/query types,
   `FDerivedDataObjectStore`, old source files, old private includes, test-only
   access, and all production `ObjectStore` terminology on this path.
-- [ ] Adopt `FSharedByteBuffer` inside `FBuildValue` only if needed for
+- [x] Adopt `FSharedByteBuffer` inside `FBuildValue` only if needed for
   zero-copy cache hits; preserve its complete public behavior and content hash.
-- [ ] Remove `AssetBuildCore`'s `AssetCore` dependency after a final source and
+- [x] Remove `AssetBuildCore`'s `AssetCore` dependency after a final source and
   target-closure audit proves it unused.
 
 #### Acceptance Gate
@@ -380,23 +384,23 @@ Dependencies: Stage 2 complete.
   affected Texture2D/TextureCube/VolumeTexture, StaticMesh/collision,
   skeletal/animation, TerrainHeightmap/TerrainWorld, import/reimport, Cook, and
   cache-corruption selections using the repository testing workflow.
-- [ ] Verify exact cache directories and bytes for representative texture,
+- [x] Verify exact cache directories and bytes for representative texture,
   mesh, skeletal, animation, and Terrain entries without making those paths
   part of a production API.
 - [ ] Build the default Editor target and complete native aggregate after
   focused tests pass; run the hidden-window Editor startup/shutdown smoke to
   qualify module load and unload ordering.
-- [ ] Build or otherwise qualify the configured Game closure and deployment
+- [x] Build or otherwise qualify the configured Game closure and deployment
   audit, proving `DerivedDataCache`, `AssetBuildCore`, recipes, and offline
   codecs remain absent.
-- [ ] Audit module descriptors, public includes, generated binaries, and target
+- [x] Audit module descriptors, public includes, generated binaries, and target
   dependency closures for the selected public/private direction and absence of
   accidental transitive raw-cache access.
-- [ ] Update Code Modules, Workspace Projects, Build System, and Asset Data
+- [x] Update Code Modules, Workspace Projects, Build System, and Asset Data
   Lifecycle only with implemented ownership, dependency, selection, and
   failure contracts; replace ObjectStore wording without documenting private
   file layout as public architecture.
-- [ ] Run changed/all documentation, all-plan, and all-roadmap validation, then
+- [x] Run changed/all documentation, all-plan, and all-roadmap validation, then
   record exact build/test/search evidence before completing the plan.
 
 #### Acceptance Gate
@@ -493,9 +497,9 @@ overlap build process trees.
 - [`BuildFunction.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildFunction.h)
 - [`BuildSession.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildSession.h)
 - [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [`DerivedDataObjectStore.h`](../../Engine/Source/Developer/AssetBuildCore/Private/DerivedDataObjectStore.h)
-- [`DerivedDataObjectStore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/DerivedDataObjectStore.cpp)
+- [`DerivedDataCache.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
+- [`FileSystemCacheBackend.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/FileSystemCacheBackend.cpp)
 - [`AssetBuildCoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
-- [`DerivedDataObjectStoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataObjectStoreTests.cpp)
+- [`DerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
 - [`Engine.dproject`](../../Engine/Engine.dproject)
 - [`CMakeLists.txt`](../../CMakeLists.txt)

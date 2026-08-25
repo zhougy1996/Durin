@@ -4,6 +4,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "AssetTools.h"
 #include "AssetForge/ImportService.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

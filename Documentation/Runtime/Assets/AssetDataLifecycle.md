@@ -2,9 +2,9 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
+Modules: AssetCore, DerivedDataCache, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -18,9 +18,11 @@ direction-named codecs. Runtime `Engine` values own their bidirectional
 Developer `TextureBuild` and `GeometryBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
-normalized values. `AssetBuildCore` provides family-neutral cache policy over
-an opaque private ObjectStore, and recipe modules reach cache query/store only
-through `FBuildSession`. `AssetCore` owns package, descriptor, container, manifest, and
+normalized values. `DerivedDataCache` owns the backend-neutral
+`bucket + key -> opaque immutable bytes` contract and the private local
+filesystem backend. `AssetBuildCore` owns family-neutral Build policy and
+adapts cache results inside `FBuildSession`; recipe modules reach cache
+query/store only through that session. `AssetCore` owns package, descriptor, container, manifest, and
 atomic-publication formats without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
@@ -243,9 +245,13 @@ DBLK companion.
 
 ## Derived Data Cache Objects
 
-Generic content-addressed DDC objects are opaque `.bin` values. The request's
+Generic content-addressed DDC entries are opaque `.bin` values.
+`DerivedDataCache` validates logical buckets and canonical lowercase 128-bit
+keys, returns immutable `FSharedByteBuffer` values, distinguishes hit, miss,
+invalid request, excessive value, and storage failure, and performs bounded
+deterministic trim. Its filesystem paths and backend type remain private. The request's
 build function and expected value name select one owner-defined decoder; the
-store does not identify a type from the bytes. That owner validates its schema,
+cache does not identify a type from the bytes. That owner validates its schema,
 producer, bounds, structure, and checksums. Native artifacts such as shader
 SPIR-V and reflection sidecars may retain their own strict file grammar beneath
 a namespaced subtree. Every DDC entry remains disposable and its authored inputs

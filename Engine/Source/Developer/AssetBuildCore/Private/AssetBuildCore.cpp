@@ -1,82 +1,16 @@
 #include "AssetBuild/BuildSession.h"
 #include "AssetBuild/BuildHost.h"
-#include "DerivedDataObjectStore.h"
+#include "DerivedDataCache/DerivedDataCache.h"
 
 namespace Durin::Asset::Build
 {
 	namespace
 	{
-		// Physical cache policy is private to the session cache adapter. Public
-		// callers select behavior through FBuildPolicy instead.
-		struct FBuildCachePolicy
-		{
-			bool bQueryCache = true;
-			bool bStoreBuildResult = true;
-			bool bRequireStoreSuccess = false;
-		};
-
 		auto SetError(std::string* OutError, std::string Message) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
 			return false;
 		}
-
-		enum class EBuildCacheQueryStatus : uint8
-		{
-			Hit,
-			Missing,
-			StorageError,
-			Skipped
-		};
-
-		struct FBuildCacheQueryResult
-		{
-			EBuildCacheQueryStatus Status = EBuildCacheQueryStatus::Skipped;
-			FBuildValue Value;
-			std::string Diagnostic;
-		};
-
-		// Adapts one session's opaque values to the physical derived-data object store.
-		class FBuildCacheClient
-		{
-		public:
-			explicit FBuildCacheClient(FDerivedDataObjectStore& InStore)
-				: StoreTarget(&InStore)
-			{
-			}
-
-			auto Query(
-				std::string_view Key, std::string ValueName,
-				const FBuildCachePolicy& Policy) const -> FBuildCacheQueryResult
-			{
-				if (!Policy.bQueryCache) return {};
-				std::vector<std::byte> Bytes;
-				const FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
-				if (Read.Status == EDerivedDataObjectReadStatus::Hit)
-					return {EBuildCacheQueryStatus::Hit,
-						FBuildValue::FromOwned(std::move(ValueName), std::move(Bytes)), {}};
-				if (Read.Status == EDerivedDataObjectReadStatus::Missing)
-					return {EBuildCacheQueryStatus::Missing, {}, Read.Message};
-				return {EBuildCacheQueryStatus::StorageError, {}, Read.Message};
-			}
-
-			auto Store(
-				std::string_view Key, const FBuildValue& Value,
-				const FBuildCachePolicy& Policy, std::string* OutError = nullptr) const -> bool
-			{
-				if (!Policy.bStoreBuildResult) return true;
-				std::string Error;
-				const bool bStored = Value.IsValid()
-					&& StoreTarget->Write(Key, Value.GetBytes(), &Error);
-				if (!bStored && Policy.bRequireStoreSuccess)
-					return SetError(OutError, std::move(Error));
-				if (!bStored && OutError) *OutError = std::move(Error);
-				return bStored || !Policy.bRequireStoreSuccess;
-			}
-
-		private:
-			FDerivedDataObjectStore* StoreTarget = nullptr;
-		};
 
 		auto IsCanonicalIdentityPart(std::string_view Value) -> bool
 		{
@@ -290,7 +224,7 @@ namespace Durin::Asset::Build
 		if (!Function)
 			return SetError(OutError, "Build function is invalid."), FBuildFunctionRegistration{};
 		const FBuildFunctionConfig Config = Function->GetConfig();
-		if (Config.CacheRoot.empty() || Config.ExpectedValueName.empty()
+		if (Config.CacheBucket.empty() || Config.ExpectedValueName.empty()
 			|| Config.MaximumValueBytes == 0)
 			return SetError(OutError, "Build function cache configuration is invalid."), FBuildFunctionRegistration{};
 		auto Resource = OwnerGate.IsValid() ? OwnerGate.RetainResource() : FModuleOwnedResourceLease{};
@@ -340,8 +274,12 @@ namespace Durin::Asset::Build
 		const FBuildFunctionConfig Config = Function->GetConfig();
 		if (Config.ExpectedValueName != Definition.GetExpectedValueName())
 			return Fail(EBuildFailurePhase::Request, "Build value contract does not match function configuration.");
-		FDerivedDataObjectStore Store(Config.CacheRoot, Config.MaximumValueBytes);
-		FBuildCacheClient Cache(Store);
+		using namespace Durin::DerivedData;
+		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
+		const FCacheKey CacheKey = FCacheKey::FromString(Definition.GetKey().ToString());
+		if (!CacheBucket.IsValid() || !CacheKey.IsValid())
+			return Fail(EBuildFailurePhase::Request, "Build function cache configuration is invalid.");
+		FDerivedDataCache& Cache = GetDerivedDataCache();
 		FBuildOutput Result;
 		auto FailResult = [&](EBuildFailurePhase Phase, std::string Message) -> FBuildOutput {
 			Result.Status = EBuildStatus::Failed;
@@ -353,10 +291,12 @@ namespace Durin::Asset::Build
 		{
 			Result.bCacheQueried = true;
 			const auto Query = MeasureNanoseconds(Result.PhaseDurations.CacheQueryNanoseconds,
-				[&] { return Cache.Query(Definition.GetKey().ToString(),
-					Config.ExpectedValueName, {.bQueryCache = true}); });
-			if (Query.Status == EBuildCacheQueryStatus::Hit)
+				[&] { return Cache.Get({CacheBucket, CacheKey, Config.MaximumValueBytes}); });
+			if (Query.Status == ECacheGetStatus::Hit)
 			{
+				const std::span<const std::byte> CachedBytes = Query.Value.GetBytes();
+				const FBuildValue CachedValue = FBuildValue::FromOwned(Config.ExpectedValueName,
+					std::vector<std::byte>(CachedBytes.begin(), CachedBytes.end()));
 				std::string Error;
 				bool bValid = false;
 				try
@@ -368,11 +308,11 @@ namespace Durin::Asset::Build
 							"Build function module owner is retiring.");
 						bValid = MeasureNanoseconds(
 							Result.PhaseDurations.CachedValueValidationNanoseconds,
-							[&] { return Function->Validate(Definition, Query.Value, Error); });
+							[&] { return Function->Validate(Definition, CachedValue, Error); });
 					}
 					else bValid = MeasureNanoseconds(
 						Result.PhaseDurations.CachedValueValidationNanoseconds,
-						[&] { return Function->Validate(Definition, Query.Value, Error); });
+						[&] { return Function->Validate(Definition, CachedValue, Error); });
 				}
 				catch (const std::exception& Exception) { Error = Exception.what(); }
 				catch (...) { Error = "Build function validation threw an unknown exception."; }
@@ -380,18 +320,18 @@ namespace Durin::Asset::Build
 				{
 					Result.Status = EBuildStatus::CacheHit;
 					Result.Origin = EBuildValueOrigin::Cache;
-					if (Policy.bReturnData) Result.Value = Query.Value;
+					if (Policy.bReturnData) Result.Value = CachedValue;
 					return Result;
 				}
 				Result.FailurePhase = EBuildFailurePhase::CachedValueValidation;
 				Result.Diagnostic = std::move(Error);
 			}
-			else if (Query.Status == EBuildCacheQueryStatus::StorageError)
+			else if (Query.Status != ECacheGetStatus::Miss)
 			{
 				Result.FailurePhase = EBuildFailurePhase::CacheQuery;
 				Result.Diagnostic = Query.Diagnostic;
 			}
-			else if (Query.Status == EBuildCacheQueryStatus::Missing)
+			else
 				Result.Diagnostic = Query.Diagnostic;
 		}
 		if (!Policy.bAllowLocalBuild)
@@ -472,24 +412,22 @@ namespace Durin::Asset::Build
 		}
 		if (Policy.bStoreBuildResult)
 		{
-			std::string StoreError;
-			const bool bStored = MeasureNanoseconds(Result.PhaseDurations.CacheStoreNanoseconds,
-				[&] { return Cache.Store(Definition.GetKey().ToString(), BuiltValue,
-					{.bStoreBuildResult = true, .bRequireStoreSuccess = Policy.bRequireStoreSuccess},
-					&StoreError); });
-			Result.StoreDiagnostic = StoreError;
-			if (!bStored)
+			const FCachePutResult Put = MeasureNanoseconds(Result.PhaseDurations.CacheStoreNanoseconds,
+				[&] { return Cache.Put({CacheBucket, CacheKey, BuiltValue.GetBytes(),
+					Config.MaximumValueBytes}); });
+			Result.StoreDiagnostic = Put.Diagnostic;
+			if (!Put && Policy.bRequireStoreSuccess)
 			{
 				Result.Status = EBuildStatus::Failed;
 				Result.FailurePhase = EBuildFailurePhase::CacheStore;
-				Result.Diagnostic = std::move(StoreError);
+				Result.Diagnostic = Put.Diagnostic;
 				return Result;
 			}
-			if (StoreError.empty() && Config.CleanupBudgetBytes)
+			if (Put && Config.CleanupBudgetBytes)
 			{
-				const auto Cleanup = Store.CleanupToBudget(
-					Config.CleanupBudgetBytes, Config.CleanupDeleteLimit);
-				Result.StoreDiagnostic = Cleanup.Message;
+				const auto Trim = Cache.Trim({CacheBucket,
+					Config.CleanupBudgetBytes, Config.CleanupDeleteLimit});
+				Result.StoreDiagnostic = Trim.Diagnostic;
 			}
 		}
 		if (Policy.bReturnData) Result.Value = std::move(BuiltValue);

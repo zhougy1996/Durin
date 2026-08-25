@@ -55,7 +55,7 @@ namespace
 
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheRoot = "AssetBuildCoreTests/Policy",
+			return {.CacheBucket = "AssetBuildCoreTests/Policy",
 				.ExpectedValueName = "PolicyOutput", .MaximumValueBytes = 1024};
 		}
 
@@ -99,7 +99,7 @@ TEST(FAssetBuildCoreTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		mutable uint32 BuildCount = 0;
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheRoot = "AssetBuildCoreTests/Session",
+			return {.CacheBucket = "AssetBuildCoreTests/Session",
 				.ExpectedValueName = "SampleOutput", .MaximumValueBytes = 1024,
 				.CleanupBudgetBytes = 4096, .CleanupDeleteLimit = 2};
 		}

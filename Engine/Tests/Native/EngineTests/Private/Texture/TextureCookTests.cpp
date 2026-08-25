@@ -4,6 +4,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "DynamicRHI.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"

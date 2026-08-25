@@ -79,7 +79,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "TerrainHeightmap/Objects",
+				return {.CacheBucket = "TerrainHeightmap/Objects",
 					.ExpectedValueName = std::string(TerrainHeightmapValueName),
 					.MaximumValueBytes = MaximumTerrainHeightmapPayloadBytes};
 			}

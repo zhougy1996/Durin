@@ -66,7 +66,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "StaticMesh/Objects",
+				return {.CacheBucket = "StaticMesh/Objects",
 					.ExpectedValueName = std::string(StaticMeshValueName),
 					.MaximumValueBytes = MaximumStaticMeshPayloadBytes,
 					.CleanupBudgetBytes = StaticMeshDerivedDataBudgetBytes,
@@ -100,7 +100,7 @@ namespace Durin::Asset::Build::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = "StaticMeshCollision/Objects",
+				return {.CacheBucket = "StaticMeshCollision/Objects",
 					.ExpectedValueName = std::string(CollisionValueName),
 					.MaximumValueBytes = MaximumStaticMeshCollisionPayloadBytes};
 			}

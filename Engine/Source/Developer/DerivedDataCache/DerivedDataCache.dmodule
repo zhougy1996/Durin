@@ -1,10 +1,8 @@
 {
-    "ModuleName": "AssetBuildCore",
+    "ModuleName": "DerivedDataCache",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
-    "PrivateDependencies": [
-        "DerivedDataCache"
-    ],
+    "PrivateDependencies": [],
     "PublicDependencies": [
         "Core"
     ],

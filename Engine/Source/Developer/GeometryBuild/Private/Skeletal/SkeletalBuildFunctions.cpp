@@ -98,7 +98,7 @@ namespace Durin::Asset::Build::Private
 
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheRoot = Root,
+				return {.CacheBucket = Root,
 					.ExpectedValueName = std::string(SkeletalValueName),
 					.MaximumValueBytes = MaximumBytes,
 					.CleanupBudgetBytes = SkeletalDerivedDataBudgetBytes,

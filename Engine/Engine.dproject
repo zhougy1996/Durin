@@ -27,6 +27,7 @@
         "AssetForgeBuiltins": "Source/Editor/AssetForgeBuiltins",
         "AssetForge": "Source/Editor/AssetForge",
         "GeometryBuild": "Source/Developer/GeometryBuild",
+        "DerivedDataCache": "Source/Developer/DerivedDataCache",
         "AssetBuildCore": "Source/Developer/AssetBuildCore",
         "TextureBuild": "Source/Developer/TextureBuild"
     },
@@ -48,6 +49,7 @@
                 "AssetForgeBuiltins",
                 "AssetForge",
                 "GeometryBuild",
+                "DerivedDataCache",
                 "AssetBuildCore",
                 "TextureBuild"
             ]

@@ -194,7 +194,7 @@ Developer is not a third runtime variant and a `Source/Developer` path does
 not make a module authoring-only by itself. Programs such as Cook explicitly
 select the Developer modules they require, while a game root that does not
 select them never receives them through directory discovery. For asset
-authoring, editor roots select `AssetBuildCore` and the needed
+authoring, editor roots select `DerivedDataCache`, `AssetBuildCore`, and the needed
 `TextureBuild`/`GeometryBuild` recipes explicitly; package audit,
 canonical-resave, and game roots select none of them.
 

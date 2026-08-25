@@ -7,7 +7,7 @@ namespace Durin::Asset::Build
 {
 	struct FBuildFunctionConfig
 	{
-		std::string CacheRoot;
+		std::string CacheBucket;
 		std::string ExpectedValueName;
 		uint64 MaximumValueBytes = 0;
 		uint64 CleanupBudgetBytes = 0;
