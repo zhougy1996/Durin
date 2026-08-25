@@ -273,6 +273,7 @@ namespace Durin
 				const FGeneratedShaderCompileRequest& Request)
 				-> FShaderCompilerOutput
 			{
+				std::lock_guard CompileLock(GeneratedCompileMutex);
 				FShaderCompilerOutput Output;
 				if (!Request.VirtualPath.starts_with("/Generated/Materials/")
 					|| Request.Source.empty()
@@ -607,6 +608,7 @@ namespace Durin
 			FFileFingerprintCache FileFingerprintCache;
 			std::mutex InFlightMutex;
 			std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
+			std::mutex GeneratedCompileMutex;
 			mutable std::mutex OutputCacheMutex;
 			std::list<std::string> OutputRecency;
 			std::unordered_map<std::string, FOutputCacheEntry> OutputCache;

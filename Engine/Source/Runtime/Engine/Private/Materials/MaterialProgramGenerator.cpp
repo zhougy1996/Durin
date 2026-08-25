@@ -532,6 +532,7 @@ float4 FragmentMain(
 		Request.EntryPoints = {
 			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
 		Request.Frequencies.assign(3, EShaderFrequency::Fragment);
+		Request.Macros.emplace_back("DURIN_TERRAIN", "0");
 		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
 			std::to_string(static_cast<uint8>(Input.StaticProperties.BlendMode)));
 		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",
