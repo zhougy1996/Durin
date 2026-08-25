@@ -1,6 +1,7 @@
 #include "TerrainHeightmapAssetThumbnail.h"
 
 #include "AssetAuthoring.h"
+#include "DObject/Class.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor::Level

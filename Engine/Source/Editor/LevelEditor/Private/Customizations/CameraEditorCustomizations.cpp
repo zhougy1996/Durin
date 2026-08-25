@@ -3,6 +3,7 @@
 #include "Actors/CameraActor.h"
 #include "Actors/TerrainActor.h"
 #include "Components/CameraComponent.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
 #include "Editor/PropertyView.h"

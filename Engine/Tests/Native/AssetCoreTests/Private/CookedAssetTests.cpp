@@ -4,6 +4,7 @@
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "CoreGlobals.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Object.h"
 #include "HAL/PlatformLTS.h"

@@ -2,6 +2,7 @@
 
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "Engine/Level.h"

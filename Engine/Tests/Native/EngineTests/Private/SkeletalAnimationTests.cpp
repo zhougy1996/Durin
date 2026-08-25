@@ -2,6 +2,7 @@
 
 #include "Animation/SkeletalAnimation.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Actor.h"

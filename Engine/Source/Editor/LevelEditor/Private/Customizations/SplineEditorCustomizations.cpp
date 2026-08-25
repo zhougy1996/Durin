@@ -3,6 +3,7 @@
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "Actors/SplineMeshActor.h"
+#include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "Engine/Actor.h"

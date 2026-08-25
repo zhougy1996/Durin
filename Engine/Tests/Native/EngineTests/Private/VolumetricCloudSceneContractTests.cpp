@@ -1,5 +1,6 @@
 #include "Actors/VolumetricCloudActor.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"

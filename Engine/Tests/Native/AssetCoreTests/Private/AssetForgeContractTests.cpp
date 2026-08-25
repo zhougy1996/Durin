@@ -1,6 +1,7 @@
 #include "AssetTools.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Persistence/ImportRecord.h"
+#include "DObject/Class.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"

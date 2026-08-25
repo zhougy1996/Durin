@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "DObject/Class.h"
 #include "Math/Operations.h"
 #include "Actors/SplineMeshActor.h"
 #include "Actors/TerrainActor.h"

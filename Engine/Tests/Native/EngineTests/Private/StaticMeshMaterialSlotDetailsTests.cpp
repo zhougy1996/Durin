@@ -2,6 +2,7 @@
 
 #include "AssetTools.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"

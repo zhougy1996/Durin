@@ -3,6 +3,8 @@
 #include "AssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"
 #include "AssetForge/ImportService.h"

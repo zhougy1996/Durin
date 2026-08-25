@@ -3,6 +3,7 @@
 
 #include "AssetAuthoring.h"
 #include "AssetForge/Persistence/ImportRecord.h"
+#include "DObject/Class.h"
 #include "Engine/Level.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

@@ -7,6 +7,7 @@
 #include "Asset/Result.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
+#include "DObject/DObjectGlobals.h"
 
 namespace Durin::Asset
 {

@@ -3,7 +3,9 @@
 #include "Asset/Load.h"
 #include "Asset/Testing.h"
 #include "CoreGlobals.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 
 #include "Misc/Paths.h"

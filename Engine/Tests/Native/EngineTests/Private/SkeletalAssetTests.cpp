@@ -4,6 +4,8 @@
 #include "Actors/SkeletalMeshActor.h"
 #include "AssetTools.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DObject/Class.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
 #include "EngineTestSupport.h"

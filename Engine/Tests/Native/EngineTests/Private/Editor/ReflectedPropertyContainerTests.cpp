@@ -1,5 +1,6 @@
 #include "ReflectedPropertyEditingTestSupport.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "DObject/Class.h"
 #include "Math/Operations.h"
 
 TEST(FReflectedPropertyEditSessionTests,

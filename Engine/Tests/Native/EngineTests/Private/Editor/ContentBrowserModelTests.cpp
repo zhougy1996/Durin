@@ -2,6 +2,8 @@
 #include "Panels/ContentBrowserOperations.h"
 
 #include "Assets/AssetRelocationTransaction.h"
+#include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"

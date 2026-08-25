@@ -1,5 +1,7 @@
 #include "AssetTools.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "DObject/Class.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"

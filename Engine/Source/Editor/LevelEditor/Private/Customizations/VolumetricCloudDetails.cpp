@@ -1,6 +1,7 @@
 #include "VolumetricCloudDetails.h"
 
 #include "Components/VolumetricCloudComponent.h"
+#include "DObject/Class.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "LevelEditorCustomizations.h"

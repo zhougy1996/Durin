@@ -8,6 +8,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "AssetTools.h"
+#include "DObject/Class.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"

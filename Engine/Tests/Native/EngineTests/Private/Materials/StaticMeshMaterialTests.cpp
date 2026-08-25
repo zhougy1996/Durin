@@ -1,6 +1,7 @@
 #include "MaterialTestSupport.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "DObject/Package.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"

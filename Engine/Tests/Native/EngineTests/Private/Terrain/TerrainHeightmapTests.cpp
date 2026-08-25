@@ -3,6 +3,7 @@
 #include "AssetTools.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "EngineTestSupport.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"

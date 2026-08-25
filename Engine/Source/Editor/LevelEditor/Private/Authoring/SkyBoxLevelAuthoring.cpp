@@ -3,6 +3,7 @@
 #include "Actors/SkyBoxActor.h"
 #include "Components/SkyBoxComponent.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "Engine/Actor.h"

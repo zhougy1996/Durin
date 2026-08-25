@@ -23,6 +23,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "CoreGlobals.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"

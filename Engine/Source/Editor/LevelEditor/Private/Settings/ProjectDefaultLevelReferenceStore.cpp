@@ -1,6 +1,7 @@
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 
 #include "Hash/XxHash.h"
+#include "DObject/Class.h"
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"

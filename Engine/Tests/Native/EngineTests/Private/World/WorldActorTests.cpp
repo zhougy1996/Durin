@@ -1,4 +1,5 @@
 #include "WorldTestSupport.h"
+#include "DObject/Package.h"
 
 namespace
 {
