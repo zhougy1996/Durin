@@ -1,6 +1,7 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/Class.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 

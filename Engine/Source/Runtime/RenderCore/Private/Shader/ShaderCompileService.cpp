@@ -136,6 +136,35 @@ namespace Durin
 				return true;
 			}
 
+			auto BuildSourceTreeFingerprint(
+				std::string_view VirtualShaderPath,
+				const FShaderCompileOptions& Options,
+				FShaderSourceDependencyFingerprint& OutFingerprint,
+				std::string& OutError) -> bool
+			{
+				OutFingerprint = {};
+				OutError.clear();
+				if (VirtualShaderPath.empty())
+				{
+					OutError = "Shader source tree fingerprint requires a virtual root path.";
+					return false;
+				}
+				FShaderCompileOptions EffectiveOptions = Options;
+				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
+				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
+				std::vector<FShaderMacroDefinition> NormalizedMacros;
+				if (!ShaderCompileUtilities::NormalizeMacros(
+					EffectiveOptions, NormalizedMacros, OutError)) return false;
+				FShaderMetaData MetaData;
+				if (!ResolveSourceMetaData(
+					VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath),
+					EffectiveOptions, NormalizedMacros, MetaData, OutError)) return false;
+				OutFingerprint = {
+					.VirtualPath = std::string(VirtualShaderPath),
+					.ContentHash = MetaData.SourceTreeSignature};
+				return true;
+			}
+
 			auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 			{
 				FShaderCompilerOutput Output;
@@ -430,6 +459,56 @@ namespace Durin
 				FShaderCompilerOutput Output;
 			};
 
+			auto ResolveSourceMetaData(
+				std::string_view VirtualShaderPath,
+				std::string_view SourceFilePath,
+				const FShaderCompileOptions& EffectiveOptions,
+				const std::vector<FShaderMacroDefinition>& NormalizedMacros,
+				FShaderMetaData& OutMetaData,
+				std::string& OutError) -> bool
+			{
+				FShaderDependencyKey DependencyKey;
+				ShaderCompileUtilities::BuildDependencyKey(
+					VirtualShaderPath, NormalizedMacros,
+					EffectiveOptions.CompilerEnvironment, DependencyKey);
+				bool bManifestCurrent = false;
+				if (CacheStore.LoadMetaData(
+					VirtualShaderPath, DependencyKey, OutMetaData))
+				{
+					std::string ManifestError;
+					if (!ShaderCompileUtilities::TryReuseMetaData(
+						OutMetaData, FileFingerprintCache,
+						bManifestCurrent, ManifestError))
+					{
+						DURIN_WARN(
+							"Failed to validate shader dependency manifest for {}: {}",
+							VirtualShaderPath, ManifestError);
+					}
+					if (bManifestCurrent)
+						ManifestHits.fetch_add(1, std::memory_order_relaxed);
+				}
+				if (bManifestCurrent) return true;
+
+				std::vector<std::string> DependencyPaths;
+				DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
+				if (!DependencyResolver.Resolve(
+					SourceFilePath, EffectiveOptions, DependencyPaths, OutError))
+				{
+					if (OutError.empty()) OutError = "Failed to parse shader dependency graph";
+					return false;
+				}
+				if (!ShaderCompileUtilities::BuildShaderMetaData(
+					DependencyPaths, FileFingerprintCache, OutMetaData, OutError))
+					return false;
+				if (!CacheStore.SaveMetaData(
+					VirtualShaderPath, DependencyKey, OutMetaData))
+				{
+					DURIN_WARN("Shader dependency manifest write failed for {}",
+						VirtualShaderPath);
+				}
+				return true;
+			}
+
 			auto GetOrCompileInternal(
 				std::string_view VirtualShaderPath,
 				std::string_view SourceFilePath,
@@ -438,40 +517,10 @@ namespace Durin
 			) -> FShaderCompilerOutput
 			{
 				FShaderCompilerOutput Output;
-				FShaderDependencyKey DependencyKey;
-				ShaderCompileUtilities::BuildDependencyKey(VirtualShaderPath, NormalizedMacros, EffectiveOptions.CompilerEnvironment, DependencyKey);
-
 				FShaderMetaData CurrentMetaData;
-				bool bManifestCurrent = false;
-				if (CacheStore.LoadMetaData(VirtualShaderPath, DependencyKey, CurrentMetaData))
-				{
-					std::string ManifestError;
-					if (!ShaderCompileUtilities::TryReuseMetaData(CurrentMetaData, FileFingerprintCache, bManifestCurrent, ManifestError))
-					{
-						DURIN_WARN("Failed to validate shader dependency manifest for {}: {}", VirtualShaderPath, ManifestError);
-					}
-					if (bManifestCurrent) ManifestHits.fetch_add(1, std::memory_order_relaxed);
-				}
-
-				if (!bManifestCurrent)
-				{
-					std::vector<std::string> DependencyPaths;
-					std::string DependencyDiagnostics;
-					DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
-					if (!DependencyResolver.Resolve(SourceFilePath, EffectiveOptions, DependencyPaths, DependencyDiagnostics))
-					{
-						Output.ErrorMessage = DependencyDiagnostics.empty() ? "Failed to parse shader dependency graph" : DependencyDiagnostics;
-						return Output;
-					}
-					if (!ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, CurrentMetaData, Output.ErrorMessage))
-					{
-						return Output;
-					}
-					if (!CacheStore.SaveMetaData(VirtualShaderPath, DependencyKey, CurrentMetaData))
-					{
-						DURIN_WARN("Shader dependency manifest write failed for {}", VirtualShaderPath);
-					}
-				}
+				if (!ResolveSourceMetaData(VirtualShaderPath, SourceFilePath,
+					EffectiveOptions, NormalizedMacros, CurrentMetaData,
+					Output.ErrorMessage)) return Output;
 
 				FShaderVariantKey VariantKey;
 				ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, VariantKey);
@@ -581,6 +630,22 @@ namespace Durin
 		}
 		return GShaderCompileService->BuildSourceDependencyManifest(
 			VirtualShaderPath, Options, OutDependencies, OutError);
+	}
+
+	auto BuildShaderSourceTreeFingerprintFromService(
+		std::string_view VirtualShaderPath,
+		const FShaderCompileOptions& Options,
+		FShaderSourceDependencyFingerprint& OutFingerprint,
+		std::string& OutError) -> bool
+	{
+		if (!GShaderCompileService)
+		{
+			OutFingerprint = {};
+			OutError = "Shader compile service is not initialized";
+			return false;
+		}
+		return GShaderCompileService->BuildSourceTreeFingerprint(
+			VirtualShaderPath, Options, OutFingerprint, OutError);
 	}
 
 	auto GetOrCompileGeneratedShader(

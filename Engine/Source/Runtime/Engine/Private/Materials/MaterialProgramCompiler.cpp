@@ -264,19 +264,17 @@ namespace Durin
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
 		Options.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
-		std::vector<FShaderSourceDependencyFingerprint> Dependencies;
-		if (!BuildShaderSourceDependencyManifest(
-			"/Engine/StaticMeshBasePass", Options, Dependencies, OutError))
+		FShaderSourceDependencyFingerprint SourceTree;
+		if (!BuildShaderSourceTreeFingerprint(
+			"/Engine/StaticMeshBasePass", Options, SourceTree, OutError))
 			return false;
 
 		FMaterialCompilerEnvironment Environment;
 		Environment.CompilerIdentity =
 			GetShaderCompilerEnvironmentIdentity();
-		Environment.Dependencies.reserve(Dependencies.size());
-		for (FShaderSourceDependencyFingerprint& Dependency : Dependencies)
-			Environment.Dependencies.push_back({
-				.VirtualPath = std::move(Dependency.VirtualPath),
-				.ContentHash = Dependency.ContentHash});
+		Environment.Dependencies.push_back({
+			.VirtualPath = std::move(SourceTree.VirtualPath),
+			.ContentHash = SourceTree.ContentHash});
 		OutEnvironment = std::move(Environment);
 		return true;
 	}

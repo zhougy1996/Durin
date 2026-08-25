@@ -96,6 +96,14 @@ stable digest independent of authored node order, node GUIDs, and dynamic
 parameter/resource values. Two-sided state and depth policy remain pipeline-
 only and do not enter this program digest.
 
+The default material compiler environment represents the fixed
+`/Engine/StaticMeshBasePass` dependency graph with one aggregate source-tree
+fingerprint. RenderCore obtains it from the ordinary persisted shader manifest,
+so a warm startup validates file metadata without asking Slang to parse the
+graph or rereading source contents. Any reachable source change rebuilds the
+aggregate fingerprint and therefore selects a new material-program identity;
+the root virtual path is an identity anchor, not an extra shader compilation.
+
 The synchronous compiler lowers that IR to bounded deterministic Slang using
 stable IR-index symbols and exact floating-point bit expressions. RenderCore
 accepts the generated root as owned memory, resolves only allowlisted virtual

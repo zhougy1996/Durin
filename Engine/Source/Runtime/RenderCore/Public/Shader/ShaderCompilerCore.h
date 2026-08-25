@@ -127,6 +127,14 @@ namespace Durin
 		const FShaderCompileOptions& Options,
 		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
 		std::string& OutError) -> bool;
+	// Returns one stable fingerprint for the entire reachable source tree. The
+	// ordinary shader dependency manifest is reused so warm calls only validate
+	// persisted file metadata instead of parsing imports again.
+	RENDERCORE_API auto BuildShaderSourceTreeFingerprint(
+		std::string_view VirtualShaderPath,
+		const FShaderCompileOptions& Options,
+		FShaderSourceDependencyFingerprint& OutFingerprint,
+		std::string& OutError) -> bool;
 	RENDERCORE_API auto CompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request)
 		-> FShaderCompilerOutput;

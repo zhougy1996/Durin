@@ -42,6 +42,12 @@ reuse the compile service's long-lived compiler and dependency resolver; they
 do not construct per-request Slang global sessions. The public dependency view
 is sorted by virtual source path and contains only virtual paths plus content
 hashes; physical source and cache paths remain private to RenderCore.
+Callers that need only cache invalidation may instead request one aggregate
+source-tree fingerprint. It uses the same macro-specific manifest as ordinary
+shader compilation: a warm lookup validates persisted size and modification
+metadata, while a missing or stale manifest reparses imports and refreshes
+content hashes. This avoids maintaining a separate higher-level dependency
+cache.
 
 Generated shader roots use a separate owned-memory request. Their virtual path,
 source-content hash, normalized macros, imported file fingerprints, compiler

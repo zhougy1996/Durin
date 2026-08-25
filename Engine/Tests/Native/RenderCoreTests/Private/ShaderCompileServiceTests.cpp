@@ -106,6 +106,49 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 	}
 
 	TEST_F(FShaderCompileServiceTests,
+		SourceTreeFingerprintReusesManifestAndInvalidatesOnChange)
+	{
+		const FShaderCompileOptions Options = MakeServiceOptions();
+		InitShaderCompileService();
+		FShaderSourceDependencyFingerprint ColdFingerprint;
+		std::string Error;
+		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
+			"/ShaderCompileServiceTests/Simple", Options,
+			ColdFingerprint, Error)) << Error;
+		EXPECT_EQ(ColdFingerprint.VirtualPath,
+			"/ShaderCompileServiceTests/Simple");
+		EXPECT_FALSE(ColdFingerprint.ContentHash.IsZero());
+		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 1u);
+
+		ShutdownShaderCompileService();
+		InitShaderCompileService();
+		FShaderSourceDependencyFingerprint WarmFingerprint;
+		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
+			"/ShaderCompileServiceTests/Simple", Options,
+			WarmFingerprint, Error)) << Error;
+		EXPECT_EQ(WarmFingerprint, ColdFingerprint);
+		const auto WarmStats = GetShaderCompileServiceStats();
+		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
+		EXPECT_EQ(WarmStats.ManifestHits, 1u);
+		EXPECT_EQ(WarmStats.ContentReads, 0u);
+
+		WriteTextFile(GetServiceTestRoot() / "Source/Simple.slang",
+			R"([shader("vertex")]
+float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
+{
+    return float4(float(vertexID), 1.0, 2.0, 1.0);
+}
+)");
+		FShaderSourceDependencyFingerprint ChangedFingerprint;
+		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
+			"/ShaderCompileServiceTests/Simple", Options,
+			ChangedFingerprint, Error)) << Error;
+		EXPECT_NE(ChangedFingerprint.ContentHash,
+			ColdFingerprint.ContentHash);
+		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
 		GeneratedSourceCompilesFromMemoryUsesCacheAndEnforcesImports)
 	{
 		WriteTextFile(GetServiceTestRoot() / "Source/Imported.slang",
