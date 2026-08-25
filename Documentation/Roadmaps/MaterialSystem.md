@@ -2,7 +2,7 @@
 
 Summary: Evolve the landed fixed PBR material stack into authored compiled materials, scalable runtime updates, and complete editor workflows.
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 Status: Active
 Completed:
@@ -29,8 +29,9 @@ Every `DMaterial` now owns a bounded typed program and deterministic compiled
 shader-map identity. Compilation is generation-safe, cancelable, shared by
 identity, last-known-good, and visible in MaterialEditor; Win64 Game Cook emits
 a strict DMAT payload that loads without authored graph state or live
-compilation. The remaining product limitation is the lack of the M7 graph
-canvas and diagnostic navigation workflow. Runtime-only dynamic material
+compilation. The remaining product limitation is the lack of the M7 command-
+driven graph authoring workflow, human canvas, structured automation surface,
+and diagnostic navigation. Runtime-only dynamic material
 instances and measured reuse/batching policy also remain unlanded.
 
 The [M5 material-program and compiler foundation plan](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md)
@@ -55,8 +56,9 @@ surface with actionable diagnostics.
   deterministic validation, and normalized compiler IR.
 - Generated shader source or modules, dependency-derived shader-map identity,
   pass/permutation integration, diagnostics, persistence, cooking, and reload.
-- Material graph authoring, compiler feedback, preview, Undo/Redo, and asset
-  lifecycle behavior in MaterialEditor.
+- Command-driven material graph authoring, a human canvas and structured
+  automation surface, compiler feedback, preview, Undo/Redo, and asset lifecycle
+  behavior in MaterialEditor.
 - Transient runtime material instances, update batching, bounded resource reuse,
   lifetime, diagnostics, and profiling-driven scalability.
 - Remaining material-specific editor workflow and end-to-end coverage where it
@@ -90,6 +92,16 @@ surface with actionable diagnostics.
 - The first graph domain is a bounded, acyclic, typed surface-expression DAG
   with explicit material outputs. It does not accept arbitrary source snippets
   or implicit type conversions that cannot be diagnosed deterministically.
+- `DMaterial` remains the asset and package object. Its `FMaterialProgram`,
+  nodes, links, surface outputs, and graph presentation remain reflected bounded
+  values rather than per-node `DObject` subobjects. Stable GUIDs, not object
+  addresses or canvas coordinates, identify authored nodes and connections.
+- MaterialEditor canvas code, structured automation, and tests must share one
+  UI-independent graph inspection and command surface. Screen-coordinate input
+  is never the authority for graph mutation or verification.
+- Node presentation is authored package state but remains separate from graph
+  semantics and is excluded from normalized IR, compiler identity, compile
+  snapshots, derived data, and cooked payloads.
 - Parameter GUIDs remain persistent identity. Display names and graph-node IDs
   do not replace parameter identity in instances, serialization, dependency
   keys, or render publication.
@@ -134,16 +146,11 @@ surface with actionable diagnostics.
 
 ### Material-specific gaps
 
-- `DMaterial` definitions are required to equal the built-in canonical schema;
-  there is no authored expression or output graph.
-- Material shader-map identity describes fixed static properties rather than a
-  compiled material program and its dependencies.
-- Production surface shaders are fixed Renderer source; there is no generated
-  material module or material-program binding seam.
-- There is no material compile state machine, request generation, cancellation,
-  diagnostic model, last-known-good asset state, or cook contract.
-- MaterialEditor has no graph canvas, node/pin editing, compiler result panel,
-  or source-linked diagnostic navigation.
+- `DMaterial` owns a bounded compiled expression/output program, but there is no
+  supported editor command surface for authoring it.
+- MaterialEditor has no persisted node presentation, graph canvas, node/pin
+  editing, copy/paste, deterministic layout, structured automation surface, or
+  source-linked diagnostic navigation.
 - There is no transient non-asset material instance API. Existing proxy
   coalescing handles ordinary asset edits, but runtime batching, allocation,
   reuse, and stress limits have not been measured.
@@ -160,7 +167,7 @@ surface with actionable diagnostics.
 | 4. Material passes and shared execution | Complete | M3 | Opaque/masked/translucent policy plus shared forward, GBuffer, and shadow material execution across production geometry families | Historical | StaticMesh, SkeletalMesh, and Terrain pass the shared execution matrix |
 | 5. Material program and synchronous compiler foundation | Complete | M4; landed Shader Cache and Shader Parameters contracts | Persisted bounded program schema, typed validation/IR, deterministic dependency identity, and one synchronous compiled surface vertical slice through the existing v3 boundary | Fixed surface ABI and multi-family execution are stable; generic compiler/cache infrastructure is available | Authored program round-trips, invalid graphs fail deterministically, two materially distinct programs compile and render, dependency edits invalidate identity, and fixed-schema content retains explicit fallback/transition behavior |
 | 6. Asynchronous compilation, derived data, and cooking | Complete | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, bounded diagnostics, non-duplicative cache ownership, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
-| 7. Material graph authoring workflow | Ready | M5 schema; M6 request/diagnostic model | Graph canvas, node/pin operations, parameters, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Representative authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing |
+| 7. Material graph authoring workflow | Active | M5 schema; M6 request/diagnostic model | Shared graph inspection/command surface, reflected presentation data, human canvas, structured automation, node/pin operations, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Equivalent canvas and structured authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing without coordinate-based automation or semantic/identity drift |
 | 8. Runtime dynamic materials and scalability | Evidence-gated | M5 compiled path; preferably M6 lifecycle | Transient non-asset instances plus measured batching/reuse/lifetime policy and stress diagnostics | Profiles identify update frequency, allocation, upload, descriptor, and cache bottlenecks | Runtime updates are bounded, do not mutate assets, preserve proxy/resource lifetime, and meet plan-defined stress budgets |
 | 9. Remaining Material Editor lifecycle polish | Conditional; independently selectable | Shared asset mutation APIs | Relocation/deletion synchronization, explicit parent-chain inspection, and missing end-to-end workflow coverage | Shared editor/asset ownership can expose the required notifications without MaterialEditor-local catalog mirrors | Open documents and references respond deterministically to move/delete, and focused workflow tests cover the selected behavior |
 
@@ -178,14 +185,15 @@ surface with actionable diagnostics.
 | [Surface Material Pass Execution](../Plans/Archive/2026-08/SurfaceMaterialPassExecution.md) | M4 | Shared material resource and pass execution across geometry families | Complete |
 | [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
 | [Material Compile Lifecycle and Derived Data](../Plans/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
-| Material Graph Editor | M7 | Authoring interaction and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes | Ready to create |
+| [Material Graph Editor](../Plans/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Active |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and profiling-selected scalability work; excludes authored graph compilation | Create only from measured compiled-path evidence |
 | Material Editor Asset Lifecycle | M9 | Move/delete synchronization and selected workflow coverage; excludes graph/compiler design | May be selected independently when editor lifecycle is the priority |
 
 M5 locked the smallest useful expression/output domain, serialized ownership,
 transition from canonical fixed materials, generated-module boundary, shader
-identity, and synchronous Renderer publication. It deliberately did not
-pre-design M6's asynchronous orchestration or M7's canvas.
+identity, and synchronous Renderer publication. M6 landed the asynchronous
+lifecycle. M7 now adds a shared semantic editing boundary before projecting the
+same program into a human canvas or structured automation workflow.
 
 ## Program Validation Matrix
 
