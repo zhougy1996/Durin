@@ -12,6 +12,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -23,6 +24,13 @@
 
 namespace
 {
+	class FRenderingThreadScope final
+	{
+	public:
+		FRenderingThreadScope() { Durin::InitRenderingThread(); }
+		~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
+	};
+
 	auto MakeAssetPath(std::string_view Value) -> Durin::FAssetPath
 	{
 		Durin::FAssetPath Result;
@@ -151,6 +159,7 @@ namespace
 TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntimeOnly)
 {
 	InitializeDObjectSystem();
+	FRenderingThreadScope RenderingThread;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "SkeletalSceneLifecycle";
 	const std::filesystem::path EngineContent = Root / "Engine/Content";
@@ -326,7 +335,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			Durin::Asset::FCookContext Context(
 				CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
 				Durin::Asset::ECookTargetProfile::Game);
-			if (!AddPackageOnly(Context, *StandardMaterial, Error)) return false;
+			if (!StandardMaterial->AddToCook(
+				Context, StandardMaterial->GetPackage()->GetPackagePath(), Error))
+				return false;
 			for (const FSceneOutputs& Result : Results)
 			{
 				for (Durin::DMaterialInstance* Material : Result.Materials)
@@ -436,7 +447,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		for (size_t Index = 0; Index < MeshPaths.size(); ++Index)
 		{
 			Durin::DSkeletalMesh* Mesh = nullptr;
-			ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPaths[Index], Mesh));
+			const Durin::Asset::FAssetResult LoadMeshResult =
+				Durin::Asset::LoadAsset(MeshPaths[Index], Mesh);
+			ASSERT_TRUE(LoadMeshResult) << LoadMeshResult.Message;
 			ASSERT_NE(Mesh, nullptr);
 			ASSERT_NE(Mesh->GetSkeleton(), nullptr);
 			ASSERT_NE(Mesh->GetPayloadData(), nullptr);

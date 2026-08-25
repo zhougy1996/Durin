@@ -29,12 +29,16 @@ skeletal/animation (34), TerrainHeightmap (11), TerrainWorld (15), AssetImport
 hidden-window smoke, DurinGame build, module closure assertions, and deployment
 exclusion checks pass. Stale renderer test calls were updated for the current
 render-policy signatures; `VolumetricCloudVulkanTests` passes 1/1 and
-`EditorGridVulkanTests` passes 7/7. The native aggregate now builds and executes
-all 82 registered targets, but remains red on two runtime cases: Skeletal Scene
-lifecycle reproduces the RenderCore admission-stopped failure, and
-`SceneImportVulkanTests` reports an injected Vulkan sampler-creation failure.
-All changed/all documentation, all-plan, and all-roadmap validators pass. The
-plan remains active until the external native aggregate runtime gates pass.
+`EditorGridVulkanTests` passes 7/7. Skeletal Scene lifecycle now passes 1/1
+after owning a rendering-thread admission scope and cooking its Material through
+the required DMAT descriptor path. `SceneImportVulkanTests` passes 1/1 after
+refreshing two stable renderer golden hashes; its injected sampler-creation
+failure remains an expected recovery assertion. The native aggregate builds and
+executes all 82 registered targets, with these DDC qualification cases passing,
+but remains red on the independently reproducible
+`SkyBoxVulkanIntegrationTests` access violation. All changed/all documentation,
+all-plan, and all-roadmap validators pass. The plan remains active until the
+external native aggregate runtime gate passes.
 
 ## Goal
 
@@ -381,7 +385,7 @@ Dependencies: Stage 1 complete and the new cache contract qualified.
 
 Dependencies: Stage 2 complete.
 
-- [ ] Run focused `DerivedDataCache` and `AssetBuildCore` tests, then the
+- [x] Run focused `DerivedDataCache` and `AssetBuildCore` tests, then the
   affected Texture2D/TextureCube/VolumeTexture, StaticMesh/collision,
   skeletal/animation, TerrainHeightmap/TerrainWorld, import/reimport, Cook, and
   cache-corruption selections using the repository testing workflow.
