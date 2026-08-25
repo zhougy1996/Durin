@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components/ActorComponent.h"
+#include "DObject/ObjectPtr.h"
 
 #include "SceneComponent.gen.h"
 
