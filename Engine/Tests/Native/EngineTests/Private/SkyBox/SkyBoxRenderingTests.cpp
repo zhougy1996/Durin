@@ -1,4 +1,25 @@
 #include "SkyBoxTestSupport.h"
+
+namespace
+{
+	class FSkyBoxAssetCompilingEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		}
+
+		auto TearDown() -> void override
+		{
+			Durin::ShutdownAssetCompilingManager();
+		}
+	};
+
+	[[maybe_unused]] testing::Environment* GSkyBoxAssetCompilingEnvironment =
+		testing::AddGlobalTestEnvironment(new FSkyBoxAssetCompilingEnvironment);
+}
 #include "Math/Operations.h"
 #include "SceneViewProjection.h"
 

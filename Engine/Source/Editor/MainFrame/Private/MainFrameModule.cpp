@@ -12,7 +12,6 @@
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
-#include "AssetBuild/BuildHost.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
@@ -137,8 +136,6 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("AssetBuildCore");
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
 				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-				checkf(Asset::Build::InitializeBuildHost(),
-					"AssetBuildCore authoring host is unavailable.");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =
 					Editor::GetDefaultRenderedAssetThumbnailService();
@@ -850,7 +847,6 @@ namespace Durin
 			const std::shared_ptr<FBootstrapContext> Context =
 				WeakContext.lock();
 			if (!Context) return;
-			Asset::Build::PumpBuildHostCompletions();
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
@@ -909,7 +905,6 @@ namespace Durin
 
 	auto FMainFrameModule::DestroyEditorHost() -> void
 	{
-		Asset::Build::ShutdownBuildHost();
 		BootstrapContext.reset();
 	}
 

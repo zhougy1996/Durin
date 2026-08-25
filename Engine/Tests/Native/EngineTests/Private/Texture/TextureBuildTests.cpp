@@ -1112,7 +1112,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 			},
 			false);
 	};
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);

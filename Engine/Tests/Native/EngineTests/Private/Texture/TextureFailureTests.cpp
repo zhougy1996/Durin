@@ -1,5 +1,4 @@
 #include "TextureTestSupport.h"
-#include "AssetBuild/BuildHost.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Texture/Texture2DRenderResource.h"

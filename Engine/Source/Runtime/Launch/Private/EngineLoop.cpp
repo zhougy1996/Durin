@@ -9,7 +9,7 @@
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
-#include "Materials/MaterialCompileLifecycle.h"
+#include "Asset/AssetCompilingManager.h"
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
@@ -120,9 +120,9 @@ namespace Durin
 		bGameThreadDeferredExecutorStarted = true;
 
 		FModuleManager::Get().LoadModule("RenderCore");
-		if (!InitializeMaterialCompileService())
+		if (!InitializeAssetCompilingManager())
 		{
-			DURIN_ERROR("Engine pre-initialization failed because the material compile service could not start.");
+			DURIN_ERROR("Engine pre-initialization failed because the asset compiling manager could not start.");
 			Exit();
 			return false;
 		}
@@ -289,7 +289,7 @@ namespace Durin
 		}
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
-		PumpMaterialCompileResults();
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		GFrameCounter++;
 
 		auto& Application = Mona::FMonaApplication::Get();
@@ -347,14 +347,14 @@ namespace Durin
 		if (bWasRunning)
 		{
 			SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
-			// Material compilation depends on editor/compiler providers. Close and
-			// reconcile its task scope before consumer modules begin teardown.
-			ShutdownMaterialCompileService();
+			// Asset compilation depends on optional providers. Close and reconcile
+			// every provider task scope before consumer modules begin teardown.
+			ShutdownAssetCompilingManager();
 			Diagnostics.BeginConsumerDetachment();
 		}
 		else
 		{
-			ShutdownMaterialCompileService();
+			ShutdownAssetCompilingManager();
 		}
 
 #if DURIN_WITH_EDITOR

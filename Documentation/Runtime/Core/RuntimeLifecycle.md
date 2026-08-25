@@ -4,17 +4,19 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-26
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
 
-Asset-authoring capabilities are optional lifecycle participants. Editor and
-headless authoring roots start the generic build host after the task system,
-pump completions while dependent objects are alive, and drain it before
-providers, objects, modules, and tasks are torn down. Game products initialize
-none of this authoring lifecycle. Detailed build-host and payload ownership is
-defined by [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
+Engine starts its object-aware asset-compilation aggregate after the task
+system. Material compilation is a built-in runtime domain; editor and headless
+authoring roots may add module-owned providers such as TextureBuild. Launch
+pumps the aggregate while dependent objects are alive and shuts it down before
+providers, objects, modules, and tasks are torn down. Detailed aggregation and
+provider lifetime are defined by [Asset Compilation](../Assets/AssetCompilation.md),
+while payload ownership remains in
+[Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
 `DEngine::PrepareForShutdown()` remains the generic consumer-detachment hook;
 Launch does not name an import or build module.
 
@@ -260,6 +262,7 @@ shutdown order directly:
 | Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
+| Stop asset compilation | Close every compile domain, finish accepted object publication in reverse dependency order, and release provider values before Core task admission closes. |
 | Stop CPU work | After CPU producers close domain admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |

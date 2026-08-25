@@ -11,4 +11,11 @@ namespace Durin::Asset::Build
 		const FTexture2DBuildCoordinatorConfig& Config = {}) -> bool;
 	TEXTUREBUILD_API auto GetTexture2DBuildCoordinator() -> FTexture2DBuildCoordinator*;
 	TEXTUREBUILD_API auto ShutdownTextureBuildService() -> void;
+
+	namespace Private
+	{
+		TEXTUREBUILD_API auto InitializeTextureCompilingManager(
+			FModuleOwnedCallbackGate OwnerGate) -> bool;
+		TEXTUREBUILD_API auto ShutdownTextureCompilingManager() -> void;
+	}
 }

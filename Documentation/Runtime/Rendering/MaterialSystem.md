@@ -129,8 +129,9 @@ retains no publishable partial stage set.
 
 ## Compile Lifecycle and Cooked Programs
 
-Engine owns one material compile service between task-system startup and
-shutdown. GameThread snapshots a base material into a value-owned request,
+Engine registers `Durin.MaterialCompilation` as the built-in domain of its
+[asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
+startup and shutdown. GameThread snapshots a base material into a value-owned request,
 normalizes it to obtain the M5 program identity, and submits the expensive
 compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
@@ -155,9 +156,10 @@ bounded to 2 MiB, results to 8 MiB, diagnostics to the M5 64-record/512-byte
 limits, and in-process retained results to 128 identities and 256 MiB FIFO.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or
-terminal-request history. Shutdown closes admission, cancels the owner scope,
-waits at most five seconds for quiescence, empties the result mailbox, and
-releases flights and retained results before task-system teardown.
+terminal-request history. Aggregate selected finish and advisory cancellation
+filter `DMaterial`; aggregate shutdown closes admission, publishes accepted
+terminal results, empties the mailbox, and releases flights and retained
+results before task-system teardown.
 
 RenderCore remains the sole persistent DDC owner for SPIR-V, reflection, and
 dependency manifests. M6 adds no second editor material DDC because the

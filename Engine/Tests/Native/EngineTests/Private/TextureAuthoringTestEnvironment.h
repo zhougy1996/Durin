@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetBuild/BuildHost.h"
+#include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
 #include "Texture/TextureBuildService.h"
 
@@ -14,15 +14,15 @@ namespace Durin::Testing
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			ASSERT_TRUE(InitializeAssetCompilingManager());
 			ASSERT_TRUE(Asset::Build::InitializeTextureBuildService(
 				GetEngineTestModuleCallbackGate()));
-			ASSERT_TRUE(Asset::Build::InitializeBuildHost());
 		}
 
 		auto TearDown() -> void override
 		{
-			Asset::Build::ShutdownBuildHost();
 			Asset::Build::ShutdownTextureBuildService();
+			ShutdownAssetCompilingManager();
 		}
 	};
 

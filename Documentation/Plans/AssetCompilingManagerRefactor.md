@@ -4,34 +4,38 @@ Summary: Replace the family-neutral AssetBuildCore BuildHost with an Engine-owne
 
 Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-26
 
 ## Current Status
 
-The design boundary is selected and implementation has not started. Durin
-currently has two independent asynchronous compilation paths that must converge:
+Completed. Runtime `Engine` now owns the process `FAssetCompilingManager`, its
+object-aware provider contract, dependency ordering, bounded fair processing,
+selected finish/cancel operations, successful post-compile event, aggregate
+diagnostics, owner-gated scoped registrations, and terminal shutdown. Material
+is the built-in Runtime domain and Texture2D is an optional, unload-safe
+`TextureBuild` domain. `EngineLoop` owns the only normal-frame pump; MainFrame
+no longer participates in compilation lifecycle. The former AssetBuildCore
+BuildHost surface, implementation, contribution, tests, and lasting ownership
+statements are removed.
 
-- `AssetBuildCore::BuildHost` aggregates family-neutral callback contributions.
-  Only `TextureBuild` contributes an asynchronous asset-family service today.
-  The host owns start, frame-pump, aggregate wait, snapshot, and ordered drain,
-  but it cannot identify a `DObject`, finish selected assets, route cancellation,
-  express compile-domain dependencies, or publish a common post-compile event.
-- Runtime `Engine` owns a separate bounded material compile service. `Launch`
-  initializes it, pumps it once per frame, and shuts it down directly. It tracks
-  material objects and generation-safe publication but does not participate in
-  BuildHost lifecycle or aggregate editor progress.
+Validation on 2026-08-26 passed the full DurinEditor and DurinGame builds,
+hidden-window editor and game smoke runs, the 58-target `fast-all` aggregate,
+focused `AssetCompilingManagerTests` (1/1), `AssetBuildCoreTests` (5/5),
+`MaterialTests` (93/93), `TextureTests` (87/87), `EditorRenderingTests` (77/77),
+`SkyBoxTests` (11/11), and `TextureCookIntegrationTests` (1/1). Isolated
+`CoreConcurrencyTests` passed 141/141 after a parallel-load-only first failure.
+The optional `MaterialVulkanTests` run confirmed all compilation-lifecycle
+assertions after migration but remains red on its pre-existing HDR highlight
+calibration checks (measured peak 464 versus threshold 690); those checks were
+already failing before the test lifecycle adaptation and are outside this
+refactor. Editor/game configuration, deployment inspection, and source-symbol
+audits confirm Engine has no new Developer/Editor dependency and DurinGame does
+not deploy TextureBuild, AssetBuildCore, or DerivedDataCache.
 
-This plan replaces BuildHost rather than layering a second long-lived global
-host above it. `Engine` gains a process `FAssetCompilingManager` and an
-`IAssetCompilingManager` compile-domain contract modeled on Unreal Engine's
-object-aware aggregation semantics. The implementation keeps Durin's stronger
-module callback gates, retained resource leases, Core task scopes, cancellation,
-and unload audits instead of copying UE's raw-pointer lifetime assumptions.
-
-Stage 0 is complete: ownership, dependency direction, object routing, frame and
-shutdown order, first migration set, deletion boundary, and validation gates are
-selected below. Stage 1 is the first implementation stage.
+The lasting contract is published in [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
+and routed from the runtime lifecycle, asset lifecycle, material, texture, and
+workspace module documents.
 
 ## Goal
 
@@ -412,23 +416,23 @@ The following behavior remains compatible:
 
 ### Stage 1: Establish the Engine compilation aggregate
 
-- [ ] Add Engine public contracts for process parameters, aggregate diagnostics,
+- [x] Add Engine public contracts for process parameters, aggregate diagnostics,
   post-compile data/event, `IAssetCompilingManager`, scoped registration, and
   `FAssetCompilingManager`.
-- [ ] Implement unique-name validation, owner-gated registration snapshots,
+- [x] Implement unique-name validation, owner-gated registration snapshots,
   retained leases, deterministic dependency ordering, missing-dependency
   diagnostics, and transactional cycle rejection.
-- [ ] Implement start, late registration, scoped unregister/quiescence,
+- [x] Implement start, late registration, scoped unregister/quiescence,
   bounded round-robin frame processing, aggregate count, selected-object finish,
   advisory cancel, finish-all, and terminal shutdown.
-- [ ] Ensure all provider calls and event dispatch happen outside the registry
+- [x] Ensure all provider calls and event dispatch happen outside the registry
   mutex and reject unsupported thread or lifecycle state explicitly.
-- [ ] Add focused Engine tests with synthetic managers for ordering, fairness,
+- [x] Add focused Engine tests with synthetic managers for ordering, fairness,
   reentrancy, duplicate names, cycles, missing dependencies, count saturation,
   selected-object broadcast/filtering, cancel-versus-finish semantics,
   post-compile coalescing, start rollback, shutdown order, registration reset,
   and owner retirement.
-- [ ] Add configuration/build metadata for the new Engine sources without adding
+- [x] Add configuration/build metadata for the new Engine sources without adding
   any Engine dependency on Developer or Editor modules.
 
 #### Acceptance Gate
@@ -441,19 +445,19 @@ The following behavior remains compatible:
 
 ### Stage 2: Migrate Runtime material compilation
 
-- [ ] Refactor the private material compile service into an Engine-owned
+- [x] Refactor the private material compile service into an Engine-owned
   `FMaterialCompilingManager` implementing the new domain contract.
-- [ ] Preserve material worker envelope, task attribution/scope, bounds,
+- [x] Preserve material worker envelope, task attribution/scope, bounds,
   identity single-flight, retained result budget, weak owner generation,
   last-known-good state, reload policy, diagnostics, and GameThread admission.
-- [ ] Make remaining count reflect outstanding live material consumers and add
+- [x] Make remaining count reflect outstanding live material consumers and add
   selected `DMaterial` finish/cancel behavior with current-result publication.
-- [ ] Replace Launch's direct Material initialize, frame pump, and shutdown with
+- [x] Replace Launch's direct Material initialize, frame pump, and shutdown with
   global asset-compilation lifecycle and the one EngineLoop frame call.
-- [ ] Retain typed material request, cancel, state, reload, and diagnostic APIs;
+- [x] Retain typed material request, cancel, state, reload, and diagnostic APIs;
   remove only lifecycle entry points made private or redundant by the global
   manager.
-- [ ] Extend material lifecycle tests for aggregate remaining count,
+- [x] Extend material lifecycle tests for aggregate remaining count,
   selected-object finish, advisory cancellation followed by finish, successful
   post-compile event, stale/destroyed-object suppression, and aggregate shutdown.
 
@@ -467,23 +471,23 @@ The following behavior remains compatible:
 
 ### Stage 3: Migrate Texture2D compilation
 
-- [ ] Add `FTextureCompilingManager` in TextureBuild and move the global
+- [x] Add `FTextureCompilingManager` in TextureBuild and move the global
   coordinator service state plus Texture2D authoring state under its ownership.
-- [ ] Register the manager during TextureBuild module startup with the existing
+- [x] Register the manager during TextureBuild module startup with the existing
   module callback gate and async operation group; reset registration before
   build functions and module-owned state retire.
-- [ ] Preserve `FTexture2DBuildCoordinator` worker admission, priorities,
+- [x] Preserve `FTexture2DBuildCoordinator` worker admission, priorities,
   fairness, memory budget, phases, metrics, mailbox, cancellation polling,
   result history, and test hooks.
-- [ ] Route typed submit, diagnostic, pending, cancel, and wait APIs through the
+- [x] Route typed submit, diagnostic, pending, cancel, and wait APIs through the
   concrete manager while preserving exactly-once and supersession behavior.
-- [ ] Implement domain remaining count, frame completion processing, selected
+- [x] Implement domain remaining count, frame completion processing, selected
   `DTexture2D` finish/cancel, finish-all, shutdown, and successful post-compile
   reporting.
-- [ ] Replace Texture test host helpers with scoped compilation-manager/provider
+- [x] Replace Texture test host helpers with scoped compilation-manager/provider
   fixtures and migrate BuildHost snapshot assertions to aggregate plus
   texture-domain diagnostics.
-- [ ] Remove MainFrame BuildHost initialization, normal-frame pump, wait, and
+- [x] Remove MainFrame BuildHost initialization, normal-frame pump, wait, and
   shutdown; EngineLoop remains the only normal process frame pump.
 
 #### Acceptance Gate
@@ -499,18 +503,18 @@ The following behavior remains compatible:
 
 ### Stage 4: Delete BuildHost and close consumers
 
-- [ ] Delete `BuildHost.h`, BuildHost implementation state and functions,
+- [x] Delete `BuildHost.h`, BuildHost implementation state and functions,
   Texture BuildHost contribution code, and AssetBuildCore host-only tests.
-- [ ] Remove all includes and calls to `InitializeBuildHost`,
+- [x] Remove all includes and calls to `InitializeBuildHost`,
   `PumpBuildHostCompletions`, `WaitForBuildHost`, `GetBuildHostSnapshot`,
   `ShutdownBuildHost`, `FBuildServiceContribution`, and
   `FBuildServiceRegistration`.
-- [ ] Audit save, Cook, import, editor close, asset replacement/destruction,
+- [x] Audit save, Cook, import, editor close, asset replacement/destruction,
   module unload, test teardown, and process shutdown callers; use selected-object
   finish where identity is known and finish-all only at true global barriers.
-- [ ] Confirm AssetBuildCore retains only synchronous build session/function/DDC
+- [x] Confirm AssetBuildCore retains only synchronous build session/function/DDC
   responsibilities and remove host-only includes, dependencies, and vocabulary.
-- [ ] Search source, tests, build metadata, and active lasting documentation for
+- [x] Search source, tests, build metadata, and active lasting documentation for
   stale BuildHost symbols and dual frame pumps.
 
 #### Acceptance Gate
@@ -523,18 +527,18 @@ The following behavior remains compatible:
 
 ### Stage 5: Qualify targets and publish lasting contracts
 
-- [ ] Run focused Engine manager, Material lifecycle, Texture coordinator,
+- [x] Run focused Engine manager, Material lifecycle, Texture coordinator,
   Texture authoring/import, AssetBuildCore, module retirement, and task-lifetime
   tests according to the repository testing guide.
-- [ ] Run editor and game target builds, native aggregate tests, hidden-window
+- [x] Run editor and game target builds, native aggregate tests, hidden-window
   editor smoke, and the relevant material/texture rendering and Cook/load suites
   according to repository build and test guidance.
-- [ ] Verify configuration-time module closure and deployed module sets:
+- [x] Verify configuration-time module closure and deployed module sets:
   DurinGame contains Engine/Material compilation but excludes TextureBuild,
   AssetBuildCore, and DerivedDataCache; DurinEditor selects optional providers.
-- [ ] Update lasting Runtime, Workspace, and Editor ownership documents and
+- [x] Update lasting Runtime, Workspace, and Editor ownership documents and
   remove superseded BuildHost descriptions.
-- [ ] Record exact validation evidence in Current Status, complete all gates,
+- [x] Record exact validation evidence in Current Status, complete all gates,
   and only then mark and archive the plan through the documentation workflow.
 
 #### Acceptance Gate
@@ -602,6 +606,7 @@ The following behavior remains compatible:
 
 ## Related Documentation
 
+- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
@@ -613,7 +618,9 @@ The following behavior remains compatible:
 
 ## Related Code
 
-- [`BuildHost.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
+- [`AssetCompilingManager.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetCompilingManager.h)
+- [`AssetCompilingManager.cpp`](../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
+- `Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h` (removed)
 - [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
 - [`MaterialCompileLifecycle.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h)
 - [`MaterialCompileLifecycle.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)

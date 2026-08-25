@@ -303,7 +303,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
@@ -415,7 +415,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
 	ASSERT_TRUE(Providers.Register(Error)) << Error;

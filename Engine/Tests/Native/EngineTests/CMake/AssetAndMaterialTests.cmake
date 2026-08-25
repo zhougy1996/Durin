@@ -5,13 +5,20 @@ durin_add_engine_functional_test(AssetAuthoringReadinessTests
 	SOURCES Private/AssetAuthoringReadinessTests.cpp
 )
 
+durin_add_engine_functional_test(AssetCompilingManagerTests
+	KIND contract
+	DOMAINS asset-workflow
+	MODULES engine
+	SOURCES Private/AssetCompilingManagerTests.cpp
+)
+
 durin_add_engine_functional_test(AssetBuildCoreTests
 	EDITOR_ONLY
 	KIND contract
 	DOMAINS derived-data
 	MODULES asset-build-core
 	RUNTIME_STACK_RATIONALE
-		"Exercises the Developer-only build-session and build-host contracts."
+		"Exercises the Developer-only synchronous build-session contracts."
 	SOURCES
 		Private/AssetBuildCoreTests.cpp
 	LIBRARIES AssetBuildCore

@@ -1,7 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Misc/FileHelper.h"
-#include "AssetBuild/BuildHost.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Threading/RunnableThread.h"
@@ -63,33 +63,30 @@ namespace
 
 }
 
-TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyHostService)
+TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyCompilationDomain)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
-	const Durin::Asset::Build::FBuildHostSnapshot Running =
-		Durin::Asset::Build::GetBuildHostSnapshot();
-	EXPECT_EQ(Running.ServiceCount, 1u);
+	ASSERT_TRUE(RestartTextureCompilingManager({.MaxWorkers = 1}));
+	const Durin::FAssetCompilingManagerDiagnostics Running =
+		Durin::FAssetCompilingManager::Get().GetDiagnostics();
+	EXPECT_EQ(Running.ManagerCount, 2u);
 	EXPECT_TRUE(Running.bAcceptingRequests);
-	EXPECT_TRUE(Durin::Asset::Build::WaitForBuildHost(1.0));
-	Durin::Asset::Build::ShutdownBuildHost();
-	const Durin::Asset::Build::FBuildHostSnapshot Stopped =
-		Durin::Asset::Build::GetBuildHostSnapshot();
-	EXPECT_EQ(Stopped.ServiceCount, 1u);
-	EXPECT_FALSE(Stopped.bAcceptingRequests);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	Durin::Asset::Build::ShutdownTextureBuildService();
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
 	const auto GeometryUnload = Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
 	ASSERT_TRUE(GeometryUnload.Succeeded()) << GeometryUnload.Message;
-	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-	EXPECT_TRUE(EnsureTextureBuildHost());
-	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
+	EXPECT_TRUE(EnsureTextureCompilingManager());
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 2u);
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	bool bCompleted = false;
 	const uint64 RequestId = Coordinator->Submit(
-		MakeCoordinatorRequest(TransparentPngData(), "/BuildHost/Restarted"),
+		MakeCoordinatorRequest(TransparentPngData(), "/CompilingManager/Restarted"),
 		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			EXPECT_EQ(
 				Result.Phase,
@@ -112,7 +109,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		TransparentPngData(), SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngData());
-	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
+	ASSERT_TRUE(RestartTextureCompilingManager({.MaxWorkers = 1}));
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
@@ -135,7 +132,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		});
 	ASSERT_NE(RequestId, 0u);
 	ASSERT_TRUE(Coordinator->WaitForRequest(RequestId, 10.0));
-	EXPECT_EQ(Durin::Asset::Build::PumpBuildHostCompletions(), 1u);
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().ProcessAsyncTasks().ProcessedCompletionCount, 1u);
 	ASSERT_TRUE(Completion.has_value());
 	EXPECT_EQ(Completion->Phase,
 		Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
@@ -349,7 +346,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFourExactlyOnce)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
 		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
@@ -375,11 +372,11 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 			}), 0u);
 	}
 	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 65));
-	Durin::Asset::Build::PumpBuildHostCompletions();
+	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(CompletionCount, 64u);
-	Durin::Asset::Build::PumpBuildHostCompletions();
+	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(CompletionCount, 65u);
-	Durin::Asset::Build::PumpBuildHostCompletions();
+	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(CompletionCount, 65u);
 	Coordinator->SetPhaseHookForTests({});
 }
@@ -407,24 +404,21 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 	EXPECT_EQ(CompletionCount, 70u);
 }
 
-TEST(FAuthoringBuildServiceTests, OwnsRestartableProcessLifecycleAndDiagnosticSnapshot)
+TEST(FAuthoringBuildServiceTests, OwnsRestartableProviderLifecycleAndDiagnostics)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(RestartTextureBuildHost(
+	ASSERT_TRUE(RestartTextureCompilingManager(
 		{.MaxWorkers = 1, .InFlightByteBudget = 1024}));
-	const Durin::Asset::Build::FBuildHostSnapshot Running =
-		Durin::Asset::Build::GetBuildHostSnapshot();
+	const Durin::FAssetCompilingManagerDiagnostics Running =
+		Durin::FAssetCompilingManager::Get().GetDiagnostics();
 	EXPECT_TRUE(Running.bAcceptingRequests);
-	EXPECT_EQ(Running.QueuedRequestCount, 0u);
-	EXPECT_EQ(Running.RunningRequestCount, 0u);
-	EXPECT_EQ(Running.InFlightEstimatedBytes, 0u);
+	EXPECT_EQ(Running.RemainingAssetCount, 0u);
+	EXPECT_EQ(Running.ManagerCount, 2u);
 
-	Durin::Asset::Build::ShutdownBuildHost();
 	Durin::Asset::Build::ShutdownTextureBuildService();
-	const Durin::Asset::Build::FBuildHostSnapshot Stopped =
-		Durin::Asset::Build::GetBuildHostSnapshot();
-	EXPECT_FALSE(Stopped.bAcceptingRequests);
-	EXPECT_EQ(Stopped.QueuedRequestCount, 0u);
-	EXPECT_EQ(Stopped.RunningRequestCount, 0u);
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	const Durin::FAssetCompilingManagerDiagnostics WithoutTexture =
+		Durin::FAssetCompilingManager::Get().GetDiagnostics();
+	EXPECT_TRUE(WithoutTexture.bAcceptingRequests);
+	EXPECT_EQ(WithoutTexture.ManagerCount, 1u);
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 }

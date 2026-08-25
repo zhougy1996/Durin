@@ -25,7 +25,7 @@ direction.
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
 | `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |
-| `Engine` | World, actors, components, levels, runtime assets, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
+| `Engine` | World, actors, components, levels, runtime assets, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
@@ -57,8 +57,8 @@ physical root communicates ownership but does not select them for a target.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DerivedDataCache` | Backend-neutral synchronous bucket/key cache contract, immutable byte results, local filesystem persistence, atomic replacement, status reporting, and bounded trim; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
-| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, DDC status adaptation, function/service registrations, and authoring-host lifecycle; `FBuildSession` is the asset-recipe cache request path | [source](../../Engine/Source/Developer/AssetBuildCore) |
-| `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned registration transaction, typed recipes, offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
+| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, DDC status adaptation, and build-function registration; `FBuildSession` is the asset-recipe cache request path | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned build-function transaction, typed recipes, offline compression, diagnostics, and the optional Texture2D compilation domain | [source](../../Engine/Source/Developer/TextureBuild) |
 | `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain keys, private codecs/functions, one module-owned registration transaction, typed recipes, DDC policy, diagnostics, and Runtime adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 
 ## Project Modules

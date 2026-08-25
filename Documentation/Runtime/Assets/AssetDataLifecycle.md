@@ -51,10 +51,13 @@ publication ownership. AssetForgeBuiltins likewise retains TextureCube source
 normalization, scene parsing, Terrain source decoding/coalescing, and GameThread
 publication. Shader and other unrelated DDC paths remain direct family clients.
 
-The separate authoring build host still owns service contribution registration,
-startup, completion pumping, bounded wait, admission closure, ordered drain,
-and module-retirement lifetime. A build function registration uses the same
-module callback gate for bounded calls but does not become a hosted scheduler.
+Engine's object-aware compilation aggregate owns asynchronous domain
+registration, frame pumping, selected-object finish/cancel, aggregate progress,
+successful post-compile notification, and shutdown placement. Concrete domains
+retain scheduling, DDC, validation, and publication. AssetBuildCore build
+function registration still uses a module callback gate for bounded synchronous
+calls but does not become a compilation domain. See
+[Asset Compilation](AssetCompilation.md).
 
 Accepted asynchronous family requests use AssetBuildCore's terminal
 `FAsyncBuildResult` vocabulary and complete their observer exactly once,

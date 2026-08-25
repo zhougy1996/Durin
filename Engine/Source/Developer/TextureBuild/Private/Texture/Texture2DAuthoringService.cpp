@@ -1,6 +1,6 @@
 #include "Texture/Texture2DAuthoringService.h"
 
-#include "AssetBuild/BuildHost.h"
+#include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureBuildService.h"
@@ -25,6 +25,8 @@ namespace Durin::Asset::Build
 		std::mutex GTexture2DAuthoringMutex;
 		std::unordered_map<std::string, FTexture2DAuthoringState> GTexture2DAuthoringStates;
 		uint64 GNextTexture2DGeneration = 1;
+		std::vector<FWeakObjectPtr> GSuccessfullyPublishedTextures;
+		FAssetCompilingManagerRegistration GTextureCompilingRegistration;
 
 		auto FindStateLocked(std::string_view Identity) -> FTexture2DAuthoringState*
 		{
@@ -101,7 +103,142 @@ namespace Durin::Asset::Build
 					.Diagnostic = std::move(Error)});
 				return;
 			}
+			{
+				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				GSuccessfullyPublishedTextures.emplace_back(Texture);
+			}
 			if (Completion) Completion({.Status = EAsyncBuildStatus::Succeeded});
+		}
+
+		auto PumpTextureCompletions(uint32 MaximumCount) -> FAssetCompileProcessResult
+		{
+			FAssetCompileProcessResult Result;
+			if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+				Result.ProcessedCompletionCount = Coordinator->PumpCompletions(MaximumCount);
+			std::lock_guard Lock(GTexture2DAuthoringMutex);
+			Result.SuccessfullyCompiledAssets = std::move(GSuccessfullyPublishedTextures);
+			GSuccessfullyPublishedTextures.clear();
+			return Result;
+		}
+
+		class FTextureCompilingManager final : public IAssetCompilingManager
+		{
+		public:
+			auto GetAssetTypeName() const -> FName override
+			{
+				return FName("Durin.TextureCompilation");
+			}
+			auto Start(std::string* OutError) -> bool override
+			{
+				FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+				if (Coordinator && Coordinator->Start())
+				{
+					if (OutError) OutError->clear();
+					return true;
+				}
+				if (OutError) *OutError = "Texture2D build coordinator could not start.";
+				return false;
+			}
+			auto StopAdmission() -> void override
+			{
+				if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+					Coordinator->Shutdown();
+			}
+			auto GetNumRemainingAssets() const -> uint64 override
+			{
+				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				return static_cast<uint64>(std::ranges::count_if(
+					GTexture2DAuthoringStates, [](const auto& Item) {
+						return Item.second.ActiveRequestId != 0
+							&& Item.second.Texture.IsValid();
+					}));
+			}
+			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
+				-> FAssetCompileProcessResult override
+			{
+				return PumpTextureCompletions(Params.MaximumCompletions);
+			}
+			auto FinishCompilationForObjects(std::span<DObject* const> Objects)
+				-> FAssetCompileProcessResult override
+			{
+				FAssetCompileProcessResult Aggregate;
+				for (DObject* Object : Objects)
+				{
+					auto* Texture = Cast<DTexture2D>(Object);
+					if (!IsValid(Texture)) continue;
+					uint64 RequestId = 0;
+					{
+						std::lock_guard Lock(GTexture2DAuthoringMutex);
+						if (FTexture2DAuthoringState* State = FindStateLocked(
+							Texture->GetObjectPath()); State && State->Texture.Get() == Texture)
+							RequestId = State->ActiveRequestId;
+					}
+					if (RequestId == 0) continue;
+					if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+						Coordinator->WaitForRequest(RequestId, 300.0);
+					auto Item = PumpTextureCompletions(std::numeric_limits<uint32>::max());
+					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
+					Aggregate.SuccessfullyCompiledAssets.insert(
+						Aggregate.SuccessfullyCompiledAssets.end(),
+						Item.SuccessfullyCompiledAssets.begin(),
+						Item.SuccessfullyCompiledAssets.end());
+				}
+				return Aggregate;
+			}
+			auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
+				-> void override
+			{
+				for (DObject* Object : Objects)
+					if (auto* Texture = Cast<DTexture2D>(Object); IsValid(Texture))
+						CancelTexture2DBuild(*Texture);
+			}
+			auto FinishAllCompilation() -> FAssetCompileProcessResult override
+			{
+				FAssetCompileProcessResult Aggregate;
+				FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+				while (Coordinator && (Coordinator->GetQueuedCount() != 0
+					|| Coordinator->GetRunningCount() != 0))
+				{
+					auto Item = PumpTextureCompletions(std::numeric_limits<uint32>::max());
+					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
+					Aggregate.SuccessfullyCompiledAssets.insert(
+						Aggregate.SuccessfullyCompiledAssets.end(),
+						Item.SuccessfullyCompiledAssets.begin(),
+						Item.SuccessfullyCompiledAssets.end());
+					if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
+				}
+				auto Item = PumpTextureCompletions(std::numeric_limits<uint32>::max());
+				Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
+				Aggregate.SuccessfullyCompiledAssets.insert(
+					Aggregate.SuccessfullyCompiledAssets.end(),
+					Item.SuccessfullyCompiledAssets.begin(),
+					Item.SuccessfullyCompiledAssets.end());
+				return Aggregate;
+			}
+			auto Shutdown() -> void override
+			{
+				if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+					Coordinator->Shutdown();
+			}
+		};
+	}
+
+	namespace Private
+	{
+		auto InitializeTextureCompilingManager(FModuleOwnedCallbackGate OwnerGate) -> bool
+		{
+			if (GTextureCompilingRegistration.IsValid()) return true;
+			std::string Error;
+			GTextureCompilingRegistration = FAssetCompilingManager::Get().RegisterManager(
+				std::make_shared<FTextureCompilingManager>(), std::move(OwnerGate), &Error);
+			if (!GTextureCompilingRegistration.IsValid())
+				DURIN_ERROR("Texture compilation manager registration failed: {}", Error);
+			return GTextureCompilingRegistration.IsValid();
+		}
+
+		auto ShutdownTextureCompilingManager() -> void
+		{
+			GTextureCompilingRegistration.Reset();
 		}
 	}
 
@@ -119,7 +256,7 @@ namespace Durin::Asset::Build
 			return false;
 		}
 		if (!GetTexture2DBuildCoordinator()
-			|| !GetBuildHostSnapshot().bAcceptingRequests)
+			|| !FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
 			OutError = "The authoring host or TextureBuild coordinator is unavailable.";
 			return false;
@@ -261,7 +398,9 @@ namespace Durin::Asset::Build
 		}
 		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
 		if (!Coordinator || !Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
-		PumpBuildHostCompletions(std::numeric_limits<uint32>::max());
+		DObject* Object = &Texture;
+		FAssetCompilingManager::Get().FinishCompilationForObjects(
+			std::span<DObject* const>(&Object, 1));
 		bool bFailed = false;
 		{
 			std::lock_guard Lock(GTexture2DAuthoringMutex);

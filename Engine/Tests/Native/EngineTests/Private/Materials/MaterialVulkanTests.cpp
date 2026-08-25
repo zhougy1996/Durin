@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "Asset/AssetCompilingManager.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
@@ -47,6 +48,20 @@ namespace
 			: 1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f;
 		return static_cast<uint8>(std::lround(
 			std::clamp(DisplayEncoded, 0.0f, 1.0f) * 255.0f));
+	}
+
+	auto FinishMaterialCompilation(Durin::DMaterialInterface* Interface) -> void
+	{
+		while (auto* Instance = Durin::Cast<Durin::DMaterialInstance>(Interface))
+			Interface = Instance->GetParent();
+		auto* Material = Durin::Cast<Durin::DMaterial>(Interface);
+		if (!Durin::IsValid(Material)) return;
+		if (Material->GetMaterialCompileStatus().State
+			== Durin::EMaterialCompileState::NeverRequested)
+			ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material));
+		Durin::DObject* Object = Material;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+			std::span<Durin::DObject* const>(&Object, 1));
 	}
 
 }
@@ -313,6 +328,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		auto Capture = [&](
 			Durin::DMaterialInterface* Material,
 			const Durin::FTransform& Transform = Durin::FTransform()) {
+			FinishMaterialCompilation(Material);
 			std::vector<std::byte> Pixels;
 			EXPECT_TRUE(Pool.SetMaterial(
 				CaptureMesh, Material, Transform, Error)) << Error;
@@ -729,6 +745,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		Durin::FMaterialProgramValidationResult ProgramValidation;
 		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
 			std::move(EditedProgram), ProgramValidation));
+		FinishMaterialCompilation(CaptureMaterial);
 		const Durin::FMaterialProgramIdentity EditedProgramIdentity =
 			CaptureMaterial->GetRenderData()
 				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
@@ -737,6 +754,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
 			CanonicalProgram, ProgramValidation));
+		FinishMaterialCompilation(CaptureMaterial);
 		EXPECT_EQ(CaptureMaterial->GetRenderData()
 			.PlanningPassIdentity.ShaderMap.ProgramIdentity,
 			CanonicalProgramIdentity);
@@ -782,6 +800,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		Durin::FMaterialStaticProperties StaticProperties;
 		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
+		FinishMaterialCompilation(CaptureMaterial);
 		EXPECT_NE(
 			CaptureMaterial->GetRenderData().PlanningPassIdentity,
 			LitPlanningPassIdentity);

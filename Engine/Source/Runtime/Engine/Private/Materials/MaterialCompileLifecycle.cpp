@@ -1,5 +1,6 @@
 #include "Materials/MaterialCompileLifecycle.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
@@ -199,6 +200,13 @@ namespace Durin
 				Scope = {};
 			}
 
+			auto StopAdmission() -> void
+			{
+				CheckMaterialCompileGameThread();
+				std::scoped_lock Lock(Mutex);
+				bAcceptingRequests = false;
+			}
+
 			auto Submit(FMaterialCompileRequest Request) -> EMaterialCompileState
 			{
 				CheckMaterialCompileGameThread();
@@ -317,18 +325,33 @@ namespace Durin
 				return CancelOwnerLocked(Owner, false);
 			}
 
-			auto Pump() -> std::vector<FMaterialCompileResult>
+			auto Pump(uint32 MaximumCount = std::numeric_limits<uint32>::max())
+				-> std::vector<FMaterialCompileResult>
 			{
 				CheckMaterialCompileGameThread();
 				std::vector<FMaterialCompileResult> Results;
 				std::scoped_lock Lock(Mutex);
-				Results.reserve(Mailbox.size());
-				while (!Mailbox.empty())
+				Results.reserve(std::min<size_t>(Mailbox.size(), MaximumCount));
+				while (!Mailbox.empty() && Results.size() < MaximumCount)
 				{
 					Results.push_back(std::move(Mailbox.front()));
 					Mailbox.pop_front();
 				}
 				return Results;
+			}
+
+			auto HasOwner(FObjectHandle Owner) const -> bool
+			{
+				std::scoped_lock Lock(Mutex);
+				for (const auto& [Key, Flight] : Flights)
+					if (std::ranges::any_of(Flight->Consumers,
+						[Owner](const FMaterialCompileRequest& Consumer) {
+							return SameOwner(Consumer.Owner, Owner);
+						})) return true;
+				return std::ranges::any_of(Mailbox,
+					[Owner](const FMaterialCompileResult& Result) {
+						return SameOwner(Result.Owner, Owner);
+					});
 			}
 
 			auto ConsumeOutstanding() -> void
@@ -584,6 +607,124 @@ namespace Durin
 
 		FMaterialCompileService GMaterialCompileService;
 		std::atomic_uint8_t GPendingShaderReloadMode = 0;
+
+		auto PumpMaterialCompileResultsDetailed(uint32 MaximumCount)
+			-> FAssetCompileProcessResult
+		{
+			CheckMaterialCompileGameThread();
+			const uint8 ReloadMode = GPendingShaderReloadMode.exchange(
+				0, std::memory_order_acq_rel);
+			if (ReloadMode != 0)
+			{
+				const std::vector<DObject*> Objects =
+					GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
+				for (DObject* Object : Objects)
+					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+					{
+						const FMaterialRenderProxyRef Proxy =
+							Material->GetMaterialRenderProxy();
+						if (Proxy && Proxy->GetRefCount() > 2)
+							RequestMaterialRecompile(*Material, ReloadMode > 1);
+					}
+			}
+
+			FAssetCompileProcessResult Processed;
+			std::vector<FMaterialCompileResult> Results =
+				GMaterialCompileService.Pump(MaximumCount);
+			Processed.ProcessedCompletionCount = static_cast<uint32>(Results.size());
+			for (FMaterialCompileResult& Result : Results)
+			{
+				DObject* Object = ResolveObjectHandle(Result.Owner);
+				if (auto* Material = Cast<DMaterial>(Object); IsValid(Material)
+					&& Private::FMaterialCompileServiceAccess::Admit(
+						*Material, std::move(Result)))
+					Processed.SuccessfullyCompiledAssets.emplace_back(Material);
+				GMaterialCompileService.ConsumeOutstanding();
+			}
+			return Processed;
+		}
+
+		class FMaterialCompilingManager final : public IAssetCompilingManager
+		{
+		public:
+			auto GetAssetTypeName() const -> FName override
+			{
+				return FName("Durin.MaterialCompilation");
+			}
+			auto Start(std::string* OutError) -> bool override
+			{
+				if (GMaterialCompileService.Initialize())
+				{
+					if (OutError) OutError->clear();
+					return true;
+				}
+				if (OutError) *OutError = "Material compile task scope could not start.";
+				return false;
+			}
+			auto StopAdmission() -> void override
+			{
+				GMaterialCompileService.StopAdmission();
+			}
+			auto GetNumRemainingAssets() const -> uint64 override
+			{
+				return GMaterialCompileService.GetDiagnostics().OutstandingConsumerCount;
+			}
+			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
+				-> FAssetCompileProcessResult override
+			{
+				return PumpMaterialCompileResultsDetailed(Params.MaximumCompletions);
+			}
+			auto FinishCompilationForObjects(std::span<DObject* const> Objects)
+				-> FAssetCompileProcessResult override
+			{
+				FAssetCompileProcessResult Aggregate;
+				std::vector<FObjectHandle> Owners;
+				for (DObject* Object : Objects)
+					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+						Owners.push_back(MakeObjectHandle(Material));
+				while (std::ranges::any_of(Owners, [](FObjectHandle Owner) {
+					return GMaterialCompileService.HasOwner(Owner);
+				}))
+				{
+					auto Item = PumpMaterialCompileResultsDetailed(
+						std::numeric_limits<uint32>::max());
+					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
+					Aggregate.SuccessfullyCompiledAssets.insert(
+						Aggregate.SuccessfullyCompiledAssets.end(),
+						Item.SuccessfullyCompiledAssets.begin(),
+						Item.SuccessfullyCompiledAssets.end());
+					if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
+				}
+				return Aggregate;
+			}
+			auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
+				-> void override
+			{
+				for (DObject* Object : Objects)
+					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+						CancelMaterialCompile(*Material);
+			}
+			auto FinishAllCompilation() -> FAssetCompileProcessResult override
+			{
+				FAssetCompileProcessResult Aggregate;
+				while (GetNumRemainingAssets() != 0)
+				{
+					auto Item = PumpMaterialCompileResultsDetailed(
+						std::numeric_limits<uint32>::max());
+					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
+					Aggregate.SuccessfullyCompiledAssets.insert(
+						Aggregate.SuccessfullyCompiledAssets.end(),
+						Item.SuccessfullyCompiledAssets.begin(),
+						Item.SuccessfullyCompiledAssets.end());
+					if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
+				}
+				return Aggregate;
+			}
+			auto Shutdown() -> void override
+			{
+				GMaterialCompileService.Shutdown();
+			}
+		};
 	}
 
 	namespace Private
@@ -783,54 +924,9 @@ namespace Durin
 		}
 	}
 
-	auto InitializeMaterialCompileService() -> bool
-	{
-		return GMaterialCompileService.Initialize();
-	}
-
-	auto ShutdownMaterialCompileService() -> void
-	{
-		GMaterialCompileService.Shutdown();
-	}
-
 	auto IsMaterialCompileServiceAcceptingRequests() -> bool
 	{
 		return GMaterialCompileService.IsAccepting();
-	}
-
-	auto PumpMaterialCompileResults() -> uint32
-	{
-		CheckMaterialCompileGameThread();
-		const uint8 ReloadMode = GPendingShaderReloadMode.exchange(
-			0, std::memory_order_acq_rel);
-		if (ReloadMode != 0)
-		{
-			const std::vector<DObject*> Objects =
-				GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
-			for (DObject* Object : Objects)
-				if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
-				{
-					// One reference belongs to the material and this temporary is the
-					// second. Additional references represent a live component,
-					// instance, preview, thumbnail, or other demanded consumer.
-					const FMaterialRenderProxyRef Proxy =
-						Material->GetMaterialRenderProxy();
-					if (Proxy && Proxy->GetRefCount() > 2)
-						RequestMaterialRecompile(*Material, ReloadMode > 1);
-				}
-		}
-
-		std::vector<FMaterialCompileResult> Results =
-			GMaterialCompileService.Pump();
-		for (FMaterialCompileResult& Result : Results)
-		{
-			DObject* Object = ResolveObjectHandle(Result.Owner);
-			if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
-				Private::FMaterialCompileServiceAccess::Admit(
-					*Material, std::move(Result));
-			GMaterialCompileService.ConsumeOutstanding();
-		}
-		return static_cast<uint32>(Results.size());
 	}
 
 	auto GetMaterialCompileServiceDiagnostics()
@@ -863,5 +959,10 @@ namespace Durin
 		if (bCanceled)
 			Private::FMaterialCompileServiceAccess::MarkCanceled(Material);
 		return bCanceled;
+	}
+
+	auto CreateMaterialCompilingManager() -> std::shared_ptr<IAssetCompilingManager>
+	{
+		return std::make_shared<FMaterialCompilingManager>();
 	}
 }

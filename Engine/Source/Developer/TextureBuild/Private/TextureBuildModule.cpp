@@ -40,24 +40,24 @@ namespace Durin
 			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
 				IVolumeTextureAuthoringFeature>(VolumeTextureAuthoringFeature);
 			require(VolumeTextureRegistration.IsValid());
-			BuildHostCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
+			AssetCompilingCallbackRegistration =
+				FModuleStartup::CreateOwnedCallbackRegistration("Engine.AssetCompilingManager");
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
 			std::string Error;
 			checkf(Asset::Build::InitializeTextureBuildFunctions(
-				BuildHostCallbackRegistration.GetGate(), &Error),
+				AssetCompilingCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
 			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
 			checkf(Asset::Build::InitializeTextureBuildService(
-				BuildHostCallbackRegistration.GetGate(), Config),
+				AssetCompilingCallbackRegistration.GetGate(), Config),
 				"TextureBuild could not register its authoring service.");
 		}
 
 	private:
-		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
+		FModuleOwnedCallbackRegistration AssetCompilingCallbackRegistration;
 		FAsyncOperationGroup BuildOperations;
 		FVolumeTextureAuthoringFeature VolumeTextureAuthoringFeature;
 		FModularFeatureRegistration VolumeTextureRegistration;

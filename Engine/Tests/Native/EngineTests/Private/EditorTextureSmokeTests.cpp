@@ -2,6 +2,7 @@
 
 #include "EngineTestSupport.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Actors/StaticMeshActor.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetTools.h"
@@ -31,8 +32,18 @@
 
 namespace Durin
 {
-	namespace
-	{
+		namespace
+		{
+			auto FinishMaterialCompilation(DMaterial& Material) -> void
+			{
+				if (Material.GetMaterialCompileStatus().State
+					== EMaterialCompileState::NeverRequested)
+					ASSERT_TRUE(RequestMaterialRecompile(Material));
+				DObject* Object = &Material;
+				FAssetCompilingManager::Get().FinishCompilationForObjects(
+					std::span<DObject* const>(&Object, 1));
+			}
+
 		auto WriteTextureSmokeFixture(const std::filesystem::path& Path) -> void
 		{
 			// 2x1 RGBA PNG with opaque red next to transparent black, so a white fallback is distinguishable in visual follow-up runs.
@@ -97,6 +108,7 @@ namespace Durin
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
 		Material->SetTextureParameterValue(
 			MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+		FinishMaterialCompilation(*Material);
 		ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
@@ -111,7 +123,7 @@ namespace Durin
 				Asset::OrdinaryAssetPackageWriterVersion);
 		}
 
-		auto LoadRenderableGraph = [&]() {
+			auto LoadRenderableGraph = [&]() {
 			DStaticMesh* Mesh = nullptr;
 			DMaterial* LoadedMaterial = nullptr;
 			DTexture2D* Texture = nullptr;
@@ -122,6 +134,7 @@ namespace Durin
 			EXPECT_TRUE(Asset::LoadAsset(MaterialPath, LoadedMaterial,
 				&MaterialReport));
 			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+			if (LoadedMaterial) FinishMaterialCompilation(*LoadedMaterial);
 			return std::tuple{Mesh, LoadedMaterial, Texture};
 		};
 		auto ValidateRenderableGraph = [](DStaticMesh* Mesh,
@@ -247,6 +260,7 @@ namespace Durin
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+		FinishMaterialCompilation(*Material);
 
 		AStaticMeshActor* Actor = NewObject<AStaticMeshActor>(nullptr, "TextureSmokeMesh");
 		ASSERT_NE(Actor, nullptr);

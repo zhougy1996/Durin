@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetTools.h"
-#include "AssetBuild/BuildHost.h"
+#include "Asset/AssetCompilingManager.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
@@ -37,21 +37,22 @@ inline auto InitializeTextureImportMount() -> void
 	}
 }
 
-inline auto EnsureTextureBuildHost() -> bool
+inline auto EnsureTextureCompilingManager() -> bool
 {
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
+		&& !Durin::InitializeAssetCompilingManager()) return false;
 	return Durin::Asset::Build::InitializeTextureBuildService(
-		GetEngineTestModuleCallbackGate())
-		&& Durin::Asset::Build::InitializeBuildHost();
+		GetEngineTestModuleCallbackGate());
 }
 
-inline auto RestartTextureBuildHost(
+inline auto RestartTextureCompilingManager(
 	const Durin::Asset::Build::FTexture2DBuildCoordinatorConfig& Config = {}) -> bool
 {
-	Durin::Asset::Build::ShutdownBuildHost();
 	Durin::Asset::Build::ShutdownTextureBuildService();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
+		&& !Durin::InitializeAssetCompilingManager()) return false;
 	return Durin::Asset::Build::InitializeTextureBuildService(
-		GetEngineTestModuleCallbackGate(), Config)
-		&& Durin::Asset::Build::InitializeBuildHost();
+		GetEngineTestModuleCallbackGate(), Config);
 }
 
 namespace

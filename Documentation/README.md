@@ -25,6 +25,7 @@ not open the other rows or scan an entire directory.
 | Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/AssetPackages.md) |
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
 | Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
+| Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |
 | Volume texture source, build, payload, cook, or GPU resource contract | [Volume textures](Runtime/Assets/VolumeTextures.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |

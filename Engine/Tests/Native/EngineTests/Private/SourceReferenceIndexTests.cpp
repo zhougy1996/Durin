@@ -9,13 +9,13 @@
 
 namespace
 {
-	class FScopedTextureBuildHost final
+	class FScopedTextureCompilingManager final
 	{
 	public:
-		~FScopedTextureBuildHost()
+		~FScopedTextureCompilingManager()
 		{
-			Durin::Asset::Build::ShutdownBuildHost();
 			Durin::Asset::Build::ShutdownTextureBuildService();
+			Durin::ShutdownAssetCompilingManager();
 		}
 	};
 }
@@ -27,8 +27,8 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
-	FScopedTextureBuildHost BuildHost;
-	ASSERT_TRUE(EnsureTextureBuildHost());
+	FScopedTextureCompilingManager CompilingManager;
+	ASSERT_TRUE(EnsureTextureCompilingManager());
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndexCache");
 	const std::filesystem::path Input =

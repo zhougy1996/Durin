@@ -1,5 +1,6 @@
 #include "MaterialTestSupport.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Modules/ModuleManager.h"
@@ -14,7 +15,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + Timeout;
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
-			Durin::PumpMaterialCompileResults();
+			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 			const Durin::EMaterialCompileState State =
 				Material.GetMaterialCompileStatus().State;
 			if (State != Durin::EMaterialCompileState::Pending
@@ -48,7 +49,7 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	const bool bOwnsScheduler = !Durin::IsTaskSchedulerRunning();
 	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
-	ASSERT_TRUE(Durin::InitializeMaterialCompileService());
+	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 
 	auto* First = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "AsyncCompileFirst");
@@ -85,7 +86,7 @@ TEST(FMaterialCompileLifecycleTests,
 	const uint64 UnusedGeneration =
 		Second->GetMaterialCompileStatus().RequestGeneration;
 	Durin::NotifyMaterialShaderReload(false);
-	Durin::PumpMaterialCompileResults();
+	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
 		DemandedGeneration + 1);
 	EXPECT_EQ(Second->GetMaterialCompileStatus().RequestGeneration,
@@ -192,7 +193,7 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
-	Durin::ShutdownMaterialCompileService();
+	Durin::ShutdownAssetCompilingManager();
 	const Durin::FMaterialCompileServiceDiagnostics Shutdown =
 		Durin::GetMaterialCompileServiceDiagnostics();
 	EXPECT_FALSE(Shutdown.bAcceptingRequests);

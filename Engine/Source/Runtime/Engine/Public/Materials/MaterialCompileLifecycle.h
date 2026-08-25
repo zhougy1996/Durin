@@ -155,11 +155,7 @@ namespace Durin
 		uint64 RetainedProgramBytes = 0;
 	};
 
-	// Engine lifecycle owns these calls and closes admission before task shutdown.
-	ENGINE_API auto InitializeMaterialCompileService() -> bool;
-	ENGINE_API auto ShutdownMaterialCompileService() -> void;
 	ENGINE_API auto IsMaterialCompileServiceAcceptingRequests() -> bool;
-	ENGINE_API auto PumpMaterialCompileResults() -> uint32;
 	ENGINE_API auto GetMaterialCompileServiceDiagnostics()
 		-> FMaterialCompileServiceDiagnostics;
 
