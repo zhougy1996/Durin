@@ -1070,6 +1070,10 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 5;
 	Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws = 2;
 	Telemetry.Terrain.TerrainSuccessfulDraws = 1;
+	Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws = 3;
+	Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws = 1;
+	Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws = 2;
+	Telemetry.GBuffer.GBufferTerrainSuccessfulDraws = 4;
 	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 7;
 	Telemetry.Lighting.SelectedDirectionalLights = 1;
 	Telemetry.Lighting.SelectedPointLights = 3;
@@ -1108,9 +1112,9 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.Terrain.Triangles, 60u);
 	EXPECT_EQ(Statistics.Summary.Triangles, 220u);
 	EXPECT_EQ(Statistics.Shadow.Triangles, 500u);
-	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 5u);
-	EXPECT_EQ(Statistics.SkeletalMesh.DrawCalls, 2u);
-	EXPECT_EQ(Statistics.Terrain.DrawCalls, 1u);
+	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 9u);
+	EXPECT_EQ(Statistics.SkeletalMesh.DrawCalls, 4u);
+	EXPECT_EQ(Statistics.Terrain.DrawCalls, 5u);
 	EXPECT_EQ(Statistics.Shadow.DrawCalls, 7u);
 	EXPECT_TRUE(Statistics.Shadow.bEnabled);
 	EXPECT_EQ(Statistics.Shadow.Cascades, 3u);

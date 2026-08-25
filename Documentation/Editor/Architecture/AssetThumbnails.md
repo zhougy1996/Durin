@@ -205,10 +205,15 @@ target, incompatible dimension, or unavailable renderer resource fails the
 render result before readback; a clear image or black fallback is never
 persisted as a successful TextureCube thumbnail.
 
-Material and MaterialInstance previews use the retained shared
-`/Engine/Models/Sphere` mesh and the resolved runtime material
-values. TextureCube previews use an opaque 100-degree wide environment view and
-the orientation contract in [Cube Textures](../../Runtime/Rendering/CubeTextures.md).
+Material and MaterialInstance previews load and retain the shared
+`/Engine/Models/Sphere` mesh before resource polling, wait for both that mesh
+and referenced textures to become render-ready, and use the resolved runtime
+material values. A scene-backed capture with visible geometry but no successful
+geometry draw is rejected before readback publication, so a transparent clear
+caused by unavailable shader, pipeline, or mesh resources cannot enter the
+thumbnail object store. TextureCube previews use an opaque 100-degree wide
+environment view and the orientation contract in
+[Cube Textures](../../Runtime/Rendering/CubeTextures.md).
 They create no Actor, Component, StaticMesh, primitive proxy, bounds, or
 visibility record. Content Browser cards never own live viewports, worlds, or
 per-card preview meshes.

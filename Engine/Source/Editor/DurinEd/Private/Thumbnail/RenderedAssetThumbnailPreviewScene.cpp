@@ -141,6 +141,15 @@ namespace Durin::Editor
 			}
 			return "The rendered-thumbnail renderer returned an unknown failure.";
 		}
+
+		auto HasRejectedVisibleGeometry(const FSceneViewStatistics& Statistics)
+			-> bool
+		{
+			if (Statistics.Visibility.VisiblePrimitives == 0) return false;
+			return Statistics.StaticMesh.DrawCalls == 0
+				&& Statistics.SkeletalMesh.DrawCalls == 0
+				&& Statistics.Terrain.DrawCalls == 0;
+		}
 	} // namespace
 
 	struct FRenderedAssetThumbnailPreviewScenePool::FImpl
@@ -390,11 +399,15 @@ namespace Durin::Editor
 				else
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					FSceneViewStatistics Statistics;
 					const ERenderViewResult RenderResult = Renderer->RenderView(
-						CommandList, Scene, View, RenderTarget, false, Options
-					);
+						CommandList, Scene, View, RenderTarget, false, Options,
+						&Statistics);
 					if (RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);
+					else if (HasRejectedVisibleGeometry(Statistics))
+						Error = "The rendered-thumbnail scene contained visible geometry, "
+							"but the renderer produced no geometry draw calls.";
 					else if (!GDynamicRHI->RHIReadTexture2D(
 								 CommandList, RenderTarget, 0, 0, Pixels
 							 ))

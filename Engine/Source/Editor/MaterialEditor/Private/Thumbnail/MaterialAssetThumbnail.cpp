@@ -15,7 +15,7 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr uint32 MaterialThumbnailGeneratorSchema = 3;
+		constexpr uint32 MaterialThumbnailGeneratorSchema = 4;
 		constexpr uint32 MaterialThumbnailShaderContract = 3;
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
@@ -89,6 +89,15 @@ namespace Durin::Editor::Material
 			return Revision == 0 ? 1 : Revision;
 		}
 
+		auto CombineResourceRevision(uint64 MaterialRevision, uint64 MeshRevision)
+			-> uint64
+		{
+			uint64 Revision = MaterialRevision;
+			Revision ^= MeshRevision + 0x9e3779b97f4a7c15ull
+				+ (Revision << 6) + (Revision >> 2);
+			return Revision == 0 ? 1 : Revision;
+		}
+
 		auto MakeMaterialPreviewView() -> ::Durin::Editor::FRenderedAssetThumbnailPreviewView
 		{
 			const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
@@ -133,6 +142,7 @@ namespace Durin::Editor::Material
 
 			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
+				std::string SphereError;
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Loaded);
 				Material = Result ? Cast<DMaterialInterface>(Loaded) : nullptr;
@@ -146,6 +156,30 @@ namespace Durin::Editor::Material
 							? "The requested asset is not an exact material class."
 							: Result.Message};
 				}
+				if (auto* Instance = Cast<DMaterialInstance>(Material);
+					Instance != nullptr && Instance->GetParent() == nullptr)
+				{
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.Diagnostic = "The material instance has no valid parent."};
+				}
+				FAssetPath SpherePath;
+				if (!FAssetPath::TryCreate(
+						::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
+						SpherePath, &SphereError)
+					|| !::Durin::Editor::FAssetRetentionService::Acquire(
+						SpherePath, SphereAsset, SphereError)
+					|| (Sphere = Cast<DStaticMesh>(SphereAsset.Get())) == nullptr)
+				{
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.Diagnostic = SphereError.empty()
+							? "The rendered-thumbnail sphere mesh is unavailable."
+							: std::move(SphereError)};
+				}
+				if (Sphere->GetRenderResourceStatus().Readiness
+					== EStaticMeshRenderResourceReadiness::Unavailable)
+					Sphere->InitResources();
 				AssetRevision = Material->GetRenderStateVersion();
 				return {
 					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
@@ -156,15 +190,34 @@ namespace Durin::Editor::Material
 			{
 				bool bReady = false;
 				std::string Error;
-				const uint64 Revision = GetMaterialResourceRevision(Material, bReady, Error);
+				const uint64 MaterialRevision =
+					GetMaterialResourceRevision(Material, bReady, Error);
 				if (!Error.empty())
 					return {
 						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = AssetRevision,
-						.ResourceRevision = Revision,
+						.ResourceRevision = MaterialRevision,
 						.Diagnostic = std::move(Error)};
+				if (Sphere == nullptr)
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.AssetRevision = AssetRevision,
+						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
+				const FStaticMeshRenderResourceStatus SphereStatus =
+					Sphere->GetRenderResourceStatus();
+				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Failed
+					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.AssetRevision = AssetRevision,
+						.ResourceRevision = SphereStatus.Revision,
+						.Diagnostic = "The rendered-thumbnail sphere render resource is unavailable."};
+				const bool bSphereReady = SphereStatus.Readiness
+					== EStaticMeshRenderResourceReadiness::Ready;
+				const uint64 Revision = CombineResourceRevision(
+					MaterialRevision, SphereStatus.Revision);
 				return {
-					.State = bReady
+					.State = bReady && bSphereReady
 						? ::Durin::Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
 						: ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision,
@@ -175,17 +228,13 @@ namespace Durin::Editor::Material
 				::Durin::Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
-				ResetPreview();
+				ResetScenePreview();
 				World = PreviewScene.GetWorld();
-				FAssetPath SpherePath;
-				if (World == nullptr
-					|| !FAssetPath::TryCreate(
-						::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
-						SpherePath,
-						&OutError)
-					|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
+				if (World == nullptr || Sphere == nullptr)
+				{
+					OutError = "The rendered-thumbnail material preview is unavailable.";
 					return false;
-				DStaticMesh* Sphere = Cast<DStaticMesh>(SphereAsset.Get());
+				}
 				Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
 				Component = Actor
 					? Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
@@ -217,10 +266,16 @@ namespace Durin::Editor::Material
 				std::string& OutError) const -> bool override
 			{
 				bool bReady = false;
-				const uint64 Revision = GetMaterialResourceRevision(
+				const uint64 MaterialRevision = GetMaterialResourceRevision(
 					Material, bReady, OutError);
 				if (!OutError.empty()) return false;
+				const FStaticMeshRenderResourceStatus SphereStatus = Sphere
+					? Sphere->GetRenderResourceStatus()
+					: FStaticMeshRenderResourceStatus{};
+				const uint64 Revision = CombineResourceRevision(
+					MaterialRevision, SphereStatus.Revision);
 				if (!bReady || Material == nullptr
+					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
 					|| Material->GetRenderStateVersion() != ExpectedAssetRevision
 					|| Revision != ExpectedResourceRevision)
 				{
@@ -232,14 +287,20 @@ namespace Durin::Editor::Material
 
 			auto ResetPreview() -> void override
 			{
-				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
-				Component = nullptr;
-				Actor = nullptr;
-				World = nullptr;
+				ResetScenePreview();
+				Sphere = nullptr;
 				SphereAsset = {};
 			}
 
 		private:
+			auto ResetScenePreview() -> void
+			{
+				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
+				Component = nullptr;
+				Actor = nullptr;
+				World = nullptr;
+			}
+
 			FAssetPath AssetPath;
 			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
@@ -247,6 +308,7 @@ namespace Durin::Editor::Material
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
+			DStaticMesh* Sphere = nullptr;
 			::Durin::Editor::FRetainedAsset SphereAsset;
 		};
 	} // namespace

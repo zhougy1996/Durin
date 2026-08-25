@@ -54,9 +54,17 @@ namespace Durin
 		);
 		Result.Shadow.Triangles = Telemetry.DirectionalShadow.ShadowPreparedTriangles;
 
-		Result.StaticMesh.DrawCalls = Telemetry.StaticMesh.StaticMeshSuccessfulDraws;
-		Result.SkeletalMesh.DrawCalls = Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws;
-		Result.Terrain.DrawCalls = Telemetry.Terrain.TerrainSuccessfulDraws;
+		Result.StaticMesh.DrawCalls = AddSaturated(
+			Telemetry.StaticMesh.StaticMeshSuccessfulDraws,
+			AddSaturated(
+				Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws,
+				Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws));
+		Result.SkeletalMesh.DrawCalls = AddSaturated(
+			Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws,
+			Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws);
+		Result.Terrain.DrawCalls = AddSaturated(
+			Telemetry.Terrain.TerrainSuccessfulDraws,
+			Telemetry.GBuffer.GBufferTerrainSuccessfulDraws);
 		Result.Shadow.DrawCalls = Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
 		Result.Lights.Directional = Telemetry.Lighting.SelectedDirectionalLights;
 		Result.Lights.Point = Telemetry.Lighting.SelectedPointLights;

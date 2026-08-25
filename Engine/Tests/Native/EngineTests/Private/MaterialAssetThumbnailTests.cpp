@@ -130,6 +130,8 @@ TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDepen
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
 	Durin::Editor::Material::FMaterialAssetThumbnailProvider InstanceProvider(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString());
+	EXPECT_EQ(
+		MaterialProvider.GetRegistration().GeneratorSchemaVersion, 4u);
 	Durin::Editor::FAssetThumbnailGenerationRequest MaterialRequest;
 	Durin::Editor::FAssetThumbnailGenerationRequest InstanceRequest;
 	const std::string MaterialKey =
