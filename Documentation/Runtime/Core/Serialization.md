@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Archive And Object Serialization
 
@@ -19,7 +19,11 @@ iteration. `FArchiveState` independently carries direction, persistence, Cook,
 editor-only filtering, bulk policy, purpose and target facts.
 
 `Serialization/BinaryFormat.h` is the small convenience surface for explicit
-fixed-width binary families and reuses the same Archive primitive encoding. Its
+fixed-width binary families and reuses the same Archive primitive encoding. One
+`FBinaryWriter` retains one canonical Archive bound to its owned byte vector for
+its complete lifetime; scalar calls do not reconstruct Archive state. The writer
+is neither copied nor moved, and `TakeBytes()` starts a new independent sequence
+without invalidating later writes. Its
 floating-point operations preserve exact IEEE-754 bits, including signed zero;
 format-specific equivalence such as normalizing `-0.0` before a compatibility
 hash remains the responsibility of the owning format. Bounded sequential

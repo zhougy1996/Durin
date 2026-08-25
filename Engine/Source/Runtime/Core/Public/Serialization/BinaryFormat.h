@@ -17,10 +17,17 @@ namespace Durin
 		uint32 Marker = BinaryFormatMarker;
 	};
 
-	// Builds a canonical little-endian binary representation.
+	// Builds canonical little-endian bytes through one Archive bound to its internal storage.
 	class FBinaryWriter
 	{
 	public:
+		FBinaryWriter()
+			: Archive(Bytes, EArchivePurpose::DerivedDataPayload) {}
+		FBinaryWriter(const FBinaryWriter&) = delete;
+		auto operator=(const FBinaryWriter&) -> FBinaryWriter& = delete;
+		FBinaryWriter(FBinaryWriter&&) = delete;
+		auto operator=(FBinaryWriter&&) -> FBinaryWriter& = delete;
+
 		CORE_API auto WriteU8(uint8 Value) -> void;
 		CORE_API auto WriteU16(uint16 Value) -> void;
 		CORE_API auto WriteU32(uint32 Value) -> void;
@@ -32,10 +39,11 @@ namespace Durin
 		CORE_API auto WriteBytes(std::span<const std::byte> Value) -> void;
 		CORE_API auto WriteHeader(const FBinaryFormatHeader& Header) -> void;
 		auto GetBytes() const -> const std::vector<std::byte>& { return Bytes; }
-		auto TakeBytes() -> std::vector<std::byte> { return std::move(Bytes); }
+		auto TakeBytes() -> std::vector<std::byte> { return std::exchange(Bytes, {}); }
 
 	private:
 		std::vector<std::byte> Bytes;
+		FCanonicalMemoryWriter Archive;
 	};
 
 	// Reads canonical binary bytes without owning the source span.

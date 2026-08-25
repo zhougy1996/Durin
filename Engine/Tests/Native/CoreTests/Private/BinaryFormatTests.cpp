@@ -150,3 +150,16 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 	EXPECT_TRUE(Region.empty());
 	EXPECT_EQ(Regions.GetRemainingBytes(), Writer.GetBytes().size() - 2);
 }
+
+TEST(FBinaryFormatTests, TakeBytesLeavesWriterReadyForAnIndependentSequence)
+{
+	Durin::FBinaryWriter Writer;
+	Writer.WriteU8(0x11);
+	EXPECT_EQ(Writer.TakeBytes(),
+		(std::vector<std::byte>{std::byte{0x11}}));
+
+	Writer.WriteU16(0x2233);
+	Writer.WriteBytes(std::array<std::byte, 2>{std::byte{0x44}, std::byte{0x55}});
+	EXPECT_EQ(Writer.TakeBytes(), (std::vector<std::byte>{
+		std::byte{0x33}, std::byte{0x22}, std::byte{0x44}, std::byte{0x55}}));
+}

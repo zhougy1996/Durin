@@ -4,56 +4,47 @@ namespace Durin
 {
 	auto FBinaryWriter::WriteU8(uint8 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteU16(uint16 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteU32(uint32 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteU64(uint64 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteI32(int32 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteI64(int64 Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteFloat(float Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive << Value;
 	}
 
 	auto FBinaryWriter::WriteString(std::string_view Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		std::string Owned(Value);
 		SerializeBoundedString(Archive, Owned, std::numeric_limits<uint64>::max());
 	}
 
 	auto FBinaryWriter::WriteBytes(std::span<const std::byte> Value) -> void
 	{
-		FCanonicalMemoryWriter Archive(Bytes, EArchivePurpose::DerivedDataPayload);
 		Archive.WriteBytes(Value);
 	}
 
