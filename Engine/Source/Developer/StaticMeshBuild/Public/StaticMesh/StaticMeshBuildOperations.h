@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "StaticMeshBuildAPI.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -46,7 +46,7 @@ namespace Durin::Asset::Build
 		FStaticMeshImportSettings ImportSettings;
 	};
 
-	class GEOMETRYBUILD_API FStaticMeshBuildOperations
+	class STATICMESHBUILD_API FStaticMeshBuildOperations
 	{
 	public:
 		// GameThread adapter: captures the only mutable asset facts recipe work may observe.

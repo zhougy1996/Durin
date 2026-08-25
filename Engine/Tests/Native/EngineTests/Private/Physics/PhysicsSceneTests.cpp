@@ -1122,7 +1122,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 
 TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry)
 {
-	Durin::FModuleManager::Get().LoadModule("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
 	Durin::DWorld* FirstWorld = CreatePhysicsWorld();
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	std::string Error;

@@ -59,7 +59,8 @@ physical root communicates ownership but does not select them for a target.
 | --- | --- | --- |
 | `DerivedDataCache` | Backend-neutral synchronous bucket/key cache, local filesystem persistence, and the family-neutral Build Framework: immutable definitions/values/policy, synchronous local sessions, cache-status adaptation, and build-function registration; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
 | `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned build-function transaction, typed recipes, offline compression, diagnostics, and the optional Texture2D compilation domain | [source](../../Engine/Source/Developer/TextureBuild) |
-| `GeometryBuild` | StaticMesh/collision and skeletal/animation keys, private codecs/functions, one module-owned registration transaction, typed recipes, DDC policy, diagnostics, and Runtime adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
+| `StaticMeshBuild` | StaticMesh render/collision keys, private codecs/functions, one module-owned two-function registration transaction, typed recipes, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
+| `SkeletalBuild` | SkeletalMesh/AnimationClip keys, private codecs/functions, one module-owned two-function registration transaction, typed recipes, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
 | `TerrainBuild` | TerrainHeightmap and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
 
 ## Project Modules
@@ -80,8 +81,8 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore` | `LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` for scoped extensions |
-| importing assets | `AssetForge`, `AssetForgeBuiltins` | `DerivedDataCache` for generic mechanics; `TextureBuild`, `GeometryBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `GeometryBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
+| importing assets | `AssetForge`, `AssetForgeBuiltins` | `DerivedDataCache` for generic mechanics; `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
+| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

@@ -94,7 +94,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();

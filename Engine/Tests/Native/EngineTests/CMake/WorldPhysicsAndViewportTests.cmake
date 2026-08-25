@@ -39,14 +39,14 @@ endif()
 durin_add_engine_functional_test(PhysicsSceneTests
 	KIND feature
 	DOMAINS physics
-	MODULES physics engine geometry-build
+	MODULES physics engine static-mesh-build
 	STACKS editor
 	RUNTIME_STACK_RATIONALE
-		"Exercises editor-only StaticMesh collision authoring registration through GeometryBuild."
+		"Exercises editor-only StaticMesh collision authoring registration through StaticMeshBuild."
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES PhysicsCore Physics GeometryBuild
+	LIBRARIES PhysicsCore Physics StaticMeshBuild
 )
 
 durin_add_engine_functional_test(PhysicsQualificationTests
@@ -158,7 +158,7 @@ if(DURIN_WITH_EDITOR)
 		AssetCore
 		AssetForge
 		AssetForgeBuiltins
-		GeometryBuild
+		StaticMeshBuild
 		DurinEd
 	)
 	set_target_properties(ViewportTests PROPERTIES
@@ -201,7 +201,7 @@ if(DURIN_WITH_EDITOR)
 		AssetCore
 		AssetForge
 		AssetForgeBuiltins
-		GeometryBuild
+		StaticMeshBuild
 		DurinEd
 	)
 	set_target_properties(ViewportQualificationTests PROPERTIES

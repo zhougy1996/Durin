@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "SkeletalBuildAPI.h"
 #include "Animation/AnimationClip.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -34,12 +34,12 @@ namespace Durin::Asset::Build
 
 	struct FSkeletalMeshBuildKeyInput : FSkeletalBuildKeyFields
 	{
-		GEOMETRYBUILD_API auto Serialize(FArchive& Ar) -> void;
+		SKELETALBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	struct FAnimationClipBuildKeyInput : FSkeletalBuildKeyFields
 	{
-		GEOMETRYBUILD_API auto Serialize(FArchive& Ar) -> void;
+		SKELETALBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	// Owned normalized geometry and relationship facts consumed by the Build worker.
@@ -81,34 +81,34 @@ namespace Durin::Asset::Build
 		std::string Diagnostic;
 	};
 
-	GEOMETRYBUILD_API auto BuildSkeletalMeshDerivedDataKeyBytes(
+	SKELETALBUILD_API auto BuildSkeletalMeshDerivedDataKeyBytes(
 		const FSkeletalMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::vector<std::byte>;
-	GEOMETRYBUILD_API auto BuildSkeletalMeshDerivedDataKey(
+	SKELETALBUILD_API auto BuildSkeletalMeshDerivedDataKey(
 		const FSkeletalMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
-	GEOMETRYBUILD_API auto BuildAnimationClipDerivedDataKeyBytes(
+	SKELETALBUILD_API auto BuildAnimationClipDerivedDataKeyBytes(
 		const FAnimationClipBuildKeyInput& Input,
 		std::string& OutError) -> std::vector<std::byte>;
-	GEOMETRYBUILD_API auto BuildAnimationClipDerivedDataKey(
+	SKELETALBUILD_API auto BuildAnimationClipDerivedDataKey(
 		const FAnimationClipBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 
-	GEOMETRYBUILD_API auto BuildSkeletalMeshProduct(
+	SKELETALBUILD_API auto BuildSkeletalMeshProduct(
 		FSkeletalMeshBuildRequest Request,
 		FSkeletalMeshBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto BuildAnimationClipProduct(
+	SKELETALBUILD_API auto BuildAnimationClipProduct(
 		FAnimationClipBuildRequest Request,
 		FAnimationClipBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 
-	GEOMETRYBUILD_API auto LoadSkeletalMeshDerivedData(
+	SKELETALBUILD_API auto LoadSkeletalMeshDerivedData(
 		std::string_view Key,
 		const FSkeletalPayloadSerializationContext& Context,
 		FSkeletalMeshPayloadData& OutPayload,
 		std::string& OutMessage) -> bool;
-	GEOMETRYBUILD_API auto LoadAnimationClipDerivedData(
+	SKELETALBUILD_API auto LoadAnimationClipDerivedData(
 		std::string_view Key,
 		const FSkeletalPayloadSerializationContext& Context,
 		FAnimationClipPayloadData& OutPayload,

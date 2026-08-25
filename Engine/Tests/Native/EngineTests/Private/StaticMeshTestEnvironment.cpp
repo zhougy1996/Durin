@@ -15,7 +15,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			Durin::FModuleManager::Get().LoadModule("GeometryBuild");
+			Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
 			std::string Error;
 			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
 			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(

@@ -87,8 +87,8 @@ plan remains active until the external native aggregate runtime gate passes.
 
 ## Non-Goals
 
-- Renaming `AssetBuildCore`, `TextureBuild`, or `GeometryBuild`, or splitting
-  Mesh and Terrain recipe modules.
+- Renaming `AssetBuildCore` or `TextureBuild`, or further splitting the
+  independently owned StaticMesh, skeletal, and Terrain recipe modules.
 - Moving `FBuildDefinition`, `FBuildSession`, `IBuildFunction`, function
   registration, Build Host, authoring coordination, or family recipes into
   `DerivedDataCache`.
@@ -131,7 +131,8 @@ DerivedDataCache
 AssetBuildCore
   ^
   +-- TextureBuild
-  +-- GeometryBuild
+  +-- StaticMeshBuild
+  +-- SkeletalBuild
 ```
 
 `DerivedDataCache` depends publicly only on `Core`. It must not depend on
@@ -480,8 +481,8 @@ overlap build process trees.
 - Reassess asynchronous cache requests, request ownership, cancellation, and
   priority when an actual backend cannot satisfy the synchronous local
   contract efficiently.
-- Rename or split `AssetBuildCore`, `TextureBuild`, and `GeometryBuild` in a
-  separate module-ownership plan after the DDC dependency is stable.
+- Further rename or split `AssetBuildCore`, `TextureBuild`, `StaticMeshBuild`,
+  and `SkeletalBuild` only in separate module-ownership plans.
 - Review `FAssetThumbnailObjectStore` as a possible
   `FAssetThumbnailDiskCache` rename or DDC consumer independently; unrelated
   catalog, residency, reference, and persistent stores retain their domain

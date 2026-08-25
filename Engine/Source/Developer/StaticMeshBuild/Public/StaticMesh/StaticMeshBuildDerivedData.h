@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "StaticMeshBuildAPI.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin::Asset::Build
@@ -16,7 +16,7 @@ namespace Durin::Asset::Build
 		uint32 PayloadSchemaVersion = StaticMeshPayloadSchemaVersion;
 		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
 
-		GEOMETRYBUILD_API auto Serialize(FArchive& Ar) -> void;
+		STATICMESHBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	struct FStaticMeshCollisionBuildKeyInput
@@ -33,19 +33,19 @@ namespace Durin::Asset::Build
 		uint32 PayloadSchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
 		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
 
-		GEOMETRYBUILD_API auto Serialize(FArchive& Ar) -> void;
+		STATICMESHBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
 
-	GEOMETRYBUILD_API auto BuildStaticMeshDerivedDataKeyBytes(
+	STATICMESHBUILD_API auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::vector<std::byte>;
-	GEOMETRYBUILD_API auto BuildStaticMeshDerivedDataKey(
+	STATICMESHBUILD_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
-	GEOMETRYBUILD_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
+	STATICMESHBUILD_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> std::vector<std::byte>;
-	GEOMETRYBUILD_API auto BuildStaticMeshCollisionDerivedDataKey(
+	STATICMESHBUILD_API auto BuildStaticMeshCollisionDerivedDataKey(
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 }

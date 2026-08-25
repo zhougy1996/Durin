@@ -36,7 +36,7 @@ durin_add_engine_functional_test(SplineQualificationTests
 durin_add_engine_functional_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
-	MODULES engine geometry-build level-editor renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build level-editor renderer asset-forge asset-forge-builtins
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -50,14 +50,14 @@ durin_add_engine_functional_test(SkyBoxTests
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd
+	LIBRARIES StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	KIND integration
 	DOMAINS sky-box
-	MODULES engine geometry-build renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build renderer asset-forge asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -66,7 +66,7 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
-	LIBRARIES ApplicationCore GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -196,7 +196,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
-	LIBRARIES ApplicationCore AssetForge AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor GeometryBuild
+	LIBRARIES ApplicationCore AssetForge AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor StaticMeshBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -321,7 +321,7 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	KIND integration
 	DOMAINS asset-cook texture
-	MODULES engine geometry-build renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build renderer asset-forge asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	EDITOR_ONLY
@@ -331,5 +331,5 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES GeometryBuild AssetForgeBuiltins RenderCore Renderer
+	LIBRARIES StaticMeshBuild AssetForgeBuiltins RenderCore Renderer
 )

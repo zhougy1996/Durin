@@ -19,7 +19,8 @@ set(_durin_editor_test_modules
 	DurinEd
 	Mona
 	MonaImGui
-	GeometryBuild
+	StaticMeshBuild
+	SkeletalBuild
 	TerrainBuild
 	DerivedDataCache
 	TextureBuild

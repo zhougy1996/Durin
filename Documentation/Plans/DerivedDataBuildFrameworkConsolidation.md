@@ -156,5 +156,6 @@ asset compilation, runtime-variant closure, and focused test coverage.
 
 - [`DerivedDataCache`](../../Engine/Source/Developer/DerivedDataCache)
 - [`TextureBuild`](../../Engine/Source/Developer/TextureBuild)
-- [`GeometryBuild`](../../Engine/Source/Developer/GeometryBuild)
+- [`StaticMeshBuild`](../../Engine/Source/Developer/StaticMeshBuild)
+- [`SkeletalBuild`](../../Engine/Source/Developer/SkeletalBuild)
 - [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)

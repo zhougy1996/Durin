@@ -2,9 +2,9 @@
 
 Summary: Define deterministic single-clip skeletal pose evaluation, playback ownership, and immutable palette publication.
 
-Modules: Engine, GeometryBuild, AssetForge
+Modules: Engine, SkeletalBuild, AssetForge
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Ownership Boundary
 
@@ -14,7 +14,8 @@ animation clip, persistent playback settings, and one
 play state, looping, rate, revisions, and evaluated poses never live on
 `DSkeleton`, `DSkeletalMesh`, or `DAnimationClip`.
 
-GeometryBuild registers `Durin.GeometryBuild.AnimationClip@1`; its synchronous
+SkeletalBuild registers the compatibility identity
+`Durin.GeometryBuild.AnimationClip@1`; its synchronous
 session validates the complete animation payload against the Skeleton/target context.
 AssetForge retains scene capture, clip naming, hard Skeleton
 relationships, and transaction publication. Cache-only authored load never

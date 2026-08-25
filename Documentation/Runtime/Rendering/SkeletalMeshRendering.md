@@ -2,9 +2,9 @@
 
 Summary: Define production GPU skinning, animated bounds, scene preparation, palette transport, passes, counters, and recovery.
 
-Modules: Engine, GeometryBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
+Modules: Engine, SkeletalBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 Durin renders `DSkeletalMeshComponent` through the ordinary scene and viewport
 pipeline. The component evaluates a complete immutable `FSkeletalPosePalette`
@@ -12,7 +12,8 @@ on the game thread and publishes a detached `FSkeletalMeshSceneProxy`; the
 rendering thread never reads the component, mesh asset, skeleton, clip, or
 actor.
 
-GeometryBuild registers `Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
+SkeletalBuild registers the compatibility identity
+`Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
 session validates complete skeletal-mesh payloads against Skeleton bone count, material
 slot count, target, and request identity. Scene parsing and detached candidate
 construction remain in AssetForge, which also owns the atomic asset

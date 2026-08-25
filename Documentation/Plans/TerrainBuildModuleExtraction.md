@@ -144,8 +144,8 @@ identities, module-retirement safety, and existing Runtime publication behavior.
 
 - A dedicated Runtime `Terrain` module requires first removing Engine's direct
   Terrain component special cases and is intentionally a separate plan.
-- StaticMesh and Skeletal/Animation may be separated from GeometryBuild after
-  this extraction establishes independent provider transactions.
+- StaticMesh and Skeletal/Animation were separated into `StaticMeshBuild` and
+  `SkeletalBuild` by the follow-up Geometry Build Module Removal plan.
 
 ## Related Documentation
 
@@ -158,7 +158,8 @@ identities, module-retirement safety, and existing Runtime publication behavior.
 
 ## Related Code
 
-- [`GeometryBuild`](../../Engine/Source/Developer/GeometryBuild)
+- [`StaticMeshBuild`](../../Engine/Source/Developer/StaticMeshBuild)
+- [`SkeletalBuild`](../../Engine/Source/Developer/SkeletalBuild)
 - [`Engine project descriptor`](../../Engine/Engine.dproject)
 - [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
 - [`Terrain tests`](../../Engine/Tests/Native/EngineTests/Private/Terrain)

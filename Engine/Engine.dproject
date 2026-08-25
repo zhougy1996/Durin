@@ -27,7 +27,8 @@
         "DurinLauncher": "Source/Editor/DurinLauncher",
         "AssetForgeBuiltins": "Source/Editor/AssetForgeBuiltins",
         "AssetForge": "Source/Editor/AssetForge",
-        "GeometryBuild": "Source/Developer/GeometryBuild",
+        "StaticMeshBuild": "Source/Developer/StaticMeshBuild",
+        "SkeletalBuild": "Source/Developer/SkeletalBuild",
         "TerrainBuild": "Source/Developer/TerrainBuild",
         "DerivedDataCache": "Source/Developer/DerivedDataCache",
         "TextureBuild": "Source/Developer/TextureBuild"
@@ -50,7 +51,8 @@
                 "SkeletalMeshEditor",
                 "AssetForgeBuiltins",
                 "AssetForge",
-                "GeometryBuild",
+                "StaticMeshBuild",
+                "SkeletalBuild",
                 "TerrainBuild",
                 "DerivedDataCache",
                 "TextureBuild"

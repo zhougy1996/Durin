@@ -612,7 +612,8 @@ int main(int ArgC, char** ArgV)
 			std::cerr << "Error: canonical-resave apply could not initialize task services.\n";
 			return 1;
 		}
-		Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");

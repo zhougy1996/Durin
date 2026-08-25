@@ -14,7 +14,7 @@
         "AssetCore",
         "AssetForge",
         "AssetForgeBuiltins",
-        "GeometryBuild",
+        "StaticMeshBuild",
         "TerrainBuild",
         "TextureBuild",
         "ContentBrowser",

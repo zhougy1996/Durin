@@ -66,7 +66,8 @@ namespace
 TEST(FBuildRecipeModuleTests, RecipeModuleLifecyclesDoNotAddEmptyCompilationDomains)
 {
 	InitializeDObjectSystem();
-	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 	ASSERT_TRUE(RestartTextureCompilingManager({.MaxWorkers = 1}));
 	const Durin::FAssetCompilingManagerDiagnostics Running =
@@ -76,13 +77,19 @@ TEST(FBuildRecipeModuleTests, RecipeModuleLifecyclesDoNotAddEmptyCompilationDoma
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	Durin::Asset::Build::ShutdownTextureBuildService();
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
-	const auto GeometryUnload = Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
-	ASSERT_TRUE(GeometryUnload.Succeeded()) << GeometryUnload.Message;
+	const auto StaticMeshUnload =
+		Durin::FModuleManager::Get().UnloadModule("StaticMeshBuild");
+	ASSERT_TRUE(StaticMeshUnload.Succeeded()) << StaticMeshUnload.Message;
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
+	const auto SkeletalUnload =
+		Durin::FModuleManager::Get().UnloadModule("SkeletalBuild");
+	ASSERT_TRUE(SkeletalUnload.Succeeded()) << SkeletalUnload.Message;
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
 	const auto TerrainUnload = Durin::FModuleManager::Get().UnloadModule("TerrainBuild");
 	ASSERT_TRUE(TerrainUnload.Succeeded()) << TerrainUnload.Message;
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
-	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 	EXPECT_TRUE(EnsureTextureCompilingManager());
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 2u);

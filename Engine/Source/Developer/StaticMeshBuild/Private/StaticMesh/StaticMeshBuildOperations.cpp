@@ -1,7 +1,7 @@
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "GeometryBuildFunctionRegistry.h"
+#include "StaticMeshBuildFunctionRegistry.h"
 #include "DObject/DObjectGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -549,7 +549,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!EnsureGeometryBuildFunctions(&OutError)) return false;
+		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
 		if (!SourceImportData.HasSource()
 			|| !IsCanonicalHash(SourceImportData.SourceContentHash)
 			|| SourceImportData.ImporterId.empty()
@@ -656,7 +656,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!EnsureGeometryBuildFunctions(&OutError))
+		if (!EnsureStaticMeshBuildFunctions(&OutError))
 		{
 			OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
 			OutMessage = OutError;
@@ -738,7 +738,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!EnsureGeometryBuildFunctions(&OutError)) return false;
+		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
 		if (Mode == EBodySetupCollisionSourceMode::None)
 		{
 			OutError.clear();

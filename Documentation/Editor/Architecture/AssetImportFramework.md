@@ -4,7 +4,7 @@ Summary: Define graph-based asset-import admission, translation, planning, typed
 
 Modules: AssetForge, AssetForgeBuiltins, AssetCore
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-26
 
 Durin editor imports use one AssetForge framework for source capture,
 translation, ordered planning-pass execution, typed detached construction, preview,
@@ -17,7 +17,7 @@ targets depend on neither editor module.
 
 Concrete translation terminates at normalized owned values. Built-in implementations
 do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
-`TextureBuild`, `GeometryBuild`, or `TerrainBuild`. Build requests contain no decoder type or mutable
+`TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild`. Build requests contain no decoder type or mutable
 `DObject`; detached products publish on the main thread through narrow Engine
 state exchanges and AssetCore transactions.
 
@@ -50,8 +50,8 @@ decodable inputs are admitted for Texture2D, TextureCube, Scene, and Terrain.
 Runtime Engine assets contain only runtime state and lightweight single-asset provenance.
 Its public Texture2D translation/submission contract intentionally exposes
 `TextureBuild` settings and completion values, so `TextureBuild` remains a
-public module dependency; geometry recipes are implementation-only and
-`GeometryBuild` is private. Terrain recipes and Cook production are likewise
+public module dependency; geometry recipes are implementation-only and the
+`StaticMeshBuild` and `SkeletalBuild` dependencies are private. Terrain recipes and Cook production are likewise
 implementation-only through the private `TerrainBuild` dependency.
 
 Public framework contracts supplied by `AssetForge` live in

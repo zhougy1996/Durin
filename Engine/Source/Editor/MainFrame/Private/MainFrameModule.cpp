@@ -192,7 +192,8 @@ namespace Durin::Editor::MainFrame
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
-				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+				FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+				FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 				FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =

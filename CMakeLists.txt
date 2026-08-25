@@ -42,7 +42,8 @@ if(TARGET AssetCore)
 	durin_assert_target_dependency_closure_excludes(AssetCore
 		Engine
 		AssetForge
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
@@ -55,7 +56,8 @@ endif()
 if(TARGET AssetForge)
 	durin_assert_target_dependency_closure_excludes(AssetForge
 		Engine
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
@@ -68,7 +70,8 @@ endif()
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		AssetForge
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
@@ -84,20 +87,39 @@ if(TARGET TextureBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
 		AssetForge
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()
 
-if(TARGET GeometryBuild)
-	durin_assert_target_dependency_closure_includes(GeometryBuild
+if(TARGET StaticMeshBuild)
+	durin_assert_target_dependency_closure_includes(StaticMeshBuild
 		DerivedDataCache
 		Engine
 	)
-	durin_assert_target_dependency_closure_excludes(GeometryBuild
+	durin_assert_target_dependency_closure_excludes(StaticMeshBuild
 		AssetForge
+		SkeletalBuild
+		TerrainBuild
+		TextureBuild
+		AssetForgeBuiltins
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET SkeletalBuild)
+	durin_assert_target_dependency_closure_includes(SkeletalBuild
+		DerivedDataCache
+		Engine
+	)
+	durin_assert_target_dependency_closure_excludes(SkeletalBuild
+		AssetForge
+		StaticMeshBuild
 		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
@@ -114,7 +136,8 @@ if(TARGET TerrainBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(TerrainBuild
 		AssetForge
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -130,7 +153,8 @@ if(TARGET DerivedDataCache)
 	durin_assert_target_dependency_closure_excludes(DerivedDataCache
 		AssetCore
 		Engine
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		TextureBuild
 		DurinEd
@@ -144,7 +168,8 @@ endif()
 if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
 		AssetForge
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		TextureBuild
 		assimp::assimp
@@ -163,7 +188,8 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		AssetImport
 		AssetForge
 		# Derived builders and offline compressors.
-		GeometryBuild
+		StaticMeshBuild
+		SkeletalBuild
 		TerrainBuild
 		DerivedDataCache
 		TextureBuild

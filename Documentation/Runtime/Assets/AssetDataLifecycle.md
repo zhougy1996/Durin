@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, DerivedDataCache, Engine, GeometryBuild, TerrainBuild, TextureBuild, AssetForge, AssetForgeBuiltins
+Modules: AssetCore, DerivedDataCache, Engine, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
 Last reviewed: 2026-08-26
 
@@ -15,7 +15,7 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild`, `GeometryBuild`, and `TerrainBuild` own normalized,
+Developer `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, and `TerrainBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `DerivedDataCache` owns the backend-neutral
@@ -38,8 +38,9 @@ origin, status, failure phase, and bounded nanosecond durations for each
 executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
-GeometryBuild registers the StaticMesh render/collision, SkeletalMesh, and
-AnimationClip functions as one atomic module-owned transaction; TerrainBuild
+StaticMeshBuild registers the StaticMesh render/collision functions as one
+atomic module-owned transaction; SkeletalBuild independently registers the
+SkeletalMesh and AnimationClip functions as another transaction; TerrainBuild
 does the same for TerrainHeightmap and the five Terrain World product functions;
 TextureBuild does the same for Texture2D, TextureCube, and VolumeTexture. Each
 transaction rolls back registrations acquired by a failed attempt and resets
@@ -201,8 +202,8 @@ visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
 `AssetForgeBuiltins` owns the static-mesh, texture, and Terrain authoring
-providers. `GeometryBuild` owns collision construction and skeletal/animation
-derived-data loading. Each module instance owns its provider objects and
+providers. `StaticMeshBuild` owns collision construction and `SkeletalBuild`
+owns skeletal/animation derived-data loading. Each module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
 and waits for admitted visitors before provider state is destroyed.
 

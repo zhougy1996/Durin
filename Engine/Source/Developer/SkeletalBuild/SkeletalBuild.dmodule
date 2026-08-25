@@ -1,0 +1,14 @@
+{
+    "ModuleName": "SkeletalBuild",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_DObject",
+    "PrivateDependencies": [
+        "Core",
+        "DerivedDataCache"
+    ],
+    "PublicDependencies": [
+        "Engine"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

@@ -3,7 +3,8 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
 	"PrivateDependencies": [
-		"GeometryBuild",
+		"StaticMeshBuild",
+		"SkeletalBuild",
 		"TerrainBuild"
 	],
     "PublicDependencies": [

@@ -185,7 +185,8 @@ Shared module naming is part of the runtime contract. Current outputs follow
 - `DurinEditor-RenderCore.dll`
 - `DurinEditor-DerivedDataCache.dll`
 - `DurinEditor-TextureBuild.dll`
-- `DurinEditor-GeometryBuild.dll`
+- `DurinEditor-StaticMeshBuild.dll`
+- `DurinEditor-SkeletalBuild.dll`
 - `DurinEditor-TerrainBuild.dll`
 - `DurinGame-Core.dll`
 

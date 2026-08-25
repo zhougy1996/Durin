@@ -6,9 +6,9 @@ namespace Durin::Asset::Build
 {
 	using namespace ::Durin::DerivedData;
 
-	auto EnsureGeometryBuildFunctions(
+	auto EnsureSkeletalBuildFunctions(
 		std::string* OutError = nullptr, FModuleOwnedCallbackGate Gate = {}) -> bool;
-	auto InitializeGeometryBuildFunctions(
+	auto InitializeSkeletalBuildFunctions(
 		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
-	auto ShutdownGeometryBuildFunctions() -> void;
+	auto ShutdownSkeletalBuildFunctions() -> void;
 }

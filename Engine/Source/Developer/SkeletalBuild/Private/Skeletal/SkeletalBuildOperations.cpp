@@ -1,7 +1,7 @@
 #include "Skeletal/SkeletalBuildOperations.h"
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "GeometryBuildFunctionRegistry.h"
+#include "SkeletalBuildFunctionRegistry.h"
 #include "Skeletal/SkeletalBuildFunctions.h"
 
 namespace Durin::Asset::Build
@@ -31,7 +31,7 @@ namespace Durin::Asset::Build
 			std::string_view SkeletonIdentity, bool bRequireStore,
 			FBuildOutput& OutOutput, T& OutPayload, std::string& OutError) -> bool
 		{
-			if (!EnsureGeometryBuildFunctions(&OutError)) return false;
+			if (!EnsureSkeletalBuildFunctions(&OutError)) return false;
 			FBuildDefinition Definition;
 			FBuildDefinitionBuilder Builder(Identity, std::string(Private::SkeletalValueName));
 			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)

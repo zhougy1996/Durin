@@ -1,5 +1,5 @@
 {
-    "ModuleName": "GeometryBuild",
+    "ModuleName": "StaticMeshBuild",
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [

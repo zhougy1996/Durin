@@ -74,7 +74,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Assets/AssetDestinationValidation.cpp
 		${_durin_level_editor_private}/Assets/ImportDialogState.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -103,7 +103,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_content_browser_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -199,7 +199,7 @@ durin_add_engine_functional_test(MaterialTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		GeometryBuild
+		StaticMeshBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -233,7 +233,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		GeometryBuild
+		StaticMeshBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -242,7 +242,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 durin_add_engine_functional_test(StaticMeshTests
 	KIND feature
 	DOMAINS static-mesh
-	MODULES engine level-editor static-mesh-editor
+	MODULES engine static-mesh-build level-editor static-mesh-editor
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -263,7 +263,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetForge GeometryBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetForge StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
@@ -273,13 +273,13 @@ durin_add_engine_functional_test(StaticMeshTests
 durin_add_engine_functional_test(SkeletalAssetTests
 	KIND feature
 	DOMAINS skeletal-mesh
-	MODULES engine
+	MODULES engine skeletal-build
 	RUNTIME_STACK_RATIONALE
-		"Exercises uncooked skeletal DDC publication through the editor-only GeometryBuild module."
+		"Exercises uncooked skeletal DDC publication through the editor-only SkeletalBuild module."
 	SOURCES
 		Private/SkeletalAssetTests.cpp
 		Private/SkeletalAnimationTests.cpp
-	LIBRARIES GeometryBuild
+	LIBRARIES SkeletalBuild
 )
 
 durin_add_engine_functional_test(SkeletalMeshEditorTests
@@ -332,7 +332,8 @@ set(_durin_texture_test_libraries
 	AssetCore
 	Engine
 	AssetForge
-	GeometryBuild
+	StaticMeshBuild
+	SkeletalBuild
 	TerrainBuild
 	TextureBuild
 	AssetForgeBuiltins
