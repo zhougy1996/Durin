@@ -176,18 +176,72 @@ diagnostics, and live last-known-good preview behavior.
 - Save/reload, failure recovery, relocation/deletion, and multi-document graph
   workflows lack end-to-end qualification.
 
+## Locked Stage 0 Contract
+
+### Runtime and editor boundaries
+
+| Concern | Authority and rule |
+| --- | --- |
+| Semantic graph | `DMaterial::Program` remains the only authored program. A graph command copies it, edits the copy, calls `ValidateMaterialProgram()` with the live canonical parameter definitions, and commits only through `DMaterial::SetMaterialProgram()`. |
+| Compile lifecycle | A successful semantic commit advances the existing authored revision and submits exactly one generation through the M6 service. Rejection and no-op commands submit none. Undo/Redo of a semantic snapshot uses the same mutation boundary and therefore submits one generation. |
+| Presentation | `DMaterial::GraphPresentation` is an `EditorOnly` reflected value with schema version 1 and at most 256 `{NodeId, X, Y}` records. Coordinates are signed integral graph-space units bounded to +/-1,048,576. Presentation commits mark the package dirty and never invalidate render data or request compilation. |
+| Sanitization and migration | Load, inspection, and presentation commit retain the first bounded record for each live node GUID, discard invalid, duplicate, dangling, and out-of-range records, and deterministically lay out missing live nodes. A package without the field retains the empty constructor default and receives layout on inspection; sanitization alone never rejects an otherwise valid program. |
+| Identity and Cook | Presentation is excluded from `FMaterialProgram`, normalization, shader-map identity, compile snapshots, DDC keys, and the DMAT Cook payload. Duplication and editor package exchange copy it through ordinary reflection; Cook strips it with the existing `EditorOnly` property policy. |
+| Transactions | One command records one reflected snapshot containing `Program` and `GraphPresentation`. A node drag opens on pointer-down, replaces its proposed presentation snapshot while active, and commits or cancels on pointer-up/Escape. Failed or stale-owner commands create no history. |
+
+### Inspection and command vocabulary
+
+The UI-independent MaterialEditor service exposes deterministic catalog, node,
+pin, surface-output, parameter, and selection-payload views. Stable node GUIDs,
+input/output indices, parameter GUIDs, and `EMaterialSurfaceOutput` values are
+the only semantic addresses.
+
+| Operation | Request | Atomic result and compile rule |
+| --- | --- | --- |
+| Create | opcode, explicit result type when ambiguous, graph position | Generated node GUID; semantic plus presentation commit; compile once. |
+| Remove | bounded node-GUID set | Removes nodes, inbound links, affected outputs, and positions only if the final program validates; compile once. |
+| Edit node | node GUID plus literal, parameter GUID, swizzle, or display-name value | Validated replacement; compile once when semantic data changed. |
+| Connect/disconnect | source node/output plus destination node/input, or surface output; explicit replace policy | Missing endpoints, occupied inputs, cycles, depth/count overflow, and type mismatch reject before commit; successful semantic change compiles once. |
+| Move | bounded node-GUID/position set | Presentation-only commit; no compile; continuous requests may coalesce. |
+| Delete/duplicate | bounded selected node-GUID set and optional placement anchor | One transaction; duplication allocates fresh GUIDs and preserves only remapped internal links. |
+| Copy/cut/paste | versioned selection payload, placement anchor | Copy is read-only. Cut is copy plus validated delete. Paste remaps every node GUID, drops external links, preserves parameter GUIDs and relative offsets, and validates before one commit. |
+| Layout | optional bounded node-GUID set | Deterministic presentation-only placement; no compile and no semantic reordering or identity change. |
+
+Every mutation returns a bounded structured result with a status (`Succeeded`,
+`NoChange`, `Rejected`, or `StaleOwner`), affected and generated GUIDs, and up
+to the M5 diagnostic count/message limits. Widgets display this result but do
+not infer success from labels or mutate reflected storage directly.
+
+### Copy/paste and layout
+
+- Selection payload schema 1 contains at most 256 complete nodes, their
+  presentation offsets relative to the selection's minimum corner, and links
+  whose endpoints are both selected. It contains no material pointer, package
+  path, surface-output assignment, compile state, or viewport state and is
+  rejected for unknown versions, duplicate/invalid GUIDs, invalid enums,
+  excessive counts/bytes, or malformed internal links.
+- Paste generates fresh nonzero GUIDs in payload order, remaps internal links,
+  preserves parameter GUIDs, applies one graph-space translation, and uses the
+  ordinary candidate validator. No partial node or presentation state survives
+  rejection.
+- Automatic layout is a stable topological column layout: dependencies precede
+  consumers, ties use node GUID order, columns use the longest distance to a
+  sink, and rows use GUID order. Fixed integral spacing and surface-output
+  placement make identical semantic graphs produce identical positions in
+  linear time within the 256-node/depth-64 bounds.
+
 ## Implementation Stages
 
 ### Stage 0: Lock graph authoring and presentation contracts
 
-- [ ] Inventory the M5 opcode/type/input rules, `DMaterial` mutation hooks, M6
+- [x] Inventory the M5 opcode/type/input rules, `DMaterial` mutation hooks, M6
   compile transitions, document transactions, and asset lifecycle notifications
   used by this plan.
-- [ ] Specify the reflected presentation record, independent sanitization,
+- [x] Specify the reflected presentation record, independent sanitization,
   package migration/default-layout behavior, bounds, and Cook exclusion.
-- [ ] Specify the command request/result vocabulary, stable addressing,
+- [x] Specify the command request/result vocabulary, stable addressing,
   validation/commit sequence, transaction coalescing, and compile-trigger rules.
-- [ ] Lock the versioned copy/paste payload and deterministic layout contract.
+- [x] Lock the versioned copy/paste payload and deterministic layout contract.
 
 #### Acceptance Gate
 
