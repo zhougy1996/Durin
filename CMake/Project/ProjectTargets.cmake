@@ -174,19 +174,6 @@ function(add_durin_module module_name)
 		add_dependencies(${module_name} ${module_name}_DHT)
 	endif()
 	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
-	if(module_generated_srcs)
-		# Keep generated translation units independently addressable. They change
-		# on a different cadence from authored sources and may intentionally
-		# repeat generator-private symbols across files.
-		set_source_files_properties(${module_generated_srcs}
-			PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-	endif()
-	if(DURIN_ENABLE_UNITY_BUILD)
-		set_target_properties(${module_name} PROPERTIES
-			UNITY_BUILD ON
-			UNITY_BUILD_BATCH_SIZE ${DURIN_UNITY_BUILD_BATCH_SIZE}
-		)
-	endif()
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "${DURIN_RUNTIME_VARIANT}-${module_name}")
 

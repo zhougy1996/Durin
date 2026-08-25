@@ -63,12 +63,6 @@ if(NOT DEFINED DURIN_FORCE_INCLUDE_PCH)
 	set(DURIN_FORCE_INCLUDE_PCH ON CACHE BOOL "Force-include PCH headers even when PCH artifacts are disabled.")
 endif()
 
-option(DURIN_ENABLE_UNITY_BUILD "Combine Durin module sources into bounded unity batches." OFF)
-set(DURIN_UNITY_BUILD_BATCH_SIZE 8 CACHE STRING "Maximum source files in one Durin unity batch.")
-if(NOT DURIN_UNITY_BUILD_BATCH_SIZE MATCHES "^[1-9][0-9]*$")
-	message(FATAL_ERROR "DURIN_UNITY_BUILD_BATCH_SIZE must be a positive integer.")
-endif()
-
 option(DURIN_IDE_CODE_MODEL_ONLY "Generate IDE code-model metadata but reject every build target." OFF)
 
 function(_durin_attach_code_model_build_guard directory guard_target)

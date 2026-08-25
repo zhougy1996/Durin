@@ -123,23 +123,6 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMak
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
-## Unity Builds
-
-The standard `Win64-Release-DurinEditor` preset enables bounded unity builds
-for repository module targets. CMake combines at most eight authored sources
-per generated unity translation unit, reducing repeated preprocessing and
-template work during clean optimized builds. Debug, Game, Shipping, and
-Profiling presets retain ordinary per-source compilation unless they opt in
-explicitly.
-
-`DURIN_ENABLE_UNITY_BUILD` controls the feature and
-`DURIN_UNITY_BUILD_BATCH_SIZE` controls the positive per-batch source limit.
-Reflection-generated translation units are always compiled independently so
-their generator-private symbols and regeneration cadence remain isolated.
-Sources with unity-only compatibility problems must use CMake's
-`SKIP_UNITY_BUILD_INCLUSION` source property rather than disabling the feature
-for unrelated modules.
-
 When `BUILD_TESTING` is enabled, `add_durin_project(...)` registers native tests
 from `DURIN_PROJECT_TESTS_DIR`. The default is
 `<ProjectRoot>/Tests/Native`; a project may override it before calling
