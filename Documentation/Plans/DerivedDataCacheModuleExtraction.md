@@ -35,10 +35,13 @@ the required DMAT descriptor path. `SceneImportVulkanTests` passes 1/1 after
 refreshing two stable renderer golden hashes; its injected sampler-creation
 failure remains an expected recovery assertion. The native aggregate builds and
 executes all 82 registered targets, with these DDC qualification cases passing,
-but remains red on the independently reproducible
-`SkyBoxVulkanIntegrationTests` access violation. All changed/all documentation,
-all-plan, and all-roadmap validators pass. The plan remains active until the
-external native aggregate runtime gate passes.
+but its previous run remained red on `SkyBoxVulkanIntegrationTests`. That
+access violation came from the test dereferencing transient TextureCube source
+pixels that cache-hit publication intentionally omits; its reference colors now
+come from a fixture projection independent of the cached asset, and the exact
+Vulkan integration target passes 1/1. The native aggregate has not been rerun.
+All changed/all documentation, all-plan, and all-roadmap validators pass. The
+plan remains active until the external native aggregate runtime gate passes.
 
 ## Goal
 

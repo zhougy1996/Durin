@@ -158,13 +158,14 @@ namespace
 	}
 
 	auto GetSourceColor(
-		const Durin::DTextureCube& Cube,
+		const Durin::FTextureCubeSourceData& SourceData,
 		Durin::ETextureCubeFace Face,
 		uint32 X,
 		uint32 Y
 	) -> std::array<uint8, 4>
 	{
-		const Durin::FTextureSourceData& Source = Cube.GetSourceData()->Faces[static_cast<size_t>(Face)];
+		const Durin::FTextureSourceData& Source =
+			SourceData.Faces[static_cast<size_t>(Face)];
 		const size_t PixelOffset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
 		return {
 			std::to_integer<uint8>(Source.Pixels[PixelOffset]),

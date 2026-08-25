@@ -1,6 +1,7 @@
 #include "SkyBoxTestSupport.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Misc/FileHelper.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneViewState.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -14,6 +15,29 @@ namespace
 	) -> void
 	{
 		GHybridSkyTelemetry = Telemetry;
+	}
+
+	auto ProjectPanoramaFixture(
+		const std::filesystem::path& Path,
+		const Durin::AssetForge::Builtins::FTextureCubePanoramaImportSettings& Settings,
+		Durin::FTextureCubeSourceData& OutSource,
+		std::string& OutError
+	) -> bool
+	{
+		std::vector<std::byte> EncodedBytes;
+		if (!Durin::FFileHelper::LoadFileToArray(EncodedBytes, Path))
+		{
+			OutError = "Failed to read the panorama fixture.";
+			return false;
+		}
+		Durin::AssetForge::Builtins::FTextureCubePanoramaSourceData Panorama;
+		if (!Durin::AssetForge::Builtins::TranslateTextureCubePanoramaSource(
+				EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
+			return false;
+		return std::visit([&](const auto& Source) {
+			return Durin::Asset::Build::TextureCubeBuilder::ProjectEquirectangularTextureCube(
+				Source, {Settings.FaceDimension, Settings.ExposureEV}, OutSource, OutError);
+		}, Panorama);
 	}
 } // namespace
 
@@ -95,15 +119,25 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
+	Durin::FTextureCubeSourceData SourceData;
+	Durin::FTextureCubeSourceData HdrSourceData;
+	std::string ProjectionError;
+	ASSERT_TRUE(ProjectPanoramaFixture(
+		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga"),
+		{.FaceDimension = 64}, SourceData, ProjectionError)) << ProjectionError;
+	ASSERT_TRUE(ProjectPanoramaFixture(
+		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr"),
+		{.FaceDimension = 64, .ExposureEV = 1.0f},
+		HdrSourceData, ProjectionError)) << ProjectionError;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		SourceColors[FaceIndex] = GetSourceColor(
-			*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
+			SourceData, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
 		);
 		HdrSourceColors[FaceIndex] = GetSourceColor(
-			*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
+			HdrSourceData, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
 		);
 		SourceColors[FaceIndex] =
 			MapSrgbReferenceThroughDisplay(SourceColors[FaceIndex]);
