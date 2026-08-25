@@ -27,13 +27,14 @@ Stage 3 focused coverage passes for Texture (87), StaticMesh/collision (74),
 skeletal/animation (34), TerrainHeightmap (11), TerrainWorld (15), AssetImport
 (17), TerrainHeightmap Cook (1), and Texture Cook (1). The Editor all build,
 hidden-window smoke, DurinGame build, module closure assertions, and deployment
-exclusion checks pass. The native aggregate is currently blocked before test
-execution by unrelated stale renderer test calls in
-`VolumetricCloudVulkanTests.cpp` and `EditorGridVulkanTests.cpp`; an additional
-Skeletal Scene lifecycle qualification compiles after explicit include repair
-but reproduces a pre-existing RenderCore admission-stopped runtime failure.
+exclusion checks pass. Stale renderer test calls were updated for the current
+render-policy signatures; `VolumetricCloudVulkanTests` passes 1/1 and
+`EditorGridVulkanTests` passes 7/7. The native aggregate now builds and executes
+all 82 registered targets, but remains red on two runtime cases: Skeletal Scene
+lifecycle reproduces the RenderCore admission-stopped failure, and
+`SceneImportVulkanTests` reports an injected Vulkan sampler-creation failure.
 All changed/all documentation, all-plan, and all-roadmap validators pass. The
-plan remains active until the external native aggregate gates pass.
+plan remains active until the external native aggregate runtime gates pass.
 
 ## Goal
 

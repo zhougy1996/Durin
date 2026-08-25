@@ -235,7 +235,7 @@ namespace Durin
 				};
 
 				const auto Fragment = Clouds.Render_RenderThread(
-					CommandList, &*FragmentTargets, nullptr, Input
+					CommandList, &*FragmentTargets, nullptr, Input, {}
 				);
 				(*Results)[5] = Fragment.Cloud == FragmentTargets->Cloud.GetReference();
 				(*Results)[6] = Fragment.Counters.Route
@@ -248,7 +248,7 @@ namespace Durin
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 
 				const auto Compute = Clouds.Render_RenderThread(
-					CommandList, &*FragmentTargets, &*ComputeTargets, Input
+					CommandList, &*FragmentTargets, &*ComputeTargets, Input, {}
 				);
 				(*Results)[9] = Compute.Cloud == ComputeTargets->Cloud.GetReference();
 				(*Results)[10] = Compute.Counters.Route
@@ -274,7 +274,7 @@ namespace Durin
 					.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = Depth, .DensitySampler = Sampler, .Parameters = Input.Parameters, .View = &View, .QualityTier = FVolumetricCloudRenderer::EQualityTier::High, .Width = 64, .Height = 32
 				};
 				const auto FragmentShadow = CloudShadows.Render_RenderThread(
-					CommandList, &*ShadowFragmentTargets, nullptr, ShadowInput
+					CommandList, &*ShadowFragmentTargets, nullptr, ShadowInput, {}
 				);
 				(*Results)[30] = FragmentShadow.Visibility
 									 == ShadowFragmentTargets->Visibility.GetReference()
@@ -289,7 +289,7 @@ namespace Durin
 				);
 				const auto ComputeShadow = CloudShadows.Render_RenderThread(
 					CommandList, &*ShadowFragmentTargets, &*ShadowComputeTargets,
-					ShadowInput
+					ShadowInput, {}
 				);
 				(*Results)[32] = ComputeShadow.Visibility
 									 == ShadowComputeTargets->Visibility.GetReference()
@@ -323,7 +323,7 @@ namespace Durin
 				ShadowInput.Parameters.LightDirection = FVector3f(0.0f);
 				const auto InvalidShadow = CloudShadows.Render_RenderThread(
 					CommandList, &*ShadowFragmentTargets, &*ShadowComputeTargets,
-					ShadowInput
+					ShadowInput, {}
 				);
 				(*Results)[34] = !InvalidShadow.Visibility
 								 && InvalidShadow.Reason
@@ -595,7 +595,7 @@ namespace Durin
 								 == 0;
 				const auto Disabled = Clouds.Render_RenderThread(
 					CommandList, &*FragmentTargets, &*ComputeTargets,
-					FVolumetricCloudRenderer::FRenderInput{}
+					FVolumetricCloudRenderer::FRenderInput{}, {}
 				);
 				(*Results)[13] = Disabled.Cloud == nullptr
 								 && Disabled.Counters.Route

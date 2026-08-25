@@ -1095,13 +1095,13 @@ namespace Durin
 				const auto FailedCompute = ContactVisibility.Render_RenderThread(
 					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
-					FVector3(0.0, 0.0, -1.0), 65, 33);
+					FVector3(0.0, 0.0, -1.0), 65, 33, {});
 				(*Results)[14] = FailedCompute.Route
 					== FContactShadowVisibilityRenderer::ERoute::Fragment;
 				const auto SuppressedRetry = ContactVisibility.Render_RenderThread(
 					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
-					FVector3(0.0, 0.0, -1.0), 65, 33);
+					FVector3(0.0, 0.0, -1.0), 65, 33, {});
 				(*Results)[15] = SuppressedRetry.Route
 					== FContactShadowVisibilityRenderer::ERoute::Fragment;
 				Coordinator.Apply_RenderThread(
@@ -1110,7 +1110,7 @@ namespace Durin
 				const auto RecoveredCompute = ContactVisibility.Render_RenderThread(
 					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
-					FVector3(0.0, 0.0, -1.0), 65, 33);
+					FVector3(0.0, 0.0, -1.0), 65, 33, {});
 				(*Results)[16] = RecoveredCompute.Route
 					== FContactShadowVisibilityRenderer::ERoute::Compute;
 				(*Results)[17] = RecoveredCompute.Visibility
