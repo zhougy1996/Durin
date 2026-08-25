@@ -1,7 +1,7 @@
 {
     "ModuleName": "DurinEd",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_Core",
+    "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [
         "Core",
         "RHI",

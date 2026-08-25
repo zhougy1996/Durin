@@ -1,4 +1,4 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "SharedPCH_DObject.h"
 #include "MonaImGui.h"

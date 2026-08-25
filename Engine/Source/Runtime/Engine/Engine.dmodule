@@ -1,7 +1,7 @@
 {
     "ModuleName": "Engine",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_Core",
+    "PCH": "SharedPCH_DObject",
     "PublicDependencies": [
         "Core",
         "AetherCore",

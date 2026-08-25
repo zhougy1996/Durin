@@ -1,7 +1,7 @@
 {
     "ModuleName": "Launch",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_Core",
+    "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [
         "Core",
 		"AssetCore",
