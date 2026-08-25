@@ -38,91 +38,82 @@ namespace Durin::Asset::Private
 			return {bUnsupported ? EAssetError::UnsupportedVersion : EAssetError::CorruptFile,
 				std::string(Diagnostic.Message)};
 		}
-
-	}
-
-	auto ReadAssetPackagePreamble(
-		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble,
-		uint64 PhysicalFileBytes) -> FAssetResult
-	{
-		if (Bytes.size() < sizeof(uint32))
-			return {EAssetError::CorruptFile, "Truncated asset header."};
-		uint32 Magic = 0;
-		std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		if (Magic == DastPackageMagic)
+		auto ReadAssetPackageFormatVersion(
+			std::span<const std::byte> Bytes, uint32& OutFormatVersion,
+			uint64 PhysicalFileBytes) -> FAssetResult
 		{
-			if (Bytes.size() < sizeof(uint32) * 2)
+			OutFormatVersion = 0;
+			if (Bytes.size() < sizeof(uint32))
 				return {EAssetError::CorruptFile, "Truncated asset header."};
-			uint32 Version = 0;
-			std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
-			OutPreamble = {
-				.FormatId = DastBinaryFormatId,
-				.FormatVersion = Version,
-				.bUsesBinaryEnvelope = false};
+			uint32 Magic = 0;
+			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
+			if (Magic == DastPackageMagic)
+			{
+				if (Bytes.size() < sizeof(uint32) * 2)
+					return {EAssetError::CorruptFile, "Truncated asset header."};
+				uint32 LegacyVersion = 0;
+				std::memcpy(&LegacyVersion, Bytes.data() + sizeof(Magic), sizeof(LegacyVersion));
+				return {EAssetError::UnsupportedVersion,
+					std::format("Unsupported legacy DAST prefix version {}.", LegacyVersion)};
+			}
+
+			constexpr uint32 DurfMagic = 0x46525544;
+			if (Magic != DurfMagic)
+				return {EAssetError::CorruptFile, "Invalid asset magic."};
+			FBinaryEnvelopePreamble EnvelopePreamble;
+			FBinaryEnvelopeDiagnostic Diagnostic;
+			const uint64 FileBytes = PhysicalFileBytes == 0 ? Bytes.size() : PhysicalFileBytes;
+			if (!ParseBinaryEnvelopePrefix(
+				Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
+				return EnvelopeError(Diagnostic);
+			if (EnvelopePreamble.HeaderBytes > Bytes.size())
+				return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
+			FValidatedBinaryEnvelope Envelope;
+			if (!ValidateBinaryEnvelopeHeader(
+				Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes,
+				PackageEnvelopeLimits, GetPackageFormatRegistry(), Envelope, &Diagnostic))
+				return EnvelopeError(Diagnostic);
+			OutFormatVersion = Envelope.Preamble.FormatVersion;
 			return {};
 		}
-
-		constexpr uint32 DurfMagic = 0x46525544;
-		if (Magic != DurfMagic)
-			return {EAssetError::CorruptFile, "Invalid asset magic."};
-		FBinaryEnvelopePreamble EnvelopePreamble;
-		FBinaryEnvelopeDiagnostic Diagnostic;
-		const uint64 FileBytes = PhysicalFileBytes == 0 ? Bytes.size() : PhysicalFileBytes;
-		if (!ParseBinaryEnvelopePrefix(
-			Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
-			return EnvelopeError(Diagnostic);
-		if (EnvelopePreamble.HeaderBytes > Bytes.size())
-			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
-		FValidatedBinaryEnvelope Envelope;
-		if (!ValidateBinaryEnvelopeHeader(
-			Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes,
-			PackageEnvelopeLimits, GetPackageFormatRegistry(), Envelope, &Diagnostic))
-			return EnvelopeError(Diagnostic);
-		OutPreamble = {
-			.FormatId = Envelope.Preamble.FormatId,
-			.FormatVersion = Envelope.Preamble.FormatVersion,
-			.bUsesBinaryEnvelope = true};
-		return {};
 	}
 
-	auto FindAssetPackageReader(const FGuid& FormatId, uint32 FormatVersion)
+	auto FindAssetPackageReader(uint32 FormatVersion)
 		-> const FAssetPackageCodec*
 	{
 		const auto It = std::ranges::find_if(Codecs, [&](const FAssetPackageCodec& Codec) {
-			return Codec.FormatId == FormatId && Codec.FormatVersion == FormatVersion;
+			return Codec.FormatVersion == FormatVersion;
 		});
 		return It != Codecs.end() && It->bCanRead ? &*It : nullptr;
 	}
 
-	auto FindAssetPackageWriter(const FGuid& FormatId, uint32 FormatVersion)
+	auto FindAssetPackageWriter(uint32 FormatVersion)
 		-> const FAssetPackageCodec*
 	{
 		const auto It = std::ranges::find_if(Codecs, [&](const FAssetPackageCodec& Codec) {
-			return Codec.FormatId == FormatId && Codec.FormatVersion == FormatVersion;
+			return Codec.FormatVersion == FormatVersion;
 		});
 		return It != Codecs.end() && It->bCanWrite ? &*It : nullptr;
 	}
 
 	auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
-		FAssetPackagePreamble* OutPreamble, uint64 PhysicalFileBytes) -> FAssetResult
+		uint32* OutFormatVersion, uint64 PhysicalFileBytes) -> FAssetResult
 	{
 		OutCodec = nullptr;
-		FAssetPackagePreamble Preamble;
-		if (FAssetResult Result = ReadAssetPackagePreamble(
-				Bytes, Preamble, PhysicalFileBytes); !Result)
+		if (OutFormatVersion) *OutFormatVersion = 0;
+		uint32 FormatVersion = 0;
+		if (FAssetResult Result = ReadAssetPackageFormatVersion(
+				Bytes, FormatVersion, PhysicalFileBytes); !Result)
 			return Result;
-		if (Preamble.FormatId != DastBinaryFormatId
-			|| !IsSupportedAssetPackageReaderVersion(Preamble.FormatVersion))
+		if (!IsSupportedAssetPackageReaderVersion(FormatVersion))
 			return {EAssetError::UnsupportedVersion,
-				std::format("Unsupported asset format {} version {}.",
-					Preamble.FormatId.ToString(), Preamble.FormatVersion)};
-		OutCodec = FindAssetPackageReader(Preamble.FormatId, Preamble.FormatVersion);
+				std::format("Unsupported DAST package version {}.", FormatVersion)};
+		OutCodec = FindAssetPackageReader(FormatVersion);
 		if (!OutCodec)
 			return {EAssetError::UnsupportedVersion,
-				std::format("Unsupported asset format {} version {}.",
-					Preamble.FormatId.ToString(), Preamble.FormatVersion)};
-		if (OutPreamble) *OutPreamble = Preamble;
+				std::format("Unsupported DAST package version {}.", FormatVersion)};
+		if (OutFormatVersion) *OutFormatVersion = FormatVersion;
 		return {};
 	}
 
@@ -132,7 +123,7 @@ namespace Durin::Asset::Private
 		for (size_t Index = 0; Index < CandidateCodecs.size(); ++Index)
 		{
 			const FAssetPackageCodec& Codec = CandidateCodecs[Index];
-			if (Codec.CodecId.empty() || !Codec.FormatId.IsValid() || Codec.FormatVersion == 0
+			if (Codec.CodecId.empty() || Codec.FormatVersion == 0
 				|| (Codec.bCanRead && (!Codec.ReadHeader || !Codec.Validate || !Codec.Inspect
 					|| !Codec.ExtractReferences || !Codec.ProbeCompatibility || !Codec.Load))
 				|| (Codec.bCanWrite && !Codec.Write)
@@ -145,8 +136,7 @@ namespace Durin::Asset::Private
 				return false;
 			}
 			for (size_t OtherIndex = Index + 1; OtherIndex < CandidateCodecs.size(); ++OtherIndex)
-				if ((CandidateCodecs[OtherIndex].FormatId == Codec.FormatId
-						&& CandidateCodecs[OtherIndex].FormatVersion == Codec.FormatVersion)
+				if (CandidateCodecs[OtherIndex].FormatVersion == Codec.FormatVersion
 					|| CandidateCodecs[OtherIndex].CodecId == Codec.CodecId)
 				{
 					OutError = "AssetPackageCodecDuplicate: codec identities must be unique.";
@@ -160,13 +150,13 @@ namespace Durin::Asset::Private
 	{
 		if (!ValidateAssetPackageCodecTable(Codecs, OutError)) return false;
 		for (uint32 Version : SupportedAssetPackageReaderVersions)
-			if (!FindAssetPackageReader(DastBinaryFormatId, Version))
+			if (!FindAssetPackageReader(Version))
 			{
 				OutError = std::format(
 					"AssetPackageReaderPolicyIncomplete: DAST v{} has no complete reader.", Version);
 				return false;
 			}
-		if (!FindAssetPackageWriter(DastBinaryFormatId, OrdinaryAssetPackageWriterVersion))
+		if (!FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion))
 		{
 			OutError = "AssetPackageWriterPolicyIncomplete: a selected writer is unavailable.";
 			return false;

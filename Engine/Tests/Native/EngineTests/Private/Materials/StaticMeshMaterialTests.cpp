@@ -515,8 +515,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Component->SetStaticMesh(MeshImport.Asset);
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
 
 	const auto ComponentData = Durin::Asset::FindAssetExact(ComponentPath);
 	ASSERT_NE(ComponentData, nullptr);
@@ -665,10 +664,7 @@ TEST(FMaterialProgramPackageTests,
 	Durin::FMaterialProgramValidationResult Validation;
 	ASSERT_TRUE(Material->SetMaterialProgram(Authored, Validation));
 	ASSERT_TRUE(Validation);
-	ASSERT_TRUE(Durin::Asset::SavePackage(
-		Material->GetPackage(),
-		{.WriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
 
 	std::vector<std::byte> FirstSerialization;
 	std::vector<std::byte> SecondSerialization;
@@ -726,10 +722,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_NE(MutableProgram, nullptr);
 	MutableProgram->Nodes.clear();
 	LegacyLoaded->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(
-		LegacyLoaded->GetPackage(),
-		{.WriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(LegacyLoaded->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DMaterial* Rejected = nullptr;
 	const Durin::Asset::FAssetResult RejectedResult =
@@ -757,15 +750,13 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));
 
 	Durin::DMaterialInstance* Instance = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.25f));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 

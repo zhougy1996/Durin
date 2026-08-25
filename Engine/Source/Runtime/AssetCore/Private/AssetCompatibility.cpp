@@ -163,13 +163,6 @@ namespace Durin::Asset
 				.FileSize = FinalSize,
 				.LastWriteTimeTicks = FinalTicks,
 				.ContentHash = Builder.Finalize()};
-			std::ifstream HeaderStream(Path, std::ios::binary);
-			uint32 Magic = 0;
-			uint32 Version = 0;
-			if (HeaderStream.read(reinterpret_cast<char*>(&Magic), sizeof(Magic))
-				&& HeaderStream.read(reinterpret_cast<char*>(&Version), sizeof(Version))
-				&& Magic == DastPackageMagic)
-				OutFingerprint.ReaderVersion = Version;
 			OutReportContentHash = Sha256.Finalize();
 			return EAssetPackageSnapshotStatus::Completed;
 		}
@@ -653,9 +646,9 @@ namespace Durin::Asset
 		else
 		{
 			const Private::FAssetPackageCodec* Codec = nullptr;
-			Private::FAssetPackagePreamble Preamble;
+			uint32 FormatVersion = 0;
 			const FAssetResult ResolveResult =
-				Private::ResolveAssetPackageReader(Bytes, Codec, &Preamble);
+				Private::ResolveAssetPackageReader(Bytes, Codec, &FormatVersion);
 			if (!ResolveResult)
 				AddTerminalFailure(Record,
 					ResolveResult.Error == EAssetError::UnsupportedVersion
@@ -682,7 +675,7 @@ namespace Durin::Asset
 					CodecRecord.Fingerprint.FileSize = Record.Fingerprint.FileSize;
 					CodecRecord.Fingerprint.LastWriteTimeTicks = Record.Fingerprint.LastWriteTimeTicks;
 					CodecRecord.Fingerprint.ContentHash = Record.Fingerprint.ContentHash;
-					CodecRecord.Fingerprint.ReaderVersion = Preamble.FormatVersion;
+					CodecRecord.Fingerprint.ReaderVersion = FormatVersion;
 					CodecRecord.ReportContentHash = Input.ExpectedReportContentHash;
 					Record = std::move(CodecRecord);
 				}

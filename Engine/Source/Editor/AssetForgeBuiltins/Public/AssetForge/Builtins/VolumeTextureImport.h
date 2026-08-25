@@ -48,14 +48,6 @@ namespace Durin::AssetForge::Builtins
 		explicit operator bool() const { return bSucceeded; }
 	};
 
-	// Selects the package envelope for one VolumeTexture authoring operation.
-	// This is intentionally operation-local and is never persisted on the asset.
-	struct FVolumeTextureAuthoringOptions
-	{
-		Asset::EAssetPackageWriterSelection WriterSelection =
-			Asset::EAssetPackageWriterSelection::Ordinary;
-	};
-
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection
 	{
@@ -88,14 +80,12 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FVolumeTextureImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
+		bool bEngineAuthoringContext = false)
 		-> FVolumeTextureImportResult;
 	ASSETFORGEBUILTINS_API auto RepairVolumeTextureSource(
 		DVolumeTexture& Texture,
 		std::string_view SourcePath,
-		std::string& OutError,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions = {}) -> bool;
+		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto MakeVolumeTextureImportRequest(
 		const FSourcePath& MountedSource,
 		const FAssetPath& Destination,
@@ -104,8 +94,7 @@ namespace Durin::AssetForge::Builtins
 		AssetForge::FImportOperationOwner Owner,
 		std::optional<AssetForge::FImportProvenance> ExistingProvenance,
 		AssetForge::FImportRequest& OutRequest,
-		std::string& OutError,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions = {}) -> bool;
+		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto InspectVolumeTextureImportProvenance(
 		const DVolumeTexture& Texture,
 		AssetForge::FImportProvenance& OutProvenance,
@@ -114,7 +103,6 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath, const FAssetPath& Destination,
 		const FVolumeTextureImportSettings& Settings, bool bEngineAuthoringContext,
 		AssetForge::FImportCompletion Completion,
-		std::string& OutError,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
+		std::string& OutError)
 		-> AssetForge::FImportHandle;
 }

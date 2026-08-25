@@ -901,21 +901,11 @@ namespace Durin::Asset
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
-			const uint32 WriterVersion = [&] {
-				switch (Options.WriterSelection)
-				{
-				case EAssetPackageWriterSelection::DastV6:
-					return AssetPackageV6FormatVersion;
-				case EAssetPackageWriterSelection::Ordinary:
-				default:
-					return OrdinaryAssetPackageWriterVersion;
-				}
-			}();
 			const Private::FAssetPackageCodec* Codec =
-				Private::FindAssetPackageWriter(WriterVersion);
+				Private::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
 			if (!Codec)
 				return Error(EAssetError::UnsupportedVersion,
-					"The selected asset package writer is unavailable.");
+					"The ordinary asset package writer is unavailable.");
 			FAssetPackageSerializationOptions EffectiveOptions = Options;
 			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &OutFile->BulkPayloads;
 			FAssetResult Result = Codec->Write(
@@ -938,12 +928,10 @@ namespace Durin::Asset
 
 		auto ValidateSaveVersion(
 			const FAssetCatalogStore& Registry,
-			const FAssetPath& Path,
-			EAssetPackageWriterSelection Selection) -> FAssetResult
+			const FAssetPath& Path) -> FAssetResult
 		{
 			const FAssetCatalogEntry Existing = Registry.FindAssetExact(Path);
-			if (!Existing || Selection != EAssetPackageWriterSelection::Ordinary
-				|| Existing->FormatVersion == OrdinaryAssetPackageWriterVersion)
+			if (!Existing || Existing->FormatVersion == OrdinaryAssetPackageWriterVersion)
 				return {};
 			return Error(
 				EAssetError::UnsupportedVersion,
@@ -1120,14 +1108,12 @@ namespace Durin::Asset
 			if (!Paths.insert(Path).second)
 				return Error(EAssetError::AlreadyExists, std::format(
 					"The asset bundle contains duplicate package {}.", Path.ToString()));
-			FAssetResult Result = ValidateSaveVersion(
-				Registry, Path, Options.WriterSelection);
+			FAssetResult Result = ValidateSaveVersion(Registry, Path);
 			if (!Result) return Result;
 			FStagedPackage& Staged = StagedPackages.emplace_back();
 			Staged.Package = Package;
 			Staged.Path = Path;
 			FAssetPackageSerializationOptions Serialization;
-			Serialization.WriterSelection = Options.WriterSelection;
 			Result = BuildPackageBytes(
 				Package, Staged.Bytes, &Staged.File, Serialization);
 			if (!Result) return Result;
@@ -1676,9 +1662,7 @@ namespace Durin::Asset
 
 	}
 
-	auto FAssetMutationCoordinator::SavePackage(
-		DPackage* Package,
-		const FAssetPackageSaveOptions& Options) -> FAssetResult
+	auto FAssetMutationCoordinator::SavePackage(DPackage* Package) -> FAssetResult
 	{
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
@@ -1686,14 +1670,12 @@ namespace Durin::Asset
 		if (Package && Package->IsAssetPackage()
 			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPath, "Package path is invalid.");
-		FAssetResult VersionResult = ValidateSaveVersion(
-			Registry, Path, Options.WriterSelection);
+		FAssetResult VersionResult = ValidateSaveVersion(Registry, Path);
 		if (!VersionResult) return VersionResult;
 		const std::filesystem::path Destination(GetPhysicalPath(Path));
 		FPackageFile File;
 		std::vector<std::byte> Bytes;
 		FAssetPackageSerializationOptions Serialization;
-		Serialization.WriterSelection = Options.WriterSelection;
 		FAssetResult SerializationResult = BuildPackageBytes(
 			Package, Bytes, &File, Serialization);
 		if (!SerializationResult) return SerializationResult;

@@ -174,8 +174,7 @@ namespace Durin::AssetForge::Builtins
 		const FAssetPath& Destination, const FVolumeTextureImportSettings& Settings,
 		EImportMode Mode, FImportOperationOwner Owner,
 		std::optional<FImportProvenance> ExistingProvenance,
-		FImportRequest& OutRequest, std::string& OutError,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions) -> bool
+		FImportRequest& OutRequest, std::string& OutError) -> bool
 	{
 		if (MountedSource.IsEmpty() || Destination.ToString().empty() || !Settings.IsValid(&OutError)) return false;
 		if (Owner.OwnerId.empty()) Owner.OwnerId = "VolumeTexture.AssetForge";
@@ -185,8 +184,7 @@ namespace Durin::AssetForge::Builtins
 			.TranslatorSettings = EmptyPayload(EmptyImageSettingsSchema),
 			.PlanningPassStack = {{.PlanningPassId = std::string(VolumePlanningPassId), .ContractVersion = 1,
 				.Settings = EncodeVolumePlan({.Destination = Destination, .Policy = PolicyFor(Mode),
-					.Settings = Settings})}}, .Destination = Destination, .Owner = std::move(Owner),
-			.SaveOptions = {.WriterSelection = AuthoringOptions.WriterSelection},
+				.Settings = Settings})}}, .Destination = Destination, .Owner = std::move(Owner),
 			.ExistingProvenance = std::move(ExistingProvenance)};
 		OutError.clear();
 		return true;

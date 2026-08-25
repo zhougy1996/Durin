@@ -543,8 +543,8 @@ reference edges, load handles, and byte results.
 
 ### Canonical Reflected-Identity Resave
 
-Canonical resave is planned package maintenance and optional explicit format
-conversion, not reimport. The metadata probe records every registered legacy
+Canonical resave is planned current-format package maintenance, not reimport or
+format conversion. The metadata probe records every registered legacy
 class, struct, or enum identity in the package header, object records, schemas,
 and recursive type descriptors. Each finding carries the package, stored and
 current identity, reflected kind, stable location, and logical path. The same
@@ -554,10 +554,10 @@ exposes `IsCanonicalResaveRecommended()` without becoming Dirty.
 `PlanAssetCanonicalResaves` deterministically selects packages, folders,
 mounts, or an explicit project scope and captures the physical fingerprint,
 format, entry kind, residency, Dirty conflict, compatibility state, and
-evidence. It blocks stale inputs, non-current formats, redirectors, incompatible
-payloads, dirty loaded packages, and non-authoring mounts. A package with no
-evidence is skipped unless an interactive caller explicitly requests a plain
-package resave.
+evidence. It blocks stale inputs, non-current formats, incompatible payloads,
+dirty loaded packages, and non-authoring mounts; non-asset entries such as
+redirectors are skipped. A package with no evidence is skipped unless an
+interactive caller explicitly requests a plain package resave.
 
 Apply revalidates each fingerprint and loads through the ordinary current-format
 reader when necessary. In the uncooked tool host, PostLoad may schedule
@@ -580,8 +580,8 @@ claim project-wide atomicity.
 `DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
 uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
 writes, `--format=human` selects a compact human report, and the default is a
-deterministic JSON report. Canonical resave targets v6; `--target=v6` is an
-optional explicit spelling and no legacy rollback target exists.
+deterministic JSON report. Canonical resave always targets v6; no format-selection
+or legacy rollback option exists.
 The plan records the target format and rejects stale fingerprints before each
 atomic unit. `--ci` is read-only, cannot be combined with apply,
 and fails when selected compatible content still has registered legacy

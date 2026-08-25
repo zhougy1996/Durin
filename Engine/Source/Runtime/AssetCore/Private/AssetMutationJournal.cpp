@@ -58,21 +58,13 @@ namespace Durin::Asset::Private
 		if (ErrorCode)
 			return Error(EAssetError::IoError, std::format(
 				"Failed to read the last-write time for asset package {}.", PhysicalPath));
-		uint32 Magic = 0;
-		if (Bytes.size() >= sizeof(Magic))
-			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		constexpr uint32 DurfMagic = 0x46525544;
 		uint32 ReaderVersion = 0;
-		// Relocation journals also own opaque companion files. A DURF prefix alone
-		// no longer implies DAST now that DABK is a sibling branch, so only package
-		// paths enter the package-reader policy here.
-		if (Path.extension() == ".dasset"
-			&& (Magic == DastPackageMagic || Magic == DurfMagic))
+		if (Path.extension() == ".dasset")
 		{
-			FAssetPackagePreamble Preamble;
-			const FAssetResult PreambleResult = ReadAssetPackagePreamble(Bytes, Preamble);
-			if (!PreambleResult) return PreambleResult;
-			ReaderVersion = Preamble.FormatVersion;
+			const FAssetPackageCodec* Codec = nullptr;
+			const FAssetResult ResolveResult = ResolveAssetPackageReader(
+				Bytes, Codec, &ReaderVersion);
+			if (!ResolveResult) return ResolveResult;
 		}
 		OutFingerprint = {
 			.FileSize = Bytes.size(),

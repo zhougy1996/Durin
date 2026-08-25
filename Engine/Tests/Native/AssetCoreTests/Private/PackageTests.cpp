@@ -1641,7 +1641,6 @@ TEST(FPackageAssetTests, V6FirstBundleFailureRemovesUncommittedStableCompanion)
 	const Durin::Asset::FAssetResult Result = Durin::Asset::SavePackagesAtomically(
 		Packages,
 		{.RootPackage = Asset->GetPackage(),
-			.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6,
 			.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 				return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
 			}});
@@ -1667,8 +1666,7 @@ TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
 
 	const Durin::Asset::FAssetResult V6Save = Durin::Asset::SavePackage(
-		Asset->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6});
+		Asset->GetPackage());
 	ASSERT_TRUE(V6Save) << V6Save.Message;
 	const Durin::Asset::FAssetCatalogEntry V6Data =
 		Durin::Asset::FindAssetExact(Path);
@@ -1725,7 +1723,6 @@ TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 	const Durin::Asset::FAssetResult FailedReplacement =
 		Durin::Asset::SavePackagesAtomically(ReplacementUnit,
 			{.RootPackage = Asset->GetPackage(),
-				.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6,
 				.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
 				}});
@@ -1735,8 +1732,7 @@ TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 		AfterFailedReplacement, Companions.front()));
 	EXPECT_EQ(AfterFailedReplacement, BeforeFailedReplacement);
 	EXPECT_FALSE(std::filesystem::exists(BackupPath));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	std::vector<std::byte> AfterCommittedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AfterCommittedReplacement, Companions.front()));
@@ -1748,8 +1744,7 @@ TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 	DPackageAssetForTest* LiveAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LivePath, LiveAsset));
 	LiveAsset->Value = 73;
-	ASSERT_TRUE(Durin::Asset::SavePackage(LiveAsset->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(LiveAsset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LivePath));
 	DPackageAssetForTest* Reloaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(LivePath, Reloaded));
@@ -1761,7 +1756,7 @@ TEST(FPackageAssetTests, OrdinaryV6PublishesLoadsAndRollsBackExternalClosure)
 		Durin::Asset::AssetPackageV6FormatVersion);
 }
 
-TEST(FPackageAssetTests, V6BundleAndRelocationPreserveExplicitFormat)
+TEST(FPackageAssetTests, V6BundleAndRelocationPreserveCurrentFormat)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath SourcePath;
@@ -1775,8 +1770,7 @@ TEST(FPackageAssetTests, V6BundleAndRelocationPreserveExplicitFormat)
 	Asset->Value = 91;
 	Durin::DPackage* Packages[] = {Asset->GetPackage()};
 	ASSERT_TRUE(Durin::Asset::SavePackagesAtomically(Packages,
-		{.RootPackage = Asset->GetPackage(),
-			.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+		{.RootPackage = Asset->GetPackage()}));
 	ASSERT_EQ(Durin::Asset::FindAssetExact(SourcePath)->FormatVersion,
 		Durin::Asset::AssetPackageV6FormatVersion);
 
@@ -1814,8 +1808,7 @@ TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
 		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 3),
 		std::byte{0x71});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage(),
-		{.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "Assets";
@@ -1953,7 +1946,6 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	EXPECT_EQ(Durin::Asset::DastBinaryFormatName, "Durin.BinaryFormat.DAST");
 
 	const auto& V6 = Durin::Asset::Private::DastV6::GetCodec();
-	EXPECT_EQ(V6.FormatId, Durin::Asset::DastBinaryFormatId);
 	std::array DuplicateKeys{V6, V6};
 	DuplicateKeys[1].CodecId = "dast-v6-alias";
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
@@ -1969,9 +1961,9 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	std::array Incomplete{V6};
 	Incomplete[0].Validate = nullptr;
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(Incomplete, Error));
-	std::array InvalidIdentity{V6};
-	InvalidIdentity[0].FormatId = {};
-	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(InvalidIdentity, Error));
+	std::array InvalidVersion{V6};
+	InvalidVersion[0].FormatVersion = 0;
+	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(InvalidVersion, Error));
 }
 
 TEST(FPackageAssetTests, V6HeaderReadCharacterizationRemainsBounded)
@@ -1986,7 +1978,7 @@ TEST(FPackageAssetTests, V6HeaderReadCharacterizationRemainsBounded)
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
 	const auto* Reader = Durin::Asset::Private::FindAssetPackageReader(
-		Durin::Asset::DastBinaryFormatId, Durin::Asset::AssetPackageV6FormatVersion);
+		Durin::Asset::AssetPackageV6FormatVersion);
 	ASSERT_NE(Reader, nullptr);
 
 	constexpr size_t Iterations = 2000;
@@ -2024,24 +2016,19 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(V6Preamble, V6));
 	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(V6, V6.size(), Limits));
 
-	FAssetPackagePreamble Parsed;
-	ASSERT_TRUE(ReadAssetPackagePreamble(V6, Parsed));
-	EXPECT_EQ(Parsed.FormatId, DastBinaryFormatId);
-	EXPECT_EQ(Parsed.FormatVersion, AssetPackageV6FormatVersion);
-	EXPECT_TRUE(Parsed.bUsesBinaryEnvelope);
 	const FAssetPackageCodec* Codec = reinterpret_cast<const FAssetPackageCodec*>(1);
-	const FAssetResult Resolved = ResolveAssetPackageReader(V6, Codec);
+	uint32 FormatVersion = 0;
+	const FAssetResult Resolved = ResolveAssetPackageReader(V6, Codec, &FormatVersion);
 	EXPECT_TRUE(Resolved);
 	ASSERT_NE(Codec, nullptr);
 	EXPECT_EQ(Codec->FormatVersion, AssetPackageV6FormatVersion);
+	EXPECT_EQ(FormatVersion, AssetPackageV6FormatVersion);
 
 	std::array<std::byte, 8> Legacy{
 		std::byte{0x44}, std::byte{0x41}, std::byte{0x53}, std::byte{0x54},
 		std::byte{0x05}, std::byte{}, std::byte{}, std::byte{}};
-	ASSERT_TRUE(ReadAssetPackagePreamble(Legacy, Parsed));
-	EXPECT_EQ(Parsed.FormatId, DastBinaryFormatId);
-	EXPECT_EQ(Parsed.FormatVersion, 5u);
-	EXPECT_FALSE(Parsed.bUsesBinaryEnvelope);
+	EXPECT_EQ(ResolveAssetPackageReader(Legacy, Codec).Error,
+		EAssetError::UnsupportedVersion);
 
 	std::array<std::byte, BinaryEnvelopePreambleBytes> Unknown{};
 	const FBinaryEnvelopePreamble UnknownPreamble{
@@ -2051,10 +2038,10 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 		.FileBytes = Unknown.size()};
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(UnknownPreamble, Unknown));
 	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(Unknown, Unknown.size(), Limits));
-	EXPECT_EQ(ReadAssetPackagePreamble(Unknown, Parsed).Error, EAssetError::UnsupportedVersion);
+	EXPECT_EQ(ResolveAssetPackageReader(Unknown, Codec).Error, EAssetError::UnsupportedVersion);
 
 	V6[48] ^= std::byte{1};
-	EXPECT_EQ(ReadAssetPackagePreamble(V6, Parsed).Error, EAssetError::CorruptFile);
+	EXPECT_EQ(ResolveAssetPackageReader(V6, Codec).Error, EAssetError::CorruptFile);
 }
 
 TEST(FPackageAssetTests, V6CodecMatchesLiveWriteInspectReferenceMutationAndLoadSemantics)
@@ -2159,8 +2146,7 @@ TEST(FPackageAssetTests, V6PreservesExternalPayloadDirectoryAndCompanionDescript
 	std::vector<std::byte> Payload(
 		static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
-	ASSERT_TRUE(SavePackage(Asset->GetPackage(),
-		{.WriterSelection = EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	const FAssetCatalogEntry Data = FindAssetExact(Path);
 	ASSERT_TRUE(Data);
 	std::vector<std::byte> V6;
@@ -2502,7 +2488,6 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 		*Asset, *ValueProperty, SameSizeWrongType, &Error));
 
 	Durin::Asset::FAssetPackageSerializationOptions Options;
-	Options.WriterSelection = Durin::Asset::EAssetPackageWriterSelection::DastV6;
 	Options.SaveOverrides = Overrides;
 	std::vector<std::byte> ObjectStream;
 	std::vector<std::byte> FirstBytes;

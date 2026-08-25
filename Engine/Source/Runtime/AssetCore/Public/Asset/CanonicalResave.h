@@ -42,8 +42,6 @@ namespace Durin::Asset
 		std::vector<FAssetPath> Packages;
 		bool bWholeProject = false;
 		bool bAllowPlainResave = false;
-		EAssetPackageWriterSelection TargetWriterSelection =
-			EAssetPackageWriterSelection::DastV6;
 	};
 
 	enum class EAssetCanonicalResavePlanStatus : uint8 { Completed, Cancelled };
@@ -51,9 +49,7 @@ namespace Durin::Asset
 	{
 		EAssetCanonicalResavePlanStatus Status = EAssetCanonicalResavePlanStatus::Completed;
 		uint64 RegistryRevision = 0;
-		EAssetPackageWriterSelection TargetWriterSelection =
-			EAssetPackageWriterSelection::DastV6;
-		uint32 TargetFormatVersion = 5;
+		uint32 TargetFormatVersion = 0;
 		std::vector<FAssetCanonicalResavePackagePlan> Packages;
 	};
 

@@ -59,8 +59,9 @@ private, statically composed codec table. Each codec has an immutable string
 identity, permanent nonzero `FormatId`, wire version, and complete reader,
 writer, and mutation capability set. Shared code validates the `DURF` preamble
 through Core's bounded two-phase envelope validation and AssetCore's explicit
-immutable descriptor registry, then resolves the `(FormatId, FormatVersion)`
-codec key. It fails closed before codec parsing when no reader exists. Header
+immutable descriptor registry. Once that registry has selected DAST, the
+package codec table resolves only its format version. It fails closed before
+codec parsing when no reader exists. Header
 reads, validation, inspection, compatibility probes,
 reference projection, live loading, serialization, relocation, reference
 rewrite, redirector creation, and cook canonicalization do not branch on a

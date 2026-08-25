@@ -99,7 +99,7 @@ packed row-major depth-slice encoding whose exact byte width comes from
 placement and replacement remain authored-only capabilities.
 
 Ordinary and explicit saves emit DURF/DAST v6 and only the authored BulkData
-field; writer selection is not persisted on the asset. Small voxel values stay
+field. Small voxel values stay
 inline. External values produce one matching Payload Directory entry and the
 stable `<package-stem>.dabulk` DURF/DABK v2 companion. Reimport, repair, and
 canonical resave use the same writer; there is no legacy rollback route.

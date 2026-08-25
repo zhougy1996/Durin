@@ -25,13 +25,12 @@ The command-line host is dry-run by default:
 ```text
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --mount=/Game --format=human
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --package=/Game/Example --apply
-DurinAssetTool --project=<project.dproject> --operation=canonical-resave --project-scope --target=v6
 DurinAssetTool --project=<project.dproject> --operation=canonical-resave --project-scope --ci
 ```
 
 Selection must name packages, folders, mounts, or the explicit project scope.
-Canonical resave always writes DURF/DAST v6. `--target=v6` is accepted as an explicit
-spelling of the only supported target; no rollback or legacy-format target exists.
+Canonical resave always writes DURF/DAST v6; no format-selection or rollback
+option exists.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.

@@ -28,8 +28,5 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	ASSETCORE_API auto SavePackage(
-		DPackage* Package,
-		const FAssetPackageSaveOptions& Options = {}
-	) -> FAssetResult;
+	ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 } // namespace Durin::Asset

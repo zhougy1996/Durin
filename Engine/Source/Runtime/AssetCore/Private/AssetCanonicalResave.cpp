@@ -89,16 +89,6 @@ namespace Durin::Asset
 			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
 
-		auto TargetFormatVersion(EAssetPackageWriterSelection Selection) -> uint32
-		{
-			switch (Selection)
-			{
-			case EAssetPackageWriterSelection::DastV6: return AssetPackageV6FormatVersion;
-			case EAssetPackageWriterSelection::Ordinary: return 0;
-			}
-			return 0;
-		}
-
 		auto FingerprintMatches(const FAssetPackageFingerprint& Fingerprint,
 			std::span<const std::byte> Bytes, std::string_view PhysicalPath) -> bool
 		{
@@ -161,8 +151,7 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogStore().GetRevision();
-		Plan.TargetWriterSelection = Selection.TargetWriterSelection;
-		Plan.TargetFormatVersion = TargetFormatVersion(Selection.TargetWriterSelection);
+		Plan.TargetFormatVersion = AssetPackageV6FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -193,9 +182,6 @@ namespace Durin::Asset
 							!= Selection.Packages.end()));
 			Package.Evidence = Record->CanonicalizationEvidence;
 			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
-			if (Plan.TargetFormatVersion == 0)
-				Package.Diagnostics.push_back(
-					"TargetWriterInvalid: migration and rollback plans require an explicit writer.");
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready
 				|| Record->Compatibility != EAssetPackageCompatibility::Compatible)
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
@@ -349,7 +335,6 @@ namespace Durin::Asset
 			}
 			DPackage* Unit[] = {Package};
 			FAssetBundleSaveOptions SaveOptions;
-			SaveOptions.WriterSelection = Result.Plan.TargetWriterSelection;
 			SaveOptions.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
 				if (!Options.ShouldFail) return false;
 				if (Phase == EAssetBundleSavePhase::StagePackage)

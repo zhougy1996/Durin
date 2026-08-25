@@ -69,10 +69,9 @@ namespace
 		Ci = 1 << 3,
 		ProjectScope = 1 << 4,
 		Apply = 1 << 5,
-		Target = 1 << 6,
-		Mount = 1 << 7,
-		Folder = 1 << 8,
-		Package = 1 << 9
+		Mount = 1 << 6,
+		Folder = 1 << 7,
+		Package = 1 << 8
 	};
 
 	constexpr auto OptionBit(EOption Option) -> uint16
@@ -102,7 +101,6 @@ namespace
 		case EOption::Ci: return "--ci";
 		case EOption::ProjectScope: return "--project-scope";
 		case EOption::Apply: return "--apply";
-		case EOption::Target: return "--target";
 		case EOption::Mount: return "--mount";
 		case EOption::Folder: return "--folder";
 		case EOption::Package: return "--package";
@@ -118,8 +116,6 @@ namespace
 		bool bCi = false;
 		bool bProjectScope = false;
 		bool bApply = false;
-		Durin::Asset::EAssetPackageWriterSelection TargetWriterSelection =
-			Durin::Asset::EAssetPackageWriterSelection::DastV6;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
@@ -150,14 +146,14 @@ namespace
 			| OptionBit(EOption::Operation) | OptionBit(EOption::Format);
 		constexpr uint16 Canonical = Common | OptionBit(EOption::Ci)
 			| OptionBit(EOption::ProjectScope) | OptionBit(EOption::Apply)
-			| OptionBit(EOption::Target) | OptionBit(EOption::Mount)
-			| OptionBit(EOption::Folder) | OptionBit(EOption::Package);
+			| OptionBit(EOption::Mount) | OptionBit(EOption::Folder)
+			| OptionBit(EOption::Package);
 		const uint16 Allowed = Options.Operation == EOperation::CanonicalResave
 			? Canonical : Common;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
-			EOption::Ci, EOption::ProjectScope, EOption::Apply, EOption::Target,
-			EOption::Mount, EOption::Folder, EOption::Package};
+			EOption::Ci, EOption::ProjectScope, EOption::Apply, EOption::Mount,
+			EOption::Folder, EOption::Package};
 		for (const EOption Option : OrderedOptions)
 			if ((Unexpected & OptionBit(Option)) != 0)
 			{
@@ -228,12 +224,6 @@ namespace
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Apply, OutError)) return false;
 				OutOptions.bApply = true;
-			}
-			else if (Argument == "--target=v6")
-			{
-				if (!MarkOptionOnce(OutOptions, EOption::Target, OutError)) return false;
-				OutOptions.TargetWriterSelection =
-					Durin::Asset::EAssetPackageWriterSelection::DastV6;
 			}
 			else if (Argument.starts_with("--mount="))
 			{
@@ -461,8 +451,7 @@ namespace
 			.Mounts = Options.Mounts,
 			.Folders = Options.Folders,
 			.bWholeProject = Options.bProjectScope,
-			.bAllowPlainResave = true,
-			.TargetWriterSelection = Options.TargetWriterSelection};
+			.bAllowPlainResave = true};
 		for (const std::string& Value : Options.Packages)
 		{
 			Durin::FAssetPath Path;

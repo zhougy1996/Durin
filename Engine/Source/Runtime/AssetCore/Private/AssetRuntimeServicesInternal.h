@@ -178,9 +178,7 @@ namespace Durin::Asset
 		{
 		}
 
-		auto SavePackage(
-			DPackage* Package,
-			const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
+		auto SavePackage(DPackage* Package) -> FAssetResult;
 		auto SavePackagesAtomically(
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetResult;

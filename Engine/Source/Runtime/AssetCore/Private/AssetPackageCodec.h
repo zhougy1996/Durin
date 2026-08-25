@@ -12,7 +12,6 @@ namespace Durin::Asset::Private
 	struct FAssetPackageCodec
 	{
 		std::string_view CodecId;
-		FGuid FormatId;
 		uint32 FormatVersion = 0;
 		bool bCanRead = false;
 		bool bCanWrite = false;
@@ -46,31 +45,13 @@ namespace Durin::Asset::Private
 			-> FAssetResult = nullptr;
 	};
 
-	struct FAssetPackagePreamble
-	{
-		FGuid FormatId;
-		uint32 FormatVersion = 0;
-		bool bUsesBinaryEnvelope = false;
-	};
-
-	ASSETCORE_API auto ReadAssetPackagePreamble(
-		std::span<const std::byte> Bytes, FAssetPackagePreamble& OutPreamble,
-		uint64 PhysicalFileBytes = 0) -> FAssetResult;
 	ASSETCORE_API auto FindAssetPackageReader(
-		const FGuid& FormatId, uint32 FormatVersion) -> const FAssetPackageCodec*;
+		uint32 FormatVersion) -> const FAssetPackageCodec*;
 	ASSETCORE_API auto FindAssetPackageWriter(
-		const FGuid& FormatId, uint32 FormatVersion) -> const FAssetPackageCodec*;
-	inline auto FindAssetPackageReader(uint32 FormatVersion) -> const FAssetPackageCodec*
-	{
-		return FindAssetPackageReader(DastBinaryFormatId, FormatVersion);
-	}
-	inline auto FindAssetPackageWriter(uint32 FormatVersion) -> const FAssetPackageCodec*
-	{
-		return FindAssetPackageWriter(DastBinaryFormatId, FormatVersion);
-	}
+		uint32 FormatVersion) -> const FAssetPackageCodec*;
 	ASSETCORE_API auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
-		FAssetPackagePreamble* OutPreamble = nullptr,
+		uint32* OutFormatVersion = nullptr,
 		uint64 PhysicalFileBytes = 0) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ASSETCORE_API auto ValidateAssetPackageCodecTable(

@@ -17,8 +17,7 @@ using namespace Durin::AssetForge::Builtins;
 namespace
 {
 	auto ReimportVolumeTexture(DVolumeTexture& Texture,
-		const FVolumeTextureImportSettings& Settings,
-		const FVolumeTextureAuthoringOptions& AuthoringOptions = {})
+		const FVolumeTextureImportSettings& Settings)
 		-> AssetForge::FImportResult
 	{
 		FAssetPath Destination;
@@ -36,7 +35,7 @@ namespace
 			Texture.GetSourceImportData().Source.SourcePath, Destination, Settings,
 			AssetForge::EImportMode::Reimport,
 			{.OwnerId = "Tests.VolumeTexture.ImportReimport"}, Provenance,
-			Request, Error, AuthoringOptions))
+			Request, Error))
 			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
 				.Diagnostic = std::move(Error)}};
 		return AssetForge::GetImportService().RunImportInline(
@@ -370,7 +369,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 
 	const FVolumeTextureImportResult Detail = ImportVolumeTextureAsset(
 		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings,
-		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
+		false);
 	ASSERT_TRUE(Detail) << Detail.Message;
 	FAssetPath BaseAssetPath;
 	FAssetPath DetailAssetPath;
@@ -439,7 +438,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		.TilesX = 128, .TilesY = 1};
 	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
 		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings,
-		false, {.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
+		false);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
 	ASSERT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);
@@ -469,8 +468,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		V6Entry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
 	ASSERT_EQ(V6Companions.size(), 1u);
 
-	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings,
-		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6});
+	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
 	ASSERT_EQ(Reimported.Outcome.State, AssetForge::EImportOperationState::Succeeded)
 		<< Reimported.Outcome.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), V6DerivedDataKey);
@@ -509,8 +507,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_TRUE(std::ranges::equal(
 		Reloaded->GetSourceData().GetVoxelBytes(), V6SourceBytes));
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), V6DerivedDataKey);
-	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage(),
-		{.WriterSelection = Asset::EAssetPackageWriterSelection::DastV6}));
+	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(Asset::FindAssetExact(AssetPath)->FormatVersion,
 		6u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(V6Companions.front()));

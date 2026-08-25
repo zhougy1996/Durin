@@ -227,7 +227,6 @@ TEST(FDastV6WireTests, DirectorySectionAndEnvelopeCorruptionFailDeterministicall
 TEST(FDastV6WireTests, V6CodecIsTheSoleOrdinaryPolicy)
 {
 	const FAssetPackageCodec& Codec = DastV6::GetCodec();
-	EXPECT_EQ(Codec.FormatId, DastBinaryFormatId);
 	EXPECT_EQ(Codec.FormatVersion, AssetPackageV6FormatVersion);
 	EXPECT_TRUE(Codec.bCanRead);
 	EXPECT_TRUE(Codec.bCanWrite);

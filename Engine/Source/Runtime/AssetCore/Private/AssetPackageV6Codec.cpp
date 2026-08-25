@@ -905,7 +905,6 @@ namespace Durin::Asset::Private::DastV6
 	{
 		static const FAssetPackageCodec Codec{
 			.CodecId = "dast-v6",
-			.FormatId = DastBinaryFormatId,
 			.FormatVersion = Version,
 			.bCanRead = true,
 			.bCanWrite = true,

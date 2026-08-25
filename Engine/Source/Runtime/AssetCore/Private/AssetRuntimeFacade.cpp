@@ -71,12 +71,9 @@ namespace Durin::Asset
 			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
 	}
 
-	auto SavePackage(
-		DPackage* Package,
-		const FAssetPackageSaveOptions& Options) -> FAssetResult
+	auto SavePackage(DPackage* Package) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(
-			Package, Options);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package);
 	}
 
 	auto PrepareAssetRelocationTransaction(
