@@ -18,12 +18,20 @@ The remaining known gap is also characterized by the current call path:
 updates, transaction-event projection, status-bar drawing, and toasts whenever
 the Level workspace root is not visible.
 
-Stages 1 and 3 are implemented together following the user's direction that a
+Stages 1 and 3 were implemented together following the user's direction that a
 project-wide browser should never remain Level-owned as a transitional step.
 MainFrame now owns the singleton browser and shared host tools directly. Stage
-2 is partially complete: extensions, independent settings, relocation splitting,
-and direct reveal routing are implemented; remaining type-specific form and
-reimport-policy cleanup continues before qualification.
+2 is complete: concrete import dialogs and reimport request construction live in
+their asset-family modules, while ContentBrowser submits only provider-neutral
+requests. Stage 4 automated qualification is complete. The remaining gate is
+interactive validation of every global tool in every workspace.
+
+Automated qualification on 2026-08-26 passed `ContentBrowserWorkflowTests`
+(59), `EditorAssetWorkflowTests` (35), `TextureTests` (87),
+`StaticMeshTests` (74), `EditorHostToolTests` (5), and `EditorShellTests` (44),
+for 304 passing tests. `./DevTool build` completed the full `all` target, and a
+hidden-window Sandbox launch reached Ready, loaded the default document, ran
+eight ticks, and shut down cleanly with no error, assertion, or leaked worker.
 
 ## Stage 0 Frozen Baseline
 
@@ -341,10 +349,10 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 
 - [x] Implement the scoped extension registry and immutable per-frame extension
   snapshot.
-- [ ] Move Level/Scene/Terrain, Material, Texture, and StaticMesh creation/import
+- [x] Move Level/Scene/Terrain, Material, Texture, and StaticMesh creation/import
   dialogs to their selected owning modules and register their contributions
   during each module's existing integration lifecycle.
-- [ ] Replace concrete asset-class and import-type branches in Content Browser
+- [x] Replace concrete asset-class and import-type branches in Content Browser
   with extension applicability and invocation.
 - [x] Add the independent Content Browser settings owner with default fallback
   and idempotent restart behavior, without reading Level Editor session state.
@@ -413,20 +421,20 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 
 ### Stage 4: Qualify lifecycle and publish the new contract
 
-- [ ] Exercise partial registration failure and reverse-order shutdown for
+- [x] Exercise partial registration failure and reverse-order shutdown for
   extensions, imports, browser request admission, task scopes, thumbnail
   providers/caches, workspaces, and concrete modules.
-- [ ] Verify pending deletion recovery and reachable Undo/Redo entries survive
+- [x] Verify pending deletion recovery and reachable Undo/Redo entries survive
   the ownership move without retaining unloaded module callbacks.
 - [ ] Run the repository-prescribed targeted native tests, editor-module builds,
   full editor build, and interactive editor scenarios from the standard agent
   build/test workflows.
-- [ ] Update the Content Browser and Workspace Framework architecture documents
+- [x] Update the Content Browser and Workspace Framework architecture documents
   from implemented evidence, including module ownership, host presentation,
   settings migration, extension lifecycle, and shutdown order.
-- [ ] Update Code Modules routing and any direct source links or test ownership
+- [x] Update Code Modules routing and any direct source links or test ownership
   descriptions that still identify LevelEditor as the browser owner.
-- [ ] Remove temporary adapters, legacy settings writes, obsolete layout roles,
+- [x] Remove temporary adapters, legacy settings writes, obsolete layout roles,
   unused LevelEditor dependencies, and stale private-source test exceptions.
 
 #### Acceptance Gate

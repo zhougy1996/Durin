@@ -16,12 +16,16 @@ instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
 `Durin::Editor` boundary or their runtime modules.
 
-Create and import menu entries are deterministic scoped extensions ordered by
-`(Order, Id)`. LevelEditor contributes Level/Scene/Terrain actions,
+Create, import, and asset-family reimport menu entries are deterministic scoped
+extensions ordered by `(Order, Id)`. LevelEditor contributes
+Level/Scene/Terrain actions,
 MaterialEditor contributes Material and Material Instance creation,
 TextureEditor contributes texture import, and StaticMeshEditor contributes
-geometry-only import. Releasing a feature handle removes admission before its
-module callback gate retires.
+geometry-only import. TextureEditor, StaticMeshEditor, and LevelEditor also
+construct their concrete reimport requests for textures, static meshes, and
+terrain heightmaps respectively; ContentBrowser only submits the resulting
+provider-neutral AssetForge request. Releasing a feature handle removes
+admission before its module callback gate retires.
 
 Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
 absent, the browser uses defaults and writes the new file; the retired Level
@@ -141,10 +145,13 @@ Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
 types share the same bounded scheduler and one-rendered-capture-per-frame limit.
 Provider removal stops admission and drains that provider's queued or in-flight
 leases without affecting providers registered by other modules. During editor
-shutdown MainFrame stops Content Browser admission and destroys the host tool
-before workspace state and host notification surfaces. Scoped feature
-registrations retire with their concrete modules, and provider caches drain
-before those modules unload.
+shutdown MainFrame first stops Content Browser admission, then unregisters
+feature integrations in reverse composition order. That retires extension
+callbacks and cancels feature-owned dialogs and thumbnail-provider leases. The
+browser has already cancelled thumbnail requests; destruction then drains any
+admitted import and releases its caches before workspace state and host
+notification surfaces disappear. Concrete modules unload only after this
+host-owned teardown.
 
 Selection details are presentation snapshots. TextureCube details inspect
 serialized package metadata through a bounded cache keyed by asset identity,

@@ -134,7 +134,8 @@ registered descriptors. The Window menu lists every open document, marks the
 active document, and exposes layout reset and workspace-specific panel commands
 for the active editor; it does not name concrete editor root windows.
 
-`LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own
+`LevelEditor`, `MaterialEditor`, `TextureEditor`, `StaticMeshEditor`, and
+`SkeletalMeshEditor` own
 their editor-specific panels and resource behavior. `DurinEd` must not depend on
 those concrete modules. Rendering dependencies belong in an editor module only
 when its preview implementation actually uses them. MainFrame registers these
@@ -148,12 +149,15 @@ unregistration removes thumbnail admission in reverse order before closing its
 documents.
 
 MainFrame shutdown first stops Content Browser request admission. It then
-unregisters StaticMesh, Texture, Material, and Level integrations in reverse
-composition order, so each concrete thumbnail handle drains its queued and
-in-flight leases before its workspace documents close. MainFrame next drains
-and destroys the provider-neutral thumbnail caches and service. Concrete editor
-modules may unload only after those steps, so no route, document, provider,
-session, preview object, or queued upload can retain module code.
+unregisters SkeletalMesh, StaticMesh, Texture, Material, and Level integrations
+in reverse composition order. Scoped browser extensions and feature-owned
+dialogs retire before their callback gates, and each concrete thumbnail handle
+drains its queued and in-flight leases before its workspace documents close.
+The host then destroys Content Browser, which drains an admitted import and
+releases its provider-neutral and source-thumbnail caches, followed by shared
+workspace and notification state. Concrete editor modules may unload only after
+those steps, so no route, document, provider, session, preview object, import,
+or queued upload can retain module code.
 
 ## Document Ownership
 
